@@ -155,8 +155,13 @@ export function App({
   /**
    * How many timeline entries have been handed to `<Static>`. Only ever grows:
    * an entry that reached the scrollback cannot be taken back.
+   *
+   * Derived during render rather than in an effect on purpose. An effect would
+   * draw the just-finished entry once in the live region and only move it to
+   * `<Static>` on the next pass, which writes it to the terminal twice.
+   * `settledCount` is monotonic, so recomputing it mid-render is stable.
    */
-  const [staticCursor, setStaticCursor] = useState(0);
+  const staticCursorRef = useRef(0);
   /**
    * Lines the transcript is scrolled back from its newest line. 0 follows the
    * stream; PgUp / Ctrl+U walk it upwards. Full-screen only — inline rendering
@@ -273,11 +278,6 @@ export function App({
     const timer = setInterval(refreshApprovals, APPROVAL_POLL_MS);
     return () => clearInterval(timer);
   }, [state.approvalQueue.length, refreshApprovals]);
-
-  // Release finished entries into the scrollback as soon as they settle.
-  useEffect(() => {
-    setStaticCursor((cursor) => settledCount(state, cursor));
-  }, [state]);
 
   // The turn that carried the command is over; the HUD stops naming it.
   useEffect(() => {
@@ -603,7 +603,11 @@ export function App({
 
   // Mode, workdir and session all live in the HUD now, so it is the whole
   // status block.
-  const statusNode = <StatusHud rows={hudRows} />;
+  const statusNode = <StatusHud rows={hudRows} width={contentWidth} />;
+
+  // Release finished entries into the scrollback as soon as they settle.
+  staticCursorRef.current = settledCount(state, staticCursorRef.current);
+  const staticCursor = staticCursorRef.current;
 
   /** The logo, then every entry that has settled, in order. */
   const staticItems = useMemo<StaticEntry[]>(() => {

@@ -13,7 +13,6 @@
  * either of them.
  */
 
-import { PassThrough } from "node:stream";
 import React, { useMemo, useState } from "react";
 import { Box, Text, render, useInput } from "ink";
 import { describe, expect, it } from "vitest";
@@ -21,36 +20,13 @@ import { describe, expect, it } from "vitest";
 import { TranscriptView, transcriptRenderCount } from "../src/components/TranscriptView.js";
 import { usableRows } from "../src/layout/viewport.js";
 import type { Line } from "../src/layout/transcript.js";
+import { fakeStdin, fakeStdout, sleep, type } from "./tty.js";
 
 const ROWS = 20;
 const COLUMNS = 80;
 
 /** The full screen clear Ink writes before a frame that fills the terminal. */
-const CLEAR_SCREEN = "[2J";
-
-const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
-
-function fakeStdin(): any {
-  const stream = new PassThrough() as any;
-  stream.isTTY = true;
-  stream.setRawMode = () => stream;
-  stream.ref = () => stream;
-  stream.unref = () => stream;
-  return stream;
-}
-
-function fakeStdout(): { stream: any; chunks: string[] } {
-  const chunks: string[] = [];
-  const stream: any = new PassThrough();
-  stream.columns = COLUMNS;
-  stream.rows = ROWS;
-  const write = stream.write.bind(stream);
-  stream.write = (chunk: any, ...rest: any[]) => {
-    chunks.push(String(chunk));
-    return write(chunk, ...rest);
-  };
-  return { stream, chunks };
-}
+const CLEAR_SCREEN = "\u001B[2J";
 
 function transcript(count: number): Line[] {
   return Array.from({ length: count }, (_, index) => ({
@@ -74,17 +50,10 @@ function Harness({ lines, frameRows }: { lines: Line[]; frameRows: number }) {
   );
 }
 
-async function type(stdin: any, characters: string): Promise<void> {
-  for (const character of characters) {
-    stdin.write(character);
-    await sleep(60);
-  }
-}
-
 describe("typing", () => {
   it("never re-renders the transcript", async () => {
     const stdin = fakeStdin();
-    const { stream: stdout } = fakeStdout();
+    const { stream: stdout } = fakeStdout(COLUMNS, ROWS);
     const instance = render(<Harness lines={transcript(30)} frameRows={usableRows(ROWS)} />, {
       stdin,
       stdout,
@@ -103,7 +72,7 @@ describe("typing", () => {
 
   it("does not clear the screen once the frame leaves a row spare", async () => {
     const stdin = fakeStdin();
-    const { stream: stdout, chunks } = fakeStdout();
+    const { stream: stdout, chunks } = fakeStdout(COLUMNS, ROWS);
     const instance = render(<Harness lines={transcript(30)} frameRows={usableRows(ROWS)} />, {
       stdin,
       stdout,
@@ -123,7 +92,7 @@ describe("typing", () => {
     // The regression this guards: Ink's `outputHeight >= stdout.rows` branch
     // writes `clearTerminal` before every frame, which is the flicker.
     const stdin = fakeStdin();
-    const { stream: stdout, chunks } = fakeStdout();
+    const { stream: stdout, chunks } = fakeStdout(COLUMNS, ROWS);
     const instance = render(<Harness lines={transcript(30)} frameRows={ROWS} />, {
       stdin,
       stdout,

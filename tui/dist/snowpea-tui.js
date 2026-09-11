@@ -35268,11 +35268,20 @@ function ApprovalQueue({
 // src/components/StatusHud.tsx
 var import_react30 = __toESM(require_react(), 1);
 var import_jsx_runtime11 = __toESM(require_jsx_runtime(), 1);
-function StatusHudInner({ rows }) {
-  return /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Box_default, { flexDirection: "column", flexShrink: 0, children: rows.map((segments, rowIndex) => /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Box_default, { children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { wrap: "truncate-end", children: segments.map((segment, index) => /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(Text, { children: [
+function StatusHudInner({ rows, width }) {
+  return /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Box_default, { flexDirection: "column", flexShrink: 0, width, children: rows.map((segments, rowIndex) => /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Box_default, { width, flexWrap: "nowrap", overflow: "hidden", children: segments.map((segment, index) => /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(import_react30.default.Fragment, { children: [
     index > 0 ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { dimColor: true, children: SEPARATOR }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { color: segment.color, dimColor: segment.dimColor, bold: segment.bold, children: segment.text })
-  ] }, segment.key)) }) }, `hud-row-${rowIndex}`)) });
+    /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
+      Text,
+      {
+        color: segment.color,
+        dimColor: segment.dimColor,
+        bold: segment.bold,
+        wrap: "truncate-end",
+        children: segment.text
+      }
+    )
+  ] }, segment.key)) }, `hud-row-${rowIndex}`)) });
 }
 var StatusHud = import_react30.default.memo(StatusHudInner);
 
@@ -35441,7 +35450,7 @@ function App2({
   const [modeHintVisible, setModeHintVisible] = (0, import_react31.useState)(true);
   const [modeToast, setModeToast] = (0, import_react31.useState)(null);
   const [runningCommand, setRunningCommand] = (0, import_react31.useState)(null);
-  const [staticCursor, setStaticCursor] = (0, import_react31.useState)(0);
+  const staticCursorRef = (0, import_react31.useRef)(0);
   const [scrollOffset, setScrollOffset] = (0, import_react31.useState)(0);
   const modeToastTimer = (0, import_react31.useRef)(null);
   const registryRef = (0, import_react31.useRef)(new SlashRegistry(client, sessionId));
@@ -35510,9 +35519,6 @@ function App2({
     const timer = setInterval(refreshApprovals, APPROVAL_POLL_MS);
     return () => clearInterval(timer);
   }, [state.approvalQueue.length, refreshApprovals]);
-  (0, import_react31.useEffect)(() => {
-    setStaticCursor((cursor) => settledCount(state, cursor));
-  }, [state]);
   (0, import_react31.useEffect)(() => {
     if (!state.turnActive) setRunningCommand(null);
   }, [state.turnActive]);
@@ -35767,7 +35773,9 @@ function App2({
       }
     )
   ] });
-  const statusNode = /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(StatusHud, { rows: hudRows });
+  const statusNode = /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(StatusHud, { rows: hudRows, width: contentWidth });
+  staticCursorRef.current = settledCount(state, staticCursorRef.current);
+  const staticCursor = staticCursorRef.current;
   const staticItems = (0, import_react31.useMemo)(() => {
     const items = [{ key: "logo", kind: "logo" }];
     for (const item of state.timeline.slice(0, staticCursor)) {
