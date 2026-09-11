@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.0.0"
+PROTOCOL_VERSION = "1.1.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -48,6 +48,9 @@ TeamTaskState = Literal[
     "failed",
 ]
 SkillKind = Literal["skill", "agent", "command", "plugin"]
+#: ``"global"`` is ``$SNOWPEA_HOME/settings.json``; ``"project"`` is
+#: ``<workdir>/.snowpea/settings.json`` (settings.get / settings.set, M8).
+SettingsScope = Literal["global", "project"]
 Direction = Literal["c2s", "s2c"]
 
 
@@ -743,6 +746,80 @@ class SkillRemoveParams(Payload):
 
 
 # --------------------------------------------------------------------------
+# settings.* / setup.*
+# --------------------------------------------------------------------------
+
+
+class SettingsGetParams(Payload):
+    scope: SettingsScope = Field(
+        default="global",
+        description=(
+            '"global" reads $SNOWPEA_HOME/settings.json; '
+            '"project" reads <workdir>/.snowpea/settings.json.'
+        ),
+    )
+    workdir: str | None = Field(
+        default=None, description='Project root; required when scope is "project".'
+    )
+
+
+class SettingsResult(Payload):
+    settings: dict[str, Any] = Field(
+        description=(
+            "The effective settings document. Fields named api_key, token, "
+            "refresh_token or password are masked as '***'."
+        )
+    )
+
+
+class SettingsSetParams(Payload):
+    scope: SettingsScope = Field(
+        default="global",
+        description=(
+            '"global" writes $SNOWPEA_HOME/settings.json; '
+            '"project" writes <workdir>/.snowpea/settings.json.'
+        ),
+    )
+    patch: dict[str, Any] = Field(description="Fields to deep-merge into the existing settings.")
+    workdir: str | None = Field(
+        default=None, description='Project root; required when scope is "project".'
+    )
+
+
+class SetupCatalogItem(Payload):
+    """One selectable row on a setup wizard screen (``setup/catalog.py::CatalogItem``)."""
+
+    id: str = Field(description="Stable id, e.g. a vendor or provider name.")
+    label: str = Field(description="Display label.")
+    tier: str = Field(description='"free", "paid" or "subscription".')
+    key: str = Field(description='"no key", "key optional", "key required" or "self-hosted".')
+    default: bool = Field(default=False, description="Whether this is the screen's default pick.")
+    description: str = Field(default="", description="One-line description.")
+    active: bool = Field(default=True, description="False for items listed but not usable yet.")
+    tags: list[str] = Field(
+        default_factory=list, description="Display tags, e.g. ('free · no key', 'active')."
+    )
+
+
+class SetupCatalogResult(Payload):
+    """The five Hermes-style setup screens, as data (M3 contract §5)."""
+
+    vendors: list[SetupCatalogItem] = Field(default_factory=list, description="LLM vendors.")
+    search: list[SetupCatalogItem] = Field(
+        default_factory=list, description="Web-search providers, ddgs first."
+    )
+    browser: list[SetupCatalogItem] = Field(
+        default_factory=list, description="Browser-control providers."
+    )
+    tools: list[SetupCatalogItem] = Field(
+        default_factory=list, description="Tool categories and their default on/off state."
+    )
+    gateway: list[SetupCatalogItem] = Field(
+        default_factory=list, description="Chat gateways (telegram, discord, slack), all off."
+    )
+
+
+# --------------------------------------------------------------------------
 # session.event kinds
 # --------------------------------------------------------------------------
 
@@ -1191,6 +1268,24 @@ METHODS: dict[str, RpcMethod] = {
         _m("skill.reload", Empty, Ok, "Reload skills from disk without restarting."),
         _m("skill.remove", SkillRemoveParams, Ok, "Delete an installed skill or plugin."),
         _m(
+            "settings.get",
+            SettingsGetParams,
+            SettingsResult,
+            "Read global or project settings, with secrets masked.",
+        ),
+        _m(
+            "settings.set",
+            SettingsSetParams,
+            SettingsResult,
+            "Deep-merge a patch into global or project settings and persist it.",
+        ),
+        _m(
+            "setup.catalog",
+            Empty,
+            SetupCatalogResult,
+            "The setup wizard's vendor, search, browser, tools and gateway catalogs.",
+        ),
+        _m(
             "approval.request",
             ApprovalRequest,
             ApprovalAnswer,
@@ -1209,7 +1304,7 @@ EVENTS: dict[str, type[BaseModel]] = {
     "commands.changed": CommandsChangedNotification,
 }
 
-CAPABILITIES: list[str] = ["sessions", "approvals", "commands", "tools"]
+CAPABILITIES: list[str] = ["sessions", "approvals", "commands", "tools", "settings", "setup"]
 
 #: Where the daemon listens; mirrored into the schema dump for the SDK.
 TRANSPORT: dict[str, Any] = {
@@ -1260,6 +1355,9 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "skill.install",
         "skill.reload",
         "skill.remove",
+        "settings.get",
+        "settings.set",
+        "setup.catalog",
     }
 )
 

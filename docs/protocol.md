@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.0.0` (semver)
+- **Protocol version:** `1.1.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.0.0"
+    "protocolVersion": "1.1.0"
   }
 }
 ```
@@ -42,6 +42,8 @@ Server capabilities advertised in the `system.hello` result:
 - `approvals`
 - `commands`
 - `sessions`
+- `settings`
+- `setup`
 - `tools`
 
 ## Method index
@@ -81,6 +83,9 @@ Server capabilities advertised in the `system.hello` result:
 | [`session.prompt`](#sessionprompt) | client → server | Send user text to a session and start a turn. |
 | [`session.resume`](#sessionresume) | client → server | Replay the events a disconnected client missed. |
 | [`session.setMode`](#sessionsetmode) | client → server | Switch a session between plan, accept and auto. |
+| [`settings.get`](#settingsget) | client → server | Read global or project settings, with secrets masked. |
+| [`settings.set`](#settingsset) | client → server | Deep-merge a patch into global or project settings and persist it. |
+| [`setup.catalog`](#setupcatalog) | client → server | The setup wizard's vendor, search, browser, tools and gateway catalogs. |
 | [`skill.install`](#skillinstall) | client → server | Install a skill from a path, URL or registry. |
 | [`skill.list`](#skilllist) | client → server | List installed skills. |
 | [`skill.reload`](#skillreload) | client → server | Reload skills from disk without restarting. |
@@ -727,6 +732,65 @@ Switch a session between plan, accept and auto.
 | field | type | required | description |
 |---|---|---|---|
 | `mode` | `"plan" \| "accept" \| "auto"` | yes | Mode now in effect. |
+
+### `settings.get`
+
+*Direction:* client → server
+
+Read global or project settings, with secrets masked.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `scope` | `"global" \| "project"` | no | "global" reads $SNOWPEA_HOME/settings.json; "project" reads <workdir>/.snowpea/settings.json. |
+| `workdir` | `string \| null` | no | Project root; required when scope is "project". |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `settings` | `Record<string, unknown>` | yes | The effective settings document. Fields named api_key, token, refresh_token or password are masked as '***'. |
+
+### `settings.set`
+
+*Direction:* client → server
+
+Deep-merge a patch into global or project settings and persist it.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `patch` | `Record<string, unknown>` | yes | Fields to deep-merge into the existing settings. |
+| `scope` | `"global" \| "project"` | no | "global" writes $SNOWPEA_HOME/settings.json; "project" writes <workdir>/.snowpea/settings.json. |
+| `workdir` | `string \| null` | no | Project root; required when scope is "project". |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `settings` | `Record<string, unknown>` | yes | The effective settings document. Fields named api_key, token, refresh_token or password are masked as '***'. |
+
+### `setup.catalog`
+
+*Direction:* client → server
+
+The setup wizard's vendor, search, browser, tools and gateway catalogs.
+
+**Params**
+
+_No params (send `{}`)._
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `browser` | `({ active?: boolean; default?: boolean; description?: string; id: string; key: string; label: string; tags?: string[]; tier: string; })[]` | no | Browser-control providers. |
+| `gateway` | `({ active?: boolean; default?: boolean; description?: string; id: string; key: string; label: string; tags?: string[]; tier: string; })[]` | no | Chat gateways (telegram, discord, slack), all off. |
+| `search` | `({ active?: boolean; default?: boolean; description?: string; id: string; key: string; label: string; tags?: string[]; tier: string; })[]` | no | Web-search providers, ddgs first. |
+| `tools` | `({ active?: boolean; default?: boolean; description?: string; id: string; key: string; label: string; tags?: string[]; tier: string; })[]` | no | Tool categories and their default on/off state. |
+| `vendors` | `({ active?: boolean; default?: boolean; description?: string; id: string; key: string; label: string; tags?: string[]; tier: string; })[]` | no | LLM vendors. |
 
 ### `skill.install`
 

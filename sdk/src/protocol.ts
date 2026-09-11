@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.0.0";
+export const PROTOCOL_VERSION = "1.1.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -679,6 +679,138 @@ export interface SessionSetModeResult {
   mode: "plan" | "accept" | "auto";
 }
 
+/** `settings.get` params. Read global or project settings, with secrets masked. */
+export interface SettingsGetParams {
+  /** "global" reads $SNOWPEA_HOME/settings.json; "project" reads <workdir>/.snowpea/settings.json. */
+  scope?: "global" | "project";
+  /** Project root; required when scope is "project". */
+  workdir?: string | null;
+}
+
+/** `settings.get` result. */
+export interface SettingsGetResult {
+  /** The effective settings document. Fields named api_key, token, refresh_token or password are masked as '***'. */
+  settings: Record<string, unknown>;
+}
+
+/** `settings.set` params. Deep-merge a patch into global or project settings and persist it. */
+export interface SettingsSetParams {
+  /** Fields to deep-merge into the existing settings. */
+  patch: Record<string, unknown>;
+  /** "global" writes $SNOWPEA_HOME/settings.json; "project" writes <workdir>/.snowpea/settings.json. */
+  scope?: "global" | "project";
+  /** Project root; required when scope is "project". */
+  workdir?: string | null;
+}
+
+/** `settings.set` result. */
+export interface SettingsSetResult {
+  /** The effective settings document. Fields named api_key, token, refresh_token or password are masked as '***'. */
+  settings: Record<string, unknown>;
+}
+
+/** `setup.catalog` params. The setup wizard's vendor, search, browser, tools and gateway catalogs. */
+export type SetupCatalogParams = Record<string, unknown>;
+
+/** `setup.catalog` result. */
+export interface SetupCatalogResult {
+  /** Browser-control providers. */
+  browser?: ({
+    /** False for items listed but not usable yet. */
+    active?: boolean;
+    /** Whether this is the screen's default pick. */
+    default?: boolean;
+    /** One-line description. */
+    description?: string;
+    /** Stable id, e.g. a vendor or provider name. */
+    id: string;
+    /** "no key", "key optional", "key required" or "self-hosted". */
+    key: string;
+    /** Display label. */
+    label: string;
+    /** Display tags, e.g. ('free · no key', 'active'). */
+    tags?: string[];
+    /** "free", "paid" or "subscription". */
+    tier: string;
+  })[];
+  /** Chat gateways (telegram, discord, slack), all off. */
+  gateway?: ({
+    /** False for items listed but not usable yet. */
+    active?: boolean;
+    /** Whether this is the screen's default pick. */
+    default?: boolean;
+    /** One-line description. */
+    description?: string;
+    /** Stable id, e.g. a vendor or provider name. */
+    id: string;
+    /** "no key", "key optional", "key required" or "self-hosted". */
+    key: string;
+    /** Display label. */
+    label: string;
+    /** Display tags, e.g. ('free · no key', 'active'). */
+    tags?: string[];
+    /** "free", "paid" or "subscription". */
+    tier: string;
+  })[];
+  /** Web-search providers, ddgs first. */
+  search?: ({
+    /** False for items listed but not usable yet. */
+    active?: boolean;
+    /** Whether this is the screen's default pick. */
+    default?: boolean;
+    /** One-line description. */
+    description?: string;
+    /** Stable id, e.g. a vendor or provider name. */
+    id: string;
+    /** "no key", "key optional", "key required" or "self-hosted". */
+    key: string;
+    /** Display label. */
+    label: string;
+    /** Display tags, e.g. ('free · no key', 'active'). */
+    tags?: string[];
+    /** "free", "paid" or "subscription". */
+    tier: string;
+  })[];
+  /** Tool categories and their default on/off state. */
+  tools?: ({
+    /** False for items listed but not usable yet. */
+    active?: boolean;
+    /** Whether this is the screen's default pick. */
+    default?: boolean;
+    /** One-line description. */
+    description?: string;
+    /** Stable id, e.g. a vendor or provider name. */
+    id: string;
+    /** "no key", "key optional", "key required" or "self-hosted". */
+    key: string;
+    /** Display label. */
+    label: string;
+    /** Display tags, e.g. ('free · no key', 'active'). */
+    tags?: string[];
+    /** "free", "paid" or "subscription". */
+    tier: string;
+  })[];
+  /** LLM vendors. */
+  vendors?: ({
+    /** False for items listed but not usable yet. */
+    active?: boolean;
+    /** Whether this is the screen's default pick. */
+    default?: boolean;
+    /** One-line description. */
+    description?: string;
+    /** Stable id, e.g. a vendor or provider name. */
+    id: string;
+    /** "no key", "key optional", "key required" or "self-hosted". */
+    key: string;
+    /** Display label. */
+    label: string;
+    /** Display tags, e.g. ('free · no key', 'active'). */
+    tags?: string[];
+    /** "free", "paid" or "subscription". */
+    tier: string;
+  })[];
+}
+
 /** `skill.install` params. Install a skill from a path, URL or registry. */
 export interface SkillInstallParams {
   /** Path, URL or registry name to install from. */
@@ -1255,6 +1387,9 @@ export interface MethodMap {
   "session.prompt": { params: SessionPromptParams; result: SessionPromptResult };
   "session.resume": { params: SessionResumeParams; result: SessionResumeResult };
   "session.setMode": { params: SessionSetModeParams; result: SessionSetModeResult };
+  "settings.get": { params: SettingsGetParams; result: SettingsGetResult };
+  "settings.set": { params: SettingsSetParams; result: SettingsSetResult };
+  "setup.catalog": { params: SetupCatalogParams; result: SetupCatalogResult };
   "skill.install": { params: SkillInstallParams; result: SkillInstallResult };
   "skill.list": { params: SkillListParams; result: SkillListResult };
   "skill.reload": { params: SkillReloadParams; result: SkillReloadResult };
@@ -1307,6 +1442,9 @@ export type ClientMethod =
   | "session.prompt"
   | "session.resume"
   | "session.setMode"
+  | "settings.get"
+  | "settings.set"
+  | "setup.catalog"
   | "skill.install"
   | "skill.list"
   | "skill.reload"

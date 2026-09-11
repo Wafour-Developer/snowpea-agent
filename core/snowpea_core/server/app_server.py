@@ -66,6 +66,7 @@ from snowpea_core.server.session_handlers import (
     register_session_handlers,
     wire_core,
 )
+from snowpea_core.server.settings_handlers import register_settings_handlers
 from snowpea_core.server.skill_handlers import register_skill_handlers
 from snowpea_core.server.team_handlers import register_team_handlers
 from snowpea_core.server.transport_http import (
@@ -349,6 +350,7 @@ def build_dispatcher(core: Core) -> RpcDispatcher:
     register_agent_handlers(dispatcher)
     register_gateway_handlers(dispatcher)
     register_team_handlers(dispatcher)
+    register_settings_handlers(dispatcher)
     dispatcher.register("provider.configure", provider_configure_handler)
     dispatcher.register("provider.loginWeb", provider_login_web_handler)
     for name, method in PROTOCOL_METHODS.items():
