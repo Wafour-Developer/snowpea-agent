@@ -70,6 +70,11 @@ export function Chat({
         return;
       }
 
+      // Tab (plain or Shift+Tab) never becomes a literal character in the
+      // draft: plain Tab has no other binding here, and Shift+Tab is the
+      // mode-cycle shortcut handled by the parent's own `useInput`.
+      if (key.tab || input === "[Z" || input === "[Z") return;
+
       if (key.upArrow || key.downArrow) {
         if (history.length === 0) return;
         const current = historyIndex ?? history.length;

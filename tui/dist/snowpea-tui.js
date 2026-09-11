@@ -34090,6 +34090,14 @@ function reducer(state, action) {
 }
 var APPROVAL_SCOPES = ["once", "session", "project", "always"];
 
+// src/state/mode.ts
+var MODE_CYCLE_ORDER = ["accept", "auto", "plan"];
+function cycleMode(mode) {
+  const index = MODE_CYCLE_ORDER.indexOf(mode);
+  if (index === -1) return "accept";
+  return MODE_CYCLE_ORDER[(index + 1) % MODE_CYCLE_ORDER.length];
+}
+
 // src/components/Chat.tsx
 var import_react22 = __toESM(require_react(), 1);
 
@@ -34167,6 +34175,7 @@ function Chat({
         update(`/${completions[selected].name} `);
         return;
       }
+      if (key.tab || input === "\x1B[Z" || input === "[Z") return;
       if (key.upArrow || key.downArrow) {
         if (history.length === 0) return;
         const current = historyIndex ?? history.length;
@@ -34568,10 +34577,12 @@ function StatusLine({
   provider,
   model,
   usage,
-  turnActive = false
+  turnActive = false,
+  hint = null,
+  toast = null
 }) {
   const providerLabel = [provider, model].filter(Boolean).join("/") || "default";
-  return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Box_default, { flexDirection: "column", children: /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { children: [
     /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Text, { color: STATUS_COLOR[status], children: [
       "\u25CF ",
       status
@@ -34592,8 +34603,15 @@ function StatusLine({
       usage.outputTokens,
       "\u2193"
     ] }),
-    turnActive ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { color: "yellow", children: " \xB7 working (esc to interrupt)" }) : null
-  ] });
+    turnActive ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { color: "yellow", children: " \xB7 working (esc to interrupt)" }) : null,
+    toast ? /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Text, { color: "cyan", children: [
+      " \xB7 ",
+      toast
+    ] }) : hint ? /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Text, { dimColor: true, children: [
+      " \xB7 ",
+      hint
+    ] }) : null
+  ] }) });
 }
 
 // src/components/HelpPanel.tsx
@@ -34636,6 +34654,10 @@ function HelpPanel({
       /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Text, { bold: true, color: "cyan", children: "Keys" }),
       /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Text, { dimColor: true, children: "  F1 close \xB7 Ctrl+C quit \xB7 Ctrl+O expand the last tool call" }),
       /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Text, { dimColor: true, children: "  Esc interrupt the current turn" }),
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(Text, { dimColor: true, children: [
+        "  \u21E7Tab cycles mode accept -> auto -> plan -> accept \xB7 ",
+        "Ctrl+P toggles plan mode"
+      ] }),
       /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(Text, { dimColor: true, children: [
         "  Delegated subagents appear as a tree under the transcript while ",
         "/ralph, /ultrawork or /deepinit runs"
@@ -34734,6 +34756,9 @@ function App2({
   const [draft, setDraft] = (0, import_react25.useState)("");
   const [expandedCall, setExpandedCall] = (0, import_react25.useState)(null);
   const [queueFocused, setQueueFocused] = (0, import_react25.useState)(false);
+  const [modeHintVisible, setModeHintVisible] = (0, import_react25.useState)(true);
+  const [modeToast, setModeToast] = (0, import_react25.useState)(null);
+  const modeToastTimer = (0, import_react25.useRef)(null);
   const registryRef = (0, import_react25.useRef)(new SlashRegistry(client, sessionId));
   const approvalResolver = (0, import_react25.useRef)(null);
   const refreshApprovals = (0, import_react25.useCallback)(() => {
@@ -34776,6 +34801,24 @@ function App2({
   (0, import_react25.useEffect)(() => {
     if (state.approvalQueue.length === 0 && queueFocused) setQueueFocused(false);
   }, [state.approvalQueue.length, queueFocused]);
+  (0, import_react25.useEffect)(() => {
+    const timer = setTimeout(() => setModeHintVisible(false), 6e3);
+    return () => clearTimeout(timer);
+  }, []);
+  (0, import_react25.useEffect)(() => () => {
+    if (modeToastTimer.current) clearTimeout(modeToastTimer.current);
+  }, []);
+  const changeMode = (0, import_react25.useCallback)(
+    (next) => {
+      setModeHintVisible(false);
+      dispatch({ type: "mode", mode: next });
+      setModeToast(`mode: ${next.toUpperCase()}`);
+      if (modeToastTimer.current) clearTimeout(modeToastTimer.current);
+      modeToastTimer.current = setTimeout(() => setModeToast(null), 2e3);
+      void client.setMode(sessionId, next).catch((error) => dispatch({ type: "error", message: String(error) }));
+    },
+    [client, sessionId]
+  );
   const completions = (0, import_react25.useMemo)(
     () => draft.startsWith("/") ? registryRef.current.complete(draft) : [],
     [draft, state.commands]
@@ -34827,6 +34870,14 @@ function App2({
     if (key.ctrl && input === "o") {
       const last = state.toolCalls[state.toolCalls.length - 1];
       setExpandedCall((current) => current ? null : last?.callId ?? null);
+      return;
+    }
+    if (key.tab && key.shift || input === "\x1B[Z" || input === "[Z") {
+      changeMode(cycleMode(state.mode));
+      return;
+    }
+    if (key.ctrl && input === "p") {
+      changeMode(state.mode === "plan" ? "accept" : "plan");
     }
   });
   const approvalActive = state.pendingApproval !== null;
@@ -34874,7 +34925,9 @@ function App2({
         provider: state.provider,
         model: state.model,
         usage: state.usage,
-        turnActive: state.turnActive
+        turnActive: state.turnActive,
+        hint: modeHintVisible ? "\u21E7Tab: mode" : null,
+        toast: modeToast
       }
     )
   ] });

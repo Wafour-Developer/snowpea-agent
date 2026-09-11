@@ -20,6 +20,7 @@ import type {
 } from "./rpc/sdk.js";
 import { SlashRegistry } from "./slash/registry.js";
 import { initialState, reducer, type State } from "./state/store.js";
+import { cycleMode } from "./state/mode.js";
 import { Chat } from "./components/Chat.js";
 import { MessageStream } from "./components/MessageStream.js";
 import { ToolCall } from "./components/ToolCall.js";
@@ -84,6 +85,11 @@ export function App({
   const [expandedCall, setExpandedCall] = useState<string | null>(null);
   /** True while the unattended queue holds the keyboard (Ctrl+A toggles it). */
   const [queueFocused, setQueueFocused] = useState(false);
+  /** Shown once in the status line until the shortcut is used or it times out. */
+  const [modeHintVisible, setModeHintVisible] = useState(true);
+  /** Transient "mode: X" toast shown in the status line after a change. */
+  const [modeToast, setModeToast] = useState<string | null>(null);
+  const modeToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const registryRef = useRef<SlashRegistry>(new SlashRegistry(client, sessionId));
   /** Resolver for the approval promise the SDK is awaiting. */
   const approvalResolver = useRef<((response: ApprovalResponse) => void) | null>(null);
@@ -153,6 +159,31 @@ export function App({
     if (state.approvalQueue.length === 0 && queueFocused) setQueueFocused(false);
   }, [state.approvalQueue.length, queueFocused]);
 
+  // The Shift+Tab hint is a one-time nudge; it fades on its own if unused.
+  useEffect(() => {
+    const timer = setTimeout(() => setModeHintVisible(false), 6000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => () => {
+    if (modeToastTimer.current) clearTimeout(modeToastTimer.current);
+  }, []);
+
+  /** Optimistically applies a mode change, then confirms it with the daemon. */
+  const changeMode = useCallback(
+    (next: Mode) => {
+      setModeHintVisible(false);
+      dispatch({ type: "mode", mode: next });
+      setModeToast(`mode: ${next.toUpperCase()}`);
+      if (modeToastTimer.current) clearTimeout(modeToastTimer.current);
+      modeToastTimer.current = setTimeout(() => setModeToast(null), 2000);
+      void client
+        .setMode(sessionId, next)
+        .catch((error: unknown) => dispatch({ type: "error", message: String(error) }));
+    },
+    [client, sessionId],
+  );
+
   const completions = useMemo(
     () => (draft.startsWith("/") ? registryRef.current.complete(draft) : []),
     [draft, state.commands],
@@ -213,6 +244,18 @@ export function App({
     if (key.ctrl && input === "o") {
       const last = state.toolCalls[state.toolCalls.length - 1];
       setExpandedCall((current) => (current ? null : (last?.callId ?? null)));
+      return;
+    }
+    // Shift+Tab cycles accept -> auto -> plan -> accept, like Claude Code.
+    // Ink 5 reports this as key.tab + key.shift; some terminals instead send
+    // the raw "[Z" (or a bare "[Z") escape, so both are handled.
+    if ((key.tab && key.shift) || input === "[Z" || input === "[Z") {
+      changeMode(cycleMode(state.mode));
+      return;
+    }
+    // Ctrl+P: cheap on/off toggle for plan mode.
+    if (key.ctrl && input === "p") {
+      changeMode(state.mode === "plan" ? "accept" : "plan");
     }
   });
 
@@ -269,6 +312,8 @@ export function App({
         model={state.model}
         usage={state.usage}
         turnActive={state.turnActive}
+        hint={modeHintVisible ? "⇧Tab: mode" : null}
+        toast={modeToast}
       />
     </Box>
   );

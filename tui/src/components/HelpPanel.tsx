@@ -76,6 +76,10 @@ export function HelpPanel({
         <Text dimColor>  F1 close · Ctrl+C quit · Ctrl+O expand the last tool call</Text>
         <Text dimColor>  Esc interrupt the current turn</Text>
         <Text dimColor>
+          {"  ⇧Tab cycles mode accept -> auto -> plan -> accept · "}
+          {"Ctrl+P toggles plan mode"}
+        </Text>
+        <Text dimColor>
           {"  Delegated subagents appear as a tree under the transcript while "}
           {"/ralph, /ultrawork or /deepinit runs"}
         </Text>

@@ -25,6 +25,8 @@ export function StatusLine({
   model,
   usage,
   turnActive = false,
+  hint = null,
+  toast = null,
 }: {
   status: ConnectionStatus;
   sessionId: string | null;
@@ -32,18 +34,25 @@ export function StatusLine({
   model: string | null;
   usage: Usage;
   turnActive?: boolean;
+  /** One-time nudge, e.g. "⇧Tab: mode"; shown until dismissed or used. */
+  hint?: string | null;
+  /** Transient confirmation, e.g. "mode: AUTO"; clears itself after a beat. */
+  toast?: string | null;
 }): React.ReactElement {
   const providerLabel = [provider, model].filter(Boolean).join("/") || "default";
   return (
-    <Box>
-      <Text color={STATUS_COLOR[status]}>● {status}</Text>
-      <Text dimColor> · session {shortSessionId(sessionId)}</Text>
-      <Text dimColor> · {providerLabel}</Text>
-      <Text dimColor>
-        {" "}
-        · tokens {usage.inputTokens}↑/{usage.outputTokens}↓
-      </Text>
-      {turnActive ? <Text color="yellow"> · working (esc to interrupt)</Text> : null}
+    <Box flexDirection="column">
+      <Box>
+        <Text color={STATUS_COLOR[status]}>● {status}</Text>
+        <Text dimColor> · session {shortSessionId(sessionId)}</Text>
+        <Text dimColor> · {providerLabel}</Text>
+        <Text dimColor>
+          {" "}
+          · tokens {usage.inputTokens}↑/{usage.outputTokens}↓
+        </Text>
+        {turnActive ? <Text color="yellow"> · working (esc to interrupt)</Text> : null}
+        {toast ? <Text color="cyan"> · {toast}</Text> : hint ? <Text dimColor> · {hint}</Text> : null}
+      </Box>
     </Box>
   );
 }
