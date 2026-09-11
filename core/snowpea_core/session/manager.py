@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from snowpea_core.config.paths import utc_now
 from snowpea_core.config.project import ProjectSettings
 from snowpea_core.config.settings import Settings
 from snowpea_core.server.protocol import Mode, SessionEvent, SessionSummary
@@ -19,9 +19,6 @@ log = logging.getLogger("snowpea.session")
 
 DEFAULT_MODE: Mode = "accept"
 
-
-def utc_now() -> str:
-    return datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 class SessionManager:

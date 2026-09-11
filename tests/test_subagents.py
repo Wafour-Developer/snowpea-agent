@@ -16,6 +16,7 @@ from typing import Any
 
 import pytest
 import pytest_asyncio
+from _support import OriginConn, Recorder
 
 from snowpea_core.agent.definition import AgentDefinition, write_definition
 from snowpea_core.agent.subagent import (
@@ -31,9 +32,6 @@ from snowpea_core.server.app_server import Core, Daemon
 
 FIXTURE = Path(__file__).parent / "fixtures" / "providers" / "fake" / "subagents.json"
 TIMEOUT = 20.0
-
-#: The fake script sleeps this long inside a "slow child" turn.
-CHILD_DELAY_SEC = 0.35
 
 
 # ---------------------------------------------------------------------------
@@ -64,25 +62,6 @@ def workdir(tmp_path: Path) -> Path:
     project = tmp_path / "project"
     project.mkdir(exist_ok=True)
     return project
-
-
-class Recorder:
-    """A pseudo-connection that keeps every event the hub sends it."""
-
-    closed = False
-
-    def __init__(self) -> None:
-        self.events: list[dict[str, Any]] = []
-
-    async def notify(self, method: str, params: dict[str, Any]) -> None:
-        if method == "session.event":
-            self.events.append(params)
-
-    def of_kind(self, kind: str) -> list[dict[str, Any]]:
-        return [event for event in self.events if event["kind"] == kind]
-
-    def kinds(self) -> list[str]:
-        return [event["kind"] for event in self.events]
 
 
 async def open_session(core: Core, workdir: Path, **kwargs: Any) -> Any:
@@ -377,7 +356,7 @@ async def test_agent_list_reports_running_subagents(daemon: Daemon, workdir: Pat
     best = 0
     deadline = asyncio.get_running_loop().time() + TIMEOUT
     while not runner.done() and asyncio.get_running_loop().time() < deadline:
-        listing = await agent_list_handler(_Conn(session), None, core)  # type: ignore[arg-type]
+        listing = await agent_list_handler(OriginConn(session), None, core)  # type: ignore[arg-type]
         rows = [row for row in listing.agents if row.kind == SUBAGENT_KIND]
         best = max(best, sum(1 for row in rows if row.status == RUNNING))
         for row in rows:
@@ -388,7 +367,7 @@ async def test_agent_list_reports_running_subagents(daemon: Daemon, workdir: Pat
 
     assert best >= 2, f"expected two subagents running at once, saw {best}"
     # Finished children drop out of the listing; the records survive for the CLI.
-    listing = await agent_list_handler(_Conn(session), None, core)  # type: ignore[arg-type]
+    listing = await agent_list_handler(OriginConn(session), None, core)  # type: ignore[arg-type]
     assert [row for row in listing.agents if row.kind == SUBAGENT_KIND] == []
     assert len(manager.records()) == 2
 
@@ -406,7 +385,7 @@ async def test_agent_spawn_rpc_answers_with_an_id(daemon: Daemon, workdir: Path)
 
     result = await asyncio.wait_for(
         agent_spawn_handler(
-            _Conn(session),  # type: ignore[arg-type]
+            OriginConn(session),  # type: ignore[arg-type]
             AgentSpawnParams(name="", task="quick child from the rpc", sessionId=session.id),
             core,
         ),
@@ -428,15 +407,6 @@ async def test_a_manager_is_created_once_per_core(daemon: Daemon) -> None:
     first = get_manager(core)
     assert isinstance(first, SubagentManager)
     assert get_manager(core) is first
-
-
-class _Conn:
-    """The smallest thing ``_session_for`` will accept as a connection."""
-
-    closed = False
-
-    def __init__(self, session: Any) -> None:
-        session.origin_conn = self
 
 
 # ---------------------------------------------------------------------------

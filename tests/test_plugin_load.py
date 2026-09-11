@@ -19,7 +19,8 @@ from typing import Any
 import aiohttp
 import pytest
 import pytest_asyncio
-from test_session_loop import Client, connect, make_daemon, prompt, start_session
+from _support import RpcClient, connect, make_daemon
+from test_session_loop import prompt, start_session
 
 from snowpea_core.server.app_server import Daemon
 from snowpea_core.skills import loader as skill_loader
@@ -65,13 +66,7 @@ async def daemon(tmp_path: Path) -> AsyncIterator[Daemon]:
             os.environ["SNOWPEA_PROVIDER"] = previous
 
 
-@pytest_asyncio.fixture
-async def http() -> AsyncIterator[aiohttp.ClientSession]:
-    async with aiohttp.ClientSession() as session:
-        yield session
-
-
-async def install_sample(client: Client) -> None:
+async def install_sample(client: RpcClient) -> None:
     await client.ok("skill.install", {"source": str(SAMPLE_PLUGIN)})
 
 

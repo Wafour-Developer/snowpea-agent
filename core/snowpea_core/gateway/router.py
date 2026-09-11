@@ -24,11 +24,11 @@ import sqlite3
 import threading
 import uuid
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from snowpea_core.config.credentials import CredentialError, CredentialStore
+from snowpea_core.config.paths import utc_now
 from snowpea_core.gateway.base import (
     Button,
     GatewayError,
@@ -70,9 +70,6 @@ CREATE TABLE IF NOT EXISTS gateway_bindings (
 """
 
 
-def _utc_now() -> str:
-    return datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
-
 
 @dataclass
 class Binding:
@@ -86,7 +83,7 @@ class Binding:
     channel_id: str | None = None
     #: When set, only this platform user may answer approvals (risk 4).
     user_id: str | None = None
-    created_at: str = field(default_factory=_utc_now)
+    created_at: str = field(default_factory=utc_now)
     state: str = "active"
 
     def describe_target(self) -> str:

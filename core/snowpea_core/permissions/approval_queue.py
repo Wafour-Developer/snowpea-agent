@@ -23,10 +23,9 @@ import json
 import logging
 import uuid
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
-from snowpea_core.config.paths import Paths
+from snowpea_core.config.paths import Paths, utc_now
 from snowpea_core.config.settings import Settings
 from snowpea_core.permissions.allowlist import (
     SHELL_TARGET,
@@ -88,9 +87,6 @@ class _Pending:
     #: Session workdir, kept so a ``project`` answer knows where to write.
     workdir: Any = None
 
-
-def _utc_now() -> str:
-    return datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 class ApprovalQueue:
@@ -367,7 +363,7 @@ class ApprovalQueue:
         if self.paths is None:
             return
         record = {
-            "ts": _utc_now(),
+            "ts": utc_now(),
             "requestId": request.requestId,
             "sessionId": request.sessionId,
             "tool": request.tool,

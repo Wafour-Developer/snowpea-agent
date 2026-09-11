@@ -14,18 +14,15 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
-from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
 import aiohttp
-import pytest_asyncio
+from _support import RpcClient, connect, make_daemon
 
 from snowpea_core.gateway.base import parse_approval_callback
 from snowpea_core.gateway.fake import FakeAdapter
 from snowpea_core.server.app_server import Daemon
-from snowpea_core.server.protocol import PROTOCOL_VERSION
 
 FIXTURE = Path(__file__).parent / "fixtures" / "providers" / "fake" / "gateway.json"
 TIMEOUT = 10.0
@@ -33,141 +30,13 @@ TIMEOUT = 10.0
 SHELL_PROMPT = "deploy the thing"
 
 
-class Client:
-    """JSON-RPC client that records notifications and can answer approvals."""
 
-    def __init__(self, ws: aiohttp.ClientWebSocketResponse) -> None:
-        self._ws = ws
-        self._next_id = 0
-        self._pending: dict[int, asyncio.Future[dict[str, Any]]] = {}
-        self._reader: asyncio.Task[None] | None = None
-        self.notifications: list[dict[str, Any]] = []
-        self.events: list[dict[str, Any]] = []
-        self.approval_requests: list[dict[str, Any]] = []
-        #: "allow", "deny" or "ignore" (never answer, so the daemon times out).
-        self.approval_mode = "ignore"
-
-    def start(self) -> None:
-        self._reader = asyncio.ensure_future(self._read())
-
-    async def stop(self) -> None:
-        if self._reader is not None:
-            self._reader.cancel()
-            await asyncio.gather(self._reader, return_exceptions=True)
-        await self._ws.close()
-
-    async def _read(self) -> None:
-        async for message in self._ws:
-            if message.type is not aiohttp.WSMsgType.TEXT:
-                continue
-            frame = json.loads(message.data)
-            if "method" not in frame:
-                future = self._pending.pop(int(frame["id"]), None)
-                if future is not None and not future.done():
-                    future.set_result(frame)
-                continue
-            if frame.get("id") is not None:
-                await self._server_request(frame)
-                continue
-            self.notifications.append(frame)
-            if frame["method"] == "session.event":
-                self.events.append(frame["params"])
-
-    async def _server_request(self, frame: dict[str, Any]) -> None:
-        if frame.get("method") == "approval.request":
-            self.approval_requests.append(frame["params"])
-            if self.approval_mode == "ignore":
-                return
-            await self._ws.send_json(
-                {
-                    "jsonrpc": "2.0",
-                    "id": frame["id"],
-                    "result": {"decision": self.approval_mode, "scope": "once"},
-                }
-            )
-
-    async def ok(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-        self._next_id += 1
-        request_id = self._next_id
-        future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
-        self._pending[request_id] = future
-        await self._ws.send_json(
-            {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params or {}}
-        )
-        frame = await asyncio.wait_for(future, TIMEOUT)
-        assert "error" not in frame or frame["error"] is None, frame.get("error")
-        return dict(frame["result"])
-
-    # -- waiting -------------------------------------------------------
-    async def wait_notification(self, method: str, timeout: float = TIMEOUT) -> dict[str, Any]:
-        loop = asyncio.get_running_loop()
-        deadline = loop.time() + timeout
-        while True:
-            for frame in self.notifications:
-                if frame["method"] == method:
-                    return dict(frame["params"])
-            if loop.time() > deadline:
-                seen = sorted({frame["method"] for frame in self.notifications})
-                raise AssertionError(f"no {method}; saw {seen}")
-            await asyncio.sleep(0.02)
-
-    async def wait_turn(self, turn_id: str, timeout: float = TIMEOUT) -> str:
-        loop = asyncio.get_running_loop()
-        deadline = loop.time() + timeout
-        while True:
-            for event in self.events:
-                if event["kind"] == "turn.done" and event["payload"]["turnId"] == turn_id:
-                    return str(event["payload"]["reason"])
-            if loop.time() > deadline:
-                raise AssertionError("turn never finished")
-            await asyncio.sleep(0.02)
+def approvals(timeout_sec: int = 30) -> dict[str, Any]:
+    """Daemon settings with one approval timeout."""
+    return {"approvals": {"timeoutSec": timeout_sec}}
 
 
-@pytest_asyncio.fixture
-async def gateway_env() -> AsyncIterator[None]:
-    previous = {key: os.environ.get(key) for key in ("SNOWPEA_PROVIDER", "SNOWPEA_GATEWAY_FAKE")}
-    os.environ["SNOWPEA_PROVIDER"] = f"fake:{FIXTURE}"
-    os.environ["SNOWPEA_GATEWAY_FAKE"] = "1"
-    FakeAdapter.instances.clear()
-    try:
-        yield None
-    finally:
-        FakeAdapter.instances.clear()
-        for key, value in previous.items():
-            if value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = value
-
-
-@pytest_asyncio.fixture
-async def http() -> AsyncIterator[aiohttp.ClientSession]:
-    async with aiohttp.ClientSession() as session:
-        yield session
-
-
-async def make_daemon(home: Path, timeout_sec: int = 30) -> Daemon:
-    home.mkdir(parents=True, exist_ok=True)
-    (home / "settings.json").write_text(
-        json.dumps({"approvals": {"timeoutSec": timeout_sec}}), encoding="utf-8"
-    )
-    daemon = Daemon(port=0, home=home)
-    await daemon.start()
-    return daemon
-
-
-async def connect(http: aiohttp.ClientSession, daemon: Daemon) -> Client:
-    ws = await http.ws_connect(f"http://127.0.0.1:{daemon.port}/ws")
-    client = Client(ws)
-    client.start()
-    await client.ok(
-        "system.hello",
-        {"token": daemon.token, "clientVersion": "test", "protocolVersion": PROTOCOL_VERSION},
-    )
-    return client
-
-
-async def bind_fake(client: Client, workdir: Path, user_id: str | None = "u1") -> FakeAdapter:
+async def bind_fake(client: RpcClient, workdir: Path, user_id: str | None = "u1") -> FakeAdapter:
     """Bind a fake platform to a fresh session per chat and return the adapter."""
     params: dict[str, object] = {
         "platform": "telegram",
@@ -198,12 +67,12 @@ async def test_unattended_approval_reaches_both_the_tui_and_the_chat(
 ) -> None:
     workdir = tmp_path / "project"
     workdir.mkdir()
-    daemon = await make_daemon(tmp_path / "home")
+    daemon = await make_daemon(tmp_path / "home", approvals())
     try:
-        binder = await connect(http, daemon)
+        binder = await connect(http, daemon, approval_mode="ignore")
         adapter = await bind_fake(binder, workdir)
         # A second surface that owns no session at all — a TUI on the side.
-        watcher = await connect(http, daemon)
+        watcher = await connect(http, daemon, approval_mode="ignore")
 
         await adapter.push(SHELL_PROMPT, channel_id="c1", user_id="u1")
 
@@ -247,11 +116,11 @@ async def test_an_answer_from_the_tui_resolves_the_chat_request(
 ) -> None:
     workdir = tmp_path / "project"
     workdir.mkdir()
-    daemon = await make_daemon(tmp_path / "home")
+    daemon = await make_daemon(tmp_path / "home", approvals())
     try:
-        binder = await connect(http, daemon)
+        binder = await connect(http, daemon, approval_mode="ignore")
         adapter = await bind_fake(binder, workdir)
-        watcher = await connect(http, daemon)
+        watcher = await connect(http, daemon, approval_mode="ignore")
 
         await adapter.push(SHELL_PROMPT, channel_id="c1", user_id="u1")
         pending = await watcher.wait_notification("approval.pending")
@@ -281,11 +150,11 @@ async def test_only_the_bound_user_may_answer_from_chat(
 ) -> None:
     workdir = tmp_path / "project"
     workdir.mkdir()
-    daemon = await make_daemon(tmp_path / "home")
+    daemon = await make_daemon(tmp_path / "home", approvals())
     try:
-        binder = await connect(http, daemon)
+        binder = await connect(http, daemon, approval_mode="ignore")
         adapter = await bind_fake(binder, workdir)
-        watcher = await connect(http, daemon)
+        watcher = await connect(http, daemon, approval_mode="ignore")
 
         await adapter.push(SHELL_PROMPT, channel_id="c1", user_id="u1")
         request_id = (await watcher.wait_notification("approval.pending"))["request"]["requestId"]
@@ -315,11 +184,11 @@ async def test_a_binding_without_an_approver_never_approves_from_chat(
     """Fail closed (plan §6 risk 4): no bound user id means nobody in the chat can approve."""
     workdir = tmp_path / "project"
     workdir.mkdir()
-    daemon = await make_daemon(tmp_path / "home")
+    daemon = await make_daemon(tmp_path / "home", approvals())
     try:
-        binder = await connect(http, daemon)
+        binder = await connect(http, daemon, approval_mode="ignore")
         adapter = await bind_fake(binder, workdir, user_id=None)
-        watcher = await connect(http, daemon)
+        watcher = await connect(http, daemon, approval_mode="ignore")
 
         await adapter.push(SHELL_PROMPT, channel_id="c1", user_id="u1")
         request_id = (await watcher.wait_notification("approval.pending"))["request"]["requestId"]
@@ -350,11 +219,11 @@ async def test_an_unanswered_unattended_approval_times_out_as_a_denial(
 ) -> None:
     workdir = tmp_path / "project"
     workdir.mkdir()
-    daemon = await make_daemon(tmp_path / "home", timeout_sec=1)
+    daemon = await make_daemon(tmp_path / "home", approvals(1))
     try:
-        binder = await connect(http, daemon)
+        binder = await connect(http, daemon, approval_mode="ignore")
         adapter = await bind_fake(binder, workdir)
-        watcher = await connect(http, daemon)
+        watcher = await connect(http, daemon, approval_mode="ignore")
 
         await adapter.push(SHELL_PROMPT, channel_id="c1", user_id="u1")
         await watcher.wait_notification("approval.pending")
@@ -383,10 +252,10 @@ async def test_an_interactive_request_is_invisible_to_other_clients(
 ) -> None:
     workdir = tmp_path / "project"
     workdir.mkdir()
-    daemon = await make_daemon(tmp_path / "home", timeout_sec=10)
+    daemon = await make_daemon(tmp_path / "home", approvals(10))
     try:
-        owner = await connect(http, daemon)
-        watcher = await connect(http, daemon)
+        owner = await connect(http, daemon, approval_mode="ignore")
+        watcher = await connect(http, daemon, approval_mode="ignore")
         session_id = (
             await owner.ok("session.create", {"workdir": str(workdir), "mode": "accept"})
         )["sessionId"]

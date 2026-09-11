@@ -9,17 +9,15 @@ really does open a session, call the "model", run tools and deliver its answer
 from __future__ import annotations
 
 import argparse
-import asyncio
 import json
-import os
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
 
 import aiohttp
 import pytest
 import pytest_asyncio
+from _support import connect, fake_provider, make_daemon
 
 from snowpea_core.cli import commands as cli_commands
 from snowpea_core.scheduler import services
@@ -27,7 +25,6 @@ from snowpea_core.scheduler.jobs import utc_now
 from snowpea_core.scheduler.nl_parse import first_run, parse_spec
 from snowpea_core.server.app_server import Daemon
 from snowpea_core.server.lifecycle import Lifecycle
-from snowpea_core.server.protocol import PROTOCOL_VERSION
 
 pytestmark = pytest.mark.asyncio
 
@@ -118,110 +115,10 @@ async def test_lifecycle_reason_line_for_one_job() -> None:
 # ---------------------------------------------------------------------------
 
 
-class Client:
-    """Minimal JSON-RPC client with an event log and an approval policy."""
-
-    def __init__(self, ws: aiohttp.ClientWebSocketResponse) -> None:
-        self._ws = ws
-        self._next_id = 0
-        self._pending: dict[int, asyncio.Future[dict[str, Any]]] = {}
-        self._reader: asyncio.Task[None] | None = None
-        self.events: list[dict[str, Any]] = []
-        self.notifications: list[dict[str, Any]] = []
-        self.approval_requests: list[dict[str, Any]] = []
-        #: "allow", "deny" or "ignore" (never answer, so the daemon times out).
-        self.approval_mode = "allow"
-
-    def start(self) -> None:
-        self._reader = asyncio.ensure_future(self._read())
-
-    async def stop(self) -> None:
-        if self._reader is not None:
-            self._reader.cancel()
-            await asyncio.gather(self._reader, return_exceptions=True)
-        await self._ws.close()
-
-    async def _read(self) -> None:
-        async for message in self._ws:
-            if message.type is not aiohttp.WSMsgType.TEXT:
-                continue
-            frame = json.loads(message.data)
-            if "method" not in frame:
-                future = self._pending.pop(int(frame["id"]), None)
-                if future is not None and not future.done():
-                    future.set_result(frame)
-                continue
-            if frame.get("id") is None:
-                self.notifications.append(frame)
-                if frame["method"] == "session.event":
-                    self.events.append(frame["params"])
-                continue
-            self.approval_requests.append(frame["params"])
-            if self.approval_mode == "ignore":
-                continue
-            await self._ws.send_json(
-                {
-                    "jsonrpc": "2.0",
-                    "id": frame["id"],
-                    "result": {"decision": self.approval_mode, "scope": "once"},
-                }
-            )
-
-    async def call(
-        self, method: str, params: dict[str, Any] | None = None, timeout: float = TIMEOUT
-    ) -> dict[str, Any]:
-        self._next_id += 1
-        request_id = self._next_id
-        future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
-        self._pending[request_id] = future
-        await self._ws.send_json(
-            {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params or {}}
-        )
-        return await asyncio.wait_for(future, timeout)
-
-    async def ok(
-        self, method: str, params: dict[str, Any] | None = None, timeout: float = TIMEOUT
-    ) -> dict[str, Any]:
-        frame = await self.call(method, params, timeout)
-        assert "error" not in frame, frame["error"]
-        return frame["result"]
-
-    def of_method(self, method: str) -> list[dict[str, Any]]:
-        return [frame["params"] for frame in self.notifications if frame["method"] == method]
-
-    async def wait(
-        self, predicate: Callable[[dict[str, Any]], bool], timeout: float = TIMEOUT
-    ) -> dict[str, Any]:
-        deadline = asyncio.get_running_loop().time() + timeout
-        while True:
-            for event in self.events:
-                if predicate(event):
-                    return event
-            if asyncio.get_running_loop().time() > deadline:
-                raise AssertionError(f"timed out; saw {[e['kind'] for e in self.events]}")
-            await asyncio.sleep(0.02)
-
-
-async def make_daemon(home: Path, settings: dict[str, Any] | None = None) -> Daemon:
-    home.mkdir(parents=True, exist_ok=True)
-    if settings:
-        (home / "settings.json").write_text(json.dumps(settings), encoding="utf-8")
-    daemon = Daemon(port=0, home=home)
-    await daemon.start()
-    return daemon
-
-
 @pytest_asyncio.fixture
 async def provider_env() -> AsyncIterator[None]:
-    previous = os.environ.get("SNOWPEA_PROVIDER")
-    os.environ["SNOWPEA_PROVIDER"] = f"fake:{FIXTURE}"
-    try:
+    with fake_provider(FIXTURE):
         yield
-    finally:
-        if previous is None:
-            os.environ.pop("SNOWPEA_PROVIDER", None)
-        else:
-            os.environ["SNOWPEA_PROVIDER"] = previous
 
 
 @pytest_asyncio.fixture
@@ -232,26 +129,6 @@ async def daemon(tmp_path: Path, provider_env: None) -> AsyncIterator[Daemon]:
     finally:
         await instance.stop()
 
-
-@pytest_asyncio.fixture
-async def http() -> AsyncIterator[aiohttp.ClientSession]:
-    async with aiohttp.ClientSession() as session:
-        yield session
-
-
-async def connect(http: aiohttp.ClientSession, daemon: Daemon) -> Client:
-    ws = await http.ws_connect(f"http://127.0.0.1:{daemon.port}/ws")
-    client = Client(ws)
-    client.start()
-    await client.ok(
-        "system.hello",
-        {
-            "token": daemon.token,
-            "clientVersion": "test-us015",
-            "protocolVersion": PROTOCOL_VERSION,
-        },
-    )
-    return client
 
 
 def jobs_log(daemon: Daemon) -> str:
@@ -267,7 +144,7 @@ def jobs_log(daemon: Daemon) -> str:
 async def test_schedule_over_rpc_shows_up_in_job_list(
     daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path
 ) -> None:
-    client = await connect(http, daemon)
+    client = await connect(http, daemon, timeout=TIMEOUT)
     result = await client.ok(
         "job.schedule",
         {
@@ -298,7 +175,7 @@ async def test_schedule_over_rpc_shows_up_in_job_list(
 async def test_schedule_rejects_an_unparseable_spec(
     daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path
 ) -> None:
-    client = await connect(http, daemon)
+    client = await connect(http, daemon, timeout=TIMEOUT)
     frame = await client.call(
         "job.schedule", {"spec": "sometime soonish", "task": "x", "workdir": str(tmp_path)}
     )
@@ -314,7 +191,7 @@ async def test_schedule_rejects_an_unparseable_spec(
 async def test_run_now_executes_in_process_and_records_the_run(
     daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path
 ) -> None:
-    client = await connect(http, daemon)
+    client = await connect(http, daemon, timeout=TIMEOUT)
     schedule = await client.ok(
         "job.schedule",
         {
@@ -362,7 +239,7 @@ async def test_run_now_executes_in_process_and_records_the_run(
 async def test_the_same_occurrence_only_runs_once(
     daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path
 ) -> None:
-    client = await connect(http, daemon)
+    client = await connect(http, daemon, timeout=TIMEOUT)
     schedule = await client.ok(
         "job.schedule",
         {"spec": "every 10m", "task": "summarise the repo", "workdir": str(tmp_path)},
@@ -385,7 +262,7 @@ async def test_the_same_occurrence_only_runs_once(
 async def test_a_tick_fires_a_due_job_and_moves_it_on(
     daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path
 ) -> None:
-    client = await connect(http, daemon)
+    client = await connect(http, daemon, timeout=TIMEOUT)
     schedule = await client.ok(
         "job.schedule",
         {"spec": "in 1s", "task": "summarise the repo", "workdir": str(tmp_path)},
@@ -419,7 +296,7 @@ async def test_unanswered_approval_marks_the_run_denied_by_timeout(
         {"approvals": {"timeoutSec": 1}, "scheduler": {"tickSec": 1}},
     )
     try:
-        client = await connect(http, daemon)
+        client = await connect(http, daemon, timeout=TIMEOUT)
         client.approval_mode = "ignore"
         schedule = await client.ok(
             "job.schedule",
@@ -455,7 +332,7 @@ async def test_slash_schedule_registers_a_job(
 ) -> None:
     workdir = tmp_path / "project"
     workdir.mkdir()
-    client = await connect(http, daemon)
+    client = await connect(http, daemon, timeout=TIMEOUT)
     session = await client.ok("session.create", {"workdir": str(workdir), "mode": "accept"})
 
     turn = await client.ok(
@@ -491,7 +368,7 @@ async def test_slash_schedule_registers_a_job(
 async def test_cli_job_list_json(
     daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    client = await connect(http, daemon)
+    client = await connect(http, daemon, timeout=TIMEOUT)
     schedule = await client.ok(
         "job.schedule",
         {"spec": "every 10m", "task": "summarise the repo", "workdir": str(tmp_path)},
@@ -569,7 +446,7 @@ async def test_cli_daemon_status_prints_the_keepalive_reason(
 async def test_schedule_tools_replace_the_m5_stubs(
     daemon: Daemon, http: aiohttp.ClientSession
 ) -> None:
-    client = await connect(http, daemon)
+    client = await connect(http, daemon, timeout=TIMEOUT)
     tools = {tool["name"]: tool for tool in (await client.ok("tool.list", {}))["tools"]}
     for name in ("schedule_create", "schedule_list", "schedule_cancel"):
         assert tools[name]["state"] == "active"
@@ -583,7 +460,7 @@ async def test_model_registering_an_auto_job_needs_approval(
     """Even in an auto session, a job that will itself run in auto mode asks."""
     workdir = tmp_path / "project"
     workdir.mkdir()
-    client = await connect(http, daemon)
+    client = await connect(http, daemon, timeout=TIMEOUT)
     client.approval_mode = "deny"
     session = await client.ok("session.create", {"workdir": str(workdir), "mode": "auto"})
 

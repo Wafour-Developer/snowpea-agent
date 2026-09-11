@@ -19,13 +19,13 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import subprocess
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
 import pytest_asyncio
+from _support import Recorder, git, init_repo
 
 from snowpea_core.agent import team, team_store
 from snowpea_core.cli.commands import team_status as cli_team_status
@@ -48,35 +48,11 @@ CONFLICT_TASK = "rewrite the shared banner"
 # ---------------------------------------------------------------------------
 
 
-def _git(repo: Path, *args: str) -> str:
-    result = subprocess.run(  # noqa: S603 - fixed argv, test-local repo
-        ["git", *args],
-        cwd=repo,
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    return result.stdout
-
-
-def _make_repo(root: Path, files: dict[str, str]) -> Path:
-    """A git repository with one commit, so worktrees have something to branch."""
-    root.mkdir(parents=True, exist_ok=True)
-    _git(root, "init", "-q", "-b", "main")
-    _git(root, "config", "user.email", "test@example.com")
-    _git(root, "config", "user.name", "snowpea test")
-    for name, content in files.items():
-        (root / name).write_text(content, encoding="utf-8")
-    _git(root, "add", "-A")
-    _git(root, "commit", "-q", "-m", "initial")
-    return root
-
-
 def worktree_paths(repo: Path) -> list[str]:
     """Every worktree git knows about, the main one included."""
     return [
         line.split(" ", 1)[0]
-        for line in _git(repo, "worktree", "list").splitlines()
+        for line in git(repo, "worktree", "list").splitlines()
         if line.strip()
     ]
 
@@ -84,20 +60,20 @@ def worktree_paths(repo: Path) -> list[str]:
 def team_branches(repo: Path) -> list[str]:
     return [
         line.strip().lstrip("* ").strip()
-        for line in _git(repo, "branch", "--list", "snowpea/team-*").splitlines()
+        for line in git(repo, "branch", "--list", "snowpea/team-*").splitlines()
         if line.strip()
     ]
 
 
 def merge_commits(repo: Path) -> list[str]:
-    out = _git(repo, "log", "--merges", "--format=%s")
+    out = git(repo, "log", "--merges", "--format=%s")
     return [line for line in out.splitlines() if line.strip()]
 
 
 @pytest.fixture
 def repo(tmp_path: Path) -> Path:
     """Three empty modules for the team to document."""
-    return _make_repo(
+    return init_repo(
         tmp_path / "repo",
         {
             "module_a.py": "def a() -> str:\n    return \"a\"\n",
@@ -110,7 +86,7 @@ def repo(tmp_path: Path) -> Path:
 @pytest.fixture
 def conflict_repo(tmp_path: Path) -> Path:
     """One file with one line, which both tasks will rewrite."""
-    return _make_repo(tmp_path / "conflict-repo", {"shared.txt": "the original banner\n"})
+    return init_repo(tmp_path / "conflict-repo", {"shared.txt": "the original banner\n"})
 
 
 @pytest.fixture
@@ -138,27 +114,6 @@ async def daemon(tmp_path: Path, script: Path) -> AsyncIterator[Daemon]:
         yield instance
     finally:
         await instance.stop()
-
-
-class Recorder:
-    """A pseudo-connection that keeps every event the hub sends it."""
-
-    closed = False
-
-    def __init__(self) -> None:
-        self.events: list[dict[str, Any]] = []
-
-    async def notify(self, method: str, params: dict[str, Any]) -> None:
-        if method == "session.event":
-            self.events.append(params)
-
-    def of_kind(self, kind: str) -> list[dict[str, Any]]:
-        return [event for event in self.events if event["kind"] == kind]
-
-    def texts(self) -> str:
-        return "\n".join(
-            str(event["payload"].get("text", "")) for event in self.of_kind("message.done")
-        )
 
 
 async def _status(daemon: Daemon, team_id: str | None = None) -> TeamStatusResult:

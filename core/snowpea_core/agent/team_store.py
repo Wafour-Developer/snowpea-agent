@@ -20,11 +20,10 @@ import json
 import sqlite3
 import threading
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from snowpea_core.config.paths import Paths
+from snowpea_core.config.paths import Paths, utc_now
 
 #: Task states, in the order a task normally walks through them (contract §5).
 QUEUED = "queued"
@@ -76,9 +75,6 @@ CREATE TABLE IF NOT EXISTS team_messages (
 CREATE INDEX IF NOT EXISTS team_tasks_board ON team_tasks (team_id, status, idx);
 """
 
-
-def utc_now() -> str:
-    return datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 @dataclass

@@ -22,7 +22,8 @@ from typing import Any
 import aiohttp
 import pytest
 import pytest_asyncio
-from test_gateway import TIMEOUT, Client, connect
+from _support import RpcClient, connect
+from test_gateway import TIMEOUT
 
 from snowpea_core.gateway.fake import FakeAdapter
 from snowpea_core.server.app_server import Daemon
@@ -54,34 +55,28 @@ async def named_env() -> AsyncIterator[None]:
                 os.environ[key] = value
 
 
-@pytest_asyncio.fixture
-async def http() -> AsyncIterator[aiohttp.ClientSession]:
-    async with aiohttp.ClientSession() as session:
-        yield session
-
-
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
 
 
-async def open_session(client: Client, workdir: Path) -> str:
+async def open_session(client: RpcClient, workdir: Path) -> str:
     result = await client.ok("session.create", {"workdir": str(workdir), "mode": "accept"})
     return str(result["sessionId"])
 
 
-async def named_agents(client: Client) -> dict[str, dict[str, Any]]:
+async def named_agents(client: RpcClient) -> dict[str, dict[str, Any]]:
     """``agent.list`` entries with ``kind == "named"``, keyed by name."""
     listed = (await client.ok("agent.list", {}))["agents"]
     return {entry["name"]: entry for entry in listed if entry["kind"] == "named"}
 
 
-async def search(client: Client, query: str, namespace: str) -> list[dict[str, Any]]:
+async def search(client: RpcClient, query: str, namespace: str) -> list[dict[str, Any]]:
     result = await client.ok("memory.search", {"query": query, "namespace": namespace})
     return list(result["hits"])
 
 
-async def error(client: Client, method: str, params: dict[str, Any]) -> str:
+async def error(client: RpcClient, method: str, params: dict[str, Any]) -> str:
     """The message of the RPC error ``method`` answers with."""
     with pytest.raises(AssertionError) as caught:
         await client.ok(method, params)

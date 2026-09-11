@@ -161,7 +161,6 @@ def register_builtin_commands(registry: CommandRegistry) -> CommandRegistry:
     from snowpea_core.commands import (
         agent_cmd,
         backend_cmd,
-        builtin_skills,
         deepinit,
         mode_cmd,
         ralph,
@@ -184,10 +183,6 @@ def register_builtin_commands(registry: CommandRegistry) -> CommandRegistry:
         *ultrawork.COMMANDS,
         *deepinit.COMMANDS,
         *team_cmd.COMMANDS,
-        # The three bundled markdown skills.  The M6 skill loader registers the
-        # same names off the same files when it is wired up and wins by being
-        # registered later; this keeps /help complete when it is not.
-        *builtin_skills.commands(),
     ):
         registry.register(command)
     return registry

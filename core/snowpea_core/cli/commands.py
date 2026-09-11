@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from snowpea_core.cli.daemon_client import (
+    CALL_TIMEOUT_SEC,
     DaemonClient,
     DaemonError,
     RpcCallError,
@@ -70,14 +71,18 @@ async def _lookup(home: Path | str | None, method: str, key: str) -> list[dict[s
 
 
 async def _call(
-    home: Path | str | None, method: str, params: dict[str, Any]
+    home: Path | str | None,
+    method: str,
+    params: dict[str, Any],
+    *,
+    timeout: float | None = CALL_TIMEOUT_SEC,
 ) -> dict[str, Any]:
     """One RPC round trip against the daemon, started if it is not running."""
     info = await ensure_daemon(home)
     client = DaemonClient(info)
     await client.connect()
     try:
-        return await client.call(method, params)
+        return await client.call(method, params, timeout=timeout)
     finally:
         await client.close()
 
@@ -434,18 +439,6 @@ def parse_target(raw: str) -> dict[str, Any]:
     raise ValueError("target must be agent:<name>, session:<id>, new:<workdir> or JSON")
 
 
-async def _gateway_call(
-    home: Path | str | None, method: str, params: dict[str, Any]
-) -> dict[str, Any]:
-    info = await ensure_daemon(home)
-    client = DaemonClient(info)
-    await client.connect()
-    try:
-        return await client.call(method, params)
-    finally:
-        await client.close()
-
-
 async def gateway_bind(
     platform: str,
     credentials_ref: str,
@@ -471,7 +464,7 @@ async def gateway_bind(
     if user_id:
         params["userId"] = user_id
     try:
-        result = await _gateway_call(home, "gateway.bind", params)
+        result = await _call(home, "gateway.bind", params)
     except DaemonError as exc:
         return _fail(str(exc), EXIT_NO_DAEMON)
     except RpcCallError as exc:
@@ -486,7 +479,7 @@ async def gateway_bind(
 async def gateway_list(home: Path | str | None = None, *, as_json: bool = False) -> int:
     """``snowpea gateway list [--json]``."""
     try:
-        result = await _gateway_call(home, "gateway.list", {})
+        result = await _call(home, "gateway.list", {})
     except DaemonError as exc:
         return _fail(str(exc), EXIT_NO_DAEMON)
     except RpcCallError as exc:
@@ -510,7 +503,7 @@ async def gateway_list(home: Path | str | None = None, *, as_json: bool = False)
 async def gateway_unbind(binding_id: str, home: Path | str | None = None) -> int:
     """``snowpea gateway unbind <bindingId>``."""
     try:
-        await _gateway_call(home, "gateway.unbind", {"bindingId": binding_id})
+        await _call(home, "gateway.unbind", {"bindingId": binding_id})
     except DaemonError as exc:
         return _fail(str(exc), EXIT_NO_DAEMON)
     except RpcCallError as exc:
@@ -522,16 +515,6 @@ async def gateway_unbind(binding_id: str, home: Path | str | None = None) -> int
 # ---------------------------------------------------------------------------
 # job.* (M5 contract §2)
 # ---------------------------------------------------------------------------
-
-
-async def _job_call(home: Path | str | None, method: str, params: dict[str, Any]) -> dict[str, Any]:
-    info = await ensure_daemon(home)
-    client = DaemonClient(info)
-    await client.connect()
-    try:
-        return await client.call(method, params, timeout=JOB_RUN_TIMEOUT_SEC)
-    finally:
-        await client.close()
 
 
 def format_job_line(job: dict[str, Any]) -> str:
@@ -568,7 +551,7 @@ async def job_schedule(
         params["channel"] = channel
     params["workdir"] = workdir or str(Path.cwd())
     try:
-        result = await _job_call(home, "job.schedule", params)
+        result = await _call(home, "job.schedule", params, timeout=JOB_RUN_TIMEOUT_SEC)
     except DaemonError as exc:
         return _fail(str(exc), EXIT_NO_DAEMON)
     except RpcCallError as exc:
@@ -583,7 +566,7 @@ async def job_schedule(
 async def job_list(home: Path | str | None = None, *, as_json: bool = False) -> int:
     """``snowpea job list [--json]`` → ``job.list``."""
     try:
-        result = await _job_call(home, "job.list", {})
+        result = await _call(home, "job.list", {}, timeout=JOB_RUN_TIMEOUT_SEC)
     except DaemonError as exc:
         return _fail(str(exc), EXIT_NO_DAEMON)
     except RpcCallError as exc:
@@ -605,7 +588,7 @@ async def job_cancel(job_id: str, home: Path | str | None = None) -> int:
     if not job_id:
         return _fail("usage: snowpea job cancel <jobId>", EXIT_USAGE)
     try:
-        await _job_call(home, "job.cancel", {"jobId": job_id})
+        await _call(home, "job.cancel", {"jobId": job_id}, timeout=JOB_RUN_TIMEOUT_SEC)
     except DaemonError as exc:
         return _fail(str(exc), EXIT_NO_DAEMON)
     except RpcCallError as exc:
@@ -619,7 +602,7 @@ async def job_run(job_id: str, home: Path | str | None = None) -> int:
     if not job_id:
         return _fail("usage: snowpea job run <jobId>", EXIT_USAGE)
     try:
-        await _job_call(home, "job.runNow", {"jobId": job_id})
+        await _call(home, "job.runNow", {"jobId": job_id}, timeout=JOB_RUN_TIMEOUT_SEC)
     except DaemonError as exc:
         return _fail(str(exc), EXIT_NO_DAEMON)
     except RpcCallError as exc:
@@ -651,18 +634,6 @@ def resolve_install_source(source: str) -> str:
     return text
 
 
-async def _skill_call(
-    home: Path | str | None, method: str, params: dict[str, Any]
-) -> dict[str, Any]:
-    info = await ensure_daemon(home)
-    client = DaemonClient(info)
-    await client.connect()
-    try:
-        return await client.call(method, params)
-    finally:
-        await client.close()
-
-
 async def skill_command(
     action: str,
     argument: str = "",
@@ -688,7 +659,7 @@ async def skill_command(
         return _fail(f"snowpea skill {action} needs an argument", EXIT_USAGE)
     method, params = methods[action]
     try:
-        result = await _skill_call(home, method, params)
+        result = await _call(home, method, params)
     except DaemonError as exc:
         return _fail(str(exc), EXIT_NO_DAEMON)
     except RpcCallError as exc:

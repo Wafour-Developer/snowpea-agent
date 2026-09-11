@@ -9,9 +9,20 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 
 DEFAULT_HOME = Path("~/.snowpea")
+
+
+def utc_now() -> str:
+    """The daemon's wire timestamp: UTC ISO-8601 with milliseconds and a ``Z``.
+
+    Every row the daemon writes (sessions, memories, team tasks, gateway
+    bindings, the approval log) and every ``ts`` on the wire uses this one
+    format, so it is defined once here.
+    """
+    return datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 def resolve_home(home: Path | str | None = None) -> Path:

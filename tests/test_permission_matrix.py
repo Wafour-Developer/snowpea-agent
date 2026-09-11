@@ -19,7 +19,8 @@ from typing import Any
 import aiohttp
 import pytest
 import pytest_asyncio
-from test_session_loop import Client, connect, make_daemon, prompt
+from _support import RpcClient, connect, make_daemon
+from test_session_loop import prompt
 
 from snowpea_core.config.project import ProjectSettings
 from snowpea_core.server.app_server import Daemon
@@ -119,12 +120,6 @@ async def daemon(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
         await instance.stop()
 
 
-@pytest_asyncio.fixture
-async def http() -> Any:
-    async with aiohttp.ClientSession() as session:
-        yield session
-
-
 @pytest.fixture
 def workdir(tmp_path: Path) -> Path:
     project = tmp_path / "project"
@@ -133,7 +128,7 @@ def workdir(tmp_path: Path) -> Path:
     return project
 
 
-async def open_session(client: Client, workdir: Path, mode: str | None = None) -> str:
+async def open_session(client: RpcClient, workdir: Path, mode: str | None = None) -> str:
     params: dict[str, Any] = {"workdir": str(workdir)}
     if mode is not None:
         params["mode"] = mode

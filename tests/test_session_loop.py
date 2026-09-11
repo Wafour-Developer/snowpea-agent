@@ -10,16 +10,15 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any
 
 import aiohttp
 import pytest
 import pytest_asyncio
+from _support import RpcClient, connect, fake_provider, make_daemon
 
 from snowpea_core.server.app_server import Daemon
-from snowpea_core.server.protocol import PROTOCOL_VERSION
 
 pytestmark = pytest.mark.asyncio
 
@@ -27,152 +26,22 @@ FIXTURE = Path(__file__).parent / "fixtures" / "providers" / "fake" / "session.j
 TIMEOUT = 10.0
 
 
-class Client:
-    """JSON-RPC client with a background reader, an event log and an approval policy."""
-
-    def __init__(self, ws: aiohttp.ClientWebSocketResponse) -> None:
-        self._ws = ws
-        self._next_id = 0
-        self._pending: dict[int, asyncio.Future[dict[str, Any]]] = {}
-        self._reader: asyncio.Task[None] | None = None
-        self.events: list[dict[str, Any]] = []
-        self.notifications: list[dict[str, Any]] = []
-        self.approval_requests: list[dict[str, Any]] = []
-        #: "allow", "deny" or "ignore" (never answer, so the daemon times out).
-        self.approval_mode = "allow"
-        self.approval_scope = "once"
-
-    def start(self) -> None:
-        self._reader = asyncio.ensure_future(self._read())
-
-    async def stop(self) -> None:
-        if self._reader is not None:
-            self._reader.cancel()
-            await asyncio.gather(self._reader, return_exceptions=True)
-        await self._ws.close()
-
-    async def _read(self) -> None:
-        async for message in self._ws:
-            if message.type is not aiohttp.WSMsgType.TEXT:
-                continue
-            frame = json.loads(message.data)
-            if "method" not in frame:
-                future = self._pending.pop(int(frame["id"]), None)
-                if future is not None and not future.done():
-                    future.set_result(frame)
-                continue
-            if frame.get("id") is None:
-                self.notifications.append(frame)
-                if frame["method"] == "session.event":
-                    self.events.append(frame["params"])
-                continue
-            self.approval_requests.append(frame["params"])
-            if self.approval_mode == "ignore":
-                continue
-            await self._ws.send_json(
-                {
-                    "jsonrpc": "2.0",
-                    "id": frame["id"],
-                    "result": {"decision": self.approval_mode, "scope": self.approval_scope},
-                }
-            )
-
-    async def call(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-        """Send a request and return the raw response frame."""
-        self._next_id += 1
-        request_id = self._next_id
-        future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
-        self._pending[request_id] = future
-        await self._ws.send_json(
-            {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params or {}}
-        )
-        return await asyncio.wait_for(future, TIMEOUT)
-
-    async def ok(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-        """Call a method and fail the test if it answered with an error."""
-        frame = await self.call(method, params)
-        assert "error" not in frame, frame["error"]
-        return frame["result"]
-
-    # -- event helpers -------------------------------------------------
-    def kinds(self) -> list[str]:
-        return [event["kind"] for event in self.events]
-
-    def of_kind(self, kind: str) -> list[dict[str, Any]]:
-        return [event for event in self.events if event["kind"] == kind]
-
-    async def wait(
-        self, predicate: Callable[[dict[str, Any]], bool], timeout: float = TIMEOUT
-    ) -> dict[str, Any]:
-        """Wait until one already-seen or incoming event satisfies ``predicate``."""
-        deadline = asyncio.get_running_loop().time() + timeout
-        while True:
-            for event in self.events:
-                if predicate(event):
-                    return event
-            if asyncio.get_running_loop().time() > deadline:
-                raise AssertionError(f"timed out; saw {self.kinds()}")
-            await asyncio.sleep(0.02)
-
-    async def wait_turn(self, turn_id: str, timeout: float = TIMEOUT) -> str:
-        """Wait for ``turn.done`` of ``turn_id`` and return its reason."""
-        event = await self.wait(
-            lambda e: e["kind"] == "turn.done" and e["payload"]["turnId"] == turn_id, timeout
-        )
-        return str(event["payload"]["reason"])
-
-
-async def make_daemon(home: Path, settings: dict[str, Any] | None = None) -> Daemon:
-    home.mkdir(parents=True, exist_ok=True)
-    if settings:
-        (home / "settings.json").write_text(json.dumps(settings), encoding="utf-8")
-    daemon = Daemon(port=0, home=home)
-    await daemon.start()
-    return daemon
-
-
 @pytest_asyncio.fixture
 async def daemon(tmp_path: Path) -> AsyncIterator[Daemon]:
-    previous = os.environ.get("SNOWPEA_PROVIDER")
-    os.environ["SNOWPEA_PROVIDER"] = f"fake:{FIXTURE}"
-    instance = await make_daemon(tmp_path / "home")
-    try:
-        yield instance
-    finally:
-        await instance.stop()
-        if previous is None:
-            os.environ.pop("SNOWPEA_PROVIDER", None)
-        else:
-            os.environ["SNOWPEA_PROVIDER"] = previous
+    with fake_provider(FIXTURE):
+        instance = await make_daemon(tmp_path / "home")
+        try:
+            yield instance
+        finally:
+            await instance.stop()
 
 
-@pytest_asyncio.fixture
-async def http() -> AsyncIterator[aiohttp.ClientSession]:
-    async with aiohttp.ClientSession() as session:
-        yield session
-
-
-async def connect(http: aiohttp.ClientSession, daemon: Daemon) -> Client:
-    ws = await http.ws_connect(f"http://127.0.0.1:{daemon.port}/ws")
-    client = Client(ws)
-    client.start()
-    await client.ok(
-        "system.hello",
-        {
-            "token": daemon.token,
-            "clientVersion": "test-us005",
-            "protocolVersion": PROTOCOL_VERSION,
-        },
-    )
-    return client
-
-
-async def start_session(client: Client, workdir: Path, mode: str = "accept") -> str:
+async def start_session(client: RpcClient, workdir: Path, mode: str = "accept") -> str:
     result = await client.ok("session.create", {"workdir": str(workdir), "mode": mode})
     return str(result["sessionId"])
 
 
-async def prompt(client: Client, session_id: str, text: str) -> str:
+async def prompt(client: RpcClient, session_id: str, text: str) -> str:
     result = await client.ok("session.prompt", {"sessionId": session_id, "text": text})
     return str(result["turnId"])
 

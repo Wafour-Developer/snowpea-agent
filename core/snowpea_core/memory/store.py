@@ -20,11 +20,10 @@ import sqlite3
 import threading
 import uuid
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from snowpea_core.config.paths import Paths
+from snowpea_core.config.paths import Paths, utc_now
 
 log = logging.getLogger("snowpea.memory")
 
@@ -44,9 +43,6 @@ CREATE TABLE IF NOT EXISTS memories (
 CREATE INDEX IF NOT EXISTS memories_namespace ON memories (namespace, created_at);
 """
 
-
-def utc_now() -> str:
-    return datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 def new_memory_id() -> str:

@@ -18,7 +18,8 @@ from typing import Any
 
 import aiohttp
 import pytest_asyncio
-from test_session_loop import Client, connect, make_daemon, prompt, start_session
+from _support import RpcClient, connect, make_daemon
+from test_session_loop import prompt, start_session
 
 from snowpea_core.config.paths import Paths
 from snowpea_core.memory import MemoryServices
@@ -88,19 +89,13 @@ async def home(tmp_path: Path) -> AsyncIterator[Path]:
             os.environ["SNOWPEA_PROVIDER"] = previous
 
 
-@pytest_asyncio.fixture
-async def http() -> AsyncIterator[aiohttp.ClientSession]:
-    async with aiohttp.ClientSession() as session:
-        yield session
-
-
-async def run(client: Client, session_id: str, text: str) -> str:
+async def run(client: RpcClient, session_id: str, text: str) -> str:
     """Prompt and wait for the turn to finish; returns its reason."""
     turn_id = await prompt(client, session_id, text)
     return await client.wait_turn(turn_id)
 
 
-def assistant_text(client: Client) -> str:
+def assistant_text(client: RpcClient) -> str:
     done = client.of_kind("message.done")
     return str(done[-1]["payload"]["text"]) if done else ""
 

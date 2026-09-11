@@ -41,10 +41,6 @@ async def has_ripgrep(ctx: ToolContext) -> bool:
     return found
 
 
-def _reset_ripgrep_cache() -> None:
-    """Forget the ripgrep probe — for tests."""
-    _RIPGREP.clear()
-
 
 async def _ripgrep(
     ctx: ToolContext, pattern: str, path: str, glob: str, limit: int, ignore_case: bool

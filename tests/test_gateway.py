@@ -10,14 +10,13 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
 import aiohttp
 import httpx
 import pytest
-import pytest_asyncio
+from _support import connect
 
 from snowpea_core.gateway.base import (
     Button,
@@ -29,98 +28,11 @@ from snowpea_core.gateway.fake import FakeAdapter
 from snowpea_core.gateway.slack import SlackAdapter, parse_envelope
 from snowpea_core.gateway.telegram import TelegramAdapter, inline_keyboard, parse_update
 from snowpea_core.server.app_server import Daemon
-from snowpea_core.server.protocol import PROTOCOL_VERSION
 
 FIXTURE = Path(__file__).parent / "fixtures" / "providers" / "fake" / "gateway.json"
 TIMEOUT = 10.0
 
 
-class Client:
-    """Minimal JSON-RPC client with a background reader."""
-
-    def __init__(self, ws: aiohttp.ClientWebSocketResponse) -> None:
-        self._ws = ws
-        self._next_id = 0
-        self._pending: dict[int, Any] = {}
-        self._reader: Any = None
-        self.notifications: list[dict[str, Any]] = []
-
-    def start(self) -> None:
-        import asyncio
-
-        self._reader = asyncio.ensure_future(self._read())
-
-    async def _read(self) -> None:
-        async for message in self._ws:
-            if message.type is not aiohttp.WSMsgType.TEXT:
-                continue
-            frame = json.loads(message.data)
-            if "method" not in frame:
-                future = self._pending.pop(int(frame["id"]), None)
-                if future is not None and not future.done():
-                    future.set_result(frame)
-            elif frame.get("id") is None:
-                self.notifications.append(frame)
-
-    async def ok(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-        import asyncio
-
-        self._next_id += 1
-        request_id = self._next_id
-        future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
-        self._pending[request_id] = future
-        await self._ws.send_json(
-            {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params or {}}
-        )
-        frame = await asyncio.wait_for(future, TIMEOUT)
-        assert "error" not in frame or frame["error"] is None, frame.get("error")
-        return dict(frame["result"])
-
-    async def stop(self) -> None:
-        import asyncio
-
-        if self._reader is not None:
-            self._reader.cancel()
-            await asyncio.gather(self._reader, return_exceptions=True)
-        await self._ws.close()
-
-
-@pytest_asyncio.fixture
-async def gateway_env() -> AsyncIterator[None]:
-    previous = {key: os.environ.get(key) for key in ("SNOWPEA_PROVIDER", "SNOWPEA_GATEWAY_FAKE")}
-    os.environ["SNOWPEA_PROVIDER"] = f"fake:{FIXTURE}"
-    os.environ["SNOWPEA_GATEWAY_FAKE"] = "1"
-    FakeAdapter.instances.clear()
-    try:
-        yield None
-    finally:
-        FakeAdapter.instances.clear()
-        for key, value in previous.items():
-            if value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = value
-
-
-@pytest_asyncio.fixture
-async def http() -> AsyncIterator[aiohttp.ClientSession]:
-    async with aiohttp.ClientSession() as session:
-        yield session
-
-
-async def connect(http: aiohttp.ClientSession, daemon: Daemon) -> Client:
-    ws = await http.ws_connect(f"http://127.0.0.1:{daemon.port}/ws")
-    client = Client(ws)
-    client.start()
-    await client.ok(
-        "system.hello",
-        {
-            "token": daemon.token,
-            "clientVersion": "test-us016",
-            "protocolVersion": PROTOCOL_VERSION,
-        },
-    )
-    return client
 
 
 # ---------------------------------------------------------------------------

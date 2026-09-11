@@ -110,7 +110,7 @@ class ReloadReport:
 
 
 def builtin_root() -> Path:
-    """``core/snowpea_core/builtin_skills`` (US-019 fills it; may not exist)."""
+    """``core/snowpea_core/builtin_skills``; may not exist in a trimmed install."""
     return Path(__file__).resolve().parent.parent / "builtin_skills"
 
 
@@ -241,11 +241,7 @@ class SkillLoader:
     def register_agent_definition(
         self, path: Path | str, source: str = SOURCE_PROJECT
     ) -> LoadedAgent | None:
-        """Parse one ``agents/<name>.md`` and remember it.
-
-        US-018 replaces the body of this hook with real agent definitions; until
-        then the parsed front matter is what ``skill.list`` reports.
-        """
+        """Parse one ``agents/<name>.md`` and remember its front matter."""
         target = Path(path)
         doc = load_skill_md(target, default_name=target.stem)
         if doc is None:

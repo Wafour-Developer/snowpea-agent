@@ -12,13 +12,13 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import subprocess
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
 import pytest
 import pytest_asyncio
+from _support import OriginConn, Recorder, git
 
 from snowpea_core.agent.subagent import RUNNING, SUBAGENT_KIND
 from snowpea_core.commands import ralph
@@ -48,29 +48,18 @@ REQUIRED_COMMANDS = (
 # ---------------------------------------------------------------------------
 
 
-def _git(repo: Path, *args: str) -> str:
-    result = subprocess.run(  # noqa: S603 - fixed argv, test-local repo
-        ["git", *args],
-        cwd=repo,
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    return result.stdout
-
-
 @pytest.fixture
 def repo(tmp_path: Path) -> Path:
     """A git repository with two tracked files for ralph to change."""
     project = tmp_path / "repo"
     project.mkdir()
-    _git(project, "init", "-q")
-    _git(project, "config", "user.email", "test@example.com")
-    _git(project, "config", "user.name", "snowpea test")
+    git(project, "init", "-q")
+    git(project, "config", "user.email", "test@example.com")
+    git(project, "config", "user.name", "snowpea test")
     (project / "tracked_a.txt").write_text("original a\n", encoding="utf-8")
     (project / "tracked_b.txt").write_text("original b\n", encoding="utf-8")
-    _git(project, "add", "-A")
-    _git(project, "commit", "-q", "-m", "initial")
+    git(project, "add", "-A")
+    git(project, "commit", "-q", "-m", "initial")
     return project
 
 
@@ -90,30 +79,6 @@ async def daemon(tmp_path: Path) -> AsyncIterator[Daemon]:
             os.environ.pop("SNOWPEA_PROVIDER", None)
         else:
             os.environ["SNOWPEA_PROVIDER"] = previous
-
-
-class Recorder:
-    """A pseudo-connection that keeps every event the hub sends it."""
-
-    closed = False
-
-    def __init__(self) -> None:
-        self.events: list[dict[str, Any]] = []
-
-    async def notify(self, method: str, params: dict[str, Any]) -> None:
-        if method == "session.event":
-            self.events.append(params)
-
-    def of_kind(self, kind: str) -> list[dict[str, Any]]:
-        return [event for event in self.events if event["kind"] == kind]
-
-    def kinds(self) -> list[str]:
-        return [event["kind"] for event in self.events]
-
-    def texts(self) -> str:
-        return "\n".join(
-            str(event["payload"].get("text", "")) for event in self.of_kind("message.done")
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -198,7 +163,7 @@ async def test_ralph_runs_the_repo_to_an_approved_finish(daemon: Daemon, repo: P
     peak = 0
     deadline = asyncio.get_running_loop().time() + TIMEOUT
     while not task.done() and asyncio.get_running_loop().time() < deadline:
-        listing = await agent_list_handler(_Conn(session), None, core)  # type: ignore[arg-type]
+        listing = await agent_list_handler(OriginConn(session), None, core)  # type: ignore[arg-type]
         running = [
             row for row in listing.agents if row.kind == SUBAGENT_KIND and row.status == RUNNING
         ]
@@ -216,7 +181,7 @@ async def test_ralph_runs_the_repo_to_an_approved_finish(daemon: Daemon, repo: P
     assert done[-1]["reason"] == "complete", recorder.texts()
 
     # 2. The working tree really changed.
-    diff = _git(repo, "diff", "--stat")
+    diff = git(repo, "diff", "--stat")
     assert diff.strip(), "ralph finished without touching the repository"
     assert (repo / "tracked_a.txt").read_text(encoding="utf-8").startswith("patched")
     assert (repo / "tracked_b.txt").read_text(encoding="utf-8").startswith("patched")
@@ -277,12 +242,3 @@ async def test_a_rejected_review_does_not_complete_the_turn(
     ]
     assert reasons == ["error"], recorder.texts()
     assert "did not approve" in recorder.texts()
-
-
-class _Conn:
-    """The smallest thing ``_session_for`` will accept as a connection."""
-
-    closed = False
-
-    def __init__(self, session: Any) -> None:
-        session.origin_conn = self

@@ -41,7 +41,6 @@ import logging
 import sqlite3
 import threading
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -52,6 +51,7 @@ from snowpea_core.agent.definition import (
     parse_agent_md,
     validate_name,
 )
+from snowpea_core.config.paths import utc_now
 from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import (
@@ -99,9 +99,6 @@ def namespace_for(name: str) -> str:
     return f"agent:{name}"
 
 
-def _utc_now() -> str:
-    return datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
-
 
 def _json_list(raw: Any) -> list[Any]:
     try:
@@ -122,7 +119,7 @@ class NamedAgent:
     #: ``[{"channel": "telegram:111", "bindingId": "gw-…", "credentialsRef": …}]``
     channel_bindings: list[dict[str, str]] = field(default_factory=list)
     schedule_ids: list[str] = field(default_factory=list)
-    created_at: str = field(default_factory=_utc_now)
+    created_at: str = field(default_factory=utc_now)
     #: Filled in at runtime from the definition file, when there is one.
     description: str = ""
 
