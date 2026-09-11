@@ -25,7 +25,7 @@ export function ApprovalQueue({
       {requests.map((request) => (
         <Text key={request.requestId} dimColor>
           {"  "}
-          {request.tool} · risk={request.risk} · {request.requestId.slice(0, 8)}
+          {request.tool} · risk={request.risk ?? "unknown"} · {request.requestId.slice(0, 8)}
         </Text>
       ))}
       <Text dimColor>respond with: snowpea approvals respond {"<id>"}</Text>

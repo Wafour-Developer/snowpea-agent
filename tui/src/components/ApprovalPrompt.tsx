@@ -18,8 +18,8 @@ const RISK_COLOR: Record<string, string> = {
   high: "red",
 };
 
-export function formatArgs(args: Record<string, unknown>): string[] {
-  return Object.entries(args).map(
+export function formatArgs(args: Record<string, unknown> | undefined): string[] {
+  return Object.entries(args ?? {}).map(
     ([k, v]) => `${k}: ${typeof v === "string" ? v : JSON.stringify(v)}`,
   );
 }
@@ -64,7 +64,7 @@ export function ApprovalPrompt({
       <Text>
         <Text bold>{request.tool}</Text>
         <Text dimColor> risk=</Text>
-        <Text color={RISK_COLOR[request.risk] ?? "white"}>{request.risk}</Text>
+        <Text color={RISK_COLOR[request.risk ?? ""] ?? "white"}>{request.risk ?? "unknown"}</Text>
         {request.timeoutSec ? <Text dimColor> timeout={request.timeoutSec}s</Text> : null}
       </Text>
       {formatArgs(request.args).map((line, index) => (

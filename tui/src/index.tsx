@@ -109,27 +109,17 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   return 0;
 }
 
-/**
- * Exit with `code`, flushing stderr first.
- *
- * `process.exit` rather than `process.exitCode`: a failed `connect()` can leave
- * the SDK's reconnect loop scheduled, which would keep the event loop alive
- * forever on a startup error. A CLI startup failure must terminate.
- */
-function exitWith(code: number): void {
-  if (code === 0) {
-    process.exitCode = 0;
-    return;
-  }
-  process.stderr.write("", () => process.exit(code));
-}
-
 const isDirectRun =
   typeof process.argv[1] === "string" && !process.env.SNOWPEA_TUI_NO_AUTORUN;
 
 if (isDirectRun) {
-  main().then(exitWith, (error: unknown) => {
-    process.stderr.write(`snowpea-tui: ${String(error)}\n`);
-    exitWith(1);
-  });
+  main().then(
+    (code) => {
+      process.exitCode = code;
+    },
+    (error: unknown) => {
+      process.stderr.write(`snowpea-tui: ${String(error)}\n`);
+      process.exitCode = 1;
+    },
+  );
 }

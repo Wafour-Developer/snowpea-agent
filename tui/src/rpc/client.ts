@@ -10,7 +10,7 @@
  */
 
 import {
-  loadConnect,
+  connect as sdkConnect,
   type ApprovalRequestParams,
   type ApprovalResponse,
   type ConnectFn,
@@ -59,10 +59,8 @@ export class TuiClient {
    * Prefers the SDK's own high-water mark, which also counts resume replays.
    */
   lastSeqFor(sessionId: string): number {
-    const fromSdk = this.client?.sessionSeq?.(sessionId);
-    return typeof fromSdk === "number" && fromSdk > 0
-      ? fromSdk
-      : (this.lastSeq.get(sessionId) ?? 0);
+    const fromSdk = this.client?.sessionSeq(sessionId) ?? 0;
+    return fromSdk > 0 ? fromSdk : (this.lastSeq.get(sessionId) ?? 0);
   }
 
   getStatus(): ConnectionStatus {
@@ -74,7 +72,7 @@ export class TuiClient {
   }
 
   async connect(): Promise<void> {
-    const connect = this.options.connectFn ?? (await loadConnect());
+    const connect = this.options.connectFn ?? sdkConnect;
     const client = await connect({
       port: this.options.port,
       token: this.options.token,
@@ -85,9 +83,10 @@ export class TuiClient {
     client.on("session.event", (event: SessionEvent) => this.handleSessionEvent(event));
     client.on("approval.resolved", (params: any) => this.listeners.onApprovalResolved?.(params));
     // The SDK owns reconnect and replays each tracked session with
-    // `session.resume(afterSeq)`; the TUI only renders the transition.
-    client.on("disconnected", (params: { willRetry?: boolean }) =>
-      this.setStatus(params?.willRetry === false ? "closed" : "reconnecting"),
+    // `session.resume(afterSeq)` before emitting `reconnected`; the TUI only
+    // renders the transition.
+    client.on("disconnected", (params) =>
+      this.setStatus(params.willRetry ? "reconnecting" : "closed"),
     );
     client.on("reconnected", () => this.setStatus("connected"));
 
@@ -123,8 +122,15 @@ export class TuiClient {
     return this.client;
   }
 
+  /**
+   * Untyped escape hatch. The SDK's `call` is generic over the generated
+   * `MethodMap`; the TUI reaches methods by name (slash commands forward
+   * whatever the daemon reports), so it is widened here deliberately. The
+   * typed helpers below are what the components actually use.
+   */
   call(method: string, params: Record<string, unknown> = {}): Promise<any> {
-    return this.require().call(method, params);
+    const untyped = this.require().call as (m: string, p?: unknown) => Promise<any>;
+    return untyped(method, params);
   }
 
   async createSession(options: CreateSessionOptions): Promise<string> {
