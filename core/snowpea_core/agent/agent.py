@@ -56,7 +56,7 @@ def build_system_prompt(
     contract §1); it is empty whenever memory is off or nothing matched.
     """
     parts = [
-        BASE_PROMPT,
+        getattr(session, "system_prompt", None) or BASE_PROMPT,
         MODE_GUIDANCE.get(session.mode, MODE_GUIDANCE["accept"]),
         f"Working directory: {session.workdir}",
     ]

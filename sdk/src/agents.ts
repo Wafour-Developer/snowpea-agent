@@ -22,9 +22,22 @@ export function createAgent(client: Client, description: string): Promise<R<"age
   return client.call("agent.create", { description } as P<"agent.create">);
 }
 
-/** Spawn a one-shot subagent; progress arrives as `subagent.*` session events. */
-export function spawnAgent(client: Client, name: string, task: string): Promise<R<"agent.spawn">> {
-  return client.call("agent.spawn", { name, task } as P<"agent.spawn">);
+/**
+ * Spawn a one-shot subagent; progress arrives as `subagent.*` session events.
+ *
+ * Pass `sessionId` to say which session the child belongs to — its
+ * `subagent.spawn`, `subagent.update` and `subagent.done` events are published
+ * there. Without it the daemon uses the session this connection opened.
+ * The call answers with the `agentId` as soon as the child is queued; the run
+ * itself continues in the background.
+ */
+export function spawnAgent(
+  client: Client,
+  name: string,
+  task: string,
+  sessionId?: string,
+): Promise<R<"agent.spawn">> {
+  return client.call("agent.spawn", { name, task, sessionId } as P<"agent.spawn">);
 }
 
 /** Bind a persistent agent to a messenger channel. */

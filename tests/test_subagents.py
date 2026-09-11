@@ -437,3 +437,61 @@ class _Conn:
 
     def __init__(self, session: Any) -> None:
         session.origin_conn = self
+
+
+# ---------------------------------------------------------------------------
+# /ultrawork and /deepinit
+# ---------------------------------------------------------------------------
+
+
+async def test_ultrawork_splits_fans_out_and_merges(daemon: Daemon, workdir: Path) -> None:
+    """The split comes from the model; the parallelism comes from the daemon."""
+    core = daemon.core
+    assert core is not None
+    session = await open_session(core, workdir)
+    recorder = Recorder()
+    core.hub.subscribe(recorder, session.id)
+
+    await asyncio.wait_for(
+        core.commands.run(core, session, "ultrawork", '"do two separable things"'),
+        timeout=TIMEOUT,
+    )
+
+    assert len(recorder.of_kind("subagent.spawn")) == 2
+    assert len(recorder.of_kind("subagent.done")) == 2
+    merged = "\n".join(str(event["payload"]["text"]) for event in recorder.of_kind("message.done"))
+    assert "T1 first half" in merged
+    assert "T2 second half" in merged
+    assert merged.count("child finished its quick task") == 2
+
+
+async def test_ultrawork_without_a_task_explains_itself(daemon: Daemon, workdir: Path) -> None:
+    from snowpea_core.commands import ultrawork
+
+    core = daemon.core
+    assert core is not None
+    session = await open_session(core, workdir)
+    recorder = Recorder()
+    core.hub.subscribe(recorder, session.id)
+    await asyncio.wait_for(core.commands.run(core, session, "ultrawork", ""), timeout=TIMEOUT)
+    assert ultrawork.USAGE in str(recorder.of_kind("message.done")[-1]["payload"]["text"])
+
+
+def test_deepinit_picks_the_directories_worth_documenting(tmp_path: Path) -> None:
+    from snowpea_core.commands import deepinit
+
+    root = tmp_path / "tree"
+    (root / "src").mkdir(parents=True)
+    (root / "src" / "a.py").write_text("a", encoding="utf-8")
+    (root / "src" / "b.py").write_text("b", encoding="utf-8")
+    (root / "node_modules" / "dep").mkdir(parents=True)
+    (root / "node_modules" / "dep" / "index.js").write_text("x", encoding="utf-8")
+    (root / "node_modules" / "dep" / "other.js").write_text("y", encoding="utf-8")
+    (root / ".hidden").mkdir()
+    (root / "thin").mkdir()
+    (root / "thin" / "only.txt").write_text("one file", encoding="utf-8")
+    (root / "README.md").write_text("readme", encoding="utf-8")
+
+    assert [path.name for path in deepinit.interesting_dirs(root)] == ["src"]
+    assert "src/AGENTS.md" in deepinit.dir_task(root / "src", root)
+    assert "- src/AGENTS.md" in deepinit.root_task(root, [root / "src"])

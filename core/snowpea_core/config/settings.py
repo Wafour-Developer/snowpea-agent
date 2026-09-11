@@ -38,6 +38,12 @@ class TeamSettings(_Model):
     max_conflict_retries: int = 2
 
 
+class RalphSettings(_Model):
+    """The ``/ralph`` loop's stopping rule (M7 contract §4)."""
+
+    max_iterations: int = 10
+
+
 class ApprovalsSettings(_Model):
     timeoutSec: int = 300
 
@@ -131,6 +137,7 @@ class Settings(_Model):
     """Daemon-wide settings, persisted as JSON."""
 
     agents: AgentsSettings = Field(default_factory=AgentsSettings)
+    ralph: RalphSettings = Field(default_factory=RalphSettings)
     team: TeamSettings = Field(default_factory=TeamSettings)
     approvals: ApprovalsSettings = Field(default_factory=ApprovalsSettings)
     agent: AgentSettings = Field(default_factory=AgentSettings)
@@ -184,6 +191,7 @@ __all__ = [
     "MediaMcpSettings",
     "MediaSettings",
     "MemorySettings",
+    "RalphSettings",
     "SchedulerSettings",
     "SearchSettings",
     "Settings",
