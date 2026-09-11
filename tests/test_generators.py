@@ -1,0 +1,383 @@
+"""M6 US-018: the agent-definition and skill generators.
+
+Everything runs against a real in-process daemon with the deterministic
+scripted provider, so the assertions describe what a TUI or the SDK would see
+on the wire.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+from collections.abc import AsyncIterator, Callable
+from pathlib import Path
+from typing import Any
+
+import aiohttp
+import pytest
+import pytest_asyncio
+
+from snowpea_core.agent.definition import (
+    AgentDefinition,
+    DefinitionError,
+    parse_agent_md,
+    parse_agent_text,
+    parse_generated_json,
+    render_agent_md,
+    slugify,
+    validate_name,
+)
+from snowpea_core.server.app_server import Daemon
+from snowpea_core.server.protocol import PROTOCOL_VERSION
+
+# ``asyncio_mode = "auto"`` in pyproject.toml runs the coroutine tests below.
+FIXTURE = Path(__file__).parent / "fixtures" / "providers" / "fake" / "generators.json"
+TIMEOUT = 15.0
+
+KOREAN_BRIEF = "릴리즈 노트 작성 전담"
+
+
+# ---------------------------------------------------------------------------
+# a minimal JSON-RPC client (same shape as tests/test_session_loop.py)
+# ---------------------------------------------------------------------------
+
+
+class Client:
+    def __init__(self, ws: aiohttp.ClientWebSocketResponse) -> None:
+        self._ws = ws
+        self._next_id = 0
+        self._pending: dict[int, asyncio.Future[dict[str, Any]]] = {}
+        self._reader: asyncio.Task[None] | None = None
+        self.events: list[dict[str, Any]] = []
+
+    def start(self) -> None:
+        self._reader = asyncio.ensure_future(self._read())
+
+    async def stop(self) -> None:
+        if self._reader is not None:
+            self._reader.cancel()
+            await asyncio.gather(self._reader, return_exceptions=True)
+        await self._ws.close()
+
+    async def _read(self) -> None:
+        async for message in self._ws:
+            if message.type is not aiohttp.WSMsgType.TEXT:
+                continue
+            frame = json.loads(message.data)
+            if "method" not in frame:
+                future = self._pending.pop(int(frame["id"]), None)
+                if future is not None and not future.done():
+                    future.set_result(frame)
+                continue
+            if frame.get("id") is None:
+                if frame["method"] == "session.event":
+                    self.events.append(frame["params"])
+                continue
+            await self._ws.send_json(
+                {"jsonrpc": "2.0", "id": frame["id"], "result": {"decision": "allow"}}
+            )
+
+    async def call(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        self._next_id += 1
+        request_id = self._next_id
+        future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
+        self._pending[request_id] = future
+        await self._ws.send_json(
+            {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params or {}}
+        )
+        return await asyncio.wait_for(future, TIMEOUT)
+
+    async def ok(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        frame = await self.call(method, params)
+        assert "error" not in frame, frame["error"]
+        return frame["result"]
+
+    def of_kind(self, kind: str) -> list[dict[str, Any]]:
+        return [event for event in self.events if event["kind"] == kind]
+
+    def kinds(self) -> list[str]:
+        return [event["kind"] for event in self.events]
+
+    async def wait(
+        self, predicate: Callable[[dict[str, Any]], bool], timeout: float = TIMEOUT
+    ) -> dict[str, Any]:
+        deadline = asyncio.get_running_loop().time() + timeout
+        while True:
+            for event in self.events:
+                if predicate(event):
+                    return event
+            if asyncio.get_running_loop().time() > deadline:
+                raise AssertionError(f"timed out; saw {self.kinds()}")
+            await asyncio.sleep(0.02)
+
+    async def wait_turn(self, turn_id: str, timeout: float = TIMEOUT) -> str:
+        event = await self.wait(
+            lambda e: e["kind"] == "turn.done" and e["payload"]["turnId"] == turn_id, timeout
+        )
+        return str(event["payload"]["reason"])
+
+
+@pytest_asyncio.fixture
+async def daemon(tmp_path: Path) -> AsyncIterator[Daemon]:
+    previous = os.environ.get("SNOWPEA_PROVIDER")
+    os.environ["SNOWPEA_PROVIDER"] = f"fake:{FIXTURE}"
+    home = tmp_path / "home"
+    home.mkdir(parents=True, exist_ok=True)
+    instance = Daemon(port=0, home=home)
+    await instance.start()
+    try:
+        yield instance
+    finally:
+        await instance.stop()
+        if previous is None:
+            os.environ.pop("SNOWPEA_PROVIDER", None)
+        else:
+            os.environ["SNOWPEA_PROVIDER"] = previous
+
+
+@pytest_asyncio.fixture
+async def http() -> AsyncIterator[aiohttp.ClientSession]:
+    async with aiohttp.ClientSession() as session:
+        yield session
+
+
+async def connect(http: aiohttp.ClientSession, daemon: Daemon) -> Client:
+    ws = await http.ws_connect(f"http://127.0.0.1:{daemon.port}/ws")
+    client = Client(ws)
+    client.start()
+    await client.ok(
+        "system.hello",
+        {
+            "token": daemon.token,
+            "clientVersion": "test-us018",
+            "protocolVersion": PROTOCOL_VERSION,
+        },
+    )
+    return client
+
+
+async def start_session(client: Client, workdir: Path) -> str:
+    result = await client.ok("session.create", {"workdir": str(workdir), "mode": "accept"})
+    return str(result["sessionId"])
+
+
+async def run(client: Client, session_id: str, text: str) -> str:
+    """Send ``text`` and wait for its turn to finish; returns the reason."""
+    result = await client.ok("session.prompt", {"sessionId": session_id, "text": text})
+    return await client.wait_turn(str(result["turnId"]))
+
+
+def project(tmp_path: Path) -> Path:
+    workdir = tmp_path / "project"
+    workdir.mkdir(exist_ok=True)
+    return workdir
+
+
+def last_message(client: Client) -> str:
+    messages = client.of_kind("message.done")
+    assert messages, f"no message.done; saw {client.kinds()}"
+    return str(messages[-1]["payload"]["text"])
+
+
+# ---------------------------------------------------------------------------
+# pure functions: parse / render / slug / tolerant JSON
+# ---------------------------------------------------------------------------
+
+
+def test_parse_and_render_round_trip(tmp_path: Path) -> None:
+    original = AgentDefinition(
+        name="release-notes",
+        description="Writes release notes: crisply",
+        model="anthropic:claude-sonnet-4",
+        tools=["read_file", "shell"],
+        permission="plan",
+        max_turns=12,
+        prompt="You write release notes.\n\nOne line per entry.",
+    )
+    text = render_agent_md(original)
+    assert text.startswith("---\n")
+
+    path = tmp_path / "release-notes.md"
+    path.write_text(text, encoding="utf-8")
+    again = parse_agent_md(path)
+
+    assert again.name == original.name
+    assert again.description == original.description
+    assert again.model == original.model
+    assert again.tools == original.tools
+    assert again.permission == original.permission
+    assert again.max_turns == original.max_turns
+    assert again.prompt == original.prompt
+    assert render_agent_md(again) == text
+
+
+def test_star_tools_and_block_lists_parse() -> None:
+    assert parse_agent_text('---\nname: a\ntools: "*"\n---\nbody').tools == "*"
+    block = "---\nname: a\ntools:\n  - shell\n  - read_file\n---\nbody"
+    assert parse_agent_text(block).tools == ["shell", "read_file"]
+    assert parse_agent_text(block).prompt == "body"
+
+
+def test_slug_validation() -> None:
+    assert validate_name("Release Notes") == "release-notes"
+    assert slugify(KOREAN_BRIEF) == ""
+    with pytest.raises(DefinitionError):
+        validate_name(KOREAN_BRIEF)
+
+
+def test_generated_json_is_parsed_out_of_prose() -> None:
+    assert parse_generated_json('ok: {"name": "x", "nested": {"y": 1}} trailing')["name"] == "x"
+    fenced = 'here\n```json\n{"name": "y"}\n```\n'
+    assert parse_generated_json(fenced)["name"] == "y"
+    with pytest.raises(DefinitionError):
+        parse_generated_json("no object here")
+
+
+# ---------------------------------------------------------------------------
+# /agent create, /agent list, agent.list
+# ---------------------------------------------------------------------------
+
+
+async def test_agent_create_writes_a_definition(
+    daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path
+) -> None:
+    workdir = project(tmp_path)
+    client = await connect(http, daemon)
+    session_id = await start_session(client, workdir)
+
+    assert await run(client, session_id, f'/agent create "{KOREAN_BRIEF}"') == "complete"
+
+    path = workdir / ".snowpea" / "agents" / "release-notes.md"
+    assert path.is_file(), f"not written; reply was {last_message(client)}"
+    defn = parse_agent_md(path)
+    assert defn.name == "release-notes"
+    assert defn.description == "릴리즈 노트 작성 전담 에이전트"
+    assert defn.tools == ["read_file", "shell"]
+    assert defn.model == "inherit"
+    assert defn.permission == "inherit"
+    assert "release notes" in defn.prompt.lower()
+    assert str(path) in last_message(client)
+
+    await client.stop()
+
+
+async def test_agent_list_and_rpc_show_the_definition(
+    daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path
+) -> None:
+    workdir = project(tmp_path)
+    client = await connect(http, daemon)
+    session_id = await start_session(client, workdir)
+    assert await run(client, session_id, f'/agent create "{KOREAN_BRIEF}"') == "complete"
+
+    assert await run(client, session_id, "/agent list") == "complete"
+    listing = last_message(client)
+    assert "release-notes" in listing
+    assert "[project]" in listing
+
+    result = await client.ok("agent.list")
+    agents = {agent["name"]: agent for agent in result["agents"]}
+    assert "release-notes" in agents
+    assert agents["release-notes"]["source"] == "project"
+    assert agents["release-notes"]["kind"] == "definition"
+    assert agents["release-notes"]["path"].endswith("release-notes.md")
+
+    await client.stop()
+
+
+async def test_agent_create_rpc_matches_the_command(
+    daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path
+) -> None:
+    workdir = project(tmp_path)
+    client = await connect(http, daemon)
+    await start_session(client, workdir)
+
+    result = await client.ok("agent.create", {"description": KOREAN_BRIEF})
+    assert result["name"] == "release-notes"
+    assert (workdir / ".snowpea" / "agents" / "release-notes.md").is_file()
+    assert result["path"] == str(workdir / ".snowpea" / "agents" / "release-notes.md")
+
+    await client.stop()
+
+
+async def test_malformed_model_json_reports_an_error_and_writes_nothing(
+    daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path
+) -> None:
+    workdir = project(tmp_path)
+    client = await connect(http, daemon)
+    session_id = await start_session(client, workdir)
+
+    assert await run(client, session_id, '/agent create "not json at all"') == "complete"
+
+    errors = client.of_kind("error")
+    assert errors, f"no error event; saw {client.kinds()}"
+    assert errors[-1]["payload"]["code"] == "invalid_params"
+    assert "JSON" in errors[-1]["payload"]["message"]
+    assert "Could not create the agent" in last_message(client)
+    assert not (workdir / ".snowpea" / "agents").exists()
+
+    await client.stop()
+
+
+# ---------------------------------------------------------------------------
+# /skill learn
+# ---------------------------------------------------------------------------
+
+
+async def test_skill_learn_writes_a_skill_md(
+    daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path
+) -> None:
+    workdir = project(tmp_path)
+    client = await connect(http, daemon)
+    session_id = await start_session(client, workdir)
+
+    # A short session first, so there is a history to summarise.
+    assert await run(client, session_id, "remember this workflow: read the changelog") == "complete"
+    assert await run(client, session_id, "/skill learn notes") == "complete"
+
+    path = workdir / ".snowpea" / "skills" / "notes" / "SKILL.md"
+    assert path.is_file(), f"not written; reply was {last_message(client)}"
+    text = path.read_text(encoding="utf-8")
+    assert text.startswith("---\nname: notes\n")
+    assert "description: Collect release notes for a project" in text
+    assert "1. Read the changelog" in text
+    assert "3. Write one line per entry" in text
+    assert "git log --oneline" in text
+    assert str(path) in last_message(client)
+
+    await client.stop()
+
+
+async def test_skill_learn_needs_a_session_history(
+    daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path
+) -> None:
+    workdir = project(tmp_path)
+    client = await connect(http, daemon)
+    session_id = await start_session(client, workdir)
+
+    assert await run(client, session_id, "/skill learn notes") == "complete"
+    assert client.of_kind("error"), f"no error event; saw {client.kinds()}"
+    assert "no history" in last_message(client)
+    assert not (workdir / ".snowpea" / "skills").exists()
+
+    await client.stop()
+
+
+async def test_learned_skill_becomes_a_command(
+    daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path
+) -> None:
+    """The loaded skill turns into ``/notes`` — needs the US-017 skill loader."""
+    workdir = project(tmp_path)
+    client = await connect(http, daemon)
+    session_id = await start_session(client, workdir)
+    assert await run(client, session_id, "remember this workflow: read the changelog") == "complete"
+    assert await run(client, session_id, "/skill learn notes") == "complete"
+    assert (workdir / ".snowpea" / "skills" / "notes" / "SKILL.md").is_file()
+
+    if getattr(daemon.core, "skills", None) is None:
+        pytest.xfail("the US-017 skill loader is not wired into Core yet")
+
+    result = await client.ok("command.list", {"sessionId": session_id})
+    assert "notes" in {command["name"] for command in result["commands"]}
+
+    await client.stop()
