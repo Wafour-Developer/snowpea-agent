@@ -106,6 +106,17 @@ class MemorySettings(_Model):
     )
 
 
+class SchedulerSettings(_Model):
+    """The scheduler loop (M5 contract §2)."""
+
+    enabled: bool = True
+    #: How often the daemon looks for due jobs.
+    tickSec: int = 15
+    #: A ``once`` job missed while the daemon was down still runs if it is less
+    #: than this late; anything older is marked missed and disabled.
+    catchUpSec: int = 3600
+
+
 class McpSettings(_Model):
     """Extra MCP servers and their permission tags (M2 contract §6)."""
 
@@ -130,6 +141,7 @@ class Settings(_Model):
     media: MediaSettings = Field(default_factory=MediaSettings)
     mcp: McpSettings = Field(default_factory=McpSettings)
     memory: MemorySettings = Field(default_factory=MemorySettings)
+    scheduler: SchedulerSettings = Field(default_factory=SchedulerSettings)
     providers: dict[str, Any] = Field(default_factory=dict)
     #: Chat gateways the setup wizard enabled, ``{"telegram": {"enabled":
     #: true, "token": "..."}}``.  Absent gateways are off.
@@ -172,6 +184,7 @@ __all__ = [
     "MediaMcpSettings",
     "MediaSettings",
     "MemorySettings",
+    "SchedulerSettings",
     "SearchSettings",
     "Settings",
     "TeamSettings",

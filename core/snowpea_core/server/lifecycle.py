@@ -17,6 +17,15 @@ log = logging.getLogger("snowpea.lifecycle")
 COUNTERS: tuple[str, ...] = ("sessions", "jobs", "gateway_bindings", "named_agents")
 TICK_SECONDS = 1.0
 
+#: Singular/plural wording for the keepalive reasons (plan §2.6), in the order
+#: they are reported: ``will not exit: 2 gateway bindings, 1 job``.
+COUNTER_LABELS: dict[str, tuple[str, str]] = {
+    "sessions": ("session", "sessions"),
+    "gateway_bindings": ("gateway binding", "gateway bindings"),
+    "jobs": ("job", "jobs"),
+    "named_agents": ("named agent", "named agents"),
+}
+
 
 class Lifecycle:
     """Counts live resources and fires ``on_idle`` when they stay at zero."""
@@ -65,6 +74,30 @@ class Lifecycle:
         elapsed = time.monotonic() - self._idle_since
         return max(0.0, self.idle_timeout_sec - elapsed)
 
+    def reasons(self) -> list[str]:
+        """Why the daemon is staying up, e.g. ``["2 gateway bindings", "1 job"]``.
+
+        Empty while nothing is registered, which is exactly when the idle timer
+        is allowed to run (plan §2.6: sessions, jobs, gateway bindings and
+        named agents must all be zero).
+        """
+        out: list[str] = []
+        for name, (singular, plural) in COUNTER_LABELS.items():
+            count = self.counters.get(name, 0)
+            if count > 0:
+                out.append(f"{count} {singular if count == 1 else plural}")
+        return out
+
+    def summary(self) -> str:
+        """One line for ``snowpea daemon status``."""
+        remaining = self.seconds_until_exit()
+        if remaining is not None:
+            return f"will exit in {remaining:.0f}s"
+        reasons = self.reasons()
+        if not reasons:  # idle shutdown disabled
+            return "will not exit: idle shutdown is off"
+        return "will not exit: " + ", ".join(reasons)
+
     def status(self) -> dict[str, Any]:
         """Snapshot for ``system.info`` / diagnostics."""
         remaining = self.seconds_until_exit()
@@ -74,6 +107,8 @@ class Lifecycle:
             "willExit": will_exit,
             "reason": "idle" if will_exit else "busy",
             "secondsUntilExit": remaining,
+            "reasons": self.reasons(),
+            "summary": self.summary(),
         }
 
     # -- loop ----------------------------------------------------------
@@ -106,4 +141,4 @@ class Lifecycle:
             await asyncio.gather(task, return_exceptions=True)
 
 
-__all__ = ["COUNTERS", "TICK_SECONDS", "Lifecycle"]
+__all__ = ["COUNTER_LABELS", "COUNTERS", "TICK_SECONDS", "Lifecycle"]

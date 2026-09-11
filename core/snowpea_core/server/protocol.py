@@ -77,6 +77,14 @@ class LifecycleStatus(Payload):
     secondsUntilExit: float | None = Field(
         None, description="Seconds left before the idle shutdown, null while busy."
     )
+    reasons: list[str] = Field(
+        default_factory=list,
+        description="Why the daemon is staying up, e.g. ['2 gateway bindings', '1 job'].",
+    )
+    summary: str | None = Field(
+        None,
+        description="One line for humans: 'will exit in 120s' or 'will not exit: 1 job'.",
+    )
 
 
 class InfoResult(Payload):
@@ -458,10 +466,17 @@ class JobScheduleParams(Payload):
     channel: str | None = Field(
         default=None, description="Gateway channel that receives the output."
     )
+    agent: str | None = Field(default=None, description="Named agent that runs the task.")
+    workdir: str | None = Field(
+        default=None, description="Working directory for the run; defaults to the daemon's home."
+    )
 
 
 class JobScheduleResult(Payload):
     jobId: str = Field(description="Id of the scheduled job.")
+    nextRunAt: str | None = Field(
+        default=None, description="UTC ISO-8601 time of the first firing."
+    )
 
 
 class JobInfo(Payload):
@@ -475,6 +490,16 @@ class JobInfo(Payload):
     nextRunAt: str | None = Field(default=None, description="UTC ISO-8601 time of the next firing.")
     state: Literal["scheduled", "running", "cancelled"] = Field(
         "scheduled", description="Current job state."
+    )
+    kind: Literal["cron", "once", "interval"] = Field(
+        "once", description="How the spec repeats: a cron rule, a one-shot, or a fixed interval."
+    )
+    enabled: bool = Field(True, description="False once the job is cancelled or has run out.")
+    lastRunAt: str | None = Field(
+        default=None, description="UTC ISO-8601 time of the last firing, null before the first."
+    )
+    lastStatus: Literal["ok", "error", "denied_by_timeout"] | None = Field(
+        default=None, description="How the last run ended."
     )
 
 
@@ -778,7 +803,9 @@ class JobEventNotification(Payload):
     """Progress from a scheduled job."""
 
     jobId: str = Field(description="Job the event belongs to.")
-    kind: str = Field(description="Event kind, e.g. 'started' or 'finished'.")
+    kind: Literal["started", "finished", "failed", "denied"] = Field(
+        description="Where the run got to."
+    )
     payload: dict[str, Any] = Field(default_factory=dict, description="Kind-specific body.")
 
 

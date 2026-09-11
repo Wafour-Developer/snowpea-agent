@@ -302,8 +302,16 @@ export interface JobListResult {
   jobs?: ({
     /** Channel that receives the output. */
     channel?: string | null;
+    /** False once the job is cancelled or has run out. */
+    enabled?: boolean;
     /** Job id. */
     jobId: string;
+    /** How the spec repeats: a cron rule, a one-shot, or a fixed interval. */
+    kind?: "cron" | "once" | "interval";
+    /** UTC ISO-8601 time of the last firing, null before the first. */
+    lastRunAt?: string | null;
+    /** How the last run ended. */
+    lastStatus?: "ok" | "error" | "denied_by_timeout" | null;
     /** Permission mode for the run. */
     mode?: "plan" | "accept" | "auto";
     /** UTC ISO-8601 time of the next firing. */
@@ -331,6 +339,8 @@ export interface JobRunNowResult {
 
 /** `job.schedule` params. Schedule a prompt to run unattended. */
 export interface JobScheduleParams {
+  /** Named agent that runs the task. */
+  agent?: string | null;
   /** Gateway channel that receives the output. */
   channel?: string | null;
   /** Permission mode for the unattended run. */
@@ -339,12 +349,16 @@ export interface JobScheduleParams {
   spec: string;
   /** Prompt run on each firing. */
   task: string;
+  /** Working directory for the run; defaults to the daemon's home. */
+  workdir?: string | null;
 }
 
 /** `job.schedule` result. */
 export interface JobScheduleResult {
   /** Id of the scheduled job. */
   jobId: string;
+  /** UTC ISO-8601 time of the first firing. */
+  nextRunAt?: string | null;
 }
 
 /** `memory.search` params. Recall stored memories matching a query. */
@@ -727,8 +741,12 @@ export interface SystemInfoResult {
   lifecycle?: {
     /** Why the daemon will or will not exit. */
     reason?: string;
+    /** Why the daemon is staying up, e.g. ['2 gateway bindings', '1 job']. */
+    reasons?: string[];
     /** Seconds left before the idle shutdown, null while busy. */
     secondsUntilExit?: number | null;
+    /** One line for humans: 'will exit in 120s' or 'will not exit: 1 job'. */
+    summary?: string | null;
     /** True while the idle timer is running. */
     willExit?: boolean;
   } | null;
@@ -847,8 +865,8 @@ export interface GatewayEventPayload {
 export interface JobEventPayload {
   /** Job the event belongs to. */
   jobId: string;
-  /** Event kind, e.g. 'started' or 'finished'. */
-  kind: string;
+  /** Where the run got to. */
+  kind: "started" | "finished" | "failed" | "denied";
   /** Kind-specific body. */
   payload?: Record<string, unknown>;
 }

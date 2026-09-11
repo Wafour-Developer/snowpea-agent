@@ -393,7 +393,7 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `jobs` | `({ channel?: string \| null; jobId: string; mode?: "plan" \| "accept" \| "auto"; nextRunAt?: string \| null; spec: string; state?: "scheduled" \| "running" \| "cancelled"; task: string; })[]` | no | Known jobs. |
+| `jobs` | `({ channel?: string \| null; enabled?: boolean; jobId: string; kind?: "cron" \| "once" \| "interval"; lastRunAt?: string \| null; lastStatus?: "ok" \| "error" \| "denied_by_timeout" \| null; mode?: "plan" \| "accept" \| "auto"; nextRunAt?: string \| null; spec: string; state?: "scheduled" \| "running" \| "cancelled"; task: string; })[]` | no | Known jobs. |
 
 ### `job.runNow`
 
@@ -423,16 +423,19 @@ Schedule a prompt to run unattended.
 
 | field | type | required | description |
 |---|---|---|---|
+| `agent` | `string \| null` | no | Named agent that runs the task. |
 | `channel` | `string \| null` | no | Gateway channel that receives the output. |
 | `mode` | `"plan" \| "accept" \| "auto"` | no | Permission mode for the unattended run. |
 | `spec` | `string` | yes | Cron expression or natural-language schedule. |
 | `task` | `string` | yes | Prompt run on each firing. |
+| `workdir` | `string \| null` | no | Working directory for the run; defaults to the daemon's home. |
 
 **Result**
 
 | field | type | required | description |
 |---|---|---|---|
 | `jobId` | `string` | yes | Id of the scheduled job. |
+| `nextRunAt` | `string \| null` | no | UTC ISO-8601 time of the first firing. |
 
 ### `memory.search`
 
@@ -840,7 +843,7 @@ _No params (send `{}`)._
 |---|---|---|---|
 | `counters` | `Record<string, number>` | no | Lifecycle counters: sessions, jobs, gateway_bindings, named_agents. |
 | `home` | `string` | yes | Resolved SNOWPEA_HOME directory. |
-| `lifecycle` | `{ reason?: string; secondsUntilExit?: number \| null; willExit?: boolean; } \| null` | no | Idle-shutdown status, omitted by older daemons. |
+| `lifecycle` | `{ reason?: string; reasons?: string[]; secondsUntilExit?: number \| null; summary?: string \| null; willExit?: boolean; } \| null` | no | Idle-shutdown status, omitted by older daemons. |
 | `pid` | `number` | yes | Process id of the daemon. |
 | `port` | `number` | yes | TCP port the daemon is listening on (127.0.0.1 only). |
 | `protocolVersion` | `string` | yes | Protocol semver the daemon speaks. |
@@ -944,7 +947,7 @@ List the tools registered for a session.
 | field | type | required | description |
 |---|---|---|---|
 | `jobId` | `string` | yes | Job the event belongs to. |
-| `kind` | `string` | yes | Event kind, e.g. 'started' or 'finished'. |
+| `kind` | `"started" \| "finished" \| "failed" \| "denied"` | yes | Where the run got to. |
 | `payload` | `Record<string, unknown>` | no | Kind-specific body. |
 
 ### `session.event`

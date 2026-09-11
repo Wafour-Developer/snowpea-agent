@@ -50,6 +50,11 @@ class Paths:
         return self.home / "settings.json"
 
     @property
+    def credentials_json(self) -> Path:
+        """Gateway credentials, kept at 0600 (M5 contract §3)."""
+        return self.home / "credentials.json"
+
+    @property
     def state_db(self) -> Path:
         return self.home / "state.db"
 
@@ -64,6 +69,11 @@ class Paths:
     @property
     def approvals_log(self) -> Path:
         return self.logs_dir / "approvals.jsonl"
+
+    @property
+    def jobs_log(self) -> Path:
+        """Where scheduled-job output goes when no chat channel takes it."""
+        return self.logs_dir / "jobs.log"
 
     def ensure(self) -> None:
         """Create ``home`` and ``logs/`` (idempotent)."""
