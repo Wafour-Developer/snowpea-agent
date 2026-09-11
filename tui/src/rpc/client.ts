@@ -17,6 +17,9 @@ import {
   type Mode,
   type SdkClient,
   type SessionEvent,
+  type UpdateCheck,
+  type UpdateProgress,
+  type UpdateStart,
 } from "./sdk.js";
 
 export type ConnectionStatus = "connecting" | "connected" | "reconnecting" | "closed";
@@ -48,6 +51,8 @@ export interface TuiClientListeners {
   onApprovalPending?: (params: { request: ApprovalRequestParams }) => void;
   /** A skill reload or plugin install changed the command table (M6 §1). */
   onCommandsChanged?: () => void;
+  /** The upgrade started by `system.update` moved on (CORE-update). */
+  onUpdateProgress?: (params: UpdateProgress) => void;
 }
 
 export class TuiClient {
@@ -88,6 +93,7 @@ export class TuiClient {
     client.on("approval.resolved", (params: any) => this.listeners.onApprovalResolved?.(params));
     client.on("commands.changed", () => this.listeners.onCommandsChanged?.());
     client.on("approval.pending", (params: any) => this.listeners.onApprovalPending?.(params));
+    client.on("system.updateProgress", (params: any) => this.listeners.onUpdateProgress?.(params));
     // The SDK owns reconnect and replays each tracked session with
     // `session.resume(afterSeq)` before emitting `reconnected`; the TUI only
     // renders the transition.
@@ -135,7 +141,8 @@ export class TuiClient {
    * typed helpers below are what the components actually use.
    */
   call(method: string, params: Record<string, unknown> = {}): Promise<any> {
-    const untyped = this.require().call as (m: string, p?: unknown) => Promise<any>;
+    const client = this.require();
+    const untyped = client.call.bind(client) as (m: string, p?: unknown) => Promise<any>;
     return untyped(method, params);
   }
 
@@ -170,6 +177,21 @@ export class TuiClient {
     scope: ApprovalResponse["scope"],
   ): Promise<unknown> {
     return this.call("approval.respond", { requestId, decision, scope });
+  }
+
+  /** `system.checkUpdate`; the daemon caches the answer for 24h. */
+  checkUpdate(force = false): Promise<UpdateCheck> {
+    return this.call("system.checkUpdate", { force });
+  }
+
+  /** `system.update` — starts the upgrade; progress arrives as notifications. */
+  startUpdate(): Promise<UpdateStart> {
+    return this.call("system.update", {});
+  }
+
+  /** `system.restart` — the daemon exits so the next launch runs new code. */
+  restartDaemon(): Promise<unknown> {
+    return this.call("system.restart", {});
   }
 
   async closeSession(sessionId: string): Promise<void> {

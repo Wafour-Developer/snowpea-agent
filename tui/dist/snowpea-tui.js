@@ -28166,10 +28166,10 @@ var require_react_jsx_runtime_development = __commonJS({
             return jsxWithValidation(type, props, key, false);
           }
         }
-        var jsx14 = jsxWithValidationDynamic;
+        var jsx15 = jsxWithValidationDynamic;
         var jsxs13 = jsxWithValidationStatic;
         exports.Fragment = REACT_FRAGMENT_TYPE;
-        exports.jsx = jsx14;
+        exports.jsx = jsx15;
         exports.jsxs = jsxs13;
       })();
     }
@@ -28211,7 +28211,7 @@ function debounce(func, debounceMs, { signal, edges } = {}) {
   };
   const onTimerEnd = () => {
     if (trailing) invoke();
-    cancel();
+    cancel2();
   };
   let timeoutId = null;
   const schedule = () => {
@@ -28227,7 +28227,7 @@ function debounce(func, debounceMs, { signal, edges } = {}) {
       timeoutId = null;
     }
   };
-  const cancel = () => {
+  const cancel2 = () => {
     cancelTimer();
     pendingThis = void 0;
     pendingArgs = null;
@@ -28244,9 +28244,9 @@ function debounce(func, debounceMs, { signal, edges } = {}) {
     if (leading && isFirstCall) invoke();
   };
   debounced.schedule = schedule;
-  debounced.cancel = cancel;
+  debounced.cancel = cancel2;
   debounced.flush = flush;
-  signal?.addEventListener("abort", cancel, { once: true });
+  signal?.addEventListener("abort", cancel2, { once: true });
   return debounced;
 }
 
@@ -33857,6 +33857,51 @@ var SlashRegistry = class {
   }
 };
 
+// src/state/update.ts
+var initialUpdateState = {
+  phase: "idle",
+  current: "",
+  latest: "",
+  message: "",
+  dismissed: false
+};
+function fromCheck(state, check) {
+  const current = check.current ?? state.current;
+  const latest = check.latest ?? state.latest;
+  if (!check.available || check.error || state.phase === "running" || state.phase === "done") {
+    return { ...state, current, latest };
+  }
+  return { ...state, phase: state.dismissed ? "idle" : "available", current, latest };
+}
+function confirm(state) {
+  if (state.phase === "running" || state.phase === "done") return state;
+  return { ...state, phase: "confirm", dismissed: false };
+}
+function cancel(state) {
+  if (state.phase === "running" || state.phase === "done") return state;
+  return { ...state, phase: "idle", dismissed: true };
+}
+function progress(state, phase, message) {
+  const next = phase === "started" ? "running" : phase;
+  return { ...state, phase: next, message };
+}
+function bannerText(state) {
+  switch (state.phase) {
+    case "available":
+      return `\u2B06 Update available v${state.latest} (current v${state.current}) \u2014 press U or type /update`;
+    case "confirm":
+      return `\u2B06 Update to v${state.latest} from v${state.current}? [y/N]`;
+    case "running":
+      return `\u2B06 ${state.message || `Updating to v${state.latest}\u2026`}`;
+    case "done":
+      return `\u2B06 Updated to v${state.latest} \u2014 restarting\u2026`;
+    case "failed":
+      return `\u2B06 Update failed: ${state.message || "see the update log"}`;
+    default:
+      return null;
+  }
+}
+
 // src/state/store.ts
 var initialState = {
   sessionId: null,
@@ -34725,21 +34770,37 @@ function SubagentTree({
   ] });
 }
 
-// src/app.tsx
+// src/components/UpdateBanner.tsx
 var import_jsx_runtime12 = __toESM(require_jsx_runtime(), 1);
+var PHASE_COLOR = {
+  available: "cyan",
+  confirm: "yellow",
+  running: "yellow",
+  done: "green",
+  failed: "red"
+};
+function UpdateBanner({ update }) {
+  const text = bannerText(update);
+  if (text === null) return null;
+  return /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { color: PHASE_COLOR[update.phase] ?? "cyan", children: text }) });
+}
+
+// src/app.tsx
+var import_jsx_runtime13 = __toESM(require_jsx_runtime(), 1);
 var APPROVAL_POLL_MS = 5e3;
+var RESTART_DELAY_MS = 1200;
 function Timeline({ state, expandedCall }) {
-  return /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Box_default, { flexDirection: "column", children: state.timeline.map((item, index) => {
+  return /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Box_default, { flexDirection: "column", children: state.timeline.map((item, index) => {
     if (item.kind === "message") {
       const message = state.messages.find((m) => m.id === item.id);
-      return message ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(MessageStream, { messages: [message] }, `${item.id}-${index}`) : null;
+      return message ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(MessageStream, { messages: [message] }, `${item.id}-${index}`) : null;
     }
     if (item.kind === "tool") {
       const call = state.toolCalls.find((c) => c.callId === item.id);
-      return call ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(ToolCall, { call, expanded: expandedCall === item.id }, `${item.id}-${index}`) : null;
+      return call ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(ToolCall, { call, expanded: expandedCall === item.id }, `${item.id}-${index}`) : null;
     }
     const diff2 = state.diffs.find((d) => d.id === item.id);
-    return diff2 ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(DiffView, { diff: diff2 }, `${item.id}-${index}`) : null;
+    return diff2 ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(DiffView, { diff: diff2 }, `${item.id}-${index}`) : null;
   }) });
 }
 function App2({
@@ -34748,7 +34809,8 @@ function App2({
   mode,
   workdir,
   provider,
-  model
+  model,
+  onRestart
 }) {
   const { exit } = use_app_default();
   const [state, dispatch] = (0, import_react25.useReducer)(reducer, initialState);
@@ -34760,6 +34822,7 @@ function App2({
   const [modeToast, setModeToast] = (0, import_react25.useState)(null);
   const modeToastTimer = (0, import_react25.useRef)(null);
   const registryRef = (0, import_react25.useRef)(new SlashRegistry(client, sessionId));
+  const [update, setUpdate] = (0, import_react25.useState)(initialUpdateState);
   const approvalResolver = (0, import_react25.useRef)(null);
   const refreshApprovals = (0, import_react25.useCallback)(() => {
     void client.listApprovals(sessionId).then((result) => dispatch({ type: "approval/list", requests: result.requests ?? [] })).catch(() => {
@@ -34779,6 +34842,10 @@ function App2({
         void registryRef.current.refresh().then((commands) => dispatch({ type: "commands", commands })).catch(() => {
         });
       },
+      onUpdateProgress: ({ phase, message }) => setUpdate((current) => {
+        const next = phase ?? "started";
+        return progress(current, next, message ?? "");
+      }),
       onApprovalResolved: ({ requestId }) => {
         dispatch({ type: "approval/resolved", requestId });
         refreshApprovals();
@@ -34792,7 +34859,25 @@ function App2({
     );
     void registryRef.current.load().then((commands) => dispatch({ type: "commands", commands })).catch((error) => dispatch({ type: "error", message: String(error) }));
     refreshApprovals();
+    void client.checkUpdate().then((check) => setUpdate((current) => fromCheck(current, check))).catch(() => {
+    });
   }, [client, sessionId, mode, provider, model, refreshApprovals]);
+  (0, import_react25.useEffect)(() => {
+    if (update.phase !== "done") return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      void client.restartDaemon().catch(() => void 0).then(() => {
+        if (!cancelled) {
+          onRestart?.();
+          exit();
+        }
+      });
+    }, RESTART_DELAY_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [update.phase, client, onRestart, exit]);
   (0, import_react25.useEffect)(() => {
     if (state.approvalQueue.length === 0) return;
     const timer = setInterval(refreshApprovals, APPROVAL_POLL_MS);
@@ -34825,6 +34910,10 @@ function App2({
   );
   const submit = (0, import_react25.useCallback)(
     (text) => {
+      if (/^\/update\s*$/.test(text.trim())) {
+        setUpdate(confirm);
+        return;
+      }
       dispatch({ type: "user/message", text });
       const registry = registryRef.current;
       const run = text.startsWith("/") ? registry.dispatch(text).then(async (result) => {
@@ -34840,6 +34929,25 @@ function App2({
       );
     },
     [client, sessionId]
+  );
+  const answerUpdate = (0, import_react25.useCallback)(
+    (accepted) => {
+      if (!accepted) {
+        setUpdate(cancel);
+        return;
+      }
+      setUpdate((current) => progress(current, "started", "starting the update\u2026"));
+      void client.startUpdate().then((result) => {
+        if (!result.started) {
+          setUpdate(
+            (current) => progress(current, "failed", result.error ?? "the update did not start")
+          );
+        }
+      }).catch(
+        (error) => setUpdate((current) => progress(current, "failed", String(error)))
+      );
+    },
+    [client]
   );
   const decideApproval = (0, import_react25.useCallback)(
     (decision, scope) => {
@@ -34876,27 +34984,42 @@ function App2({
       changeMode(cycleMode(state.mode));
       return;
     }
+    if (update.phase === "confirm") {
+      if (input === "y" || input === "Y") {
+        answerUpdate(true);
+        return;
+      }
+      if (input === "n" || input === "N" || key.escape) {
+        answerUpdate(false);
+        return;
+      }
+    }
+    if ((input === "U" || input === "u") && update.phase === "available") {
+      setUpdate(confirm);
+      return;
+    }
     if (key.ctrl && input === "p") {
       changeMode(state.mode === "plan" ? "accept" : "plan");
     }
   });
   const approvalActive = state.pendingApproval !== null;
-  return /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(Box_default, { flexDirection: "column", paddingX: 1, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(Text, { dimColor: true, children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(Box_default, { flexDirection: "column", paddingX: 1, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(Text, { dimColor: true, children: [
       "snowpea \xB7 ",
       workdir
     ] }) }),
-    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Timeline, { state, expandedCall }),
-    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(SubagentTree, { subagents: state.subagents }),
-    state.errors.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { color: "red", children: state.errors[state.errors.length - 1] }) : null,
-    showHelp ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(UpdateBanner, { update }),
+    /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Timeline, { state, expandedCall }),
+    /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(SubagentTree, { subagents: state.subagents }),
+    state.errors.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { color: "red", children: state.errors[state.errors.length - 1] }) : null,
+    showHelp ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
       HelpPanel,
       {
         commands: state.commands,
         runningSubagents: state.subagents.filter((agent) => agent.status === "running").length
       }
     ) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
       ApprovalQueue,
       {
         requests: state.approvalQueue,
@@ -34905,7 +35028,7 @@ function App2({
         onBlur: () => setQueueFocused(false)
       }
     ),
-    state.pendingApproval ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(ApprovalPrompt, { request: state.pendingApproval, onDecide: decideApproval }) : /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
+    state.pendingApproval ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(ApprovalPrompt, { request: state.pendingApproval, onDecide: decideApproval }) : /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
       Chat,
       {
         onSubmit: submit,
@@ -34916,8 +35039,8 @@ function App2({
         disabled: approvalActive || queueFocused
       }
     ),
-    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(ModeBar, { mode: state.mode }),
-    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(ModeBar, { mode: state.mode }),
+    /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
       StatusLine,
       {
         status: state.status,
@@ -34934,7 +35057,7 @@ function App2({
 }
 
 // ../sdk/dist/protocol.js
-var PROTOCOL_VERSION = "1.1.0";
+var PROTOCOL_VERSION = "1.2.0";
 var WS_PATH = "/ws";
 
 // ../sdk/dist/client.js
@@ -35393,6 +35516,7 @@ var TuiClient = class {
     client.on("approval.resolved", (params) => this.listeners.onApprovalResolved?.(params));
     client.on("commands.changed", () => this.listeners.onCommandsChanged?.());
     client.on("approval.pending", (params) => this.listeners.onApprovalPending?.(params));
+    client.on("system.updateProgress", (params) => this.listeners.onUpdateProgress?.(params));
     client.on(
       "disconnected",
       (params) => this.setStatus(params.willRetry ? "reconnecting" : "closed")
@@ -35432,7 +35556,8 @@ var TuiClient = class {
    * typed helpers below are what the components actually use.
    */
   call(method, params = {}) {
-    const untyped = this.require().call;
+    const client = this.require();
+    const untyped = client.call.bind(client);
     return untyped(method, params);
   }
   async createSession(options) {
@@ -35458,6 +35583,18 @@ var TuiClient = class {
   respondApproval(requestId, decision, scope) {
     return this.call("approval.respond", { requestId, decision, scope });
   }
+  /** `system.checkUpdate`; the daemon caches the answer for 24h. */
+  checkUpdate(force = false) {
+    return this.call("system.checkUpdate", { force });
+  }
+  /** `system.update` — starts the upgrade; progress arrives as notifications. */
+  startUpdate() {
+    return this.call("system.update", {});
+  }
+  /** `system.restart` — the daemon exits so the next launch runs new code. */
+  restartDaemon() {
+    return this.call("system.restart", {});
+  }
   async closeSession(sessionId) {
     await this.call("session.close", { sessionId });
   }
@@ -35470,9 +35607,10 @@ var TuiClient = class {
 };
 
 // src/index.tsx
-var import_jsx_runtime13 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime14 = __toESM(require_jsx_runtime(), 1);
 var CLIENT_VERSION = "0.1.0";
 var MODES2 = ["plan", "accept", "auto"];
+var RESTART_EXIT_CODE = 75;
 function parseArgs(argv, cwd2 = process.cwd()) {
   const values = /* @__PURE__ */ new Map();
   for (let i = 0; i < argv.length; i += 1) {
@@ -35532,14 +35670,18 @@ async function main(argv = process.argv.slice(2)) {
     await client.close().catch(() => void 0);
     return 1;
   }
+  let restart = false;
   const instance = render_default(
-    /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
       App2,
       {
         client,
         sessionId,
         mode: args.mode ?? "accept",
-        workdir: args.cwd
+        workdir: args.cwd,
+        onRestart: () => {
+          restart = true;
+        }
       }
     )
   );
@@ -35549,7 +35691,7 @@ async function main(argv = process.argv.slice(2)) {
     await client.closeSession(sessionId).catch(() => void 0);
     await client.close().catch(() => void 0);
   }
-  return 0;
+  return restart ? RESTART_EXIT_CODE : 0;
 }
 var isDirectRun = typeof process.argv[1] === "string" && !process.env.SNOWPEA_TUI_NO_AUTORUN;
 if (isDirectRun) {
@@ -35565,6 +35707,7 @@ if (isDirectRun) {
   );
 }
 export {
+  RESTART_EXIT_CODE,
   main,
   parseArgs
 };
