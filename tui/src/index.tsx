@@ -4,6 +4,9 @@
  * Invoked by `snowpea` (cli/main.py) as:
  *   node dist/snowpea-tui.js --port <n> --token <t> [--mode plan|accept|auto] [--cwd DIR]
  *
+ * Renders inline by default, leaving the transcript in the terminal's
+ * scrollback; `--fullscreen` switches to the alternate-buffer layout.
+ *
  * Nothing renders at import time: failures during connect are reported on
  * stderr and exit non-zero rather than throwing out of module evaluation.
  */
@@ -12,11 +15,13 @@ import React from "react";
 import { render } from "ink";
 
 import { App } from "./app.js";
+import { createFrameWriter, type FrameWriter } from "./layout/frame.js";
 import { installAltScreen } from "./layout/screen.js";
 import { TuiClient } from "./rpc/client.js";
 import type { Mode } from "./rpc/sdk.js";
+import { TUI_VERSION } from "./version.js";
 
-const CLIENT_VERSION = "0.1.0";
+const CLIENT_VERSION = TUI_VERSION;
 const MODES: readonly string[] = ["plan", "accept", "auto"];
 
 /** Flags that stand alone: they must not swallow the next argv entry. */
@@ -35,9 +40,9 @@ export interface CliArgs {
   mode?: Mode;
   cwd: string;
   /**
-   * Draw full screen on the alternate buffer. Off for `--no-fullscreen`,
-   * `--inline` or `SNOWPEA_TUI_INLINE=1`, which render inline in the
-   * scrollback so the output can be piped or read by a debugger.
+   * Draw full screen on the alternate buffer. Off by default: the inline
+   * layout keeps the terminal's own scrollback, which is what people expect
+   * from a coding agent in a terminal. `--fullscreen` opts in.
    */
   fullscreen: boolean;
 }
@@ -76,6 +81,9 @@ export function parseArgs(
     throw new Error(`--mode must be one of ${MODES.join("|")}`);
   }
 
+  // Inline is the default, so the alternate buffer has to be asked for. The
+  // inline flags stay accepted — they are now redundant, not wrong.
+  const fullscreenRequested = values.get("fullscreen") === "true";
   const inlineRequested =
     values.get("no-fullscreen") === "true" ||
     values.get("inline") === "true" ||
@@ -87,8 +95,30 @@ export function parseArgs(
     token,
     mode: modeRaw as Mode | undefined,
     cwd: values.get("cwd") || cwd,
-    fullscreen: !inlineRequested,
+    fullscreen: fullscreenRequested && !inlineRequested,
   };
+}
+
+/**
+ * A stdout that sends Ink's frames through `writer`.
+ *
+ * Everything else about the stream — `columns`, `rows`, the `resize` event Ink
+ * listens on — has to keep working, so this proxies the real stream and only
+ * takes over `write`.
+ */
+export function frameStdout(stdout: NodeJS.WriteStream, writer: FrameWriter): NodeJS.WriteStream {
+  return new Proxy(stdout, {
+    get(target, property, receiver) {
+      if (property === "write") {
+        return (chunk: unknown): boolean => {
+          writer.write(String(chunk));
+          return true;
+        };
+      }
+      const value = Reflect.get(target, property, receiver);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
 }
 
 export async function main(argv: string[] = process.argv.slice(2)): Promise<number> {
@@ -120,13 +150,20 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     return 1;
   }
 
-  // The alternate buffer goes up before Ink's first frame, so nothing the app
-  // draws ever lands in the user's scrollback. `installAltScreen` also arms the
+  // Only `--fullscreen` takes the alternate buffer. The alternate buffer goes
+  // up before Ink's first frame, so nothing the app draws lands in the
+  // scrollback. `installAltScreen` also arms the
   // signal and uncaught-error paths that would otherwise leave the terminal on
   // the alternate buffer with the cursor hidden.
   const screen = args.fullscreen
     ? installAltScreen({ stdout: process.stdout, process })
     : null;
+
+  // Full-screen frames are diffed against the last one, so a keystroke costs a
+  // single row update instead of a repaint of the whole screen.
+  const stdout = args.fullscreen
+    ? frameStdout(process.stdout, createFrameWriter(process.stdout))
+    : process.stdout;
 
   let restart = false;
   const instance = render(
@@ -142,7 +179,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     />,
     // Ink's own Ctrl+C handling unmounts before the app can tear the screen
     // down; `App` handles the key itself and calls `exit()`.
-    { exitOnCtrlC: false },
+    { stdout, exitOnCtrlC: false },
   );
 
   // A signal or an uncaught error can reach us mid-frame. Unmounting Ink from

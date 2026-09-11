@@ -342,7 +342,7 @@ describe("alternate screen buffer", () => {
   });
 });
 
-describe("--no-fullscreen", () => {
+describe("--fullscreen", () => {
   /** `index.tsx` self-runs on import; the guard keeps that out of the suite. */
   async function parseArgs() {
     process.env.SNOWPEA_TUI_NO_AUTORUN = "1";
@@ -351,27 +351,31 @@ describe("--no-fullscreen", () => {
 
   const base = ["--port", "1234", "--token", "t"];
 
-  it("defaults to full screen", async () => {
+  it("renders inline unless the alternate buffer is asked for", async () => {
     const parse = await parseArgs();
-    expect(parse(base, "/tmp", {}).fullscreen).toBe(true);
+    expect(parse(base, "/tmp", {}).fullscreen).toBe(false);
   });
 
-  it("falls back to inline rendering for the flag and its aliases", async () => {
+  it("takes the alternate buffer for the flag", async () => {
     const parse = await parseArgs();
-    expect(parse([...base, "--no-fullscreen"], "/tmp", {}).fullscreen).toBe(false);
-    expect(parse([...base, "--inline"], "/tmp", {}).fullscreen).toBe(false);
+    expect(parse([...base, "--fullscreen"], "/tmp", {}).fullscreen).toBe(true);
+    expect(parse([...base, "--fullscreen=true"], "/tmp", {}).fullscreen).toBe(true);
+  });
+
+  it("keeps the inline flags working, redundant as they now are", async () => {
+    const parse = await parseArgs();
+    expect(parse([...base, "--fullscreen", "--no-fullscreen"], "/tmp", {}).fullscreen).toBe(false);
+    expect(parse([...base, "--fullscreen", "--inline"], "/tmp", {}).fullscreen).toBe(false);
     expect(parse([...base, "--fullscreen=false"], "/tmp", {}).fullscreen).toBe(false);
-  });
-
-  it("falls back to inline rendering for SNOWPEA_TUI_INLINE=1", async () => {
-    const parse = await parseArgs();
-    expect(parse(base, "/tmp", { SNOWPEA_TUI_INLINE: "1" }).fullscreen).toBe(false);
+    expect(parse([...base, "--fullscreen"], "/tmp", { SNOWPEA_TUI_INLINE: "1" }).fullscreen).toBe(
+      false,
+    );
   });
 
   it("does not let the standalone flag swallow the next argument", async () => {
     const parse = await parseArgs();
-    const args = parse(["--no-fullscreen", "--port", "4321", "--token", "t"], "/tmp", {});
+    const args = parse(["--fullscreen", "--port", "4321", "--token", "t"], "/tmp", {});
     expect(args.port).toBe(4321);
-    expect(args.fullscreen).toBe(false);
+    expect(args.fullscreen).toBe(true);
   });
 });

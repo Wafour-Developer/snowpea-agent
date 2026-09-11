@@ -1,41 +1,38 @@
 /**
- * The full-screen shell: header, transcript viewport, input block, status row.
+ * The opt-in full-screen shell: logo, transcript viewport, input block, HUD.
  *
- * The root box is pinned to the exact terminal size with `overflow="hidden"`,
- * which is what keeps Ink from scrolling the alternate screen buffer. Nothing
- * inside may grow past its allotted rows; the transcript is already sliced to
- * fit by `sliceViewport` and the input block's height is reserved by
- * `bottomRows`.
+ * This is what `--fullscreen` selects. The default layout is the inline one in
+ * `app.tsx`, which lets the terminal keep the scrollback; this one owns the
+ * alternate buffer instead and windows the transcript itself.
+ *
+ * The root box is pinned to the frame size — the terminal less the row
+ * `RESERVED_FRAME_ROW` holds back — with `overflow="hidden"`, which is what
+ * keeps Ink from scrolling the alternate screen buffer. Nothing inside may grow
+ * past its allotted rows; the transcript is already sliced to fit by
+ * `sliceViewport` and the input block's height is reserved by `bottomRows`.
+ *
+ * There is no header bar: the workdir, the session and the mode all live in the
+ * HUD under the input, so the top of the screen is the logo and then content.
  */
 
 import React from "react";
 import { Box, Text } from "ink";
 
 import type { Line } from "../layout/transcript.js";
-import type { Mode } from "../rpc/sdk.js";
+import { Logo } from "./Logo.js";
 import { TranscriptView } from "./TranscriptView.js";
 
-const MODE_COLOR: Record<Mode, string> = {
-  plan: "cyan",
-  accept: "green",
-  auto: "red",
-};
-
-/** `~/src/snowpea` — keeps the tail of a long path, which is the useful half. */
-export function shortenPath(path: string, max: number): string {
-  if (max <= 1 || path.length <= max) return path;
-  return `…${path.slice(path.length - (max - 1))}`;
-}
-
 export interface FullscreenLayoutProps {
+  /** Rows the frame may draw into — one less than the terminal has. */
   rows: number;
+  /** Terminal height, which is what decides whether the logo collapses. */
+  terminalRows: number;
+  /** Shown under the wordmark; the daemon's version once it is known. */
+  version: string;
   columns: number;
   transcriptRows: number;
   /** Already windowed by `sliceViewport`. */
   lines: Line[];
-  workdir: string;
-  sessionId: string | null;
-  mode: Mode;
   /** Update banner text, shown in place of the header rule while it is set. */
   banner?: string | null;
   bannerColor?: string;
@@ -45,18 +42,17 @@ export interface FullscreenLayoutProps {
   overlay?: React.ReactNode;
   /** Approval queue, approval prompt or chat line, plus the error row. */
   bottom: React.ReactNode;
-  /** Mode bar and status line; always the last rows of the screen. */
+  /** The HUD; always the last rows of the screen. */
   status: React.ReactNode;
 }
 
 export function FullscreenLayout({
   rows,
+  terminalRows,
+  version,
   columns,
   transcriptRows,
   lines,
-  workdir,
-  sessionId,
-  mode,
   banner = null,
   bannerColor = "cyan",
   scrollIndicator = null,
@@ -65,21 +61,11 @@ export function FullscreenLayout({
   status,
 }: FullscreenLayoutProps): React.ReactElement {
   const inner = Math.max(1, columns - 2);
-  const session = sessionId ? sessionId.slice(0, 8) : "—";
-  const right = ` session ${session} · ${mode.toUpperCase()}`;
-  const left = `snowpea · ${shortenPath(workdir, Math.max(1, inner - right.length - 1))}`;
   const rule = banner === null ? "─".repeat(Math.max(0, inner - (scrollIndicator?.length ?? 0))) : null;
 
   return (
     <Box flexDirection="column" width={columns} height={rows} paddingX={1} overflow="hidden">
-      <Box flexShrink={0} justifyContent="space-between">
-        <Text bold color="cyan" wrap="truncate-end">
-          {left}
-        </Text>
-        <Text color={MODE_COLOR[mode]} wrap="truncate-end">
-          {right}
-        </Text>
-      </Box>
+      <Logo terminalRows={terminalRows} version={version} width={inner} />
 
       <Box flexShrink={0} justifyContent="space-between">
         {banner === null ? (

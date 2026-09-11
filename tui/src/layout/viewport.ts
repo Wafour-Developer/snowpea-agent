@@ -9,10 +9,26 @@
  * a terminal.
  */
 
-/** Rows the header block always occupies: title line plus banner/rule line. */
-export const HEADER_ROWS = 2;
-/** Rows the footer always occupies: the mode bar plus the status line. */
-export const STATUS_ROWS = 2;
+/** Rows the header block occupies beside the logo: the banner/rule line. */
+export const HEADER_ROWS = 1;
+/** Rows the footer occupies when the HUD packs itself into a single row. */
+export const STATUS_ROWS = 1;
+/**
+ * One row of the terminal the frame deliberately leaves empty.
+ *
+ * Ink repaints with `log-update` only while the frame is shorter than the
+ * terminal; a frame as tall as the terminal takes its other branch, which
+ * writes `ESC[2J ESC[3J ESC[H` — a full screen clear — before *every* frame,
+ * and that clear is what the user sees as a flicker on each keystroke. Giving
+ * the last row back costs one line of transcript and removes the clear.
+ */
+export const RESERVED_FRAME_ROW = 1;
+
+/** Rows the frame may use on a terminal of `terminalRows` rows. */
+export function usableRows(terminalRows: number): number {
+  return Math.max(1, Math.floor(terminalRows) - RESERVED_FRAME_ROW);
+}
+
 /** The transcript never collapses below this, however small the terminal is. */
 export const MIN_TRANSCRIPT_ROWS = 1;
 
