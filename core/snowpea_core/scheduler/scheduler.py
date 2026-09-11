@@ -270,16 +270,22 @@ class Scheduler:
     async def _execute(self, job: Job) -> tuple[JobStatus, str, str | None]:
         """Open the unattended session, run the task, return what it said."""
         from snowpea_core.agent import loop as agent_loop
+        from snowpea_core.agent.named import session_for_job
 
         core = self.core
-        workdir = Path(job.workdir) if job.workdir else core.paths.home
-        session = await core.sessions.create(
-            workdir=workdir,
-            mode=job.mode,
-            agent=job.agent,
-            origin_surface="scheduler",
-            origin_conn=None,
-        )
+        # A job that names a persistent agent runs *inside* that agent's
+        # session, so it sees the agent's memory namespace (M7 contract §6).
+        session = session_for_job(core, job.agent)
+        owned = session is None
+        if session is None:
+            workdir = Path(job.workdir) if job.workdir else core.paths.home
+            session = await core.sessions.create(
+                workdir=workdir,
+                mode=job.mode,
+                agent=job.agent,
+                origin_surface="scheduler",
+                origin_conn=None,
+            )
         # The contract calls these sessions unattended; the flag is what the
         # gateway and approval code read when they need to know (contract §2).
         session.unattended = True
@@ -290,8 +296,10 @@ class Scheduler:
             await agent_loop.run_turn(core, session, job.task, unattended=True)
         finally:
             core.hub.unsubscribe(collector)
-            with contextlib.suppress(Exception):
-                await core.sessions.close(session.id)
+            # A named agent's session outlives the run that borrowed it.
+            if owned:
+                with contextlib.suppress(Exception):
+                    await core.sessions.close(session.id)
             core.lifecycle.set_counter("sessions", len(core.sessions))
         return collector.status(), collector.final_text, session.id
 

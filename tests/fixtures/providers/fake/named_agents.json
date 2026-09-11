@@ -1,0 +1,20 @@
+{
+  "steps": [
+    {
+      "match": "운영 알림",
+      "repeat": true,
+      "text": "{\"name\": \"ops\", \"description\": \"운영 알림 담당 에이전트\", \"tools\": \"*\", \"model\": \"inherit\", \"prompt\": \"You watch production and report incidents.\"}"
+    },
+    {
+      "match": "빌드 리포트",
+      "repeat": true,
+      "text": "{\"name\": \"builder\", \"description\": \"빌드 리포트 담당 에이전트\", \"tools\": \"*\", \"model\": \"inherit\", \"prompt\": \"You summarise build results.\"}"
+    },
+    {
+      "match": "기억해",
+      "repeat": true,
+      "text": "기억해 두겠습니다."
+    }
+  ],
+  "default": {"text": "fake named-agent reply"}
+}

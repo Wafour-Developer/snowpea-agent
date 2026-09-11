@@ -73,11 +73,17 @@ class SessionManager:
         max_concurrent: int | None = None,
         origin_surface: str | None = None,
         origin_conn: Any = None,
+        session_id: str | None = None,
     ) -> Session:
-        """Register a new session and persist its row."""
+        """Register a new session and persist its row.
+
+        ``session_id`` re-opens a session under an id that already exists on
+        disk, which is how a named agent comes back after a restart with the
+        same id its gateway bindings and job history refer to (M7 §6).
+        """
         resolved_dir = Path(workdir).expanduser()
         session = Session(
-            id=f"s-{uuid.uuid4().hex[:12]}",
+            id=session_id or f"s-{uuid.uuid4().hex[:12]}",
             workdir=resolved_dir,
             mode=mode or self.default_mode(resolved_dir),
             provider=provider,
