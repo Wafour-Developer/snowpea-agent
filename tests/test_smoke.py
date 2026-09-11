@@ -1,10 +1,10 @@
-import re
 
 """M0 smoke tests: the package imports and the console entry point answers."""
 
 from __future__ import annotations
 
 import os
+import re
 
 import pytest
 
