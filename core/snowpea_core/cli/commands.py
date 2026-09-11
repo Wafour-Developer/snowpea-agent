@@ -112,6 +112,61 @@ async def commands_list(home: Path | str | None = None, *, as_json: bool = False
 
 
 # ---------------------------------------------------------------------------
+# provider.* (M3 contract §1–§3)
+# ---------------------------------------------------------------------------
+
+
+async def provider_list(home: Path | str | None = None, *, as_json: bool = False) -> int:
+    """``snowpea provider list [--json]`` → ``provider.list``."""
+    try:
+        providers = await _lookup(home, "provider.list", "providers")
+    except DaemonError as exc:
+        return _fail(str(exc), EXIT_NO_DAEMON)
+    except RpcCallError as exc:
+        return _fail(f"provider.list failed ({exc.code}): {exc.message}", EXIT_USAGE)
+    if as_json:
+        _print_json(providers)
+        return EXIT_OK
+    width = max((len(str(item.get("vendor", ""))) for item in providers), default=8)
+    for item in providers:
+        vendor = str(item.get("vendor", ""))
+        mark = "*" if item.get("default") else " "
+        state = "configured" if item.get("configured") else "-"
+        logins = ",".join(str(m) for m in item.get("authMethods") or [])
+        print(
+            f"{mark} {vendor:<{width}}  {state:<10} {logins:<22} "
+            f"{item.get('defaultModel', '')}".rstrip()
+        )
+    return EXIT_OK
+
+
+async def provider_login(vendor: str, home: Path | str | None = None) -> int:
+    """``snowpea provider login <vendor>`` → ``provider.loginWeb``.
+
+    Only OpenAI (device code) and OpenRouter (OAuth PKCE) have a browser login;
+    every other vendor answers ``login_unsupported`` with the API-key command.
+    """
+    if not vendor:
+        return _fail("usage: snowpea provider login <vendor>", EXIT_USAGE)
+    try:
+        info = await ensure_daemon(home)
+        client = DaemonClient(info)
+        await client.connect()
+        try:
+            await client.call(
+                "provider.loginWeb", {"vendor": vendor, "method": "web"}, timeout=900.0
+            )
+        finally:
+            await client.close()
+    except DaemonError as exc:
+        return _fail(str(exc), EXIT_NO_DAEMON)
+    except RpcCallError as exc:
+        return _fail(f"{vendor} login failed ({exc.code}): {exc.message}", EXIT_USAGE)
+    print(f"{vendor}: signed in; credentials saved to settings.json")
+    return EXIT_OK
+
+
+# ---------------------------------------------------------------------------
 # daemon.*
 # ---------------------------------------------------------------------------
 
@@ -230,6 +285,17 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
         "--json", dest="sub_json", action="store_true", help="emit JSON"
     )
 
+    provider = sub.add_parser("provider", help="inspect and log into chat providers")
+    provider_sub = provider.add_subparsers(dest="action", metavar="<action>")
+    provider_list_parser = provider_sub.add_parser("list", help="list known vendors")
+    provider_list_parser.add_argument(
+        "--json", dest="sub_json", action="store_true", help="emit JSON"
+    )
+    provider_login_parser = provider_sub.add_parser(
+        "login", help="browser login (openai, openrouter)"
+    )
+    provider_login_parser.add_argument("vendor", help="vendor to log into")
+
     daemon = sub.add_parser("daemon", help="control the core daemon")
     daemon_sub = daemon.add_subparsers(dest="action", metavar="<action>")
     status_parser = daemon_sub.add_parser("status", help="show the running daemon")
@@ -259,6 +325,12 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
         if action != "list":
             return _fail("usage: snowpea commands list [--json]", EXIT_USAGE)
         return await commands_list(home, as_json=as_json)
+    if subcommand == "provider":
+        if action == "list":
+            return await provider_list(home, as_json=as_json)
+        if action == "login":
+            return await provider_login(str(getattr(args, "vendor", "") or ""), home)
+        return _fail("usage: snowpea provider list|login <vendor>", EXIT_USAGE)
     if subcommand == "daemon":
         if action == "status":
             return await daemon_status(home, as_json=as_json)
@@ -280,5 +352,7 @@ __all__ = [
     "daemon_stop",
     "dispatch",
     "placeholder",
+    "provider_list",
+    "provider_login",
     "tools_list",
 ]

@@ -19,6 +19,7 @@ import os
 from collections.abc import AsyncIterator
 from typing import Any
 
+from snowpea_core.providers import replay
 from snowpea_core.providers.base import (
     ChatMessage,
     ProviderError,
@@ -112,7 +113,22 @@ class AnthropicProvider:
         self._base_url = base_url or os.environ.get("ANTHROPIC_BASE_URL")
         self._client: Any = None
         if not self._api_key:
-            raise ProviderError("invalid_params", "anthropic: no API key configured")
+            if not replay.is_replay():
+                raise ProviderError("invalid_params", "anthropic: no API key configured")
+            # Replay mode never reaches the network; the SDK still wants a key.
+            self._api_key = "replay"  # noqa: S105 - placeholder, not a credential
+
+    @staticmethod
+    def _replay_client() -> Any:
+        """An HTTP client wired to the active fixture, or ``None`` for the network.
+
+        The Anthropic SDK ships its own ``httpx2``, so the replay transport has
+        to be built against that module rather than ``httpx``.
+        """
+        import httpx2
+
+        transport = replay.transport_for(AnthropicProvider.vendor, httpx2)
+        return None if transport is None else httpx2.AsyncClient(transport=transport)
 
     def _ensure_client(self) -> Any:
         if self._client is not None:
@@ -124,6 +140,10 @@ class AnthropicProvider:
         kwargs: dict[str, Any] = {"api_key": self._api_key}
         if self._base_url:
             kwargs["base_url"] = self._base_url
+        http_client = self._replay_client()
+        if http_client is not None:
+            # Swap only the HTTP layer so replay exercises the real adapter.
+            kwargs["http_client"] = http_client
         self._client = AsyncAnthropic(**kwargs)
         return self._client
 

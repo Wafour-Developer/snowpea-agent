@@ -10,7 +10,8 @@ Script format::
         {"match": "run ls",
          "tool_calls": [{"name": "shell", "arguments": {"command": "ls"}}],
          "text": "running"},
-        {"after_tool": "shell", "text": "done"}
+        {"after_tool": "shell", "text": "done"},
+        {"match": "stall", "delaySec": 5, "text": "too late"}
       ],
       "default": {"text": "fake default reply"}
     }
@@ -19,12 +20,15 @@ Matching rules, evaluated per ``stream()`` call, in order:
   * ``after_tool``: the last message is a tool result for that tool name.
   * ``match``: substring of the most recent *user* message text (case-insensitive).
   * Each step is consumed once unless ``"repeat": true``.
+  * ``"delaySec": N`` sleeps N seconds before the step emits anything, which is
+    how the CLI's ``--timeout`` exit code is driven deterministically.
   * If nothing matches, ``default`` is used (or an empty completion).
 The same input always yields the same output.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import uuid
@@ -97,6 +101,9 @@ class FakeProvider:
         max_tokens: int = 4096,
     ) -> AsyncIterator[StreamEvent]:
         step = self._pick(messages)
+        delay = float(step.get("delaySec") or 0.0)
+        if delay > 0:
+            await asyncio.sleep(delay)
         text = str(step.get("text", ""))
         # Emit text in small deltas so streaming consumers are exercised.
         for i in range(0, len(text), 8):

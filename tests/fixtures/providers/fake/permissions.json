@@ -1,0 +1,47 @@
+{
+  "steps": [
+    {
+      "match": "use read_file",
+      "text": "reading",
+      "repeat": true,
+      "tool_calls": [{"name": "read_file", "arguments": {"path": "note.txt"}}]
+    },
+    {"after_tool": "read_file", "text": "read done", "repeat": true},
+    {
+      "match": "use write_file",
+      "text": "writing",
+      "repeat": true,
+      "tool_calls": [{"name": "write_file", "arguments": {"path": "out.txt", "content": "x\n"}}]
+    },
+    {"after_tool": "write_file", "text": "write done", "repeat": true},
+    {
+      "match": "use shell",
+      "text": "running",
+      "repeat": true,
+      "tool_calls": [{"name": "shell", "arguments": {"command": "ls"}}]
+    },
+    {"after_tool": "shell", "text": "shell done", "repeat": true},
+    {
+      "match": "use net_fetch",
+      "text": "fetching",
+      "repeat": true,
+      "tool_calls": [{"name": "net_fetch", "arguments": {"url": "https://example.test/"}}]
+    },
+    {"after_tool": "net_fetch", "text": "fetch done", "repeat": true},
+    {
+      "match": "use send_message",
+      "text": "sending",
+      "repeat": true,
+      "tool_calls": [{"name": "send_message", "arguments": {"text": "hello"}}]
+    },
+    {"after_tool": "send_message", "text": "send done", "repeat": true},
+    {
+      "match": "use grep_lines",
+      "text": "grepping",
+      "repeat": true,
+      "tool_calls": [{"name": "shell", "arguments": {"command": "grep -n x note.txt"}}]
+    },
+    {"after_tool": "shell", "text": "grep done", "repeat": true}
+  ],
+  "default": {"text": "nothing to do"}
+}

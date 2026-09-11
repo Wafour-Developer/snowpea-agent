@@ -1,0 +1,345 @@
+{
+  "vendor": "minimax",
+  "model": "minimax-m2",
+  "wire": "openai",
+  "synthetic": true,
+  "note": "Synthetic golden fixture written from the documented wire format (no real key was used). Scenario: call shell once, then answer.",
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "url": "https://api.minimax.chat/v1/chat/completions",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "text/event-stream",
+          "authorization": "***"
+        },
+        "body": {
+          "model": "minimax-m2",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are Snowpea."
+            },
+            {
+              "role": "user",
+              "content": "list the files"
+            }
+          ],
+          "max_tokens": 4096,
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          },
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "shell",
+                "description": "Run a shell command.",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "command": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "command"
+                  ]
+                }
+              }
+            }
+          ],
+          "tool_choice": "auto",
+          "parallel_tool_calls": true
+        }
+      },
+      "response_stream": [
+        {
+          "id": "chatcmpl-synthetic",
+          "object": "chat.completion.chunk",
+          "created": 1730000000,
+          "model": "minimax-m2",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "role": "assistant",
+                "content": ""
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-synthetic",
+          "object": "chat.completion.chunk",
+          "created": 1730000000,
+          "model": "minimax-m2",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "content": "Checking "
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-synthetic",
+          "object": "chat.completion.chunk",
+          "created": 1730000000,
+          "model": "minimax-m2",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "content": "the files."
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-synthetic",
+          "object": "chat.completion.chunk",
+          "created": 1730000000,
+          "model": "minimax-m2",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "tool_calls": [
+                  {
+                    "index": 0,
+                    "id": "call_synthetic_1",
+                    "type": "function",
+                    "function": {
+                      "name": "shell",
+                      "arguments": ""
+                    }
+                  }
+                ]
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-synthetic",
+          "object": "chat.completion.chunk",
+          "created": 1730000000,
+          "model": "minimax-m2",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "tool_calls": [
+                  {
+                    "index": 0,
+                    "function": {
+                      "arguments": "{\"command\":"
+                    }
+                  }
+                ]
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-synthetic",
+          "object": "chat.completion.chunk",
+          "created": 1730000000,
+          "model": "minimax-m2",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "tool_calls": [
+                  {
+                    "index": 0,
+                    "function": {
+                      "arguments": " \"ls\"}"
+                    }
+                  }
+                ]
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-synthetic",
+          "object": "chat.completion.chunk",
+          "created": 1730000000,
+          "model": "minimax-m2",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {},
+              "finish_reason": "tool_calls"
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-synthetic",
+          "object": "chat.completion.chunk",
+          "created": 1730000000,
+          "model": "minimax-m2",
+          "choices": [],
+          "usage": {
+            "prompt_tokens": 42,
+            "completion_tokens": 11,
+            "total_tokens": 53
+          }
+        }
+      ]
+    },
+    {
+      "request": {
+        "method": "POST",
+        "url": "https://api.minimax.chat/v1/chat/completions",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "text/event-stream",
+          "authorization": "***"
+        },
+        "body": {
+          "model": "minimax-m2",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are Snowpea."
+            },
+            {
+              "role": "user",
+              "content": "list the files"
+            },
+            {
+              "role": "assistant",
+              "content": "Checking the files.",
+              "tool_calls": [
+                {
+                  "id": "call_synthetic_1",
+                  "type": "function",
+                  "function": {
+                    "name": "shell",
+                    "arguments": "{\"command\": \"ls\"}"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "tool_call_id": "call_synthetic_1",
+              "content": "a.txt\nb.txt\nc.txt"
+            }
+          ],
+          "max_tokens": 4096,
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          },
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "shell",
+                "description": "Run a shell command.",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "command": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "command"
+                  ]
+                }
+              }
+            }
+          ],
+          "tool_choice": "auto",
+          "parallel_tool_calls": true
+        }
+      },
+      "response_stream": [
+        {
+          "id": "chatcmpl-synthetic",
+          "object": "chat.completion.chunk",
+          "created": 1730000000,
+          "model": "minimax-m2",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "role": "assistant",
+                "content": ""
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-synthetic",
+          "object": "chat.completion.chunk",
+          "created": 1730000000,
+          "model": "minimax-m2",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "content": "There are "
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-synthetic",
+          "object": "chat.completion.chunk",
+          "created": 1730000000,
+          "model": "minimax-m2",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "content": "3 files."
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-synthetic",
+          "object": "chat.completion.chunk",
+          "created": 1730000000,
+          "model": "minimax-m2",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {},
+              "finish_reason": "stop"
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-synthetic",
+          "object": "chat.completion.chunk",
+          "created": 1730000000,
+          "model": "minimax-m2",
+          "choices": [],
+          "usage": {
+            "prompt_tokens": 60,
+            "completion_tokens": 8,
+            "total_tokens": 68
+          }
+        }
+      ]
+    }
+  ]
+}

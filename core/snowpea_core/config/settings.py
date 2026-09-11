@@ -13,6 +13,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from snowpea_core.config.paths import Paths
+from snowpea_core.config.project import AllowlistEntry
 
 
 class _Model(BaseModel):
@@ -40,11 +41,53 @@ class DaemonSettings(_Model):
 
 
 class SearchSettings(_Model):
+    """Which web-search provider ``web_search`` prefers (M2 contract §3)."""
+
     provider: str = "ddgs"
+    #: Per-provider credentials, e.g. ``{"brave_free": {"api_key": "..."}}``.
+    credentials: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
 
 class BrowserSettings(_Model):
+    """Which browser provider the ``browser_*`` tools drive (M2 contract §4)."""
+
     provider: str = "local_chromium"
+    headless: bool = True
+    credentials: dict[str, dict[str, Any]] = Field(default_factory=dict)
+
+
+class ToolsSettings(_Model):
+    """Limits shared by every tool that returns fetched or scanned text."""
+
+    max_output_chars: int = 20_000
+
+
+class MediaMcpSettings(_Model):
+    """How to reach the snowpea-studio MCP server (M2 contract §5)."""
+
+    command: str | None = None
+    args: list[str] = Field(default_factory=list)
+    url: str | None = None
+    api_key: str | None = None
+    env: dict[str, str] = Field(default_factory=dict)
+
+    def configured(self) -> bool:
+        """True once a command or a url is known; credentials gate the tools."""
+        return bool(self.command) or bool(self.url)
+
+
+class MediaSettings(_Model):
+    mcp: MediaMcpSettings = Field(default_factory=MediaMcpSettings)
+
+
+class McpSettings(_Model):
+    """Extra MCP servers and their permission tags (M2 contract §6)."""
+
+    #: ``{"server": "network"}``; anything absent defaults to ``network``.
+    permissions: dict[str, str] = Field(default_factory=dict)
+    #: Servers declared inline, same shape as ``.mcp.json``'s ``mcpServers``.
+    servers: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    enabled: bool = True
 
 
 class Settings(_Model):
@@ -57,7 +100,13 @@ class Settings(_Model):
     daemon: DaemonSettings = Field(default_factory=DaemonSettings)
     search: SearchSettings = Field(default_factory=SearchSettings)
     browser: BrowserSettings = Field(default_factory=BrowserSettings)
+    tools: ToolsSettings = Field(default_factory=ToolsSettings)
+    media: MediaSettings = Field(default_factory=MediaSettings)
+    mcp: McpSettings = Field(default_factory=McpSettings)
     providers: dict[str, Any] = Field(default_factory=dict)
+    #: Global allowlist patterns (contract §7); the project store lives in
+    #: ``<workdir>/.snowpea/settings.json``.
+    allowlist: list[AllowlistEntry] = Field(default_factory=list)
 
     @classmethod
     def load(cls, paths: Paths) -> Settings:
@@ -88,7 +137,11 @@ __all__ = [
     "ApprovalsSettings",
     "BrowserSettings",
     "DaemonSettings",
+    "McpSettings",
+    "MediaMcpSettings",
+    "MediaSettings",
     "SearchSettings",
     "Settings",
     "TeamSettings",
+    "ToolsSettings",
 ]

@@ -1,110 +1,248 @@
-"""The eleven supported LLM vendors (plan §1.2, §2.8).
+"""The eleven supported LLM vendors (M3 contract §1, plan §1.2, §2.8).
 
-Only the Anthropic adapter exists at M1; the rest are declared so
-``provider.list`` and the setup wizard (M3) agree on names, default models and
-which login flows a vendor supports.  Exactly two vendors offer a web login:
-OpenAI (device code) and OpenRouter (OAuth PKCE).
+Every vendor quirk that the adapters care about is declared here — which
+adapter class speaks to it, which wire shape its stream deltas use, whether it
+honours parallel tool calls — so that :mod:`snowpea_core.providers.normalize`
+can stay the single normalisation point (plan §6 risk 3).
+
+Exactly two vendors offer a browser login: OpenAI (device code) and OpenRouter
+(OAuth PKCE).  The other nine are API key only.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Literal
+
+Adapter = Literal["anthropic_native", "gemini_native", "openai_compat"]
+WireShape = Literal["openai", "anthropic", "gemini"]
 
 
 @dataclass(frozen=True)
 class VendorPreset:
     """Static description of one vendor."""
 
-    vendor: str
+    id: str
     label: str
-    models: tuple[str, ...] = ()
+    adapter: Adapter
+    #: ``openai_compat``/``gemini_native`` API root; ``None`` for the SDK-driven
+    #: Anthropic adapter.  ``local`` ships the Ollama default and expects the
+    #: user to override it.
+    base_url: str | None
+    default_model: str
     auth_methods: tuple[str, ...] = ("api_key",)
     env_keys: tuple[str, ...] = ()
-    adapter: str = "openai_compat"
+    models: tuple[str, ...] = ()
+    supports_parallel_tools: bool = True
+    tool_call_style: WireShape = "openai"
+    stream_delta_shape: WireShape = "openai"
+    extra_headers: dict[str, str] = field(default_factory=dict)
+    #: Set on the ``local-*`` sub-presets only (vllm | ollama | lmstudio).
+    variant: str | None = None
+
+    @property
+    def vendor(self) -> str:
+        """Alias of :attr:`id` (the name used by the RPC surface)."""
+        return self.id
 
 
-PRESETS: tuple[VendorPreset, ...] = (
-    VendorPreset(
-        vendor="anthropic",
-        label="Anthropic",
-        models=("claude-sonnet-4-5", "claude-opus-4-1", "claude-haiku-4-5"),
-        env_keys=("ANTHROPIC_API_KEY",),
-        adapter="anthropic_native",
-    ),
-    VendorPreset(
-        vendor="openai",
-        label="OpenAI",
-        models=("gpt-4.1", "gpt-4.1-mini", "o4-mini"),
-        auth_methods=("api_key", "device_code"),
-        env_keys=("OPENAI_API_KEY",),
-    ),
-    VendorPreset(
-        vendor="openrouter",
-        label="OpenRouter",
-        models=("anthropic/claude-sonnet-4.5", "openai/gpt-4.1"),
-        auth_methods=("api_key", "oauth_pkce"),
-        env_keys=("OPENROUTER_API_KEY",),
-    ),
-    VendorPreset(
-        vendor="gemini",
-        label="Google Gemini",
-        models=("gemini-2.5-pro", "gemini-2.5-flash"),
-        env_keys=("GEMINI_API_KEY", "GOOGLE_API_KEY"),
-        adapter="gemini_native",
-    ),
-    VendorPreset(
-        vendor="xai",
-        label="xAI Grok",
-        models=("grok-4", "grok-3-mini"),
-        env_keys=("XAI_API_KEY",),
-    ),
-    VendorPreset(
-        vendor="glm",
-        label="Zhipu GLM",
-        models=("glm-4.6", "glm-4.5-air"),
-        env_keys=("GLM_API_KEY", "ZHIPUAI_API_KEY"),
-    ),
-    VendorPreset(
-        vendor="minimax",
-        label="MiniMax",
-        models=("minimax-m2",),
-        env_keys=("MINIMAX_API_KEY",),
-    ),
-    VendorPreset(
-        vendor="kimi",
-        label="Moonshot Kimi",
-        models=("kimi-k2", "moonshot-v1-128k"),
-        env_keys=("MOONSHOT_API_KEY", "KIMI_API_KEY"),
-    ),
-    VendorPreset(
-        vendor="deepseek",
-        label="DeepSeek",
-        models=("deepseek-chat", "deepseek-reasoner"),
-        env_keys=("DEEPSEEK_API_KEY",),
-    ),
-    VendorPreset(
-        vendor="qwen",
-        label="Qwen",
-        models=("qwen3-max", "qwen3-coder"),
-        env_keys=("DASHSCOPE_API_KEY", "QWEN_API_KEY"),
-    ),
-    VendorPreset(
-        vendor="local",
-        label="OpenAI-compatible local (vLLM / Ollama / LM Studio)",
-        models=(),
-        env_keys=("SNOWPEA_LOCAL_BASE_URL",),
-    ),
-)
+_OPENROUTER_HEADERS = {
+    "HTTP-Referer": "https://github.com/snowpea/snowpea-agent",
+    "X-Title": "Snowpea",
+}
 
-PRESETS_BY_VENDOR: dict[str, VendorPreset] = {preset.vendor: preset for preset in PRESETS}
+
+def _preset(
+    vendor_id: str,
+    label: str,
+    base_url: str | None,
+    default_model: str,
+    *,
+    adapter: Adapter = "openai_compat",
+    auth_methods: tuple[str, ...] = ("api_key",),
+    env_keys: tuple[str, ...] = (),
+    models: tuple[str, ...] = (),
+    supports_parallel_tools: bool = True,
+    tool_call_style: WireShape = "openai",
+    stream_delta_shape: WireShape = "openai",
+    extra_headers: dict[str, str] | None = None,
+    variant: str | None = None,
+) -> VendorPreset:
+    return VendorPreset(
+        id=vendor_id,
+        label=label,
+        adapter=adapter,
+        base_url=base_url,
+        default_model=default_model,
+        auth_methods=auth_methods,
+        env_keys=env_keys,
+        models=models or (default_model,),
+        supports_parallel_tools=supports_parallel_tools,
+        tool_call_style=tool_call_style,
+        stream_delta_shape=stream_delta_shape,
+        extra_headers=dict(extra_headers or {}),
+        variant=variant,
+    )
+
+
+#: The eleven vendors, in the order the setup wizard and ``provider.list`` show.
+PRESETS: dict[str, VendorPreset] = {
+    preset.id: preset
+    for preset in (
+        _preset(
+            "anthropic",
+            "Anthropic",
+            None,
+            "claude-sonnet-4-5",
+            adapter="anthropic_native",
+            env_keys=("ANTHROPIC_API_KEY",),
+            models=("claude-sonnet-4-5", "claude-opus-4-1", "claude-haiku-4-5"),
+            tool_call_style="anthropic",
+            stream_delta_shape="anthropic",
+        ),
+        _preset(
+            "openai",
+            "OpenAI",
+            "https://api.openai.com/v1",
+            "gpt-4.1",
+            auth_methods=("api_key", "device_code"),
+            env_keys=("OPENAI_API_KEY",),
+            models=("gpt-4.1", "gpt-4.1-mini", "o4-mini"),
+        ),
+        _preset(
+            "openrouter",
+            "OpenRouter",
+            "https://openrouter.ai/api/v1",
+            "anthropic/claude-sonnet-4.5",
+            auth_methods=("api_key", "oauth_pkce"),
+            env_keys=("OPENROUTER_API_KEY",),
+            models=("anthropic/claude-sonnet-4.5", "openai/gpt-4.1"),
+            extra_headers=_OPENROUTER_HEADERS,
+        ),
+        _preset(
+            "gemini",
+            "Google Gemini",
+            "https://generativelanguage.googleapis.com/v1beta",
+            "gemini-2.5-pro",
+            adapter="gemini_native",
+            env_keys=("GEMINI_API_KEY", "GOOGLE_API_KEY"),
+            models=("gemini-2.5-pro", "gemini-2.5-flash"),
+            tool_call_style="gemini",
+            stream_delta_shape="gemini",
+        ),
+        _preset(
+            "xai",
+            "xAI Grok",
+            "https://api.x.ai/v1",
+            "grok-4",
+            env_keys=("XAI_API_KEY",),
+            models=("grok-4", "grok-3-mini"),
+        ),
+        _preset(
+            "glm",
+            "Zhipu GLM",
+            "https://open.bigmodel.cn/api/paas/v4",
+            "glm-4.6",
+            env_keys=("GLM_API_KEY", "ZHIPUAI_API_KEY"),
+            models=("glm-4.6", "glm-4.5-air"),
+        ),
+        _preset(
+            "minimax",
+            "MiniMax",
+            "https://api.minimax.chat/v1",
+            "minimax-m2",
+            env_keys=("MINIMAX_API_KEY",),
+            models=("minimax-m2",),
+        ),
+        _preset(
+            "kimi",
+            "Moonshot Kimi",
+            "https://api.moonshot.cn/v1",
+            "kimi-k2",
+            env_keys=("MOONSHOT_API_KEY", "KIMI_API_KEY"),
+            models=("kimi-k2", "moonshot-v1-128k"),
+        ),
+        _preset(
+            "deepseek",
+            "DeepSeek",
+            "https://api.deepseek.com/v1",
+            "deepseek-chat",
+            env_keys=("DEEPSEEK_API_KEY",),
+            models=("deepseek-chat", "deepseek-reasoner"),
+            # DeepSeek emits one tool call per assistant turn.
+            supports_parallel_tools=False,
+        ),
+        _preset(
+            "qwen",
+            "Qwen",
+            "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "qwen3-max",
+            env_keys=("DASHSCOPE_API_KEY", "QWEN_API_KEY"),
+            models=("qwen3-max", "qwen3-coder"),
+        ),
+        _preset(
+            "local",
+            "OpenAI-compatible local (vLLM / Ollama / LM Studio)",
+            "http://localhost:11434/v1",
+            "local-model",
+            env_keys=("SNOWPEA_LOCAL_API_KEY",),
+            models=(),
+            supports_parallel_tools=False,
+        ),
+    )
+}
+
+#: ``local`` sub-presets: the same vendor id, a different default ``base_url``.
+LOCAL_VARIANTS: dict[str, VendorPreset] = {
+    "vllm": _preset(
+        "local",
+        "vLLM (local)",
+        "http://localhost:8000/v1",
+        "local-model",
+        env_keys=("SNOWPEA_LOCAL_API_KEY",),
+        supports_parallel_tools=False,
+        variant="vllm",
+    ),
+    "ollama": _preset(
+        "local",
+        "Ollama (local)",
+        "http://localhost:11434/v1",
+        "local-model",
+        env_keys=("SNOWPEA_LOCAL_API_KEY",),
+        supports_parallel_tools=False,
+        variant="ollama",
+    ),
+    "lmstudio": _preset(
+        "local",
+        "LM Studio (local)",
+        "http://localhost:1234/v1",
+        "local-model",
+        env_keys=("SNOWPEA_LOCAL_API_KEY",),
+        supports_parallel_tools=False,
+        variant="lmstudio",
+    ),
+}
+
+#: Backwards-compatible alias (``PRESETS`` used to be a tuple).
+PRESETS_BY_VENDOR: dict[str, VendorPreset] = PRESETS
 
 DEFAULT_VENDOR = "anthropic"
-DEFAULT_MODEL = "claude-sonnet-4-5"
+DEFAULT_MODEL = PRESETS["anthropic"].default_model
 
 #: Vendors with a browser login flow (plan §2.8): exactly two.
 WEB_LOGIN_VENDORS: tuple[str, ...] = tuple(
-    preset.vendor for preset in PRESETS if len(preset.auth_methods) > 1
+    preset.id for preset in PRESETS.values() if len(preset.auth_methods) > 1
 )
+
+
+def preset_for(vendor: str, variant: str | None = None) -> VendorPreset:
+    """Look up a preset, honouring the ``local`` variants."""
+    if vendor == "local" and variant:
+        try:
+            return LOCAL_VARIANTS[variant]
+        except KeyError:  # pragma: no cover - guarded by callers
+            raise KeyError(f"unknown local variant: {variant}") from None
+    return PRESETS[vendor]
 
 
 @dataclass
@@ -119,9 +257,13 @@ class VendorState:
 __all__ = [
     "DEFAULT_MODEL",
     "DEFAULT_VENDOR",
+    "LOCAL_VARIANTS",
     "PRESETS",
     "PRESETS_BY_VENDOR",
     "WEB_LOGIN_VENDORS",
+    "Adapter",
     "VendorPreset",
     "VendorState",
+    "WireShape",
+    "preset_for",
 ]

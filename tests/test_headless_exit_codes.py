@@ -292,17 +292,13 @@ def test_bad_cwd_is_a_usage_error(home: Path) -> None:
     assert "--cwd" in result.stderr
 
 
-@pytest.mark.skip(
-    reason=(
-        "no fake-provider fixture stalls a turn, so --timeout cannot be driven to "
-        "exit 5 deterministically; revisit when M3 adds a scripted delay step "
-        "(tests/fixtures/providers/fake/*.json needs a `delaySec` field)"
-    )
-)
-def test_timeout_exits_five(home: Path) -> None:  # pragma: no cover - skipped
+def test_timeout_exits_five(home: Path) -> None:
+    """US-011 gave the fake provider ``delaySec``; the ``stall forever`` step
+    sleeps 5s, so ``--timeout 1`` must abort the turn and exit 5."""
     env = _base_env(home)
+    _wait_for_implementation(env, "-c", "say hello", label="session.prompt")
     result = run_cli("-c", "stall forever", "--timeout", "1", env=env)
-    assert result.returncode == 5
+    assert result.returncode == 5, f"stdout={result.stdout!r} stderr={result.stderr!r}"
 
 
 def test_missing_tui_bundle_is_a_usage_error(home: Path) -> None:

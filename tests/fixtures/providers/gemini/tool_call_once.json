@@ -1,0 +1,267 @@
+{
+  "vendor": "gemini",
+  "model": "gemini-2.5-pro",
+  "wire": "gemini",
+  "synthetic": true,
+  "note": "Synthetic golden fixture written from the documented wire format (no real key was used). Scenario: call shell once, then answer.",
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "text/event-stream",
+          "x-goog-api-key": "***"
+        },
+        "body": {
+          "contents": [
+            {
+              "role": "user",
+              "parts": [
+                {
+                  "text": "list the files"
+                }
+              ]
+            }
+          ],
+          "generationConfig": {
+            "maxOutputTokens": 4096
+          },
+          "systemInstruction": {
+            "parts": [
+              {
+                "text": "You are Snowpea."
+              }
+            ]
+          },
+          "tools": [
+            {
+              "functionDeclarations": [
+                {
+                  "name": "shell",
+                  "description": "Run a shell command.",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "command": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "command"
+                    ]
+                  }
+                }
+              ]
+            }
+          ],
+          "toolConfig": {
+            "functionCallingConfig": {
+              "mode": "AUTO"
+            }
+          }
+        }
+      },
+      "response_stream": [
+        {
+          "candidates": [
+            {
+              "content": {
+                "role": "model",
+                "parts": [
+                  {
+                    "text": "Checking "
+                  }
+                ]
+              },
+              "index": 0
+            }
+          ]
+        },
+        {
+          "candidates": [
+            {
+              "content": {
+                "role": "model",
+                "parts": [
+                  {
+                    "text": "the files."
+                  }
+                ]
+              },
+              "index": 0
+            }
+          ]
+        },
+        {
+          "candidates": [
+            {
+              "content": {
+                "role": "model",
+                "parts": [
+                  {
+                    "functionCall": {
+                      "name": "shell",
+                      "args": {
+                        "command": "ls"
+                      }
+                    }
+                  }
+                ]
+              },
+              "finishReason": "STOP",
+              "index": 0
+            }
+          ],
+          "usageMetadata": {
+            "promptTokenCount": 42,
+            "candidatesTokenCount": 11,
+            "totalTokenCount": 53
+          }
+        }
+      ]
+    },
+    {
+      "request": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "text/event-stream",
+          "x-goog-api-key": "***"
+        },
+        "body": {
+          "contents": [
+            {
+              "role": "user",
+              "parts": [
+                {
+                  "text": "list the files"
+                }
+              ]
+            },
+            {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "Checking the files."
+                },
+                {
+                  "functionCall": {
+                    "name": "shell",
+                    "args": {
+                      "command": "ls"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "parts": [
+                {
+                  "functionResponse": {
+                    "name": "shell",
+                    "response": {
+                      "content": "a.txt\nb.txt\nc.txt"
+                    }
+                  }
+                }
+              ]
+            }
+          ],
+          "generationConfig": {
+            "maxOutputTokens": 4096
+          },
+          "systemInstruction": {
+            "parts": [
+              {
+                "text": "You are Snowpea."
+              }
+            ]
+          },
+          "tools": [
+            {
+              "functionDeclarations": [
+                {
+                  "name": "shell",
+                  "description": "Run a shell command.",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "command": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "command"
+                    ]
+                  }
+                }
+              ]
+            }
+          ],
+          "toolConfig": {
+            "functionCallingConfig": {
+              "mode": "AUTO"
+            }
+          }
+        }
+      },
+      "response_stream": [
+        {
+          "candidates": [
+            {
+              "content": {
+                "role": "model",
+                "parts": [
+                  {
+                    "text": "There are "
+                  }
+                ]
+              },
+              "index": 0
+            }
+          ]
+        },
+        {
+          "candidates": [
+            {
+              "content": {
+                "role": "model",
+                "parts": [
+                  {
+                    "text": "3 files."
+                  }
+                ]
+              },
+              "index": 0
+            }
+          ]
+        },
+        {
+          "candidates": [
+            {
+              "content": {
+                "role": "model",
+                "parts": [
+                  {
+                    "text": ""
+                  }
+                ]
+              },
+              "finishReason": "STOP",
+              "index": 0
+            }
+          ],
+          "usageMetadata": {
+            "promptTokenCount": 60,
+            "candidatesTokenCount": 8,
+            "totalTokenCount": 68
+          }
+        }
+      ]
+    }
+  ]
+}
