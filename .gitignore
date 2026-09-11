@@ -1,0 +1,18 @@
+# python
+__pycache__/
+*.pyc
+.venv/
+dist/
+build/
+*.egg-info/
+# node
+node_modules/
+tui/dist/
+sdk/dist/
+# omc runtime state (plans/specs are committed)
+.omc/state/
+.omc/logs/
+.omc/notepad.md
+# local
+.snowpea/
+.env
