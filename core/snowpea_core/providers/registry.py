@@ -55,6 +55,10 @@ class ProviderRegistry:
         self.settings = settings or Settings()
         self.paths = paths
         self._providers: dict[str, Any] = {}
+        #: Called after a successful :meth:`save`; the daemon points it at
+        #: ``Core.mark_settings_saved`` so its own write is not mistaken for an
+        #: outside edit on the next prompt (CORE-settings-reload).
+        self.on_saved: Callable[[], None] | None = None
 
     def bind(self, settings: Settings, paths: Paths | None = None) -> None:
         self.settings = settings
@@ -142,6 +146,8 @@ class ProviderRegistry:
         except OSError as exc:  # pragma: no cover - disk failure
             log.warning("could not persist settings.json: %s", exc)
             return False
+        if self.on_saved is not None:
+            self.on_saved()
         return True
 
     # -- model discovery -----------------------------------------------

@@ -72,7 +72,42 @@ class LoginResult:
     message: str = ""
 
 
+@dataclass
+class LoginStart:
+    """What is known the moment a browser login has something to show the user.
+
+    ``finish`` resumes the flow (polling the token endpoint, or waiting on the
+    PKCE callback) and resolves to the same :class:`LoginResult` the one-shot
+    ``login()`` returns.  Splitting start/finish lets a caller such as the RPC
+    handler show ``userCode``/``verificationUri`` immediately while the wait
+    continues in the background.
+    """
+
+    vendor: str
+    method: str
+    #: Short code the user types in, when the flow has one (device code).
+    user_code: str | None = None
+    #: URL to open; for PKCE this is the only thing the user needs.
+    verification_uri: str | None = None
+    #: Same URL with the code already embedded, when the vendor provides one.
+    verification_uri_complete: str | None = None
+    #: Seconds until the code/session expires, when known.
+    expires_in_sec: float | None = None
+    #: Resumes the flow to completion; always set by the functions that build one.
+    finish: Callable[[], Any] = field(default=None, repr=False)  # type: ignore[assignment]
+
+
 Prompt = Callable[[str], None]
+#: Called at each phase of a browser login: started, await_user, polling, done, failed.
+ProgressHook = Callable[[dict[str, Any]], Any]
+
+
+async def _report(on_progress: ProgressHook | None, **fields: Any) -> None:
+    if on_progress is None:
+        return
+    result = on_progress({k: v for k, v in fields.items() if v is not None})
+    if result is not None and hasattr(result, "__await__"):
+        await result
 
 
 def _prompt_default(message: str) -> None:
@@ -125,7 +160,7 @@ def new_pkce_pair() -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 
-async def device_code_login(
+async def device_code_start(
     vendor: str = "openai",
     *,
     client: httpx.AsyncClient | None = None,
@@ -133,11 +168,18 @@ async def device_code_login(
     open_browser: bool = True,
     now: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], Any] = asyncio.sleep,
-) -> LoginResult:
-    """Run the device-code flow and return the token it granted."""
+    on_progress: ProgressHook | None = None,
+) -> LoginStart:
+    """Ask the vendor for a device code and return it as a :class:`LoginStart`.
+
+    ``finish()`` on the result polls the token endpoint until the user
+    approves (or the flow times out/fails) and returns the final
+    :class:`LoginResult`.
+    """
     config = ENDPOINTS[vendor]
     owned = client is None
     http = client or httpx.AsyncClient(timeout=30.0)
+    await _report(on_progress, vendor=vendor, method="device_code", phase="started")
     try:
         start = await http.post(
             str(config["device_authorization_url"]),
@@ -151,55 +193,121 @@ async def device_code_login(
         payload = start.json()
         device_code = str(payload.get("device_code") or "")
         user_code = str(payload.get("user_code") or "")
-        verification = str(
-            payload.get("verification_uri_complete") or payload.get("verification_uri") or ""
-        )
+        verification_uri = str(payload.get("verification_uri") or "")
+        verification_uri_complete = str(payload.get("verification_uri_complete") or "")
+        verification = verification_uri_complete or verification_uri
         if not device_code or not verification:
             raise RpcError(errors.INTERNAL, f"{vendor}: device authorization response was empty")
         interval = float(payload.get("interval") or config["poll_interval_sec"])
-        deadline = now() + min(float(payload.get("expires_in") or 0) or 1e9, config["timeout_sec"])
-
-        on_prompt(f"Open {verification} and enter the code {user_code}")
-        if open_browser:
-            webbrowser.open(verification)
-
-        while True:
-            if now() >= deadline:
-                raise RpcError(errors.INTERNAL, f"{vendor}: device login timed out")
-            await sleep(interval)
-            polled = await http.post(
-                str(config["token_url"]),
-                data={
-                    "client_id": config["client_id"],
-                    "device_code": device_code,
-                    "grant_type": config["grant_type"],
-                },
-            )
-            body = polled.json() if polled.content else {}
-            if polled.status_code < 400 and body.get("access_token"):
-                credentials: dict[str, Any] = {"token": str(body["access_token"])}
-                if body.get("refresh_token"):
-                    credentials["refresh_token"] = str(body["refresh_token"])
-                if body.get("expires_in"):
-                    credentials["expires_in"] = int(body["expires_in"])
-                return LoginResult(
-                    vendor=vendor,
-                    method="device_code",
-                    credentials=credentials,
-                    message=f"{vendor}: signed in",
-                )
-            error = str(body.get("error") or "")
-            if error == "authorization_pending":
-                continue
-            if error == "slow_down":
-                interval += 5.0
-                continue
-            raise RpcError(
-                errors.INTERNAL, f"{vendor}: device login failed ({error or polled.status_code})"
-            )
-    finally:
+        expires_in = float(payload.get("expires_in") or 0) or None
+        deadline = now() + min(expires_in or 1e9, config["timeout_sec"])
+    except Exception:
         if owned:
             await http.aclose()
+        raise
+
+    async def finish() -> LoginResult:
+        try:
+            on_prompt(f"Open {verification} and enter the code {user_code}")
+            if open_browser:
+                webbrowser.open(verification)
+            await _report(
+                on_progress,
+                vendor=vendor,
+                method="device_code",
+                phase="await_user",
+                userCode=user_code,
+                verificationUri=verification_uri or None,
+                verificationUriComplete=verification_uri_complete or None,
+                expiresInSec=expires_in,
+            )
+            await _report(on_progress, vendor=vendor, method="device_code", phase="polling")
+            poll_interval = interval
+            while True:
+                if now() >= deadline:
+                    raise RpcError(errors.INTERNAL, f"{vendor}: device login timed out")
+                await sleep(poll_interval)
+                polled = await http.post(
+                    str(config["token_url"]),
+                    data={
+                        "client_id": config["client_id"],
+                        "device_code": device_code,
+                        "grant_type": config["grant_type"],
+                    },
+                )
+                body = polled.json() if polled.content else {}
+                if polled.status_code < 400 and body.get("access_token"):
+                    credentials: dict[str, Any] = {"token": str(body["access_token"])}
+                    if body.get("refresh_token"):
+                        credentials["refresh_token"] = str(body["refresh_token"])
+                    if body.get("expires_in"):
+                        credentials["expires_in"] = int(body["expires_in"])
+                    await _report(
+                        on_progress,
+                        vendor=vendor,
+                        method="device_code",
+                        phase="done",
+                        message=f"{vendor}: signed in",
+                    )
+                    return LoginResult(
+                        vendor=vendor,
+                        method="device_code",
+                        credentials=credentials,
+                        message=f"{vendor}: signed in",
+                    )
+                error = str(body.get("error") or "")
+                if error == "authorization_pending":
+                    continue
+                if error == "slow_down":
+                    poll_interval += 5.0
+                    continue
+                raise RpcError(
+                    errors.INTERNAL,
+                    f"{vendor}: device login failed ({error or polled.status_code})",
+                )
+        except Exception as exc:
+            await _report(
+                on_progress,
+                vendor=vendor,
+                method="device_code",
+                phase="failed",
+                message=str(exc),
+            )
+            raise
+        finally:
+            if owned:
+                await http.aclose()
+
+    return LoginStart(
+        vendor=vendor,
+        method="device_code",
+        user_code=user_code,
+        verification_uri=verification_uri or None,
+        verification_uri_complete=verification_uri_complete or None,
+        expires_in_sec=expires_in,
+        finish=finish,
+    )
+
+
+async def device_code_login(
+    vendor: str = "openai",
+    *,
+    client: httpx.AsyncClient | None = None,
+    on_prompt: Prompt = _prompt_default,
+    open_browser: bool = True,
+    now: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], Any] = asyncio.sleep,
+) -> LoginResult:
+    """Run the device-code flow start-to-finish and return the token it granted."""
+    started = await device_code_start(
+        vendor,
+        client=client,
+        on_prompt=on_prompt,
+        open_browser=open_browser,
+        now=now,
+        sleep=sleep,
+    )
+    return await started.finish()
 
 
 # ---------------------------------------------------------------------------
@@ -254,22 +362,28 @@ class CallbackServer:
         return f"http://{self.host}:{self.port}{self.path}"
 
 
-async def oauth_pkce_login(
+async def oauth_pkce_start(
     vendor: str = "openrouter",
     *,
     client: httpx.AsyncClient | None = None,
     on_prompt: Prompt = _prompt_default,
     open_browser: bool = True,
     timeout_sec: float | None = None,
-) -> LoginResult:
-    """Run the PKCE flow and return the API key it minted."""
+    on_progress: ProgressHook | None = None,
+) -> LoginStart:
+    """Open the PKCE consent page and return it as a :class:`LoginStart`.
+
+    ``finish()`` on the result waits for the ``localhost`` callback, exchanges
+    the code for an API key, and returns the final :class:`LoginResult`.
+    """
     config = ENDPOINTS[vendor]
     verifier, challenge = new_pkce_pair()
+    await _report(on_progress, vendor=vendor, method="oauth_pkce", phase="started")
     server = CallbackServer(str(config["callback_host"]), str(config["callback_path"]))
-    await server.start(int(config["callback_port"]))
     owned = client is None
     http = client or httpx.AsyncClient(timeout=30.0)
     try:
+        await server.start(int(config["callback_port"]))
         url = (
             str(config["auth_url"])
             + "?"
@@ -281,38 +395,102 @@ async def oauth_pkce_login(
                 }
             )
         )
-        on_prompt(f"Open {url} to authorise Snowpea")
-        if open_browser:
-            webbrowser.open(url)
-        code = await server.wait(float(timeout_sec or config["timeout_sec"]))
-        exchanged = await http.post(
-            str(config["keys_url"]),
-            json={
-                "code": code,
-                "code_verifier": verifier,
-                "code_challenge_method": "S256",
-            },
-        )
-        if exchanged.status_code >= 400:
-            raise RpcError(
-                errors.INTERNAL,
-                f"{vendor}: key exchange failed (HTTP {exchanged.status_code})",
-            )
-        key = str((exchanged.json() or {}).get("key") or "")
-        if not key:
-            raise RpcError(errors.INTERNAL, f"{vendor}: key exchange returned no key")
-        return LoginResult(
-            vendor=vendor,
-            method="oauth_pkce",
-            credentials={"api_key": key},
-            message=f"{vendor}: API key stored",
-        )
-    except TimeoutError as exc:
-        raise RpcError(errors.INTERNAL, f"{vendor}: login timed out") from exc
-    finally:
+    except Exception:
         await server.close()
         if owned:
             await http.aclose()
+        raise
+
+    async def finish() -> LoginResult:
+        try:
+            on_prompt(f"Open {url} to authorise Snowpea")
+            if open_browser:
+                webbrowser.open(url)
+            await _report(
+                on_progress,
+                vendor=vendor,
+                method="oauth_pkce",
+                phase="await_user",
+                verificationUri=url,
+                expiresInSec=float(timeout_sec or config["timeout_sec"]),
+            )
+            await _report(on_progress, vendor=vendor, method="oauth_pkce", phase="polling")
+            code = await server.wait(float(timeout_sec or config["timeout_sec"]))
+            exchanged = await http.post(
+                str(config["keys_url"]),
+                json={
+                    "code": code,
+                    "code_verifier": verifier,
+                    "code_challenge_method": "S256",
+                },
+            )
+            if exchanged.status_code >= 400:
+                raise RpcError(
+                    errors.INTERNAL,
+                    f"{vendor}: key exchange failed (HTTP {exchanged.status_code})",
+                )
+            key = str((exchanged.json() or {}).get("key") or "")
+            if not key:
+                raise RpcError(errors.INTERNAL, f"{vendor}: key exchange returned no key")
+            await _report(
+                on_progress,
+                vendor=vendor,
+                method="oauth_pkce",
+                phase="done",
+                message=f"{vendor}: API key stored",
+            )
+            return LoginResult(
+                vendor=vendor,
+                method="oauth_pkce",
+                credentials={"api_key": key},
+                message=f"{vendor}: API key stored",
+            )
+        except TimeoutError as exc:
+            wrapped = RpcError(errors.INTERNAL, f"{vendor}: login timed out")
+            await _report(
+                on_progress,
+                vendor=vendor,
+                method="oauth_pkce",
+                phase="failed",
+                message=str(wrapped),
+            )
+            raise wrapped from exc
+        except Exception as exc:
+            await _report(
+                on_progress, vendor=vendor, method="oauth_pkce", phase="failed", message=str(exc)
+            )
+            raise
+        finally:
+            await server.close()
+            if owned:
+                await http.aclose()
+
+    return LoginStart(
+        vendor=vendor,
+        method="oauth_pkce",
+        verification_uri=url,
+        expires_in_sec=float(timeout_sec or config["timeout_sec"]),
+        finish=finish,
+    )
+
+
+async def oauth_pkce_login(
+    vendor: str = "openrouter",
+    *,
+    client: httpx.AsyncClient | None = None,
+    on_prompt: Prompt = _prompt_default,
+    open_browser: bool = True,
+    timeout_sec: float | None = None,
+) -> LoginResult:
+    """Run the PKCE flow start-to-finish and return the API key it minted."""
+    started = await oauth_pkce_start(
+        vendor,
+        client=client,
+        on_prompt=on_prompt,
+        open_browser=open_browser,
+        timeout_sec=timeout_sec,
+    )
+    return await started.finish()
 
 
 # ---------------------------------------------------------------------------
@@ -339,15 +517,51 @@ async def login(
     )
 
 
+async def login_started(
+    vendor: str,
+    method: str | None = None,
+    *,
+    client: httpx.AsyncClient | None = None,
+    on_prompt: Prompt = _prompt_default,
+    open_browser: bool = True,
+    on_progress: ProgressHook | None = None,
+) -> LoginStart:
+    """Like :func:`login`, but return as soon as there is something to show the
+    user; ``result.finish()`` resumes the flow and finishes it.  Used by
+    ``provider.loginWeb`` so it can answer with ``userCode``/``verificationUri``
+    immediately and keep polling in a background task.
+    """
+    resolved = method_for(vendor, method)
+    if resolved == "device_code":
+        return await device_code_start(
+            vendor,
+            client=client,
+            on_prompt=on_prompt,
+            open_browser=open_browser,
+            on_progress=on_progress,
+        )
+    return await oauth_pkce_start(
+        vendor,
+        client=client,
+        on_prompt=on_prompt,
+        open_browser=open_browser,
+        on_progress=on_progress,
+    )
+
+
 __all__ = [
     "API_KEY_HINT",
     "ENDPOINTS",
     "CallbackServer",
     "LoginResult",
+    "LoginStart",
     "device_code_login",
+    "device_code_start",
     "login",
+    "login_started",
     "method_for",
     "new_pkce_pair",
     "oauth_pkce_login",
+    "oauth_pkce_start",
     "unsupported",
 ]
