@@ -7,7 +7,7 @@ build/
 *.egg-info/
 # node
 node_modules/
-tui/dist/
+# tui/dist/snowpea-tui.js is tracked so `uv tool install git+…` can build the wheel
 sdk/dist/
 # omc runtime state (plans/specs are committed)
 .omc/state/
@@ -16,3 +16,7 @@ sdk/dist/
 # local
 .snowpea/
 .env
+
+# keep the built TUI bundle so `uv tool install git+…` can build the wheel
+!tui/dist/
+!tui/dist/snowpea-tui.js

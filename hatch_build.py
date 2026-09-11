@@ -64,6 +64,8 @@ def copy_bundle(root: Path | str, *, skip: bool | None = None) -> Path | None:
     if skip is None:
         skip = _truthy(os.environ.get("SNOWPEA_SKIP_TUI"))
 
+    if not source.is_file() and not skip:
+        _try_build_tui(source)
     if not source.is_file():
         if target.is_file():
             # Building a wheel out of an sdist: the sdist already carries the
@@ -113,3 +115,20 @@ __all__ = [
     "SnowpeaTuiBuildHook",
     "copy_bundle",
 ]
+
+def _try_build_tui(source: Path) -> None:
+    """Best effort: build the TUI bundle in-tree when npm is available (git installs)."""
+    import shutil
+    import subprocess
+
+    root = source.parents[2] if source.name == "snowpea-tui.js" else source.parent
+    npm = shutil.which("npm")
+    if npm is None or not (root / "package.json").is_file():
+        return
+    try:
+        subprocess.run([npm, "ci", "--no-audit", "--no-fund"], cwd=root, check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=600)
+        subprocess.run([npm, "-w", "tui", "run", "build"], cwd=root, check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=600)
+    except Exception:  # noqa: BLE001 - fall through to the explicit MissingBundle error
+        return
