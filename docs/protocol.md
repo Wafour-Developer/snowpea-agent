@@ -98,6 +98,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`system.health`](#systemhealth) | client → server | Liveness probe; answers as long as the daemon serves requests. |
 | [`system.hello`](#systemhello) | client → server | Authenticate a connection and agree on the protocol version. |
 | [`system.info`](#systeminfo) | client → server | Report the daemon's version, pid, port, start time and home. |
+| [`system.reloadSettings`](#systemreloadsettings) | client → server | Re-read settings.json and rebind the daemon's in-memory state. |
 | [`system.restart`](#systemrestart) | client → server | Shut the daemon down so the next launch runs the newly installed version. |
 | [`system.shutdown`](#systemshutdown) | client → server | Ask the daemon to shut down gracefully. |
 | [`system.update`](#systemupdate) | client → server | Upgrade snowpea in a detached subprocess and report progress. |
@@ -620,7 +621,12 @@ Start a browser-based login flow for a provider.
 
 | field | type | required | description |
 |---|---|---|---|
+| `expiresInSec` | `number \| null` | no | Seconds until the code or session expires, when known. |
 | `ok` | `boolean` | no | True when the call succeeded. |
+| `status` | `"await_user" \| "done" \| "failed"` | no | 'await_user' once userCode/verificationUri are ready and polling has started in the background; 'done' or 'failed' if the flow finished synchronously before this response was sent. |
+| `userCode` | `string \| null` | no | Short code the user types in, for device-code flows. |
+| `verificationUri` | `string \| null` | no | URL to open to approve the login. |
+| `verificationUriComplete` | `string \| null` | no | verificationUri with the code already embedded, when known. |
 
 ### `provider.models`
 
@@ -1011,6 +1017,23 @@ _No params (send `{}`)._
 | `startedAt` | `string` | yes | UTC ISO-8601 timestamp of daemon start. |
 | `version` | `string` | yes | Daemon version. |
 
+### `system.reloadSettings`
+
+*Direction:* client → server
+
+Re-read settings.json and rebind the daemon's in-memory state.
+
+**Params**
+
+_No params (send `{}`)._
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `changedKeys` | `string[]` | no | Top-level settings sections that changed, e.g. ['providers']. |
+| `reloaded` | `boolean` | yes | True when settings.json differed from what the daemon held and the in-memory state was rebound; false when it was already current. |
+
 ### `system.restart`
 
 *Direction:* client → server
@@ -1162,6 +1185,19 @@ List the tools registered for a session.
 | `kind` | `"started" \| "finished" \| "failed" \| "denied"` | yes | Where the run got to. |
 | `payload` | `Record<string, unknown>` | no | Kind-specific body. |
 
+### `provider.loginProgress`
+
+| field | type | required | description |
+|---|---|---|---|
+| `expiresInSec` | `number \| null` | no | Seconds until the code or session expires, when known. |
+| `message` | `string \| null` | no | One line for humans. |
+| `method` | `string` | yes | Login flow in progress, e.g. 'device_code' or 'oauth_pkce'. |
+| `phase` | `"started" \| "await_user" \| "polling" \| "done" \| "failed"` | yes | Where the login got to. |
+| `userCode` | `string \| null` | no | Short code the user types in, for device-code flows. |
+| `vendor` | `string` | yes | Vendor being logged into. |
+| `verificationUri` | `string \| null` | no | URL to open to approve the login. |
+| `verificationUriComplete` | `string \| null` | no | verificationUri with the code already embedded, when known. |
+
 ### `session.event`
 
 | field | type | required | description |
@@ -1171,6 +1207,13 @@ List the tools registered for a session.
 | `seq` | `number` | yes | Monotonic per-session sequence number. |
 | `sessionId` | `string` | yes | Session the event belongs to. |
 | `ts` | `string` | yes | UTC ISO-8601 timestamp. |
+
+### `settings.changed`
+
+| field | type | required | description |
+|---|---|---|---|
+| `keys` | `string[]` | no | Top-level settings sections that changed, e.g. ['providers']. |
+| `scope` | `"global" \| "project"` | no | Which document was reloaded; "global" for $SNOWPEA_HOME/settings.json. |
 
 ### `system.updateProgress`
 

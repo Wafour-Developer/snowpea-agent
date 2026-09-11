@@ -66,6 +66,21 @@ class Paths:
         return self.home / "credentials.json"
 
     @property
+    def update_check_json(self) -> Path:
+        """Cached ``system.checkUpdate`` answer, refreshed at most daily."""
+        return self.home / "update-check.json"
+
+    @property
+    def install_json(self) -> Path:
+        """How snowpea was installed: ``{"method", "source", "time"}``.
+
+        Written by ``installer/install.sh`` and ``installer/install.ps1`` so
+        ``system.update`` can fall back to the original installer when ``uv``
+        is not on PATH.
+        """
+        return self.home / "install.json"
+
+    @property
     def state_db(self) -> Path:
         return self.home / "state.db"
 
@@ -80,6 +95,11 @@ class Paths:
     @property
     def approvals_log(self) -> Path:
         return self.logs_dir / "approvals.jsonl"
+
+    @property
+    def update_log(self) -> Path:
+        """Where ``system.update`` sends the installer's stdout and stderr."""
+        return self.logs_dir / "update.log"
 
     @property
     def jobs_log(self) -> Path:

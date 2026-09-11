@@ -550,8 +550,18 @@ export interface ProviderLoginWebParams {
 
 /** `provider.loginWeb` result. */
 export interface ProviderLoginWebResult {
+  /** Seconds until the code or session expires, when known. */
+  expiresInSec?: number | null;
   /** True when the call succeeded. */
   ok?: boolean;
+  /** 'await_user' once userCode/verificationUri are ready and polling has started in the background; 'done' or 'failed' if the flow finished synchronously before this response was sent. */
+  status?: "await_user" | "done" | "failed";
+  /** Short code the user types in, for device-code flows. */
+  userCode?: string | null;
+  /** URL to open to approve the login. */
+  verificationUri?: string | null;
+  /** verificationUri with the code already embedded, when known. */
+  verificationUriComplete?: string | null;
 }
 
 /** `provider.models` params. Ask a vendor's endpoint which models it serves. */
@@ -1021,6 +1031,17 @@ export interface SystemInfoResult {
   version: string;
 }
 
+/** `system.reloadSettings` params. Re-read settings.json and rebind the daemon's in-memory state. */
+export type SystemReloadSettingsParams = Record<string, unknown>;
+
+/** `system.reloadSettings` result. */
+export interface SystemReloadSettingsResult {
+  /** Top-level settings sections that changed, e.g. ['providers']. */
+  changedKeys?: string[];
+  /** True when settings.json differed from what the daemon held and the in-memory state was rebound; false when it was already current. */
+  reloaded: boolean;
+}
+
 /** `system.restart` params. Shut the daemon down so the next launch runs the newly installed version. */
 export type SystemRestartParams = Record<string, unknown>;
 
@@ -1212,6 +1233,26 @@ export interface JobEventPayload {
   payload?: Record<string, unknown>;
 }
 
+/** `provider.loginProgress` notification payload. */
+export interface ProviderLoginProgressPayload {
+  /** Seconds until the code or session expires, when known. */
+  expiresInSec?: number | null;
+  /** One line for humans. */
+  message?: string | null;
+  /** Login flow in progress, e.g. 'device_code' or 'oauth_pkce'. */
+  method: string;
+  /** Where the login got to. */
+  phase: "started" | "await_user" | "polling" | "done" | "failed";
+  /** Short code the user types in, for device-code flows. */
+  userCode?: string | null;
+  /** Vendor being logged into. */
+  vendor: string;
+  /** URL to open to approve the login. */
+  verificationUri?: string | null;
+  /** verificationUri with the code already embedded, when known. */
+  verificationUriComplete?: string | null;
+}
+
 /** `session.event` notification payload. */
 export interface SessionEventPayload {
   /** Event kind; see sessionEventKinds for the payload schema. */
@@ -1224,6 +1265,14 @@ export interface SessionEventPayload {
   sessionId: string;
   /** UTC ISO-8601 timestamp. */
   ts: string;
+}
+
+/** `settings.changed` notification payload. */
+export interface SettingsChangedPayload {
+  /** Top-level settings sections that changed, e.g. ['providers']. */
+  keys?: string[];
+  /** Which document was reloaded; "global" for $SNOWPEA_HOME/settings.json. */
+  scope?: "global" | "project";
 }
 
 /** `system.updateProgress` notification payload. */
@@ -1494,6 +1543,7 @@ export interface MethodMap {
   "system.health": { params: SystemHealthParams; result: SystemHealthResult };
   "system.hello": { params: SystemHelloParams; result: SystemHelloResult };
   "system.info": { params: SystemInfoParams; result: SystemInfoResult };
+  "system.reloadSettings": { params: SystemReloadSettingsParams; result: SystemReloadSettingsResult };
   "system.restart": { params: SystemRestartParams; result: SystemRestartResult };
   "system.shutdown": { params: SystemShutdownParams; result: SystemShutdownResult };
   "system.update": { params: SystemUpdateParams; result: SystemUpdateResult };
@@ -1554,6 +1604,7 @@ export type ClientMethod =
   | "system.health"
   | "system.hello"
   | "system.info"
+  | "system.reloadSettings"
   | "system.restart"
   | "system.shutdown"
   | "system.update"
@@ -1571,7 +1622,9 @@ export interface EventMap {
   "commands.changed": CommandsChangedPayload;
   "gateway.event": GatewayEventPayload;
   "job.event": JobEventPayload;
+  "provider.loginProgress": ProviderLoginProgressPayload;
   "session.event": SessionEventPayload;
+  "settings.changed": SettingsChangedPayload;
   "system.updateProgress": SystemUpdateProgressPayload;
 }
 
@@ -1582,6 +1635,8 @@ export const EVENT_NAMES: readonly EventName[] = [
   "commands.changed",
   "gateway.event",
   "job.event",
+  "provider.loginProgress",
   "session.event",
+  "settings.changed",
   "system.updateProgress",
 ];

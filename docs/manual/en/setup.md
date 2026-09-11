@@ -20,7 +20,7 @@ Quick is the right answer the first time. Full is worth one pass once you know w
 | Search | one web-search provider | `--search-provider` |
 | Browser | one browser provider | `--browser-provider` |
 | Tools | which tool categories are on | `--tools` |
-| Gateway | Telegram / Discord / Slack | `--gateway`, `--token` |
+| Gateway | Telegram / Discord / Slack | `--gateway`, `--token`, `--user-id` |
 | Done | summary of what was written | — |
 
 Lists are ordered free-and-keyless first, then free-but-needs-a-key or self-hosted, then paid. The default in each list is marked with a star. Nothing in the default configuration requires a paid account beyond your LLM vendor: web search and the browser both work with no key at all.
@@ -125,10 +125,12 @@ Categories are `file`, `terminal`, `git`, `web`, `browser`, `delegate`, `schedul
 ## Gateway
 
 ```bash
-snowpea setup --gateway telegram --token 123456:ABC-your-bot-token
+snowpea setup --gateway telegram --token 123456:ABC-your-bot-token --user-id 987654
 ```
 
-This stores the token in `$SNOWPEA_HOME/credentials.json` (mode `0600`) and nothing more — binding a bot to an agent or session is a separate step, covered in [Gateway](gateway.md).
+The interactive screen asks for both: the bot token, then your own account id on that platform (Telegram tells you yours if you send `/start` to [@userinfobot](https://t.me/userinfobot)). The id matters because it is the only account allowed to answer an approval from chat.
+
+The token is stored in `$SNOWPEA_HOME/credentials.json` (mode `0600`), and the messenger starts listening with the daemon — no binding step needed. Binding a bot to a *particular* agent, session or chat is still a separate step, covered in [Gateway](gateway.md).
 
 ## What ends up on disk
 

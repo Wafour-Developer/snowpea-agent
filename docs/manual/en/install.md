@@ -68,7 +68,38 @@ uv run snowpea --version
 
 `npm run build` produces `tui/dist/snowpea-tui.js`, which `snowpea` looks for after the packaged bundle. While working on the UI, point `SNOWPEA_TUI_ENTRY` at your own entry file to skip the bundle entirely.
 
-## Upgrading
+## Updating
+
+snowpea checks for a newer release once a day, in the background, and caches the answer in `$SNOWPEA_HOME/update-check.json`. Nothing is ever installed without you saying so.
+
+**In the terminal UI.** When an update is waiting, a banner appears at the top of the screen:
+
+```text
+⬆ Update available v0.1.2 (current v0.1.1) — press U or type /update
+```
+
+Press `U` (or type `/update`) and answer `y`. The upgrade runs in the background, the banner reports progress, and when it finishes snowpea restarts itself on the new version. A running turn is never interrupted.
+
+**From the command line.**
+
+```bash
+snowpea update --check
+snowpea update
+```
+
+`--check` reports the current and latest versions and installs nothing. Without it, `snowpea update` runs the upgrade, stops the daemon, and tells you to start `snowpea` again. `snowpea --version` also mentions a pending update, using only the cached answer, so it never waits on the network.
+
+The upgrade writes its output to `$SNOWPEA_HOME/logs/update.log`. It runs `uv tool install --force --reinstall`; if `uv` is not on `PATH`, the method the installer recorded in `$SNOWPEA_HOME/install.json` is used instead, and if nothing is known snowpea prints the command to run by hand rather than guessing.
+
+Two settings control this in `$SNOWPEA_HOME/settings.json`:
+
+```json
+{ "updates": { "check": true, "channel": "auto" } }
+```
+
+`check: false` turns the daily background check off, leaving `/update` and `snowpea update` working on demand. `channel` is `auto` (PyPI when the package is published there, the repository's git tags otherwise), `pypi`, or `git`.
+
+To upgrade by hand instead:
 
 ```bash
 uv tool upgrade snowpea-agent
@@ -76,7 +107,7 @@ snowpea daemon stop
 snowpea --version
 ```
 
-Stop the daemon after upgrading. A running daemon keeps the old code in memory, and the next client to attach would negotiate against a protocol version that no longer matches the installed one.
+Stop the daemon after upgrading by hand. A running daemon keeps the old code in memory, and the next client to attach would negotiate against a protocol version that no longer matches the installed one.
 
 ## Uninstalling
 

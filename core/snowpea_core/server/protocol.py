@@ -56,6 +56,10 @@ Direction = Literal["c2s", "s2c"]
 UpdateChannel = Literal["git", "pypi"]
 #: Phases ``system.updateProgress`` reports.
 UpdatePhase = Literal["started", "done", "failed"]
+#: Phases ``provider.loginProgress`` reports for a browser login.
+LoginProgressPhase = Literal["started", "await_user", "polling", "done", "failed"]
+#: ``provider.loginWeb`` result status once the device code/PKCE URL is known.
+LoginWebStatus = Literal["await_user", "done", "failed"]
 
 
 class Payload(BaseModel):
@@ -448,6 +452,34 @@ class ProviderConfigureParams(Payload):
 class ProviderLoginWebParams(Payload):
     vendor: str = Field(description="Vendor to log into.")
     method: str = Field(description="Login flow to start, e.g. 'oauth'.")
+
+
+class ProviderLoginWebResult(Payload):
+    """Answered as soon as the flow has something to show the user; the wait
+    for approval continues in the background and is reported via
+    ``provider.loginProgress`` notifications."""
+
+    ok: bool = Field(default=True, description="True when the call succeeded.")
+    status: LoginWebStatus = Field(
+        default="await_user",
+        description=(
+            "'await_user' once userCode/verificationUri are ready and polling has "
+            "started in the background; 'done' or 'failed' if the flow finished "
+            "synchronously before this response was sent."
+        ),
+    )
+    userCode: str | None = Field(
+        default=None, description="Short code the user types in, for device-code flows."
+    )
+    verificationUri: str | None = Field(
+        default=None, description="URL to open to approve the login."
+    )
+    verificationUriComplete: str | None = Field(
+        default=None, description="verificationUri with the code already embedded, when known."
+    )
+    expiresInSec: float | None = Field(
+        default=None, description="Seconds until the code or session expires, when known."
+    )
 
 
 class BackendSetParams(Payload):
@@ -871,6 +903,21 @@ class SettingsSetParams(Payload):
     )
 
 
+class SettingsReloadResult(Payload):
+    """What ``system.reloadSettings`` did (CORE-settings-reload)."""
+
+    reloaded: bool = Field(
+        description=(
+            "True when settings.json differed from what the daemon held and "
+            "the in-memory state was rebound; false when it was already current."
+        )
+    )
+    changedKeys: list[str] = Field(
+        default_factory=list,
+        description="Top-level settings sections that changed, e.g. ['providers'].",
+    )
+
+
 class SetupCatalogItem(Payload):
     """One selectable row on a setup wizard screen (``setup/catalog.py::CatalogItem``)."""
 
@@ -1163,6 +1210,45 @@ class GatewayEventNotification(Payload):
     payload: dict[str, Any] = Field(default_factory=dict, description="Kind-specific body.")
 
 
+class ProviderLoginProgressNotification(Payload):
+    """Progress of a ``provider.loginWeb`` flow, from the device code or PKCE
+    URL being ready through to the token being stored."""
+
+    vendor: str = Field(description="Vendor being logged into.")
+    method: str = Field(description="Login flow in progress, e.g. 'device_code' or 'oauth_pkce'.")
+    phase: LoginProgressPhase = Field(description="Where the login got to.")
+    userCode: str | None = Field(
+        default=None, description="Short code the user types in, for device-code flows."
+    )
+    verificationUri: str | None = Field(
+        default=None, description="URL to open to approve the login."
+    )
+    verificationUriComplete: str | None = Field(
+        default=None, description="verificationUri with the code already embedded, when known."
+    )
+    message: str | None = Field(default=None, description="One line for humans.")
+    expiresInSec: float | None = Field(
+        default=None, description="Seconds until the code or session expires, when known."
+    )
+
+
+class SettingsChangedNotification(Payload):
+    """The daemon reloaded settings from disk (CORE-settings-reload).
+
+    Broadcast to every authenticated connection so a surface can re-read the
+    parts it caches instead of showing a stale model or mode.
+    """
+
+    scope: SettingsScope = Field(
+        default="global",
+        description='Which document was reloaded; "global" for $SNOWPEA_HOME/settings.json.',
+    )
+    keys: list[str] = Field(
+        default_factory=list,
+        description="Top-level settings sections that changed, e.g. ['providers'].",
+    )
+
+
 # --------------------------------------------------------------------------
 # registries
 # --------------------------------------------------------------------------
@@ -1229,6 +1315,12 @@ METHODS: dict[str, RpcMethod] = {
             Empty,
             Ok,
             "Shut the daemon down so the next launch runs the newly installed version.",
+        ),
+        _m(
+            "system.reloadSettings",
+            Empty,
+            SettingsReloadResult,
+            "Re-read settings.json and rebind the daemon's in-memory state.",
         ),
         _m(
             "session.create",
@@ -1326,7 +1418,7 @@ METHODS: dict[str, RpcMethod] = {
         _m(
             "provider.loginWeb",
             ProviderLoginWebParams,
-            Ok,
+            ProviderLoginWebResult,
             "Start a browser-based login flow for a provider.",
         ),
         _m(
@@ -1425,6 +1517,8 @@ EVENTS: dict[str, type[BaseModel]] = {
     "gateway.event": GatewayEventNotification,
     "commands.changed": CommandsChangedNotification,
     "system.updateProgress": UpdateProgressNotification,
+    "provider.loginProgress": ProviderLoginProgressNotification,
+    "settings.changed": SettingsChangedNotification,
 }
 
 CAPABILITIES: list[str] = [
@@ -1453,6 +1547,7 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "system.checkUpdate",
         "system.update",
         "system.restart",
+        "system.reloadSettings",
         "session.create",
         "session.resume",
         "session.list",
@@ -1475,6 +1570,7 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "gateway.bind",
         "gateway.list",
         "gateway.unbind",
+        "gateway.sync",
         "job.schedule",
         "job.list",
         "job.cancel",

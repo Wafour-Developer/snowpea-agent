@@ -23,8 +23,10 @@ from snowpea_core.cli.daemon_client import (
     CALL_TIMEOUT_SEC,
     DaemonClient,
     DaemonError,
+    DaemonInfo,
     RpcCallError,
     ensure_daemon,
+    health_ok,
     pid_alive,
     read_daemon_json,
 )
@@ -336,8 +338,57 @@ def setup_command(args: argparse.Namespace, home: Path | str | None = None) -> i
     print(f"settings written to {result.settings_path}")
     for line in result.summary():
         print(f"  {line}")
+    _reload_running_daemon(home)
     _messenger_next_steps(result, home)
     return EXIT_OK
+
+
+def _live_daemon(home: Path | str | None) -> DaemonInfo | None:
+    """The daemon advertised by ``daemon.json`` when it is really answering.
+
+    Deliberately not :func:`ensure_daemon`: nothing here is worth *starting* a
+    daemon for.  A stale advert answers no ``/health`` and is ignored.
+    """
+    info = read_daemon_json(home)
+    if info is None or not pid_alive(info.pid):
+        return None
+    try:
+        alive = _run_blocking(health_ok(info.port))
+    except OSError:
+        return None
+    return info if alive else None
+
+
+def _reload_running_daemon(home: Path | str | None) -> None:
+    """Make a running daemon adopt the settings the wizard just wrote.
+
+    The daemon loads ``settings.json`` once at start, so before this a fresh
+    ``--model`` reached the file but not the next prompt, which still went out
+    with the old model (CORE-settings-reload).
+    """
+    if _live_daemon(home) is None:
+        return
+    try:
+        result = _run_blocking(_call_reload_settings(home))
+    except (DaemonError, RpcCallError, OSError) as exc:
+        print(f"daemon: could not reload settings ({exc}); restart it to pick them up")
+        return
+    keys = [str(key) for key in (result.get("changedKeys") or [])]
+    if not result.get("reloaded") and not keys:
+        return
+    print("daemon: settings reloaded" + (f" ({', '.join(keys)})" if keys else ""))
+
+
+async def _call_reload_settings(home: Path | str | None) -> dict[str, Any]:
+    """``system.reloadSettings`` against the daemon already advertised."""
+    info = await ensure_daemon(home)
+    client = DaemonClient(info)
+    await client.connect()
+    try:
+        result = await client.call("system.reloadSettings", {})
+    finally:
+        await client.close()
+    return result if isinstance(result, dict) else {}
 
 
 def _messenger_next_steps(result: Any, home: Path | str | None) -> None:

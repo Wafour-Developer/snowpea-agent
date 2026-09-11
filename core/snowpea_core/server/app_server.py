@@ -19,8 +19,10 @@ from aiohttp import web
 from pydantic import Field
 
 from snowpea_core import __version__
+from snowpea_core import update as update_mod
 from snowpea_core.agent.named import NamedAgentRegistry
 from snowpea_core.commands.registry import CommandRegistry
+from snowpea_core.config import hot_reload
 from snowpea_core.config.paths import Paths
 from snowpea_core.config.settings import Settings
 from snowpea_core.gateway.router import GatewayRouter
@@ -60,6 +62,9 @@ from snowpea_core.server.protocol import (
     Payload,
     ProviderConfigureParams,
     ProviderLoginWebParams,
+    ProviderLoginWebResult,
+    SettingsChangedNotification,
+    SettingsReloadResult,
 )
 from snowpea_core.server.rpc import RpcConnection, RpcDispatcher
 from snowpea_core.server.session_handlers import (
@@ -75,6 +80,7 @@ from snowpea_core.server.transport_http import (
     create_app,
 )
 from snowpea_core.server.transport_ws import hello_handler
+from snowpea_core.server.update_handlers import register_update_handlers
 from snowpea_core.session.manager import EventHub, SessionManager
 from snowpea_core.tools.registry import ToolRegistry
 
@@ -120,6 +126,86 @@ class Core:
     port: int = 0
     started_at: str = field(default_factory=_utc_now)
     request_shutdown: Any = None
+    #: Set once ``system.update`` finished successfully; ``system.info``
+    #: reports it so a surface can tell the user to restart (CORE-update).
+    restart_required: bool = False
+    #: The task watching a running upgrade, kept so it is not garbage collected.
+    update_task: Any = None
+    #: The daily background update check; separate from the upgrade watcher so
+    #: one never replaces the other.
+    update_check_task: Any = None
+    #: ``(mtime_ns, size)`` of ``settings.json`` as of the last load or save;
+    #: :meth:`settings_file_changed` compares against it (CORE-settings-reload).
+    settings_stamp: tuple[int, int] = hot_reload.MISSING
+
+    # -- settings hot reload (CORE-settings-reload) ---------------------
+
+    def mark_settings_saved(self) -> None:
+        """Record the file as it now is, after the daemon itself wrote it.
+
+        Without this an in-daemon write (``settings.set``, ``provider.configure``,
+        ``/model``) would look like an outside edit on the next prompt and cost
+        a pointless re-read.
+        """
+        self.settings_stamp = hot_reload.stamp(self.paths.settings_json)
+
+    def settings_file_changed(self) -> bool:
+        """True when ``settings.json`` differs from what was last loaded or saved."""
+        return hot_reload.stamp(self.paths.settings_json) != self.settings_stamp
+
+    async def reload_settings(self, *, force: bool = False) -> tuple[bool, list[str]]:
+        """Re-read ``settings.json`` and rebind everything that captured it.
+
+        Returns ``(reloaded, changed_keys)``.  An unchanged file (or one whose
+        content is identical to what is already held) reloads nothing and
+        notifies nobody, so this is safe to call on every prompt.
+        """
+        current = hot_reload.stamp(self.paths.settings_json)
+        if not force and current == self.settings_stamp:
+            return False, []
+        fresh = Settings.load(self.paths)
+        keys = hot_reload.changed_keys(
+            self.settings.model_dump(mode="json"), fresh.model_dump(mode="json")
+        )
+        self.settings_stamp = current
+        if not keys:
+            return False, []
+        hot_reload.rebind(self, fresh)
+        log.info("settings.json reloaded; changed: %s", ", ".join(keys))
+        await self._announce_settings(keys)
+        return True, keys
+
+    async def adopt_settings(self, settings: Settings, keys: list[str]) -> None:
+        """Install a document the daemon itself just wrote, and announce it.
+
+        ``settings.set`` and the setup wizard's RPC equivalents persist first
+        and then call this, so the in-memory state matches the file without a
+        round trip back through disk.
+        """
+        hot_reload.rebind(self, settings)
+        self.mark_settings_saved()
+        if keys:
+            await self.notify_settings_changed(keys)
+
+    async def _announce_settings(self, keys: list[str]) -> None:
+        """Re-sync the gateway and tell every client what changed."""
+        if "gateway" in keys and self.gateway is not None:
+            try:
+                await self.gateway.sync_from_settings(self.settings)
+            except Exception as exc:  # noqa: BLE001 - a dead platform is not fatal
+                log.warning("could not apply the reloaded messenger settings: %s", exc)
+        await self.notify_settings_changed(keys)
+
+    async def notify_settings_changed(self, keys: list[str]) -> None:
+        """Broadcast ``settings.changed`` to every authenticated connection."""
+        hub = getattr(self, "hub", None)
+        if hub is None:  # pragma: no cover - a core without a hub is a test double
+            return
+        params = SettingsChangedNotification(scope="global", keys=list(keys))
+        try:
+            await hub.notify("settings.changed", params.model_dump(mode="json"))
+        except Exception:  # noqa: BLE001 - a dead socket must not break the reload
+            log.debug("could not broadcast settings.changed", exc_info=True)
 
 
 class EchoRequestParams(Payload):
@@ -156,12 +242,26 @@ async def info_handler(_conn: RpcConnection, _params: Empty, core: Core) -> Info
             reasons=list(status.get("reasons") or []),
             summary=status.get("summary"),
         ),
+        restartRequired=core.restart_required,
     )
 
 
 async def health_handler(_conn: RpcConnection, _params: Empty, _core: Core) -> HealthResult:
     """``system.health``."""
     return HealthResult()
+
+
+async def reload_settings_handler(
+    _conn: RpcConnection, _params: Empty, core: Core
+) -> SettingsReloadResult:
+    """``system.reloadSettings`` — pick up an outside edit to ``settings.json``.
+
+    ``snowpea setup`` writes the file from its own process, so a daemon that is
+    already running would otherwise keep serving the previous provider, model
+    and tool configuration until it was restarted (CORE-settings-reload).
+    """
+    reloaded, keys = await core.reload_settings()
+    return SettingsReloadResult(reloaded=reloaded, changedKeys=keys)
 
 
 async def shutdown_handler(_conn: RpcConnection, _params: Empty, core: Core) -> Ok:
@@ -302,6 +402,7 @@ def _persist_provider(core: Core, vendor: str, config: dict[str, Any]) -> None:
         core.settings.save(core.paths)
     except OSError as exc:  # pragma: no cover - disk failure
         raise RpcError(errors.INTERNAL, f"could not write settings.json: {exc}") from exc
+    core.mark_settings_saved()
 
 
 async def provider_configure_handler(
@@ -323,17 +424,54 @@ async def provider_configure_handler(
 
 
 async def provider_login_web_handler(
-    _conn: RpcConnection, params: ProviderLoginWebParams, core: Core
-) -> Ok:
-    """``provider.loginWeb`` — device code (OpenAI) or OAuth PKCE (OpenRouter)."""
-    result = await auth_web.login(
+    conn: RpcConnection, params: ProviderLoginWebParams, core: Core
+) -> ProviderLoginWebResult:
+    """``provider.loginWeb`` — device code (OpenAI) or OAuth PKCE (OpenRouter).
+
+    Answers as soon as the device code / PKCE URL is known, then keeps polling
+    for approval in a background task that reports each phase via
+    ``provider.loginProgress`` and persists the token when it lands.
+    """
+
+    async def on_progress(fields: dict[str, Any]) -> None:
+        hub = getattr(core, "hub", None)
+        if hub is None:  # pragma: no cover - a core without a hub is a test double
+            return
+        try:
+            await hub.notify("provider.loginProgress", fields)
+        except Exception:  # noqa: BLE001 - a dead socket must not break the login
+            log.debug("could not broadcast loginProgress", exc_info=True)
+
+    started = await auth_web.login_started(
         params.vendor,
         params.method or None,
         on_prompt=lambda message: log.info("provider login: %s", message),
         open_browser=os.environ.get("SNOWPEA_TEST") != "1",
+        on_progress=on_progress,
     )
-    _persist_provider(core, params.vendor, result.credentials)
-    return Ok(ok=True)
+
+    async def finish_and_persist() -> None:
+        try:
+            result = await started.finish()
+        except Exception:  # noqa: BLE001 - already reported via loginProgress(failed)
+            log.warning("provider login for %s failed", params.vendor, exc_info=True)
+            return
+        try:
+            _persist_provider(core, result.vendor, result.credentials)
+        except RpcError:
+            log.warning(
+                "could not persist credentials for %s", params.vendor, exc_info=True
+            )
+
+    conn.spawn(finish_and_persist())
+    return ProviderLoginWebResult(
+        ok=True,
+        status="await_user",
+        userCode=started.user_code,
+        verificationUri=started.verification_uri,
+        verificationUriComplete=started.verification_uri_complete,
+        expiresInSec=started.expires_in_sec,
+    )
 
 
 def build_dispatcher(core: Core) -> RpcDispatcher:
@@ -343,6 +481,7 @@ def build_dispatcher(core: Core) -> RpcDispatcher:
     dispatcher.register("system.info", info_handler)
     dispatcher.register("system.health", health_handler)
     dispatcher.register("system.shutdown", shutdown_handler)
+    dispatcher.register("system.reloadSettings", reload_settings_handler)
     register_session_handlers(dispatcher)
     register_skill_handlers(dispatcher)
     register_job_handlers(dispatcher)
@@ -351,6 +490,7 @@ def build_dispatcher(core: Core) -> RpcDispatcher:
     register_gateway_handlers(dispatcher)
     register_team_handlers(dispatcher)
     register_settings_handlers(dispatcher)
+    register_update_handlers(dispatcher)
     dispatcher.register("provider.configure", provider_configure_handler)
     dispatcher.register("provider.loginWeb", provider_login_web_handler)
     for name, method in PROTOCOL_METHODS.items():
@@ -405,6 +545,7 @@ class Daemon:
             write_token(paths, self._preissued_token)
         token = ensure_token(paths)
         core = Core(settings=settings, paths=paths, token=token)
+        core.settings_stamp = hot_reload.stamp(paths.settings_json)
         core.allowlist.bind(paths, settings)
         core.policy.bind(core.allowlist)
         core.approvals.allowlist = core.allowlist
@@ -432,9 +573,16 @@ class Daemon:
         # needs that session to exist again (M7 contract §6).
         await core.named_agents.restore()
         await core.gateway.restore()
+        # A messenger the setup wizard enabled goes live here, without anyone
+        # having to call ``gateway.bind`` by hand (CORE-gateway-autostart).
+        await core.gateway.sync_from_settings(core.settings)
         await core.skills.reload()
         core.lifecycle.start()
         await start_scheduler(core)
+        # Lazy and non-blocking: the answer is cached for 24h, so a daemon that
+        # is restarted often still asks the network at most once a day.
+        if update_mod.check_enabled(settings):
+            core.update_check_task = asyncio.ensure_future(update_mod.background_check(core))
         log.info(
             "snowpea daemon listening on http://%s:%s (ws ws://%s:%s/ws)",
             HOST,
@@ -481,6 +629,14 @@ class Daemon:
     async def stop(self) -> None:
         """Close sockets, drop ``daemon.json`` and release the port."""
         self.request_shutdown(self.shutdown_reason or "requested")
+        if self.core is not None:
+            for attribute in ("update_task", "update_check_task"):
+                task = getattr(self.core, attribute)
+                if task is None:
+                    continue
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+                setattr(self.core, attribute, None)
         if self.core is not None:
             await self.core.lifecycle.stop()
             await stop_scheduler(self.core)

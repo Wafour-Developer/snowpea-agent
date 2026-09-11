@@ -123,6 +123,16 @@ class SchedulerSettings(_Model):
     catchUpSec: int = 3600
 
 
+class UpdatesSettings(_Model):
+    """Update checking and the channel upgrades come from (CORE-update)."""
+
+    #: False turns the daily background check off; the RPC still works on demand.
+    check: bool = True
+    #: ``"auto"`` prefers PyPI and falls back to git tags; ``"pypi"`` and
+    #: ``"git"`` pin one source.
+    channel: str = "auto"
+
+
 class McpSettings(_Model):
     """Extra MCP servers and their permission tags (M2 contract §6)."""
 
@@ -149,6 +159,7 @@ class Settings(_Model):
     mcp: McpSettings = Field(default_factory=McpSettings)
     memory: MemorySettings = Field(default_factory=MemorySettings)
     scheduler: SchedulerSettings = Field(default_factory=SchedulerSettings)
+    updates: UpdatesSettings = Field(default_factory=UpdatesSettings)
     providers: dict[str, Any] = Field(default_factory=dict)
     #: Chat gateways the setup wizard enabled, ``{"telegram": {"enabled":
     #: true, "token": "..."}}``.  Absent gateways are off.
@@ -197,4 +208,5 @@ __all__ = [
     "Settings",
     "TeamSettings",
     "ToolsSettings",
+    "UpdatesSettings",
 ]

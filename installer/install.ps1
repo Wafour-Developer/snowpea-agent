@@ -117,6 +117,25 @@ function Get-InstallSource {
     return $DefaultSource
 }
 
+function Record-Install([string]$Method, [string]$Source) {
+    # `snowpea update` reads this when uv is not on PATH.
+    $home_ = if ($env:SNOWPEA_HOME) { $env:SNOWPEA_HOME } else { Join-Path $env:LOCALAPPDATA 'snowpea' }
+    if ($DryRun) { Plan "record {method: $Method} in $home_\install.json"; return }
+    try {
+        New-Item -ItemType Directory -Force -Path $home_ | Out-Null
+        $payload = [ordered]@{
+            method = $Method
+            source = $Source
+            time   = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+        }
+        $payload | ConvertTo-Json | Set-Content -Path (Join-Path $home_ 'install.json') -Encoding utf8
+        Step "recorded the install method in $home_\install.json"
+    }
+    catch {
+        Step 'could not record install.json; `snowpea update` will fall back to uv'
+    }
+}
+
 function Install-Snowpea {
     $source = Get-InstallSource
     $uvArgs = @('tool', 'install')
@@ -124,9 +143,10 @@ function Install-Snowpea {
     elseif ($Force) { $uvArgs += '--force' }
     $uvArgs += $source
 
-    if ($DryRun) { Plan "uv $($uvArgs -join ' ')"; return }
+    if ($DryRun) { Plan "uv $($uvArgs -join ' ')"; Record-Install 'uv' $source; return }
     if (-not $Force -and -not $FromCheckout -and (Have 'snowpea')) {
         Step 'snowpea is already installed; re-run with -Force to reinstall'
+        Record-Install 'uv' $source
         return
     }
     Say "installing snowpea from $source"
@@ -134,6 +154,7 @@ function Install-Snowpea {
     if ($LASTEXITCODE -ne 0) {
         Die 'uv tool install failed' "uv $($uvArgs -join ' ')"
     }
+    Record-Install 'uv' $source
     Update-SessionPath
 }
 

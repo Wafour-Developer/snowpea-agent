@@ -43,6 +43,42 @@ async def cmd_tools(ctx: CommandContext, args: str) -> None:
     await ctx.say("\n".join(lines))
 
 
+async def cmd_update(ctx: CommandContext, args: str) -> None:
+    """Check for a newer snowpea and, unless asked only to check, install it.
+
+    The same code path every surface uses: the TUI runs it behind its own
+    confirmation, headless and IDE clients get it as ``/update``.
+    """
+    from snowpea_core import update as update_mod
+    from snowpea_core.server.protocol import Empty
+    from snowpea_core.server.update_handlers import update_handler
+
+    core = ctx.core
+    wants_check_only = args.strip().lower() in ("check", "--check")
+    # An explicit /update always asks the network; the cached answer is for the
+    # background nudge, not for someone who just typed the command.
+    answer = await update_mod.check_update(core.paths, core.settings, force=True)
+    current, latest = answer["current"], answer["latest"]
+    if answer.get("error"):
+        await ctx.say(f"Could not check for updates: {answer['error']} (current v{current})")
+        return
+    if not answer["available"]:
+        await ctx.say(f"snowpea v{current} is up to date.")
+        return
+    if wants_check_only:
+        await ctx.say(f"Update available: v{latest} (current v{current}). Run /update to install.")
+        return
+
+    result = await update_handler(ctx.conn, Empty(), core)
+    if not result.started:
+        await ctx.say(f"Could not start the update: {result.error}")
+        return
+    await ctx.say(
+        f"Updating to v{latest} — running `{result.command}`.\n"
+        f"Output: {result.log}. Restart snowpea when it finishes."
+    )
+
+
 COMMANDS: tuple[Command, ...] = (
     Command(
         name="help",
@@ -55,6 +91,17 @@ COMMANDS: tuple[Command, ...] = (
         summary="List the registered tools.",
         run=cmd_tools,
         args_schema={"type": "object", "properties": {}},
+    ),
+    Command(
+        name="update",
+        summary="Check for a newer snowpea and install it ('/update check' only reports).",
+        run=cmd_update,
+        args_schema={
+            "type": "object",
+            "properties": {
+                "check": {"type": "boolean", "description": "Only report; install nothing."}
+            },
+        },
     ),
 )
 
@@ -69,4 +116,5 @@ __all__ = [
     "cmd_help",
     "cmd_mode",
     "cmd_tools",
+    "cmd_update",
 ]

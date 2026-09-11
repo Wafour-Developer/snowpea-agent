@@ -68,7 +68,38 @@ uv run snowpea --version
 
 `npm run build`는 `tui/dist/snowpea-tui.js`를 만들고, `snowpea`는 번들된 패키지보다 이 파일을 먼저 찾습니다. UI를 작업하는 동안은 `SNOWPEA_TUI_ENTRY`가 직접 만든 엔트리 파일을 가리키게 해서 번들을 아예 건너뛸 수 있습니다.
 
-## 업그레이드
+## 업데이트
+
+snowpea는 하루에 한 번 백그라운드에서 새 릴리스를 확인하고, 그 답을 `$SNOWPEA_HOME/update-check.json`에 캐시합니다. 사용자가 승인하지 않으면 아무것도 설치하지 않습니다.
+
+**터미널 UI에서.** 업데이트가 있으면 화면 위쪽에 배너가 뜹니다.
+
+```text
+⬆ Update available v0.1.2 (current v0.1.1) — press U or type /update
+```
+
+`U`를 누르거나 `/update`를 입력한 뒤 `y`로 답하세요. 업그레이드는 백그라운드에서 돌고, 배너가 진행 상황을 알리고, 끝나면 snowpea가 새 버전으로 스스로 다시 시작합니다. 진행 중인 턴은 절대 중단되지 않습니다.
+
+**명령줄에서.**
+
+```bash
+snowpea update --check
+snowpea update
+```
+
+`--check`는 현재 버전과 최신 버전만 알려주고 아무것도 설치하지 않습니다. 그냥 `snowpea update`를 쓰면 업그레이드를 실행하고 데몬을 멈춘 뒤 `snowpea`를 다시 실행하라고 알려줍니다. `snowpea --version`도 대기 중인 업데이트를 함께 알려주는데, 캐시만 읽으므로 네트워크를 기다리지 않습니다.
+
+업그레이드 출력은 `$SNOWPEA_HOME/logs/update.log`에 쌓입니다. 기본 명령은 `uv tool install --force --reinstall`이고, `uv`가 `PATH`에 없으면 설치 프로그램이 `$SNOWPEA_HOME/install.json`에 기록해 둔 방식을 씁니다. 그것도 없으면 짐작하는 대신 직접 실행할 명령을 인쇄합니다.
+
+`$SNOWPEA_HOME/settings.json`의 설정 두 개가 이 동작을 정합니다.
+
+```json
+{ "updates": { "check": true, "channel": "auto" } }
+```
+
+`check: false`는 매일 하는 백그라운드 확인만 끄고, `/update`와 `snowpea update`는 그대로 동작합니다. `channel`은 `auto`(패키지가 PyPI에 있으면 PyPI, 없으면 저장소의 git 태그), `pypi`, `git` 중 하나입니다.
+
+직접 업그레이드하려면:
 
 ```bash
 uv tool upgrade snowpea-agent
@@ -76,7 +107,7 @@ snowpea daemon stop
 snowpea --version
 ```
 
-업그레이드 후에는 데몬을 멈추세요. 돌고 있는 데몬은 옛 코드를 메모리에 그대로 들고 있고, 다음에 붙는 클라이언트는 이미 설치된 것과 더 이상 맞지 않는 프로토콜 버전으로 협상하게 됩니다.
+직접 업그레이드한 뒤에는 데몬을 멈추세요. 돌고 있는 데몬은 옛 코드를 메모리에 그대로 들고 있고, 다음에 붙는 클라이언트는 이미 설치된 것과 더 이상 맞지 않는 프로토콜 버전으로 협상하게 됩니다.
 
 ## 제거
 

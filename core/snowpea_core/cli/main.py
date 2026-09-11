@@ -19,20 +19,25 @@ import argparse
 import asyncio
 import contextlib
 import os
+import shutil
 import subprocess
 import sys
+import time
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 import snowpea_core
 from snowpea_core import __version__
+from snowpea_core import update as update_mod
 from snowpea_core.cli import commands as cli_commands
 from snowpea_core.cli.daemon_client import (
     DaemonClient,
     DaemonError,
     RpcCallError,
     ensure_daemon,
+    pid_alive,
+    read_daemon_json,
 )
 from snowpea_core.cli.render import (
     EXIT_AGENT_FAILED,
@@ -50,6 +55,12 @@ from snowpea_core.cli.render import (
 
 MODES = ("plan", "accept", "auto")
 TUI_BUNDLE = "snowpea-tui.js"
+
+#: The TUI exits with this after an in-place update, meaning "start me again".
+#: 75 is EX_TEMPFAIL, which no other snowpea exit path uses.
+TUI_RESTART_EXIT = 75
+#: How long to wait for the old daemon to go away before re-execing.
+RESTART_DRAIN_SEC = 15.0
 
 
 class TuiNotFound(RuntimeError):
@@ -162,12 +173,50 @@ def launch_tui(args: argparse.Namespace, home: str | None) -> int:
     if args.mode:
         command += ["--mode", args.mode]
     try:
-        return subprocess.call(command)  # noqa: S603 - argv built above
+        code = subprocess.call(command)  # noqa: S603 - argv built above
     except FileNotFoundError:
         _err(f"could not run the TUI: {command[0]} is not on PATH")
         return EXIT_USAGE
     except KeyboardInterrupt:  # pragma: no cover - interactive
         return EXIT_OK
+    if code == TUI_RESTART_EXIT:
+        return relaunch(home)
+    return code
+
+
+def wait_for_daemon_exit(home: str | None, timeout: float = RESTART_DRAIN_SEC) -> None:
+    """Give the daemon the TUI just shut down time to release its port."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        info = read_daemon_json(home)
+        if info is None or not pid_alive(info.pid):
+            return
+        time.sleep(0.2)
+
+
+def relaunch(home: str | None = None) -> int:
+    """Replace this process with a fresh ``snowpea`` after an update.
+
+    The TUI asks for this with exit code :data:`TUI_RESTART_EXIT` once the
+    upgrade finished and the daemon is on its way out; re-execing is what makes
+    the newly installed version the one the user is talking to.
+    """
+    wait_for_daemon_exit(home)
+    argv0 = sys.argv[0] or "snowpea"
+    executable = shutil.which(argv0)
+    if not executable and os.path.exists(argv0):
+        executable = argv0
+    if not executable:
+        executable = shutil.which("snowpea")
+    if not executable:
+        _err("could not find the snowpea executable to restart; run `snowpea` again")
+        return EXIT_USAGE
+    try:
+        os.execv(executable, [executable, *sys.argv[1:]])
+    except OSError as exc:  # pragma: no cover - exec almost never returns
+        _err(f"could not restart snowpea: {exc}")
+        return EXIT_USAGE
+    return EXIT_OK  # pragma: no cover - unreachable after a successful execv
 
 
 # ---------------------------------------------------------------------------
@@ -324,7 +373,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(list(sys.argv[1:] if argv is None else argv))
 
     if args.version:
-        print(f"snowpea {__version__}")
+        # Cache-only: `--version` never waits on the network.
+        print(f"snowpea {__version__}{update_mod.version_suffix(args.home)}")
         return EXIT_OK
 
     home: str | None = args.home

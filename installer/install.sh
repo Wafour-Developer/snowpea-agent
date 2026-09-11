@@ -24,6 +24,7 @@
 #   SNOWPEA_BIN_DIR         where the `snowpea` executable goes (default ~/.local/bin)
 #   SNOWPEA_SKIP_NODE=1     do not install Node (it is still reported)
 #   SNOWPEA_SKIP_PATH=1     do not touch any shell rc file (used by the E2E run)
+#   SNOWPEA_HOME            where install.json is recorded (default ~/.snowpea)
 #
 # Every failure exits non-zero after printing the exact command to run by hand.
 
@@ -254,16 +255,38 @@ install_snowpea() {
   fi
   if [ "$DRY_RUN" -eq 1 ]; then
     plan "uv $*"
+    record_install uv "$source_spec"
     return 0
   fi
   if [ "$FORCE" -eq 0 ] && [ "$FROM_CHECKOUT" -eq 0 ] && have snowpea; then
     step "snowpea already installed ($(snowpea --version 2>/dev/null || echo unknown)); \
 re-run with --force to reinstall"
+    record_install uv "$source_spec"
     return 0
   fi
   say "installing snowpea from ${source_spec}"
   UV_TOOL_BIN_DIR="${UV_TOOL_BIN_DIR:-$BIN_DIR}" uv "$@" \
     || die "uv tool install failed" "uv $*"
+  record_install uv "$source_spec"
+}
+
+# ---------------------------------------------------------------------------
+# install.json — how snowpea got here, so `snowpea update` can repeat it
+# ---------------------------------------------------------------------------
+
+record_install() {
+  method="$1"
+  source_spec="$2"
+  home_dir="${SNOWPEA_HOME:-$HOME/.snowpea}"
+  if [ "$DRY_RUN" -eq 1 ]; then
+    plan "record {method: $method} in $home_dir/install.json"
+    return 0
+  fi
+  mkdir -p "$home_dir" || return 0
+  now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  printf '{\n  "method": "%s",\n  "source": "%s",\n  "time": "%s"\n}\n' \
+    "$method" "$source_spec" "$now" >"$home_dir/install.json" 2>/dev/null || return 0
+  step "recorded the install method in $home_dir/install.json"
 }
 
 # ---------------------------------------------------------------------------
