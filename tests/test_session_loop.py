@@ -9,16 +9,20 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import Any
 
 import aiohttp
 import pytest
 import pytest_asyncio
 from _support import RpcClient, connect, fake_provider, make_daemon
 
+from snowpea_core.config.paths import Paths
 from snowpea_core.server.app_server import Daemon
+from snowpea_core.session.store import Store
 
 pytestmark = pytest.mark.asyncio
 
@@ -428,3 +432,61 @@ async def test_interrupt_ends_the_turn(
     assert reason in {"interrupted", "denied"}
 
     await client.stop()
+
+
+# ---------------------------------------------------------------------------
+# (h) a daemon stopped mid-turn does not race the session store (CORE-session-race)
+# ---------------------------------------------------------------------------
+
+SHUTDOWN_FIXTURE = Path(__file__).parent / "fixtures" / "providers" / "fake" / "shutdown_race.json"
+
+
+async def _stop_mid_turn_is_clean(home: Path, http: aiohttp.ClientSession, caplog: Any) -> None:
+    """Start a turn whose fake-provider step sleeps 2s, then stop immediately.
+
+    Before CORE-session-race, ``Daemon.stop`` never cancelled or awaited the
+    still-running turn task before closing the session store, so the turn's
+    own final ``turn.done`` write could hit the already-closed SQLite
+    connection and raise ``sqlite3.ProgrammingError: Cannot operate on a
+    closed database`` out of a background task. It must now shut down with no
+    exception and no error-level log record.
+    """
+    with fake_provider(SHUTDOWN_FIXTURE):
+        daemon = await make_daemon(home)
+        workdir = home / "project"
+        workdir.mkdir(parents=True, exist_ok=True)
+        client = await connect(http, daemon)
+        session_id = await start_session(client, workdir)
+        await prompt(client, session_id, "slow reply")
+
+        await asyncio.sleep(0.05)  # let the turn task actually start and enter the delay
+        with caplog.at_level(logging.ERROR):
+            await daemon.stop()  # must not raise
+
+        error_records = [r for r in caplog.records if r.levelno >= logging.ERROR]
+        assert not error_records, [r.getMessage() for r in error_records]
+
+    store = Store.open(Paths.create(home))
+    try:
+        rows = await store.list_sessions(include_closed=True)
+        assert [row["id"] for row in rows] == [session_id]
+        # closed (this story does not add turn resumption) but never corrupted:
+        # reading it back at all proves the on-disk file is intact.
+        assert rows[0]["closed_at"] is not None
+    finally:
+        store.close()
+
+
+async def test_stop_mid_turn_is_clean(
+    tmp_path: Path, http: aiohttp.ClientSession, caplog: Any
+) -> None:
+    await _stop_mid_turn_is_clean(tmp_path / "home", http, caplog)
+
+
+async def test_stop_mid_turn_is_clean_repeated(
+    tmp_path: Path, http: aiohttp.ClientSession, caplog: Any
+) -> None:
+    """The same race, run 5 times over fresh homes to catch flakiness."""
+    for index in range(5):
+        await _stop_mid_turn_is_clean(tmp_path / f"home-{index}", http, caplog)
+        caplog.clear()

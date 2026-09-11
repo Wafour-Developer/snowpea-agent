@@ -639,6 +639,12 @@ class Daemon:
             # before we start tearing down the services it depends on
             # (CORE-memory-race).
             self.core.stopping = True
+            # Cancel and close every live session's turn *before* the session
+            # store, memory and gateway are torn down below: a turn task left
+            # running past that point can still land its final ``turn.done``
+            # write on an already-closed store (CORE-session-race, the
+            # session-store analogue of CORE-memory-race).
+            await self.core.sessions.close_all()
             # The update watcher polls rather than blocking a thread, so
             # cancelling it returns straight away (CORE-update).
             for attribute in ("update_task", "update_check_task"):

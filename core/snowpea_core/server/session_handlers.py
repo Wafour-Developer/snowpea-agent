@@ -95,6 +95,9 @@ def wire_core(core: Core) -> Core:
     core.hub.bind(core.store, core.sessions)
     core.approvals.bind(core.settings, core.paths, core.hub)
     core.providers.bind(core.settings, core.paths)
+    # /model and the lazy model auto-pick persist through the registry; the
+    # hook keeps that write from looking like an outside edit next turn.
+    core.providers.on_saved = core.mark_settings_saved
     register_builtin_tools(core.tools)
     wire_memory(core)
     wire_scheduler(core)

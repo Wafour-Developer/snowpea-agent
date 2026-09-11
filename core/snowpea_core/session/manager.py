@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from pathlib import Path
@@ -13,7 +14,7 @@ from snowpea_core.config.settings import Settings
 from snowpea_core.server.protocol import Mode, SessionEvent, SessionSummary
 from snowpea_core.session import events as event_builders
 from snowpea_core.session.session import Session
-from snowpea_core.session.store import Store
+from snowpea_core.session.store import Store, StoreClosed
 
 log = logging.getLogger("snowpea.session")
 
@@ -142,9 +143,49 @@ class SessionManager:
             except Exception:  # noqa: BLE001 - a dead container must not block close
                 log.debug("backend close failed for session %s", session_id, exc_info=True)
         if self.store is not None:
-            await self.store.close_session(session_id, session.closed_at)
+            try:
+                await self.store.close_session(session_id, session.closed_at)
+            except StoreClosed:
+                log.debug(
+                    "skipping close_session write for %s: session store is closed", session_id
+                )
         log.info("session %s closed", session_id)
         return True
+
+    async def close_all(self, *, timeout: float = 5.0) -> None:
+        """Cancel and close every live session (CORE-session-race).
+
+        ``Daemon.stop`` calls this before closing the session store, memory
+        and gateway: a turn task cancelled only *after* those are torn down
+        can still land its final ``turn.done`` write on an already-closed
+        store. Every ``turn_task`` is cancelled up front, then all of them are
+        awaited together under one bounded ``timeout`` so a task stuck outside
+        any cancellable await (e.g. mid-``asyncio.to_thread``) cannot block
+        shutdown forever. Each session is then closed the normal way (see
+        :meth:`close`), which is safe here because the store is still open.
+        """
+        session_ids = list(self._sessions.keys())
+        tasks: list[asyncio.Task[Any]] = []
+        for session_id in session_ids:
+            session = self._sessions.get(session_id)
+            if session is None:
+                continue
+            session.interrupt.set()
+            task = session.turn_task
+            if task is not None and not task.done():
+                task.cancel()
+                tasks.append(task)
+        if tasks:
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*tasks, return_exceptions=True), timeout=timeout
+                )
+            except TimeoutError:
+                log.warning(
+                    "close_all: %d turn task(s) did not finish within %ss", len(tasks), timeout
+                )
+        for session_id in session_ids:
+            await self.close(session_id)
 
     def __len__(self) -> int:
         return len(self._sessions)
@@ -204,7 +245,13 @@ class EventHub:
         body = event_builders.validate(kind, payload)
         ts = utc_now()
         if self.store is not None:
-            await self.store.append_event(session_id, seq, kind, body, ts)
+            try:
+                await self.store.append_event(session_id, seq, kind, body, ts)
+            except StoreClosed:
+                # The daemon closed the session store out from under a turn
+                # still winding down at shutdown (CORE-session-race); the
+                # event is dropped rather than raised into the turn task.
+                log.debug("dropping %s event for %s: session store is closed", kind, session_id)
         event = SessionEvent(sessionId=session_id, seq=seq, kind=kind, payload=body, ts=ts)
         params = event.model_dump(mode="json")
         for conn in self.subscribers_for(session_id):

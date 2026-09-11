@@ -73,7 +73,13 @@ async def run_turn(
     try:
         reason = await _drive(core, session, text, turn_id, unattended)
     except asyncio.CancelledError:
-        await hub.emit_event(session.id, events.turn_done(turn_id, "interrupted"))
+        # A shutdown in progress (``Daemon.stop`` -> ``SessionManager.close_all``,
+        # CORE-session-race) cancels every in-flight turn task; by the time that
+        # happens the session store is about to close (or already has), so the
+        # final event write is skipped rather than raced against it. A normal
+        # cancellation (e.g. ``session.close`` mid-turn) still emits it.
+        if not getattr(core, "stopping", False):
+            await hub.emit_event(session.id, events.turn_done(turn_id, "interrupted"))
         raise
     except ProviderError as exc:
         await hub.emit_event(session.id, events.error(exc.code, str(exc)))

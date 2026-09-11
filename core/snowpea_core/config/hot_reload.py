@@ -80,6 +80,9 @@ def rebind(core: Any, settings: Settings) -> None:
     providers = getattr(core, "providers", None)
     if providers is not None:
         providers.bind(settings, paths)
+        mark = getattr(core, "mark_settings_saved", None)
+        if mark is not None:
+            providers.on_saved = mark
 
     allowlist = getattr(core, "allowlist", None)
     if allowlist is not None:

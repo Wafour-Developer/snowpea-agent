@@ -47,6 +47,16 @@ CREATE INDEX IF NOT EXISTS events_session_seq ON events (session_id, seq);
 """
 
 
+class StoreClosed(RuntimeError):
+    """A :class:`Store` operation was attempted after :meth:`Store.close`.
+
+    Raised instead of letting the underlying ``sqlite3.ProgrammingError`` leak
+    out of a session turn task that outlived the daemon that scheduled it
+    (CORE-session-race, the same shape as ``MemoryClosed`` in
+    ``memory/store.py`` for CORE-memory-race).
+    """
+
+
 class Store:
     """Async facade over one SQLite connection."""
 
@@ -54,6 +64,7 @@ class Store:
         self.path = path
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
+        self._closed = False
         self._conn = sqlite3.connect(str(path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         with self._lock:
@@ -69,11 +80,15 @@ class Store:
     # -- plumbing ------------------------------------------------------
     def _execute(self, sql: str, params: tuple[Any, ...] = ()) -> None:
         with self._lock:
+            if self._closed:
+                raise StoreClosed("session store is closed")
             self._conn.execute(sql, params)
             self._conn.commit()
 
     def _query(self, sql: str, params: tuple[Any, ...] = ()) -> list[sqlite3.Row]:
         with self._lock:
+            if self._closed:
+                raise StoreClosed("session store is closed")
             return list(self._conn.execute(sql, params))
 
     # -- sessions ------------------------------------------------------
@@ -169,8 +184,12 @@ class Store:
         return [{"role": row["role"], "content": json.loads(row["content_json"])} for row in rows]
 
     def close(self) -> None:
+        """Idempotent: a second call (e.g. from a double ``Daemon.stop``) is a no-op."""
         with self._lock:
+            if self._closed:
+                return
+            self._closed = True
             self._conn.close()
 
 
-__all__ = ["SCHEMA", "Store"]
+__all__ = ["SCHEMA", "Store", "StoreClosed"]

@@ -1,0 +1,6 @@
+{
+  "steps": [
+    {"match": "slow reply", "delaySec": 2, "text": "too late", "repeat": true}
+  ],
+  "default": {"text": "fake default reply"}
+}
