@@ -442,19 +442,26 @@ class GatewayRouter:
     ) -> None:
         """Answer a pending approval from a button press (risk 4: check the user)."""
         adapter = self._adapters.get(binding.id)
-        if binding.user_id and message.user_id != binding.user_id:
+        # Fail closed (plan risk 4): a binding without an approver user id can never
+        # approve, otherwise any member of the chat could authorise a remote shell command.
+        if not binding.user_id or message.user_id != binding.user_id:
+            reason = (
+                "binding has no approver user id; re-bind with --user <id> to allow approvals"
+                if not binding.user_id
+                else "not your approval"
+            )
             log.warning(
-                "ignoring approval %s from %s:%s — binding %s is answered by %s only",
+                "ignoring approval %s from %s:%s on binding %s — %s",
                 request_id,
                 binding.platform,
                 message.user_id,
                 binding.id,
-                binding.user_id,
+                reason,
             )
             if adapter is not None and message.callback_id:
                 with contextlib.suppress(Exception):
                     await adapter.acknowledge(  # type: ignore[attr-defined]
-                        message.callback_id, "not your approval"
+                        message.callback_id, reason
                     )
             return
         if adapter is not None and message.callback_id:

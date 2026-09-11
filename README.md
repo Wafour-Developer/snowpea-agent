@@ -253,6 +253,14 @@ uv run pytest -q
 
 Read [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) ([한국어](docs/CONTRIBUTING.ko.md)) before your first pull request — it covers the generated-protocol check, the vendored-code integrity check, and where new vendors, tools, commands and search providers plug in.
 
+## Known limitations (v0.1)
+
+- **MCP over SSE** is parsed but not implemented; stdio MCP servers work. (`tools/mcp_client.py`)
+- **OpenAI device-code login** uses a placeholder client id because OpenAI publishes no public device-code client for API keys; use an API key. OpenRouter OAuth PKCE works.
+- **Marketplace search endpoints** for agentskills.io and hermes-hub are documented guesses; Claude Code marketplaces (`marketplace.json` repos) work.
+- **Messenger delivery, scheduled delivery and approval timeouts** are verified with a fake adapter; live Telegram/Discord/Slack runs need your own credentials (`tests/e2e/v01_smoke.sh` steps 10–11).
+- Protocol is `0.1.0`; the v1.0 freeze gate applies before the v0.2 IDE.
+
 ## License and credits
 
 snowpea is MIT licensed ([LICENSE](LICENSE)).

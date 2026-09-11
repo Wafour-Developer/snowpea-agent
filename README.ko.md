@@ -253,6 +253,14 @@ uv run pytest -q
 
 첫 PR 전에 [docs/CONTRIBUTING.ko.md](docs/CONTRIBUTING.ko.md)([English](docs/CONTRIBUTING.md))를 읽어 주세요. 생성된 프로토콜 검사, vendored 코드 무결성 검사, 그리고 새 벤더·툴·명령·검색 제공자를 어디에 끼우는지가 들어 있습니다.
 
+## 알려진 제한 사항 (v0.1)
+
+- **SSE 방식 MCP**는 설정은 읽지만 아직 구현되지 않았습니다. stdio MCP 서버는 동작합니다. (`tools/mcp_client.py`)
+- **OpenAI 디바이스 코드 로그인**은 OpenAI가 API 키 발급용 공개 디바이스 코드 클라이언트를 제공하지 않아 자리표시자 client id를 씁니다. API 키를 사용하세요. OpenRouter OAuth PKCE는 동작합니다.
+- **agentskills.io·hermes-hub 마켓 검색 엔드포인트**는 문서상 추정값입니다. Claude Code 마켓플레이스(`marketplace.json` 레포)는 동작합니다.
+- **메신저 전달·예약 전달·승인 타임아웃**은 가짜 어댑터로 검증했습니다. 실제 Telegram/Discord/Slack 실행은 본인 자격증명이 필요합니다(`tests/e2e/v01_smoke.sh` 10–11단계).
+- 프로토콜 버전은 `0.1.0`이며 v0.2 IDE 착수 전 v1.0 동결 게이트를 통과해야 합니다.
+
 ## 라이선스와 크레딧
 
 snowpea는 MIT 라이선스입니다([LICENSE](LICENSE)).

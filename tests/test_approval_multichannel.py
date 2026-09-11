@@ -167,18 +167,17 @@ async def connect(http: aiohttp.ClientSession, daemon: Daemon) -> Client:
     return client
 
 
-async def bind_fake(client: Client, workdir: Path) -> FakeAdapter:
+async def bind_fake(client: Client, workdir: Path, user_id: str | None = "u1") -> FakeAdapter:
     """Bind a fake platform to a fresh session per chat and return the adapter."""
-    await client.ok(
-        "gateway.bind",
-        {
-            "platform": "telegram",
-            "credentialsRef": "tg_test",
-            "target": {"new_session": {"workdir": str(workdir), "mode": "accept"}},
-            "channelId": "c1",
-            "userId": "u1",
-        },
-    )
+    params: dict[str, object] = {
+        "platform": "telegram",
+        "credentialsRef": "tg_test",
+        "target": {"new_session": {"workdir": str(workdir), "mode": "accept"}},
+        "channelId": "c1",
+    }
+    if user_id is not None:
+        params["userId"] = user_id
+    await client.ok("gateway.bind", params)
     return FakeAdapter.instances["tg_test"]
 
 
@@ -304,6 +303,37 @@ async def test_only_the_bound_user_may_answer_from_chat(
         await watcher.wait_notification("approval.resolved")
         assert approval_log(daemon)[-1]["by"] != "gateway:telegram:intruder"
 
+        await watcher.stop()
+        await binder.stop()
+    finally:
+        await daemon.stop()
+
+
+async def test_a_binding_without_an_approver_never_approves_from_chat(
+    gateway_env: None, http: aiohttp.ClientSession, tmp_path: Path
+) -> None:
+    """Fail closed (plan §6 risk 4): no bound user id means nobody in the chat can approve."""
+    workdir = tmp_path / "project"
+    workdir.mkdir()
+    daemon = await make_daemon(tmp_path / "home")
+    try:
+        binder = await connect(http, daemon)
+        adapter = await bind_fake(binder, workdir, user_id=None)
+        watcher = await connect(http, daemon)
+
+        await adapter.push(SHELL_PROMPT, channel_id="c1", user_id="u1")
+        request_id = (await watcher.wait_notification("approval.pending"))["request"]["requestId"]
+        await adapter.wait_for_send(TIMEOUT)
+
+        await adapter.press(f"apr:{request_id}:allow", channel_id="c1", user_id="u1")
+        await asyncio.sleep(0.2)
+        assert approval_log(daemon) == []
+        assert (await watcher.ok("approval.list", {}))["requests"][0]["requestId"] == request_id
+
+        await watcher.ok(
+            "approval.respond", {"requestId": request_id, "decision": "deny", "scope": "once"}
+        )
+        await watcher.wait_notification("approval.resolved")
         await watcher.stop()
         await binder.stop()
     finally:
