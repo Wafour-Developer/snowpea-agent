@@ -84,6 +84,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`skill.install`](#skillinstall) | client → server | Install a skill from a path, URL or registry. |
 | [`skill.list`](#skilllist) | client → server | List installed skills. |
 | [`skill.reload`](#skillreload) | client → server | Reload skills from disk without restarting. |
+| [`skill.remove`](#skillremove) | client → server | Delete an installed skill or plugin. |
 | [`skill.search`](#skillsearch) | client → server | Search available skills. |
 | [`system.health`](#systemhealth) | client → server | Liveness probe; answers as long as the daemon serves requests. |
 | [`system.hello`](#systemhello) | client → server | Authenticate a connection and agree on the protocol version. |
@@ -106,6 +107,7 @@ Route a gateway channel to a named agent.
 | field | type | required | description |
 |---|---|---|---|
 | `channel` | `string` | yes | Gateway channel that will reach the agent. |
+| `credentialsRef` | `string \| null` | no | Credential entry the platform account uses; defaults to the platform name, e.g. 'telegram' for channel 'telegram:123'. |
 | `name` | `string` | yes | Agent to bind. |
 
 **Result**
@@ -125,12 +127,15 @@ Define a named agent from a description.
 | field | type | required | description |
 |---|---|---|---|
 | `description` | `string` | yes | Natural-language brief the daemon turns into an agent. |
+| `name` | `string \| null` | no | Name for the agent; when omitted the daemon takes the generated one. |
+| `named` | `boolean` | no | Also register a persistent named instance: its own session, the memory namespace agent:<name>, and rows that survive a daemon restart. |
 
 **Result**
 
 | field | type | required | description |
 |---|---|---|---|
 | `name` | `string` | yes | Name assigned to the new agent. |
+| `path` | `string \| null` | no | Where the definition was written. |
 
 ### `agent.delete`
 
@@ -164,7 +169,7 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `agents` | `({ channel?: string \| null; description?: string; name: string; source?: string; })[]` | no | Defined named agents. |
+| `agents` | `({ agentId?: string \| null; bindings?: string[]; channel?: string \| null; channels?: string[]; description?: string; jobs?: string[]; kind?: string; name: string; namespace?: string \| null; parentSessionId?: string \| null; path?: string \| null; sessionId?: string \| null; source?: string; status?: string \| null; task?: string \| null; })[]` | no | Defined named agents. |
 
 ### `agent.spawn`
 
@@ -285,7 +290,7 @@ List the slash commands available to a session.
 
 | field | type | required | description |
 |---|---|---|---|
-| `commands` | `({ argsSchema?: Record<string, unknown>; name: string; source?: "builtin" \| "skill" \| "plugin"; summary: string; })[]` | no | Available slash commands. |
+| `commands` | `({ argsSchema?: Record<string, unknown>; name: string; source?: string; summary: string; })[]` | no | Available slash commands. |
 
 ### `command.run`
 
@@ -317,9 +322,11 @@ Attach the daemon to a chat platform channel.
 
 | field | type | required | description |
 |---|---|---|---|
-| `credentialsRef` | `string` | yes | Name of the stored credential to use. |
-| `platform` | `string` | yes | Chat platform key, e.g. 'slack'. |
-| `target` | `string` | yes | Channel, room or chat id to attach to. |
+| `channelId` | `string \| null` | no | Restrict the binding to one chat, channel or room. |
+| `credentialsRef` | `string` | yes | Name of the credential to use: a key in credentials.json or an env var. |
+| `platform` | `string` | yes | Chat platform key: telegram, discord or slack. |
+| `target` | `Record<string, unknown>` | yes | What the conversation talks to: {'agent': name}, {'session': id} or {'new_session': {'workdir': path, 'mode': mode}}. |
+| `userId` | `string \| null` | no | Platform user allowed to answer approvals from chat. |
 
 **Result**
 
@@ -341,7 +348,7 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `bindings` | `({ bindingId: string; platform: string; state?: "active" \| "inactive"; target: string; })[]` | no | Live gateway bindings. |
+| `bindings` | `({ bindingId: string; channelId?: string \| null; credentialsRef?: string; platform: string; state?: "active" \| "inactive"; target: string; userId?: string \| null; })[]` | no | Live gateway bindings. |
 
 ### `gateway.unbind`
 
@@ -753,7 +760,7 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `skills` | `({ installed?: boolean; name: string; source?: string; summary?: string; })[]` | no | Installed skills. |
+| `skills` | `({ id?: string; installSpec?: string; installed?: boolean; kind?: "skill" \| "agent" \| "command" \| "plugin"; name: string; source?: string; summary?: string; })[]` | no | Installed skills. |
 
 ### `skill.reload`
 
@@ -764,6 +771,24 @@ Reload skills from disk without restarting.
 **Params**
 
 _No params (send `{}`)._
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ok` | `boolean` | no | True when the call succeeded. |
+
+### `skill.remove`
+
+*Direction:* client → server
+
+Delete an installed skill or plugin.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `name` | `string` | yes | Installed plugin or skill to delete. |
 
 **Result**
 
@@ -787,7 +812,8 @@ Search available skills.
 
 | field | type | required | description |
 |---|---|---|---|
-| `skills` | `({ installed?: boolean; name: string; source?: string; summary?: string; })[]` | no | Matching skills. |
+| `skills` | `({ id?: string; installSpec?: string; installed?: boolean; kind?: "skill" \| "agent" \| "command" \| "plugin"; name: string; source?: string; summary?: string; })[]` | no | Matching skills. |
+| `unavailable` | `string[]` | no | Sources that could not be reached, as '<source>: <reason>'. Empty skills with a non-empty list means offline, not no match. |
 
 ### `system.health`
 
@@ -896,15 +922,18 @@ Inspect a team's task board.
 
 | field | type | required | description |
 |---|---|---|---|
-| `teamId` | `string` | yes | Team to inspect. |
+| `teamId` | `string` | no | Team to inspect; empty means the most recent one. |
 
 **Result**
 
 | field | type | required | description |
 |---|---|---|---|
 | `state` | `"running" \| "done" \| "failed"` | no | Overall state. |
-| `tasks` | `({ assignee?: string \| null; status?: "pending" \| "running" \| "done" \| "failed"; taskId: string; title: string; })[]` | no | Task board contents. |
+| `task` | `string` | no | The task the team was given. |
+| `tasks` | `({ agentN?: number \| null; assignee?: string \| null; branch?: string; conflictHunks?: string; conflictSummary?: string; dependsOn?: string[]; note?: string; retries?: number; status?: "pending" \| "queued" \| "claimed" \| "running" \| "done" \| "conflict" \| "merged" \| "failed"; taskId: string; title: string; })[]` | no | Task board contents. |
 | `teamId` | `string` | yes | Team that was inspected. |
+| `workers` | `number` | no | How many workers the run was started with. |
+| `worktrees` | `string[]` | no | Worker worktrees that exist right now. |
 
 ### `tool.list`
 
@@ -926,6 +955,12 @@ List the tools registered for a session.
 
 ## Notifications
 
+### `approval.pending`
+
+| field | type | required | description |
+|---|---|---|---|
+| `request` | `{ args?: Record<string, unknown>; requestId: string; risk?: string; scopeHint?: "once" \| "session" \| "project" \| "always"; sessionId: string; timeoutSec?: number; tool: string; }` | yes | The request now in the shared queue. |
+
 ### `approval.resolved`
 
 | field | type | required | description |
@@ -933,6 +968,13 @@ List the tools registered for a session.
 | `by` | `string` | yes | Surface or user that answered. |
 | `decision` | `"allow" \| "deny"` | yes | The decision that was recorded. |
 | `requestId` | `string` | yes | Request that was resolved. |
+
+### `commands.changed`
+
+| field | type | required | description |
+|---|---|---|---|
+| `commands` | `({ argsSchema?: Record<string, unknown>; name: string; source?: string; summary: string; })[]` | no | The command table as it stands now. |
+| `reason` | `string` | no | Why the table changed. |
 
 ### `gateway.event`
 
@@ -1015,8 +1057,13 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 |---|---|---|---|
 | `agentId` | `string` | yes | Subagent that finished. |
 | `kind` | `"subagent.done"` | no |  |
+| `name` | `string` | no | Named agent that ran, when there was one. |
 | `ok` | `boolean` | no | False when it failed. |
 | `result` | `string` | no | Final report. |
+| `sessionId` | `string \| null` | no | The subagent's own session. |
+| `status` | `"queued" \| "running" \| "done" \| "error"` | no | Terminal state: done or error. |
+| `summary` | `string` | no | The subagent's final answer. |
+| `usage` | `{ inputTokens?: number; outputTokens?: number; }` | no | Tokens the subagent consumed. |
 
 ### kind `subagent.spawn`
 
@@ -1025,6 +1072,8 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | `agentId` | `string` | yes | Id correlating this subagent's events. |
 | `kind` | `"subagent.spawn"` | no |  |
 | `name` | `string` | no | Named agent that was spawned. |
+| `sessionId` | `string \| null` | no | The subagent's own session, once it has one. |
+| `status` | `"queued" \| "running" \| "done" \| "error"` | no | State at spawn: queued until a concurrency slot frees up. |
 | `task` | `string` | no | Task it was given. |
 
 ### kind `subagent.update`
@@ -1033,16 +1082,21 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 |---|---|---|---|
 | `agentId` | `string` | yes | Subagent reporting progress. |
 | `kind` | `"subagent.update"` | no |  |
-| `status` | `string` | no | Short status label. |
+| `lastText` | `string` | no | Most recent text the subagent produced. |
+| `name` | `string` | no | Named agent that is running, when there is one. |
+| `sessionId` | `string \| null` | no | The subagent's own session. |
+| `status` | `"queued" \| "running" \| "done" \| "error"` | no | Lifecycle state. |
 | `text` | `string` | no | Human-readable progress text. |
 
 ### kind `team.task.update`
 
 | field | type | required | description |
 |---|---|---|---|
+| `agentN` | `number \| null` | no | 1-based worker index that owns the task. |
 | `assignee` | `string \| null` | no | Worker that owns the task. |
 | `kind` | `"team.task.update"` | no |  |
-| `status` | `"pending" \| "running" \| "done" \| "failed"` | no | New state. |
+| `retries` | `number` | no | How many times a merge conflict re-queued it. |
+| `status` | `"pending" \| "queued" \| "claimed" \| "running" \| "done" \| "conflict" \| "merged" \| "failed"` | no | New state. |
 | `taskId` | `string` | yes | Task that changed. |
 | `teamId` | `string` | yes | Team the task belongs to. |
 

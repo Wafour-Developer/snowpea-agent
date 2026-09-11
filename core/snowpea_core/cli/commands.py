@@ -28,14 +28,12 @@ from snowpea_core.cli.daemon_client import (
     read_daemon_json,
 )
 from snowpea_core.cli.render import EXIT_NO_DAEMON, EXIT_OK, EXIT_USAGE
+from snowpea_core.cli.service import service_command
 from snowpea_core.config.paths import Paths, resolve_home
 
-#: Subcommands whose implementation lands after M1.
-PLACEHOLDER_SUBCOMMANDS: tuple[str, ...] = (
-    "service",
-    "agents",
-    "team",
-)
+#: Subcommands whose implementation lands after M1.  ``team`` left this list
+#: in US-020; nothing is a placeholder now.
+PLACEHOLDER_SUBCOMMANDS: tuple[str, ...] = ()
 
 #: Seconds to wait for ``daemon stop`` to see the process go away.
 STOP_TIMEOUT_SEC = 10.0
@@ -69,6 +67,19 @@ async def _lookup(home: Path | str | None, method: str, key: str) -> list[dict[s
         await client.close()
     items = result.get(key) or []
     return [item for item in items if isinstance(item, dict)]
+
+
+async def _call(
+    home: Path | str | None, method: str, params: dict[str, Any]
+) -> dict[str, Any]:
+    """One RPC round trip against the daemon, started if it is not running."""
+    info = await ensure_daemon(home)
+    client = DaemonClient(info)
+    await client.connect()
+    try:
+        return await client.call(method, params)
+    finally:
+        await client.close()
 
 
 async def tools_list(home: Path | str | None = None, *, as_json: bool = False) -> int:
@@ -112,6 +123,78 @@ async def commands_list(home: Path | str | None = None, *, as_json: bool = False
     width = max(len(str(command.get("name", ""))) for command in commands)
     for command in sorted(commands, key=lambda item: str(item.get("name", ""))):
         print(f"/{str(command.get('name', '')):<{width}}  {command.get('summary', '')}".rstrip())
+    return EXIT_OK
+
+
+async def agents_list(home: Path | str | None = None, *, as_json: bool = False) -> int:
+    """``snowpea agents [--json]`` → ``agent.list``.
+
+    Poll this while ``/ralph`` runs to watch the subagents: each row has a
+    ``kind`` (``definition``, ``named`` or ``subagent``) and, for a subagent, a
+    ``status`` of queued, running, done or error (AC-04).
+    """
+    try:
+        agents = await _lookup(home, "agent.list", "agents")
+    except DaemonError as exc:
+        return _fail(str(exc), EXIT_NO_DAEMON)
+    except RpcCallError as exc:
+        return _fail(f"agent.list failed ({exc.code}): {exc.message}", EXIT_USAGE)
+    if as_json:
+        _print_json(agents)
+        return EXIT_OK
+    if not agents:
+        print("no agents defined and none running")
+        return EXIT_OK
+    width = max(len(str(agent.get("name", ""))) for agent in agents)
+    for agent in agents:
+        name = str(agent.get("name", ""))
+        kind = str(agent.get("kind", "definition"))
+        status = str(agent.get("status") or "")
+        tail = str(agent.get("description") or agent.get("task") or "")
+        marker = f"[{kind}{'/' + status if status else ''}]"
+        print(f"{name:<{width}}  {marker:<22} {tail}".rstrip())
+    return EXIT_OK
+
+
+async def team_status(
+    team_id: str | None = None, home: Path | str | None = None, *, as_json: bool = False
+) -> int:
+    """``snowpea team status [teamId] [--json]`` → ``team.status`` (AC-16).
+
+    Without a team id the daemon answers for the most recent run.  Each row
+    carries the task's state, how many merge conflicts re-queued it and, when
+    it ended in ``conflict`` or ``failed``, a one-line summary of the hunks
+    that are still attached to it.
+    """
+    try:
+        result = await _call(home, "team.status", {"teamId": team_id or ""})
+    except DaemonError as exc:
+        return _fail(str(exc), EXIT_NO_DAEMON)
+    except RpcCallError as exc:
+        return _fail(f"team.status failed ({exc.code}): {exc.message}", EXIT_USAGE)
+    if as_json:
+        _print_json(result)
+        return EXIT_OK
+    tasks = [row for row in (result.get("tasks") or []) if isinstance(row, dict)]
+    print(
+        f"team {result.get('teamId', '')} [{result.get('state', '')}] "
+        f"{len(tasks)} tasks, {result.get('workers', 0)} workers"
+    )
+    if result.get("task"):
+        print(f"  task: {result['task']}")
+    for path in result.get("worktrees") or []:
+        print(f"  worktree: {path}")
+    for row in tasks:
+        line = f"  {row.get('taskId', '')}  {str(row.get('status', '')):<9}"
+        if row.get("agentN") is not None:
+            line += f" agent {row['agentN']}"
+        if row.get("retries"):
+            line += f" retries {row['retries']}"
+        line += f"  {row.get('title', '')}"
+        print(line.rstrip())
+        summary = row.get("conflictSummary") or ""
+        if summary:
+            print(f"      conflict: {summary}")
     return EXIT_OK
 
 
@@ -441,9 +524,7 @@ async def gateway_unbind(binding_id: str, home: Path | str | None = None) -> int
 # ---------------------------------------------------------------------------
 
 
-async def _job_call(
-    home: Path | str | None, method: str, params: dict[str, Any]
-) -> dict[str, Any]:
+async def _job_call(home: Path | str | None, method: str, params: dict[str, Any]) -> dict[str, Any]:
     info = await ensure_daemon(home)
     client = DaemonClient(info)
     await client.connect()
@@ -552,6 +633,24 @@ async def job_run(job_id: str, home: Path | str | None = None) -> int:
 # ---------------------------------------------------------------------------
 
 
+def resolve_install_source(source: str) -> str:
+    """Make a local install source absolute before it crosses the wire.
+
+    The daemon runs in ``$SNOWPEA_HOME``, so a relative path typed in a project
+    checkout — ``./tests/fixtures/plugins/sample-plugin`` (AC-10) — would be
+    resolved against the wrong directory.  Anything that is not an existing
+    local directory (a git URL, ``<marketplace>/<plugin>``, a shortcut) is
+    passed through untouched.
+    """
+    text = source.strip()
+    if not text or text.startswith(("git@", "ssh://", "git://", "http://", "https://")):
+        return text
+    candidate = Path(text).expanduser()
+    if candidate.is_dir():
+        return str(candidate.resolve())
+    return text
+
+
 async def _skill_call(
     home: Path | str | None, method: str, params: dict[str, Any]
 ) -> dict[str, Any]:
@@ -572,6 +671,8 @@ async def skill_command(
     as_json: bool = False,
 ) -> int:
     """``snowpea skill list|search <query>|install <source>|remove <name>``."""
+    if action == "install":
+        argument = resolve_install_source(argument)
     methods = {
         "list": ("skill.list", {}),
         "search": ("skill.search", {"query": argument}),
@@ -601,11 +702,17 @@ async def skill_command(
         return EXIT_OK
 
     skills = [item for item in (result.get("skills") or []) if isinstance(item, dict)]
+    unavailable = [str(item) for item in (result.get("unavailable") or [])]
     if as_json:
-        _print_json(skills)
+        _print_json({"skills": skills, "unavailable": unavailable} if unavailable else skills)
         return EXIT_OK
+    for line in unavailable:
+        print(f"snowpea: source unreachable — {line}", file=sys.stderr)
     if not skills:
-        print("no skills found")
+        if unavailable:
+            print(f"no skills found ({len(unavailable)} of the searched sources were unreachable)")
+        else:
+            print("no skills found")
         return EXIT_OK
     width = max(len(str(skill.get("name", ""))) for skill in skills)
     for skill in skills:
@@ -699,9 +806,7 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
         skill_action = skill_sub.add_parser(name, help=help_text)
         if argument:
             skill_action.add_argument(argument)
-        skill_action.add_argument(
-            "--json", dest="sub_json", action="store_true", help="emit JSON"
-        )
+        skill_action.add_argument("--json", dest="sub_json", action="store_true", help="emit JSON")
 
     daemon = sub.add_parser("daemon", help="control the core daemon")
     daemon_sub = daemon.add_subparsers(dest="action", metavar="<action>")
@@ -756,6 +861,25 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
     job_run_parser = job_sub.add_parser("run", help="fire a job now, in the daemon")
     job_run_parser.add_argument("job_id", help="job id from `job list`")
 
+    service = sub.add_parser("service", help="run the daemon as a login service")
+    service_sub = service.add_subparsers(dest="action", metavar="<action>")
+    service_sub.add_parser("install", help="register the daemon with systemd/launchd/schtasks")
+    service_sub.add_parser("uninstall", help="deregister it again")
+    service_sub.add_parser("status", help="is it registered, is it running")
+
+    agents_parser = sub.add_parser("agents", help="list agent definitions and running subagents")
+    agents_parser.add_argument("--json", dest="sub_json", action="store_true", help="emit JSON")
+
+    team = sub.add_parser("team", help="inspect a parallel worktree team run")
+    team_sub = team.add_subparsers(dest="action", metavar="<action>")
+    team_status_parser = team_sub.add_parser("status", help="show a team's task board")
+    team_status_parser.add_argument(
+        "team_id", nargs="?", default=None, help="team id; defaults to the most recent run"
+    )
+    team_status_parser.add_argument(
+        "--json", dest="sub_json", action="store_true", help="emit JSON"
+    )
+
     for name in PLACEHOLDER_SUBCOMMANDS:
         placeholder_parser = sub.add_parser(name, help=f"{name} (not yet implemented)")
         placeholder_parser.add_argument("rest", nargs=argparse.REMAINDER, help=argparse.SUPPRESS)
@@ -786,6 +910,8 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
         return placeholder(subcommand)
     if subcommand == "setup":
         return setup_command(args, home)
+    if subcommand == "service":
+        return service_command(str(action or ""), home)
     if subcommand == "tools":
         if action != "list":
             return _fail("usage: snowpea tools list [--json]", EXIT_USAGE)
@@ -794,6 +920,12 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
         if action != "list":
             return _fail("usage: snowpea commands list [--json]", EXIT_USAGE)
         return await commands_list(home, as_json=as_json)
+    if subcommand == "agents":
+        return await agents_list(home, as_json=as_json)
+    if subcommand == "team":
+        if action != "status":
+            return _fail("usage: snowpea team status [teamId] [--json]", EXIT_USAGE)
+        return await team_status(getattr(args, "team_id", None), home, as_json=as_json)
     if subcommand == "provider":
         if action == "list":
             return await provider_list(home, as_json=as_json)
@@ -866,6 +998,7 @@ __all__ = [
     "PLACEHOLDER_SUBCOMMANDS",
     "STOP_TIMEOUT_SEC",
     "add_subparsers",
+    "agents_list",
     "commands_list",
     "daemon_start",
     "daemon_status",
@@ -882,8 +1015,11 @@ __all__ = [
     "parse_target",
     "placeholder",
     "provider_list",
+    "service_command",
     "provider_login",
+    "resolve_install_source",
     "setup_command",
     "skill_command",
+    "team_status",
     "tools_list",
 ]

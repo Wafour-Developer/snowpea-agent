@@ -1,0 +1,17 @@
+{
+  "description": "Fixture hooks: record every tool call in a marker file.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c 'import json,os,sys; data=json.load(sys.stdin); open(os.path.join(os.environ[\"SNOWPEA_HOME\"], \"fixture-hook.marker\"), \"w\", encoding=\"utf-8\").write(data.get(\"tool_name\", \"\"))'",
+            "timeout": 20
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -45,6 +45,8 @@ export const ERROR_CODES: readonly ErrorCode[] = [
 export interface AgentBindChannelParams {
   /** Gateway channel that will reach the agent. */
   channel: string;
+  /** Credential entry the platform account uses; defaults to the platform name, e.g. 'telegram' for channel 'telegram:123'. */
+  credentialsRef?: string | null;
   /** Agent to bind. */
   name: string;
 }
@@ -59,12 +61,18 @@ export interface AgentBindChannelResult {
 export interface AgentCreateParams {
   /** Natural-language brief the daemon turns into an agent. */
   description: string;
+  /** Name for the agent; when omitted the daemon takes the generated one. */
+  name?: string | null;
+  /** Also register a persistent named instance: its own session, the memory namespace agent:<name>, and rows that survive a daemon restart. */
+  named?: boolean;
 }
 
 /** `agent.create` result. */
 export interface AgentCreateResult {
   /** Name assigned to the new agent. */
   name: string;
+  /** Where the definition was written. */
+  path?: string | null;
 }
 
 /** `agent.delete` params. Delete a named agent. */
@@ -86,14 +94,36 @@ export type AgentListParams = Record<string, unknown>;
 export interface AgentListResult {
   /** Defined named agents. */
   agents?: ({
+    /** For kind='subagent': the id its subagent.* events carry. */
+    agentId?: string | null;
+    /** For kind='named': the gateway binding ids serving those channels. */
+    bindings?: string[];
     /** Gateway channel bound to the agent. */
     channel?: string | null;
+    /** For kind='named': every gateway channel bound to the agent. */
+    channels?: string[];
     /** What the agent is for. */
     description?: string;
+    /** For kind='named': ids of the scheduled jobs that run as this agent. */
+    jobs?: string[];
+    /** definition = an agents/<name>.md file, subagent = a running child, named = a persistent named instance. */
+    kind?: string;
     /** Agent name used by agent.spawn. */
     name: string;
+    /** For kind='named': the agent's memory namespace, agent:<name>. */
+    namespace?: string | null;
+    /** For kind='subagent': the session that delegated the task. */
+    parentSessionId?: string | null;
+    /** Definition file, when there is one. */
+    path?: string | null;
+    /** Session the agent runs in. */
+    sessionId?: string | null;
     /** Where the definition came from. */
     source?: string;
+    /** For kind='subagent': queued, running, done or error. */
+    status?: string | null;
+    /** For kind='subagent': the task it was given. */
+    task?: string | null;
   })[];
 }
 
@@ -213,7 +243,7 @@ export interface CommandListResult {
     /** Command name without the leading slash. */
     name: string;
     /** Where the command came from. */
-    source?: "builtin" | "skill" | "plugin";
+    source?: string;
     /** One-line description shown in /help. */
     summary: string;
   })[];
@@ -237,12 +267,16 @@ export interface CommandRunResult {
 
 /** `gateway.bind` params. Attach the daemon to a chat platform channel. */
 export interface GatewayBindParams {
-  /** Name of the stored credential to use. */
+  /** Restrict the binding to one chat, channel or room. */
+  channelId?: string | null;
+  /** Name of the credential to use: a key in credentials.json or an env var. */
   credentialsRef: string;
-  /** Chat platform key, e.g. 'slack'. */
+  /** Chat platform key: telegram, discord or slack. */
   platform: string;
-  /** Channel, room or chat id to attach to. */
-  target: string;
+  /** What the conversation talks to: {'agent': name}, {'session': id} or {'new_session': {'workdir': path, 'mode': mode}}. */
+  target: Record<string, unknown>;
+  /** Platform user allowed to answer approvals from chat. */
+  userId?: string | null;
 }
 
 /** `gateway.bind` result. */
@@ -260,12 +294,18 @@ export interface GatewayListResult {
   bindings?: ({
     /** Binding id. */
     bindingId: string;
+    /** Chat it is limited to, if any. */
+    channelId?: string | null;
+    /** Credential name; never the secret. */
+    credentialsRef?: string;
     /** Chat platform key. */
     platform: string;
     /** Whether it is listening. */
     state?: "active" | "inactive";
-    /** Channel, room or chat id. */
+    /** Target it routes to, e.g. 'agent:ops' or 'new_session'. */
     target: string;
+    /** User allowed to answer approvals. */
+    userId?: string | null;
   })[];
 }
 
@@ -658,11 +698,17 @@ export type SkillListParams = Record<string, unknown>;
 export interface SkillListResult {
   /** Installed skills. */
   skills?: ({
+    /** Registry id; empty for local entries. */
+    id?: string;
+    /** What to pass to skill.install to get this entry. */
+    installSpec?: string;
     /** True when present locally. */
     installed?: boolean;
+    /** What kind of entry this is. */
+    kind?: "skill" | "agent" | "command" | "plugin";
     /** Skill name. */
     name: string;
-    /** Where the skill came from. */
+    /** Where it came from: builtin, global, project, plugin:<name> for an installed entry, or the marketplace that offered it. */
     source?: string;
     /** What the skill does. */
     summary?: string;
@@ -678,6 +724,18 @@ export interface SkillReloadResult {
   ok?: boolean;
 }
 
+/** `skill.remove` params. Delete an installed skill or plugin. */
+export interface SkillRemoveParams {
+  /** Installed plugin or skill to delete. */
+  name: string;
+}
+
+/** `skill.remove` result. */
+export interface SkillRemoveResult {
+  /** True when the call succeeded. */
+  ok?: boolean;
+}
+
 /** `skill.search` params. Search available skills. */
 export interface SkillSearchParams {
   /** Free-text query over skill names and summaries. */
@@ -688,15 +746,23 @@ export interface SkillSearchParams {
 export interface SkillSearchResult {
   /** Matching skills. */
   skills?: ({
+    /** Registry id; empty for local entries. */
+    id?: string;
+    /** What to pass to skill.install to get this entry. */
+    installSpec?: string;
     /** True when present locally. */
     installed?: boolean;
+    /** What kind of entry this is. */
+    kind?: "skill" | "agent" | "command" | "plugin";
     /** Skill name. */
     name: string;
-    /** Where the skill came from. */
+    /** Where it came from: builtin, global, project, plugin:<name> for an installed entry, or the marketplace that offered it. */
     source?: string;
     /** What the skill does. */
     summary?: string;
   })[];
+  /** Sources that could not be reached, as '<source>: <reason>'. Empty skills with a non-empty list means offline, not no match. */
+  unavailable?: string[];
 }
 
 /** `system.health` params. Liveness probe; answers as long as the daemon serves requests. */
@@ -789,20 +855,36 @@ export interface TeamStartResult {
 
 /** `team.status` params. Inspect a team's task board. */
 export interface TeamStatusParams {
-  /** Team to inspect. */
-  teamId: string;
+  /** Team to inspect; empty means the most recent one. */
+  teamId?: string;
 }
 
 /** `team.status` result. */
 export interface TeamStatusResult {
   /** Overall state. */
   state?: "running" | "done" | "failed";
+  /** The task the team was given. */
+  task?: string;
   /** Task board contents. */
   tasks?: ({
+    /** 1-based worker index that owns the task. */
+    agentN?: number | null;
     /** Worker that owns the task. */
     assignee?: string | null;
+    /** Branch the worker commits the task on. */
+    branch?: string;
+    /** Conflicted diff captured before git merge --abort. */
+    conflictHunks?: string;
+    /** One line naming the conflicted files. */
+    conflictSummary?: string;
+    /** Task ids that must merge before this one runs. */
+    dependsOn?: string[];
+    /** Why the task is in this state. */
+    note?: string;
+    /** How many times a merge conflict re-queued it. */
+    retries?: number;
     /** Current state. */
-    status?: "pending" | "running" | "done" | "failed";
+    status?: "pending" | "queued" | "claimed" | "running" | "done" | "conflict" | "merged" | "failed";
     /** Task id, stable for the run. */
     taskId: string;
     /** Short task description. */
@@ -810,6 +892,10 @@ export interface TeamStatusResult {
   })[];
   /** Team that was inspected. */
   teamId: string;
+  /** How many workers the run was started with. */
+  workers?: number;
+  /** Worker worktrees that exist right now. */
+  worktrees?: string[];
 }
 
 /** `tool.list` params. List the tools registered for a session. */
@@ -841,6 +927,27 @@ export interface ToolListResult {
 // Event payloads
 // ---------------------------------------------------------------------------
 
+/** `approval.pending` notification payload. */
+export interface ApprovalPendingPayload {
+  /** The request now in the shared queue. */
+  request: {
+    /** Arguments it wants to use. */
+    args?: Record<string, unknown>;
+    /** Id to answer with approval.respond. */
+    requestId: string;
+    /** Risk hint for the UI. */
+    risk?: string;
+    /** Scope the UI should preselect. */
+    scopeHint?: "once" | "session" | "project" | "always";
+    /** Session whose turn is blocked. */
+    sessionId: string;
+    /** Seconds before the request auto-denies. */
+    timeoutSec?: number;
+    /** Tool the model wants to run. */
+    tool: string;
+  };
+}
+
 /** `approval.resolved` notification payload. */
 export interface ApprovalResolvedPayload {
   /** Surface or user that answered. */
@@ -849,6 +956,23 @@ export interface ApprovalResolvedPayload {
   decision: "allow" | "deny";
   /** Request that was resolved. */
   requestId: string;
+}
+
+/** `commands.changed` notification payload. */
+export interface CommandsChangedPayload {
+  /** The command table as it stands now. */
+  commands?: ({
+    /** JSON Schema for the argument string. */
+    argsSchema?: Record<string, unknown>;
+    /** Command name without the leading slash. */
+    name: string;
+    /** Where the command came from. */
+    source?: string;
+    /** One-line description shown in /help. */
+    summary: string;
+  })[];
+  /** Why the table changed. */
+  reason?: string;
 }
 
 /** `gateway.event` notification payload. */
@@ -942,10 +1066,25 @@ export interface SubagentDoneEventPayload {
   /** Subagent that finished. */
   agentId: string;
   kind?: "subagent.done";
+  /** Named agent that ran, when there was one. */
+  name?: string;
   /** False when it failed. */
   ok?: boolean;
   /** Final report. */
   result?: string;
+  /** The subagent's own session. */
+  sessionId?: string | null;
+  /** Terminal state: done or error. */
+  status?: "queued" | "running" | "done" | "error";
+  /** The subagent's final answer. */
+  summary?: string;
+  /** Tokens the subagent consumed. */
+  usage?: {
+    /** Prompt tokens the subagent used. */
+    inputTokens?: number;
+    /** Completion tokens the subagent used. */
+    outputTokens?: number;
+  };
 }
 
 /** Payload of `session.event` with kind `subagent.spawn`. */
@@ -955,6 +1094,10 @@ export interface SubagentSpawnEventPayload {
   kind?: "subagent.spawn";
   /** Named agent that was spawned. */
   name?: string;
+  /** The subagent's own session, once it has one. */
+  sessionId?: string | null;
+  /** State at spawn: queued until a concurrency slot frees up. */
+  status?: "queued" | "running" | "done" | "error";
   /** Task it was given. */
   task?: string;
 }
@@ -964,19 +1107,29 @@ export interface SubagentUpdateEventPayload {
   /** Subagent reporting progress. */
   agentId: string;
   kind?: "subagent.update";
-  /** Short status label. */
-  status?: string;
+  /** Most recent text the subagent produced. */
+  lastText?: string;
+  /** Named agent that is running, when there is one. */
+  name?: string;
+  /** The subagent's own session. */
+  sessionId?: string | null;
+  /** Lifecycle state. */
+  status?: "queued" | "running" | "done" | "error";
   /** Human-readable progress text. */
   text?: string;
 }
 
 /** Payload of `session.event` with kind `team.task.update`. */
 export interface TeamTaskUpdateEventPayload {
+  /** 1-based worker index that owns the task. */
+  agentN?: number | null;
   /** Worker that owns the task. */
   assignee?: string | null;
   kind?: "team.task.update";
+  /** How many times a merge conflict re-queued it. */
+  retries?: number;
   /** New state. */
-  status?: "pending" | "running" | "done" | "failed";
+  status?: "pending" | "queued" | "claimed" | "running" | "done" | "conflict" | "merged" | "failed";
   /** Task that changed. */
   taskId: string;
   /** Team the task belongs to. */
@@ -1105,6 +1258,7 @@ export interface MethodMap {
   "skill.install": { params: SkillInstallParams; result: SkillInstallResult };
   "skill.list": { params: SkillListParams; result: SkillListResult };
   "skill.reload": { params: SkillReloadParams; result: SkillReloadResult };
+  "skill.remove": { params: SkillRemoveParams; result: SkillRemoveResult };
   "skill.search": { params: SkillSearchParams; result: SkillSearchResult };
   "system.health": { params: SystemHealthParams; result: SystemHealthResult };
   "system.hello": { params: SystemHelloParams; result: SystemHelloResult };
@@ -1156,6 +1310,7 @@ export type ClientMethod =
   | "skill.install"
   | "skill.list"
   | "skill.reload"
+  | "skill.remove"
   | "skill.search"
   | "system.health"
   | "system.hello"
@@ -1170,7 +1325,9 @@ export type ServerMethod =
 
 /** Every server→client notification, with its payload type. */
 export interface EventMap {
+  "approval.pending": ApprovalPendingPayload;
   "approval.resolved": ApprovalResolvedPayload;
+  "commands.changed": CommandsChangedPayload;
   "gateway.event": GatewayEventPayload;
   "job.event": JobEventPayload;
   "session.event": SessionEventPayload;
@@ -1178,7 +1335,9 @@ export interface EventMap {
 
 export type EventName = keyof EventMap;
 export const EVENT_NAMES: readonly EventName[] = [
+  "approval.pending",
   "approval.resolved",
+  "commands.changed",
   "gateway.event",
   "job.event",
   "session.event",

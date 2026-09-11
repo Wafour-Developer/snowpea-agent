@@ -1,0 +1,18 @@
+{
+  "name": "fixture-market",
+  "owner": "snowpea fixtures",
+  "plugins": [
+    {
+      "name": "pdf-toolkit",
+      "description": "Read, split and merge PDF files from the agent.",
+      "source": "https://github.com/snowpea-fixtures/pdf-toolkit",
+      "keywords": ["pdf", "documents"]
+    },
+    {
+      "name": "spreadsheet-toolkit",
+      "description": "Open and edit xlsx workbooks.",
+      "source": "https://github.com/snowpea-fixtures/spreadsheet-toolkit",
+      "keywords": ["xlsx"]
+    }
+  ]
+}

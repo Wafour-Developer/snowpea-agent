@@ -1,0 +1,495 @@
+"""Plugin / skill loader (M6 contract §1).
+
+Search roots, in the order they are scanned — a later root wins a name clash:
+
+1. built-ins  ``core/snowpea_core/builtin_skills/<name>/SKILL.md``      (``builtin``)
+2. global     ``$SNOWPEA_HOME/{skills,agents,commands}``                (``global``)
+3. plugins    ``$SNOWPEA_HOME/plugins/<plugin>/…``                      (``plugin:<name>``)
+4. project    ``<workdir>/.claude/…`` then ``<workdir>/.snowpea/…``     (``project``)
+
+A *bundle* is any directory that may hold ``skills/<name>/SKILL.md``,
+``agents/*.md``, ``commands/*.md``, ``hooks/hooks.json`` and ``.mcp.json``; a
+plugin is a bundle with a ``plugin.json`` (in the root or in
+``.claude-plugin/``).  Every user-invocable skill and every ``commands/*.md``
+becomes a slash command whose ``run`` injects the body — with ``$ARGUMENTS``
+substituted — and starts a normal turn.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import shutil
+import sys
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+from snowpea_core.commands.registry import Command, CommandContext
+from snowpea_core.server.protocol import SkillInfo, SkillKind
+from snowpea_core.skills import marketplace
+from snowpea_core.skills.hooks import HookRegistry
+from snowpea_core.skills.skill_md import SkillDoc, load_skill_md
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from snowpea_core.server.app_server import Core
+
+log = logging.getLogger("snowpea.skills")
+
+SOURCE_BUILTIN = "builtin"
+SOURCE_GLOBAL = "global"
+SOURCE_PROJECT = "project"
+
+#: Project-local bundles, read in this order (``.snowpea`` wins).
+PROJECT_DIRS: tuple[str, ...] = (".claude", ".snowpea")
+
+#: Placeholders a plugin may use in ``.mcp.json`` and in hook commands.
+ROOT_VARS: tuple[str, ...] = ("CLAUDE_PLUGIN_ROOT", "SNOWPEA_PLUGIN_ROOT")
+
+#: ``${SNOWPEA_PYTHON}`` in a plugin's ``.mcp.json`` is the interpreter running
+#: the daemon, which is the one that has this project's dependencies.
+PYTHON_VAR = "SNOWPEA_PYTHON"
+
+
+#: Aliases so the annotations below still mean the builtin ``list`` even
+#: though :class:`SkillLoader` defines a method called ``list``.
+SkillInfos = list[SkillInfo]
+Strings = list[str]
+
+
+@dataclass
+class LoadedSkill:
+    """A skill or a Claude Code command file, ready to become a command."""
+
+    doc: SkillDoc
+    source: str
+    kind: SkillKind = "skill"
+
+    @property
+    def name(self) -> str:
+        return self.doc.name
+
+    @property
+    def description(self) -> str:
+        return self.doc.description
+
+
+@dataclass
+class LoadedAgent:
+    """An ``agents/<name>.md`` definition; US-018 gives it behaviour."""
+
+    name: str
+    description: str
+    source: str
+    path: Path
+    frontmatter: dict[str, Any] = field(default_factory=dict)
+    body: str = ""
+
+
+@dataclass
+class LoadedPlugin:
+    """One installed plugin directory."""
+
+    name: str
+    version: str
+    description: str
+    root: Path
+    source: str
+
+
+@dataclass
+class ReloadReport:
+    """What a :meth:`SkillLoader.reload` found."""
+
+    skills: int = 0
+    agents: int = 0
+    commands: int = 0
+    plugins: int = 0
+    hooks: int = 0
+    mcp_tools: list[str] = field(default_factory=list)
+
+
+def builtin_root() -> Path:
+    """``core/snowpea_core/builtin_skills`` (US-019 fills it; may not exist)."""
+    return Path(__file__).resolve().parent.parent / "builtin_skills"
+
+
+class SkillLoader:
+    """Scans the search roots and keeps the command registry in step."""
+
+    def __init__(self, core: Core) -> None:
+        self.core = core
+        self.skills: dict[str, LoadedSkill] = {}
+        self.agents: list[LoadedAgent] = []
+        self.plugins: list[LoadedPlugin] = []
+        self.hooks = HookRegistry()
+        #: Servers merged out of plugin ``.mcp.json`` files, by server name.
+        self.mcp_servers: dict[str, dict[str, Any]] = {}
+        self._registered: set[str] = set()
+        self._lock = asyncio.Lock()
+
+    # -- paths ---------------------------------------------------------
+    @property
+    def home(self) -> Path:
+        return Path(self.core.paths.home)
+
+    @property
+    def plugins_dir(self) -> Path:
+        return self.home / "plugins"
+
+    def workdirs(self) -> list[Path]:
+        """Project directories to scan: every open session, then the daemon's."""
+        seen: list[Path] = []
+        for row in self.core.sessions.list():
+            path = Path(row.workdir)
+            if path not in seen:
+                seen.append(path)
+        if not seen:
+            seen.append(Path.cwd())
+        return seen
+
+    # -- scanning ------------------------------------------------------
+    def scan(self) -> ReloadReport:
+        """Re-read every root into memory.  Pure filesystem work."""
+        self.skills = {}
+        self.agents = []
+        self.plugins = []
+        self.hooks = HookRegistry()
+        self.mcp_servers = {}
+
+        self._scan_builtins()
+        self._scan_bundle(self.home, SOURCE_GLOBAL)
+        self._scan_plugins()
+        for workdir in self.workdirs():
+            for name in PROJECT_DIRS:
+                self._scan_bundle(workdir / name, SOURCE_PROJECT)
+
+        commands = sum(1 for skill in self.skills.values() if skill.doc.user_invocable)
+        return ReloadReport(
+            skills=sum(1 for s in self.skills.values() if s.kind == "skill"),
+            agents=len(self.agents),
+            commands=commands,
+            plugins=len(self.plugins),
+            hooks=self.hooks.count(),
+        )
+
+    def _scan_builtins(self) -> None:
+        root = builtin_root()
+        if not root.is_dir():
+            return
+        for entry in sorted(root.iterdir()):
+            self._add_skill_dir(entry, SOURCE_BUILTIN)
+
+    def _scan_plugins(self) -> None:
+        root = self.plugins_dir
+        if not root.is_dir():
+            return
+        for entry in sorted(root.iterdir()):
+            if not entry.is_dir():
+                continue
+            manifest = marketplace.read_plugin_json(entry)
+            name = str(manifest.get("name") or entry.name)
+            source = f"plugin:{name}"
+            self.plugins.append(
+                LoadedPlugin(
+                    name=name,
+                    version=str(manifest.get("version") or ""),
+                    description=str(manifest.get("description") or ""),
+                    root=entry,
+                    source=source,
+                )
+            )
+            self._scan_bundle(entry, source, plugin=name)
+
+    def _scan_bundle(self, root: Path, source: str, plugin: str = "") -> None:
+        """Read ``skills/``, ``agents/``, ``commands/``, hooks and ``.mcp.json``."""
+        if not root.is_dir():
+            return
+        skills_dir = root / "skills"
+        if skills_dir.is_dir():
+            for entry in sorted(skills_dir.iterdir()):
+                self._add_skill_dir(entry, source)
+        agents_dir = root / "agents"
+        if agents_dir.is_dir():
+            for entry in sorted(agents_dir.glob("*.md")):
+                self.register_agent_definition(entry, source)
+        commands_dir = root / "commands"
+        if commands_dir.is_dir():
+            for entry in sorted(commands_dir.glob("*.md")):
+                doc = load_skill_md(entry, default_name=entry.stem)
+                if doc is None:
+                    continue
+                doc.name = entry.stem
+                self.skills[doc.name] = LoadedSkill(doc=doc, source=source, kind="command")
+        for candidate in (root / "hooks" / "hooks.json", root / "hooks.json"):
+            if candidate.is_file():
+                self.hooks.load_file(candidate, plugin=plugin or source, root=root)
+        if plugin:
+            self._read_mcp(root / ".mcp.json", root)
+
+    def _add_skill_dir(self, entry: Path, source: str) -> None:
+        if not entry.is_dir():
+            return
+        path = entry / "SKILL.md"
+        if not path.is_file():
+            return
+        doc = load_skill_md(path, default_name=entry.name)
+        if doc is None:
+            return
+        self.skills[doc.name] = LoadedSkill(doc=doc, source=source, kind="skill")
+
+    def register_agent_definition(
+        self, path: Path | str, source: str = SOURCE_PROJECT
+    ) -> LoadedAgent | None:
+        """Parse one ``agents/<name>.md`` and remember it.
+
+        US-018 replaces the body of this hook with real agent definitions; until
+        then the parsed front matter is what ``skill.list`` reports.
+        """
+        target = Path(path)
+        doc = load_skill_md(target, default_name=target.stem)
+        if doc is None:
+            return None
+        agent = LoadedAgent(
+            name=doc.name or target.stem,
+            description=doc.description,
+            source=source,
+            path=target,
+            frontmatter=dict(doc.frontmatter),
+            body=doc.body,
+        )
+        self.agents = [existing for existing in self.agents if existing.name != agent.name]
+        self.agents.append(agent)
+        return agent
+
+    def _read_mcp(self, path: Path, root: Path) -> None:
+        """Merge a plugin's ``.mcp.json`` servers, expanding the root variables."""
+        import json
+
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+        servers = raw.get("mcpServers") if isinstance(raw, dict) else None
+        if not isinstance(servers, dict):
+            return
+        for name, entry in servers.items():
+            if isinstance(entry, dict):
+                self.mcp_servers[str(name)] = expand_tree(entry, root)
+
+    # -- applying ------------------------------------------------------
+    async def reload(self) -> ReloadReport:
+        """Re-scan, re-register commands and MCP servers, announce the change."""
+        async with self._lock:
+            report = self.scan()
+            self._apply_commands()
+            report.mcp_tools = await self._apply_mcp()
+            await self._announce()
+            log.info(
+                "skills reloaded: %d skills, %d agents, %d commands, %d plugins, %d hooks",
+                report.skills,
+                report.agents,
+                report.commands,
+                report.plugins,
+                report.hooks,
+            )
+            return report
+
+    def load_sync(self) -> ReloadReport:
+        """Scan and register commands without touching the network or MCP.
+
+        ``wire_core`` is synchronous, so the daemon starts with the command
+        table already filled in; :meth:`reload` then does the full pass.
+        """
+        report = self.scan()
+        self._apply_commands()
+        return report
+
+    def _apply_commands(self) -> None:
+        registry = self.core.commands
+        for name in self._registered:
+            registry.unregister(name)
+        self._registered = set()
+        for skill in self.skills.values():
+            if not skill.doc.user_invocable:
+                continue
+            registry.register(self._command_for(skill))
+            self._registered.add(skill.name)
+
+    def _command_for(self, skill: LoadedSkill) -> Command:
+        doc = skill.doc
+        summary = doc.description or f"{skill.kind} {doc.name}"
+        if doc.argument_hint:
+            summary = f"{summary} {doc.argument_hint}".strip()
+
+        async def run(ctx: CommandContext, args: str) -> None:
+            from snowpea_core.agent import loop as agent_loop
+
+            session = ctx.session
+            previous = getattr(session, "allowed_tools", None)
+            if doc.allowed_tools:
+                session.allowed_tools = set(doc.allowed_tools)
+            ctx.handled_turn = True
+            try:
+                await agent_loop.run_turn(
+                    ctx.core, session, instruction(doc, args), turn_id=ctx.turn_id
+                )
+            finally:
+                session.allowed_tools = previous
+
+        return Command(
+            name=doc.name,
+            summary=summary,
+            run=run,
+            args_schema={
+                "type": "object",
+                "properties": {"arguments": {"type": "string", "description": doc.argument_hint}},
+            },
+            source=skill.source,
+        )
+
+    async def _apply_mcp(self) -> list[str]:
+        """Register the plugins' MCP servers through the M2 client."""
+        from snowpea_core.tools import mcp_client
+
+        registered: list[str] = []
+        for name, entry in self.mcp_servers.items():
+            config = mcp_client.McpServerConfig.parse(name, entry)
+            if config is None:
+                continue
+            try:
+                registered.extend(await mcp_client.register_config(self.core, config))
+            except Exception as exc:  # noqa: BLE001 - one bad server is not fatal
+                log.info("plugin mcp server %s did not start: %s", name, exc)
+        return registered
+
+    async def _announce(self) -> None:
+        """Tell every connected client that the command table moved."""
+        hub = getattr(self.core, "hub", None)
+        if hub is None:
+            return
+        payload = {
+            "commands": [info.model_dump(mode="json") for info in self.core.commands.list()],
+            "reason": "reload",
+        }
+        try:
+            await hub.notify("commands.changed", payload)
+        except Exception:  # noqa: BLE001 - a dead socket must not fail the reload
+            log.debug("could not announce commands.changed", exc_info=True)
+
+    # -- queries -------------------------------------------------------
+    def list(self) -> SkillInfos:
+        """Everything loaded, as protocol ``SkillInfo`` (``skill.list``)."""
+        out: SkillInfos = []
+        for plugin in self.plugins:
+            out.append(
+                SkillInfo(
+                    name=plugin.name,
+                    kind="plugin",
+                    summary=plugin.description,
+                    source=plugin.source,
+                    installed=True,
+                )
+            )
+        for skill in self.skills.values():
+            out.append(
+                SkillInfo(
+                    name=skill.name,
+                    kind=skill.kind,
+                    summary=skill.description,
+                    source=skill.source,
+                    installed=True,
+                )
+            )
+        for agent in self.agents:
+            out.append(
+                SkillInfo(
+                    name=agent.name,
+                    kind="agent",
+                    summary=agent.description,
+                    source=agent.source,
+                    installed=True,
+                )
+            )
+        return out
+
+    async def search(self, query: str) -> tuple[SkillInfos, Strings]:
+        """Aggregated marketplace search: ``(hits, unreachable sources)``.
+
+        The second element names every source that could not be reached, so an
+        empty result is never mistaken for "nothing matched".
+        """
+        installed = {skill.name for skill in self.skills.values()}
+        installed |= {plugin.name for plugin in self.plugins}
+        report = await marketplace.search(query, self.home)
+        hits = [
+            SkillInfo(
+                id=hit.id,
+                name=hit.name,
+                kind="skill",
+                summary=hit.description,
+                source=hit.source,
+                installSpec=hit.install_spec,
+                installed=hit.name in installed,
+            )
+            for hit in report.hits
+        ]
+        return hits, list(report.unavailable)
+
+    async def install(self, source: str) -> Path:
+        """Install a plugin and reload; returns where it landed."""
+        target = await marketplace.install(source, self.plugins_dir, self.home)
+        await self.reload()
+        return target
+
+    async def remove(self, name: str) -> bool:
+        """Delete an installed plugin directory and reload."""
+        target = self.plugins_dir / name
+        if not target.is_dir():
+            return False
+        shutil.rmtree(target)
+        await self.reload()
+        return True
+
+
+def instruction(doc: SkillDoc, args: str) -> str:
+    """The text a skill command injects into the session before the turn."""
+    body = doc.render(args)
+    header = f"Follow these instructions for /{doc.name}"
+    if doc.description:
+        header = f"{header} — {doc.description}"
+    return f"{header}:\n\n{body}".strip()
+
+
+def expand_tree(value: Any, root: Path) -> Any:
+    """Expand ``${CLAUDE_PLUGIN_ROOT}``-style variables through a JSON tree."""
+    if isinstance(value, dict):
+        return {key: expand_tree(item, root) for key, item in value.items()}
+    if isinstance(value, list):
+        return [expand_tree(item, root) for item in value]
+    if isinstance(value, str):
+        text = value
+        for name in ROOT_VARS:
+            text = text.replace(f"${{{name}}}", str(root)).replace(f"${name}", str(root))
+        return text.replace(f"${{{PYTHON_VAR}}}", sys.executable).replace(
+            f"${PYTHON_VAR}", sys.executable
+        )
+    return value
+
+
+__all__ = [
+    "PROJECT_DIRS",
+    "PYTHON_VAR",
+    "ROOT_VARS",
+    "SOURCE_BUILTIN",
+    "SOURCE_GLOBAL",
+    "SOURCE_PROJECT",
+    "LoadedAgent",
+    "LoadedPlugin",
+    "LoadedSkill",
+    "ReloadReport",
+    "SkillLoader",
+    "builtin_root",
+    "expand_tree",
+    "instruction",
+]

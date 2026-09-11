@@ -56,7 +56,8 @@ async def skill_search_handler(
     _conn: RpcConnection, params: SkillSearchParams, core: Core
 ) -> SkillSearchResult:
     """``skill.search`` — the three marketplaces, each hit labelled by source."""
-    return SkillSearchResult(skills=await _loader(core).search(params.query))
+    skills, unavailable = await _loader(core).search(params.query)
+    return SkillSearchResult(skills=skills, unavailable=unavailable)
 
 
 async def skill_install_handler(_conn: RpcConnection, params: SkillInstallParams, core: Core) -> Ok:

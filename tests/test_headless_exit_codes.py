@@ -148,9 +148,16 @@ def test_empty_prompt_is_a_usage_error(home: Path) -> None:
 
 
 def test_placeholder_subcommand_exits_two(home: Path) -> None:
-    result = run_cli("skill", env=_base_env(home))
+    result = run_cli("service", env=_base_env(home))
     assert result.returncode == 2
     assert "not yet implemented" in result.stderr
+
+
+def test_skill_without_an_action_is_a_usage_error(home: Path) -> None:
+    """``skill`` is implemented at M6, so a bare invocation is a usage error."""
+    result = run_cli("skill", env=_base_env(home))
+    assert result.returncode == 2
+    assert "usage: snowpea skill" in result.stderr
 
 
 def test_daemon_spawn_failure_exits_three(home: Path) -> None:

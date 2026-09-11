@@ -1,0 +1,5 @@
+{
+  "name": "sample-plugin",
+  "version": "1.0.0",
+  "description": "Fixture plugin for the M6 loader contract (AC-10)."
+}

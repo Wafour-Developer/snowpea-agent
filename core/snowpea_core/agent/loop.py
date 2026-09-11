@@ -23,6 +23,7 @@ from snowpea_core.permissions.policy import PermissionPolicy
 from snowpea_core.providers.base import ChatMessage, ProviderError, ToolCall
 from snowpea_core.server import errors
 from snowpea_core.session import events
+from snowpea_core.skills import hooks as plugin_hooks
 from snowpea_core.tools.registry import Tool, ToolContext, ToolResult
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -143,6 +144,7 @@ async def _drive(core: Core, session: Session, text: str, turn_id: str, unattend
             await hub.emit_event(session.id, events.message_done(assistant_text))
             await hub.emit_event(session.id, events.turn_done(turn_id, "complete"))
             await nudge_after_turn(core, session, text)
+            await plugin_hooks.stop(core, session)
             return "complete"
 
         session.history.append(
@@ -186,6 +188,11 @@ async def _run_one_call(
         await hub.emit_event(session.id, events.tool_call(call.id, call.name, call.arguments))
         await _fail_call(core, session, call, f"tool {call.name} is inactive")
         return None
+    allowed = getattr(session, "allowed_tools", None)
+    if allowed is not None and call.name not in allowed:
+        await hub.emit_event(session.id, events.tool_call(call.id, call.name, call.arguments))
+        await _fail_call(core, session, call, f"{call.name} is not in this skill's allowed-tools")
+        return None
 
     verdict = policy.decide(session.mode, tool.permission, tool, call.arguments, session)
     if verdict == "deny":
@@ -215,6 +222,11 @@ async def _run_one_call(
             return "denied"
 
     await hub.emit_event(session.id, events.tool_call(call.id, call.name, call.arguments))
+    # Plugin hooks (M6 contract §1): PreToolUse may refuse the call with exit 2.
+    blocked = await plugin_hooks.pre_tool_use(core, session, call.name, dict(call.arguments))
+    if blocked is not None:
+        await _fail_call(core, session, call, f"{plugin_hooks.BLOCKED_PREFIX}: {blocked}")
+        return None
     ctx = ToolContext(session=session, core=core, backend=backend)
     try:
         result = await tool.run(ctx, dict(call.arguments))
@@ -223,6 +235,7 @@ async def _run_one_call(
     except Exception as exc:  # noqa: BLE001 - a broken tool is a failed call
         log.exception("tool %s raised", tool.name)
         result = ToolResult(ok=False, error=f"{type(exc).__name__}: {exc}")
+    await plugin_hooks.post_tool_use(core, session, call.name, dict(call.arguments))
 
     await hub.emit_event(
         session.id,

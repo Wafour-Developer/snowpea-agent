@@ -158,7 +158,18 @@ class CommandRegistry:
 
 def register_builtin_commands(registry: CommandRegistry) -> CommandRegistry:
     """Register the built-ins: ``help``/``tools``, modes, ``/backend``, ``/agent``, ``/skill``."""
-    from snowpea_core.commands import agent_cmd, backend_cmd, mode_cmd, schedule_cmd, skill_cmd
+    from snowpea_core.commands import (
+        agent_cmd,
+        backend_cmd,
+        builtin_skills,
+        deepinit,
+        mode_cmd,
+        ralph,
+        schedule_cmd,
+        skill_cmd,
+        team_cmd,
+        ultrawork,
+    )
     from snowpea_core.commands.builtin import COMMANDS
 
     for command in (
@@ -168,6 +179,15 @@ def register_builtin_commands(registry: CommandRegistry) -> CommandRegistry:
         *schedule_cmd.COMMANDS,
         *agent_cmd.COMMANDS,
         *skill_cmd.COMMANDS,
+        # M7 workflows (contract §4): loops and fan-out live in Python.
+        *ralph.COMMANDS,
+        *ultrawork.COMMANDS,
+        *deepinit.COMMANDS,
+        *team_cmd.COMMANDS,
+        # The three bundled markdown skills.  The M6 skill loader registers the
+        # same names off the same files when it is wired up and wins by being
+        # registered later; this keeps /help complete when it is not.
+        *builtin_skills.commands(),
     ):
         registry.register(command)
     return registry

@@ -35,6 +35,18 @@ AllowlistScope = Literal["session", "project", "always"]
 BackendKind = Literal["local", "docker", "ssh"]
 TurnReason = Literal["complete", "interrupted", "error", "denied", "timeout"]
 TaskState = Literal["pending", "running", "done", "failed"]
+#: States a team task walks through (M7 contract §5).  A superset of
+#: :data:`TaskState`, so nothing that already emitted a task state breaks.
+TeamTaskState = Literal[
+    "pending",
+    "queued",
+    "claimed",
+    "running",
+    "done",
+    "conflict",
+    "merged",
+    "failed",
+]
 SkillKind = Literal["skill", "agent", "command", "plugin"]
 Direction = Literal["c2s", "s2c"]
 
@@ -402,13 +414,31 @@ class AgentInfo(Payload):
     status: str | None = Field(
         default=None, description="For kind='subagent': queued, running, done or error."
     )
-    task: str | None = Field(default=None, description="For kind='subagent': the task it was given.")
+    task: str | None = Field(
+        default=None, description="For kind='subagent': the task it was given."
+    )
     agentId: str | None = Field(
         default=None, description="For kind='subagent': the id its subagent.* events carry."
     )
     sessionId: str | None = Field(default=None, description="Session the agent runs in.")
     parentSessionId: str | None = Field(
         default=None, description="For kind='subagent': the session that delegated the task."
+    )
+    namespace: str | None = Field(
+        default=None,
+        description="For kind='named': the agent's memory namespace, agent:<name>.",
+    )
+    channels: list[str] = Field(
+        default_factory=list,
+        description="For kind='named': every gateway channel bound to the agent.",
+    )
+    bindings: list[str] = Field(
+        default_factory=list,
+        description="For kind='named': the gateway binding ids serving those channels.",
+    )
+    jobs: list[str] = Field(
+        default_factory=list,
+        description="For kind='named': ids of the scheduled jobs that run as this agent.",
     )
 
 
@@ -418,6 +448,17 @@ class AgentListResult(Payload):
 
 class AgentCreateParams(Payload):
     description: str = Field(description="Natural-language brief the daemon turns into an agent.")
+    named: bool = Field(
+        default=False,
+        description=(
+            "Also register a persistent named instance: its own session, the memory "
+            "namespace agent:<name>, and rows that survive a daemon restart."
+        ),
+    )
+    name: str | None = Field(
+        default=None,
+        description="Name for the agent; when omitted the daemon takes the generated one.",
+    )
 
 
 class AgentCreateResult(Payload):
@@ -440,6 +481,13 @@ class AgentSpawnResult(Payload):
 class AgentBindChannelParams(Payload):
     name: str = Field(description="Agent to bind.")
     channel: str = Field(description="Gateway channel that will reach the agent.")
+    credentialsRef: str | None = Field(
+        default=None,
+        description=(
+            "Credential entry the platform account uses; defaults to the platform name, "
+            "e.g. 'telegram' for channel 'telegram:123'."
+        ),
+    )
 
 
 class AgentDeleteParams(Payload):
@@ -457,7 +505,9 @@ class TeamStartResult(Payload):
 
 
 class TeamStatusParams(Payload):
-    teamId: str = Field(description="Team to inspect.")
+    teamId: str = Field(
+        default="", description="Team to inspect; empty means the most recent one."
+    )
 
 
 class TeamTask(Payload):
@@ -465,8 +515,23 @@ class TeamTask(Payload):
 
     taskId: str = Field(description="Task id, stable for the run.")
     title: str = Field(description="Short task description.")
-    status: TaskState = Field(default="pending", description="Current state.")
+    status: TeamTaskState = Field(default="queued", description="Current state.")
     assignee: str | None = Field(default=None, description="Worker that owns the task.")
+    agentN: int | None = Field(
+        default=None, description="1-based worker index that owns the task."
+    )
+    retries: int = Field(default=0, description="How many times a merge conflict re-queued it.")
+    branch: str = Field(default="", description="Branch the worker commits the task on.")
+    note: str = Field(default="", description="Why the task is in this state.")
+    dependsOn: list[str] = Field(
+        default_factory=list, description="Task ids that must merge before this one runs."
+    )
+    conflictHunks: str = Field(
+        default="", description="Conflicted diff captured before git merge --abort."
+    )
+    conflictSummary: str = Field(
+        default="", description="One line naming the conflicted files."
+    )
 
 
 class TeamStatusResult(Payload):
@@ -475,6 +540,11 @@ class TeamStatusResult(Payload):
         default="running", description="Overall state."
     )
     tasks: list[TeamTask] = Field(default_factory=list, description="Task board contents.")
+    workers: int = Field(default=0, description="How many workers the run was started with.")
+    task: str = Field(default="", description="The task the team was given.")
+    worktrees: list[str] = Field(
+        default_factory=list, description="Worker worktrees that exist right now."
+    )
 
 
 # --------------------------------------------------------------------------
@@ -651,6 +721,13 @@ class SkillInfo(Payload):
 
 class SkillSearchResult(Payload):
     skills: list[SkillInfo] = Field(default_factory=list, description="Matching skills.")
+    unavailable: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Sources that could not be reached, as '<source>: <reason>'. "
+            "Empty skills with a non-empty list means offline, not no match."
+        ),
+    )
 
 
 class SkillInstallParams(Payload):
@@ -775,8 +852,12 @@ class TeamTaskUpdate(Payload):
     kind: Literal["team.task.update"] = "team.task.update"
     teamId: str = Field(description="Team the task belongs to.")
     taskId: str = Field(description="Task that changed.")
-    status: TaskState = Field(default="pending", description="New state.")
+    status: TeamTaskState = Field(default="queued", description="New state.")
     assignee: str | None = Field(default=None, description="Worker that owns the task.")
+    agentN: int | None = Field(
+        default=None, description="1-based worker index that owns the task."
+    )
+    retries: int = Field(default=0, description="How many times a merge conflict re-queued it.")
 
 
 class ModeChanged(Payload):
@@ -1170,6 +1251,10 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "job.runNow",
         "agent.create",
         "agent.list",
+        "agent.bindChannel",
+        "agent.delete",
+        "team.start",
+        "team.status",
         "skill.list",
         "skill.search",
         "skill.install",

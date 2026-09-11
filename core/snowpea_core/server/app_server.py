@@ -19,6 +19,7 @@ from aiohttp import web
 from pydantic import Field
 
 from snowpea_core import __version__
+from snowpea_core.agent.named import NamedAgentRegistry
 from snowpea_core.commands.registry import CommandRegistry
 from snowpea_core.config.paths import Paths
 from snowpea_core.config.settings import Settings
@@ -66,6 +67,7 @@ from snowpea_core.server.session_handlers import (
     wire_core,
 )
 from snowpea_core.server.skill_handlers import register_skill_handlers
+from snowpea_core.server.team_handlers import register_team_handlers
 from snowpea_core.server.transport_http import (
     CONNECTIONS_KEY,
     SOCKETS_KEY,
@@ -101,6 +103,9 @@ class Core:
     #: Plugins, skills, agent definitions and hooks (US-017); ``wire_core``
     #: builds it and ``Daemon.start`` does the first full reload.
     skills: Any = None
+    #: Named persistent agents (US-021); ``Daemon.start`` builds it and
+    #: restores its sessions before the gateway re-attaches its bindings.
+    named_agents: Any = None
     sessions: SessionManager = field(default_factory=SessionManager)
     tools: ToolRegistry = field(default_factory=ToolRegistry)
     commands: CommandRegistry = field(default_factory=CommandRegistry)
@@ -343,6 +348,7 @@ def build_dispatcher(core: Core) -> RpcDispatcher:
     register_permission_handlers(dispatcher)
     register_agent_handlers(dispatcher)
     register_gateway_handlers(dispatcher)
+    register_team_handlers(dispatcher)
     dispatcher.register("provider.configure", provider_configure_handler)
     dispatcher.register("provider.loginWeb", provider_login_web_handler)
     for name, method in PROTOCOL_METHODS.items():
@@ -403,6 +409,7 @@ class Daemon:
         core.request_shutdown = self.request_shutdown
         core.gateway = GatewayRouter()
         core.gateway.bind_core(core)
+        core.named_agents = NamedAgentRegistry(core)
         self.core = core
 
         dispatcher = build_dispatcher(core)
@@ -414,6 +421,9 @@ class Daemon:
         self._runner = runner
         core.port = _resolve_port(runner, self._requested_port)
         self._write_daemon_json()
+        # Before the gateway: a binding that targets a named agent's session
+        # needs that session to exist again (M7 contract §6).
+        await core.named_agents.restore()
         await core.gateway.restore()
         await core.skills.reload()
         core.lifecycle.start()
@@ -469,6 +479,8 @@ class Daemon:
             await stop_scheduler(self.core)
             if self.core.gateway is not None:
                 await self.core.gateway.stop()
+            if self.core.named_agents is not None:
+                self.core.named_agents.close()
         if self.app is not None:
             sockets: set[web.WebSocketResponse] = self.app[SOCKETS_KEY]
             connections: set[RpcConnection] = self.app[CONNECTIONS_KEY]

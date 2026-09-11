@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "fixture-echo": {
+      "command": "${SNOWPEA_PYTHON}",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/echo_server.py"]
+    }
+  }
+}
