@@ -1,0 +1,158 @@
+# 명령
+
+명령 표면은 두 가지입니다. 슬래시 명령은 세션 안에서 돌고 코어가 소유하므로, 같은 `/ralph`가 TUI에서도, `snowpea -c`에서도, 예약 잡에서도, Telegram 메시지에서도 똑같이 동작합니다. CLI 서브커맨드는 세션을 열지 않고 데몬을 조회하고 설정합니다.
+
+```bash
+snowpea commands list
+snowpea commands list --json
+```
+
+이 명령은 설치된 플러그인이 추가한 명령까지 포함해 현재 등록된 목록을 그대로 출력합니다. UI 안의 `/help`도 같은 내용을 보여줍니다.
+
+## 슬래시 명령
+
+### 세션과 모드
+
+| 명령 | 하는 일 |
+|---|---|
+| `/help` | 사용 가능한 모든 명령을 나열 |
+| `/tools` | 등록된 툴을 카테고리·권한·상태와 함께 나열 |
+| `/plan`, `/accept`, `/auto` | 모드 전환 |
+| `/mode [plan\|accept\|auto\|save\|show]` | 프로젝트 기본값을 보거나, 바꾸거나, 저장 |
+| `/approvals` | 답을 기다리는 무인 승인 요청을 나열 |
+| `/allow <regex> [--global]` | 반복되는 질문을 조용한 허용으로 승격 |
+| `/allowlist [remove <id>]` | allowlist를 보거나 정리 |
+| `/backend [local\|docker\|ssh] [json]` | 툴이 실행되는 곳을 보거나 바꿈 |
+
+### 작업
+
+| 명령 | 하는 일 |
+|---|---|
+| `/ralph <task>` | PRD 루프: 수용 기준이 붙은 스토리를 쓰고, 구현하고, 검증하고, APPROVE가 나올 때까지 리뷰 |
+| `/ultrawork <task>` | 독립적인 조각으로 쪼개 동시 서브에이전트에 돌리고 보고서를 합침 |
+| `/deepinit [path]` | 저장소를 훑어 계층적 `AGENTS.md` 파일을 작성 |
+| `/team <n> <task>` | 작업자 n명에게 각각 git worktree를 주고 태스크가 끝나는 대로 브랜치를 병합 |
+| `/deep-interview <idea>` | 모호함을 점수화해 스펙이 확정될 때까지 넘기지 않는 소크라테스식 인터뷰 |
+| `/deep-research <topic>` | 서브에이전트에 걸쳐 흩어진 다중 출처 웹 리서치, 출처와 함께 답변 |
+| `/ralplan <task>` | 합의 기반 계획 — 코드를 쓰기 전에 planner, architect, critic이 논쟁 |
+
+`/ralph`는 자신의 상태를 `<project>/.snowpea/ralph/`에 `prd.json`과 `progress.md`로 남기므로 지금 무엇을 하고 있다고 생각하는지 읽을 수 있고, 수렴하지 못하면 `ralph.max_iterations`(10)에서 멈춥니다. `/ultrawork`와 `/deepinit`은 `agents.max_concurrent`(기본 3) 안에서 흩어집니다. 마지막 세 개는 `core/snowpea_core/builtin_skills/` 아래의 `SKILL.md` 파일이고, 여러분의 스킬을 읽는 것과 같은 로더로 읽힙니다 — 읽고, 복사하고, 고치세요.
+
+### 생성기
+
+| 명령 | 하는 일 |
+|---|---|
+| `/agent create "<description>"` | `<project>/.snowpea/agents/<name>.md`에 에이전트 정의를 작성 |
+| `/agent list` | 에이전트 정의를 나열 |
+| `/skill learn [name]` | 방금 끝낸 세션을 `<project>/.snowpea/skills/<name>/SKILL.md`로 바꿈 |
+
+생성된 에이전트는 재적재 없이 곧바로 `delegate_task` 대상이 됩니다.
+
+### 스케줄링
+
+| 명령 | 하는 일 |
+|---|---|
+| `/schedule "<spec>" "<task>" [--channel X] [--mode M]` | 잡을 등록 |
+| `/schedule` | 잡을 나열하거나, 하나를 취소 |
+
+## CLI 서브커맨드
+
+### 조회
+
+```bash
+snowpea --version
+snowpea tools list --json
+snowpea commands list --json
+snowpea agents --json
+snowpea daemon status --json
+```
+
+`tools list`와 `commands list`는 각각 RPC 메서드 하나를 호출하고 끝납니다. 세션을 만들지도 모델을 부르지도 않으므로, 설치 직후나 CI에서 쓰기 좋은 스모크 테스트입니다.
+
+### 데몬
+
+```bash
+snowpea daemon status
+snowpea daemon start
+snowpea daemon stop
+```
+
+`status`는 포트, pid, 가동 시간, 네 가지 keepalive 카운터(세션, 잡, 게이트웨이 바인딩, 이름 있는 에이전트), 그리고 데몬이 종료하려는지와 종료하지 않는다면 그 이유를 출력합니다.
+
+### 벤더
+
+```bash
+snowpea provider list
+snowpea provider login openai
+snowpea setup --vendor deepseek --key sk-...
+```
+
+### 스킬과 플러그인
+
+```bash
+snowpea skill list
+snowpea skill search "pdf"
+snowpea skill install oh-my-claudecode
+snowpea skill install ./my-plugin
+snowpea skill remove my-plugin
+```
+
+### 잡
+
+```bash
+snowpea job schedule --at "0 9 * * *" --task "어제 커밋 요약" --channel telegram:123456
+snowpea job schedule --in 10m --task "빌드 확인" --mode plan
+snowpea job list --json
+snowpea job run <job-id>
+snowpea job cancel <job-id>
+```
+
+`--at`, `--in`, `--every`, `--cron`, `--spec`은 같은 옵션의 다섯 가지 이름입니다. 쓰려는 스케줄에 가장 잘 읽히는 것을 고르세요.
+
+### 게이트웨이
+
+```bash
+snowpea gateway bind telegram TELEGRAM_BOT_TOKEN agent:scribe --user 987654
+snowpea gateway list --json
+snowpea gateway unbind <binding-id>
+```
+
+### 팀과 서비스
+
+```bash
+snowpea team status
+snowpea service install
+snowpea service status
+snowpea service uninstall
+```
+
+`team status`는 돌고 있는 팀의 태스크별 상태와 재시도 횟수를 보여줍니다. `service`는 데몬을 로그인 시 자동 시작하도록 등록합니다 — Linux에서는 systemd 사용자 유닛, macOS에서는 launchd 에이전트, Windows에서는 예약 작업입니다. 기본값은 꺼짐이고, 스케줄과 게이트웨이가 터미널 로그인 없이도 재부팅을 넘겨 살아남아야 할 때만 필요합니다.
+
+### 전역 옵션
+
+| 옵션 | 의미 |
+|---|---|
+| `--version` | 버전을 출력하고 종료 |
+| `--home DIR` | 이번 실행에 한해 `SNOWPEA_HOME`을 덮어씀 |
+| `--mode plan\|accept\|auto` | 시작하는 세션의 모드 |
+| `-c`, `--prompt TEXT` | 헤드리스로 한 턴만 돌고 종료 |
+| `--json` | 산문 대신 JSON Lines 출력 |
+| `--cwd DIR` | 세션의 작업 디렉터리 |
+| `--timeout SEC` | SEC초 뒤 턴을 중단 |
+| `--provider VENDOR` | 이번 세션의 벤더 |
+| `--approve-none` | 묻는 대신 모든 승인을 거부 |
+
+## 슬래시 명령을 헤드리스로 돌리기
+
+레지스트리가 코어 안에 있으므로 슬래시 명령은 그 자체로 유효한 헤드리스 프롬프트입니다.
+
+```bash
+snowpea -c "/ralph add a failing test then make it pass" --mode auto
+snowpea -c "/deepinit" --json
+```
+
+CLI는 이를 파싱하지 않습니다. 텍스트를 그대로 코어에 넘기고, 코어는 TUI가 하는 것과 똑같이 처리합니다.
+
+## 다음
+
+[플러그인](plugins.md) — 나만의 명령을 추가하기.
