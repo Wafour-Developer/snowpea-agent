@@ -1372,7 +1372,7 @@ var require_react_development = __commonJS({
           }
           return dispatcher.useContext(Context);
         }
-        function useState9(initialState2) {
+        function useState10(initialState2) {
           var dispatcher = resolveDispatcher();
           return dispatcher.useState(initialState2);
         }
@@ -1384,7 +1384,7 @@ var require_react_development = __commonJS({
           var dispatcher = resolveDispatcher();
           return dispatcher.useRef(initialValue);
         }
-        function useEffect8(create2, deps) {
+        function useEffect9(create2, deps) {
           var dispatcher = resolveDispatcher();
           return dispatcher.useEffect(create2, deps);
         }
@@ -2167,7 +2167,7 @@ var require_react_development = __commonJS({
         exports.useContext = useContext7;
         exports.useDebugValue = useDebugValue;
         exports.useDeferredValue = useDeferredValue;
-        exports.useEffect = useEffect8;
+        exports.useEffect = useEffect9;
         exports.useId = useId;
         exports.useImperativeHandle = useImperativeHandle;
         exports.useInsertionEffect = useInsertionEffect;
@@ -2175,7 +2175,7 @@ var require_react_development = __commonJS({
         exports.useMemo = useMemo4;
         exports.useReducer = useReducer2;
         exports.useRef = useRef4;
-        exports.useState = useState9;
+        exports.useState = useState10;
         exports.useSyncExternalStore = useSyncExternalStore;
         exports.useTransition = useTransition;
         exports.version = ReactVersion;
@@ -7867,9 +7867,9 @@ var require_react_reconciler_development = __commonJS({
       module.exports = function $$$reconciler($$$hostConfig) {
         var exports2 = {};
         "use strict";
-        var React17 = require_react();
+        var React18 = require_react();
         var Scheduler = require_scheduler();
-        var ReactSharedInternals = React17.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED;
+        var ReactSharedInternals = React18.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED;
         var suppressWarning = false;
         function setSuppressWarning(newSuppressWarning) {
           {
@@ -27290,7 +27290,7 @@ var require_react_jsx_runtime_development = __commonJS({
     if (process.env.NODE_ENV !== "production") {
       (function() {
         "use strict";
-        var React17 = require_react();
+        var React18 = require_react();
         var REACT_ELEMENT_TYPE = Symbol.for("react.element");
         var REACT_PORTAL_TYPE = Symbol.for("react.portal");
         var REACT_FRAGMENT_TYPE = Symbol.for("react.fragment");
@@ -27316,7 +27316,7 @@ var require_react_jsx_runtime_development = __commonJS({
           }
           return null;
         }
-        var ReactSharedInternals = React17.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED;
+        var ReactSharedInternals = React18.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED;
         function error(format) {
           {
             {
@@ -28166,11 +28166,11 @@ var require_react_jsx_runtime_development = __commonJS({
             return jsxWithValidation(type, props, key, false);
           }
         }
-        var jsx17 = jsxWithValidationDynamic;
-        var jsxs14 = jsxWithValidationStatic;
+        var jsx19 = jsxWithValidationDynamic;
+        var jsxs15 = jsxWithValidationStatic;
         exports.Fragment = REACT_FRAGMENT_TYPE;
-        exports.jsx = jsx17;
-        exports.jsxs = jsxs14;
+        exports.jsx = jsx19;
+        exports.jsxs = jsxs15;
       })();
     }
   }
@@ -32471,10 +32471,10 @@ var Output = class {
       transformers
     });
   }
-  clip(clip2) {
+  clip(clip3) {
     this.operations.push({
       type: "clip",
-      clip: clip2
+      clip: clip3
     });
   }
   unclip() {
@@ -32508,40 +32508,40 @@ var Output = class {
         const { text, transformers } = operation;
         let { x, y } = operation;
         let lines = text.split("\n");
-        const clip2 = clips.at(-1);
-        if (clip2) {
-          const clipHorizontally = typeof clip2?.x1 === "number" && typeof clip2?.x2 === "number";
-          const clipVertically = typeof clip2?.y1 === "number" && typeof clip2?.y2 === "number";
+        const clip3 = clips.at(-1);
+        if (clip3) {
+          const clipHorizontally = typeof clip3?.x1 === "number" && typeof clip3?.x2 === "number";
+          const clipVertically = typeof clip3?.y1 === "number" && typeof clip3?.y2 === "number";
           if (clipHorizontally) {
             const width = widestLine(text);
-            if (x + width < clip2.x1 || x > clip2.x2) {
+            if (x + width < clip3.x1 || x > clip3.x2) {
               continue;
             }
           }
           if (clipVertically) {
             const height = lines.length;
-            if (y + height < clip2.y1 || y > clip2.y2) {
+            if (y + height < clip3.y1 || y > clip3.y2) {
               continue;
             }
           }
           if (clipHorizontally) {
             lines = lines.map((line) => {
-              const from = x < clip2.x1 ? clip2.x1 - x : 0;
+              const from = x < clip3.x1 ? clip3.x1 - x : 0;
               const width = stringWidth(line);
-              const to = x + width > clip2.x2 ? clip2.x2 - x : width;
+              const to = x + width > clip3.x2 ? clip3.x2 - x : width;
               return sliceAnsi2(line, from, to);
             });
-            if (x < clip2.x1) {
-              x = clip2.x1;
+            if (x < clip3.x1) {
+              x = clip3.x1;
             }
           }
           if (clipVertically) {
-            const from = y < clip2.y1 ? clip2.y1 - y : 0;
+            const from = y < clip3.y1 ? clip3.y1 - y : 0;
             const height = lines.length;
-            const to = y + height > clip2.y2 ? clip2.y2 - y : height;
+            const to = y + height > clip3.y2 ? clip3.y2 - y : height;
             lines = lines.slice(from, to);
-            if (y < clip2.y1) {
-              y = clip2.y1;
+            if (y < clip3.y1) {
+              y = clip3.y1;
             }
           }
         }
@@ -33822,7 +33822,7 @@ var import_react20 = __toESM(require_react(), 1);
 var import_react21 = __toESM(require_react(), 1);
 
 // src/app.tsx
-var import_react31 = __toESM(require_react(), 1);
+var import_react33 = __toESM(require_react(), 1);
 
 // src/slash/registry.ts
 function parse(input) {
@@ -34156,6 +34156,386 @@ function reducer(state, action) {
 }
 var APPROVAL_SCOPES = ["once", "session", "project", "always"];
 
+// src/layout/hud.ts
+var HUD_TWO_ROW_WIDTH = 110;
+var SEPARATOR = " | ";
+var STATUS_COLOR = {
+  connecting: "yellow",
+  connected: "green",
+  reconnecting: "yellow",
+  closed: "red"
+};
+var MODE_COLOR = {
+  plan: "cyan",
+  accept: "green",
+  auto: "red"
+};
+function shortenPath(path, max) {
+  if (max <= 1 || path.length <= max) return path;
+  return `\u2026${path.slice(path.length - (max - 1))}`;
+}
+function shortSessionId(sessionId) {
+  if (!sessionId) return "\u2014";
+  return sessionId.length <= 8 ? sessionId : sessionId.slice(0, 8);
+}
+var WORKDIR_WIDTH = 28;
+function formatTokens(count) {
+  if (!Number.isFinite(count) || count <= 0) return "0";
+  if (count < 1e3) return String(Math.round(count));
+  if (count < 1e6) return `${(count / 1e3).toFixed(1)}k`;
+  return `${(count / 1e6).toFixed(1)}M`;
+}
+function formatElapsed(ms) {
+  const seconds = Math.max(0, Math.floor(ms / 1e3));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  return `${Math.floor(minutes / 60)}h${minutes % 60}m`;
+}
+function buildHudSegments(input) {
+  const segments = [];
+  if (input.toast) {
+    segments.push({ key: "toast", text: input.toast, color: "cyan", priority: 1 });
+  }
+  segments.push({
+    key: "version",
+    text: input.latestVersion ? `snowpea v${input.version} \u2192 v${input.latestVersion} (U to update)` : `snowpea v${input.version}`,
+    color: input.latestVersion ? "yellow" : void 0,
+    dimColor: !input.latestVersion,
+    priority: input.latestVersion ? 1 : 5
+  });
+  if (input.workdir) {
+    segments.push({
+      key: "cwd",
+      text: shortenPath(input.workdir, WORKDIR_WIDTH),
+      dimColor: true,
+      priority: 4
+    });
+  }
+  const model = [input.provider, input.model].filter(Boolean).join("/");
+  segments.push({
+    key: "model",
+    text: `Model: ${model || "default"}`,
+    dimColor: true,
+    priority: 3
+  });
+  segments.push({
+    key: "mode",
+    text: `Mode: ${input.mode.toUpperCase()}${input.modeHint ? " (\u21E7Tab)" : ""}`,
+    color: MODE_COLOR[input.mode],
+    priority: 2
+  });
+  segments.push({
+    key: "ctx",
+    text: `ctx: ${formatTokens(input.usage.inputTokens)}\u2191/${formatTokens(input.usage.outputTokens)}\u2193 tok`,
+    dimColor: true,
+    priority: 4
+  });
+  segments.push({
+    key: "session",
+    text: input.sessionId ? `session: ${shortSessionId(input.sessionId)} \xB7 ${formatElapsed(input.sessionMs)}` : `session: ${formatElapsed(input.sessionMs)}`,
+    dimColor: true,
+    priority: 6
+  });
+  if (input.daemonPid) {
+    const summary = input.daemonSummary ? ` \xB7 ${input.daemonSummary}` : "";
+    segments.push({
+      key: "daemon",
+      text: `daemon: pid ${input.daemonPid}${summary}`,
+      dimColor: true,
+      priority: 7
+    });
+  }
+  if (input.pendingApprovals > 0) {
+    segments.push({
+      key: "approvals",
+      text: `\u26A0 ${input.pendingApprovals} approval${input.pendingApprovals === 1 ? "" : "s"}`,
+      color: "yellow",
+      bold: true,
+      priority: 1
+    });
+  }
+  if (input.runningCommand) {
+    segments.push({ key: "command", text: `\u25B6 ${input.runningCommand}`, color: "yellow", priority: 2 });
+  } else if (input.turnActive) {
+    segments.push({ key: "command", text: "esc to interrupt", dimColor: true, priority: 3 });
+  }
+  segments.push({
+    key: "status",
+    text: `\u25CF ${input.status}`,
+    color: STATUS_COLOR[input.status],
+    priority: 0
+  });
+  return segments;
+}
+function hudRowCount(width) {
+  return width < HUD_TWO_ROW_WIDTH ? 2 : 1;
+}
+function rowWidth(segments) {
+  if (segments.length === 0) return 0;
+  let total = 0;
+  for (const segment of segments) total += segment.text.length;
+  return total + SEPARATOR.length * (segments.length - 1);
+}
+function pack(segments, width, rows) {
+  const out = [[]];
+  for (const segment of segments) {
+    if (segment.text.length > width) return null;
+    const current = out[out.length - 1];
+    if (current.length === 0) {
+      current.push(segment);
+      continue;
+    }
+    if (rowWidth(current) + SEPARATOR.length + segment.text.length <= width) {
+      current.push(segment);
+      continue;
+    }
+    if (out.length >= rows) return null;
+    out.push([segment]);
+  }
+  return out;
+}
+function truncate(segment, width) {
+  if (segment.text.length <= width) return segment;
+  if (width <= 1) return { ...segment, text: "\u2026".slice(0, Math.max(0, width)) };
+  return { ...segment, text: `${segment.text.slice(0, width - 1)}\u2026` };
+}
+function layoutHud(segments, width, rows = hudRowCount(width)) {
+  const safeWidth = Math.max(1, Math.floor(width));
+  const safeRows = Math.max(1, Math.floor(rows));
+  let candidates = segments.slice();
+  while (candidates.length > 0) {
+    const packed = pack(candidates, safeWidth, safeRows);
+    if (packed) return packed;
+    let worst = 0;
+    for (let i = 1; i < candidates.length; i += 1) {
+      if (candidates[i].priority >= candidates[worst].priority) worst = i;
+    }
+    if (candidates.length === 1) break;
+    candidates = candidates.filter((_, index) => index !== worst);
+  }
+  if (candidates.length === 0) return [[]];
+  return [[truncate(candidates[0], safeWidth)]];
+}
+
+// src/state/verbs.ts
+var VERB_PERIOD_MS = 8e3;
+var ENGLISH_VERBS = [
+  "Scurrying",
+  "Pondering",
+  "Brewing",
+  "Noodling",
+  "Sprouting",
+  "Germinating",
+  "Weaving",
+  "Spelunking",
+  "Puttering",
+  "Tinkering",
+  "Percolating",
+  "Simmering",
+  "Rummaging",
+  "Untangling",
+  "Conjuring",
+  "Whittling",
+  "Burrowing",
+  "Foraging",
+  "Composting",
+  "Trellising",
+  "Pollinating",
+  "Mulching",
+  "Sifting",
+  "Kneading",
+  "Marinating",
+  "Distilling",
+  "Wandering",
+  "Scheming",
+  "Doodling",
+  "Shuffling",
+  "Juggling",
+  "Orbiting",
+  "Hatching",
+  "Blossoming",
+  "Rooting",
+  "Vining",
+  "Podding",
+  "Harvesting",
+  "Reticulating",
+  "Calibrating",
+  "Meandering",
+  "Fermenting",
+  "Nesting",
+  "Puzzling",
+  "Wrangling",
+  "Shelling"
+];
+var KOREAN_VERBS = [
+  "\uC0DD\uAC01 \uC911",
+  "\uAD81\uB9AC \uC911",
+  "\uC0C8\uC2F9 \uD2D4\uC6B0\uB294 \uC911",
+  "\uB4A4\uC801\uC774\uB294 \uC911",
+  "\uC5EE\uB294 \uC911",
+  "\uD5E4\uC544\uB9AC\uB294 \uC911",
+  "\uB2E4\uB4EC\uB294 \uC911",
+  "\uC6B0\uB824\uB0B4\uB294 \uC911",
+  "\uB9CC\uC9C0\uC791\uAC70\uB9AC\uB294 \uC911",
+  "\uB4A4\uC9C0\uB294 \uC911",
+  "\uC9DC\uB9DE\uCD94\uB294 \uC911",
+  "\uBC1C\uC544 \uC911",
+  "\uC5EC\uBB34\uB294 \uC911",
+  "\uB369\uAD74 \uBED7\uB294 \uC911",
+  "\uAF2C\uD22C\uB9AC \uCC44\uC6B0\uB294 \uC911",
+  "\uBC84\uBB34\uB9AC\uB294 \uC911",
+  "\uC775\uD788\uB294 \uC911",
+  "\uACE0\uBBFC \uC911",
+  "\uACC4\uC0B0 \uC911",
+  "\uC0B4\uD3B4\uBCF4\uB294 \uC911",
+  "\uD30C\uACE0\uB4DC\uB294 \uC911",
+  "\uC815\uB9AC\uD558\uB294 \uC911",
+  "\uBE5A\uB294 \uC911",
+  "\uAE4E\uB294 \uC911",
+  "\uC219\uC131 \uC911",
+  "\uCE90\uB294 \uC911",
+  "\uB9E4\uB9CC\uC9C0\uB294 \uC911",
+  "\uC870\uB9BD \uC911",
+  "\uAD74\uB9AC\uB294 \uC911",
+  "\uD0D0\uC0C9 \uC911",
+  "\uC800\uC6B8\uC9C8 \uC911",
+  "\uC5BD\uB294 \uC911",
+  "\uCC44\uC9D1 \uC911",
+  "\uBC1C\uD6A8 \uC911",
+  "\uB208\uC5EC\uACA8\uBCF4\uB294 \uC911",
+  "\uC190\uBCF4\uB294 \uC911",
+  "\uD6D1\uB294 \uC911",
+  "\uAD81\uAE08\uD574\uD558\uB294 \uC911",
+  "\uC870\uC728 \uC911",
+  "\uAC08\uBB34\uB9AC \uC911"
+];
+var HANGUL = /[ᄀ-ᇿ㄰-㆏가-힯]/;
+function isKorean(text) {
+  return typeof text === "string" && HANGUL.test(text);
+}
+function verbsFor(prompt) {
+  return isKorean(prompt) ? KOREAN_VERBS : ENGLISH_VERBS;
+}
+function verbAt(verbs, elapsedMs, offset = 0, periodMs = VERB_PERIOD_MS) {
+  if (verbs.length === 0) return "";
+  const steps = Math.floor(Math.max(0, elapsedMs) / Math.max(1, periodMs));
+  const index = (steps + Math.max(0, Math.floor(offset))) % verbs.length;
+  return verbs[index];
+}
+
+// src/state/working.ts
+var SPINNER_FRAMES = ["\u2722", "\u2733", "\u2736", "\u273B", "\u273D"];
+var SPINNER_INTERVAL_MS = 200;
+var PAUSED_GLYPH = "\u23F8";
+function firstArg(args, keys) {
+  for (const key of keys) {
+    const value = args[key];
+    if (typeof value === "string" && value.length > 0) return value;
+  }
+  return null;
+}
+function basename(path) {
+  const cut = path.replace(/[/\\]+$/, "");
+  const at = Math.max(cut.lastIndexOf("/"), cut.lastIndexOf("\\"));
+  return at === -1 ? cut : cut.slice(at + 1);
+}
+function clip(text, max) {
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length <= max ? flat : `${flat.slice(0, Math.max(1, max - 1))}\u2026`;
+}
+function toolLabel(call) {
+  const name = call.name.toLowerCase();
+  const args = call.args ?? {};
+  if (/(^|_)(bash|shell|exec|run|terminal)/.test(name)) {
+    const command = firstArg(args, ["command", "cmd", "script"]);
+    return command ? `Running shell: ${clip(command, 40)}` : "Running shell";
+  }
+  if (/(^|_)(read|cat|open|view)/.test(name)) {
+    const path = firstArg(args, ["path", "file", "file_path", "filename"]);
+    return path ? `Reading ${basename(path)}` : "Reading a file";
+  }
+  if (/(^|_)(search|grep|glob|find|rg)/.test(name)) {
+    const pattern = firstArg(args, ["pattern", "query", "q", "regex"]);
+    return pattern ? `Searching "${clip(pattern, 30)}"` : "Searching";
+  }
+  if (/(^|_)(edit|patch|apply|replace)/.test(name)) {
+    const path = firstArg(args, ["path", "file", "file_path", "filename"]);
+    return path ? `Editing ${basename(path)}` : "Editing";
+  }
+  if (/(^|_)(write|create|save)/.test(name)) {
+    const path = firstArg(args, ["path", "file", "file_path", "filename"]);
+    return path ? `Writing ${basename(path)}` : "Writing";
+  }
+  if (/(^|_)(fetch|http|curl|web|browse)/.test(name)) {
+    const url = firstArg(args, ["url", "uri", "href"]);
+    return url ? `Fetching ${clip(url, 40)}` : "Fetching";
+  }
+  return `Running ${clip(call.name, 30)}`;
+}
+function derivePhase(state, { runningCommand = null } = {}) {
+  if (state.pendingApproval || state.approvalQueue.length > 0) return { kind: "approval" };
+  if (!state.turnActive) return { kind: "idle" };
+  const running = state.toolCalls.filter((call) => call.state === "running");
+  const last = running[running.length - 1];
+  if (last) return { kind: "tool", label: toolLabel(last) };
+  const agents = state.subagents.filter((agent) => agent.status === "running").length;
+  if (agents > 0) return { kind: "subagents", running: agents };
+  if (runningCommand) return { kind: "command", name: runningCommand };
+  return { kind: "thinking" };
+}
+function lastUserPrompt(state) {
+  for (let index = state.messages.length - 1; index >= 0; index -= 1) {
+    const message = state.messages[index];
+    if (message.role === "user") return message.text;
+  }
+  return null;
+}
+function formatDuration(ms) {
+  const seconds = Math.max(0, Math.round(ms / 1e3));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+function formatStats({
+  elapsedMs,
+  inputTokens = 0,
+  outputTokens = 0
+}) {
+  const parts = [formatDuration(elapsedMs)];
+  if (inputTokens > 0) parts.push(`\u2191 ${formatTokens(inputTokens)}`);
+  parts.push(`\u2193 ${formatTokens(outputTokens)} tokens`);
+  return `(${parts.join(" \xB7 ")})`;
+}
+function workingLine(input) {
+  const { phase } = input;
+  if (phase.kind === "idle") return null;
+  if (phase.kind === "approval") return `${PAUSED_GLYPH} Waiting for approval`;
+  const spinner = SPINNER_FRAMES[Math.abs(input.frame ?? 0) % SPINNER_FRAMES.length];
+  const stats = formatStats(input);
+  if (phase.kind === "tool") return `${spinner} ${phase.label}\u2026 ${stats}`;
+  if (phase.kind === "subagents") {
+    const plural = phase.running === 1 ? "agent" : "agents";
+    return `${spinner} ${phase.running} ${plural} working\u2026 ${stats}`;
+  }
+  if (phase.kind === "command") return `${spinner} ${phase.name}\u2026 ${stats}`;
+  const verb = verbAt(verbsFor(input.prompt), input.elapsedMs, input.verbOffset ?? 0);
+  return `${spinner} ${verb}\u2026 ${stats}`;
+}
+function turnSummaryLine({
+  ok,
+  elapsedMs,
+  inputTokens = 0,
+  outputTokens = 0
+}) {
+  const head = ok ? `\u2713 Done in ${formatDuration(elapsedMs)}` : `\u2717 Stopped after ${formatDuration(elapsedMs)}`;
+  const parts = [head];
+  if (inputTokens > 0) parts.push(`\u2191 ${formatTokens(inputTokens)}`);
+  parts.push(`\u2193 ${formatTokens(outputTokens)} tokens`);
+  return parts.join(" \xB7 ");
+}
+
 // src/state/mode.ts
 var MODE_CYCLE_ORDER = ["accept", "auto", "plan"];
 function cycleMode(mode) {
@@ -34244,6 +34624,21 @@ function useElapsed(tickMs = ELAPSED_TICK_MS, now = Date.now) {
     return () => clearInterval(timer);
   }, [tickMs, now]);
   return elapsed;
+}
+
+// src/hooks/useSpinner.ts
+var import_react25 = __toESM(require_react(), 1);
+function useSpinner(active, intervalMs = SPINNER_INTERVAL_MS) {
+  const [frame, setFrame] = (0, import_react25.useState)(0);
+  (0, import_react25.useEffect)(() => {
+    if (!active) {
+      setFrame(0);
+      return;
+    }
+    const timer = setInterval(() => setFrame((value) => value + 1), intervalMs);
+    return () => clearInterval(timer);
+  }, [active, intervalMs]);
+  return frame;
 }
 
 // src/version.ts
@@ -34542,10 +34937,11 @@ function bottomRows({
   approvalArgs = null,
   queueRequests = 0,
   queueFocused = false,
-  errorVisible = false
+  errorVisible = false,
+  workingVisible = false
 } = {}) {
   const input = approvalArgs === null ? 1 + paletteRows(paletteCommands) : approvalPromptRows(approvalArgs);
-  return input + approvalQueueRows(queueRequests, queueFocused) + (errorVisible ? 1 : 0);
+  return input + approvalQueueRows(queueRequests, queueFocused) + (errorVisible ? 1 : 0) + (workingVisible ? 1 : 0);
 }
 function scrollIndicator(view) {
   if (view.hiddenAbove === 0 && view.hiddenBelow === 0) return null;
@@ -34553,171 +34949,6 @@ function scrollIndicator(view) {
   if (view.hiddenAbove > 0) parts.push(`\u25B2 ${view.hiddenAbove}`);
   if (view.hiddenBelow > 0) parts.push(`\u25BC ${view.hiddenBelow}`);
   return parts.join(" ");
-}
-
-// src/layout/hud.ts
-var HUD_TWO_ROW_WIDTH = 110;
-var SEPARATOR = " | ";
-var STATUS_COLOR = {
-  connecting: "yellow",
-  connected: "green",
-  reconnecting: "yellow",
-  closed: "red"
-};
-var MODE_COLOR = {
-  plan: "cyan",
-  accept: "green",
-  auto: "red"
-};
-function shortenPath(path, max) {
-  if (max <= 1 || path.length <= max) return path;
-  return `\u2026${path.slice(path.length - (max - 1))}`;
-}
-function shortSessionId(sessionId) {
-  if (!sessionId) return "\u2014";
-  return sessionId.length <= 8 ? sessionId : sessionId.slice(0, 8);
-}
-var WORKDIR_WIDTH = 28;
-function formatTokens(count) {
-  if (!Number.isFinite(count) || count <= 0) return "0";
-  if (count < 1e3) return String(Math.round(count));
-  if (count < 1e6) return `${(count / 1e3).toFixed(1)}k`;
-  return `${(count / 1e6).toFixed(1)}M`;
-}
-function formatElapsed(ms) {
-  const seconds = Math.max(0, Math.floor(ms / 1e3));
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m`;
-  return `${Math.floor(minutes / 60)}h${minutes % 60}m`;
-}
-function buildHudSegments(input) {
-  const segments = [];
-  if (input.toast) {
-    segments.push({ key: "toast", text: input.toast, color: "cyan", priority: 1 });
-  }
-  segments.push({
-    key: "version",
-    text: input.latestVersion ? `snowpea v${input.version} \u2192 v${input.latestVersion} (U to update)` : `snowpea v${input.version}`,
-    color: input.latestVersion ? "yellow" : void 0,
-    dimColor: !input.latestVersion,
-    priority: input.latestVersion ? 1 : 5
-  });
-  if (input.workdir) {
-    segments.push({
-      key: "cwd",
-      text: shortenPath(input.workdir, WORKDIR_WIDTH),
-      dimColor: true,
-      priority: 4
-    });
-  }
-  const model = [input.provider, input.model].filter(Boolean).join("/");
-  segments.push({
-    key: "model",
-    text: `Model: ${model || "default"}`,
-    dimColor: true,
-    priority: 3
-  });
-  segments.push({
-    key: "mode",
-    text: `Mode: ${input.mode.toUpperCase()}${input.modeHint ? " (\u21E7Tab)" : ""}`,
-    color: MODE_COLOR[input.mode],
-    priority: 2
-  });
-  segments.push({
-    key: "ctx",
-    text: `ctx: ${formatTokens(input.usage.inputTokens)}\u2191/${formatTokens(input.usage.outputTokens)}\u2193 tok`,
-    dimColor: true,
-    priority: 4
-  });
-  segments.push({
-    key: "session",
-    text: input.sessionId ? `session: ${shortSessionId(input.sessionId)} \xB7 ${formatElapsed(input.sessionMs)}` : `session: ${formatElapsed(input.sessionMs)}`,
-    dimColor: true,
-    priority: 6
-  });
-  if (input.daemonPid) {
-    const summary = input.daemonSummary ? ` \xB7 ${input.daemonSummary}` : "";
-    segments.push({
-      key: "daemon",
-      text: `daemon: pid ${input.daemonPid}${summary}`,
-      dimColor: true,
-      priority: 7
-    });
-  }
-  if (input.pendingApprovals > 0) {
-    segments.push({
-      key: "approvals",
-      text: `\u26A0 ${input.pendingApprovals} approval${input.pendingApprovals === 1 ? "" : "s"}`,
-      color: "yellow",
-      bold: true,
-      priority: 1
-    });
-  }
-  if (input.runningCommand || input.turnActive) {
-    segments.push({
-      key: "command",
-      text: input.runningCommand ? `\u25B6 ${input.runningCommand}` : "working (esc to interrupt)",
-      color: "yellow",
-      priority: 2
-    });
-  }
-  segments.push({
-    key: "status",
-    text: `\u25CF ${input.status}`,
-    color: STATUS_COLOR[input.status],
-    priority: 0
-  });
-  return segments;
-}
-function hudRowCount(width) {
-  return width < HUD_TWO_ROW_WIDTH ? 2 : 1;
-}
-function rowWidth(segments) {
-  if (segments.length === 0) return 0;
-  let total = 0;
-  for (const segment of segments) total += segment.text.length;
-  return total + SEPARATOR.length * (segments.length - 1);
-}
-function pack(segments, width, rows) {
-  const out = [[]];
-  for (const segment of segments) {
-    if (segment.text.length > width) return null;
-    const current = out[out.length - 1];
-    if (current.length === 0) {
-      current.push(segment);
-      continue;
-    }
-    if (rowWidth(current) + SEPARATOR.length + segment.text.length <= width) {
-      current.push(segment);
-      continue;
-    }
-    if (out.length >= rows) return null;
-    out.push([segment]);
-  }
-  return out;
-}
-function truncate(segment, width) {
-  if (segment.text.length <= width) return segment;
-  if (width <= 1) return { ...segment, text: "\u2026".slice(0, Math.max(0, width)) };
-  return { ...segment, text: `${segment.text.slice(0, width - 1)}\u2026` };
-}
-function layoutHud(segments, width, rows = hudRowCount(width)) {
-  const safeWidth = Math.max(1, Math.floor(width));
-  const safeRows = Math.max(1, Math.floor(rows));
-  let candidates = segments.slice();
-  while (candidates.length > 0) {
-    const packed = pack(candidates, safeWidth, safeRows);
-    if (packed) return packed;
-    let worst = 0;
-    for (let i = 1; i < candidates.length; i += 1) {
-      if (candidates[i].priority >= candidates[worst].priority) worst = i;
-    }
-    if (candidates.length === 1) break;
-    candidates = candidates.filter((_, index) => index !== worst);
-  }
-  if (candidates.length === 0) return [[]];
-  return [[truncate(candidates[0], safeWidth)]];
 }
 
 // src/layout/statics.ts
@@ -34734,19 +34965,99 @@ function isSettled(state, item) {
 }
 function settledCount(state, cursor = 0) {
   const total = state.timeline.length;
-  let count = Math.max(0, Math.min(Math.floor(cursor), total));
-  while (count < total) {
-    const item = state.timeline[count];
-    const isLast = count === total - 1;
-    if (isLast && item.kind === "tool") break;
-    if (!isSettled(state, item)) break;
-    count += 1;
+  const start = Math.max(0, Math.min(Math.floor(cursor), total));
+  let count = start;
+  while (count < total && isSettled(state, state.timeline[count])) count += 1;
+  if (state.turnActive) {
+    while (count > start && state.timeline[count - 1].kind === "tool") count -= 1;
   }
   return count;
 }
 
+// src/layout/summary.ts
+function toolKind(name) {
+  const lower = name.toLowerCase();
+  if (/(^|_)(bash|shell|exec|run|terminal)/.test(lower)) return "shell";
+  if (/(^|_)(read|cat|open|view)/.test(lower)) return "read";
+  if (/(^|_)(search|grep|glob|find|rg)/.test(lower)) return "search";
+  if (/(^|_)(edit|patch|apply|replace)/.test(lower)) return "edit";
+  if (/(^|_)(write|create|save)/.test(lower)) return "write";
+  if (/(^|_)(fetch|http|curl|web|browse)/.test(lower)) return "fetch";
+  return "other";
+}
+function subject(call) {
+  const args = call.args ?? {};
+  for (const key of ["path", "file", "file_path", "filename", "pattern", "query", "url", "command"]) {
+    const value = args[key];
+    if (typeof value === "string" && value.length > 0) return value;
+  }
+  return null;
+}
+var PLURAL = {
+  shell: { one: "Ran shell command", many: (n) => `Ran ${n} shell commands` },
+  read: { one: "Read a file", many: (n) => `Read ${n} files` },
+  search: { one: "Searched", many: (n) => `Searched ${n} patterns` },
+  edit: { one: "Edited a file", many: (n) => `Edited ${n} files` },
+  write: { one: "Wrote a file", many: (n) => `Wrote ${n} files` },
+  fetch: { one: "Fetched a page", many: (n) => `Fetched ${n} pages` },
+  other: { one: "Ran a tool", many: (n) => `Ran ${n} tools` }
+};
+function summarizeCalls(calls) {
+  if (calls.length === 0) return "";
+  const kinds = new Set(calls.map((call) => toolKind(call.name)));
+  const kind = kinds.size === 1 ? [...kinds][0] : "other";
+  if (calls.length === 1) {
+    const call = calls[0];
+    const what = subject(call);
+    if (!what) return kind === "other" ? `Ran ${clip(call.name, 30)}` : PLURAL[kind].one;
+    switch (kind) {
+      case "shell":
+        return `Ran shell: ${clip(what, 40)}`;
+      case "read":
+        return `Read ${basename(what)}`;
+      case "edit":
+        return `Edited ${basename(what)}`;
+      case "write":
+        return `Wrote ${basename(what)}`;
+      case "search":
+        return `Searched "${clip(what, 30)}"`;
+      case "fetch":
+        return `Fetched ${clip(what, 40)}`;
+      default:
+        return `Ran ${clip(call.name, 30)}`;
+    }
+  }
+  return PLURAL[kind].many(calls.length);
+}
+function hiddenLines(calls) {
+  let total = 0;
+  for (const call of calls) {
+    const body = call.output ?? "";
+    if (body.length > 0) total += body.split("\n").length;
+  }
+  return total;
+}
+function groupCalls(calls) {
+  const blocks = [];
+  let run = [];
+  const flush = () => {
+    if (run.length > 0) blocks.push({ kind: "tools", calls: run });
+    run = [];
+  };
+  for (const call of calls) {
+    if (call.state === "error") {
+      flush();
+      blocks.push({ kind: "single", call });
+      continue;
+    }
+    run.push(call);
+  }
+  flush();
+  return blocks;
+}
+
 // src/components/Logo.tsx
-var import_react25 = __toESM(require_react(), 1);
+var import_react26 = __toESM(require_react(), 1);
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
 var LOGO_COLLAPSE_ROWS = 24;
 var LOGO_EXPANDED_ROWS = 3;
@@ -34777,10 +35088,10 @@ function LogoInner({ terminalRows, version, width }) {
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `${TAGLINE}  v${version}` })
   ] });
 }
-var Logo = import_react25.default.memo(LogoInner);
+var Logo = import_react26.default.memo(LogoInner);
 
 // src/components/TranscriptView.tsx
-var import_react26 = __toESM(require_react(), 1);
+var import_react27 = __toESM(require_react(), 1);
 var import_jsx_runtime2 = __toESM(require_jsx_runtime(), 1);
 var transcriptRenderCount = { value: 0 };
 function TranscriptViewInner({
@@ -34800,7 +35111,7 @@ function TranscriptViewInner({
     `${line.key}-s${index}`
   )) }, line.key)) });
 }
-var TranscriptView = import_react26.default.memo(TranscriptViewInner);
+var TranscriptView = import_react27.default.memo(TranscriptViewInner);
 
 // src/components/FullscreenLayout.tsx
 var import_jsx_runtime3 = __toESM(require_jsx_runtime(), 1);
@@ -34833,7 +35144,7 @@ function FullscreenLayout({
 }
 
 // src/components/Chat.tsx
-var import_react27 = __toESM(require_react(), 1);
+var import_react28 = __toESM(require_react(), 1);
 
 // src/components/SlashCommandPalette.tsx
 var import_jsx_runtime4 = __toESM(require_jsx_runtime(), 1);
@@ -34880,10 +35191,10 @@ function Chat({
   onInterrupt,
   onToggleHelp
 }) {
-  const [value, setValue] = (0, import_react27.useState)("");
-  const [history, setHistory] = (0, import_react27.useState)([]);
-  const [historyIndex, setHistoryIndex] = (0, import_react27.useState)(null);
-  const [selected, setSelected] = (0, import_react27.useState)(0);
+  const [value, setValue] = (0, import_react28.useState)("");
+  const [history, setHistory] = (0, import_react28.useState)([]);
+  const [historyIndex, setHistoryIndex] = (0, import_react28.useState)(null);
+  const [selected, setSelected] = (0, import_react28.useState)(0);
   const showPalette = value.startsWith("/") && completions.length > 0;
   const update = (next) => {
     setValue(next);
@@ -35096,7 +35407,7 @@ function DiffView({
 }
 
 // src/components/ApprovalPrompt.tsx
-var import_react28 = __toESM(require_react(), 1);
+var import_react29 = __toESM(require_react(), 1);
 var import_jsx_runtime9 = __toESM(require_jsx_runtime(), 1);
 var RISK_COLOR = {
   low: "green",
@@ -35114,7 +35425,7 @@ function ApprovalPrompt({
   isActive = true
 }) {
   const initialScope = request.scopeHint ?? "once";
-  const [scopeIndex, setScopeIndex] = (0, import_react28.useState)(() => {
+  const [scopeIndex, setScopeIndex] = (0, import_react29.useState)(() => {
     const index = APPROVAL_SCOPES.indexOf(initialScope);
     return index === -1 ? 0 : index;
   });
@@ -35168,7 +35479,7 @@ function ApprovalPrompt({
 }
 
 // src/components/ApprovalQueue.tsx
-var import_react29 = __toESM(require_react(), 1);
+var import_react30 = __toESM(require_react(), 1);
 var import_jsx_runtime10 = __toESM(require_jsx_runtime(), 1);
 function summarise(request) {
   const command = (request.args ?? {})["command"];
@@ -35182,9 +35493,9 @@ function ApprovalQueue({
   isActive = false,
   onBlur
 }) {
-  const [selected, setSelected] = (0, import_react29.useState)(0);
-  const [scopeIndex, setScopeIndex] = (0, import_react29.useState)(0);
-  (0, import_react29.useEffect)(() => {
+  const [selected, setSelected] = (0, import_react30.useState)(0);
+  const [scopeIndex, setScopeIndex] = (0, import_react30.useState)(0);
+  (0, import_react30.useEffect)(() => {
     setSelected((index) => requests.length === 0 ? 0 : Math.min(index, requests.length - 1));
   }, [requests.length]);
   const current = requests[Math.min(selected, Math.max(requests.length - 1, 0))];
@@ -35266,10 +35577,10 @@ function ApprovalQueue({
 }
 
 // src/components/StatusHud.tsx
-var import_react30 = __toESM(require_react(), 1);
+var import_react31 = __toESM(require_react(), 1);
 var import_jsx_runtime11 = __toESM(require_jsx_runtime(), 1);
 function StatusHudInner({ rows, width }) {
-  return /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Box_default, { flexDirection: "column", flexShrink: 0, width, children: rows.map((segments, rowIndex) => /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Box_default, { width, flexWrap: "nowrap", overflow: "hidden", children: segments.map((segment, index) => /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(import_react30.default.Fragment, { children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Box_default, { flexDirection: "column", flexShrink: 0, width, children: rows.map((segments, rowIndex) => /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Box_default, { width, flexWrap: "nowrap", overflow: "hidden", children: segments.map((segment, index) => /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(import_react31.default.Fragment, { children: [
     index > 0 ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { dimColor: true, children: SEPARATOR }) : null,
     /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
       Text,
@@ -35283,10 +35594,32 @@ function StatusHudInner({ rows, width }) {
     )
   ] }, segment.key)) }, `hud-row-${rowIndex}`)) });
 }
-var StatusHud = import_react30.default.memo(StatusHudInner);
+var StatusHud = import_react31.default.memo(StatusHudInner);
+
+// src/components/ToolSummary.tsx
+var import_jsx_runtime12 = __toESM(require_jsx_runtime(), 1);
+var SUMMARY_GLYPH = "\u23FA";
+function ToolSummary({ calls }) {
+  if (calls.length === 0) return null;
+  const lines = hiddenLines(calls);
+  return /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(Box_default, { marginBottom: 1, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { color: "green", children: `${SUMMARY_GLYPH} ` }),
+    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { children: summarizeCalls(calls) }),
+    lines > 0 ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { dimColor: true, children: ` (${lines} lines)` }) : null
+  ] });
+}
+
+// src/components/WorkingIndicator.tsx
+var import_react32 = __toESM(require_react(), 1);
+var import_jsx_runtime13 = __toESM(require_jsx_runtime(), 1);
+function WorkingIndicatorInner({ line }) {
+  if (!line) return null;
+  return /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Box_default, { flexShrink: 0, children: /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: line }) });
+}
+var WorkingIndicator = import_react32.default.memo(WorkingIndicatorInner);
 
 // src/components/HelpPanel.tsx
-var import_jsx_runtime12 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime14 = __toESM(require_jsx_runtime(), 1);
 var WORKFLOW_COMMANDS = [
   "ralph",
   "ralplan",
@@ -35307,37 +35640,37 @@ function HelpPanel({
   const workflows = WORKFLOW_COMMANDS.map(
     (name) => commands.find((command) => command.name === name)
   ).filter((command) => command !== void 0);
-  return /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(Box_default, { flexDirection: "column", borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
-    workflows.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(Box_default, { flexDirection: "column", marginBottom: 1, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { bold: true, color: "cyan", children: "Workflows and modes" }),
-      workflows.map((command) => /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(Text, { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { color: "magenta", children: `/${command.name}`.padEnd(width) }),
-        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { dimColor: true, children: command.summary })
+  return /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(Box_default, { flexDirection: "column", borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
+    workflows.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(Box_default, { flexDirection: "column", marginBottom: 1, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { bold: true, color: "cyan", children: "Workflows and modes" }),
+      workflows.map((command) => /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(Text, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { color: "magenta", children: `/${command.name}`.padEnd(width) }),
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { dimColor: true, children: command.summary })
       ] }, `workflow-${command.name}`)),
-      runningSubagents > 0 ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { dimColor: true, children: `  ${runningSubagents} subagent(s) running right now` }) : null
+      runningSubagents > 0 ? /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { dimColor: true, children: `  ${runningSubagents} subagent(s) running right now` }) : null
     ] }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { bold: true, color: "cyan", children: "Commands" }),
-    commands.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { dimColor: true, children: "no commands reported by the daemon" }) : commands.map((command) => /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(Text, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { color: "blue", children: `/${command.name}`.padEnd(width) }),
-      /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { dimColor: true, children: command.summary })
+    /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { bold: true, color: "cyan", children: "Commands" }),
+    commands.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { dimColor: true, children: "no commands reported by the daemon" }) : commands.map((command) => /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(Text, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { color: "blue", children: `/${command.name}`.padEnd(width) }),
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { dimColor: true, children: command.summary })
     ] }, command.name)),
-    /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(Box_default, { marginTop: 1, flexDirection: "column", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { bold: true, color: "cyan", children: "Keys" }),
-      /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { dimColor: true, children: "  F1 close \xB7 Ctrl+C quit \xB7 Ctrl+O expand the last tool call" }),
-      /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { dimColor: true, children: "  Esc interrupt the current turn" }),
-      /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(Text, { dimColor: true, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(Box_default, { marginTop: 1, flexDirection: "column", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { bold: true, color: "cyan", children: "Keys" }),
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { dimColor: true, children: "  F1 close \xB7 Ctrl+C quit \xB7 Ctrl+O expand the last tool call" }),
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { dimColor: true, children: "  Esc interrupt the current turn" }),
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(Text, { dimColor: true, children: [
         "  \u21E7Tab cycles mode accept -> auto -> plan -> accept \xB7 ",
         "Ctrl+P toggles plan mode"
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(Text, { dimColor: true, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(Text, { dimColor: true, children: [
         "  Delegated subagents appear as a tree under the transcript while ",
         "/ralph, /ultrawork or /deepinit runs"
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(Text, { dimColor: true, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(Text, { dimColor: true, children: [
         "  Ctrl+A focus the unattended approval queue: [a] allow [d] deny, ",
         "\u2191/\u2193 pick, \u2190/\u2192 scope"
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(Text, { dimColor: true, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(Text, { dimColor: true, children: [
         "  Approval scopes: once \xB7 session \xB7 project \xB7 always ",
         "(project/always also store an allowlist pattern)"
       ] })
@@ -35346,7 +35679,7 @@ function HelpPanel({
 }
 
 // src/components/SubagentTree.tsx
-var import_jsx_runtime13 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime15 = __toESM(require_jsx_runtime(), 1);
 var MARKS = {
   queued: { glyph: "\u25E6", color: "gray" },
   running: { glyph: "\u25CF", color: "cyan" },
@@ -35355,7 +35688,7 @@ var MARKS = {
 };
 var TASK_WIDTH = 58;
 var TEXT_WIDTH = 64;
-function clip(text, width) {
+function clip2(text, width) {
   const flat = text.replace(/\s+/g, " ").trim();
   return flat.length <= width ? flat : `${flat.slice(0, Math.max(0, width - 1))}\u2026`;
 }
@@ -35374,30 +35707,30 @@ function SubagentTree({
 }) {
   const visible = showFinished ? subagents : subagents.filter((entry) => entry.status === "queued" || entry.status === "running");
   if (visible.length === 0) return null;
-  return /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(Box_default, { flexDirection: "column", marginY: 1, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { dimColor: true, children: `subagents (${summarise2(subagents)})` }),
+  return /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(Box_default, { flexDirection: "column", marginY: 1, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { dimColor: true, children: `subagents (${summarise2(subagents)})` }),
     visible.map((entry, index) => {
       const mark = MARKS[entry.status] ?? MARKS.queued;
       const last = index === visible.length - 1;
       const label = entry.name ? `${entry.name}: ` : "";
       const detail = entry.status === "done" || entry.status === "error" ? entry.summary : entry.lastText;
-      return /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(Box_default, { flexDirection: "column", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(Text, { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { dimColor: true, children: last ? "  \u2514\u2500 " : "  \u251C\u2500 " }),
-          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(Text, { color: mark.color, children: [
+      return /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(Box_default, { flexDirection: "column", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(Text, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { dimColor: true, children: last ? "  \u2514\u2500 " : "  \u251C\u2500 " }),
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(Text, { color: mark.color, children: [
             mark.glyph,
             " "
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { children: clip(`${label}${entry.task}`, TASK_WIDTH) })
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { children: clip2(`${label}${entry.task}`, TASK_WIDTH) })
         ] }),
-        detail ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { dimColor: true, children: `  ${last ? " " : "\u2502"}     ${clip(detail, TEXT_WIDTH)}` }) : null
+        detail ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { dimColor: true, children: `  ${last ? " " : "\u2502"}     ${clip2(detail, TEXT_WIDTH)}` }) : null
       ] }, entry.agentId);
     })
   ] });
 }
 
 // src/components/UpdateBanner.tsx
-var import_jsx_runtime14 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime16 = __toESM(require_jsx_runtime(), 1);
 var PHASE_COLOR = {
   available: "cyan",
   confirm: "yellow",
@@ -35408,11 +35741,11 @@ var PHASE_COLOR = {
 function UpdateBanner({ update }) {
   const text = bannerText(update);
   if (text === null) return null;
-  return /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { color: PHASE_COLOR[update.phase] ?? "cyan", children: text }) });
+  return /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { color: PHASE_COLOR[update.phase] ?? "cyan", children: text }) });
 }
 
 // src/app.tsx
-var import_jsx_runtime15 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime17 = __toESM(require_jsx_runtime(), 1);
 var APPROVAL_POLL_MS = 5e3;
 var RESTART_DELAY_MS = 1200;
 function TimelineEntry({
@@ -35422,14 +35755,49 @@ function TimelineEntry({
 }) {
   if (item.kind === "message") {
     const message = state.messages.find((m) => m.id === item.id);
-    return message ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(MessageView, { message }) : null;
+    return message ? /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(MessageView, { message }) : null;
   }
   if (item.kind === "tool") {
     const call = state.toolCalls.find((c) => c.callId === item.id);
-    return call ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(ToolCall, { call, expanded: expandedCall === item.id }) : null;
+    return call ? /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(ToolCall, { call, expanded: expandedCall === item.id }) : null;
   }
   const diff2 = state.diffs.find((d) => d.id === item.id);
-  return diff2 ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(DiffView, { diff: diff2 }) : null;
+  return diff2 ? /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(DiffView, { diff: diff2 }) : null;
+}
+function releaseEntries(state, items) {
+  const out = [];
+  let run = [];
+  const flush = () => {
+    for (const block of groupCalls(run)) {
+      if (block.kind === "single") {
+        out.push({
+          key: `tool-${block.call.callId}`,
+          kind: "entry",
+          item: { kind: "tool", id: block.call.callId }
+        });
+        continue;
+      }
+      out.push({
+        key: `tools-${block.calls[0].callId}-${block.calls.length}`,
+        kind: "tools",
+        calls: block.calls
+      });
+    }
+    run = [];
+  };
+  for (const item of items) {
+    if (item.kind === "tool") {
+      const call = state.toolCalls.find((c) => c.callId === item.id);
+      if (call) {
+        run.push(call);
+        continue;
+      }
+    }
+    flush();
+    out.push({ key: `${item.kind}-${item.id}`, kind: "entry", item });
+  }
+  flush();
+  return out;
 }
 function App2({
   client,
@@ -35442,26 +35810,30 @@ function App2({
   onRestart
 }) {
   const { exit } = use_app_default();
-  const [state, dispatch] = (0, import_react31.useReducer)(reducer, initialState);
-  const [showHelp, setShowHelp] = (0, import_react31.useState)(false);
-  const [draft, setDraft] = (0, import_react31.useState)("");
-  const [expandedCall, setExpandedCall] = (0, import_react31.useState)(null);
-  const [queueFocused, setQueueFocused] = (0, import_react31.useState)(false);
-  const [modeHintVisible, setModeHintVisible] = (0, import_react31.useState)(true);
-  const [modeToast, setModeToast] = (0, import_react31.useState)(null);
-  const [runningCommand, setRunningCommand] = (0, import_react31.useState)(null);
-  const staticCursorRef = (0, import_react31.useRef)(0);
-  const [scrollOffset, setScrollOffset] = (0, import_react31.useState)(0);
-  const modeToastTimer = (0, import_react31.useRef)(null);
-  const registryRef = (0, import_react31.useRef)(new SlashRegistry(client, sessionId));
-  const [update, setUpdate] = (0, import_react31.useState)(initialUpdateState);
-  const [updateAvailable, setUpdateAvailable] = (0, import_react31.useState)(false);
-  const approvalResolver = (0, import_react31.useRef)(null);
-  const refreshApprovals = (0, import_react31.useCallback)(() => {
+  const [state, dispatch] = (0, import_react33.useReducer)(reducer, initialState);
+  const [showHelp, setShowHelp] = (0, import_react33.useState)(false);
+  const [draft, setDraft] = (0, import_react33.useState)("");
+  const [expandedCall, setExpandedCall] = (0, import_react33.useState)(null);
+  const [queueFocused, setQueueFocused] = (0, import_react33.useState)(false);
+  const [modeHintVisible, setModeHintVisible] = (0, import_react33.useState)(true);
+  const [modeToast, setModeToast] = (0, import_react33.useState)(null);
+  const [runningCommand, setRunningCommand] = (0, import_react33.useState)(null);
+  const staticCursorRef = (0, import_react33.useRef)(0);
+  const staticBlocksRef = (0, import_react33.useRef)([{ key: "logo", kind: "logo" }]);
+  const turnRef = (0, import_react33.useRef)(null);
+  const turnActiveRef = (0, import_react33.useRef)(false);
+  const turnCountRef = (0, import_react33.useRef)(0);
+  const [scrollOffset, setScrollOffset] = (0, import_react33.useState)(0);
+  const modeToastTimer = (0, import_react33.useRef)(null);
+  const registryRef = (0, import_react33.useRef)(new SlashRegistry(client, sessionId));
+  const [update, setUpdate] = (0, import_react33.useState)(initialUpdateState);
+  const [updateAvailable, setUpdateAvailable] = (0, import_react33.useState)(false);
+  const approvalResolver = (0, import_react33.useRef)(null);
+  const refreshApprovals = (0, import_react33.useCallback)(() => {
     void client.listApprovals(sessionId).then((result) => dispatch({ type: "approval/list", requests: result.requests ?? [] })).catch(() => {
     });
   }, [client, sessionId]);
-  (0, import_react31.useEffect)(() => {
+  (0, import_react33.useEffect)(() => {
     dispatch({ type: "session/ready", sessionId, mode, provider, model });
     dispatch({ type: "status", status: client.getStatus() });
     client.setListeners({
@@ -35475,8 +35847,8 @@ function App2({
         void registryRef.current.refresh().then((commands) => dispatch({ type: "commands", commands })).catch(() => {
         });
       },
-      onUpdateProgress: ({ phase, message }) => setUpdate((current) => {
-        const next = phase ?? "started";
+      onUpdateProgress: ({ phase: phase2, message }) => setUpdate((current) => {
+        const next = phase2 ?? "started";
         return progress(current, next, message ?? "");
       }),
       onApprovalResolved: ({ requestId }) => {
@@ -35498,7 +35870,7 @@ function App2({
     }).catch(() => {
     });
   }, [client, sessionId, mode, provider, model, refreshApprovals]);
-  (0, import_react31.useEffect)(() => {
+  (0, import_react33.useEffect)(() => {
     if (update.phase !== "done") return;
     let cancelled = false;
     const timer = setTimeout(() => {
@@ -35514,25 +35886,25 @@ function App2({
       clearTimeout(timer);
     };
   }, [update.phase, client, onRestart, exit]);
-  (0, import_react31.useEffect)(() => {
+  (0, import_react33.useEffect)(() => {
     if (state.approvalQueue.length === 0) return;
     const timer = setInterval(refreshApprovals, APPROVAL_POLL_MS);
     return () => clearInterval(timer);
   }, [state.approvalQueue.length, refreshApprovals]);
-  (0, import_react31.useEffect)(() => {
+  (0, import_react33.useEffect)(() => {
     if (!state.turnActive) setRunningCommand(null);
   }, [state.turnActive]);
-  (0, import_react31.useEffect)(() => {
+  (0, import_react33.useEffect)(() => {
     if (state.approvalQueue.length === 0 && queueFocused) setQueueFocused(false);
   }, [state.approvalQueue.length, queueFocused]);
-  (0, import_react31.useEffect)(() => {
+  (0, import_react33.useEffect)(() => {
     const timer = setTimeout(() => setModeHintVisible(false), 6e3);
     return () => clearTimeout(timer);
   }, []);
-  (0, import_react31.useEffect)(() => () => {
+  (0, import_react33.useEffect)(() => () => {
     if (modeToastTimer.current) clearTimeout(modeToastTimer.current);
   }, []);
-  const changeMode = (0, import_react31.useCallback)(
+  const changeMode = (0, import_react33.useCallback)(
     (next) => {
       setModeHintVisible(false);
       dispatch({ type: "mode", mode: next });
@@ -35543,7 +35915,7 @@ function App2({
     },
     [client, sessionId]
   );
-  const completions = (0, import_react31.useMemo)(
+  const completions = (0, import_react33.useMemo)(
     () => draft.startsWith("/") ? registryRef.current.complete(draft) : [],
     [draft, state.commands]
   );
@@ -35552,7 +35924,7 @@ function App2({
   const daemon = useDaemonInfo(client);
   const sessionElapsedMs = useElapsed();
   const version = update.current || TUI_VERSION;
-  const hudSegments = (0, import_react31.useMemo)(
+  const hudSegments = (0, import_react33.useMemo)(
     () => buildHudSegments({
       status: state.status,
       version,
@@ -35593,10 +35965,58 @@ function App2({
       modeHintVisible
     ]
   );
-  const hudRows = (0, import_react31.useMemo)(
+  const hudRows = (0, import_react33.useMemo)(
     () => layoutHud(hudSegments, contentWidth),
     [hudSegments, contentWidth]
   );
+  const released = settledCount(state, staticCursorRef.current);
+  if (released > staticCursorRef.current) {
+    staticBlocksRef.current = staticBlocksRef.current.concat(
+      releaseEntries(state, state.timeline.slice(staticCursorRef.current, released))
+    );
+    staticCursorRef.current = released;
+  }
+  const now = Date.now();
+  if (state.turnActive && !turnActiveRef.current) {
+    turnRef.current = {
+      startedAt: now,
+      inputTokens: state.usage.inputTokens,
+      outputTokens: state.usage.outputTokens,
+      errors: state.errors.length,
+      prompt: lastUserPrompt(state)
+    };
+  }
+  if (!state.turnActive && turnActiveRef.current && turnRef.current) {
+    const turn2 = turnRef.current;
+    turnCountRef.current += 1;
+    staticBlocksRef.current = staticBlocksRef.current.concat({
+      key: `turn-${turnCountRef.current}`,
+      kind: "note",
+      ok: state.errors.length === turn2.errors,
+      text: turnSummaryLine({
+        ok: state.errors.length === turn2.errors,
+        elapsedMs: now - turn2.startedAt,
+        inputTokens: state.usage.inputTokens - turn2.inputTokens,
+        outputTokens: state.usage.outputTokens - turn2.outputTokens
+      })
+    });
+    turnRef.current = null;
+  }
+  turnActiveRef.current = state.turnActive;
+  const staticCursor = staticCursorRef.current;
+  const staticItems = staticBlocksRef.current;
+  const phase = derivePhase(state, { runningCommand });
+  const spinnerFrame = useSpinner(phase.kind !== "idle" && phase.kind !== "approval");
+  const turn = turnRef.current;
+  const workingText = workingLine({
+    phase,
+    elapsedMs: turn ? now - turn.startedAt : 0,
+    inputTokens: turn ? state.usage.inputTokens - turn.inputTokens : 0,
+    outputTokens: turn ? state.usage.outputTokens - turn.outputTokens : 0,
+    frame: spinnerFrame,
+    prompt: turn?.prompt ?? lastUserPrompt(state),
+    verbOffset: state.messages.length
+  });
   const layout = computeLayout({
     // One row short of the terminal on purpose; see `RESERVED_FRAME_ROW`.
     rows: usableRows(terminal.rows),
@@ -35610,31 +36030,32 @@ function App2({
       approvalArgs: state.pendingApproval ? Object.keys(state.pendingApproval.args ?? {}).length : null,
       queueRequests: state.approvalQueue.length,
       queueFocused,
-      errorVisible: state.errors.length > 0
+      errorVisible: state.errors.length > 0,
+      workingVisible: workingText !== null
     })
   });
-  const lines = (0, import_react31.useMemo)(
+  const lines = (0, import_react33.useMemo)(
     () => fullscreen ? transcriptLines(state, contentWidth, { expandedCall }) : [],
     [fullscreen, state, contentWidth, expandedCall]
   );
-  const viewport = (0, import_react31.useMemo)(
+  const viewport = (0, import_react33.useMemo)(
     () => sliceViewport(lines, layout.transcriptRows, scrollOffset),
     [lines, layout.transcriptRows, scrollOffset]
   );
-  const previousLineCount = (0, import_react31.useRef)(0);
-  (0, import_react31.useEffect)(() => {
+  const previousLineCount = (0, import_react33.useRef)(0);
+  (0, import_react33.useEffect)(() => {
     const grown = lines.length - previousLineCount.current;
     previousLineCount.current = lines.length;
     if (grown > 0) setScrollOffset((offset) => offset > 0 ? offset + grown : 0);
   }, [lines.length]);
-  (0, import_react31.useEffect)(() => {
+  (0, import_react33.useEffect)(() => {
     setScrollOffset((offset) => clampScroll(offset, lines.length, layout.transcriptRows));
   }, [layout.transcriptRows, lines.length]);
-  const scrollBy = (0, import_react31.useCallback)(
+  const scrollBy = (0, import_react33.useCallback)(
     (delta) => setScrollOffset((offset) => clampScroll(offset + delta, lines.length, layout.transcriptRows)),
     [lines.length, layout.transcriptRows]
   );
-  const submit = (0, import_react31.useCallback)(
+  const submit = (0, import_react33.useCallback)(
     (text) => {
       if (/^\/update\s*$/.test(text.trim())) {
         setUpdate(confirm);
@@ -35659,7 +36080,7 @@ function App2({
     },
     [client, sessionId]
   );
-  const answerUpdate = (0, import_react31.useCallback)(
+  const answerUpdate = (0, import_react33.useCallback)(
     (accepted) => {
       if (!accepted) {
         setUpdate(cancel);
@@ -35678,7 +36099,7 @@ function App2({
     },
     [client]
   );
-  const decideApproval = (0, import_react31.useCallback)(
+  const decideApproval = (0, import_react33.useCallback)(
     (decision, scope) => {
       const resolve = approvalResolver.current;
       const requestId = state.pendingApproval?.requestId;
@@ -35688,7 +36109,7 @@ function App2({
     },
     [state.pendingApproval]
   );
-  const respondQueued = (0, import_react31.useCallback)(
+  const respondQueued = (0, import_react33.useCallback)(
     (requestId, decision, scope) => {
       dispatch({ type: "approval/resolved", requestId });
       void client.respondApproval(requestId, decision, scope).catch((error) => dispatch({ type: "error", message: String(error) }));
@@ -35750,9 +36171,10 @@ function App2({
     }
   });
   const approvalActive = state.pendingApproval !== null;
-  const bottomNode = /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(import_jsx_runtime15.Fragment, { children: [
-    state.errors.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { color: "red", wrap: "truncate-end", children: state.errors[state.errors.length - 1] }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
+  const bottomNode = /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(import_jsx_runtime17.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(WorkingIndicator, { line: workingText }),
+    state.errors.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(Text, { color: "red", wrap: "truncate-end", children: state.errors[state.errors.length - 1] }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
       ApprovalQueue,
       {
         requests: state.approvalQueue,
@@ -35761,7 +36183,7 @@ function App2({
         onBlur: () => setQueueFocused(false)
       }
     ),
-    state.pendingApproval ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(ApprovalPrompt, { request: state.pendingApproval, onDecide: decideApproval }) : /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
+    state.pendingApproval ? /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(ApprovalPrompt, { request: state.pendingApproval, onDecide: decideApproval }) : /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
       Chat,
       {
         onSubmit: submit,
@@ -35773,17 +36195,8 @@ function App2({
       }
     )
   ] });
-  const statusNode = /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(StatusHud, { rows: hudRows, width: contentWidth });
-  staticCursorRef.current = settledCount(state, staticCursorRef.current);
-  const staticCursor = staticCursorRef.current;
-  const staticItems = (0, import_react31.useMemo)(() => {
-    const items = [{ key: "logo", kind: "logo" }];
-    for (const item of state.timeline.slice(0, staticCursor)) {
-      items.push({ key: `${item.kind}-${item.id}`, kind: "entry", item });
-    }
-    return items;
-  }, [state.timeline, staticCursor]);
-  const helpNode = showHelp ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
+  const statusNode = /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(StatusHud, { rows: hudRows, width: contentWidth });
+  const helpNode = showHelp ? /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
     HelpPanel,
     {
       commands: state.commands,
@@ -35791,7 +36204,7 @@ function App2({
     }
   ) : null;
   if (fullscreen) {
-    return /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
+    return /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
       FullscreenLayout,
       {
         rows: layout.rows,
@@ -35809,9 +36222,9 @@ function App2({
     );
   }
   const live = state.timeline.slice(staticCursor);
-  return /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(Box_default, { flexDirection: "column", paddingX: 1, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Static, { items: staticItems, children: (entry) => entry.kind === "logo" ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Box_default, { flexDirection: "column", marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Logo, { terminalRows: terminal.rows, version, width: contentWidth }) }, "logo") : /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Box_default, { flexDirection: "column", children: /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(TimelineEntry, { state, item: entry.item, expandedCall }) }, entry.key) }),
-    live.map((item) => /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(Box_default, { flexDirection: "column", paddingX: 1, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(Static, { items: staticItems, children: (entry) => /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(Box_default, { flexDirection: "column", marginBottom: entry.kind === "logo" ? 1 : 0, children: entry.kind === "logo" ? /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(Logo, { terminalRows: terminal.rows, version, width: contentWidth }) : entry.kind === "tools" ? /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(ToolSummary, { calls: entry.calls }) : entry.kind === "note" ? /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(Text, { color: entry.ok ? "green" : "red", dimColor: true, children: entry.text }) }) : /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(TimelineEntry, { state, item: entry.item, expandedCall }) }, entry.key) }),
+    live.map((item) => /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
       TimelineEntry,
       {
         state,
@@ -35820,8 +36233,8 @@ function App2({
       },
       `${item.kind}-${item.id}`
     )),
-    /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(SubagentTree, { subagents: state.subagents }),
-    /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(UpdateBanner, { update }),
+    /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(SubagentTree, { subagents: state.subagents }),
+    /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(UpdateBanner, { update }),
     helpNode,
     bottomNode,
     statusNode
@@ -36498,7 +36911,7 @@ var TuiClient = class {
 };
 
 // src/index.tsx
-var import_jsx_runtime16 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime18 = __toESM(require_jsx_runtime(), 1);
 var CLIENT_VERSION = TUI_VERSION;
 var MODES = ["plan", "accept", "auto"];
 var BOOLEAN_FLAGS = /* @__PURE__ */ new Set(["fullscreen", "no-fullscreen", "inline"]);
@@ -36585,7 +36998,7 @@ async function main(argv = process.argv.slice(2)) {
   const stdout = args.fullscreen ? frameStdout(process.stdout, createFrameWriter(process.stdout)) : process.stdout;
   let restart = false;
   const instance = render_default(
-    /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(
       App2,
       {
         client,

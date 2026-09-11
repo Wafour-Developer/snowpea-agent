@@ -13,7 +13,12 @@ import { describe, expect, it } from "vitest";
 
 import { App } from "../src/app.js";
 import type { SessionEvent } from "../src/rpc/sdk.js";
+import { SPINNER_FRAMES } from "../src/state/working.js";
 import { countOf, fakeStdin, fakeStdout, sleep, type } from "./tty.js";
+
+/** True when a chunk carries any spinner frame. */
+const hasSpinner = (text: string): boolean =>
+  SPINNER_FRAMES.some((glyph) => text.includes(glyph));
 
 /** The few `TuiClient` methods `App` reaches for, and a hook to push events. */
 function fakeClient() {
@@ -104,5 +109,73 @@ describe("inline layout", () => {
     // The old header put the product name and the path on one line above the
     // transcript; nothing like it is drawn any more.
     expect(output).not.toContain("snowpea · /tmp/project");
+  });
+
+  it("works, then leaves a result line in the scrollback", async () => {
+    const client = fakeClient();
+    const stdin = fakeStdin();
+    const stdout = fakeStdout(100, 20);
+
+    const instance = render(
+      <App client={client as any} sessionId="sess-1" mode="accept" workdir="/tmp/project" />,
+      { stdin, stdout: stdout.stream, exitOnCtrlC: false, patchConsole: false },
+    );
+
+    await sleep(120);
+    await type(stdin, "hi");
+    stdin.write("\r");
+    await sleep(300);
+
+    // The turn is running: the indicator is up, with a spinner and a clock.
+    const during = stdout.text();
+    expect(hasSpinner(during)).toBe(true);
+    expect(during).toMatch(/…\s\(\d+s · ↓ /);
+
+    client.emit(event(1, "usage", { outputTokens: 3700 }));
+    client.emit(event(2, "message.done", { text: "ANSWERED", role: "assistant" }));
+    client.emit(event(3, "turn.done", {}));
+    await sleep(200);
+
+    const output = stdout.text();
+    const lastFrame = stdout.chunks[stdout.chunks.length - 1];
+    instance.unmount();
+
+    expect(output).toContain("✓ Done in");
+    expect(output).toContain("↓ 3.7k tokens");
+    // Once the turn is over the indicator is gone from the live region.
+    expect(hasSpinner(lastFrame)).toBe(false);
+  });
+
+  it("folds a run of tool calls into one line of scrollback", async () => {
+    const client = fakeClient();
+    const stdin = fakeStdin();
+    const stdout = fakeStdout(100, 20);
+
+    const instance = render(
+      <App client={client as any} sessionId="sess-1" mode="accept" workdir="/tmp/project" />,
+      { stdin, stdout: stdout.stream, exitOnCtrlC: false, patchConsole: false },
+    );
+
+    await sleep(120);
+    await type(stdin, "go");
+    stdin.write("\r");
+    await sleep(200);
+
+    client.emit(event(1, "tool.call", { callId: "c1", name: "shell", args: { command: "ls" } }));
+    client.emit(event(2, "tool.result", { callId: "c1", ok: true, output: "a\nb" }));
+    client.emit(event(3, "tool.call", { callId: "c2", name: "shell", args: { command: "pwd" } }));
+    client.emit(event(4, "tool.result", { callId: "c2", ok: true, output: "/tmp" }));
+    await sleep(120);
+    client.emit(event(5, "message.done", { text: "ALL-DONE", role: "assistant" }));
+    client.emit(event(6, "turn.done", {}));
+    await sleep(200);
+
+    const output = stdout.text();
+    instance.unmount();
+
+    // One line for the pair, carrying the output it stands in for, written once.
+    expect(countOf(output, "Ran 2 shell commands")).toBe(1);
+    expect(output).toContain("Ran 2 shell commands (3 lines)");
+    expect(countOf(output, "ALL-DONE")).toBe(1);
   });
 });

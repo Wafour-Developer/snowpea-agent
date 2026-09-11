@@ -163,6 +163,7 @@ export function bottomRows({
   queueRequests = 0,
   queueFocused = false,
   errorVisible = false,
+  workingVisible = false,
 }: {
   paletteCommands?: number;
   /** Number of argument lines on the interactive prompt, or null when absent. */
@@ -170,10 +171,17 @@ export function bottomRows({
   queueRequests?: number;
   queueFocused?: boolean;
   errorVisible?: boolean;
+  /** The working indicator, drawn just above the input while a turn runs. */
+  workingVisible?: boolean;
 } = {}): number {
   const input =
     approvalArgs === null ? 1 + paletteRows(paletteCommands) : approvalPromptRows(approvalArgs);
-  return input + approvalQueueRows(queueRequests, queueFocused) + (errorVisible ? 1 : 0);
+  return (
+    input +
+    approvalQueueRows(queueRequests, queueFocused) +
+    (errorVisible ? 1 : 0) +
+    (workingVisible ? 1 : 0)
+  );
 }
 
 /** `▲ 42 more` / `▼ 7 more` — the scroll indicator shown in the header rule. */

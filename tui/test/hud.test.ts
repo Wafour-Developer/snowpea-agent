@@ -113,9 +113,11 @@ describe("buildHudSegments", () => {
         (s) => s.key === "command",
       )?.text,
     ).toBe("▶ /ralph");
+    // The indicator above the input says the turn is running; the HUD only
+    // adds how to stop it.
     expect(
       buildHudSegments({ ...base, turnActive: true }).find((s) => s.key === "command")?.text,
-    ).toBe("working (esc to interrupt)");
+    ).toBe("esc to interrupt");
   });
 
   it("falls back to the elapsed time alone before the session id is known", () => {

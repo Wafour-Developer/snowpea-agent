@@ -194,15 +194,13 @@ export function buildHudSegments(input: HudInput): HudSegment[] {
     });
   }
 
-  if (input.runningCommand || input.turnActive) {
-    segments.push({
-      key: "command",
-      text: input.runningCommand
-        ? `▶ ${input.runningCommand}`
-        : "working (esc to interrupt)",
-      color: "yellow",
-      priority: 2,
-    });
+  // The working indicator above the input already says *that* the turn is
+  // running and for how long, so the HUD only adds what it does not: the name
+  // of the command that owns the turn, and how to stop it.
+  if (input.runningCommand) {
+    segments.push({ key: "command", text: `▶ ${input.runningCommand}`, color: "yellow", priority: 2 });
+  } else if (input.turnActive) {
+    segments.push({ key: "command", text: "esc to interrupt", dimColor: true, priority: 3 });
   }
 
   segments.push({

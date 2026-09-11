@@ -11,9 +11,10 @@
  *   - entries may only be released in timeline order, so one streaming message
  *     holds back everything after it rather than letting later entries jump the
  *     queue, and
- *   - a tool call that is still the newest entry is held back even when it has
- *     a result, because Ctrl+O expands the last call and an entry already in
- *     the scrollback can no longer change.
+ *   - a run of tool calls at the end of the timeline is held back while the turn
+ *     is still going, both because Ctrl+O expands the last call and because the
+ *     run reaches the scrollback as one summary line, which can only be written
+ *     once the run is known to be over.
  *
  * Pure, so `test/statics.test.ts` can check the cursor without a terminal.
  */
@@ -42,13 +43,16 @@ export function isSettled(state: State, item: TimelineItem): boolean {
  */
 export function settledCount(state: State, cursor = 0): number {
   const total = state.timeline.length;
-  let count = Math.max(0, Math.min(Math.floor(cursor), total));
-  while (count < total) {
-    const item = state.timeline[count];
-    const isLast = count === total - 1;
-    if (isLast && item.kind === "tool") break;
-    if (!isSettled(state, item)) break;
-    count += 1;
+  const start = Math.max(0, Math.min(Math.floor(cursor), total));
+  let count = start;
+  while (count < total && isSettled(state, state.timeline[count])) count += 1;
+
+  // A tool run that ends the released range is not finished being a run: while
+  // the turn is live, more calls can still join it, and releasing it now would
+  // split one summary line into several. Only a non-tool entry after the run —
+  // or the end of the turn — proves it is over.
+  if (state.turnActive) {
+    while (count > start && state.timeline[count - 1].kind === "tool") count -= 1;
   }
   return count;
 }

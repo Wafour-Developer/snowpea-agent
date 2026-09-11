@@ -36,11 +36,24 @@ import {
   progress as updateProgress,
   type UpdateState,
 } from "./state/update.js";
-import { initialState, reducer, type State, type TimelineItem } from "./state/store.js";
+import {
+  initialState,
+  reducer,
+  type State,
+  type TimelineItem,
+  type ToolCallEntry,
+} from "./state/store.js";
+import {
+  derivePhase,
+  lastUserPrompt,
+  turnSummaryLine,
+  workingLine,
+} from "./state/working.js";
 import { cycleMode } from "./state/mode.js";
 import { useTerminalSize } from "./hooks/useTerminalSize.js";
 import { useDaemonInfo } from "./hooks/useDaemonInfo.js";
 import { useElapsed } from "./hooks/useElapsed.js";
+import { useSpinner } from "./hooks/useSpinner.js";
 import { TUI_VERSION } from "./version.js";
 import { transcriptLines } from "./layout/transcript.js";
 import {
@@ -56,6 +69,7 @@ import {
 } from "./layout/viewport.js";
 import { buildHudSegments, layoutHud } from "./layout/hud.js";
 import { settledCount } from "./layout/statics.js";
+import { groupCalls } from "./layout/summary.js";
 import { FullscreenLayout } from "./components/FullscreenLayout.js";
 import { Chat } from "./components/Chat.js";
 import { MessageView } from "./components/MessageStream.js";
@@ -64,6 +78,8 @@ import { DiffView } from "./components/DiffView.js";
 import { ApprovalPrompt } from "./components/ApprovalPrompt.js";
 import { ApprovalQueue } from "./components/ApprovalQueue.js";
 import { StatusHud } from "./components/StatusHud.js";
+import { ToolSummary } from "./components/ToolSummary.js";
+import { WorkingIndicator } from "./components/WorkingIndicator.js";
 import { Logo, logoRows } from "./components/Logo.js";
 import { HelpPanel } from "./components/HelpPanel.js";
 import { SubagentTree } from "./components/SubagentTree.js";
@@ -127,7 +143,55 @@ function TimelineEntry({
  */
 type StaticEntry =
   | { key: "logo"; kind: "logo" }
-  | { key: string; kind: "entry"; item: TimelineItem };
+  | { key: string; kind: "entry"; item: TimelineItem }
+  /** A run of successful tool calls, folded into one line. */
+  | { key: string; kind: "tools"; calls: ToolCallEntry[] }
+  /** The `✓ Done in 12s` line a finished turn leaves behind. */
+  | { key: string; kind: "note"; text: string; ok: boolean };
+
+/**
+ * Turn a slice of settled timeline entries into what the scrollback shows.
+ *
+ * Consecutive successful tool calls fold into one summary line; a failed call
+ * breaks the run and keeps its own card, so a failure is never summarised away.
+ */
+function releaseEntries(state: State, items: TimelineItem[]): StaticEntry[] {
+  const out: StaticEntry[] = [];
+  let run: ToolCallEntry[] = [];
+
+  const flush = (): void => {
+    for (const block of groupCalls(run)) {
+      if (block.kind === "single") {
+        out.push({
+          key: `tool-${block.call.callId}`,
+          kind: "entry",
+          item: { kind: "tool", id: block.call.callId },
+        });
+        continue;
+      }
+      out.push({
+        key: `tools-${block.calls[0].callId}-${block.calls.length}`,
+        kind: "tools",
+        calls: block.calls,
+      });
+    }
+    run = [];
+  };
+
+  for (const item of items) {
+    if (item.kind === "tool") {
+      const call = state.toolCalls.find((c) => c.callId === item.id);
+      if (call) {
+        run.push(call);
+        continue;
+      }
+    }
+    flush();
+    out.push({ key: `${item.kind}-${item.id}`, kind: "entry", item });
+  }
+  flush();
+  return out;
+}
 
 export function App({
   client,
@@ -162,6 +226,22 @@ export function App({
    * `settledCount` is monotonic, so recomputing it mid-render is stable.
    */
   const staticCursorRef = useRef(0);
+  /** Everything already written to the scrollback, in the order it went there. */
+  const staticBlocksRef = useRef<StaticEntry[]>([{ key: "logo", kind: "logo" }]);
+  /**
+   * The turn in flight: when it started and what the session had spent by then,
+   * so the indicator can report this turn rather than the whole session.
+   */
+  const turnRef = useRef<{
+    startedAt: number;
+    inputTokens: number;
+    outputTokens: number;
+    errors: number;
+    prompt: string | null;
+  } | null>(null);
+  const turnActiveRef = useRef(false);
+  /** Bumped per finished turn so each summary line gets its own Static key. */
+  const turnCountRef = useRef(0);
   /**
    * Lines the transcript is scrolled back from its newest line. 0 follows the
    * stream; PgUp / Ctrl+U walk it upwards. Full-screen only — inline rendering
@@ -377,6 +457,66 @@ export function App({
     [hudSegments, contentWidth],
   );
 
+  // --- what has reached the scrollback --------------------------------------
+  // Appended during render, not from an effect: an effect would draw the
+  // just-finished entry once in the live region and move it to `<Static>` on
+  // the next pass, writing it to the terminal twice. Every step below is
+  // monotonic, so running it again for the same state changes nothing.
+  const released = settledCount(state, staticCursorRef.current);
+  if (released > staticCursorRef.current) {
+    staticBlocksRef.current = staticBlocksRef.current.concat(
+      releaseEntries(state, state.timeline.slice(staticCursorRef.current, released)),
+    );
+    staticCursorRef.current = released;
+  }
+
+  // A turn beginning or ending is also scrollback bookkeeping: the indicator
+  // measures from the start, and the end leaves one line behind.
+  const now = Date.now();
+  if (state.turnActive && !turnActiveRef.current) {
+    turnRef.current = {
+      startedAt: now,
+      inputTokens: state.usage.inputTokens,
+      outputTokens: state.usage.outputTokens,
+      errors: state.errors.length,
+      prompt: lastUserPrompt(state),
+    };
+  }
+  if (!state.turnActive && turnActiveRef.current && turnRef.current) {
+    const turn = turnRef.current;
+    turnCountRef.current += 1;
+    staticBlocksRef.current = staticBlocksRef.current.concat({
+      key: `turn-${turnCountRef.current}`,
+      kind: "note",
+      ok: state.errors.length === turn.errors,
+      text: turnSummaryLine({
+        ok: state.errors.length === turn.errors,
+        elapsedMs: now - turn.startedAt,
+        inputTokens: state.usage.inputTokens - turn.inputTokens,
+        outputTokens: state.usage.outputTokens - turn.outputTokens,
+      }),
+    });
+    turnRef.current = null;
+  }
+  turnActiveRef.current = state.turnActive;
+
+  const staticCursor = staticCursorRef.current;
+  const staticItems = staticBlocksRef.current;
+
+  // --- the working indicator -------------------------------------------------
+  const phase = derivePhase(state, { runningCommand });
+  const spinnerFrame = useSpinner(phase.kind !== "idle" && phase.kind !== "approval");
+  const turn = turnRef.current;
+  const workingText = workingLine({
+    phase,
+    elapsedMs: turn ? now - turn.startedAt : 0,
+    inputTokens: turn ? state.usage.inputTokens - turn.inputTokens : 0,
+    outputTokens: turn ? state.usage.outputTokens - turn.outputTokens : 0,
+    frame: spinnerFrame,
+    prompt: turn?.prompt ?? lastUserPrompt(state),
+    verbOffset: state.messages.length,
+  });
+
   const layout = computeLayout({
     // One row short of the terminal on purpose; see `RESERVED_FRAME_ROW`.
     rows: usableRows(terminal.rows),
@@ -393,6 +533,7 @@ export function App({
       queueRequests: state.approvalQueue.length,
       queueFocused,
       errorVisible: state.errors.length > 0,
+      workingVisible: workingText !== null,
     }),
   });
   const lines = useMemo(
@@ -570,9 +711,11 @@ export function App({
 
   const approvalActive = state.pendingApproval !== null;
 
-  /** Input block: the error row, the backlog, and the chat line or prompt. */
+  /** Input block: the working line, the error row, the backlog, and the input. */
   const bottomNode = (
     <>
+      <WorkingIndicator line={workingText} />
+
       {state.errors.length > 0 ? (
         <Text color="red" wrap="truncate-end">
           {state.errors[state.errors.length - 1]}
@@ -605,18 +748,6 @@ export function App({
   // status block.
   const statusNode = <StatusHud rows={hudRows} width={contentWidth} />;
 
-  // Release finished entries into the scrollback as soon as they settle.
-  staticCursorRef.current = settledCount(state, staticCursorRef.current);
-  const staticCursor = staticCursorRef.current;
-
-  /** The logo, then every entry that has settled, in order. */
-  const staticItems = useMemo<StaticEntry[]>(() => {
-    const items: StaticEntry[] = [{ key: "logo", kind: "logo" }];
-    for (const item of state.timeline.slice(0, staticCursor)) {
-      items.push({ key: `${item.kind}-${item.id}`, kind: "entry", item });
-    }
-    return items;
-  }, [state.timeline, staticCursor]);
 
   const helpNode = showHelp ? (
     <HelpPanel
@@ -651,17 +782,23 @@ export function App({
   return (
     <Box flexDirection="column" paddingX={1}>
       <Static items={staticItems}>
-        {(entry) =>
-          entry.kind === "logo" ? (
-            <Box key="logo" flexDirection="column" marginBottom={1}>
+        {(entry) => (
+          <Box key={entry.key} flexDirection="column" marginBottom={entry.kind === "logo" ? 1 : 0}>
+            {entry.kind === "logo" ? (
               <Logo terminalRows={terminal.rows} version={version} width={contentWidth} />
-            </Box>
-          ) : (
-            <Box key={entry.key} flexDirection="column">
+            ) : entry.kind === "tools" ? (
+              <ToolSummary calls={entry.calls} />
+            ) : entry.kind === "note" ? (
+              <Box marginBottom={1}>
+                <Text color={entry.ok ? "green" : "red"} dimColor>
+                  {entry.text}
+                </Text>
+              </Box>
+            ) : (
               <TimelineEntry state={state} item={entry.item} expandedCall={expandedCall} />
-            </Box>
-          )
-        }
+            )}
+          </Box>
+        )}
       </Static>
 
       {live.map((item) => (

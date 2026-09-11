@@ -53,6 +53,30 @@ describe("settledCount", () => {
     expect(settledCount(state)).toBe(1);
   });
 
+  it("waits for the whole run: a second call joins the first", () => {
+    const state = apply(
+      ask(initialState, "hello"),
+      event(1, "tool.call", { callId: "c1", name: "shell", args: {} }),
+      event(2, "tool.result", { callId: "c1", ok: true, output: "a" }),
+      event(3, "tool.call", { callId: "c2", name: "shell", args: {} }),
+    );
+    // c1 is settled, but c2 may still be joined by more calls in the same run.
+    expect(settledCount(state)).toBe(1);
+  });
+
+  it("releases the whole run once the turn is over", () => {
+    const state = apply(
+      ask(initialState, "hello"),
+      event(1, "tool.call", { callId: "c1", name: "shell", args: {} }),
+      event(2, "tool.result", { callId: "c1", ok: true, output: "a" }),
+      event(3, "tool.call", { callId: "c2", name: "shell", args: {} }),
+      event(4, "tool.result", { callId: "c2", ok: true, output: "b" }),
+      event(5, "turn.done", {}),
+    );
+    expect(state.turnActive).toBe(false);
+    expect(settledCount(state)).toBe(3);
+  });
+
   it("releases a finished tool call once something newer follows it", () => {
     const state = apply(
       ask(initialState, "hello"),
