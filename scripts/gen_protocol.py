@@ -564,7 +564,9 @@ def md_rows(schema: dict[str, Any], root: dict[str, Any]) -> list[str]:
     rows = []
     for name in sorted(props):
         sub = props[name]
-        rendered = ts_type(sub, root)
+        # Inline object types carry JSDoc comments, which are unreadable inside
+        # a one-line table cell; the description column says it instead.
+        rendered = re.sub(r"/\*\*.*?\*/", "", ts_type(sub, root), flags=re.S)
         rendered = " ".join(rendered.split())
         doc = ""
         if isinstance(sub, dict):

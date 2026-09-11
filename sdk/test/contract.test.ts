@@ -24,7 +24,6 @@ import {
   prompt,
   SDK_VERSION,
   type Client,
-  RpcError,
 } from "../src/index.js";
 import type { SessionEventPayload } from "../src/protocol.js";
 
@@ -171,22 +170,6 @@ class EventLog {
   }
 }
 
-/** True when the daemon answered with `error{code:"not_implemented"}`. */
-function isNotImplemented(err: unknown): boolean {
-  return err instanceof RpcError && err.is("not_implemented");
-}
-
-function skipNotImplemented(ctx: Mocha.Context, what: string, err: unknown): never {
-  if (isNotImplemented(err)) {
-    console.log(
-      `SKIP: ${what} — the daemon answered error{code:"not_implemented"}. ` +
-        `This test is written to the M1 contract and will run once the agent loop (US-005) lands.`,
-    );
-    ctx.skip();
-  }
-  throw err;
-}
-
 describe("base contract (AC-15a)", function () {
   this.timeout(90_000);
 
@@ -218,10 +201,9 @@ describe("base contract (AC-15a)", function () {
   });
 
   it("base: session.prompt streams message.delta and then turn.done", async function () {
-    let log: EventLog | undefined;
+    const { sessionId } = await createSession(client!, { workdir: daemon!.home, mode: "accept" });
+    const log = new EventLog(client!, sessionId);
     try {
-      const { sessionId } = await createSession(client!, { workdir: daemon!.home, mode: "accept" });
-      log = new EventLog(client!, sessionId);
       const { turnId } = await prompt(client!, sessionId, "hello");
       assert.equal(typeof turnId, "string");
 
@@ -236,40 +218,33 @@ describe("base contract (AC-15a)", function () {
       const deltaIndex = log.kinds().indexOf("message.delta");
       const doneIndex = log.kinds().indexOf("turn.done");
       assert.ok(deltaIndex < doneIndex, "message.delta must precede turn.done");
-    } catch (err) {
-      skipNotImplemented(this, "session.prompt streaming", err);
     } finally {
-      log?.stop();
+      log.stop();
     }
   });
 
   it("base: a denied approval ends the turn with reason 'denied'", async function () {
-    let log: EventLog | undefined;
-    let disposeHandler: (() => void) | undefined;
+    const { sessionId } = await createSession(client!, { workdir: daemon!.home, mode: "accept" });
+    const log = new EventLog(client!, sessionId);
     let sawRequest = false;
 
+    const disposeHandler = onApprovalRequest(client!, async (params) => {
+      sawRequest = true;
+      assert.equal(params.sessionId, sessionId, "approval must be scoped to the prompting session");
+      assert.equal(params.tool, "shell", "the fake script calls the shell tool");
+      assert.equal(typeof params.requestId, "string");
+      return { decision: "deny", scope: "once" };
+    });
+
     try {
-      const { sessionId } = await createSession(client!, { workdir: daemon!.home, mode: "accept" });
-      log = new EventLog(client!, sessionId);
-
-      disposeHandler = onApprovalRequest(client!, async (params) => {
-        sawRequest = true;
-        assert.equal(params.sessionId, sessionId, "approval must be scoped to the prompting session");
-        assert.equal(params.tool, "shell", "the fake script calls the shell tool");
-        assert.equal(typeof params.requestId, "string");
-        return { decision: "deny", scope: "once" };
-      });
-
       await prompt(client!, sessionId, "run ls");
       const done = await log.waitFor("turn.done");
       assert.ok(sawRequest, "the daemon must ask the originating surface before running shell");
       const reason = (done.payload as { reason?: string }).reason;
       assert.equal(reason, "denied", `expected reason=denied, got ${String(reason)}`);
-    } catch (err) {
-      skipNotImplemented(this, "approval round-trip", err);
     } finally {
-      disposeHandler?.();
-      log?.stop();
+      disposeHandler();
+      log.stop();
     }
   });
 });
