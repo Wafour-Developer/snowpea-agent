@@ -102,12 +102,27 @@ def build_parser() -> argparse.ArgumentParser:
 # ---------------------------------------------------------------------------
 
 
-def resolve_tui_command() -> list[str]:
+def packaged_tui_bundle(package_root: Path | None = None) -> Path:
+    """Where the wheel carries the bundle (M8 contract §1, ``hatch_build.py``)."""
+    root = package_root or Path(snowpea_core.__file__).resolve().parent
+    return root / "tui" / "dist" / TUI_BUNDLE
+
+
+def repo_tui_bundle(repo_root: Path | None = None) -> Path:
+    """Where ``npm -w tui run build`` leaves it in a checkout."""
+    root = repo_root or Path(__file__).resolve().parents[3]
+    return root / "tui" / "dist" / TUI_BUNDLE
+
+
+def resolve_tui_command(
+    *, package_root: Path | None = None, repo_root: Path | None = None
+) -> list[str]:
     """Return the argv prefix that runs the TUI bundle.
 
     ``SNOWPEA_TUI_ENTRY`` wins; a ``.tsx`` entry runs through ``npx tsx``.  Then
     the packaged ``snowpea_core/tui/dist`` copy, then the repo checkout's
-    ``tui/dist`` (development installs).
+    ``tui/dist`` (development installs).  The two roots are arguments only so
+    that ``tests/test_installer.py`` can pin them; nothing passes them in.
     """
     override = os.environ.get("SNOWPEA_TUI_ENTRY")
     if override:
@@ -118,10 +133,10 @@ def resolve_tui_command() -> list[str]:
             return ["npx", "tsx", str(entry)]
         return ["node", str(entry)]
 
-    packaged = Path(snowpea_core.__file__).resolve().parent / "tui" / "dist" / TUI_BUNDLE
+    packaged = packaged_tui_bundle(package_root)
     if packaged.exists():
         return ["node", str(packaged)]
-    repo = Path(__file__).resolve().parents[3] / "tui" / "dist" / TUI_BUNDLE
+    repo = repo_tui_bundle(repo_root)
     if repo.exists():
         return ["node", str(repo)]
     raise TuiNotFound(

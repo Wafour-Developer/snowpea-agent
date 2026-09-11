@@ -1,6 +1,10 @@
 line-length = 100
 target-version = "py311"
 
+# Vendored upstream sources are verified byte-for-byte against hermes-agent by
+# scripts/verify_vendor_integrity.py; reformatting them would break that check.
+extend-exclude = ["core/snowpea_core/vendor/hermes"]
+
 [lint]
 select = ["E", "F", "I", "UP", "B"]
 

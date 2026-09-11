@@ -1,0 +1,179 @@
+# Release on a v* tag (M8 contract §4, plan §4 M8).
+#
+# Order matters: the TUI bundle is built first, because `uv build` refuses to
+# produce a wheel without it (hatch_build.py). The wheel, the sdist and
+# installer/install.sh are attached to the GitHub release unconditionally;
+# publishing to PyPI and npm happens only when the corresponding secret exists,
+# so a tag in a fork or before the accounts are set up still produces a usable
+# release instead of a red run.
+#
+# Before tagging v0.1.0, bump PROTOCOL_VERSION in
+# core/snowpea_core/server/protocol.py to 1.0.0 — that commit is the baseline
+# the freeze in plan §4.9 counts from. The check job below refuses to publish a
+# v1+ tag while PROTOCOL_VERSION is still 0.x.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "tag to build (workflow_dispatch only; no assets are published)"
+        required: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: build wheel and sdist
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: npm ci
+        run: npm ci
+
+      # The wheel carries this file as package data; without it the build fails.
+      - name: build the TUI bundle
+        run: npm -w tui run build
+
+      - name: build the SDK
+        run: npm -w sdk run build
+
+      - name: uv build
+        run: uv build
+
+      - name: the wheel really carries the TUI bundle
+        run: |
+          set -euo pipefail
+          wheel="$(ls dist/*.whl)"
+          unzip -l "$wheel" | grep -q 'snowpea_core/tui/dist/snowpea-tui.js'
+          echo "ok: $wheel bundles the TUI"
+
+      - name: read the version
+        id: version
+        run: |
+          version="$(uv run python -c 'import snowpea_core; print(snowpea_core.__version__)')"
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+          echo "building snowpea $version"
+
+      - name: the tag and the package version agree
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          test "$tag" = "${{ steps.version.outputs.version }}" || {
+            echo "tag $GITHUB_REF_NAME does not match snowpea_core.__version__=${{ steps.version.outputs.version }}" >&2
+            exit 1
+          }
+
+      - name: a v1+ tag needs a frozen protocol version
+        if: startsWith(github.ref, 'refs/tags/v1')
+        run: |
+          uv run python - <<'PY'
+          import sys
+          from snowpea_core.server.protocol import PROTOCOL_VERSION
+          if PROTOCOL_VERSION.split(".")[0] == "0":
+              sys.exit(f"PROTOCOL_VERSION is still {PROTOCOL_VERSION}; bump it to 1.0.0 (plan §4.9)")
+          PY
+
+      - name: smoke-test the built wheel in a clean environment
+        run: |
+          set -euo pipefail
+          export UV_TOOL_DIR="$RUNNER_TEMP/tools"
+          export UV_TOOL_BIN_DIR="$RUNNER_TEMP/bin"
+          uv tool install --force ./dist/*.whl
+          "$RUNNER_TEMP/bin/snowpea" --version
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/*
+
+  github-release:
+    name: github release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - name: attach the installers and the distributions
+        uses: softprops/action-gh-release@v2
+        with:
+          name: snowpea ${{ needs.build.outputs.version }}
+          generate_release_notes: true
+          files: |
+            dist/*.whl
+            dist/*.tar.gz
+            installer/install.sh
+            installer/install.ps1
+
+  pypi:
+    name: publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - uses: astral-sh/setup-uv@v3
+      - name: publish (skipped when PYPI_TOKEN is not set)
+        env:
+          PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
+        run: |
+          if [ -z "${PYPI_TOKEN:-}" ]; then
+            echo "PYPI_TOKEN is not set; skipping the PyPI publish"
+            exit 0
+          fi
+          uv publish --token "$PYPI_TOKEN" dist/*
+
+  npm:
+    name: publish @snowpea/sdk and @snowpea/tui
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      - run: npm -w sdk run build
+      - run: npm -w tui run build
+      - name: publish (skipped when NPM_TOKEN is not set)
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+            echo "NPM_TOKEN is not set; skipping the npm publish"
+            exit 0
+          fi
+          npm publish -w sdk --access public
+          npm publish -w tui --access public
+          # The installer shim publishes from installer/npm with the platform
+          # scripts copied in beside its package.json (see its bin/snowpea.js).
+          cp installer/install.sh installer/install.ps1 installer/npm/
+          npm publish --access public ./installer/npm

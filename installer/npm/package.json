@@ -1,0 +1,31 @@
+{
+  "name": "snowpea",
+  "version": "0.1.0",
+  "description": "npx entry point for snowpea — runs the platform installer, then execs the agent.",
+  "license": "MIT",
+  "type": "commonjs",
+  "bin": {
+    "snowpea": "bin/snowpea.js"
+  },
+  "files": [
+    "bin",
+    "install.sh",
+    "install.ps1",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Wafour-Developer/snowpea-agent.git",
+    "directory": "installer/npm"
+  },
+  "homepage": "https://github.com/Wafour-Developer/snowpea-agent",
+  "keywords": [
+    "agent",
+    "llm",
+    "cli",
+    "installer"
+  ]
+}

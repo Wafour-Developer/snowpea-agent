@@ -2088,7 +2088,6 @@ wheels = [
 
 [[package]]
 name = "snowpea-agent"
-version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "snowpea-agent"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Snowpea — a local-first coding agent with a Python core, an Ink TUI, and a TypeScript SDK."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -49,11 +49,26 @@ dev = [
   "mypy",
 ]
 
+# The single source of truth for the version is snowpea_core.__version__;
+# `snowpea --version` and the wheel metadata therefore cannot drift (contract §1).
+[tool.hatch.version]
+path = "core/snowpea_core/__init__.py"
+
+# Copies tui/dist/snowpea-tui.js into the package before the wheel is zipped.
+[tool.hatch.build.hooks.custom]
+path = "hatch_build.py"
+
 [tool.hatch.build.targets.wheel]
 packages = ["core/snowpea_core"]
+# The bundle is a build output and so is git-ignored; `artifacts` is what keeps
+# the build hook's copy from being filtered back out.
+artifacts = ["core/snowpea_core/tui/dist/snowpea-tui.js"]
 
 [tool.hatch.build.targets.sdist]
-include = ["core", "tests", "README.md", "LICENSE", "NOTICE"]
+include = ["core", "tests", "installer", "hatch_build.py", "README.md", "LICENSE", "NOTICE"]
+# `uv build` builds the wheel out of the sdist, so the sdist has to carry the
+# bundle too — otherwise the hook would have nothing to copy in that second pass.
+artifacts = ["core/snowpea_core/tui/dist/snowpea-tui.js"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

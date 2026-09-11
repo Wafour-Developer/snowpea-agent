@@ -84,3 +84,84 @@ jobs:
         run: npm -w sdk run build
       - name: sdk contract tests
         run: npm -w sdk test -- --grep base
+
+  # ---------------------------------------------------------------------------
+  # v0.1 end-to-end smoke (plan §7.9, M8 contract §6)
+  #
+  # Installs the checkout with installer/install.sh --from-checkout and runs the
+  # fifteen steps against that install.  No API key: every model call goes to
+  # the scripted fake provider.  Steps 10 and 11 need real messenger
+  # credentials and stay in the release pipeline.
+  # ---------------------------------------------------------------------------
+
+  e2e-ubuntu:
+    name: e2e (ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: npm ci
+        run: npm ci
+      # install.sh installs the Python package; the TUI bundle has to exist
+      # first, because the build hook refuses to make a wheel without it.
+      - name: build the TUI bundle
+        run: npm -w tui run build
+      - name: git identity for the fixture repo
+        run: |
+          git config --global user.email "e2e@snowpea.invalid"
+          git config --global user.name "snowpea e2e"
+      - name: v01 smoke
+        run: bash tests/e2e/v01_smoke.sh --from-checkout
+
+  e2e-macos:
+    name: e2e (macos)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: npm ci
+        run: npm ci
+      - name: build the TUI bundle
+        run: npm -w tui run build
+      - name: git identity for the fixture repo
+        run: |
+          git config --global user.email "e2e@snowpea.invalid"
+          git config --global user.name "snowpea e2e"
+      - name: v01 smoke
+        run: bash tests/e2e/v01_smoke.sh --from-checkout
+
+  e2e-windows:
+    name: e2e (windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: npm ci
+        run: npm ci
+      - name: build the TUI bundle
+        run: npm -w tui run build
+      - name: git identity for the fixture repo
+        run: |
+          git config --global user.email "e2e@snowpea.invalid"
+          git config --global user.name "snowpea e2e"
+      - name: v01 smoke
+        shell: pwsh
+        run: tests\e2e\v01_smoke.ps1 -FromCheckout

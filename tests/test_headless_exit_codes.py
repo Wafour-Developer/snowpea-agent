@@ -147,10 +147,22 @@ def test_empty_prompt_is_a_usage_error(home: Path) -> None:
     assert "prompt" in result.stderr
 
 
-def test_placeholder_subcommand_exits_two(home: Path) -> None:
+def test_service_without_an_action_is_a_usage_error(home: Path) -> None:
+    """``service`` is implemented at M8 (US-022), so a bare call is a usage error."""
     result = run_cli("service", env=_base_env(home))
     assert result.returncode == 2
-    assert "not yet implemented" in result.stderr
+    assert "usage: snowpea service install|uninstall|status" in result.stderr
+
+
+def test_service_status_on_a_clean_machine_exits_zero(home: Path) -> None:
+    """Safe to call from a script: nothing registered is not an error (contract §3)."""
+    env = _base_env(home)
+    # Look for the unit under a throwaway config home, so a developer machine
+    # that really has the service installed does not change the answer.
+    env["XDG_CONFIG_HOME"] = str(home / "config")
+    result = run_cli("service", "status", env=env)
+    assert result.returncode == 0
+    assert result.stdout.strip()
 
 
 def test_skill_without_an_action_is_a_usage_error(home: Path) -> None:
