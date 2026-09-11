@@ -1,0 +1,38 @@
+{
+  "steps": [
+    {
+      "match": "split this task",
+      "repeat": true,
+      "text": "```json\n{\"tasks\": [{\"id\": \"C1\", \"title\": \"Set the banner in shared.txt\", \"depends_on\": []}, {\"id\": \"C2\", \"title\": \"Set the banner in shared.txt a different way\", \"depends_on\": []}]}\n```"
+    },
+    {
+      "match": "your task c1:",
+      "repeat": true,
+      "tool_calls": [
+        {
+          "name": "write_file",
+          "arguments": {"path": "shared.txt", "content": "banner written by the first worker\n"}
+        }
+      ],
+      "text": "setting the banner"
+    },
+    {
+      "match": "your task c2:",
+      "repeat": true,
+      "delaySec": 0.6,
+      "tool_calls": [
+        {
+          "name": "write_file",
+          "arguments": {"path": "shared.txt", "content": "banner written by the second worker\n"}
+        }
+      ],
+      "text": "setting the banner my way, on the very same line"
+    },
+    {
+      "after_tool": "write_file",
+      "repeat": true,
+      "text": "I rewrote the shared banner."
+    }
+  ],
+  "default": {"text": "fake default reply"}
+}

@@ -1,0 +1,60 @@
+{
+  "steps": [
+    {
+      "match": "split this task",
+      "repeat": true,
+      "text": "```json\n{\"tasks\": [{\"id\": \"T1\", \"title\": \"Document module_a.py\", \"depends_on\": []}, {\"id\": \"T2\", \"title\": \"Document module_b.py\", \"depends_on\": []}, {\"id\": \"T3\", \"title\": \"Document module_c.py\", \"depends_on\": []}]}\n```"
+    },
+    {
+      "match": "your task t1:",
+      "repeat": true,
+      "delaySec": 0.2,
+      "tool_calls": [
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "module_a.py",
+            "content": "\"\"\"Module A: the first of three documented modules.\"\"\"\n\n\ndef a() -> str:\n    return \"a\"\n"
+          }
+        }
+      ],
+      "text": "documenting the first module"
+    },
+    {
+      "match": "your task t2:",
+      "repeat": true,
+      "delaySec": 0.2,
+      "tool_calls": [
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "module_b.py",
+            "content": "\"\"\"Module B: the second of three documented modules.\"\"\"\n\n\ndef b() -> str:\n    return \"b\"\n"
+          }
+        }
+      ],
+      "text": "documenting the second module"
+    },
+    {
+      "match": "your task t3:",
+      "repeat": true,
+      "delaySec": 0.2,
+      "tool_calls": [
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "module_c.py",
+            "content": "\"\"\"Module C: the third of three documented modules.\"\"\"\n\n\ndef c() -> str:\n    return \"c\"\n"
+          }
+        }
+      ],
+      "text": "documenting the third module"
+    },
+    {
+      "after_tool": "write_file",
+      "repeat": true,
+      "text": "I wrote the docstring the task asked for."
+    }
+  ],
+  "default": {"text": "fake default reply"}
+}

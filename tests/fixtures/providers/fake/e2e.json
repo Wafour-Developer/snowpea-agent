@@ -1,0 +1,115 @@
+{
+  "_comment": [
+    "Script for the v0.1 end-to-end smoke run (plan §7.9, M8 contract §6).",
+    "SNOWPEA_PROVIDER=fake:tests/fixtures/providers/fake/e2e.json replaces every",
+    "LLM call in tests/e2e/v01_smoke.sh, so the run needs no API key.",
+    "Each step matches a substring of the smoke script's prompt, lowercased.",
+    "The ralph steps mirror tests/fixtures/providers/fake/ralph.json: the",
+    "fixture repo carries tracked_a.txt and tracked_b.txt for the stories to patch.",
+    "The team steps match team.py's planner prompt (\"Split this task ...\") and its",
+    "per-worker brief (\"Your task T1: ...\")."
+  ],
+  "steps": [
+    {
+      "match": "edit readme.md",
+      "repeat": true,
+      "tool_calls": [
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "README.md",
+            "content": "# snowpea e2e fixture\n\nthis line was added by the v0.1 smoke run\n"
+          }
+        }
+      ],
+      "text": "adding one line to README.md"
+    },
+    {
+      "match": "run ls",
+      "repeat": true,
+      "tool_calls": [{ "name": "shell", "arguments": { "command": "ls" } }],
+      "text": "listing the directory"
+    },
+    {
+      "match": "write foo.txt",
+      "repeat": true,
+      "tool_calls": [
+        {
+          "name": "write_file",
+          "arguments": { "path": "foo.txt", "content": "plan mode should have blocked this\n" }
+        }
+      ],
+      "text": "writing foo.txt"
+    },
+    {
+      "match": "write the prd",
+      "repeat": true,
+      "text": "```json\n{\"stories\": [{\"id\": \"S1\", \"title\": \"Patch tracked_a.txt\", \"acceptance\": \"tracked_a.txt says patched\", \"verify\": [\"grep -q patched tracked_a.txt\"], \"independent\": true, \"depends_on\": []}, {\"id\": \"S2\", \"title\": \"Patch tracked_b.txt\", \"acceptance\": \"tracked_b.txt says patched\", \"verify\": [\"grep -q patched tracked_b.txt\"], \"independent\": true, \"depends_on\": []}]}\n```"
+    },
+    {
+      "match": "story s1",
+      "repeat": true,
+      "tool_calls": [
+        {
+          "name": "write_file",
+          "arguments": { "path": "tracked_a.txt", "content": "patched by S1\n" }
+        }
+      ],
+      "text": "patching the first file"
+    },
+    {
+      "match": "story s2",
+      "repeat": true,
+      "tool_calls": [
+        {
+          "name": "write_file",
+          "arguments": { "path": "tracked_b.txt", "content": "patched by S2\n" }
+        }
+      ],
+      "text": "patching the second file"
+    },
+    {
+      "match": "you are the reviewer",
+      "repeat": true,
+      "text": "APPROVE — both files carry the change and the verification commands pass."
+    },
+    {
+      "match": "split this task",
+      "repeat": true,
+      "text": "{\"tasks\": [{\"id\": \"T1\", \"title\": \"Add a docstring note to docs_a.txt\"}, {\"id\": \"T2\", \"title\": \"Add a docstring note to docs_b.txt\"}]}"
+    },
+    {
+      "match": "your task t1",
+      "repeat": true,
+      "tool_calls": [
+        {
+          "name": "write_file",
+          "arguments": { "path": "docs_a.txt", "content": "docstrings added by T1\n" }
+        }
+      ],
+      "text": "wrote the first docstring note"
+    },
+    {
+      "match": "your task t2",
+      "repeat": true,
+      "tool_calls": [
+        {
+          "name": "write_file",
+          "arguments": { "path": "docs_b.txt", "content": "docstrings added by T2\n" }
+        }
+      ],
+      "text": "wrote the second docstring note"
+    },
+    {
+      "after_tool": "write_file",
+      "repeat": true,
+      "text": "The file now carries the change."
+    },
+    {
+      "after_tool": "shell",
+      "repeat": true,
+      "text": "That is the listing."
+    }
+  ],
+  "default": { "text": "acknowledged" }
+}

@@ -1,6 +1,11 @@
 {
   "steps": [
     {
+      "match": "split this task",
+      "repeat": true,
+      "text": "```json\n{\"subtasks\": [{\"id\": \"T1\", \"title\": \"first half\", \"task\": \"quick child does the first half\"}, {\"id\": \"T2\", \"title\": \"second half\", \"task\": \"quick child does the second half\"}]}\n```"
+    },
+    {
       "match": "slow child",
       "repeat": true,
       "delaySec": 0.35,
@@ -14,7 +19,14 @@
     {
       "match": "restricted child",
       "repeat": true,
-      "tool_calls": [{"name": "shell", "arguments": {"command": "echo nope"}}],
+      "tool_calls": [
+        {
+          "name": "shell",
+          "arguments": {
+            "command": "echo nope"
+          }
+        }
+      ],
       "text": "trying the shell"
     },
     {
@@ -26,7 +38,12 @@
       "match": "delegate please",
       "repeat": true,
       "tool_calls": [
-        {"name": "delegate_task", "arguments": {"task": "quick child for the tool test"}}
+        {
+          "name": "delegate_task",
+          "arguments": {
+            "task": "quick child for the tool test"
+          }
+        }
       ],
       "text": "handing it over"
     },
@@ -36,5 +53,7 @@
       "text": "the parent read the child's report"
     }
   ],
-  "default": {"text": "fake default reply"}
+  "default": {
+    "text": "fake default reply"
+  }
 }
