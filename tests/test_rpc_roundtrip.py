@@ -154,9 +154,14 @@ async def test_http_routes(daemon: Daemon, session: aiohttp.ClientSession) -> No
     async with session.get(f"{base}/protocol.json") as response:
         schema = await response.json()
     assert schema["version"] == PROTOCOL_VERSION
+    assert schema["protocolVersion"] == PROTOCOL_VERSION
+    assert schema["serverVersion"] == __version__
     assert schema["methods"]["session.create"]["direction"] == "c2s"
+    assert schema["methods"]["session.create"]["params"]["type"] == "object"
     assert schema["methods"]["approval.request"]["direction"] == "s2c"
-    assert "session.event" in schema["events"]
+    assert schema["events"]["session.event"]["type"] == "object"
+    assert schema["sessionEventKinds"]["turn.done"]["type"] == "object"
+    assert schema["transport"]["ws"] == "/ws"
     assert "unauthorized" in schema["errorCodes"]
 
 

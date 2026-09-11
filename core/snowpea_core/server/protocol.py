@@ -583,21 +583,24 @@ SessionEventPayload = Annotated[
     Field(discriminator="kind"),
 ]
 
-SESSION_EVENT_KINDS: tuple[str, ...] = (
-    "message.delta",
-    "message.done",
-    "tool.call",
-    "tool.result",
-    "diff",
-    "subagent.spawn",
-    "subagent.update",
-    "subagent.done",
-    "team.task.update",
-    "mode.changed",
-    "usage",
-    "error",
-    "turn.done",
-)
+#: ``session.event`` payload model per ``kind`` (contract §1).
+SESSION_EVENT_MODELS: dict[str, type[BaseModel]] = {
+    "message.delta": MessageDelta,
+    "message.done": MessageDone,
+    "tool.call": ToolCallEvent,
+    "tool.result": ToolResultEvent,
+    "diff": DiffEvent,
+    "subagent.spawn": SubagentSpawn,
+    "subagent.update": SubagentUpdate,
+    "subagent.done": SubagentDone,
+    "team.task.update": TeamTaskUpdate,
+    "mode.changed": ModeChanged,
+    "usage": UsageEvent,
+    "error": ErrorEvent,
+    "turn.done": TurnDone,
+}
+
+SESSION_EVENT_KINDS: tuple[str, ...] = tuple(SESSION_EVENT_MODELS)
 
 
 class SessionEventNotification(Payload):
@@ -718,6 +721,12 @@ EVENTS: dict[str, type[BaseModel]] = {
 
 CAPABILITIES: list[str] = ["sessions", "approvals", "commands", "tools"]
 
+#: Where the daemon listens; mirrored into the schema dump for the SDK.
+TRANSPORT: dict[str, Any] = {
+    "ws": "/ws",
+    "http": {"health": "/health", "version": "/version", "schema": "/protocol.json"},
+}
+
 #: Methods implemented at M1; everything else answers ``not_implemented``.
 IMPLEMENTED_METHODS: frozenset[str] = frozenset(
     {"system.hello", "system.info", "system.health", "system.shutdown"}
@@ -730,7 +739,14 @@ def protocol_major(version: str) -> str:
 
 
 def dump_schema() -> dict[str, Any]:
-    """Machine-readable description of the whole protocol."""
+    """Machine-readable description of the whole protocol.
+
+    This is exactly what ``GET /protocol.json`` returns and what
+    ``scripts/gen_protocol.py`` consumes.  Schemas are plain
+    ``model_json_schema()`` output, so local ``#/$defs/...`` references are
+    resolved by the consumer.  ``version`` and ``protocolVersion`` are aliases
+    of each other and always carry the same value.
+    """
     methods: dict[str, Any] = {}
     for name, method in METHODS.items():
         methods[name] = {
@@ -738,17 +754,16 @@ def dump_schema() -> dict[str, Any]:
             "params": method.params.model_json_schema(),
             "result": method.result.model_json_schema(),
         }
-    events: dict[str, Any] = {
-        name: {"direction": "s2c", "params": model.model_json_schema()}
-        for name, model in EVENTS.items()
-    }
     return {
         "version": PROTOCOL_VERSION,
+        "protocolVersion": PROTOCOL_VERSION,
         "serverVersion": SERVER_VERSION,
         "methods": methods,
-        "events": events,
-        "sessionEventKinds": list(SESSION_EVENT_KINDS),
-        "sessionEventPayloads": SessionEventKindEnvelope.model_json_schema(),
+        "events": {name: model.model_json_schema() for name, model in EVENTS.items()},
+        "sessionEventKinds": {
+            kind: model.model_json_schema() for kind, model in SESSION_EVENT_MODELS.items()
+        },
         "errorCodes": list(ERROR_CODES),
         "capabilities": list(CAPABILITIES),
+        "transport": TRANSPORT,
     }

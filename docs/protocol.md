@@ -48,58 +48,56 @@ Server capabilities advertised in the `system.hello` result:
 
 | method | direction | summary |
 |---|---|---|
-| [`agent.bindChannel`](#agentbindchannel) | client → server | Bind an agent to a messenger channel. (not_implemented at M1) |
-| [`agent.create`](#agentcreate) | client → server | Create a persistent agent. (not_implemented at M1) |
-| [`agent.delete`](#agentdelete) | client → server | Delete a persistent agent. (not_implemented at M1) |
-| [`agent.list`](#agentlist) | client → server | List persistent agents. (not_implemented at M1) |
-| [`agent.spawn`](#agentspawn) | client → server | Spawn a one-shot subagent. (not_implemented at M1) |
-| [`approval.list`](#approvallist) | client → server | List pending approval requests. |
-| [`approval.request`](#approvalrequest) | server → client | Server asks the originating surface to approve a tool call. |
-| [`approval.respond`](#approvalrespond) | client → server | Answer a pending approval request. |
-| [`backend.set`](#backendset) | client → server | Choose the execution backend for a session. |
-| [`command.list`](#commandlist) | client → server | List slash commands. |
-| [`command.run`](#commandrun) | client → server | Run a slash command; the only execution path for them. |
-| [`gateway.bind`](#gatewaybind) | client → server | Bind a messenger target. (not_implemented at M1) |
-| [`gateway.list`](#gatewaylist) | client → server | List gateway bindings. (not_implemented at M1) |
-| [`gateway.unbind`](#gatewayunbind) | client → server | Remove a gateway binding. (not_implemented at M1) |
-| [`job.cancel`](#jobcancel) | client → server | Cancel a job. (not_implemented at M1) |
-| [`job.list`](#joblist) | client → server | List scheduled jobs. (not_implemented at M1) |
-| [`job.runNow`](#jobrunnow) | client → server | Run a job immediately. (not_implemented at M1) |
-| [`job.schedule`](#jobschedule) | client → server | Schedule a job. (not_implemented at M1) |
-| [`memory.search`](#memorysearch) | client → server | Search long-term memory. (not_implemented at M1) |
-| [`memory.write`](#memorywrite) | client → server | Write a memory. (not_implemented at M1) |
-| [`permission.allowlist.add`](#permissionallowlistadd) | client → server | Add an allowlist pattern. |
-| [`permission.allowlist.list`](#permissionallowlistlist) | client → server | List allowlist patterns. |
-| [`permission.allowlist.remove`](#permissionallowlistremove) | client → server | Remove an allowlist pattern. |
-| [`provider.configure`](#providerconfigure) | client → server | Store provider credentials or settings. |
-| [`provider.list`](#providerlist) | client → server | List configured providers. |
-| [`provider.loginWeb`](#providerloginweb) | client → server | Start a browser login flow for a vendor. |
-| [`session.close`](#sessionclose) | client → server | Close a session. |
-| [`session.create`](#sessioncreate) | client → server | Open a session rooted at a working directory. |
-| [`session.interrupt`](#sessioninterrupt) | client → server | Interrupt the running turn. |
-| [`session.list`](#sessionlist) | client → server | List open sessions. |
-| [`session.prompt`](#sessionprompt) | client → server | Start a turn from user text. |
-| [`session.resume`](#sessionresume) | client → server | Replay session events after a sequence number. |
-| [`session.setMode`](#sessionsetmode) | client → server | Switch the permission mode. |
-| [`skill.install`](#skillinstall) | client → server | Install a skill. (not_implemented at M1) |
-| [`skill.list`](#skilllist) | client → server | List installed skills. (not_implemented at M1) |
-| [`skill.reload`](#skillreload) | client → server | Reload skills from disk. (not_implemented at M1) |
-| [`skill.search`](#skillsearch) | client → server | Search the skill registry. (not_implemented at M1) |
-| [`system.health`](#systemhealth) | client → server | Liveness probe. |
-| [`system.hello`](#systemhello) | client → server | Authenticate and negotiate the protocol version. |
-| [`system.info`](#systeminfo) | client → server | Daemon identity and runtime facts. |
-| [`system.shutdown`](#systemshutdown) | client → server | Stop the daemon. |
-| [`team.start`](#teamstart) | client → server | Start a team run. (not_implemented at M1) |
-| [`team.status`](#teamstatus) | client → server | Team run status. (not_implemented at M1) |
-| [`tool.list`](#toollist) | client → server | List tools visible to a session. |
+| [`agent.bindChannel`](#agentbindchannel) | client → server |  |
+| [`agent.create`](#agentcreate) | client → server |  |
+| [`agent.delete`](#agentdelete) | client → server |  |
+| [`agent.list`](#agentlist) | client → server |  |
+| [`agent.spawn`](#agentspawn) | client → server |  |
+| [`approval.list`](#approvallist) | client → server |  |
+| [`approval.request`](#approvalrequest) | server → client |  |
+| [`approval.respond`](#approvalrespond) | client → server |  |
+| [`backend.set`](#backendset) | client → server |  |
+| [`command.list`](#commandlist) | client → server |  |
+| [`command.run`](#commandrun) | client → server |  |
+| [`gateway.bind`](#gatewaybind) | client → server |  |
+| [`gateway.list`](#gatewaylist) | client → server |  |
+| [`gateway.unbind`](#gatewayunbind) | client → server |  |
+| [`job.cancel`](#jobcancel) | client → server |  |
+| [`job.list`](#joblist) | client → server |  |
+| [`job.runNow`](#jobrunnow) | client → server |  |
+| [`job.schedule`](#jobschedule) | client → server |  |
+| [`memory.search`](#memorysearch) | client → server |  |
+| [`memory.write`](#memorywrite) | client → server |  |
+| [`permission.allowlist.add`](#permissionallowlistadd) | client → server |  |
+| [`permission.allowlist.list`](#permissionallowlistlist) | client → server |  |
+| [`permission.allowlist.remove`](#permissionallowlistremove) | client → server |  |
+| [`provider.configure`](#providerconfigure) | client → server |  |
+| [`provider.list`](#providerlist) | client → server |  |
+| [`provider.loginWeb`](#providerloginweb) | client → server |  |
+| [`session.close`](#sessionclose) | client → server |  |
+| [`session.create`](#sessioncreate) | client → server |  |
+| [`session.interrupt`](#sessioninterrupt) | client → server |  |
+| [`session.list`](#sessionlist) | client → server |  |
+| [`session.prompt`](#sessionprompt) | client → server |  |
+| [`session.resume`](#sessionresume) | client → server |  |
+| [`session.setMode`](#sessionsetmode) | client → server |  |
+| [`skill.install`](#skillinstall) | client → server |  |
+| [`skill.list`](#skilllist) | client → server |  |
+| [`skill.reload`](#skillreload) | client → server |  |
+| [`skill.search`](#skillsearch) | client → server |  |
+| [`system.health`](#systemhealth) | client → server |  |
+| [`system.hello`](#systemhello) | client → server |  |
+| [`system.info`](#systeminfo) | client → server |  |
+| [`system.shutdown`](#systemshutdown) | client → server |  |
+| [`team.start`](#teamstart) | client → server |  |
+| [`team.status`](#teamstatus) | client → server |  |
+| [`tool.list`](#toollist) | client → server |  |
 
 ## Methods
 
 ### `agent.bindChannel`
 
 *Direction:* client → server
-
-Bind an agent to a messenger channel. (not_implemented at M1)
 
 **Params**
 
@@ -112,13 +110,11 @@ Bind an agent to a messenger channel. (not_implemented at M1)
 
 | field | type | required | description |
 |---|---|---|---|
-| `ok` | `boolean` | yes |  |
+| `ok` | `boolean` | no |  |
 
 ### `agent.create`
 
 *Direction:* client → server
-
-Create a persistent agent. (not_implemented at M1)
 
 **Params**
 
@@ -136,8 +132,6 @@ Create a persistent agent. (not_implemented at M1)
 
 *Direction:* client → server
 
-Delete a persistent agent. (not_implemented at M1)
-
 **Params**
 
 | field | type | required | description |
@@ -148,13 +142,11 @@ Delete a persistent agent. (not_implemented at M1)
 
 | field | type | required | description |
 |---|---|---|---|
-| `ok` | `boolean` | yes |  |
+| `ok` | `boolean` | no |  |
 
 ### `agent.list`
 
 *Direction:* client → server
-
-List persistent agents. (not_implemented at M1)
 
 **Params**
 
@@ -164,19 +156,18 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `agents` | `(Record<string, unknown>)[]` | yes |  |
+| `agents` | `({ channel?: string \| null; description?: string; name: string; source?: string; })[]` | no |  |
 
 ### `agent.spawn`
 
 *Direction:* client → server
-
-Spawn a one-shot subagent. (not_implemented at M1)
 
 **Params**
 
 | field | type | required | description |
 |---|---|---|---|
 | `name` | `string` | yes |  |
+| `sessionId` | `string \| null` | no |  |
 | `task` | `string` | yes |  |
 
 **Result**
@@ -189,36 +180,32 @@ Spawn a one-shot subagent. (not_implemented at M1)
 
 *Direction:* client → server
 
-List pending approval requests.
-
 **Params**
 
 | field | type | required | description |
 |---|---|---|---|
-| `sessionId` | `string` | no |  |
+| `sessionId` | `string \| null` | no |  |
 
 **Result**
 
 | field | type | required | description |
 |---|---|---|---|
-| `requests` | `({ args: Record<string, unknown>; requestId: string; risk: string; scopeHint?: string; sessionId: string; timeoutSec: number; tool: string; })[]` | yes |  |
+| `requests` | `({ args?: Record<string, unknown>; requestId: string; risk?: string; scopeHint?: "once" \| "session" \| "project" \| "always"; sessionId: string; timeoutSec?: number; tool: string; })[]` | no |  |
 
 ### `approval.request`
 
 *Direction:* server → client
 
-Server asks the originating surface to approve a tool call.
-
 **Params**
 
 | field | type | required | description |
 |---|---|---|---|
-| `args` | `Record<string, unknown>` | yes |  |
+| `args` | `Record<string, unknown>` | no |  |
 | `requestId` | `string` | yes |  |
-| `risk` | `string` | yes |  |
-| `scopeHint` | `string` | no |  |
+| `risk` | `string` | no |  |
+| `scopeHint` | `"once" \| "session" \| "project" \| "always"` | no |  |
 | `sessionId` | `string` | yes |  |
-| `timeoutSec` | `number` | yes |  |
+| `timeoutSec` | `number` | no |  |
 | `tool` | `string` | yes |  |
 
 **Result**
@@ -226,13 +213,11 @@ Server asks the originating surface to approve a tool call.
 | field | type | required | description |
 |---|---|---|---|
 | `decision` | `"allow" \| "deny"` | yes |  |
-| `scope` | `"once" \| "session" \| "project" \| "always"` | yes |  |
+| `scope` | `"once" \| "session" \| "project" \| "always"` | no |  |
 
 ### `approval.respond`
 
 *Direction:* client → server
-
-Answer a pending approval request.
 
 **Params**
 
@@ -240,25 +225,23 @@ Answer a pending approval request.
 |---|---|---|---|
 | `decision` | `"allow" \| "deny"` | yes |  |
 | `requestId` | `string` | yes |  |
-| `scope` | `"once" \| "session" \| "project" \| "always"` | yes |  |
+| `scope` | `"once" \| "session" \| "project" \| "always"` | no |  |
 
 **Result**
 
 | field | type | required | description |
 |---|---|---|---|
-| `ok` | `boolean` | yes |  |
+| `ok` | `boolean` | no |  |
 
 ### `backend.set`
 
 *Direction:* client → server
 
-Choose the execution backend for a session.
-
 **Params**
 
 | field | type | required | description |
 |---|---|---|---|
-| `config` | `Record<string, unknown>` | yes |  |
+| `config` | `Record<string, unknown>` | no |  |
 | `kind` | `"local" \| "docker" \| "ssh"` | yes |  |
 | `sessionId` | `string` | yes |  |
 
@@ -266,37 +249,33 @@ Choose the execution backend for a session.
 
 | field | type | required | description |
 |---|---|---|---|
-| `ok` | `boolean` | yes |  |
+| `ok` | `boolean` | no |  |
 
 ### `command.list`
 
 *Direction:* client → server
 
-List slash commands.
-
 **Params**
 
 | field | type | required | description |
 |---|---|---|---|
-| `sessionId` | `string` | no |  |
+| `sessionId` | `string \| null` | no |  |
 
 **Result**
 
 | field | type | required | description |
 |---|---|---|---|
-| `commands` | `({ argsSchema: Record<string, unknown>; name: string; source: "builtin" \| "skill" \| "plugin"; summary: string; })[]` | yes |  |
+| `commands` | `({ argsSchema?: Record<string, unknown>; name: string; source?: "builtin" \| "skill" \| "plugin"; summary: string; })[]` | no |  |
 
 ### `command.run`
 
 *Direction:* client → server
 
-Run a slash command; the only execution path for them.
-
 **Params**
 
 | field | type | required | description |
 |---|---|---|---|
-| `args` | `string` | yes |  |
+| `args` | `string` | no |  |
 | `name` | `string` | yes |  |
 | `sessionId` | `string` | yes |  |
 
@@ -309,8 +288,6 @@ Run a slash command; the only execution path for them.
 ### `gateway.bind`
 
 *Direction:* client → server
-
-Bind a messenger target. (not_implemented at M1)
 
 **Params**
 
@@ -330,8 +307,6 @@ Bind a messenger target. (not_implemented at M1)
 
 *Direction:* client → server
 
-List gateway bindings. (not_implemented at M1)
-
 **Params**
 
 _No params (send `{}`)._
@@ -340,13 +315,11 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `bindings` | `(Record<string, unknown>)[]` | yes |  |
+| `bindings` | `({ bindingId: string; platform: string; state?: "active" \| "inactive"; target: string; })[]` | no |  |
 
 ### `gateway.unbind`
 
 *Direction:* client → server
-
-Remove a gateway binding. (not_implemented at M1)
 
 **Params**
 
@@ -358,13 +331,11 @@ Remove a gateway binding. (not_implemented at M1)
 
 | field | type | required | description |
 |---|---|---|---|
-| `ok` | `boolean` | yes |  |
+| `ok` | `boolean` | no |  |
 
 ### `job.cancel`
 
 *Direction:* client → server
-
-Cancel a job. (not_implemented at M1)
 
 **Params**
 
@@ -376,13 +347,11 @@ Cancel a job. (not_implemented at M1)
 
 | field | type | required | description |
 |---|---|---|---|
-| `ok` | `boolean` | yes |  |
+| `ok` | `boolean` | no |  |
 
 ### `job.list`
 
 *Direction:* client → server
-
-List scheduled jobs. (not_implemented at M1)
 
 **Params**
 
@@ -392,13 +361,11 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `jobs` | `(Record<string, unknown>)[]` | yes |  |
+| `jobs` | `({ channel?: string \| null; jobId: string; mode?: "plan" \| "accept" \| "auto"; nextRunAt?: string \| null; spec: string; state?: "scheduled" \| "running" \| "cancelled"; task: string; })[]` | no |  |
 
 ### `job.runNow`
 
 *Direction:* client → server
-
-Run a job immediately. (not_implemented at M1)
 
 **Params**
 
@@ -410,19 +377,17 @@ Run a job immediately. (not_implemented at M1)
 
 | field | type | required | description |
 |---|---|---|---|
-| `ok` | `boolean` | yes |  |
+| `ok` | `boolean` | no |  |
 
 ### `job.schedule`
 
 *Direction:* client → server
 
-Schedule a job. (not_implemented at M1)
-
 **Params**
 
 | field | type | required | description |
 |---|---|---|---|
-| `channel` | `string` | no |  |
+| `channel` | `string \| null` | no |  |
 | `mode` | `"plan" \| "accept" \| "auto"` | no |  |
 | `spec` | `string` | yes |  |
 | `task` | `string` | yes |  |
@@ -437,8 +402,6 @@ Schedule a job. (not_implemented at M1)
 
 *Direction:* client → server
 
-Search long-term memory. (not_implemented at M1)
-
 **Params**
 
 | field | type | required | description |
@@ -450,13 +413,11 @@ Search long-term memory. (not_implemented at M1)
 
 | field | type | required | description |
 |---|---|---|---|
-| `results` | `(Record<string, unknown>)[]` | yes |  |
+| `hits` | `({ id: string; score?: number; tags?: string[]; text: string; })[]` | no |  |
 
 ### `memory.write`
 
 *Direction:* client → server
-
-Write a memory. (not_implemented at M1)
 
 **Params**
 
@@ -469,20 +430,18 @@ Write a memory. (not_implemented at M1)
 
 | field | type | required | description |
 |---|---|---|---|
-| `ok` | `boolean` | yes |  |
+| `id` | `string` | yes |  |
 
 ### `permission.allowlist.add`
 
 *Direction:* client → server
-
-Add an allowlist pattern.
 
 **Params**
 
 | field | type | required | description |
 |---|---|---|---|
 | `pattern` | `string` | yes |  |
-| `scope` | `"once" \| "session" \| "project" \| "always"` | yes |  |
+| `scope` | `"session" \| "project" \| "always"` | no |  |
 
 **Result**
 
@@ -494,25 +453,21 @@ Add an allowlist pattern.
 
 *Direction:* client → server
 
-List allowlist patterns.
-
 **Params**
 
 | field | type | required | description |
 |---|---|---|---|
-| `scope` | `"once" \| "session" \| "project" \| "always"` | no |  |
+| `scope` | `"session" \| "project" \| "always" \| null` | no |  |
 
 **Result**
 
 | field | type | required | description |
 |---|---|---|---|
-| `patterns` | `({ pattern: string; patternId: string; scope: "once" \| "session" \| "project" \| "always"; })[]` | yes |  |
+| `patterns` | `({ pattern: string; patternId: string; scope: "session" \| "project" \| "always"; })[]` | no |  |
 
 ### `permission.allowlist.remove`
 
 *Direction:* client → server
-
-Remove an allowlist pattern.
 
 **Params**
 
@@ -524,32 +479,28 @@ Remove an allowlist pattern.
 
 | field | type | required | description |
 |---|---|---|---|
-| `ok` | `boolean` | yes |  |
+| `ok` | `boolean` | no |  |
 
 ### `provider.configure`
 
 *Direction:* client → server
 
-Store provider credentials or settings.
-
 **Params**
 
 | field | type | required | description |
 |---|---|---|---|
-| `config` | `Record<string, unknown>` | yes |  |
+| `config` | `Record<string, unknown>` | no |  |
 | `vendor` | `string` | yes |  |
 
 **Result**
 
 | field | type | required | description |
 |---|---|---|---|
-| `ok` | `boolean` | yes |  |
+| `ok` | `boolean` | no |  |
 
 ### `provider.list`
 
 *Direction:* client → server
-
-List configured providers.
 
 **Params**
 
@@ -559,13 +510,11 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `providers` | `({ configured: boolean; models: string[]; vendor: string; })[]` | yes |  |
+| `providers` | `({ configured?: boolean; default?: boolean; models?: string[]; vendor: string; })[]` | no |  |
 
 ### `provider.loginWeb`
 
 *Direction:* client → server
-
-Start a browser login flow for a vendor.
 
 **Params**
 
@@ -578,13 +527,11 @@ Start a browser login flow for a vendor.
 
 | field | type | required | description |
 |---|---|---|---|
-| `ok` | `boolean` | yes |  |
+| `ok` | `boolean` | no |  |
 
 ### `session.close`
 
 *Direction:* client → server
-
-Close a session.
 
 **Params**
 
@@ -596,24 +543,22 @@ Close a session.
 
 | field | type | required | description |
 |---|---|---|---|
-| `ok` | `boolean` | yes |  |
+| `ok` | `boolean` | no |  |
 
 ### `session.create`
 
 *Direction:* client → server
 
-Open a session rooted at a working directory.
-
 **Params**
 
 | field | type | required | description |
 |---|---|---|---|
-| `agent` | `string` | no |  |
-| `maxConcurrent` | `number` | no |  |
-| `mode` | `"plan" \| "accept" \| "auto"` | no |  |
-| `model` | `string` | no |  |
-| `originSurface` | `string` | no |  |
-| `provider` | `string` | no |  |
+| `agent` | `string \| null` | no |  |
+| `maxConcurrent` | `number \| null` | no |  |
+| `mode` | `"plan" \| "accept" \| "auto" \| null` | no |  |
+| `model` | `string \| null` | no |  |
+| `originSurface` | `string \| null` | no |  |
+| `provider` | `string \| null` | no |  |
 | `workdir` | `string` | yes |  |
 
 **Result**
@@ -626,8 +571,6 @@ Open a session rooted at a working directory.
 
 *Direction:* client → server
 
-Interrupt the running turn.
-
 **Params**
 
 | field | type | required | description |
@@ -638,13 +581,11 @@ Interrupt the running turn.
 
 | field | type | required | description |
 |---|---|---|---|
-| `ok` | `boolean` | yes |  |
+| `ok` | `boolean` | no |  |
 
 ### `session.list`
 
 *Direction:* client → server
-
-List open sessions.
 
 **Params**
 
@@ -654,19 +595,17 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `sessions` | `({ createdAt: string; mode: "plan" \| "accept" \| "auto"; model?: string; originSurface?: string; provider?: string; seq: number; sessionId: string; workdir: string; })[]` | yes |  |
+| `sessions` | `({ createdAt: string; mode: "plan" \| "accept" \| "auto"; model?: string \| null; originSurface?: string \| null; provider?: string \| null; seq?: number; sessionId: string; workdir: string; })[]` | no |  |
 
 ### `session.prompt`
 
 *Direction:* client → server
 
-Start a turn from user text.
-
 **Params**
 
 | field | type | required | description |
 |---|---|---|---|
-| `attachments` | `({ kind: string; mimeType?: string; path?: string; text?: string; })[]` | no |  |
+| `attachments` | `({ kind?: "file" \| "image" \| "text"; mimeType?: string \| null; path?: string \| null; text?: string \| null; })[] \| null` | no |  |
 | `sessionId` | `string` | yes |  |
 | `text` | `string` | yes |  |
 
@@ -680,27 +619,23 @@ Start a turn from user text.
 
 *Direction:* client → server
 
-Replay session events after a sequence number.
-
 **Params**
 
 | field | type | required | description |
 |---|---|---|---|
-| `afterSeq` | `number` | no |  |
+| `afterSeq` | `number \| null` | no |  |
 | `sessionId` | `string` | yes |  |
 
 **Result**
 
 | field | type | required | description |
 |---|---|---|---|
-| `events` | `({ kind: string; payload: Record<string, unknown>; seq: number; sessionId: string; ts: string; })[]` | yes |  |
+| `events` | `({ kind: string; payload?: Record<string, unknown>; seq: number; sessionId: string; ts: string; })[]` | no |  |
 | `sessionId` | `string` | yes |  |
 
 ### `session.setMode`
 
 *Direction:* client → server
-
-Switch the permission mode.
 
 **Params**
 
@@ -719,8 +654,6 @@ Switch the permission mode.
 
 *Direction:* client → server
 
-Install a skill. (not_implemented at M1)
-
 **Params**
 
 | field | type | required | description |
@@ -731,14 +664,12 @@ Install a skill. (not_implemented at M1)
 
 | field | type | required | description |
 |---|---|---|---|
-| `ok` | `boolean` | yes |  |
+| `ok` | `boolean` | no |  |
 
 ### `skill.list`
 
 *Direction:* client → server
 
-List installed skills. (not_implemented at M1)
-
 **Params**
 
 _No params (send `{}`)._
@@ -747,14 +678,12 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `skills` | `(Record<string, unknown>)[]` | yes |  |
+| `skills` | `({ installed?: boolean; name: string; source?: string; summary?: string; })[]` | no |  |
 
 ### `skill.reload`
 
 *Direction:* client → server
 
-Reload skills from disk. (not_implemented at M1)
-
 **Params**
 
 _No params (send `{}`)._
@@ -763,13 +692,11 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `ok` | `boolean` | yes |  |
+| `ok` | `boolean` | no |  |
 
 ### `skill.search`
 
 *Direction:* client → server
-
-Search the skill registry. (not_implemented at M1)
 
 **Params**
 
@@ -781,13 +708,11 @@ Search the skill registry. (not_implemented at M1)
 
 | field | type | required | description |
 |---|---|---|---|
-| `skills` | `(Record<string, unknown>)[]` | yes |  |
+| `skills` | `({ installed?: boolean; name: string; source?: string; summary?: string; })[]` | no |  |
 
 ### `system.health`
 
 *Direction:* client → server
-
-Liveness probe.
 
 **Params**
 
@@ -797,13 +722,11 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `status` | `"ok"` | yes |  |
+| `status` | `"ok"` | no |  |
 
 ### `system.hello`
 
 *Direction:* client → server
-
-Authenticate and negotiate the protocol version.
 
 **Params**
 
@@ -817,15 +740,13 @@ Authenticate and negotiate the protocol version.
 
 | field | type | required | description |
 |---|---|---|---|
-| `capabilities` | `string[]` | yes |  |
+| `capabilities` | `string[]` | no |  |
 | `protocolVersion` | `string` | yes |  |
 | `serverVersion` | `string` | yes |  |
 
 ### `system.info`
 
 *Direction:* client → server
-
-Daemon identity and runtime facts.
 
 **Params**
 
@@ -846,8 +767,6 @@ _No params (send `{}`)._
 
 *Direction:* client → server
 
-Stop the daemon.
-
 **Params**
 
 _No params (send `{}`)._
@@ -856,13 +775,11 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `ok` | `boolean` | yes |  |
+| `ok` | `boolean` | no |  |
 
 ### `team.start`
 
 *Direction:* client → server
-
-Start a team run. (not_implemented at M1)
 
 **Params**
 
@@ -882,8 +799,6 @@ Start a team run. (not_implemented at M1)
 
 *Direction:* client → server
 
-Team run status. (not_implemented at M1)
-
 **Params**
 
 | field | type | required | description |
@@ -892,25 +807,27 @@ Team run status. (not_implemented at M1)
 
 **Result**
 
-_No result fields._
+| field | type | required | description |
+|---|---|---|---|
+| `state` | `"running" \| "done" \| "failed"` | no |  |
+| `tasks` | `({ assignee?: string \| null; status?: "pending" \| "running" \| "done" \| "failed"; taskId: string; title: string; })[]` | no |  |
+| `teamId` | `string` | yes |  |
 
 ### `tool.list`
 
 *Direction:* client → server
 
-List tools visible to a session.
-
 **Params**
 
 | field | type | required | description |
 |---|---|---|---|
-| `sessionId` | `string` | no |  |
+| `sessionId` | `string \| null` | no |  |
 
 **Result**
 
 | field | type | required | description |
 |---|---|---|---|
-| `tools` | `({ category: string; description: string; name: string; permissionTag: "read" \| "write" \| "exec" \| "network" \| "send"; source: string; state: "active" \| "inactive"; })[]` | yes |  |
+| `tools` | `({ category: string; description?: string; name: string; permissionTag: "read" \| "write" \| "exec" \| "network" \| "send"; source?: string; state?: "active" \| "inactive"; })[]` | no |  |
 
 ## Notifications
 
@@ -928,7 +845,7 @@ List tools visible to a session.
 |---|---|---|---|
 | `bindingId` | `string` | yes |  |
 | `kind` | `string` | yes |  |
-| `payload` | `Record<string, unknown>` | yes |  |
+| `payload` | `Record<string, unknown>` | no |  |
 
 ### `job.event`
 
@@ -936,14 +853,14 @@ List tools visible to a session.
 |---|---|---|---|
 | `jobId` | `string` | yes |  |
 | `kind` | `string` | yes |  |
-| `payload` | `Record<string, unknown>` | yes |  |
+| `payload` | `Record<string, unknown>` | no |  |
 
 ### `session.event`
 
 | field | type | required | description |
 |---|---|---|---|
 | `kind` | `string` | yes |  |
-| `payload` | `Record<string, unknown>` | yes |  |
+| `payload` | `Record<string, unknown>` | no |  |
 | `seq` | `number` | yes |  |
 | `sessionId` | `string` | yes |  |
 | `ts` | `string` | yes |  |
@@ -956,6 +873,7 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 
 | field | type | required | description |
 |---|---|---|---|
+| `kind` | `"diff"` | no |  |
 | `patch` | `string` | yes |  |
 | `path` | `string` | yes |  |
 
@@ -964,25 +882,29 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | field | type | required | description |
 |---|---|---|---|
 | `code` | `string` | yes |  |
+| `kind` | `"error"` | no |  |
 | `message` | `string` | yes |  |
 
 ### kind `message.delta`
 
 | field | type | required | description |
 |---|---|---|---|
+| `kind` | `"message.delta"` | no |  |
 | `text` | `string` | yes |  |
 
 ### kind `message.done`
 
 | field | type | required | description |
 |---|---|---|---|
-| `role` | `string` | yes |  |
+| `kind` | `"message.done"` | no |  |
+| `role` | `"assistant" \| "user" \| "system"` | no |  |
 | `text` | `string` | yes |  |
 
 ### kind `mode.changed`
 
 | field | type | required | description |
 |---|---|---|---|
+| `kind` | `"mode.changed"` | no |  |
 | `mode` | `"plan" \| "accept" \| "auto"` | yes |  |
 
 ### kind `subagent.done`
@@ -990,14 +912,17 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | field | type | required | description |
 |---|---|---|---|
 | `agentId` | `string` | yes |  |
+| `kind` | `"subagent.done"` | no |  |
 | `ok` | `boolean` | no |  |
-| `summary` | `string` | no |  |
+| `result` | `string` | no |  |
 
 ### kind `subagent.spawn`
 
 | field | type | required | description |
 |---|---|---|---|
 | `agentId` | `string` | yes |  |
+| `kind` | `"subagent.spawn"` | no |  |
+| `name` | `string` | no |  |
 | `task` | `string` | no |  |
 
 ### kind `subagent.update`
@@ -1005,13 +930,17 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | field | type | required | description |
 |---|---|---|---|
 | `agentId` | `string` | yes |  |
+| `kind` | `"subagent.update"` | no |  |
 | `status` | `string` | no |  |
+| `text` | `string` | no |  |
 
 ### kind `team.task.update`
 
 | field | type | required | description |
 |---|---|---|---|
-| `status` | `string` | yes |  |
+| `assignee` | `string \| null` | no |  |
+| `kind` | `"team.task.update"` | no |  |
+| `status` | `"pending" \| "running" \| "done" \| "failed"` | no |  |
 | `taskId` | `string` | yes |  |
 | `teamId` | `string` | yes |  |
 
@@ -1019,8 +948,9 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 
 | field | type | required | description |
 |---|---|---|---|
-| `args` | `Record<string, unknown>` | yes |  |
+| `args` | `Record<string, unknown>` | no |  |
 | `callId` | `string` | yes |  |
+| `kind` | `"tool.call"` | no |  |
 | `name` | `string` | yes |  |
 
 ### kind `tool.result`
@@ -1028,24 +958,27 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | field | type | required | description |
 |---|---|---|---|
 | `callId` | `string` | yes |  |
-| `error` | `string` | no |  |
+| `error` | `string \| null` | no |  |
+| `kind` | `"tool.result"` | no |  |
 | `name` | `string` | yes |  |
 | `ok` | `boolean` | yes |  |
-| `output` | `string` | yes |  |
+| `output` | `string` | no |  |
 
 ### kind `turn.done`
 
 | field | type | required | description |
 |---|---|---|---|
-| `reason` | `"complete" \| "interrupted" \| "error" \| "denied" \| "timeout"` | yes |  |
+| `kind` | `"turn.done"` | no |  |
+| `reason` | `"complete" \| "interrupted" \| "error" \| "denied" \| "timeout"` | no |  |
 | `turnId` | `string` | yes |  |
 
 ### kind `usage`
 
 | field | type | required | description |
 |---|---|---|---|
-| `inputTokens` | `number` | yes |  |
-| `outputTokens` | `number` | yes |  |
+| `inputTokens` | `number` | no |  |
+| `kind` | `"usage"` | no |  |
+| `outputTokens` | `number` | no |  |
 
 ## Error codes
 
