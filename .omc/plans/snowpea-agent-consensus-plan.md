@@ -1,6 +1,6 @@
 # snowpea-agent 구현 계획 (omc-plan consensus)
 
-Status: pending approval (consensus reached, iteration 3)
+Status: executed via ralph (2026-09-11) — all 23 PRD stories pass; awaiting final architect verdict
 Plan ID: plan-snowpea-agent-20260911
 Input spec: `.omc/specs/deep-interview-snowpea-agent.md` (di-snowpea-agent-20260911, Ambiguity 12%, PASSED)
 Scope of this document: v0.1 (core + CLI) 전체 실행 계획. v0.2/v0.3은 전망 문단만.
@@ -401,7 +401,7 @@ snowpea -c "<prompt>" [--mode plan|accept|auto] [--json] [--cwd DIR]
 - **Satisfies**: AC-03, AC-04, AC-16, AC-17, **AC-15b**(`subagent.*` 계약).
 
 ### M8 — Installer, npm publish, protocol freeze, 3-OS E2E — **7–10일**
-- **Goal**: `curl -fsSL https://raw.githubusercontent.com/snowpea-ai/snowpea-agent/main/installer/install.sh | sh` 한 줄로 3개 OS에서 설치되고, `@snowpea/sdk`·`@snowpea/tui`가 npm에 발행되며, §7.9 E2E 스크립트가 전부 통과한다. `PROTOCOL_VERSION`을 `1.0.0`으로 올려 동결 카운트의 기점을 만든다(동결 판정 자체는 §4.9).
+- **Goal**: `curl -fsSL https://raw.githubusercontent.com/Wafour-Developer/snowpea-agent/main/installer/install.sh | sh` 한 줄로 3개 OS에서 설치되고, `@snowpea/sdk`·`@snowpea/tui`가 npm에 발행되며, §7.9 E2E 스크립트가 전부 통과한다. `PROTOCOL_VERSION`을 `1.0.0`으로 올려 동결 카운트의 기점을 만든다(동결 판정 자체는 §4.9).
 - **Files**: `installer/install.sh`, `installer/install.ps1`, `installer/brew/snowpea.rb`, `installer/npm/package.json`, `tui/esbuild.config.mjs`(→ wheel package data), `docs/manual/`, `cli/commands.py`(`snowpea service install|uninstall|status`), `.github/workflows/release.yml`(wheel + npm 2종 발행), `tests/e2e/v01_smoke.sh`, `tests/e2e/v01_smoke.ps1`.
 - **Deps**: M1–M7 전부.
 - **Satisfies**: AC-01, AC-19. (프로토콜 동결은 마일스톤 산출물이 아니라 §4.9의 게이트로 판정한다.)
@@ -429,7 +429,7 @@ snowpea.ai 랜딩이 "오픈소스 멀티벤더 코딩 에이전트"와 "나만�
 
 | ID | 기준 | 검증 명령 | 기대 관측 |
 |---|---|---|---|
-| AC-01 | 3 OS 설치 | `curl -fsSL https://raw.githubusercontent.com/snowpea-ai/snowpea-agent/main/installer/install.sh \| sh` 후 `snowpea --version` (win: 동일 raw 경로의 `install.ps1`을 `iwr ... \| iex`) | exit 0, `snowpea 0.1.x` 출력. `uv --version`, `node --version` 모두 성공. 이 URL이 v0.3에서 snowpea.ai로 이동하기 전까지의 정본이다 |
+| AC-01 | 3 OS 설치 | `curl -fsSL https://raw.githubusercontent.com/Wafour-Developer/snowpea-agent/main/installer/install.sh \| sh` 후 `snowpea --version` (win: 동일 raw 경로의 `install.ps1`을 `iwr ... \| iex`) | exit 0, `snowpea 0.1.x` 출력. `uv --version`, `node --version` 모두 성공. 이 URL이 v0.3에서 snowpea.ai로 이동하기 전까지의 정본이다 |
 | AC-02 | setup 마법사 + 웹 로그인 | `snowpea setup` → Quick → 벤더 1개 키 입력. 이어서 `snowpea setup --login openai`, `--login openrouter`, 그리고 대조군으로 `--login deepseek` | `~/.snowpea/settings.json`에 벤더 항목 생성. OpenAI는 디바이스 코드가 콘솔에 표시되고 승인 후 토큰 저장, OpenRouter는 OAuth PKCE 콜백으로 키 저장. **나머지 9종은 `--login` 시 `error{code:"login_unsupported"}`와 API 키 입력 안내를 출력**. `provider.list`가 벤더 11종을 반환하고 그중 `auth_methods`에 `device_code`/`oauth_pkce`를 가진 것은 정확히 2종 |
 | AC-02b | setup Full 단계 화면 + 무료 기본값 | `snowpea setup --full`을 모든 화면에서 Skip으로 통과 → `snowpea tools list --json` | `settings.json`에 `search.provider:"ddgs"`, `browser.provider:"local_chromium"`, 툴 카테고리 기본 ON 집합이 기록됨. API 키가 하나도 없어도 `web_search`·`web_extract`·`browser_*` 툴이 `state:"active"`. `snowpea setup --full` 화면 ②의 목록 순서가 무료·키 없음 → 무료·키/셀프호스트 → 유료 순이며 첫 항목이 ★ 표시. `--search-provider tavily` 등 비대화형 플래그로 동일 결과 |
 | AC-03 | TUI 기동 + 데몬 재사용 + /help | `snowpea` 실행 후 `/help` | 데몬 PID가 `~/.snowpea/daemon.json`과 일치(두 번째 실행 시 동일 PID). `/help` 목록에 ralph, ralplan, ultrawork, deepinit, deep-research, deep-interview, plan, accept, auto 9개 모두 표시 |
@@ -558,7 +558,7 @@ npm -w sdk test -- --grep subagent   # AC-15b
 ### 7.9 v0.1 End-to-End (mac / windows / linux 각각 1회)
 `tests/e2e/v01_smoke.sh` (win: `v01_smoke.ps1`)가 다음을 순서대로 실행하고 각 단계의 기대 관측을 assert 한다. 모든 에이전트 실행은 §3.6 헤드리스 모드를 쓰고 종료 코드로 판정한다.
 ```
-1  curl -fsSL https://raw.githubusercontent.com/snowpea-ai/snowpea-agent/main/installer/install.sh | sh
+1  curl -fsSL https://raw.githubusercontent.com/Wafour-Developer/snowpea-agent/main/installer/install.sh | sh
                                             → snowpea --version == 0.1.x
 2  snowpea setup --quick --vendor <v> --key $KEY          → settings.json 기록
 3  snowpea daemon status                                   → running, port>0, 종료 사유 출력
