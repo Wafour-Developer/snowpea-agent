@@ -128,27 +128,31 @@ async def test_unknown_method_is_not_found(daemon: Daemon, session: aiohttp.Clie
     assert response["error"]["data"]["code"] == "not_found"
 
 
-def _pending_no_arg_method() -> str:
+def _pending_no_arg_method() -> str | None:
     """A registered method that is declared but not implemented yet.
 
     Chosen dynamically so this test keeps working as later stories implement
     more of the protocol; restricted to no-argument methods so the call needs
-    no fabricated params.
+    no fabricated params.  Once every no-argument method has a handler there is
+    nothing left to assert and the test skips itself (US-015).
     """
     for name, method in METHODS.items():
         if method.direction != "c2s" or name in IMPLEMENTED_METHODS:
             continue
         if method.params is Empty:
             return name
-    raise AssertionError("every no-arg method is implemented; retire this test")
+    return None
 
 
 async def test_unimplemented_method_reports_not_implemented(
     daemon: Daemon, session: aiohttp.ClientSession
 ) -> None:
+    pending = _pending_no_arg_method()
+    if pending is None:
+        pytest.skip("every no-argument method is implemented")
     client = await _connect(session, daemon)
     await _hello(client, daemon.token)
-    response = await client.call(_pending_no_arg_method())
+    response = await client.call(pending)
     assert response["error"]["data"]["code"] == "not_implemented"
 
 
