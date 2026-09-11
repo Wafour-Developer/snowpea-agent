@@ -203,3 +203,19 @@ class CommandRegistry: register(cmd); list(session=None); parse(text) -> (name, 
 10. **`dump_schema()` 형태 (US-007과 합의).** 반환 dict의 키는 `version`·`protocolVersion`(같은 값의 별칭)·`serverVersion`·`methods`·`events`·`sessionEventKinds`·`errorCodes`·`capabilities`·`transport`. `methods[name]`은 `{direction, params, result}`(params/result는 pydantic `model_json_schema()` 원본이라 로컬 `#/$defs/...` 참조는 소비자가 푼다), `events[name]`과 `sessionEventKinds[kind]`는 스키마 객체 그 자체다. `transport`는 `{"ws": "/ws", "http": {...}}`. `GET /protocol.json`이 이 dict를 그대로 돌려준다.
 11. **M1 구현 범위.** `system.hello|info|health|shutdown` 외의 모든 c2s 메서드는 스키마만 등록되고 `error{code:"not_implemented"}`를 돌려준다(`protocol.IMPLEMENTED_METHODS` 참조).
 8. **SDK 이슈(US-007 앞)**: 최초 `connect()`가 ECONNREFUSED로 reject 될 때 `Client`의 `ws.on("close")`가 `scheduleReconnect()`를 걸어 이벤트 루프가 영원히 살아 있는다. 호출자는 reject 된 `connect()`의 `Client` 인스턴스를 받지 못해 `close()`할 수 없다. TUI는 시작 실패 시 `process.exit(code)`로 강제 종료해 우회했다. 근본 수정은 SDK `connect()`가 실패 시 자체 정리(`closed = true`)하는 것.
+
+## 14. Deviations (US-007, SDK)
+
+생성기(`scripts/gen_protocol.py`)·SDK(`sdk/src`)·계약 테스트(`sdk/test`)를 구현하며 계약 대비 달라지거나 계약에 없어 새로 정한 점.
+
+1. **`dump_schema()` 형태는 US-004와 합의한 §13-10 그대로다.** 다만 생성기는 방어적으로 정규화한다: `protocolVersion`/`version`, `methods`가 dict이든 list이든, `sessionEventKinds`가 `{kind: schema}`이든 이름 리스트 + 판별 유니온(`sessionEventPayloads`)이든 모두 같은 산출물을 낸다. `transport`가 없으면 `{"ws": "/ws", "http": {"health","version","schema"}}`를 기본값으로 쓴다. 스키마가 바뀌어도 생성기가 조용히 깨지지 않게 하기 위함이다.
+2. **여러 메서드가 공유하는 `summary`는 버린다.** `EmptyParams` 같은 공용 pydantic 모델의 docstring이 `params.description`을 거쳐 메서드 요약으로 새어 나온다("A method that takes no parameters…"). 2개 이상의 메서드가 같은 요약을 가지면 그 요약은 메서드 고유 정보가 아니므로 생성기가 제거한다.
+3. **`session.event.payload` 타입은 `kind` 판별자를 포함한다.** `sessionEventKinds[kind]` 스키마가 `kind` const 필드를 갖고 있고 데몬이 모델 전체를 `payload`에 덤프하므로, 생성된 `SessionEventKindMap`은 TypeScript 판별 유니온으로 좁혀진다. 만약 데몬이 `payload`에서 `kind`를 빼고 보내면 이 필드는 optional(`kind?`)이라 타입은 여전히 성립한다.
+4. **`--diff <refA> <refB>`는 커밋된 산출물을 비교한다.** 두 ref에서 `protocol.py`를 체크아웃해 재생성하는 대신 `git diff --stat refA refB -- docs/protocol.md sdk/src/protocol.ts`를 돌리고, 비어 있지 않으면 통계 + 전체 diff를 출력하고 exit 1. 프로토콜 freeze gate(AC-21)에서 "릴리스 사이에 프로토콜이 바뀌었는가"를 묻는 용도라 이것으로 충분하다.
+5. **생성기 추가 플래그(계약 외).** `--schema <file>` (JSON 덤프에서 생성 — `protocol.py` 없이 생성기 자체를 테스트), `--print-schema` (정규화된 스키마 출력). 기본 동작·`--check`·`--diff`는 계약대로다.
+6. **SDK 라이프사이클 이벤트.** 프로토콜 알림 외에 `reconnected{attempt, resumedSessions}`, `disconnected{code, reason, willRetry}`, `error{error}`를 `client.on()`으로 함께 노출한다. §13-8(US-008)이 보고한 버그를 고쳤다: 최초 `connect()`가 실패하면(ECONNREFUSED 등) 재연결 루프를 걸지 않고(`everOpen` 플래그) `connect()`가 스스로 `close()`한 뒤 reject 한다. TUI의 `process.exit` 우회는 이제 불필요하다.
+7. **`session.resume` 재전송은 SDK가 `session.event`로 다시 뿌린다.** 재연결 시 추적 중인 각 세션에 대해 `session.resume(sessionId, afterSeq)`를 호출하고, 돌아온 이벤트를 `session.event` 리스너에 그대로 흘린 뒤 `reconnected`를 낸다. 세션 추적은 `session.create`/`session.resume` 결과에서 자동으로 시작되고 `session.close`에서 끝난다.
+8. **호출 타임아웃(계약 외).** `call()`은 기본 30초, `system.hello`는 15초 뒤 reject 한다. `callTimeoutMs: 0`으로 끌 수 있다.
+9. **계약 테스트의 fake 스크립트 위치.** 계약 §5는 `tests/fixtures/providers/fake/basic.json`을 예로 들지만, SDK 테스트는 자기 픽스처를 `sdk/test/fixtures/fake-basic.json`에 두고 `SNOWPEA_PROVIDER=fake:<abs path>`로 넘긴다. 내용 형식은 §5 그대로다.
+10. **`--grep base` 3건 중 1건만 엄격하다.** `session.create`가 `not_implemented`를 돌려주면 테스트 1은 실패한다(카나리아). 테스트 2·3은 `not_implemented`일 때 `SKIP:` 사유를 출력하고 `this.skip()` 한다. US-005(에이전트 루프)가 들어오면 셋 다 실행된다. `--grep subagent`는 AC-15b 자리표시자 `it.skip` 1건이며 데몬을 띄우지 않는다.
+11. **CI `sdk-contract` 잡에 uv를 추가했다.** 계약 테스트가 실제 데몬을 `uv run python -m snowpea_core`로 띄우므로 Node만으로는 돌지 않는다. `protocol-check` 잡의 명령은 그대로다.

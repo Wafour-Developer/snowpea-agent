@@ -60,6 +60,12 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      # The contract tests drive a real daemon: `uv run python -m snowpea_core`.
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: uv sync
+        run: uv sync
       - name: npm ci
         run: npm ci
       - name: build sdk

@@ -756,7 +756,9 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
+| `counters` | `Record<string, number>` | no |  |
 | `home` | `string` | yes |  |
+| `lifecycle` | `{ reason?: string; secondsUntilExit?: number \| null; willExit?: boolean; } \| null` | no |  |
 | `pid` | `number` | yes |  |
 | `port` | `number` | yes |  |
 | `protocolVersion` | `string` | yes |  |

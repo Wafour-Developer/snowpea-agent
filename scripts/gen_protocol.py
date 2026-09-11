@@ -124,7 +124,19 @@ def normalize(raw: Any) -> dict[str, Any]:
         entry.setdefault("direction", "s2c" if name.endswith(".request") else "c2s")
         entry["params"] = _as_schema(entry.get("params"))
         entry["result"] = _as_schema(entry.get("result"))
-        entry["summary"] = str(entry.get("summary") or entry.get("description") or "")
+        entry["summary"] = " ".join(
+            str(entry.get("summary") or entry.get("description") or "").split()
+        )
+
+    # A summary shared by several methods comes from a shared params model's
+    # docstring, not from the method — it describes nothing useful, so drop it.
+    counts: dict[str, int] = {}
+    for entry in methods.values():
+        if entry["summary"]:
+            counts[entry["summary"]] = counts.get(entry["summary"], 0) + 1
+    for entry in methods.values():
+        if counts.get(entry["summary"], 0) > 1:
+            entry["summary"] = ""
 
     events_raw = pick("events", "notifications", default={})
     events: dict[str, dict[str, Any]] = {}
@@ -140,16 +152,8 @@ def normalize(raw: Any) -> dict[str, Any]:
             events[str(name)] = _as_schema(entry)
 
     kinds_raw = pick("sessionEventKinds", "session_event_kinds", "eventKinds", default={})
-    kinds: dict[str, dict[str, Any]] = {}
-    if isinstance(kinds_raw, dict):
-        for name, entry in kinds_raw.items():
-            kinds[str(name)] = _as_schema(entry)
-    elif isinstance(kinds_raw, list):
-        for entry in kinds_raw:
-            if isinstance(entry, str):
-                kinds[entry] = {"type": "object", "additionalProperties": True}
-            elif isinstance(entry, dict) and entry.get("kind"):
-                kinds[str(entry["kind"])] = _as_schema(entry.get("payload") or entry)
+    payloads_raw = pick("sessionEventPayloads", "session_event_payloads", default=None)
+    kinds = _kind_payloads(kinds_raw, payloads_raw)
 
     codes = pick("errorCodes", "error_codes", default=None)
     if isinstance(codes, dict):
@@ -177,6 +181,70 @@ def normalize(raw: Any) -> dict[str, Any]:
         "transport": merged_transport,
         "capabilities": capabilities,
     }
+
+
+def _find_discriminator(root: dict[str, Any]) -> dict[str, Any] | None:
+    """Locate a pydantic discriminated union inside a wrapper schema."""
+    candidates: list[Any] = [root]
+    props = root.get("properties")
+    if isinstance(props, dict):
+        candidates.extend(props.values())
+    for node in candidates:
+        if not isinstance(node, dict):
+            continue
+        disc = node.get("discriminator")
+        if isinstance(disc, dict) and isinstance(disc.get("mapping"), dict):
+            return disc
+    return None
+
+
+def _kind_payloads(kinds_raw: Any, payloads_raw: Any) -> dict[str, dict[str, Any]]:
+    """Return ``{kind: payload schema}`` for every ``session.event`` kind.
+
+    ``dump_schema()`` may expose the kinds as a plain list of names plus one
+    wrapper model holding a discriminated union (pydantic's natural shape), or
+    as a direct ``{kind: schema}`` mapping. Both are accepted and produce the
+    same output, so the discriminator field is kept in the payload type: the
+    daemon dumps the whole model into ``payload``, and keeping ``kind`` makes
+    ``SessionEventKindMap`` narrow like a TypeScript discriminated union.
+    """
+    names: list[str] = []
+    direct: dict[str, dict[str, Any]] = {}
+    if isinstance(kinds_raw, list):
+        for entry in kinds_raw:
+            if isinstance(entry, str):
+                names.append(entry)
+            elif isinstance(entry, dict) and entry.get("kind"):
+                names.append(str(entry["kind"]))
+                direct[str(entry["kind"])] = _as_schema(entry.get("payload") or entry)
+    elif isinstance(kinds_raw, dict):
+        for name, entry in kinds_raw.items():
+            names.append(str(name))
+            direct[str(name)] = _as_schema(entry)
+
+    if isinstance(payloads_raw, dict) and payloads_raw:
+        disc = _find_discriminator(payloads_raw)
+        if disc is not None:
+            defs = payloads_raw.get("$defs") or payloads_raw.get("definitions") or {}
+            resolved: dict[str, dict[str, Any]] = {}
+            for kind, ref in sorted(disc["mapping"].items()):
+                target = _resolve({"$ref": ref}, payloads_raw)
+                if not target:
+                    continue
+                schema = dict(target)
+                if defs:
+                    schema["$defs"] = defs
+                resolved[str(kind)] = schema
+            if resolved:
+                for name in names:
+                    resolved.setdefault(name, {"type": "object", "additionalProperties": True})
+                return resolved
+        elif not direct and all(isinstance(v, dict) for v in payloads_raw.values()):
+            direct = {str(k): _as_schema(v) for k, v in payloads_raw.items()}
+
+    for name in names:
+        direct.setdefault(name, {"type": "object", "additionalProperties": True})
+    return direct
 
 
 def _as_schema(value: Any) -> dict[str, Any]:
@@ -386,7 +454,9 @@ def render_ts(schema: dict[str, Any]) -> str:
     out.append("// ---------------------------------------------------------------------------")
     out.append("")
     for name in sorted(events):
-        out.append(declare(type_name(name, "Payload"), events[name], f"`{name}` notification payload."))
+        out.append(
+            declare(type_name(name, "Payload"), events[name], f"`{name}` notification payload.")
+        )
 
     if kinds:
         out.append(
@@ -454,7 +524,9 @@ def render_ts(schema: dict[str, Any]) -> str:
     ev_body = "\n".join(f"  {json.dumps(n)}: {type_name(n, 'Payload')};" for n in sorted(events))
     out.append("/** Every server→client notification, with its payload type. */")
     out.append(
-        f"export interface EventMap {{\n{ev_body}\n}}\n" if events else "export interface EventMap {}\n"
+        f"export interface EventMap {{\n{ev_body}\n}}\n"
+        if events
+        else "export interface EventMap {}\n"
     )
     out.append("export type EventName = keyof EventMap;")
     out.append(
@@ -591,7 +663,8 @@ def render_md(schema: dict[str, Any]) -> str:
     for name in sorted(methods):
         entry = methods[name]
         direction = "server → client" if entry.get("direction") == "s2c" else "client → server"
-        out.append(f"| [`{name}`](#{anchor(name)}) | {direction} | {md_escape(entry.get('summary', ''))} |")
+        summary = md_escape(entry.get("summary", ""))
+        out.append(f"| [`{name}`](#{anchor(name)}) | {direction} | {summary} |")
     out.append("")
 
     out.append("## Methods")
