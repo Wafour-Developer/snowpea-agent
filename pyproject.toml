@@ -35,6 +35,7 @@ Homepage = "https://github.com/snowpea/snowpea-agent"
 
 [project.scripts]
 snowpea = "snowpea_core.cli.main:main"
+snowpea-core = "snowpea_core.__main__:main"
 
 [dependency-groups]
 dev = [

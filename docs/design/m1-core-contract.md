@@ -8,6 +8,8 @@
 - 프로젝트 설정: `<workdir>/.snowpea/settings.json` (`defaultMode`, `allowlist`, `backend`, `agents.max_concurrent` 오버라이드).
 - 로깅: `logging.getLogger("snowpea.<module>")`, 파일 핸들러 `$SNOWPEA_HOME/logs/daemon.log`.
 
+> **Transport note (US-004):** 데몬은 aiohttp 애플리케이션 하나로 HTTP와 WebSocket을 같은 포트에서 서비스한다. WS 엔드포인트는 `ws://127.0.0.1:<port>/ws`, HTTP는 `GET /health`, `GET /version`, `GET /protocol.json`.
+
 ## 1. `server/protocol.py` — SSOT
 ```python
 PROTOCOL_VERSION = "0.1.0"          # semver; M8에서 1.0.0
@@ -184,3 +186,19 @@ class CommandRegistry: register(cmd); list(session=None); parse(text) -> (name, 
 5. **TUI 바이너리 종료 코드.** `node dist/snowpea-tui.js` 는 인자 오류 `2`, 데몬 연결/세션 생성 실패 `1`, 정상 종료 `0`. §10의 CLI 종료 코드 체계와 같은 의미를 재사용한다.
 6. **SDK 표면의 국소 타입 선언.** `tui/src/rpc/sdk.ts`가 §11의 `connect`/`Client` 모양을 구조적으로 선언하고 `@snowpea/sdk`를 지연 import 한다. SDK 빌드 산출물 유무와 무관하게 `tsc -p tui`와 번들이 성립하도록 하기 위한 것이며, 실제 SDK가 이 모양을 만족해야 한다.
 7. **키 바인딩(계약 외).** `Enter` 전송, `↑/↓` 히스토리(팔레트 열림 시 후보 선택), `Tab` 명령 완성, `Esc` → `session.interrupt`, `F1` 도움말 토글(터미널 escape 시퀀스로 감지), `Ctrl+O` 마지막 툴 출력 펼치기, `Ctrl+C` 종료. Ink 5에 텍스트 입력 컴포넌트가 없어 입력 줄은 `useInput`으로 직접 구현했다(번들 의존성 추가 회피).
+
+## 13. Deviations (US-004, M1 core daemon)
+
+구현하면서 계약 대비 달라진 점. 다음 스토리들은 이 문서 기준으로 작업한다.
+
+1. **단일 aiohttp 서버.** `websockets` 서버와 aiohttp 서버는 같은 소켓을 공유할 수 없어, aiohttp 하나만 `127.0.0.1:<port>`에 바인딩하고 WS는 `web.WebSocketResponse`로 `/ws` 경로에 얹었다. `server/transport_ws.py`는 그 경로 핸들러와 `system.hello`를, `server/transport_http.py`는 앱 구성과 `/health`·`/version`·`/protocol.json`을 담당한다. 런타임 의존성에서 `websockets`는 아직 사용하지 않는다.
+2. **에러 코드 위치.** 계약대로 스노우피 코드는 `error.data.code`에 실린다. 숫자 `error.code`는 JSON-RPC 규약을 따르며 `not_found` → `-32601`, `invalid_params` → `-32602`, `internal` → `-32603`, 나머지는 `-32000`이다. `error.data.details`에 부가 정보(pydantic 검증 오류 등)가 들어간다.
+3. **핸들러 시그니처.** `RpcDispatcher.register(name, handler)`의 핸들러는 계약의 `(conn, params)`가 아니라 `(conn, params_model, core)`를 받는다. `Core` 싱글턴을 전역 없이 전달하기 위함이다. 프로토콜에 없는 메서드를 등록할 때만 `params_model`을 직접 넘긴다.
+4. **요청은 태스크로 처리.** 서버가 핸들러 안에서 `conn.call("approval.request", ...)`로 클라이언트를 호출하는 동안 읽기 루프가 막히면 교착이 생기므로, 각 요청은 `RpcConnection.spawn`으로 별도 태스크에서 실행된다. 따라서 한 연결 안에서 응답 순서는 요청 순서와 다를 수 있다(JSON-RPC `id` 상관관계로 매칭).
+5. **`Core` 추가 필드.** 계약의 필드 외에 `token`, `pid`, `port`, `started_at`, `request_shutdown`이 있다. `system.info`와 `system.hello`가 전역 상태 없이 동작하기 위한 것이다. `store`는 아직 `None`(US-005가 채운다).
+6. **`Daemon` 클래스.** `run_daemon(port, home)`은 계약 그대로지만, 테스트에서 포트를 알아내고 인프로세스로 띄우기 위해 `Daemon.start()` / `wait_closed()` / `stop()`을 공개한다. `run_daemon`은 그 위의 얇은 래퍼(시그널 핸들러 설치 + 대기)다.
+7. **`EventHub` 위치.** 계약 §4는 `session/`이라고만 적어 두었으므로 M1 스텁은 `session/manager.py`에 `SessionManager`와 함께 둔다. US-005가 옮겨도 무방하다.
+8. **`Lifecycle` 카운터.** `sessions` / `jobs` / `gateway_bindings` / `named_agents` 네 개만 존재하며 `set_counter(name, value)`로만 갱신한다. 넷 다 0인 상태가 `daemon.idleTimeoutSec`(기본 1800초) 지속되면 종료한다. `status()`는 `{counters, willExit, reason, secondsUntilExit}`를 돌려준다.
+9. **테스트 전용 메서드.** `SNOWPEA_TEST=1`일 때만 `system.echoRequest`가 등록된다. 서버→클라이언트 요청 경로를 검증하기 위한 것으로 `METHODS`에는 포함되지 않는다.
+10. **M1 구현 범위.** `system.hello|info|health|shutdown` 외의 모든 c2s 메서드는 스키마만 등록되고 `error{code:"not_implemented"}`를 돌려준다(`protocol.IMPLEMENTED_METHODS` 참조).
+8. **SDK 이슈(US-007 앞)**: 최초 `connect()`가 ECONNREFUSED로 reject 될 때 `Client`의 `ws.on("close")`가 `scheduleReconnect()`를 걸어 이벤트 루프가 영원히 살아 있는다. 호출자는 reject 된 `connect()`의 `Client` 인스턴스를 받지 못해 `close()`할 수 없다. TUI는 시작 실패 시 `process.exit(code)`로 강제 종료해 우회했다. 근본 수정은 SDK `connect()`가 실패 시 자체 정리(`closed = true`)하는 것.
