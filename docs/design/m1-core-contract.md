@@ -223,3 +223,39 @@ class CommandRegistry: register(cmd); list(session=None); parse(text) -> (name, 
 13. **US-005 대기 테스트.** `tests/test_headless_exit_codes.py`의 세션·레지스트리 의존 케이스는 `not_implemented`를 만나면 건너뛴다. 폴링 예산은 `SNOWPEA_US005_WAIT_SEC`(기본 `0`)로, CI가 15분 멈추지 않도록 기본값을 0으로 두었다. 스토리가 요구한 15분 폴링은 `SNOWPEA_US005_WAIT_SEC=900`으로 얻는다.
 14. **`--timeout` → 5 테스트는 보류.** `tests/fixtures/providers/fake/basic.json`에 턴을 지연시킬 단계가 없어 결정적으로 만들 수 없다. 스킵 사유에 적어 두었고, M3에서 스크립트 프로바이더에 `delaySec` 같은 필드가 생기면 켠다. 타임아웃 경로 자체는 스텁 데몬으로 수동 검증했다(`session.interrupt` 후 5).
 15. **`tests/test_smoke.py`의 M0 자리표시자 테스트 교체.** `main([])`가 더 이상 `SystemExit(2)`가 아니라 데몬+TUI를 띄우므로, 사용법 오류(2)와 TUI 번들 부재(2) 두 케이스로 바꿨다.
+
+## 15. Deviations (US-007, SDK)
+
+생성기(`scripts/gen_protocol.py`)·SDK(`sdk/src`)·계약 테스트(`sdk/test`)를 구현하며 계약 대비 달라지거나 계약에 없어 새로 정한 점.
+
+1. **`dump_schema()` 형태는 US-004와 합의한 §13-10 그대로다.** 다만 생성기는 방어적으로 정규화한다: `protocolVersion`/`version`, `methods`가 dict이든 list이든, `sessionEventKinds`가 `{kind: schema}`이든 이름 리스트 + 판별 유니온(`sessionEventPayloads`)이든 모두 같은 산출물을 낸다. `transport`가 없으면 `{"ws": "/ws", "http": {"health","version","schema"}}`를 기본값으로 쓴다. 스키마가 바뀌어도 생성기가 조용히 깨지지 않게 하기 위함이다.
+2. **여러 메서드가 공유하는 `summary`는 버린다.** 공용 pydantic 모델(`EmptyParams` 등)의 docstring이 `params.description`을 거쳐 메서드 요약으로 새어 나온 적이 있다("A method that takes no parameters…"). 2개 이상의 메서드가 같은 요약을 가지면 그 요약은 메서드 고유 정보가 아니므로 생성기가 제거한다. US-004가 44개 메서드에 고유 summary를 넣은 뒤로는 발동하지 않지만, 같은 사고의 재발 방지 장치로 남긴다.
+3. **`session.event.payload` 타입은 `kind` 판별자를 포함한다.** `sessionEventKinds[kind]` 스키마가 `kind` const 필드를 갖고 데몬이 모델 전체를 `payload`에 덤프하므로, 생성된 `SessionEventKindMap`은 TypeScript 판별 유니온으로 좁혀진다. `kind`는 optional(`kind?`)이라 데몬이 빼고 보내도 타입은 성립한다. 문서 표에서 description이 비는 유일한 필드가 이 13개 `kind`다(의도된 것).
+4. **`--diff <refA> <refB>`는 커밋된 산출물을 비교한다.** 두 ref에서 `protocol.py`를 체크아웃해 재생성하는 대신 `git diff --stat refA refB -- docs/protocol.md sdk/src/protocol.ts`를 돌리고, 비어 있지 않으면 통계 + 전체 diff를 출력하고 exit 1. 프로토콜 freeze gate(AC-21)에서 "릴리스 사이에 프로토콜이 바뀌었는가"를 묻는 용도라 이것으로 충분하다.
+5. **생성기 추가 플래그(계약 외).** `--schema <file>` (JSON 덤프에서 생성 — `protocol.py` 없이 생성기 자체를 테스트), `--print-schema` (정규화된 스키마 출력). 기본 동작·`--check`·`--diff`는 계약대로다.
+6. **마크다운 표의 타입 칸에서는 JSDoc 주석을 제거한다.** 중첩 객체 타입은 필드 설명을 JSDoc으로 달고 인라인되는데, 한 줄짜리 표 칸에 들어가면 읽을 수 없다. 설명은 옆의 description 칸이 담당한다. TypeScript 산출물에는 JSDoc이 그대로 남는다.
+7. **SDK 라이프사이클 이벤트.** 프로토콜 알림 외에 `reconnected{attempt, resumedSessions}`, `disconnected{code, reason, willRetry}`, `error{error}`를 `client.on()`으로 함께 노출한다.
+8. **`session.resume` 재전송은 SDK가 `session.event`로 다시 뿌린다.** 재연결 시 추적 중인 각 세션에 대해 `session.resume(sessionId, afterSeq)`를 호출하고, 돌아온 이벤트를 `session.event` 리스너에 그대로 흘린 뒤 `reconnected`를 낸다. 세션 추적은 `session.create`/`session.resume` 결과에서 자동으로 시작되고 `session.close`에서 끝난다.
+9. **호출 타임아웃(계약 외).** `call()`은 기본 30초, `system.hello`는 15초 뒤 reject 한다. `callTimeoutMs: 0`으로 끌 수 있다.
+10. **계약 테스트의 fake 스크립트 위치.** 계약 §5는 `tests/fixtures/providers/fake/basic.json`을 예로 들지만, SDK 테스트는 자기 픽스처를 `sdk/test/fixtures/fake-basic.json`에 두고 `SNOWPEA_PROVIDER=fake:<abs path>`로 넘긴다. 내용 형식은 §5 그대로다.
+11. **`--grep base` 3건은 모두 엄격하다.** US-005(에이전트 루프) 이전에는 테스트 2·3이 `not_implemented`를 만나면 `SKIP:` 사유를 출력하고 `this.skip()` 하도록 두었으나, US-005가 들어와 3건 모두 통과한 뒤 그 탈출구를 제거했다. 이제 어떤 메서드가 `not_implemented`로 퇴행하면 조용히 skip 되지 않고 실패한다. `--grep subagent`는 AC-15b 자리표시자 `it.skip` 1건이며 데몬을 띄우지 않는다.
+12. **CI `sdk-contract` 잡에 uv를 추가했다.** 계약 테스트가 실제 데몬을 `uv run python -m snowpea_core`로 띄우므로 Node만으로는 돌지 않는다. `protocol-check` 잡의 명령은 그대로다.
+13. **생성물은 커밋된다.** `sdk/src/protocol.ts`와 `docs/protocol.md`는 커밋되고 CI가 `--check`로 신선도를 검사한다. `protocol.py`(METHODS·EVENTS·모델·필드 설명 포함)를 고치면 `uv run python scripts/gen_protocol.py`를 돌려 두 산출물을 같은 변경에 포함시켜야 한다.
+
+> 이 절은 US-006이 자기 절을 14번으로 붙이면서 한 번 통째로 사라졌다가 복구되었다. 이 문서에 절을 추가할 때는 마지막 절 번호를 먼저 확인할 것.
+
+## 16. Deviations (US-005, sessions / agent loop / tools / permissions / commands)
+
+1. **핸들러 위치.** §7의 RPC 핸들러들은 `server/app_server.py`가 아니라 `server/session_handlers.py`에 있다. `app_server.py`는 US-004·US-006과 동시 편집 중이라 충돌 면적을 줄였다. `build_dispatcher`는 `register_session_handlers(dispatcher)` 한 줄로 13개 메서드를 등록하고, `Daemon.start`는 `wire_core(core)` 한 줄로 `store`/`sessions`/`hub`/`approvals`/`providers`를 연결하고 내장 툴·명령을 등록한다. `protocol.IMPLEMENTED_METHODS`에 이 13개가 추가됐다.
+2. **`ProviderInfo.authMethods` 추가.** 플랜 §2.8의 웹 로그인 2종(OpenAI `device_code`, OpenRouter `oauth_pkce`)을 `provider.list`가 실어 나르려면 필드가 필요하다. `authMethods: list[str] = ["api_key"]`를 `server/protocol.py`의 `ProviderInfo`에 더했다(추가 전용이라 기존 소비자는 영향 없음). 벤더 11종의 정적 목록은 `providers/presets.py`에 있다.
+3. **`ExecutionBackend`는 파일 접근까지 포함한다.** 계약 §6은 `ToolContext.backend`만 정하고 모양은 열어 뒀다. `exec/backend.py`의 Protocol은 `run`·`read_file`·`write_file`·`list_dir`·`resolve`·`cwd`를 갖는다. fs 툴도 전부 이 백엔드를 거치므로 US-010의 docker/ssh 백엔드가 파일 툴까지 그대로 가져간다. M1 구현은 `exec/local.py`의 `LocalBackend` 하나.
+4. **`diff` 이벤트의 `path`.** `ToolResult`에 계약에 없는 `path` 필드를 더해, 루프가 `diff{path, patch}`를 만들 때 툴이 실제로 건드린 경로를 쓴다(인자 파싱을 루프가 다시 하지 않기 위함).
+5. **turn 종료 이유.** 승인 타임아웃도 `turn.done{reason:"denied"}`로 끝난다. 구분은 직전 `error` 이벤트의 코드(`approval_timeout` vs `approval_denied`)가 한다. `TurnReason`의 `"timeout"`은 M1에서 쓰이지 않는다.
+6. **`session.interrupt`는 대기 중인 승인도 깨운다.** `ApprovalQueue.request(cancel_event=...)`가 세션의 `asyncio.Event`를 함께 기다린다. 인터럽트가 이기면 `error` 없이 곧장 `turn.done{interrupted}`가 나간다. 그렇지 않으면 승인 하나가 최대 `approvals.timeoutSec`(기본 300초) 동안 턴을 붙잡는다.
+7. **대화형 승인의 이중 대기.** 원본 연결에는 `conn.call("approval.request", timeout=timeoutSec)`로 묻고, 바깥에서 `timeoutSec + 2초`를 더 기다린다(`GRACE_SECONDS`). 안쪽이 먼저 만료되어 `approval_timeout`을 확정하게 하기 위한 여유이며, 바깥 만료는 원본 태스크가 죽었을 때의 안전망이다.
+8. **승인 scope 캐시.** `session`·`project`·`always`로 허용하면 `(sessionId, tool)` 조합이 세션 메모리에 캐시되어 다시 묻지 않는다. 세 scope는 M1에서 동작이 같고 `logs/approvals.jsonl`에는 요청된 scope 그대로 기록된다. 영속 allowlist는 M4.
+9. **`unattended` 판정.** `session.prompt`는 세션에 `origin_conn`이 없을 때만 `unattended=True`로 턴을 돌린다. M1에서 WS 클라이언트가 만든 세션은 항상 대화형이다. 무인 승인 요청은 인증된 아무 연결이나 `approval.respond`로 답할 수 있고, 대화형 요청은 원본 연결만 답할 수 있다(그 외에는 `unauthorized`).
+10. **프로바이더 인스턴스는 턴 단위.** `ProviderRegistry.get()`을 턴마다 호출한다. 스크립트 프로바이더의 "스텝 1회 소비" 의미가 턴 안에서만 유지되고 턴이 바뀌면 리셋된다 — 테스트 픽스처를 짤 때 전제.
+11. **히스토리 압축은 자리만.** `History.compact()`는 `max_messages`(기본 200)를 넘으면 오래된 메시지를 버리되 tool 결과가 그 호출과 떨어지지 않게만 한다. 요약 압축은 메모리 작업과 함께 온다.
+12. **`session.resume`의 원본 승계.** 원본 연결이 없거나 닫혔으면 resume 한 연결이 `origin_conn`·`originSurface`를 넘겨받는다. 재접속한 TUI가 승인 프롬프트를 다시 받을 수 있게 하기 위함이다.
+13. **테스트 픽스처 추가.** `tests/fixtures/providers/fake/session.json` (write/edit/shell 시나리오). `basic.json`은 US-006이 쓰고 있어 건드리지 않았다.

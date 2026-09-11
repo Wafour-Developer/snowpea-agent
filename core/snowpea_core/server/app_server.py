@@ -38,10 +38,15 @@ from snowpea_core.server.protocol import (
     Empty,
     HealthResult,
     InfoResult,
+    LifecycleStatus,
     Ok,
     Payload,
 )
 from snowpea_core.server.rpc import RpcConnection, RpcDispatcher
+from snowpea_core.server.session_handlers import (
+    register_session_handlers,
+    wire_core,
+)
 from snowpea_core.server.transport_http import (
     CONNECTIONS_KEY,
     SOCKETS_KEY,
@@ -100,6 +105,7 @@ class EchoRequestParams(Payload):
 
 async def info_handler(_conn: RpcConnection, _params: Empty, core: Core) -> InfoResult:
     """``system.info``."""
+    status = core.lifecycle.status()
     return InfoResult(
         version=SERVER_VERSION,
         protocolVersion=PROTOCOL_VERSION,
@@ -107,6 +113,12 @@ async def info_handler(_conn: RpcConnection, _params: Empty, core: Core) -> Info
         port=core.port,
         startedAt=core.started_at,
         home=str(core.paths.home),
+        counters=dict(status["counters"]),
+        lifecycle=LifecycleStatus(
+            willExit=bool(status["willExit"]),
+            reason=str(status["reason"]),
+            secondsUntilExit=status["secondsUntilExit"],
+        ),
     )
 
 
@@ -154,6 +166,7 @@ def build_dispatcher(core: Core) -> RpcDispatcher:
     dispatcher.register("system.info", info_handler)
     dispatcher.register("system.health", health_handler)
     dispatcher.register("system.shutdown", shutdown_handler)
+    register_session_handlers(dispatcher)
     for name, method in PROTOCOL_METHODS.items():
         if method.direction != "c2s" or dispatcher.has(name):
             continue
@@ -201,6 +214,7 @@ class Daemon:
         settings = Settings.load(paths)
         token = ensure_token(paths)
         core = Core(settings=settings, paths=paths, token=token)
+        wire_core(core)
         core.lifecycle = Lifecycle(
             idle_timeout_sec=settings.daemon.idleTimeoutSec,
             on_idle=self._on_idle,
@@ -277,6 +291,9 @@ class Daemon:
         if self._runner is not None:
             await self._runner.cleanup()
             self._runner = None
+        if self.core is not None and self.core.store is not None:
+            with contextlib.suppress(Exception):
+                self.core.store.close()
         self._remove_daemon_json()
         log.info("snowpea daemon stopped (%s)", self.shutdown_reason)
 

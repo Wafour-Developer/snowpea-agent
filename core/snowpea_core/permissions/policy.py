@@ -1,14 +1,22 @@
-"""Mode x permission-tag policy — M1 stub (US-006 fills it in)."""
+"""Mode x permission-tag policy (contract §7).
+
+The matrix is the whole decision at M1.  The allowlist (M4) plugs in through
+:meth:`PermissionPolicy.promote`, which may only turn ``ask`` into ``allow`` —
+it can never weaken a ``deny``.
+"""
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 Mode = Literal["plan", "accept", "auto"]
 PermissionTag = Literal["read", "write", "exec", "network", "send"]
 Verdict = Literal["allow", "deny", "ask"]
 
-#: Contract §7 table. US-006 owns the allowlist promotion on top of it.
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from snowpea_core.tools.registry import Tool
+
+#: Contract §7 table.
 MODE_MATRIX: dict[str, dict[str, str]] = {
     "plan": {"read": "allow", "write": "deny", "exec": "deny", "network": "allow", "send": "deny"},
     "accept": {"read": "allow", "write": "allow", "exec": "ask", "network": "ask", "send": "ask"},
@@ -21,20 +29,45 @@ MODE_MATRIX: dict[str, dict[str, str]] = {
     },
 }
 
+#: Human-facing risk label used in ``approval.request``.
+RISK_BY_TAG: dict[str, str] = {
+    "read": "low",
+    "network": "medium",
+    "write": "medium",
+    "send": "high",
+    "exec": "high",
+}
+
 
 class PermissionPolicy:
-    """Decides allow/deny/ask for a tool call. Stub: table lookup only."""
+    """Decides allow / deny / ask for one tool call."""
 
     def decide(
         self,
         mode: Mode,
         tag: PermissionTag,
-        tool: Any = None,
+        tool: Tool | None = None,
         args: dict[str, Any] | None = None,
         session: Any = None,
     ) -> Verdict:
+        """Look the pair up in :data:`MODE_MATRIX`, then apply the allowlist."""
         verdict = MODE_MATRIX.get(mode, {}).get(tag, "ask")
+        if verdict == "ask":
+            verdict = self.promote(verdict, tool, args, session)
         return verdict  # type: ignore[return-value]
 
+    def promote(
+        self,
+        verdict: str,
+        tool: Tool | None = None,
+        args: dict[str, Any] | None = None,
+        session: Any = None,
+    ) -> str:
+        """Allowlist hook (M4). At M1 nothing is promoted."""
+        return verdict
 
-__all__ = ["MODE_MATRIX", "PermissionPolicy"]
+    def risk(self, tag: PermissionTag) -> str:
+        return RISK_BY_TAG.get(tag, "medium")
+
+
+__all__ = ["MODE_MATRIX", "RISK_BY_TAG", "PermissionPolicy"]

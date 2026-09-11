@@ -15,7 +15,12 @@ import pytest_asyncio
 
 from snowpea_core import __version__
 from snowpea_core.server.app_server import Daemon
-from snowpea_core.server.protocol import PROTOCOL_VERSION
+from snowpea_core.server.protocol import (
+    IMPLEMENTED_METHODS,
+    METHODS,
+    PROTOCOL_VERSION,
+    Empty,
+)
 
 pytestmark = pytest.mark.asyncio
 
@@ -123,12 +128,27 @@ async def test_unknown_method_is_not_found(daemon: Daemon, session: aiohttp.Clie
     assert response["error"]["data"]["code"] == "not_found"
 
 
+def _pending_no_arg_method() -> str:
+    """A registered method that is declared but not implemented yet.
+
+    Chosen dynamically so this test keeps working as later stories implement
+    more of the protocol; restricted to no-argument methods so the call needs
+    no fabricated params.
+    """
+    for name, method in METHODS.items():
+        if method.direction != "c2s" or name in IMPLEMENTED_METHODS:
+            continue
+        if method.params is Empty:
+            return name
+    raise AssertionError("every no-arg method is implemented; retire this test")
+
+
 async def test_unimplemented_method_reports_not_implemented(
     daemon: Daemon, session: aiohttp.ClientSession
 ) -> None:
     client = await _connect(session, daemon)
     await _hello(client, daemon.token)
-    response = await client.call("session.list")
+    response = await client.call(_pending_no_arg_method())
     assert response["error"]["data"]["code"] == "not_implemented"
 
 
