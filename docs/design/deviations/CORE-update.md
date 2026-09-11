@@ -60,17 +60,30 @@ update check the daemon caches daily, a detached upgrade with progress notificat
    report — the upgrade subprocess itself is detached and would have survived, so the user would
    have been told nothing about an upgrade that was still running.
 
-9. **`Daemon.stop` cancels the upgrade watcher.** The watcher (`update.watch_update`) waits on the
-   installer in a thread; cancelling it at shutdown drops only the `done` notification, never the
-   upgrade, because the subprocess is started with `start_new_session=True`.
+9. **The upgrade watcher polls instead of parking a thread on `process.wait()`.**
+   `update.wait_for_exit` loops on `Popen.poll()` with an `asyncio.sleep`, bounded by
+   `UPDATE_TIMEOUT_SEC` (30 min). The obvious `await asyncio.to_thread(process.wait)` was rejected:
+   a thread blocked in `wait()` cannot be cancelled, so an installer that hung would hold a
+   non-daemon executor thread for the life of the process and block interpreter shutdown with it —
+   a hang no `pytest-timeout` and no `Daemon.stop` could clear. Polling makes the wait ordinary
+   cancellable async work, which is what `Daemon.stop` relies on. `start_update` likewise closes
+   the parent's copy of the log handle as soon as the child has its dup, and
+   `cli/commands._await_update` is bounded by the same deadline, so `snowpea update` cannot block
+   forever on a daemon that never reports back. The subprocess is detached
+   (`start_new_session=True`), so giving up only ever stops the reporting, never the upgrade.
 
 Verification run at the time of this change:
 
-- `uv run pytest -q` — 470 passed, 4 skipped (pre-existing skips: `shellcheck` not installed, one
-  Anthropic-SDK-framing test, the roundtrip "every no-argument method is implemented" case, one
-  e2e case).
+- `SNOWPEA_SKIP_BROWSER_TESTS=1 uv run pytest -q` — 525 passed, 9 skipped, in 2m18s.
+- A plain `uv run pytest -q` does **not** finish on a machine with Chromium installed:
+  `tests/test_tools_contract.py::test_local_chromium_navigates_and_snapshots` drives a real
+  Playwright browser, and its `@pytest.mark.timeout(60)` uses the thread method, which can dump a
+  stack but cannot interrupt the blocked driver — the run then stalls with a
+  `playwright/driver/node … run-driver` child alive. That test carries its own
+  `SNOWPEA_SKIP_BROWSER_TESTS=1` escape hatch, which is what the run above uses. This is
+  pre-existing and unrelated to CORE-update.
 - `uv run ruff check core tests scripts` — all checks passed.
-- `uv run mypy core` — no issues found in 137 source files.
+- `uv run mypy core` — no issues found in 139 source files.
 - `uv run python scripts/gen_protocol.py --check` — `sdk/src/protocol.ts` and `docs/protocol.md`
   both ok.
 - `npm -w sdk run build`, `npm -w sdk test`, `npm -w tui test`, `npx tsc -p tui --noEmit`,

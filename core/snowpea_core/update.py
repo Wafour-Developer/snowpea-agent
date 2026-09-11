@@ -57,6 +57,11 @@ PYPI_URL = f"https://pypi.org/pypi/{PACKAGE}/json"
 HTTP_TIMEOUT_SEC = 5.0
 #: How long a cached answer is reused before the network is asked again.
 CACHE_TTL_SEC = 24 * 60 * 60
+#: How long the upgrade subprocess may run before the watcher gives up on it.
+#: The subprocess is detached, so giving up only stops the reporting.
+UPDATE_TIMEOUT_SEC = 30 * 60
+#: How often the watcher looks at the upgrade subprocess.
+POLL_INTERVAL_SEC = 0.1
 
 #: Set to ``0``/``false``/``no`` to keep the daemon from checking on its own.
 CHECK_ENV = "SNOWPEA_UPDATE_CHECK"
@@ -344,7 +349,11 @@ def manual_command(source: str) -> str:
 
 
 def start_update(paths: Paths, command: list[str]) -> subprocess.Popen[bytes]:
-    """Spawn the upgrade detached, appending its output to ``logs/update.log``."""
+    """Spawn the upgrade detached, appending its output to ``logs/update.log``.
+
+    The parent's copy of the log handle is closed as soon as the child has its
+    own dup of it, so a long upgrade never keeps a file object alive here.
+    """
     paths.ensure()
     handle = paths.update_log.open("ab")
     try:
@@ -358,9 +367,8 @@ def start_update(paths: Paths, command: list[str]) -> subprocess.Popen[bytes]:
             start_new_session=True,
             cwd=str(paths.home),
         )
-    except OSError:
+    finally:
         handle.close()
-        raise
 
 
 async def notify_progress(core: Core, phase: str, message: str) -> None:
@@ -374,9 +382,42 @@ async def notify_progress(core: Core, phase: str, message: str) -> None:
         log.debug("could not broadcast updateProgress", exc_info=True)
 
 
+async def wait_for_exit(
+    process: subprocess.Popen[bytes],
+    *,
+    timeout: float = UPDATE_TIMEOUT_SEC,
+    poll_interval: float = POLL_INTERVAL_SEC,
+) -> int | None:
+    """Poll ``process`` until it exits; ``None`` when ``timeout`` runs out.
+
+    Deliberately a poll rather than ``asyncio.to_thread(process.wait)``: a
+    thread parked in ``wait()`` cannot be cancelled, so an installer that hung
+    would keep a non-daemon executor thread alive for the life of the process
+    (and block interpreter shutdown with it). Polling makes the wait ordinary
+    cancellable async work, which is what ``Daemon.stop`` relies on.
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while True:
+        code = process.poll()
+        if code is not None:
+            return code
+        if loop.time() >= deadline:
+            return None
+        await asyncio.sleep(poll_interval)
+
+
 async def watch_update(core: Core, process: subprocess.Popen[bytes], latest: str) -> None:
     """Wait for the upgrade to finish, then announce ``done`` or ``failed``."""
-    code = await asyncio.to_thread(process.wait)
+    code = await wait_for_exit(process)
+    if code is None:
+        await notify_progress(
+            core,
+            "failed",
+            f"the upgrade did not finish within {UPDATE_TIMEOUT_SEC:.0f}s; "
+            f"see {core.paths.update_log}",
+        )
+        return
     if code == 0:
         core.restart_required = True
         await notify_progress(core, "done", f"updated to v{latest.lstrip('v')}")
@@ -402,10 +443,12 @@ __all__ = [
     "CHECK_ENV",
     "HTTP_TIMEOUT_SEC",
     "PACKAGE",
+    "POLL_INTERVAL_SEC",
     "PYPI_URL",
     "REPO",
     "REPO_URL",
     "TAGS_URL",
+    "UPDATE_TIMEOUT_SEC",
     "background_check",
     "check_enabled",
     "check_update",
@@ -419,6 +462,7 @@ __all__ = [
     "start_update",
     "update_command",
     "version_suffix",
+    "wait_for_exit",
     "watch_update",
     "write_cache",
     "write_install_json",

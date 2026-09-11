@@ -299,9 +299,53 @@ def test_start_update_writes_the_installer_output_to_the_log(
 ) -> None:
     script = _fake_installer(tmp_path)
     process = update_mod.start_update(paths, [str(script), "tool", "install"])
-    assert process.wait() == 0
+    assert process.wait(timeout=30) == 0
     text = paths.update_log.read_text(encoding="utf-8")
     assert "installing tool install" in text
+
+
+async def test_wait_for_exit_returns_the_status(paths: Paths, tmp_path: Path) -> None:
+    process = update_mod.start_update(paths, [str(_fake_installer(tmp_path, exit_code=2))])
+    assert await update_mod.wait_for_exit(process, timeout=30) == 2
+
+
+async def test_wait_for_exit_gives_up_instead_of_blocking(
+    paths: Paths, tmp_path: Path
+) -> None:
+    """A stuck installer must not pin the watcher: the wait is bounded."""
+    script = tmp_path / "hanging-installer"
+    script.write_text("#!/bin/sh\nsleep 120\n", encoding="utf-8")
+    script.chmod(script.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    process = update_mod.start_update(paths, [str(script)])
+    try:
+        assert await update_mod.wait_for_exit(process, timeout=0.3, poll_interval=0.05) is None
+    finally:
+        process.kill()
+        process.wait(timeout=30)
+
+
+async def test_a_cancelled_watcher_stops_at_once(paths: Paths, tmp_path: Path) -> None:
+    """`Daemon.stop` cancels the watcher; that must return immediately."""
+    script = tmp_path / "hanging-installer-2"
+    script.write_text("#!/bin/sh\nsleep 120\n", encoding="utf-8")
+    script.chmod(script.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    process = update_mod.start_update(paths, [str(script)])
+    try:
+        task = asyncio.ensure_future(update_mod.wait_for_exit(process, timeout=600))
+        await asyncio.sleep(0.05)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, timeout=5)
+    finally:
+        process.kill()
+        process.wait(timeout=30)
+
+
+def test_start_update_does_not_hold_the_log_open(paths: Paths, tmp_path: Path) -> None:
+    """The parent closes its handle; only the child keeps a dup."""
+    process = update_mod.start_update(paths, [str(_fake_installer(tmp_path))])
+    process.wait(timeout=30)
+    assert paths.update_log.exists()
 
 
 # ---------------------------------------------------------------------------
@@ -475,6 +519,35 @@ async def test_snowpea_update_check_when_up_to_date(
     scripted(monkeypatch, {update_mod.PYPI_URL: pypi(SAME)})
     assert await cli_commands.update_cli(daemon.paths.home, check_only=True) == 0
     assert "is up to date" in capsys.readouterr().out
+
+
+async def test_await_update_gives_up_instead_of_blocking() -> None:
+    """A daemon that never reports back must not hang `snowpea update`."""
+
+    class _Silent:
+        async def notifications(self) -> Any:
+            while True:
+                await asyncio.sleep(0.05)
+            yield {}  # pragma: no cover - unreachable, makes this a generator
+
+    phase, message = await cli_commands._await_update(_Silent(), timeout=0.2)
+    assert phase == "failed"
+    assert "did not report back" in message
+
+
+async def test_await_update_returns_the_terminal_phase() -> None:
+    frames = [
+        {"method": "session.event", "params": {}},
+        {"method": "system.updateProgress", "params": {"phase": "started", "message": "go"}},
+        {"method": "system.updateProgress", "params": {"phase": "done", "message": "updated"}},
+    ]
+
+    class _Scripted:
+        async def notifications(self) -> Any:
+            for frame in frames:
+                yield frame
+
+    assert await cli_commands._await_update(_Scripted(), timeout=5) == ("done", "updated")
 
 
 def test_format_update_line_reports_a_failed_check() -> None:
