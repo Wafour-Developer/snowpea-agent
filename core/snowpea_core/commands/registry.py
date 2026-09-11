@@ -163,6 +163,7 @@ def register_builtin_commands(registry: CommandRegistry) -> CommandRegistry:
         backend_cmd,
         deepinit,
         mode_cmd,
+        model_cmd,
         ralph,
         schedule_cmd,
         skill_cmd,
@@ -174,6 +175,7 @@ def register_builtin_commands(registry: CommandRegistry) -> CommandRegistry:
     for command in (
         *COMMANDS,
         *mode_cmd.COMMANDS,
+        *model_cmd.COMMANDS,
         *backend_cmd.COMMANDS,
         *schedule_cmd.COMMANDS,
         *agent_cmd.COMMANDS,

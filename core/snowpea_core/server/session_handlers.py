@@ -17,6 +17,7 @@ from snowpea_core.commands.registry import register_builtin_commands
 from snowpea_core.exec.factory import build_backend
 from snowpea_core.memory import services as memory_services
 from snowpea_core.memory import wire_memory
+from snowpea_core.providers.base import ProviderError
 from snowpea_core.scheduler import wire_scheduler
 from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
@@ -36,6 +37,8 @@ from snowpea_core.server.protocol import (
     OptionalSessionParams,
     ProviderConfigureParams,
     ProviderListResult,
+    ProviderModelsParams,
+    ProviderModelsResult,
     SessionCreateParams,
     SessionCreateResult,
     SessionEvent,
@@ -78,6 +81,7 @@ HANDLED_METHODS: tuple[str, ...] = (
     "approval.list",
     "approval.respond",
     "provider.list",
+    "provider.models",
     "backend.set",
     "memory.search",
     "memory.write",
@@ -90,7 +94,7 @@ def wire_core(core: Core) -> Core:
     core.sessions.bind(core.store, core.settings, core.hub)
     core.hub.bind(core.store, core.sessions)
     core.approvals.bind(core.settings, core.paths, core.hub)
-    core.providers.bind(core.settings)
+    core.providers.bind(core.settings, core.paths)
     register_builtin_tools(core.tools)
     wire_memory(core)
     wire_scheduler(core)
@@ -301,6 +305,22 @@ async def provider_list_handler(
     return ProviderListResult(providers=core.providers.list())
 
 
+async def provider_models_handler(
+    _conn: RpcConnection, params: ProviderModelsParams, core: Core
+) -> ProviderModelsResult:
+    """``provider.models`` — ask the vendor's endpoint what it actually serves."""
+    vendor = (params.vendor or "").strip() or core.providers.default_vendor()
+    try:
+        available = await core.providers.list_models(vendor)
+    except ProviderError as exc:
+        raise RpcError(exc.code, str(exc)) from exc
+    return ProviderModelsResult(
+        vendor=vendor,
+        models=available,
+        current=core.providers.model_for(vendor),
+    )
+
+
 async def provider_configure_handler(
     _conn: RpcConnection, params: ProviderConfigureParams, core: Core
 ) -> Ok:
@@ -365,6 +385,7 @@ def register_session_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
     dispatcher.register("approval.list", approval_list_handler)
     dispatcher.register("approval.respond", approval_respond_handler)
     dispatcher.register("provider.list", provider_list_handler)
+    dispatcher.register("provider.models", provider_models_handler)
     dispatcher.register("backend.set", backend_set_handler)
     dispatcher.register("memory.search", memory_search_handler)
     dispatcher.register("memory.write", memory_write_handler)

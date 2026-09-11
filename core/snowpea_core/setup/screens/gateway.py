@@ -1,4 +1,10 @@
-"""Screen ⑤ — chat gateways, all off until a token is pasted."""
+"""Screen ⑤ — chat gateways, all off until a token is pasted.
+
+Picking one here only flips it on; :mod:`snowpea_core.setup.wizard` then asks
+for the bot token and for *your* account id on that platform.  The id is not
+optional politeness: a messenger binding whose approver is unknown is
+fail-closed and can approve nothing from chat.
+"""
 
 from __future__ import annotations
 
@@ -9,7 +15,10 @@ from snowpea_core.setup.screens import Screen, ScreenItem, skip_item
 from snowpea_core.setup.state import SKIP, WizardState
 
 TITLE = "⑤ Messengers (chat gateways)"
-HELP = "Each one needs a bot token; pass it with `--gateway <id> --token <token>`."
+HELP = (
+    "Each one needs a bot token and your user id on that platform; "
+    "pass them with `--gateway <id> --token <token> --user-id <id>`."
+)
 
 
 def build(state: WizardState, catalog: Sequence[CatalogItem] | None = None) -> Screen:
@@ -22,6 +31,8 @@ def build(state: WizardState, catalog: Sequence[CatalogItem] | None = None) -> S
             selected=bool((state.gateways.get(item.id) or {}).get("enabled")),
             default=item.default,
             active=bool((state.gateways.get(item.id) or {}).get("token")),
+            # NOTE: ``active`` means "already has a token"; the wizard asks for
+            # the token and the approver user id right after this screen.
         )
         for item in items
     ]

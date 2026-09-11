@@ -17,9 +17,12 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Awaitable, Callable
 from typing import Any
 
+from snowpea_core.config.paths import Paths
 from snowpea_core.config.settings import Settings
+from snowpea_core.providers import models as model_discovery
 from snowpea_core.providers.base import ChatProvider, ProviderError
 from snowpea_core.providers.fake import FakeProvider
 from snowpea_core.providers.presets import (
@@ -35,6 +38,9 @@ log = logging.getLogger("snowpea.providers")
 
 FAKE_PREFIX = "fake"
 
+#: What to tell a user whose vendor has no usable model id.
+NO_MODEL_HINT = "run `snowpea setup provider`, or pick one in a session with `/model <name>`"
+
 
 def _split_env(value: str) -> tuple[str, str | None]:
     """``"openai:gpt-4.1"`` -> ``("openai", "gpt-4.1")``."""
@@ -45,12 +51,15 @@ def _split_env(value: str) -> tuple[str, str | None]:
 class ProviderRegistry:
     """Vendor/model -> :class:`ChatProvider` lookup."""
 
-    def __init__(self, settings: Settings | None = None) -> None:
+    def __init__(self, settings: Settings | None = None, paths: Paths | None = None) -> None:
         self.settings = settings or Settings()
+        self.paths = paths
         self._providers: dict[str, Any] = {}
 
-    def bind(self, settings: Settings) -> None:
+    def bind(self, settings: Settings, paths: Paths | None = None) -> None:
         self.settings = settings
+        if paths is not None:
+            self.paths = paths
 
     def register(self, vendor: str, provider: Any) -> None:
         """Install an explicit provider, overriding the built-in resolution."""
@@ -124,6 +133,60 @@ class ProviderRegistry:
         self.settings.providers[vendor] = merged
         return merged
 
+    def save(self) -> bool:
+        """Write ``settings.json`` when a :class:`Paths` is bound; else do nothing."""
+        if self.paths is None:
+            return False
+        try:
+            self.settings.save(self.paths)
+        except OSError as exc:  # pragma: no cover - disk failure
+            log.warning("could not persist settings.json: %s", exc)
+            return False
+        return True
+
+    # -- model discovery -----------------------------------------------
+    async def list_models(self, vendor: str, *, refresh: bool = False) -> list[str]:
+        """Model ids ``vendor``'s endpoint offers (M3 contract §2, model discovery)."""
+        preset = self.preset(vendor)
+        return await model_discovery.list_models(
+            preset,
+            api_key=self.api_key_for(vendor),
+            base_url=self.base_url_for(vendor),
+            refresh=refresh,
+        )
+
+    async def resolve_model(self, vendor: str, model: str | None = None) -> str:
+        """Like :meth:`model_for`, but never returns a placeholder.
+
+        When the configured model is a placeholder (the ``local`` preset ships
+        ``local-model``, which no server recognises) the endpoint is asked for
+        its list and the first id wins.  The choice is persisted so the next
+        prompt costs no round trip.
+        """
+        resolved = self.model_for(vendor, model)
+        if not model_discovery.is_placeholder(resolved):
+            return resolved
+        try:
+            available = await self.list_models(vendor)
+        except ProviderError as exc:
+            raise ProviderError(
+                "model_not_configured",
+                f"{vendor}: no model configured and the server could not be asked "
+                f"({exc}); {NO_MODEL_HINT}",
+            ) from exc
+        available = [name for name in available if not model_discovery.is_placeholder(name)]
+        if not available:
+            raise ProviderError(
+                "model_not_configured",
+                f"{vendor}: no model configured and {self.base_url_for(vendor)} listed "
+                f"none; {NO_MODEL_HINT}",
+            )
+        picked = available[0]
+        self.configure(vendor, {"model": picked})
+        self.save()
+        log.info("%s: auto-selected model %s", vendor, picked)
+        return picked
+
     # -- resolution ----------------------------------------------------
     def get(self, vendor: str | None = None, model: str | None = None) -> ChatProvider:
         """Return a provider for ``vendor``/``model`` (M3 contract §2)."""
@@ -158,8 +221,20 @@ class ProviderRegistry:
             return GeminiProvider(preset, api_key=api_key, model=resolved_model, base_url=base_url)
         from snowpea_core.providers.openai_compat import OpenAICompatProvider
 
+        resolver: Callable[[], Awaitable[str]] | None = None
+        if model_discovery.is_placeholder(resolved_model):
+            # Resolve at first use: the constructor is sync, discovery is not.
+            async def _resolve() -> str:
+                return await self.resolve_model(vendor, model)
+
+            resolver = _resolve
+
         return OpenAICompatProvider(
-            preset, api_key=api_key, model=resolved_model, base_url=base_url
+            preset,
+            api_key=api_key,
+            model=resolved_model,
+            base_url=base_url,
+            model_resolver=resolver,
         )
 
     def default_vendor(self) -> str:
@@ -202,4 +277,4 @@ class ProviderRegistry:
         return infos
 
 
-__all__ = ["FAKE_PREFIX", "ProviderRegistry"]
+__all__ = ["FAKE_PREFIX", "NO_MODEL_HINT", "ProviderRegistry"]

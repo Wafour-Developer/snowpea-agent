@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.1.0";
+export const PROTOCOL_VERSION = "1.2.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -300,6 +300,8 @@ export interface GatewayListResult {
     credentialsRef?: string;
     /** Chat platform key. */
     platform: string;
+    /** 'manual' for a gateway.bind call, 'settings' for the catch-all binding the setup wizard's settings.gateway entry keeps in sync. */
+    source?: string;
     /** Whether it is listening. */
     state?: "active" | "inactive";
     /** Target it routes to, e.g. 'agent:ops' or 'new_session'. */
@@ -307,6 +309,19 @@ export interface GatewayListResult {
     /** User allowed to answer approvals. */
     userId?: string | null;
   })[];
+}
+
+/** `gateway.sync` params. Reconcile the messenger bindings with settings.gateway. */
+export type GatewaySyncParams = Record<string, unknown>;
+
+/** `gateway.sync` result. */
+export interface GatewaySyncResult {
+  /** Platforms that started listening. */
+  added?: string[];
+  /** Platforms that were already listening. */
+  kept?: string[];
+  /** Platforms whose auto binding was dropped. */
+  removed?: string[];
 }
 
 /** `gateway.unbind` params. Detach a gateway binding. */
@@ -537,6 +552,22 @@ export interface ProviderLoginWebParams {
 export interface ProviderLoginWebResult {
   /** True when the call succeeded. */
   ok?: boolean;
+}
+
+/** `provider.models` params. Ask a vendor's endpoint which models it serves. */
+export interface ProviderModelsParams {
+  /** Vendor to query; defaults to the configured one. */
+  vendor?: string | null;
+}
+
+/** `provider.models` result. */
+export interface ProviderModelsResult {
+  /** Model this vendor uses today. */
+  current?: string;
+  /** Model ids the vendor's endpoint reports. */
+  models?: string[];
+  /** Vendor the listing came from. */
+  vendor: string;
 }
 
 /** `session.close` params. Close a session and release its resources. */
@@ -897,6 +928,34 @@ export interface SkillSearchResult {
   unavailable?: string[];
 }
 
+/** `system.checkUpdate` params. Report whether a newer snowpea release exists; cached for 24h. */
+export interface SystemCheckUpdateParams {
+  /** Ignore the 24h cache and ask the network right now. */
+  force?: boolean;
+}
+
+/** `system.checkUpdate` result. */
+export interface SystemCheckUpdateResult {
+  /** True when latest is strictly newer than current. */
+  available: boolean;
+  /** True when this came from $SNOWPEA_HOME/update-check.json. */
+  cached?: boolean;
+  /** Where the answer came from: 'pypi' or 'git'. */
+  channel: "git" | "pypi";
+  /** UTC ISO-8601 timestamp of the answer. */
+  checkedAt: string;
+  /** Version of the running daemon (snowpea_core.__version__). */
+  current: string;
+  /** Why the check could not complete; available is false whenever it is set. */
+  error?: string | null;
+  /** Newest version found; equal to current when nothing is known. */
+  latest: string;
+  /** Human page for the release, when one exists. */
+  releaseUrl?: string | null;
+  /** What an installer would be handed to get 'latest'. */
+  source: string;
+}
+
 /** `system.health` params. Liveness probe; answers as long as the daemon serves requests. */
 export type SystemHealthParams = Record<string, unknown>;
 
@@ -954,10 +1013,21 @@ export interface SystemInfoResult {
   port: number;
   /** Protocol semver the daemon speaks. */
   protocolVersion: string;
+  /** True once system.update finished; the daemon runs the old code until restarted. */
+  restartRequired?: boolean;
   /** UTC ISO-8601 timestamp of daemon start. */
   startedAt: string;
   /** Daemon version. */
   version: string;
+}
+
+/** `system.restart` params. Shut the daemon down so the next launch runs the newly installed version. */
+export type SystemRestartParams = Record<string, unknown>;
+
+/** `system.restart` result. */
+export interface SystemRestartResult {
+  /** True when the call succeeded. */
+  ok?: boolean;
 }
 
 /** `system.shutdown` params. Ask the daemon to shut down gracefully. */
@@ -967,6 +1037,21 @@ export type SystemShutdownParams = Record<string, unknown>;
 export interface SystemShutdownResult {
   /** True when the call succeeded. */
   ok?: boolean;
+}
+
+/** `system.update` params. Upgrade snowpea in a detached subprocess and report progress. */
+export type SystemUpdateParams = Record<string, unknown>;
+
+/** `system.update` result. */
+export interface SystemUpdateResult {
+  /** The command line that runs, or that has to be run by hand. */
+  command: string;
+  /** Why nothing was started; null on the happy path. */
+  error?: string | null;
+  /** Absolute path of the file the upgrade writes its output to. */
+  log: string;
+  /** True when the upgrade subprocess was spawned. */
+  started: boolean;
 }
 
 /** `team.start` params. Split a task across parallel workers. */
@@ -1139,6 +1224,14 @@ export interface SessionEventPayload {
   sessionId: string;
   /** UTC ISO-8601 timestamp. */
   ts: string;
+}
+
+/** `system.updateProgress` notification payload. */
+export interface SystemUpdateProgressPayload {
+  /** One line for humans. */
+  message?: string;
+  /** Where the upgrade got to. */
+  phase: "started" | "done" | "failed";
 }
 
 // ---------------------------------------------------------------------------
@@ -1367,6 +1460,7 @@ export interface MethodMap {
   "command.run": { params: CommandRunParams; result: CommandRunResult };
   "gateway.bind": { params: GatewayBindParams; result: GatewayBindResult };
   "gateway.list": { params: GatewayListParams; result: GatewayListResult };
+  "gateway.sync": { params: GatewaySyncParams; result: GatewaySyncResult };
   "gateway.unbind": { params: GatewayUnbindParams; result: GatewayUnbindResult };
   "job.cancel": { params: JobCancelParams; result: JobCancelResult };
   "job.list": { params: JobListParams; result: JobListResult };
@@ -1380,6 +1474,7 @@ export interface MethodMap {
   "provider.configure": { params: ProviderConfigureParams; result: ProviderConfigureResult };
   "provider.list": { params: ProviderListParams; result: ProviderListResult };
   "provider.loginWeb": { params: ProviderLoginWebParams; result: ProviderLoginWebResult };
+  "provider.models": { params: ProviderModelsParams; result: ProviderModelsResult };
   "session.close": { params: SessionCloseParams; result: SessionCloseResult };
   "session.create": { params: SessionCreateParams; result: SessionCreateResult };
   "session.interrupt": { params: SessionInterruptParams; result: SessionInterruptResult };
@@ -1395,10 +1490,13 @@ export interface MethodMap {
   "skill.reload": { params: SkillReloadParams; result: SkillReloadResult };
   "skill.remove": { params: SkillRemoveParams; result: SkillRemoveResult };
   "skill.search": { params: SkillSearchParams; result: SkillSearchResult };
+  "system.checkUpdate": { params: SystemCheckUpdateParams; result: SystemCheckUpdateResult };
   "system.health": { params: SystemHealthParams; result: SystemHealthResult };
   "system.hello": { params: SystemHelloParams; result: SystemHelloResult };
   "system.info": { params: SystemInfoParams; result: SystemInfoResult };
+  "system.restart": { params: SystemRestartParams; result: SystemRestartResult };
   "system.shutdown": { params: SystemShutdownParams; result: SystemShutdownResult };
+  "system.update": { params: SystemUpdateParams; result: SystemUpdateResult };
   "team.start": { params: TeamStartParams; result: TeamStartResult };
   "team.status": { params: TeamStatusParams; result: TeamStatusResult };
   "tool.list": { params: ToolListParams; result: ToolListResult };
@@ -1422,6 +1520,7 @@ export type ClientMethod =
   | "command.run"
   | "gateway.bind"
   | "gateway.list"
+  | "gateway.sync"
   | "gateway.unbind"
   | "job.cancel"
   | "job.list"
@@ -1435,6 +1534,7 @@ export type ClientMethod =
   | "provider.configure"
   | "provider.list"
   | "provider.loginWeb"
+  | "provider.models"
   | "session.close"
   | "session.create"
   | "session.interrupt"
@@ -1450,10 +1550,13 @@ export type ClientMethod =
   | "skill.reload"
   | "skill.remove"
   | "skill.search"
+  | "system.checkUpdate"
   | "system.health"
   | "system.hello"
   | "system.info"
+  | "system.restart"
   | "system.shutdown"
+  | "system.update"
   | "team.start"
   | "team.status"
   | "tool.list";
@@ -1469,6 +1572,7 @@ export interface EventMap {
   "gateway.event": GatewayEventPayload;
   "job.event": JobEventPayload;
   "session.event": SessionEventPayload;
+  "system.updateProgress": SystemUpdateProgressPayload;
 }
 
 export type EventName = keyof EventMap;
@@ -1479,4 +1583,5 @@ export const EVENT_NAMES: readonly EventName[] = [
   "gateway.event",
   "job.event",
   "session.event",
+  "system.updateProgress",
 ];

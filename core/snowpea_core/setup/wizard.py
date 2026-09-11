@@ -97,6 +97,7 @@ def run(
     tools: str | None = None,
     gateway: str | None = None,
     token: str | None = None,
+    user_id: str | None = None,
     interactive: bool | None = None,
     console: Console | None = None,
     env: dict[str, str] | None = None,
@@ -130,6 +131,7 @@ def run(
         tools=tools,
         gateway=gateway,
         token=token,
+        user_id=user_id,
     )
 
     if interactive is None:
@@ -153,6 +155,10 @@ def run(
         shown.append(name)
         if name == "providers" and state.vendor and not state.api_key:
             _ask_for_key(state, interactive=interactive)
+        if name == "providers" and state.vendor:
+            _ask_for_model(state, interactive=interactive, console=console)
+        if name == "gateway":
+            _ask_for_gateway(state, interactive=interactive)
         return choice
 
     for name, module in order:
@@ -229,6 +235,107 @@ def _ask_for_key(state: WizardState, *, interactive: bool) -> None:
         state.api_key = entered
 
 
+#: Never scroll the terminal: a vLLM node can advertise dozens of aliases.
+MODEL_CHOICES_SHOWN = 20
+
+
+def _run_sync(coro: Any) -> Any:
+    """Await ``coro`` from the wizard's synchronous code, loop or no loop."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, coro).result()
+
+
+def _ask_for_model(
+    state: WizardState, *, interactive: bool, console: Console | None = None
+) -> None:
+    """Ask the vendor which models it serves, then let the user pick one.
+
+    This is what keeps ``local`` usable: its preset default is the placeholder
+    ``local-model``, which a vLLM server answers with ``HTTP 404``.  A server
+    that is down is not an error here — the wizard says so and moves on, and
+    the first prompt auto-picks a model instead.
+    """
+    if not interactive or not state.vendor:
+        return
+    from snowpea_core.providers import models as model_discovery
+    from snowpea_core.providers.presets import preset_for
+
+    out = console.print if console is not None else print
+    try:
+        preset = preset_for(state.vendor, state.variant)
+    except KeyError:
+        return
+    out("checking models…")
+    try:
+        available = _run_sync(
+            model_discovery.list_models(
+                preset,
+                api_key=state.api_key or None,
+                base_url=state.base_url or None,
+                refresh=True,
+            )
+        )
+    except Exception as exc:  # noqa: BLE001 - a down server must not stop setup
+        out(f"could not list models ({exc}); you can set it later with /model")
+        return
+    if not available:
+        out("could not list models (the server listed none); you can set it later with /model")
+        return
+    shown = available[:MODEL_CHOICES_SHOWN]
+    default_idx = shown.index(state.model) + 1 if state.model in shown else 1
+    for index, name in enumerate(shown, 1):
+        out(f"  {index}. {name}")
+    if len(available) > len(shown):
+        out(f"  … and {len(available) - len(shown)} more")
+    picked = ui.ask_text(f"model (Enter={default_idx}: {shown[default_idx - 1]}): ")
+    if not picked:
+        state.model = shown[default_idx - 1]
+    elif picked.isdigit() and 1 <= int(picked) <= len(shown):
+        state.model = shown[int(picked) - 1]
+    else:
+        state.model = picked
+
+
+#: Where each platform tells a user their own numeric account id.
+USER_ID_HINT: dict[str, str] = {
+    "telegram": "send /start to @userinfobot; it replies with your numeric id",
+    "discord": "enable Developer Mode, then right-click yourself → Copy User ID",
+    "slack": "your profile → ⋮ → Copy member ID (starts with U)",
+}
+
+
+def _ask_for_gateway(state: WizardState, *, interactive: bool) -> None:
+    """Ask each enabled messenger for its bot token and its approver user id.
+
+    The user id is what makes chat approvals possible at all: the router
+    refuses an allow/deny press from anyone else, and refuses every press on a
+    binding that has no approver, so skipping this leaves a messenger that can
+    talk but can never authorise a tool.
+    """
+    if not interactive:
+        return
+    for gid in state.enabled_gateways():
+        if not state.gateway_needs_answers(gid):
+            continue
+        block = state.gateways.get(gid) or {}
+        token = block.get("token") or ui.ask_text(f"{gid} bot token: ", secret=True)
+        hint = USER_ID_HINT.get(gid, "your account id on that platform")
+        entered_id = block.get("allowed_user_id") or ui.ask_text(
+            f"your {gid} user id ({hint}): "
+        )
+        state.enable_gateway(gid, token or None, entered_id or None)
+        if not entered_id:
+            state.notes.append(
+                f"{gid}: no user id — chat approvals stay blocked until you set one"
+            )
+
+
 def _apply_flags(state: WizardState, **flags: Any) -> set[str]:
     """Fold the non-interactive flags into ``state``; return the screens they answered."""
     answered: set[str] = set()
@@ -284,10 +391,12 @@ def _apply_flags(state: WizardState, **flags: Any) -> set[str]:
 
         if gateway not in {item.id for item in gateway_catalog()}:
             raise SetupError(f"unknown gateway: {gateway}")
-        state.enable_gateway(gateway, flags.get("token"))
+        state.enable_gateway(gateway, flags.get("token"), flags.get("user_id"))
         answered.add("gateway")
     elif flags.get("token"):
         raise SetupError("--token needs --gateway")
+    elif flags.get("user_id"):
+        raise SetupError("--user-id needs --gateway")
 
     return answered
 
@@ -323,6 +432,8 @@ def login(vendor: str, home: Path | str | None = None) -> int:
 
 __all__ = [
     "FULL_ORDER",
+    "MODEL_CHOICES_SHOWN",
+    "USER_ID_HINT",
     "QUICK_ORDER",
     "Mode",
     "SetupError",

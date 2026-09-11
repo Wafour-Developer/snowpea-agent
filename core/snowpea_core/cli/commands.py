@@ -28,7 +28,12 @@ from snowpea_core.cli.daemon_client import (
     pid_alive,
     read_daemon_json,
 )
-from snowpea_core.cli.render import EXIT_NO_DAEMON, EXIT_OK, EXIT_USAGE
+from snowpea_core.cli.render import (
+    EXIT_AGENT_FAILED,
+    EXIT_NO_DAEMON,
+    EXIT_OK,
+    EXIT_USAGE,
+)
 from snowpea_core.cli.service import service_command
 from snowpea_core.config.paths import Paths, resolve_home
 
@@ -232,6 +237,31 @@ async def provider_list(home: Path | str | None = None, *, as_json: bool = False
     return EXIT_OK
 
 
+async def provider_models(
+    vendor: str | None = None, home: Path | str | None = None, *, as_json: bool = False
+) -> int:
+    """``snowpea provider models [vendor] [--json]`` → ``provider.models``."""
+    params: dict[str, Any] = {"vendor": vendor} if vendor else {}
+    try:
+        result = await _call(home, "provider.models", params)
+    except DaemonError as exc:
+        return _fail(str(exc), EXIT_NO_DAEMON)
+    except RpcCallError as exc:
+        return _fail(f"provider.models failed ({exc.code}): {exc.message}", EXIT_USAGE)
+    if as_json:
+        _print_json(result)
+        return EXIT_OK
+    listed = [str(item) for item in (result.get("models") or [])]
+    name = str(result.get("vendor") or vendor or "")
+    current = str(result.get("current") or "")
+    if not listed:
+        print(f"{name}: no models reported; set one with `snowpea setup provider`")
+        return EXIT_OK
+    for model in listed:
+        print(f"{'*' if model == current else ' '} {model}")
+    return EXIT_OK
+
+
 async def provider_login(vendor: str, home: Path | str | None = None) -> int:
     """``snowpea provider login <vendor>`` → ``provider.loginWeb``.
 
@@ -294,6 +324,7 @@ def setup_command(args: argparse.Namespace, home: Path | str | None = None) -> i
             tools=getattr(args, "tools", None),
             gateway=getattr(args, "gateway", None),
             token=getattr(args, "token", None),
+            user_id=getattr(args, "user_id", None),
             section=getattr(args, "section", None),
         )
     except wizard.SetupError as exc:
@@ -305,7 +336,64 @@ def setup_command(args: argparse.Namespace, home: Path | str | None = None) -> i
     print(f"settings written to {result.settings_path}")
     for line in result.summary():
         print(f"  {line}")
+    _messenger_next_steps(result, home)
     return EXIT_OK
+
+
+def _messenger_next_steps(result: Any, home: Path | str | None) -> None:
+    """Say how an enabled messenger goes live, and start it if a daemon is up.
+
+    The bindings live in the daemon, so the wizard's settings write is enough
+    on its own only for the *next* start.  When one is already running we ask
+    it to reconcile now (``gateway.sync``), so the user can talk to their bot
+    without restarting anything.
+    """
+    enabled = result.state.enabled_gateways()
+    if not enabled:
+        return
+    names = ", ".join(enabled)
+    print()
+    print(f"messenger {names} enabled — it starts with the daemon:")
+    print("  run `snowpea` (or `snowpea daemon start`); send /start to your bot")
+    if read_daemon_json(home) is None:
+        return
+    try:
+        changed = _run_blocking(_gateway_sync(home))
+    except (DaemonError, RpcCallError, OSError) as exc:
+        print(f"  (the running daemon did not pick it up: {exc})")
+        return
+    live = sorted({*changed.get("added", []), *changed.get("kept", [])})
+    for platform in live:
+        print(f"  {platform}: listening")
+
+
+def _run_blocking(coro: Any) -> Any:
+    """``asyncio.run`` that also works inside ``dispatch``'s running loop.
+
+    ``setup_command`` is synchronous (it prompts on stdin) but is awaited from
+    the async ``dispatch``, so ``asyncio.run`` would raise.  A one-shot worker
+    thread gets its own loop; the caller is already blocking either way.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    import concurrent.futures
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, coro).result()
+
+
+async def _gateway_sync(home: Path | str | None) -> dict[str, Any]:
+    """Ask the running daemon to reconcile its messenger bindings."""
+    info = await ensure_daemon(home)
+    client = DaemonClient(info)
+    await client.connect()
+    try:
+        result = await client.call("gateway.sync", {})
+    finally:
+        await client.close()
+    return result if isinstance(result, dict) else {}
 
 
 # ---------------------------------------------------------------------------
@@ -319,8 +407,13 @@ async def daemon_status(home: Path | str | None = None, *, as_json: bool = False
         info = await ensure_daemon(home)
         client = DaemonClient(info)
         await client.connect()
+        bindings: list[dict[str, Any]] = []
         try:
             result = await client.call("system.info", {})
+            # Additive and optional: an older daemon has no gateway.list.
+            with contextlib.suppress(RpcCallError):
+                listed = await client.call("gateway.list", {})
+                bindings = list((listed or {}).get("bindings") or [])
         finally:
             await client.close()
     except DaemonError as exc:
@@ -339,6 +432,7 @@ async def daemon_status(home: Path | str | None = None, *, as_json: bool = False
     print(f"home         {result.get('home', '')}")
     for name in ("sessions", "jobs", "gateway_bindings", "named_agents"):
         print(f"{name:<12} {counters.get(name, 0)}")
+    print(f"{'messengers':<12} {_messenger_line(bindings)}")
     if lifecycle:
         remaining = lifecycle.get("secondsUntilExit")
         remaining_text = "-" if remaining is None else f"{float(remaining):.0f}s"
@@ -350,6 +444,20 @@ async def daemon_status(home: Path | str | None = None, *, as_json: bool = False
         # if not, what is keeping it up.
         print(lifecycle.get("summary") or _keepalive_summary(counters, remaining))
     return EXIT_OK
+
+
+def _messenger_line(bindings: list[dict[str, Any]]) -> str:
+    """``telegram (listening), slack (stopped)`` — one word per platform."""
+    if not bindings:
+        return "(none)"
+    seen: dict[str, str] = {}
+    for binding in bindings:
+        platform = str(binding.get("platform") or "?")
+        state = "listening" if binding.get("state") == "active" else "stopped"
+        # Listening anywhere beats a stale row for the same platform.
+        if seen.get(platform) != "listening":
+            seen[platform] = state
+    return ", ".join(f"{platform} ({seen[platform]})" for platform in sorted(seen))
 
 
 #: Singular/plural wording mirrored from ``server/lifecycle.COUNTER_LABELS``,
@@ -700,6 +808,88 @@ async def skill_command(
 
 
 # ---------------------------------------------------------------------------
+# system.checkUpdate / system.update (CORE-update)
+# ---------------------------------------------------------------------------
+
+#: An upgrade downloads and builds a package, so it gets a long deadline.
+UPDATE_TIMEOUT_SEC = 900.0
+
+
+def format_update_line(answer: dict[str, Any]) -> str:
+    """One human line for a ``system.checkUpdate`` answer."""
+    current = str(answer.get("current", ""))
+    latest = str(answer.get("latest", ""))
+    if answer.get("error"):
+        return f"snowpea v{current} — could not check for updates: {answer['error']}"
+    if not answer.get("available"):
+        return f"snowpea v{current} is up to date."
+    channel = str(answer.get("channel", ""))
+    return f"snowpea v{current} — update available: v{latest} (from {channel})"
+
+
+async def update_cli(
+    home: Path | str | None = None, *, check_only: bool = False, as_json: bool = False
+) -> int:
+    """``snowpea update [--check]`` — report, and unless ``--check``, install."""
+    try:
+        info = await ensure_daemon(home)
+        client = DaemonClient(info)
+        await client.connect()
+    except DaemonError as exc:
+        return _fail(str(exc), EXIT_NO_DAEMON)
+
+    try:
+        try:
+            answer = await client.call("system.checkUpdate", {"force": True})
+        except RpcCallError as exc:
+            return _fail(f"system.checkUpdate failed ({exc.code}): {exc.message}", EXIT_USAGE)
+
+        if as_json and check_only:
+            _print_json(answer)
+        else:
+            print(format_update_line(answer))
+        if check_only or not answer.get("available"):
+            return EXIT_OK
+
+        try:
+            started = await client.call("system.update", {}, timeout=UPDATE_TIMEOUT_SEC)
+        except RpcCallError as exc:
+            return _fail(f"system.update failed ({exc.code}): {exc.message}", EXIT_USAGE)
+        if as_json:
+            _print_json(started)
+        if not started.get("started"):
+            return _fail(str(started.get("error") or "the update did not start"), EXIT_USAGE)
+        print(f"running {started.get('command')}")
+        print(f"log: {started.get('log')}")
+
+        phase, message = await _await_update(client)
+        if phase != "done":
+            return _fail(message or "the update failed", EXIT_AGENT_FAILED)
+        print(message or "update finished")
+    finally:
+        await client.close()
+
+    await daemon_stop(home)
+    print("restart snowpea to run the new version")
+    return EXIT_OK
+
+
+async def _await_update(client: DaemonClient) -> tuple[str, str]:
+    """Block until ``system.updateProgress`` reports ``done`` or ``failed``."""
+    try:
+        async for frame in client.notifications():
+            if frame.get("method") != "system.updateProgress":
+                continue
+            params = frame.get("params") or {}
+            phase = str(params.get("phase", ""))
+            if phase in ("done", "failed"):
+                return phase, str(params.get("message", ""))
+    except DaemonError as exc:  # pragma: no cover - socket died mid-upgrade
+        return "failed", str(exc)
+    return "failed", "the daemon closed the connection before the update finished"
+
+
+# ---------------------------------------------------------------------------
 # placeholders
 # ---------------------------------------------------------------------------
 
@@ -735,6 +925,15 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
     provider_sub = provider.add_subparsers(dest="action", metavar="<action>")
     provider_list_parser = provider_sub.add_parser("list", help="list known vendors")
     provider_list_parser.add_argument(
+        "--json", dest="sub_json", action="store_true", help="emit JSON"
+    )
+    provider_models_parser = provider_sub.add_parser(
+        "models", help="ask a vendor which models it serves"
+    )
+    provider_models_parser.add_argument(
+        "vendor", nargs="?", default=None, help="vendor to query (default: the configured one)"
+    )
+    provider_models_parser.add_argument(
         "--json", dest="sub_json", action="store_true", help="emit JSON"
     )
     provider_login_parser = provider_sub.add_parser(
@@ -773,6 +972,12 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
     )
     setup_parser.add_argument("--gateway", default=None, help="gateway to enable")
     setup_parser.add_argument("--token", default=None, help="bot token for --gateway")
+    setup_parser.add_argument(
+        "--user-id",
+        dest="user_id",
+        default=None,
+        help="your user id on --gateway; only this account may approve from chat",
+    )
     setup_parser.add_argument(
         "--login", default=None, metavar="VENDOR", help="browser login (alias of provider login)"
     )
@@ -849,6 +1054,12 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
     service_sub.add_parser("uninstall", help="deregister it again")
     service_sub.add_parser("status", help="is it registered, is it running")
 
+    update_parser = sub.add_parser("update", help="check for a newer snowpea and install it")
+    update_parser.add_argument(
+        "--check", dest="check_only", action="store_true", help="report only, install nothing"
+    )
+    update_parser.add_argument("--json", dest="sub_json", action="store_true", help="emit JSON")
+
     agents_parser = sub.add_parser("agents", help="list agent definitions and running subagents")
     agents_parser.add_argument("--json", dest="sub_json", action="store_true", help="emit JSON")
 
@@ -904,6 +1115,10 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
         return await commands_list(home, as_json=as_json)
     if subcommand == "agents":
         return await agents_list(home, as_json=as_json)
+    if subcommand == "update":
+        return await update_cli(
+            home, check_only=bool(getattr(args, "check_only", False)), as_json=as_json
+        )
     if subcommand == "team":
         if action != "status":
             return _fail("usage: snowpea team status [teamId] [--json]", EXIT_USAGE)
@@ -911,9 +1126,13 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
     if subcommand == "provider":
         if action == "list":
             return await provider_list(home, as_json=as_json)
+        if action == "models":
+            return await provider_models(
+                getattr(args, "vendor", None) or None, home, as_json=as_json
+            )
         if action == "login":
             return await provider_login(str(getattr(args, "vendor", "") or ""), home)
-        return _fail("usage: snowpea provider list|login <vendor>", EXIT_USAGE)
+        return _fail("usage: snowpea provider list|models|login <vendor>", EXIT_USAGE)
     if subcommand == "gateway":
         if action == "bind":
             return await gateway_bind(
@@ -979,6 +1198,7 @@ __all__ = [
     "JOB_RUN_TIMEOUT_SEC",
     "PLACEHOLDER_SUBCOMMANDS",
     "STOP_TIMEOUT_SEC",
+    "UPDATE_TIMEOUT_SEC",
     "add_subparsers",
     "agents_list",
     "commands_list",
@@ -990,6 +1210,7 @@ __all__ = [
     "gateway_list",
     "gateway_unbind",
     "format_job_line",
+    "format_update_line",
     "job_cancel",
     "job_list",
     "job_run",
@@ -999,9 +1220,11 @@ __all__ = [
     "provider_list",
     "service_command",
     "provider_login",
+    "provider_models",
     "resolve_install_source",
     "setup_command",
     "skill_command",
     "team_status",
     "tools_list",
+    "update_cli",
 ]

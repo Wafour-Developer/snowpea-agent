@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.1.0"
+PROTOCOL_VERSION = "1.2.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -52,6 +52,10 @@ SkillKind = Literal["skill", "agent", "command", "plugin"]
 #: ``<workdir>/.snowpea/settings.json`` (settings.get / settings.set, M8).
 SettingsScope = Literal["global", "project"]
 Direction = Literal["c2s", "s2c"]
+#: Where an update comes from: a PyPI release or a git tag (CORE-update).
+UpdateChannel = Literal["git", "pypi"]
+#: Phases ``system.updateProgress`` reports.
+UpdatePhase = Literal["started", "done", "failed"]
 
 
 class Payload(BaseModel):
@@ -119,10 +123,56 @@ class InfoResult(Payload):
     lifecycle: LifecycleStatus | None = Field(
         None, description="Idle-shutdown status, omitted by older daemons."
     )
+    restartRequired: bool = Field(
+        default=False,
+        description=(
+            "True once system.update finished; the daemon runs the old code until restarted."
+        ),
+    )
 
 
 class HealthResult(Payload):
     status: Literal["ok"] = Field(default="ok", description="Always 'ok' when the daemon answers.")
+
+
+class CheckUpdateParams(Payload):
+    force: bool = Field(
+        default=False, description="Ignore the 24h cache and ask the network right now."
+    )
+
+
+class CheckUpdateResult(Payload):
+    """What ``system.checkUpdate`` knows; never an error frame (CORE-update)."""
+
+    current: str = Field(description="Version of the running daemon (snowpea_core.__version__).")
+    latest: str = Field(description="Newest version found; equal to current when nothing is known.")
+    available: bool = Field(description="True when latest is strictly newer than current.")
+    channel: UpdateChannel = Field(description="Where the answer came from: 'pypi' or 'git'.")
+    source: str = Field(description="What an installer would be handed to get 'latest'.")
+    releaseUrl: str | None = Field(
+        default=None, description="Human page for the release, when one exists."
+    )
+    checkedAt: str = Field(description="UTC ISO-8601 timestamp of the answer.")
+    cached: bool = Field(
+        default=False, description="True when this came from $SNOWPEA_HOME/update-check.json."
+    )
+    error: str | None = Field(
+        default=None,
+        description="Why the check could not complete; available is false whenever it is set.",
+    )
+
+
+class UpdateResult(Payload):
+    """What ``system.update`` started."""
+
+    started: bool = Field(description="True when the upgrade subprocess was spawned.")
+    command: str = Field(
+        description="The command line that runs, or that has to be run by hand."
+    )
+    log: str = Field(description="Absolute path of the file the upgrade writes its output to.")
+    error: str | None = Field(
+        default=None, description="Why nothing was started; null on the happy path."
+    )
 
 
 # --------------------------------------------------------------------------
@@ -372,6 +422,20 @@ class ProviderInfo(Payload):
 
 class ProviderListResult(Payload):
     providers: list[ProviderInfo] = Field(default_factory=list, description="Known chat providers.")
+
+
+class ProviderModelsParams(Payload):
+    vendor: str | None = Field(
+        default=None, description="Vendor to query; defaults to the configured one."
+    )
+
+
+class ProviderModelsResult(Payload):
+    vendor: str = Field(description="Vendor the listing came from.")
+    models: list[str] = Field(
+        default_factory=list, description="Model ids the vendor's endpoint reports."
+    )
+    current: str = Field(default="", description="Model this vendor uses today.")
 
 
 class ProviderConfigureParams(Payload):
@@ -646,6 +710,27 @@ class GatewayBinding(Payload):
     userId: str | None = Field(default=None, description="User allowed to answer approvals.")
     state: Literal["active", "inactive"] = Field(
         default="active", description="Whether it is listening."
+    )
+    source: str = Field(
+        default="manual",
+        description=(
+            "'manual' for a gateway.bind call, 'settings' for the catch-all binding "
+            "the setup wizard's settings.gateway entry keeps in sync."
+        ),
+    )
+
+
+class GatewaySyncResult(Payload):
+    """What one ``gateway.sync`` pass changed, by platform."""
+
+    added: list[str] = Field(
+        default_factory=list, description="Platforms that started listening."
+    )
+    removed: list[str] = Field(
+        default_factory=list, description="Platforms whose auto binding was dropped."
+    )
+    kept: list[str] = Field(
+        default_factory=list, description="Platforms that were already listening."
     )
 
 
@@ -1063,6 +1148,13 @@ class JobEventNotification(Payload):
     payload: dict[str, Any] = Field(default_factory=dict, description="Kind-specific body.")
 
 
+class UpdateProgressNotification(Payload):
+    """Progress of the upgrade ``system.update`` started."""
+
+    phase: UpdatePhase = Field(description="Where the upgrade got to.")
+    message: str = Field(default="", description="One line for humans.")
+
+
 class GatewayEventNotification(Payload):
     """Activity on a gateway binding."""
 
@@ -1120,6 +1212,24 @@ METHODS: dict[str, RpcMethod] = {
             "Liveness probe; answers as long as the daemon serves requests.",
         ),
         _m("system.shutdown", Empty, Ok, "Ask the daemon to shut down gracefully."),
+        _m(
+            "system.checkUpdate",
+            CheckUpdateParams,
+            CheckUpdateResult,
+            "Report whether a newer snowpea release exists; cached for 24h.",
+        ),
+        _m(
+            "system.update",
+            Empty,
+            UpdateResult,
+            "Upgrade snowpea in a detached subprocess and report progress.",
+        ),
+        _m(
+            "system.restart",
+            Empty,
+            Ok,
+            "Shut the daemon down so the next launch runs the newly installed version.",
+        ),
         _m(
             "session.create",
             SessionCreateParams,
@@ -1202,6 +1312,12 @@ METHODS: dict[str, RpcMethod] = {
             "List chat providers and whether they are configured.",
         ),
         _m(
+            "provider.models",
+            ProviderModelsParams,
+            ProviderModelsResult,
+            "Ask a vendor's endpoint which models it serves.",
+        ),
+        _m(
             "provider.configure",
             ProviderConfigureParams,
             Ok,
@@ -1254,6 +1370,12 @@ METHODS: dict[str, RpcMethod] = {
         _m("gateway.list", Empty, GatewayListResult, "List live gateway bindings."),
         _m("gateway.unbind", GatewayUnbindParams, Ok, "Detach a gateway binding."),
         _m(
+            "gateway.sync",
+            Empty,
+            GatewaySyncResult,
+            "Reconcile the messenger bindings with settings.gateway.",
+        ),
+        _m(
             "memory.search",
             MemorySearchParams,
             MemorySearchResult,
@@ -1302,9 +1424,18 @@ EVENTS: dict[str, type[BaseModel]] = {
     "job.event": JobEventNotification,
     "gateway.event": GatewayEventNotification,
     "commands.changed": CommandsChangedNotification,
+    "system.updateProgress": UpdateProgressNotification,
 }
 
-CAPABILITIES: list[str] = ["sessions", "approvals", "commands", "tools", "settings", "setup"]
+CAPABILITIES: list[str] = [
+    "sessions",
+    "approvals",
+    "commands",
+    "tools",
+    "settings",
+    "setup",
+    "update",
+]
 
 #: Where the daemon listens; mirrored into the schema dump for the SDK.
 TRANSPORT: dict[str, Any] = {
@@ -1319,6 +1450,9 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "system.info",
         "system.health",
         "system.shutdown",
+        "system.checkUpdate",
+        "system.update",
+        "system.restart",
         "session.create",
         "session.resume",
         "session.list",
@@ -1332,6 +1466,7 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "approval.list",
         "approval.respond",
         "provider.list",
+        "provider.models",
         "provider.configure",
         "provider.loginWeb",
         "backend.set",

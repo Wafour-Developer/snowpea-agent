@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.1.0` (semver)
+- **Protocol version:** `1.2.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.1.0"
+    "protocolVersion": "1.2.0"
   }
 }
 ```
@@ -45,6 +45,7 @@ Server capabilities advertised in the `system.hello` result:
 - `settings`
 - `setup`
 - `tools`
+- `update`
 
 ## Method index
 
@@ -63,6 +64,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`command.run`](#commandrun) | client → server | Run a slash command; the only execution path for them. |
 | [`gateway.bind`](#gatewaybind) | client → server | Attach the daemon to a chat platform channel. |
 | [`gateway.list`](#gatewaylist) | client → server | List live gateway bindings. |
+| [`gateway.sync`](#gatewaysync) | client → server | Reconcile the messenger bindings with settings.gateway. |
 | [`gateway.unbind`](#gatewayunbind) | client → server | Detach a gateway binding. |
 | [`job.cancel`](#jobcancel) | client → server | Cancel a scheduled job. |
 | [`job.list`](#joblist) | client → server | List scheduled jobs and their next run times. |
@@ -76,6 +78,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`provider.configure`](#providerconfigure) | client → server | Store settings and credentials for a provider. |
 | [`provider.list`](#providerlist) | client → server | List chat providers and whether they are configured. |
 | [`provider.loginWeb`](#providerloginweb) | client → server | Start a browser-based login flow for a provider. |
+| [`provider.models`](#providermodels) | client → server | Ask a vendor's endpoint which models it serves. |
 | [`session.close`](#sessionclose) | client → server | Close a session and release its resources. |
 | [`session.create`](#sessioncreate) | client → server | Open a session rooted at a working directory. |
 | [`session.interrupt`](#sessioninterrupt) | client → server | Stop the running turn as soon as possible. |
@@ -91,10 +94,13 @@ Server capabilities advertised in the `system.hello` result:
 | [`skill.reload`](#skillreload) | client → server | Reload skills from disk without restarting. |
 | [`skill.remove`](#skillremove) | client → server | Delete an installed skill or plugin. |
 | [`skill.search`](#skillsearch) | client → server | Search available skills. |
+| [`system.checkUpdate`](#systemcheckupdate) | client → server | Report whether a newer snowpea release exists; cached for 24h. |
 | [`system.health`](#systemhealth) | client → server | Liveness probe; answers as long as the daemon serves requests. |
 | [`system.hello`](#systemhello) | client → server | Authenticate a connection and agree on the protocol version. |
 | [`system.info`](#systeminfo) | client → server | Report the daemon's version, pid, port, start time and home. |
+| [`system.restart`](#systemrestart) | client → server | Shut the daemon down so the next launch runs the newly installed version. |
 | [`system.shutdown`](#systemshutdown) | client → server | Ask the daemon to shut down gracefully. |
+| [`system.update`](#systemupdate) | client → server | Upgrade snowpea in a detached subprocess and report progress. |
 | [`team.start`](#teamstart) | client → server | Split a task across parallel workers. |
 | [`team.status`](#teamstatus) | client → server | Inspect a team's task board. |
 | [`tool.list`](#toollist) | client → server | List the tools registered for a session. |
@@ -353,7 +359,25 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `bindings` | `({ bindingId: string; channelId?: string \| null; credentialsRef?: string; platform: string; state?: "active" \| "inactive"; target: string; userId?: string \| null; })[]` | no | Live gateway bindings. |
+| `bindings` | `({ bindingId: string; channelId?: string \| null; credentialsRef?: string; platform: string; source?: string; state?: "active" \| "inactive"; target: string; userId?: string \| null; })[]` | no | Live gateway bindings. |
+
+### `gateway.sync`
+
+*Direction:* client → server
+
+Reconcile the messenger bindings with settings.gateway.
+
+**Params**
+
+_No params (send `{}`)._
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `added` | `string[]` | no | Platforms that started listening. |
+| `kept` | `string[]` | no | Platforms that were already listening. |
+| `removed` | `string[]` | no | Platforms whose auto binding was dropped. |
 
 ### `gateway.unbind`
 
@@ -597,6 +621,26 @@ Start a browser-based login flow for a provider.
 | field | type | required | description |
 |---|---|---|---|
 | `ok` | `boolean` | no | True when the call succeeded. |
+
+### `provider.models`
+
+*Direction:* client → server
+
+Ask a vendor's endpoint which models it serves.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `vendor` | `string \| null` | no | Vendor to query; defaults to the configured one. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `current` | `string` | no | Model this vendor uses today. |
+| `models` | `string[]` | no | Model ids the vendor's endpoint reports. |
+| `vendor` | `string` | yes | Vendor the listing came from. |
 
 ### `session.close`
 
@@ -879,6 +923,32 @@ Search available skills.
 | `skills` | `({ id?: string; installSpec?: string; installed?: boolean; kind?: "skill" \| "agent" \| "command" \| "plugin"; name: string; source?: string; summary?: string; })[]` | no | Matching skills. |
 | `unavailable` | `string[]` | no | Sources that could not be reached, as '<source>: <reason>'. Empty skills with a non-empty list means offline, not no match. |
 
+### `system.checkUpdate`
+
+*Direction:* client → server
+
+Report whether a newer snowpea release exists; cached for 24h.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `force` | `boolean` | no | Ignore the 24h cache and ask the network right now. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `available` | `boolean` | yes | True when latest is strictly newer than current. |
+| `cached` | `boolean` | no | True when this came from $SNOWPEA_HOME/update-check.json. |
+| `channel` | `"git" \| "pypi"` | yes | Where the answer came from: 'pypi' or 'git'. |
+| `checkedAt` | `string` | yes | UTC ISO-8601 timestamp of the answer. |
+| `current` | `string` | yes | Version of the running daemon (snowpea_core.__version__). |
+| `error` | `string \| null` | no | Why the check could not complete; available is false whenever it is set. |
+| `latest` | `string` | yes | Newest version found; equal to current when nothing is known. |
+| `releaseUrl` | `string \| null` | no | Human page for the release, when one exists. |
+| `source` | `string` | yes | What an installer would be handed to get 'latest'. |
+
 ### `system.health`
 
 *Direction:* client → server
@@ -937,8 +1007,25 @@ _No params (send `{}`)._
 | `pid` | `number` | yes | Process id of the daemon. |
 | `port` | `number` | yes | TCP port the daemon is listening on (127.0.0.1 only). |
 | `protocolVersion` | `string` | yes | Protocol semver the daemon speaks. |
+| `restartRequired` | `boolean` | no | True once system.update finished; the daemon runs the old code until restarted. |
 | `startedAt` | `string` | yes | UTC ISO-8601 timestamp of daemon start. |
 | `version` | `string` | yes | Daemon version. |
+
+### `system.restart`
+
+*Direction:* client → server
+
+Shut the daemon down so the next launch runs the newly installed version.
+
+**Params**
+
+_No params (send `{}`)._
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ok` | `boolean` | no | True when the call succeeded. |
 
 ### `system.shutdown`
 
@@ -955,6 +1042,25 @@ _No params (send `{}`)._
 | field | type | required | description |
 |---|---|---|---|
 | `ok` | `boolean` | no | True when the call succeeded. |
+
+### `system.update`
+
+*Direction:* client → server
+
+Upgrade snowpea in a detached subprocess and report progress.
+
+**Params**
+
+_No params (send `{}`)._
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `command` | `string` | yes | The command line that runs, or that has to be run by hand. |
+| `error` | `string \| null` | no | Why nothing was started; null on the happy path. |
+| `log` | `string` | yes | Absolute path of the file the upgrade writes its output to. |
+| `started` | `boolean` | yes | True when the upgrade subprocess was spawned. |
 
 ### `team.start`
 
@@ -1065,6 +1171,13 @@ List the tools registered for a session.
 | `seq` | `number` | yes | Monotonic per-session sequence number. |
 | `sessionId` | `string` | yes | Session the event belongs to. |
 | `ts` | `string` | yes | UTC ISO-8601 timestamp. |
+
+### `system.updateProgress`
+
+| field | type | required | description |
+|---|---|---|---|
+| `message` | `string` | no | One line for humans. |
+| `phase` | `"started" \| "done" \| "failed"` | yes | Where the upgrade got to. |
 
 ## `session.event` kinds
 

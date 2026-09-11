@@ -48,6 +48,10 @@ class GeminiProvider:
         if not api_key and not replay.is_replay():
             raise ProviderError("invalid_params", "gemini: no API key configured")
 
+    def _tag(self) -> str:
+        """``gemini (gemini-2.5-pro)`` — errors name the vendor *and* the model."""
+        return f"{self.vendor} ({self.model})" if self.model else self.vendor
+
     def _client(self) -> httpx.AsyncClient:
         headers = {
             "content-type": "application/json",
@@ -85,7 +89,7 @@ class GeminiProvider:
                     if response.status_code >= 400:
                         detail = (await response.aread()).decode("utf-8", "replace")[:400]
                         raise ProviderError(
-                            "internal", f"gemini: HTTP {response.status_code}: {detail}"
+                            "internal", f"{self._tag()}: HTTP {response.status_code}: {detail}"
                         )
                     async for payload in sse_payloads(response):
                         for event in normalizer.feed(payload):
@@ -93,8 +97,10 @@ class GeminiProvider:
         except ProviderError:
             raise
         except httpx.HTTPError as exc:
-            log.warning("gemini stream failed: %s", exc)
-            raise ProviderError("internal", f"gemini: {type(exc).__name__}: {exc}") from exc
+            log.warning("%s stream failed: %s", self._tag(), exc)
+            raise ProviderError(
+                "internal", f"{self._tag()}: {type(exc).__name__}: {exc}"
+            ) from exc
         for event in normalizer.finish():
             yield event
 
