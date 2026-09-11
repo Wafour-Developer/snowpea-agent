@@ -1,0 +1,68 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: unit (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: uv sync
+        run: uv sync
+      - name: pytest
+        run: uv run pytest -q
+
+  vendor-integrity:
+    name: vendor-integrity
+    runs-on: ubuntu-latest
+    continue-on-error: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: uv sync
+        run: uv sync
+      - name: verify vendored file hashes and patches
+        run: uv run python scripts/verify_vendor_integrity.py
+
+  protocol-check:
+    name: protocol-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: uv sync
+        run: uv sync
+      - name: generated protocol artifacts are up to date
+        run: uv run python scripts/gen_protocol.py --check
+
+  sdk-contract:
+    name: sdk-contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: npm ci
+        run: npm ci
+      - name: build sdk
+        run: npm -w sdk run build
+      - name: sdk contract tests
+        run: npm -w sdk test -- --grep base

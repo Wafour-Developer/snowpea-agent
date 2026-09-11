@@ -1,0 +1,30 @@
+{
+  "name": "@snowpea/tui",
+  "version": "0.1.0",
+  "description": "Ink terminal UI for the snowpea agent.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "snowpea-tui": "dist/snowpea-tui.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "node esbuild.config.mjs",
+    "dev": "tsx src/index.tsx",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@snowpea/sdk": "*",
+    "ink": "^5.1.0",
+    "react": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "esbuild": "^0.24.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.5"
+  }
+}

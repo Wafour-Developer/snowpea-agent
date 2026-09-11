@@ -1,0 +1,21 @@
+{
+  "name": "snowpea-agent-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Workspace root for the snowpea TypeScript SDK and Ink TUI.",
+  "license": "MIT",
+  "type": "module",
+  "workspaces": [
+    "sdk",
+    "tui"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "build:sdk": "npm -w sdk run build",
+    "build:tui": "npm -w tui run build"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

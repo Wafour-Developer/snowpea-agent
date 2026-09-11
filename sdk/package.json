@@ -1,0 +1,33 @@
+{
+  "name": "@snowpea/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript client SDK for the snowpea daemon protocol.",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "mocha"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.9",
+    "@types/node": "^22.9.0",
+    "@types/ws": "^8.5.13",
+    "mocha": "^10.8.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}

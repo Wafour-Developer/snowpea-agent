@@ -1,0 +1,15 @@
+# ralph progress — snowpea-agent v0.1
+Session: c8c4a797-cd7b-4db1-8376-04eaced83731
+Plan: .omc/plans/snowpea-agent-consensus-plan.md  Spec: .omc/specs/deep-interview-snowpea-agent.md
+PRD: .omc/state/sessions/c8c4a797-cd7b-4db1-8376-04eaced83731/prd.json (22 stories, M0..M8)
+
+## Environment facts
+- uv 0.11.6, node v26.8.1, npm 11.19, python3 3.12.4 (anaconda), docker 27.1.2, git 2.34.1
+- gh CLI NOT installed -> GitHub private repo creation must be done by the user; local skeleton repos created instead.
+- Working dir /mnt/data/work/mediagen/snowpea is NOT yet a git repo.
+
+## Iteration log
+- [iter1] US-003 PASS: ../snowpea-ide (261535c+), ../snowpea-registry, ../snowpea-site created as local git repos with @snowpea/sdk ^0.1 npm-only dependency and core contract line. FOLLOW-UP FOR USER: create GitHub private remotes (gh not installed here) and push.
+- [iter1] Hermes reference clone at /tmp/hermes-ref @ 8d79c2ff57bba4b07e5b37ed90387b16541aef53 (MIT, Nous Research). Repo is large (~6000 .py). Vendoring will be selective per docs/vendoring-map.md.
+- [iter1] US-001 PASS: uv sync/pytest(4)/ruff/mypy green; npm workspaces sdk+tui build; tui bundle runs standalone (no node_modules) — confirms C1 wheel-bundling. ddgs>=9 resolves. esbuild stubs react-devtools-core (Ink imports it). Ink component in tui/src/app.tsx (index.tsx renders at import).
+- Learnings: use `uv run` for python; root `npm -w sdk|tui run build`; ruff isort known-first-party=snowpea_core.

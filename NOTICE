@@ -1,0 +1,36 @@
+snowpea-agent
+Copyright (c) 2026 snowpea
+Licensed under the MIT License (see LICENSE).
+
+This product includes software developed by third parties, listed below. Each
+is distributed under the MIT License, whose full text is reproduced in this
+repository's LICENSE file and applies to the corresponding upstream copyright
+holders.
+
+--------------------------------------------------------------------------------
+hermes-agent
+  Copyright (c) NousResearch
+  License: MIT
+  Source:  https://github.com/NousResearch/hermes-agent
+
+  Portions of snowpea's tool suite and agent loop are vendored or ported from
+  hermes-agent. Vendored sources live under core/snowpea_core/vendor/hermes/.
+
+--------------------------------------------------------------------------------
+oh-my-claudecode
+  Copyright (c) Yeachan Heo
+  License: MIT
+  Source:  https://github.com/Yeachan-Heo/oh-my-claudecode
+
+  Portions of snowpea's built-in commands and skills are ported from
+  oh-my-claudecode.
+
+--------------------------------------------------------------------------------
+
+Every vendored or ported file carries a header naming its upstream project, the
+upstream commit SHA it was taken from, and its license. The authoritative
+mapping of upstream path -> commit SHA -> file SHA256 -> destination path ->
+patch path -> reason lives in docs/vendoring-map.md (hermes-agent) and
+docs/omc-porting-map.md (oh-my-claudecode). Modifications to vendored files are
+tracked as committed diffs under core/snowpea_core/vendor/patches/ and verified
+in CI by scripts/verify_vendor_integrity.py.
