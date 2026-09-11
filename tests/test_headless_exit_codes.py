@@ -21,6 +21,8 @@ from pathlib import Path
 
 import pytest
 
+import snowpea_core
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FAKE_SCRIPT = REPO_ROOT / "tests" / "fixtures" / "providers" / "fake" / "basic.json"
 
@@ -127,7 +129,7 @@ def _wait_for_implementation(env: dict[str, str], *args: str, label: str) -> Non
 def test_version_exits_zero(home: Path) -> None:
     result = run_cli("--version", env=_base_env(home))
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "snowpea 0.1.0"
+    assert result.stdout.strip().startswith(f"snowpea {snowpea_core.__version__}")
 
 
 def test_unknown_flag_is_a_usage_error(home: Path) -> None:

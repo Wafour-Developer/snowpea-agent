@@ -1,3 +1,5 @@
+import re
+
 """M0 smoke tests: the package imports and the console entry point answers."""
 
 from __future__ import annotations
@@ -11,7 +13,7 @@ from snowpea_core.cli.main import main
 
 
 def test_version() -> None:
-    assert snowpea_core.__version__ == "0.1.0"
+    assert re.fullmatch(r"\d+\.\d+\.\d+", snowpea_core.__version__)
 
 
 def test_snowpea_home_is_isolated() -> None:
@@ -20,7 +22,7 @@ def test_snowpea_home_is_isolated() -> None:
 
 def test_cli_version(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["--version"]) == 0
-    assert capsys.readouterr().out.strip() == "snowpea 0.1.0"
+    assert capsys.readouterr().out.strip().startswith(f"snowpea {snowpea_core.__version__}")
 
 
 def test_cli_usage_error_exits_2() -> None:
