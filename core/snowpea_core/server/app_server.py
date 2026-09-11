@@ -137,6 +137,10 @@ class Core:
     #: ``(mtime_ns, size)`` of ``settings.json`` as of the last load or save;
     #: :meth:`settings_file_changed` compares against it (CORE-settings-reload).
     settings_stamp: tuple[int, int] = hot_reload.MISSING
+    #: Set at the start of ``Daemon.stop`` so in-flight background work (e.g.
+    #: the memory nudge) can decline to start once shutdown has begun, instead
+    #: of racing the services it depends on being closed (CORE-memory-race).
+    stopping: bool = False
 
     # -- settings hot reload (CORE-settings-reload) ---------------------
 
@@ -630,6 +634,13 @@ class Daemon:
         """Close sockets, drop ``daemon.json`` and release the port."""
         self.request_shutdown(self.shutdown_reason or "requested")
         if self.core is not None:
+            # Flip this first: any turn still in flight (and anything it
+            # schedules, like the memory nudge) must see shutdown has begun
+            # before we start tearing down the services it depends on
+            # (CORE-memory-race).
+            self.core.stopping = True
+            # The update watcher polls rather than blocking a thread, so
+            # cancelling it returns straight away (CORE-update).
             for attribute in ("update_task", "update_check_task"):
                 task = getattr(self.core, attribute)
                 if task is None:
@@ -637,7 +648,6 @@ class Daemon:
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
                 setattr(self.core, attribute, None)
-        if self.core is not None:
             await self.core.lifecycle.stop()
             await stop_scheduler(self.core)
             if self.core.gateway is not None:
@@ -660,7 +670,7 @@ class Daemon:
                 self.core.store.close()
         if self.core is not None and self.core.memory is not None:
             with contextlib.suppress(Exception):
-                self.core.memory.close()
+                await self.core.memory.close()
         await _close_tool_subprocesses()
         self._remove_daemon_json()
         log.info("snowpea daemon stopped (%s)", self.shutdown_reason)

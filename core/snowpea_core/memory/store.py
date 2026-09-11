@@ -45,6 +45,15 @@ CREATE INDEX IF NOT EXISTS memories_namespace ON memories (namespace, created_at
 
 
 
+class MemoryClosed(RuntimeError):
+    """A :class:`MemoryStore` operation was attempted after :meth:`MemoryStore.close`.
+
+    Raised instead of letting the underlying ``sqlite3.ProgrammingError`` leak
+    out of a background task (the memory nudge, recall) that outlived the
+    daemon that scheduled it (CORE-memory-race).
+    """
+
+
 def new_memory_id() -> str:
     return f"m-{uuid.uuid4().hex[:12]}"
 
@@ -107,6 +116,7 @@ class MemoryStore:
         self.path = path
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
+        self._closed = False
         self._conn = sqlite3.connect(str(path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         #: ``"trigram"`` normally; ``"unicode61"`` on an SQLite too old for it,
@@ -147,6 +157,8 @@ class MemoryStore:
     # -- plumbing ------------------------------------------------------
     def _query(self, sql: str, params: tuple[Any, ...] = ()) -> list[sqlite3.Row]:
         with self._lock:
+            if self._closed:
+                raise MemoryClosed("memory store is closed")
             return list(self._conn.execute(sql, params))
 
     def _row_to_entry(self, row: sqlite3.Row, score: float = 0.0) -> MemoryEntry:
@@ -163,6 +175,8 @@ class MemoryStore:
     # -- writes --------------------------------------------------------
     def _write(self, entry: MemoryEntry, source_session: str | None) -> None:
         with self._lock:
+            if self._closed:
+                raise MemoryClosed("memory store is closed")
             cursor = self._conn.execute(
                 "INSERT INTO memories (id, namespace, text, tags_json, source_session, created_at)"
                 " VALUES (?, ?, ?, ?, ?, ?)",
@@ -203,6 +217,8 @@ class MemoryStore:
 
     def _delete(self, memory_id: str) -> bool:
         with self._lock:
+            if self._closed:
+                raise MemoryClosed("memory store is closed")
             row = self._conn.execute(
                 "SELECT rowid, text FROM memories WHERE id = ?", (memory_id,)
             ).fetchone()
@@ -298,12 +314,16 @@ class MemoryStore:
 
     def close(self) -> None:
         with self._lock:
+            if self._closed:
+                return
+            self._closed = True
             self._conn.close()
 
 
 __all__ = [
     "MAX_QUERY_TRIGRAMS",
     "SCHEMA",
+    "MemoryClosed",
     "MemoryEntry",
     "MemoryStore",
     "match_expression",

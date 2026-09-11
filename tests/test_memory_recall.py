@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import re
 from collections.abc import AsyncIterator
@@ -21,6 +22,7 @@ import pytest_asyncio
 from _support import RpcClient, connect, make_daemon
 from test_session_loop import prompt, start_session
 
+import snowpea_core.memory as memory_mod
 from snowpea_core.config.paths import Paths
 from snowpea_core.memory import MemoryServices
 from snowpea_core.memory.retrieval import remember_candidate
@@ -106,7 +108,7 @@ async def memories(home: Path, namespace: str = "default") -> list[Any]:
     try:
         return await services.store.list(namespace=namespace)
     finally:
-        services.close()
+        await services.close()
 
 
 # ---------------------------------------------------------------------------
@@ -225,7 +227,7 @@ async def test_namespaces_are_isolated(home: Path) -> None:
         assert await services.store.search("duho", namespace="agent:b") == []
         assert await services.store.search("duho", namespace="default") == []
     finally:
-        services.close()
+        await services.close()
 
 
 async def test_session_namespace_scopes_the_nudge(
@@ -303,7 +305,7 @@ async def test_korean_partial_word_search(home: Path) -> None:
         assert len(await services.store.search(QUESTION)) == 1
         assert (await services.store.search("김치"))[0].text.startswith("점심은")
     finally:
-        services.close()
+        await services.close()
 
 
 # ---------------------------------------------------------------------------
@@ -350,3 +352,87 @@ async def test_hello_still_advertises_the_protocol(home: Path, http: aiohttp.Cli
         assert info["protocolVersion"] == PROTOCOL_VERSION
     finally:
         await daemon.stop()
+
+
+# ---------------------------------------------------------------------------
+# (7) a daemon stop mid-nudge does not race MemoryStore.close (CORE-memory-race)
+# ---------------------------------------------------------------------------
+#
+# This targets the memory subsystem directly (``nudge_after_turn`` and
+# ``MemoryServices.close``) rather than a full RPC turn: driving it through
+# a real daemon also races the *session* store's own ``turn.done`` write
+# against ``Daemon.stop`` (the turn task is never cancelled on shutdown),
+# which is a separate, pre-existing gap outside CORE-memory-race's scope —
+# see docs/design/deviations/CORE-memory-race.md.
+
+
+class _StubSession:
+    """The two attributes ``nudge_after_turn`` reads off a session."""
+
+    def __init__(self, session_id: str = "s-test") -> None:
+        self.id = session_id
+        self.memory_namespace: str | None = None
+
+
+class _StubCore:
+    """The two attributes ``nudge_after_turn``/``enabled`` read off a core."""
+
+    def __init__(self, memory: MemoryServices) -> None:
+        self.memory = memory
+        self.settings = type("S", (), {"memory": memory.settings})()
+        self.stopping = False
+
+
+async def _close_during_a_delayed_nudge(home: Path, monkeypatch: Any, caplog: Any) -> None:
+    """Start a nudge whose write is artificially slow, then close mid-flight.
+
+    Before CORE-memory-race this raced ``MemoryStore.close`` against the
+    delayed write's ``asyncio.to_thread`` call and could surface as
+    ``sqlite3.ProgrammingError: Cannot operate on a closed database`` out of
+    the background nudge task. It must now shut down with no exception and no
+    error-level log record, and the write must not land (the close won the
+    race).
+    """
+    services = MemoryServices.open(Paths.create(home))
+    core = _StubCore(services)
+    session = _StubSession()
+
+    original_write_nudge = memory_mod._write_nudge
+
+    async def delayed_write_nudge(*args: Any, **kwargs: Any) -> Any:
+        await asyncio.sleep(0.1)
+        return await original_write_nudge(*args, **kwargs)
+
+    monkeypatch.setattr(memory_mod, "_write_nudge", delayed_write_nudge)
+
+    with caplog.at_level(logging.ERROR):
+        nudge_task = asyncio.ensure_future(memory_mod.nudge_after_turn(core, session, FACT))
+        await asyncio.sleep(0.02)  # let it reach the delayed write
+        await services.close()  # closes mid-sleep, before the write runs
+        result = await nudge_task
+
+    assert result is None
+    error_records = [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert not error_records, [r.getMessage() for r in error_records]
+
+    reopened = MemoryServices.open(Paths.create(home))
+    try:
+        assert await reopened.store.list() == []
+    finally:
+        await reopened.close()
+
+
+async def test_close_during_a_delayed_nudge_is_clean(
+    home: Path, monkeypatch: Any, caplog: Any
+) -> None:
+    await _close_during_a_delayed_nudge(home, monkeypatch, caplog)
+
+
+async def test_close_during_a_delayed_nudge_is_clean_repeated(
+    tmp_path: Path, monkeypatch: Any, caplog: Any
+) -> None:
+    """The same race, run 5 times over fresh homes to catch flakiness."""
+    for index in range(5):
+        home = tmp_path / f"home-{index}"
+        await _close_during_a_delayed_nudge(home, monkeypatch, caplog)
+        caplog.clear()

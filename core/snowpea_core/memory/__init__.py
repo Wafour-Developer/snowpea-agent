@@ -8,9 +8,10 @@ it; the agent loop reaches it through :func:`context_for_turn` and
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
 
 from snowpea_core.config.paths import Paths
 from snowpea_core.config.settings import MemorySettings, Settings
@@ -22,7 +23,7 @@ from snowpea_core.memory.retrieval import (
     remember_candidate,
     render_block,
 )
-from snowpea_core.memory.store import MemoryEntry, MemoryStore
+from snowpea_core.memory.store import MemoryClosed, MemoryEntry, MemoryStore
 from snowpea_core.memory.tools import register_memory_tools
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -40,6 +41,17 @@ class MemoryServices:
     profile: UserProfile
     retrieval: Retrieval
     settings: MemorySettings
+    #: In-flight background work spawned by :func:`context_for_turn` and
+    #: :func:`nudge_after_turn` (recall / the auto-remember nudge), tracked so
+    #: :meth:`close` can cancel and await it before the store underneath it
+    #: closes (CORE-memory-race).
+    _tasks: set[asyncio.Task[Any]] = field(default_factory=set, repr=False, compare=False)
+
+    def _track(self, coro: Any) -> asyncio.Task[Any]:
+        task: asyncio.Task[Any] = asyncio.ensure_future(coro)
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+        return task
 
     @classmethod
     def open(cls, paths: Paths, settings: Settings | None = None) -> MemoryServices:
@@ -59,7 +71,20 @@ class MemoryServices:
             settings=config,
         )
 
-    def close(self) -> None:
+    async def close(self) -> None:
+        """Cancel and await any in-flight recall/nudge work, then close the store.
+
+        Order matters: a background task still running when the store closed
+        underneath it used to surface as a raw ``sqlite3.ProgrammingError``
+        (CORE-memory-race). Draining ``_tasks`` first means anything still
+        running either finishes (against a live store) or is cancelled
+        cleanly, so the ``store.close()`` below never races a writer.
+        """
+        tasks = [task for task in list(self._tasks) if not task.done()]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
         self.store.close()
 
 
@@ -79,11 +104,20 @@ async def context_for_turn(core: Core, session: Session, text: str) -> str:
     """The ``<memory>`` block for this turn's system prompt, or ``""``.
 
     Never raises: a memory that cannot be read must not cost the user a turn.
+    The actual lookup runs as a task tracked on :class:`MemoryServices`, so a
+    daemon shutdown that lands mid-lookup cancels it cleanly instead of racing
+    :meth:`MemoryServices.close` (CORE-memory-race).
     """
     if not enabled(core) or not text.strip():
         return ""
+    memory = services(core)
+    task = memory._track(memory.retrieval.context_block(session, text))
     try:
-        return await services(core).retrieval.context_block(session, text)
+        return await task
+    except (MemoryClosed, asyncio.CancelledError):
+        # The daemon is shutting down and closed out from under this lookup;
+        # the turn already has nothing useful to add to the prompt.
+        return ""
     except Exception:  # noqa: BLE001 - recall is best-effort
         log.exception("memory recall failed for session %s", session.id)
         return ""
@@ -93,23 +127,40 @@ async def nudge_after_turn(core: Core, session: Session, text: str) -> MemoryEnt
     """Store ``text`` when the user explicitly asked to be remembered.
 
     Runs after ``turn.done{complete}``; returns the entry it wrote, if any.
+    Declines to even start once :attr:`Core.stopping` is set, and otherwise
+    runs the write as a task tracked on :class:`MemoryServices` so a shutdown
+    that lands mid-write cancels or fails it cleanly instead of racing
+    :meth:`MemoryServices.close` (CORE-memory-race).
     """
     if not enabled(core) or not text.strip():
+        return None
+    if getattr(core, "stopping", False):
         return None
     memory = services(core)
     fact = remember_candidate(text, memory.settings.auto_remember_patterns)
     if fact is None:
         return None
     namespace = namespace_of(session)
+    task = memory._track(_write_nudge(memory, fact, namespace, session.id))
     try:
-        if await memory.store.exists(fact, namespace=namespace):
-            return None
-        return await memory.store.write(
-            fact, tags=["auto"], namespace=namespace, source_session=session.id
-        )
+        return await task
+    except (MemoryClosed, asyncio.CancelledError):
+        # The daemon closed the store out from under this write (or cancelled
+        # it on shutdown); the turn already succeeded, so this is a no-op.
+        return None
     except Exception:  # noqa: BLE001 - the turn already succeeded
         log.exception("auto-remember failed for session %s", session.id)
         return None
+
+
+async def _write_nudge(
+    memory: MemoryServices, fact: str, namespace: str, session_id: str
+) -> MemoryEntry | None:
+    if await memory.store.exists(fact, namespace=namespace):
+        return None
+    return await memory.store.write(
+        fact, tags=["auto"], namespace=namespace, source_session=session_id
+    )
 
 
 def wire_memory(core: Core) -> MemoryServices:
@@ -122,6 +173,7 @@ def wire_memory(core: Core) -> MemoryServices:
 
 __all__: list[str] = [
     "DEFAULT_REMEMBER_PATTERNS",
+    "MemoryClosed",
     "MemoryEntry",
     "MemoryServices",
     "MemoryStore",
