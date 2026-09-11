@@ -77,6 +77,8 @@ class SetupResult:
     screens_shown: list[str] = field(default_factory=list)
     #: Screen names a flag answered.
     screens_answered: list[str] = field(default_factory=list)
+    #: True when the user chose Cancel on the summary; nothing was written.
+    cancelled: bool = False
 
     def summary(self) -> list[str]:
         return self.state.summary()
@@ -158,7 +160,7 @@ def run(
             continue
         choice = _show(name, module)
         # The summary lets the user pick a row to revisit that section (Hermes-style);
-        # Enter on Skip (or a non-section row) writes and finishes.
+        # Save writes and finishes, Cancel discards everything.
         while (
             interactive
             and name == "done"
@@ -169,6 +171,17 @@ def run(
             if target in by_name:
                 _show(target, by_name[target])
             choice = _show("done", done_screen)
+        if name == "done" and choice == done_screen.CANCEL:
+            state.notes.append("cancelled — nothing written")
+            return SetupResult(
+                mode=mode,
+                state=state,
+                settings=settings,
+                settings_path=paths.settings_json,
+                screens_shown=shown,
+                screens_answered=sorted(answered),
+                cancelled=True,
+            )
 
     settings = state.write(paths, settings)
     return SetupResult(

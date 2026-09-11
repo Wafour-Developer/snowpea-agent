@@ -299,6 +299,9 @@ def setup_command(args: argparse.Namespace, home: Path | str | None = None) -> i
     except wizard.SetupError as exc:
         return _fail(str(exc), EXIT_USAGE)
 
+    if getattr(result, "cancelled", False):
+        print("setup cancelled — nothing written")
+        return 0
     print(f"settings written to {result.settings_path}")
     for line in result.summary():
         print(f"  {line}")

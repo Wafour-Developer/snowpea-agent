@@ -5,13 +5,15 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from snowpea_core.setup.catalog import CatalogItem
-from snowpea_core.setup.screens import Screen, ScreenItem, skip_item
+from snowpea_core.setup.screens import Screen, ScreenItem
 from snowpea_core.setup.state import WizardState
 
 TITLE = "⑥ Done"
 #: Summary rows that can be revisited by selecting them.
 SECTION_ROWS = frozenset({"providers", "search", "browser", "tools", "gateway"})
-HELP = "Enter on a row revisits that section; Enter on Skip writes settings.json."
+HELP = "Enter on a row revisits that section · Save writes settings.json · Cancel discards."
+SAVE = "action:save"
+CANCEL = "action:cancel"
 
 
 def build(state: WizardState, catalog: Sequence[CatalogItem] | None = None) -> Screen:
@@ -26,7 +28,13 @@ def build(state: WizardState, catalog: Sequence[CatalogItem] | None = None) -> S
                 id=row_id, label=line, tags=(), selected=False, default=False, active=True
             )
         )
-    return Screen(title=TITLE, items=(*rows, skip_item()), multi=False, help=HELP)
+    actions = (
+        ScreenItem(
+            id=SAVE, label="✓ Save — write settings.json", tags=(), selected=False, default=True
+        ),
+        ScreenItem(id=CANCEL, label="✕ Cancel — discard changes", tags=(), selected=False),
+    )
+    return Screen(title=TITLE, items=(*rows, *actions), multi=False, help=HELP)
 
 
 def apply(state: WizardState, choice: str | set[str]) -> WizardState:
@@ -34,4 +42,4 @@ def apply(state: WizardState, choice: str | set[str]) -> WizardState:
     return state
 
 
-__all__ = ["HELP", "TITLE", "apply", "build"]
+__all__ = ["CANCEL", "HELP", "SAVE", "TITLE", "apply", "build"]

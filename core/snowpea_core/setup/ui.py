@@ -43,7 +43,7 @@ def is_interactive(stream: IO[str] | None = None) -> bool:
 
 def render_item(item: ScreenItem, *, multi: bool, selected: bool, cursor: bool) -> Text:
     """One row, as rich markup."""
-    if item.id == SKIP:
+    if item.id == SKIP or item.id.startswith("action:"):
         marker = "   "
     elif multi:
         marker = "[✓]" if selected else "[ ]"
