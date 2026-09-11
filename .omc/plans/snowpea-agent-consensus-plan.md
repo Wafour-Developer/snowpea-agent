@@ -409,6 +409,8 @@ snowpea -c "<prompt>" [--mode plan|accept|auto] [--json] [--cwd DIR]
 **총 추정: 64–95 영업일(1인 기준, 약 13–19주).** 임계 경로 M0→M1→M2→M4→M5→M7→M8. M3와 M6은 각각 M2·M5와 부분 병렬 가능하며, 2인 이상이면 총 기간을 9–13주까지 줄일 수 있다. M2·M5·M7은 각각 2–3주 규모의 독립 서브프로젝트로 취급하고 주 단위 중간 데모를 건다.
 
 ### 4.9 v0.2 entry gate — protocol v1.0 freeze
+
+> 2026-09-11 사용자 결정: 3릴리즈 대기 없이 v0.2 착수. `PROTOCOL_VERSION`을 1.0.0으로 올려 동결 기준선을 잡고, 이후 프로토콜 변경은 minor 범프 + `capabilities` 협상으로만 허용한다.
 v0.1 완료(M8)와 `snowpea-ide` 착수 사이에 **마일스톤이 아닌 게이트**를 둔다. 이 게이트는 코드를 만들지 않고 통과 여부만 판정하며, 통과 전에는 IDE 레포에 제품 코드를 쓰지 않는다.
 
 - **조건**: ① `server/protocol.py`의 `PROTOCOL_VERSION == "1.0.0"` ② `docs/protocol.md`와 `scripts/gen_protocol.py`가 생성하는 스키마가 **연속된 3개 릴리즈 태그에 걸쳐 변경 0** ③ AC-15a·AC-15b 계약 테스트가 그 3개 태그 전부에서 통과.
