@@ -43,6 +43,18 @@ snowpea --version
 
 터미널 UI를 쓰려면 Node 20+가 `PATH`에 있어야 합니다. 헤드리스 실행(`snowpea -c`)과 모든 `snowpea <subcommand>`는 Node 없이도 동작합니다. Node가 필요한 것은 TUI뿐입니다.
 
+## 설치 소스 재정의
+
+설치 스크립트는 설치 소스를 바꿀 수 있습니다. CI와 오프라인 설치가 쓰는 경로입니다.
+
+```bash
+sh install.sh --from-checkout
+SNOWPEA_WHEEL_URL=./snowpea_agent-0.1.0-py3-none-any.whl sh install.sh
+SNOWPEA_INSTALL_SOURCE=git+https://github.com/Wafour-Developer/snowpea-agent sh install.sh
+```
+
+`SNOWPEA_BIN_DIR`은 `snowpea` 실행 파일이 놓일 위치를 바꾸고, `--from-checkout`은 스크립트 자신이 들어 있는 체크아웃을 설치합니다.
+
 ## 체크아웃에서 직접
 
 ```bash

@@ -43,7 +43,19 @@ snowpea --version
 
 Node 20+ must be on `PATH` for the terminal UI. Headless runs (`snowpea -c`) and every `snowpea <subcommand>` work without Node; only the TUI needs it.
 
-## From a checkout
+## Install source overrides
+
+The installer takes a source override, which is what CI and offline installs use:
+
+```bash
+sh install.sh --from-checkout
+SNOWPEA_WHEEL_URL=./snowpea_agent-0.1.0-py3-none-any.whl sh install.sh
+SNOWPEA_INSTALL_SOURCE=git+https://github.com/Wafour-Developer/snowpea-agent sh install.sh
+```
+
+`SNOWPEA_BIN_DIR` moves where the `snowpea` executable lands, and `--from-checkout` installs the checkout the script itself lives in.
+
+## Running from a checkout
 
 ```bash
 git clone https://github.com/Wafour-Developer/snowpea-agent.git

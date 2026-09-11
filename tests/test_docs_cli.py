@@ -116,7 +116,7 @@ def test_every_readme_and_manual_page_is_covered():
         "snowpea -c 'hello' --mode auto --json --cwd . --timeout 30",
         "uv run snowpea --version",
         "SNOWPEA_HOME=/tmp/x snowpea daemon status --json",
-        # Still landing in other stories, and therefore in ALLOWLIST.
+        # Landed in US-020 / US-022; validated against the real parsers now.
         "snowpea team status",
         "snowpea service install",
     ],
@@ -142,8 +142,10 @@ def test_invalid_invocations_are_rejected(cdc, cli_tree, command, fragment):
 
 
 def test_allowlist_entries_name_a_story(cdc):
-    """An allowlist entry without a story is a permanent hole; refuse that."""
-    assert cdc.ALLOWLIST, "the allowlist should not be silently emptied without a review"
+    """An allowlist entry without a story is a permanent hole; refuse that.
+
+    The list is empty once every documented command has a real parser (reviewed 2026-09-11).
+    """
     for chain, reason in cdc.ALLOWLIST.items():
         assert isinstance(chain, tuple) and chain, chain
         assert "US-" in reason, f"{chain} must name the story that removes it, got {reason!r}"

@@ -37,14 +37,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # Subcommand chains the documentation is allowed to mention before `--help`
 # knows about them.  Each entry names the story that will land it, after which
 # the entry must be deleted.
-ALLOWLIST: dict[tuple[str, ...], str] = {
-    ("team", "status"): "US-020 — team mode CLI; `snowpea team` is still a placeholder parser",
-    ("service", "install"): (
-        "US-022 — service registration; `snowpea service` is still a placeholder"
-    ),
-    ("service", "uninstall"): "US-022 — service registration",
-    ("service", "status"): "US-022 — service registration",
-}
+ALLOWLIST: dict[tuple[str, ...], str] = {}
 
 # Shell words that may precede `snowpea` on a documented command line.
 COMMAND_PREFIXES = {"uv", "run", "sudo", "exec", "env", "time", "npx"}
