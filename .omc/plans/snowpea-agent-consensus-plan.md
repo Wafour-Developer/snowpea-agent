@@ -1,6 +1,6 @@
 # snowpea-agent 구현 계획 (omc-plan consensus)
 
-Status: executed via ralph (2026-09-11) — all 23 PRD stories pass; awaiting final architect verdict
+Status: DONE — v0.1 implemented via ralph 2026-09-11; 23/23 PRD stories pass; architect APPROVED; deslop applied
 Plan ID: plan-snowpea-agent-20260911
 Input spec: `.omc/specs/deep-interview-snowpea-agent.md` (di-snowpea-agent-20260911, Ambiguity 12%, PASSED)
 Scope of this document: v0.1 (core + CLI) 전체 실행 계획. v0.2/v0.3은 전망 문단만.
