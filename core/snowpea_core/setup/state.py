@@ -30,11 +30,14 @@ class WizardState:
     base_url: str | None = None
     #: ``local`` only: vllm | ollama | lmstudio (picks the base_url default and quirks).
     variant: str | None = None
+    #: True when settings.json already holds an API key for ``vendor`` (kept unless replaced).
+    has_saved_key: bool = False
     search_provider: str = catalog.DEFAULT_SEARCH_PROVIDER
     browser_provider: str = catalog.DEFAULT_BROWSER_PROVIDER
     #: category id -> enabled.
     tool_categories: dict[str, bool] = field(default_factory=dict)
-    #: gateway id -> its config block (``{"enabled": True, "token": "..."}``).
+    #: gateway id -> its config block (``{"enabled": True, "token": "...",
+    #: "allowed_user_id": "123"}``).
     gateways: dict[str, dict[str, Any]] = field(default_factory=dict)
     #: Lines the providers screen shows above the list (detected keys, imports).
     hints: list[str] = field(default_factory=list)
@@ -53,12 +56,19 @@ class WizardState:
             for gid, block in (getattr(settings, "gateway", None) or {}).items()
             if isinstance(block, dict)
         }
+        vendor = (
+            str(settings.providers.get("default"))
+            if isinstance(settings.providers.get("default"), str)
+            else None
+        )
+        saved = settings.providers.get(vendor) if vendor else None
+        saved = saved if isinstance(saved, dict) else {}
         return cls(
-            vendor=(
-                str(settings.providers.get("default"))
-                if isinstance(settings.providers.get("default"), str)
-                else None
-            ),
+            vendor=vendor,
+            model=saved.get("model") or None,
+            base_url=saved.get("base_url") or None,
+            variant=saved.get("variant") or None,
+            has_saved_key=bool(saved.get("api_key")),
             search_provider=settings.search.provider or catalog.DEFAULT_SEARCH_PROVIDER,
             browser_provider=settings.browser.provider or catalog.DEFAULT_BROWSER_PROVIDER,
             tool_categories=defaults,
@@ -93,12 +103,36 @@ class WizardState:
             self.tool_categories[cid] = not off
         return unknown
 
-    def enable_gateway(self, gateway_id: str, token: str | None = None) -> None:
+    def enable_gateway(
+        self,
+        gateway_id: str,
+        token: str | None = None,
+        user_id: str | None = None,
+    ) -> None:
+        """Turn a messenger on, keeping any token/user id already configured.
+
+        ``user_id`` is the platform account allowed to answer approvals from
+        chat.  Without it the binding is fail-closed and can approve nothing,
+        so the wizard asks for it right after the token.
+        """
         block = dict(self.gateways.get(gateway_id) or {})
         block["enabled"] = True
         if token:
             block["token"] = token
+        if user_id:
+            block["allowed_user_id"] = str(user_id)
         self.gateways[gateway_id] = block
+
+    def gateway_needs_answers(self, gateway_id: str) -> bool:
+        """True while an enabled messenger is still missing its token or user id."""
+        block = self.gateways.get(gateway_id) or {}
+        if not block.get("enabled"):
+            return False
+        return not block.get("token") or not block.get("allowed_user_id")
+
+    def enabled_gateways(self) -> list[str]:
+        """Ids of the messengers that are on, in a stable order."""
+        return sorted(gid for gid, block in self.gateways.items() if block.get("enabled"))
 
     # -- output --------------------------------------------------------
     def write(self, paths: Paths, settings: Settings) -> Settings:
@@ -137,13 +171,17 @@ class WizardState:
             f"browser    {self.browser_provider}",
             f"tools      {len(self.enabled_categories())} categories on"
             f" ({', '.join(self.enabled_categories())})",
-            "messenger  "
-            + (
-                ", ".join(sorted(g for g, b in self.gateways.items() if b.get("enabled")))
-                or "(none)"
-            ),
+            "messenger  " + (", ".join(self._gateway_labels()) or "(none)"),
         ]
         return lines + list(self.notes)
+
+    def _gateway_labels(self) -> list[str]:
+        """``telegram (user 12345)`` — the id, and who may approve from chat."""
+        labels = []
+        for gid in self.enabled_gateways():
+            user = (self.gateways.get(gid) or {}).get("allowed_user_id")
+            labels.append(f"{gid} (user {user})" if user else f"{gid} (no approver)")
+        return labels
 
 
 __all__ = ["SKIP", "SKIP_LABEL", "WizardState"]

@@ -206,21 +206,25 @@ def _ask_for_key(state: WizardState, *, interactive: bool) -> None:
         from snowpea_core.providers.presets import LOCAL_VARIANTS
 
         variants = list(LOCAL_VARIANTS)
+        saved_idx = variants.index(state.variant) + 1 if state.variant in variants else 1
         labels = ", ".join(f"{i + 1}={LOCAL_VARIANTS[v].label}" for i, v in enumerate(variants))
-        picked = ui.ask_text(f"local server type [{labels}] (Enter=1): ")
+        picked = ui.ask_text(f"local server type [{labels}] (Enter={saved_idx}): ")
         try:
-            variant = variants[int(picked) - 1] if picked else variants[0]
+            variant = variants[int(picked) - 1] if picked else variants[saved_idx - 1]
         except (ValueError, IndexError):
-            variant = variants[0]
+            variant = variants[saved_idx - 1]
+        keep_url = state.base_url if variant == state.variant else None
         state.variant = variant
-        default_url = LOCAL_VARIANTS[variant].base_url or "http://localhost:11434/v1"
+        default_url = keep_url or LOCAL_VARIANTS[variant].base_url or "http://localhost:11434/v1"
         entered_url = ui.ask_text(f"{LOCAL_VARIANTS[variant].label} base URL [{default_url}]: ")
         state.base_url = entered_url or default_url
-        entered_key = ui.ask_text("API key (optional, Enter to skip): ", secret=True)
+        key_hint = "saved — Enter to keep" if state.has_saved_key else "optional, Enter to skip"
+        entered_key = ui.ask_text(f"API key [{key_hint}]: ", secret=True)
         if entered_key:
             state.api_key = entered_key
         return
-    entered = ui.ask_text(f"{state.vendor} API key (Enter to use the environment): ", secret=True)
+    key_hint = "saved — Enter to keep" if state.has_saved_key else "Enter to use the environment"
+    entered = ui.ask_text(f"{state.vendor} API key [{key_hint}]: ", secret=True)
     if entered:
         state.api_key = entered
 
