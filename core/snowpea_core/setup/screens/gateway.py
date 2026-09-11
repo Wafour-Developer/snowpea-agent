@@ -8,7 +8,7 @@ from snowpea_core.setup.catalog import CatalogItem, gateway_catalog
 from snowpea_core.setup.screens import Screen, ScreenItem, skip_item
 from snowpea_core.setup.state import SKIP, WizardState
 
-TITLE = "⑤ Chat gateways"
+TITLE = "⑤ Messengers (chat gateways)"
 HELP = "Each one needs a bot token; pass it with `--gateway <id> --token <token>`."
 
 

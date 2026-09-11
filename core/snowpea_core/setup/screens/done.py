@@ -21,7 +21,7 @@ def build(state: WizardState, catalog: Sequence[CatalogItem] | None = None) -> S
     rows = []
     for index, line in enumerate(state.summary()):
         section = line.split()[0] if line.split() else ""
-        section = {"provider": "providers"}.get(section, section)
+        section = {"provider": "providers", "messenger": "gateway"}.get(section, section)
         row_id = f"section:{section}" if section in SECTION_ROWS else f"summary:{index}"
         rows.append(
             ScreenItem(
@@ -32,7 +32,9 @@ def build(state: WizardState, catalog: Sequence[CatalogItem] | None = None) -> S
         ScreenItem(
             id=SAVE, label="✓ Save — write settings.json", tags=(), selected=False, default=True
         ),
-        ScreenItem(id=CANCEL, label="✕ Cancel — discard changes", tags=(), selected=False),
+        ScreenItem(
+            id=CANCEL, label="✕ Cancel — discard changes", tags=(), selected=False, default=False
+        ),
     )
     return Screen(title=TITLE, items=(*rows, *actions), multi=False, help=HELP)
 

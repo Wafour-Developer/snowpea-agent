@@ -137,7 +137,7 @@ class WizardState:
             f"browser    {self.browser_provider}",
             f"tools      {len(self.enabled_categories())} categories on"
             f" ({', '.join(self.enabled_categories())})",
-            "gateway    "
+            "messenger  "
             + (
                 ", ".join(sorted(g for g, b in self.gateways.items() if b.get("enabled")))
                 or "(none)"
