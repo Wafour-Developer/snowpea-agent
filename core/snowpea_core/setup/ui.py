@@ -12,6 +12,7 @@ wizard must never hang waiting for a keystroke that cannot arrive.
 
 from __future__ import annotations
 
+import io
 import os
 import sys
 from typing import IO
@@ -81,23 +82,10 @@ def render(screen: Screen, *, cursor: int, chosen: set[str], console: Console) -
 
 def render_lines(screen: Screen) -> list[str]:
     """The screen as plain text — used by tests and by ``--json``-less logs."""
-    console = Console(file=_NullFile(), width=100, record=True, force_terminal=False)
+    console = Console(file=io.StringIO(), width=100, record=True, force_terminal=False)
     chosen = {item.id for item in screen.items if item.selected}
     render(screen, cursor=0, chosen=chosen, console=console)
     return console.export_text().splitlines()
-
-
-class _NullFile:
-    """A file object that swallows everything (rich still records it)."""
-
-    def write(self, _text: str) -> int:
-        return 0
-
-    def flush(self) -> None:
-        return None
-
-    def isatty(self) -> bool:
-        return False
 
 
 # ---------------------------------------------------------------------------

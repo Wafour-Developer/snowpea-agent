@@ -2,7 +2,9 @@
 
 ``tools list`` and ``commands list`` are pure RPC lookups — no session, no LLM —
 so they double as the install smoke test.  ``daemon status|stop|start`` drives
-the daemon process itself.  Everything else is an M2+ placeholder that exits 2.
+the daemon process itself.  ``setup`` runs the M3 wizard (Quick/Full/Blank) and
+``provider list|login`` inspect and authorise vendors.  What is left is an M4+
+placeholder that exits 2.
 """
 
 from __future__ import annotations
@@ -11,6 +13,7 @@ import argparse
 import asyncio
 import contextlib
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -33,11 +36,14 @@ PLACEHOLDER_SUBCOMMANDS: tuple[str, ...] = (
     "service",
     "agents",
     "team",
-    "job",
 )
 
 #: Seconds to wait for ``daemon stop`` to see the process go away.
 STOP_TIMEOUT_SEC = 10.0
+
+#: ``job.runNow`` runs a whole turn before it answers, so it gets its own,
+#: much longer, RPC deadline.
+JOB_RUN_TIMEOUT_SEC = 900.0
 
 
 def _print_json(payload: Any) -> None:
@@ -249,7 +255,32 @@ async def daemon_status(home: Path | str | None = None, *, as_json: bool = False
             f"lifecycle    willExit={lifecycle.get('willExit', False)} "
             f"reason={lifecycle.get('reason', '?')} secondsUntilExit={remaining_text}"
         )
+        # Plan §2.6: say in one line whether the daemon is going to exit, and
+        # if not, what is keeping it up.
+        print(lifecycle.get("summary") or _keepalive_summary(counters, remaining))
     return EXIT_OK
+
+
+#: Singular/plural wording mirrored from ``server/lifecycle.COUNTER_LABELS``,
+#: used only when talking to a daemon too old to send ``lifecycle.summary``.
+COUNTER_LABELS: tuple[tuple[str, str, str], ...] = (
+    ("sessions", "session", "sessions"),
+    ("gateway_bindings", "gateway binding", "gateway bindings"),
+    ("jobs", "job", "jobs"),
+    ("named_agents", "named agent", "named agents"),
+)
+
+
+def _keepalive_summary(counters: dict[str, Any], remaining: Any) -> str:
+    """``will exit in 120s`` / ``will not exit: 2 gateway bindings, 1 job``."""
+    if remaining is not None:
+        return f"will exit in {float(remaining):.0f}s"
+    reasons = [
+        f"{counters.get(name, 0)} {singular if counters.get(name, 0) == 1 else plural}"
+        for name, singular, plural in COUNTER_LABELS
+        if counters.get(name, 0) > 0
+    ]
+    return "will not exit: " + (", ".join(reasons) if reasons else "idle shutdown is off")
 
 
 async def daemon_start(home: Path | str | None = None) -> int:
@@ -295,6 +326,225 @@ async def daemon_stop(home: Path | str | None = None) -> int:
     with contextlib.suppress(OSError):
         daemon_json.unlink()
     print(f"snowpea daemon stopped (pid {info.pid})")
+    return EXIT_OK
+
+
+# ---------------------------------------------------------------------------
+# gateway.* (M5 contract §3)
+# ---------------------------------------------------------------------------
+
+
+def parse_target(raw: str) -> dict[str, Any]:
+    """``agent:<name>`` | ``session:<id>`` | ``new:<workdir>`` | raw JSON."""
+    text = (raw or "").strip()
+    if text.startswith("{"):
+        value = json.loads(text)
+        if not isinstance(value, dict):
+            raise ValueError("target JSON must be an object")
+        return value
+    kind, _, rest = text.partition(":")
+    if kind == "agent" and rest:
+        return {"agent": rest}
+    if kind == "session" and rest:
+        return {"session": rest}
+    if kind == "new":
+        return {"new_session": {"workdir": rest or str(Path.cwd())}}
+    raise ValueError("target must be agent:<name>, session:<id>, new:<workdir> or JSON")
+
+
+async def _gateway_call(
+    home: Path | str | None, method: str, params: dict[str, Any]
+) -> dict[str, Any]:
+    info = await ensure_daemon(home)
+    client = DaemonClient(info)
+    await client.connect()
+    try:
+        return await client.call(method, params)
+    finally:
+        await client.close()
+
+
+async def gateway_bind(
+    platform: str,
+    credentials_ref: str,
+    target: str,
+    home: Path | str | None = None,
+    *,
+    channel_id: str | None = None,
+    user_id: str | None = None,
+    as_json: bool = False,
+) -> int:
+    """``snowpea gateway bind <platform> <credentialsRef> <target>``."""
+    try:
+        parsed = parse_target(target)
+    except (ValueError, json.JSONDecodeError) as exc:
+        return _fail(str(exc), EXIT_USAGE)
+    params: dict[str, Any] = {
+        "platform": platform,
+        "credentialsRef": credentials_ref,
+        "target": parsed,
+    }
+    if channel_id:
+        params["channelId"] = channel_id
+    if user_id:
+        params["userId"] = user_id
+    try:
+        result = await _gateway_call(home, "gateway.bind", params)
+    except DaemonError as exc:
+        return _fail(str(exc), EXIT_NO_DAEMON)
+    except RpcCallError as exc:
+        return _fail(f"gateway.bind failed ({exc.code}): {exc.message}", EXIT_USAGE)
+    if as_json:
+        _print_json(result)
+    else:
+        print(f"bound {platform} -> {target} as {result.get('bindingId')}")
+    return EXIT_OK
+
+
+async def gateway_list(home: Path | str | None = None, *, as_json: bool = False) -> int:
+    """``snowpea gateway list [--json]``."""
+    try:
+        result = await _gateway_call(home, "gateway.list", {})
+    except DaemonError as exc:
+        return _fail(str(exc), EXIT_NO_DAEMON)
+    except RpcCallError as exc:
+        return _fail(f"gateway.list failed ({exc.code}): {exc.message}", EXIT_USAGE)
+    bindings = [item for item in (result.get("bindings") or []) if isinstance(item, dict)]
+    if as_json:
+        _print_json(bindings)
+        return EXIT_OK
+    if not bindings:
+        print("no gateway bindings")
+        return EXIT_OK
+    for binding in bindings:
+        channel = binding.get("channelId") or "*"
+        print(
+            f"{binding.get('bindingId')}  {binding.get('platform')}  "
+            f"{binding.get('target')}  channel={channel}  [{binding.get('state')}]"
+        )
+    return EXIT_OK
+
+
+async def gateway_unbind(binding_id: str, home: Path | str | None = None) -> int:
+    """``snowpea gateway unbind <bindingId>``."""
+    try:
+        await _gateway_call(home, "gateway.unbind", {"bindingId": binding_id})
+    except DaemonError as exc:
+        return _fail(str(exc), EXIT_NO_DAEMON)
+    except RpcCallError as exc:
+        return _fail(f"gateway.unbind failed ({exc.code}): {exc.message}", EXIT_USAGE)
+    print(f"unbound {binding_id}")
+    return EXIT_OK
+
+
+# ---------------------------------------------------------------------------
+# job.* (M5 contract §2)
+# ---------------------------------------------------------------------------
+
+
+async def _job_call(
+    home: Path | str | None, method: str, params: dict[str, Any]
+) -> dict[str, Any]:
+    info = await ensure_daemon(home)
+    client = DaemonClient(info)
+    await client.connect()
+    try:
+        return await client.call(method, params, timeout=JOB_RUN_TIMEOUT_SEC)
+    finally:
+        await client.close()
+
+
+def format_job_line(job: dict[str, Any]) -> str:
+    """One line per job for ``snowpea job list``."""
+    last = job.get("lastRunAt")
+    last_text = f"{last}:{job.get('lastStatus') or '?'}" if last else "-"
+    state = job.get("state", "scheduled")
+    if not job.get("enabled", True) and state != "cancelled":
+        state = f"{state},disabled"
+    return (
+        f"{job.get('jobId')}  {str(job.get('spec', '')):<20} "
+        f"next={job.get('nextRunAt') or '-'}  last={last_text}  "
+        f"mode={job.get('mode', '?')}  channel={job.get('channel') or '-'}  [{state}]"
+    )
+
+
+async def job_schedule(
+    task: str,
+    home: Path | str | None = None,
+    *,
+    spec: str | None = None,
+    mode: str = "accept",
+    channel: str | None = None,
+    workdir: str | None = None,
+    as_json: bool = False,
+) -> int:
+    """``snowpea job schedule --in 60s --task "…" [--channel telegram:<id>]``."""
+    if not spec:
+        return _fail("usage: snowpea job schedule --at <spec> --task <task>", EXIT_USAGE)
+    if not task:
+        return _fail("snowpea job schedule needs --task", EXIT_USAGE)
+    params: dict[str, Any] = {"spec": spec, "task": task, "mode": mode}
+    if channel:
+        params["channel"] = channel
+    params["workdir"] = workdir or str(Path.cwd())
+    try:
+        result = await _job_call(home, "job.schedule", params)
+    except DaemonError as exc:
+        return _fail(str(exc), EXIT_NO_DAEMON)
+    except RpcCallError as exc:
+        return _fail(f"job.schedule failed ({exc.code}): {exc.message}", EXIT_USAGE)
+    if as_json:
+        _print_json(result)
+    else:
+        print(f"scheduled {result.get('jobId')} next at {result.get('nextRunAt') or '-'}")
+    return EXIT_OK
+
+
+async def job_list(home: Path | str | None = None, *, as_json: bool = False) -> int:
+    """``snowpea job list [--json]`` → ``job.list``."""
+    try:
+        result = await _job_call(home, "job.list", {})
+    except DaemonError as exc:
+        return _fail(str(exc), EXIT_NO_DAEMON)
+    except RpcCallError as exc:
+        return _fail(f"job.list failed ({exc.code}): {exc.message}", EXIT_USAGE)
+    jobs = [item for item in (result.get("jobs") or []) if isinstance(item, dict)]
+    if as_json:
+        _print_json(jobs)
+        return EXIT_OK
+    if not jobs:
+        print("no jobs are scheduled")
+        return EXIT_OK
+    for job in jobs:
+        print(format_job_line(job))
+    return EXIT_OK
+
+
+async def job_cancel(job_id: str, home: Path | str | None = None) -> int:
+    """``snowpea job cancel <jobId>``."""
+    if not job_id:
+        return _fail("usage: snowpea job cancel <jobId>", EXIT_USAGE)
+    try:
+        await _job_call(home, "job.cancel", {"jobId": job_id})
+    except DaemonError as exc:
+        return _fail(str(exc), EXIT_NO_DAEMON)
+    except RpcCallError as exc:
+        return _fail(f"job.cancel failed ({exc.code}): {exc.message}", EXIT_USAGE)
+    print(f"cancelled {job_id}")
+    return EXIT_OK
+
+
+async def job_run(job_id: str, home: Path | str | None = None) -> int:
+    """``snowpea job run <jobId>`` → ``job.runNow``, which runs in the daemon."""
+    if not job_id:
+        return _fail("usage: snowpea job run <jobId>", EXIT_USAGE)
+    try:
+        await _job_call(home, "job.runNow", {"jobId": job_id})
+    except DaemonError as exc:
+        return _fail(str(exc), EXIT_NO_DAEMON)
+    except RpcCallError as exc:
+        return _fail(f"job.runNow failed ({exc.code}): {exc.message}", EXIT_USAGE)
+    print(f"ran {job_id}")
     return EXIT_OK
 
 
@@ -376,10 +626,70 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
     daemon_sub.add_parser("start", help="start the daemon if it is not running")
     daemon_sub.add_parser("stop", help="ask the daemon to shut down")
 
+    gateway = sub.add_parser("gateway", help="attach chat platforms to agents or sessions")
+    gateway_sub = gateway.add_subparsers(dest="action", metavar="<action>")
+    bind_parser = gateway_sub.add_parser("bind", help="attach a platform account")
+    bind_parser.add_argument("platform", help="telegram, discord or slack")
+    bind_parser.add_argument("credentials_ref", help="credentials.json key or env var name")
+    bind_parser.add_argument(
+        "target", help="agent:<name>, session:<id>, new:<workdir> or a JSON object"
+    )
+    bind_parser.add_argument("--channel", dest="channel_id", help="restrict to one chat id")
+    bind_parser.add_argument("--user", dest="user_id", help="platform user who may approve")
+    bind_parser.add_argument("--json", dest="sub_json", action="store_true", help="emit JSON")
+    gateway_list_parser = gateway_sub.add_parser("list", help="list live bindings")
+    gateway_list_parser.add_argument(
+        "--json", dest="sub_json", action="store_true", help="emit JSON"
+    )
+    unbind_parser = gateway_sub.add_parser("unbind", help="detach a binding")
+    unbind_parser.add_argument("binding_id", help="binding id from `gateway list`")
+
+    job = sub.add_parser("job", help="schedule prompts to run unattended")
+    job_sub = job.add_subparsers(dest="action", metavar="<action>")
+    job_schedule_parser = job_sub.add_parser("schedule", help="register a job")
+    job_schedule_parser.add_argument(
+        "--at",
+        "--in",
+        "--every",
+        "--cron",
+        "--spec",
+        dest="spec",
+        help='when to run: "0 9 * * *", "60s", "10m", "매일 09:00"',
+    )
+    job_schedule_parser.add_argument("--task", default="", help="prompt to run on each firing")
+    job_schedule_parser.add_argument(
+        "--mode", default="accept", choices=["plan", "accept", "auto"], help="mode for the run"
+    )
+    job_schedule_parser.add_argument("--channel", default=None, help="e.g. telegram:12345 or log")
+    job_schedule_parser.add_argument("--workdir", default=None, help="directory the job runs in")
+    job_schedule_parser.add_argument(
+        "--json", dest="sub_json", action="store_true", help="emit JSON"
+    )
+    job_list_parser = job_sub.add_parser("list", help="list scheduled jobs")
+    job_list_parser.add_argument("--json", dest="sub_json", action="store_true", help="emit JSON")
+    job_cancel_parser = job_sub.add_parser("cancel", help="cancel a job")
+    job_cancel_parser.add_argument("job_id", help="job id from `job list`")
+    job_run_parser = job_sub.add_parser("run", help="fire a job now, in the daemon")
+    job_run_parser.add_argument("job_id", help="job id from `job list`")
+
     for name in PLACEHOLDER_SUBCOMMANDS:
         placeholder_parser = sub.add_parser(name, help=f"{name} (not yet implemented)")
         placeholder_parser.add_argument("rest", nargs=argparse.REMAINDER, help=argparse.SUPPRESS)
     return sub
+
+
+def _job_spec(args: argparse.Namespace) -> str | None:
+    """The spec as typed. ``--in 60s`` and ``--every 10m`` keep their own wording."""
+    raw = getattr(args, "spec", None)
+    if not raw:
+        return None
+    text = str(raw).strip()
+    # argparse folds --in/--every/--cron/--at into one dest, so a bare duration
+    # like "60s" is read as "in 60s" and "10m" after --every stays an interval
+    # only if the user spelled it that way.  Bare durations mean "from now".
+    if re.fullmatch(r"\d+\s*[a-z가-힣]+", text) and not text.startswith(("in ", "every ")):
+        return f"in {text}"
+    return text
 
 
 async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> int:
@@ -406,6 +716,47 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
         if action == "login":
             return await provider_login(str(getattr(args, "vendor", "") or ""), home)
         return _fail("usage: snowpea provider list|login <vendor>", EXIT_USAGE)
+    if subcommand == "gateway":
+        if action == "bind":
+            return await gateway_bind(
+                str(getattr(args, "platform", "") or ""),
+                str(getattr(args, "credentials_ref", "") or ""),
+                str(getattr(args, "target", "") or ""),
+                home,
+                channel_id=getattr(args, "channel_id", None),
+                user_id=getattr(args, "user_id", None),
+                as_json=as_json,
+            )
+        if action == "list":
+            return await gateway_list(home, as_json=as_json)
+        if action == "unbind":
+            return await gateway_unbind(str(getattr(args, "binding_id", "") or ""), home)
+        return _fail(
+            "usage: snowpea gateway bind <platform> <credentialsRef> <target>"
+            " | list | unbind <bindingId>",
+            EXIT_USAGE,
+        )
+    if subcommand == "job":
+        if action == "schedule":
+            return await job_schedule(
+                str(getattr(args, "task", "") or ""),
+                home,
+                spec=_job_spec(args),
+                mode=str(getattr(args, "mode", "accept") or "accept"),
+                channel=getattr(args, "channel", None),
+                workdir=getattr(args, "workdir", None),
+                as_json=as_json,
+            )
+        if action == "list":
+            return await job_list(home, as_json=as_json)
+        if action == "cancel":
+            return await job_cancel(str(getattr(args, "job_id", "") or ""), home)
+        if action == "run":
+            return await job_run(str(getattr(args, "job_id", "") or ""), home)
+        return _fail(
+            'usage: snowpea job schedule --in 60s --task "…" | list | cancel <id> | run <id>',
+            EXIT_USAGE,
+        )
     if subcommand == "daemon":
         if action == "status":
             return await daemon_status(home, as_json=as_json)
@@ -418,6 +769,8 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
 
 
 __all__ = [
+    "COUNTER_LABELS",
+    "JOB_RUN_TIMEOUT_SEC",
     "PLACEHOLDER_SUBCOMMANDS",
     "STOP_TIMEOUT_SEC",
     "add_subparsers",
@@ -426,6 +779,15 @@ __all__ = [
     "daemon_status",
     "daemon_stop",
     "dispatch",
+    "gateway_bind",
+    "gateway_list",
+    "gateway_unbind",
+    "format_job_line",
+    "job_cancel",
+    "job_list",
+    "job_run",
+    "job_schedule",
+    "parse_target",
     "placeholder",
     "provider_list",
     "provider_login",

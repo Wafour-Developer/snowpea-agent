@@ -130,9 +130,8 @@ def search_catalog() -> list[CatalogItem]:
         for meta in search_providers.metas()
     ]
     ordered = _sorted_by_rank(items)
-    default = DEFAULT_SEARCH_PROVIDER if any(i.id == DEFAULT_SEARCH_PROVIDER for i in ordered) else ""
-    if not default and ordered:
-        default = ordered[0].id
+    known = any(item.id == DEFAULT_SEARCH_PROVIDER for item in ordered)
+    default = DEFAULT_SEARCH_PROVIDER if known else (ordered[0].id if ordered else "")
     ordered = _with_default(ordered, default)
     # The default has to lead the list for the ★ to sit on row one.
     ordered.sort(key=lambda item: (item.rank(), not item.default))
