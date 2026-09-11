@@ -21,7 +21,7 @@ export const LOGO_COLLAPSED_ROWS = 1;
 /** Hand-drawn half-block wordmark, 30 columns wide. */
 export const WORDMARK: readonly [string, string] = [
   "█▀▀ █▄ █ █▀█ █ █ █ █▀█ █▀▀ ▄▀█",
-  "▄██ █ ▀█ █▄█ ▀▄▀▄▀ █▀▀ █▄▄ █▀█",
+  "▄██ █ ▀█ █▄█ ▀▄▀▄▀ █▀▀ ██▄ █▀█",
 ];
 
 export const SPROUT = "🌱";
