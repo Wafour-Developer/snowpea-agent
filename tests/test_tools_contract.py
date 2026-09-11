@@ -161,13 +161,18 @@ def test_categories_and_permission_tags_match_the_contract(core: Core) -> None:
 
 def test_stub_and_media_tools_start_inactive(core: Core) -> None:
     listed = {info.name: info.state for info in core.tools.list()}
-    assert {name for name, state in listed.items() if state == "inactive"} == INACTIVE_AT_M2
+    inactive = {name for name, state in listed.items() if state == "inactive"}
+    # Media tools are inactive until credentials exist. The M5/M7 stubs (schedule, memory,
+    # delegate) may already have been replaced by real, active implementations.
+    media = {"image_generate", "video_generate", "music_generate", "text_to_speech"}
+    assert media <= inactive
+    assert inactive <= INACTIVE_AT_M2
 
 
-async def test_stub_tools_return_not_implemented(ctx: ToolContext) -> None:
-    result = await run(ctx, "delegate_task", task="anything")
+async def test_inactive_media_tool_returns_tool_inactive(ctx: ToolContext) -> None:
+    result = await run(ctx, "image_generate", prompt="a cat")
     assert not result.ok
-    assert "not_implemented" in (result.error or "")
+    assert "tool_inactive" in (result.error or "")
 
 
 def test_registry_set_state_and_unregister() -> None:
