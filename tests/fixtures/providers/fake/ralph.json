@@ -1,0 +1,44 @@
+{
+  "steps": [
+    {
+      "match": "write the prd",
+      "repeat": true,
+      "text": "```json\n{\"stories\": [{\"id\": \"S1\", \"title\": \"Patch tracked_a.txt\", \"acceptance\": \"tracked_a.txt says patched\", \"verify\": [\"grep -q patched tracked_a.txt\"], \"independent\": true, \"depends_on\": []}, {\"id\": \"S2\", \"title\": \"Patch tracked_b.txt\", \"acceptance\": \"tracked_b.txt says patched\", \"verify\": [\"grep -q patched tracked_b.txt\"], \"independent\": true, \"depends_on\": []}]}\n```"
+    },
+    {
+      "match": "story s1",
+      "repeat": true,
+      "delaySec": 0.5,
+      "tool_calls": [
+        {
+          "name": "write_file",
+          "arguments": {"path": "tracked_a.txt", "content": "patched by S1\n"}
+        }
+      ],
+      "text": "patching the first file"
+    },
+    {
+      "match": "story s2",
+      "repeat": true,
+      "delaySec": 0.5,
+      "tool_calls": [
+        {
+          "name": "write_file",
+          "arguments": {"path": "tracked_b.txt", "content": "patched by S2\n"}
+        }
+      ],
+      "text": "patching the second file"
+    },
+    {
+      "match": "you are the reviewer",
+      "repeat": true,
+      "text": "APPROVE — both files carry the change and the verification commands pass."
+    },
+    {
+      "after_tool": "write_file",
+      "repeat": true,
+      "text": "I wrote the file the story asked for."
+    }
+  ],
+  "default": {"text": "fake default reply"}
+}

@@ -4,9 +4,9 @@ Both mirror the ``/agent`` slash command exactly: ``agent.create`` asks the
 provider for a definition and writes ``<workdir>/.snowpea/agents/<name>.md``,
 ``agent.list`` reports the definitions the daemon can see.
 
-US-019 and US-021 extend the listing additively with ``kind:"subagent"``
-(running children) and ``kind:"named"`` (persistent instances); everything this
-module returns is ``kind:"definition"``.
+US-019 adds ``agent.spawn`` and lists the subagents that are queued or running
+right now as ``kind:"subagent"``; US-021 adds ``kind:"named"`` for persistent
+instances.  File-backed definitions keep ``kind:"definition"``.
 """
 
 from __future__ import annotations
@@ -15,7 +15,9 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from snowpea_core.agent import named as named_agents
 from snowpea_core.agent.definition import DefinitionError
+from snowpea_core.agent.subagent import get_manager
 from snowpea_core.commands.agent_cmd import create_definition, definitions_for
 from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
@@ -24,6 +26,8 @@ from snowpea_core.server.protocol import (
     AgentCreateResult,
     AgentInfo,
     AgentListResult,
+    AgentSpawnParams,
+    AgentSpawnResult,
     Empty,
 )
 from snowpea_core.server.rpc import RpcConnection, RpcDispatcher
@@ -35,7 +39,13 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 log = logging.getLogger("snowpea.server.agent")
 
 #: Methods this module implements.
-HANDLED_METHODS: tuple[str, ...] = ("agent.create", "agent.list")
+HANDLED_METHODS: tuple[str, ...] = (
+    "agent.create",
+    "agent.list",
+    "agent.bindChannel",
+    "agent.delete",
+    "agent.spawn",
+)
 
 #: Kind reported for file-backed definitions.
 DEFINITION_KIND = "definition"
@@ -64,20 +74,51 @@ def _workdir(core: Core, conn: RpcConnection) -> Path:
 
 
 async def agent_list_handler(conn: RpcConnection, _params: Empty, core: Core) -> AgentListResult:
-    """``agent.list`` — the agent definitions visible from the caller's project."""
+    """``agent.list`` — definitions on disk, named instances, subagents running now.
+
+    The subagent rows are a snapshot of what the daemon is doing this instant,
+    which is what ``snowpea agents --json`` polls during a ``/ralph`` run to see
+    two children running at once (AC-04).
+    """
     definitions = definitions_for(core, _workdir(core, conn))
-    return AgentListResult(
-        agents=[
-            AgentInfo(
-                name=defn.name,
-                description=defn.description,
-                source=defn.source,
-                kind=DEFINITION_KIND,
-                path=str(defn.path) if defn.path else None,
-            )
-            for defn in definitions
-        ]
-    )
+    agents = [
+        AgentInfo(
+            name=defn.name,
+            description=defn.description,
+            source=defn.source,
+            kind=DEFINITION_KIND,
+            path=str(defn.path) if defn.path else None,
+        )
+        for defn in definitions
+    ]
+    # US-021: the persistent instances, listed alongside their definitions.
+    agents.extend(await named_agents.list_infos(core))
+    # US-019: the children this daemon is running for somebody right now.
+    agents.extend(get_manager(core).infos())
+    return AgentListResult(agents=agents)
+
+
+async def agent_spawn_handler(
+    conn: RpcConnection, params: AgentSpawnParams, core: Core
+) -> AgentSpawnResult:
+    """``agent.spawn`` — run a task as a subagent of the caller's session.
+
+    The same path the ``delegate_task`` tool takes, entered from a client
+    instead of from the model.  It answers as soon as the child has an id: the
+    run itself continues in the background and reports through the
+    ``subagent.*`` events on the parent session.
+    """
+    session = core.sessions.get(params.sessionId) if params.sessionId else _session_for(core, conn)
+    if session is None:
+        raise RpcError(
+            errors.INVALID_PARAMS,
+            "agent.spawn needs a session: pass sessionId, or open one first",
+        )
+    task = params.task.strip()
+    if not task:
+        raise RpcError(errors.INVALID_PARAMS, "agent.spawn needs a non-empty task")
+    agent_id, _runner = get_manager(core).spawn(session, task, agent=params.name.strip() or None)
+    return AgentSpawnResult(agentId=agent_id)
 
 
 async def agent_create_handler(
@@ -92,15 +133,24 @@ async def agent_create_handler(
         )
     try:
         defn = await create_definition(core, session, params.description)
+        if params.name:
+            defn = await named_agents.rename_definition(core, session, defn, params.name)
+        if params.named:
+            await named_agents.registry(core).create(defn.name, defn)
     except DefinitionError as exc:
+        raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
+    except named_agents.NamedAgentError as exc:
         raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
     return AgentCreateResult(name=defn.name, path=str(defn.path) if defn.path else None)
 
 
 def register_agent_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
-    """Register the two ``agent.*`` methods this story implements."""
+    """Register the ``agent.*`` methods US-018 and US-021 implement."""
     dispatcher.register("agent.list", agent_list_handler)
     dispatcher.register("agent.create", agent_create_handler)
+    dispatcher.register("agent.bindChannel", named_agents.agent_bind_channel_handler)
+    dispatcher.register("agent.delete", named_agents.agent_delete_handler)
+    dispatcher.register("agent.spawn", agent_spawn_handler)
     return dispatcher
 
 
@@ -109,5 +159,6 @@ __all__ = [
     "HANDLED_METHODS",
     "agent_create_handler",
     "agent_list_handler",
+    "agent_spawn_handler",
     "register_agent_handlers",
 ]

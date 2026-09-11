@@ -1,0 +1,25 @@
+{
+  "steps": [
+    {
+      "match": "릴리즈 노트",
+      "repeat": true,
+      "text": "Here you go:\n```json\n{\"name\": \"release-notes\", \"description\": \"릴리즈 노트 작성 전담 에이전트\", \"tools\": [\"read_file\", \"shell\"], \"model\": \"inherit\", \"prompt\": \"You write Korean release notes from a changelog.\\nKeep every entry to one line.\"}\n```\nThat should do it."
+    },
+    {
+      "match": "not json at all",
+      "repeat": true,
+      "text": "I am afraid I cannot answer in JSON today."
+    },
+    {
+      "match": "session transcript",
+      "repeat": true,
+      "text": "{\"name\": \"notes\", \"description\": \"Collect release notes for a project\", \"steps\": [\"Read the changelog\", \"Group the entries by area\", \"Write one line per entry\"], \"commands\": [\"snowpea run notes\", \"git log --oneline\"]}"
+    },
+    {
+      "match": "remember this workflow",
+      "repeat": true,
+      "text": "noted: I read the changelog and grouped the entries."
+    }
+  ],
+  "default": {"text": "fake default reply"}
+}

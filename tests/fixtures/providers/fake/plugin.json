@@ -1,0 +1,15 @@
+{
+  "steps": [
+    {"match": "fixture-cmd", "text": "fixture"},
+    {
+      "match": "echo via mcp",
+      "text": "calling the plugin echo server",
+      "tool_calls": [
+        {"name": "mcp__fixture-echo__echo", "arguments": {"text": "ping-42"}}
+      ]
+    },
+    {"after_tool": "mcp__fixture-echo__echo", "text": "echoed"},
+    {"match": "greet", "text": "Hello there."}
+  ],
+  "default": {"text": "nothing to do"}
+}

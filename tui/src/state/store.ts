@@ -41,6 +41,25 @@ export interface DiffEntry {
   patch: string;
 }
 
+/** Lifecycle of one delegated subagent, mirroring `SubagentStatus`. */
+export type SubagentStatus = "queued" | "running" | "done" | "error";
+
+export interface SubagentEntry {
+  agentId: string;
+  /** Agent definition it runs as, when it was given one. */
+  name: string;
+  task: string;
+  status: SubagentStatus;
+  /** Most recent thing it said or did, shown while it runs. */
+  lastText: string;
+  /** Its final answer, once `subagent.done` has arrived. */
+  summary: string;
+  /** The child's own session, for clients that follow both streams. */
+  sessionId: string | null;
+  inputTokens: number;
+  outputTokens: number;
+}
+
 export type ApprovalSource = "interactive" | "queue";
 
 export interface ApprovalEntry extends ApprovalRequestParams {
@@ -73,6 +92,8 @@ export interface State {
   /** Unattended backlog, seeded from `approval.list`. */
   approvalQueue: ApprovalEntry[];
   commands: CommandInfo[];
+  /** Delegated children of this session, in the order they were spawned. */
+  subagents: SubagentEntry[];
   usage: Usage;
   lastSeq: number;
   turnActive: boolean;
@@ -92,6 +113,7 @@ export const initialState: State = {
   pendingApproval: null,
   approvalQueue: [],
   commands: [],
+  subagents: [],
   usage: { inputTokens: 0, outputTokens: 0 },
   lastSeq: 0,
   turnActive: false,
@@ -156,6 +178,19 @@ function finishMessage(state: State, payload: Record<string, unknown>): State {
     messages: [...state.messages, message],
     timeline: pushTimeline(state, { kind: "message", id: message.id }),
   };
+}
+
+/** Replace one subagent entry in place; unknown ids are ignored. */
+function patchSubagent(
+  state: State,
+  agentId: string,
+  patch: (entry: SubagentEntry) => SubagentEntry,
+): State {
+  const index = state.subagents.findIndex((entry) => entry.agentId === agentId);
+  if (index === -1) return state;
+  const subagents = state.subagents.slice();
+  subagents[index] = patch(subagents[index]);
+  return { ...state, subagents };
 }
 
 function applySessionEvent(state: State, event: SessionEvent): State {
@@ -226,6 +261,43 @@ function applySessionEvent(state: State, event: SessionEvent): State {
       };
     }
 
+    case "subagent.spawn": {
+      const entry: SubagentEntry = {
+        agentId: String(payload.agentId ?? nextId("agent")),
+        name: String(payload.name ?? ""),
+        task: String(payload.task ?? ""),
+        status: (payload.status ?? "queued") as SubagentStatus,
+        lastText: "",
+        summary: "",
+        sessionId: typeof payload.sessionId === "string" ? payload.sessionId : null,
+        inputTokens: 0,
+        outputTokens: 0,
+      };
+      // A spawn for an id we already track is a replay, not a second child.
+      if (base.subagents.some((s) => s.agentId === entry.agentId)) return base;
+      return { ...base, subagents: [...base.subagents, entry] };
+    }
+
+    case "subagent.update":
+      return patchSubagent(base, String(payload.agentId ?? ""), (entry) => ({
+        ...entry,
+        status: (payload.status ?? entry.status) as SubagentStatus,
+        lastText: String(payload.lastText ?? payload.text ?? entry.lastText),
+        name: String(payload.name ?? entry.name),
+        sessionId:
+          typeof payload.sessionId === "string" ? payload.sessionId : entry.sessionId,
+      }));
+
+    case "subagent.done":
+      return patchSubagent(base, String(payload.agentId ?? ""), (entry) => ({
+        ...entry,
+        status: (payload.status ?? (payload.ok === false ? "error" : "done")) as SubagentStatus,
+        summary: String(payload.summary ?? payload.result ?? ""),
+        lastText: "",
+        inputTokens: Number(payload.usage?.inputTokens ?? entry.inputTokens),
+        outputTokens: Number(payload.usage?.outputTokens ?? entry.outputTokens),
+      }));
+
     case "mode.changed":
       return { ...base, mode: (payload.mode ?? base.mode) as Mode };
 
@@ -250,7 +322,7 @@ function applySessionEvent(state: State, event: SessionEvent): State {
     }
 
     default:
-      // subagent.*, team.task.update and future kinds are accepted silently.
+      // team.task.update and future kinds are accepted silently.
       return base;
   }
 }

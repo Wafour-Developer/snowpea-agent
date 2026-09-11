@@ -1,0 +1,26 @@
+{
+  "steps": [
+    {
+      "match": "summarise the project layout",
+      "repeat": true,
+      "text": "The project has a core daemon, an SDK and a TUI."
+    },
+    {
+      "match": "delegate please",
+      "repeat": true,
+      "tool_calls": [
+        {
+          "name": "delegate_task",
+          "arguments": { "task": "summarise the project layout" }
+        }
+      ],
+      "text": "handing it to a subagent"
+    },
+    {
+      "after_tool": "delegate_task",
+      "repeat": true,
+      "text": "the subagent reported back"
+    }
+  ],
+  "default": { "text": "fake default reply" }
+}

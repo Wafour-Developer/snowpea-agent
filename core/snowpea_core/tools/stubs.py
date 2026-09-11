@@ -2,8 +2,9 @@
 
 They are registered now, at ``state="inactive"``, so ``tool.list`` describes
 the full surface the protocol promises and a caller gets
-``error{code:"not_implemented"}`` instead of an unknown-tool error.  Delegation
-arrives with M7, scheduling and memory with M5.
+``error{code:"not_implemented"}`` instead of an unknown-tool error.  Scheduling
+and memory arrive with M5; delegation became real in M7 and now lives in
+:mod:`snowpea_core.tools.delegate`.
 """
 
 from __future__ import annotations
@@ -46,19 +47,9 @@ def _tool(
     )
 
 
+#: ``delegate_task`` used to be here; US-019 replaced it with the real tool in
+#: :mod:`snowpea_core.tools.delegate`.
 TOOLS: tuple[Tool, ...] = (
-    _tool(
-        "delegate_task",
-        "delegate",
-        "exec",
-        "Hand a self-contained task to a sub-agent and return its report.",
-        "M7",
-        {
-            "task": {"type": "string", "description": "What the sub-agent should do."},
-            "agent": {"type": "string", "description": "Named agent to run it."},
-        },
-        ["task"],
-    ),
     _tool(
         "schedule_create",
         "schedule",

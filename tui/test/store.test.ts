@@ -189,3 +189,73 @@ describe("local actions", () => {
     expect(state).toMatchObject({ sessionId: "sess-1", mode: "auto", provider: "openai" });
   });
 });
+
+describe("subagent tree", () => {
+  it("spawn, update and done build one entry per delegated child", () => {
+    const state = apply(
+      initialState,
+      event(1, "subagent.spawn", {
+        agentId: "a-1",
+        name: "reader",
+        task: "read the config",
+        status: "queued",
+        sessionId: "sess-child",
+      }),
+      event(2, "subagent.update", { agentId: "a-1", status: "running", lastText: "calling grep" }),
+      event(3, "subagent.done", {
+        agentId: "a-1",
+        status: "done",
+        ok: true,
+        summary: "the config sets three ports",
+        usage: { inputTokens: 120, outputTokens: 40 },
+      }),
+    );
+
+    expect(state.subagents).toHaveLength(1);
+    expect(state.subagents[0]).toMatchObject({
+      agentId: "a-1",
+      name: "reader",
+      task: "read the config",
+      status: "done",
+      summary: "the config sets three ports",
+      sessionId: "sess-child",
+      inputTokens: 120,
+      outputTokens: 40,
+    });
+    expect(state.subagents[0].lastText).toBe("");
+  });
+
+  it("keeps several children in spawn order and tracks them separately", () => {
+    const state = apply(
+      initialState,
+      event(1, "subagent.spawn", { agentId: "a-1", task: "first" }),
+      event(2, "subagent.spawn", { agentId: "a-2", task: "second" }),
+      event(3, "subagent.update", { agentId: "a-2", status: "running", lastText: "working" }),
+    );
+
+    expect(state.subagents.map((s) => s.agentId)).toEqual(["a-1", "a-2"]);
+    expect(state.subagents[0].status).toBe("queued");
+    expect(state.subagents[1]).toMatchObject({ status: "running", lastText: "working" });
+  });
+
+  it("ignores a replayed spawn and an update for an unknown child", () => {
+    const state = apply(
+      initialState,
+      event(1, "subagent.spawn", { agentId: "a-1", task: "only once" }),
+      event(2, "subagent.spawn", { agentId: "a-1", task: "only once" }),
+      event(3, "subagent.update", { agentId: "a-ghost", status: "running" }),
+    );
+
+    expect(state.subagents).toHaveLength(1);
+  });
+
+  it("reads the older ok/result spelling of subagent.done", () => {
+    const state = apply(
+      initialState,
+      event(1, "subagent.spawn", { agentId: "a-1", task: "legacy" }),
+      event(2, "subagent.done", { agentId: "a-1", ok: false, result: "it broke" }),
+    );
+
+    expect(state.subagents[0]).toMatchObject({ status: "error", summary: "it broke" });
+  });
+});

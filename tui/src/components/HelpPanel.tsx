@@ -8,14 +8,54 @@ import { Box, Text } from "ink";
 
 import type { CommandInfo } from "../rpc/sdk.js";
 
+/**
+ * The multi-agent workflows and modes AC-03 expects `/help` to show, listed
+ * first because they are the ones a new user is looking for. Whether each one
+ * exists is still the daemon's answer: names missing from `command.list` are
+ * not drawn.
+ */
+export const WORKFLOW_COMMANDS: readonly string[] = [
+  "ralph",
+  "ralplan",
+  "ultrawork",
+  "deepinit",
+  "deep-research",
+  "deep-interview",
+  "plan",
+  "accept",
+  "auto",
+];
+
 export function HelpPanel({
   commands,
+  /** Live subagents, so `/help` during a ralph run says what is in flight. */
+  runningSubagents = 0,
 }: {
   commands: CommandInfo[];
+  runningSubagents?: number;
 }): React.ReactElement {
   const width = commands.reduce((max, c) => Math.max(max, c.name.length), 0) + 2;
+  const workflows = WORKFLOW_COMMANDS.map((name) =>
+    commands.find((command) => command.name === name),
+  ).filter((command): command is CommandInfo => command !== undefined);
   return (
     <Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1}>
+      {workflows.length > 0 ? (
+        <Box flexDirection="column" marginBottom={1}>
+          <Text bold color="cyan">
+            Workflows and modes
+          </Text>
+          {workflows.map((command) => (
+            <Text key={`workflow-${command.name}`}>
+              <Text color="magenta">{`/${command.name}`.padEnd(width)}</Text>
+              <Text dimColor>{command.summary}</Text>
+            </Text>
+          ))}
+          {runningSubagents > 0 ? (
+            <Text dimColor>{`  ${runningSubagents} subagent(s) running right now`}</Text>
+          ) : null}
+        </Box>
+      ) : null}
       <Text bold color="cyan">
         Commands
       </Text>
@@ -35,6 +75,10 @@ export function HelpPanel({
         </Text>
         <Text dimColor>  F1 close · Ctrl+C quit · Ctrl+O expand the last tool call</Text>
         <Text dimColor>  Esc interrupt the current turn</Text>
+        <Text dimColor>
+          {"  Delegated subagents appear as a tree under the transcript while "}
+          {"/ralph, /ultrawork or /deepinit runs"}
+        </Text>
         <Text dimColor>
           {"  Ctrl+A focus the unattended approval queue: [a] allow [d] deny, "}
           {"↑/↓ pick, ←/→ scope"}

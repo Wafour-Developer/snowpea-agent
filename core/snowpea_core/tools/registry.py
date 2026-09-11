@@ -136,6 +136,7 @@ def register_builtin_tools(registry: ToolRegistry) -> ToolRegistry:
     """
     from snowpea_core.tools import (
         browser,
+        delegate,
         fs,
         git,
         glob,
@@ -158,6 +159,7 @@ def register_builtin_tools(registry: ToolRegistry) -> ToolRegistry:
         *browser.TOOLS,
         *stubs.TOOLS,
         *media.TOOLS,
+        *delegate.TOOLS,
     ):
         registry.register(tool)
     return registry

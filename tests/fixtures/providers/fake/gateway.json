@@ -1,0 +1,12 @@
+{
+  "steps": [
+    {"match": "레포 이름", "text": "지금 작업 중인 레포는 snowpea 입니다."},
+    {
+      "match": "deploy the thing",
+      "text": "running the deploy",
+      "tool_calls": [{"name": "shell", "arguments": {"command": "echo deployed"}}]
+    },
+    {"after_tool": "shell", "text": "deploy finished", "repeat": true}
+  ],
+  "default": {"text": "fake gateway reply"}
+}

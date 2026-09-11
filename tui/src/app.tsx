@@ -29,6 +29,7 @@ import { ApprovalQueue } from "./components/ApprovalQueue.js";
 import { ModeBar } from "./components/ModeBar.js";
 import { StatusLine } from "./components/StatusLine.js";
 import { HelpPanel } from "./components/HelpPanel.js";
+import { SubagentTree } from "./components/SubagentTree.js";
 
 export const PLACEHOLDER_TEXT = "snowpea tui placeholder";
 
@@ -225,11 +226,20 @@ export function App({
 
       <Timeline state={state} expandedCall={expandedCall} />
 
+      <SubagentTree subagents={state.subagents} />
+
       {state.errors.length > 0 ? (
         <Text color="red">{state.errors[state.errors.length - 1]}</Text>
       ) : null}
 
-      {showHelp ? <HelpPanel commands={state.commands} /> : null}
+      {showHelp ? (
+        <HelpPanel
+          commands={state.commands}
+          runningSubagents={
+            state.subagents.filter((agent) => agent.status === "running").length
+          }
+        />
+      ) : null}
 
       <ApprovalQueue
         requests={state.approvalQueue}

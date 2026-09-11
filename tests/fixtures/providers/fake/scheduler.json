@@ -1,0 +1,51 @@
+{
+  "steps": [
+    {
+      "match": "summarise the repo",
+      "text": "repo summary: nothing changed",
+      "repeat": true
+    },
+    {
+      "match": "list the files",
+      "text": "listing",
+      "repeat": true,
+      "tool_calls": [
+        {
+          "name": "shell",
+          "arguments": {
+            "command": "echo listed"
+          }
+        }
+      ]
+    },
+    {
+      "after_tool": "shell",
+      "text": "shell finished",
+      "repeat": true
+    },
+    {
+      "match": "schedule a daily summary",
+      "text": "scheduling",
+      "repeat": true,
+      "tool_calls": [
+        {
+          "name": "schedule_create",
+          "arguments": {
+            "spec": "매일 09:00",
+            "task": "summarise the repo",
+            "mode": "auto",
+            "channel": "log"
+          }
+        }
+      ]
+    },
+    {
+      "after_tool": "schedule_create",
+      "text": "scheduled it",
+      "repeat": true
+    }
+  ],
+  "default": {
+    "text": "fake scheduler reply"
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "steps": [
+    {
+      "match": "slow child",
+      "repeat": true,
+      "delaySec": 0.35,
+      "text": "child finished its slow task"
+    },
+    {
+      "match": "quick child",
+      "repeat": true,
+      "text": "child finished its quick task"
+    },
+    {
+      "match": "restricted child",
+      "repeat": true,
+      "tool_calls": [{"name": "shell", "arguments": {"command": "echo nope"}}],
+      "text": "trying the shell"
+    },
+    {
+      "after_tool": "shell",
+      "repeat": true,
+      "text": "the shell was refused"
+    },
+    {
+      "match": "delegate please",
+      "repeat": true,
+      "tool_calls": [
+        {"name": "delegate_task", "arguments": {"task": "quick child for the tool test"}}
+      ],
+      "text": "handing it over"
+    },
+    {
+      "after_tool": "delegate_task",
+      "repeat": true,
+      "text": "the parent read the child's report"
+    }
+  ],
+  "default": {"text": "fake default reply"}
+}

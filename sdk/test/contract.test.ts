@@ -21,7 +21,9 @@ import {
   connect,
   onApprovalRequest,
   createSession,
+  listAgents,
   prompt,
+  spawnAgent,
   SDK_VERSION,
   type Client,
 } from "../src/index.js";
@@ -30,6 +32,8 @@ import type { SessionEventPayload } from "../src/protocol.js";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, "..", "..");
 const FAKE_SCRIPT = path.join(HERE, "fixtures", "fake-basic.json");
+/** Drives the M7 subagent lane: a parent that delegates, a child that answers. */
+const SUBAGENT_SCRIPT = path.join(HERE, "fixtures", "fake-subagent.json");
 
 type DaemonProcess = ChildProcessByStdio<null, Readable, Readable>;
 
@@ -49,7 +53,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 /** Spawn the real daemon on an ephemeral port with the scripted fake provider. */
-async function startDaemon(): Promise<DaemonHandle> {
+async function startDaemon(script: string = FAKE_SCRIPT): Promise<DaemonHandle> {
   const home = mkdtempSync(path.join(tmpdir(), "snowpea-contract-"));
   const chunks: string[] = [];
 
@@ -61,7 +65,7 @@ async function startDaemon(): Promise<DaemonHandle> {
       env: {
         ...process.env,
         SNOWPEA_HOME: home,
-        SNOWPEA_PROVIDER: `fake:${FAKE_SCRIPT}`,
+        SNOWPEA_PROVIDER: `fake:${script}`,
         SNOWPEA_TEST: "1",
       },
       stdio: ["ignore", "pipe", "pipe"],
@@ -250,8 +254,132 @@ describe("base contract (AC-15a)", function () {
 });
 
 describe("subagent contract (AC-15b)", function () {
-  // Placeholder for M7: agent.spawn → subagent.spawn/update/done session events.
-  it.skip("subagent: agent.spawn emits subagent.spawn, update, and done events", function () {
-    // Pending until US-015 (M7) implements the subagent lane.
+  this.timeout(120_000);
+
+  let daemon: DaemonHandle | undefined;
+  let client: Client | undefined;
+
+  before(async function () {
+    daemon = await startDaemon(SUBAGENT_SCRIPT);
+    client = await connect({
+      port: daemon.port,
+      token: daemon.token,
+      clientVersion: SDK_VERSION,
+    });
+  });
+
+  after(async function () {
+    await client?.close();
+    await stopDaemon(daemon);
+  });
+
+  it("subagent: agent.spawn emits subagent.spawn, update, and done events", async function () {
+    const { sessionId } = await createSession(client!, { workdir: daemon!.home, mode: "auto" });
+    const log = new EventLog(client!, sessionId);
+    try {
+      const { agentId } = await spawnAgent(
+        client!,
+        "",
+        "summarise the project layout",
+        sessionId,
+      );
+      assert.equal(typeof agentId, "string");
+      assert.ok(agentId.length > 0, "agent.spawn must answer with a correlation id");
+
+      const spawn = await log.waitFor("subagent.spawn");
+      const spawnPayload = spawn.payload as {
+        agentId?: string;
+        task?: string;
+        status?: string;
+      };
+      assert.equal(spawnPayload.agentId, agentId, "the spawn event must carry the same agentId");
+      assert.equal(spawnPayload.task, "summarise the project layout");
+      assert.equal(spawnPayload.status, "queued");
+
+      const update = await log.waitFor("subagent.update");
+      const updatePayload = update.payload as { agentId?: string; status?: string };
+      assert.equal(updatePayload.agentId, agentId);
+      assert.ok(
+        ["queued", "running", "done", "error"].includes(String(updatePayload.status)),
+        `subagent.update carried an unknown status: ${String(updatePayload.status)}`,
+      );
+
+      const done = await log.waitFor("subagent.done");
+      const donePayload = done.payload as {
+        agentId?: string;
+        status?: string;
+        summary?: string;
+        ok?: boolean;
+        usage?: { inputTokens?: number; outputTokens?: number };
+      };
+      assert.equal(donePayload.agentId, agentId);
+      assert.equal(donePayload.status, "done");
+      assert.equal(donePayload.ok, true);
+      assert.match(
+        String(donePayload.summary),
+        /core daemon/,
+        "the done event must carry the child's final answer",
+      );
+      assert.equal(typeof donePayload.usage?.inputTokens, "number");
+      assert.equal(typeof donePayload.usage?.outputTokens, "number");
+
+      // Every subagent event belongs to the PARENT session, in seq order.
+      const subagentEvents = log.events.filter((e) => e.kind.startsWith("subagent."));
+      assert.ok(subagentEvents.length >= 3, `saw [${log.kinds().join(", ")}]`);
+      for (const event of subagentEvents) {
+        assert.equal(event.sessionId, sessionId, "subagent.* must be published on the parent");
+      }
+      const seqs = subagentEvents.map((e) => e.seq);
+      assert.deepEqual(seqs, [...seqs].sort((a, b) => a - b), "seq must not go backwards");
+      assert.equal(new Set(seqs).size, seqs.length, "each event needs its own seq");
+
+      const kinds = log.kinds();
+      assert.ok(
+        kinds.indexOf("subagent.spawn") < kinds.indexOf("subagent.done"),
+        "spawn must precede done",
+      );
+    } finally {
+      log.stop();
+    }
+  });
+
+  it("subagent: delegate_task is active and reports through the same events", async function () {
+    const { sessionId } = await createSession(client!, { workdir: daemon!.home, mode: "auto" });
+    const log = new EventLog(client!, sessionId);
+    try {
+      await prompt(client!, sessionId, "delegate please");
+      const done = await log.waitFor("turn.done");
+      assert.equal((done.payload as { reason?: string }).reason, "complete");
+
+      const spawn = log.find("subagent.spawn");
+      assert.ok(spawn, `the model's delegate_task call must spawn a child; saw [${log.kinds()}]`);
+      const result = log.events.find(
+        (e) => e.kind === "tool.result" && (e.payload as { name?: string }).name === "delegate_task",
+      );
+      assert.ok(result, "delegate_task must run rather than answer not_implemented");
+      const payload = result.payload as { ok?: boolean; output?: string };
+      assert.equal(payload.ok, true);
+      assert.match(String(payload.output), /core daemon/);
+    } finally {
+      log.stop();
+    }
+  });
+
+  it("subagent: agent.list reports running children with kind 'subagent'", async function () {
+    const { sessionId } = await createSession(client!, { workdir: daemon!.home, mode: "auto" });
+    const log = new EventLog(client!, sessionId);
+    try {
+      const { agentId } = await spawnAgent(client!, "", "summarise the project layout", sessionId);
+      // The child may already be finished; either way the shape must hold.
+      const { agents } = await listAgents(client!);
+      for (const agent of agents.filter((row) => row.kind === "subagent")) {
+        assert.equal(typeof agent.status, "string");
+        assert.equal(agent.parentSessionId, sessionId);
+      }
+      await log.waitFor("subagent.done");
+      assert.equal((log.find("subagent.done")!.payload as { agentId?: string }).agentId, agentId);
+    } finally {
+      log.stop();
+    }
   });
 });
