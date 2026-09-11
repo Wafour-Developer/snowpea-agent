@@ -9,20 +9,24 @@ stays about process lifecycle.  ``register_session_handlers`` is called from
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from snowpea_core.agent import loop as agent_loop
 from snowpea_core.commands.registry import register_builtin_commands
+from snowpea_core.exec.factory import build_backend
 from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import (
     ApprovalListResult,
     ApprovalRespondParams,
+    BackendSetParams,
     CommandListResult,
     CommandRunParams,
     Empty,
     Ok,
     OptionalSessionParams,
+    ProviderConfigureParams,
     ProviderListResult,
     SessionCreateParams,
     SessionCreateResult,
@@ -38,7 +42,10 @@ from snowpea_core.server.protocol import (
     TurnResult,
 )
 from snowpea_core.server.rpc import RpcConnection, RpcDispatcher
+from snowpea_core.session import events
 from snowpea_core.session.store import Store
+from snowpea_core.tools import browser_providers, mcp_client
+from snowpea_core.tools import media as media_tools
 from snowpea_core.tools.registry import register_builtin_tools
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -62,6 +69,7 @@ HANDLED_METHODS: tuple[str, ...] = (
     "approval.list",
     "approval.respond",
     "provider.list",
+    "backend.set",
 )
 
 
@@ -73,6 +81,9 @@ def wire_core(core: Core) -> Core:
     core.approvals.bind(core.settings, core.paths, core.hub)
     core.providers.bind(core.settings)
     register_builtin_tools(core.tools)
+    media_tools.refresh_state(core)
+    core.sessions.on_close.append(browser_providers.close_all_sessions)
+    mcp_client.schedule_sync(core, Path.cwd())
     register_builtin_commands(core.commands)
     return core
 
@@ -109,6 +120,7 @@ async def session_create_handler(
     )
     core.hub.subscribe(conn, session.id)
     _count_sessions(core)
+    await mcp_client.sync_tools(core, session.workdir)
     return SessionCreateResult(sessionId=session.id)
 
 
@@ -245,10 +257,42 @@ async def approval_respond_handler(
     return Ok(ok=True)
 
 
+async def backend_set_handler(_conn: RpcConnection, params: BackendSetParams, core: Core) -> Ok:
+    """``backend.set`` — swap where a session's tools run, closing the old backend."""
+    session = _session(core, params.sessionId)
+    try:
+        backend = build_backend(
+            params.kind,
+            params.config,
+            workdir=session.workdir,
+            session_id=session.id,
+        )
+    except ValueError as exc:
+        raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
+    await session.set_backend(backend)
+    await core.hub.emit_event(session.id, events.backend_changed(params.kind))
+    log.info("session %s backend is now %s", session.id, params.kind)
+    return Ok(ok=True)
+
+
 async def provider_list_handler(
     _conn: RpcConnection, _params: Empty, core: Core
 ) -> ProviderListResult:
     return ProviderListResult(providers=core.providers.list())
+
+
+async def provider_configure_handler(
+    _conn: RpcConnection, params: ProviderConfigureParams, core: Core
+) -> Ok:
+    """``provider.configure`` — vendor ``media`` flips the media tools live."""
+    if params.vendor == "media":
+        state = await media_tools.configure(core, params.config)
+        log.info("media tools are now %s", state)
+        return Ok(ok=True)
+    raise RpcError(
+        errors.NOT_IMPLEMENTED,
+        f"provider.configure does not handle vendor {params.vendor!r} yet",
+    )
 
 
 def register_session_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
@@ -266,6 +310,7 @@ def register_session_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
     dispatcher.register("approval.list", approval_list_handler)
     dispatcher.register("approval.respond", approval_respond_handler)
     dispatcher.register("provider.list", provider_list_handler)
+    dispatcher.register("backend.set", backend_set_handler)
     return dispatcher
 
 

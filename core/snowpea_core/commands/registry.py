@@ -149,10 +149,11 @@ class CommandRegistry:
 
 
 def register_builtin_commands(registry: CommandRegistry) -> CommandRegistry:
-    """Register the M1 built-ins: ``help``, ``plan``/``accept``/``auto``, ``mode``, ``tools``."""
+    """Register the built-ins: ``help``/``tools``, the mode/allowlist set, ``/backend``."""
+    from snowpea_core.commands import backend_cmd, mode_cmd
     from snowpea_core.commands.builtin import COMMANDS
 
-    for command in COMMANDS:
+    for command in (*COMMANDS, *mode_cmd.COMMANDS, *backend_cmd.COMMANDS):
         registry.register(command)
     return registry
 

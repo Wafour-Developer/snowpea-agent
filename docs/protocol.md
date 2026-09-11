@@ -560,7 +560,7 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `providers` | `({ authMethods?: string[]; configured?: boolean; default?: boolean; models?: string[]; vendor: string; })[]` | no | Known chat providers. |
+| `providers` | `({ authMethods?: string[]; configured?: boolean; default?: boolean; defaultModel?: string; label?: string; models?: string[]; vendor: string; })[]` | no | Known chat providers. |
 
 ### `provider.loginWeb`
 
@@ -958,6 +958,13 @@ List the tools registered for a session.
 ## `session.event` kinds
 
 Every session event carries a monotonically increasing per-session `seq`. After a reconnect, `session.resume(sessionId, afterSeq)` replays anything missed.
+
+### kind `backend.changed`
+
+| field | type | required | description |
+|---|---|---|---|
+| `backend` | `"local" \| "docker" \| "ssh"` | yes | Where tools now execute. |
+| `kind` | `"backend.changed"` | no |  |
 
 ### kind `diff`
 

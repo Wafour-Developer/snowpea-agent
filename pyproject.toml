@@ -27,7 +27,10 @@ dependencies = [
   "rich>=13",
   "croniter>=2",
   "ddgs>=9",
+  "asyncssh>=2.14",
   "python-dotenv",
+  "mcp>=2.2.0",
+  "playwright>=1.62.0",
 ]
 
 [project.urls]
@@ -62,3 +65,11 @@ timeout = 120
 python_version = "3.11"
 mypy_path = "core"
 ignore_missing_imports = true
+# Vendored sources must stay byte-identical to upstream (see docs/vendoring-map.md),
+# so they are checked by the integrity script rather than by mypy.
+exclude = "core/snowpea_core/vendor/hermes/"
+
+[[tool.mypy.overrides]]
+module = "snowpea_core.vendor.hermes.*"
+follow_imports = "skip"
+ignore_errors = true

@@ -5,18 +5,16 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
-from pathlib import Path
+from pathlib import Path, PurePath
 
-from snowpea_core.exec.backend import DEFAULT_TIMEOUT, ExecResult
-
-#: Truncation limit for captured stdout/stderr, in characters.
-MAX_OUTPUT = 60_000
-
-
-def _truncate(text: str) -> str:
-    if len(text) <= MAX_OUTPUT:
-        return text
-    return text[:MAX_OUTPUT] + f"\n… [truncated, {len(text) - MAX_OUTPUT} more characters]"
+from snowpea_core.exec.backend import (
+    DEFAULT_TIMEOUT,
+    MAX_OUTPUT,
+    ExecResult,
+)
+from snowpea_core.exec.backend import (
+    truncate_output as _truncate,
+)
 
 
 class LocalBackend:
@@ -31,14 +29,19 @@ class LocalBackend:
     def cwd(self) -> Path:
         return self._cwd
 
-    def resolve(self, path: str | Path) -> Path:
+    def resolve(self, path: str | PurePath) -> Path:
         candidate = Path(path).expanduser()
         if not candidate.is_absolute():
             candidate = self._cwd / candidate
         return candidate
 
     async def run(
-        self, command: str, *, cwd: str | None = None, timeout: float = DEFAULT_TIMEOUT
+        self,
+        command: str,
+        *,
+        cwd: str | None = None,
+        timeout: float = DEFAULT_TIMEOUT,
+        env: dict[str, str] | None = None,
     ) -> ExecResult:
         """Run ``command`` through the shell, capturing output."""
         workdir = self.resolve(cwd) if cwd else self._cwd
@@ -47,7 +50,7 @@ class LocalBackend:
             cwd=str(workdir),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            env=dict(os.environ),
+            env={**os.environ, **(env or {})},
         )
         try:
             raw_out, raw_err = await asyncio.wait_for(process.communicate(), timeout)
@@ -80,6 +83,10 @@ class LocalBackend:
 
         await asyncio.to_thread(_write)
 
+    async def exists(self, path: str) -> bool:
+        target = self.resolve(path)
+        return await asyncio.to_thread(target.exists)
+
     async def list_dir(self, path: str) -> list[str]:
         target = self.resolve(path or ".")
 
@@ -89,6 +96,10 @@ class LocalBackend:
             )
 
         return await asyncio.to_thread(_list)
+
+    async def close(self) -> None:
+        """Nothing to release: the local backend owns no resources."""
+        return None
 
 
 __all__ = ["MAX_OUTPUT", "LocalBackend"]

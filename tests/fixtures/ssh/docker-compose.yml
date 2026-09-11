@@ -1,0 +1,29 @@
+# Throwaway SSH host for tests/test_backends.py (AC-18).
+#
+#   docker compose -f tests/fixtures/ssh/docker-compose.yml up -d --wait
+#   docker compose -f tests/fixtures/ssh/docker-compose.yml down -v
+#
+# Listens on 127.0.0.1:2222 only, accepts the test key in id_test.pub, and
+# keeps no state: `down -v` removes everything it wrote.
+services:
+  sshd:
+    image: linuxserver/openssh-server:latest
+    container_name: snowpea-test-sshd
+    hostname: snowpea-ssh-fixture
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: "Etc/UTC"
+      USER_NAME: "snowpea"
+      SUDO_ACCESS: "false"
+      PASSWORD_ACCESS: "false"
+      PUBLIC_KEY_FILE: "/config/id_test.pub"
+    volumes:
+      - ./id_test.pub:/config/id_test.pub:ro
+    ports:
+      - "127.0.0.1:2222:2222"
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 2222 || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 30

@@ -1,17 +1,29 @@
 """Where a tool actually runs.
 
-M1 ships only :class:`~snowpea_core.exec.local.LocalBackend`; US-010 adds the
-docker and ssh implementations behind the same protocol, so tools must never
-touch ``subprocess`` or :mod:`pathlib` directly.
+Three backends implement one protocol: :class:`~snowpea_core.exec.local.LocalBackend`
+(the daemon's own machine), :class:`~snowpea_core.exec.docker.DockerBackend` and
+:class:`~snowpea_core.exec.ssh.SshBackend`.  Tools must never touch
+``subprocess`` or :mod:`pathlib` directly, so that ``/backend docker`` moves the
+whole tool surface at once (AC-18).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import PurePath, PurePosixPath
 from typing import Protocol, runtime_checkable
 
 DEFAULT_TIMEOUT = 120.0
+
+#: Truncation limit for captured stdout/stderr, in characters.
+MAX_OUTPUT = 60_000
+
+
+def truncate_output(text: str, limit: int = MAX_OUTPUT) -> str:
+    """Clip captured output, saying how much was dropped."""
+    if len(text) <= limit:
+        return text
+    return text[:limit] + f"\n… [truncated, {len(text) - limit} more characters]"
 
 
 @dataclass
@@ -28,6 +40,10 @@ class ExecResult:
         return self.exit_code == 0 and not self.timed_out
 
 
+#: Contract §1 spells this ``RunResult``; the M1 name stays the canonical one.
+RunResult = ExecResult
+
+
 @runtime_checkable
 class ExecutionBackend(Protocol):
     """Filesystem + process access for one session."""
@@ -35,21 +51,58 @@ class ExecutionBackend(Protocol):
     kind: str
 
     @property
-    def cwd(self) -> Path: ...
+    def cwd(self) -> PurePath:
+        """Working directory commands start in, on the backend's filesystem."""
+        ...
 
-    def resolve(self, path: str | Path) -> Path:
+    def resolve(self, path: str | PurePath) -> PurePath:
         """Absolute path for ``path``, interpreted relative to :attr:`cwd`."""
         ...
 
     async def run(
-        self, command: str, *, cwd: str | None = None, timeout: float = DEFAULT_TIMEOUT
+        self,
+        command: str,
+        *,
+        cwd: str | None = None,
+        timeout: float = DEFAULT_TIMEOUT,
+        env: dict[str, str] | None = None,
     ) -> ExecResult: ...
 
     async def read_file(self, path: str) -> str: ...
 
     async def write_file(self, path: str, content: str) -> None: ...
 
+    async def exists(self, path: str) -> bool: ...
+
     async def list_dir(self, path: str) -> list[str]: ...
 
+    async def close(self) -> None:
+        """Release whatever the backend holds (container, connection)."""
+        ...
 
-__all__ = ["DEFAULT_TIMEOUT", "ExecResult", "ExecutionBackend"]
+
+def remote_resolve(cwd: PurePath, path: str | PurePath) -> PurePosixPath:
+    """``resolve`` for a POSIX remote filesystem, against ``cwd``."""
+    candidate = PurePosixPath(str(path))
+    if not candidate.is_absolute():
+        candidate = PurePosixPath(str(cwd)) / candidate
+    parts: list[str] = []
+    for part in candidate.parts:
+        if part == ".":
+            continue
+        if part == ".." and parts and parts[-1] not in ("/", ".."):
+            parts.pop()
+            continue
+        parts.append(part)
+    return PurePosixPath(*parts) if parts else PurePosixPath("/")
+
+
+__all__ = [
+    "DEFAULT_TIMEOUT",
+    "MAX_OUTPUT",
+    "ExecResult",
+    "ExecutionBackend",
+    "RunResult",
+    "remote_resolve",
+    "truncate_output",
+]

@@ -330,6 +330,8 @@ class ProviderInfo(Payload):
     """One chat provider."""
 
     vendor: str = Field(description="Vendor key, e.g. 'anthropic'.")
+    label: str = Field(default="", description="Human-readable vendor name for pickers.")
+    defaultModel: str = Field(default="", description="Model used when the caller names none.")
     models: list[str] = Field(default_factory=list, description="Model ids this vendor offers.")
     configured: bool = Field(default=False, description="True when credentials are present.")
     default: bool = Field(default=False, description="True for the vendor used when none is named.")
@@ -671,6 +673,13 @@ class ModeChanged(Payload):
     mode: Mode = Field(description="Mode now in effect.")
 
 
+class BackendChanged(Payload):
+    """The session's execution backend was replaced."""
+
+    kind: Literal["backend.changed"] = "backend.changed"
+    backend: BackendKind = Field(description="Where tools now execute.")
+
+
 class UsageEvent(Payload):
     """Token usage for the turn."""
 
@@ -706,6 +715,7 @@ SessionEventPayload = Annotated[
     | SubagentDone
     | TeamTaskUpdate
     | ModeChanged
+    | BackendChanged
     | UsageEvent
     | ErrorEvent
     | TurnDone,
@@ -724,6 +734,7 @@ SESSION_EVENT_MODELS: dict[str, type[BaseModel]] = {
     "subagent.done": SubagentDone,
     "team.task.update": TeamTaskUpdate,
     "mode.changed": ModeChanged,
+    "backend.changed": BackendChanged,
     "usage": UsageEvent,
     "error": ErrorEvent,
     "turn.done": TurnDone,
@@ -1012,6 +1023,9 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "approval.list",
         "approval.respond",
         "provider.list",
+        "provider.configure",
+        "provider.loginWeb",
+        "backend.set",
     }
 )
 

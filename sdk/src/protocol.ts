@@ -456,6 +456,10 @@ export interface ProviderListResult {
     configured?: boolean;
     /** True for the vendor used when none is named. */
     default?: boolean;
+    /** Model used when the caller names none. */
+    defaultModel?: string;
+    /** Human-readable vendor name for pickers. */
+    label?: string;
     /** Model ids this vendor offers. */
     models?: string[];
     /** Vendor key, e.g. 'anthropic'. */
@@ -863,6 +867,13 @@ export interface SessionEventPayload {
 // session.event payloads by kind
 // ---------------------------------------------------------------------------
 
+/** Payload of `session.event` with kind `backend.changed`. */
+export interface BackendChangedEventPayload {
+  /** Where tools now execute. */
+  backend: "local" | "docker" | "ssh";
+  kind?: "backend.changed";
+}
+
 /** Payload of `session.event` with kind `diff`. */
 export interface DiffEventPayload {
   kind?: "diff";
@@ -996,6 +1007,7 @@ export interface UsageEventPayload {
 
 /** Maps every `session.event` kind to its payload type. */
 export interface SessionEventKindMap {
+  "backend.changed": BackendChangedEventPayload;
   "diff": DiffEventPayload;
   "error": ErrorEventPayload;
   "message.delta": MessageDeltaEventPayload;
@@ -1013,6 +1025,7 @@ export interface SessionEventKindMap {
 
 export type SessionEventKind = keyof SessionEventKindMap;
 export const SESSION_EVENT_KINDS: readonly SessionEventKind[] = [
+  "backend.changed",
   "diff",
   "error",
   "message.delta",
