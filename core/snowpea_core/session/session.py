@@ -24,6 +24,12 @@ class Session:
     model: str | None = None
     agent: str | None = None
     origin_surface: str | None = None
+    #: Set on a child session created by ``delegate_task`` / ``agent.spawn``
+    #: (M7 contract §3); ``None`` for a session a human opened.
+    parent_session_id: str | None = None
+    #: Replaces the stock system prompt when an ``AgentDefinition`` supplies
+    #: one, so a subagent really speaks with its definition's voice (M7 §3).
+    system_prompt: str | None = None
     #: Long-term memory namespace (M5 contract §1): ``"default"`` for
     #: interactive sessions, ``"agent:<name>"`` for named agents.
     memory_namespace: str = "default"
@@ -32,9 +38,15 @@ class Session:
     max_concurrent: int = 3
     history: History = field(default_factory=History)
     seq: int = 0
+    #: True for sessions nobody is watching — a scheduled job (M5 contract §2)
+    #: or a gateway message.  Their approvals go to the shared queue.
+    unattended: bool = False
     #: The connection that created (or last resumed) the session; interactive
     #: ``approval.request`` calls go only here (contract §7).
     origin_conn: Any = None
+    #: Tool names a skill command restricts the current turn to
+    #: (``allowed-tools`` in its front matter); ``None`` means every tool.
+    allowed_tools: set[str] | None = None
     #: Set by ``session.interrupt``; the agent loop checks it between steps.
     interrupt: asyncio.Event = field(default_factory=asyncio.Event)
     turn_task: asyncio.Task[Any] | None = None

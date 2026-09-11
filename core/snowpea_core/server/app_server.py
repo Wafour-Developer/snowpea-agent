@@ -22,6 +22,7 @@ from snowpea_core import __version__
 from snowpea_core.commands.registry import CommandRegistry
 from snowpea_core.config.paths import Paths
 from snowpea_core.config.settings import Settings
+from snowpea_core.gateway.router import GatewayRouter
 from snowpea_core.permissions.allowlist import SHELL_TARGET, Allowlist
 from snowpea_core.permissions.allowlist import Scope as AllowlistStore
 from snowpea_core.permissions.approval_queue import ApprovalQueue
@@ -29,9 +30,13 @@ from snowpea_core.permissions.policy import PermissionPolicy
 from snowpea_core.providers import auth_web
 from snowpea_core.providers.base import ProviderError
 from snowpea_core.providers.registry import ProviderRegistry
+from snowpea_core.scheduler import start_scheduler, stop_scheduler
 from snowpea_core.server import errors
+from snowpea_core.server.agent_handlers import register_agent_handlers
 from snowpea_core.server.auth import ensure_token
 from snowpea_core.server.errors import RpcError
+from snowpea_core.server.gateway_handlers import register_gateway_handlers
+from snowpea_core.server.job_handlers import register_job_handlers
 from snowpea_core.server.lifecycle import Lifecycle
 from snowpea_core.server.protocol import (
     METHODS as PROTOCOL_METHODS,
@@ -60,6 +65,7 @@ from snowpea_core.server.session_handlers import (
     register_session_handlers,
     wire_core,
 )
+from snowpea_core.server.skill_handlers import register_skill_handlers
 from snowpea_core.server.transport_http import (
     CONNECTIONS_KEY,
     SOCKETS_KEY,
@@ -86,8 +92,15 @@ class Core:
     paths: Paths
     token: str
     store: Any = None
+    #: Chat gateway router (US-016); ``Daemon.start`` builds and wires it.
+    gateway: Any = None
     #: Long-term memory services (US-014); ``wire_core`` builds them.
     memory: Any = None
+    #: Scheduled jobs (US-015); ``wire_core`` builds it, ``Daemon.start`` ticks it.
+    scheduler: Any = None
+    #: Plugins, skills, agent definitions and hooks (US-017); ``wire_core``
+    #: builds it and ``Daemon.start`` does the first full reload.
+    skills: Any = None
     sessions: SessionManager = field(default_factory=SessionManager)
     tools: ToolRegistry = field(default_factory=ToolRegistry)
     commands: CommandRegistry = field(default_factory=CommandRegistry)
@@ -134,6 +147,8 @@ async def info_handler(_conn: RpcConnection, _params: Empty, core: Core) -> Info
             willExit=bool(status["willExit"]),
             reason=str(status["reason"]),
             secondsUntilExit=status["secondsUntilExit"],
+            reasons=list(status.get("reasons") or []),
+            summary=status.get("summary"),
         ),
     )
 
@@ -323,7 +338,11 @@ def build_dispatcher(core: Core) -> RpcDispatcher:
     dispatcher.register("system.health", health_handler)
     dispatcher.register("system.shutdown", shutdown_handler)
     register_session_handlers(dispatcher)
+    register_skill_handlers(dispatcher)
+    register_job_handlers(dispatcher)
     register_permission_handlers(dispatcher)
+    register_agent_handlers(dispatcher)
+    register_gateway_handlers(dispatcher)
     dispatcher.register("provider.configure", provider_configure_handler)
     dispatcher.register("provider.loginWeb", provider_login_web_handler)
     for name, method in PROTOCOL_METHODS.items():
@@ -382,6 +401,8 @@ class Daemon:
             on_idle=self._on_idle,
         )
         core.request_shutdown = self.request_shutdown
+        core.gateway = GatewayRouter()
+        core.gateway.bind_core(core)
         self.core = core
 
         dispatcher = build_dispatcher(core)
@@ -393,7 +414,10 @@ class Daemon:
         self._runner = runner
         core.port = _resolve_port(runner, self._requested_port)
         self._write_daemon_json()
+        await core.gateway.restore()
+        await core.skills.reload()
         core.lifecycle.start()
+        await start_scheduler(core)
         log.info(
             "snowpea daemon listening on http://%s:%s (ws ws://%s:%s/ws)",
             HOST,
@@ -442,6 +466,9 @@ class Daemon:
         self.request_shutdown(self.shutdown_reason or "requested")
         if self.core is not None:
             await self.core.lifecycle.stop()
+            await stop_scheduler(self.core)
+            if self.core.gateway is not None:
+                await self.core.gateway.stop()
         if self.app is not None:
             sockets: set[web.WebSocketResponse] = self.app[SOCKETS_KEY]
             connections: set[RpcConnection] = self.app[CONNECTIONS_KEY]
@@ -521,6 +548,7 @@ __all__ = [
     "Core",
     "Daemon",
     "build_dispatcher",
+    "register_gateway_handlers",
     "register_permission_handlers",
     "run_daemon",
 ]

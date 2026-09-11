@@ -112,7 +112,13 @@ class ToolRegistry:
         return [tool.info() for tool in self._tools.values()]
 
     def active(self, session: Any | None = None) -> Tools:
-        return [tool for tool in self._tools.values() if tool.state == "active"]
+        """Active tools, narrowed by a skill's ``allowed-tools`` when one is set."""
+        allowed = getattr(session, "allowed_tools", None) if session is not None else None
+        return [
+            tool
+            for tool in self._tools.values()
+            if tool.state == "active" and (allowed is None or tool.name in allowed)
+        ]
 
     def specs(self, session: Any | None = None) -> ToolSpecs:
         """Tool descriptions for the provider (active tools only)."""

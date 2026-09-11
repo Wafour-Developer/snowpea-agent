@@ -26,13 +26,16 @@ SERVER_VERSION = _core_version
 Mode = Literal["plan", "accept", "auto"]
 PermissionTag = Literal["read", "write", "exec", "network", "send"]
 ToolState = Literal["active", "inactive"]
-CommandSource = Literal["builtin", "skill", "plugin"]
+#: ``builtin``, ``global``, ``project``, ``skill`` or ``plugin:<plugin name>``;
+#: a free string because a plugin names itself (M6 contract §1).
+CommandSource = str
 Decision = Literal["allow", "deny"]
 ApprovalScope = Literal["once", "session", "project", "always"]
 AllowlistScope = Literal["session", "project", "always"]
 BackendKind = Literal["local", "docker", "ssh"]
 TurnReason = Literal["complete", "interrupted", "error", "denied", "timeout"]
 TaskState = Literal["pending", "running", "done", "failed"]
+SkillKind = Literal["skill", "agent", "command", "plugin"]
 Direction = Literal["c2s", "s2c"]
 
 
@@ -388,6 +391,25 @@ class AgentInfo(Payload):
     description: str = Field(default="", description="What the agent is for.")
     channel: str | None = Field(default=None, description="Gateway channel bound to the agent.")
     source: str = Field(default="user", description="Where the definition came from.")
+    kind: str = Field(
+        default="definition",
+        description=(
+            "definition = an agents/<name>.md file, subagent = a running child, "
+            "named = a persistent named instance."
+        ),
+    )
+    path: str | None = Field(default=None, description="Definition file, when there is one.")
+    status: str | None = Field(
+        default=None, description="For kind='subagent': queued, running, done or error."
+    )
+    task: str | None = Field(default=None, description="For kind='subagent': the task it was given.")
+    agentId: str | None = Field(
+        default=None, description="For kind='subagent': the id its subagent.* events carry."
+    )
+    sessionId: str | None = Field(default=None, description="Session the agent runs in.")
+    parentSessionId: str | None = Field(
+        default=None, description="For kind='subagent': the session that delegated the task."
+    )
 
 
 class AgentListResult(Payload):
@@ -400,6 +422,7 @@ class AgentCreateParams(Payload):
 
 class AgentCreateResult(Payload):
     name: str = Field(description="Name assigned to the new agent.")
+    path: str | None = Field(default=None, description="Where the definition was written.")
 
 
 class AgentSpawnParams(Payload):
@@ -517,9 +540,22 @@ class JobIdParams(Payload):
 
 
 class GatewayBindParams(Payload):
-    platform: str = Field(description="Chat platform key, e.g. 'slack'.")
-    credentialsRef: str = Field(description="Name of the stored credential to use.")
-    target: str = Field(description="Channel, room or chat id to attach to.")
+    platform: str = Field(description="Chat platform key: telegram, discord or slack.")
+    credentialsRef: str = Field(
+        description="Name of the credential to use: a key in credentials.json or an env var."
+    )
+    target: dict[str, Any] = Field(
+        description=(
+            "What the conversation talks to: {'agent': name}, {'session': id} "
+            "or {'new_session': {'workdir': path, 'mode': mode}}."
+        )
+    )
+    channelId: str | None = Field(
+        default=None, description="Restrict the binding to one chat, channel or room."
+    )
+    userId: str | None = Field(
+        default=None, description="Platform user allowed to answer approvals from chat."
+    )
 
 
 class GatewayBindResult(Payload):
@@ -531,7 +567,10 @@ class GatewayBinding(Payload):
 
     bindingId: str = Field(description="Binding id.")
     platform: str = Field(description="Chat platform key.")
-    target: str = Field(description="Channel, room or chat id.")
+    target: str = Field(description="Target it routes to, e.g. 'agent:ops' or 'new_session'.")
+    credentialsRef: str = Field(default="", description="Credential name; never the secret.")
+    channelId: str | None = Field(default=None, description="Chat it is limited to, if any.")
+    userId: str | None = Field(default=None, description="User allowed to answer approvals.")
     state: Literal["active", "inactive"] = Field(
         default="active", description="Whether it is listening."
     )
@@ -591,12 +630,23 @@ class SkillSearchParams(Payload):
 
 
 class SkillInfo(Payload):
-    """One skill."""
+    """One skill, agent, command or plugin."""
 
     name: str = Field(description="Skill name.")
+    kind: SkillKind = Field(default="skill", description="What kind of entry this is.")
     summary: str = Field(default="", description="What the skill does.")
-    source: str = Field(default="builtin", description="Where the skill came from.")
+    source: str = Field(
+        default="builtin",
+        description=(
+            "Where it came from: builtin, global, project, plugin:<name> for an "
+            "installed entry, or the marketplace that offered it."
+        ),
+    )
     installed: bool = Field(default=False, description="True when present locally.")
+    id: str = Field(default="", description="Registry id; empty for local entries.")
+    installSpec: str = Field(
+        default="", description="What to pass to skill.install to get this entry."
+    )
 
 
 class SkillSearchResult(Payload):
@@ -609,6 +659,10 @@ class SkillInstallParams(Payload):
 
 class SkillListResult(Payload):
     skills: list[SkillInfo] = Field(default_factory=list, description="Installed skills.")
+
+
+class SkillRemoveParams(Payload):
+    name: str = Field(description="Installed plugin or skill to delete.")
 
 
 # --------------------------------------------------------------------------
@@ -661,6 +715,10 @@ class DiffEvent(Payload):
     patch: str = Field(description="Unified diff of the change.")
 
 
+#: Lifecycle of one delegated subagent run (M7 contract §3).
+SubagentStatus = Literal["queued", "running", "done", "error"]
+
+
 class SubagentSpawn(Payload):
     """A subagent started."""
 
@@ -668,6 +726,12 @@ class SubagentSpawn(Payload):
     agentId: str = Field(description="Id correlating this subagent's events.")
     name: str = Field(default="", description="Named agent that was spawned.")
     task: str = Field(default="", description="Task it was given.")
+    status: SubagentStatus = Field(
+        default="queued", description="State at spawn: queued until a concurrency slot frees up."
+    )
+    sessionId: str | None = Field(
+        default=None, description="The subagent's own session, once it has one."
+    )
 
 
 class SubagentUpdate(Payload):
@@ -675,8 +739,18 @@ class SubagentUpdate(Payload):
 
     kind: Literal["subagent.update"] = "subagent.update"
     agentId: str = Field(description="Subagent reporting progress.")
-    status: str = Field(default="", description="Short status label.")
+    status: SubagentStatus = Field(default="running", description="Lifecycle state.")
     text: str = Field(default="", description="Human-readable progress text.")
+    lastText: str = Field(default="", description="Most recent text the subagent produced.")
+    name: str = Field(default="", description="Named agent that is running, when there is one.")
+    sessionId: str | None = Field(default=None, description="The subagent's own session.")
+
+
+class SubagentUsage(Payload):
+    """Tokens one subagent consumed."""
+
+    inputTokens: int = Field(default=0, description="Prompt tokens the subagent used.")
+    outputTokens: int = Field(default=0, description="Completion tokens the subagent used.")
 
 
 class SubagentDone(Payload):
@@ -686,6 +760,13 @@ class SubagentDone(Payload):
     agentId: str = Field(description="Subagent that finished.")
     ok: bool = Field(default=True, description="False when it failed.")
     result: str = Field(default="", description="Final report.")
+    status: SubagentStatus = Field(default="done", description="Terminal state: done or error.")
+    summary: str = Field(default="", description="The subagent's final answer.")
+    usage: SubagentUsage = Field(
+        default_factory=SubagentUsage, description="Tokens the subagent consumed."
+    )
+    name: str = Field(default="", description="Named agent that ran, when there was one.")
+    sessionId: str | None = Field(default=None, description="The subagent's own session.")
 
 
 class TeamTaskUpdate(Payload):
@@ -797,6 +878,21 @@ class ApprovalResolvedNotification(Payload):
     requestId: str = Field(description="Request that was resolved.")
     decision: Decision = Field(description="The decision that was recorded.")
     by: str = Field(description="Surface or user that answered.")
+
+
+class ApprovalPendingNotification(Payload):
+    """An unattended approval is waiting; any authenticated surface may answer."""
+
+    request: ApprovalRequest = Field(description="The request now in the shared queue.")
+
+
+class CommandsChangedNotification(Payload):
+    """The slash-command table changed; re-read it (``skill.reload``, install)."""
+
+    commands: list[CommandInfo] = Field(
+        default_factory=list, description="The command table as it stands now."
+    )
+    reason: str = Field(default="reload", description="Why the table changed.")
 
 
 class JobEventNotification(Payload):
@@ -1012,6 +1108,7 @@ METHODS: dict[str, RpcMethod] = {
         ),
         _m("skill.list", Empty, SkillListResult, "List installed skills."),
         _m("skill.reload", Empty, Ok, "Reload skills from disk without restarting."),
+        _m("skill.remove", SkillRemoveParams, Ok, "Delete an installed skill or plugin."),
         _m(
             "approval.request",
             ApprovalRequest,
@@ -1024,9 +1121,11 @@ METHODS: dict[str, RpcMethod] = {
 
 EVENTS: dict[str, type[BaseModel]] = {
     "session.event": SessionEventNotification,
+    "approval.pending": ApprovalPendingNotification,
     "approval.resolved": ApprovalResolvedNotification,
     "job.event": JobEventNotification,
     "gateway.event": GatewayEventNotification,
+    "commands.changed": CommandsChangedNotification,
 }
 
 CAPABILITIES: list[str] = ["sessions", "approvals", "commands", "tools"]
@@ -1062,6 +1161,20 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "backend.set",
         "memory.search",
         "memory.write",
+        "gateway.bind",
+        "gateway.list",
+        "gateway.unbind",
+        "job.schedule",
+        "job.list",
+        "job.cancel",
+        "job.runNow",
+        "agent.create",
+        "agent.list",
+        "skill.list",
+        "skill.search",
+        "skill.install",
+        "skill.reload",
+        "skill.remove",
     }
 )
 

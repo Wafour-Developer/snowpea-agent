@@ -32,7 +32,6 @@ from snowpea_core.config.paths import Paths, resolve_home
 
 #: Subcommands whose implementation lands after M1.
 PLACEHOLDER_SUBCOMMANDS: tuple[str, ...] = (
-    "skill",
     "service",
     "agents",
     "team",
@@ -549,6 +548,76 @@ async def job_run(job_id: str, home: Path | str | None = None) -> int:
 
 
 # ---------------------------------------------------------------------------
+# skill.* (M6 contract §1)
+# ---------------------------------------------------------------------------
+
+
+async def _skill_call(
+    home: Path | str | None, method: str, params: dict[str, Any]
+) -> dict[str, Any]:
+    info = await ensure_daemon(home)
+    client = DaemonClient(info)
+    await client.connect()
+    try:
+        return await client.call(method, params)
+    finally:
+        await client.close()
+
+
+async def skill_command(
+    action: str,
+    argument: str = "",
+    home: Path | str | None = None,
+    *,
+    as_json: bool = False,
+) -> int:
+    """``snowpea skill list|search <query>|install <source>|remove <name>``."""
+    methods = {
+        "list": ("skill.list", {}),
+        "search": ("skill.search", {"query": argument}),
+        "install": ("skill.install", {"source": argument}),
+        "remove": ("skill.remove", {"name": argument}),
+    }
+    if action not in methods:
+        return _fail(
+            "usage: snowpea skill list|search <query>|install <source>|remove <name>",
+            EXIT_USAGE,
+        )
+    if action in ("search", "install", "remove") and not argument:
+        return _fail(f"snowpea skill {action} needs an argument", EXIT_USAGE)
+    method, params = methods[action]
+    try:
+        result = await _skill_call(home, method, params)
+    except DaemonError as exc:
+        return _fail(str(exc), EXIT_NO_DAEMON)
+    except RpcCallError as exc:
+        return _fail(f"{method} failed ({exc.code}): {exc.message}", EXIT_USAGE)
+
+    if action in ("install", "remove"):
+        if as_json:
+            _print_json(result)
+        else:
+            print(f"{action}ed {argument}" if action == "remove" else f"installed {argument}")
+        return EXIT_OK
+
+    skills = [item for item in (result.get("skills") or []) if isinstance(item, dict)]
+    if as_json:
+        _print_json(skills)
+        return EXIT_OK
+    if not skills:
+        print("no skills found")
+        return EXIT_OK
+    width = max(len(str(skill.get("name", ""))) for skill in skills)
+    for skill in skills:
+        name = str(skill.get("name", ""))
+        kind = str(skill.get("kind", "skill"))
+        source = str(skill.get("source", ""))
+        summary = str(skill.get("summary", ""))
+        print(f"{name:<{width}}  {kind:<8} {source:<22} {summary}".rstrip())
+    return EXIT_OK
+
+
+# ---------------------------------------------------------------------------
 # placeholders
 # ---------------------------------------------------------------------------
 
@@ -618,6 +687,21 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
     setup_parser.add_argument(
         "--login", default=None, metavar="VENDOR", help="browser login (alias of provider login)"
     )
+
+    skill = sub.add_parser("skill", help="find, install and list skills and plugins")
+    skill_sub = skill.add_subparsers(dest="action", metavar="<action>")
+    for name, help_text, argument in (
+        ("list", "list installed skills, agents, commands and plugins", None),
+        ("search", "search the skill marketplaces", "query"),
+        ("install", "install a path, git URL, <marketplace>/<plugin> or shortcut", "source"),
+        ("remove", "delete an installed plugin", "name"),
+    ):
+        skill_action = skill_sub.add_parser(name, help=help_text)
+        if argument:
+            skill_action.add_argument(argument)
+        skill_action.add_argument(
+            "--json", dest="sub_json", action="store_true", help="emit JSON"
+        )
 
     daemon = sub.add_parser("daemon", help="control the core daemon")
     daemon_sub = daemon.add_subparsers(dest="action", metavar="<action>")
@@ -757,6 +841,14 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
             'usage: snowpea job schedule --in 60s --task "…" | list | cancel <id> | run <id>',
             EXIT_USAGE,
         )
+    if subcommand == "skill":
+        argument = (
+            getattr(args, "query", None)
+            or getattr(args, "source", None)
+            or getattr(args, "name", None)
+            or ""
+        )
+        return await skill_command(str(action or ""), str(argument), home, as_json=as_json)
     if subcommand == "daemon":
         if action == "status":
             return await daemon_status(home, as_json=as_json)
@@ -792,5 +884,6 @@ __all__ = [
     "provider_list",
     "provider_login",
     "setup_command",
+    "skill_command",
     "tools_list",
 ]

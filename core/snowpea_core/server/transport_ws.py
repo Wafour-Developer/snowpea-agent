@@ -48,6 +48,11 @@ async def hello_handler(conn: RpcConnection, params: HelloParams, core: Core) ->
         raise RpcError(errors.UNAUTHORIZED, "invalid token")
     conn.authenticated = True
     conn.client_version = params.clientVersion
+    # Authenticated surfaces share the unattended approval queue (M5 §4), so
+    # they receive its notifications whether or not they own a session.
+    hub = getattr(core, "hub", None)
+    if hub is not None and hasattr(hub, "register_client"):
+        hub.register_client(conn)
     log.info("client %s authenticated (surface %s)", params.clientVersion, conn.surface_id)
     return HelloResult(
         protocolVersion=PROTOCOL_VERSION,

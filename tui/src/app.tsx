@@ -103,6 +103,18 @@ export function App({
     client.setListeners({
       onSessionEvent: (event) => dispatch({ type: "session/event", event }),
       onStatus: (status) => dispatch({ type: "status", status }),
+      // An unattended turn raised a request the daemon broadcast to every
+      // surface; the queue is re-read rather than trusted from the payload.
+      onApprovalPending: () => refreshApprovals(),
+      // A plugin install or `skill.reload` moved the server-side table.
+      onCommandsChanged: () => {
+        void registryRef.current
+          .refresh()
+          .then((commands: CommandInfo[]) => dispatch({ type: "commands", commands }))
+          .catch(() => {
+            /* the table is advisory; a failed refresh must not break the UI. */
+          });
+      },
       onApprovalResolved: ({ requestId }) => {
         dispatch({ type: "approval/resolved", requestId });
         // Another surface may have answered one of ours, or freed a slot that

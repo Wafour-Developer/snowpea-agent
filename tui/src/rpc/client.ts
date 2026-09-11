@@ -44,6 +44,10 @@ export interface TuiClientListeners {
   onSessionEvent?: (event: SessionEvent) => void;
   onStatus?: (status: ConnectionStatus) => void;
   onApprovalResolved?: (params: { requestId: string; decision: string; by?: string }) => void;
+  /** An unattended request joined the shared queue; re-read `approval.list`. */
+  onApprovalPending?: (params: { request: ApprovalRequestParams }) => void;
+  /** A skill reload or plugin install changed the command table (M6 §1). */
+  onCommandsChanged?: () => void;
 }
 
 export class TuiClient {
@@ -82,6 +86,8 @@ export class TuiClient {
 
     client.on("session.event", (event: SessionEvent) => this.handleSessionEvent(event));
     client.on("approval.resolved", (params: any) => this.listeners.onApprovalResolved?.(params));
+    client.on("commands.changed", () => this.listeners.onCommandsChanged?.());
+    client.on("approval.pending", (params: any) => this.listeners.onApprovalPending?.(params));
     // The SDK owns reconnect and replays each tracked session with
     // `session.resume(afterSeq)` before emitting `reconnected`; the TUI only
     // renders the transition.

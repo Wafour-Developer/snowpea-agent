@@ -33,6 +33,9 @@ class CommandContext:
     session: Session
     turn_id: str
     conn: Any = None
+    #: Set by a command that ran a full agent turn itself (a skill command);
+    #: the registry then leaves ``turn.done`` to the turn it started.
+    handled_turn: bool = False
 
     async def emit(self, event: events.Event) -> None:
         await self.core.hub.emit_event(self.session.id, event)
@@ -81,6 +84,10 @@ class CommandRegistry:
 
     def get(self, name: str) -> Command | None:
         return self._commands.get(name)
+
+    def unregister(self, name: str) -> Command | None:
+        """Drop a command; the skill loader does this before every re-scan."""
+        return self._commands.pop(name, None)
 
     def list(self, session: Any | None = None) -> CommandInfos:
         return [command.info() for command in self._commands.values()]
@@ -141,7 +148,8 @@ class CommandRegistry:
             return turn_id
         finally:
             session.current_turn = None
-        await core.hub.emit_event(session.id, events.turn_done(turn_id, "complete"))
+        if not ctx.handled_turn:
+            await core.hub.emit_event(session.id, events.turn_done(turn_id, "complete"))
         return turn_id
 
     def __len__(self) -> int:
@@ -149,11 +157,18 @@ class CommandRegistry:
 
 
 def register_builtin_commands(registry: CommandRegistry) -> CommandRegistry:
-    """Register the built-ins: ``help``/``tools``, the mode/allowlist set, ``/backend``."""
-    from snowpea_core.commands import backend_cmd, mode_cmd
+    """Register the built-ins: ``help``/``tools``, modes, ``/backend``, ``/agent``, ``/skill``."""
+    from snowpea_core.commands import agent_cmd, backend_cmd, mode_cmd, schedule_cmd, skill_cmd
     from snowpea_core.commands.builtin import COMMANDS
 
-    for command in (*COMMANDS, *mode_cmd.COMMANDS, *backend_cmd.COMMANDS):
+    for command in (
+        *COMMANDS,
+        *mode_cmd.COMMANDS,
+        *backend_cmd.COMMANDS,
+        *schedule_cmd.COMMANDS,
+        *agent_cmd.COMMANDS,
+        *skill_cmd.COMMANDS,
+    ):
         registry.register(command)
     return registry
 

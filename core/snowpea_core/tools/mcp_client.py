@@ -348,27 +348,40 @@ async def sync_tools(core: Core, workdir: Path | str | None = None) -> list[str]
 
     registered: list[str] = []
     for config in configs.values():
-        server = MANAGER.register(config)
-        try:
-            await server.start()
-        except McpError as exc:
-            log.info("skipping mcp server %s: %s", config.name, exc)
-            continue
-        permission = _permission_for(core, config.name)
-        for spec in server.tools:
-            name = tool_name(config.name, str(spec["name"]))
-            core.tools.register(
-                Tool(
-                    name=name,
-                    category="mcp",
-                    description=str(spec.get("description") or f"{config.name}: {spec['name']}"),
-                    input_schema=dict(spec.get("input_schema") or {"type": "object"}),
-                    permission=permission,
-                    run=_make_runner(config.name, str(spec["name"])),
-                    source=f"mcp:{config.name}",
-                )
+        registered.extend(await register_config(core, config))
+    return registered
+
+
+async def register_config(core: Core, config: McpServerConfig) -> list[str]:
+    """Start one server and register its tools; returns the tool names.
+
+    This is the only way a server reaches the tool registry, so the plugin
+    loader (M6 §1) adds a plugin's ``.mcp.json`` entries through it rather than
+    registering tools of its own.  A server that will not start is logged and
+    contributes nothing.
+    """
+    server = MANAGER.register(config)
+    try:
+        await server.start()
+    except McpError as exc:
+        log.info("skipping mcp server %s: %s", config.name, exc)
+        return []
+    permission = _permission_for(core, config.name)
+    registered: list[str] = []
+    for spec in server.tools:
+        name = tool_name(config.name, str(spec["name"]))
+        core.tools.register(
+            Tool(
+                name=name,
+                category="mcp",
+                description=str(spec.get("description") or f"{config.name}: {spec['name']}"),
+                input_schema=dict(spec.get("input_schema") or {"type": "object"}),
+                permission=permission,
+                run=_make_runner(config.name, str(spec["name"])),
+                source=f"mcp:{config.name}",
             )
-            registered.append(name)
+        )
+        registered.append(name)
     return registered
 
 
@@ -381,6 +394,7 @@ __all__ = [
     "McpServer",
     "McpServerConfig",
     "discover",
+    "register_config",
     "render_content",
     "sync_tools",
     "tool_name",

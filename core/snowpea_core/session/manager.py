@@ -152,6 +152,10 @@ class EventHub:
 
     def __init__(self, store: Store | None = None, sessions: SessionManager | None = None) -> None:
         self._subscribers: list[tuple[Any, str | None]] = []
+        #: Authenticated connections that receive plain notifications even
+        #: before they open a session — that is what "broadcast to every
+        #: authenticated client" means for the shared approval queue (M5 §4).
+        self._clients: list[Any] = []
         self.store = store
         self.sessions = sessions
 
@@ -168,6 +172,15 @@ class EventHub:
 
     def unsubscribe(self, conn: Any) -> None:
         self._subscribers = [entry for entry in self._subscribers if entry[0] is not conn]
+        self._clients = [client for client in self._clients if client is not conn]
+
+    def register_client(self, conn: Any) -> None:
+        """Add an authenticated connection to the notification broadcast set."""
+        if not any(client is conn for client in self._clients):
+            self._clients.append(conn)
+
+    def clients(self) -> list[Any]:
+        return list(self._clients)
 
     def subscribers_for(self, session_id: str) -> list[Any]:
         seen: list[Any] = []
@@ -206,8 +219,11 @@ class EventHub:
     async def notify(self, method: str, params: dict[str, Any], *, exclude: Any = None) -> None:
         """Send a plain notification to every subscribed connection."""
         seen: list[Any] = []
-        for conn, _ in self._subscribers:
-            if conn is exclude or conn in seen or getattr(conn, "closed", False):
+        targets = [conn for conn, _ in self._subscribers] + self._clients
+        for conn in targets:
+            if conn is exclude or any(other is conn for other in seen):
+                continue
+            if getattr(conn, "closed", False):
                 continue
             seen.append(conn)
             try:

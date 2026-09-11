@@ -211,7 +211,11 @@ class DiscordAdapter:
                         "d": {
                             "token": self._token,
                             "intents": INTENTS,
-                            "properties": {"os": "linux", "browser": "snowpea", "device": "snowpea"},
+                            "properties": {
+                                "os": "linux",
+                                "browser": "snowpea",
+                                "device": "snowpea",
+                            },
                         },
                     }
                 )

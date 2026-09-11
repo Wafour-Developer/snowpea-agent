@@ -17,6 +17,7 @@ from snowpea_core.commands.registry import register_builtin_commands
 from snowpea_core.exec.factory import build_backend
 from snowpea_core.memory import services as memory_services
 from snowpea_core.memory import wire_memory
+from snowpea_core.scheduler import wire_scheduler
 from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import (
@@ -51,6 +52,7 @@ from snowpea_core.server.protocol import (
 from snowpea_core.server.rpc import RpcConnection, RpcDispatcher
 from snowpea_core.session import events
 from snowpea_core.session.store import Store
+from snowpea_core.skills.loader import SkillLoader
 from snowpea_core.tools import browser_providers, mcp_client
 from snowpea_core.tools import media as media_tools
 from snowpea_core.tools.registry import register_builtin_tools
@@ -91,9 +93,12 @@ def wire_core(core: Core) -> Core:
     core.providers.bind(core.settings)
     register_builtin_tools(core.tools)
     wire_memory(core)
+    wire_scheduler(core)
     media_tools.refresh_state(core)
     core.sessions.on_close.append(browser_providers.close_all_sessions)
     register_builtin_commands(core.commands)
+    core.skills = SkillLoader(core)
+    core.skills.load_sync()
     return core
 
 

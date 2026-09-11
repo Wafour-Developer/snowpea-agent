@@ -82,9 +82,7 @@ def parse_update(update: dict[str, Any]) -> InboundMessage | None:
 
 def inline_keyboard(buttons: list[Button]) -> dict[str, Any]:
     """One row per button, which reads best on a phone."""
-    return {
-        "inline_keyboard": [[{"text": b.text, "callback_data": b.data}] for b in buttons]
-    }
+    return {"inline_keyboard": [[{"text": b.text, "callback_data": b.data}] for b in buttons]}
 
 
 class TelegramAdapter:

@@ -125,11 +125,19 @@ class ApprovalQueue:
             self.allowlist = allowlist
 
     # -- queries -------------------------------------------------------
-    def list(self, session_id: str | None = None) -> ApprovalRequests:
+    def list(self, session_id: str | None = None, conn: Any = None) -> ApprovalRequests:
+        """The shared queue: unattended requests, plus ``conn``'s own.
+
+        An interactive request belongs to the surface that started the session
+        and is asked over ``approval.request``; it never becomes visible to a
+        second client (contract §4, AC-20).  Passing the asking connection back
+        in is what lets that surface still see its own pending request.
+        """
         return [
             entry.request
             for entry in self._pending.values()
-            if session_id is None or entry.request.sessionId == session_id
+            if (entry.unattended or (conn is not None and entry.origin_conn is conn))
+            and (session_id is None or entry.request.sessionId == session_id)
         ]
 
     def unattended(self, session_id: str | None = None) -> ApprovalRequests:
@@ -199,6 +207,8 @@ class ApprovalQueue:
         self._pending[request.requestId] = entry
         if origin is not None:
             entry.task = asyncio.ensure_future(self._ask_origin(entry))
+        else:
+            await self._broadcast_pending(request)
         outer = float(timeout) + (GRACE_SECONDS if entry.task is not None else 0.0)
         try:
             decision = await self._await_decision(entry, outer, cancel_event)
@@ -210,8 +220,27 @@ class ApprovalQueue:
                 entry.task.cancel()
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await entry.task
-        await self._resolve(request, decision, notify_exclude=origin, workdir=entry.workdir)
+        await self._resolve(
+            request,
+            decision,
+            notify_exclude=origin,
+            workdir=entry.workdir,
+            unattended=entry.unattended,
+        )
         return decision
+
+    async def _broadcast_pending(self, request: ApprovalRequest) -> None:
+        """Announce an unattended request to every authenticated surface.
+
+        The gateway listens on the same hub, so a binding whose session raised
+        the request also pushes it to the bound conversation with allow/deny
+        buttons — one notification, two deliveries (contract §4).
+        """
+        if self.hub is None:
+            return
+        await self.hub.notify(
+            "approval.pending", {"request": request.model_dump(mode="json")}
+        )
 
     async def _await_decision(
         self, entry: _Pending, timeout: float, cancel_event: asyncio.Event | None
@@ -295,13 +324,14 @@ class ApprovalQueue:
         *,
         notify_exclude: Any = None,
         workdir: Any = None,
+        unattended: bool = False,
     ) -> None:
         """Cache, persist, log and announce a finished request."""
         if decision.allowed and decision.scope in CACHING_SCOPES:
             self._cache.add(self.cache_key(request.sessionId, request.tool, request.args))
         if decision.allowed and decision.scope in PERSISTING_SCOPES:
             self._persist(request, decision.scope, workdir)
-        self._append_log(request, decision)
+        self._append_log(request, decision, unattended=unattended)
         if self.hub is not None:
             await self.hub.notify(
                 "approval.resolved",
@@ -331,7 +361,9 @@ class ApprovalQueue:
         except (OSError, ValueError):  # pragma: no cover - a bad store never breaks a turn
             log.warning("could not store allowlist entry %r", pattern, exc_info=True)
 
-    def _append_log(self, request: ApprovalRequest, decision: Decision) -> None:
+    def _append_log(
+        self, request: ApprovalRequest, decision: Decision, *, unattended: bool = False
+    ) -> None:
         if self.paths is None:
             return
         record = {
@@ -345,6 +377,7 @@ class ApprovalQueue:
             "scope": decision.scope,
             "by": decision.by,
             "code": decision.code,
+            "unattended": unattended,
         }
         try:
             self.paths.ensure()
