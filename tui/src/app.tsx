@@ -19,8 +19,29 @@ import type {
   Mode,
 } from "./rpc/sdk.js";
 import { SlashRegistry } from "./slash/registry.js";
+import {
+  bannerText,
+  cancel as cancelUpdate,
+  confirm as confirmUpdate,
+  fromCheck,
+  initialUpdateState,
+  progress as updateProgress,
+  type UpdateState,
+} from "./state/update.js";
 import { initialState, reducer, type State } from "./state/store.js";
 import { cycleMode } from "./state/mode.js";
+import { useTerminalSize } from "./hooks/useTerminalSize.js";
+import { transcriptLines } from "./layout/transcript.js";
+import {
+  bottomRows as reserveBottomRows,
+  clampScroll,
+  computeLayout,
+  halfPageStep,
+  pageStep,
+  scrollIndicator,
+  sliceViewport,
+} from "./layout/viewport.js";
+import { FullscreenLayout } from "./components/FullscreenLayout.js";
 import { Chat } from "./components/Chat.js";
 import { MessageStream } from "./components/MessageStream.js";
 import { ToolCall } from "./components/ToolCall.js";
@@ -31,11 +52,15 @@ import { ModeBar } from "./components/ModeBar.js";
 import { StatusLine } from "./components/StatusLine.js";
 import { HelpPanel } from "./components/HelpPanel.js";
 import { SubagentTree } from "./components/SubagentTree.js";
+import { UpdateBanner } from "./components/UpdateBanner.js";
 
 export const PLACEHOLDER_TEXT = "snowpea tui placeholder";
 
 /** How often the unattended queue is re-read while it is not empty. */
 export const APPROVAL_POLL_MS = 5000;
+
+/** How long "Updated to vX — restarting…" stays on screen before the restart. */
+export const RESTART_DELAY_MS = 1200;
 
 export interface AppProps {
   client: TuiClient;
@@ -44,6 +69,17 @@ export interface AppProps {
   workdir: string;
   provider?: string;
   model?: string;
+  /**
+   * Draw as a full-screen app on the alternate screen buffer. `index.tsx`
+   * turns this off for `--no-fullscreen` and `SNOWPEA_TUI_INLINE=1`, which
+   * fall back to rendering inline in the scrollback.
+   */
+  fullscreen?: boolean;
+  /**
+   * Called once an update finished, so `index.tsx` can exit with
+   * `TUI_RESTART_EXIT` (75) and let `cli/main.py` re-exec `snowpea`.
+   */
+  onRestart?: () => void;
 }
 
 /** Renders the ordered transcript: messages, tool calls and diffs interleaved. */
@@ -77,6 +113,8 @@ export function App({
   workdir,
   provider,
   model,
+  fullscreen = false,
+  onRestart,
 }: AppProps): React.ReactElement {
   const { exit } = useApp();
   const [state, dispatch] = useReducer(reducer, initialState);
@@ -89,8 +127,16 @@ export function App({
   const [modeHintVisible, setModeHintVisible] = useState(true);
   /** Transient "mode: X" toast shown in the status line after a change. */
   const [modeToast, setModeToast] = useState<string | null>(null);
+  /**
+   * Lines the transcript is scrolled back from its newest line. 0 follows the
+   * stream; PgUp / Ctrl+U walk it upwards. Full-screen only — inline rendering
+   * leaves scrolling to the terminal.
+   */
+  const [scrollOffset, setScrollOffset] = useState(0);
   const modeToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const registryRef = useRef<SlashRegistry>(new SlashRegistry(client, sessionId));
+  /** Update banner state; see state/update.ts. */
+  const [update, setUpdate] = useState<UpdateState>(initialUpdateState);
   /** Resolver for the approval promise the SDK is awaiting. */
   const approvalResolver = useRef<((response: ApprovalResponse) => void) | null>(null);
 
@@ -122,6 +168,11 @@ export function App({
             /* the table is advisory; a failed refresh must not break the UI. */
           });
       },
+      onUpdateProgress: ({ phase, message }) =>
+        setUpdate((current) => {
+          const next = (phase ?? "started") as "started" | "done" | "failed";
+          return updateProgress(current, next, message ?? "");
+        }),
       onApprovalResolved: ({ requestId }) => {
         dispatch({ type: "approval/resolved", requestId });
         // Another surface may have answered one of ours, or freed a slot that
@@ -144,7 +195,37 @@ export function App({
       .catch((error: unknown) => dispatch({ type: "error", message: String(error) }));
 
     refreshApprovals();
+
+    // The daemon answers from its 24h cache, so this costs nothing on most
+    // launches and never blocks the first render.
+    void client
+      .checkUpdate()
+      .then((check) => setUpdate((current) => fromCheck(current, check)))
+      .catch(() => {
+        /* the check is advisory; a failure must never disturb the session. */
+      });
   }, [client, sessionId, mode, provider, model, refreshApprovals]);
+
+  // An upgrade that finished: tell the daemon to go, then ask to be restarted.
+  useEffect(() => {
+    if (update.phase !== "done") return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      void client
+        .restartDaemon()
+        .catch(() => undefined)
+        .then(() => {
+          if (!cancelled) {
+            onRestart?.();
+            exit();
+          }
+        });
+    }, RESTART_DELAY_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [update.phase, client, onRestart, exit]);
 
   // Poll while something is waiting: unattended requests are raised by turns
   // this surface never sees, so there is no event to hang the refresh off.
@@ -189,8 +270,61 @@ export function App({
     [draft, state.commands],
   );
 
+  // --- full-screen geometry -------------------------------------------------
+  // Everything below is inert while `fullscreen` is false: the inline layout
+  // lets Ink and the terminal do the measuring and the scrolling.
+  const terminal = useTerminalSize();
+  const layout = computeLayout({
+    rows: terminal.rows,
+    columns: terminal.columns,
+    bottomRows: reserveBottomRows({
+      paletteCommands: draft.startsWith("/") ? completions.length : 0,
+      approvalArgs: state.pendingApproval
+        ? Object.keys(state.pendingApproval.args ?? {}).length
+        : null,
+      queueRequests: state.approvalQueue.length,
+      queueFocused,
+      errorVisible: state.errors.length > 0,
+    }),
+  });
+  /** The root box pads one column on each side. */
+  const contentWidth = Math.max(1, layout.columns - 2);
+  const lines = useMemo(
+    () => (fullscreen ? transcriptLines(state, contentWidth, { expandedCall }) : []),
+    [fullscreen, state, contentWidth, expandedCall],
+  );
+  const viewport = sliceViewport(lines, layout.transcriptRows, scrollOffset);
+
+  // Growing the transcript must not slide the window out from under a reader
+  // who has scrolled up: the offset counts from the bottom, so it has to grow
+  // with it. At offset 0 the view simply keeps following the newest line.
+  const previousLineCount = useRef(0);
+  useEffect(() => {
+    const grown = lines.length - previousLineCount.current;
+    previousLineCount.current = lines.length;
+    if (grown > 0) setScrollOffset((offset) => (offset > 0 ? offset + grown : 0));
+  }, [lines.length]);
+
+  // A resize changes how much fits, so an offset from the old height may now
+  // point past the end of the transcript.
+  useEffect(() => {
+    setScrollOffset((offset) => clampScroll(offset, lines.length, layout.transcriptRows));
+  }, [layout.transcriptRows, lines.length]);
+
+  const scrollBy = useCallback(
+    (delta: number) =>
+      setScrollOffset((offset) => clampScroll(offset + delta, lines.length, layout.transcriptRows)),
+    [lines.length, layout.transcriptRows],
+  );
+
   const submit = useCallback(
     (text: string) => {
+      // `/update` is a core builtin (headless and IDE run it as a command), but
+      // in the TUI it opens the confirmation banner instead of firing blind.
+      if (/^\/update\s*$/.test(text.trim())) {
+        setUpdate(confirmUpdate);
+        return;
+      }
       dispatch({ type: "user/message", text });
       const registry = registryRef.current;
       const run = text.startsWith("/")
@@ -209,6 +343,30 @@ export function App({
       );
     },
     [client, sessionId],
+  );
+
+  /** Answer the y/n banner prompt: start the upgrade, or put the banner away. */
+  const answerUpdate = useCallback(
+    (accepted: boolean) => {
+      if (!accepted) {
+        setUpdate(cancelUpdate);
+        return;
+      }
+      setUpdate((current) => updateProgress(current, "started", "starting the update…"));
+      void client
+        .startUpdate()
+        .then((result) => {
+          if (!result.started) {
+            setUpdate((current) =>
+              updateProgress(current, "failed", result.error ?? "the update did not start"),
+            );
+          }
+        })
+        .catch((error: unknown) =>
+          setUpdate((current) => updateProgress(current, "failed", String(error))),
+        );
+    },
+    [client],
   );
 
   const decideApproval = useCallback(
@@ -246,11 +404,47 @@ export function App({
       setExpandedCall((current) => (current ? null : (last?.callId ?? null)));
       return;
     }
+    // Scrolling the transcript is ours only in full-screen mode; inline, the
+    // terminal's own scrollback already holds the history.
+    if (fullscreen) {
+      if (key.pageUp) {
+        scrollBy(pageStep(layout.transcriptRows));
+        return;
+      }
+      if (key.pageDown) {
+        scrollBy(-pageStep(layout.transcriptRows));
+        return;
+      }
+      if (key.ctrl && input === "u") {
+        scrollBy(halfPageStep(layout.transcriptRows));
+        return;
+      }
+      if (key.ctrl && input === "d") {
+        scrollBy(-halfPageStep(layout.transcriptRows));
+        return;
+      }
+    }
     // Shift+Tab cycles accept -> auto -> plan -> accept, like Claude Code.
     // Ink 5 reports this as key.tab + key.shift; some terminals instead send
     // the raw "[Z" (or a bare "[Z") escape, so both are handled.
     if ((key.tab && key.shift) || input === "[Z" || input === "[Z") {
       changeMode(cycleMode(state.mode));
+      return;
+    }
+    // The update banner owns y/n while it is asking.
+    if (update.phase === "confirm") {
+      if (input === "y" || input === "Y") {
+        answerUpdate(true);
+        return;
+      }
+      if (input === "n" || input === "N" || key.escape) {
+        answerUpdate(false);
+        return;
+      }
+    }
+    // U opens the same confirmation the /update command does.
+    if ((input === "U" || input === "u") && update.phase === "available") {
+      setUpdate(confirmUpdate);
       return;
     }
     // Ctrl+P: cheap on/off toggle for plan mode.
@@ -261,27 +455,13 @@ export function App({
 
   const approvalActive = state.pendingApproval !== null;
 
-  return (
-    <Box flexDirection="column" paddingX={1}>
-      <Box marginBottom={1}>
-        <Text dimColor>snowpea · {workdir}</Text>
-      </Box>
-
-      <Timeline state={state} expandedCall={expandedCall} />
-
-      <SubagentTree subagents={state.subagents} />
-
+  /** Input block: the error row, the backlog, and the chat line or prompt. */
+  const bottomNode = (
+    <>
       {state.errors.length > 0 ? (
-        <Text color="red">{state.errors[state.errors.length - 1]}</Text>
-      ) : null}
-
-      {showHelp ? (
-        <HelpPanel
-          commands={state.commands}
-          runningSubagents={
-            state.subagents.filter((agent) => agent.status === "running").length
-          }
-        />
+        <Text color="red" wrap="truncate-end">
+          {state.errors[state.errors.length - 1]}
+        </Text>
       ) : null}
 
       <ApprovalQueue
@@ -303,7 +483,11 @@ export function App({
           disabled={approvalActive || queueFocused}
         />
       )}
+    </>
+  );
 
+  const statusNode = (
+    <>
       <ModeBar mode={state.mode} />
       <StatusLine
         status={state.status}
@@ -315,6 +499,52 @@ export function App({
         hint={modeHintVisible ? "⇧Tab: mode" : null}
         toast={modeToast}
       />
+    </>
+  );
+
+  const helpNode = showHelp ? (
+    <HelpPanel
+      commands={state.commands}
+      runningSubagents={state.subagents.filter((agent) => agent.status === "running").length}
+    />
+  ) : null;
+
+  if (fullscreen) {
+    return (
+      <FullscreenLayout
+        rows={layout.rows}
+        columns={layout.columns}
+        transcriptRows={layout.transcriptRows}
+        lines={viewport.lines}
+        workdir={workdir}
+        sessionId={state.sessionId}
+        mode={state.mode}
+        banner={bannerText(update)}
+        scrollIndicator={scrollIndicator(viewport)}
+        overlay={helpNode}
+        bottom={bottomNode}
+        status={statusNode}
+      />
+    );
+  }
+
+  return (
+    <Box flexDirection="column" paddingX={1}>
+      <Box marginBottom={1}>
+        <Text dimColor>snowpea · {workdir}</Text>
+      </Box>
+
+      <UpdateBanner update={update} />
+
+      <Timeline state={state} expandedCall={expandedCall} />
+
+      <SubagentTree subagents={state.subagents} />
+
+      {helpNode}
+
+      {bottomNode}
+
+      {statusNode}
     </Box>
   );
 }

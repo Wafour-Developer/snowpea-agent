@@ -14,6 +14,9 @@ import type {
   CommandListResult,
   SessionEventPayload,
   SessionSetModeParams,
+  SystemCheckUpdateResult,
+  SystemUpdateProgressPayload,
+  SystemUpdateResult,
 } from "@snowpea/sdk";
 
 export { connect } from "@snowpea/sdk";
@@ -30,6 +33,13 @@ export type ApprovalDecision = ApprovalRequestResult["decision"];
 export type ApprovalScope = NonNullable<ApprovalRequestResult["scope"]>;
 
 export type Mode = SessionSetModeParams["mode"];
+
+/** `system.checkUpdate` result (CORE-update). */
+export type UpdateCheck = SystemCheckUpdateResult;
+/** `system.update` result. */
+export type UpdateStart = SystemUpdateResult;
+/** `system.updateProgress` notification payload. */
+export type UpdateProgress = SystemUpdateProgressPayload;
 
 /** One entry of `command.list` (contract §1, §9). */
 export type CommandInfo = NonNullable<CommandListResult["commands"]>[number];

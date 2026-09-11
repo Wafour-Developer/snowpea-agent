@@ -12,21 +12,42 @@ import React from "react";
 import { render } from "ink";
 
 import { App } from "./app.js";
+import { installAltScreen } from "./layout/screen.js";
 import { TuiClient } from "./rpc/client.js";
 import type { Mode } from "./rpc/sdk.js";
 
 const CLIENT_VERSION = "0.1.0";
 const MODES: readonly string[] = ["plan", "accept", "auto"];
 
+/** Flags that stand alone: they must not swallow the next argv entry. */
+const BOOLEAN_FLAGS = new Set(["fullscreen", "no-fullscreen", "inline"]);
+
+/**
+ * Exit code that asks `cli/main.py` to re-exec `snowpea` (CORE-update).
+ * Kept in step with `TUI_RESTART_EXIT` there; 75 is EX_TEMPFAIL, which no
+ * other snowpea exit path uses.
+ */
+export const RESTART_EXIT_CODE = 75;
+
 export interface CliArgs {
   port: number;
   token: string;
   mode?: Mode;
   cwd: string;
+  /**
+   * Draw full screen on the alternate buffer. Off for `--no-fullscreen`,
+   * `--inline` or `SNOWPEA_TUI_INLINE=1`, which render inline in the
+   * scrollback so the output can be piped or read by a debugger.
+   */
+  fullscreen: boolean;
 }
 
-/** Parse `--key value` and `--key=value`. Throws on missing/invalid required args. */
-export function parseArgs(argv: string[], cwd = process.cwd()): CliArgs {
+/** Parse `--key value`, `--key=value` and the standalone flags above. */
+export function parseArgs(
+  argv: string[],
+  cwd = process.cwd(),
+  env: NodeJS.ProcessEnv = process.env,
+): CliArgs {
   const values = new Map<string, string>();
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -34,6 +55,8 @@ export function parseArgs(argv: string[], cwd = process.cwd()): CliArgs {
     const eq = arg.indexOf("=");
     if (eq !== -1) {
       values.set(arg.slice(2, eq), arg.slice(eq + 1));
+    } else if (BOOLEAN_FLAGS.has(arg.slice(2))) {
+      values.set(arg.slice(2), "true");
     } else {
       values.set(arg.slice(2), argv[i + 1] ?? "");
       i += 1;
@@ -53,11 +76,18 @@ export function parseArgs(argv: string[], cwd = process.cwd()): CliArgs {
     throw new Error(`--mode must be one of ${MODES.join("|")}`);
   }
 
+  const inlineRequested =
+    values.get("no-fullscreen") === "true" ||
+    values.get("inline") === "true" ||
+    values.get("fullscreen") === "false" ||
+    env.SNOWPEA_TUI_INLINE === "1";
+
   return {
     port,
     token,
     mode: modeRaw as Mode | undefined,
     cwd: values.get("cwd") || cwd,
+    fullscreen: !inlineRequested,
   };
 }
 
@@ -90,14 +120,35 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     return 1;
   }
 
+  // The alternate buffer goes up before Ink's first frame, so nothing the app
+  // draws ever lands in the user's scrollback. `installAltScreen` also arms the
+  // signal and uncaught-error paths that would otherwise leave the terminal on
+  // the alternate buffer with the cursor hidden.
+  const screen = args.fullscreen
+    ? installAltScreen({ stdout: process.stdout, process })
+    : null;
+
+  let restart = false;
   const instance = render(
     <App
       client={client}
       sessionId={sessionId}
       mode={args.mode ?? "accept"}
       workdir={args.cwd}
+      fullscreen={args.fullscreen}
+      onRestart={() => {
+        restart = true;
+      }}
     />,
+    // Ink's own Ctrl+C handling unmounts before the app can tear the screen
+    // down; `App` handles the key itself and calls `exit()`.
+    { exitOnCtrlC: false },
   );
+
+  // A signal or an uncaught error can reach us mid-frame. Unmounting Ink from
+  // inside the restore path flushes its last frame onto the alternate buffer,
+  // so nothing of the UI is left behind on the main one.
+  screen?.setBeforeRestore(() => instance.unmount());
 
   try {
     await instance.waitUntilExit();
@@ -105,8 +156,9 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     // Closing the session is best-effort: the daemon reaps orphans anyway.
     await client.closeSession(sessionId).catch(() => undefined);
     await client.close().catch(() => undefined);
+    screen?.restore();
   }
-  return 0;
+  return restart ? RESTART_EXIT_CODE : 0;
 }
 
 const isDirectRun =
