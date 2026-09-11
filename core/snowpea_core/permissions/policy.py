@@ -1,8 +1,9 @@
 """Mode x permission-tag policy (contract §7).
 
-The matrix is the whole decision at M1.  The allowlist (M4) plugs in through
+The matrix decides first.  The allowlist plugs in through
 :meth:`PermissionPolicy.promote`, which may only turn ``ask`` into ``allow`` —
-it can never weaken a ``deny``.
+it can never weaken a ``deny``, because :meth:`PermissionPolicy.decide` only
+calls it for an ``ask``.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ PermissionTag = Literal["read", "write", "exec", "network", "send"]
 Verdict = Literal["allow", "deny", "ask"]
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from snowpea_core.permissions.allowlist import Allowlist
     from snowpea_core.tools.registry import Tool
 
 #: Contract §7 table.
@@ -42,6 +44,13 @@ RISK_BY_TAG: dict[str, str] = {
 class PermissionPolicy:
     """Decides allow / deny / ask for one tool call."""
 
+    def __init__(self, allowlist: Allowlist | None = None) -> None:
+        self.allowlist = allowlist
+
+    def bind(self, allowlist: Allowlist) -> None:
+        """Late wiring from ``app_server`` once ``Core`` exists."""
+        self.allowlist = allowlist
+
     def decide(
         self,
         mode: Mode,
@@ -63,7 +72,12 @@ class PermissionPolicy:
         args: dict[str, Any] | None = None,
         session: Any = None,
     ) -> str:
-        """Allowlist hook (M4). At M1 nothing is promoted."""
+        """Promote ``ask`` to ``allow`` when the allowlist covers this call."""
+        if verdict != "ask" or self.allowlist is None or tool is None:
+            return verdict
+        workdir = getattr(session, "workdir", None)
+        if self.allowlist.matches(tool, args or {}, workdir=workdir):
+            return "allow"
         return verdict
 
     def risk(self, tag: PermissionTag) -> str:

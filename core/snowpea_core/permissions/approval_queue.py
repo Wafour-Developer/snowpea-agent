@@ -8,6 +8,11 @@ the queue until some authenticated client answers with ``approval.respond`` or
 
 Every resolution, including timeouts, is appended to
 ``$SNOWPEA_HOME/logs/approvals.jsonl``.
+
+Answering with a scope wider than ``once`` remembers the decision: ``session``
+caches it for this session's ``(tool, first command token)``, while ``project``
+and ``always`` also write an allowlist entry (contract §7) into the project or
+global settings so it survives a restart.
 """
 
 from __future__ import annotations
@@ -19,10 +24,22 @@ import logging
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from snowpea_core.config.paths import Paths
 from snowpea_core.config.settings import Settings
+from snowpea_core.permissions.allowlist import (
+    SHELL_TARGET,
+    Allowlist,
+    command_of,
+    first_token,
+    pattern_for_command,
+    pattern_for_tool,
+    tool_target,
+)
+from snowpea_core.permissions.allowlist import (
+    Scope as AllowlistScope,
+)
 from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import ApprovalRequest
@@ -33,10 +50,15 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 log = logging.getLogger("snowpea.approvals")
 
-#: Scopes that cache an "allow" for the rest of the session.  ``project`` and
-#: ``always`` are recorded but behave like ``session`` until M4 adds the
-#: persistent allowlist.
+#: Alias so the annotations below still mean the builtin ``list`` even though
+#: :class:`ApprovalQueue` defines a method called ``list``.
+ApprovalRequests = list[ApprovalRequest]
+
+#: Scopes that cache an "allow" for the rest of the session.
 CACHING_SCOPES: frozenset[str] = frozenset({"session", "project", "always"})
+
+#: Scopes that also persist an allowlist entry, and the store each one uses.
+PERSISTING_SCOPES: dict[str, str] = {"project": "project", "always": "global"}
 
 #: Extra seconds the outer wait gives the origin call to report its own timeout.
 GRACE_SECONDS = 2.0
@@ -63,6 +85,8 @@ class _Pending:
     unattended: bool
     origin_conn: Any = None
     task: asyncio.Task[None] | None = field(default=None)
+    #: Session workdir, kept so a ``project`` answer knows where to write.
+    workdir: Any = None
 
 
 def _utc_now() -> str:
@@ -77,34 +101,60 @@ class ApprovalQueue:
         settings: Settings | None = None,
         paths: Paths | None = None,
         hub: EventHub | None = None,
+        allowlist: Allowlist | None = None,
     ) -> None:
         self.settings = settings or Settings()
         self.paths = paths
         self.hub = hub
+        self.allowlist = allowlist
         self._pending: dict[str, _Pending] = {}
-        self._cache: set[tuple[str, str]] = set()
+        self._cache: set[tuple[str, str, str]] = set()
 
-    def bind(self, settings: Settings, paths: Paths, hub: EventHub) -> None:
+    def bind(
+        self,
+        settings: Settings,
+        paths: Paths,
+        hub: EventHub,
+        allowlist: Allowlist | None = None,
+    ) -> None:
         """Late wiring from ``app_server`` once ``Core`` exists."""
         self.settings = settings
         self.paths = paths
         self.hub = hub
+        if allowlist is not None:
+            self.allowlist = allowlist
 
     # -- queries -------------------------------------------------------
-    def list(self, session_id: str | None = None) -> list[ApprovalRequest]:
+    def list(self, session_id: str | None = None) -> ApprovalRequests:
         return [
             entry.request
             for entry in self._pending.values()
             if session_id is None or entry.request.sessionId == session_id
         ]
 
+    def unattended(self, session_id: str | None = None) -> ApprovalRequests:
+        """Pending requests with no interactive surface to answer them."""
+        return [
+            entry.request
+            for entry in self._pending.values()
+            if entry.unattended and (session_id is None or entry.request.sessionId == session_id)
+        ]
+
     def get(self, request_id: str) -> ApprovalRequest | None:
         entry = self._pending.get(request_id)
         return entry.request if entry else None
 
-    def cached(self, session_id: str, tool: str) -> bool:
-        """True when this session already approved ``tool`` for its scope."""
-        return (session_id, tool) in self._cache
+    @staticmethod
+    def cache_key(
+        session_id: str, tool: str, args: dict[str, Any] | None = None
+    ) -> tuple[str, str, str]:
+        """``(session, tool, first command token)``; the token is "" off-shell."""
+        command = command_of(args or {})
+        return (session_id, tool, first_token(command) if command else "")
+
+    def cached(self, session_id: str, tool: str, args: dict[str, Any] | None = None) -> bool:
+        """True when this session already approved this exact call shape."""
+        return self.cache_key(session_id, tool, args) in self._cache
 
     @property
     def timeout_sec(self) -> int:
@@ -124,7 +174,7 @@ class ApprovalQueue:
         cancel_event: asyncio.Event | None = None,
     ) -> Decision:
         """Ask for permission to run ``tool``; block until answered or denied."""
-        if self.cached(session.id, tool):
+        if self.cached(session.id, tool, args):
             return Decision("allow", "session", "cache")
 
         timeout = timeout_sec if timeout_sec is not None else self.timeout_sec
@@ -144,6 +194,7 @@ class ApprovalQueue:
             future=loop.create_future(),
             unattended=unattended,
             origin_conn=origin,
+            workdir=getattr(session, "workdir", None),
         )
         self._pending[request.requestId] = entry
         if origin is not None:
@@ -159,7 +210,7 @@ class ApprovalQueue:
                 entry.task.cancel()
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await entry.task
-        await self._resolve(request, decision, notify_exclude=origin)
+        await self._resolve(request, decision, notify_exclude=origin, workdir=entry.workdir)
         return decision
 
     async def _await_decision(
@@ -238,11 +289,18 @@ class ApprovalQueue:
         )
 
     async def _resolve(
-        self, request: ApprovalRequest, decision: Decision, *, notify_exclude: Any = None
+        self,
+        request: ApprovalRequest,
+        decision: Decision,
+        *,
+        notify_exclude: Any = None,
+        workdir: Any = None,
     ) -> None:
-        """Cache, log and announce a finished request."""
+        """Cache, persist, log and announce a finished request."""
         if decision.allowed and decision.scope in CACHING_SCOPES:
-            self._cache.add((request.sessionId, request.tool))
+            self._cache.add(self.cache_key(request.sessionId, request.tool, request.args))
+        if decision.allowed and decision.scope in PERSISTING_SCOPES:
+            self._persist(request, decision.scope, workdir)
         self._append_log(request, decision)
         if self.hub is not None:
             await self.hub.notify(
@@ -254,6 +312,24 @@ class ApprovalQueue:
                 },
                 exclude=notify_exclude,
             )
+
+    def _persist(self, request: ApprovalRequest, scope: str, workdir: Any) -> None:
+        """Turn a ``project``/``always`` answer into an allowlist entry."""
+        if self.allowlist is None:
+            return
+        store = cast(AllowlistScope, PERSISTING_SCOPES[scope])
+        if store == "project" and workdir is None:
+            log.warning("cannot store a project allowlist entry without a workdir")
+            return
+        command = command_of(request.args)
+        if command:
+            pattern, target = pattern_for_command(command), SHELL_TARGET
+        else:
+            pattern, target = pattern_for_tool(request.tool), tool_target(request.tool)
+        try:
+            self.allowlist.add(pattern, store, target, workdir=workdir)
+        except (OSError, ValueError):  # pragma: no cover - a bad store never breaks a turn
+            log.warning("could not store allowlist entry %r", pattern, exc_info=True)
 
     def _append_log(self, request: ApprovalRequest, decision: Decision) -> None:
         if self.paths is None:
@@ -278,4 +354,11 @@ class ApprovalQueue:
             log.warning("could not append to %s", self.paths.approvals_log, exc_info=True)
 
 
-__all__ = ["CACHING_SCOPES", "GRACE_SECONDS", "ApprovalQueue", "Decision"]
+__all__ = [
+    "CACHING_SCOPES",
+    "ApprovalRequests",
+    "GRACE_SECONDS",
+    "PERSISTING_SCOPES",
+    "ApprovalQueue",
+    "Decision",
+]

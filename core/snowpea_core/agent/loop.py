@@ -36,8 +36,8 @@ def new_turn_id() -> str:
 
 
 def backend_for(core: Core, session: Session) -> Any:
-    """Execution backend for a session (M1: always local)."""
-    return LocalBackend(session.workdir)
+    """Execution backend for a session; ``backend.set`` / ``/backend`` swaps it."""
+    return session.backend or LocalBackend(session.workdir)
 
 
 def agent_config(core: Core) -> AgentConfig:

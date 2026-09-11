@@ -137,6 +137,27 @@ describe("approvals", () => {
     expect(state.approvalQueue.map((r) => r.requestId)).toEqual(["req-2"]);
   });
 
+  it("adds a queued request and drops it again on approval.resolved", () => {
+    const queued = { ...request, requestId: "req-9", tool: "shell" };
+    let state = reducer(initialState, { type: "approval/list", requests: [queued] });
+    expect(state.approvalQueue).toHaveLength(1);
+    expect(state.approvalQueue[0]).toMatchObject({ requestId: "req-9", source: "queue" });
+
+    // The daemon broadcasts approval.resolved however the request was answered:
+    // from this surface, from another client, or by the timeout.
+    state = reducer(state, { type: "approval/resolved", requestId: "req-9" });
+    expect(state.approvalQueue).toEqual([]);
+    expect(state.pendingApproval).toBeNull();
+  });
+
+  it("ignores approval.resolved for a request it never saw", () => {
+    const state = reducer(
+      reducer(initialState, { type: "approval/list", requests: [request] }),
+      { type: "approval/resolved", requestId: "not-mine" },
+    );
+    expect(state.approvalQueue.map((r) => r.requestId)).toEqual(["req-1"]);
+  });
+
   it("keeps the interactive request out of the unattended queue", () => {
     let state = reducer(initialState, { type: "approval/request", request });
     state = reducer(state, {

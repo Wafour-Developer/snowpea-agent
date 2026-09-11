@@ -32,6 +32,9 @@ import { HelpPanel } from "./components/HelpPanel.js";
 
 export const PLACEHOLDER_TEXT = "snowpea tui placeholder";
 
+/** How often the unattended queue is re-read while it is not empty. */
+export const APPROVAL_POLL_MS = 5000;
+
 export interface AppProps {
   client: TuiClient;
   sessionId: string;
@@ -78,9 +81,20 @@ export function App({
   const [showHelp, setShowHelp] = useState(false);
   const [draft, setDraft] = useState("");
   const [expandedCall, setExpandedCall] = useState<string | null>(null);
+  /** True while the unattended queue holds the keyboard (Ctrl+A toggles it). */
+  const [queueFocused, setQueueFocused] = useState(false);
   const registryRef = useRef<SlashRegistry>(new SlashRegistry(client, sessionId));
   /** Resolver for the approval promise the SDK is awaiting. */
   const approvalResolver = useRef<((response: ApprovalResponse) => void) | null>(null);
+
+  const refreshApprovals = useCallback(() => {
+    void client
+      .listApprovals(sessionId)
+      .then((result) => dispatch({ type: "approval/list", requests: result.requests ?? [] }))
+      .catch(() => {
+        /* approval.list is advisory; a failure must not block the session. */
+      });
+  }, [client, sessionId]);
 
   useEffect(() => {
     dispatch({ type: "session/ready", sessionId, mode, provider, model });
@@ -89,8 +103,12 @@ export function App({
     client.setListeners({
       onSessionEvent: (event) => dispatch({ type: "session/event", event }),
       onStatus: (status) => dispatch({ type: "status", status }),
-      onApprovalResolved: ({ requestId }) =>
-        dispatch({ type: "approval/resolved", requestId }),
+      onApprovalResolved: ({ requestId }) => {
+        dispatch({ type: "approval/resolved", requestId });
+        // Another surface may have answered one of ours, or freed a slot that
+        // lets a queued turn raise its own request; re-read the backlog.
+        refreshApprovals();
+      },
     });
 
     client.onApprovalRequest(
@@ -106,13 +124,21 @@ export function App({
       .then((commands: CommandInfo[]) => dispatch({ type: "commands", commands }))
       .catch((error: unknown) => dispatch({ type: "error", message: String(error) }));
 
-    void client
-      .listApprovals(sessionId)
-      .then((result) => dispatch({ type: "approval/list", requests: result.requests ?? [] }))
-      .catch(() => {
-        /* approval.list is advisory; a failure must not block the session. */
-      });
-  }, [client, sessionId, mode, provider, model]);
+    refreshApprovals();
+  }, [client, sessionId, mode, provider, model, refreshApprovals]);
+
+  // Poll while something is waiting: unattended requests are raised by turns
+  // this surface never sees, so there is no event to hang the refresh off.
+  useEffect(() => {
+    if (state.approvalQueue.length === 0) return;
+    const timer = setInterval(refreshApprovals, APPROVAL_POLL_MS);
+    return () => clearInterval(timer);
+  }, [state.approvalQueue.length, refreshApprovals]);
+
+  // Nothing left to answer: give the keyboard back to the chat line.
+  useEffect(() => {
+    if (state.approvalQueue.length === 0 && queueFocused) setQueueFocused(false);
+  }, [state.approvalQueue.length, queueFocused]);
 
   const completions = useMemo(
     () => (draft.startsWith("/") ? registryRef.current.complete(draft) : []),
@@ -152,9 +178,23 @@ export function App({
     [state.pendingApproval],
   );
 
+  const respondQueued = useCallback(
+    (requestId: string, decision: ApprovalDecision, scope: ApprovalScope) => {
+      dispatch({ type: "approval/resolved", requestId });
+      void client
+        .respondApproval(requestId, decision, scope)
+        .catch((error: unknown) => dispatch({ type: "error", message: String(error) }));
+    },
+    [client],
+  );
+
   useInput((input, key) => {
     if (key.ctrl && input === "c") {
       exit();
+      return;
+    }
+    if (key.ctrl && input === "a") {
+      setQueueFocused((focused) => !focused && state.approvalQueue.length > 0);
       return;
     }
     if (key.ctrl && input === "o") {
@@ -179,7 +219,12 @@ export function App({
 
       {showHelp ? <HelpPanel commands={state.commands} /> : null}
 
-      <ApprovalQueue requests={state.approvalQueue} />
+      <ApprovalQueue
+        requests={state.approvalQueue}
+        onRespond={respondQueued}
+        isActive={queueFocused && state.pendingApproval === null}
+        onBlur={() => setQueueFocused(false)}
+      />
 
       {state.pendingApproval ? (
         <ApprovalPrompt request={state.pendingApproval} onDecide={decideApproval} />
@@ -190,7 +235,7 @@ export function App({
           onChange={setDraft}
           onInterrupt={() => void client.interrupt(sessionId).catch(() => undefined)}
           onToggleHelp={() => setShowHelp((v) => !v)}
-          disabled={approvalActive}
+          disabled={approvalActive || queueFocused}
         />
       )}
 

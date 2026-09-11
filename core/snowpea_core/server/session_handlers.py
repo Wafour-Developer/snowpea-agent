@@ -83,7 +83,6 @@ def wire_core(core: Core) -> Core:
     register_builtin_tools(core.tools)
     media_tools.refresh_state(core)
     core.sessions.on_close.append(browser_providers.close_all_sessions)
-    mcp_client.schedule_sync(core, Path.cwd())
     register_builtin_commands(core.commands)
     return core
 
@@ -229,7 +228,13 @@ async def command_run_handler(
 async def tool_list_handler(
     _conn: RpcConnection, params: OptionalSessionParams, core: Core
 ) -> ToolListResult:
+    """``tool.list`` — MCP servers are synced first so their tools are listed.
+
+    Without a session there is no workdir, so the daemon's own directory is
+    used; that is what ``snowpea tools list`` means by "here".
+    """
     session = core.sessions.get(params.sessionId) if params.sessionId else None
+    await mcp_client.sync_tools(core, session.workdir if session else Path.cwd())
     return ToolListResult(tools=core.tools.list(session))
 
 

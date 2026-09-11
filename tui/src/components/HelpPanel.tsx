@@ -29,7 +29,21 @@ export function HelpPanel({
           </Text>
         ))
       )}
-      <Text dimColor>F1 close · Ctrl+C quit</Text>
+      <Box marginTop={1} flexDirection="column">
+        <Text bold color="cyan">
+          Keys
+        </Text>
+        <Text dimColor>  F1 close · Ctrl+C quit · Ctrl+O expand the last tool call</Text>
+        <Text dimColor>  Esc interrupt the current turn</Text>
+        <Text dimColor>
+          {"  Ctrl+A focus the unattended approval queue: [a] allow [d] deny, "}
+          {"↑/↓ pick, ←/→ scope"}
+        </Text>
+        <Text dimColor>
+          {"  Approval scopes: once · session · project · always "}
+          {"(project/always also store an allowlist pattern)"}
+        </Text>
+      </Box>
     </Box>
   );
 }

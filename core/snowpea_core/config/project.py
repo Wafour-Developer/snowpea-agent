@@ -3,15 +3,38 @@
 from __future__ import annotations
 
 import json
+import uuid
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 Mode = Literal["plan", "accept", "auto"]
 
 PROJECT_DIR_NAME = ".snowpea"
 PROJECT_SETTINGS_NAME = "settings.json"
+
+
+class AllowlistEntry(BaseModel):
+    """One persisted allowlist pattern (contract §7, M4).
+
+    ``target`` is ``"shell"`` for entries matched against an exec tool's command
+    line, or ``"tool:<name>"`` for entries matched against a tool name.  A bare
+    string in the JSON file is still accepted and read as a shell pattern.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str = Field(default_factory=lambda: f"al-{uuid.uuid4().hex[:12]}")
+    pattern: str
+    target: str = "shell"
+
+
+def _coerce_allowlist(value: Any) -> Any:
+    """Accept the pre-M4 ``["^ls.*$"]`` spelling as well as full entries."""
+    if isinstance(value, list):
+        return [{"pattern": item} if isinstance(item, str) else item for item in value]
+    return value
 
 
 class ProjectAgentsSettings(BaseModel):
@@ -26,9 +49,11 @@ class ProjectSettings(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     defaultMode: Mode | None = None
-    allowlist: list[str] = Field(default_factory=list)
+    allowlist: list[AllowlistEntry] = Field(default_factory=list)
     backend: dict[str, Any] = Field(default_factory=dict)
     agents: ProjectAgentsSettings = Field(default_factory=ProjectAgentsSettings)
+
+    _normalise_allowlist = field_validator("allowlist", mode="before")(_coerce_allowlist)
 
     @staticmethod
     def path_for(workdir: Path | str) -> Path:
@@ -61,6 +86,7 @@ class ProjectSettings(BaseModel):
 __all__ = [
     "PROJECT_DIR_NAME",
     "PROJECT_SETTINGS_NAME",
+    "AllowlistEntry",
     "Mode",
     "ProjectAgentsSettings",
     "ProjectSettings",
