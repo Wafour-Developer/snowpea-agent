@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 from snowpea_core.agent.agent import AgentConfig, build_messages
 from snowpea_core.exec.local import LocalBackend
+from snowpea_core.memory import context_for_turn, nudge_after_turn
 from snowpea_core.permissions.policy import PermissionPolicy
 from snowpea_core.providers.base import ChatMessage, ProviderError, ToolCall
 from snowpea_core.server import errors
@@ -101,13 +102,16 @@ async def _drive(core: Core, session: Session, text: str, turn_id: str, unattend
         session.history.append(ChatMessage(role="user", content=text))
         session.history.compact()
 
+    # Recall once per turn, on the user's own words (M5 contract §1).
+    memory_block = await context_for_turn(core, session, text)
+
     for _round in range(config.max_tool_rounds):
         if session.interrupt.is_set():
             await hub.emit_event(session.id, events.turn_done(turn_id, "interrupted"))
             return "interrupted"
 
         specs = core.tools.specs(session)
-        messages = build_messages(session, specs)
+        messages = build_messages(session, specs, memory_block)
         chunks: list[str] = []
         calls: list[ToolCall] = []
         interrupted = False
@@ -138,6 +142,7 @@ async def _drive(core: Core, session: Session, text: str, turn_id: str, unattend
             session.history.append(ChatMessage(role="assistant", content=assistant_text))
             await hub.emit_event(session.id, events.message_done(assistant_text))
             await hub.emit_event(session.id, events.turn_done(turn_id, "complete"))
+            await nudge_after_turn(core, session, text)
             return "complete"
 
         session.history.append(

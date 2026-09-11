@@ -443,7 +443,8 @@ async def test_command_and_tool_and_provider_listings(
 
     tools = (await client.ok("tool.list", {"sessionId": session_id}))["tools"]
     by_name = {tool["name"]: tool for tool in tools}
-    assert set(by_name) == {"read_file", "write_file", "edit_file", "list_dir", "shell"}
+    # US-009 widened the catalog; the M1 tools must still all be there.
+    assert set(by_name) >= {"read_file", "write_file", "edit_file", "list_dir", "shell"}
     assert by_name["shell"]["permissionTag"] == "exec"
     assert by_name["read_file"]["permissionTag"] == "read"
 

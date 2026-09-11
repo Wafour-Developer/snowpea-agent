@@ -1,0 +1,33 @@
+--- a/tools/url_safety.py
++++ b/tools/url_safety.py
+@@ -1,3 +1,4 @@
++# Vendored from hermes-agent @ 8d79c2ff57bba4b07e5b37ed90387b16541aef53, MIT
+ """URL safety checks — blocks requests to private/internal network addresses (SSRF).
+ 
+ ``security.allow_private_urls: true`` disables private-IP blocking (DNS that resolves public
+@@ -17,8 +18,23 @@
+ from typing import Any, Optional
+ from urllib.parse import parse_qsl, quote, unquote, urljoin, urlparse, urlsplit, urlunsplit
+ 
+-from hermes_constants import get_hermes_home_override
+-from utils import is_truthy_value
++# --- snowpea: local shims for two hermes-internal helpers ------------------
++# Upstream imports these from `hermes_constants` / `utils`, which are not
++# vendored. Snowpea has one config scope per daemon, so the home override is
++# always absent and the truthiness helper is reproduced verbatim in behaviour.
++def get_hermes_home_override() -> Optional[str]:
++    """Snowpea has no per-profile home override."""
++    return None
++
++
++def is_truthy_value(value: Any, default: bool = False) -> bool:
++    """True for bools, 1/true/yes/on (any case); ``default`` for None."""
++    if value is None:
++        return default
++    if isinstance(value, bool):
++        return value
++    return str(value).strip().lower() in {"true", "1", "yes", "on"}
++# --- end snowpea shims ----------------------------------------------------
+ 
+ logger = logging.getLogger(__name__)
+ 

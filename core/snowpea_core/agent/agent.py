@@ -47,8 +47,14 @@ def tool_lines(tools: list[ToolSpec]) -> str:
     return "\n".join(f"- {tool.name}: {tool.description}" for tool in tools)
 
 
-def build_system_prompt(session: Session, tools: list[ToolSpec]) -> str:
-    """System prompt for one turn: role, mode, workdir and the tool list."""
+def build_system_prompt(
+    session: Session, tools: list[ToolSpec], memory_block: str = ""
+) -> str:
+    """System prompt for one turn: role, mode, workdir, tools and memories.
+
+    ``memory_block`` is the rendered recall from ``memory.Retrieval`` (M5
+    contract §1); it is empty whenever memory is off or nothing matched.
+    """
     parts = [
         BASE_PROMPT,
         MODE_GUIDANCE.get(session.mode, MODE_GUIDANCE["accept"]),
@@ -56,13 +62,19 @@ def build_system_prompt(session: Session, tools: list[ToolSpec]) -> str:
     ]
     if tools:
         parts.append("Available tools:\n" + tool_lines(tools))
+    if memory_block:
+        parts.append(memory_block)
     return "\n\n".join(parts)
 
 
-def build_messages(session: Session, tools: list[ToolSpec]) -> list[ChatMessage]:
+def build_messages(
+    session: Session, tools: list[ToolSpec], memory_block: str = ""
+) -> list[ChatMessage]:
     """System prompt followed by the session's history."""
     return [
-        ChatMessage(role="system", content=build_system_prompt(session, tools)),
+        ChatMessage(
+            role="system", content=build_system_prompt(session, tools, memory_block)
+        ),
         *session.history.snapshot(),
     ]
 

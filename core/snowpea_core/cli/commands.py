@@ -29,7 +29,6 @@ from snowpea_core.config.paths import Paths, resolve_home
 
 #: Subcommands whose implementation lands after M1.
 PLACEHOLDER_SUBCOMMANDS: tuple[str, ...] = (
-    "setup",
     "skill",
     "service",
     "agents",
@@ -167,6 +166,52 @@ async def provider_login(vendor: str, home: Path | str | None = None) -> int:
 
 
 # ---------------------------------------------------------------------------
+# setup (M3 contract §5)
+# ---------------------------------------------------------------------------
+
+
+def setup_command(args: argparse.Namespace, home: Path | str | None = None) -> int:
+    """``snowpea setup [--quick|--full|--blank] [flags]`` (M3 contract §5).
+
+    ``--login <vendor>`` is an alias for ``snowpea provider login <vendor>``
+    and never runs the wizard.
+    """
+    from snowpea_core.setup import wizard
+
+    login_vendor = getattr(args, "login", None)
+    if login_vendor:
+        return wizard.login(str(login_vendor), home)
+
+    mode = "quick"
+    if getattr(args, "full", False):
+        mode = "full"
+    elif getattr(args, "blank", False):
+        mode = "blank"
+
+    try:
+        result = wizard.run(
+            mode,  # type: ignore[arg-type]
+            home=home,
+            vendor=getattr(args, "vendor", None),
+            key=getattr(args, "key", None),
+            model=getattr(args, "model", None),
+            base_url=getattr(args, "base_url", None),
+            search_provider=getattr(args, "search_provider", None),
+            browser_provider=getattr(args, "browser_provider", None),
+            tools=getattr(args, "tools", None),
+            gateway=getattr(args, "gateway", None),
+            token=getattr(args, "token", None),
+        )
+    except wizard.SetupError as exc:
+        return _fail(str(exc), EXIT_USAGE)
+
+    print(f"settings written to {result.settings_path}")
+    for line in result.summary():
+        print(f"  {line}")
+    return EXIT_OK
+
+
+# ---------------------------------------------------------------------------
 # daemon.*
 # ---------------------------------------------------------------------------
 
@@ -296,6 +341,34 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
     )
     provider_login_parser.add_argument("vendor", help="vendor to log into")
 
+    setup_parser = sub.add_parser("setup", help="configure providers, search, tools")
+    setup_mode = setup_parser.add_mutually_exclusive_group()
+    setup_mode.add_argument(
+        "--quick", action="store_true", help="ask for the LLM provider only (default)"
+    )
+    setup_mode.add_argument(
+        "--full", action="store_true", help="walk every screen (providers → … → done)"
+    )
+    setup_mode.add_argument("--blank", action="store_true", help="ask nothing, write the defaults")
+    setup_parser.add_argument("--vendor", default=None, help="LLM vendor id, e.g. anthropic")
+    setup_parser.add_argument("--key", default=None, help="API key for --vendor")
+    setup_parser.add_argument("--model", default=None, help="default model for --vendor")
+    setup_parser.add_argument("--base-url", dest="base_url", default=None, help="API base URL")
+    setup_parser.add_argument(
+        "--search-provider", dest="search_provider", default=None, help="web-search provider id"
+    )
+    setup_parser.add_argument(
+        "--browser-provider", dest="browser_provider", default=None, help="browser provider id"
+    )
+    setup_parser.add_argument(
+        "--tools", default=None, help="tool categories: 'vision,-git' enables and disables"
+    )
+    setup_parser.add_argument("--gateway", default=None, help="gateway to enable")
+    setup_parser.add_argument("--token", default=None, help="bot token for --gateway")
+    setup_parser.add_argument(
+        "--login", default=None, metavar="VENDOR", help="browser login (alias of provider login)"
+    )
+
     daemon = sub.add_parser("daemon", help="control the core daemon")
     daemon_sub = daemon.add_subparsers(dest="action", metavar="<action>")
     status_parser = daemon_sub.add_parser("status", help="show the running daemon")
@@ -317,6 +390,8 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
 
     if subcommand in PLACEHOLDER_SUBCOMMANDS:
         return placeholder(subcommand)
+    if subcommand == "setup":
+        return setup_command(args, home)
     if subcommand == "tools":
         if action != "list":
             return _fail("usage: snowpea tools list [--json]", EXIT_USAGE)
@@ -354,5 +429,6 @@ __all__ = [
     "placeholder",
     "provider_list",
     "provider_login",
+    "setup_command",
     "tools_list",
 ]

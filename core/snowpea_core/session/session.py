@@ -24,6 +24,9 @@ class Session:
     model: str | None = None
     agent: str | None = None
     origin_surface: str | None = None
+    #: Long-term memory namespace (M5 contract §1): ``"default"`` for
+    #: interactive sessions, ``"agent:<name>"`` for named agents.
+    memory_namespace: str = "default"
     created_at: str = ""
     closed_at: str | None = None
     max_concurrent: int = 3

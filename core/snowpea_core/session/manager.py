@@ -37,6 +37,9 @@ class SessionManager:
         self.store = store
         self.settings = settings or Settings()
         self.hub = hub
+        #: Coroutines run with the session id when a session closes, so a tool
+        #: that holds per-session state (a browser context, say) can release it.
+        self.on_close: list[Any] = []
 
     def bind(self, store: Store, settings: Settings, hub: EventHub) -> None:
         """Late wiring from ``app_server`` once ``Core`` exists."""
@@ -124,6 +127,17 @@ class SessionManager:
         task = session.turn_task
         if task is not None and not task.done():
             task.cancel()
+        for hook in list(self.on_close):
+            try:
+                await hook(session_id)
+            except Exception:  # noqa: BLE001 - one bad hook must not block close
+                log.debug("session close hook failed for %s", session_id, exc_info=True)
+        backend = getattr(session, "backend", None)
+        if backend is not None:
+            try:
+                await backend.close()
+            except Exception:  # noqa: BLE001 - a dead container must not block close
+                log.debug("backend close failed for session %s", session_id, exc_info=True)
         if self.store is not None:
             await self.store.close_session(session_id, session.closed_at)
         log.info("session %s closed", session_id)

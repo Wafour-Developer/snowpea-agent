@@ -198,6 +198,10 @@ the table further down only when the file is copied in.
 <!-- BEGIN GENERATED: entries -->
 | upstream path | upstream commit | file sha256 | destination | patch path | reason |
 |---|---|---|---|---|---|
-
-_No files are vendored yet (0 entries)._
+| tools/ansi_strip.py | 8d79c2ff57bb | `71f339d1be720c24f407565b4a90cb55164dead2e860cf438258104fd96c1922` | core/snowpea_core/vendor/hermes/tools/ansi_strip.py | — | Strip ANSI escapes from backend shell output before it reaches the transcript. |
+| tools/binary_extensions.py | 8d79c2ff57bb | `9dc721f746754753ea71ba898360325bc0eae13ab501dad4381ecb09c9e6cb79` | core/snowpea_core/vendor/hermes/tools/binary_extensions.py | — | Binary-file extension table so read_file never pulls a blob into context. |
+| tools/fuzzy_match.py | 8d79c2ff57bb | `151d7de4ec9af37cf79e6d7885f4ae5ff309194acfc316e2b75d1a3362eb253f` | core/snowpea_core/vendor/hermes/tools/fuzzy_match.py | — | Whitespace-tolerant find-and-replace fallback for edit_file when the exact match fails. |
+| tools/path_security.py | 8d79c2ff57bb | `e7f2d8c382b0333d3b937f08e1f0ec4ca455926dea43f6c70ca83ea11d62eed0` | core/snowpea_core/vendor/hermes/tools/path_security.py | — | Path-escape validation for glob/grep roots and MCP config discovery. |
+| tools/tool_output_limits.py | 8d79c2ff57bb | `cdd96188ee96d631d355a742f3844de364503b4787bc1476d448c89fc794f0da` | core/snowpea_core/vendor/hermes/tools/tool_output_limits.py | — | Shared truncation limits behind settings.tools.max_output_chars. |
+| tools/url_safety.py | 8d79c2ff57bb | `e1fe8e1a4d1462c14db4f2760963c9015b821d18d257b17c4e53e2f3d60df9e0` | core/snowpea_core/vendor/hermes/tools/url_safety.py | core/snowpea_core/vendor/patches/tools/url_safety.py.patch | SSRF guard for web_extract: blocks private, loopback and link-local destinations. |
 <!-- END GENERATED: entries -->

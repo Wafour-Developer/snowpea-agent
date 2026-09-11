@@ -8,9 +8,17 @@ unified diff, which the agent loop turns into a ``diff`` session event.
 from __future__ import annotations
 
 import difflib
+import logging
 from typing import Any
 
 from snowpea_core.tools.registry import Tool, ToolContext, ToolResult
+from snowpea_core.vendor.hermes.tools.binary_extensions import (
+    has_binary_extension,
+    has_opaque_document_extension,
+)
+from snowpea_core.vendor.hermes.tools.fuzzy_match import fuzzy_find_and_replace
+
+log = logging.getLogger("snowpea.tools.fs")
 
 #: Characters of file content returned by ``read_file`` before truncation.
 MAX_READ_CHARS = 200_000
@@ -41,6 +49,14 @@ async def read_file(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     path = str(args.get("path", "")).strip()
     if not path:
         return ToolResult(ok=False, error="path is required")
+    if has_binary_extension(path) or has_opaque_document_extension(path):
+        return ToolResult(
+            ok=False,
+            error=(
+                f"{path} looks like a binary or opaque document; read it with a tool that "
+                "understands the format instead of pulling the bytes into context"
+            ),
+        )
     try:
         content = await ctx.backend.read_file(path)
     except FileNotFoundError:
@@ -83,27 +99,53 @@ async def edit_file(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     if before is None:
         return ToolResult(ok=False, error=f"no such file: {path}")
     occurrences = before.count(old)
-    if occurrences == 0:
-        return ToolResult(ok=False, error=f"old string not found in {path}")
     replace_all = bool(args.get("replaceAll", False))
-    if occurrences > 1 and not replace_all:
-        return ToolResult(
-            ok=False,
-            error=f"old string appears {occurrences} times in {path}; pass replaceAll or "
-            "extend the match",
-        )
-    after = before.replace(old, new) if replace_all else before.replace(old, new, 1)
+    if occurrences == 0:
+        # The model's whitespace or indentation often drifts from the file;
+        # the vendored fuzzy matcher recovers the intended span or explains why
+        # it could not (contract §7, hermes tools/fuzzy_match.py).
+        fuzzy, error = _fuzzy_replace(before, old, new, replace_all)
+        if fuzzy is None:
+            return ToolResult(ok=False, error=error or f"old string not found in {path}")
+        after = fuzzy
+    else:
+        if occurrences > 1 and not replace_all:
+            return ToolResult(
+                ok=False,
+                error=f"old string appears {occurrences} times in {path}; pass replaceAll or "
+                "extend the match",
+            )
+        after = before.replace(old, new) if replace_all else before.replace(old, new, 1)
+    if after == before:
+        return ToolResult(ok=False, error=f"the edit left {path} unchanged")
     try:
         await ctx.backend.write_file(path, after)
     except OSError as exc:
         return ToolResult(ok=False, error=f"{type(exc).__name__}: {exc}")
-    replaced = occurrences if replace_all else 1
+    replaced = occurrences if replace_all and occurrences else 1
     return ToolResult(
         ok=True,
         output=f"replaced {replaced} occurrence(s) in {path}",
         diff=unified_diff(path, before, after) or None,
         path=path,
     )
+
+
+def _fuzzy_replace(
+    content: str, old: str, new: str, replace_all: bool
+) -> tuple[str | None, str | None]:
+    """Try the vendored fuzzy matcher; return ``(new content, error)``.
+
+    Upstream returns ``(content, match_count, strategy, error)`` and never
+    raises, reporting failure as a zero match count plus a message.
+    """
+    updated, matches, strategy, error = fuzzy_find_and_replace(
+        content, old, new, replace_all
+    )
+    if error or not matches or updated == content:
+        return None, error
+    log.info("edit_file matched fuzzily via %s (%d match(es))", strategy, matches)
+    return updated, None
 
 
 async def list_dir(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:

@@ -35,7 +35,19 @@ jobs:
           enable-cache: true
       - name: uv sync
         run: uv sync
+      # The integrity check compares every vendored file against the exact
+      # upstream commit, so the reference clone must sit at that SHA.
+      - name: clone hermes-agent at the pinned commit
+        env:
+          HERMES_COMMIT: 8d79c2ff57bba4b07e5b37ed90387b16541aef53
+        run: |
+          git init --quiet /tmp/hermes-ref
+          git -C /tmp/hermes-ref remote add origin https://github.com/NousResearch/hermes-agent
+          git -C /tmp/hermes-ref fetch --depth 1 origin "$HERMES_COMMIT"
+          git -C /tmp/hermes-ref checkout --quiet FETCH_HEAD
       - name: verify vendored file hashes and patches
+        env:
+          HERMES_REF: /tmp/hermes-ref
         run: uv run python scripts/verify_vendor_integrity.py
 
   protocol-check:

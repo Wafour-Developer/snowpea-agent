@@ -11,6 +11,7 @@ from typing import Any
 
 from snowpea_core.server.protocol import (
     SESSION_EVENT_MODELS,
+    BackendChanged,
     DiffEvent,
     ErrorEvent,
     MessageDelta,
@@ -57,6 +58,10 @@ def mode_changed(mode: str) -> Event:
     return _pack(ModeChanged(mode=mode))  # type: ignore[arg-type]
 
 
+def backend_changed(backend: str) -> Event:
+    return _pack(BackendChanged(backend=backend))  # type: ignore[arg-type]
+
+
 def usage(input_tokens: int, output_tokens: int) -> Event:
     return _pack(UsageEvent(inputTokens=input_tokens, outputTokens=output_tokens))
 
@@ -81,6 +86,7 @@ def validate(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
 
 __all__ = [
     "Event",
+    "backend_changed",
     "diff",
     "error",
     "message_delta",

@@ -445,6 +445,7 @@ Recall stored memories matching a query.
 | field | type | required | description |
 |---|---|---|---|
 | `limit` | `number` | no | Maximum number of hits. |
+| `namespace` | `string \| null` | no | Memory namespace to search; defaults to "default". Never crosses namespaces. |
 | `query` | `string` | yes | Free-text query. |
 
 **Result**
@@ -463,6 +464,7 @@ Store a memory with tags.
 
 | field | type | required | description |
 |---|---|---|---|
+| `namespace` | `string \| null` | no | Memory namespace to write into; defaults to "default". |
 | `tags` | `string[]` | no | Tags for later filtering. |
 | `text` | `string` | yes | Text to remember. |
 

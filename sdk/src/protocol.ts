@@ -351,6 +351,8 @@ export interface JobScheduleResult {
 export interface MemorySearchParams {
   /** Maximum number of hits. */
   limit?: number;
+  /** Memory namespace to search; defaults to "default". Never crosses namespaces. */
+  namespace?: string | null;
   /** Free-text query. */
   query: string;
 }
@@ -372,6 +374,8 @@ export interface MemorySearchResult {
 
 /** `memory.write` params. Store a memory with tags. */
 export interface MemoryWriteParams {
+  /** Memory namespace to write into; defaults to "default". */
+  namespace?: string | null;
   /** Tags for later filtering. */
   tags?: string[];
   /** Text to remember. */

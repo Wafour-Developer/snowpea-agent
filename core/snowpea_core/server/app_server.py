@@ -7,6 +7,7 @@ import contextlib
 import json
 import logging
 import os
+import re
 import signal
 import time
 from dataclasses import dataclass, field
@@ -21,8 +22,12 @@ from snowpea_core import __version__
 from snowpea_core.commands.registry import CommandRegistry
 from snowpea_core.config.paths import Paths
 from snowpea_core.config.settings import Settings
+from snowpea_core.permissions.allowlist import SHELL_TARGET, Allowlist
+from snowpea_core.permissions.allowlist import Scope as AllowlistStore
 from snowpea_core.permissions.approval_queue import ApprovalQueue
 from snowpea_core.permissions.policy import PermissionPolicy
+from snowpea_core.providers import auth_web
+from snowpea_core.providers.base import ProviderError
 from snowpea_core.providers.registry import ProviderRegistry
 from snowpea_core.server import errors
 from snowpea_core.server.auth import ensure_token
@@ -34,6 +39,12 @@ from snowpea_core.server.protocol import (
 from snowpea_core.server.protocol import (
     PROTOCOL_VERSION,
     SERVER_VERSION,
+    AllowlistAddParams,
+    AllowlistAddResult,
+    AllowlistListParams,
+    AllowlistListResult,
+    AllowlistPattern,
+    AllowlistRemoveParams,
     ApprovalRequest,
     Empty,
     HealthResult,
@@ -41,6 +52,8 @@ from snowpea_core.server.protocol import (
     LifecycleStatus,
     Ok,
     Payload,
+    ProviderConfigureParams,
+    ProviderLoginWebParams,
 )
 from snowpea_core.server.rpc import RpcConnection, RpcDispatcher
 from snowpea_core.server.session_handlers import (
@@ -73,11 +86,14 @@ class Core:
     paths: Paths
     token: str
     store: Any = None
+    #: Long-term memory services (US-014); ``wire_core`` builds them.
+    memory: Any = None
     sessions: SessionManager = field(default_factory=SessionManager)
     tools: ToolRegistry = field(default_factory=ToolRegistry)
     commands: CommandRegistry = field(default_factory=CommandRegistry)
     providers: ProviderRegistry = field(default_factory=ProviderRegistry)
     approvals: ApprovalQueue = field(default_factory=ApprovalQueue)
+    allowlist: Allowlist = field(default_factory=Allowlist)
     policy: PermissionPolicy = field(default_factory=PermissionPolicy)
     hub: EventHub = field(default_factory=EventHub)
     lifecycle: Lifecycle = field(default_factory=Lifecycle)
@@ -159,6 +175,146 @@ async def echo_request_handler(
     )
 
 
+# ---------------------------------------------------------------------------
+# permission.allowlist.* (contract §7)
+# ---------------------------------------------------------------------------
+
+#: The wire spells the global store ``always``; ``session`` has no persistent
+#: home, so it is stored per project like a normal project entry.
+WIRE_SCOPE: dict[str, AllowlistStore] = {
+    "project": "project",
+    "session": "project",
+    "always": "global",
+}
+#: Inverse of :data:`WIRE_SCOPE` for reporting stored entries back.
+STORE_SCOPE: dict[str, str] = {"project": "project", "global": "always"}
+
+
+def _workdir_for(core: Core, conn: RpcConnection) -> Path | None:
+    """Project directory the caller means.
+
+    ``permission.allowlist.*`` carries no session id (the protocol models are
+    fixed), so the workdir is taken from the session this connection started;
+    failing that, from the only open session.
+    """
+    sessions = [
+        session
+        for session in (core.sessions.get(row.sessionId) for row in core.sessions.list())
+        if session is not None
+    ]
+    mine = [session for session in sessions if session.origin_conn is conn]
+    if mine:
+        return Path(mine[-1].workdir)
+    if len(sessions) == 1:
+        return Path(sessions[0].workdir)
+    return None
+
+
+async def allowlist_add_handler(
+    conn: RpcConnection, params: AllowlistAddParams, core: Core
+) -> AllowlistAddResult:
+    """``permission.allowlist.add`` — store a pattern, return its id."""
+    store = WIRE_SCOPE.get(params.scope, "project")
+    workdir = _workdir_for(core, conn)
+    if store == "project" and workdir is None:
+        raise RpcError(
+            errors.INVALID_PARAMS,
+            "a project allowlist entry needs an open session to locate the project",
+        )
+    try:
+        pattern_id = core.allowlist.add(params.pattern, store, SHELL_TARGET, workdir=workdir)
+    except (ValueError, re.error) as exc:
+        raise RpcError(errors.INVALID_PARAMS, f"bad allowlist pattern: {exc}") from exc
+    return AllowlistAddResult(patternId=pattern_id)
+
+
+async def allowlist_list_handler(
+    conn: RpcConnection, params: AllowlistListParams, core: Core
+) -> AllowlistListResult:
+    """``permission.allowlist.list`` — stored patterns, optionally by scope."""
+    store = WIRE_SCOPE.get(params.scope, "project") if params.scope else None
+    workdir = _workdir_for(core, conn)
+    items = core.allowlist.list(store, workdir=workdir)
+    return AllowlistListResult(
+        patterns=[
+            AllowlistPattern(
+                patternId=item.id,
+                pattern=item.pattern,
+                scope=STORE_SCOPE[item.scope],  # type: ignore[arg-type]
+            )
+            for item in items
+        ]
+    )
+
+
+async def allowlist_remove_handler(
+    conn: RpcConnection, params: AllowlistRemoveParams, core: Core
+) -> Ok:
+    """``permission.allowlist.remove`` — delete a pattern by id."""
+    removed = core.allowlist.remove(params.patternId, workdir=_workdir_for(core, conn))
+    if not removed:
+        raise RpcError(errors.NOT_FOUND, f"no allowlist pattern {params.patternId}")
+    return Ok(ok=True)
+
+
+def register_permission_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
+    """Register the three ``permission.allowlist.*`` methods."""
+    dispatcher.register("permission.allowlist.add", allowlist_add_handler)
+    dispatcher.register("permission.allowlist.list", allowlist_list_handler)
+    dispatcher.register("permission.allowlist.remove", allowlist_remove_handler)
+    return dispatcher
+
+
+# ---------------------------------------------------------------------------
+# provider.* (M3 contract §1–§3)
+# ---------------------------------------------------------------------------
+
+
+def _persist_provider(core: Core, vendor: str, config: dict[str, Any]) -> None:
+    """Merge ``config`` into the vendor's settings and write ``settings.json``."""
+    try:
+        core.providers.configure(vendor, config)
+    except ProviderError as exc:
+        raise RpcError(exc.code, str(exc)) from exc
+    core.settings.providers.setdefault("default", vendor)
+    try:
+        core.settings.save(core.paths)
+    except OSError as exc:  # pragma: no cover - disk failure
+        raise RpcError(errors.INTERNAL, f"could not write settings.json: {exc}") from exc
+
+
+async def provider_configure_handler(
+    _conn: RpcConnection, params: ProviderConfigureParams, core: Core
+) -> Ok:
+    """``provider.configure`` — store a vendor's key, base URL and model."""
+    config = {
+        key: value
+        for key, value in (params.config or {}).items()
+        if key in ("api_key", "base_url", "model", "models", "variant", "token", "refresh_token")
+    }
+    if not config:
+        raise RpcError(
+            errors.INVALID_PARAMS,
+            "provider.configure needs at least one of api_key, base_url, model",
+        )
+    _persist_provider(core, params.vendor, config)
+    return Ok(ok=True)
+
+
+async def provider_login_web_handler(
+    _conn: RpcConnection, params: ProviderLoginWebParams, core: Core
+) -> Ok:
+    """``provider.loginWeb`` — device code (OpenAI) or OAuth PKCE (OpenRouter)."""
+    result = await auth_web.login(
+        params.vendor,
+        params.method or None,
+        on_prompt=lambda message: log.info("provider login: %s", message),
+        open_browser=os.environ.get("SNOWPEA_TEST") != "1",
+    )
+    _persist_provider(core, params.vendor, result.credentials)
+    return Ok(ok=True)
+
+
 def build_dispatcher(core: Core) -> RpcDispatcher:
     """Register ``system.*`` plus a ``not_implemented`` stub for every other method."""
     dispatcher = RpcDispatcher(core)
@@ -167,6 +323,9 @@ def build_dispatcher(core: Core) -> RpcDispatcher:
     dispatcher.register("system.health", health_handler)
     dispatcher.register("system.shutdown", shutdown_handler)
     register_session_handlers(dispatcher)
+    register_permission_handlers(dispatcher)
+    dispatcher.register("provider.configure", provider_configure_handler)
+    dispatcher.register("provider.loginWeb", provider_login_web_handler)
     for name, method in PROTOCOL_METHODS.items():
         if method.direction != "c2s" or dispatcher.has(name):
             continue
@@ -214,6 +373,9 @@ class Daemon:
         settings = Settings.load(paths)
         token = ensure_token(paths)
         core = Core(settings=settings, paths=paths, token=token)
+        core.allowlist.bind(paths, settings)
+        core.policy.bind(core.allowlist)
+        core.approvals.allowlist = core.allowlist
         wire_core(core)
         core.lifecycle = Lifecycle(
             idle_timeout_sec=settings.daemon.idleTimeoutSec,
@@ -294,8 +456,27 @@ class Daemon:
         if self.core is not None and self.core.store is not None:
             with contextlib.suppress(Exception):
                 self.core.store.close()
+        if self.core is not None and self.core.memory is not None:
+            with contextlib.suppress(Exception):
+                self.core.memory.close()
+        await _close_tool_subprocesses()
         self._remove_daemon_json()
         log.info("snowpea daemon stopped (%s)", self.shutdown_reason)
+
+
+async def _close_tool_subprocesses() -> None:
+    """Stop the browsers and MCP servers the tool layer started (M2 §4, §6).
+
+    Both hold real child processes, so leaving them behind would outlive the
+    daemon that spawned them.
+    """
+    from snowpea_core.tools import browser_providers, mcp_client
+
+    for provider in browser_providers.all_providers():
+        with contextlib.suppress(Exception):
+            await provider.close()
+    with contextlib.suppress(Exception):
+        await mcp_client.MANAGER.close_all()
 
 
 def _resolve_port(runner: web.AppRunner, requested: int) -> int:
@@ -335,4 +516,11 @@ async def run_daemon(port: int = 0, home: Path | str | None = None) -> None:
         await daemon.stop()
 
 
-__all__ = ["HOST", "Core", "Daemon", "build_dispatcher", "run_daemon"]
+__all__ = [
+    "HOST",
+    "Core",
+    "Daemon",
+    "build_dispatcher",
+    "register_permission_handlers",
+    "run_daemon",
+]

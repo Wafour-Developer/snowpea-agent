@@ -530,6 +530,10 @@ class GatewayUnbindParams(Payload):
 class MemorySearchParams(Payload):
     query: str = Field(description="Free-text query.")
     limit: int = Field(default=10, description="Maximum number of hits.")
+    namespace: str | None = Field(
+        default=None,
+        description='Memory namespace to search; defaults to "default". Never crosses namespaces.',
+    )
 
 
 class MemoryHit(Payload):
@@ -548,6 +552,9 @@ class MemorySearchResult(Payload):
 class MemoryWriteParams(Payload):
     text: str = Field(description="Text to remember.")
     tags: list[str] = Field(default_factory=list, description="Tags for later filtering.")
+    namespace: str | None = Field(
+        default=None, description='Memory namespace to write into; defaults to "default".'
+    )
 
 
 class MemoryWriteResult(Payload):
@@ -1026,6 +1033,8 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "provider.configure",
         "provider.loginWeb",
         "backend.set",
+        "memory.search",
+        "memory.write",
     }
 )
 

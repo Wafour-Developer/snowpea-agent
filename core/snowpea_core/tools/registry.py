@@ -92,6 +92,21 @@ class ToolRegistry:
     def get(self, name: str) -> Tool | None:
         return self._tools.get(name)
 
+    def unregister(self, name: str) -> Tool | None:
+        """Drop a tool; used when an MCP server goes away."""
+        return self._tools.pop(name, None)
+
+    def set_state(self, name: str, state: ToolState) -> Tool | None:
+        """Flip one tool between ``active`` and ``inactive`` in place.
+
+        Media tools use this to become callable the moment credentials arrive,
+        without a daemon restart (contract §2).
+        """
+        tool = self._tools.get(name)
+        if tool is not None:
+            tool.state = state
+        return tool
+
     def list(self, session: Any | None = None) -> ToolInfos:
         """Every registered tool as protocol ``ToolInfo`` (``tool.list``)."""
         return [tool.info() for tool in self._tools.values()]
@@ -108,10 +123,36 @@ class ToolRegistry:
 
 
 def register_builtin_tools(registry: ToolRegistry) -> ToolRegistry:
-    """Register the M1 tool set: filesystem plus shell."""
-    from snowpea_core.tools import fs, shell
+    """Register the whole builtin catalog (M2 contract §2).
 
-    for tool in (*fs.TOOLS, *shell.TOOLS):
+    MCP tools are not here: they are discovered per workdir and registered by
+    :func:`snowpea_core.tools.mcp_client.sync_tools`.
+    """
+    from snowpea_core.tools import (
+        browser,
+        fs,
+        git,
+        glob,
+        grep,
+        media,
+        process,
+        shell,
+        stubs,
+        web,
+    )
+
+    for tool in (
+        *fs.TOOLS,
+        *glob.TOOLS,
+        *grep.TOOLS,
+        *shell.TOOLS,
+        *process.TOOLS,
+        *git.TOOLS,
+        *web.TOOLS,
+        *browser.TOOLS,
+        *stubs.TOOLS,
+        *media.TOOLS,
+    ):
         registry.register(tool)
     return registry
 

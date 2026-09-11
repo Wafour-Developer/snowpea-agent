@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING
 from snowpea_core.agent import loop as agent_loop
 from snowpea_core.commands.registry import register_builtin_commands
 from snowpea_core.exec.factory import build_backend
+from snowpea_core.memory import services as memory_services
+from snowpea_core.memory import wire_memory
 from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import (
@@ -24,6 +26,11 @@ from snowpea_core.server.protocol import (
     CommandListResult,
     CommandRunParams,
     Empty,
+    MemoryHit,
+    MemorySearchParams,
+    MemorySearchResult,
+    MemoryWriteParams,
+    MemoryWriteResult,
     Ok,
     OptionalSessionParams,
     ProviderConfigureParams,
@@ -70,6 +77,8 @@ HANDLED_METHODS: tuple[str, ...] = (
     "approval.respond",
     "provider.list",
     "backend.set",
+    "memory.search",
+    "memory.write",
 )
 
 
@@ -81,6 +90,7 @@ def wire_core(core: Core) -> Core:
     core.approvals.bind(core.settings, core.paths, core.hub)
     core.providers.bind(core.settings)
     register_builtin_tools(core.tools)
+    wire_memory(core)
     media_tools.refresh_state(core)
     core.sessions.on_close.append(browser_providers.close_all_sessions)
     register_builtin_commands(core.commands)
@@ -300,6 +310,41 @@ async def provider_configure_handler(
     )
 
 
+# ---------------------------------------------------------------------------
+# memory.* (M5 contract §1)
+# ---------------------------------------------------------------------------
+
+
+async def memory_search_handler(
+    _conn: RpcConnection, params: MemorySearchParams, core: Core
+) -> MemorySearchResult:
+    """``memory.search`` — FTS5 recall inside one namespace, best first."""
+    entries = await memory_services(core).store.search(
+        params.query,
+        namespace=params.namespace or "default",
+        limit=params.limit,
+    )
+    return MemorySearchResult(
+        hits=[
+            MemoryHit(id=entry.id, text=entry.text, tags=entry.tags, score=entry.score)
+            for entry in entries
+        ]
+    )
+
+
+async def memory_write_handler(
+    _conn: RpcConnection, params: MemoryWriteParams, core: Core
+) -> MemoryWriteResult:
+    """``memory.write`` — store one memory and return its id."""
+    text = params.text.strip()
+    if not text:
+        raise RpcError(errors.INVALID_PARAMS, "memory.write needs a non-empty text")
+    entry = await memory_services(core).store.write(
+        text, tags=params.tags, namespace=params.namespace or "default"
+    )
+    return MemoryWriteResult(id=entry.id)
+
+
 def register_session_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
     """Register every method in :data:`HANDLED_METHODS`."""
     dispatcher.register("session.create", session_create_handler)
@@ -316,6 +361,8 @@ def register_session_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
     dispatcher.register("approval.respond", approval_respond_handler)
     dispatcher.register("provider.list", provider_list_handler)
     dispatcher.register("backend.set", backend_set_handler)
+    dispatcher.register("memory.search", memory_search_handler)
+    dispatcher.register("memory.write", memory_write_handler)
     return dispatcher
 
 
