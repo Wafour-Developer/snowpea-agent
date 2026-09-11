@@ -50,12 +50,23 @@ LOG_CHANNEL = "log"
 #: Alias so annotations below still mean the builtin ``list`` even though
 #: :class:`GatewayRouter` defines a method called ``list``.
 Buttons = list[Button]
+#: Same trick for the plain ``list[str]``s :meth:`GatewayRouter.sync_from_settings`
+#: returns, and for the ``dict`` it packs them into.
+Names = list[str]
+SyncReport = dict[str, Names]
 
 #: Set to ``1`` to build :class:`~snowpea_core.gateway.fake.FakeAdapter` for
 #: every platform, the way ``SNOWPEA_PROVIDER=fake:`` swaps the model out.  It
 #: is what lets a test restart the daemon and watch bindings come back without
 #: a credential or a socket anywhere.
 FAKE_GATEWAY_ENV = "SNOWPEA_GATEWAY_FAKE"
+
+#: :attr:`Binding.source` of a binding the user made by hand (``gateway.bind``).
+SOURCE_MANUAL = "manual"
+#: :attr:`Binding.source` of a binding :meth:`GatewayRouter.sync_from_settings`
+#: owns.  Only these are added and removed as ``settings.gateway`` changes; a
+#: manual binding is never touched by the sync.
+SOURCE_SETTINGS = "settings"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS gateway_bindings (
@@ -85,6 +96,8 @@ class Binding:
     user_id: str | None = None
     created_at: str = field(default_factory=utc_now)
     state: str = "active"
+    #: ``"manual"`` (``gateway.bind``) or ``"settings"`` (the wizard's auto binding).
+    source: str = SOURCE_MANUAL
 
     def describe_target(self) -> str:
         """Short human-readable target, e.g. ``agent:ops`` or ``new_session``."""
@@ -112,14 +125,25 @@ class BindingStore:
         self._conn.row_factory = sqlite3.Row
         with self._lock:
             self._conn.executescript(SCHEMA)
+            self._migrate()
             self._conn.commit()
+
+    def _migrate(self) -> None:
+        """Add columns released after the table shipped (caller holds the lock)."""
+        columns = {row["name"] for row in self._conn.execute("PRAGMA table_info(gateway_bindings)")}
+        if "source" not in columns:
+            self._conn.execute(
+                "ALTER TABLE gateway_bindings ADD COLUMN source TEXT NOT NULL"
+                f" DEFAULT '{SOURCE_MANUAL}'"
+            )
 
     def insert(self, binding: Binding) -> None:
         with self._lock:
             self._conn.execute(
                 "INSERT OR REPLACE INTO gateway_bindings"
-                " (id, platform, credentials_ref, target_json, channel_id, user_id, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                " (id, platform, credentials_ref, target_json, channel_id, user_id,"
+                " created_at, source)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     binding.id,
                     binding.platform,
@@ -128,6 +152,7 @@ class BindingStore:
                     binding.channel_id,
                     binding.user_id,
                     binding.created_at,
+                    binding.source,
                 ),
             )
             self._conn.commit()
@@ -155,6 +180,8 @@ class BindingStore:
                     channel_id=row["channel_id"],
                     user_id=row["user_id"],
                     created_at=row["created_at"],
+                    source=(row["source"] if "source" in row.keys() else SOURCE_MANUAL)
+                    or SOURCE_MANUAL,
                 )
             )
         return out
@@ -274,6 +301,7 @@ class GatewayRouter:
         user_id: str | None = None,
         binding_id: str | None = None,
         persist: bool = True,
+        source: str = SOURCE_MANUAL,
     ) -> Binding:
         """Attach ``platform`` to ``target`` and start listening."""
         if not isinstance(target, dict) or not target:
@@ -287,6 +315,7 @@ class GatewayRouter:
             target=dict(target),
             channel_id=channel_id,
             user_id=user_id,
+            source=source,
         )
         adapter = self._build_adapter(platform, credentials_ref)
         await adapter.start(self._handler_for(binding))
@@ -345,6 +374,7 @@ class GatewayRouter:
                     user_id=binding.user_id,
                     binding_id=binding.id,
                     persist=False,
+                    source=binding.source,
                 )
             except (GatewayError, CredentialError) as exc:
                 log.warning("could not restore gateway binding %s: %s", binding.id, exc)
@@ -354,6 +384,81 @@ class GatewayRouter:
             restored += 1
         self._count()
         return restored
+
+    # -- settings-driven bindings --------------------------------------
+    async def sync_from_settings(self, settings: Any) -> SyncReport:
+        """Make the ``source="settings"`` bindings match ``settings.gateway``.
+
+        A messenger the setup wizard enabled should simply *work* the next time
+        the daemon runs, without a second ``gateway.bind`` call.  For every
+        ``settings.gateway.<platform>`` that is enabled and carries a token this
+        stores the token in ``credentials.json`` under the ref ``<platform>``
+        and ensures exactly one **catch-all** binding for it: ``channel_id`` is
+        ``None``, so any chat that messages the bot gets its own lazily-created
+        session (see :meth:`_session_for`).
+
+        Only bindings this method created are added or removed; a binding made
+        by hand through ``gateway.bind`` is never touched.  Approvals stay
+        fail-closed: a catch-all binding whose ``allowed_user_id`` is unset can
+        approve nothing at all (plan risk 4), which is why the wizard asks for
+        it right after the token.
+
+        Returns ``{"added": [...], "removed": [...], "kept": [...]}`` by
+        platform, which is what ``gateway.sync`` reports back.
+        """
+        desired = desired_gateways(settings)
+        added: Names = []
+        removed: Names = []
+        kept: Names = []
+
+        for platform, block in desired.items():
+            token = str(block.get("token") or "")
+            if token and self._credentials is not None:
+                try:
+                    self._credentials.set(platform, token)
+                except OSError as exc:  # pragma: no cover - unwritable home
+                    log.warning("could not store the %s token: %s", platform, exc)
+
+        for binding in list(self._bindings.values()):
+            if binding.source != SOURCE_SETTINGS:
+                continue
+            wanted = desired.get(binding.platform)
+            if (
+                wanted is not None
+                and binding.state == "active"
+                and binding.channel_id is None
+                and binding.user_id == _allowed_user_id(wanted)
+                and binding.target == self._auto_target(wanted)
+            ):
+                kept.append(binding.platform)
+                desired.pop(binding.platform)
+                continue
+            await self.unbind(binding.id)
+            removed.append(binding.platform)
+
+        for platform, block in desired.items():
+            try:
+                await self.bind(
+                    platform,
+                    platform,
+                    self._auto_target(block),
+                    channel_id=None,
+                    user_id=_allowed_user_id(block),
+                    source=SOURCE_SETTINGS,
+                )
+            except (GatewayError, CredentialError) as exc:
+                log.warning("could not start the %s messenger from settings: %s", platform, exc)
+                continue
+            added.append(platform)
+
+        self._count()
+        return {"added": added, "removed": removed, "kept": kept}
+
+    def _auto_target(self, block: dict[str, Any]) -> dict[str, Any]:
+        """``{"new_session": {...}}`` for a catch-all binding built from settings."""
+        workdir = block.get("workdir") or str(Path.home())
+        mode = block.get("mode") or "accept"
+        return {"new_session": {"workdir": str(workdir), "mode": str(mode)}}
 
     async def stop(self) -> None:
         """Stop every adapter; the rows stay so the next start restores them."""
@@ -532,6 +637,29 @@ class GatewayRouter:
         return session
 
 
+def desired_gateways(settings: Any) -> dict[str, dict[str, Any]]:
+    """``settings.gateway`` entries that are enabled *and* have a token.
+
+    An enabled platform with no token is a half-finished wizard run, not an
+    error: it is logged and skipped so the daemon still starts.
+    """
+    out: dict[str, dict[str, Any]] = {}
+    for platform, block in (getattr(settings, "gateway", None) or {}).items():
+        if not isinstance(block, dict) or not block.get("enabled"):
+            continue
+        if not block.get("token"):
+            log.warning("messenger %s is enabled but has no token; skipping it", platform)
+            continue
+        out[str(platform)] = dict(block)
+    return out
+
+
+def _allowed_user_id(block: dict[str, Any]) -> str | None:
+    """The platform user allowed to answer approvals, or ``None`` (fail closed)."""
+    value = block.get("allowed_user_id")
+    return str(value) if value not in (None, "") else None
+
+
 def build_adapter(platform: str, tokens: dict[str, Any]) -> PlatformAdapter:
     """Construct the adapter for ``platform`` from resolved credentials."""
     from snowpea_core.gateway.discord import DiscordAdapter
@@ -551,12 +679,17 @@ def build_adapter(platform: str, tokens: dict[str, Any]) -> PlatformAdapter:
 
 __all__ = [
     "FAKE_GATEWAY_ENV",
+    "SOURCE_MANUAL",
+    "SOURCE_SETTINGS",
     "Buttons",
     "LOG_CHANNEL",
+    "Names",
+    "SyncReport",
     "SCHEMA",
     "Binding",
     "BindingStore",
     "GatewayConnection",
     "GatewayRouter",
     "build_adapter",
+    "desired_gateways",
 ]

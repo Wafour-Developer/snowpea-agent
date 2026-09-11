@@ -106,6 +106,23 @@ def wire_core(core: Core) -> Core:
     return core
 
 
+async def _refresh_settings(core: Core) -> None:
+    """Adopt an outside edit to ``settings.json`` before the turn reads it.
+
+    ``snowpea setup`` writes the file from its own process, so without this a
+    running daemon would keep sending the model it was started with
+    (CORE-settings-reload).  The check is one ``os.stat``; the re-read and the
+    rebind only happen when the file really moved.
+    """
+    reload_settings = getattr(core, "reload_settings", None)
+    if reload_settings is None:  # pragma: no cover - a core without it is a double
+        return
+    try:
+        await reload_settings()
+    except Exception:  # noqa: BLE001 - a bad settings file must not cost a turn
+        log.warning("could not reload settings.json", exc_info=True)
+
+
 def _session(core: Core, session_id: str) -> Session:
     session = core.sessions.get(session_id)
     if session is None:
@@ -126,6 +143,7 @@ async def session_create_handler(
     conn: RpcConnection, params: SessionCreateParams, core: Core
 ) -> SessionCreateResult:
     """``session.create`` — also subscribes the caller to the session's events."""
+    await _refresh_settings(core)
     session = await core.sessions.create(
         workdir=params.workdir,
         mode=params.mode,
@@ -179,6 +197,7 @@ async def session_prompt_handler(
     conn: RpcConnection, params: SessionPromptParams, core: Core
 ) -> TurnResult:
     """``session.prompt`` — slash text becomes a command, anything else a turn."""
+    await _refresh_settings(core)
     session = _session(core, params.sessionId)
     core.hub.subscribe(conn, session.id)
     text = params.text

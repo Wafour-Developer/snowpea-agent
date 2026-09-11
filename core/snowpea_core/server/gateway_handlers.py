@@ -20,6 +20,7 @@ from snowpea_core.server.protocol import (
     GatewayBindParams,
     GatewayBindResult,
     GatewayListResult,
+    GatewaySyncResult,
     GatewayUnbindParams,
     Ok,
 )
@@ -31,7 +32,12 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 log = logging.getLogger("snowpea.server.gateway")
 
 #: Methods this module implements.
-HANDLED_METHODS: tuple[str, ...] = ("gateway.bind", "gateway.list", "gateway.unbind")
+HANDLED_METHODS: tuple[str, ...] = (
+    "gateway.bind",
+    "gateway.list",
+    "gateway.unbind",
+    "gateway.sync",
+)
 
 
 def _router(core: Core) -> object:
@@ -76,6 +82,7 @@ async def gateway_list_handler(
                 channelId=binding.channel_id,
                 userId=binding.user_id,
                 state=binding.state,  # type: ignore[arg-type]
+                source=binding.source,
             )
             for binding in router.list()  # type: ignore[attr-defined]
         ]
@@ -93,11 +100,29 @@ async def gateway_unbind_handler(
     return Ok(ok=True)
 
 
+async def gateway_sync_handler(
+    _conn: RpcConnection, _params: Empty, core: Core
+) -> GatewaySyncResult:
+    """``gateway.sync`` — reconcile the auto bindings with ``settings.gateway``.
+
+    The daemon does this at start; this is what the setup wizard calls so an
+    already-running daemon picks up a messenger the user just enabled.
+    """
+    router = _router(core)
+    changed = await router.sync_from_settings(core.settings)  # type: ignore[attr-defined]
+    return GatewaySyncResult(
+        added=list(changed.get("added", [])),
+        removed=list(changed.get("removed", [])),
+        kept=list(changed.get("kept", [])),
+    )
+
+
 def register_gateway_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
     """Register every method in :data:`HANDLED_METHODS`."""
     dispatcher.register("gateway.bind", gateway_bind_handler)
     dispatcher.register("gateway.list", gateway_list_handler)
     dispatcher.register("gateway.unbind", gateway_unbind_handler)
+    dispatcher.register("gateway.sync", gateway_sync_handler)
     return dispatcher
 
 
@@ -105,6 +130,7 @@ __all__ = [
     "HANDLED_METHODS",
     "gateway_bind_handler",
     "gateway_list_handler",
+    "gateway_sync_handler",
     "gateway_unbind_handler",
     "register_gateway_handlers",
 ]

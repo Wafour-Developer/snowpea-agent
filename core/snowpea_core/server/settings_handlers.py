@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
+from snowpea_core.config import hot_reload
 from snowpea_core.config.project import ProjectSettings
 from snowpea_core.config.settings import Settings
 from snowpea_core.server import errors
@@ -128,8 +129,29 @@ async def settings_set_handler(
     except ValidationError as exc:
         raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
     updated_settings.save(core.paths)
-    core.settings = updated_settings
+    # The daemon holds the old document in half a dozen places; rebinding here
+    # is what makes settings.get and the next turn agree without a restart
+    # (CORE-settings-reload).
+    changed = hot_reload.changed_keys(current_global, merged_global)
+    await core.adopt_settings(updated_settings, changed)
+    await _sync_gateways(core)
     return SettingsResult(settings=_mask_secrets(updated_settings.model_dump(mode="json")))
+
+
+async def _sync_gateways(core: Core) -> None:
+    """Let a ``settings.gateway`` change take effect without a daemon restart.
+
+    A messenger enabled here starts listening immediately, and one disabled
+    here stops.  A failure is logged rather than raised: the settings write
+    already succeeded, and the next daemon start syncs again.
+    """
+    router = getattr(core, "gateway", None)
+    if router is None:
+        return
+    try:
+        await router.sync_from_settings(core.settings)
+    except Exception as exc:  # noqa: BLE001 - a dead platform must not fail the write
+        log.warning("could not apply the messenger settings: %s", exc)
 
 
 def _to_wire(item: CatalogItem) -> SetupCatalogItem:

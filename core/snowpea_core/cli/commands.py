@@ -925,9 +925,16 @@ async def update_cli(
     return EXIT_OK
 
 
-async def _await_update(client: DaemonClient) -> tuple[str, str]:
-    """Block until ``system.updateProgress`` reports ``done`` or ``failed``."""
-    try:
+async def _await_update(
+    client: DaemonClient, *, timeout: float = UPDATE_TIMEOUT_SEC
+) -> tuple[str, str]:
+    """Wait for ``system.updateProgress`` to report ``done`` or ``failed``.
+
+    Bounded: the upgrade subprocess is detached, so an installer that never
+    finishes must not leave ``snowpea update`` blocked forever.
+    """
+
+    async def _listen() -> tuple[str, str]:
         async for frame in client.notifications():
             if frame.get("method") != "system.updateProgress":
                 continue
@@ -935,9 +942,14 @@ async def _await_update(client: DaemonClient) -> tuple[str, str]:
             phase = str(params.get("phase", ""))
             if phase in ("done", "failed"):
                 return phase, str(params.get("message", ""))
+        return "failed", "the daemon closed the connection before the update finished"
+
+    try:
+        return await asyncio.wait_for(_listen(), timeout=timeout)
+    except TimeoutError:
+        return "failed", f"the update did not report back within {timeout:.0f}s"
     except DaemonError as exc:  # pragma: no cover - socket died mid-upgrade
         return "failed", str(exc)
-    return "failed", "the daemon closed the connection before the update finished"
 
 
 # ---------------------------------------------------------------------------
