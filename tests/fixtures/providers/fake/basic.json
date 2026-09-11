@@ -1,0 +1,1 @@
+{"steps":[{"match":"hello","text":"Hi from fake"},{"match":"run ls","tool_calls":[{"name":"shell","arguments":{"command":"ls"}}],"text":"running"},{"after_tool":"shell","text":"done"}],"default":{"text":"dflt"}}

@@ -167,3 +167,20 @@ class CommandRegistry: register(cmd); list(session=None); parse(text) -> (name, 
 ## 12. Tests (M1)
 - `tests/test_rpc_roundtrip.py`, `tests/test_session_loop.py`, `tests/test_headless_exit_codes.py` — 모두 `SNOWPEA_PROVIDER=fake:...`와 임시 `SNOWPEA_HOME`(conftest) 사용, 실 네트워크 없음.
 - `sdk/test/contract.test.ts --grep base` — 데몬을 `uv run python -m snowpea_core --port 0 --home <tmp>`로 띄우고 3건 검증.
+
+## Implemented early (by lead, binding)
+- `providers/base.py` — ToolSpec, ToolCall, ChatMessage, Usage, StreamEvent, ChatProvider, ProviderError. Use these; do not redefine.
+- `providers/fake.py` — `FakeProvider.from_env("fake:<script.json>")`; sample script `tests/fixtures/providers/fake/basic.json` (steps: match "hello" → text; match "run ls" → shell tool call; after_tool "shell" → "done"). `ProviderRegistry.get()` MUST return it when `SNOWPEA_PROVIDER` starts with `fake`.
+
+## Deviations
+
+### TUI (US-008)
+계약을 어기지는 않되, 계약서에 없던 클라이언트 국소 결정들:
+
+1. **연결 상태 표시는 SDK 라이프사이클 이벤트에 의존한다.** `StatusLine`의 connected/reconnecting/closed는 프로토콜 알림이 아니라 `@snowpea/sdk`의 `disconnected{code, reason, willRetry}` / `reconnected{attempt, resumedSessions}`에서 파생된다. `session.resume(afterSeq)` 재전송은 SDK가 수행하고 TUI는 표시만 한다.
+2. **중복 이벤트 방어.** `tui/src/rpc/client.ts`는 세션별 최고 `seq`를 추적해 그 이하의 `session.event`를 버린다. resume 재전송이 화면에 두 번 그려지는 것을 막기 위한 클라이언트 방어이며 서버 동작을 가정하지 않는다.
+3. **`approval.list`는 조언적(advisory)이다.** 실패해도 세션을 막지 않는다. `ApprovalQueue`는 M1에서 읽기 전용(미처리 승인 표시만)이고, 큐에서 직접 응답하는 UI는 M4 allowlist 작업과 함께 온다. 대화형 승인(`approval.request`)만 `y`/`n` + scope로 promise를 resolve 한다.
+4. **슬래시 라우팅은 클라이언트에서도 한 번 일어난다.** §9는 서버 `session.prompt` 핸들러도 `/`를 `command.run`으로 위임한다고 정하지만, TUI는 자동완성·도움말을 위해 이미 `command.list`를 갖고 있으므로 `/`로 시작하는 입력을 직접 `command.run`으로 보낸다. 명령 테이블은 하드코딩하지 않는다(`tui/src/slash/registry.ts`).
+5. **TUI 바이너리 종료 코드.** `node dist/snowpea-tui.js` 는 인자 오류 `2`, 데몬 연결/세션 생성 실패 `1`, 정상 종료 `0`. §10의 CLI 종료 코드 체계와 같은 의미를 재사용한다.
+6. **SDK 표면의 국소 타입 선언.** `tui/src/rpc/sdk.ts`가 §11의 `connect`/`Client` 모양을 구조적으로 선언하고 `@snowpea/sdk`를 지연 import 한다. SDK 빌드 산출물 유무와 무관하게 `tsc -p tui`와 번들이 성립하도록 하기 위한 것이며, 실제 SDK가 이 모양을 만족해야 한다.
+7. **키 바인딩(계약 외).** `Enter` 전송, `↑/↓` 히스토리(팔레트 열림 시 후보 선택), `Tab` 명령 완성, `Esc` → `session.interrupt`, `F1` 도움말 토글(터미널 escape 시퀀스로 감지), `Ctrl+O` 마지막 툴 출력 펼치기, `Ctrl+C` 종료. Ink 5에 텍스트 입력 컴포넌트가 없어 입력 줄은 `useInput`으로 직접 구현했다(번들 의존성 추가 회피).
