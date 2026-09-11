@@ -9,22 +9,23 @@ from snowpea_core.setup.screens import Screen, ScreenItem, skip_item
 from snowpea_core.setup.state import WizardState
 
 TITLE = "⑥ Done"
-HELP = "Enter writes settings.json."
+#: Summary rows that can be revisited by selecting them.
+SECTION_ROWS = frozenset({"providers", "search", "browser", "tools", "gateway"})
+HELP = "Enter on a row revisits that section; Enter on Skip writes settings.json."
 
 
 def build(state: WizardState, catalog: Sequence[CatalogItem] | None = None) -> Screen:
     """One read-only row per answer, then the usual Skip row."""
-    rows = [
-        ScreenItem(
-            id=f"summary:{index}",
-            label=line,
-            tags=(),
-            selected=False,
-            default=index == 0,
-            active=True,
+    rows = []
+    for index, line in enumerate(state.summary()):
+        section = line.split()[0] if line.split() else ""
+        section = {"provider": "providers"}.get(section, section)
+        row_id = f"section:{section}" if section in SECTION_ROWS else f"summary:{index}"
+        rows.append(
+            ScreenItem(
+                id=row_id, label=line, tags=(), selected=False, default=False, active=True
+            )
         )
-        for index, line in enumerate(state.summary())
-    ]
     return Screen(title=TITLE, items=(*rows, skip_item()), multi=False, help=HELP)
 
 

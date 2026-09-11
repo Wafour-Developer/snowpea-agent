@@ -294,6 +294,7 @@ def setup_command(args: argparse.Namespace, home: Path | str | None = None) -> i
             tools=getattr(args, "tools", None),
             gateway=getattr(args, "gateway", None),
             token=getattr(args, "token", None),
+            section=getattr(args, "section", None),
         )
     except wizard.SetupError as exc:
         return _fail(str(exc), EXIT_USAGE)
@@ -739,6 +740,13 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
     provider_login_parser.add_argument("vendor", help="vendor to log into")
 
     setup_parser = sub.add_parser("setup", help="configure providers, search, tools")
+    setup_parser.add_argument(
+        "section",
+        nargs="?",
+        default=None,
+        choices=["provider", "providers", "search", "browser", "tools", "gateway"],
+        help="configure one section only, e.g. `snowpea setup search` (Hermes-style)",
+    )
     setup_mode = setup_parser.add_mutually_exclusive_group()
     setup_mode.add_argument(
         "--quick", action="store_true", help="ask for the LLM provider only (default)"

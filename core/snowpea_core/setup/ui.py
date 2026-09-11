@@ -175,10 +175,57 @@ def ask_text(prompt: str, *, interactive: bool | None = None, secret: bool = Fal
     if not interactive:
         return ""
     if secret:
+        return _read_masked(prompt)
+    return input(prompt).strip()
+
+
+def _read_masked(prompt: str) -> str:
+    """Read a secret echoing ``*`` per character so the user sees progress.
+
+    Falls back to ``getpass`` (no echo at all) when the terminal cannot be put
+    into raw mode, e.g. on Windows without a console or when stdin is not a TTY.
+    """
+    import sys
+
+    try:
+        import termios
+        import tty
+    except ImportError:  # pragma: no cover - windows
         import getpass
 
         return getpass.getpass(prompt).strip()
-    return input(prompt).strip()
+    fd = sys.stdin.fileno()
+    sys.stdout.write(prompt)
+    sys.stdout.flush()
+    saved = termios.tcgetattr(fd)
+    chars: list[str] = []
+    try:
+        tty.setraw(fd)
+        while True:
+            ch = sys.stdin.read(1)
+            if ch in ("\r", "\n"):
+                break
+            if ch == "\x03":
+                raise KeyboardInterrupt
+            if ch in ("\x7f", "\b"):
+                if chars:
+                    chars.pop()
+                    sys.stdout.write("\b \b")
+                    sys.stdout.flush()
+                continue
+            if ch == "\x15":  # ctrl-u clears
+                sys.stdout.write("\b \b" * len(chars))
+                chars.clear()
+                sys.stdout.flush()
+                continue
+            chars.append(ch)
+            sys.stdout.write("*")
+            sys.stdout.flush()
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, saved)
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+    return "".join(chars).strip()
 
 
 __all__ = [

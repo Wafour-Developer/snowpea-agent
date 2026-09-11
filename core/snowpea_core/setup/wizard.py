@@ -50,6 +50,16 @@ QUICK_ORDER: tuple[tuple[str, Any], ...] = (
     ("done", done_screen),
 )
 
+#: ``snowpea setup <section>`` names → screen (Hermes-style per-section setup).
+SECTIONS: dict[str, tuple[str, Any]] = {
+    "provider": ("providers", providers_screen),
+    "providers": ("providers", providers_screen),
+    "search": ("search", search_screen),
+    "browser": ("browser", browser_screen),
+    "tools": ("tools", tools_screen),
+    "gateway": ("gateway", gateway_screen),
+}
+
 
 class SetupError(RuntimeError):
     """A bad flag — the CLI turns this into exit code 2."""
@@ -89,10 +99,17 @@ def run(
     console: Console | None = None,
     env: dict[str, str] | None = None,
     ask: Callable[..., Any] | None = None,
+    section: str | None = None,
 ) -> SetupResult:
-    """Run the wizard and write ``$SNOWPEA_HOME/settings.json``."""
+    """Run the wizard and write ``$SNOWPEA_HOME/settings.json``.
+
+    ``section`` runs a single screen (``snowpea setup search``) and then the
+    summary, like ``hermes setup <section>``.
+    """
     if mode not in ("quick", "full", "blank"):
         raise SetupError(f"unknown setup mode: {mode}")
+    if section is not None and section not in SECTIONS:
+        raise SetupError(f"unknown setup section: {section} (one of {', '.join(SECTIONS)})")
 
     paths = Paths.create(home)
     settings = Settings.load(paths)
@@ -119,20 +136,39 @@ def run(
     shown: list[str] = []
 
     order: Sequence[tuple[str, Any]] = ()
-    if mode == "full":
+    if section is not None:
+        order = (SECTIONS[section], ("done", done_screen))
+    elif mode == "full":
         order = FULL_ORDER
     elif mode == "quick":
         order = QUICK_ORDER
+    by_name = {name: module for name, module in FULL_ORDER}
 
-    for name, module in order:
-        if name in answered:
-            continue
+    def _show(name: str, module: Any) -> Any:
         screen: Screen = module.build(state)
         choice = asker(screen, console=console, interactive=interactive)
         module.apply(state, choice)
         shown.append(name)
         if name == "providers" and state.vendor and not state.api_key:
             _ask_for_key(state, interactive=interactive)
+        return choice
+
+    for name, module in order:
+        if name in answered:
+            continue
+        choice = _show(name, module)
+        # The summary lets the user pick a row to revisit that section (Hermes-style);
+        # Enter on Skip (or a non-section row) writes and finishes.
+        while (
+            interactive
+            and name == "done"
+            and isinstance(choice, str)
+            and choice.startswith("section:")
+        ):
+            target = choice.split(":", 1)[1]
+            if target in by_name:
+                _show(target, by_name[target])
+            choice = _show("done", done_screen)
 
     settings = state.write(paths, settings)
     return SetupResult(
@@ -146,8 +182,30 @@ def run(
 
 
 def _ask_for_key(state: WizardState, *, interactive: bool) -> None:
-    """Prompt for the chosen vendor's API key; silence is 'use the env var'."""
+    """Prompt for the vendor's credentials; silence keeps the environment/default.
+
+    ``local`` (vLLM / Ollama / LM Studio) asks for the server URL first, because
+    that is the one thing a local server always needs; its API key is optional.
+    """
     if not interactive or not state.vendor:
+        return
+    if state.vendor == "local":
+        from snowpea_core.providers.presets import LOCAL_VARIANTS
+
+        variants = list(LOCAL_VARIANTS)
+        labels = ", ".join(f"{i + 1}={LOCAL_VARIANTS[v].label}" for i, v in enumerate(variants))
+        picked = ui.ask_text(f"local server type [{labels}] (Enter=1): ")
+        try:
+            variant = variants[int(picked) - 1] if picked else variants[0]
+        except (ValueError, IndexError):
+            variant = variants[0]
+        state.variant = variant
+        default_url = LOCAL_VARIANTS[variant].base_url or "http://localhost:11434/v1"
+        entered_url = ui.ask_text(f"{LOCAL_VARIANTS[variant].label} base URL [{default_url}]: ")
+        state.base_url = entered_url or default_url
+        entered_key = ui.ask_text("API key (optional, Enter to skip): ", secret=True)
+        if entered_key:
+            state.api_key = entered_key
         return
     entered = ui.ask_text(f"{state.vendor} API key (Enter to use the environment): ", secret=True)
     if entered:
@@ -168,6 +226,12 @@ def _apply_flags(state: WizardState, **flags: Any) -> set[str]:
         state.api_key = flags.get("key") or state.api_key
         state.model = flags.get("model") or state.model
         state.base_url = flags.get("base_url") or state.base_url
+        if vendor == "local" and not state.base_url:
+            from snowpea_core.providers.presets import LOCAL_VARIANTS
+
+            variant = state.variant or "ollama"
+            state.variant = variant
+            state.base_url = LOCAL_VARIANTS[variant].base_url
         answered.add("providers")
     elif flags.get("key"):
         raise SetupError("--key needs --vendor")

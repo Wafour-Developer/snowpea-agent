@@ -28,6 +28,8 @@ class WizardState:
     api_key: str | None = None
     model: str | None = None
     base_url: str | None = None
+    #: ``local`` only: vllm | ollama | lmstudio (picks the base_url default and quirks).
+    variant: str | None = None
     search_provider: str = catalog.DEFAULT_SEARCH_PROVIDER
     browser_provider: str = catalog.DEFAULT_BROWSER_PROVIDER
     #: category id -> enabled.
@@ -112,6 +114,8 @@ class WizardState:
                 config["model"] = self.model
             if self.base_url:
                 config["base_url"] = self.base_url
+            if self.variant:
+                config["variant"] = self.variant
             registry.configure(self.vendor, config)
             settings.providers["default"] = self.vendor
 
