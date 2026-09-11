@@ -34,7 +34,7 @@ from snowpea_core.providers.registry import ProviderRegistry
 from snowpea_core.scheduler import start_scheduler, stop_scheduler
 from snowpea_core.server import errors
 from snowpea_core.server.agent_handlers import register_agent_handlers
-from snowpea_core.server.auth import ensure_token
+from snowpea_core.server.auth import ensure_token, write_token
 from snowpea_core.server.errors import RpcError
 from snowpea_core.server.gateway_handlers import register_gateway_handlers
 from snowpea_core.server.job_handlers import register_job_handlers
@@ -368,9 +368,12 @@ def build_dispatcher(core: Core) -> RpcDispatcher:
 class Daemon:
     """Owns the listening socket, ``daemon.json`` and the shutdown signal."""
 
-    def __init__(self, port: int = 0, home: Path | str | None = None) -> None:
+    def __init__(
+        self, port: int = 0, home: Path | str | None = None, token: str | None = None
+    ) -> None:
         self._requested_port = port
         self._home = home
+        self._preissued_token = token
         self._runner: web.AppRunner | None = None
         self._closed = asyncio.Event()
         self.core: Core | None = None
@@ -396,6 +399,8 @@ class Daemon:
         paths = Paths.create(self._home)
         _configure_logging(paths)
         settings = Settings.load(paths)
+        if self._preissued_token:
+            write_token(paths, self._preissued_token)
         token = ensure_token(paths)
         core = Core(settings=settings, paths=paths, token=token)
         core.allowlist.bind(paths, settings)
@@ -544,9 +549,11 @@ def _install_signal_handlers(daemon: Daemon) -> None:
             loop.add_signal_handler(sig, daemon.request_shutdown, f"signal:{sig.name}")
 
 
-async def run_daemon(port: int = 0, home: Path | str | None = None) -> None:
+async def run_daemon(
+    port: int = 0, home: Path | str | None = None, token: str | None = None
+) -> None:
     """Run the daemon until a signal, ``system.shutdown`` or the idle timeout."""
-    daemon = Daemon(port=port, home=home)
+    daemon = Daemon(port=port, home=home, token=token)
     await daemon.start()
     _install_signal_handlers(daemon)
     try:

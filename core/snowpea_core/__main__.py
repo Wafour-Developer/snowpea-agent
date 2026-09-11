@@ -18,6 +18,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--port", type=int, default=0, help="TCP port on 127.0.0.1 (0 = pick a free one)"
     )
     parser.add_argument("--home", default=None, help="override SNOWPEA_HOME")
+    parser.add_argument(
+        "--state-dir", dest="home", help="alias of --home (IDE contract: snowpea-core --state-dir)"
+    )
+    parser.add_argument(
+        "--token",
+        default=None,
+        help="use this pre-issued auth token instead of the one in <home>/token (written there)",
+    )
     parser.add_argument("--version", action="version", version=f"snowpea-core {__version__}")
     return parser
 
@@ -25,7 +33,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(list(argv) if argv is not None else None)
     try:
-        asyncio.run(run_daemon(port=args.port, home=args.home))
+        asyncio.run(run_daemon(port=args.port, home=args.home, token=args.token))
     except KeyboardInterrupt:  # pragma: no cover - interactive
         return 0
     return 0
