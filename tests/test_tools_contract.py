@@ -9,6 +9,7 @@ skip when Chromium has not been downloaded.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -505,6 +506,10 @@ async def test_catalog_only_browser_provider_refuses(
     assert "browser_provider_unavailable" in (result.error or "")
 
 
+@pytest.mark.timeout(60)
+@pytest.mark.skipif(
+    os.environ.get("SNOWPEA_SKIP_BROWSER_TESTS") == "1", reason="SNOWPEA_SKIP_BROWSER_TESTS=1"
+)
 async def test_local_chromium_navigates_and_snapshots(
     ctx: ToolContext, workdir: Path
 ) -> None:
