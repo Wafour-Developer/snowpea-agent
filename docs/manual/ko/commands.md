@@ -46,6 +46,8 @@ snowpea commands list --json
 | `/ultrawork <task>` | 독립적인 조각으로 쪼개 동시 서브에이전트에 돌리고 보고서를 합침 |
 | `/deepinit [path]` | 저장소를 훑어 계층적 `AGENTS.md` 파일을 작성 |
 | `/team <n> <task>` | 작업자 n명에게 각각 git worktree를 주고 태스크가 끝나는 대로 브랜치를 병합 |
+| `/team create <name> <agent...>` | 기존 에이전트로 프로젝트 팀을 만들고 즉시 활성화 |
+| `/team use <name>` / `/team list` | 프로젝트의 활성 팀을 전환하거나 팀 목록 확인 |
 | `/deep-interview <idea>` | 모호함을 점수화해 스펙이 확정될 때까지 넘기지 않는 소크라테스식 인터뷰 |
 | `/deep-research <topic>` | 서브에이전트에 걸쳐 흩어진 다중 출처 웹 리서치, 출처와 함께 답변 |
 | `/ralplan <task>` | 합의 기반 계획 — 코드를 쓰기 전에 planner, architect, critic이 논쟁 |

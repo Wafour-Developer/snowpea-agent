@@ -80,7 +80,11 @@ async def agent_list_handler(conn: RpcConnection, _params: Empty, core: Core) ->
     which is what ``snowpea agents --json`` polls during a ``/ralph`` run to see
     two children running at once (AC-04).
     """
+    session = _session_for(core, conn)
     definitions = definitions_for(core, _workdir(core, conn))
+    if session is not None and session.team_agents:
+        allowed = set(session.team_agents)
+        definitions = [definition for definition in definitions if definition.name in allowed]
     agents = [
         AgentInfo(
             name=defn.name,
@@ -91,6 +95,16 @@ async def agent_list_handler(conn: RpcConnection, _params: Empty, core: Core) ->
         )
         for defn in definitions
     ]
+    if session is not None and session.team:
+        agents.insert(
+            0,
+            AgentInfo(
+                name=session.team,
+                description="Active project team",
+                source="project",
+                kind="team",
+            ),
+        )
     # US-021: the persistent instances, listed alongside their definitions.
     agents.extend(await named_agents.list_infos(core))
     # US-019: the children this daemon is running for somebody right now.

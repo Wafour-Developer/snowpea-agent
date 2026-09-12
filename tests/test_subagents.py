@@ -333,8 +333,8 @@ async def test_a_narrowed_child_cannot_reach_other_tools(daemon: Daemon, workdir
     assert result.ok
 
 
-async def test_an_unknown_agent_name_still_runs(daemon: Daemon, workdir: Path) -> None:
-    """A missing definition is a note in the log, not a failed delegation."""
+async def test_an_unknown_agent_name_is_refused(daemon: Daemon, workdir: Path) -> None:
+    """An explicit typo must not silently become an untyped delegation."""
     core = daemon.core
     assert core is not None
     session = await open_session(core, workdir)
@@ -342,7 +342,24 @@ async def test_an_unknown_agent_name_still_runs(daemon: Daemon, workdir: Path) -
         get_manager(core).run(session, "quick child", agent="nobody-defined-this"),
         timeout=TIMEOUT,
     )
-    assert result.ok
+    assert result.ok is False
+    assert result.error == "unknown agent 'nobody-defined-this'"
+
+
+async def test_active_team_restricts_and_defaults_delegation(
+    daemon: Daemon, workdir: Path
+) -> None:
+    core = daemon.core
+    assert core is not None
+    session = await open_session(core, workdir)
+    session.team = "delivery"
+    session.team_agents = ("executor", "verifier")
+    refused = await get_manager(core).run(session, "inspect", agent="architect")
+    assert refused.ok is False
+    assert "not in active team 'delivery'" in str(refused.error)
+    automatic = await get_manager(core).run(session, "implement")
+    assert automatic.ok
+    assert get_manager(core).records()[-1].name == "executor"
 
 
 # ---------------------------------------------------------------------------

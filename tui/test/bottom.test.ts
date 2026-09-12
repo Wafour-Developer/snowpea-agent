@@ -77,17 +77,23 @@ describe("contextWarning", () => {
 
 describe("summaryLine", () => {
   it("leads with the mode chip", () => {
-    expect(summaryLine({ mode: "auto", shells: 0, agents: 0 }).text).toBe("⏵⏵ auto mode on");
-    expect(summaryLine({ mode: "accept", shells: 0, agents: 0 }).text).toBe("▶ accept mode");
-    expect(summaryLine({ mode: "plan", shells: 0, agents: 0 }).text).toBe("⏸ plan mode");
+    expect(summaryLine({ mode: "auto", shells: 0, agents: 0 }).text).toBe(
+      "⏵⏵ auto mode on · ⇧Tab change mode · Ctrl+P plan",
+    );
+    expect(summaryLine({ mode: "accept", shells: 0, agents: 0 }).text).toContain(
+      "▶ accept mode · ⇧Tab change mode",
+    );
+    expect(summaryLine({ mode: "plan", shells: 0, agents: 0 }).text).toContain(
+      "⏸ plan mode · ⇧Tab change mode",
+    );
   });
 
   it("counts the shells and the agents that are actually running", () => {
     expect(summaryLine({ mode: "auto", shells: 3, agents: 1 }).text).toBe(
-      "⏵⏵ auto mode on · 3 shells · ← 1 agent",
+      "⏵⏵ auto mode on · ⇧Tab change mode · Ctrl+P plan · 3 shells · ← 1 agent",
     );
     expect(summaryLine({ mode: "auto", shells: 1, agents: 2 }).text).toBe(
-      "⏵⏵ auto mode on · 1 shell · ← 2 agents",
+      "⏵⏵ auto mode on · ⇧Tab change mode · Ctrl+P plan · 1 shell · ← 2 agents",
     );
   });
 });

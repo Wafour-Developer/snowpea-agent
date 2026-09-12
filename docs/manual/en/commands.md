@@ -46,6 +46,8 @@ These are answered by the terminal UI itself rather than by the core, so they do
 | `/ultrawork <task>` | split into independent parts, run them on concurrent subagents, merge the reports |
 | `/deepinit [path]` | walk the repository and write hierarchical `AGENTS.md` files |
 | `/team <n> <task>` | n workers, one git worktree each, branches merged as tasks finish |
+| `/team create <name> <agent...>` | create a project team from existing agents and activate it |
+| `/team use <name>` / `/team list` | switch the active project team or list teams |
 | `/deep-interview <idea>` | Socratic interview that scores ambiguity and refuses to hand off until the spec holds |
 | `/deep-research <topic>` | multi-source web research fanned out over subagents, answered with citations |
 | `/ralplan <task>` | consensus planning — planner, architect and critic argue before any code is written |

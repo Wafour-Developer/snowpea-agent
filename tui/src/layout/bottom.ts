@@ -94,7 +94,7 @@ export interface SummaryLineInput {
 
 /** `⏵⏵ auto mode on · 3 shells · ← 1 agent`. */
 export function summaryLine({ mode, shells, agents }: SummaryLineInput): Painted {
-  const parts = [MODE_CHIP[mode]];
+  const parts = [`${MODE_CHIP[mode]} · ⇧Tab change mode · Ctrl+P plan`];
   if (shells > 0) parts.push(`${shells} ${shells === 1 ? "shell" : "shells"}`);
   if (agents > 0) parts.push(`← ${agents} ${agents === 1 ? "agent" : "agents"}`);
   return { text: parts.join(" · "), color: MODE_COLOR[mode], dimColor: mode === "accept" };

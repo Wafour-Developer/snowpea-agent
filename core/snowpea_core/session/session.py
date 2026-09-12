@@ -23,6 +23,8 @@ class Session:
     provider: str | None = None
     model: str | None = None
     agent: str | None = None
+    team: str | None = None
+    team_agents: tuple[str, ...] = ()
     origin_surface: str | None = None
     #: Set on a child session created by ``delegate_task`` / ``agent.spawn``
     #: (M7 contract §3); ``None`` for a session a human opened.

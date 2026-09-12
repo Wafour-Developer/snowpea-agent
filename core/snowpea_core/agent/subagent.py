@@ -370,6 +370,9 @@ class SubagentManager:
         brief = (task or "").strip()
         if record is None:
             record = self.new_record(parent, task, agent)
+        if parent.team_agents and not agent:
+            agent = "executor" if "executor" in parent.team_agents else parent.team_agents[0]
+            record.name = agent
         await self.emit_spawn(record)
         if not brief:
             record.status = ERROR
@@ -384,9 +387,16 @@ class SubagentManager:
                 usage=record.usage(),
             )
 
+        if parent.team_agents:
+            if agent not in parent.team_agents:
+                return await self._refuse(
+                    record,
+                    f"agent '{agent}' is not in active team '{parent.team}'; choose one of: "
+                    + ", ".join(parent.team_agents),
+                )
         defn = self.definition(parent, agent)
         if agent and defn is None:
-            log.info("no agent definition named %r; running with the parent's settings", agent)
+            return await self._refuse(record, f"unknown agent '{agent}'")
 
         semaphore = self.semaphore_for(parent)
         async with semaphore:
@@ -413,6 +423,20 @@ class SubagentManager:
             summary=record.summary,
             status=record.status,
             error=record.error,
+            session_id=record.session_id,
+            usage=record.usage(),
+        )
+
+    async def _refuse(self, record: SubagentRecord, message: str) -> SubagentResult:
+        record.status = ERROR
+        record.error = message
+        await self.emit_done(record)
+        return SubagentResult(
+            agent_id=record.agent_id,
+            ok=False,
+            summary="",
+            status=ERROR,
+            error=message,
             session_id=record.session_id,
             usage=record.usage(),
         )

@@ -277,3 +277,9 @@ After reinstalling, once no work is running, use `snowpea daemon stop` and then 
 Help stays within the terminal height. Scroll with `↑`/`↓` or `PgUp`/`PgDn`; close with **Esc, F1, q, or Enter**. Esc inside help does not interrupt the running turn.
 
 The input, connection/model status, mode summary, and agent list at the bottom are separated by rules spanning the full terminal content width, making the active region easy to distinguish.
+
+## Teams and short delegation
+
+The first `snowpea setup` creates a `default` team from the built-in roles. `/team create delivery architect executor verifier` creates a project team from existing agents, activates it immediately, and rejects unknown names. Manage it with `/team list`, `/team use <name>`, and `/team delete <name>`. With a team active, the footer shows its name and members only, and automatic delegation is confined to that roster.
+
+Type `$executor fix the tests` to delegate directly without a long command. Unknown or out-of-team names fail instead of silently becoming a generic agent. Internal delegation that omits a name deterministically uses `executor` when present, otherwise the first team member.
