@@ -18,7 +18,14 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { App } from "./app.js";
-import { SessionMemory, TuiHistory, stateDir, type FileStore } from "./state/history.js";
+import {
+  SessionMemory,
+  TuiHistory,
+  priorSession,
+  stateDir,
+  type FileStore,
+  type SessionRecord,
+} from "./state/history.js";
 import { createFrameWriter, type FrameWriter } from "./layout/frame.js";
 import { installAltScreen } from "./layout/screen.js";
 import { TuiClient } from "./rpc/client.js";
@@ -201,6 +208,17 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   const history = new TuiHistory(fileStore, dir);
   const sessions = new SessionMemory(fileStore, dir);
 
+  // Asked for before the first frame, because the launch banner is written
+  // into the scrollback once and cannot be revised afterwards.
+  let prior: SessionRecord | null = null;
+  try {
+    const listed = await client.call("session.list", {});
+    const open = Array.isArray(listed?.sessions) ? listed.sessions : [];
+    prior = priorSession(open, args.cwd, sessionId);
+  } catch {
+    // An older daemon, or none of our business: the local record still serves.
+  }
+
   let restart = false;
   const instance = render(
     <App
@@ -211,6 +229,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       fullscreen={args.fullscreen}
       history={history}
       sessions={sessions}
+      priorSession={prior}
       onRestart={() => {
         restart = true;
       }}
