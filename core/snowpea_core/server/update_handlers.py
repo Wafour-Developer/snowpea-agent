@@ -58,7 +58,9 @@ async def check_update_handler(
 
 async def update_handler(_conn: RpcConnection, _params: Empty, core: Core) -> UpdateResult:
     """``system.update`` — start the upgrade detached and report progress."""
-    answer = await update_mod.check_update(core.paths, core.settings)
+    # An explicit update request must not reuse a negative 24-hour cache: a
+    # tracked git branch may have advanced since startup checked it.
+    answer = await update_mod.check_update(core.paths, core.settings, force=True)
     if answer.get("error") or not answer.get("available"):
         return UpdateResult(
             started=False,

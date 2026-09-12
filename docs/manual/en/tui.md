@@ -262,7 +262,7 @@ Markdown tables in responses are rendered with aligned borders. Column sizing ac
 
 ## Update notifications at startup
 
-Each launch checks for updates in the background. When a banner appears, press `U` on an empty input or type `/update` to open confirmation. Choose `y` to install and restart, or `n`/Esc to defer. Lowercase `u` in ordinary typing is not an update shortcut.
+Each launch checks for updates in the background. `/update` always bypasses an older negative cache and checks again; when nothing newer exists it reports that the build is already up to date rather than showing an installation failure. When a banner appears, press `U` on an empty input or type `/update` to open confirmation. Choose `y` to install and restart, or `n`/Esc to defer. Lowercase `u` in ordinary typing is not an update shortcut.
 
 Git `main`/`master` installs compare the installed commit, so a version bump is not required to detect new commits. Failed checks, unchanged builds and downgrades do not trigger installation. PyPI/release installs retain version-based checks.
 
