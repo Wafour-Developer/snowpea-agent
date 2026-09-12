@@ -274,6 +274,10 @@ async def test_resume_restores_a_persisted_session_after_daemon_restart(
         second = await make_daemon(home)
         resumed_client = await connect(http, second)
         try:
+            saved = await resumed_client.ok(
+                "session.list", {"includeClosed": True, "workdir": str(workdir)}
+            )
+            assert [row["sessionId"] for row in saved["sessions"]] == [session_id]
             resumed = await resumed_client.ok("session.resume", {"sessionId": session_id})
             assert len(resumed["events"]) == event_count
             restored = second.core.sessions.get(session_id)  # type: ignore[union-attr]

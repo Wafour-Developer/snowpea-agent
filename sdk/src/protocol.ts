@@ -771,8 +771,11 @@ export interface SessionInterruptResult {
   ok?: boolean;
 }
 
-/** `session.list` params. List every live session. */
-export type SessionListParams = Record<string, unknown>;
+/** `session.list` params. List live sessions, optionally including saved sessions. */
+export interface SessionListParams {
+  includeClosed?: boolean;
+  workdir?: string | null;
+}
 
 /** `session.list` result. */
 export interface SessionListResult {

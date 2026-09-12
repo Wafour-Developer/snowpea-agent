@@ -296,6 +296,11 @@ class SessionListResult(Payload):
     sessions: list[SessionSummary] = Field(default_factory=list, description="Every live session.")
 
 
+class SessionListParams(Payload):
+    includeClosed: bool = Field(default=False, description="Include persisted closed sessions.")
+    workdir: str | None = Field(default=None, description="Only sessions rooted here.")
+
+
 class SessionIdParams(Payload):
     sessionId: str = Field(description="Target session.")
 
@@ -1536,7 +1541,7 @@ METHODS: dict[str, RpcMethod] = {
             SessionResumeResult,
             "Replay the events a disconnected client missed.",
         ),
-        _m("session.list", Empty, SessionListResult, "List every live session."),
+        _m("session.list", SessionListParams, SessionListResult, "List live or saved sessions."),
         _m("session.close", SessionIdParams, Ok, "Close a session and release its resources."),
         _m(
             "session.prompt",
