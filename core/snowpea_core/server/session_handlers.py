@@ -186,7 +186,11 @@ async def session_resume_handler(
     conn: RpcConnection, params: SessionResumeParams, core: Core
 ) -> SessionResumeResult:
     """``session.resume`` — re-subscribe and replay events after ``afterSeq``."""
-    session = _session(core, params.sessionId)
+    session = core.sessions.get(params.sessionId)
+    if session is None:
+        session = await core.sessions.restore(params.sessionId, origin_conn=conn)
+    if session is None:
+        raise RpcError(errors.NOT_FOUND, f"no such session: {params.sessionId}")
     core.hub.subscribe(conn, session.id)
     if session.origin_conn is None or getattr(session.origin_conn, "closed", False):
         session.origin_conn = conn

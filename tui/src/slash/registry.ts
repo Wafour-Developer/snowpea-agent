@@ -1,13 +1,24 @@
 /**
  * Slash command registry — deliberately table-free (plan §3.2).
  *
- * The TUI holds NO hardcoded command list. It fetches `command.list` from the
- * daemon, uses the result only for autocomplete and `/help` rendering, and
- * forwards every invocation verbatim to `command.run`. Adding a skill or plugin
- * on the server side therefore needs no TUI change — only `refresh()`.
+ * Most commands come from `command.list`. Surface-only commands are merged in
+ * here as well so autocomplete describes everything the input can execute.
  */
 
 import type { CommandInfo } from "../rpc/sdk.js";
+
+const SURFACE_COMMANDS: CommandInfo[] = [
+  {
+    name: "resume",
+    summary: "Resume the last session in this directory, or /resume <sessionId>.",
+    source: "tui",
+  },
+];
+
+function withSurfaceCommands(commands: CommandInfo[]): CommandInfo[] {
+  const names = new Set(commands.map((command) => command.name));
+  return [...commands, ...SURFACE_COMMANDS.filter((command) => !names.has(command.name))];
+}
 
 /** Structural subset of `TuiClient` the registry needs; keeps tests trivial. */
 export interface RegistryClient {
@@ -46,7 +57,8 @@ export class SlashRegistry {
   async load(): Promise<CommandInfo[]> {
     const params = this.sessionId ? { sessionId: this.sessionId } : {};
     const result = await this.client.call("command.list", params);
-    this.commands = Array.isArray(result?.commands) ? (result.commands as CommandInfo[]) : [];
+    const commands = Array.isArray(result?.commands) ? (result.commands as CommandInfo[]) : [];
+    this.commands = withSurfaceCommands(commands);
     return this.commands;
   }
 

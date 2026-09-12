@@ -15,6 +15,7 @@ from snowpea_core.config.project import ProjectSettings
 from snowpea_core.config.settings import Settings
 from snowpea_core.server.protocol import Mode, SessionEvent, SessionSummary
 from snowpea_core.session import events as event_builders
+from snowpea_core.session.history import History, message_from_json
 from snowpea_core.session.session import Session
 from snowpea_core.session.store import Store, StoreClosed
 
@@ -121,6 +122,46 @@ class SessionManager:
 
     def get(self, session_id: str) -> Session | None:
         return self._sessions.get(session_id)
+
+    async def restore(self, session_id: str, *, origin_conn: Any = None) -> Session | None:
+        """Rehydrate a persisted conversation after a daemon restart."""
+        live = self.get(session_id)
+        if live is not None:
+            return live
+        if self.store is None:
+            return None
+        row = await self.store.session(session_id)
+        if row is None:
+            return None
+        workdir = Path(str(row["workdir"])).expanduser()
+        selected_team = active_team(self.settings, workdir)
+        stored_messages = await self.store.messages(session_id)
+        history = History(
+            messages=[
+                message_from_json(str(item["role"]), item["content"])
+                for item in stored_messages
+            ]
+        )
+        session = Session(
+            id=session_id,
+            workdir=workdir,
+            mode=row["mode"],
+            provider=row.get("provider"),
+            model=row.get("model"),
+            team=selected_team.name if selected_team else None,
+            team_agents=selected_team.agents if selected_team else (),
+            origin_surface=row.get("origin_surface"),
+            created_at=str(row["created_at"]),
+            max_concurrent=self.max_concurrent(workdir),
+            history=history,
+            seq=await self.store.max_seq(session_id),
+            context_used=history.estimate_tokens(),
+            origin_conn=origin_conn,
+        )
+        self._sessions[session.id] = session
+        await self.store.reopen_session(session.id)
+        log.info("session %s restored (%s, mode=%s)", session.id, session.workdir, session.mode)
+        return session
 
     def list(self) -> list[SessionSummary]:
         return [s.summary() for s in self._sessions.values() if s.closed_at is None]

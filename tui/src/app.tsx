@@ -323,6 +323,8 @@ export function App({
   const [voice, setVoice] = useState<VoiceState>(initialVoice);
   /** Text waiting to be put in the draft, e.g. a transcription. */
   const [insert, setInsert] = useState<string | null>(null);
+  /** Keystroke that moves focus back from a status/agent row into the draft. */
+  const [append, setAppend] = useState<string | null>(null);
   /** What the daemon can do with audio; the prop is the starting point. */
   const [capabilities, setCapabilities] = useState<AudioCapabilities>(audio);
   /** The recording in flight, and the reply being spoken. */
@@ -1266,6 +1268,11 @@ export function App({
         else if (focus.zone === "agent") openAgentRow(focus.index);
         return;
       }
+      if (!openAgent && input.length > 0 && !key.ctrl && !key.meta && !key.tab) {
+        setFocus(INPUT_FOCUS);
+        setAppend(input);
+        return;
+      }
       return;
     }
 
@@ -1413,6 +1420,8 @@ export function App({
           onToggleRecording={toggleRecording}
           insert={insert}
           onInserted={() => setInsert(null)}
+          append={append}
+          onAppended={() => setAppend(null)}
           completions={completions}
           onChange={setDraft}
           onInterrupt={() => void client.interrupt(sessionId).catch(() => undefined)}

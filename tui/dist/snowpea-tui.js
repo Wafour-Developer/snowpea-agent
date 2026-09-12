@@ -33831,6 +33831,17 @@ import { basename as basename2, isAbsolute, join, resolve } from "node:path";
 var import_react36 = __toESM(require_react(), 1);
 
 // src/slash/registry.ts
+var SURFACE_COMMANDS = [
+  {
+    name: "resume",
+    summary: "Resume the last session in this directory, or /resume <sessionId>.",
+    source: "tui"
+  }
+];
+function withSurfaceCommands(commands) {
+  const names = new Set(commands.map((command) => command.name));
+  return [...commands, ...SURFACE_COMMANDS.filter((command) => !names.has(command.name))];
+}
 function parse(input) {
   if (!input.startsWith("/")) return null;
   const body = input.slice(1);
@@ -33850,7 +33861,8 @@ var SlashRegistry = class {
   async load() {
     const params = this.sessionId ? { sessionId: this.sessionId } : {};
     const result = await this.client.call("command.list", params);
-    this.commands = Array.isArray(result?.commands) ? result.commands : [];
+    const commands = Array.isArray(result?.commands) ? result.commands : [];
+    this.commands = withSurfaceCommands(commands);
     return this.commands;
   }
   /**
@@ -34897,7 +34909,7 @@ function priorSession(sessions, workdir, currentSessionId) {
   return candidates[0] ?? null;
 }
 function offerSession(local, live) {
-  if (!live) return null;
+  if (!live) return local;
   if (!local || local.sessionId !== live.sessionId) return live;
   return { ...live, firstPrompt: local.firstPrompt, at: Math.max(live.at, local.at) };
 }
@@ -36387,6 +36399,8 @@ function Chat({
   onClipboard,
   insert = null,
   onInserted,
+  append = null,
+  onAppended,
   completions,
   disabled = false,
   placeholder = "ask anything, or /command",
@@ -36403,6 +36417,11 @@ function Chat({
     update(value.length > 0 ? `${value} ${insert}` : insert);
     onInserted?.();
   }, [insert]);
+  (0, import_react29.useEffect)(() => {
+    if (!append) return;
+    update(value + append);
+    onAppended?.();
+  }, [append]);
   const update = (next) => {
     setValue(next);
     setSelected(0);
@@ -37221,6 +37240,7 @@ function App2({
   const [attachments, setAttachments] = (0, import_react36.useState)([]);
   const [voice, setVoice] = (0, import_react36.useState)(initialVoice);
   const [insert, setInsert] = (0, import_react36.useState)(null);
+  const [append, setAppend] = (0, import_react36.useState)(null);
   const [capabilities, setCapabilities] = (0, import_react36.useState)(audio);
   const recordingRef = (0, import_react36.useRef)(null);
   const speechRef = (0, import_react36.useRef)(null);
@@ -37929,6 +37949,11 @@ function App2({
         else if (focus.zone === "agent") openAgentRow(focus.index);
         return;
       }
+      if (!openAgent && input.length > 0 && !key.ctrl && !key.meta && !key.tab) {
+        setFocus(INPUT_FOCUS);
+        setAppend(input);
+        return;
+      }
       return;
     }
     if (key.ctrl && input === "a") {
@@ -38042,6 +38067,8 @@ function App2({
         onToggleRecording: toggleRecording,
         insert,
         onInserted: () => setInsert(null),
+        append,
+        onAppended: () => setAppend(null),
         completions,
         onChange: setDraft,
         onInterrupt: () => void client.interrupt(sessionId).catch(() => void 0),
