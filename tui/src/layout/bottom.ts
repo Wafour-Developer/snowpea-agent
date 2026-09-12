@@ -13,7 +13,9 @@ import type { Mode } from "../rpc/sdk.js";
 
 /** Amber from here up: the window is filling. */
 export const CONTEXT_WARN_PERCENT = 70;
-/** Red from here up, and the warning row appears. */
+/** The warning row appears from here up. */
+export const CONTEXT_ALERT_PERCENT = 80;
+/** Red from here up. */
 export const CONTEXT_CRITICAL_PERCENT = 85;
 
 /** Mode chips, in the reference's glyphs. */
@@ -45,25 +47,23 @@ export function contextColor(percent: number | null): string | undefined {
 }
 
 /**
- * `ctx 12.3k / 128k (10%)`, or `ctx 12.3k / ?` when the daemon did not say how
- * big the window is. Null until a `context` event has arrived at all.
+ * `ctx 34% (68k/200k)`, or `ctx 12.3k used` when the daemon did not say how big
+ * the window is. Null until a `context` event has arrived at all.
  */
 export function contextSegment(context: ContextUsage | null): Painted | null {
   if (!context) return null;
-  const used = formatTokens(context.used);
+  const estimated = context.estimated ? "~" : "";
+  const used = `${estimated}${formatTokens(context.used)}`;
   if (!context.window || context.window <= 0) {
-    return { text: `ctx ${used} / ?`, dimColor: true };
+    return { text: `ctx ${used} used`, dimColor: true };
   }
   const percent = context.percent ?? (context.used / context.window) * 100;
-  const critical = percent >= CONTEXT_CRITICAL_PERCENT;
-  const rounded = Math.round(percent);
-  const tail = critical ? " CRITICAL" : "";
-  const estimated = context.estimated ? "~" : "";
+  const color = contextColor(percent);
   return {
-    text: `ctx ${estimated}${used} / ${formatTokens(context.window)} (${rounded}%)${tail}`,
-    color: contextColor(percent),
-    dimColor: contextColor(percent) === undefined,
-    bold: critical,
+    text: `ctx ${Math.round(percent)}% (${used}/${formatTokens(context.window)})`,
+    color,
+    dimColor: color === undefined,
+    bold: percent >= CONTEXT_CRITICAL_PERCENT,
   };
 }
 
@@ -76,13 +76,11 @@ export function contextSegment(context: ContextUsage | null): Painted | null {
 export function contextWarning(context: ContextUsage | null): Painted | null {
   if (!context || !context.window || context.window <= 0) return null;
   const percent = context.percent ?? (context.used / context.window) * 100;
-  if (percent < CONTEXT_WARN_PERCENT) return null;
-  const critical = percent >= CONTEXT_CRITICAL_PERCENT;
-  const threshold = critical ? CONTEXT_CRITICAL_PERCENT : CONTEXT_WARN_PERCENT;
+  if (percent < CONTEXT_ALERT_PERCENT) return null;
   return {
-    text: `[!!] ctx ${Math.round(percent)}% >= ${threshold}% threshold — run /compact`,
-    color: critical ? "red" : "yellow",
-    bold: critical,
+    text: `[!!] context ${Math.round(percent)}% — /compact to free space`,
+    color: percent >= CONTEXT_CRITICAL_PERCENT ? "red" : "yellow",
+    bold: percent >= CONTEXT_CRITICAL_PERCENT,
   };
 }
 

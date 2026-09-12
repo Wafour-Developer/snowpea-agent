@@ -33,6 +33,8 @@ export interface ToolCallEntry {
   state: ToolCallState;
   output?: string;
   error?: string;
+  /** Wall-clock start, so a long-running call can say how long it has been. */
+  startedAt?: number;
 }
 
 export interface DiffEntry {
@@ -148,6 +150,14 @@ export interface State {
   compactions: CompactionEntry[];
   /** Tools the session has available, from `tool.list`. */
   toolCount: number | null;
+  /**
+   * Transcripts of the child sessions delegates run in, keyed by session id.
+   *
+   * A subagent is a session of its own; `session.resume` replays it and the
+   * connection then receives its events live. They are kept apart from the main
+   * transcript so opening an agent shows its conversation, not a mixture.
+   */
+  children: Record<string, State>;
   lastSeq: number;
   turnActive: boolean;
   errors: string[];
@@ -172,6 +182,7 @@ export const initialState: State = {
   context: null,
   compactions: [],
   toolCount: null,
+  children: {},
   lastSeq: 0,
   turnActive: false,
   errors: [],
@@ -185,6 +196,7 @@ export type Action =
   | { type: "tools"; count: number }
   | { type: "user/message"; text: string }
   | { type: "session/event"; event: SessionEvent }
+  | { type: "child/event"; sessionId: string; event: SessionEvent }
   | { type: "approval/request"; request: ApprovalRequestParams }
   | { type: "approval/list"; requests: ApprovalRequestParams[] }
   | { type: "approval/resolved"; requestId: string }
@@ -287,6 +299,7 @@ function applySessionEvent(state: State, event: SessionEvent): State {
         name: String(payload.name ?? "unknown"),
         args: (payload.args ?? {}) as Record<string, unknown>,
         state: "running",
+        startedAt: Number(payload.at ?? Date.now()),
       };
       return {
         ...base,
@@ -395,11 +408,12 @@ function applySessionEvent(state: State, event: SessionEvent): State {
     // The daemon reports context usage after every turn and after a compaction.
     // Older daemons never send it, which is why the HUD hides the segment until
     // the first one arrives.
+    // The daemon names these `used`/`window`; `usedTokens`/`windowTokens` are
+    // accepted too so a differently-shaped emitter still lights the segment up.
     case "context": {
-      const used = Number(payload.used ?? 0);
-      const window = payload.window === null || payload.window === undefined
-        ? null
-        : Number(payload.window);
+      const used = Number(payload.used ?? payload.usedTokens ?? 0);
+      const rawWindow = payload.window ?? payload.windowTokens ?? null;
+      const window = rawWindow === null || rawWindow === undefined ? null : Number(rawWindow);
       const percent =
         payload.percent === null || payload.percent === undefined
           ? window && window > 0
@@ -498,6 +512,13 @@ export function reducer(state: State, action: Action): State {
 
     case "session/event":
       return applySessionEvent(state, action.event);
+
+    case "child/event": {
+      const current = state.children[action.sessionId] ?? initialState;
+      const next = applySessionEvent(current, action.event);
+      if (next === current) return state;
+      return { ...state, children: { ...state.children, [action.sessionId]: next } };
+    }
 
     case "approval/request":
       return { ...state, pendingApproval: { ...action.request, source: "interactive" } };

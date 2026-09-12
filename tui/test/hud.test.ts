@@ -142,11 +142,10 @@ describe("the context segment", () => {
         ...base,
         context: { used: 1280 * percent, window: 128_000, percent, estimated: false },
       }).find((s) => s.key === "ctx");
-    expect(at(10)?.text).toBe("ctx 12.8k / 128.0k (10%)");
+    expect(at(10)?.text).toBe("ctx 10% (12.8k/128.0k)");
     expect(at(10)?.color).toBeUndefined();
     expect(at(75)?.color).toBe("yellow");
     expect(at(96)?.color).toBe("red");
-    expect(at(96)?.text).toContain("CRITICAL");
   });
 
   it("says so when the window size is unknown", () => {
@@ -154,7 +153,7 @@ describe("the context segment", () => {
       ...base,
       context: { used: 12_300, window: null, percent: null, estimated: true },
     }).find((s) => s.key === "ctx");
-    expect(segment?.text).toBe("ctx 12.3k / ?");
+    expect(segment?.text).toBe("ctx ~12.3k used");
   });
 
   it("counts the session's tools when the daemon listed them", () => {

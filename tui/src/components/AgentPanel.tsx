@@ -15,26 +15,35 @@ import { layoutAgentRow, type AgentRow } from "../layout/agents.js";
 export interface AgentPanelProps {
   rows: AgentRow[];
   width: number;
+  /** Row the keyboard is on, when the cursor has walked down into the panel. */
+  focusedIndex?: number | null;
 }
 
-function AgentPanelInner({ rows, width }: AgentPanelProps): React.ReactElement | null {
+function AgentPanelInner({
+  rows,
+  width,
+  focusedIndex = null,
+}: AgentPanelProps): React.ReactElement | null {
   if (rows.length === 0) return null;
   return (
     <Box flexDirection="column" flexShrink={0} width={width}>
-      {rows.map((row) => {
+      {rows.map((row, index) => {
+        const focused = index === focusedIndex;
         // One column short of the panel: a row that fills the last cell makes
         // the terminal wrap it onto a second line.
         const line = layoutAgentRow(row, width - 1);
         return (
           <Box key={row.key} width={width} flexWrap="nowrap" overflow="hidden">
-            <Text color={row.color} dimColor={row.dim && !row.color}>
+            <Text color={row.color} dimColor={row.dim && !row.color} inverse={focused} bold={focused}>
               {line.left}
             </Text>
-            <Text dimColor wrap="truncate-end">
+            <Text dimColor={!focused} inverse={focused} wrap="truncate-end">
               {line.task}
             </Text>
-            <Text dimColor>{line.gap}</Text>
-            <Text dimColor={row.dim} color={row.color}>
+            <Text dimColor inverse={focused}>
+              {line.gap}
+            </Text>
+            <Text dimColor={row.dim && !focused} color={row.color} inverse={focused}>
               {line.status}
             </Text>
           </Box>

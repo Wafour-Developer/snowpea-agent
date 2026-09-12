@@ -171,7 +171,7 @@ export function buildAgentRows({
     rows.push({
       key: "idle-more",
       glyph: AGENT_GLYPH,
-      name: `${idle.length - MAX_IDLE_ROWS} idle agents`,
+      name: `${idle.length - MAX_IDLE_ROWS} idle agent${idle.length - MAX_IDLE_ROWS === 1 ? "" : "s"}`,
       task: "",
       status: "",
       dim: true,
