@@ -27,9 +27,16 @@ class Session:
     #: Set on a child session created by ``delegate_task`` / ``agent.spawn``
     #: (M7 contract §3); ``None`` for a session a human opened.
     parent_session_id: str | None = None
-    #: Replaces the stock system prompt when an ``AgentDefinition`` supplies
-    #: one, so a subagent really speaks with its definition's voice (M7 §3).
+    #: An ``AgentDefinition``'s own prompt, composed after the role file so a
+    #: subagent speaks with its definition's voice (M7 §3) *and* keeps the
+    #: coding discipline every other agent has (CORE-prompts).
     system_prompt: str | None = None
+    #: Name of a file in ``prompts/roles/`` to compose into a child's prompt;
+    #: ``None`` when the definition has no matching built-in role.
+    prompt_role: str | None = None
+    #: True for a session a parent agent spawned: it gets the subagent preamble
+    #: (no user is watching; the final message is the whole report).
+    is_subagent: bool = False
     #: Long-term memory namespace (M5 contract §1): ``"default"`` for
     #: interactive sessions, ``"agent:<name>"`` for named agents.
     memory_namespace: str = "default"

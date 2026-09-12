@@ -38,6 +38,10 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 log = logging.getLogger("snowpea.agent")
 
 
+#: Refusals tolerated in one turn before it ends with reason ``"denied"``.
+MAX_DENIALS_PER_TURN = 3
+
+
 def new_turn_id() -> str:
     return f"t-{uuid.uuid4().hex[:12]}"
 
@@ -141,6 +145,7 @@ async def _drive(core: Core, session: Session, text: str, turn_id: str, unattend
 
     # Recall once per turn, on the user's own words (M5 contract §1).
     memory_block = await context_for_turn(core, session, text)
+    denials = 0
 
     for _round in range(config.max_tool_rounds):
         if session.interrupt.is_set():
@@ -148,7 +153,7 @@ async def _drive(core: Core, session: Session, text: str, turn_id: str, unattend
             return "interrupted"
 
         specs = core.tools.specs(session)
-        messages = build_messages(session, specs, memory_block)
+        messages = build_messages(session, specs, memory_block, core=core)
         chunks: list[str] = []
         calls: list[ToolCall] = []
         interrupted = False
@@ -190,6 +195,15 @@ async def _drive(core: Core, session: Session, text: str, turn_id: str, unattend
         )
         for call in calls:
             outcome = await _run_one_call(core, session, backend, policy, call, turn_id, unattended)
+            if outcome == "denied":
+                # The refusal went back to the model as a tool result; it gets
+                # to choose something else.  A model that only ever retries the
+                # refused call still cannot burn the round budget.
+                denials += 1
+                if denials >= MAX_DENIALS_PER_TURN:
+                    await finish_turn(core, session, turn_id, "denied")
+                    return "denied"
+                continue
             if outcome is not None:
                 return outcome
         session.history.compact()
@@ -239,7 +253,7 @@ async def _run_one_call(
     if verdict == "deny":
         message = f"{tool.name} ({tag}) is not allowed in {session.mode} mode"
         await hub.emit_event(session.id, events.error(errors.MODE_DENIED, message))
-        await finish_turn(core, session, turn_id, "denied")
+        await _deny_call(core, session, call, message)
         return "denied"
     if verdict == "ask":
         decision = await core.approvals.request(
@@ -261,7 +275,7 @@ async def _run_one_call(
                 session.id,
                 events.error(code, f"{tool.name} was not approved ({decision.by})"),
             )
-            await finish_turn(core, session, turn_id, "denied")
+            await _deny_call(core, session, call, f"the user declined {tool.name}")
             return "denied"
 
     await hub.emit_event(session.id, events.tool_call(call.id, call.name, call.arguments))
@@ -295,6 +309,20 @@ async def _run_one_call(
         )
     )
     return None
+
+
+async def _deny_call(core: Core, session: Session, call: ToolCall, reason: str) -> None:
+    """Tell the model a call was refused, so it can adapt inside the same turn.
+
+    A refusal used to end the turn outright, which left the model unable to
+    learn anything from it and made plan mode merely restrictive rather than
+    usable (CORE-prompts, gap 3).  It now comes back as a tool result, the way
+    any other failed call does.
+    """
+    message = f"Denied: {reason}. Choose a different action; do not retry the same call."
+    if session.mode == "plan":
+        message += " In plan mode, finish by describing what you would do instead."
+    await _fail_call(core, session, call, message)
 
 
 async def _fail_call(core: Core, session: Session, call: ToolCall, message: str) -> None:

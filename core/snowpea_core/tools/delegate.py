@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import Any
 
 from snowpea_core.agent.subagent import get_manager
+from snowpea_core.prompts import tool_descriptions as descriptions
 from snowpea_core.tools.registry import Tool, ToolContext, ToolResult
 
 #: Upper bound on ``timeout``, mirroring the ``shell`` tool's own ceiling.
@@ -67,10 +68,7 @@ TOOLS: tuple[Tool, ...] = (
     Tool(
         name="delegate_task",
         category="delegate",
-        description=(
-            "Hand a self-contained task to a sub-agent and return its report. "
-            "Call it several times in one turn to run sub-agents in parallel."
-        ),
+        description=descriptions.DELEGATE_TASK,
         input_schema={
             "type": "object",
             "properties": {

@@ -42,9 +42,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from snowpea_core.agent.agent import reply_language
 from snowpea_core.agent.definition import complete_text, parse_generated_json
 from snowpea_core.agent.subagent import get_manager
 from snowpea_core.commands.registry import Command, CommandContext
+from snowpea_core.prompts.compose import workflow_brief
+from snowpea_core.prompts.loader import render
 from snowpea_core.providers.base import ChatMessage
 from snowpea_core.server import errors
 from snowpea_core.session import events
@@ -71,17 +74,8 @@ APPROVAL_WORD = "APPROVE"
 MAX_STORIES = 8
 MIN_STORIES = 1
 
-PRD_SYSTEM = (
-    "You turn a development task into a small PRD for an autonomous coding "
-    "agent.\n"
-    "Answer with a single JSON object and nothing else.\n"
-    'Shape: {"stories": [{"id": "S1", "title": "<one line>", '
-    '"acceptance": "<how we know it is done>", '
-    '"verify": ["<shell command>", ...], '
-    '"independent": true, "depends_on": []}]}\n'
-    f"Give between {MIN_STORIES} and {MAX_STORIES} stories, smallest first. "
-    "Every verify command must be runnable from the project root and must exit "
-    "non-zero when the story is not done yet."
+PRD_SYSTEM = render(
+    "workflows/ralph-prd", MIN_STORIES=MIN_STORIES, MAX_STORIES=MAX_STORIES
 )
 
 RALPH_ARGS_SCHEMA = {
@@ -236,21 +230,28 @@ def ready_stories(stories: list[Story], limit: int) -> list[Story]:
     return batch
 
 
-def story_task(task: str, story: Story) -> str:
+def reply_language_for(ctx: CommandContext) -> str:
+    """``agent.replyLanguage`` for this run; children cannot see the setting."""
+    return reply_language(ctx.core)
+
+
+def story_task(task: str, story: Story, language: str = "auto") -> str:
     """The brief one implementation subagent receives."""
-    parts = [
-        f"You are implementing one story of this overall task: {task}",
-        f"Story {story.id}: {story.title}",
-    ]
-    if story.acceptance:
-        parts.append(f"Acceptance criteria: {story.acceptance}")
-    if story.verify:
-        parts.append("It must make these commands exit zero: " + "; ".join(story.verify))
-    parts.append(
-        "Edit the real files in the project. Do not ask questions; when you are "
-        "done, answer with one short paragraph saying what you changed."
+    acceptance = f"Acceptance criteria: {story.acceptance}\n" if story.acceptance else ""
+    verify = (
+        "It must make these commands exit zero: " + "; ".join(story.verify) + "\n"
+        if story.verify
+        else ""
     )
-    return "\n".join(parts)
+    return workflow_brief(
+        "ralph-story",
+        reply_language=language,
+        TASK=task,
+        STORY_ID=story.id,
+        STORY_TITLE=story.title,
+        ACCEPTANCE=acceptance,
+        VERIFY=verify,
+    )
 
 
 async def verify_story(ctx: CommandContext, story: Story) -> tuple[bool, str]:
@@ -276,13 +277,12 @@ async def review(ctx: CommandContext, task: str, stories: list[Story]) -> tuple[
     manager = get_manager(ctx.core)
     reviewer = REVIEWER_AGENT if manager.definition(ctx.session, REVIEWER_AGENT) else None
     summary = "\n".join(f"- {story.id} {story.title}: {story.note}" for story in stories)
-    brief = (
-        "You are the reviewer for an autonomous implementation run.\n"
-        f"Original task: {task}\n"
-        f"Stories and how they were verified:\n{summary}\n\n"
-        "Inspect the working tree (git diff, the changed files, the tests) and "
-        f"decide. Answer with the single word {APPROVAL_WORD} if the work is "
-        "complete and correct, otherwise answer REJECT followed by what is missing."
+    brief = workflow_brief(
+        "ralph-review",
+        reply_language=reply_language_for(ctx),
+        TASK=task,
+        SUMMARY=summary,
+        APPROVAL_WORD=APPROVAL_WORD,
     )
     result = await manager.run(ctx.session, brief, agent=reviewer)
     text = result.summary or result.error or ""
@@ -321,8 +321,9 @@ async def cmd_ralph(ctx: CommandContext, args: str) -> None:
         batch = ready_stories(stories, limit)
         if not batch:
             break
+        language = reply_language_for(ctx)
         results = await asyncio.gather(
-            *(manager.run(ctx.session, story_task(task, story)) for story in batch),
+            *(manager.run(ctx.session, story_task(task, story, language)) for story in batch),
             return_exceptions=True,
         )
         lines = ["", f"## iteration {iteration}"]

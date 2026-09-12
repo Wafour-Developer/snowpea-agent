@@ -32,6 +32,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from snowpea_core.prompts.loader import load
 from snowpea_core.providers.base import ChatMessage
 
 #: Frontmatter delimiter.
@@ -317,14 +318,7 @@ def write_definition(defn: AgentDefinition, workdir: Path | str) -> Path:
 # generation
 # ---------------------------------------------------------------------------
 
-GENERATOR_SYSTEM = (
-    "You design agent definitions for a coding agent.\n"
-    "Answer with a single JSON object and nothing else.\n"
-    'Shape: {"name": "<lowercase-ascii-slug>", "description": "<one line>", '
-    '"tools": "*" or ["tool", ...], "model": "inherit", '
-    '"prompt": "<the agent\'s system prompt>"}\n'
-    "The name must be a short ASCII slug using only a-z, 0-9 and '-'."
-)
+GENERATOR_SYSTEM = load("workflows/agent-generate")
 
 
 def generator_messages(description: str) -> list[ChatMessage]:

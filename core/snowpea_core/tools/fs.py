@@ -11,6 +11,7 @@ import difflib
 import logging
 from typing import Any
 
+from snowpea_core.prompts import tool_descriptions as descriptions
 from snowpea_core.tools.config_guard import permission_for_write
 from snowpea_core.tools.registry import Tool, ToolContext, ToolResult
 from snowpea_core.vendor.hermes.tools.binary_extensions import (
@@ -166,7 +167,7 @@ TOOLS: tuple[Tool, ...] = (
     Tool(
         name="read_file",
         category="file",
-        description="Read a UTF-8 text file, relative to the session working directory.",
+        description=descriptions.READ_FILE,
         input_schema={
             "type": "object",
             "properties": {"path": {"type": "string", "description": "File to read."}},
@@ -178,7 +179,7 @@ TOOLS: tuple[Tool, ...] = (
     Tool(
         name="write_file",
         category="file",
-        description="Create or overwrite a text file with the given content.",
+        description=descriptions.WRITE_FILE,
         input_schema={
             "type": "object",
             "properties": {
@@ -194,10 +195,7 @@ TOOLS: tuple[Tool, ...] = (
     Tool(
         name="edit_file",
         category="file",
-        description=(
-            "Replace an exact string in a file. The old string must appear exactly once "
-            "unless replaceAll is true."
-        ),
+        description=descriptions.EDIT_FILE,
         input_schema={
             "type": "object",
             "properties": {

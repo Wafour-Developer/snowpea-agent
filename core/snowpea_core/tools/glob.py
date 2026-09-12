@@ -11,6 +11,7 @@ import fnmatch
 import re
 from typing import Any
 
+from snowpea_core.prompts import tool_descriptions as descriptions
 from snowpea_core.tools.registry import Tool, ToolContext, ToolResult
 
 #: Directories never descended into; they dwarf everything a user asked for.
@@ -127,10 +128,7 @@ TOOLS: tuple[Tool, ...] = (
     Tool(
         name="glob",
         category="file",
-        description=(
-            "Find files by path pattern under a directory. '**' spans directories; "
-            "results are relative to the searched directory."
-        ),
+        description=descriptions.GLOB,
         input_schema={
             "type": "object",
             "properties": {

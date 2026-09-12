@@ -168,10 +168,16 @@ async def test_mode_matrix(
     called = [call["payload"]["name"] for call in client.of_kind("tool.call")]
 
     if expected == "deny":
-        assert reason == "denied", f"{mode}/{tag} should be denied"
+        # The tool never runs and the model is told why, but one refusal no
+        # longer ends the turn (CORE-prompts, gap 3), so the scripted model
+        # answers instead and the turn completes.
+        assert reason == "complete", f"{mode}/{tag} should be refused, not fatal"
         assert codes == ["mode_denied"]
         assert client.approval_requests == []
         assert called == []
+        refused = client.of_kind("tool.result")
+        assert [item["payload"]["ok"] for item in refused] == [False]
+        assert "do not retry the same call" in refused[0]["payload"]["error"]
     elif expected == "allow":
         assert reason == "complete", f"{mode}/{tag} should run: saw {codes}"
         assert client.approval_requests == []
@@ -242,8 +248,9 @@ async def test_allowlist_never_promotes_a_denial(
     await client.ok("permission.allowlist.add", {"pattern": "^ls( .*)?$", "scope": "project"})
 
     turn_id = await prompt(client, session_id, "use shell")
-    assert await client.wait_turn(turn_id) == "denied"
+    assert await client.wait_turn(turn_id) == "complete"
     assert [e["payload"]["code"] for e in client.of_kind("error")] == ["mode_denied"]
+    assert [item["payload"]["ok"] for item in client.of_kind("tool.result")] == [False]
 
     await client.stop()
 
@@ -515,9 +522,10 @@ async def test_a_config_write_is_denied_in_plan_mode(
     session_id = await open_session(client, workdir, "plan")
 
     turn_id = await prompt(client, session_id, "rewrite the settings")
-    assert await client.wait_turn(turn_id) == "denied"
+    assert await client.wait_turn(turn_id) == "complete"
     assert [event["payload"]["code"] for event in client.of_kind("error")] == ["mode_denied"]
     assert client.approval_requests == []
+    assert [item["payload"]["ok"] for item in client.of_kind("tool.result")] == [False]
 
     await client.stop()
 

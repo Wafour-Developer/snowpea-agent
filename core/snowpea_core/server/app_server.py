@@ -36,6 +36,7 @@ from snowpea_core.providers.registry import ProviderRegistry
 from snowpea_core.scheduler import start_scheduler, stop_scheduler
 from snowpea_core.server import errors
 from snowpea_core.server.agent_handlers import register_agent_handlers
+from snowpea_core.server.audio_handlers import register_audio_handlers
 from snowpea_core.server.auth import ensure_token, write_token
 from snowpea_core.server.errors import RpcError
 from snowpea_core.server.gateway_handlers import register_gateway_handlers
@@ -487,6 +488,7 @@ def build_dispatcher(core: Core) -> RpcDispatcher:
     dispatcher.register("system.shutdown", shutdown_handler)
     dispatcher.register("system.reloadSettings", reload_settings_handler)
     register_session_handlers(dispatcher)
+    register_audio_handlers(dispatcher)
     register_skill_handlers(dispatcher)
     register_job_handlers(dispatcher)
     register_permission_handlers(dispatcher)

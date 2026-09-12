@@ -12,6 +12,7 @@ import re
 import shlex
 from typing import Any
 
+from snowpea_core.prompts import tool_descriptions as descriptions
 from snowpea_core.tools import glob as glob_tools
 from snowpea_core.tools.registry import Tool, ToolContext, ToolResult
 from snowpea_core.vendor.hermes.tools.ansi_strip import strip_ansi
@@ -128,10 +129,7 @@ TOOLS: tuple[Tool, ...] = (
     Tool(
         name="grep",
         category="file",
-        description=(
-            "Search file contents for a regular expression and return "
-            "'path:line:text' matches."
-        ),
+        description=descriptions.GREP,
         input_schema={
             "type": "object",
             "properties": {

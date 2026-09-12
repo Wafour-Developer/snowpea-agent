@@ -276,7 +276,8 @@ async def test_an_interactive_request_is_invisible_to_other_clients(
         await owner.ok(
             "approval.respond", {"requestId": request_id, "decision": "deny", "scope": "once"}
         )
-        assert await owner.wait_turn(turn["turnId"]) == "denied"
+        # The denial is fed back to the model rather than ending the turn.
+        assert await owner.wait_turn(turn["turnId"]) == "complete"
         record = approval_log(daemon)[-1]
         assert record["unattended"] is False
 
