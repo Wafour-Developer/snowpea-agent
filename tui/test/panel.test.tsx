@@ -12,7 +12,7 @@ import { describe, expect, it } from "vitest";
 
 import { App } from "../src/app.js";
 import type { SessionEvent } from "../src/rpc/sdk.js";
-import { countOf, fakeStdin, fakeStdout, sleep } from "./tty.js";
+import { countOf, fakeStdin, fakeStdout, sleep, type } from "./tty.js";
 
 const CHILD = "child-session-1";
 
@@ -128,6 +128,22 @@ describe("the bottom panel", () => {
     const afterEscape = stdout.text();
     instance.unmount();
     expect(countOf(afterEscape, "CHILD-ONLY-ANSWER")).toBe(0);
+  });
+
+  it("returns to the current session input when typing on an agent row", async () => {
+    const { client, stdin, stdout, instance } = await withDelegate();
+
+    // Move onto the executor row, but do not press Enter to open its transcript.
+    for (let i = 0; i < 3; i += 1) {
+      stdin.write("\u001B[B");
+      await sleep(60);
+    }
+    await type(stdin, "hello", 20);
+    await sleep(120);
+
+    expect(stdout.text()).toContain("hello");
+    expect(client.calls.filter((call) => call.method === "session.resume")).toHaveLength(0);
+    instance.unmount();
   });
 
   it("never mixes a child's events into the main transcript", async () => {

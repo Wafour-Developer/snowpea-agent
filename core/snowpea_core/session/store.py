@@ -130,6 +130,19 @@ class Store:
         rows = await asyncio.to_thread(self._query, sql)
         return [dict(row) for row in rows]
 
+    async def session(self, session_id: str) -> dict[str, Any] | None:
+        """Return one persisted session, including a cleanly closed one."""
+        rows = await asyncio.to_thread(
+            self._query, "SELECT * FROM sessions WHERE id = ?", (session_id,)
+        )
+        return dict(rows[0]) if rows else None
+
+    async def reopen_session(self, session_id: str) -> None:
+        """Mark a persisted session live again without replacing its metadata."""
+        await asyncio.to_thread(
+            self._execute, "UPDATE sessions SET closed_at = NULL WHERE id = ?", (session_id,)
+        )
+
     # -- events --------------------------------------------------------
     async def append_event(
         self, session_id: str, seq: int, kind: str, payload: dict[str, Any], ts: str
@@ -174,6 +187,26 @@ class Store:
             " VALUES (?, ?, ?, ?)",
             (session_id, idx, role, json.dumps(content)),
         )
+
+    async def replace_messages(self, session_id: str, messages: list[dict[str, Any]]) -> None:
+        """Atomically replace the resumable provider history for one session."""
+
+        def replace() -> None:
+            with self._lock:
+                if self._closed:
+                    raise StoreClosed("session store is closed")
+                self._conn.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
+                self._conn.executemany(
+                    "INSERT INTO messages (session_id, idx, role, content_json)"
+                    " VALUES (?, ?, ?, ?)",
+                    [
+                        (session_id, index, item["role"], json.dumps(item["content"]))
+                        for index, item in enumerate(messages)
+                    ],
+                )
+                self._conn.commit()
+
+        await asyncio.to_thread(replace)
 
     async def messages(self, session_id: str) -> list[dict[str, Any]]:
         rows = await asyncio.to_thread(

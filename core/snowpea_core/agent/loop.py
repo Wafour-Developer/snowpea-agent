@@ -25,6 +25,7 @@ from snowpea_core.providers import content as content_parts
 from snowpea_core.providers.base import ChatMessage, ProviderError, ToolCall
 from snowpea_core.server import errors
 from snowpea_core.session import compaction, events
+from snowpea_core.session.history import message_to_json
 from snowpea_core.skills import hooks as plugin_hooks
 from snowpea_core.tools.registry import (
     Tool,
@@ -60,6 +61,18 @@ async def finish_turn(core: Core, session: Session, turn_id: str, reason: str) -
     :func:`run_turn` (CORE-session-race).
     """
     if not getattr(core, "stopping", False):
+        store = getattr(core, "store", None)
+        if store is not None:
+            try:
+                await store.replace_messages(
+                    session.id,
+                    [
+                        {"role": message.role, "content": message_to_json(message)}
+                        for message in session.history.snapshot()
+                    ],
+                )
+            except Exception:  # noqa: BLE001 - persistence must not fail a turn
+                log.debug("could not persist history for %s", session.id, exc_info=True)
         try:
             await compaction.emit_context(core, session, discover=False)
         except Exception:  # noqa: BLE001 - accounting must not fail a turn

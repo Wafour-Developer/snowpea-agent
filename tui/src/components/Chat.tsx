@@ -32,6 +32,10 @@ export interface ChatProps {
   insert?: string | null;
   /** Called once `insert` has been taken, so it is not applied twice. */
   onInserted?: () => void;
+  /** Literal text typed while focus was on a row below the input. */
+  append?: string | null;
+  /** Called once `append` has been restored to the draft. */
+  onAppended?: () => void;
   /**
    * `R` on an untouched input reopens the session the launch screen offered.
    *
@@ -63,6 +67,8 @@ export function Chat({
   onClipboard,
   insert = null,
   onInserted,
+  append = null,
+  onAppended,
   completions,
   disabled = false,
   placeholder = "ask anything, or /command",
@@ -86,6 +92,14 @@ export function Chat({
     // Only a new `insert` matters; the draft it is appended to is read live.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [insert]);
+
+  useEffect(() => {
+    if (!append) return;
+    update(value + append);
+    onAppended?.();
+    // Only a new `append` matters; the current draft is read live.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [append]);
 
   const update = (next: string) => {
     setValue(next);

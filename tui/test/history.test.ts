@@ -131,8 +131,8 @@ describe("priorSession", () => {
 describe("offerSession", () => {
   const local = { sessionId: "s-1", workdir: "/repo", firstPrompt: "do a thing", at: 100 };
 
-  it("offers nothing when the daemon has no session left to resume", () => {
-    expect(offerSession(local, null)).toBeNull();
+  it("offers the persisted local session after a daemon restart", () => {
+    expect(offerSession(local, null)).toEqual(local);
     expect(offerSession(null, null)).toBeNull();
   });
 

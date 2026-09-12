@@ -255,6 +255,37 @@ async def test_resume_returns_events_after_seq(
     await client.stop()
 
 
+async def test_resume_restores_a_persisted_session_after_daemon_restart(
+    http: aiohttp.ClientSession, tmp_path: Path
+) -> None:
+    home = tmp_path / "home"
+    workdir = tmp_path / "project"
+    workdir.mkdir()
+    with fake_provider(FIXTURE):
+        first = await make_daemon(home)
+        client = await connect(http, first)
+        session_id = await start_session(client, workdir, mode="auto")
+        turn_id = await prompt(client, session_id, "please run ls")
+        assert await client.wait_turn(turn_id) == "complete"
+        event_count = len(client.events)
+        await client.stop()
+        await first.stop()
+
+        second = await make_daemon(home)
+        resumed_client = await connect(http, second)
+        try:
+            resumed = await resumed_client.ok("session.resume", {"sessionId": session_id})
+            assert len(resumed["events"]) == event_count
+            restored = second.core.sessions.get(session_id)  # type: ignore[union-attr]
+            assert restored is not None
+            assert restored.mode == "auto"
+            assert restored.seq == resumed["events"][-1]["seq"]
+            assert len(restored.history) > 0
+        finally:
+            await resumed_client.stop()
+            await second.stop()
+
+
 async def test_session_list_and_close(
     daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path
 ) -> None:

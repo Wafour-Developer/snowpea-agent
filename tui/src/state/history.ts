@@ -191,16 +191,14 @@ export function priorSession(
 /**
  * The session the launch screen may offer, or null.
  *
- * Only a session the daemon still has can be resumed — `session.resume` on a
- * closed one fails — so the live list decides whether there is an offer at all,
- * and this surface's own record only supplies the prompt that makes the line
- * worth reading.
+ * A live session wins, while the local record remains resumable after a daemon
+ * restart because the daemon can rehydrate it from the persistent store.
  */
 export function offerSession(
   local: SessionRecord | null,
   live: SessionRecord | null,
 ): SessionRecord | null {
-  if (!live) return null;
+  if (!live) return local;
   if (!local || local.sessionId !== live.sessionId) return live;
   return { ...live, firstPrompt: local.firstPrompt, at: Math.max(live.at, local.at) };
 }
