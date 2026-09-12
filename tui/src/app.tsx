@@ -113,6 +113,7 @@ import { StatusHud } from "./components/StatusHud.js";
 import { AgentPanel } from "./components/AgentPanel.js";
 import { AttachmentChips } from "./components/AttachmentChips.js";
 import { AgentTranscript } from "./components/AgentTranscript.js";
+import { SectionRule } from "./components/SectionRule.js";
 import { LaunchBanner } from "./components/LaunchBanner.js";
 import { ShellList } from "./components/ShellList.js";
 import { ToolSummary } from "./components/ToolSummary.js";
@@ -853,7 +854,12 @@ export function App({
     headerRows: logoRows(terminal.rows) + HEADER_ROWS,
     // The HUD's rows, the context warning when there is one, the summary line
     // and every row of the agent panel.
-    statusRows: hudRows.length + (contextWarning(state.context) ? 1 : 0) + 1 + agentRows.length,
+    statusRows:
+      hudRows.length +
+      (contextWarning(state.context) ? 1 : 0) +
+      1 +
+      agentRows.length +
+      3,
     bottomRows: reserveBottomRows({
       paletteCommands: draft.startsWith("/") ? completions.length : 0,
       approvalArgs: state.pendingApproval
@@ -1400,12 +1406,14 @@ export function App({
   });
   const statusNode = (
     <>
+      <SectionRule width={contentWidth} />
       <StatusHud rows={hudRows} width={contentWidth} />
       {warning ? (
         <Text color={warning.color} bold={warning.bold} wrap="truncate-end">
           {warning.text}
         </Text>
       ) : null}
+      <SectionRule width={contentWidth} />
       <Text
         color={summary.color}
         dimColor={summary.dimColor && focus.zone !== "footer"}
@@ -1415,6 +1423,7 @@ export function App({
         {`${summary.text}${focus.zone === "footer" ? " · Enter to list them" : ""}`}
       </Text>
       {shellsOpen ? <ShellList calls={state.toolCalls} now={now} width={contentWidth} /> : null}
+      <SectionRule width={contentWidth} />
       <AgentPanel
         rows={agentRows}
         width={contentWidth}
