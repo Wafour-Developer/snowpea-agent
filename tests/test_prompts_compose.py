@@ -220,6 +220,17 @@ def test_identity_replaces_the_base_prompt() -> None:
     assert "You are snowpea" not in stable
 
 
+def test_persona_lands_after_the_role_and_keeps_the_rules() -> None:
+    """A named agent's own prompt adds to the discipline; it never replaces it."""
+    stable = compose.build_tiers(role="executor", persona="You are docbot.").stable
+    assert "You are snowpea" in stable
+    assert stable.index("Role: executor.") < stable.index("You are docbot.")
+
+
+def test_an_empty_persona_adds_nothing() -> None:
+    assert compose.build_tiers(persona="   ").stable == compose.build_tiers().stable
+
+
 def test_base_prompt_closes_the_named_gaps() -> None:
     base = loader.load("base")
     for marker in (

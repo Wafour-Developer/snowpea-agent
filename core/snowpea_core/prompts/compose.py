@@ -140,9 +140,16 @@ def build_tiers(
     context_fill: float | None = None,
     reply_language: str = "auto",
     identity: str | None = None,
+    persona: str = "",
     root: Path | None = None,
 ) -> PromptTiers:
-    """Build the three tiers separately, so a caller can measure or cache them."""
+    """Build the three tiers separately, so a caller can measure or cache them.
+
+    ``identity`` replaces ``base.md`` outright and is for a caller that wants a
+    bare prompt.  ``persona`` — an ``AgentDefinition``'s own prompt — is added
+    *after* the role instead, so a named agent gains its brief without losing
+    the coding discipline every other agent has.
+    """
     stable: list[str] = [identity.strip() if identity and identity.strip() else load("base", root)]
 
     vendor = vendor_class if vendor_class in VENDOR_CLASSES else "anthropic"
@@ -155,6 +162,7 @@ def build_tiers(
         stable.append(load("roles/_preamble", root))
     if role:
         stable.append(load(f"roles/{role}", root))
+    stable.append(persona)
     stable.append(reply_language_rule(reply_language))
 
     context: list[str] = [environment, context_files]
