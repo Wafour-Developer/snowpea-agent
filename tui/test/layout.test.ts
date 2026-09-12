@@ -135,8 +135,14 @@ describe("bottomRows", () => {
   });
 
   it("swaps the chat line for the approval prompt when one is up", () => {
-    expect(approvalPromptRows(2)).toBe(9);
-    expect(bottomRows({ approvalArgs: 2 })).toBe(9);
+    // Border, title, tool line, two args, a blank, then the six-row menu.
+    expect(approvalPromptRows(2)).toBe(13);
+    expect(bottomRows({ approvalArgs: 2 })).toBe(13);
+  });
+
+  it("reserves a row for the working indicator while a turn runs", () => {
+    expect(bottomRows({ workingVisible: true })).toBe(2);
+    expect(bottomRows({})).toBe(1);
   });
 
   it("counts the unattended backlog and the error row", () => {

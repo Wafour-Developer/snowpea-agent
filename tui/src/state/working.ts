@@ -11,7 +11,7 @@
 
 import { formatTokens } from "../layout/hud.js";
 import type { State, ToolCallEntry } from "./store.js";
-import { verbAt, verbsFor } from "./verbs.js";
+import { verbAt } from "./verbs.js";
 
 /** The glyphs the spinner cycles through. */
 export const SPINNER_FRAMES: readonly string[] = ["✢", "✳", "✶", "✻", "✽"];
@@ -114,15 +114,6 @@ export function derivePhase(
   return { kind: "thinking" };
 }
 
-/** The most recent thing the user said, which decides the verb language. */
-export function lastUserPrompt(state: State): string | null {
-  for (let index = state.messages.length - 1; index >= 0; index -= 1) {
-    const message = state.messages[index];
-    if (message.role === "user") return message.text;
-  }
-  return null;
-}
-
 /** `71000` → `1m 11s`. Coarser than the HUD's clock, and easier to read. */
 export function formatDuration(ms: number): string {
   const seconds = Math.max(0, Math.round(ms / 1000));
@@ -156,8 +147,6 @@ export interface WorkingLineInput {
   outputTokens?: number;
   /** Spinner frame index; the caller owns the timer. */
   frame?: number;
-  /** The prompt that started the turn, which decides the language. */
-  prompt?: string | null;
   /** Moves the verb list's starting point so turns do not all open alike. */
   verbOffset?: number;
 }
@@ -178,7 +167,7 @@ export function workingLine(input: WorkingLineInput): string | null {
   }
   if (phase.kind === "command") return `${spinner} ${phase.name}… ${stats}`;
 
-  const verb = verbAt(verbsFor(input.prompt), input.elapsedMs, input.verbOffset ?? 0);
+  const verb = verbAt(input.elapsedMs, input.verbOffset ?? 0);
   return `${spinner} ${verb}… ${stats}`;
 }
 

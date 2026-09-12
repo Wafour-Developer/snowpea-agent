@@ -39,6 +39,47 @@ export interface DiffEntry {
   id: string;
   path: string;
   patch: string;
+  /** True when the patch creates the file rather than changing it. */
+  created?: boolean;
+}
+
+/**
+ * How much of the model's context window the session is using.
+ *
+ * Filled from the `context` event. The daemon may not know the window size, in
+ * which case only `used` is meaningful.
+ */
+export interface ContextUsage {
+  used: number;
+  window: number | null;
+  percent: number | null;
+  /** True when the daemon counted tokens approximately rather than exactly. */
+  estimated: boolean;
+}
+
+/** One compaction, so the transcript can show where history was folded away. */
+export interface CompactionEntry {
+  id: string;
+  before: number;
+  after: number;
+}
+
+/** Team task states, counted for the board line (contract §1, team.task.update). */
+export type TeamTaskStatus =
+  | "pending"
+  | "queued"
+  | "claimed"
+  | "running"
+  | "done"
+  | "conflict"
+  | "merged"
+  | "failed";
+
+export interface TeamTaskEntry {
+  taskId: string;
+  teamId: string;
+  status: TeamTaskStatus;
+  assignee: string | null;
 }
 
 /** Lifecycle of one delegated subagent, mirroring `SubagentStatus`. */
@@ -58,6 +99,9 @@ export interface SubagentEntry {
   sessionId: string | null;
   inputTokens: number;
   outputTokens: number;
+  /** Wall-clock start and finish, so the panel can time each delegate. */
+  startedAt: number;
+  endedAt: number | null;
 }
 
 export type ApprovalSource = "interactive" | "queue";
@@ -75,7 +119,8 @@ export interface Usage {
 export type TimelineItem =
   | { kind: "message"; id: string }
   | { kind: "tool"; id: string }
-  | { kind: "diff"; id: string };
+  | { kind: "diff"; id: string }
+  | { kind: "compaction"; id: string };
 
 export interface State {
   sessionId: string | null;
@@ -94,7 +139,15 @@ export interface State {
   commands: CommandInfo[];
   /** Delegated children of this session, in the order they were spawned. */
   subagents: SubagentEntry[];
+  /** Team board, keyed by task; only present while a `/team` run is going. */
+  teamTasks: TeamTaskEntry[];
   usage: Usage;
+  /** Context-window usage, once the daemon has reported any. */
+  context: ContextUsage | null;
+  /** Compaction markers, drawn as dividers in the transcript. */
+  compactions: CompactionEntry[];
+  /** Tools the session has available, from `tool.list`. */
+  toolCount: number | null;
   lastSeq: number;
   turnActive: boolean;
   errors: string[];
@@ -114,7 +167,11 @@ export const initialState: State = {
   approvalQueue: [],
   commands: [],
   subagents: [],
+  teamTasks: [],
   usage: { inputTokens: 0, outputTokens: 0 },
+  context: null,
+  compactions: [],
+  toolCount: null,
   lastSeq: 0,
   turnActive: false,
   errors: [],
@@ -125,6 +182,7 @@ export type Action =
   | { type: "status"; status: ConnectionStatus }
   | { type: "mode"; mode: Mode }
   | { type: "commands"; commands: CommandInfo[] }
+  | { type: "tools"; count: number }
   | { type: "user/message"; text: string }
   | { type: "session/event"; event: SessionEvent }
   | { type: "approval/request"; request: ApprovalRequestParams }
@@ -141,6 +199,22 @@ function nextId(prefix: string): string {
 /** Exposed for deterministic ids in tests. */
 export function __resetIdCounter(): void {
   counter = 0;
+}
+
+/**
+ * True when a unified diff adds a file rather than editing one.
+ *
+ * `--- /dev/null` is the conventional marker; a patch with no removals and no
+ * old-file header is treated the same way, because not every producer writes
+ * the marker.
+ */
+export function isCreation(patch: string): boolean {
+  if (/^---\s+\/dev\/null/m.test(patch)) return true;
+  const lines = patch.split("\n").filter((line) => line.length > 0);
+  if (lines.length === 0) return false;
+  const body = lines.filter((line) => !/^(\+\+\+|---|@@|diff |index )/.test(line));
+  if (body.length === 0) return false;
+  return body.every((line) => line.startsWith("+"));
 }
 
 function pushTimeline(state: State, item: TimelineItem): TimelineItem[] {
@@ -249,10 +323,12 @@ function applySessionEvent(state: State, event: SessionEvent): State {
     }
 
     case "diff": {
+      const patch = String(payload.patch ?? "");
       const entry: DiffEntry = {
         id: nextId("diff"),
         path: String(payload.path ?? ""),
-        patch: String(payload.patch ?? ""),
+        patch,
+        created: payload.created === true || isCreation(patch),
       };
       return {
         ...base,
@@ -272,6 +348,10 @@ function applySessionEvent(state: State, event: SessionEvent): State {
         sessionId: typeof payload.sessionId === "string" ? payload.sessionId : null,
         inputTokens: 0,
         outputTokens: 0,
+        // Stamped here because the event carries no clock of its own; the panel
+        // needs a start to count from. `at` lets tests pin it.
+        startedAt: Number(payload.at ?? Date.now()),
+        endedAt: null,
       };
       // A spawn for an id we already track is a replay, not a second child.
       if (base.subagents.some((s) => s.agentId === entry.agentId)) return base;
@@ -284,6 +364,7 @@ function applySessionEvent(state: State, event: SessionEvent): State {
         status: (payload.status ?? entry.status) as SubagentStatus,
         lastText: String(payload.lastText ?? payload.text ?? entry.lastText),
         name: String(payload.name ?? entry.name),
+        outputTokens: Number(payload.usage?.outputTokens ?? entry.outputTokens),
         sessionId:
           typeof payload.sessionId === "string" ? payload.sessionId : entry.sessionId,
       }));
@@ -296,6 +377,7 @@ function applySessionEvent(state: State, event: SessionEvent): State {
         lastText: "",
         inputTokens: Number(payload.usage?.inputTokens ?? entry.inputTokens),
         outputTokens: Number(payload.usage?.outputTokens ?? entry.outputTokens),
+        endedAt: Number(payload.at ?? Date.now()),
       }));
 
     case "mode.changed":
@@ -309,6 +391,55 @@ function applySessionEvent(state: State, event: SessionEvent): State {
           outputTokens: base.usage.outputTokens + Number(payload.outputTokens ?? 0),
         },
       };
+
+    // The daemon reports context usage after every turn and after a compaction.
+    // Older daemons never send it, which is why the HUD hides the segment until
+    // the first one arrives.
+    case "context": {
+      const used = Number(payload.used ?? 0);
+      const window = payload.window === null || payload.window === undefined
+        ? null
+        : Number(payload.window);
+      const percent =
+        payload.percent === null || payload.percent === undefined
+          ? window && window > 0
+            ? (used / window) * 100
+            : null
+          : Number(payload.percent);
+      return {
+        ...base,
+        context: { used, window, percent, estimated: payload.estimated === true },
+      };
+    }
+
+    case "compaction": {
+      const entry: CompactionEntry = {
+        id: nextId("compaction"),
+        before: Number(payload.before ?? payload.from ?? 0),
+        after: Number(payload.after ?? payload.to ?? 0),
+      };
+      return {
+        ...base,
+        compactions: [...base.compactions, entry],
+        timeline: pushTimeline(base, { kind: "compaction", id: entry.id }),
+      };
+    }
+
+    case "team.task.update": {
+      const taskId = String(payload.taskId ?? "");
+      if (taskId.length === 0) return base;
+      const entry: TeamTaskEntry = {
+        taskId,
+        teamId: String(payload.teamId ?? ""),
+        status: (payload.status ?? "pending") as TeamTaskStatus,
+        assignee: typeof payload.assignee === "string" ? payload.assignee : null,
+      };
+      const index = base.teamTasks.findIndex((task) => task.taskId === taskId);
+      if (index === -1) return { ...base, teamTasks: [...base.teamTasks, entry] };
+      const teamTasks = base.teamTasks.slice();
+      teamTasks[index] = entry;
+      return { ...base, teamTasks };
+    }
 
     case "error":
       return {
@@ -346,6 +477,9 @@ export function reducer(state: State, action: Action): State {
 
     case "commands":
       return { ...state, commands: action.commands };
+
+    case "tools":
+      return { ...state, toolCount: action.count };
 
     case "user/message": {
       const message: Message = {

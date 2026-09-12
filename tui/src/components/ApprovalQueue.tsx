@@ -3,11 +3,11 @@
  *
  * These requests came from turns with no human attached — a scheduled job or a
  * gateway message — so any authenticated surface may answer them. The panel is
- * read-only until it is focused (Ctrl+A in the app), which keeps its single-key
+ * read-only until it is focused (Ctrl+R in the app), which keeps its single-key
  * actions from stealing characters from the chat line.
  *
  * Focused keys: ↑/↓ pick a request, ←/→ pick the scope, `a` allows, `d` (or
- * Esc) denies, Ctrl+A leaves. A `project` or `always` scope also stores an
+ * Esc) denies, Ctrl+R leaves. A `project` or `always` scope also stores an
  * allowlist pattern on the daemon, so the same command stops asking.
  */
 
@@ -38,7 +38,7 @@ export function ApprovalQueue({
 }: {
   requests: ApprovalEntry[];
   onRespond?: ApprovalQueueRespond;
-  /** True while the queue holds the keyboard; the app toggles it with Ctrl+A. */
+  /** True while the queue holds the keyboard; the app toggles it with Ctrl+R. */
   isActive?: boolean;
   onBlur?: () => void;
 }): React.ReactElement | null {
