@@ -148,8 +148,14 @@ const MASTERS: Record<string, readonly string[]> = {
 
 export const WORD = "snowpea";
 
-/** Letter widths tried, widest first. */
-export const LETTER_WIDTHS: readonly number[] = [20, 16, 13, 10, 8, 6];
+/**
+ * Letter widths tried, widest first.
+ *
+ * Dense enough that a terminal of any common width gets a wordmark that nearly
+ * fills it; the sizes that divide the master evenly (20, 15, 10) are the ones
+ * with perfectly even stroke weight, so they lead each range.
+ */
+export const LETTER_WIDTHS: readonly number[] = [20, 16, 15, 13, 12, 10, 8, 6];
 
 /** Blocks, indexed by (top set) + (bottom set) × 2. */
 const HALF_BLOCKS = [" ", "▀", "▄", "█"] as const;
