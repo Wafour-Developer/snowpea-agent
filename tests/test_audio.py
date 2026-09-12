@@ -12,7 +12,8 @@ from pathlib import Path
 import httpx
 import pytest
 
-from snowpea_core.audio import AudioConfig, audio_dir, capabilities
+from snowpea_core.audio import AudioConfig, audio_dir, capabilities, stt_providers
+from snowpea_core.audio import tts as tts_mod
 from snowpea_core.audio.player import (
     AudioError,
     available_players,
@@ -29,7 +30,19 @@ from snowpea_core.audio.stt import (
     build_provider,
     resolve_provider,
 )
-from snowpea_core.audio.tts import Speech, materialise, parse_result, synthesize
+from snowpea_core.audio.tts import (
+    CommandTTS,
+    EdgeTTS,
+    EspeakTTS,
+    OpenAITTS,
+    PiperTTS,
+    SayTTS,
+    Speech,
+    available_providers,
+    materialise,
+    parse_result,
+    synthesize,
+)
 
 
 def write_script(directory: Path, name: str, body: str) -> Path:
@@ -382,19 +395,31 @@ async def test_command_stt_needs_a_template(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_resolve_prefers_openai_then_whisper_then_command(only_path: Path) -> None:
+def test_resolve_prefers_local_whisper_then_openai_then_command(only_path: Path) -> None:
     assert resolve_provider("auto") is None
 
     write_script(only_path, "my-stt", "exit 0\n")
     chosen = resolve_provider("auto", command="my-stt {path}")
     assert chosen is not None and chosen.name == "command"
 
-    write_script(only_path, "whisper", "exit 0\n")
-    chosen = resolve_provider("auto", command="my-stt {path}")
-    assert chosen is not None and chosen.name == "local-whisper"
-
     chosen = resolve_provider("auto", api_key="sk-x", command="my-stt {path}")
     assert chosen is not None and chosen.name == "openai"
+
+    # A local CLI wins over the hosted API: the audio never leaves the machine.
+    write_script(only_path, "whisper", "exit 0\n")
+    chosen = resolve_provider("auto", api_key="sk-x", command="my-stt {path}")
+    assert chosen is not None and chosen.name == "local-whisper"
+
+
+def test_stt_providers_lists_everything_usable(only_path: Path) -> None:
+    write_script(only_path, "whisper", "exit 0\n")
+    write_script(only_path, "my-stt", "exit 0\n")
+    config = AudioConfig(openai_api_key="sk-x", stt_command="my-stt {path}")
+    assert stt_providers(config) == ["local-whisper", "openai", "command"]
+
+
+def test_stt_providers_is_empty_on_a_bare_machine(only_path: Path) -> None:
+    assert stt_providers(AudioConfig()) == []
 
 
 def test_resolve_a_named_provider_only_when_it_works(only_path: Path) -> None:
@@ -487,7 +512,7 @@ async def test_materialise_reports_a_missing_file(tmp_path: Path) -> None:
     assert excinfo.value.code == "synthesis_failed"
 
 
-async def test_synthesize_calls_the_media_tool(tmp_path: Path) -> None:
+async def test_studio_backend_calls_the_media_tool(tmp_path: Path) -> None:
     calls: list[tuple[str, dict[str, object]]] = []
     source = tmp_path / "spoken.wav"
     source.write_bytes(b"RIFF....WAVE")
@@ -506,6 +531,7 @@ async def test_synthesize_calls_the_media_tool(tmp_path: Path) -> None:
         "path": str(tmp_path / "out" / "s.wav"),
         "mime": "audio/wav",
         "voice": "ko-1",
+        "provider": "studio",
     }
 
 
@@ -528,6 +554,205 @@ async def test_synthesize_wraps_a_backend_failure(tmp_path: Path) -> None:
     assert "studio is down" in str(excinfo.value)
 
 
+async def test_synthesize_without_any_backend(only_path: Path, tmp_path: Path) -> None:
+    with pytest.raises(AudioError) as excinfo:
+        await synthesize("hi", out_dir=tmp_path)
+    assert excinfo.value.code == "no_tts"
+    assert "edge-tts" in str(excinfo.value)
+
+
+# -- openai speech
+
+
+async def test_openai_speech_writes_an_mp3(tmp_path: Path) -> None:
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["auth"] = request.headers.get("authorization")
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, content=b"ID3-mp3-bytes")
+
+    provider = OpenAITTS(
+        "sk-test",
+        client_factory=lambda: httpx.AsyncClient(
+            transport=httpx.MockTransport(handler), base_url="https://api.openai.com/v1"
+        ),
+    )
+    assert provider.available()
+    speech = await provider.synthesize("hello", out_dir=tmp_path, voice="nova", stem="s")
+
+    assert speech.path == tmp_path / "s.mp3"
+    assert speech.path.read_bytes() == b"ID3-mp3-bytes"
+    assert speech.mime == "audio/mpeg"
+    assert speech.provider == "openai"
+    assert seen["url"] == "https://api.openai.com/v1/audio/speech"
+    assert seen["auth"] == "Bearer sk-test"
+    assert seen["body"] == {
+        "model": "tts-1",
+        "input": "hello",
+        "voice": "nova",
+        "response_format": "mp3",
+    }
+
+
+async def test_openai_speech_reports_an_http_error(tmp_path: Path) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, text="slow down")
+
+    provider = OpenAITTS(
+        "sk-test",
+        client_factory=lambda: httpx.AsyncClient(
+            transport=httpx.MockTransport(handler), base_url="https://api.openai.com/v1"
+        ),
+    )
+    with pytest.raises(AudioError) as excinfo:
+        await provider.synthesize("hi", out_dir=tmp_path)
+    assert excinfo.value.code == "synthesis_failed"
+    assert "429" in str(excinfo.value)
+
+
+async def test_openai_speech_without_a_key(tmp_path: Path) -> None:
+    provider = OpenAITTS(None)
+    assert not provider.available()
+    with pytest.raises(AudioError) as excinfo:
+        await provider.synthesize("hi", out_dir=tmp_path)
+    assert excinfo.value.code == "no_tts"
+
+
+# -- local CLIs
+
+WRITER = """
+out=""
+next=0
+for a in "$@"; do
+  if [ "$next" = "1" ]; then out="$a"; next=0; fi
+  if [ "$a" = "{flag}" ]; then next=1; fi
+done
+printf '{magic}' > "$out"
+exit 0
+"""
+
+
+async def test_edge_tts_writes_an_mp3(only_path: Path, tmp_path: Path) -> None:
+    write_script(only_path, "edge-tts", WRITER.format(flag="--write-media", magic="ID3"))
+    provider = EdgeTTS()
+    assert provider.available()
+    speech = await provider.synthesize("hi", out_dir=tmp_path, voice="ko-KR-SunHiNeural", stem="s")
+    assert speech.path == tmp_path / "s.mp3"
+    assert speech.mime == "audio/mpeg"
+    assert speech.provider == "edge-tts"
+
+
+async def test_piper_takes_text_on_stdin(only_path: Path, tmp_path: Path) -> None:
+    write_script(
+        only_path,
+        "piper",
+        """
+out=""
+next=0
+for a in "$@"; do
+  if [ "$next" = "1" ]; then out="$a"; next=0; fi
+  if [ "$a" = "--output_file" ]; then next=1; fi
+done
+read spoken
+printf "RIFF$spoken" > "$out"
+exit 0
+""",
+    )
+    speech = await PiperTTS().synthesize("hello piper", out_dir=tmp_path, stem="s")
+    assert speech.path.read_bytes() == b"RIFFhello piper"
+    assert speech.mime == "audio/wav"
+
+
+async def test_espeak_and_say_argv(only_path: Path, tmp_path: Path) -> None:
+    assert EspeakTTS().argv("hi", tmp_path / "a.wav", "en") == [
+        "espeak-ng",
+        "-w",
+        str(tmp_path / "a.wav"),
+        "-v",
+        "en",
+        "hi",
+    ]
+    argv = SayTTS().argv("hi", tmp_path / "a.wav", None)
+    assert argv[:2] == ["say", "-o"]
+    assert argv[-1] == "hi"
+
+
+async def test_a_cli_that_writes_nothing_is_an_error(only_path: Path, tmp_path: Path) -> None:
+    write_script(only_path, "espeak-ng", 'echo "no voice data" >&2\nexit 0\n')
+    with pytest.raises(AudioError) as excinfo:
+        await EspeakTTS().synthesize("hi", out_dir=tmp_path, stem="s")
+    assert excinfo.value.code == "synthesis_failed"
+    assert "no voice data" in str(excinfo.value)
+
+
+async def test_a_failing_cli_is_reported(only_path: Path, tmp_path: Path) -> None:
+    write_script(only_path, "espeak-ng", 'echo "boom" >&2\nexit 4\n')
+    with pytest.raises(AudioError) as excinfo:
+        await EspeakTTS().synthesize("hi", out_dir=tmp_path, stem="s")
+    assert excinfo.value.code == "synthesis_failed"
+    assert "exited 4" in str(excinfo.value)
+
+
+async def test_command_tts_template(only_path: Path, tmp_path: Path) -> None:
+    write_script(only_path, "my-tts", 'printf "RIFF$1" > "$2"\nexit 0\n')
+    provider = CommandTTS("my-tts {text} {out}")
+    assert provider.available()
+    speech = await provider.synthesize("spoken", out_dir=tmp_path, stem="s")
+    assert speech.path.read_bytes() == b"RIFFspoken"
+    assert speech.provider == "command"
+
+
+def test_command_tts_needs_a_template() -> None:
+    assert not CommandTTS(None).available()
+
+
+# -- resolution
+
+
+def test_tts_resolution_order(only_path: Path) -> None:
+    assert tts_mod.resolve_provider("auto") is None
+
+    write_script(only_path, "espeak-ng", "exit 0\n")
+    chosen = tts_mod.resolve_provider("auto")
+    assert chosen is not None and chosen.name == "espeak-ng"
+
+    write_script(only_path, "edge-tts", "exit 0\n")
+    chosen = tts_mod.resolve_provider("auto")
+    assert chosen is not None and chosen.name == "edge-tts"
+
+    chosen = tts_mod.resolve_provider("auto", api_key="sk-x")
+    assert chosen is not None and chosen.name == "openai"
+
+    chosen = tts_mod.resolve_provider("auto", api_key="sk-x", studio_configured=True)
+    assert chosen is not None and chosen.name == "studio"
+
+
+def test_tts_named_provider_only_when_it_works(only_path: Path) -> None:
+    assert tts_mod.resolve_provider("piper") is None
+    assert tts_mod.resolve_provider("openai") is None
+    assert tts_mod.resolve_provider("openai", api_key="sk-x") is not None
+    assert tts_mod.resolve_provider("studio", studio_configured=True) is not None
+    assert tts_mod.resolve_provider("nonsense") is None
+
+
+def test_available_tts_providers(only_path: Path) -> None:
+    write_script(only_path, "piper", "exit 0\n")
+    write_script(only_path, "espeak-ng", "exit 0\n")
+    assert available_providers(studio_configured=True, api_key="sk-x") == [
+        "studio",
+        "openai",
+        "piper",
+        "espeak-ng",
+    ]
+
+
+def test_build_tts_provider_rejects_an_unknown_name() -> None:
+    with pytest.raises(AudioError):
+        tts_mod.build_provider("telepathy")
+
+
 # ---------------------------------------------------------------------------
 # capabilities
 # ---------------------------------------------------------------------------
@@ -537,38 +762,60 @@ def test_capabilities_on_a_bare_machine(only_path: Path) -> None:
     report = capabilities(AudioConfig())
     assert report["stt"] is None
     assert report["tts"] is False
+    assert report["ttsProvider"] is None
     assert report["record"] is False
     assert report["play"] is False
     assert report["autoSpeak"] is False
     assert set(report["reasons"]) == {"stt", "tts", "record", "play"}
     assert "whisper" in report["reasons"]["stt"]
+    assert "edge-tts" in report["reasons"]["tts"]
+    assert report["sttProviders"] == []
+    assert report["ttsProviders"] == []
 
 
 def test_capabilities_with_everything(only_path: Path) -> None:
     write_script(only_path, "mpv", "exit 0\n")
     write_script(only_path, "rec", "exit 0\n")
-    config = AudioConfig(openai_api_key="sk-x", auto_speak=True)
-    report = capabilities(config, tts_available=True)
-    assert report["stt"] == "openai"
+    write_script(only_path, "whisper", "exit 0\n")
+    write_script(only_path, "piper", "exit 0\n")
+    config = AudioConfig(
+        openai_api_key="sk-x", auto_speak=True, voice="nova", studio_configured=True
+    )
+    report = capabilities(config)
+    assert report["stt"] == "local-whisper"
     assert report["tts"] is True
+    assert report["ttsProvider"] == "studio"
+    assert report["voice"] == "nova"
     assert report["autoSpeak"] is True
     assert report["record"] is True
     assert report["play"] is True
     assert report["reasons"] == {}
     assert report["players"] == ["mpv"]
     assert report["recorders"] == ["sox"]
+    assert report["sttProviders"] == ["local-whisper", "openai"]
+    assert report["ttsProviders"] == ["studio", "openai", "piper"]
+
+
+def test_capabilities_falls_back_to_a_local_voice(only_path: Path) -> None:
+    """No studio and no key still speaks, as long as something is installed."""
+    write_script(only_path, "espeak-ng", "exit 0\n")
+    report = capabilities(AudioConfig())
+    assert report["tts"] is True
+    assert report["ttsProvider"] == "espeak-ng"
+    assert "tts" not in report["reasons"]
 
 
 def test_capabilities_explains_a_disabled_tts(only_path: Path) -> None:
-    report = capabilities(AudioConfig(tts_enabled=False), tts_available=True)
+    report = capabilities(AudioConfig(tts_enabled=False, studio_configured=True))
     assert report["tts"] is False
     assert "switched off" in report["reasons"]["tts"]
 
 
 def test_capabilities_names_an_unusable_provider(only_path: Path) -> None:
-    report = capabilities(AudioConfig(stt_provider="local-whisper"))
+    report = capabilities(AudioConfig(stt_provider="local-whisper", tts_provider="piper"))
     assert report["stt"] is None
     assert "local-whisper" in report["reasons"]["stt"]
+    assert "piper" in report["reasons"]["tts"]
 
 
 def test_audio_dir_is_scoped_by_session(tmp_path: Path) -> None:

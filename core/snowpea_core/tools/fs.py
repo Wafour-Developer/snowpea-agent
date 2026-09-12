@@ -11,6 +11,7 @@ import difflib
 import logging
 from typing import Any
 
+from snowpea_core.tools.config_guard import permission_for_write
 from snowpea_core.tools.registry import Tool, ToolContext, ToolResult
 from snowpea_core.vendor.hermes.tools.binary_extensions import (
     has_binary_extension,
@@ -187,6 +188,7 @@ TOOLS: tuple[Tool, ...] = (
             "required": ["path", "content"],
         },
         permission="write",
+        permission_for=permission_for_write,
         run=write_file,
     ),
     Tool(
@@ -207,6 +209,7 @@ TOOLS: tuple[Tool, ...] = (
             "required": ["path", "old", "new"],
         },
         permission="write",
+        permission_for=permission_for_write,
         run=edit_file,
     ),
     Tool(

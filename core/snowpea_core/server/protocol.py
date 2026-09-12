@@ -20,11 +20,14 @@ from pydantic import BaseModel, ConfigDict, Field
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.2.0"
+PROTOCOL_VERSION = "1.3.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
-PermissionTag = Literal["read", "write", "exec", "network", "send"]
+#: ``config`` marks a call that changes snowpea's own settings, credentials or
+#: state.  It is never a silent ``allow``: plan denies it, accept and auto both
+#: ask, and the allowlist may not promote it (CORE-search-fix).
+PermissionTag = Literal["read", "write", "exec", "network", "send", "config"]
 ToolState = Literal["active", "inactive"]
 #: ``builtin``, ``global``, ``project``, ``skill`` or ``plugin:<plugin name>``;
 #: a free string because a plugin names itself (M6 contract §1).
@@ -252,6 +255,28 @@ class SessionSummary(Payload):
     originSurface: str | None = Field(default=None, description="Surface that owns approvals.")
     createdAt: str = Field(description="UTC ISO-8601 creation timestamp.")
     seq: int = Field(default=0, description="Sequence number of the latest event.")
+    contextUsed: int = Field(
+        default=0, description="Tokens the session's current prompt occupies (CORE-context)."
+    )
+    contextWindow: int | None = Field(
+        default=None, description="Context window of the session's model; null when unknown."
+    )
+
+
+class SessionCompactParams(Payload):
+    """``session.compact`` — summarise the conversation and replace it."""
+
+    sessionId: str = Field(description="Session whose history to compact.")
+    instructions: str | None = Field(
+        default=None,
+        description="Extra guidance for the summary, e.g. 'keep the API design decisions'.",
+    )
+
+
+class SessionCompactResult(Payload):
+    before: int = Field(default=0, description="Estimated tokens the history held before.")
+    after: int = Field(default=0, description="Estimated tokens the history holds now.")
+    summaryChars: int = Field(default=0, description="Length of the summary in characters.")
 
 
 class SessionListResult(Payload):
@@ -328,6 +353,13 @@ class ToolInfo(Payload):
     )
     source: str = Field(default="builtin", description="builtin, skill, plugin or MCP server name.")
     description: str = Field(default="", description="Text shown to the model.")
+    provider: str = Field(
+        default="",
+        description=(
+            "Backing provider for tools that have one, e.g. the web-search provider id; "
+            'reads "configured → answering" when the configured one cannot run.'
+        ),
+    )
 
 
 class ToolListResult(Payload):
@@ -349,6 +381,12 @@ class ApprovalRequest(Payload):
     risk: str = Field(default="low", description="Risk hint for the UI.")
     timeoutSec: int = Field(default=300, description="Seconds before the request auto-denies.")
     scopeHint: ApprovalScope = Field(default="once", description="Scope the UI should preselect.")
+    note: str = Field(
+        default="",
+        description=(
+            "Extra warning shown with the prompt, e.g. \"modifies snowpea configuration\"."
+        ),
+    )
 
 
 class ApprovalListResult(Payload):
@@ -1091,6 +1129,44 @@ class UsageEvent(Payload):
     outputTokens: int = Field(default=0, description="Completion tokens produced.")
 
 
+class ContextEvent(Payload):
+    """How full the model's context window is (CORE-context).
+
+    Emitted after every turn and after every compaction, so a surface can show
+    ``used / window`` without asking.  ``used`` is the size of the prompt that
+    was (or would be) sent — system prompt, history and tool results — not a
+    running total of the session's tokens.
+    """
+
+    kind: Literal["context"] = "context"
+    used: int = Field(default=0, description="Tokens the current prompt occupies.")
+    window: int | None = Field(
+        default=None, description="Context window of the model in tokens; null when unknown."
+    )
+    percent: float | None = Field(
+        default=None, description="used/window as a percentage, null when the window is unknown."
+    )
+    estimated: bool = Field(
+        default=True,
+        description="True while 'used' is a local estimate; false once the provider reported it.",
+    )
+    model: str | None = Field(default=None, description="Model the window belongs to.")
+    provider: str | None = Field(default=None, description="Vendor serving that model.")
+
+
+class CompactionEvent(Payload):
+    """The conversation was summarised and replaced (CORE-context)."""
+
+    kind: Literal["compaction"] = "compaction"
+    before: int = Field(default=0, description="Estimated tokens the history held before.")
+    after: int = Field(default=0, description="Estimated tokens the history holds now.")
+    summaryChars: int = Field(default=0, description="Length of the summary in characters.")
+    auto: bool = Field(
+        default=False, description="True when the auto-compaction threshold triggered it."
+    )
+    kept: int = Field(default=0, description="Messages kept verbatim after the summary.")
+
+
 class ErrorEvent(Payload):
     """Something went wrong inside a turn."""
 
@@ -1120,6 +1196,8 @@ SessionEventPayload = Annotated[
     | ModeChanged
     | BackendChanged
     | UsageEvent
+    | ContextEvent
+    | CompactionEvent
     | ErrorEvent
     | TurnDone,
     Field(discriminator="kind"),
@@ -1139,6 +1217,8 @@ SESSION_EVENT_MODELS: dict[str, type[BaseModel]] = {
     "mode.changed": ModeChanged,
     "backend.changed": BackendChanged,
     "usage": UsageEvent,
+    "context": ContextEvent,
+    "compaction": CompactionEvent,
     "error": ErrorEvent,
     "turn.done": TurnDone,
 }
@@ -1343,6 +1423,12 @@ METHODS: dict[str, RpcMethod] = {
             "Send user text to a session and start a turn.",
         ),
         _m("session.interrupt", SessionIdParams, Ok, "Stop the running turn as soon as possible."),
+        _m(
+            "session.compact",
+            SessionCompactParams,
+            SessionCompactResult,
+            "Summarise the conversation so far and replace the history with it.",
+        ),
         _m(
             "session.setMode",
             SessionSetModeParams,
@@ -1554,6 +1640,7 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "session.close",
         "session.prompt",
         "session.interrupt",
+        "session.compact",
         "session.setMode",
         "command.list",
         "command.run",

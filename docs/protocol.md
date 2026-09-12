@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.2.0` (semver)
+- **Protocol version:** `1.3.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.2.0"
+    "protocolVersion": "1.3.0"
   }
 }
 ```
@@ -80,6 +80,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`provider.loginWeb`](#providerloginweb) | client → server | Start a browser-based login flow for a provider. |
 | [`provider.models`](#providermodels) | client → server | Ask a vendor's endpoint which models it serves. |
 | [`session.close`](#sessionclose) | client → server | Close a session and release its resources. |
+| [`session.compact`](#sessioncompact) | client → server | Summarise the conversation so far and replace the history with it. |
 | [`session.create`](#sessioncreate) | client → server | Open a session rooted at a working directory. |
 | [`session.interrupt`](#sessioninterrupt) | client → server | Stop the running turn as soon as possible. |
 | [`session.list`](#sessionlist) | client → server | List every live session. |
@@ -219,7 +220,7 @@ List tool calls still waiting for a decision.
 
 | field | type | required | description |
 |---|---|---|---|
-| `requests` | `({ args?: Record<string, unknown>; requestId: string; risk?: string; scopeHint?: "once" \| "session" \| "project" \| "always"; sessionId: string; timeoutSec?: number; tool: string; })[]` | no | Approvals still pending. |
+| `requests` | `({ args?: Record<string, unknown>; note?: string; requestId: string; risk?: string; scopeHint?: "once" \| "session" \| "project" \| "always"; sessionId: string; timeoutSec?: number; tool: string; })[]` | no | Approvals still pending. |
 
 ### `approval.request`
 
@@ -232,6 +233,7 @@ Ask the client to approve a tool call.
 | field | type | required | description |
 |---|---|---|---|
 | `args` | `Record<string, unknown>` | no | Arguments it wants to use. |
+| `note` | `string` | no | Extra warning shown with the prompt, e.g. "modifies snowpea configuration". |
 | `requestId` | `string` | yes | Id to answer with approval.respond. |
 | `risk` | `string` | no | Risk hint for the UI. |
 | `scopeHint` | `"once" \| "session" \| "project" \| "always"` | no | Scope the UI should preselect. |
@@ -666,6 +668,27 @@ Close a session and release its resources.
 |---|---|---|---|
 | `ok` | `boolean` | no | True when the call succeeded. |
 
+### `session.compact`
+
+*Direction:* client → server
+
+Summarise the conversation so far and replace the history with it.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `instructions` | `string \| null` | no | Extra guidance for the summary, e.g. 'keep the API design decisions'. |
+| `sessionId` | `string` | yes | Session whose history to compact. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `after` | `number` | no | Estimated tokens the history holds now. |
+| `before` | `number` | no | Estimated tokens the history held before. |
+| `summaryChars` | `number` | no | Length of the summary in characters. |
+
 ### `session.create`
 
 *Direction:* client → server
@@ -722,7 +745,7 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `sessions` | `({ createdAt: string; mode: "plan" \| "accept" \| "auto"; model?: string \| null; originSurface?: string \| null; provider?: string \| null; seq?: number; sessionId: string; workdir: string; })[]` | no | Every live session. |
+| `sessions` | `({ contextUsed?: number; contextWindow?: number \| null; createdAt: string; mode: "plan" \| "accept" \| "auto"; model?: string \| null; originSurface?: string \| null; provider?: string \| null; seq?: number; sessionId: string; workdir: string; })[]` | no | Every live session. |
 
 ### `session.prompt`
 
@@ -1144,7 +1167,7 @@ List the tools registered for a session.
 
 | field | type | required | description |
 |---|---|---|---|
-| `tools` | `({ category: string; description?: string; name: string; permissionTag: "read" \| "write" \| "exec" \| "network" \| "send"; source?: string; state?: "active" \| "inactive"; })[]` | no | Registered tools. |
+| `tools` | `({ category: string; description?: string; name: string; permissionTag: "read" \| "write" \| "exec" \| "network" \| "send" \| "config"; provider?: string; source?: string; state?: "active" \| "inactive"; })[]` | no | Registered tools. |
 
 ## Notifications
 
@@ -1152,7 +1175,7 @@ List the tools registered for a session.
 
 | field | type | required | description |
 |---|---|---|---|
-| `request` | `{ args?: Record<string, unknown>; requestId: string; risk?: string; scopeHint?: "once" \| "session" \| "project" \| "always"; sessionId: string; timeoutSec?: number; tool: string; }` | yes | The request now in the shared queue. |
+| `request` | `{ args?: Record<string, unknown>; note?: string; requestId: string; risk?: string; scopeHint?: "once" \| "session" \| "project" \| "always"; sessionId: string; timeoutSec?: number; tool: string; }` | yes | The request now in the shared queue. |
 
 ### `approval.resolved`
 
@@ -1232,6 +1255,29 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 |---|---|---|---|
 | `backend` | `"local" \| "docker" \| "ssh"` | yes | Where tools now execute. |
 | `kind` | `"backend.changed"` | no |  |
+
+### kind `compaction`
+
+| field | type | required | description |
+|---|---|---|---|
+| `after` | `number` | no | Estimated tokens the history holds now. |
+| `auto` | `boolean` | no | True when the auto-compaction threshold triggered it. |
+| `before` | `number` | no | Estimated tokens the history held before. |
+| `kept` | `number` | no | Messages kept verbatim after the summary. |
+| `kind` | `"compaction"` | no |  |
+| `summaryChars` | `number` | no | Length of the summary in characters. |
+
+### kind `context`
+
+| field | type | required | description |
+|---|---|---|---|
+| `estimated` | `boolean` | no | True while 'used' is a local estimate; false once the provider reported it. |
+| `kind` | `"context"` | no |  |
+| `model` | `string \| null` | no | Model the window belongs to. |
+| `percent` | `number \| null` | no | used/window as a percentage, null when the window is unknown. |
+| `provider` | `string \| null` | no | Vendor serving that model. |
+| `used` | `number` | no | Tokens the current prompt occupies. |
+| `window` | `number \| null` | no | Context window of the model in tokens; null when unknown. |
 
 ### kind `diff`
 

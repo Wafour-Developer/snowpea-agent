@@ -51,6 +51,14 @@ class Session:
     interrupt: asyncio.Event = field(default_factory=asyncio.Event)
     turn_task: asyncio.Task[Any] | None = None
     current_turn: str | None = None
+    #: Tokens the current prompt occupies, provider-reported when
+    #: :attr:`context_estimated` is False (CORE-context).
+    context_used: int = 0
+    #: True while :attr:`context_used` is a local estimate rather than a count
+    #: the provider itself reported.
+    context_estimated: bool = True
+    #: Context window of :attr:`model` in tokens; ``None`` when unknown.
+    context_window: int | None = None
     #: Where this session's tools run; ``backend.set`` / ``/backend`` swaps it
     #: (US-010).  Defaults to the local machine, rooted at :attr:`workdir`.
     backend: ExecutionBackend = None  # type: ignore[assignment]
@@ -80,6 +88,8 @@ class Session:
             originSurface=self.origin_surface,
             createdAt=self.created_at,
             seq=self.seq,
+            contextUsed=self.context_used,
+            contextWindow=self.context_window,
         )
 
 

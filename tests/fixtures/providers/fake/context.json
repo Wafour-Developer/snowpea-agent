@@ -1,0 +1,13 @@
+{
+  "steps": [
+    {
+      "match": "summarise the conversation below",
+      "text": "Goal: exercise compaction. Decisions: none. Files: none. Pending: none. Preferences: none.",
+      "repeat": true
+    }
+  ],
+  "default": {
+    "text": "acknowledged; carrying on with the task and reporting what changed so far",
+    "repeat": true
+  }
+}

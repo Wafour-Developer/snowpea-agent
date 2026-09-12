@@ -17,6 +17,7 @@ That prints the live registry, including commands contributed by installed plugi
 |---|---|
 | `/help` | list every available command |
 | `/tools` | list registered tools with category, permission and state |
+| `/compact [instructions]` | summarise the conversation so far and continue with the summary |
 | `/plan`, `/accept`, `/auto` | switch mode |
 | `/mode [plan\|accept\|auto\|save\|show]` | show, switch, or save the project default |
 | `/approvals` | list unattended approvals waiting for an answer |
@@ -67,7 +68,27 @@ snowpea agents --json
 snowpea daemon status --json
 ```
 
-`tools list` and `commands list` call one RPC method each and exit. They create no session and call no model, which makes them the right smoke test after an install or in CI.
+`tools list` and `commands list` call one RPC method each and exit. They create no session and call no model, which makes them the right smoke test after an install or in CI. `tools list` also prints the backing provider for the tools that have one, so `web_search` shows the search provider that would actually answer.
+
+### Context
+
+```bash
+snowpea session context --json
+snowpea session compact s-abc123 "keep the API design decisions"
+```
+
+`session context` prints one line per live session: tokens used, the model's context window, and the percentage between them. A window the daemon cannot determine prints as `?` rather than a guess — every hosted vendor is in a static table, a local vLLM or Ollama server is asked once and cached, and `providers.<vendor>.context_window` in `settings.json` overrides both.
+
+Compaction keeps a long session inside that window. `/compact` summarises everything so far into one "Session summary" system message, keeps the last few messages verbatim and continues from there; `session compact` is the same thing from the shell. It also happens on its own once a turn would pass `context.autoCompactPercent` of the window (85 by default), between turns and never in the middle of a tool loop. Set `context.autoCompact` to `false` to leave it to `/compact` alone.
+
+### Search
+
+```bash
+snowpea search test "snowpea agent github"
+snowpea search test "snowpea agent github" --json
+```
+
+`search test` runs one real query with the configured provider and prints which provider answered, plus the reason each skipped provider dropped out — an API key that is missing, an instance URL that is not set, an HTTP error. It needs no daemon: it reads `$SNOWPEA_HOME/settings.json` directly. Exit code is 0 when some provider answered and 2 when none could.
 
 ### Daemon
 

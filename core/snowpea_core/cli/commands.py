@@ -114,6 +114,9 @@ async def tools_list(home: Path | str | None = None, *, as_json: bool = False) -
         tag = str(tool.get("permissionTag", "?"))
         state = str(tool.get("state", "active"))
         suffix = "" if state == "active" else f" [{state}]"
+        provider = str(tool.get("provider", "") or "")
+        if provider:
+            suffix += f" [provider: {provider}]"
         print(f"{name:<{width}}  {tag:<8}{suffix} {tool.get('description', '')}".rstrip())
     return EXIT_OK
 
@@ -295,6 +298,77 @@ async def provider_login(vendor: str, home: Path | str | None = None) -> int:
 # ---------------------------------------------------------------------------
 
 
+async def search_test(query: str, home: Path | str | None = None, *, as_json: bool = False) -> int:
+    """``snowpea search test "<query>"`` — one real query, and the honest verdict.
+
+    Runs in this process against ``$SNOWPEA_HOME/settings.json``, so it works
+    with the daemon down and answers the only question a user has after picking
+    a provider: is my choice the one actually being used?
+    """
+    from snowpea_core.config.settings import Settings
+    from snowpea_core.tools import search_providers, web
+
+    if not query.strip():
+        return _fail('usage: snowpea search test "<query>"', EXIT_USAGE)
+    paths = Paths.create(home)
+    settings = Settings.load(paths)
+    configured = web.configured_provider(settings)
+    if search_providers.get(configured) is None:
+        return _fail(f"unknown search provider in settings: {configured}", EXIT_USAGE)
+
+    skipped: list[dict[str, str]] = []
+    answered: dict[str, Any] | None = None
+    for provider in search_providers.chain(configured):
+        pid = provider.meta.id
+        provider.bind(settings)
+        if not provider.available(settings):
+            skipped.append({"provider": pid, "reason": web.unavailable_reason(provider, settings)})
+            continue
+        try:
+            hits = await provider.search(query, limit=5)
+        except Exception as exc:  # noqa: BLE001 - report, never raise, at the CLI
+            skipped.append({"provider": pid, "reason": f"{type(exc).__name__}: {exc}"})
+            continue
+        if not hits:
+            skipped.append({"provider": pid, "reason": "no results"})
+            continue
+        answered = {
+            "provider": pid,
+            "results": [
+                {"title": hit.title, "url": hit.url, "snippet": hit.snippet} for hit in hits
+            ],
+        }
+        break
+
+    payload = {
+        "query": query,
+        "configured": configured,
+        "provider": answered["provider"] if answered else None,
+        "fallback_from": (
+            configured if answered and answered["provider"] != configured else None
+        ),
+        "skipped": skipped,
+        "results": answered["results"] if answered else [],
+    }
+    if as_json:
+        _print_json(payload)
+        return EXIT_OK if answered else EXIT_USAGE
+
+    print(f"configured provider: {configured}")
+    for entry in skipped:
+        print(f"  skipped {entry['provider']}: {entry['reason']}")
+    if not answered:
+        print("no provider could answer; web_search would fail the same way")
+        return EXIT_USAGE
+    if answered["provider"] != configured:
+        print(f"answered by:         {answered['provider']}  (fallback from {configured})")
+    else:
+        print(f"answered by:         {answered['provider']}")
+    for row in answered["results"]:
+        print(f"  {row['title']}\n    {row['url']}")
+    return EXIT_OK
+
+
 def setup_command(args: argparse.Namespace, home: Path | str | None = None) -> int:
     """``snowpea setup [--quick|--full|--blank] [flags]`` (M3 contract §5).
 
@@ -322,6 +396,7 @@ def setup_command(args: argparse.Namespace, home: Path | str | None = None) -> i
             model=getattr(args, "model", None),
             base_url=getattr(args, "base_url", None),
             search_provider=getattr(args, "search_provider", None),
+            search_key=getattr(args, "search_key", None),
             browser_provider=getattr(args, "browser_provider", None),
             tools=getattr(args, "tools", None),
             gateway=getattr(args, "gateway", None),
@@ -964,6 +1039,79 @@ def placeholder(name: str) -> int:
 
 
 # ---------------------------------------------------------------------------
+# session context / compaction (CORE-context)
+# ---------------------------------------------------------------------------
+
+
+def format_context_line(summary: dict[str, Any]) -> str:
+    """``"s-abc  12.3k / 200.0k (6.2%)"`` for one ``session.list`` row."""
+    from snowpea_core.cli.render import format_tokens
+
+    used = int(summary.get("contextUsed", 0) or 0)
+    window = summary.get("contextWindow")
+    model = str(summary.get("model") or "?")
+    if window:
+        percent = round(used * 100.0 / int(window), 1)
+        size = f"{format_tokens(used)} / {format_tokens(int(window))} ({percent}%)"
+    else:
+        size = f"{format_tokens(used)} / ?"
+    return f"{summary.get('sessionId', '?')}  {size}  {model}"
+
+
+async def session_context(
+    session_id: str | None = None, home: Path | str | None = None, *, as_json: bool = False
+) -> int:
+    """``snowpea session context [id] [--json]`` → the ``session.list`` rows."""
+    try:
+        sessions = await _lookup(home, "session.list", "sessions")
+    except DaemonError as exc:
+        return _fail(str(exc), EXIT_NO_DAEMON)
+    except RpcCallError as exc:
+        return _fail(f"session.list failed ({exc.code}): {exc.message}", EXIT_USAGE)
+    if session_id:
+        sessions = [row for row in sessions if str(row.get("sessionId")) == session_id]
+        if not sessions:
+            return _fail(f"no such session: {session_id}", EXIT_USAGE)
+    if as_json:
+        _print_json(sessions)
+        return EXIT_OK
+    if not sessions:
+        print("no live sessions")
+        return EXIT_OK
+    for row in sessions:
+        print(format_context_line(row))
+    return EXIT_OK
+
+
+async def session_compact(
+    session_id: str,
+    home: Path | str | None = None,
+    *,
+    instructions: str | None = None,
+    as_json: bool = False,
+) -> int:
+    """``snowpea session compact <id> [instructions]`` → ``session.compact``."""
+    from snowpea_core.cli.render import format_tokens
+
+    params: dict[str, Any] = {"sessionId": session_id}
+    if instructions:
+        params["instructions"] = instructions
+    try:
+        result = await _call(home, "session.compact", params, timeout=None)
+    except DaemonError as exc:
+        return _fail(str(exc), EXIT_NO_DAEMON)
+    except RpcCallError as exc:
+        return _fail(f"session.compact failed ({exc.code}): {exc.message}", EXIT_USAGE)
+    if as_json:
+        _print_json(result)
+        return EXIT_OK
+    before = format_tokens(int(result.get("before", 0) or 0))
+    after = format_tokens(int(result.get("after", 0) or 0))
+    print(f"compacted {session_id}: ~{before} → ~{after} tokens")
+    return EXIT_OK
+
+
+# ---------------------------------------------------------------------------
 # parser wiring
 # ---------------------------------------------------------------------------
 
@@ -981,6 +1129,28 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
     commands_sub = commands.add_subparsers(dest="action", metavar="<action>")
     commands_list_parser = commands_sub.add_parser("list", help="list registered commands")
     commands_list_parser.add_argument(
+        "--json", dest="sub_json", action="store_true", help="emit JSON"
+    )
+
+    session_parser = sub.add_parser("session", help="inspect live sessions")
+    session_sub = session_parser.add_subparsers(dest="action", metavar="<action>")
+    session_context_parser = session_sub.add_parser(
+        "context", help="show how full each session's context window is"
+    )
+    session_context_parser.add_argument(
+        "session_id", nargs="?", default=None, help="only this session"
+    )
+    session_context_parser.add_argument(
+        "--json", dest="sub_json", action="store_true", help="emit JSON"
+    )
+    session_compact_parser = session_sub.add_parser(
+        "compact", help="summarise a session's conversation and replace it"
+    )
+    session_compact_parser.add_argument("session_id", help="session to compact")
+    session_compact_parser.add_argument(
+        "instructions", nargs="?", default=None, help="what the summary must keep"
+    )
+    session_compact_parser.add_argument(
         "--json", dest="sub_json", action="store_true", help="emit JSON"
     )
 
@@ -1004,6 +1174,16 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
     )
     provider_login_parser.add_argument("vendor", help="vendor to log into")
 
+    search = sub.add_parser("search", help="check the web-search provider")
+    search_sub = search.add_subparsers(dest="action", metavar="<action>")
+    search_test_parser = search_sub.add_parser(
+        "test", help="run one query with the configured provider and say which one answered"
+    )
+    search_test_parser.add_argument("query", help="what to search for")
+    search_test_parser.add_argument(
+        "--json", dest="sub_json", action="store_true", help="emit JSON"
+    )
+
     setup_parser = sub.add_parser("setup", help="configure providers, search, tools")
     setup_parser.add_argument(
         "section",
@@ -1026,6 +1206,12 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
     setup_parser.add_argument("--base-url", dest="base_url", default=None, help="API base URL")
     setup_parser.add_argument(
         "--search-provider", dest="search_provider", default=None, help="web-search provider id"
+    )
+    setup_parser.add_argument(
+        "--search-key",
+        dest="search_key",
+        default=None,
+        help="API key for --search-provider (saved under search.credentials)",
     )
     setup_parser.add_argument(
         "--browser-provider", dest="browser_provider", default=None, help="browser provider id"
@@ -1172,12 +1358,32 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
         if action != "list":
             return _fail("usage: snowpea tools list [--json]", EXIT_USAGE)
         return await tools_list(home, as_json=as_json)
+    if subcommand == "search":
+        if action != "test":
+            return _fail('usage: snowpea search test "<query>" [--json]', EXIT_USAGE)
+        return await search_test(str(getattr(args, "query", "") or ""), home, as_json=as_json)
     if subcommand == "commands":
         if action != "list":
             return _fail("usage: snowpea commands list [--json]", EXIT_USAGE)
         return await commands_list(home, as_json=as_json)
     if subcommand == "agents":
         return await agents_list(home, as_json=as_json)
+    if subcommand == "session":
+        if action == "context":
+            return await session_context(
+                getattr(args, "session_id", None) or None, home, as_json=as_json
+            )
+        if action == "compact":
+            return await session_compact(
+                str(getattr(args, "session_id", "") or ""),
+                home,
+                instructions=getattr(args, "instructions", None) or None,
+                as_json=as_json,
+            )
+        return _fail(
+            "usage: snowpea session context [id] [--json] | compact <id> [instructions]",
+            EXIT_USAGE,
+        )
     if subcommand == "update":
         return await update_cli(
             home, check_only=bool(getattr(args, "check_only", False)), as_json=as_json
@@ -1285,6 +1491,7 @@ __all__ = [
     "provider_login",
     "provider_models",
     "resolve_install_source",
+    "search_test",
     "setup_command",
     "skill_command",
     "team_status",

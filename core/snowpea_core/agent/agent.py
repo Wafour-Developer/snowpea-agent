@@ -33,6 +33,30 @@ BASE_PROMPT = (
     "means, not what you are about to try."
 )
 
+#: Appended to every system prompt.  An agent asked to *show* a settings file
+#: has rewritten it instead, so the rule is spelled out rather than implied.
+CONFIG_RULE = (
+    "Snowpea's own configuration — $SNOWPEA_HOME (settings.json, "
+    "credentials.json, state.db, token, logs) and <workdir>/.snowpea — is not "
+    "ordinary project state.\n"
+    "- To show configuration, read it: call settings_get, or read_file. Showing "
+    "is never a reason to write.\n"
+    "- Never change settings or credentials unless the user explicitly asked "
+    "for that change. Guessing at a fix is not a request.\n"
+    "- When a change is asked for, make it with settings_set or by telling the "
+    "user the `snowpea setup …` command, not by rewriting settings.json by "
+    "hand. Those writes always need the user's approval.\n"
+    "- If a tool result says it fell back to another provider, say so in your "
+    "reply instead of presenting the result as what the user configured."
+)
+
+#: What the web-search fallback prefix looks like, so the model recognises it.
+SEARCH_HONESTY_HINT = (
+    "web_search output beginning with `[search via <id> — fallback from <id>: "
+    "<reason>]` means the configured provider did not answer; repeat that "
+    "reason to the user."
+)
+
 
 @dataclass
 class AgentConfig:
@@ -58,6 +82,8 @@ def build_system_prompt(
     parts = [
         getattr(session, "system_prompt", None) or BASE_PROMPT,
         MODE_GUIDANCE.get(session.mode, MODE_GUIDANCE["accept"]),
+        CONFIG_RULE,
+        SEARCH_HONESTY_HINT,
         f"Working directory: {session.workdir}",
     ]
     if tools:
@@ -81,7 +107,9 @@ def build_messages(
 
 __all__ = [
     "BASE_PROMPT",
+    "CONFIG_RULE",
     "MODE_GUIDANCE",
+    "SEARCH_HONESTY_HINT",
     "AgentConfig",
     "build_messages",
     "build_system_prompt",

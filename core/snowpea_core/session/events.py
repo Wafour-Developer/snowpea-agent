@@ -12,6 +12,8 @@ from typing import Any
 from snowpea_core.server.protocol import (
     SESSION_EVENT_MODELS,
     BackendChanged,
+    CompactionEvent,
+    ContextEvent,
     DiffEvent,
     ErrorEvent,
     MessageDelta,
@@ -66,6 +68,39 @@ def usage(input_tokens: int, output_tokens: int) -> Event:
     return _pack(UsageEvent(inputTokens=input_tokens, outputTokens=output_tokens))
 
 
+def context(
+    used: int,
+    window: int | None,
+    *,
+    estimated: bool = True,
+    model: str | None = None,
+    provider: str | None = None,
+) -> Event:
+    """How full the context window is; ``percent`` is derived here (CORE-context)."""
+    percent = round(used * 100.0 / window, 1) if window else None
+    return _pack(
+        ContextEvent(
+            used=used,
+            window=window,
+            percent=percent,
+            estimated=estimated,
+            model=model,
+            provider=provider,
+        )
+    )
+
+
+def compaction(
+    before: int, after: int, summary_chars: int, *, auto: bool = False, kept: int = 0
+) -> Event:
+    """The conversation was summarised and replaced (CORE-context)."""
+    return _pack(
+        CompactionEvent(
+            before=before, after=after, summaryChars=summary_chars, auto=auto, kept=kept
+        )
+    )
+
+
 def error(code: str, message: str) -> Event:
     return _pack(ErrorEvent(code=code, message=message))
 
@@ -87,6 +122,8 @@ def validate(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
 __all__ = [
     "Event",
     "backend_changed",
+    "compaction",
+    "context",
     "diff",
     "error",
     "message_delta",

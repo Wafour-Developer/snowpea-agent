@@ -86,6 +86,8 @@ class _Pending:
     task: asyncio.Task[None] | None = field(default=None)
     #: Session workdir, kept so a ``project`` answer knows where to write.
     workdir: Any = None
+    #: False for ``config`` calls: a wide answer must not silence the next one.
+    cacheable: bool = True
 
 
 
@@ -176,9 +178,16 @@ class ApprovalQueue:
         timeout_sec: int | None = None,
         scope_hint: str = "once",
         cancel_event: asyncio.Event | None = None,
+        note: str = "",
+        cacheable: bool = True,
     ) -> Decision:
-        """Ask for permission to run ``tool``; block until answered or denied."""
-        if self.cached(session.id, tool, args):
+        """Ask for permission to run ``tool``; block until answered or denied.
+
+        ``note`` is the extra warning the surface shows with the prompt.
+        ``cacheable`` is false for ``config`` calls, so answering "allow for the
+        session" on one settings write does not silently cover the next one.
+        """
+        if cacheable and self.cached(session.id, tool, args):
             return Decision("allow", "session", "cache")
 
         timeout = timeout_sec if timeout_sec is not None else self.timeout_sec
@@ -190,6 +199,7 @@ class ApprovalQueue:
             risk=risk,
             timeoutSec=timeout,
             scopeHint=scope_hint,  # type: ignore[arg-type]
+            note=note,
         )
         loop = asyncio.get_running_loop()
         origin = None if unattended else getattr(session, "origin_conn", None)
@@ -199,6 +209,7 @@ class ApprovalQueue:
             unattended=unattended,
             origin_conn=origin,
             workdir=getattr(session, "workdir", None),
+            cacheable=cacheable,
         )
         self._pending[request.requestId] = entry
         if origin is not None:
@@ -222,6 +233,7 @@ class ApprovalQueue:
             notify_exclude=origin,
             workdir=entry.workdir,
             unattended=entry.unattended,
+            cacheable=entry.cacheable,
         )
         return decision
 
@@ -321,11 +333,12 @@ class ApprovalQueue:
         notify_exclude: Any = None,
         workdir: Any = None,
         unattended: bool = False,
+        cacheable: bool = True,
     ) -> None:
         """Cache, persist, log and announce a finished request."""
-        if decision.allowed and decision.scope in CACHING_SCOPES:
+        if cacheable and decision.allowed and decision.scope in CACHING_SCOPES:
             self._cache.add(self.cache_key(request.sessionId, request.tool, request.args))
-        if decision.allowed and decision.scope in PERSISTING_SCOPES:
+        if cacheable and decision.allowed and decision.scope in PERSISTING_SCOPES:
             self._persist(request, decision.scope, workdir)
         self._append_log(request, decision, unattended=unattended)
         if self.hub is not None:

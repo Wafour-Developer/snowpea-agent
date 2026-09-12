@@ -487,3 +487,84 @@ def test_parser_accepts_every_documented_flag() -> None:
     assert args.browser_provider == "camoufox"
     assert args.tools == "vision,-git"
     assert (args.gateway, args.token) == ("telegram", "t")
+
+
+# ---------------------------------------------------------------------------
+# the search key prompt (CORE-search-fix)
+# ---------------------------------------------------------------------------
+
+
+def test_search_key_flag_is_saved_under_the_provider(home: Path) -> None:
+    wizard.run("full", home=home, search_provider="exa_free", search_key="exa-secret",
+               interactive=False)
+    settings = _settings(home)
+    assert settings.search.provider == "exa_free"
+    assert settings.search.credentials["exa_free"]["api_key"] == "exa-secret"
+
+
+def test_search_key_without_a_provider_is_a_usage_error(home: Path) -> None:
+    with pytest.raises(wizard.SetupError, match="--search-key needs --search-provider"):
+        wizard.run("full", home=home, search_key="orphan", interactive=False)
+
+
+def test_a_key_required_provider_without_a_key_warns_in_the_summary(home: Path) -> None:
+    """The silent-fallback bug, caught at setup time instead of at search time."""
+    result = wizard.run("full", home=home, search_provider="exa_free", interactive=False)
+    notes = "\n".join(result.summary())
+    assert "exa_free: no API key" in notes
+    assert "EXA_API_KEY" in notes
+
+
+def test_the_search_screen_prompts_for_the_key(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Choosing a key-required provider asks for the key, masked."""
+    asked: list[tuple[str, bool]] = []
+
+    def fake_ask_text(prompt: str, *, secret: bool = False) -> str:
+        asked.append((prompt, secret))
+        return "typed-key"
+
+    monkeypatch.setattr(ui, "ask_text", fake_ask_text)
+
+    def asker(screen: Screen, console=None, interactive=True):  # type: ignore[no-untyped-def]
+        if screen.title == search_screen.TITLE:
+            return "exa_free"
+        return SKIP
+
+    wizard.run("full", home=home, interactive=True, ask=asker)
+
+    assert any("Exa" in prompt and secret for prompt, secret in asked), asked
+    settings = _settings(home)
+    assert settings.search.provider == "exa_free"
+    assert settings.search.credentials["exa_free"]["api_key"] == "typed-key"
+
+
+def test_an_empty_answer_leaves_the_warning(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ui, "ask_text", lambda prompt, *, secret=False: "")
+
+    def asker(screen: Screen, console=None, interactive=True):  # type: ignore[no-untyped-def]
+        return "tavily" if screen.title == search_screen.TITLE else SKIP
+
+    result = wizard.run("full", home=home, interactive=True, ask=asker)
+
+    notes = "\n".join(result.summary())
+    assert "tavily: no API key" in notes
+    assert not _settings(home).search.credentials.get("tavily", {}).get("api_key")
+
+
+def test_a_keyless_provider_is_never_asked_for_a_key(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    asked: list[str] = []
+    monkeypatch.setattr(
+        ui, "ask_text", lambda prompt, *, secret=False: asked.append(prompt) or ""
+    )
+
+    def asker(screen: Screen, console=None, interactive=True):  # type: ignore[no-untyped-def]
+        return "ddgs" if screen.title == search_screen.TITLE else SKIP
+
+    result = wizard.run("full", home=home, interactive=True, ask=asker)
+
+    assert not any("API key" in prompt for prompt in asked)
+    assert "no API key" not in "\n".join(result.summary())

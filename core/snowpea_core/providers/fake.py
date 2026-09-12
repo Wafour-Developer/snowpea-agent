@@ -50,6 +50,27 @@ def _last_user_text(messages: list[ChatMessage]) -> str:
     return ""
 
 
+def _prompt_chars(messages: list[ChatMessage]) -> int:
+    """Characters in the whole prompt, the way a real vendor would count it.
+
+    The scripted provider used to report only the last user message, which is
+    not what any vendor does and made context accounting (CORE-context) look
+    flat across a growing conversation.
+    """
+    total = 0
+    for message in messages:
+        content = message.content
+        if isinstance(content, str):
+            total += len(content)
+        elif isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict):
+                    total += len(str(block.get("text", "")))
+        for call in message.tool_calls or []:
+            total += len(call.name) + len(json.dumps(call.arguments, default=str))
+    return total
+
+
 def _last_tool_name(messages: list[ChatMessage]) -> str | None:
     if messages and messages[-1].role == "tool":
         return messages[-1].name
@@ -118,7 +139,7 @@ class FakeProvider:
                     arguments=dict(call.get("arguments", {})),
                 ),
             )
-        in_tokens = len(_last_user_text(messages)) // 4
+        in_tokens = _prompt_chars(messages) // 4
         yield StreamEvent(
             kind="usage", usage=Usage(input_tokens=in_tokens, output_tokens=len(text) // 4)
         )

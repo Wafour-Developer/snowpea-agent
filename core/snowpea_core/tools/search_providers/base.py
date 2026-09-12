@@ -49,6 +49,10 @@ class SearchProvider(Protocol):
 
     meta: SearchProviderMeta
 
+    def bind(self, settings: Any) -> None:
+        """Hand the provider the settings it reads credentials from."""
+        ...
+
     def available(self, settings: Any) -> bool: ...
 
     async def search(self, query: str, *, limit: int) -> list[SearchHit]: ...

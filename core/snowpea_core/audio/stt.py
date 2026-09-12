@@ -2,18 +2,21 @@
 
 Three implementations, tried in this order when the provider is ``"auto"``:
 
+``local-whisper``
+    The ``whisper`` or ``faster-whisper`` CLI, if one is on ``PATH``.  It goes
+    first because nothing leaves the machine.
 ``openai``
     ``POST /audio/transcriptions`` against the OpenAI API (or any compatible
     server), using the key already configured for the ``openai`` provider.
-``local-whisper``
-    The ``whisper`` or ``faster-whisper`` CLI, if one is on ``PATH``.  Nothing
-    leaves the machine.
 ``command``
     A user-configured command template containing ``{path}``; whatever it
     prints on stdout is the transcript.
 
 Every backend answers the same :class:`STTProvider` protocol, and every
-failure becomes an :class:`~snowpea_core.audio.player.AudioError`.
+failure becomes an :class:`~snowpea_core.audio.player.AudioError`.  There is
+deliberately nothing here about *who* is asking: the same
+:func:`resolve_provider` serves the ``audio.transcribe`` RPC the TUI calls and
+the ``transcribe_audio`` tool the agent calls.
 """
 
 from __future__ import annotations
@@ -281,8 +284,10 @@ async def _run(argv: list[str], timeout: float) -> tuple[str, str, int]:
     )
 
 
-#: The order ``"auto"`` tries backends in.
-AUTO_ORDER: tuple[str, ...] = ("openai", "local-whisper", "command")
+#: The order ``"auto"`` tries backends in.  Local first: transcription is the
+#: one place where audio of the user's room would otherwise leave the machine,
+#: so a whisper CLI that is already installed wins over the hosted API.
+AUTO_ORDER: tuple[str, ...] = ("local-whisper", "openai", "command")
 
 
 def build_provider(

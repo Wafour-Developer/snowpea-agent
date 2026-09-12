@@ -38,6 +38,9 @@ class ToolResult:
     error: str | None = None
     diff: str | None = None
     path: str | None = None
+    #: Structured facts about the call that the text output only hints at —
+    #: ``web_search`` puts ``provider`` / ``fallback_from`` / ``reason`` here.
+    meta: dict[str, Any] | None = None
 
 
 ToolRun = Callable[[ToolContext, dict[str, Any]], Awaitable[ToolResult]]
@@ -55,6 +58,10 @@ class Tool:
     run: ToolRun
     state: ToolState = "active"
     source: str = "builtin"
+    #: Optional per-call override of :attr:`permission`.  A write that lands on
+    #: a snowpea configuration file is re-tagged ``config``, which the mode
+    #: matrix never resolves to a silent ``allow`` (see ``tools/config_guard``).
+    permission_for: Callable[[dict[str, Any], Any, Any], PermissionTag] | None = None
 
     def info(self) -> ToolInfo:
         return ToolInfo(
@@ -128,6 +135,28 @@ class ToolRegistry:
         return len(self._tools)
 
 
+def effective_permission(
+    tool: Tool,
+    args: dict[str, Any] | None = None,
+    session: Any = None,
+    core: Any = None,
+) -> PermissionTag:
+    """The tag this particular call is judged by.
+
+    Almost always :attr:`Tool.permission`; ``write_file`` and ``edit_file``
+    raise it to ``config`` when the path is a settings or credentials file.
+    ``core`` is passed so the hook can read the daemon's real home rather than
+    re-deriving it from the environment.
+    """
+    hook = tool.permission_for
+    if hook is None:
+        return tool.permission
+    try:
+        return hook(args or {}, session, core)
+    except Exception:  # noqa: BLE001 - a broken hook must not widen permission
+        return tool.permission
+
+
 def register_builtin_tools(registry: ToolRegistry) -> ToolRegistry:
     """Register the whole builtin catalog (M2 contract §2).
 
@@ -143,6 +172,7 @@ def register_builtin_tools(registry: ToolRegistry) -> ToolRegistry:
         grep,
         media,
         process,
+        settings_tools,
         shell,
         stubs,
         web,
@@ -156,6 +186,7 @@ def register_builtin_tools(registry: ToolRegistry) -> ToolRegistry:
         *process.TOOLS,
         *git.TOOLS,
         *web.TOOLS,
+        *settings_tools.TOOLS,
         *browser.TOOLS,
         *stubs.TOOLS,
         *media.TOOLS,
@@ -171,5 +202,6 @@ __all__ = [
     "ToolRegistry",
     "ToolResult",
     "ToolRun",
+    "effective_permission",
     "register_builtin_tools",
 ]
