@@ -80,8 +80,8 @@ describe("inline layout", () => {
 
     expect(countOf(output, "SETTLED-ANSWER")).toBe(1);
     expect(countOf(output, "SECOND-ANSWER")).toBe(1);
-    // The logo is printed once, at the top of the session.
-    expect(countOf(output, "open-source multi-vendor coding agent")).toBe(1);
+    // The launch banner is printed once, at the top of the session.
+    expect(countOf(output, "personal AI assistant")).toBe(1);
     // The live region is all that repaints: no screen clear, no scrollback wipe.
     expect(output).not.toContain("[2J");
     expect(output).not.toContain("[3J");

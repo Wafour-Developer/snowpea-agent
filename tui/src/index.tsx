@@ -13,8 +13,12 @@
 
 import React from "react";
 import { render } from "ink";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 import { App } from "./app.js";
+import { SessionMemory, TuiHistory, stateDir, type FileStore } from "./state/history.js";
 import { createFrameWriter, type FrameWriter } from "./layout/frame.js";
 import { installAltScreen } from "./layout/screen.js";
 import { TuiClient } from "./rpc/client.js";
@@ -121,6 +125,34 @@ export function frameStdout(stdout: NodeJS.WriteStream, writer: FrameWriter): No
   });
 }
 
+/**
+ * The real file system, behind the tiny interface `state/history.ts` wants.
+ *
+ * Every operation is best-effort: the history and the last-session record are
+ * conveniences, and a home directory that cannot be written must not stop the
+ * TUI from running.
+ */
+export const fileStore: FileStore = {
+  read(path) {
+    try {
+      return readFileSync(path, "utf8");
+    } catch {
+      return null;
+    }
+  },
+  write(path, contents) {
+    try {
+      mkdirSync(join(path, ".."), { recursive: true });
+      writeFileSync(path, contents, "utf8");
+    } catch {
+      /* nothing to do about it, and nothing depends on it. */
+    }
+  },
+  join(...parts) {
+    return join(...parts);
+  },
+};
+
 export async function main(argv: string[] = process.argv.slice(2)): Promise<number> {
   let args: CliArgs;
   try {
@@ -165,6 +197,10 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     ? frameStdout(process.stdout, createFrameWriter(process.stdout))
     : process.stdout;
 
+  const dir = stateDir(process.env, homedir());
+  const history = new TuiHistory(fileStore, dir);
+  const sessions = new SessionMemory(fileStore, dir);
+
   let restart = false;
   const instance = render(
     <App
@@ -173,6 +209,8 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       mode={args.mode ?? "accept"}
       workdir={args.cwd}
       fullscreen={args.fullscreen}
+      history={history}
+      sessions={sessions}
       onRestart={() => {
         restart = true;
       }}

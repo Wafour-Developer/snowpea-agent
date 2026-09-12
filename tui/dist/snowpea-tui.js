@@ -28166,11 +28166,11 @@ var require_react_jsx_runtime_development = __commonJS({
             return jsxWithValidation(type, props, key, false);
           }
         }
-        var jsx20 = jsxWithValidationDynamic;
-        var jsxs16 = jsxWithValidationStatic;
+        var jsx23 = jsxWithValidationDynamic;
+        var jsxs19 = jsxWithValidationStatic;
         exports.Fragment = REACT_FRAGMENT_TYPE;
-        exports.jsx = jsx20;
-        exports.jsxs = jsxs16;
+        exports.jsx = jsx23;
+        exports.jsxs = jsxs19;
       })();
     }
   }
@@ -33821,6 +33821,11 @@ var import_react20 = __toESM(require_react(), 1);
 // ../node_modules/ink/build/hooks/use-focus-manager.js
 var import_react21 = __toESM(require_react(), 1);
 
+// src/index.tsx
+import { mkdirSync, readFileSync as readFileSync2, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
 // src/app.tsx
 var import_react35 = __toESM(require_react(), 1);
 
@@ -33943,6 +33948,7 @@ var initialState = {
   context: null,
   compactions: [],
   toolCount: null,
+  children: {},
   lastSeq: 0,
   turnActive: false,
   errors: []
@@ -34012,7 +34018,8 @@ function applySessionEvent(state, event) {
         callId: String(payload.callId ?? nextId("call")),
         name: String(payload.name ?? "unknown"),
         args: payload.args ?? {},
-        state: "running"
+        state: "running",
+        startedAt: Number(payload.at ?? Date.now())
       };
       return {
         ...base,
@@ -34111,9 +34118,12 @@ function applySessionEvent(state, event) {
     // The daemon reports context usage after every turn and after a compaction.
     // Older daemons never send it, which is why the HUD hides the segment until
     // the first one arrives.
+    // The daemon names these `used`/`window`; `usedTokens`/`windowTokens` are
+    // accepted too so a differently-shaped emitter still lights the segment up.
     case "context": {
-      const used = Number(payload.used ?? 0);
-      const window2 = payload.window === null || payload.window === void 0 ? null : Number(payload.window);
+      const used = Number(payload.used ?? payload.usedTokens ?? 0);
+      const rawWindow = payload.window ?? payload.windowTokens ?? null;
+      const window2 = rawWindow === null || rawWindow === void 0 ? null : Number(rawWindow);
       const percent = payload.percent === null || payload.percent === void 0 ? window2 && window2 > 0 ? used / window2 * 100 : null : Number(payload.percent);
       return {
         ...base,
@@ -34194,6 +34204,12 @@ function reducer(state, action) {
     }
     case "session/event":
       return applySessionEvent(state, action.event);
+    case "child/event": {
+      const current = state.children[action.sessionId] ?? initialState;
+      const next = applySessionEvent(current, action.event);
+      if (next === current) return state;
+      return { ...state, children: { ...state.children, [action.sessionId]: next } };
+    }
     case "approval/request":
       return { ...state, pendingApproval: { ...action.request, source: "interactive" } };
     case "approval/list": {
@@ -34219,6 +34235,7 @@ var APPROVAL_SCOPES = ["once", "session", "project", "always"];
 
 // src/layout/bottom.ts
 var CONTEXT_WARN_PERCENT = 70;
+var CONTEXT_ALERT_PERCENT = 80;
 var CONTEXT_CRITICAL_PERCENT = 85;
 var MODE_CHIP = {
   auto: "\u23F5\u23F5 auto mode on",
@@ -34238,32 +34255,28 @@ function contextColor(percent) {
 }
 function contextSegment(context) {
   if (!context) return null;
-  const used = formatTokens(context.used);
+  const estimated = context.estimated ? "~" : "";
+  const used = `${estimated}${formatTokens(context.used)}`;
   if (!context.window || context.window <= 0) {
-    return { text: `ctx ${used} / ?`, dimColor: true };
+    return { text: `ctx ${used} used`, dimColor: true };
   }
   const percent = context.percent ?? context.used / context.window * 100;
-  const critical = percent >= CONTEXT_CRITICAL_PERCENT;
-  const rounded = Math.round(percent);
-  const tail = critical ? " CRITICAL" : "";
-  const estimated = context.estimated ? "~" : "";
+  const color = contextColor(percent);
   return {
-    text: `ctx ${estimated}${used} / ${formatTokens(context.window)} (${rounded}%)${tail}`,
-    color: contextColor(percent),
-    dimColor: contextColor(percent) === void 0,
-    bold: critical
+    text: `ctx ${Math.round(percent)}% (${used}/${formatTokens(context.window)})`,
+    color,
+    dimColor: color === void 0,
+    bold: percent >= CONTEXT_CRITICAL_PERCENT
   };
 }
 function contextWarning(context) {
   if (!context || !context.window || context.window <= 0) return null;
   const percent = context.percent ?? context.used / context.window * 100;
-  if (percent < CONTEXT_WARN_PERCENT) return null;
-  const critical = percent >= CONTEXT_CRITICAL_PERCENT;
-  const threshold = critical ? CONTEXT_CRITICAL_PERCENT : CONTEXT_WARN_PERCENT;
+  if (percent < CONTEXT_ALERT_PERCENT) return null;
   return {
-    text: `[!!] ctx ${Math.round(percent)}% >= ${threshold}% threshold \u2014 run /compact`,
-    color: critical ? "red" : "yellow",
-    bold: critical
+    text: `[!!] context ${Math.round(percent)}% \u2014 /compact to free space`,
+    color: percent >= CONTEXT_CRITICAL_PERCENT ? "red" : "yellow",
+    bold: percent >= CONTEXT_CRITICAL_PERCENT
   };
 }
 function summaryLine({ mode, shells, agents }) {
@@ -34743,6 +34756,27 @@ function useKnownAgents(client, pollMs = AGENT_LIST_POLL_MS) {
     };
   }, [client, pollMs]);
   return agents;
+}
+
+// src/state/focus.ts
+var INPUT_FOCUS = { zone: "input" };
+function isInput(focus) {
+  return focus.zone === "input";
+}
+function focusDown(focus, agentRows) {
+  if (focus.zone === "input") return { zone: "footer" };
+  if (focus.zone === "footer") return agentRows > 0 ? { zone: "agent", index: 0 } : focus;
+  return focus.index + 1 < agentRows ? { zone: "agent", index: focus.index + 1 } : focus;
+}
+function focusUp(focus) {
+  if (focus.zone === "input") return focus;
+  if (focus.zone === "footer") return INPUT_FOCUS;
+  return focus.index === 0 ? { zone: "footer" } : { zone: "agent", index: focus.index - 1 };
+}
+function clampFocus(focus, agentRows) {
+  if (focus.zone !== "agent") return focus;
+  if (agentRows === 0) return { zone: "footer" };
+  return focus.index < agentRows ? focus : { zone: "agent", index: agentRows - 1 };
 }
 
 // src/version.ts
@@ -35253,7 +35287,7 @@ function buildAgentRows({
     rows.push({
       key: "idle-more",
       glyph: AGENT_GLYPH,
-      name: `${idle.length - MAX_IDLE_ROWS} idle agents`,
+      name: `${idle.length - MAX_IDLE_ROWS} idle agent${idle.length - MAX_IDLE_ROWS === 1 ? "" : "s"}`,
       task: "",
       status: "",
       dim: true
@@ -35301,6 +35335,52 @@ function layoutAgentRow(row, width) {
 
 // src/components/Logo.tsx
 var import_react27 = __toESM(require_react(), 1);
+
+// src/layout/wordmark.ts
+var GLYPHS = {
+  s: ["#####", "#....", "#####", "....#", "....#", "#####"],
+  n: ["#...#", "##..#", "#.#.#", "#..##", "#...#", "#...#"],
+  o: ["#####", "#...#", "#...#", "#...#", "#...#", "#####"],
+  w: ["#...#", "#...#", "#...#", "#.#.#", "##.##", "#...#"],
+  p: ["#####", "#...#", "#####", "#....", "#....", "#...."],
+  e: ["#####", "#....", "#####", "#....", "#....", "#####"],
+  a: ["#####", "#...#", "#####", "#...#", "#...#", "#...#"]
+};
+var WORD = "snowpea";
+var WORDMARK_ROWS = 6;
+var SCALES = [4, 3, 2, 1];
+var INK = "\u2588";
+function wordmarkWidth(scale, word = WORD) {
+  const letter = 5 * scale;
+  return word.length * letter + (word.length - 1) * scale;
+}
+function scaleFor(columns, word = WORD) {
+  for (const scale of SCALES) {
+    if (wordmarkWidth(scale, word) <= columns) return scale;
+  }
+  return null;
+}
+function renderWordmark(scale, word = WORD) {
+  const safeScale = Math.max(1, Math.floor(scale));
+  const rows = [];
+  for (let row = 0; row < WORDMARK_ROWS; row += 1) {
+    let line = "";
+    word.split("").forEach((character, index) => {
+      if (index > 0) line += " ".repeat(safeScale);
+      const glyph = GLYPHS[character.toLowerCase()];
+      const pattern = glyph?.[row] ?? ".....";
+      for (const pixel of pattern) line += (pixel === "#" ? INK : " ").repeat(safeScale);
+    });
+    rows.push(line);
+  }
+  return rows;
+}
+function fitWordmark(columns, word = WORD) {
+  const scale = scaleFor(Math.max(0, Math.floor(columns)), word);
+  return scale === null ? null : renderWordmark(scale, word);
+}
+
+// src/components/Logo.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
 var LOGO_COLLAPSE_ROWS = 24;
 var LOGO_EXPANDED_ROWS = 3;
@@ -35321,7 +35401,14 @@ function isCollapsed(terminalRows) {
 function collapsedLine(version) {
   return `${SPROUT} snowpea v${version} \xB7 ${TAGLINE}`;
 }
-function LogoInner({ terminalRows, version, width }) {
+function LogoInner({ terminalRows, version, width, big = false }) {
+  const bigRows = big ? fitWordmark(width) : null;
+  if (bigRows) {
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Box_default, { flexDirection: "column", flexShrink: 0, width, children: [
+      bigRows.map((row, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Text, { color: LOGO_COLOR, bold: true, wrap: "truncate-end", children: row }, `wordmark-${index}`)),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Text, { color: LOGO_COLOR, wrap: "truncate-end", children: `${SPROUT} snowpea v${version}` })
+    ] });
+  }
   if (isCollapsed(terminalRows)) {
     return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Box_default, { flexShrink: 0, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Text, { color: LOGO_COLOR, bold: true, wrap: "truncate-end", children: collapsedLine(version) }) });
   }
@@ -35427,6 +35514,8 @@ var import_jsx_runtime5 = __toESM(require_jsx_runtime(), 1);
 var F1_SEQUENCES = /* @__PURE__ */ new Set(["\x1BOP", "\x1B[11~"]);
 function Chat({
   onSubmit,
+  initialHistory = [],
+  onFocusDown,
   completions,
   disabled = false,
   placeholder = "ask anything, or /command",
@@ -35435,7 +35524,7 @@ function Chat({
   onToggleHelp
 }) {
   const [value, setValue] = (0, import_react29.useState)("");
-  const [history, setHistory] = (0, import_react29.useState)([]);
+  const [history, setHistory] = (0, import_react29.useState)(initialHistory);
   const [historyIndex, setHistoryIndex] = (0, import_react29.useState)(null);
   const [selected, setSelected] = (0, import_react29.useState)(0);
   const showPalette = value.startsWith("/") && completions.length > 0;
@@ -35465,7 +35554,14 @@ function Chat({
       }
       if (key.tab || input === "\x1B[Z" || input === "[Z") return;
       if (key.upArrow || key.downArrow) {
-        if (history.length === 0) return;
+        if (key.downArrow && historyIndex === null) {
+          onFocusDown?.();
+          return;
+        }
+        if (history.length === 0) {
+          if (key.downArrow) onFocusDown?.();
+          return;
+        }
         const current = historyIndex ?? history.length;
         const next = key.upArrow ? Math.max(0, current - 1) : Math.min(history.length, current + 1);
         setHistoryIndex(next === history.length ? null : next);
@@ -35930,44 +36026,260 @@ var StatusHud = import_react32.default.memo(StatusHudInner);
 // src/components/AgentPanel.tsx
 var import_react33 = __toESM(require_react(), 1);
 var import_jsx_runtime13 = __toESM(require_jsx_runtime(), 1);
-function AgentPanelInner({ rows, width }) {
+function AgentPanelInner({
+  rows,
+  width,
+  focusedIndex = null
+}) {
   if (rows.length === 0) return null;
-  return /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Box_default, { flexDirection: "column", flexShrink: 0, width, children: rows.map((row) => {
+  return /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Box_default, { flexDirection: "column", flexShrink: 0, width, children: rows.map((row, index) => {
+    const focused = index === focusedIndex;
     const line = layoutAgentRow(row, width - 1);
     return /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(Box_default, { width, flexWrap: "nowrap", overflow: "hidden", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { color: row.color, dimColor: row.dim && !row.color, children: line.left }),
-      /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: line.task }),
-      /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { dimColor: true, children: line.gap }),
-      /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { dimColor: row.dim, color: row.color, children: line.status })
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { color: row.color, dimColor: row.dim && !row.color, inverse: focused, bold: focused, children: line.left }),
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { dimColor: !focused, inverse: focused, wrap: "truncate-end", children: line.task }),
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { dimColor: true, inverse: focused, children: line.gap }),
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { dimColor: row.dim && !focused, color: row.color, inverse: focused, children: line.status })
     ] }, row.key);
   }) });
 }
 var AgentPanel = import_react33.default.memo(AgentPanelInner);
 
-// src/components/ToolSummary.tsx
+// src/components/AgentTranscript.tsx
 var import_jsx_runtime14 = __toESM(require_jsx_runtime(), 1);
+function AgentTranscript({
+  name,
+  task,
+  status,
+  lines,
+  height,
+  width,
+  scrollIndicator: scrollIndicator2 = null,
+  empty = false
+}) {
+  return /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(
+    Box_default,
+    {
+      flexDirection: "column",
+      width,
+      borderStyle: "round",
+      borderColor: "cyan",
+      paddingX: 1,
+      flexShrink: 0,
+      children: [
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(Box_default, { justifyContent: "space-between", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(Text, { wrap: "truncate-end", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { bold: true, color: "cyan", children: `\u25EF ${name}` }),
+            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { dimColor: true, children: task ? ` \xB7 ${task}` : "" })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { dimColor: true, children: scrollIndicator2 ? `${scrollIndicator2} \xB7 ${status}` : status })
+        ] }),
+        empty ? /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Box_default, { height, children: /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { dimColor: true, children: "waiting for the agent's first output\u2026" }) }) : /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(TranscriptView, { lines, height }),
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { dimColor: true, children: "\u2191\u2193 PgUp/PgDn scroll \xB7 Esc back to the main transcript" })
+      ]
+    }
+  );
+}
+
+// src/state/history.ts
+var MAX_HISTORY = 500;
+var HISTORY_FILE = "tui-history.jsonl";
+var SESSIONS_FILE = "tui-sessions.json";
+function stateDir(env3, home) {
+  return env3.SNOWPEA_HOME && env3.SNOWPEA_HOME.length > 0 ? env3.SNOWPEA_HOME : `${home}/.snowpea`;
+}
+function parseHistory(contents) {
+  if (!contents) return [];
+  const out = [];
+  for (const line of contents.split("\n")) {
+    if (line.trim().length === 0) continue;
+    try {
+      const entry = JSON.parse(line);
+      if (typeof entry.text === "string" && entry.text.length > 0) {
+        out.push({
+          text: entry.text,
+          at: typeof entry.at === "number" ? entry.at : 0,
+          workdir: typeof entry.workdir === "string" ? entry.workdir : ""
+        });
+      }
+    } catch {
+    }
+  }
+  return out;
+}
+var TuiHistory = class {
+  constructor(store, dir) {
+    this.store = store;
+    this.dir = dir;
+  }
+  entries = [];
+  /** Read the history from disk. Safe to call before anything exists. */
+  load() {
+    this.entries = parseHistory(this.store.read(this.store.join(this.dir, HISTORY_FILE)));
+    return this.entries;
+  }
+  /** The prompts, oldest first. */
+  prompts() {
+    return this.entries.map((entry) => entry.text);
+  }
+  /**
+   * Add one prompt and write the file back.
+   *
+   * A prompt repeated straight away is not recorded twice: walking back through
+   * a history full of the same line is the thing that makes history useless.
+   */
+  add(text, workdir, now = Date.now()) {
+    const trimmed = text.trim();
+    if (trimmed.length === 0) return;
+    if (this.entries[this.entries.length - 1]?.text === trimmed) return;
+    this.entries.push({ text: trimmed, at: now, workdir });
+    if (this.entries.length > MAX_HISTORY) {
+      this.entries = this.entries.slice(this.entries.length - MAX_HISTORY);
+    }
+    try {
+      this.store.write(
+        this.store.join(this.dir, HISTORY_FILE),
+        `${this.entries.map((entry) => JSON.stringify(entry)).join("\n")}
+`
+      );
+    } catch {
+    }
+  }
+};
+function parseSessions(contents) {
+  if (!contents) return {};
+  try {
+    const parsed = JSON.parse(contents);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+var SessionMemory = class {
+  constructor(store, dir) {
+    this.store = store;
+    this.dir = dir;
+  }
+  records = {};
+  load() {
+    this.records = parseSessions(this.store.read(this.store.join(this.dir, SESSIONS_FILE)));
+    return this.records;
+  }
+  /** What was last open in this directory, if anything. */
+  last(workdir) {
+    return this.records[workdir] ?? null;
+  }
+  /** Remember this session as the directory's most recent one. */
+  remember(record) {
+    this.records[record.workdir] = record;
+    try {
+      this.store.write(
+        this.store.join(this.dir, SESSIONS_FILE),
+        `${JSON.stringify(this.records, null, 2)}
+`
+      );
+    } catch {
+    }
+  }
+};
+function relativeTime(then, now = Date.now()) {
+  const seconds = Math.max(0, Math.round((now - then) / 1e3));
+  if (seconds < 60) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return days === 1 ? "yesterday" : `${days}d ago`;
+}
+
+// src/components/LaunchBanner.tsx
+var import_jsx_runtime15 = __toESM(require_jsx_runtime(), 1);
+var PROMPT_PREVIEW = 60;
+var TIPS = [
+  "/help lists every command the daemon offers",
+  "Shift+Tab cycles plan \u2192 accept \u2192 auto",
+  "/setup configures providers and models"
+];
+function previewPrompt(text, max = PROMPT_PREVIEW) {
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length <= max ? flat : `${flat.slice(0, max - 1)}\u2026`;
+}
+function LaunchBanner({
+  width,
+  terminalRows,
+  version,
+  workdir,
+  mode,
+  provider,
+  model,
+  lastSession = null,
+  now = Date.now()
+}) {
+  const target = [provider, model].filter(Boolean).join("/");
+  return /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(Box_default, { flexDirection: "column", width, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Logo, { terminalRows, version, width, big: true }),
+    /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(Box_default, { marginTop: 1, flexDirection: "column", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `Open-source multi-vendor coding agent and personal AI assistant \xB7 v${version}${target ? ` \xB7 ${target}` : ""}` }),
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `${workdir} \xB7 ${mode.toUpperCase()} mode` })
+    ] }),
+    lastSession ? /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(Box_default, { marginTop: 1, flexDirection: "column", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(Text, { wrap: "truncate-end", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { color: "cyan", children: "Last session: " }),
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { dimColor: true, children: `${relativeTime(lastSession.at, now)} \xB7 ` }),
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { children: `"${previewPrompt(lastSession.firstPrompt)}"` })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { dimColor: true, children: "Press R or type /resume to continue it" })
+    ] }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Box_default, { marginTop: 1, marginBottom: 1, flexDirection: "column", children: TIPS.map((tip) => /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `  \xB7 ${tip}` }, tip)) })
+  ] });
+}
+
+// src/components/ShellList.tsx
+var import_jsx_runtime16 = __toESM(require_jsx_runtime(), 1);
+function runningCalls(calls) {
+  const running = calls.filter((call) => call.state === "running");
+  return [
+    ...running.filter((call) => toolKind(call.name) === "shell"),
+    ...running.filter((call) => toolKind(call.name) !== "shell")
+  ];
+}
+function ShellList({
+  calls,
+  now,
+  width
+}) {
+  const running = runningCalls(calls);
+  return /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Box_default, { flexDirection: "column", width, children: running.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { dimColor: true, children: "    nothing running" }) : running.map((call) => /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(Text, { dimColor: true, wrap: "truncate-end", children: [
+    `    \u25E6 ${summarizeCalls([call])}`,
+    call.startedAt ? ` \xB7 ${formatDuration(now - call.startedAt)}` : ""
+  ] }, call.callId)) });
+}
+
+// src/components/ToolSummary.tsx
+var import_jsx_runtime17 = __toESM(require_jsx_runtime(), 1);
 var SUMMARY_GLYPH = "\u23FA";
 function ToolSummary({ calls }) {
   if (calls.length === 0) return null;
   const lines = hiddenLines(calls);
-  return /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(Box_default, { marginBottom: 1, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { color: "green", children: `${SUMMARY_GLYPH} ` }),
-    /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { children: summarizeCalls(calls) }),
-    lines > 0 ? /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { dimColor: true, children: ` (${lines} lines)` }) : null
+  return /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(Box_default, { marginBottom: 1, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(Text, { color: "green", children: `${SUMMARY_GLYPH} ` }),
+    /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(Text, { children: summarizeCalls(calls) }),
+    lines > 0 ? /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(Text, { dimColor: true, children: ` (${lines} lines)` }) : null
   ] });
 }
 
 // src/components/WorkingIndicator.tsx
 var import_react34 = __toESM(require_react(), 1);
-var import_jsx_runtime15 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime18 = __toESM(require_jsx_runtime(), 1);
 function WorkingIndicatorInner({ line }) {
   if (!line) return null;
-  return /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Box_default, { flexShrink: 0, children: /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: line }) });
+  return /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Box_default, { flexShrink: 0, children: /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: line }) });
 }
 var WorkingIndicator = import_react34.default.memo(WorkingIndicatorInner);
 
 // src/components/HelpPanel.tsx
-var import_jsx_runtime16 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime19 = __toESM(require_jsx_runtime(), 1);
 var WORKFLOW_COMMANDS = [
   "ralph",
   "ralplan",
@@ -35988,44 +36300,56 @@ function HelpPanel({
   const workflows = WORKFLOW_COMMANDS.map(
     (name) => commands.find((command) => command.name === name)
   ).filter((command) => command !== void 0);
-  return /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(Box_default, { flexDirection: "column", borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
-    workflows.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(Box_default, { flexDirection: "column", marginBottom: 1, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { bold: true, color: "cyan", children: "Workflows and modes" }),
-      workflows.map((command) => /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(Text, { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { color: "magenta", children: `/${command.name}`.padEnd(width) }),
-        /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { dimColor: true, children: command.summary })
+  return /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Box_default, { flexDirection: "column", borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
+    workflows.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Box_default, { flexDirection: "column", marginBottom: 1, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { bold: true, color: "cyan", children: "Workflows and modes" }),
+      workflows.map((command) => /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Text, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { color: "magenta", children: `/${command.name}`.padEnd(width) }),
+        /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { dimColor: true, children: command.summary })
       ] }, `workflow-${command.name}`)),
-      runningSubagents > 0 ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { dimColor: true, children: `  ${runningSubagents} subagent(s) running right now` }) : null
+      runningSubagents > 0 ? /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { dimColor: true, children: `  ${runningSubagents} subagent(s) running right now` }) : null
     ] }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { bold: true, color: "cyan", children: "Commands" }),
-    commands.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { dimColor: true, children: "no commands reported by the daemon" }) : commands.map((command) => /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(Text, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { color: "blue", children: `/${command.name}`.padEnd(width) }),
-      /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { dimColor: true, children: command.summary })
+    /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { bold: true, color: "cyan", children: "Commands" }),
+    commands.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { dimColor: true, children: "no commands reported by the daemon" }) : commands.map((command) => /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Text, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { color: "blue", children: `/${command.name}`.padEnd(width) }),
+      /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { dimColor: true, children: command.summary })
     ] }, command.name)),
-    /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(Box_default, { marginTop: 1, flexDirection: "column", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { bold: true, color: "cyan", children: "Keys" }),
-      /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { dimColor: true, children: "  F1 close \xB7 Ctrl+C quit \xB7 Esc interrupt the current turn" }),
-      /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(Text, { dimColor: true, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Box_default, { marginTop: 1, flexDirection: "column", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { bold: true, color: "cyan", children: "Keys" }),
+      /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { dimColor: true, children: "  F1 close \xB7 Ctrl+C quit \xB7 Esc interrupt the current turn" }),
+      /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Text, { dimColor: true, children: [
         "  Ctrl+O expand the newest tool call or diff \xB7 ",
         "Ctrl+A open the agent panel out"
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(Text, { dimColor: true, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Text, { dimColor: true, children: [
         "  \u21E7Tab cycles mode accept -> auto -> plan -> accept \xB7 ",
         "Ctrl+P toggles plan mode"
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(Text, { dimColor: true, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Text, { dimColor: true, children: [
         "  /compact folds the conversation down when the ctx segment turns ",
         "yellow or red"
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(Text, { dimColor: true, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Text, { dimColor: true, children: [
         "  Delegates and named agents are listed under the status line; ",
         "Ctrl+A shows every row"
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(Text, { dimColor: true, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Text, { dimColor: true, children: [
+        "  \u2191 walks back through your earlier prompts \xB7 \u2193 past the newest one ",
+        "moves onto the rows below the input"
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Text, { dimColor: true, children: [
+        "  Enter on the footer lists what is running; Enter on an agent opens ",
+        "its conversation, Esc comes back"
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Text, { dimColor: true, children: [
+        "  /resume (or R on an empty input) reopens the session this ",
+        "directory was last in"
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Text, { dimColor: true, children: [
         "  Ctrl+R focus the unattended approval queue: [a] allow [d] deny, ",
         "\u2191/\u2193 pick, \u2190/\u2192 scope"
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(Text, { dimColor: true, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Text, { dimColor: true, children: [
         "  An approval asks with a menu: \u2191\u2193 move, Enter confirms, ",
         "y/a/p/n answer directly, Esc refuses"
       ] })
@@ -36034,7 +36358,7 @@ function HelpPanel({
 }
 
 // src/components/UpdateBanner.tsx
-var import_jsx_runtime17 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime20 = __toESM(require_jsx_runtime(), 1);
 var PHASE_COLOR = {
   available: "cyan",
   confirm: "yellow",
@@ -36045,16 +36369,17 @@ var PHASE_COLOR = {
 function UpdateBanner({ update }) {
   const text = bannerText(update);
   if (text === null) return null;
-  return /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(Text, { color: PHASE_COLOR[update.phase] ?? "cyan", children: text }) });
+  return /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { color: PHASE_COLOR[update.phase] ?? "cyan", children: text }) });
 }
 
 // src/app.tsx
-var import_jsx_runtime18 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime21 = __toESM(require_jsx_runtime(), 1);
 var UPDATE_OPTIONS = [
   { label: "Update and restart", value: true, shortcut: "y" },
   { label: "Not now", value: false, shortcut: "n", danger: true }
 ];
 var APPROVAL_POLL_MS = 5e3;
+var AGENT_TRANSCRIPT_ROWS = 12;
 var RESTART_DELAY_MS = 1200;
 function TimelineEntry({
   state,
@@ -36064,18 +36389,18 @@ function TimelineEntry({
 }) {
   if (item.kind === "message") {
     const message = state.messages.find((m) => m.id === item.id);
-    return message ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(MessageView, { message }) : null;
+    return message ? /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(MessageView, { message }) : null;
   }
   if (item.kind === "tool") {
     const call = state.toolCalls.find((c) => c.callId === item.id);
-    return call ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(ToolCall, { call, expanded: expandedId === item.id }) : null;
+    return call ? /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(ToolCall, { call, expanded: expandedId === item.id }) : null;
   }
   if (item.kind === "compaction") {
     const entry = state.compactions.find((c) => c.id === item.id);
-    return entry ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Text, { dimColor: true, children: compactionDivider(entry.before, entry.after, width) }) }) : null;
+    return entry ? /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { dimColor: true, children: compactionDivider(entry.before, entry.after, width) }) }) : null;
   }
   const diff2 = state.diffs.find((d) => d.id === item.id);
-  return diff2 ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(DiffView, { diff: diff2, expanded: expandedId === item.id }) : null;
+  return diff2 ? /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(DiffView, { diff: diff2, expanded: expandedId === item.id }) : null;
 }
 function releaseEntries(state, items) {
   const out = [];
@@ -36120,7 +36445,9 @@ function App2({
   provider,
   model,
   fullscreen = false,
-  onRestart
+  onRestart,
+  history,
+  sessions
 }) {
   const { exit } = use_app_default();
   const [state, dispatch] = (0, import_react35.useReducer)(reducer, initialState);
@@ -36129,11 +36456,23 @@ function App2({
   const [expandedId, setExpandedId] = (0, import_react35.useState)(null);
   const [queueFocused, setQueueFocused] = (0, import_react35.useState)(false);
   const [agentsExpanded, setAgentsExpanded] = (0, import_react35.useState)(false);
+  const [focus, setFocus] = (0, import_react35.useState)(INPUT_FOCUS);
+  const [shellsOpen, setShellsOpen] = (0, import_react35.useState)(false);
+  const [openAgent, setOpenAgent] = (0, import_react35.useState)(null);
+  const [agentScroll, setAgentScroll] = (0, import_react35.useState)(0);
+  const [pastPrompts] = (0, import_react35.useState)(() => {
+    history?.load();
+    return history?.prompts() ?? [];
+  });
+  const [lastSession] = (0, import_react35.useState)(() => {
+    sessions?.load();
+    return sessions?.last(workdir) ?? null;
+  });
   const [modeHintVisible, setModeHintVisible] = (0, import_react35.useState)(true);
   const [modeToast, setModeToast] = (0, import_react35.useState)(null);
   const [runningCommand, setRunningCommand] = (0, import_react35.useState)(null);
   const staticCursorRef = (0, import_react35.useRef)(0);
-  const staticBlocksRef = (0, import_react35.useRef)([{ key: "logo", kind: "logo" }]);
+  const staticBlocksRef = (0, import_react35.useRef)([{ key: "launch", kind: "launch" }]);
   const turnRef = (0, import_react35.useRef)(null);
   const turnActiveRef = (0, import_react35.useRef)(false);
   const turnCountRef = (0, import_react35.useRef)(0);
@@ -36151,7 +36490,9 @@ function App2({
     dispatch({ type: "session/ready", sessionId, mode, provider, model });
     dispatch({ type: "status", status: client.getStatus() });
     client.setListeners({
-      onSessionEvent: (event) => dispatch({ type: "session/event", event }),
+      // A delegate's events arrive on its own session; they belong to that
+      // agent's transcript, never appended to this one.
+      onSessionEvent: (event) => event.sessionId && event.sessionId !== sessionId ? dispatch({ type: "child/event", sessionId: event.sessionId, event }) : dispatch({ type: "session/event", event }),
       onStatus: (status) => dispatch({ type: "status", status }),
       // An unattended turn raised a request the daemon broadcast to every
       // surface; the queue is re-read rather than trusted from the payload.
@@ -36234,6 +36575,20 @@ function App2({
     if (modeToastTimer.current) clearTimeout(modeToastTimer.current);
     modeToastTimer.current = setTimeout(() => setModeToast(null), 2500);
   }, []);
+  const resumeSession = (0, import_react35.useCallback)(
+    (target, into) => {
+      void client.call("session.resume", { sessionId: target, afterSeq: 0 }).then((result) => {
+        const events = Array.isArray(result?.events) ? result.events : [];
+        for (const event of events) {
+          if (into === "child") dispatch({ type: "child/event", sessionId: target, event });
+          else dispatch({ type: "session/event", event });
+        }
+      }).catch(
+        (error) => dispatch({ type: "error", message: `resume failed: ${String(error)}` })
+      );
+    },
+    [client]
+  );
   const changeMode = (0, import_react35.useCallback)(
     (next) => {
       setModeHintVisible(false);
@@ -36350,6 +36705,19 @@ function App2({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [state.subagents, state.teamTasks, knownAgents, agentsExpanded, now]
   );
+  const agentRowCount = agentRows.length;
+  (0, import_react35.useEffect)(() => {
+    setFocus((current) => clampFocus(current, agentRowCount));
+  }, [agentRowCount]);
+  const openAgentEntry = openAgent ? state.subagents.find((agent) => agent.sessionId === openAgent.sessionId) : void 0;
+  const agentLines = (0, import_react35.useMemo)(
+    () => openAgent && state.children[openAgent.sessionId] ? transcriptLines(state.children[openAgent.sessionId], contentWidth - 4) : [],
+    [openAgent, state.children, contentWidth]
+  );
+  const agentViewport = (0, import_react35.useMemo)(
+    () => sliceViewport(agentLines, AGENT_TRANSCRIPT_ROWS, agentScroll),
+    [agentLines, agentScroll]
+  );
   const phase = derivePhase(state, { runningCommand });
   const spinnerFrame = useSpinner(phase.kind !== "idle" && phase.kind !== "approval");
   const turn = turnRef.current;
@@ -36400,13 +36768,27 @@ function App2({
     (delta) => setScrollOffset((offset) => clampScroll(offset + delta, lines.length, layout.transcriptRows)),
     [lines.length, layout.transcriptRows]
   );
+  const resumeMemory = (0, import_react35.useCallback)(() => {
+    if (!lastSession) return;
+    showToast(`resuming ${lastSession.sessionId.slice(0, 8)}`);
+    resumeSession(lastSession.sessionId, "main");
+  }, [lastSession, resumeSession, showToast]);
   const submit = (0, import_react35.useCallback)(
     (text) => {
       if (/^\/update\s*$/.test(text.trim())) {
         setUpdate(confirm);
         return;
       }
+      if (/^\/resume\s*$/.test(text.trim())) {
+        if (lastSession) resumeMemory();
+        else dispatch({ type: "error", message: "no earlier session for this directory" });
+        return;
+      }
       dispatch({ type: "user/message", text });
+      history?.add(text, workdir);
+      if (state.messages.every((message) => message.role !== "user")) {
+        sessions?.remember({ sessionId, workdir, firstPrompt: text, at: Date.now() });
+      }
       const commandName = text.startsWith("/") ? `/${text.slice(1).split(/\s/)[0]}` : null;
       setRunningCommand(commandName);
       const registry = registryRef.current;
@@ -36423,7 +36805,7 @@ function App2({
         dispatch({ type: "error", message: String(error) });
       });
     },
-    [client, sessionId]
+    [client, sessionId, history, sessions, workdir, state.messages, lastSession, resumeMemory]
   );
   const answerUpdate = (0, import_react35.useCallback)(
     (accepted) => {
@@ -36469,6 +36851,52 @@ function App2({
     if (state.pendingApproval || update.phase === "confirm") {
       return;
     }
+    if (openAgent) {
+      if (key.escape) {
+        closeAgent();
+        return;
+      }
+      if (key.upArrow) {
+        setAgentScroll((offset) => offset + 1);
+        return;
+      }
+      if (key.downArrow) {
+        setAgentScroll((offset) => Math.max(0, offset - 1));
+        return;
+      }
+      if (key.pageUp) {
+        setAgentScroll((offset) => offset + AGENT_TRANSCRIPT_ROWS);
+        return;
+      }
+      if (key.pageDown) {
+        setAgentScroll((offset) => Math.max(0, offset - AGENT_TRANSCRIPT_ROWS));
+        return;
+      }
+    }
+    if (!isInput(focus)) {
+      if (key.escape) {
+        setFocus(INPUT_FOCUS);
+        return;
+      }
+      if (key.upArrow) {
+        setFocus((current) => focusUp(current));
+        return;
+      }
+      if (key.downArrow) {
+        setFocus((current) => focusDown(current, agentRows.length));
+        return;
+      }
+      if (key.return) {
+        if (focus.zone === "footer") setShellsOpen((open) => !open);
+        else if (focus.zone === "agent") openAgentRow(focus.index);
+        return;
+      }
+      return;
+    }
+    if ((input === "r" || input === "R") && draft.length === 0 && lastSession) {
+      resumeMemory();
+      return;
+    }
     if (key.ctrl && input === "a") {
       setAgentsExpanded((open) => !open);
       return;
@@ -36512,10 +36940,38 @@ function App2({
       changeMode(state.mode === "plan" ? "accept" : "plan");
     }
   });
+  const openAgentRow = (0, import_react35.useCallback)(
+    (index) => {
+      const row = agentRows[index];
+      if (!row) return;
+      if (row.key === "current") {
+        setOpenAgent(null);
+        return;
+      }
+      if (row.key === "overflow" || row.key === "idle-more") {
+        setAgentsExpanded(true);
+        return;
+      }
+      const agentId = row.key.startsWith("agent-") ? row.key.slice("agent-".length) : null;
+      const entry = state.subagents.find((agent) => agent.agentId === agentId);
+      if (!entry?.sessionId) {
+        showToast(`${row.name}: no transcript yet`);
+        return;
+      }
+      setOpenAgent({ sessionId: entry.sessionId, name: entry.name || row.name });
+      setAgentScroll(0);
+      if (!state.children[entry.sessionId]) resumeSession(entry.sessionId, "child");
+    },
+    [agentRows, state.subagents, state.children, resumeSession, showToast]
+  );
+  const closeAgent = (0, import_react35.useCallback)(() => {
+    setOpenAgent(null);
+    setFocus(INPUT_FOCUS);
+  }, []);
   const approvalActive = state.pendingApproval !== null;
-  const bottomNode = /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)(import_jsx_runtime18.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(WorkingIndicator, { line: workingText }),
-    update.phase === "confirm" ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(
+  const bottomNode = /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)(import_jsx_runtime21.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(WorkingIndicator, { line: workingText }),
+    update.phase === "confirm" ? /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(
       ConfirmMenu,
       {
         options: UPDATE_OPTIONS,
@@ -36524,8 +36980,8 @@ function App2({
         isActive: state.pendingApproval === null
       }
     ) : null,
-    state.errors.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Text, { color: "red", wrap: "truncate-end", children: state.errors[state.errors.length - 1] }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(
+    state.errors.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { color: "red", wrap: "truncate-end", children: state.errors[state.errors.length - 1] }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(
       ApprovalQueue,
       {
         requests: state.approvalQueue,
@@ -36534,15 +36990,17 @@ function App2({
         onBlur: () => setQueueFocused(false)
       }
     ),
-    state.pendingApproval ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(ApprovalPrompt, { request: state.pendingApproval, onDecide: decideApproval }) : /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(
+    state.pendingApproval ? /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(ApprovalPrompt, { request: state.pendingApproval, onDecide: decideApproval }) : /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(
       Chat,
       {
         onSubmit: submit,
+        initialHistory: pastPrompts,
+        onFocusDown: () => setFocus((current) => focusDown(current, agentRows.length)),
         completions,
         onChange: setDraft,
         onInterrupt: () => void client.interrupt(sessionId).catch(() => void 0),
         onToggleHelp: () => setShowHelp((v) => !v),
-        disabled: approvalActive || queueFocused
+        disabled: approvalActive || queueFocused || !isInput(focus) || openAgent !== null
       }
     )
   ] });
@@ -36554,13 +37012,30 @@ function App2({
     ).length,
     agents: state.subagents.filter((agent) => agent.status === "running").length
   });
-  const statusNode = /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)(import_jsx_runtime18.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(StatusHud, { rows: hudRows, width: contentWidth }),
-    warning ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Text, { color: warning.color, bold: warning.bold, wrap: "truncate-end", children: warning.text }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Text, { color: summary.color, dimColor: summary.dimColor, wrap: "truncate-end", children: summary.text }),
-    /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(AgentPanel, { rows: agentRows, width: contentWidth })
+  const statusNode = /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)(import_jsx_runtime21.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(StatusHud, { rows: hudRows, width: contentWidth }),
+    warning ? /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { color: warning.color, bold: warning.bold, wrap: "truncate-end", children: warning.text }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(
+      Text,
+      {
+        color: summary.color,
+        dimColor: summary.dimColor && focus.zone !== "footer",
+        inverse: focus.zone === "footer",
+        wrap: "truncate-end",
+        children: `${summary.text}${focus.zone === "footer" ? " \xB7 Enter to list them" : ""}`
+      }
+    ),
+    shellsOpen ? /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(ShellList, { calls: state.toolCalls, now, width: contentWidth }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(
+      AgentPanel,
+      {
+        rows: agentRows,
+        width: contentWidth,
+        focusedIndex: focus.zone === "agent" ? focus.index : null
+      }
+    )
   ] });
-  const helpNode = showHelp ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(
+  const helpNode = showHelp ? /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(
     HelpPanel,
     {
       commands: state.commands,
@@ -36568,7 +37043,7 @@ function App2({
     }
   ) : null;
   if (fullscreen) {
-    return /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(
+    return /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(
       FullscreenLayout,
       {
         rows: layout.rows,
@@ -36586,30 +37061,64 @@ function App2({
     );
   }
   const live = state.timeline.slice(staticCursor);
-  return /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)(Box_default, { flexDirection: "column", paddingX: 1, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Static, { items: staticItems, children: (entry) => /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Box_default, { flexDirection: "column", marginBottom: entry.kind === "logo" ? 1 : 0, children: entry.kind === "logo" ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Logo, { terminalRows: terminal.rows, version, width: contentWidth }) : entry.kind === "tools" ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(ToolSummary, { calls: entry.calls }) : entry.kind === "note" ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Text, { color: entry.ok ? "green" : "red", dimColor: true, children: entry.text }) }) : /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(
-      TimelineEntry,
+  return /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)(Box_default, { flexDirection: "column", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Static, { items: staticItems, children: (entry) => /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(
+      Box_default,
       {
-        state,
-        item: entry.item,
-        expandedId,
-        width: contentWidth
-      }
-    ) }, entry.key) }),
-    live.map((item) => /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(
-      TimelineEntry,
-      {
-        state,
-        item,
-        expandedId,
-        width: contentWidth
+        flexDirection: "column",
+        paddingX: entry.kind === "launch" ? 0 : 1,
+        children: entry.kind === "launch" ? /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(
+          LaunchBanner,
+          {
+            width: terminal.columns,
+            terminalRows: terminal.rows,
+            version,
+            workdir,
+            mode,
+            provider: state.provider,
+            model: state.model,
+            lastSession
+          }
+        ) : entry.kind === "tools" ? /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(ToolSummary, { calls: entry.calls }) : entry.kind === "note" ? /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { color: entry.ok ? "green" : "red", dimColor: true, children: entry.text }) }) : /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(
+          TimelineEntry,
+          {
+            state,
+            item: entry.item,
+            expandedId,
+            width: contentWidth
+          }
+        )
       },
-      `${item.kind}-${item.id}`
-    )),
-    /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(UpdateBanner, { update }),
-    helpNode,
-    bottomNode,
-    statusNode
+      entry.key
+    ) }),
+    /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)(Box_default, { flexDirection: "column", paddingX: 1, children: [
+      openAgent ? /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(
+        AgentTranscript,
+        {
+          name: openAgent.name,
+          task: openAgentEntry?.task ?? "",
+          status: openAgentEntry ? agentStatusText(openAgentEntry, now) : "",
+          lines: agentViewport.lines,
+          height: AGENT_TRANSCRIPT_ROWS,
+          width: contentWidth,
+          scrollIndicator: scrollIndicator(agentViewport),
+          empty: agentLines.length === 0
+        }
+      ) : live.map((item) => /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(
+        TimelineEntry,
+        {
+          state,
+          item,
+          expandedId,
+          width: contentWidth
+        },
+        `${item.kind}-${item.id}`
+      )),
+      /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(UpdateBanner, { update }),
+      helpNode,
+      bottomNode,
+      statusNode
+    ] })
   ] });
 }
 
@@ -37283,7 +37792,7 @@ var TuiClient = class {
 };
 
 // src/index.tsx
-var import_jsx_runtime19 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime22 = __toESM(require_jsx_runtime(), 1);
 var CLIENT_VERSION = TUI_VERSION;
 var MODES = ["plan", "accept", "auto"];
 var BOOLEAN_FLAGS = /* @__PURE__ */ new Set(["fullscreen", "no-fullscreen", "inline"]);
@@ -37338,6 +37847,25 @@ function frameStdout(stdout, writer) {
     }
   });
 }
+var fileStore = {
+  read(path) {
+    try {
+      return readFileSync2(path, "utf8");
+    } catch {
+      return null;
+    }
+  },
+  write(path, contents) {
+    try {
+      mkdirSync(join(path, ".."), { recursive: true });
+      writeFileSync(path, contents, "utf8");
+    } catch {
+    }
+  },
+  join(...parts) {
+    return join(...parts);
+  }
+};
 async function main(argv = process.argv.slice(2)) {
   let args;
   try {
@@ -37368,9 +37896,12 @@ async function main(argv = process.argv.slice(2)) {
   }
   const screen = args.fullscreen ? installAltScreen({ stdout: process.stdout, process }) : null;
   const stdout = args.fullscreen ? frameStdout(process.stdout, createFrameWriter(process.stdout)) : process.stdout;
+  const dir = stateDir(process.env, homedir());
+  const history = new TuiHistory(fileStore, dir);
+  const sessions = new SessionMemory(fileStore, dir);
   let restart = false;
   const instance = render_default(
-    /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
       App2,
       {
         client,
@@ -37378,6 +37909,8 @@ async function main(argv = process.argv.slice(2)) {
         mode: args.mode ?? "accept",
         workdir: args.cwd,
         fullscreen: args.fullscreen,
+        history,
+        sessions,
         onRestart: () => {
           restart = true;
         }
@@ -37412,6 +37945,7 @@ if (isDirectRun) {
 }
 export {
   RESTART_EXIT_CODE,
+  fileStore,
   frameStdout,
   main,
   parseArgs

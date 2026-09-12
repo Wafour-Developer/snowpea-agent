@@ -91,6 +91,18 @@ export function HelpPanel({
           {"Ctrl+A shows every row"}
         </Text>
         <Text dimColor>
+          {"  ↑ walks back through your earlier prompts · ↓ past the newest one "}
+          {"moves onto the rows below the input"}
+        </Text>
+        <Text dimColor>
+          {"  Enter on the footer lists what is running; Enter on an agent opens "}
+          {"its conversation, Esc comes back"}
+        </Text>
+        <Text dimColor>
+          {"  /resume (or R on an empty input) reopens the session this "}
+          {"directory was last in"}
+        </Text>
+        <Text dimColor>
           {"  Ctrl+R focus the unattended approval queue: [a] allow [d] deny, "}
           {"↑/↓ pick, ←/→ scope"}
         </Text>

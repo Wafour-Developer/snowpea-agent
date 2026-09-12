@@ -50,6 +50,8 @@ import { useDaemonInfo } from "./hooks/useDaemonInfo.js";
 import { useElapsed } from "./hooks/useElapsed.js";
 import { useSpinner } from "./hooks/useSpinner.js";
 import { useKnownAgents } from "./hooks/useKnownAgents.js";
+import { clampFocus, focusDown, focusUp, isInput, INPUT_FOCUS, type Focus } from "./state/focus.js";
+import type { SessionMemory, SessionRecord, TuiHistory } from "./state/history.js";
 import { TUI_VERSION } from "./version.js";
 import { transcriptLines } from "./layout/transcript.js";
 import {
@@ -66,7 +68,7 @@ import {
 import { buildHudSegments, formatTokens, layoutHud } from "./layout/hud.js";
 import { settledCount } from "./layout/statics.js";
 import { groupCalls, toolKind } from "./layout/summary.js";
-import { buildAgentRows } from "./layout/agents.js";
+import { agentStatusText, buildAgentRows } from "./layout/agents.js";
 import { compactionDivider, contextWarning, summaryLine } from "./layout/bottom.js";
 import { FullscreenLayout } from "./components/FullscreenLayout.js";
 import { Chat } from "./components/Chat.js";
@@ -78,6 +80,9 @@ import { ApprovalQueue } from "./components/ApprovalQueue.js";
 import { ConfirmMenu, type ConfirmOption } from "./components/ConfirmMenu.js";
 import { StatusHud } from "./components/StatusHud.js";
 import { AgentPanel } from "./components/AgentPanel.js";
+import { AgentTranscript } from "./components/AgentTranscript.js";
+import { LaunchBanner } from "./components/LaunchBanner.js";
+import { ShellList } from "./components/ShellList.js";
 import { ToolSummary } from "./components/ToolSummary.js";
 import { WorkingIndicator } from "./components/WorkingIndicator.js";
 import { Logo, logoRows } from "./components/Logo.js";
@@ -94,6 +99,9 @@ const UPDATE_OPTIONS: ConfirmOption<boolean>[] = [
 
 /** How often the unattended queue is re-read while it is not empty. */
 export const APPROVAL_POLL_MS = 5000;
+
+/** Rows the open agent transcript is given, and what PgUp/PgDn move by. */
+export const AGENT_TRANSCRIPT_ROWS = 12;
 
 /** How long "Updated to vX — restarting…" stays on screen before the restart. */
 export const RESTART_DELAY_MS = 1200;
@@ -116,6 +124,10 @@ export interface AppProps {
    * `TUI_RESTART_EXIT` (75) and let `cli/main.py` re-exec `snowpea`.
    */
   onRestart?: () => void;
+  /** Prompt history on disk; absent in tests, which need no files. */
+  history?: TuiHistory;
+  /** What was last open in this directory, and where to record this one. */
+  sessions?: SessionMemory;
 }
 
 /** One transcript entry — a message, a tool call, a diff or a compaction. */
@@ -158,7 +170,7 @@ function TimelineEntry({
  * and then scrolls away like any other output.
  */
 type StaticEntry =
-  | { key: "logo"; kind: "logo" }
+  | { key: "launch"; kind: "launch" }
   | { key: string; kind: "entry"; item: TimelineItem }
   /** A run of successful tool calls, folded into one line. */
   | { key: string; kind: "tools"; calls: ToolCallEntry[] }
@@ -218,6 +230,8 @@ export function App({
   model,
   fullscreen = false,
   onRestart,
+  history,
+  sessions,
 }: AppProps): React.ReactElement {
   const { exit } = useApp();
   const [state, dispatch] = useReducer(reducer, initialState);
@@ -229,6 +243,24 @@ export function App({
   const [queueFocused, setQueueFocused] = useState(false);
   /** Ctrl+A opens the agent panel out past its collapsing rules. */
   const [agentsExpanded, setAgentsExpanded] = useState(false);
+  /** Where the keyboard is: the input, the footer row, or an agent row. */
+  const [focus, setFocus] = useState<Focus>(INPUT_FOCUS);
+  /** True while the footer row is showing what is running. */
+  const [shellsOpen, setShellsOpen] = useState(false);
+  /** Child session whose transcript replaced the live area, if any. */
+  const [openAgent, setOpenAgent] = useState<{ sessionId: string; name: string } | null>(null);
+  /** Lines the open agent's transcript is scrolled back from its newest line. */
+  const [agentScroll, setAgentScroll] = useState(0);
+  /** Prompts from previous runs, read once at start. */
+  const [pastPrompts] = useState<string[]>(() => {
+    history?.load();
+    return history?.prompts() ?? [];
+  });
+  /** The session last open in this directory, for the launch banner. */
+  const [lastSession] = useState<SessionRecord | null>(() => {
+    sessions?.load();
+    return sessions?.last(workdir) ?? null;
+  });
   /** Shown once in the status line until the shortcut is used or it times out. */
   const [modeHintVisible, setModeHintVisible] = useState(true);
   /** Transient "mode: X" toast shown in the status line after a change. */
@@ -246,7 +278,7 @@ export function App({
    */
   const staticCursorRef = useRef(0);
   /** Everything already written to the scrollback, in the order it went there. */
-  const staticBlocksRef = useRef<StaticEntry[]>([{ key: "logo", kind: "logo" }]);
+  const staticBlocksRef = useRef<StaticEntry[]>([{ key: "launch", kind: "launch" }]);
   /**
    * The turn in flight: when it started and what the session had spent by then,
    * so the indicator can report this turn rather than the whole session.
@@ -293,7 +325,12 @@ export function App({
     dispatch({ type: "status", status: client.getStatus() });
 
     client.setListeners({
-      onSessionEvent: (event) => dispatch({ type: "session/event", event }),
+      // A delegate's events arrive on its own session; they belong to that
+      // agent's transcript, never appended to this one.
+      onSessionEvent: (event) =>
+        event.sessionId && event.sessionId !== sessionId
+          ? dispatch({ type: "child/event", sessionId: event.sessionId, event })
+          : dispatch({ type: "session/event", event }),
       onStatus: (status) => dispatch({ type: "status", status }),
       // An unattended turn raised a request the daemon broadcast to every
       // surface; the queue is re-read rather than trusted from the payload.
@@ -425,6 +462,30 @@ export function App({
     if (modeToastTimer.current) clearTimeout(modeToastTimer.current);
     modeToastTimer.current = setTimeout(() => setModeToast(null), 2500);
   }, []);
+
+  /**
+   * Replay a session's events into a transcript.
+   *
+   * `session.resume` hands back everything from `afterSeq` on and subscribes
+   * this connection to the session, so live events follow by the usual route.
+   */
+  const resumeSession = useCallback(
+    (target: string, into: "main" | "child") => {
+      void client
+        .call("session.resume", { sessionId: target, afterSeq: 0 })
+        .then((result) => {
+          const events = Array.isArray(result?.events) ? result.events : [];
+          for (const event of events) {
+            if (into === "child") dispatch({ type: "child/event", sessionId: target, event });
+            else dispatch({ type: "session/event", event });
+          }
+        })
+        .catch((error: unknown) =>
+          dispatch({ type: "error", message: `resume failed: ${String(error)}` }),
+        );
+    },
+    [client],
+  );
 
   /** Optimistically applies a mode change, then confirms it with the daemon. */
   const changeMode = useCallback(
@@ -568,6 +629,28 @@ export function App({
     [state.subagents, state.teamTasks, knownAgents, agentsExpanded, now],
   );
 
+  // Rows come and go as delegates finish; the cursor must stay on one.
+  const agentRowCount = agentRows.length;
+  useEffect(() => {
+    setFocus((current) => clampFocus(current, agentRowCount));
+  }, [agentRowCount]);
+
+  // --- the open agent's transcript, when one is open -------------------------
+  const openAgentEntry = openAgent
+    ? state.subagents.find((agent) => agent.sessionId === openAgent.sessionId)
+    : undefined;
+  const agentLines = useMemo(
+    () =>
+      openAgent && state.children[openAgent.sessionId]
+        ? transcriptLines(state.children[openAgent.sessionId], contentWidth - 4)
+        : [],
+    [openAgent, state.children, contentWidth],
+  );
+  const agentViewport = useMemo(
+    () => sliceViewport(agentLines, AGENT_TRANSCRIPT_ROWS, agentScroll),
+    [agentLines, agentScroll],
+  );
+
   // --- the working indicator -------------------------------------------------
   const phase = derivePhase(state, { runningCommand });
   const spinnerFrame = useSpinner(phase.kind !== "idle" && phase.kind !== "approval");
@@ -634,6 +717,13 @@ export function App({
     [lines.length, layout.transcriptRows],
   );
 
+  /** Reopen the session this directory was last in. */
+  const resumeMemory = useCallback(() => {
+    if (!lastSession) return;
+    showToast(`resuming ${lastSession.sessionId.slice(0, 8)}`);
+    resumeSession(lastSession.sessionId, "main");
+  }, [lastSession, resumeSession, showToast]);
+
   const submit = useCallback(
     (text: string) => {
       // `/update` is a core builtin (headless and IDE run it as a command), but
@@ -642,7 +732,20 @@ export function App({
         setUpdate(confirmUpdate);
         return;
       }
+      // `/resume` is the TUI's own: the session it reopens is the one this
+      // surface remembers for this directory.
+      if (/^\/resume\s*$/.test(text.trim())) {
+        if (lastSession) resumeMemory();
+        else dispatch({ type: "error", message: "no earlier session for this directory" });
+        return;
+      }
       dispatch({ type: "user/message", text });
+      // Remember it for the next run: ↑ reaches it, and the launch screen
+      // offers the session it belongs to.
+      history?.add(text, workdir);
+      if (state.messages.every((message) => message.role !== "user")) {
+        sessions?.remember({ sessionId, workdir, firstPrompt: text, at: Date.now() });
+      }
       // Name the command in the HUD for as long as its turn owns the session.
       const commandName = text.startsWith("/") ? `/${text.slice(1).split(/\s/)[0]}` : null;
       setRunningCommand(commandName);
@@ -663,7 +766,7 @@ export function App({
         dispatch({ type: "error", message: String(error) });
       });
     },
-    [client, sessionId],
+    [client, sessionId, history, sessions, workdir, state.messages, lastSession, resumeMemory],
   );
 
   /** Answer the y/n banner prompt: start the upgrade, or put the banner away. */
@@ -719,6 +822,58 @@ export function App({
     // A prompt on screen owns every other key: mode cycling, Ctrl+O and the
     // rest would otherwise fire underneath the question being asked.
     if (state.pendingApproval || update.phase === "confirm") {
+      return;
+    }
+
+    // An open agent transcript takes the arrows for scrolling and Esc to leave.
+    if (openAgent) {
+      if (key.escape) {
+        closeAgent();
+        return;
+      }
+      if (key.upArrow) {
+        setAgentScroll((offset) => offset + 1);
+        return;
+      }
+      if (key.downArrow) {
+        setAgentScroll((offset) => Math.max(0, offset - 1));
+        return;
+      }
+      if (key.pageUp) {
+        setAgentScroll((offset) => offset + AGENT_TRANSCRIPT_ROWS);
+        return;
+      }
+      if (key.pageDown) {
+        setAgentScroll((offset) => Math.max(0, offset - AGENT_TRANSCRIPT_ROWS));
+        return;
+      }
+    }
+
+    // The cursor has walked out of the input and into the rows under it.
+    if (!isInput(focus)) {
+      if (key.escape) {
+        setFocus(INPUT_FOCUS);
+        return;
+      }
+      if (key.upArrow) {
+        setFocus((current) => focusUp(current));
+        return;
+      }
+      if (key.downArrow) {
+        setFocus((current) => focusDown(current, agentRows.length));
+        return;
+      }
+      if (key.return) {
+        if (focus.zone === "footer") setShellsOpen((open) => !open);
+        else if (focus.zone === "agent") openAgentRow(focus.index);
+        return;
+      }
+      return;
+    }
+
+    // R on an untouched input reopens the session this directory was last in.
+    if ((input === "r" || input === "R") && draft.length === 0 && lastSession) {
+      resumeMemory();
       return;
     }
     // Ctrl+A opens the agent panel out; Ctrl+R hands the keyboard to the
@@ -778,6 +933,38 @@ export function App({
     }
   });
 
+  /** Open a delegate's conversation in place of the live area. */
+  const openAgentRow = useCallback(
+    (index: number) => {
+      const row = agentRows[index];
+      if (!row) return;
+      if (row.key === "current") {
+        setOpenAgent(null);
+        return;
+      }
+      if (row.key === "overflow" || row.key === "idle-more") {
+        setAgentsExpanded(true);
+        return;
+      }
+      const agentId = row.key.startsWith("agent-") ? row.key.slice("agent-".length) : null;
+      const entry = state.subagents.find((agent) => agent.agentId === agentId);
+      if (!entry?.sessionId) {
+        showToast(`${row.name}: no transcript yet`);
+        return;
+      }
+      setOpenAgent({ sessionId: entry.sessionId, name: entry.name || row.name });
+      setAgentScroll(0);
+      // The child may have run entirely before this surface asked for it.
+      if (!state.children[entry.sessionId]) resumeSession(entry.sessionId, "child");
+    },
+    [agentRows, state.subagents, state.children, resumeSession, showToast],
+  );
+
+  const closeAgent = useCallback(() => {
+    setOpenAgent(null);
+    setFocus(INPUT_FOCUS);
+  }, []);
+
   const approvalActive = state.pendingApproval !== null;
 
   /** Input block: the working line, the error row, the backlog, and the input. */
@@ -812,11 +999,13 @@ export function App({
       ) : (
         <Chat
           onSubmit={submit}
+          initialHistory={pastPrompts}
+          onFocusDown={() => setFocus((current) => focusDown(current, agentRows.length))}
           completions={completions}
           onChange={setDraft}
           onInterrupt={() => void client.interrupt(sessionId).catch(() => undefined)}
           onToggleHelp={() => setShowHelp((v) => !v)}
-          disabled={approvalActive || queueFocused}
+          disabled={approvalActive || queueFocused || !isInput(focus) || openAgent !== null}
         />
       )}
     </>
@@ -841,10 +1030,20 @@ export function App({
           {warning.text}
         </Text>
       ) : null}
-      <Text color={summary.color} dimColor={summary.dimColor} wrap="truncate-end">
-        {summary.text}
+      <Text
+        color={summary.color}
+        dimColor={summary.dimColor && focus.zone !== "footer"}
+        inverse={focus.zone === "footer"}
+        wrap="truncate-end"
+      >
+        {`${summary.text}${focus.zone === "footer" ? " · Enter to list them" : ""}`}
       </Text>
-      <AgentPanel rows={agentRows} width={contentWidth} />
+      {shellsOpen ? <ShellList calls={state.toolCalls} now={now} width={contentWidth} /> : null}
+      <AgentPanel
+        rows={agentRows}
+        width={contentWidth}
+        focusedIndex={focus.zone === "agent" ? focus.index : null}
+      />
     </>
   );
 
@@ -880,12 +1079,27 @@ export function App({
   const live = state.timeline.slice(staticCursor);
 
   return (
-    <Box flexDirection="column" paddingX={1}>
+    <Box flexDirection="column">
       <Static items={staticItems}>
         {(entry) => (
-          <Box key={entry.key} flexDirection="column" marginBottom={entry.kind === "logo" ? 1 : 0}>
-            {entry.kind === "logo" ? (
-              <Logo terminalRows={terminal.rows} version={version} width={contentWidth} />
+          <Box
+            key={entry.key}
+            flexDirection="column"
+            // The launch wordmark runs edge to edge; everything else keeps the
+            // one-column gutter the rest of the session is laid out on.
+            paddingX={entry.kind === "launch" ? 0 : 1}
+          >
+            {entry.kind === "launch" ? (
+              <LaunchBanner
+                width={terminal.columns}
+                terminalRows={terminal.rows}
+                version={version}
+                workdir={workdir}
+                mode={mode}
+                provider={state.provider}
+                model={state.model}
+                lastSession={lastSession}
+              />
             ) : entry.kind === "tools" ? (
               <ToolSummary calls={entry.calls} />
             ) : entry.kind === "note" ? (
@@ -906,15 +1120,29 @@ export function App({
         )}
       </Static>
 
-      {live.map((item) => (
-        <TimelineEntry
-          key={`${item.kind}-${item.id}`}
-          state={state}
-          item={item}
-          expandedId={expandedId}
+      <Box flexDirection="column" paddingX={1}>
+      {openAgent ? (
+        <AgentTranscript
+          name={openAgent.name}
+          task={openAgentEntry?.task ?? ""}
+          status={openAgentEntry ? agentStatusText(openAgentEntry, now) : ""}
+          lines={agentViewport.lines}
+          height={AGENT_TRANSCRIPT_ROWS}
           width={contentWidth}
+          scrollIndicator={scrollIndicator(agentViewport)}
+          empty={agentLines.length === 0}
         />
-      ))}
+      ) : (
+        live.map((item) => (
+          <TimelineEntry
+            key={`${item.kind}-${item.id}`}
+            state={state}
+            item={item}
+            expandedId={expandedId}
+            width={contentWidth}
+          />
+        ))
+      )}
 
       <UpdateBanner update={update} />
 
@@ -923,6 +1151,7 @@ export function App({
       {bottomNode}
 
       {statusNode}
+      </Box>
     </Box>
   );
 }

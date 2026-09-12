@@ -17,6 +17,10 @@ const F1_SEQUENCES = new Set(["\u001bOP", "\u001b[11~"]);
 
 export interface ChatProps {
   onSubmit: (text: string) => void;
+  /** Prompts from previous runs, oldest first; ↑ walks back through them. */
+  initialHistory?: string[];
+  /** ↓ at the newest entry with nothing drafted: the cursor leaves the input. */
+  onFocusDown?: () => void;
   /** Autocomplete candidates for the current input; owner calls registry.complete(). */
   completions: CommandInfo[];
   disabled?: boolean;
@@ -28,6 +32,8 @@ export interface ChatProps {
 
 export function Chat({
   onSubmit,
+  initialHistory = [],
+  onFocusDown,
   completions,
   disabled = false,
   placeholder = "ask anything, or /command",
@@ -36,7 +42,8 @@ export function Chat({
   onToggleHelp,
 }: ChatProps): React.ReactElement {
   const [value, setValue] = useState("");
-  const [history, setHistory] = useState<string[]>([]);
+  // Seeded from the file on disk, so ↑ reaches prompts from previous runs.
+  const [history, setHistory] = useState<string[]>(initialHistory);
   const [historyIndex, setHistoryIndex] = useState<number | null>(null);
   const [selected, setSelected] = useState(0);
 
@@ -76,7 +83,16 @@ export function Chat({
       if (key.tab || input === "[Z" || input === "[Z") return;
 
       if (key.upArrow || key.downArrow) {
-        if (history.length === 0) return;
+        // Down with nothing left to go forward to hands the keyboard to the
+        // rows under the input, the way Claude Code does.
+        if (key.downArrow && historyIndex === null) {
+          onFocusDown?.();
+          return;
+        }
+        if (history.length === 0) {
+          if (key.downArrow) onFocusDown?.();
+          return;
+        }
         const current = historyIndex ?? history.length;
         const next = key.upArrow ? Math.max(0, current - 1) : Math.min(history.length, current + 1);
         setHistoryIndex(next === history.length ? null : next);
