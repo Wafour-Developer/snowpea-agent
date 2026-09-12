@@ -64,7 +64,7 @@ from snowpea_core.server.rpc import RpcConnection, RpcDispatcher
 from snowpea_core.session import events
 from snowpea_core.session.store import Store
 from snowpea_core.skills.loader import SkillLoader
-from snowpea_core.tools import browser_providers, mcp_client, web
+from snowpea_core.tools import audio_tools, browser_providers, mcp_client, web
 from snowpea_core.tools import media as media_tools
 from snowpea_core.tools.registry import register_builtin_tools
 
@@ -120,6 +120,7 @@ def wire_core(core: Core) -> Core:
     wire_memory(core)
     wire_scheduler(core)
     media_tools.refresh_state(core)
+    audio_tools.refresh_state(core)
     core.sessions.on_close.append(browser_providers.close_all_sessions)
     register_builtin_commands(core.commands)
     core.skills = SkillLoader(core)
@@ -222,14 +223,12 @@ async def session_prompt_handler(
     session = _session(core, params.sessionId)
     core.hub.subscribe(conn, session.id)
     text = params.text
-    stored, inline_text = _accept_attachments(core, session.id, params.attachments)
+    _stored, inline_text = _accept_attachments(core, session.id, params.attachments)
     if inline_text:
         text = f"{text}\n\n{inline_text}" if text else inline_text
-    if stored:
-        # The text keeps a marker so history, resume and a text-only model all
-        # still show what was attached; the bytes travel separately.
-        markers = " ".join(item.describe() for item in stored)
-        text = f"{text}\n\n{markers}" if text else markers
+    # No marker is added to the text: the turn's content blocks carry one per
+    # attachment (``[image: shot.png]``), so history, resume and a text-only
+    # model all see it without the prompt being rewritten here.
     parsed = core.commands.parse(text)
     if parsed is not None:
         name, args = parsed

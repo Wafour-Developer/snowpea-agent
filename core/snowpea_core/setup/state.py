@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from snowpea_core.config.paths import Paths
-from snowpea_core.config.settings import Settings
+from snowpea_core.config.settings import AudioSettings, Settings
 from snowpea_core.setup import catalog
 
 #: The id every screen carries as its last row.
@@ -201,11 +201,9 @@ class WizardState:
         # ``Settings`` allows extra keys, so the audio block round-trips through
         # settings.json before the typed model for it exists.
         current = getattr(settings, "audio", None)
-        audio: dict[str, Any] = dict(current) if isinstance(current, dict) else {}
+        audio: dict[str, Any] = _as_dict(current)
         audio.update(self.audio_block())
-        # setattr, not attribute assignment: the field is an extra until the
-        # typed ``AudioSettings`` model lands.
-        setattr(settings, "audio", audio)  # noqa: B010
+        settings.audio = AudioSettings.model_validate(audio)
         settings.save(paths)
         return settings
 
@@ -259,14 +257,24 @@ class WizardState:
         return labels
 
 
+def _as_dict(block: Any) -> dict[str, Any]:
+    """``settings.audio`` as a plain dict, model or hand-written JSON alike."""
+    if isinstance(block, dict):
+        return dict(block)
+    dump = getattr(block, "model_dump", None)
+    if callable(dump):
+        result: dict[str, Any] = dump(mode="json")
+        return result
+    return {}
+
+
 def _audio_from(block: Any) -> dict[str, Any]:
     """Seed the audio answers from ``settings.audio``, whatever shape it is in."""
-    if not isinstance(block, dict):
+    document = _as_dict(block)
+    if not document:
         return {}
-    raw_stt = block.get("stt")
-    raw_tts = block.get("tts")
-    stt: dict[str, Any] = raw_stt if isinstance(raw_stt, dict) else {}
-    tts: dict[str, Any] = raw_tts if isinstance(raw_tts, dict) else {}
+    stt: dict[str, Any] = _as_dict(document.get("stt"))
+    tts: dict[str, Any] = _as_dict(document.get("tts"))
     provider = str(tts.get("provider") or catalog.DEFAULT_TTS_PROVIDER)
     if tts.get("enabled") is False:
         provider = catalog.AUDIO_OFF

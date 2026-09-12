@@ -4,10 +4,10 @@
 
 | 태그 | 툴 |
 |---|---|
-| `read` | `read_file`, `list_dir`, `glob`, `grep`, `git_status`, `git_diff`, `git_log`, `process_list`, `memory_search` |
+| `read` | `read_file`, `list_dir`, `glob`, `grep`, `git_status`, `git_diff`, `git_log`, `process_list`, `memory_search`, `transcribe_audio` |
 | `write` | `write_file`, `edit_file`, `git_commit`, `memory_write` |
 | `exec` | `shell`, `process_kill`, `delegate_task` |
-| `network` | `web_search`, `web_extract`, `browser_*`, 미디어 툴, 기본적으로 MCP 서버 |
+| `network` | `web_search`, `web_extract`, `browser_*`, 미디어 툴, `text_to_speech`, 기본적으로 MCP 서버 |
 | `send` | `schedule_create`, `schedule_list`, `schedule_cancel` |
 
 ## 매트릭스

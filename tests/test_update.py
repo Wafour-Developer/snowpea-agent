@@ -256,7 +256,9 @@ def test_uv_is_the_command_whenever_uv_is_on_path(
         "install",
         "--force",
         "--reinstall",
-        "snowpea-agent",
+        # The images extra rides along, or an upgrade would silently drop the
+        # downscaling the installers put there (CORE-multimodal).
+        "snowpea-agent[images]",
     ]
 
 
@@ -271,7 +273,7 @@ def test_without_uv_the_recorded_install_method_decides(
         "pip",
         "install",
         "--upgrade",
-        "snowpea-agent",
+        "snowpea-agent[images]",
     ]
 
 
@@ -281,6 +283,19 @@ def test_without_uv_and_without_a_record_there_is_no_command(
     monkeypatch.setattr(update_mod.shutil, "which", lambda name: None)
     assert update_mod.update_command(paths, "snowpea-agent") is None
     assert update_mod.manual_command("snowpea-agent").startswith("uv tool install")
+    assert "images" in update_mod.manual_command("snowpea-agent")
+
+
+def test_the_images_extra_is_spelled_per_source_kind() -> None:
+    """A URL needs the PEP 508 form; a path or a name takes the extra inline."""
+    assert update_mod.with_images("snowpea-agent") == "snowpea-agent[images]"
+    assert update_mod.with_images("/opt/snowpea") == "/opt/snowpea[images]"
+    assert (
+        update_mod.with_images("git+https://example.com/snowpea")
+        == "snowpea-agent[images] @ git+https://example.com/snowpea"
+    )
+    # Already asking for an extra: left alone.
+    assert update_mod.with_images("snowpea-agent[images]") == "snowpea-agent[images]"
 
 
 def _fake_installer(tmp_path: Path, *, exit_code: int = 0) -> Path:

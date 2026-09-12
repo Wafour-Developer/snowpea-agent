@@ -103,6 +103,45 @@ class MediaSettings(_Model):
     mcp: MediaMcpSettings = Field(default_factory=MediaMcpSettings)
 
 
+class SttSettings(_Model):
+    """Speech to text (CORE-multimodal).
+
+    ``provider`` is ``"auto"`` (local whisper, then OpenAI, then a command),
+    one backend's name, or ``"off"``.  The OpenAI credentials are not repeated
+    here: the provider registry's ``openai`` key is reused.
+    """
+
+    provider: str = "auto"
+    #: ``command`` backend only: a template containing ``{path}``.
+    command: str | None = None
+    #: Backend-specific model id (``whisper-1``, ``base``, …).
+    model: str | None = None
+
+
+class TtsSettings(_Model):
+    """Text to speech (CORE-multimodal)."""
+
+    enabled: bool = True
+    #: ``"auto"`` (studio, then OpenAI, then a local CLI), a backend name, or ``"off"``.
+    provider: str = "auto"
+    #: ``command`` backend only: a template containing ``{text}`` and ``{out}``.
+    command: str | None = None
+    model: str | None = None
+    voice: str | None = None
+    #: Speak every assistant reply without being asked.
+    autoSpeak: bool = False
+
+
+class AudioSettings(_Model):
+    """Voice in and out; every part degrades to off with a reason."""
+
+    stt: SttSettings = Field(default_factory=SttSettings)
+    tts: TtsSettings = Field(default_factory=TtsSettings)
+    #: Force one player / recorder instead of the first one found on PATH.
+    player: str | None = None
+    recorder: str | None = None
+
+
 class MemorySettings(_Model):
     """Long-term memory (M5 contract §1)."""
 
@@ -170,6 +209,7 @@ class Settings(_Model):
     browser: BrowserSettings = Field(default_factory=BrowserSettings)
     tools: ToolsSettings = Field(default_factory=ToolsSettings)
     media: MediaSettings = Field(default_factory=MediaSettings)
+    audio: AudioSettings = Field(default_factory=AudioSettings)
     mcp: McpSettings = Field(default_factory=McpSettings)
     memory: MemorySettings = Field(default_factory=MemorySettings)
     context: ContextSettings = Field(default_factory=ContextSettings)
@@ -211,6 +251,7 @@ __all__ = [
     "AgentSettings",
     "AgentsSettings",
     "ApprovalsSettings",
+    "AudioSettings",
     "BrowserSettings",
     "ContextSettings",
     "DaemonSettings",
@@ -222,7 +263,9 @@ __all__ = [
     "SchedulerSettings",
     "SearchSettings",
     "Settings",
+    "SttSettings",
     "TeamSettings",
     "ToolsSettings",
+    "TtsSettings",
     "UpdatesSettings",
 ]

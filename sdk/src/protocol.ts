@@ -1444,6 +1444,21 @@ export interface SystemUpdateProgressPayload {
 // session.event payloads by kind
 // ---------------------------------------------------------------------------
 
+/** Payload of `session.event` with kind `audio.spoken`. */
+export interface AudioSpokenEventPayload {
+  kind?: "audio.spoken";
+  /** Media type of that file. */
+  mime?: string;
+  /** Audio file the speech was written to. */
+  path: string;
+  /** True when the daemon played it. */
+  played?: boolean;
+  /** Backend that synthesised it. */
+  provider?: string;
+  /** Voice that was used. */
+  voice?: string | null;
+}
+
 /** Payload of `session.event` with kind `backend.changed`. */
 export interface BackendChangedEventPayload {
   /** Where tools now execute. */
@@ -1645,6 +1660,7 @@ export interface UsageEventPayload {
 
 /** Maps every `session.event` kind to its payload type. */
 export interface SessionEventKindMap {
+  "audio.spoken": AudioSpokenEventPayload;
   "backend.changed": BackendChangedEventPayload;
   "compaction": CompactionEventPayload;
   "context": ContextEventPayload;
@@ -1665,6 +1681,7 @@ export interface SessionEventKindMap {
 
 export type SessionEventKind = keyof SessionEventKindMap;
 export const SESSION_EVENT_KINDS: readonly SessionEventKind[] = [
+  "audio.spoken",
   "backend.changed",
   "compaction",
   "context",

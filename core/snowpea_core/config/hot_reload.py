@@ -108,5 +108,17 @@ def rebind(core: Any, settings: Settings) -> None:
 
     model_discovery.cache_clear()
 
+    # Turning a voice backend on or off in settings.json flips the two audio
+    # tools between active and inactive; everything else about audio is read at
+    # call time and needs nothing here (CORE-multimodal).
+    tools = getattr(core, "tools", None)
+    if tools is not None:
+        from snowpea_core.tools import audio_tools
+
+        try:
+            audio_tools.refresh_state(core)
+        except Exception:  # noqa: BLE001 - a reload must never fail on this
+            log.debug("could not refresh the audio tool state", exc_info=True)
+
 
 __all__ = ["MISSING", "changed_keys", "rebind", "stamp"]

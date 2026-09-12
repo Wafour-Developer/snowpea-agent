@@ -13,7 +13,9 @@ If you have just installed snowpea, read [Install](install.md), then [Setup](set
 | [Install](install.md) | installing, upgrading, or an install step failed |
 | [Setup](setup.md) | choosing a vendor, adding an API key, logging in through the browser, picking search and browser providers |
 | [Modes](modes.md) | the agent asks too much, or not enough |
+| [Terminal UI](tui.md) | the keys, the panels, attachments, voice, and what the screen is telling you |
 | [Commands](commands.md) | you want the full list of slash commands and CLI subcommands |
+| [Attachments and voice](voice.md) | sending images and files in a prompt, speaking to the agent and having it speak back |
 | [Plugins](plugins.md) | installing or writing skills, agents, commands, hooks and MCP servers |
 | [Scheduler](scheduler.md) | you want work to happen while you are away |
 | [Gateway](gateway.md) | you want to talk to the agent from Telegram, Discord or Slack |

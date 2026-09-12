@@ -317,6 +317,25 @@ def read_install_json(paths: Paths) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
+#: The image-downscaling extra (Pillow).  Carried through every upgrade path,
+#: or an upgrade would silently drop the downscaling the installers put there.
+IMAGES_EXTRA = "images"
+
+
+def with_images(source: str) -> str:
+    """``source`` with the ``images`` extra requested.
+
+    A URL needs the PEP 508 direct-reference form (``name[extra] @ url``); a
+    path or a plain package name takes the extra on the end.  A source that
+    already asks for an extra is left alone.
+    """
+    if "[" in source:
+        return source
+    if "://" in source:
+        return f"{PACKAGE}[{IMAGES_EXTRA}] @ {source}"
+    return f"{source}[{IMAGES_EXTRA}]"
+
+
 def write_install_json(paths: Paths, method: str, source: str) -> None:
     """Record how snowpea was installed (used by the installers and tests)."""
     paths.ensure()
@@ -334,18 +353,19 @@ def update_command(paths: Paths, source: str) -> list[str] | None:
     instead of running something that was never used to install anything.
     """
     method = str(read_install_json(paths).get("method", "")).strip().lower()
+    requirement = with_images(source)
     if shutil.which("uv"):
-        return ["uv", "tool", "install", "--force", "--reinstall", source]
+        return ["uv", "tool", "install", "--force", "--reinstall", requirement]
     if method == "pipx" and shutil.which("pipx"):
-        return ["pipx", "install", "--force", source]
+        return ["pipx", "install", "--force", requirement]
     if method == "pip":
-        return [sys.executable, "-m", "pip", "install", "--upgrade", source]
+        return [sys.executable, "-m", "pip", "install", "--upgrade", requirement]
     return None
 
 
 def manual_command(source: str) -> str:
     """What to tell the user to run when nothing can be run for them."""
-    return f"uv tool install --force --reinstall {source}"
+    return f"uv tool install --force --reinstall {with_images(source)!r}"
 
 
 def start_update(paths: Paths, command: list[str]) -> subprocess.Popen[bytes]:
@@ -442,6 +462,7 @@ __all__ = [
     "CACHE_TTL_SEC",
     "CHECK_ENV",
     "HTTP_TIMEOUT_SEC",
+    "IMAGES_EXTRA",
     "PACKAGE",
     "POLL_INTERVAL_SEC",
     "PYPI_URL",
@@ -459,6 +480,7 @@ __all__ = [
     "read_cache",
     "read_cache_any",
     "read_install_json",
+    "with_images",
     "start_update",
     "update_command",
     "version_suffix",

@@ -1375,6 +1375,17 @@ List the tools registered for a session.
 
 Every session event carries a monotonically increasing per-session `seq`. After a reconnect, `session.resume(sessionId, afterSeq)` replays anything missed.
 
+### kind `audio.spoken`
+
+| field | type | required | description |
+|---|---|---|---|
+| `kind` | `"audio.spoken"` | no |  |
+| `mime` | `string` | no | Media type of that file. |
+| `path` | `string` | yes | Audio file the speech was written to. |
+| `played` | `boolean` | no | True when the daemon played it. |
+| `provider` | `string` | no | Backend that synthesised it. |
+| `voice` | `string \| null` | no | Voice that was used. |
+
 ### kind `backend.changed`
 
 | field | type | required | description |

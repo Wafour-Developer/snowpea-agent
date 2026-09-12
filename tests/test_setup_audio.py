@@ -164,12 +164,10 @@ def test_audio_is_its_own_section() -> None:
 
 
 def test_a_non_interactive_run_keeps_auto(tmp_path: Path, only_path: Path) -> None:
-    result = wizard.run("full", home=tmp_path / "home", interactive=False)
-    audio = result.settings.model_dump(mode="json")["audio"]
-    assert audio == {
-        "stt": {"provider": "auto"},
-        "tts": {"enabled": True, "provider": "auto", "autoSpeak": False},
-    }
+    audio = wizard.run("full", home=tmp_path / "home", interactive=False).settings.audio
+    assert audio.stt.provider == "auto"
+    assert audio.stt.command is None
+    assert (audio.tts.enabled, audio.tts.provider, audio.tts.autoSpeak) == (True, "auto", False)
 
 
 def test_picking_a_voice_asks_for_the_details(
@@ -199,14 +197,12 @@ def test_picking_a_voice_asks_for_the_details(
         "full", home=tmp_path / "home", section="audio", interactive=True, ask=ask
     )
     assert [prompt.split()[0] for prompt in asked] == ["voice", "read", "test"]
-    audio = result.settings.model_dump(mode="json")["audio"]
-    assert audio["stt"]["provider"] == "local-whisper"
-    assert audio["tts"] == {
-        "enabled": True,
-        "provider": "espeak-ng",
-        "autoSpeak": True,
-        "voice": "ko-KR",
-    }
+    audio = result.settings.audio
+    assert audio.stt.provider == "local-whisper"
+    assert audio.tts.enabled is True
+    assert audio.tts.provider == "espeak-ng"
+    assert audio.tts.autoSpeak is True
+    assert audio.tts.voice == "ko-KR"
 
 
 def test_skipping_the_audio_screens_asks_nothing(
@@ -254,4 +250,4 @@ def test_the_voice_test_reports_a_failure_without_stopping_setup(
     result = wizard.run(
         "full", home=tmp_path / "home", section="audio", interactive=True, ask=ask
     )
-    assert result.settings.model_dump(mode="json")["audio"]["tts"]["provider"] == "espeak-ng"
+    assert result.settings.audio.tts.provider == "espeak-ng"

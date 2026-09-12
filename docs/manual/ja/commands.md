@@ -19,12 +19,26 @@ snowpea commands list --json
 |---|---|
 | `/help` | list every available command |
 | `/tools` | list registered tools with category, permission and state |
+| `/compact [instructions]` | summarise the conversation so far and continue with the summary |
 | `/plan`, `/accept`, `/auto` | switch mode |
 | `/mode [plan\|accept\|auto\|save\|show]` | show, switch, or save the project default |
 | `/approvals` | list unattended approvals waiting for an answer |
 | `/allow <regex> [--global]` | promote a repeated prompt to a silent allow |
 | `/allowlist [remove <id>]` | show or prune the allowlist |
 | `/backend [local\|docker\|ssh] [json]` | show or change where tools execute |
+
+### Terminal UI
+
+以下はコアではなくターミナル UI 自身が処理します。そのため `snowpea commands list` には出てこず、人が前に座っているセッションでしか動きません。画面で何が起きるかは [The terminal UI](tui.md) にあります。
+
+| Command | What it does |
+|---|---|
+| `/resume` | reopen the session this directory was last in, and replay it |
+| `/attach <path>` | attach a file to the next prompt |
+| `/voice` | arm voice input; `Ctrl+Space` then records |
+| `/rec` | start or stop recording, same as `Ctrl+Space` |
+| `/tts on\|off` | speak each reply as it finishes |
+| `/update` | take the offered upgrade, same as `U` |
 
 ### Work
 

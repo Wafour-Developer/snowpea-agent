@@ -17,9 +17,11 @@ import uuid
 from typing import TYPE_CHECKING, Any
 
 from snowpea_core.agent.agent import AgentConfig, build_messages
+from snowpea_core.attachments import pending
 from snowpea_core.exec.local import LocalBackend
 from snowpea_core.memory import context_for_turn, nudge_after_turn
 from snowpea_core.permissions.policy import UNPROMOTABLE, PermissionPolicy
+from snowpea_core.providers import content as content_parts
 from snowpea_core.providers.base import ChatMessage, ProviderError, ToolCall
 from snowpea_core.server import errors
 from snowpea_core.session import compaction, events
@@ -126,6 +128,53 @@ async def run_turn(
     return turn_id
 
 
+async def speak_reply(core: Core, session: Session, text: str) -> None:
+    """Say the reply out loud when ``audio.tts.autoSpeak`` is on.
+
+    Never raises and never blocks the turn's outcome: a missing backend, a
+    broken player or a synthesiser that times out all end as a log line and an
+    unspoken reply.  The ``audio.spoken`` event carries the file either way, so
+    a surface can play it when the daemon itself has no speakers.
+    """
+    body = (text or "").strip()
+    if not body:
+        return
+    from snowpea_core.audio.player import AudioError
+    from snowpea_core.audio.player import play as play_audio
+    from snowpea_core.server.audio_handlers import audio_config, audio_dir_for, speech_caller
+
+    try:
+        config = audio_config(core)
+        if not config.auto_speak:
+            return
+        caller = speech_caller(core)
+        provider = config.tts(caller)
+        if provider is None:
+            log.debug("autoSpeak is on but no speech backend is available")
+            return
+        speech = await provider.synthesize(
+            body, out_dir=audio_dir_for(core, session.id), voice=config.voice
+        )
+        played = False
+        try:
+            await play_audio(speech.path, preferred=config.player)
+            played = True
+        except AudioError as exc:
+            log.info("autoSpeak could not play locally: %s", exc)
+        await core.hub.emit_event(
+            session.id,
+            events.audio_spoken(
+                path=str(speech.path),
+                mime=speech.mime,
+                provider=speech.provider,
+                played=played,
+                voice=speech.voice,
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001 - speaking must never fail a turn
+        log.info("autoSpeak failed: %s", exc)
+
+
 async def _drive(core: Core, session: Session, text: str, turn_id: str, unattended: bool) -> str:
     """The loop proper; emits ``turn.done`` itself and returns its reason."""
     hub = core.hub
@@ -139,8 +188,17 @@ async def _drive(core: Core, session: Session, text: str, turn_id: str, unattend
     # (CORE-context).
     await compaction.maybe_auto_compact(core, session)
 
-    if text:
-        session.history.append(ChatMessage(role="user", content=text))
+    # Whatever ``session.prompt`` validated and stored for this turn; taking it
+    # here (rather than passing it down) keeps an interrupted turn from leaking
+    # its images into the next one (CORE-multimodal).
+    attachments = pending.take(session.id)
+    if text or attachments:
+        session.history.append(
+            ChatMessage(
+                role="user",
+                content=content_parts.history_blocks(text, attachments) if attachments else text,
+            )
+        )
         session.history.compact()
 
     # Recall once per turn, on the user's own words (M5 contract §1).
@@ -185,6 +243,7 @@ async def _drive(core: Core, session: Session, text: str, turn_id: str, unattend
         if not calls:
             session.history.append(ChatMessage(role="assistant", content=assistant_text))
             await hub.emit_event(session.id, events.message_done(assistant_text))
+            await speak_reply(core, session, assistant_text)
             await finish_turn(core, session, turn_id, "complete")
             await nudge_after_turn(core, session, text)
             await plugin_hooks.stop(core, session)
@@ -335,4 +394,11 @@ async def _fail_call(core: Core, session: Session, call: ToolCall, message: str)
     )
 
 
-__all__ = ["agent_config", "backend_for", "new_turn_id", "run_turn", "start_turn"]
+__all__ = [
+    "agent_config",
+    "backend_for",
+    "new_turn_id",
+    "run_turn",
+    "speak_reply",
+    "start_turn",
+]

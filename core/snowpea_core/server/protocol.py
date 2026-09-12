@@ -1279,6 +1279,22 @@ class ErrorEvent(Payload):
     message: str = Field(description="Human-readable detail.")
 
 
+class AudioSpoken(Payload):
+    """A reply was synthesised, and played here when ``played`` is true.
+
+    Emitted when ``audio.tts.autoSpeak`` is on, so a surface can show that the
+    daemon is talking — and can play the file itself when the daemon has no
+    player (CORE-multimodal).
+    """
+
+    kind: Literal["audio.spoken"] = "audio.spoken"
+    path: str = Field(description="Audio file the speech was written to.")
+    mime: str = Field(default="audio/mpeg", description="Media type of that file.")
+    provider: str = Field(default="", description="Backend that synthesised it.")
+    played: bool = Field(default=False, description="True when the daemon played it.")
+    voice: str | None = Field(default=None, description="Voice that was used.")
+
+
 class TurnDone(Payload):
     """A turn ended, for any reason."""
 
@@ -1303,6 +1319,7 @@ SessionEventPayload = Annotated[
     | ContextEvent
     | CompactionEvent
     | ErrorEvent
+    | AudioSpoken
     | TurnDone,
     Field(discriminator="kind"),
 ]
@@ -1324,6 +1341,7 @@ SESSION_EVENT_MODELS: dict[str, type[BaseModel]] = {
     "context": ContextEvent,
     "compaction": CompactionEvent,
     "error": ErrorEvent,
+    "audio.spoken": AudioSpoken,
     "turn.done": TurnDone,
 }
 

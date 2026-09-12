@@ -308,13 +308,10 @@ def test_full_with_every_screen_skipped_writes_the_free_defaults(home: Path) -> 
     assert settings.search.provider == "ddgs"
     assert settings.browser.provider == "local_chromium"
     # Audio stays on "auto": the daemon works out what this machine has.
-    audio = settings.model_dump(mode="json")["audio"]
-    assert audio["stt"]["provider"] == "auto"
-    assert audio["tts"] == {
-        "enabled": True,
-        "provider": "auto",
-        "autoSpeak": False,
-    }
+    assert settings.audio.stt.provider == "auto"
+    assert settings.audio.tts.enabled is True
+    assert settings.audio.tts.provider == "auto"
+    assert settings.audio.tts.autoSpeak is False
     assert settings.tools.enabled_categories == catalog.default_enabled_categories()
     assert settings.gateway == {}
     assert "default" not in settings.providers

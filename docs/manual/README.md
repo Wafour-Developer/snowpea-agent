@@ -1,6 +1,6 @@
 # snowpea manual — index
 
-Every manual page, in every language it exists in. English and Korean are complete; Japanese, Simplified Chinese and Spanish cover the three pages most people need first, and link out to English for the rest.
+Every manual page, in every language it exists in. English and Korean are complete; Japanese, Simplified Chinese and Spanish cover the four pages most people need first, and link out to English for the rest.
 
 Start at [English](en/index.md) or [한국어](ko/index.md).
 
@@ -12,7 +12,9 @@ Start at [English](en/index.md) or [한국어](ko/index.md).
 | Install | one-liner, manual install, upgrading, uninstalling, troubleshooting | [en](en/install.md) | [ko](ko/install.md) | [ja](ja/install.md) | [zh-CN](zh-CN/install.md) | [es](es/install.md) |
 | Setup | wizard screens, eleven vendors, browser login, search and browser providers, tool categories | [en](en/setup.md) | [ko](ko/setup.md) | [ja](ja/setup.md) | [zh-CN](zh-CN/setup.md) | [es](es/setup.md) |
 | Modes | plan/accept/auto, permission matrix, approvals, allowlist | [en](en/modes.md) | [ko](ko/modes.md) | — | — | — |
+| Terminal UI | launch screen, layout, keys, approvals, diffs, context, attachments, voice | [en](en/tui.md) | [ko](ko/tui.md) | [ja](ja/tui.md) | [zh-CN](zh-CN/tui.md) | [es](es/tui.md) |
 | Commands | every slash command and CLI subcommand | [en](en/commands.md) | [ko](ko/commands.md) | [ja](ja/commands.md) | [zh-CN](zh-CN/commands.md) | [es](es/commands.md) |
+| Attachments and voice | images and files in a prompt, speech to text, text to speech, the audio tools | [en](en/voice.md) | [ko](ko/voice.md) | — | — | — |
 | Plugins | Claude Code plugin format, SKILL.md, hooks, MCP, marketplaces | [en](en/plugins.md) | [ko](ko/plugins.md) | — | — | — |
 | Scheduler | cron and natural-language jobs, delivery channels, unattended modes | [en](en/scheduler.md) | [ko](ko/scheduler.md) | — | — | — |
 | Gateway | Telegram, Discord, Slack, named agents, unattended approvals | [en](en/gateway.md) | [ko](ko/gateway.md) | — | — | — |
