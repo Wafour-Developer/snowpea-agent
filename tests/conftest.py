@@ -47,3 +47,18 @@ async def gateway_env() -> AsyncIterator[None]:
             yield None
         finally:
             FakeAdapter.instances.clear()
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    """``--update-golden`` rewrites the prompt snapshots instead of failing."""
+    parser.addoption(
+        "--update-golden",
+        action="store_true",
+        default=False,
+        help="Rewrite tests/golden/** from the current output instead of comparing.",
+    )
+
+
+@pytest.fixture
+def update_golden(request: pytest.FixtureRequest) -> bool:
+    return bool(request.config.getoption("--update-golden"))
