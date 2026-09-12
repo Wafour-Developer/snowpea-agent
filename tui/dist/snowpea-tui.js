@@ -36935,8 +36935,14 @@ function AgentTranscript({
 
 // src/components/SectionRule.tsx
 var import_jsx_runtime16 = __toESM(require_jsx_runtime(), 1);
-function SectionRule({ width, color }) {
-  return /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Box_default, { width, flexShrink: 0, overflow: "hidden", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { color, dimColor: !color, wrap: "truncate-end", children: "\u2500".repeat(Math.max(1, width)) }) });
+function SectionRule({
+  width,
+  color,
+  label
+}) {
+  const suffix = label ? ` ${label}` : "";
+  const rule = `${"\u2500".repeat(Math.max(1, width - suffix.length))}${suffix}`.slice(0, Math.max(1, width));
+  return /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Box_default, { width, flexShrink: 0, overflow: "hidden", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { color, dimColor: !color, wrap: "truncate-end", children: rule }) });
 }
 
 // src/components/LaunchBanner.tsx
@@ -37530,14 +37536,14 @@ function App2({
   const staticCursor = staticCursorRef.current;
   const staticItems = staticBlocksRef.current;
   const knownAgents = useKnownAgents(client, void 0, agentRosterVersion);
-  const activeTeam = knownAgents.find((agent) => agent.kind === "team")?.name ?? "main";
+  const activeTeam = knownAgents.find((agent) => agent.kind === "team")?.name;
   const agentRows = (0, import_react36.useMemo)(
     () => buildAgentRows({
       state,
       known: knownAgents.filter((agent) => agent.kind !== "team"),
       now,
       expanded: agentsExpanded,
-      currentLabel: activeTeam
+      currentLabel: "main"
     }),
     // `now` deliberately left out: the panel should follow the session, not the
     // clock. The spinner's own tick is what refreshes the elapsed columns.
@@ -38066,7 +38072,7 @@ function App2({
     /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(SectionRule, { width: contentWidth }),
     /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(StatusHud, { rows: hudRows, width: contentWidth }),
     warning ? /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { color: warning.color, bold: warning.bold, wrap: "truncate-end", children: warning.text }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(SectionRule, { width: contentWidth }),
+    /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(SectionRule, { width: contentWidth, label: activeTeam ? `Team: ${activeTeam}` : void 0 }),
     /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(
       AgentPanel,
       {
