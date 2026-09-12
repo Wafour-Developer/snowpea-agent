@@ -244,8 +244,18 @@ describe("base contract (AC-15a)", function () {
       await prompt(client!, sessionId, "run ls");
       const done = await log.waitFor("turn.done");
       assert.ok(sawRequest, "the daemon must ask the originating surface before running shell");
+      // Since protocol 1.3.0 a refusal is fed back to the model as a failed
+      // tool.result and the turn continues (up to three denials per turn),
+      // so the turn ends "complete" when the model moves on or "denied"
+      // when it keeps retrying. Either way the shell tool never ran.
       const reason = (done.payload as { reason?: string }).reason;
-      assert.equal(reason, "denied", `expected reason=denied, got ${String(reason)}`);
+      assert.ok(
+        reason === "complete" || reason === "denied",
+        `expected reason=complete|denied, got ${String(reason)}`,
+      );
+      const result = log.events.find((e) => e.kind === "tool.result");
+      assert.ok(result, "the refusal must arrive as a tool.result");
+      assert.equal((result!.payload as { ok?: boolean }).ok, false, "the denied call must be reported as failed");
     } finally {
       disposeHandler();
       log.stop();
