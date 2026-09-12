@@ -46,7 +46,7 @@ export function fromCheck(state: UpdateState, check: UpdateCheck): UpdateState {
   const latest = check.latest ?? state.latest;
   // An error or an up-to-date answer leaves the banner off; a check that
   // arrives while an upgrade is already running must not rewind it.
-  if (!check.available || check.error || state.phase === "running" || state.phase === "done") {
+  if (!check.available || check.error || state.phase === "running" || state.phase === "done" || state.phase === "confirm") {
     return { ...state, current, latest };
   }
   return { ...state, phase: state.dismissed ? "idle" : "available", current, latest };
@@ -80,7 +80,9 @@ export function bannerText(state: UpdateState): string | null {
     case "available":
       return `⬆ Update available v${state.latest} (current v${state.current}) — press U or type /update`;
     case "confirm":
-      return `⬆ Update to v${state.latest} from v${state.current}? [y/N]`;
+      return state.latest && state.current
+        ? `⬆ Update to v${state.latest} from v${state.current}? [y/N]`
+        : "⬆ Check for an update and install it? [y/N]";
     case "running":
       return `⬆ ${state.message || `Updating to v${state.latest}…`}`;
     case "done":

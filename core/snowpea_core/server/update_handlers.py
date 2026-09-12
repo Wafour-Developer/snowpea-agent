@@ -47,12 +47,28 @@ async def check_update_handler(
 ) -> CheckUpdateResult:
     """``system.checkUpdate`` — cached for 24h unless ``force``."""
     answer = await update_mod.check_update(core.paths, core.settings, force=params.force)
-    return CheckUpdateResult.model_validate(answer)
+    # Install/cache provenance is internal, not part of the strict RPC schema.
+    public = {
+        key: value
+        for key, value in answer.items()
+        if key not in {"installKey", "trackingSource", "configured"}
+    }
+    return CheckUpdateResult.model_validate(public)
 
 
 async def update_handler(_conn: RpcConnection, _params: Empty, core: Core) -> UpdateResult:
     """``system.update`` — start the upgrade detached and report progress."""
     answer = await update_mod.check_update(core.paths, core.settings)
+    if answer.get("error") or not answer.get("available"):
+        return UpdateResult(
+            started=False,
+            command="",
+            log=str(core.paths.update_log),
+            error=str(
+                answer.get("error")
+                or "No newer update is available; refusing to reinstall or downgrade."
+            ),
+        )
     source = str(answer.get("source") or "")
     if not source:
         raise RpcError(errors.INTERNAL, "no install source is known for this build")
@@ -83,7 +99,9 @@ async def update_handler(_conn: RpcConnection, _params: Empty, core: Core) -> Up
 
     latest = str(answer.get("latest") or answer.get("current") or "")
     await update_mod.notify_progress(core, "started", f"updating to v{latest.lstrip('v')}")
-    task = asyncio.ensure_future(update_mod.watch_update(core, process, latest))
+    task = asyncio.ensure_future(
+        update_mod.watch_update(core, process, latest, answer.get("trackingSource"))
+    )
     core.update_task = task
     return UpdateResult(started=True, command=shlex.join(command), log=log_path)
 

@@ -259,3 +259,17 @@ snowpea --fullscreen
 ## 기본 에이전트와 커스텀 에이전트
 
 `/agent list`는 기본 역할(`architect`, `critic`, `executor`, `explorer`, `test-engineer`, `verifier`)과 커스텀 정의를 함께 보여줍니다. 기본 역할은 별도 파일 생성 없이 사용할 수 있으며 출처는 `builtin`으로 표시합니다. 같은 이름의 커스텀 정의가 있으면 해당 정의가 우선합니다. 전역 정의보다 프로젝트 정의가 우선하며, `delegate_task`의 `agent` 인자에도 같은 이름을 사용할 수 있습니다.
+
+## 시작 시 업데이트 알림
+
+실행할 때 백그라운드에서 최신 업데이트를 확인합니다. 업데이트가 있으면 배너가 표시되며 빈 입력줄에서 `U` 또는 `/update`로 확인 메뉴를 열 수 있습니다. `y`를 선택하면 설치 후 재시작하고, `n`이나 Esc로 미룹니다. 입력 중인 소문자 `u`는 단축키로 처리하지 않습니다.
+
+Git의 `main`/`master` 설치본은 설치된 커밋과 비교하므로 버전 번호가 같아도 새 커밋을 감지합니다. 확인 실패, 동일 버전/커밋, 이전 커밋으로의 다운그레이드는 설치하지 않습니다. PyPI/릴리스 설치본은 기존 버전 확인을 유지합니다.
+
+구버전 자동 업데이트 후 `Cannot read properties of undefined (reading 'rawCall')`로 실행이 막힌 경우, 현재 `main`으로 재설치할 수 있습니다:
+
+```sh
+uv tool install --force --reinstall 'snowpea-agent[images] @ git+https://github.com/Wafour-Developer/snowpea-agent@main'
+```
+
+재설치 후 진행 중인 작업이 없을 때 `snowpea daemon stop`으로 기존 데몬을 종료하고 `snowpea`를 실행하면 새 코드가 적용됩니다.

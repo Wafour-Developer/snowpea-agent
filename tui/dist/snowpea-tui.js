@@ -33895,7 +33895,7 @@ var initialUpdateState = {
 function fromCheck(state, check) {
   const current = check.current ?? state.current;
   const latest = check.latest ?? state.latest;
-  if (!check.available || check.error || state.phase === "running" || state.phase === "done") {
+  if (!check.available || check.error || state.phase === "running" || state.phase === "done" || state.phase === "confirm") {
     return { ...state, current, latest };
   }
   return { ...state, phase: state.dismissed ? "idle" : "available", current, latest };
@@ -33917,7 +33917,7 @@ function bannerText(state) {
     case "available":
       return `\u2B06 Update available v${state.latest} (current v${state.current}) \u2014 press U or type /update`;
     case "confirm":
-      return `\u2B06 Update to v${state.latest} from v${state.current}? [y/N]`;
+      return state.latest && state.current ? `\u2B06 Update to v${state.latest} from v${state.current}? [y/N]` : "\u2B06 Check for an update and install it? [y/N]";
     case "running":
       return `\u2B06 ${state.message || `Updating to v${state.latest}\u2026`}`;
     case "done":
@@ -36379,6 +36379,7 @@ function Chat({
   initialHistory = [],
   onFocusDown,
   onQuickResume,
+  onQuickUpdate,
   onPaste,
   onBackspaceEmpty,
   onClearAttachments,
@@ -36471,6 +36472,10 @@ function Chat({
       }
       if (key.ctrl || key.meta || input.length === 0) return;
       if (input.length > 1 && onPaste?.(input)) return;
+      if (input === "U" && value.length === 0 && onQuickUpdate) {
+        onQuickUpdate();
+        return;
+      }
       if (input === "R" && value.length === 0 && onQuickResume) {
         onQuickResume();
         return;
@@ -37322,21 +37327,30 @@ function App2({
     );
     void registryRef.current.load().then((commands) => dispatch({ type: "commands", commands })).catch((error) => dispatch({ type: "error", message: String(error) }));
     refreshApprovals();
-    void client.checkUpdate().then((check) => {
+  }, [client, sessionId, mode, provider, model, refreshApprovals, refreshCapabilities]);
+  (0, import_react35.useEffect)(() => {
+    let cancelled = false;
+    void client.checkUpdate(true).then((check) => {
+      if (cancelled) return;
       setUpdateAvailable(Boolean(check.available) && !check.error);
       setUpdate((current) => fromCheck(current, check));
     }).catch(() => {
     });
-  }, [client, sessionId, mode, provider, model, refreshApprovals, refreshCapabilities]);
+    return () => {
+      cancelled = true;
+    };
+  }, [client]);
   (0, import_react35.useEffect)(() => {
     if (update.phase !== "done") return;
     let cancelled = false;
     const timer = setTimeout(() => {
-      void client.restartDaemon().catch(() => void 0).then(() => {
+      void client.restartDaemon().then(() => {
         if (!cancelled) {
           onRestart?.();
           exit();
         }
+      }).catch((error) => {
+        if (!cancelled) setUpdate((current) => progress(current, "failed", `restart failed: ${String(error)}`));
       });
     }, RESTART_DELAY_MS);
     return () => {
@@ -37687,7 +37701,7 @@ function App2({
   }, [lastSession, resumeSession, showToast]);
   const submit = (0, import_react35.useCallback)(
     (text) => {
-      if (resumingRef.current) return;
+      if (resumingRef.current || update.phase === "running" || update.phase === "done") return;
       if (/^\/update\s*$/.test(text.trim())) {
         setUpdate(confirm);
         return;
@@ -37781,6 +37795,7 @@ function App2({
       resumeMemory,
       resumeSession,
       state.turnActive,
+      update.phase,
       attachments,
       capabilities,
       localAudio,
@@ -37797,6 +37812,10 @@ function App2({
         setUpdate(cancel);
         return;
       }
+      if (state.turnActive) {
+        setUpdate((current) => progress(current, "failed", "finish or interrupt the current turn before updating"));
+        return;
+      }
       setUpdate((current) => progress(current, "started", "starting the update\u2026"));
       void client.startUpdate().then((result) => {
         if (!result.started) {
@@ -37808,7 +37827,7 @@ function App2({
         (error) => setUpdate((current) => progress(current, "failed", String(error)))
       );
     },
-    [client]
+    [client, state.turnActive]
   );
   const decideApproval = (0, import_react35.useCallback)(
     (decision, scope) => {
@@ -37916,10 +37935,6 @@ function App2({
       changeMode(cycleMode(state.mode));
       return;
     }
-    if ((input === "U" || input === "u") && update.phase === "available") {
-      setUpdate(confirm);
-      return;
-    }
     if (key.ctrl && input === "p") {
       changeMode(state.mode === "plan" ? "accept" : "plan");
     }
@@ -37961,6 +37976,7 @@ function App2({
       ConfirmMenu,
       {
         options: UPDATE_OPTIONS,
+        initialIndex: 1,
         escapeValue: false,
         onChoose: answerUpdate,
         isActive: state.pendingApproval === null
@@ -37982,6 +37998,7 @@ function App2({
         onSubmit: submit,
         initialHistory: pastPrompts,
         onFocusDown: () => setFocus((current) => focusDown(current, agentRows.length)),
+        onQuickUpdate: update.phase === "available" ? () => setUpdate(confirm) : void 0,
         onQuickResume: lastSession && state.messages.length === 0 ? resumeMemory : void 0,
         onPaste: takePaste,
         onClipboard: takeClipboard,
@@ -37998,7 +38015,7 @@ function App2({
         onChange: setDraft,
         onInterrupt: () => void client.interrupt(sessionId).catch(() => void 0),
         onToggleHelp: () => setShowHelp((v) => !v),
-        disabled: approvalActive || queueFocused || !isInput(focus) || openAgent !== null
+        disabled: update.phase === "confirm" || update.phase === "running" || update.phase === "done" || approvalActive || queueFocused || !isInput(focus) || openAgent !== null
       }
     )
   ] });
