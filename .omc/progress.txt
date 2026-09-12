@@ -89,3 +89,9 @@ PRD: .omc/state/sessions/c8c4a797-cd7b-4db1-8376-04eaced83731/prd.json (22 stori
 - running: exec-tui-polish (English verbs, subagent rows + drill-down via child sessionId session.resume, Enter approval menu, inline diffs, ctx HUD, persistent panel, ↑ history / ↓ shells+agents focus, big full-width logo + last-session hint + /resume), exec-context (context event, /compact, auto-compact), exec-search-fix (provider honesty, key prompts, search test, config guard), exec-prompts (phase A new files → phase B wiring on go), exec-multimodal (phase A attachments/content parts/audio stt+tts+recorder+player → phase B protocol 1.3.0 session.prompt attachments, audio.* RPC, transcribe_audio + text_to_speech tools, setup Audio section)
 - TODO after tui-polish lands: TUI multimodal agent (paste image/file → attachment chips, clipboard image, /voice push-to-talk → audio.transcribe, /tts on auto-speak via audio.speak + local play)
 - TODO: combined regression (SNOWPEA_SKIP_BROWSER_TESTS=1), commit, tag v0.1.2, repin IDE build-core, reviewer + deslop, cancel
+
+## 2026-09-12 iteration-2 landed (all committed/pushed)
+core: 010e5db context+search+login | 853d9c0/04f2283/36f355f prompt library A/persona/B | 25b3f11/2611501/9109a2f multimodal A/B1/B2 | 6b93dbc sdk denial test
+tui: c8ea145 indicator | 349a72d panel/approval/diffs/ctx | 34ecd6a/ab2ab88 launch+nav+drilldown | 98c42dd logo | d9597f4/2173686/ff1abfd attachments+voice
+ide: 8c4f03a IDE-CTX | 21d115b IDE-MM
+pending: reviewer (core+tui / ide), deslop, tag v0.1.2, IDE build-core repin, cancel
