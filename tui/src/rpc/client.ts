@@ -24,6 +24,16 @@ import {
 
 export type ConnectionStatus = "connecting" | "connected" | "reconnecting" | "closed";
 
+/** One file sent with a prompt (contract §1, `session.prompt`). */
+export interface PromptAttachment {
+  kind?: "file" | "image" | "text";
+  name?: string;
+  path?: string;
+  data?: string;
+  mimeType?: string;
+  size?: number;
+}
+
 export type ApprovalHandler = (
   request: ApprovalRequestParams,
 ) => Promise<ApprovalResponse>;
@@ -53,6 +63,8 @@ export interface TuiClientListeners {
   onCommandsChanged?: () => void;
   /** The upgrade started by `system.update` moved on (CORE-update). */
   onUpdateProgress?: (params: UpdateProgress) => void;
+  /** A setting changed on the daemon; capabilities may have moved with it. */
+  onSettingsChanged?: (params: { keys?: string[] }) => void;
 }
 
 export class TuiClient {
@@ -94,6 +106,7 @@ export class TuiClient {
     client.on("commands.changed", () => this.listeners.onCommandsChanged?.());
     client.on("approval.pending", (params: any) => this.listeners.onApprovalPending?.(params));
     client.on("system.updateProgress", (params: any) => this.listeners.onUpdateProgress?.(params));
+    client.on("settings.changed", (params: any) => this.listeners.onSettingsChanged?.(params ?? {}));
     // The SDK owns reconnect and replays each tracked session with
     // `session.resume(afterSeq)` before emitting `reconnected`; the TUI only
     // renders the transition.
@@ -155,8 +168,23 @@ export class TuiClient {
     return result.sessionId as string;
   }
 
-  prompt(sessionId: string, text: string): Promise<{ turnId: string }> {
-    return this.call("session.prompt", { sessionId, text });
+  /**
+   * `session.prompt`, with whatever the input had attached.
+   *
+   * Files travel as paths: the daemon runs on this machine and reading the
+   * bytes twice, once here to base64 them and once there, would be work for
+   * nothing.
+   */
+  prompt(
+    sessionId: string,
+    text: string,
+    attachments: PromptAttachment[] = [],
+  ): Promise<{ turnId: string }> {
+    return this.call("session.prompt", {
+      sessionId,
+      text,
+      ...(attachments.length > 0 ? { attachments } : {}),
+    });
   }
 
   interrupt(sessionId: string): Promise<unknown> {

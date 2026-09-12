@@ -37,6 +37,15 @@ class WizardState:
     #: Only providers the run actually touched appear here.
     search_credentials: dict[str, dict[str, Any]] = field(default_factory=dict)
     browser_provider: str = catalog.DEFAULT_BROWSER_PROVIDER
+    #: Voice in and out.  ``"off"`` is a real answer, distinct from ``"auto"``:
+    #: it means "never listen" / "never speak" rather than "pick for me".
+    stt_provider: str = catalog.DEFAULT_STT_PROVIDER
+    stt_command: str | None = None
+    tts_provider: str = catalog.DEFAULT_TTS_PROVIDER
+    tts_command: str | None = None
+    tts_voice: str | None = None
+    #: True when replies are spoken without being asked each time.
+    auto_speak: bool = False
     #: category id -> enabled.
     tool_categories: dict[str, bool] = field(default_factory=dict)
     #: gateway id -> its config block (``{"enabled": True, "token": "...",
@@ -81,9 +90,26 @@ class WizardState:
             browser_provider=settings.browser.provider or catalog.DEFAULT_BROWSER_PROVIDER,
             tool_categories=defaults,
             gateways=gateways,
+            **_audio_from(getattr(settings, "audio", None)),
         )
 
     # -- mutation ------------------------------------------------------
+    def audio_block(self) -> dict[str, Any]:
+        """The ``settings.audio`` object these answers describe."""
+        stt: dict[str, Any] = {"provider": self.stt_provider}
+        if self.stt_command:
+            stt["command"] = self.stt_command
+        tts: dict[str, Any] = {
+            "enabled": self.tts_provider != catalog.AUDIO_OFF,
+            "provider": self.tts_provider,
+            "autoSpeak": self.auto_speak,
+        }
+        if self.tts_command:
+            tts["command"] = self.tts_command
+        if self.tts_voice:
+            tts["voice"] = self.tts_voice
+        return {"stt": stt, "tts": tts}
+
     def enabled_categories(self) -> list[str]:
         """The enabled ids in catalog order."""
         return [cid for cid in catalog.known_categories() if self.tool_categories.get(cid)]
@@ -172,6 +198,14 @@ class WizardState:
         settings.gateway = {
             gid: block for gid, block in self.gateways.items() if block.get("enabled")
         }
+        # ``Settings`` allows extra keys, so the audio block round-trips through
+        # settings.json before the typed model for it exists.
+        current = getattr(settings, "audio", None)
+        audio: dict[str, Any] = dict(current) if isinstance(current, dict) else {}
+        audio.update(self.audio_block())
+        # setattr, not attribute assignment: the field is an extra until the
+        # typed ``AudioSettings`` model lands.
+        setattr(settings, "audio", audio)  # noqa: B010
         settings.save(paths)
         return settings
 
@@ -182,11 +216,21 @@ class WizardState:
             + (f"  model {self.model}" if self.model else ""),
             f"search     {self.search_provider}{self._search_key_note()}",
             f"browser    {self.browser_provider}",
+            f"audio      in {self.stt_provider} · out {self.tts_provider}{self._voice_note()}",
             f"tools      {len(self.enabled_categories())} categories on"
             f" ({', '.join(self.enabled_categories())})",
             "messenger  " + (", ".join(self._gateway_labels()) or "(none)"),
         ]
         return lines + list(self.notes)
+
+    def _voice_note(self) -> str:
+        """``" · voice nova · auto-speak"`` — only what was actually chosen."""
+        parts = []
+        if self.tts_voice:
+            parts.append(f"voice {self.tts_voice}")
+        if self.auto_speak and self.tts_provider != catalog.AUDIO_OFF:
+            parts.append("auto-speak")
+        return (" · " + " · ".join(parts)) if parts else ""
 
     def _search_key_note(self) -> str:
         """``" (key saved)"`` / ``" (no key — will fall back)"`` for key providers."""
@@ -213,6 +257,27 @@ class WizardState:
             user = (self.gateways.get(gid) or {}).get("allowed_user_id")
             labels.append(f"{gid} (user {user})" if user else f"{gid} (no approver)")
         return labels
+
+
+def _audio_from(block: Any) -> dict[str, Any]:
+    """Seed the audio answers from ``settings.audio``, whatever shape it is in."""
+    if not isinstance(block, dict):
+        return {}
+    raw_stt = block.get("stt")
+    raw_tts = block.get("tts")
+    stt: dict[str, Any] = raw_stt if isinstance(raw_stt, dict) else {}
+    tts: dict[str, Any] = raw_tts if isinstance(raw_tts, dict) else {}
+    provider = str(tts.get("provider") or catalog.DEFAULT_TTS_PROVIDER)
+    if tts.get("enabled") is False:
+        provider = catalog.AUDIO_OFF
+    return {
+        "stt_provider": str(stt.get("provider") or catalog.DEFAULT_STT_PROVIDER),
+        "stt_command": stt.get("command") or None,
+        "tts_provider": provider,
+        "tts_command": tts.get("command") or None,
+        "tts_voice": tts.get("voice") or None,
+        "auto_speak": bool(tts.get("autoSpeak")),
+    }
 
 
 __all__ = ["SKIP", "SKIP_LABEL", "WizardState"]

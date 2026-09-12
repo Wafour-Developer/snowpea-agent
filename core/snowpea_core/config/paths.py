@@ -89,6 +89,20 @@ class Paths:
         return self.home / "logs"
 
     @property
+    def attachments_dir(self) -> Path:
+        """Files pasted or dragged into a prompt, ``<sha256>.<ext>`` per session.
+
+        Created on first use rather than by :meth:`ensure`: a home that never
+        sees an attachment never grows the directory (CORE-multimodal).
+        """
+        return self.home / "attachments"
+
+    @property
+    def audio_dir(self) -> Path:
+        """Recordings and synthesised speech, one subdirectory per session."""
+        return self.home / "audio"
+
+    @property
     def daemon_log(self) -> Path:
         return self.logs_dir / "daemon.log"
 

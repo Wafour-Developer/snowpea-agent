@@ -10,7 +10,7 @@ from snowpea_core.setup.state import WizardState
 
 TITLE = "⑥ Done"
 #: Summary rows that can be revisited by selecting them.
-SECTION_ROWS = frozenset({"providers", "search", "browser", "tools", "gateway"})
+SECTION_ROWS = frozenset({"providers", "search", "browser", "audio", "tools", "gateway"})
 HELP = "Enter on a row revisits that section · Save writes settings.json · Cancel discards."
 SAVE = "action:save"
 CANCEL = "action:cancel"

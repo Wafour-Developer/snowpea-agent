@@ -188,13 +188,26 @@ class UpdateResult(Payload):
 
 
 class Attachment(Payload):
-    """A file, image or inline text sent along with a prompt."""
+    """A file, image or inline text sent along with a prompt.
+
+    Exactly one of ``path``, ``data`` and ``text`` carries the content.  The
+    daemon sniffs the real media type from the bytes, so ``mimeType`` is a
+    hint it may overrule; anything over 20MB is refused with
+    ``invalid_params``.
+    """
 
     kind: Literal["file", "image", "text"] = Field(
         default="file", description="Attachment flavour."
     )
+    name: str | None = Field(
+        default=None, description="Display name; defaults to the file's basename."
+    )
     path: str | None = Field(default=None, description="Absolute path, for 'file' and 'image'.")
+    data: str | None = Field(
+        default=None, description="Base64 (or data-URI) content, for a pasted image."
+    )
     mimeType: str | None = Field(default=None, description="Media type when known.")
+    size: int | None = Field(default=None, description="Byte size the client measured.")
     text: str | None = Field(default=None, description="Inline content, for 'text'.")
 
 
@@ -306,6 +319,97 @@ class SessionSetModeParams(Payload):
 
 class SessionSetModeResult(Payload):
     mode: Mode = Field(description="Mode now in effect.")
+
+
+# --------------------------------------------------------------------------
+# audio.*
+# --------------------------------------------------------------------------
+
+
+class AudioCapabilitiesResult(Payload):
+    """What voice I/O can do on the daemon's machine right now.
+
+    Every field can be off; ``reasons`` says why, so a client can tell the
+    user what to install instead of failing silently (CORE-multimodal).
+    """
+
+    stt: str | None = Field(
+        default=None, description="Transcription backend in use, or null when there is none."
+    )
+    tts: bool = Field(default=False, description="True when speech synthesis is available.")
+    ttsProvider: str | None = Field(default=None, description="Speech backend in use.")
+    voice: str | None = Field(default=None, description="Configured voice, when one is set.")
+    record: bool = Field(default=False, description="True when the microphone can be recorded.")
+    play: bool = Field(default=False, description="True when the daemon can play audio itself.")
+    autoSpeak: bool = Field(
+        default=False, description="True when replies are spoken without being asked."
+    )
+    sttProviders: list[str] = Field(
+        default_factory=list, description="Every usable transcription backend, preferred first."
+    )
+    ttsProviders: list[str] = Field(
+        default_factory=list, description="Every usable speech backend, preferred first."
+    )
+    players: list[str] = Field(default_factory=list, description="Audio players found on PATH.")
+    recorders: list[str] = Field(default_factory=list, description="Recorders found on PATH.")
+    reasons: dict[str, str] = Field(
+        default_factory=dict, description="Per-capability explanation of why it is off."
+    )
+
+
+class AudioTranscribeParams(Payload):
+    """Turn recorded audio into text.  Give either ``path`` or ``data``."""
+
+    path: str | None = Field(default=None, description="Audio file on the daemon's machine.")
+    data: str | None = Field(default=None, description="Base64 (or data-URI) audio.")
+    mime: str | None = Field(default=None, description="Media type of the audio, e.g. audio/wav.")
+    language: str | None = Field(default=None, description="BCP-47 hint for the backend.")
+    sessionId: str | None = Field(default=None, description="Session the audio belongs to.")
+
+
+class AudioTranscribeResult(Payload):
+    text: str = Field(description="What the backend heard.")
+    provider: str = Field(description="Backend that produced the transcript.")
+
+
+class AudioSpeakParams(Payload):
+    """Synthesise speech; the client plays it unless ``play`` is set."""
+
+    text: str = Field(description="What to say.")
+    sessionId: str | None = Field(default=None, description="Session the audio belongs to.")
+    voice: str | None = Field(default=None, description="Voice id; defaults to the setting.")
+    play: bool = Field(
+        default=False, description="Play on the daemon's machine instead of returning only a path."
+    )
+
+
+class AudioSpeakResult(Payload):
+    path: str = Field(description="Audio file the speech was written to.")
+    mime: str = Field(description="Media type of that file.")
+    provider: str = Field(description="Backend that synthesised it.")
+    voice: str | None = Field(default=None, description="Voice that was used.")
+    played: bool = Field(default=False, description="True when the daemon played it.")
+
+
+class AudioRecordStartParams(Payload):
+    sessionId: str | None = Field(default=None, description="Session the recording belongs to.")
+
+
+class AudioRecordStopParams(Payload):
+    sessionId: str | None = Field(default=None, description="Session that is recording.")
+    transcribe: bool = Field(
+        default=False, description="Also transcribe the recording and return its text."
+    )
+
+
+class AudioRecordResult(Payload):
+    path: str = Field(description="Wav file being written, or the finished recording.")
+    recording: bool = Field(description="True while capture is still running.")
+    mime: str = Field(default="audio/wav", description="Media type of the recording.")
+    text: str | None = Field(
+        default=None, description="Transcript, when 'stop' was asked to transcribe."
+    )
+    provider: str | None = Field(default=None, description="Backend that transcribed it.")
 
 
 # --------------------------------------------------------------------------
@@ -1436,6 +1540,36 @@ METHODS: dict[str, RpcMethod] = {
             "Switch a session between plan, accept and auto.",
         ),
         _m(
+            "audio.capabilities",
+            Empty,
+            AudioCapabilitiesResult,
+            "Report what voice input and output can do on this machine.",
+        ),
+        _m(
+            "audio.transcribe",
+            AudioTranscribeParams,
+            AudioTranscribeResult,
+            "Transcribe recorded audio to text.",
+        ),
+        _m(
+            "audio.speak",
+            AudioSpeakParams,
+            AudioSpeakResult,
+            "Synthesise speech, optionally playing it on the daemon's machine.",
+        ),
+        _m(
+            "audio.record.start",
+            AudioRecordStartParams,
+            AudioRecordResult,
+            "Start recording the microphone.",
+        ),
+        _m(
+            "audio.record.stop",
+            AudioRecordStopParams,
+            AudioRecordResult,
+            "Stop the recording and return the wav it wrote.",
+        ),
+        _m(
             "command.list",
             OptionalSessionParams,
             CommandListResult,
@@ -1608,6 +1742,7 @@ EVENTS: dict[str, type[BaseModel]] = {
 }
 
 CAPABILITIES: list[str] = [
+    "audio",
     "sessions",
     "approvals",
     "commands",
@@ -1642,6 +1777,11 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "session.interrupt",
         "session.compact",
         "session.setMode",
+        "audio.capabilities",
+        "audio.transcribe",
+        "audio.speak",
+        "audio.record.start",
+        "audio.record.stop",
         "command.list",
         "command.run",
         "tool.list",

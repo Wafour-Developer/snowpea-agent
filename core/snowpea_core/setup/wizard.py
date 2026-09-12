@@ -25,6 +25,7 @@ from snowpea_core.config.settings import Settings
 from snowpea_core.setup import ui
 from snowpea_core.setup.detect import detect as detect_runtime
 from snowpea_core.setup.screens import Screen
+from snowpea_core.setup.screens import audio as audio_screen
 from snowpea_core.setup.screens import browser as browser_screen
 from snowpea_core.setup.screens import done as done_screen
 from snowpea_core.setup.screens import gateway as gateway_screen
@@ -40,6 +41,7 @@ FULL_ORDER: tuple[tuple[str, Any], ...] = (
     ("providers", providers_screen),
     ("search", search_screen),
     ("browser", browser_screen),
+    ("audio", audio_screen),
     ("tools", tools_screen),
     ("gateway", gateway_screen),
     ("done", done_screen),
@@ -56,6 +58,8 @@ SECTIONS: dict[str, tuple[str, Any]] = {
     "providers": ("providers", providers_screen),
     "search": ("search", search_screen),
     "browser": ("browser", browser_screen),
+    "audio": ("audio", audio_screen),
+    "voice": ("audio", audio_screen),
     "tools": ("tools", tools_screen),
     "gateway": ("gateway", gateway_screen),
 }
@@ -161,6 +165,8 @@ def run(
             _ask_for_model(state, interactive=interactive, console=console)
         if name == "search":
             _ask_for_search_key(state, interactive=interactive, console=console)
+        if name == "audio":
+            _ask_for_audio(state, asker, interactive=interactive, console=console)
         if name == "gateway":
             _ask_for_gateway(state, interactive=interactive)
         return choice
@@ -321,6 +327,98 @@ def _note_missing_search_key(state: WizardState, search_providers: Any) -> None:
         + (f"${env} or " if env else "")
         + f"search.credentials.{pid}.api_key"
     )
+
+
+def _ask_for_audio(
+    state: WizardState,
+    asker: Any,
+    *,
+    interactive: bool,
+    console: Console | None = None,
+) -> None:
+    """Ask the rest of the audio question: voice out, the voice, auto-speak.
+
+    A non-interactive run leaves everything on ``auto``, which is the whole
+    point of ``auto``: the daemon picks whatever the machine turns out to have.
+    """
+    from snowpea_core.setup.catalog import AUDIO_OFF
+
+    if not interactive:
+        return
+    out = console.print if console is not None else print
+    choice = asker(audio_screen.build_tts(state), console=console, interactive=interactive)
+    audio_screen.apply_tts(state, choice)
+    if state.stt_provider == "command":
+        entered = ui.ask_text("speech-to-text command (must contain {path}): ")
+        if entered:
+            state.stt_command = entered
+    # Everything below is only worth asking once the user has said they want a
+    # particular voice backend.  Leaving both lists on Skip (or on Automatic)
+    # means "work it out from what is installed", and a wizard that then asks
+    # three more questions has not listened.
+    if not _picked(choice) or state.tts_provider == AUDIO_OFF:
+        return
+    if state.tts_provider == "command":
+        entered = ui.ask_text("text-to-speech command (use {text} and {out}): ")
+        if entered:
+            state.tts_command = entered
+    voice_hint = state.tts_voice or "Enter for the backend's default"
+    voice = ui.ask_text(f"voice [{voice_hint}]: ")
+    if voice:
+        state.tts_voice = voice
+    current = "Y/n" if state.auto_speak else "y/N"
+    spoken = ui.ask_text(f"read replies aloud by default? [{current}]: ").strip().lower()
+    if spoken:
+        state.auto_speak = spoken.startswith("y")
+    if ui.ask_text("test the voice now? [y/N]: ").strip().lower().startswith("y"):
+        _test_voice(state, out)
+
+
+def _picked(choice: Any) -> bool:
+    """True when a screen answer was a real choice rather than Skip."""
+    from snowpea_core.setup.state import SKIP
+
+    if isinstance(choice, set):
+        choice = next(iter(choice), SKIP)
+    return isinstance(choice, str) and choice not in {"", SKIP}
+
+
+#: What the wizard says when it tests the configured voice.
+TEST_PHRASE = "snowpea ready"
+
+
+def _test_voice(state: WizardState, out: Any) -> None:
+    """Synthesise a short phrase and play it, reporting why if it cannot.
+
+    A failed test is information, not an error: setup carries on and the
+    answer stays as chosen, because the backend may exist on the machine that
+    ends up running the daemon.
+    """
+    import tempfile
+
+    from snowpea_core.audio import AudioError, player
+    from snowpea_core.audio import tts as tts_backends
+
+    provider = tts_backends.resolve_provider(
+        state.tts_provider or "auto", command=state.tts_command
+    )
+    if provider is None:
+        out("no speech backend is available here; nothing was tested")
+        return
+    try:
+        with tempfile.TemporaryDirectory(prefix="snowpea-voice-") as tmp:
+            speech = _run_sync(
+                provider.synthesize(
+                    TEST_PHRASE, out_dir=Path(tmp), voice=state.tts_voice, stem="test"
+                )
+            )
+            out(f"{provider.name} wrote {speech.path.name}")
+            _run_sync(player.play(speech.path))
+            out("played it")
+    except AudioError as exc:
+        out(f"could not play the test ({exc.code}): {exc}")
+    except Exception as exc:  # noqa: BLE001 - a failed test must not stop setup
+        out(f"could not test the voice: {exc}")
 
 
 def _ask_for_search_key(

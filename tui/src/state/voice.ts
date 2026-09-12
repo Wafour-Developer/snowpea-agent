@@ -9,25 +9,50 @@
  * Pure, so `test/voice.test.ts` can drive the whole machine.
  */
 
-/** What the daemon says it can do with audio; everything off until it answers. */
+/**
+ * What the daemon says it can do with audio; everything off until it answers.
+ *
+ * The booleans are what the switches are gated on; the names beside them are
+ * what the status line says, and what makes "speech is on" mean something
+ * ("piper", "openai") rather than nothing.
+ */
 export interface AudioCapabilities {
   /** Speech to text is available. */
   stt: boolean;
+  /** Backend doing it, when there is one. */
+  sttProvider: string | null;
   /** Text to speech is available. */
   tts: boolean;
+  ttsProvider: string | null;
+  /** Voice the daemon is configured to use. */
+  voice: string | null;
   /** The daemon can record from a microphone. */
   record: boolean;
   /** The daemon can play audio out. */
   play: boolean;
+  /** The daemon speaks replies without being asked. */
+  autoSpeak: boolean;
+  sttProviders: string[];
+  ttsProviders: string[];
+  players: string[];
+  recorders: string[];
   /** Per-capability explanation for whatever is false. */
   reasons: Record<string, string>;
 }
 
 export const noAudio: AudioCapabilities = {
   stt: false,
+  sttProvider: null,
   tts: false,
+  ttsProvider: null,
+  voice: null,
   record: false,
   play: false,
+  autoSpeak: false,
+  sttProviders: [],
+  ttsProviders: [],
+  players: [],
+  recorders: [],
   reasons: {},
 };
 
@@ -39,6 +64,8 @@ export interface VoiceState {
   recording: boolean;
   /** Epoch milliseconds the recording started, for the timer. */
   startedAt: number | null;
+  /** True while a reply is being spoken. */
+  speaking: boolean;
 }
 
 export const initialVoice: VoiceState = {
@@ -46,6 +73,7 @@ export const initialVoice: VoiceState = {
   tts: false,
   recording: false,
   startedAt: null,
+  speaking: false,
 };
 
 /** One transition: the new state, and what to tell the user about it. */
@@ -63,7 +91,11 @@ export function reasonFor(capabilities: AudioCapabilities, name: string, fallbac
 }
 
 /** `/voice` — arm or disarm voice input. */
-export function toggleVoiceInput(state: VoiceState, capabilities: AudioCapabilities): VoiceOutcome {
+export function toggleVoiceInput(
+  state: VoiceState,
+  capabilities: AudioCapabilities,
+  { localRecorder = false }: { localRecorder?: boolean } = {},
+): VoiceOutcome {
   if (state.input) {
     return { state: { ...state, input: false, recording: false, startedAt: null }, message: "voice input off", ok: true };
   }
@@ -74,14 +106,19 @@ export function toggleVoiceInput(state: VoiceState, capabilities: AudioCapabilit
       ok: false,
     };
   }
-  if (!capabilities.record) {
+  if (!capabilities.record && !localRecorder) {
     return {
       state,
       message: `voice input needs a microphone: ${reasonFor(capabilities, "record", "the daemon cannot record")}`,
       ok: false,
     };
   }
-  return { state: { ...state, input: true }, message: "voice input on · Ctrl+Space to record", ok: true };
+  const backend = capabilities.sttProvider ? ` (${capabilities.sttProvider})` : "";
+  return {
+    state: { ...state, input: true },
+    message: `voice input on${backend} · Ctrl+Space to record`,
+    ok: true,
+  };
 }
 
 /** `/tts on|off` — speak assistant replies, or stop. */
@@ -89,6 +126,7 @@ export function setTts(
   state: VoiceState,
   capabilities: AudioCapabilities,
   on: boolean,
+  { localPlayer = false }: { localPlayer?: boolean } = {},
 ): VoiceOutcome {
   if (!on) return { state: { ...state, tts: false }, message: "speech off", ok: true };
   if (!capabilities.tts) {
@@ -98,14 +136,15 @@ export function setTts(
       ok: false,
     };
   }
-  if (!capabilities.play) {
+  if (!capabilities.play && !localPlayer) {
     return {
       state,
       message: `speech needs an output device: ${reasonFor(capabilities, "play", "the daemon cannot play audio")}`,
       ok: false,
     };
   }
-  return { state: { ...state, tts: true }, message: "speech on", ok: true };
+  const backend = capabilities.ttsProvider ? ` (${capabilities.ttsProvider})` : "";
+  return { state: { ...state, tts: true }, message: `speech on${backend}`, ok: true };
 }
 
 /** Ctrl+Space or `/rec` — begin recording. */
@@ -113,9 +152,10 @@ export function startRecording(
   state: VoiceState,
   capabilities: AudioCapabilities,
   now: number,
+  { localRecorder = false }: { localRecorder?: boolean } = {},
 ): VoiceOutcome {
   if (state.recording) return { state, message: "already recording", ok: false };
-  if (!capabilities.record) {
+  if (!capabilities.record && !localRecorder) {
     return {
       state,
       message: `recording needs a microphone: ${reasonFor(capabilities, "record", "the daemon cannot record")}`,
@@ -142,6 +182,9 @@ export function stopRecording(state: VoiceState, now: number): VoiceOutcome & { 
     elapsedMs,
   };
 }
+
+/** What the indicator slot says while a reply is being read out. */
+export const SPEAKING_LABEL = "🔊 speaking · esc to stop";
 
 /** `● REC 00:07`, for the working-indicator slot. */
 export function recordingLabel(startedAt: number | null, now: number): string {

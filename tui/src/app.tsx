@@ -53,6 +53,17 @@ import { useKnownAgents } from "./hooks/useKnownAgents.js";
 import { clampFocus, focusDown, focusUp, isInput, INPUT_FOCUS, type Focus } from "./state/focus.js";
 import { offerSession } from "./state/history.js";
 import {
+  beginRecording,
+  endRecording,
+  speak,
+  stopSpeaking,
+  type AudioRuntime,
+  type RecordingHandle,
+  type SpeechHandle,
+} from "./state/audio-runtime.js";
+import { createAudioClient, describeAudioError, type AudioClient } from "./rpc/audio.js";
+import type { LocalAudio } from "./util/audio-tools.js";
+import {
   addAttachments,
   removeLast,
   scanAttachments,
@@ -60,6 +71,7 @@ import {
   type FileProbe,
 } from "./state/attachments.js";
 import {
+  SPEAKING_LABEL,
   initialVoice,
   noAudio,
   recordingLabel,
@@ -158,10 +170,15 @@ export interface AppProps {
   /** Saves an image from the system clipboard, or null when it cannot. */
   captureClipboard?: () => string | null;
   /**
-   * What the daemon says it can do with audio. Everything is off until the
-   * audio protocol lands and the real answer is read.
+   * What the daemon says it can do with audio. Read from
+   * `audio.capabilities` after connecting; this prop seeds it, which is what
+   * the tests use.
    */
   audio?: AudioCapabilities;
+  /** Recording and playback on this machine, for what the daemon cannot do. */
+  localAudio?: LocalAudio | null;
+  /** Where a local recording is written. */
+  recordingPath?: string;
 }
 
 /** One transcript entry — a message, a tool call, a diff or a compaction. */
@@ -270,6 +287,8 @@ export function App({
   probe,
   captureClipboard,
   audio = noAudio,
+  localAudio = null,
+  recordingPath,
 }: AppProps): React.ReactElement {
   const { exit } = useApp();
   const [state, dispatch] = useReducer(reducer, initialState);
@@ -287,6 +306,13 @@ export function App({
   const [voice, setVoice] = useState<VoiceState>(initialVoice);
   /** Text waiting to be put in the draft, e.g. a transcription. */
   const [insert, setInsert] = useState<string | null>(null);
+  /** What the daemon can do with audio; the prop is the starting point. */
+  const [capabilities, setCapabilities] = useState<AudioCapabilities>(audio);
+  /** The recording in flight, and the reply being spoken. */
+  const recordingRef = useRef<RecordingHandle | null>(null);
+  const speechRef = useRef<SpeechHandle | null>(null);
+  /** Assistant messages already spoken, so a re-render cannot repeat one. */
+  const spokenRef = useRef<Set<string>>(new Set());
   /** Where the keyboard is: the input, the footer row, or an agent row. */
   const [focus, setFocus] = useState<Focus>(INPUT_FOCUS);
   /** True while the footer row is showing what is running. */
@@ -355,6 +381,25 @@ export function App({
   /** Resolver for the approval promise the SDK is awaiting. */
   const approvalResolver = useRef<((response: ApprovalResponse) => void) | null>(null);
 
+  const audioClient = useMemo<AudioClient>(() => createAudioClient(client), [client]);
+  // What the daemon can do is read once at the start and again whenever a
+  // setting moves, because installing a backend or naming a voice is a setting.
+  const refreshCapabilities = useCallback(() => {
+    void audioClient
+      .capabilities()
+      .then(setCapabilities)
+      .catch(() => {
+        // A daemon with no audio at all answers with an error; that is not a
+        // failure, it is the answer, and `noAudio` already says it.
+        setCapabilities(noAudio);
+      });
+  }, [audioClient]);
+
+  useEffect(() => {
+    refreshCapabilities();
+  }, [refreshCapabilities]);
+
+
   const refreshApprovals = useCallback(() => {
     void client
       .listApprovals(sessionId)
@@ -388,6 +433,8 @@ export function App({
             /* the table is advisory; a failed refresh must not break the UI. */
           });
       },
+      // Installing a backend or naming a voice is a setting; re-ask.
+      onSettingsChanged: () => refreshCapabilities(),
       onUpdateProgress: ({ phase, message }) =>
         setUpdate((current) => {
           const next = (phase ?? "started") as "started" | "done" | "failed";
@@ -438,7 +485,7 @@ export function App({
       .catch(() => {
         /* the check is advisory; a failure must never disturb the session. */
       });
-  }, [client, sessionId, mode, provider, model, refreshApprovals]);
+  }, [client, sessionId, mode, provider, model, refreshApprovals, refreshCapabilities]);
 
   // An upgrade that finished: tell the daemon to go, then ask to be restarted.
   useEffect(() => {
@@ -468,6 +515,23 @@ export function App({
     const timer = setInterval(refreshApprovals, APPROVAL_POLL_MS);
     return () => clearInterval(timer);
   }, [state.approvalQueue.length, refreshApprovals]);
+
+  // Speech follows the transcript: every assistant message that finishes while
+  // `/tts` is on is read out once, and never twice however often this renders.
+  const lastMessage = state.messages[state.messages.length - 1];
+  useEffect(() => {
+    if (!voice.tts || !lastMessage) return;
+    if (lastMessage.role !== "assistant" || lastMessage.streaming) return;
+    if (spokenRef.current.has(lastMessage.id)) return;
+    spokenRef.current.add(lastMessage.id);
+    setVoice((current) => ({ ...current, speaking: true }));
+    void speak(runtime, lastMessage.text).then((handle) => {
+      speechRef.current = handle;
+      if (!handle) setVoice((current) => ({ ...current, speaking: false }));
+    });
+    // Only a newly finished message matters, not every change around it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voice.tts, lastMessage?.id, lastMessage?.streaming]);
 
   // A compaction is easy to miss in the scrollback, so it also says so in the
   // status line for a beat.
@@ -705,7 +769,9 @@ export function App({
   const turn = turnRef.current;
   const workingText = voice.recording
     ? recordingLabel(voice.startedAt, now)
-    : workingLine({
+    : voice.speaking
+      ? SPEAKING_LABEL
+      : workingLine({
         phase,
         elapsedMs: turn ? now - turn.startedAt : 0,
         inputTokens: turn ? state.usage.inputTokens - turn.inputTokens : 0,
@@ -799,16 +865,61 @@ export function App({
     setAttachments((current) => addAttachments(current, found));
   }, [captureClipboard, probe, showToast]);
 
+  const runtime = useMemo<AudioRuntime>(
+    () => ({
+      audio: audioClient,
+      local: localAudio,
+      capabilities,
+      sessionId,
+      localRecordingPath: recordingPath,
+      onToast: showToast,
+    }),
+    [audioClient, localAudio, capabilities, sessionId, recordingPath, showToast],
+  );
+
   /** Ctrl+Space, or `/rec`. */
   const toggleRecording = useCallback(() => {
-    setVoice((current) => {
-      const outcome = current.recording
-        ? stopRecording(current, Date.now())
-        : startRecording(current, audio, Date.now());
-      showToast(outcome.message);
-      return outcome.state;
+    if (recordingRef.current) {
+      const handle = recordingRef.current;
+      recordingRef.current = null;
+      setVoice((current) => {
+        const outcome = stopRecording(current, Date.now());
+        showToast(outcome.message);
+        return outcome.state;
+      });
+      void endRecording(runtime, handle).then((text) => {
+        // Transcribed text goes into the draft, never straight to the model:
+        // speech recognition is wrong often enough that it has to be read.
+        if (text) setInsert(text);
+      });
+      return;
+    }
+
+    const outcome = startRecording(voice, capabilities, Date.now(), {
+      localRecorder: Boolean(localAudio) && Boolean(recordingPath),
     });
-  }, [audio, showToast]);
+    if (!outcome.ok) {
+      showToast(outcome.message);
+      return;
+    }
+    void beginRecording(runtime).then((handle) => {
+      if (!handle) {
+        setVoice((current) => ({ ...current, recording: false, startedAt: null }));
+        return;
+      }
+      recordingRef.current = handle;
+    });
+    setVoice(outcome.state);
+    showToast(outcome.message);
+  }, [runtime, voice, capabilities, localAudio, recordingPath, showToast]);
+
+  /** Stop a reply that is being read out. */
+  const silence = useCallback(() => {
+    if (!speechRef.current) return;
+    stopSpeaking(runtime, speechRef.current);
+    speechRef.current = null;
+    setVoice((current) => ({ ...current, speaking: false }));
+  }, [runtime]);
 
   /** Reopen the session this directory was last in. */
   const resumeMemory = useCallback(() => {
@@ -840,7 +951,9 @@ export function App({
       }
       if (/^\/voice\s*$/.test(text.trim())) {
         setVoice((current) => {
-          const outcome = toggleVoiceInput(current, audio);
+          const outcome = toggleVoiceInput(current, capabilities, {
+            localRecorder: Boolean(localAudio) && Boolean(recordingPath),
+          });
           showToast(outcome.message);
           return outcome.state;
         });
@@ -853,7 +966,9 @@ export function App({
       const tts = /^\/tts(?:\s+(on|off))?\s*$/.exec(text.trim());
       if (tts) {
         setVoice((current) => {
-          const outcome = setTts(current, audio, tts[1] !== "off");
+          const outcome = setTts(current, capabilities, tts[1] !== "off", {
+            localPlayer: Boolean(localAudio),
+          });
           showToast(outcome.message);
           return outcome.state;
         });
@@ -882,7 +997,17 @@ export function App({
             if (text.slice(1).startsWith("help")) setShowHelp(true);
             return result;
           })
-        : client.prompt(sessionId, text);
+        : client.prompt(
+            sessionId,
+            text,
+            attachments.map((attachment) => ({
+              kind: attachment.mime.startsWith("image/") ? ("image" as const) : ("file" as const),
+              name: attachment.name,
+              path: attachment.path,
+              mimeType: attachment.mime,
+              size: attachment.size,
+            })),
+          );
       void run.catch((error: unknown) => {
         setRunningCommand(null);
         dispatch({ type: "error", message: String(error) });
@@ -898,7 +1023,9 @@ export function App({
       lastSession,
       resumeMemory,
       attachments,
-      audio,
+      capabilities,
+      localAudio,
+      recordingPath,
       showToast,
       takePaste,
       toggleRecording,
@@ -958,6 +1085,13 @@ export function App({
     // A prompt on screen owns every other key: mode cycling, Ctrl+O and the
     // rest would otherwise fire underneath the question being asked.
     if (state.pendingApproval || update.phase === "confirm") {
+      return;
+    }
+
+    // Esc first stops a reply that is being read out; only then does it mean
+    // whatever else Esc means here.
+    if (key.escape && voice.speaking) {
+      silence();
       return;
     }
 

@@ -211,6 +211,80 @@ def known_categories() -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# audio (speech to text, text to speech)
+# ---------------------------------------------------------------------------
+
+#: Picked when the user says nothing: let the machine decide, local first.
+DEFAULT_STT_PROVIDER = "auto"
+DEFAULT_TTS_PROVIDER = "auto"
+
+#: The "no voice at all" row both audio screens end with.
+AUDIO_OFF = "off"
+
+#: ``(id, label, key kind, description)`` for speech to text.  Free and keyless
+#: first so :func:`assert_free_first` is satisfied; the hosted API is last.
+_STT_CHOICES: tuple[tuple[str, str, KeyKind, str], ...] = (
+    ("auto", "Automatic — local whisper if installed, else OpenAI", "no key", ""),
+    ("local-whisper", "Local whisper CLI", "no key", "whisper or faster-whisper on PATH"),
+    ("command", "Custom command", "no key", "a command template containing {path}"),
+    (AUDIO_OFF, "Off — no speech input", "no key", ""),
+    ("openai", "OpenAI (whisper-1 / gpt-4o-transcribe)", "key required", "reuses your OpenAI key"),
+)
+
+#: ``(id, label, key kind, description)`` for text to speech.
+_TTS_CHOICES: tuple[tuple[str, str, KeyKind, str], ...] = (
+    ("auto", "Automatic — studio, then OpenAI, then a local voice", "no key", ""),
+    ("espeak-ng", "espeak-ng", "no key", "small, robotic, everywhere"),
+    ("piper", "Piper", "no key", "local neural voices"),
+    ("edge-tts", "edge-tts", "no key", "Microsoft neural voices, needs the network"),
+    ("say", "macOS say", "no key", "built into macOS"),
+    ("powershell", "Windows SAPI", "no key", "built into Windows"),
+    ("command", "Custom command", "no key", "a template containing {text} and {out}"),
+    (AUDIO_OFF, "Off — never speak", "no key", ""),
+    ("studio", "snowpea-studio", "self-hosted", "needs the media MCP server"),
+    ("openai", "OpenAI (tts-1 / gpt-4o-mini-tts)", "key required", "reuses your OpenAI key"),
+)
+
+
+def stt_catalog(detected: Sequence[str] = ()) -> list[CatalogItem]:
+    """Speech-to-text choices; ``detected`` marks the ones usable right now."""
+    usable = set(detected)
+    return assert_free_first(
+        [
+            CatalogItem(
+                id=cid,
+                label=label,
+                tier="free" if key == "no key" else "paid",
+                key=key,
+                default=cid == DEFAULT_STT_PROVIDER,
+                description=description,
+                active=cid in {"auto", AUDIO_OFF} or cid in usable,
+            )
+            for cid, label, key, description in _STT_CHOICES
+        ]
+    )
+
+
+def tts_catalog(detected: Sequence[str] = ()) -> list[CatalogItem]:
+    """Text-to-speech choices; ``detected`` marks the ones usable right now."""
+    usable = set(detected)
+    return assert_free_first(
+        [
+            CatalogItem(
+                id=cid,
+                label=label,
+                tier="free" if key in {"no key", "self-hosted"} else "paid",
+                key=key,
+                default=cid == DEFAULT_TTS_PROVIDER,
+                description=description,
+                active=cid in {"auto", AUDIO_OFF} or cid in usable,
+            )
+            for cid, label, key, description in _TTS_CHOICES
+        ]
+    )
+
+
+# ---------------------------------------------------------------------------
 # gateways
 # ---------------------------------------------------------------------------
 
@@ -279,8 +353,11 @@ def vendor_auth_tags(vendor: str) -> tuple[str, ...]:
 
 
 __all__ = [
+    "AUDIO_OFF",
     "DEFAULT_BROWSER_PROVIDER",
     "DEFAULT_SEARCH_PROVIDER",
+    "DEFAULT_STT_PROVIDER",
+    "DEFAULT_TTS_PROVIDER",
     "STAR",
     "CatalogItem",
     "CatalogOrderError",
@@ -293,7 +370,9 @@ __all__ = [
     "known_categories",
     "rank_of",
     "search_catalog",
+    "stt_catalog",
     "tools_catalog",
+    "tts_catalog",
     "vendor_auth_tags",
     "vendor_catalog",
 ]
