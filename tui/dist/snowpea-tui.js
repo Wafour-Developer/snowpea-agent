@@ -35674,47 +35674,225 @@ function layoutAgentRow(row, width) {
 var import_react27 = __toESM(require_react(), 1);
 
 // src/layout/wordmark.ts
-var GLYPHS = {
-  s: ["#####", "#....", "#####", "....#", "....#", "#####"],
-  n: ["#...#", "##..#", "#.#.#", "#..##", "#...#", "#...#"],
-  o: ["#####", "#...#", "#...#", "#...#", "#...#", "#####"],
-  w: ["#...#", "#...#", "#...#", "#.#.#", "##.##", "#...#"],
-  p: ["#####", "#...#", "#####", "#....", "#....", "#...."],
-  e: ["#####", "#....", "#####", "#....", "#....", "#####"],
-  a: ["#####", "#...#", "#####", "#...#", "#...#", "#...#"]
+var MASTER_WIDTH = 10;
+var MASTER_HEIGHT = 14;
+var WORDMARK_ROWS = MASTER_HEIGHT / 2;
+var MASTERS = {
+  s: [
+    "..######..",
+    ".########.",
+    "###....###",
+    "##......##",
+    "##........",
+    "###.......",
+    ".########.",
+    "..######..",
+    ".......###",
+    "........##",
+    "##......##",
+    "###....###",
+    ".########.",
+    "..######.."
+  ],
+  n: [
+    "##......##",
+    "###.....##",
+    "####....##",
+    "####....##",
+    "##.##...##",
+    "##.##...##",
+    "##..##..##",
+    "##..##..##",
+    "##...##.##",
+    "##...##.##",
+    "##....####",
+    "##....####",
+    "##.....###",
+    "##......##"
+  ],
+  o: [
+    "..######..",
+    ".########.",
+    "###....###",
+    "##......##",
+    "##......##",
+    "##......##",
+    "##......##",
+    "##......##",
+    "##......##",
+    "##......##",
+    "##......##",
+    "###....###",
+    ".########.",
+    "..######.."
+  ],
+  w: [
+    "##......##",
+    "##......##",
+    "##......##",
+    "##......##",
+    "##......##",
+    "##......##",
+    "##......##",
+    "##......##",
+    "##..##..##",
+    "##..##..##",
+    "##.####.##",
+    "##.####.##",
+    "####..####",
+    "###....###"
+  ],
+  p: [
+    "########..",
+    "#########.",
+    "##.....###",
+    "##......##",
+    "##......##",
+    "##.....###",
+    "#########.",
+    "########..",
+    "##........",
+    "##........",
+    "##........",
+    "##........",
+    "##........",
+    "##........"
+  ],
+  e: [
+    "..########",
+    ".#########",
+    "###.......",
+    "##........",
+    "##........",
+    "########..",
+    "########..",
+    "##........",
+    "##........",
+    "##........",
+    "###.......",
+    ".#########",
+    "..########",
+    "..########"
+  ],
+  a: [
+    "..######..",
+    ".########.",
+    "###....###",
+    "##......##",
+    "##......##",
+    "##......##",
+    "##########",
+    "##########",
+    "##......##",
+    "##......##",
+    "##......##",
+    "##......##",
+    "##......##",
+    "##......##"
+  ]
 };
 var WORD = "snowpea";
-var WORDMARK_ROWS = 6;
-var SCALES = [4, 3, 2, 1];
-var INK = "\u2588";
-function wordmarkWidth(scale, word = WORD) {
-  const letter = 5 * scale;
-  return word.length * letter + (word.length - 1) * scale;
+var LETTER_WIDTHS = [20, 16, 15, 13, 12, 10, 8, 6];
+var HALF_BLOCKS = [" ", "\u2580", "\u2584", "\u2588"];
+var WORDMARK_GLYPHS = [...HALF_BLOCKS];
+function gapFor(letterWidth) {
+  return Math.max(1, Math.round(letterWidth / 8));
 }
-function scaleFor(columns, word = WORD) {
-  for (const scale of SCALES) {
-    if (wordmarkWidth(scale, word) <= columns) return scale;
+function wordmarkWidth(letterWidth, word = WORD) {
+  return word.length * letterWidth + (word.length - 1) * gapFor(letterWidth);
+}
+function letterWidthFor(columns, word = WORD) {
+  for (const width of LETTER_WIDTHS) {
+    if (wordmarkWidth(width, word) <= columns) return width;
   }
   return null;
 }
-function renderWordmark(scale, word = WORD) {
-  const safeScale = Math.max(1, Math.floor(scale));
-  const rows = [];
-  for (let row = 0; row < WORDMARK_ROWS; row += 1) {
+function sampledRows(character, width) {
+  const master = MASTERS[character.toLowerCase()];
+  return Array.from(
+    { length: MASTER_HEIGHT },
+    (_, row) => Array.from({ length: width }, (_2, column) => {
+      const source = Math.min(
+        MASTER_WIDTH - 1,
+        Math.floor(column * MASTER_WIDTH / Math.max(1, width))
+      );
+      return master?.[row]?.[source] === "#";
+    })
+  );
+}
+function renderWordmark(letterWidth, word = WORD) {
+  const width = Math.max(1, Math.floor(letterWidth));
+  const gap = gapFor(width);
+  const letters = word.split("").map((character) => sampledRows(character, width));
+  return Array.from({ length: WORDMARK_ROWS }, (_, row) => {
     let line = "";
-    word.split("").forEach((character, index) => {
-      if (index > 0) line += " ".repeat(safeScale);
-      const glyph = GLYPHS[character.toLowerCase()];
-      const pattern = glyph?.[row] ?? ".....";
-      for (const pixel of pattern) line += (pixel === "#" ? INK : " ").repeat(safeScale);
+    letters.forEach((letter, index) => {
+      if (index > 0) line += " ".repeat(gap);
+      const top = letter[row * 2];
+      const bottom = letter[row * 2 + 1];
+      for (let column = 0; column < width; column += 1) {
+        line += HALF_BLOCKS[(top[column] ? 1 : 0) + (bottom[column] ? 2 : 0)];
+      }
     });
-    rows.push(line);
-  }
-  return rows;
+    return line;
+  });
 }
 function fitWordmark(columns, word = WORD) {
-  const scale = scaleFor(Math.max(0, Math.floor(columns)), word);
-  return scale === null ? null : renderWordmark(scale, word);
+  const width = letterWidthFor(Math.max(0, Math.floor(columns)), word);
+  return width === null ? null : renderWordmark(width, word);
+}
+function shadowRow(width) {
+  return "\u2591".repeat(Math.max(0, Math.floor(width)));
+}
+function sproutColumn(letterWidth, word = WORD) {
+  const gap = gapFor(letterWidth);
+  return (word.length - 1) * (letterWidth + gap) + Math.floor(letterWidth / 2);
+}
+
+// src/layout/palette.ts
+var MINT = { r: 168, g: 240, b: 198 };
+var SNOWPEA = { r: 61, g: 220, b: 132 };
+var TEAL = { r: 30, g: 158, b: 106 };
+var BASIC_RAMP = ["greenBright", "green", "cyan"];
+function colorMode(env3, isTTY) {
+  if (env3.NO_COLOR !== void 0 && env3.NO_COLOR !== "") return "none";
+  if (!isTTY) return "none";
+  const colorTerm = (env3.COLORTERM ?? "").toLowerCase();
+  if (colorTerm.includes("truecolor") || colorTerm.includes("24bit")) return "truecolor";
+  if ((env3.TERM ?? "").includes("direct")) return "truecolor";
+  return "basic";
+}
+function mix(from, to, amount) {
+  const at = Math.min(1, Math.max(0, amount));
+  return {
+    r: Math.round(from.r + (to.r - from.r) * at),
+    g: Math.round(from.g + (to.g - from.g) * at),
+    b: Math.round(from.b + (to.b - from.b) * at)
+  };
+}
+function toHex({ r, g, b }) {
+  return `#${[r, g, b].map((value) => value.toString(16).padStart(2, "0")).join("")}`;
+}
+function gradientAt(position) {
+  const at = Math.min(1, Math.max(0, position));
+  return at <= 0.5 ? mix(MINT, SNOWPEA, at * 2) : mix(SNOWPEA, TEAL, (at - 0.5) * 2);
+}
+function gradientColors(rows, mode) {
+  const count = Math.max(1, Math.floor(rows));
+  if (mode === "none") return new Array(count).fill(void 0);
+  if (mode === "basic") {
+    return Array.from({ length: count }, (_, row) => {
+      const index = Math.min(
+        BASIC_RAMP.length - 1,
+        Math.floor(row / Math.max(1, count - 1) * BASIC_RAMP.length)
+      );
+      return BASIC_RAMP[index];
+    });
+  }
+  return Array.from(
+    { length: count },
+    (_, row) => toHex(gradientAt(count === 1 ? 0 : row / (count - 1)))
+  );
 }
 
 // src/components/Logo.tsx
@@ -35738,12 +35916,24 @@ function isCollapsed(terminalRows) {
 function collapsedLine(version) {
   return `${SPROUT} snowpea v${version} \xB7 ${TAGLINE}`;
 }
-function LogoInner({ terminalRows, version, width, big = false }) {
+function LogoInner({
+  terminalRows,
+  version,
+  width,
+  big = false,
+  mode
+}) {
   const bigRows = big ? fitWordmark(width) : null;
   if (bigRows) {
+    const letterWidth = letterWidthFor(width) ?? 0;
+    const drawn = [...bigRows[0]].length;
+    const paint = mode ?? colorMode(process.env, Boolean(process.stdout?.isTTY));
+    const colors = gradientColors(bigRows.length, paint);
+    const accent = paint === "none" ? void 0 : LOGO_COLOR;
     return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Box_default, { flexDirection: "column", flexShrink: 0, width, children: [
-      bigRows.map((row, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Text, { color: LOGO_COLOR, bold: true, wrap: "truncate-end", children: row }, `wordmark-${index}`)),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Text, { color: LOGO_COLOR, wrap: "truncate-end", children: `${SPROUT} snowpea v${version}` })
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Text, { color: accent, wrap: "truncate-end", children: `${" ".repeat(sproutColumn(letterWidth))}${SPROUT}` }),
+      bigRows.map((row, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Text, { color: colors[index], bold: true, wrap: "truncate-end", children: row }, `wordmark-${index}`)),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: shadowRow(drawn) })
     ] });
   }
   if (isCollapsed(terminalRows)) {
@@ -36471,6 +36661,10 @@ var TIPS = [
   "Shift+Tab cycles plan \u2192 accept \u2192 auto",
   "/setup configures providers and models"
 ];
+function centre(text, width) {
+  const room = Math.max(0, Math.floor(width) - [...text].length);
+  return `${" ".repeat(Math.floor(room / 2))}${text}`;
+}
 function previewPrompt(text, max = PROMPT_PREVIEW) {
   const flat = text.replace(/\s+/g, " ").trim();
   return flat.length <= max ? flat : `${flat.slice(0, max - 1)}\u2026`;
@@ -36484,14 +36678,19 @@ function LaunchBanner({
   provider,
   model,
   lastSession = null,
-  now = Date.now()
+  now = Date.now(),
+  colors: paintProp
 }) {
   const target = [provider, model].filter(Boolean).join("/");
+  const paint = paintProp ?? colorMode(process.env, Boolean(process.stdout?.isTTY));
+  const description = "Open-source multi-vendor coding agent and personal AI assistant";
+  const meta = [`v${version}`, target, workdir, mode.toUpperCase()].filter(Boolean).join(" \xB7 ");
   return /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(Box_default, { flexDirection: "column", width, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Logo, { terminalRows, version, width, big: true }),
-    /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(Box_default, { marginTop: 1, flexDirection: "column", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `Open-source multi-vendor coding agent and personal AI assistant \xB7 v${version}${target ? ` \xB7 ${target}` : ""}` }),
-      /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `${workdir} \xB7 ${mode.toUpperCase()} mode` })
+    /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Logo, { terminalRows, version, width, big: true, mode: paint }),
+    /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { dimColor: true, children: "\u2500".repeat(Math.max(0, width)) }),
+    /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(Box_default, { flexDirection: "column", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { wrap: "truncate-end", children: centre(description, width) }),
+      /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: centre(meta, width) })
     ] }),
     lastSession ? /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(Box_default, { marginTop: 1, flexDirection: "column", children: [
       /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(Text, { wrap: "truncate-end", children: [
