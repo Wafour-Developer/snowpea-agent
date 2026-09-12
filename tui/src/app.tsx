@@ -393,9 +393,24 @@ export function App({
   const approvalResolver = useRef<((response: ApprovalResponse) => void) | null>(null);
 
   const audioClient = useMemo<AudioClient>(() => createAudioClient(client), [client]);
+  /**
+   * True when the daemon advertised audio at all in `system.hello`.
+   *
+   * Without it there are no audio methods to call, so the commands say that
+   * instead of failing one RPC at a time.
+   */
+  const audioOffered = useCallback(
+    () => client.serverCapabilities?.().includes("audio") ?? true,
+    [client],
+  );
+
   // What the daemon can do is read once at the start and again whenever a
   // setting moves, because installing a backend or naming a voice is a setting.
   const refreshCapabilities = useCallback(() => {
+    if (!audioOffered()) {
+      setCapabilities(noAudio);
+      return;
+    }
     void audioClient
       .capabilities()
       .then(setCapabilities)
@@ -404,7 +419,7 @@ export function App({
         // failure, it is the answer, and `noAudio` already says it.
         setCapabilities(noAudio);
       });
-  }, [audioClient]);
+  }, [audioClient, audioOffered]);
 
   useEffect(() => {
     refreshCapabilities();
@@ -961,6 +976,10 @@ export function App({
         if (!takePaste(attach[1])) showToast(`no readable file at ${attach[1]}`);
         return;
       }
+      if (/^\/(voice|rec|tts)\b/.test(text.trim()) && !audioOffered()) {
+        showToast("this daemon has no audio support");
+        return;
+      }
       if (/^\/voice\s*$/.test(text.trim())) {
         setVoice((current) => {
           const outcome = toggleVoiceInput(current, capabilities, {
@@ -1038,6 +1057,7 @@ export function App({
       capabilities,
       localAudio,
       recordingPath,
+      audioOffered,
       showToast,
       takePaste,
       toggleRecording,

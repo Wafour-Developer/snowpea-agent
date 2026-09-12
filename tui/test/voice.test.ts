@@ -18,6 +18,7 @@ import {
 } from "../src/state/voice.js";
 import {
   AUDIO_METHODS,
+  audioErrorCode,
   createAudioClient,
   describeAudioError,
   readCapabilities,
@@ -33,12 +34,24 @@ const able: AudioCapabilities = {
   play: true,
 };
 
-describe("describeAudioError", () => {
-  it("keeps the daemon's own words, with its code in front", () => {
-    expect(describeAudioError({ code: "no_stt", message: "no backend is configured" })).toBe(
+describe("reading an RPC failure", () => {
+  const failure = (audio: string, message: string) =>
+    Object.assign(new Error(message), { data: { code: "audio_error", details: { audio } } });
+
+  it("prefers the specific audio code over the generic one", () => {
+    expect(audioErrorCode(failure("no_stt", "nothing configured"))).toBe("no_stt");
+    expect(audioErrorCode({ data: { code: "audio_error" } })).toBe("audio_error");
+    expect(audioErrorCode({ code: "legacy_code" })).toBe("legacy_code");
+    expect(audioErrorCode(new Error("plain"))).toBeNull();
+  });
+
+  it("keeps the daemon's own words, with the code in front", () => {
+    expect(describeAudioError(failure("no_stt", "no backend is configured"))).toBe(
       "no_stt: no backend is configured",
     );
-    expect(describeAudioError({ message: "no_stt: already said" })).toBe("no_stt: already said");
+    expect(describeAudioError(failure("no_stt", "no_stt: already said"))).toBe(
+      "no_stt: already said",
+    );
     expect(describeAudioError(new Error("boom"))).toBe("boom");
   });
 });

@@ -34939,10 +34939,17 @@ function readCapabilities(result) {
     reasons: typeof reasons === "object" && reasons !== null ? reasons : {}
   };
 }
+function audioErrorCode(error) {
+  const value = error;
+  const specific = value?.data?.details?.audio;
+  if (typeof specific === "string" && specific.length > 0) return specific;
+  const generic = value?.data?.code ?? value?.code;
+  return typeof generic === "string" && generic.length > 0 ? generic : null;
+}
 function describeAudioError(error) {
   const value = error;
   const message = typeof value?.message === "string" && value.message.length > 0 ? value.message : String(error);
-  const code = typeof value?.code === "string" ? value.code : null;
+  const code = audioErrorCode(error);
   return code && !message.includes(code) ? `${code}: ${message}` : message;
 }
 function createAudioClient(client) {
@@ -34994,8 +35001,10 @@ async function beginRecording(runtime) {
       const recording = await runtime.audio.startRecording(runtime.sessionId);
       return { where: "daemon", path: recording.path };
     } catch (error) {
-      runtime.onToast(describeAudioError(error));
-      return null;
+      if (audioErrorCode(error) !== "no_recorder") {
+        runtime.onToast(describeAudioError(error));
+        return null;
+      }
     }
   }
   const path = runtime.localRecordingPath;
@@ -35045,6 +35054,7 @@ async function endRecording(runtime, handle) {
     }
     return text;
   } catch (error) {
+    if (audioErrorCode(error) === "not_recording") return null;
     runtime.onToast(describeAudioError(error));
     return null;
   }
@@ -35070,6 +35080,10 @@ async function speak(runtime, text) {
     }
     return { where: "local", process: process13 };
   } catch (error) {
+    if (audioErrorCode(error) === "no_player") {
+      runtime.onToast("no player: the daemon cannot play audio and neither can this machine");
+      return null;
+    }
     runtime.onToast(describeAudioError(error));
     return null;
   }
@@ -37168,11 +37182,19 @@ function App2({
   const [updateAvailable, setUpdateAvailable] = (0, import_react35.useState)(false);
   const approvalResolver = (0, import_react35.useRef)(null);
   const audioClient = (0, import_react35.useMemo)(() => createAudioClient(client), [client]);
+  const audioOffered = (0, import_react35.useCallback)(
+    () => client.serverCapabilities?.().includes("audio") ?? true,
+    [client]
+  );
   const refreshCapabilities = (0, import_react35.useCallback)(() => {
+    if (!audioOffered()) {
+      setCapabilities(noAudio);
+      return;
+    }
     void audioClient.capabilities().then(setCapabilities).catch(() => {
       setCapabilities(noAudio);
     });
-  }, [audioClient]);
+  }, [audioClient, audioOffered]);
   (0, import_react35.useEffect)(() => {
     refreshCapabilities();
   }, [refreshCapabilities]);
@@ -37578,6 +37600,10 @@ function App2({
         if (!takePaste(attach[1])) showToast(`no readable file at ${attach[1]}`);
         return;
       }
+      if (/^\/(voice|rec|tts)\b/.test(text.trim()) && !audioOffered()) {
+        showToast("this daemon has no audio support");
+        return;
+      }
       if (/^\/voice\s*$/.test(text.trim())) {
         setVoice((current) => {
           const outcome = toggleVoiceInput(current, capabilities, {
@@ -37649,6 +37675,7 @@ function App2({
       capabilities,
       localAudio,
       recordingPath,
+      audioOffered,
       showToast,
       takePaste,
       toggleRecording
@@ -38648,6 +38675,16 @@ var TuiClient = class {
   }
   getStatus() {
     return this.status;
+  }
+  /**
+   * Feature flags the daemon advertised in `system.hello`.
+   *
+   * A surface asks this before offering something optional: a daemon without
+   * "audio" has no audio methods at all, and calling them would only produce a
+   * confusing error.
+   */
+  serverCapabilities() {
+    return this.client?.capabilities ?? [];
   }
   setListeners(listeners) {
     this.listeners = listeners;
