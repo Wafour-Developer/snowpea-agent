@@ -88,6 +88,17 @@ export class TuiClient {
     return this.status;
   }
 
+  /**
+   * Feature flags the daemon advertised in `system.hello`.
+   *
+   * A surface asks this before offering something optional: a daemon without
+   * "audio" has no audio methods at all, and calling them would only produce a
+   * confusing error.
+   */
+  serverCapabilities(): string[] {
+    return this.client?.capabilities ?? [];
+  }
+
   setListeners(listeners: TuiClientListeners): void {
     this.listeners = listeners;
   }

@@ -3,7 +3,7 @@
  * what the user is told when it fails.
  */
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import {
   beginRecording,
@@ -28,6 +28,13 @@ const able: AudioCapabilities = {
 
 interface Scripted {
   [method: string]: unknown | ((params: any) => unknown);
+}
+
+/** An RPC failure shaped the way the daemon sends one. */
+function rpcError(audio: string, message: string): Error {
+  return Object.assign(new Error(message), {
+    data: { code: "audio_error", details: { audio } },
+  });
 }
 
 function runtimeOf(
@@ -109,11 +116,36 @@ describe("recording on the daemon", () => {
 
   it("passes the daemon's refusal through to the user", async () => {
     const runtime = runtimeOf(
-      { "audio.record.start": Object.assign(new Error("no microphone found"), { code: "no_recorder" }) },
+      { "audio.record.start": rpcError("record_failed", "the device is busy") },
       able,
     );
     expect(await beginRecording(runtime)).toBeNull();
-    expect(runtime.toasts[0]).toBe("no_recorder: no microphone found");
+    expect(runtime.toasts[0]).toBe("record_failed: the device is busy");
+  });
+
+  it("falls back to this machine when the daemon has lost its recorder", async () => {
+    const local = localAudioOf();
+    const runtime = runtimeOf(
+      {
+        "audio.record.start": rpcError("no_recorder", "no input device"),
+        "audio.transcribe": { text: "heard here instead", provider: "whisper" },
+      },
+      able,
+      local,
+    );
+    const handle = await beginRecording(runtime);
+    expect(handle).toMatchObject({ where: "local" });
+    expect(runtime.toasts).toEqual([]);
+    expect(await endRecording(runtime, handle!)).toBe("heard here instead");
+  });
+
+  it("says nothing when stopping a recording the daemon does not have", async () => {
+    const runtime = runtimeOf(
+      { "audio.record.stop": rpcError("not_recording", "nothing is being recorded") },
+      able,
+    );
+    expect(await endRecording(runtime, { where: "daemon", path: "/daemon/rec.wav" })).toBeNull();
+    expect(runtime.toasts).toEqual([]);
   });
 });
 
@@ -218,10 +250,16 @@ describe("speaking", () => {
 
   it("turns a failed synthesis into one sentence", async () => {
     const runtime = runtimeOf(
-      { "audio.speak": Object.assign(new Error("the model is not downloaded"), { code: "tts_failed" }) },
+      { "audio.speak": rpcError("synthesis_failed", "the model is not downloaded") },
       able,
     );
     expect(await speak(runtime, "hello")).toBeNull();
-    expect(runtime.toasts[0]).toBe("tts_failed: the model is not downloaded");
+    expect(runtime.toasts[0]).toBe("synthesis_failed: the model is not downloaded");
+  });
+
+  it("explains a daemon that cannot play rather than repeating its code", async () => {
+    const runtime = runtimeOf({ "audio.speak": rpcError("no_player", "nothing on PATH") }, able);
+    expect(await speak(runtime, "hello")).toBeNull();
+    expect(runtime.toasts[0]).toContain("neither can this machine");
   });
 });

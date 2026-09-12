@@ -12,7 +12,7 @@
  * with no daemon and no sound card.
  */
 
-import { describeAudioError, type AudioClient } from "../rpc/audio.js";
+import { audioErrorCode, describeAudioError, type AudioClient } from "../rpc/audio.js";
 import type { LocalAudio, LocalProcess } from "../util/audio-tools.js";
 import type { AudioCapabilities } from "./voice.js";
 
@@ -52,8 +52,13 @@ export async function beginRecording(runtime: AudioRuntime): Promise<RecordingHa
       const recording = await runtime.audio.startRecording(runtime.sessionId);
       return { where: "daemon", path: recording.path };
     } catch (error) {
-      runtime.onToast(describeAudioError(error));
-      return null;
+      // The daemon losing its recorder between the capability answer and now is
+      // exactly the case the local tools are here for; anything else is a
+      // failure the user needs to read.
+      if (audioErrorCode(error) !== "no_recorder") {
+        runtime.onToast(describeAudioError(error));
+        return null;
+      }
     }
   }
 
@@ -115,6 +120,9 @@ export async function endRecording(
     }
     return text;
   } catch (error) {
+    // Asking a daemon that is not recording to stop is not worth alarming
+    // anyone about; the recording simply is not there.
+    if (audioErrorCode(error) === "not_recording") return null;
     runtime.onToast(describeAudioError(error));
     return null;
   }
@@ -154,6 +162,12 @@ export async function speak(runtime: AudioRuntime, text: string): Promise<Speech
     }
     return { where: "local", process };
   } catch (error) {
+    // The daemon can synthesise but not play: the file is still worth playing
+    // here, and the error says which of the two it was.
+    if (audioErrorCode(error) === "no_player") {
+      runtime.onToast("no player: the daemon cannot play audio and neither can this machine");
+      return null;
+    }
     runtime.onToast(describeAudioError(error));
     return null;
   }

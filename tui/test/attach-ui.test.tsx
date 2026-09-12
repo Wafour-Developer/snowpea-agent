@@ -30,6 +30,7 @@ function fakeClient(audio: Record<string, unknown> | null = null) {
   return {
     calls,
     getStatus: () => "connected",
+    serverCapabilities: () => (audio ? ["audio"] : []),
     setListeners: (given: any) => {
       listeners = given;
     },
@@ -62,6 +63,18 @@ function fakeClient(audio: Record<string, unknown> | null = null) {
     },
   };
 }
+
+/** A daemon that has audio support but nothing configured — the common case. */
+const NO_BACKENDS_ANSWER = {
+  stt: null,
+  tts: false,
+  record: true,
+  play: true,
+  reasons: {
+    stt: "no transcription backend: install the whisper CLI",
+    tts: "no speech backend: set an OpenAI API key",
+  },
+};
 
 /** What a daemon with working audio answers. */
 const ABLE_ANSWER = {
@@ -218,7 +231,7 @@ describe("attachments", () => {
 
 describe("voice", () => {
   it("explains itself when the daemon cannot listen", async () => {
-    const { stdin, stdout, instance } = await open();
+    const { stdin, stdout, instance } = await open({}, NO_BACKENDS_ANSWER);
     await type(stdin, "/voice", 20);
     stdin.write("\r");
     await sleep(150);
@@ -254,7 +267,7 @@ describe("voice", () => {
   });
 
   it("refuses speech when the daemon has no voice", async () => {
-    const { stdin, stdout, instance } = await open();
+    const { stdin, stdout, instance } = await open({}, NO_BACKENDS_ANSWER);
     await type(stdin, "/tts on", 20);
     stdin.write("\r");
     await sleep(200);
@@ -331,7 +344,7 @@ describe("voice", () => {
   });
 
   it("keeps quiet when the daemon reports no audio at all", async () => {
-    const { client, stdin, instance } = await open();
+    const { client, stdin, instance } = await open({}, NO_BACKENDS_ANSWER);
     await type(stdin, "/tts on", 20);
     stdin.write("\r");
     await sleep(200);
@@ -344,5 +357,18 @@ describe("voice", () => {
     await sleep(200);
     instance.unmount();
     expect(client.calls.some((call) => call.method === "audio.speak")).toBe(false);
+  });
+
+  it("says so when the daemon advertises no audio at all", async () => {
+    const { client, stdin, stdout, instance } = await open();
+    await type(stdin, "/voice", 20);
+    stdin.write("\r");
+    await sleep(200);
+    const output = stdout.text();
+    instance.unmount();
+
+    expect(output).toContain("no audio support");
+    // And nothing was asked of a daemon that cannot answer it.
+    expect(client.calls.some((call) => call.method.startsWith("audio."))).toBe(false);
   });
 });
