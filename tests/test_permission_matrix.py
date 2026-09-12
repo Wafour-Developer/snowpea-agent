@@ -461,3 +461,166 @@ async def test_help_lists_the_permission_commands(
     names = {command["name"] for command in listed["commands"]}
     assert {"plan", "accept", "auto", "mode", "approvals", "allow", "allowlist"} <= names
     await client.stop()
+
+
+# ---------------------------------------------------------------------------
+# (f) the config tag: writes that land on snowpea's own settings (CORE-search-fix)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("mode", ["accept", "auto"])
+async def test_a_config_write_asks_in_every_mode_that_runs_it(
+    daemon: Daemon, http: aiohttp.ClientSession, workdir: Path, mode: str
+) -> None:
+    """``write_file`` on ``.snowpea/settings.json`` is ``config``, not ``write``.
+
+    Auto mode is the interesting row: ``write`` is a silent allow there, which
+    is how the agent came to rewrite settings.json when asked to show it.
+    """
+    client = await connect(http, daemon)
+    client.approval_mode = "allow"
+    session_id = await open_session(client, workdir, mode)
+
+    turn_id = await prompt(client, session_id, "rewrite the settings")
+    assert await client.wait_turn(turn_id) == "complete"
+
+    assert len(client.approval_requests) == 1
+    request = client.approval_requests[0]
+    assert request["tool"] == "write_file"
+    assert request["note"] == "modifies snowpea configuration"
+    assert request["risk"] == "high"
+
+    await client.stop()
+
+
+async def test_a_plain_write_still_runs_silently_in_auto_mode(
+    daemon: Daemon, http: aiohttp.ClientSession, workdir: Path
+) -> None:
+    """The guard must not turn every write into a prompt."""
+    client = await connect(http, daemon)
+    client.approval_mode = "allow"
+    session_id = await open_session(client, workdir, "auto")
+
+    turn_id = await prompt(client, session_id, "use write_file")
+    assert await client.wait_turn(turn_id) == "complete"
+    assert client.approval_requests == []
+
+    await client.stop()
+
+
+async def test_a_config_write_is_denied_in_plan_mode(
+    daemon: Daemon, http: aiohttp.ClientSession, workdir: Path
+) -> None:
+    client = await connect(http, daemon)
+    session_id = await open_session(client, workdir, "plan")
+
+    turn_id = await prompt(client, session_id, "rewrite the settings")
+    assert await client.wait_turn(turn_id) == "denied"
+    assert [event["payload"]["code"] for event in client.of_kind("error")] == ["mode_denied"]
+    assert client.approval_requests == []
+
+    await client.stop()
+
+
+async def test_settings_set_asks_even_in_auto_mode(
+    daemon: Daemon, http: aiohttp.ClientSession, workdir: Path
+) -> None:
+    client = await connect(http, daemon)
+    client.approval_mode = "allow"
+    session_id = await open_session(client, workdir, "auto")
+
+    turn_id = await prompt(client, session_id, "use settings_set")
+    assert await client.wait_turn(turn_id) == "complete"
+
+    assert len(client.approval_requests) == 1
+    assert client.approval_requests[0]["tool"] == "settings_set"
+    assert client.approval_requests[0]["note"] == "modifies snowpea configuration"
+
+    await client.stop()
+
+
+async def test_settings_get_is_read_only(
+    daemon: Daemon, http: aiohttp.ClientSession, workdir: Path
+) -> None:
+    """Showing configuration needs no approval, and works in plan mode."""
+    client = await connect(http, daemon)
+    session_id = await open_session(client, workdir, "plan")
+
+    turn_id = await prompt(client, session_id, "use settings_get")
+    assert await client.wait_turn(turn_id) == "complete"
+    assert client.approval_requests == []
+
+    results = [event["payload"] for event in client.of_kind("tool.result")]
+    assert results[-1]["ok"] is True
+    assert "search.provider" in results[-1]["output"]
+
+    await client.stop()
+
+
+async def test_the_allowlist_cannot_promote_a_config_call(
+    daemon: Daemon, http: aiohttp.ClientSession, workdir: Path
+) -> None:
+    """``always`` on a config write must not silence the next one."""
+    client = await connect(http, daemon)
+    client.approval_mode = "allow"
+    client.approval_scope = "always"
+    session_id = await open_session(client, workdir, "accept")
+
+    first = await prompt(client, session_id, "use settings_set")
+    assert await client.wait_turn(first) == "complete"
+    second = await prompt(client, session_id, "use settings_set")
+    assert await client.wait_turn(second) == "complete"
+
+    assert len(client.approval_requests) == 2, "the second config call must ask again"
+
+    await client.stop()
+
+
+async def test_the_config_guard_covers_the_whole_snowpea_home(tmp_path: Path) -> None:
+    """Settings, credentials, the state db, the token and the logs are all config."""
+    from snowpea_core.config.paths import Paths
+    from snowpea_core.config.settings import Settings
+    from snowpea_core.server.app_server import Core
+    from snowpea_core.session.session import Session
+    from snowpea_core.tools.registry import effective_permission, register_builtin_tools
+
+    home = Paths.create(tmp_path / "home")
+    core = Core(settings=Settings(), paths=home, token="t")
+    register_builtin_tools(core.tools)
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    session = Session(id="s-guard", workdir=workdir)
+
+    def tag(tool_name: str, path: str) -> str:
+        tool = core.tools.get(tool_name)
+        assert tool is not None
+        return effective_permission(tool, {"path": path}, session, core)
+
+    for name in ("write_file", "edit_file"):
+        for path in (
+            str(home.settings_json),
+            str(home.credentials_json),
+            str(home.state_db),
+            str(home.token_file),
+            str(home.daemon_log),
+            ".snowpea/settings.json",
+            "../../.snowpea/settings.json",
+        ):
+            assert tag(name, path) == "config", f"{name} {path}"
+        for path in (
+            "src/main.py",
+            "README.md",
+            str(workdir / "notes.txt"),
+            # A team's worktrees live under .snowpea/ but hold ordinary source;
+            # a worker editing them must not be stopped for approval.
+            ".snowpea/worktrees/tm-1/src/main.py",
+            ".snowpea/skills/demo/SKILL.md",
+        ):
+            assert tag(name, path) == "write", f"{name} {path}"
+        assert tag(name, ".snowpea/worktrees/tm-1/.snowpea/settings.json") == "config"
+
+    # read_file has no override at all: showing configuration stays a read.
+    read_tool = core.tools.get("read_file")
+    assert read_tool is not None
+    settings_path = {"path": str(home.settings_json)}
+    assert effective_permission(read_tool, settings_path, session, core) == "read"

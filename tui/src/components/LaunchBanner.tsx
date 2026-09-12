@@ -11,6 +11,7 @@ import React from "react";
 import { Box, Text } from "ink";
 
 import { Logo } from "./Logo.js";
+import { colorMode, type ColorMode } from "../layout/palette.js";
 import { relativeTime, type SessionRecord } from "../state/history.js";
 
 /** How much of the remembered prompt the launch screen shows. */
@@ -27,6 +28,8 @@ export interface LaunchBannerProps {
   /** The session last open in this directory, when there is one. */
   lastSession?: SessionRecord | null;
   now?: number;
+  /** How much colour the terminal can take; detected when not given. */
+  colors?: ColorMode;
 }
 
 const TIPS: readonly string[] = [
@@ -34,6 +37,12 @@ const TIPS: readonly string[] = [
   "Shift+Tab cycles plan → accept → auto",
   "/setup configures providers and models",
 ];
+
+/** Centre a line in `width`, leaving it alone when it does not fit. */
+export function centre(text: string, width: number): string {
+  const room = Math.max(0, Math.floor(width) - [...text].length);
+  return `${" ".repeat(Math.floor(room / 2))}${text}`;
+}
 
 /** `"add the missing tests to the run…"` */
 export function previewPrompt(text: string, max = PROMPT_PREVIEW): string {
@@ -51,20 +60,22 @@ export function LaunchBanner({
   model,
   lastSession = null,
   now = Date.now(),
+  colors: paintProp,
 }: LaunchBannerProps): React.ReactElement {
   const target = [provider, model].filter(Boolean).join("/");
+  const paint = paintProp ?? colorMode(process.env, Boolean(process.stdout?.isTTY));
+  const description = "Open-source multi-vendor coding agent and personal AI assistant";
+  const meta = [`v${version}`, target, workdir, mode.toUpperCase()].filter(Boolean).join(" · ");
   return (
     <Box flexDirection="column" width={width}>
-      <Logo terminalRows={terminalRows} version={version} width={width} big />
+      <Logo terminalRows={terminalRows} version={version} width={width} big mode={paint} />
 
-      <Box marginTop={1} flexDirection="column">
+      <Text dimColor>{"─".repeat(Math.max(0, width))}</Text>
+
+      <Box flexDirection="column">
+        <Text wrap="truncate-end">{centre(description, width)}</Text>
         <Text dimColor wrap="truncate-end">
-          {`Open-source multi-vendor coding agent and personal AI assistant · v${version}${
-            target ? ` · ${target}` : ""
-          }`}
-        </Text>
-        <Text dimColor wrap="truncate-end">
-          {`${workdir} · ${mode.toUpperCase()} mode`}
+          {centre(meta, width)}
         </Text>
       </Box>
 

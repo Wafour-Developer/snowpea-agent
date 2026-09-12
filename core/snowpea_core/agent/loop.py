@@ -19,12 +19,17 @@ from typing import TYPE_CHECKING, Any
 from snowpea_core.agent.agent import AgentConfig, build_messages
 from snowpea_core.exec.local import LocalBackend
 from snowpea_core.memory import context_for_turn, nudge_after_turn
-from snowpea_core.permissions.policy import PermissionPolicy
+from snowpea_core.permissions.policy import UNPROMOTABLE, PermissionPolicy
 from snowpea_core.providers.base import ChatMessage, ProviderError, ToolCall
 from snowpea_core.server import errors
-from snowpea_core.session import events
+from snowpea_core.session import compaction, events
 from snowpea_core.skills import hooks as plugin_hooks
-from snowpea_core.tools.registry import Tool, ToolContext, ToolResult
+from snowpea_core.tools.registry import (
+    Tool,
+    ToolContext,
+    ToolResult,
+    effective_permission,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.server.app_server import Core
@@ -35,6 +40,26 @@ log = logging.getLogger("snowpea.agent")
 
 def new_turn_id() -> str:
     return f"t-{uuid.uuid4().hex[:12]}"
+
+
+async def finish_turn(core: Core, session: Session, turn_id: str, reason: str) -> str:
+    """Close one turn: the context reading first, then ``turn.done``.
+
+    Order matters.  ``turn.done`` is what every surface treats as "the turn is
+    over" — the headless CLI stops reading on it and closes the session — so an
+    event emitted after it is one no consumer is guaranteed to see.  The
+    ``context`` reading therefore goes out just before it (CORE-context).
+    Accounting must never fail a turn, and it is skipped entirely once
+    shutdown has begun, for the same reason the final write is skipped in
+    :func:`run_turn` (CORE-session-race).
+    """
+    if not getattr(core, "stopping", False):
+        try:
+            await compaction.emit_context(core, session, discover=False)
+        except Exception:  # noqa: BLE001 - accounting must not fail a turn
+            log.debug("could not emit the context event for %s", session.id, exc_info=True)
+    await core.hub.emit_event(session.id, events.turn_done(turn_id, reason))
+    return reason
 
 
 def backend_for(core: Core, session: Session) -> Any:
@@ -79,19 +104,19 @@ async def run_turn(
         # final event write is skipped rather than raced against it. A normal
         # cancellation (e.g. ``session.close`` mid-turn) still emits it.
         if not getattr(core, "stopping", False):
-            await hub.emit_event(session.id, events.turn_done(turn_id, "interrupted"))
+            await finish_turn(core, session, turn_id, "interrupted")
         raise
     except ProviderError as exc:
         await hub.emit_event(session.id, events.error(exc.code, str(exc)))
         reason = "error"
-        await hub.emit_event(session.id, events.turn_done(turn_id, reason))
+        await finish_turn(core, session, turn_id, reason)
     except Exception as exc:  # noqa: BLE001 - a bug ends the turn, never the daemon
         log.exception("turn %s failed", turn_id)
         await hub.emit_event(
             session.id, events.error(errors.INTERNAL, f"{type(exc).__name__}: {exc}")
         )
         reason = "error"
-        await hub.emit_event(session.id, events.turn_done(turn_id, reason))
+        await finish_turn(core, session, turn_id, reason)
     finally:
         session.current_turn = None
     return turn_id
@@ -105,6 +130,11 @@ async def _drive(core: Core, session: Session, text: str, turn_id: str, unattend
     backend = backend_for(core, session)
     provider = core.providers.get(session.provider, session.model)
 
+    # Auto-compaction happens here and nowhere else: between turns, before the
+    # new user message joins the history, and never inside the tool loop
+    # (CORE-context).
+    await compaction.maybe_auto_compact(core, session)
+
     if text:
         session.history.append(ChatMessage(role="user", content=text))
         session.history.compact()
@@ -114,7 +144,7 @@ async def _drive(core: Core, session: Session, text: str, turn_id: str, unattend
 
     for _round in range(config.max_tool_rounds):
         if session.interrupt.is_set():
-            await hub.emit_event(session.id, events.turn_done(turn_id, "interrupted"))
+            await finish_turn(core, session, turn_id, "interrupted")
             return "interrupted"
 
         specs = core.tools.specs(session)
@@ -133,6 +163,8 @@ async def _drive(core: Core, session: Session, text: str, turn_id: str, unattend
             elif event.kind == "tool_call" and event.tool_call is not None:
                 calls.append(event.tool_call)
             elif event.kind == "usage" and event.usage is not None:
+                # The vendor's own prompt count beats any local estimate.
+                compaction.record_provider_usage(session, event.usage.input_tokens)
                 await hub.emit_event(
                     session.id,
                     events.usage(event.usage.input_tokens, event.usage.output_tokens),
@@ -141,14 +173,14 @@ async def _drive(core: Core, session: Session, text: str, turn_id: str, unattend
                 await hub.emit_event(session.id, events.error(errors.INTERNAL, event.error))
 
         if interrupted:
-            await hub.emit_event(session.id, events.turn_done(turn_id, "interrupted"))
+            await finish_turn(core, session, turn_id, "interrupted")
             return "interrupted"
 
         assistant_text = "".join(chunks)
         if not calls:
             session.history.append(ChatMessage(role="assistant", content=assistant_text))
             await hub.emit_event(session.id, events.message_done(assistant_text))
-            await hub.emit_event(session.id, events.turn_done(turn_id, "complete"))
+            await finish_turn(core, session, turn_id, "complete")
             await nudge_after_turn(core, session, text)
             await plugin_hooks.stop(core, session)
             return "complete"
@@ -166,7 +198,7 @@ async def _drive(core: Core, session: Session, text: str, turn_id: str, unattend
         session.id,
         events.error(errors.INTERNAL, f"stopped after {config.max_tool_rounds} tool rounds"),
     )
-    await hub.emit_event(session.id, events.turn_done(turn_id, "error"))
+    await finish_turn(core, session, turn_id, "error")
     return "error"
 
 
@@ -200,23 +232,28 @@ async def _run_one_call(
         await _fail_call(core, session, call, f"{call.name} is not in this skill's allowed-tools")
         return None
 
-    verdict = policy.decide(session.mode, tool.permission, tool, call.arguments, session)
+    # A write that lands on snowpea's own settings is judged as ``config``,
+    # not ``write`` (CORE-search-fix): the tag, not the tool, decides.
+    tag = effective_permission(tool, call.arguments, session, core)
+    verdict = policy.decide(session.mode, tag, tool, call.arguments, session)
     if verdict == "deny":
-        message = f"{tool.name} ({tool.permission}) is not allowed in {session.mode} mode"
+        message = f"{tool.name} ({tag}) is not allowed in {session.mode} mode"
         await hub.emit_event(session.id, events.error(errors.MODE_DENIED, message))
-        await hub.emit_event(session.id, events.turn_done(turn_id, "denied"))
+        await finish_turn(core, session, turn_id, "denied")
         return "denied"
     if verdict == "ask":
         decision = await core.approvals.request(
             session,
             tool.name,
             call.arguments,
-            risk=policy.risk(tool.permission),
+            risk=policy.risk(tag),
             unattended=unattended,
             cancel_event=session.interrupt,
+            note=policy.note(tag),
+            cacheable=tag not in UNPROMOTABLE,
         )
         if session.interrupt.is_set():
-            await hub.emit_event(session.id, events.turn_done(turn_id, "interrupted"))
+            await finish_turn(core, session, turn_id, "interrupted")
             return "interrupted"
         if not decision.allowed:
             code = decision.code or errors.APPROVAL_DENIED
@@ -224,7 +261,7 @@ async def _run_one_call(
                 session.id,
                 events.error(code, f"{tool.name} was not approved ({decision.by})"),
             )
-            await hub.emit_event(session.id, events.turn_done(turn_id, "denied"))
+            await finish_turn(core, session, turn_id, "denied")
             return "denied"
 
     await hub.emit_event(session.id, events.tool_call(call.id, call.name, call.arguments))

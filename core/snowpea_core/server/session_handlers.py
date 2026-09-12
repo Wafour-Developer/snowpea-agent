@@ -39,6 +39,8 @@ from snowpea_core.server.protocol import (
     ProviderListResult,
     ProviderModelsParams,
     ProviderModelsResult,
+    SessionCompactParams,
+    SessionCompactResult,
     SessionCreateParams,
     SessionCreateResult,
     SessionEvent,
@@ -56,7 +58,7 @@ from snowpea_core.server.rpc import RpcConnection, RpcDispatcher
 from snowpea_core.session import events
 from snowpea_core.session.store import Store
 from snowpea_core.skills.loader import SkillLoader
-from snowpea_core.tools import browser_providers, mcp_client
+from snowpea_core.tools import browser_providers, mcp_client, web
 from snowpea_core.tools import media as media_tools
 from snowpea_core.tools.registry import register_builtin_tools
 
@@ -74,6 +76,7 @@ HANDLED_METHODS: tuple[str, ...] = (
     "session.close",
     "session.prompt",
     "session.interrupt",
+    "session.compact",
     "session.setMode",
     "command.list",
     "command.run",
@@ -234,6 +237,33 @@ async def session_interrupt_handler(
     return Ok(ok=True)
 
 
+async def session_compact_handler(
+    conn: RpcConnection, params: SessionCompactParams, core: Core
+) -> SessionCompactResult:
+    """``session.compact`` — the RPC half of ``/compact`` (CORE-context).
+
+    Same code path as the command, so the TUI, headless and IDE surfaces all
+    get the same summary, the same events and the same numbers.
+    """
+    from snowpea_core.session import compaction
+
+    session = _session(core, params.sessionId)
+    # Compaction happens between turns, never inside one: replacing the history
+    # under a running tool loop would strand a pending tool result (CORE-context).
+    # The /compact command cannot hit this — it *is* the turn.
+    turn_task = session.turn_task
+    if turn_task is not None and not turn_task.done():
+        raise RpcError(
+            errors.INVALID_PARAMS,
+            f"{params.sessionId} has a turn in flight; interrupt it or wait, then compact",
+        )
+    core.hub.subscribe(conn, session.id)
+    result = await compaction.compact_session(core, session, params.instructions)
+    return SessionCompactResult(
+        before=result.before, after=result.after, summaryChars=result.summary_chars
+    )
+
+
 async def session_set_mode_handler(
     _conn: RpcConnection, params: SessionSetModeParams, core: Core
 ) -> SessionSetModeResult:
@@ -276,7 +306,9 @@ async def tool_list_handler(
     """
     session = core.sessions.get(params.sessionId) if params.sessionId else None
     await mcp_client.sync_tools(core, session.workdir if session else Path.cwd())
-    return ToolListResult(tools=core.tools.list(session))
+    # ``web.annotate`` fills ToolInfo.provider, so a caller can see which search
+    # provider would actually answer without running a search (CORE-search-fix).
+    return ToolListResult(tools=web.annotate(core.tools.list(session), core.settings))
 
 
 # ---------------------------------------------------------------------------
@@ -400,6 +432,7 @@ def register_session_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
     dispatcher.register("session.close", session_close_handler)
     dispatcher.register("session.prompt", session_prompt_handler)
     dispatcher.register("session.interrupt", session_interrupt_handler)
+    dispatcher.register("session.compact", session_compact_handler)
     dispatcher.register("session.setMode", session_set_mode_handler)
     dispatcher.register("command.list", command_list_handler)
     dispatcher.register("command.run", command_run_handler)

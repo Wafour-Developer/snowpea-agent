@@ -22,6 +22,7 @@ from typing import Any
 
 from snowpea_core.config.paths import Paths
 from snowpea_core.config.settings import Settings
+from snowpea_core.providers import context_windows
 from snowpea_core.providers import models as model_discovery
 from snowpea_core.providers.base import ChatProvider, ProviderError
 from snowpea_core.providers.fake import FakeProvider
@@ -40,6 +41,21 @@ FAKE_PREFIX = "fake"
 
 #: What to tell a user whose vendor has no usable model id.
 NO_MODEL_HINT = "run `snowpea setup provider`, or pick one in a session with `/model <name>`"
+
+
+def _as_positive_int(value: Any) -> int | None:
+    """A positive int from a settings value, else ``None`` (CORE-context)."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value > 0 else None
+    if isinstance(value, str):
+        try:
+            number = int(value.strip())
+        except ValueError:
+            return None
+        return number if number > 0 else None
+    return None
 
 
 def _split_env(value: str) -> tuple[str, str | None]:
@@ -160,6 +176,61 @@ class ProviderRegistry:
             base_url=self.base_url_for(vendor),
             refresh=refresh,
         )
+
+    # -- context windows (CORE-context) --------------------------------
+    def context_window(self, vendor: str, model: str | None = None) -> int | None:
+        """Context window of ``vendor``/``model`` in tokens, without any I/O.
+
+        ``settings.providers.<vendor>.context_window`` wins over the static
+        table, so a model the table has never heard of can still be given a
+        window by hand.  A ``local`` window already discovered from the server
+        is served from cache here; :meth:`resolve_context_window` is the one
+        that may go and ask.  ``None`` means unknown — surfaces render ``?``.
+        """
+        override = _as_positive_int(self.vendor_config(vendor).get("context_window"))
+        if override is not None:
+            return override
+        resolved_model = self.model_for(vendor, model)
+        base_url = self.base_url_for(vendor) or ""
+        hit, cached = context_windows.cache_get(vendor, base_url.rstrip("/"), resolved_model)
+        if hit:
+            return cached
+        preset = PRESETS_BY_VENDOR.get(vendor)
+        if preset is None:
+            return None
+        return preset.context_window(resolved_model)
+
+    async def resolve_context_window(
+        self, vendor: str, model: str | None = None, *, refresh: bool = False
+    ) -> int | None:
+        """Like :meth:`context_window`, but asks a ``local`` server when it must.
+
+        Only the ``local`` vendor is queried: every hosted vendor publishes a
+        fixed window that the static table already carries, and a round trip
+        per turn to learn a constant would be pure latency.  The answer (even
+        a negative one) is cached, so at most one lookup per model per TTL.
+        """
+        override = _as_positive_int(self.vendor_config(vendor).get("context_window"))
+        if override is not None:
+            return override
+        resolved_model = self.model_for(vendor, model)
+        preset = PRESETS_BY_VENDOR.get(vendor)
+        static = preset.context_window(resolved_model) if preset is not None else None
+        if vendor != "local":
+            return static
+        base_url = (self.base_url_for(vendor) or "").rstrip("/")
+        if not base_url or model_discovery.is_placeholder(resolved_model):
+            return static
+        if not refresh:
+            hit, cached = context_windows.cache_get(vendor, base_url, resolved_model)
+            if hit:
+                return cached
+        discovered = await context_windows.discover_window(
+            base_url, resolved_model, api_key=self.api_key_for(vendor)
+        )
+        window = discovered if discovered is not None else static
+        context_windows.cache_put(vendor, base_url, resolved_model, window)
+        return window
 
     async def resolve_model(self, vendor: str, model: str | None = None) -> str:
         """Like :meth:`model_for`, but never returns a placeholder.

@@ -93,6 +93,7 @@ def run(
     model: str | None = None,
     base_url: str | None = None,
     search_provider: str | None = None,
+    search_key: str | None = None,
     browser_provider: str | None = None,
     tools: str | None = None,
     gateway: str | None = None,
@@ -127,6 +128,7 @@ def run(
         model=model,
         base_url=base_url,
         search_provider=search_provider,
+        search_key=search_key,
         browser_provider=browser_provider,
         tools=tools,
         gateway=gateway,
@@ -157,6 +159,8 @@ def run(
             _ask_for_key(state, interactive=interactive)
         if name == "providers" and state.vendor:
             _ask_for_model(state, interactive=interactive, console=console)
+        if name == "search":
+            _ask_for_search_key(state, interactive=interactive, console=console)
         if name == "gateway":
             _ask_for_gateway(state, interactive=interactive)
         return choice
@@ -302,6 +306,64 @@ def _ask_for_model(
         state.model = picked
 
 
+def _note_missing_search_key(state: WizardState, search_providers: Any) -> None:
+    """Warn in the summary when a key-required provider has no key.
+
+    Without this the run looks successful and ``web_search`` quietly answers
+    from ddgs instead — the failure this whole screen exists to prevent.
+    """
+    pid = state.search_provider
+    if not search_providers.needs_key(pid) or state.has_search_key(pid):
+        return
+    env = search_providers.credential_env(pid)
+    state.notes.append(
+        f"{pid}: no API key — web_search will fall back to another provider until you set "
+        + (f"${env} or " if env else "")
+        + f"search.credentials.{pid}.api_key"
+    )
+
+
+def _ask_for_search_key(
+    state: WizardState, *, interactive: bool, console: Console | None = None
+) -> None:
+    """Ask for the search provider's API key when it needs one.
+
+    ``ddgs`` and the self-hosted providers skip this; the keyed ones ask, and
+    an empty answer warns rather than silently leaving the provider unusable.
+    """
+    from snowpea_core.tools import search_providers
+
+    pid = state.search_provider
+    provider = search_providers.get(pid)
+    if provider is None:
+        return
+    if not interactive:
+        _note_missing_search_key(state, search_providers)
+        return
+    out = console.print if console is not None else print
+    if provider.meta.key == "self-hosted":
+        env = next((name for name in provider.meta.env if name.endswith("_URL")), "")
+        current = (state.search_credentials.get(pid) or {}).get("url") or ""
+        hint = "saved — Enter to keep" if current else f"Enter to use ${env}" if env else ""
+        entered = ui.ask_text(f"{provider.meta.label} base URL [{hint}]: ")
+        if entered:
+            block = dict(state.search_credentials.get(pid) or {})
+            block["url"] = entered
+            state.search_credentials[pid] = block
+        return
+    if provider.meta.key == "no key":
+        return
+    env = search_providers.credential_env(pid)
+    saved = state.has_search_key(pid)
+    hint = "saved — Enter to keep" if saved else (f"Enter to use ${env}" if env else "optional")
+    entered = ui.ask_text(f"{provider.meta.label} API key [{hint}]: ", secret=True)
+    if entered:
+        state.set_search_key(pid, entered)
+    elif not saved and provider.meta.key == "key required":
+        out(f"no key entered — {pid} cannot answer searches until it has one")
+    _note_missing_search_key(state, search_providers)
+
+
 #: Where each platform tells a user their own numeric account id.
 USER_ID_HINT: dict[str, str] = {
     "telegram": "send /start to @userinfobot; it replies with your numeric id",
@@ -361,13 +423,19 @@ def _apply_flags(state: WizardState, **flags: Any) -> set[str]:
         raise SetupError("--key needs --vendor")
 
     search_provider = flags.get("search_provider")
+    search_key = flags.get("search_key")
     if search_provider:
         from snowpea_core.tools import search_providers
 
         if search_providers.get(search_provider) is None:
             raise SetupError(f"unknown search provider: {search_provider}")
         state.search_provider = search_provider
+        if search_key:
+            state.set_search_key(search_provider, search_key)
+        _note_missing_search_key(state, search_providers)
         answered.add("search")
+    elif search_key:
+        raise SetupError("--search-key needs --search-provider")
 
     browser_provider = flags.get("browser_provider")
     if browser_provider:

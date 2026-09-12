@@ -79,6 +79,29 @@ async def cmd_update(ctx: CommandContext, args: str) -> None:
     )
 
 
+async def cmd_compact(ctx: CommandContext, args: str) -> None:
+    """Summarise the conversation so far and continue with the summary.
+
+    The manual half of CORE-context; the automatic half fires from the agent
+    loop at ``context.autoCompactPercent``.  Anything after ``/compact`` is
+    passed to the summariser as extra instructions, so a user can say which
+    parts matter.
+    """
+    from snowpea_core.session import compaction
+
+    instructions = args.strip() or None
+    result = await compaction.compact_session(ctx.core, ctx.session, instructions)
+    if not result.compacted:
+        await ctx.say("Nothing to compact yet — the conversation is still short.")
+        return
+    before = compaction.format_tokens(result.before)
+    after = compaction.format_tokens(result.after)
+    await ctx.say(
+        f"Compacted the conversation: ~{before} → ~{after} tokens, "
+        f"{result.kept} message(s) kept verbatim."
+    )
+
+
 COMMANDS: tuple[Command, ...] = (
     Command(
         name="help",
@@ -91,6 +114,20 @@ COMMANDS: tuple[Command, ...] = (
         summary="List the registered tools.",
         run=cmd_tools,
         args_schema={"type": "object", "properties": {}},
+    ),
+    Command(
+        name="compact",
+        summary="Summarise the conversation so far and continue with the summary.",
+        run=cmd_compact,
+        args_schema={
+            "type": "object",
+            "properties": {
+                "instructions": {
+                    "type": "string",
+                    "description": "What the summary must keep, e.g. 'the API design decisions'.",
+                }
+            },
+        },
     ),
     Command(
         name="update",
@@ -113,6 +150,7 @@ __all__ = [
     "cmd_allow",
     "cmd_allowlist",
     "cmd_approvals",
+    "cmd_compact",
     "cmd_help",
     "cmd_mode",
     "cmd_tools",

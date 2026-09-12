@@ -133,6 +133,17 @@ class UpdatesSettings(_Model):
     channel: str = "auto"
 
 
+class ContextSettings(_Model):
+    """Context-window accounting and compaction (CORE-context)."""
+
+    #: False turns automatic compaction off entirely; ``/compact`` still works.
+    autoCompact: bool = True
+    #: Percentage of the model's context window at which a turn compacts first.
+    autoCompactPercent: int = 85
+    #: Messages kept verbatim after the summary when compacting.
+    keepLastMessages: int = 4
+
+
 class McpSettings(_Model):
     """Extra MCP servers and their permission tags (M2 contract §6)."""
 
@@ -158,6 +169,7 @@ class Settings(_Model):
     media: MediaSettings = Field(default_factory=MediaSettings)
     mcp: McpSettings = Field(default_factory=McpSettings)
     memory: MemorySettings = Field(default_factory=MemorySettings)
+    context: ContextSettings = Field(default_factory=ContextSettings)
     scheduler: SchedulerSettings = Field(default_factory=SchedulerSettings)
     updates: UpdatesSettings = Field(default_factory=UpdatesSettings)
     providers: dict[str, Any] = Field(default_factory=dict)
@@ -197,6 +209,7 @@ __all__ = [
     "AgentsSettings",
     "ApprovalsSettings",
     "BrowserSettings",
+    "ContextSettings",
     "DaemonSettings",
     "McpSettings",
     "MediaMcpSettings",

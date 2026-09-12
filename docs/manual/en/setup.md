@@ -96,10 +96,38 @@ snowpea -c "summarize README.md" --provider deepseek
 
 ```bash
 snowpea setup --search-provider ddgs
-snowpea setup --search-provider tavily
+snowpea setup --search-provider exa --search-key sk-your-exa-key
+snowpea setup search
 ```
 
-Free and keyless: `ddgs` (default), `exa_free`, `keenable_free`, `parallel_free`. Free with a key or self-hosted: `brave_free`, `tavily`, `searxng` (set `SEARXNG_URL`), `firecrawl_selfhost`. Paid: `exa`, `keenable`, `parallel`, `firecrawl`, `xai_grok`. If the configured provider fails, `web_search` falls back down the free chain and logs which one answered.
+`ddgs` is the only provider that needs nothing at all. The `*_free` ids are free *tiers* of keyed products, not keyless endpoints: Exa answers `402` without a key, Parallel and Keenable answer `401`, and so does Tavily. They are tagged `key required` and cannot answer a search until a key is configured.
+
+| id | tag | needs |
+| --- | --- | --- |
+| `ddgs` | free, no key | nothing |
+| `firecrawl` | paid, key optional | nothing; the cloud search endpoint answers keyless but rate-limited |
+| `brave_free` | free, key required | `BRAVE_API_KEY` |
+| `exa_free`, `exa` | key required | `EXA_API_KEY` |
+| `keenable_free`, `keenable` | key required | `KEENABLE_API_KEY` |
+| `parallel_free`, `parallel` | key required | `PARALLEL_API_KEY` |
+| `tavily` | free, key required | `TAVILY_API_KEY` |
+| `xai_grok` | paid, key required | `XAI_API_KEY` |
+| `searxng` | free, self-hosted | `SEARXNG_URL` |
+| `firecrawl_selfhost` | free, self-hosted | `FIRECRAWL_URL` |
+
+Choosing a key-required provider in `snowpea setup search` prompts for the key (masked) and stores it under `search.credentials.<id>.api_key`; leaving it empty prints a warning, because a provider without its key cannot answer.
+
+When the configured provider cannot run, `web_search` falls back and says so rather than pretending. The tool output starts with `[search via ddgs — fallback from exa_free: exa_free needs an API key ($EXA_API_KEY)]`, the session gets one `error{code:"search_provider_unavailable"}` event, and the assistant is instructed to repeat the reason to you.
+
+Check which provider actually answers:
+
+```bash
+snowpea search test "snowpea agent github"
+snowpea search test "snowpea agent github" --json
+snowpea tools list --json
+```
+
+`snowpea search test` runs one real query with your configured provider and prints the provider that answered, plus the reason each skipped provider dropped out. `snowpea tools list` shows `web_search` with its provider, written as `exa_free → ddgs` when the configured id cannot run.
 
 `web_extract` refuses private, loopback and link-local addresses, and truncates fetched pages to `tools.max_output_chars` (20000 by default).
 

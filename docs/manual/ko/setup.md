@@ -96,10 +96,38 @@ snowpea -c "summarize README.md" --provider deepseek
 
 ```bash
 snowpea setup --search-provider ddgs
-snowpea setup --search-provider tavily
+snowpea setup --search-provider exa --search-key sk-your-exa-key
+snowpea setup search
 ```
 
-무료이고 키가 필요 없는 것: `ddgs`(기본값), `exa_free`, `keenable_free`, `parallel_free`. 무료지만 키가 필요하거나 자체 호스팅해야 하는 것: `brave_free`, `tavily`, `searxng`(`SEARXNG_URL` 설정), `firecrawl_selfhost`. 유료: `exa`, `keenable`, `parallel`, `firecrawl`, `xai_grok`. 설정된 제공자가 실패하면 `web_search`는 무료 체인을 따라 아래로 내려가며 재시도하고, 어느 것이 응답했는지를 로그로 남깁니다.
+아무것도 필요 없는 제공자는 `ddgs` 하나뿐입니다. `*_free` id는 키 없이 쓸 수 있는 엔드포인트가 아니라 키가 필요한 서비스의 무료 **요금제**입니다. 키 없이 부르면 Exa는 `402`, Parallel과 Keenable은 `401`, Tavily도 `401`을 돌려줍니다. 그래서 `key required`로 표시되며, 키가 설정되기 전까지는 검색에 응답하지 못합니다.
+
+| id | 태그 | 필요한 것 |
+| --- | --- | --- |
+| `ddgs` | free, no key | 없음 |
+| `firecrawl` | paid, key optional | 없음. 클라우드 검색 엔드포인트는 키 없이도 응답하지만 호출 제한이 있습니다 |
+| `brave_free` | free, key required | `BRAVE_API_KEY` |
+| `exa_free`, `exa` | key required | `EXA_API_KEY` |
+| `keenable_free`, `keenable` | key required | `KEENABLE_API_KEY` |
+| `parallel_free`, `parallel` | key required | `PARALLEL_API_KEY` |
+| `tavily` | free, key required | `TAVILY_API_KEY` |
+| `xai_grok` | paid, key required | `XAI_API_KEY` |
+| `searxng` | free, self-hosted | `SEARXNG_URL` |
+| `firecrawl_selfhost` | free, self-hosted | `FIRECRAWL_URL` |
+
+`snowpea setup search`에서 키가 필요한 제공자를 고르면 키를 (가려진 입력으로) 묻고 `search.credentials.<id>.api_key`에 저장합니다. 비워 두면 경고가 나옵니다. 키 없는 제공자는 검색에 답할 수 없기 때문입니다.
+
+설정한 제공자가 동작하지 못하면 `web_search`는 다른 제공자로 넘어가되 그 사실을 숨기지 않습니다. 도구 출력은 `[search via ddgs — fallback from exa_free: exa_free needs an API key ($EXA_API_KEY)]`로 시작하고, 세션에는 `error{code:"search_provider_unavailable"}` 이벤트가 한 번 발생하며, 어시스턴트는 그 이유를 사용자에게 그대로 전하도록 지시받습니다.
+
+실제로 어떤 제공자가 응답하는지 확인하려면:
+
+```bash
+snowpea search test "snowpea agent github"
+snowpea search test "snowpea agent github" --json
+snowpea tools list --json
+```
+
+`snowpea search test`는 설정된 제공자로 실제 질의를 한 번 보내고, 응답한 제공자와 건너뛴 제공자들의 이유를 출력합니다. `snowpea tools list`는 `web_search`의 제공자를 함께 보여 주며, 설정한 id가 동작할 수 없으면 `exa_free → ddgs`처럼 표시합니다.
 
 `web_extract`는 사설망·루프백·link-local 주소를 거부하고, 가져온 페이지를 `tools.max_output_chars`(기본 20000)까지 잘라냅니다.
 

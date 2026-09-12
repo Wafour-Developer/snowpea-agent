@@ -58,6 +58,8 @@ CATALOG: dict[str, tuple[str, str]] = {
     "git_commit": ("git", "write"),
     "web_search": ("web", "network"),
     "web_extract": ("web", "network"),
+    "settings_get": ("settings", "read"),
+    "settings_set": ("settings", "config"),
     "browser_navigate": ("browser", "network"),
     "browser_click": ("browser", "network"),
     "browser_type": ("browser", "network"),
@@ -295,15 +297,25 @@ def test_provider_registry_order_matches_the_contract() -> None:
 
 
 def test_provider_tags_match_the_contract() -> None:
+    """Tags say what a provider really needs (CORE-search-fix).
+
+    ``ddgs`` is the only keyless id in the catalog; the Firecrawl cloud search
+    endpoint answers without credentials too, which is ``key optional``, not
+    ``no key``.  Everything else needs a key or a URL.
+    """
     tags = {m.id: (m.tier, m.key) for m in search_providers.metas()}
     assert tags["ddgs"] == ("free", "no key")
     assert tags["brave_free"] == ("free", "key required")
-    assert tags["tavily"] == ("free", "key optional")
+    assert tags["tavily"] == ("free", "key required")
     assert tags["searxng"] == ("free", "self-hosted")
     assert tags["firecrawl_selfhost"] == ("free", "self-hosted")
-    for paid in ("exa", "keenable", "parallel", "firecrawl", "xai_grok"):
+    for free_tier in ("exa_free", "keenable_free", "parallel_free"):
+        assert tags[free_tier] == ("free", "key required"), free_tier
+    for paid in ("exa", "keenable", "parallel", "xai_grok"):
         assert tags[paid] == ("paid", "key required"), paid
+    assert tags["firecrawl"] == ("paid", "key optional")
     assert search_providers.get("ddgs").meta.default is True
+    assert [m.id for m in search_providers.metas() if m.key == "no key"] == ["ddgs"]
 
 
 def test_free_chain_starts_with_the_preferred_provider() -> None:
@@ -324,7 +336,7 @@ async def test_web_search_returns_hits_from_ddgs(
 
     result = await run(ctx, "web_search", query="snowpea agent")
     assert result.ok, result.error
-    assert "[ddgs]" in result.output
+    assert "[search via ddgs]" in result.output
     assert "https://example.com/a" in result.output
 
 
@@ -346,7 +358,13 @@ async def test_web_search_falls_back_past_a_failing_provider(
 
     result = await run(ctx, "web_search", query="anything")
     assert result.ok, result.error
-    assert "[ddgs]" in result.output
+    # The fallback is reported, not hidden (CORE-search-fix).
+    assert result.output.startswith("[search via ddgs — fallback from brave_free:")
+    assert result.meta == {
+        "provider": "ddgs",
+        "fallback_from": "brave_free",
+        "reason": "Brave Search returned HTTP 429",
+    }
 
 
 async def test_brave_provider_parses_its_payload(
@@ -394,7 +412,7 @@ async def test_searxng_provider_uses_the_configured_instance(
 
     result = await run(ctx, "web_search", query="s")
     assert result.ok, result.error
-    assert "[searxng]" in result.output
+    assert "[search via searxng]" in result.output
 
 
 async def test_unimplemented_provider_reports_search_provider_unavailable(

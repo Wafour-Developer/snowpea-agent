@@ -45,6 +45,18 @@ class VendorPreset:
         """Alias of :attr:`id` (the name used by the RPC surface)."""
         return self.id
 
+    def context_window(self, model: str | None = None) -> int | None:
+        """Static context window of ``model`` in tokens, or ``None`` if unknown.
+
+        Defaults to :attr:`default_model`.  This is the table lookup only; a
+        settings override and ``local`` server discovery live on
+        :class:`~snowpea_core.providers.registry.ProviderRegistry`, which is
+        the object that knows this machine's configuration (CORE-context).
+        """
+        from snowpea_core.providers.context_windows import static_window
+
+        return static_window(model or self.default_model)
+
 
 _OPENROUTER_HEADERS = {
     "HTTP-Referer": "https://github.com/snowpea/snowpea-agent",

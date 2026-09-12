@@ -33,6 +33,24 @@ DENIAL_CODES = frozenset({"mode_denied", "approval_denied", "approval_timeout"})
 _MAX_ARG_CHARS = 60
 
 
+def format_tokens(count: int) -> str:
+    """``12345`` -> ``12.3k``; the compaction divider's units (CORE-context)."""
+    if count < 1000:
+        return str(count)
+    return f"{count / 1000:.1f}k"
+
+
+def format_context(payload: dict[str, Any]) -> str:
+    """``"12.3k / 200.0k (6.2%)"``; an unknown window renders as ``?``."""
+    used = format_tokens(int(payload.get("used", 0) or 0))
+    window = payload.get("window")
+    if not window:
+        return f"{used} / ?"
+    percent = payload.get("percent")
+    suffix = f" ({percent}%)" if percent is not None else ""
+    return f"{used} / {format_tokens(int(window))}{suffix}"
+
+
 def format_args(args: dict[str, Any]) -> str:
     """Render tool arguments as a short ``k=v, k=v`` summary."""
     parts: list[str] = []
@@ -97,14 +115,27 @@ class PlainRenderer:
             self._line(f"· subagent {payload.get('name') or payload.get('agentId', '?')} started")
         elif kind == "subagent.done":
             self._line(f"· subagent {payload.get('agentId', '?')} finished")
+        elif kind == "context":
+            self._line(f"· context {format_context(payload)}")
+        elif kind == "compaction":
+            before = format_tokens(int(payload.get("before", 0) or 0))
+            after = format_tokens(int(payload.get("after", 0) or 0))
+            marker = ", auto" if payload.get("auto") else ""
+            self._line(f"— compacted ({before} → {after} tokens{marker}) —")
         elif kind == "error":
             self._newline()
             self.err.write(f"✗ {payload.get('code', 'error')}: {payload.get('message', '')}\n")
             self.err.flush()
 
-    def finish(self, exit_code: int, session_id: str | None, usage: dict[str, int]) -> None:
+    def finish(
+        self,
+        exit_code: int,
+        session_id: str | None,
+        usage: dict[str, int],
+        context: dict[str, Any] | None = None,
+    ) -> None:
         """Terminate the transcript (no trailing summary in plain mode)."""
-        del exit_code, session_id, usage
+        del exit_code, session_id, usage, context
         self._newline()
 
 
@@ -121,13 +152,22 @@ class JsonRenderer:
     def event(self, event: dict[str, Any]) -> None:
         self._emit(event)
 
-    def finish(self, exit_code: int, session_id: str | None, usage: dict[str, int]) -> None:
+    def finish(
+        self,
+        exit_code: int,
+        session_id: str | None,
+        usage: dict[str, int],
+        context: dict[str, Any] | None = None,
+    ) -> None:
         self._emit(
             {
                 "kind": "result",
                 "exitCode": exit_code,
                 "sessionId": session_id,
                 "usage": usage,
+                # How full the window was when the turn ended (CORE-context);
+                # null when the daemon never reported one.
+                "context": context,
             }
         )
 
@@ -140,6 +180,8 @@ class TurnTracker:
         self.denied = False
         self.reason: str | None = None
         self.turn_id: str | None = None
+        #: Body of the most recent ``context`` event, reported by --json.
+        self.context: dict[str, Any] | None = None
 
     def event(self, event: dict[str, Any]) -> None:
         kind = str(event.get("kind", ""))
@@ -147,6 +189,8 @@ class TurnTracker:
         if kind == "usage":
             self.usage["inputTokens"] += int(payload.get("inputTokens", 0) or 0)
             self.usage["outputTokens"] += int(payload.get("outputTokens", 0) or 0)
+        elif kind == "context":
+            self.context = dict(payload)
         elif kind == "error" and str(payload.get("code", "")) in DENIAL_CODES:
             self.denied = True
         elif kind == "turn.done":

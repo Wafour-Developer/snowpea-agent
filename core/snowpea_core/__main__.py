@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 from collections.abc import Sequence
 
 from snowpea_core import __version__
@@ -32,6 +33,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(list(argv) if argv is not None else None)
+    if args.home:
+        # Everything that resolves the home lazily — the config-write guard in
+        # tools/config_guard, and any command the agent shells out to — reads
+        # $SNOWPEA_HOME, so ``--home`` has to reach the environment too.
+        os.environ["SNOWPEA_HOME"] = str(args.home)
     try:
         asyncio.run(run_daemon(port=args.port, home=args.home, token=args.token))
     except KeyboardInterrupt:  # pragma: no cover - interactive

@@ -9,7 +9,10 @@ from snowpea_core.setup.screens import Screen, ScreenItem, skip_item
 from snowpea_core.setup.state import SKIP, WizardState
 
 TITLE = "② Web search provider"
-HELP = "Free, keyless providers are listed first; ★ is the default (AC-02b)."
+HELP = (
+    "Free, keyless providers are listed first; ★ is the default (AC-02b). "
+    "A provider tagged \"key required\" asks for its key next and cannot answer without one."
+)
 
 
 def build(state: WizardState, catalog: Sequence[CatalogItem] | None = None) -> Screen:

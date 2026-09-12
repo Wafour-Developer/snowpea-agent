@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.2.0";
+export const PROTOCOL_VERSION = "1.3.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -155,6 +155,8 @@ export interface ApprovalListResult {
   requests?: ({
     /** Arguments it wants to use. */
     args?: Record<string, unknown>;
+    /** Extra warning shown with the prompt, e.g. "modifies snowpea configuration". */
+    note?: string;
     /** Id to answer with approval.respond. */
     requestId: string;
     /** Risk hint for the UI. */
@@ -174,6 +176,8 @@ export interface ApprovalListResult {
 export interface ApprovalRequestParams {
   /** Arguments it wants to use. */
   args?: Record<string, unknown>;
+  /** Extra warning shown with the prompt, e.g. "modifies snowpea configuration". */
+  note?: string;
   /** Id to answer with approval.respond. */
   requestId: string;
   /** Risk hint for the UI. */
@@ -592,6 +596,24 @@ export interface SessionCloseResult {
   ok?: boolean;
 }
 
+/** `session.compact` params. Summarise the conversation so far and replace the history with it. */
+export interface SessionCompactParams {
+  /** Extra guidance for the summary, e.g. 'keep the API design decisions'. */
+  instructions?: string | null;
+  /** Session whose history to compact. */
+  sessionId: string;
+}
+
+/** `session.compact` result. */
+export interface SessionCompactResult {
+  /** Estimated tokens the history holds now. */
+  after?: number;
+  /** Estimated tokens the history held before. */
+  before?: number;
+  /** Length of the summary in characters. */
+  summaryChars?: number;
+}
+
 /** `session.create` params. Open a session rooted at a working directory. */
 export interface SessionCreateParams {
   /** Named agent whose persona to load. */
@@ -635,6 +657,10 @@ export type SessionListParams = Record<string, unknown>;
 export interface SessionListResult {
   /** Every live session. */
   sessions?: ({
+    /** Tokens the session's current prompt occupies (CORE-context). */
+    contextUsed?: number;
+    /** Context window of the session's model; null when unknown. */
+    contextWindow?: number | null;
     /** UTC ISO-8601 creation timestamp. */
     createdAt: string;
     /** Current permission mode. */
@@ -1153,7 +1179,9 @@ export interface ToolListResult {
     /** Tool name as the model calls it. */
     name: string;
     /** Permission class checked against the mode. */
-    permissionTag: "read" | "write" | "exec" | "network" | "send";
+    permissionTag: "read" | "write" | "exec" | "network" | "send" | "config";
+    /** Backing provider for tools that have one, e.g. the web-search provider id; reads "configured → answering" when the configured one cannot run. */
+    provider?: string;
     /** builtin, skill, plugin or MCP server name. */
     source?: string;
     /** Inactive tools are hidden from the model. */
@@ -1171,6 +1199,8 @@ export interface ApprovalPendingPayload {
   request: {
     /** Arguments it wants to use. */
     args?: Record<string, unknown>;
+    /** Extra warning shown with the prompt, e.g. "modifies snowpea configuration". */
+    note?: string;
     /** Id to answer with approval.respond. */
     requestId: string;
     /** Risk hint for the UI. */
@@ -1292,6 +1322,38 @@ export interface BackendChangedEventPayload {
   /** Where tools now execute. */
   backend: "local" | "docker" | "ssh";
   kind?: "backend.changed";
+}
+
+/** Payload of `session.event` with kind `compaction`. */
+export interface CompactionEventPayload {
+  /** Estimated tokens the history holds now. */
+  after?: number;
+  /** True when the auto-compaction threshold triggered it. */
+  auto?: boolean;
+  /** Estimated tokens the history held before. */
+  before?: number;
+  /** Messages kept verbatim after the summary. */
+  kept?: number;
+  kind?: "compaction";
+  /** Length of the summary in characters. */
+  summaryChars?: number;
+}
+
+/** Payload of `session.event` with kind `context`. */
+export interface ContextEventPayload {
+  /** True while 'used' is a local estimate; false once the provider reported it. */
+  estimated?: boolean;
+  kind?: "context";
+  /** Model the window belongs to. */
+  model?: string | null;
+  /** used/window as a percentage, null when the window is unknown. */
+  percent?: number | null;
+  /** Vendor serving that model. */
+  provider?: string | null;
+  /** Tokens the current prompt occupies. */
+  used?: number;
+  /** Context window of the model in tokens; null when unknown. */
+  window?: number | null;
 }
 
 /** Payload of `session.event` with kind `diff`. */
@@ -1457,6 +1519,8 @@ export interface UsageEventPayload {
 /** Maps every `session.event` kind to its payload type. */
 export interface SessionEventKindMap {
   "backend.changed": BackendChangedEventPayload;
+  "compaction": CompactionEventPayload;
+  "context": ContextEventPayload;
   "diff": DiffEventPayload;
   "error": ErrorEventPayload;
   "message.delta": MessageDeltaEventPayload;
@@ -1475,6 +1539,8 @@ export interface SessionEventKindMap {
 export type SessionEventKind = keyof SessionEventKindMap;
 export const SESSION_EVENT_KINDS: readonly SessionEventKind[] = [
   "backend.changed",
+  "compaction",
+  "context",
   "diff",
   "error",
   "message.delta",
@@ -1525,6 +1591,7 @@ export interface MethodMap {
   "provider.loginWeb": { params: ProviderLoginWebParams; result: ProviderLoginWebResult };
   "provider.models": { params: ProviderModelsParams; result: ProviderModelsResult };
   "session.close": { params: SessionCloseParams; result: SessionCloseResult };
+  "session.compact": { params: SessionCompactParams; result: SessionCompactResult };
   "session.create": { params: SessionCreateParams; result: SessionCreateResult };
   "session.interrupt": { params: SessionInterruptParams; result: SessionInterruptResult };
   "session.list": { params: SessionListParams; result: SessionListResult };
@@ -1586,6 +1653,7 @@ export type ClientMethod =
   | "provider.loginWeb"
   | "provider.models"
   | "session.close"
+  | "session.compact"
   | "session.create"
   | "session.interrupt"
   | "session.list"

@@ -236,7 +236,9 @@ async def _ask_approval(params: dict[str, Any]) -> str:
     """Prompt the user on stderr and read one answer from stdin."""
     tool = params.get("tool", "?")
     summary = format_args(params.get("args") or {})
-    question = f"Allow {tool} {summary}? [y/N/a(lways for session)] "
+    note = str(params.get("note") or "").strip()
+    warning = f"!! {note}\n" if note else ""
+    question = f"{warning}Allow {tool} {summary}? [y/N/a(lways for session)] "
 
     def _read() -> str:
         sys.stderr.write(question)
@@ -342,7 +344,7 @@ async def run_headless(args: argparse.Namespace, home: str | None) -> int:
             with contextlib.suppress(DaemonError, RpcCallError, Exception):
                 await client.call("session.close", {"sessionId": session_id}, timeout=10.0)
         await client.close()
-        renderer.finish(exit_code, session_id, tracker.usage)
+        renderer.finish(exit_code, session_id, tracker.usage, tracker.context)
 
 
 async def _consume(

@@ -17,6 +17,7 @@ snowpea commands list --json
 |---|---|
 | `/help` | 사용 가능한 모든 명령을 나열 |
 | `/tools` | 등록된 툴을 카테고리·권한·상태와 함께 나열 |
+| `/compact [지시]` | 지금까지의 대화를 요약해 그 요약으로 이어서 진행 |
 | `/plan`, `/accept`, `/auto` | 모드 전환 |
 | `/mode [plan\|accept\|auto\|save\|show]` | 프로젝트 기본값을 보거나, 바꾸거나, 저장 |
 | `/approvals` | 답을 기다리는 무인 승인 요청을 나열 |
@@ -67,7 +68,27 @@ snowpea agents --json
 snowpea daemon status --json
 ```
 
-`tools list`와 `commands list`는 각각 RPC 메서드 하나를 호출하고 끝납니다. 세션을 만들지도 모델을 부르지도 않으므로, 설치 직후나 CI에서 쓰기 좋은 스모크 테스트입니다.
+`tools list`와 `commands list`는 각각 RPC 메서드 하나를 호출하고 끝납니다. 세션을 만들지도 모델을 부르지도 않으므로, 설치 직후나 CI에서 쓰기 좋은 스모크 테스트입니다. `tools list`는 뒷단 제공자가 있는 도구에는 그 제공자도 함께 출력하므로, `web_search`에서는 실제로 응답할 검색 제공자를 볼 수 있습니다.
+
+### 컨텍스트
+
+```bash
+snowpea session context --json
+snowpea session compact s-abc123 "API 설계 결정은 남겨줘"
+```
+
+`session context` 는 살아 있는 세션마다 한 줄씩, 사용 중인 토큰과 모델의 컨텍스트 윈도우, 그 비율을 출력합니다. 알아낼 수 없는 윈도우는 추측하지 않고 `?` 로 표시합니다. 호스팅 벤더는 내장 표에서 찾고, 로컬 vLLM·Ollama 서버에는 한 번만 물어본 뒤 캐시하며, `settings.json` 의 `providers.<vendor>.context_window` 가 둘 다 덮어씁니다.
+
+긴 세션을 그 윈도우 안에 유지하는 수단이 compaction 입니다. `/compact` 는 지금까지의 내용을 "Session summary" 시스템 메시지 하나로 요약하고, 마지막 몇 개 메시지는 그대로 남긴 뒤 이어서 진행합니다. `session compact` 는 셸에서 같은 일을 합니다. 한 턴이 윈도우의 `context.autoCompactPercent`(기본 85)를 넘길 것 같으면 자동으로도 실행되며, 툴 루프 중간이 아니라 항상 턴과 턴 사이에 일어납니다. `context.autoCompact` 를 `false` 로 두면 `/compact` 로만 하게 됩니다.
+
+### 검색
+
+```bash
+snowpea search test "snowpea agent github"
+snowpea search test "snowpea agent github" --json
+```
+
+`search test`는 설정된 제공자로 실제 질의를 한 번 보내고, 어떤 제공자가 응답했는지와 건너뛴 제공자마다의 이유(API 키 없음, 인스턴스 URL 미설정, HTTP 오류)를 출력합니다. 데몬이 없어도 됩니다. `$SNOWPEA_HOME/settings.json`을 직접 읽습니다. 하나라도 응답하면 종료 코드 0, 아무도 응답하지 못하면 2입니다.
 
 ### 데몬
 

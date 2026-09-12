@@ -41,7 +41,32 @@
       "repeat": true,
       "tool_calls": [{"name": "shell", "arguments": {"command": "grep -n x note.txt"}}]
     },
-    {"after_tool": "shell", "text": "grep done", "repeat": true}
+    {"after_tool": "shell", "text": "grep done", "repeat": true},
+    {
+      "match": "rewrite the settings",
+      "text": "writing settings",
+      "repeat": true,
+      "tool_calls": [
+        {"name": "write_file", "arguments": {"path": ".snowpea/settings.json", "content": "{}\n"}}
+      ]
+    },
+    {"after_tool": "write_file", "text": "settings write done", "repeat": true},
+    {
+      "match": "use settings_set",
+      "text": "setting",
+      "repeat": true,
+      "tool_calls": [
+        {"name": "settings_set", "arguments": {"key": "search.provider", "value": "ddgs"}}
+      ]
+    },
+    {"after_tool": "settings_set", "text": "settings_set done", "repeat": true},
+    {
+      "match": "use settings_get",
+      "text": "reading settings",
+      "repeat": true,
+      "tool_calls": [{"name": "settings_get", "arguments": {"key": "search.provider"}}]
+    },
+    {"after_tool": "settings_get", "text": "settings_get done", "repeat": true}
   ],
   "default": {"text": "nothing to do"}
 }

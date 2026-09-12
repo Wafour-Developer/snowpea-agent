@@ -33,6 +33,9 @@ class WizardState:
     #: True when settings.json already holds an API key for ``vendor`` (kept unless replaced).
     has_saved_key: bool = False
     search_provider: str = catalog.DEFAULT_SEARCH_PROVIDER
+    #: provider id -> credential block, e.g. ``{"exa": {"api_key": "..."}}``.
+    #: Only providers the run actually touched appear here.
+    search_credentials: dict[str, dict[str, Any]] = field(default_factory=dict)
     browser_provider: str = catalog.DEFAULT_BROWSER_PROVIDER
     #: category id -> enabled.
     tool_categories: dict[str, bool] = field(default_factory=dict)
@@ -70,6 +73,11 @@ class WizardState:
             variant=saved.get("variant") or None,
             has_saved_key=bool(saved.get("api_key")),
             search_provider=settings.search.provider or catalog.DEFAULT_SEARCH_PROVIDER,
+            search_credentials={
+                str(pid): dict(block)
+                for pid, block in (getattr(settings.search, "credentials", None) or {}).items()
+                if isinstance(block, dict)
+            },
             browser_provider=settings.browser.provider or catalog.DEFAULT_BROWSER_PROVIDER,
             tool_categories=defaults,
             gateways=gateways,
@@ -154,6 +162,11 @@ class WizardState:
             settings.providers["default"] = self.vendor
 
         settings.search.provider = self.search_provider
+        for pid, block in self.search_credentials.items():
+            existing = dict(settings.search.credentials.get(pid) or {})
+            existing.update({k: v for k, v in block.items() if v})
+            if existing:
+                settings.search.credentials[pid] = existing
         settings.browser.provider = self.browser_provider
         settings.tools.enabled_categories = self.enabled_categories()
         settings.gateway = {
@@ -167,13 +180,31 @@ class WizardState:
         lines = [
             f"provider   {self.vendor or '(none configured)'}"
             + (f"  model {self.model}" if self.model else ""),
-            f"search     {self.search_provider}",
+            f"search     {self.search_provider}{self._search_key_note()}",
             f"browser    {self.browser_provider}",
             f"tools      {len(self.enabled_categories())} categories on"
             f" ({', '.join(self.enabled_categories())})",
             "messenger  " + (", ".join(self._gateway_labels()) or "(none)"),
         ]
         return lines + list(self.notes)
+
+    def _search_key_note(self) -> str:
+        """``" (key saved)"`` / ``" (no key — will fall back)"`` for key providers."""
+        from snowpea_core.tools import search_providers
+
+        if not search_providers.needs_key(self.search_provider):
+            return ""
+        block = self.search_credentials.get(self.search_provider) or {}
+        return " (key saved)" if block.get("api_key") else " (no key — will fall back)"
+
+    def has_search_key(self, provider_id: str) -> bool:
+        """True when this run knows an API key for ``provider_id``."""
+        return bool((self.search_credentials.get(provider_id) or {}).get("api_key"))
+
+    def set_search_key(self, provider_id: str, api_key: str) -> None:
+        block = dict(self.search_credentials.get(provider_id) or {})
+        block["api_key"] = api_key
+        self.search_credentials[provider_id] = block
 
     def _gateway_labels(self) -> list[str]:
         """``telegram (user 12345)`` — the id, and who may approve from chat."""
