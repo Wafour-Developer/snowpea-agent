@@ -262,6 +262,53 @@ async def test_definition_sets_the_prompt_and_narrows_the_tools(
     assert seen["workdir"] == session.workdir
 
 
+async def test_builtin_agent_name_resolves_and_applies_role_prompt(
+    daemon: Daemon, workdir: Path
+) -> None:
+    """``agent="executor"`` works without a project agent file and adds its role."""
+    from snowpea_core.agent import agent as agent_prompt
+
+    core = daemon.core
+    assert core is not None
+    session = await open_session(core, workdir)
+    manager = get_manager(core)
+    defn = manager.definition(session, "executor")
+    assert defn is not None
+    assert defn.source == "builtin"
+    assert defn.prompt == ""
+
+    seen: dict[str, Any] = {}
+    runner = asyncio.ensure_future(
+        manager.run(session, "slow child under the builtin executor", agent="executor")
+    )
+
+    child = None
+    deadline = asyncio.get_running_loop().time() + TIMEOUT
+    while child is None and asyncio.get_running_loop().time() < deadline:
+        await asyncio.sleep(0.01)
+        for record in manager.records():
+            if record.session_id:
+                child = core.sessions.get(record.session_id)
+        if child is not None:
+            prompt = agent_prompt.build_system_prompt(child, [], core=core)
+            seen = {
+                "agent": child.agent,
+                "allowed_tools": child.allowed_tools,
+                "prompt_role": child.prompt_role,
+                "system_prompt": child.system_prompt,
+                "prompt": prompt,
+            }
+    result = await asyncio.wait_for(runner, timeout=TIMEOUT)
+
+    assert result.ok
+    assert seen, "the built-in executor child should have been observable"
+    assert seen["agent"] == "executor"
+    assert seen["allowed_tools"] is None
+    assert seen["prompt_role"] == "executor"
+    assert seen["system_prompt"] is None
+    assert "Role: executor." in seen["prompt"]
+
+
 async def test_a_narrowed_child_cannot_reach_other_tools(daemon: Daemon, workdir: Path) -> None:
     """``tools=[...]`` really refuses the tools it leaves out."""
     core = daemon.core

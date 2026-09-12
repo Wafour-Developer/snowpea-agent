@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 from snowpea_core.agent.definition import (
     AgentDefinition,
     DefinitionError,
+    builtin_agent_definitions,
     discover_definitions,
     generate_definition,
     parse_agent_md,
@@ -90,11 +91,12 @@ def _from_loader(core: Core) -> list[AgentDefinition]:
 def definitions_for(core: Core, workdir: Path | str | None) -> list[AgentDefinition]:
     """Every agent definition visible here, newest root winning on a name clash.
 
-    The on-disk scan is authoritative for the project and global roots, so the
-    listing is correct whether or not the skill loader is wired up; anything
-    else the loader knows (plugins, built-ins) is merged in on top.
+    Built-in roles are the base catalogue; loader-provided/plugin definitions
+    and then on-disk global/project definitions override by name.
     """
     by_name: dict[str, AgentDefinition] = {}
+    for defn in builtin_agent_definitions():
+        by_name[defn.name] = defn
     for defn in _from_loader(core):
         by_name[defn.name] = defn
     for defn in discover_definitions(workdir, _home(core)):

@@ -13,12 +13,23 @@ from __future__ import annotations
 
 from typing import Any
 
+from snowpea_core.agent.definition import builtin_agent_definitions
 from snowpea_core.agent.subagent import get_manager
 from snowpea_core.prompts import tool_descriptions as descriptions
 from snowpea_core.tools.registry import Tool, ToolContext, ToolResult
 
 #: Upper bound on ``timeout``, mirroring the ``shell`` tool's own ceiling.
 MAX_TIMEOUT = 3600.0
+
+
+def _builtin_agent_names() -> str:
+    return ", ".join(defn.name for defn in builtin_agent_definitions())
+
+
+BUILTIN_AGENT_NAMES = _builtin_agent_names()
+BUILTIN_AGENT_HINT = (
+    f" Built-in agents available by name: {BUILTIN_AGENT_NAMES}." if BUILTIN_AGENT_NAMES else ""
+)
 
 
 def _tool_list(value: Any) -> list[str] | None:
@@ -68,7 +79,7 @@ TOOLS: tuple[Tool, ...] = (
     Tool(
         name="delegate_task",
         category="delegate",
-        description=descriptions.DELEGATE_TASK,
+        description=descriptions.DELEGATE_TASK + BUILTIN_AGENT_HINT,
         input_schema={
             "type": "object",
             "properties": {
@@ -81,7 +92,12 @@ TOOLS: tuple[Tool, ...] = (
                 },
                 "agent": {
                     "type": "string",
-                    "description": "Name of an agent definition to run it as.",
+                    "description": (
+                        "Name of an agent definition to run it as."
+                        + BUILTIN_AGENT_HINT
+                        + " Project, global, and plugin custom agent names also resolve "
+                        "when present."
+                    ),
                 },
                 "tools": {
                     "type": "array",
@@ -101,4 +117,4 @@ TOOLS: tuple[Tool, ...] = (
 )
 
 
-__all__ = ["MAX_TIMEOUT", "TOOLS", "delegate_task"]
+__all__ = ["BUILTIN_AGENT_HINT", "BUILTIN_AGENT_NAMES", "MAX_TIMEOUT", "TOOLS", "delegate_task"]

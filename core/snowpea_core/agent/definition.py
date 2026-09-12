@@ -286,6 +286,62 @@ def definition_dirs(workdir: Path | str | None, home: Path | str | None) -> list
     return dirs
 
 
+def builtin_agent_definitions() -> list[AgentDefinition]:
+    """Built-in role prompts exposed as resolvable delegate agents.
+
+    ``delegate_task(agent=...)`` already knows how to compose
+    ``prompts/roles/<name>.md`` when an agent definition with that name exists.
+    These synthetic definitions make those package roles visible through
+    ``/agent list`` / ``agent.list`` without writing files into a user's project.
+    """
+    roles_dir = Path(__file__).resolve().parent.parent / "prompts" / "roles"
+    if not roles_dir.is_dir():
+        return []
+    definitions: list[AgentDefinition] = []
+    for path in sorted(roles_dir.glob("*.md")):
+        if path.name.startswith("_"):
+            continue
+        try:
+            name = validate_name(path.stem)
+            text = path.read_text(encoding="utf-8")
+        except (DefinitionError, OSError):
+            continue
+        definitions.append(
+            AgentDefinition(
+                name=name,
+                description=_role_description(text, name),
+                model="inherit",
+                tools=ALL_TOOLS,
+                permission="inherit",
+                prompt="",
+                path=path,
+                source="builtin",
+            )
+        )
+    return definitions
+
+
+def _role_description(text: str, name: str) -> str:
+    """A short, stable description for a built-in role file."""
+    paragraph: list[str] = []
+    fallback = f"Built-in {name} role."
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            if paragraph:
+                break
+            continue
+        if line.lower().startswith("role:"):
+            fallback = line.rstrip(".") + "."
+            continue
+        if line.startswith(("-", "*", "#")):
+            if paragraph:
+                break
+            continue
+        paragraph.append(line)
+    return " ".join(paragraph) if paragraph else fallback
+
+
 def discover_definitions(
     workdir: Path | str | None = None, home: Path | str | None = None
 ) -> list[AgentDefinition]:
@@ -449,6 +505,7 @@ __all__ = [
     "discover_definitions",
     "generate_definition",
     "generator_messages",
+    "builtin_agent_definitions",
     "parse_agent_md",
     "parse_agent_text",
     "parse_generated_json",
