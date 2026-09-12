@@ -12,7 +12,7 @@ from typing import Any
 import aiohttp
 import pytest
 import pytest_asyncio
-from _support import connect, make_daemon
+from _support import FIXTURES, connect, fake_provider, make_daemon
 
 from snowpea_core.attachments import pending
 from snowpea_core.server.app_server import Daemon
@@ -169,6 +169,79 @@ async def test_inline_text_is_folded_into_the_prompt(daemon: Daemon, tmp_path: P
         finally:
             await client.stop()
     assert not (daemon.paths.attachments_dir / session_id).exists()
+    assert pending.peek(session_id) == []
+
+
+async def test_a_turn_carries_the_attachment_into_history(tmp_path: Path) -> None:
+    """End to end: prompt with an image, and the stored turn holds content blocks."""
+    with fake_provider(FIXTURES / "providers" / "fake" / "basic.json"):
+        daemon = await make_daemon(tmp_path / "home")
+        try:
+            async with aiohttp.ClientSession() as http:
+                client = await connect(http, daemon)
+                try:
+                    session_id = await _session(client, tmp_path / "work")
+                    result = await client.ok(
+                        "session.prompt",
+                        {
+                            "sessionId": session_id,
+                            "text": "hello",
+                            "attachments": [
+                                {
+                                    "kind": "image",
+                                    "name": "shot.png",
+                                    "mimeType": "image/png",
+                                    "data": base64.b64encode(PNG).decode(),
+                                }
+                            ],
+                        },
+                    )
+                    assert await client.wait_turn(result["turnId"]) == "complete"
+                    assert daemon.core is not None
+                    session = daemon.core.sessions.get(session_id)
+                    assert session is not None
+                    user = session.history.snapshot()[0]
+                finally:
+                    await client.stop()
+        finally:
+            await daemon.stop()
+            pending.clear()
+
+    # The turn kept the typed text and a block pointing at the stored file.
+    assert isinstance(user.content, list)
+    assert user.content[0] == {"type": "text", "text": "hello"}
+    image = user.content[1]
+    assert image["type"] == "image"
+    assert image["text"] == "[image: shot.png]"
+    assert Path(image["path"]).read_bytes() == PNG
+    # The stash is empty: the turn consumed it.
+    assert pending.peek(session_id) == []
+
+
+async def test_a_slash_command_does_not_keep_the_attachment(
+    daemon: Daemon, tmp_path: Path
+) -> None:
+    """Nothing would consume the bytes, so they are dropped rather than queued."""
+    async with aiohttp.ClientSession() as http:
+        client = await connect(http, daemon)
+        try:
+            session_id = await _session(client, tmp_path / "work")
+            await client.ok(
+                "session.prompt",
+                {
+                    "sessionId": session_id,
+                    "text": "/help",
+                    "attachments": [
+                        {
+                            "kind": "image",
+                            "name": "shot.png",
+                            "data": base64.b64encode(PNG).decode(),
+                        }
+                    ],
+                },
+            )
+        finally:
+            await client.stop()
     assert pending.peek(session_id) == []
 
 
@@ -376,6 +449,113 @@ async def test_record_round_trip(daemon: Daemon) -> None:  # pragma: no cover - 
             assert stopped["recording"] is False
         finally:
             await client.stop()
+
+
+# ---------------------------------------------------------------------------
+# autoSpeak
+# ---------------------------------------------------------------------------
+
+
+def _voice_scripts(bin_dir: Path, played: Path) -> None:
+    """A fake espeak-ng that writes a wav, and a fake player that records it."""
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    speak = bin_dir / "espeak-ng"
+    speak.write_text(
+        '#!/bin/sh\nout=""\nnext=0\nfor a in "$@"; do\n'
+        '  if [ "$next" = "1" ]; then out="$a"; next=0; fi\n'
+        '  if [ "$a" = "-w" ]; then next=1; fi\ndone\n'
+        "printf 'RIFF....WAVE' > \"$out\"\n"
+    )
+    speak.chmod(speak.stat().st_mode | stat.S_IXUSR)
+    player = bin_dir / "mpv"
+    player.write_text(f'#!/bin/sh\necho "$@" >> "{played}"\nexit 0\n')
+    player.chmod(player.stat().st_mode | stat.S_IXUSR)
+
+
+async def test_auto_speak_speaks_the_reply_and_emits_audio_spoken(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    played = tmp_path / "played.txt"
+    _voice_scripts(tmp_path / "bin", played)
+    monkeypatch.setenv("PATH", str(tmp_path / "bin"))
+
+    with fake_provider(FIXTURES / "providers" / "fake" / "basic.json"):
+        daemon = await make_daemon(
+            tmp_path / "home", {"audio": {"tts": {"provider": "espeak-ng", "autoSpeak": True}}}
+        )
+        try:
+            async with aiohttp.ClientSession() as http:
+                client = await connect(http, daemon)
+                try:
+                    session_id = await _session(client, tmp_path / "work")
+                    result = await client.ok(
+                        "session.prompt", {"sessionId": session_id, "text": "hello"}
+                    )
+                    assert await client.wait_turn(result["turnId"]) == "complete"
+                    spoken = client.of_kind("audio.spoken")
+                finally:
+                    await client.stop()
+        finally:
+            await daemon.stop()
+
+    assert len(spoken) == 1
+    payload = spoken[0]["payload"]
+    assert payload["provider"] == "espeak-ng"
+    assert payload["played"] is True
+    assert Path(payload["path"]).read_bytes().startswith(b"RIFF")
+    assert str(payload["path"]) in played.read_text()
+    # It lands before turn.done, so a surface can show it with the reply.
+    kinds = client.kinds()
+    assert kinds.index("audio.spoken") < kinds.index("turn.done")
+
+
+async def test_auto_speak_is_off_by_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _voice_scripts(tmp_path / "bin", tmp_path / "played.txt")
+    monkeypatch.setenv("PATH", str(tmp_path / "bin"))
+    with fake_provider(FIXTURES / "providers" / "fake" / "basic.json"):
+        daemon = await make_daemon(tmp_path / "home")
+        try:
+            async with aiohttp.ClientSession() as http:
+                client = await connect(http, daemon)
+                try:
+                    session_id = await _session(client, tmp_path / "work")
+                    result = await client.ok(
+                        "session.prompt", {"sessionId": session_id, "text": "hello"}
+                    )
+                    assert await client.wait_turn(result["turnId"]) == "complete"
+                    assert client.of_kind("audio.spoken") == []
+                finally:
+                    await client.stop()
+        finally:
+            await daemon.stop()
+
+
+async def test_a_broken_voice_does_not_fail_the_turn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """autoSpeak with nothing installed: the turn still completes, silently."""
+    monkeypatch.setenv("PATH", str(tmp_path / "empty-bin"))
+    with fake_provider(FIXTURES / "providers" / "fake" / "basic.json"):
+        daemon = await make_daemon(
+            tmp_path / "home", {"audio": {"tts": {"autoSpeak": True}}}
+        )
+        try:
+            async with aiohttp.ClientSession() as http:
+                client = await connect(http, daemon)
+                try:
+                    session_id = await _session(client, tmp_path / "work")
+                    result = await client.ok(
+                        "session.prompt", {"sessionId": session_id, "text": "hello"}
+                    )
+                    assert await client.wait_turn(result["turnId"]) == "complete"
+                    assert client.of_kind("audio.spoken") == []
+                    assert client.of_kind("error") == []
+                finally:
+                    await client.stop()
+        finally:
+            await daemon.stop()
 
 
 # ---------------------------------------------------------------------------

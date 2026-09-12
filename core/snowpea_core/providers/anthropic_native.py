@@ -19,6 +19,7 @@ import os
 from collections.abc import AsyncIterator
 from typing import Any
 
+from snowpea_core.providers import content as content_parts
 from snowpea_core.providers import replay
 from snowpea_core.providers.base import (
     ChatMessage,
@@ -93,8 +94,20 @@ def messages_to_anthropic(
             if blocks:
                 converted.append({"role": "assistant", "content": blocks})
             continue
-        converted.append({"role": "user", "content": _text_of(message.content)})
+        converted.append({"role": "user", "content": _user_content(message.content)})
     return "\n\n".join(part for part in system_parts if part), converted
+
+
+def _user_content(content: str | list[dict[str, Any]]) -> str | list[dict[str, Any]]:
+    """A user turn's content: plain text, or image/document blocks.
+
+    Every Anthropic model takes images, so there is no fallback branch here —
+    :mod:`snowpea_core.providers.content` only has to be asked for the blocks.
+    """
+    if not content_parts.has_blocks(content):
+        return _text_of(content)
+    parts = content_parts.parts_from_blocks(content)  # type: ignore[arg-type]
+    return content_parts.to_anthropic(parts)
 
 
 class AnthropicProvider:

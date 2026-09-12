@@ -84,6 +84,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--version", "-V", action="store_true", help="print the version and exit")
     parser.add_argument("--mode", choices=MODES, default=None, help="permission mode")
+    parser.add_argument(
+        "--fullscreen",
+        action="store_true",
+        help="run the TUI in the alternate-buffer full-screen layout instead of inline",
+    )
     parser.add_argument("--home", default=None, help="override SNOWPEA_HOME")
     parser.add_argument(
         "-c",
@@ -172,6 +177,8 @@ def launch_tui(args: argparse.Namespace, home: str | None) -> int:
     command += ["--port", str(info.port), "--token", info.token, "--cwd", str(workdir)]
     if args.mode:
         command += ["--mode", args.mode]
+    if getattr(args, "fullscreen", False):
+        command.append("--fullscreen")
     try:
         code = subprocess.call(command)  # noqa: S603 - argv built above
     except FileNotFoundError:

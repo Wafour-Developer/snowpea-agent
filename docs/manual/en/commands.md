@@ -25,6 +25,19 @@ That prints the live registry, including commands contributed by installed plugi
 | `/allowlist [remove <id>]` | show or prune the allowlist |
 | `/backend [local\|docker\|ssh] [json]` | show or change where tools execute |
 
+### Terminal UI
+
+These are answered by the terminal UI itself rather than by the core, so they do not appear in `snowpea commands list` and only work in a session you are sitting in front of. [Terminal UI](tui.md) covers what each one does on screen.
+
+| Command | What it does |
+|---|---|
+| `/resume` | reopen the session this directory was last in, and replay it |
+| `/attach <path>` | attach a file to the next prompt |
+| `/voice` | arm voice input; `Ctrl+Space` then records |
+| `/rec` | start or stop recording, same as `Ctrl+Space` |
+| `/tts on\|off` | speak each reply as it finishes |
+| `/update` | take the offered upgrade, same as `U` |
+
 ### Work
 
 | Command | What it does |

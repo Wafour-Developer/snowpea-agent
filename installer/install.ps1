@@ -110,6 +110,14 @@ function Get-CheckoutRoot {
     return (Split-Path -Parent $PSScriptRoot)
 }
 
+function Get-Requirement([string]$Source) {
+    if ($env:SNOWPEA_SKIP_IMAGES) { return $Source }
+    # A URL needs the PEP 508 direct-reference form; a path or a package name
+    # takes the extra on the end.
+    if ($Source -match '://') { return "snowpea-agent[images] @ $Source" }
+    return "$Source[images]"
+}
+
 function Get-InstallSource {
     if ($FromCheckout) { return (Get-CheckoutRoot) }
     if ($env:SNOWPEA_WHEEL_URL) { return $env:SNOWPEA_WHEEL_URL }
@@ -141,7 +149,10 @@ function Install-Snowpea {
     $uvArgs = @('tool', 'install')
     if ($FromCheckout) { $uvArgs += @('--force', '--editable') }
     elseif ($Force) { $uvArgs += '--force' }
-    $uvArgs += $source
+    # The `images` extra (Pillow) downscales a pasted screenshot to the size the
+    # vision models want. Requested as part of the requirement so install.json
+    # records it and `snowpea update` repeats it. SNOWPEA_SKIP_IMAGES=1 opts out.
+    $uvArgs += (Get-Requirement $source)
 
     if ($DryRun) { Plan "uv $($uvArgs -join ' ')"; Record-Install 'uv' $source; return }
     if (-not $Force -and -not $FromCheckout -and (Have 'snowpea')) {

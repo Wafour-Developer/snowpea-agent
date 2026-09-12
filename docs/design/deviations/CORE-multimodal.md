@@ -5,11 +5,9 @@ text-only fallback, and voice in both directions: speech-to-text, text-to-speech
 playback — as RPCs, as built-in agent tools, and as a section of the first-run setup wizard.
 Recorded per `docs/design/deviations/README.md`.
 
-This file covers phase A (the `attachments/`, `providers/content.py` and `audio/` packages) and
-the first half of phase B (protocol, handlers, wizard, tools). The agent-loop wiring — turning a
-turn's attachments into provider content parts, the typed `settings.audio` model and registering
-the two audio tools — is owned by another story and is not here yet; §9 says exactly where the
-seam is.
+Complete: the `attachments/`, `providers/content.py` and `audio/` packages; the protocol,
+handlers and setup wizard; the agent loop, the three provider adapters, the typed `settings.audio`
+model and the two registered tools.
 
 ## Attachments
 
@@ -70,19 +68,40 @@ seam is.
 
 9. **`session.prompt` stashes attachments instead of passing them to `start_turn`.**
    `attachments/pending.py` is a per-session, take-once queue: the handler validates, stores and
-   stashes; the agent loop will `pending.take(session.id)` at the top of the turn. The alternative
-   — widening `agent.loop.start_turn`'s signature — was not available to this story, and the queue
-   turns out to be the better seam anyway: a slash command clears it (nothing would consume the
-   bytes), and a second prompt before the turn starts replaces rather than appends, so an
-   interrupted turn cannot leak its images into the next one. **The loop wiring is the one piece
-   still missing**; until it lands, attachments are stored and named in the prompt text
-   (`[image: shot.png]`) but not sent to the model as image blocks.
+   stashes, and `agent/loop.py` calls `pending.take(session.id)` at the top of the turn. The
+   alternative — widening `start_turn`'s signature — would have put a fourth positional concern on
+   a function three other stories were editing, and the queue turns out to be the better seam
+   anyway: a slash command clears it (nothing would consume the bytes), and a second prompt before
+   the turn starts replaces rather than appends, so an interrupted turn cannot leak its images into
+   the next one.
 
-10. **`settings.audio` is an untyped extra for now.** `Settings` is `extra="allow"`, so the wizard
-    writes and reads the block through `setattr`/`getattr` and `audio_handlers.audio_config` parses
-    it defensively (dict or model, missing keys tolerated). The typed `AudioSettings` model belongs
-    to the story that owns `config/settings.py`; when it lands, nothing here has to change, because
-    every read already goes through one lenient accessor.
+10. **History stores a block list with paths, never base64.** A user turn with attachments becomes
+    `ChatMessage.content = [{"type": "text", …}, {"type": "image", "path": …, "sha256": …,
+    "text": "[image: shot.png]"}]`. Three things fall out of that shape: the session store stays
+    small (no megabytes of base64 in SQLite), a resumed session can still send the picture because
+    the bytes are re-read when the request is built, and the `text` marker on every block means the
+    token estimate, history rendering and the fake provider's matcher all see something sensible
+    without decoding anything. A turn with no attachments keeps a plain string, so every existing
+    request is byte-identical to before.
+
+11. **An attachment whose file has gone degrades to a marker.** `parts_from_blocks` answers
+    `[image: shot.png] (no longer on disk)` rather than raising — a deleted screenshot must not
+    make a resumed session unanswerable.
+
+12. **The prompt text is not rewritten.** An earlier revision appended `[image: shot.png]` to the
+    user's text in `session_handlers`; now the blocks carry the marker, so the text the user typed
+    reaches the model as typed.
+
+13. **`settings.audio` is typed (`AudioSettings`/`SttSettings`/`TtsSettings`), and readers stayed
+    lenient.** `audio_handlers.audio_config` still reads through one tolerant accessor that takes
+    either a model or a dict, so a hand-written block with missing keys works and the wizard's
+    `setattr` path did not have to change. `"off"` is understood by both directions as a real
+    answer, distinct from `"auto"`.
+
+14. **Hot reload needed one line, not a rebind.** Everything audio reads `core.settings` at call
+    time, which `hot_reload`'s own docstring says is strictly better than being rebound. The
+    exception is the two tools' `active`/`inactive` state, which is a snapshot: `rebind` now calls
+    `audio_tools.refresh_state`, guarded so a reload can never fail on it.
 
 11. **The audio backends never import `Settings`.** `audio.AudioConfig` is a plain frozen dataclass
     mirroring the settings block, built by the server layer. That is what lets the whole `audio/`
@@ -104,6 +123,20 @@ seam is.
     chatty, because asyncio resolves the exit future only after every pipe closes and an undrained
     stderr stops being read at the stream's high-water mark. `stop()`/`cancel()` use `communicate()`;
     `tests/test_audio.py::test_stop_drains_a_chatty_recorder` is the regression.
+
+## Provider adapters
+
+15. **Vision is decided in `build_openai_request`, not in the adapter's message loop.** It is the
+    one place that knows both the preset and the resolved model, so `messages_to_openai` takes an
+    explicit `vision` flag that defaults to `False` — the safe answer if some future caller forgets
+    it. Anthropic has no such flag (every model sees), and Gemini takes `inlineData` unconditionally.
+
+16. **Pillow ships by default but is still an extra.** `pyproject` declares
+    `[project.optional-dependencies] images = ["pillow>=10"]`, and both installers add it with
+    `uv tool install --with 'pillow>=10'` rather than `snowpea-agent[images]`: the install source
+    may be a git URL, a wheel path or an editable checkout, and only the flag spells the same thing
+    for all three. `SNOWPEA_SKIP_IMAGES=1` opts out. `update.update_command` carries the same flag
+    through every upgrade path, or an upgrade would silently drop downscaling.
 
 ## Setup wizard
 
@@ -133,28 +166,40 @@ seam is.
 ## Tools
 
 19. **`tools/audio_tools.py` replaces the studio-only `text_to_speech`, keeping its name and
-    schema.** It adds one optional argument, `play`, and runs the whole chain. It is written but
-    **not registered yet** — `tools/registry.py` and `tools/media.py` belong to another story, so
-    swapping the registration (and dropping the media forward) is a follow-up. `refresh_state`
-    mirrors `media.refresh_state`: a tool with no backend stays `inactive` with a reason rather
-    than vanishing from `tool.list`.
+    schema.** It adds one optional argument, `play`, and runs the whole chain, so speech now works
+    on a machine with nothing but `espeak-ng`. `media.py` no longer registers a speech tool — its
+    `FORWARDS` table keeps the `generate_speech` entry, because that is how the audio code reaches
+    studio, and a new `REGISTERED` tuple is what `refresh_state` iterates. Both audio tools are
+    `inactive` with a reason until a backend exists, mirroring the media tools.
 
 20. **`transcribe_audio` is tagged `read`, not `network`.** The tag describes the tool's guaranteed
     effect: it reads a local file. The hosted backend also uploads it, which the description says
     plainly; making every transcription `network` would have made the common local-whisper case ask
-    for a permission it does not need. **Flagged for review** — if the lead prefers the
-    conservative tag, it is a one-line change, or a `permission_for` hook could tag per call based
-    on the resolved provider.
+    for a permission it does not need. A `permission_for` hook could tag per call from the resolved
+    provider if that trade is ever judged wrong.
+
+21. **The tool descriptions carry usage rules, not just definitions.** "do not guess at contents
+    you have not transcribed", "keep the text short enough to listen to" — the convention the
+    prompt-library story established for the other tools.
+
+## Documentation
+
+22. **One manual page covers both halves.** `docs/manual/{en,ko}/voice.md` — attachments and voice
+    are one story from the user's side ("the terminal is not text-only any more"), and splitting
+    them would have meant two pages that each explain half of `audio.capabilities`. Linked from
+    both index pages and `docs/manual/README.md`; the tool tables in `modes.md` gained the two new
+    tools.
 
 ## Verification at the time of this change
 
-- `SNOWPEA_SKIP_BROWSER_TESTS=1 uv run pytest -q` — 882 passed, 7 skipped (Pillow, shellcheck, sox,
-  and the three pre-existing skips).
+- `SNOWPEA_SKIP_BROWSER_TESTS=1 uv run pytest -q` — 894 passed, 7 skipped, 2 failed. Both failures
+  are `tests/test_docs_cli.py`, and both are another story's in-flight `docs/manual/*/tui.md`
+  (`snowpea --fullscreen` is not a flag yet, and `docs/manual/zh-CN/tui.md` does not exist). The
+  171 tests this story owns pass; `uv run python scripts/check_docs_cli.py` reports no problem in
+  any file this story touched.
 - `uv run ruff check core tests` — all checks passed.
 - `uv run mypy core` — no issues found in 162 source files.
 - `uv run python scripts/gen_protocol.py --check` — `sdk/src/protocol.ts` and `docs/protocol.md`
   both `ok`.
-- `npm -w sdk test` — 5 passing, 1 failing: `base: a denied approval ends the turn with reason
-  'denied'`. Not this story: the in-flight change to `agent/loop.py` (uncommitted,
-  `MAX_DENIALS_PER_TURN = 3`) deliberately lets a turn survive a denial, and the SDK contract test
-  has not been updated yet. Nothing in this story touches approvals or turn outcomes.
+- `npm -w sdk test` — 6 passing.
+- `uv run python scripts/check_docs_cli.py` — 560 invocations and every relative link in 44 files.

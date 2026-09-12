@@ -74,7 +74,13 @@ CATALOG: dict[str, tuple[str, str]] = {
     "image_generate": ("media", "network"),
     "video_generate": ("media", "network"),
     "music_generate": ("media", "network"),
-    "text_to_speech": ("media", "network"),
+    # Voice moved out of media: text_to_speech runs a provider chain that works
+    # without the studio MCP server, and transcription joined it
+    # (CORE-multimodal).  transcribe_audio is tagged ``read`` because that is
+    # its guaranteed effect — reading a local file; a hosted backend also
+    # uploads it, which its description says.
+    "text_to_speech": ("audio", "network"),
+    "transcribe_audio": ("audio", "read"),
 }
 
 INACTIVE_AT_M2 = {
@@ -88,6 +94,7 @@ INACTIVE_AT_M2 = {
     "video_generate",
     "music_generate",
     "text_to_speech",
+    "transcribe_audio",
 }
 
 
@@ -167,7 +174,7 @@ def test_stub_and_media_tools_start_inactive(core: Core) -> None:
     inactive = {name for name, state in listed.items() if state == "inactive"}
     # Media tools are inactive until credentials exist. The M5/M7 stubs (schedule, memory,
     # delegate) may already have been replaced by real, active implementations.
-    media = {"image_generate", "video_generate", "music_generate", "text_to_speech"}
+    media = {"image_generate", "video_generate", "music_generate"}
     assert media <= inactive
     assert inactive <= INACTIVE_AT_M2
 
@@ -562,13 +569,13 @@ async def test_media_tools_are_inactive_and_refuse_without_credentials(
 
 
 async def test_provider_configure_activates_media_without_restart(core: Core) -> None:
-    assert all(core.tools.get(name).state == "inactive" for name in media.FORWARDS)
+    assert all(core.tools.get(name).state == "inactive" for name in media.REGISTERED)
 
     state = await media.configure(
         core, {"command": sys.executable, "args": ["-c", "pass"], "api_key": "k"}
     )
     assert state == "active"
-    assert all(core.tools.get(name).state == "active" for name in media.FORWARDS)
+    assert all(core.tools.get(name).state == "active" for name in media.REGISTERED)
 
     entry = media.server_config(core)
     assert entry is not None

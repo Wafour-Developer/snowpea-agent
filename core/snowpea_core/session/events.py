@@ -11,6 +11,7 @@ from typing import Any
 
 from snowpea_core.server.protocol import (
     SESSION_EVENT_MODELS,
+    AudioSpoken,
     BackendChanged,
     CompactionEvent,
     ContextEvent,
@@ -103,6 +104,18 @@ def compaction(
 
 def error(code: str, message: str) -> Event:
     return _pack(ErrorEvent(code=code, message=message))
+
+
+def audio_spoken(
+    path: str,
+    mime: str = "audio/mpeg",
+    provider: str = "",
+    played: bool = False,
+    voice: str | None = None,
+) -> Event:
+    return _pack(
+        AudioSpoken(path=path, mime=mime, provider=provider, played=played, voice=voice)
+    )
 
 
 def turn_done(turn_id: str, reason: str = "complete") -> Event:

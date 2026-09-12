@@ -24,12 +24,20 @@ log = logging.getLogger("snowpea.tools.media")
 SERVER_NAME = "snowpea-studio"
 
 #: Tool name -> the MCP tool it forwards to.
+#: ``text_to_speech`` is *not* registered here any more: it lives in
+#: ``tools/audio_tools.py``, which runs a provider chain and only reaches the
+#: studio server when one is configured.  The forward stays in this table
+#: because that is how the audio code calls studio's ``generate_speech``
+#: (CORE-multimodal).
 FORWARDS: dict[str, str] = {
     "image_generate": "generate_image",
     "video_generate": "generate_video",
     "music_generate": "generate_music",
     "text_to_speech": "generate_speech",
 }
+
+#: The tools this module actually registers; the speech one is audio's now.
+REGISTERED: tuple[str, ...] = ("image_generate", "video_generate", "music_generate")
 
 INACTIVE = "tool_inactive"
 
@@ -70,7 +78,7 @@ def server_config(core: Core) -> mcp_client.McpServerConfig | None:
 def refresh_state(core: Core) -> str:
     """Set every media tool's state from the current settings; return it."""
     state = "active" if configured(core) else "inactive"
-    for name in FORWARDS:
+    for name in REGISTERED:
         core.tools.set_state(name, state)  # type: ignore[arg-type]
     return state
 
@@ -198,30 +206,13 @@ TOOLS: tuple[Tool, ...] = (
         state="inactive",
         source="media",
     ),
-    Tool(
-        name="text_to_speech",
-        category="media",
-        description="Synthesise speech from text in a chosen voice.",
-        input_schema={
-            "type": "object",
-            "properties": {
-                "text": {"type": "string", "description": "What to say."},
-                "voice": {"type": "string", "description": "Voice id; see the studio's voices."},
-                "language": {"type": "string", "description": "BCP-47 language tag, e.g. ko."},
-            },
-            "required": ["text"],
-        },
-        permission="network",
-        run=_runner("text_to_speech"),
-        state="inactive",
-        source="media",
-    ),
 )
 
 
 __all__ = [
     "FORWARDS",
     "INACTIVE",
+    "REGISTERED",
     "SERVER_NAME",
     "TOOLS",
     "configure",

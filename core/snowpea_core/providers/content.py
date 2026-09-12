@@ -17,8 +17,11 @@ disk beyond reading the attachment bytes it is handed.
 
 from __future__ import annotations
 
+import binascii
+from base64 import b64decode, b64encode
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from snowpea_core.attachments.model import Attachment, is_image, is_text
@@ -138,6 +141,107 @@ def parts_from_attachments(
         else:
             parts.append(FilePart(name=item.name, mime=item.mime))
     return parts
+
+
+# ---------------------------------------------------------------------------
+# history blocks
+# ---------------------------------------------------------------------------
+
+#: ``ChatMessage.content`` block types this module writes and reads back.
+BLOCK_TYPES = frozenset({"text", "image", "file"})
+
+
+def history_blocks(text: str, attachments: Sequence[Attachment] = ()) -> list[dict[str, Any]]:
+    """The ``ChatMessage.content`` for a user turn that carried attachments.
+
+    Deliberately *not* the base64: a block keeps the attachment's path, name,
+    type and hash, and the bytes are re-read when a request is built.  That is
+    what keeps the session store small, lets a resumed session still send the
+    image, and makes the stored turn readable — each block also carries a
+    ``text`` marker (``[image: shot.png]``) so history rendering and the token
+    estimate see something sensible without decoding anything.
+    """
+    blocks: list[dict[str, Any]] = []
+    if text:
+        blocks.append({"type": "text", "text": text})
+    for item in attachments:
+        block: dict[str, Any] = {
+            "type": "image" if item.is_image else "file",
+            "text": item.describe(),
+            "name": item.name,
+            "mime": item.mime,
+            "size": item.size,
+            "sha256": item.sha256,
+        }
+        if item.path is not None:
+            block["path"] = str(item.path)
+        blocks.append(block)
+    return blocks
+
+
+def has_blocks(content: Any) -> bool:
+    """True when a message's content is the block list this module writes."""
+    return (
+        isinstance(content, list)
+        and bool(content)
+        and all(isinstance(block, dict) for block in content)
+        and any(block.get("type") in BLOCK_TYPES for block in content)
+    )
+
+
+def parts_from_blocks(
+    blocks: Sequence[dict[str, Any]], *, text_limit: int = 20_000
+) -> list[ContentPart]:
+    """Rebuild content parts from stored blocks, re-reading the files.
+
+    An attachment whose file has since been deleted degrades to a text marker
+    rather than raising: a stale image must not make a resumed session
+    unanswerable.
+    """
+    parts: list[ContentPart] = []
+    for block in blocks:
+        kind = block.get("type")
+        name = str(block.get("name") or "attachment")
+        mime = str(block.get("mime") or "")
+        marker = str(block.get("text") or f"[attachment: {name}]")
+        if kind == "text" or (kind not in BLOCK_TYPES and block.get("text")):
+            text = str(block.get("text") or "")
+            if text:
+                parts.append(TextPart(text=text))
+            continue
+        raw = _read_block(block)
+        if raw is None:
+            parts.append(TextPart(text=f"{marker} (no longer on disk)"))
+            continue
+        if kind == "image" and is_image(mime):
+            parts.append(ImagePart(mime=mime, base64=b64encode(raw).decode("ascii"), name=name))
+        elif is_text(mime):
+            body = raw.decode("utf-8", "replace")
+            if len(body) > text_limit:
+                body = body[:text_limit] + f"\n… [truncated, {len(body)} chars total]"
+            parts.append(FilePart(name=name, mime=mime, text=body))
+        elif mime in DOCUMENT_MIMES:
+            parts.append(FilePart(name=name, mime=mime, base64=b64encode(raw).decode("ascii")))
+        else:
+            parts.append(FilePart(name=name, mime=mime))
+    return parts
+
+
+def _read_block(block: dict[str, Any]) -> bytes | None:
+    """The bytes a stored block points at, or ``None`` when they are gone."""
+    inline = block.get("data")
+    if isinstance(inline, str) and inline:
+        try:
+            return b64decode(inline, validate=False)
+        except (binascii.Error, ValueError):
+            return None
+    path = block.get("path")
+    if not path:
+        return None
+    try:
+        return Path(str(path)).read_bytes()
+    except OSError:
+        return None
 
 
 def has_media(parts: Iterable[ContentPart]) -> bool:
@@ -291,6 +395,7 @@ def to_gemini(parts: Sequence[ContentPart]) -> list[dict[str, Any]]:
 
 
 __all__ = [
+    "BLOCK_TYPES",
     "DOCUMENT_MIMES",
     "NO_VISION_NOTE",
     "VISION_HINTS",
@@ -300,8 +405,11 @@ __all__ = [
     "ImagePart",
     "TextPart",
     "data_uri",
+    "has_blocks",
     "has_media",
+    "history_blocks",
     "parts_from_attachments",
+    "parts_from_blocks",
     "supports_vision",
     "to_anthropic",
     "to_gemini",

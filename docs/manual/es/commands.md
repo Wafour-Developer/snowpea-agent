@@ -19,12 +19,26 @@ Eso imprime el registro en vivo, incluyendo los comandos aportados por plugins i
 |---|---|
 | `/help` | lista todos los comandos disponibles |
 | `/tools` | lista las herramientas registradas con categoría, permiso y estado |
+| `/compact [instrucciones]` | resume la conversación hasta ahora y continúa con el resumen |
 | `/plan`, `/accept`, `/auto` | cambiar de modo |
 | `/mode [plan\|accept\|auto\|save\|show]` | mostrar, cambiar, o guardar el modo por defecto del proyecto |
 | `/approvals` | lista las aprobaciones desatendidas esperando una respuesta |
 | `/allow <regex> [--global]` | promueve un prompt repetido a una autorización silenciosa |
 | `/allowlist [remove <id>]` | muestra o depura la allowlist |
 | `/backend [local\|docker\|ssh] [json]` | muestra o cambia dónde se ejecutan las herramientas |
+
+### Terminal UI
+
+Estos los responde la propia interfaz de terminal, no el core, así que no aparecen en `snowpea commands list` y solo funcionan en una sesión delante de la que estás sentado. [The terminal UI](tui.md) cuenta qué hace cada uno en pantalla.
+
+| Comando | Qué hace |
+|---|---|
+| `/resume` | reabre la sesión en la que estuvo este directorio por última vez y la reproduce |
+| `/attach <ruta>` | adjunta un fichero al siguiente prompt |
+| `/voice` | activa la entrada por voz; después `Ctrl+Space` graba |
+| `/rec` | empieza o para la grabación, igual que `Ctrl+Space` |
+| `/tts on\|off` | lee cada respuesta al terminarse |
+| `/update` | acepta la actualización ofrecida, igual que `U` |
 
 ### Trabajo
 

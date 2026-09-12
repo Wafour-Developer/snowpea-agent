@@ -19,6 +19,7 @@ import json
 from collections.abc import Iterator
 from typing import Any
 
+from snowpea_core.providers import content
 from snowpea_core.providers.base import ChatMessage, StreamEvent, ToolCall, ToolSpec, Usage
 from snowpea_core.providers.presets import VendorPreset
 
@@ -88,8 +89,15 @@ def tool_specs_to_openai(tools: list[ToolSpec]) -> list[dict[str, Any]]:
     ]
 
 
-def messages_to_openai(messages: list[ChatMessage]) -> list[dict[str, Any]]:
-    """``ChatMessage`` list to the ``messages`` array of ``/chat/completions``."""
+def messages_to_openai(
+    messages: list[ChatMessage], *, vision: bool = False
+) -> list[dict[str, Any]]:
+    """``ChatMessage`` list to the ``messages`` array of ``/chat/completions``.
+
+    ``vision`` says whether this model can be sent image parts.  When it
+    cannot, an attached image becomes an ``[image attached: name]`` marker in
+    the text, which is why the argument defaults to the safe answer.
+    """
     out: list[dict[str, Any]] = []
     for message in messages:
         if message.role == "tool":
@@ -119,6 +127,10 @@ def messages_to_openai(messages: list[ChatMessage]) -> list[dict[str, Any]]:
                     entry["content"] = None
             out.append(entry)
             continue
+        if message.role == "user" and content.has_blocks(message.content):
+            parts = content.parts_from_blocks(message.content)  # type: ignore[arg-type]
+            out.append({"role": "user", "content": content.to_openai(parts, vision=vision)})
+            continue
         out.append({"role": message.role, "content": text_of(message.content)})
     return out
 
@@ -135,7 +147,7 @@ def build_openai_request(
     """The full JSON body for a streaming ``/chat/completions`` call."""
     body: dict[str, Any] = {
         "model": model,
-        "messages": messages_to_openai(messages),
+        "messages": messages_to_openai(messages, vision=content.supports_vision(preset.id, model)),
         "max_tokens": max_tokens,
         "stream": True,
     }
@@ -206,6 +218,10 @@ def messages_to_gemini(
                 parts.append({"functionCall": {"name": call.name, "args": call.arguments}})
             if parts:
                 contents.append({"role": "model", "parts": parts})
+            continue
+        if content.has_blocks(message.content):
+            blocks = content.parts_from_blocks(message.content)  # type: ignore[arg-type]
+            contents.append({"role": "user", "parts": content.to_gemini(blocks)})
             continue
         contents.append({"role": "user", "parts": [{"text": text_of(message.content)}]})
     return "\n\n".join(part for part in system_parts if part), contents

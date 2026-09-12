@@ -164,6 +164,7 @@ def register_builtin_tools(registry: ToolRegistry) -> ToolRegistry:
     :func:`snowpea_core.tools.mcp_client.sync_tools`.
     """
     from snowpea_core.tools import (
+        audio_tools,
         browser,
         delegate,
         fs,
@@ -190,6 +191,7 @@ def register_builtin_tools(registry: ToolRegistry) -> ToolRegistry:
         *browser.TOOLS,
         *stubs.TOOLS,
         *media.TOOLS,
+        *audio_tools.TOOLS,
         *delegate.TOOLS,
     ):
         registry.register(tool)

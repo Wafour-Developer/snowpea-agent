@@ -25,6 +25,19 @@ snowpea commands list --json
 | `/allowlist [remove <id>]` | allowlist를 보거나 정리 |
 | `/backend [local\|docker\|ssh] [json]` | 툴이 실행되는 곳을 보거나 바꿈 |
 
+### 터미널 UI
+
+아래 명령은 코어가 아니라 터미널 UI가 직접 처리합니다. 그래서 `snowpea commands list` 에는 나오지 않고, 사람이 앞에 앉아 있는 세션에서만 동작합니다. 화면에서 무슨 일이 일어나는지는 [터미널 UI](tui.md)에 있습니다.
+
+| 명령 | 하는 일 |
+|---|---|
+| `/resume` | 이 디렉터리에서 마지막으로 쓰던 세션을 다시 열고 재생 |
+| `/attach <경로>` | 다음 프롬프트에 파일을 첨부 |
+| `/voice` | 음성 입력을 켬. 이후 `Ctrl+Space` 로 녹음 |
+| `/rec` | 녹음 시작·중지, `Ctrl+Space` 와 같음 |
+| `/tts on\|off` | 답변이 끝날 때마다 읽어 줌 |
+| `/update` | 제안된 업그레이드를 받음, `U` 와 같음 |
+
 ### 작업
 
 | 명령 | 하는 일 |

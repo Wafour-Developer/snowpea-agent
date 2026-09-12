@@ -22,6 +22,7 @@ from snowpea_core.audio import capabilities
 from snowpea_core.audio.player import AudioError
 from snowpea_core.audio.player import play as play_audio
 from snowpea_core.server.audio_handlers import audio_config, audio_dir_for, speech_caller
+from snowpea_core.server.protocol import PermissionTag
 from snowpea_core.tools.registry import Tool, ToolContext, ToolResult
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -33,6 +34,40 @@ INACTIVE = "tool_inactive"
 
 #: Tool name -> the capability key it needs in ``audio.capabilities``.
 NEEDS: dict[str, str] = {"transcribe_audio": "stt", "text_to_speech": "tts"}
+
+
+#: Backends that send the audio (or the text) to somebody else's machine.
+HOSTED: frozenset[str] = frozenset({"openai", "studio"})
+
+
+def _tag_for(core: Any, resolve: str) -> PermissionTag:
+    """``network`` when the resolved backend is hosted, else ``read``.
+
+    The tag has to describe what *this* call does, and that is not a property
+    of the tool: transcribing through a local whisper reads a file you already
+    have, and transcribing through OpenAI uploads it.  ``read`` rather than
+    ``exec`` or ``write`` for the local case is deliberate — what the mode
+    matrix gates is egress and changes to your project, and a local backend
+    does neither: it spawns a known binary and writes into ``SNOWPEA_HOME``.
+    Tagging it ``exec`` would deny it in plan mode, where "read this out to me"
+    is a perfectly reasonable thing to ask.
+    """
+    from snowpea_core.server.audio_handlers import audio_config, speech_caller
+
+    config = audio_config(core)
+    provider = config.stt() if resolve == "stt" else config.tts(speech_caller(core))
+    name = getattr(provider, "name", "")
+    return "network" if name in HOSTED else "read"
+
+
+def permission_for_transcribe(args: dict[str, Any], session: Any, core: Any) -> PermissionTag:
+    """``transcribe_audio``'s tag for one call."""
+    return _tag_for(core, "stt")
+
+
+def permission_for_speech(args: dict[str, Any], session: Any, core: Any) -> PermissionTag:
+    """``text_to_speech``'s tag for one call."""
+    return _tag_for(core, "tts")
 
 
 def _session_id(ctx: ToolContext) -> str | None:
@@ -162,9 +197,10 @@ TOOLS: tuple[Tool, ...] = (
             },
             "required": ["path"],
         },
-        # Reading a file locally; a hosted provider also sends it over the wire,
-        # which is why the network tag rides along.
+        # Reading a file locally.  ``permission_for`` raises this to ``network``
+        # for the call when the resolved backend is a hosted one.
         permission="read",
+        permission_for=permission_for_transcribe,
         run=run_transcribe_audio,
         state="inactive",
         source="audio",
@@ -190,7 +226,10 @@ TOOLS: tuple[Tool, ...] = (
             },
             "required": ["text"],
         },
+        # Declared at the stricter of the two: ``permission_for`` lowers it to
+        # ``read`` for the call when the voice is a local one.
         permission="network",
+        permission_for=permission_for_speech,
         run=run_text_to_speech,
         state="inactive",
         source="audio",
@@ -199,9 +238,12 @@ TOOLS: tuple[Tool, ...] = (
 
 
 __all__ = [
+    "HOSTED",
     "INACTIVE",
     "NEEDS",
     "TOOLS",
+    "permission_for_speech",
+    "permission_for_transcribe",
     "refresh_state",
     "run_text_to_speech",
     "run_transcribe_audio",

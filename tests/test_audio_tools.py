@@ -13,7 +13,7 @@ from snowpea_core.config.paths import Paths
 from snowpea_core.config.settings import Settings
 from snowpea_core.providers.registry import ProviderRegistry
 from snowpea_core.tools import audio_tools
-from snowpea_core.tools.registry import ToolContext
+from snowpea_core.tools.registry import ToolContext, effective_permission
 
 
 class FakeTools:
@@ -218,3 +218,41 @@ async def test_text_to_speech_needs_text(only_path: Path, tmp_path: Path) -> Non
     result = await audio_tools.run_text_to_speech(make_ctx(core, tmp_path), {"text": "  "})
     assert not result.ok
     assert "needs text" in str(result.error)
+
+
+# ---------------------------------------------------------------------------
+# permission tags
+# ---------------------------------------------------------------------------
+
+
+def tool(name: str) -> Any:
+    return next(t for t in audio_tools.TOOLS if t.name == name)
+
+
+def test_a_local_backend_keeps_the_read_tag(only_path: Path, tmp_path: Path) -> None:
+    """No egress: a local whisper reads a file you already have."""
+    write_script(only_path, "whisper", "exit 0\n")
+    core = make_core(tmp_path)
+    assert effective_permission(tool("transcribe_audio"), {}, None, core) == "read"
+
+
+def test_a_hosted_backend_raises_it_to_network(only_path: Path, tmp_path: Path) -> None:
+    core = make_core(tmp_path, {"providers": {"openai": {"api_key": "sk-x"}}})
+    assert effective_permission(tool("transcribe_audio"), {}, None, core) == "network"
+
+
+def test_speech_is_network_when_hosted_and_read_when_local(
+    only_path: Path, tmp_path: Path
+) -> None:
+    write_script(only_path, "espeak-ng", "exit 0\n")
+    local = make_core(tmp_path)
+    assert effective_permission(tool("text_to_speech"), {}, None, local) == "read"
+
+    hosted = make_core(tmp_path, {"providers": {"openai": {"api_key": "sk-x"}}})
+    assert effective_permission(tool("text_to_speech"), {}, None, hosted) == "network"
+
+
+def test_the_declared_tag_survives_a_broken_lookup(only_path: Path) -> None:
+    """``effective_permission`` never widens a tag when the hook explodes."""
+    assert effective_permission(tool("text_to_speech"), {}, None, None) == "network"
+    assert effective_permission(tool("transcribe_audio"), {}, None, None) == "read"

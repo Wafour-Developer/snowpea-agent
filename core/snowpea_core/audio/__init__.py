@@ -26,6 +26,9 @@ from snowpea_core.audio.tts import Speech, SpeechCaller, TTSProvider, synthesize
 #: Directory under ``SNOWPEA_HOME`` where recordings and speech are kept.
 DIRNAME = "audio"
 
+#: The provider name that means "never, do not look for a backend".
+OFF = "off"
+
 
 @dataclass(frozen=True)
 class AudioConfig:
@@ -55,8 +58,18 @@ class AudioConfig:
     player: str | None = None
     recorder: str | None = None
 
+    @property
+    def stt_off(self) -> bool:
+        return self.stt_provider == OFF
+
+    @property
+    def tts_off(self) -> bool:
+        return not self.tts_enabled or self.tts_provider == OFF
+
     def stt(self) -> STTProvider | None:
         """The transcription backend this configuration resolves to."""
+        if self.stt_off:
+            return None
         return resolve_provider(
             self.stt_provider or "auto",
             api_key=self.openai_api_key,
@@ -72,7 +85,7 @@ class AudioConfig:
         still *reported* as available (so the wizard can say so) but refuses to
         synthesise.
         """
-        if not self.tts_enabled:
+        if self.tts_off:
             return None
         return tts.resolve_provider(
             self.tts_provider or "auto",
@@ -109,7 +122,9 @@ def capabilities(
 
     listener = cfg.stt()
     if listener is None:
-        if cfg.stt_provider not in {"auto", ""}:
+        if cfg.stt_off:
+            reasons["stt"] = "speech input is switched off (audio.stt.provider)"
+        elif cfg.stt_provider not in {"auto", ""}:
             reasons["stt"] = f"stt provider {cfg.stt_provider!r} is not usable here"
         else:
             reasons["stt"] = (
@@ -119,7 +134,7 @@ def capabilities(
 
     speaker = cfg.tts(caller)
     if speaker is None:
-        if not cfg.tts_enabled:
+        if cfg.tts_off:
             reasons["tts"] = "text to speech is switched off (audio.tts.enabled)"
         elif cfg.tts_provider not in {"auto", ""}:
             reasons["tts"] = f"tts provider {cfg.tts_provider!r} is not usable here"
@@ -159,6 +174,8 @@ def capabilities(
 
 def stt_providers(config: AudioConfig) -> list[str]:
     """Every transcription backend that would work here, in preference order."""
+    if config.stt_off:
+        return []
     found: list[str] = []
     for candidate in stt.AUTO_ORDER:
         provider = stt.build_provider(
@@ -175,6 +192,7 @@ def stt_providers(config: AudioConfig) -> list[str]:
 
 __all__ = [
     "DIRNAME",
+    "OFF",
     "AudioConfig",
     "AudioError",
     "Recorder",

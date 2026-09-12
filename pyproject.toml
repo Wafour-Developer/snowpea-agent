@@ -33,6 +33,13 @@ dependencies = [
   "playwright>=1.62.0",
 ]
 
+[project.optional-dependencies]
+# Pillow is what downscales a pasted screenshot to the 1568px the vision models
+# want.  Without it attachments still work — full-size images are passed
+# through — so it is an extra rather than a dependency, and the installers add
+# it by default (CORE-multimodal).
+images = ["pillow>=10"]
+
 [project.urls]
 Homepage = "https://github.com/snowpea/snowpea-agent"
 

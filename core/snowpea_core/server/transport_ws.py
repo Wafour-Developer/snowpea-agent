@@ -67,7 +67,8 @@ async def websocket_handler(request: web.Request) -> web.WebSocketResponse:
     connections = request.app[CONNECTIONS_KEY]
     sockets = request.app[SOCKETS_KEY]
 
-    ws = web.WebSocketResponse(heartbeat=30.0)
+    # 32MB: a 20MB attachment sent inline as base64 must fit in one frame.
+    ws = web.WebSocketResponse(heartbeat=30.0, max_msg_size=32 * 1024 * 1024)
     await ws.prepare(request)
     sockets.add(ws)
 

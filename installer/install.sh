@@ -23,6 +23,8 @@
 #   SNOWPEA_NODE_DIR        where a downloaded Node goes (default ~/.snowpea/node)
 #   SNOWPEA_BIN_DIR         where the `snowpea` executable goes (default ~/.local/bin)
 #   SNOWPEA_SKIP_NODE=1     do not install Node (it is still reported)
+#   SNOWPEA_SKIP_IMAGES=1   install without the `images` extra (Pillow);
+#                           attachments still work, images are sent full size
 #   SNOWPEA_SKIP_PATH=1     do not touch any shell rc file (used by the E2E run)
 #   SNOWPEA_HOME            where install.json is recorded (default ~/.snowpea)
 #
@@ -35,6 +37,8 @@ DEFAULT_SOURCE="git+${REPO_URL}"
 MIN_NODE_MAJOR=20
 NODE_VERSION="${SNOWPEA_NODE_VERSION:-22.11.0}"
 RC_MARKER="# added by snowpea installer"
+PACKAGE_NAME="snowpea-agent"
+IMAGES_EXTRA="images"
 
 DRY_RUN=0
 FROM_CHECKOUT=0
@@ -242,16 +246,35 @@ install_source() {
   fi
 }
 
+# The `images` extra (Pillow) downscales a pasted screenshot to the size the
+# vision models want.  It is requested as part of the requirement rather than
+# with `--with`, so `install.json` records a source that already carries it and
+# `snowpea update` repeats the same install without a second flag.
+# SNOWPEA_SKIP_IMAGES=1 leaves it out; attachments still work, unshrunk.
+with_images() {
+  spec="$1"
+  if [ -n "${SNOWPEA_SKIP_IMAGES:-}" ]; then
+    printf '%s' "$spec"
+  elif [ "${spec#*://}" != "$spec" ]; then
+    # A URL (git+https, https wheel) needs the PEP 508 direct-reference form.
+    printf '%s[%s] @ %s' "$PACKAGE_NAME" "$IMAGES_EXTRA" "$spec"
+  else
+    # A path, or a plain package name: extras go straight on the end.
+    printf '%s[%s]' "$spec" "$IMAGES_EXTRA"
+  fi
+}
+
 install_snowpea() {
   source_spec="$(install_source)"
+  requirement="$(with_images "$source_spec")"
   if [ "$FROM_CHECKOUT" -eq 1 ]; then
     # Editable, so the E2E run exercises the working tree (and picks the TUI up
     # from the checkout's tui/dist) without waiting on a wheel build.
-    set -- tool install --force --editable "$source_spec"
+    set -- tool install --force --editable "$requirement"
   elif [ "$FORCE" -eq 1 ]; then
-    set -- tool install --force "$source_spec"
+    set -- tool install --force "$requirement"
   else
-    set -- tool install "$source_spec"
+    set -- tool install "$requirement"
   fi
   if [ "$DRY_RUN" -eq 1 ]; then
     plan "uv $*"
