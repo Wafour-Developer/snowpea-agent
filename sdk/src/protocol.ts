@@ -216,6 +216,127 @@ export interface ApprovalRespondResult {
   ok?: boolean;
 }
 
+/** `audio.capabilities` params. Report what voice input and output can do on this machine. */
+export type AudioCapabilitiesParams = Record<string, unknown>;
+
+/** `audio.capabilities` result. */
+export interface AudioCapabilitiesResult {
+  /** True when replies are spoken without being asked. */
+  autoSpeak?: boolean;
+  /** True when the daemon can play audio itself. */
+  play?: boolean;
+  /** Audio players found on PATH. */
+  players?: string[];
+  /** Per-capability explanation of why it is off. */
+  reasons?: Record<string, string>;
+  /** True when the microphone can be recorded. */
+  record?: boolean;
+  /** Recorders found on PATH. */
+  recorders?: string[];
+  /** Transcription backend in use, or null when there is none. */
+  stt?: string | null;
+  /** Every usable transcription backend, preferred first. */
+  sttProviders?: string[];
+  /** True when speech synthesis is available. */
+  tts?: boolean;
+  /** Speech backend in use. */
+  ttsProvider?: string | null;
+  /** Every usable speech backend, preferred first. */
+  ttsProviders?: string[];
+  /** Configured voice, when one is set. */
+  voice?: string | null;
+}
+
+/** `audio.record.start` params. Start recording the microphone. */
+export interface AudioRecordStartParams {
+  /** Session the recording belongs to. */
+  sessionId?: string | null;
+}
+
+/** `audio.record.start` result. */
+export interface AudioRecordStartResult {
+  /** Media type of the recording. */
+  mime?: string;
+  /** Wav file being written, or the finished recording. */
+  path: string;
+  /** Backend that transcribed it. */
+  provider?: string | null;
+  /** True while capture is still running. */
+  recording: boolean;
+  /** Transcript, when 'stop' was asked to transcribe. */
+  text?: string | null;
+}
+
+/** `audio.record.stop` params. Stop the recording and return the wav it wrote. */
+export interface AudioRecordStopParams {
+  /** Session that is recording. */
+  sessionId?: string | null;
+  /** Also transcribe the recording and return its text. */
+  transcribe?: boolean;
+}
+
+/** `audio.record.stop` result. */
+export interface AudioRecordStopResult {
+  /** Media type of the recording. */
+  mime?: string;
+  /** Wav file being written, or the finished recording. */
+  path: string;
+  /** Backend that transcribed it. */
+  provider?: string | null;
+  /** True while capture is still running. */
+  recording: boolean;
+  /** Transcript, when 'stop' was asked to transcribe. */
+  text?: string | null;
+}
+
+/** `audio.speak` params. Synthesise speech, optionally playing it on the daemon's machine. */
+export interface AudioSpeakParams {
+  /** Play on the daemon's machine instead of returning only a path. */
+  play?: boolean;
+  /** Session the audio belongs to. */
+  sessionId?: string | null;
+  /** What to say. */
+  text: string;
+  /** Voice id; defaults to the setting. */
+  voice?: string | null;
+}
+
+/** `audio.speak` result. */
+export interface AudioSpeakResult {
+  /** Media type of that file. */
+  mime: string;
+  /** Audio file the speech was written to. */
+  path: string;
+  /** True when the daemon played it. */
+  played?: boolean;
+  /** Backend that synthesised it. */
+  provider: string;
+  /** Voice that was used. */
+  voice?: string | null;
+}
+
+/** `audio.transcribe` params. Transcribe recorded audio to text. */
+export interface AudioTranscribeParams {
+  /** Base64 (or data-URI) audio. */
+  data?: string | null;
+  /** BCP-47 hint for the backend. */
+  language?: string | null;
+  /** Media type of the audio, e.g. audio/wav. */
+  mime?: string | null;
+  /** Audio file on the daemon's machine. */
+  path?: string | null;
+  /** Session the audio belongs to. */
+  sessionId?: string | null;
+}
+
+/** `audio.transcribe` result. */
+export interface AudioTranscribeResult {
+  /** Backend that produced the transcript. */
+  provider: string;
+  /** What the backend heard. */
+  text: string;
+}
+
 /** `backend.set` params. Choose where a session's tools execute: local, docker or ssh. */
 export interface BackendSetParams {
   /** Backend settings, e.g. container or SSH target. */
@@ -684,12 +805,18 @@ export interface SessionListResult {
 export interface SessionPromptParams {
   /** Files or images to include. */
   attachments?: ({
+    /** Base64 (or data-URI) content, for a pasted image. */
+    data?: string | null;
     /** Attachment flavour. */
     kind?: "file" | "image" | "text";
     /** Media type when known. */
     mimeType?: string | null;
+    /** Display name; defaults to the file's basename. */
+    name?: string | null;
     /** Absolute path, for 'file' and 'image'. */
     path?: string | null;
+    /** Byte size the client measured. */
+    size?: number | null;
     /** Inline content, for 'text'. */
     text?: string | null;
   })[] | null;
@@ -1570,6 +1697,11 @@ export interface MethodMap {
   "approval.list": { params: ApprovalListParams; result: ApprovalListResult };
   "approval.request": { params: ApprovalRequestParams; result: ApprovalRequestResult };
   "approval.respond": { params: ApprovalRespondParams; result: ApprovalRespondResult };
+  "audio.capabilities": { params: AudioCapabilitiesParams; result: AudioCapabilitiesResult };
+  "audio.record.start": { params: AudioRecordStartParams; result: AudioRecordStartResult };
+  "audio.record.stop": { params: AudioRecordStopParams; result: AudioRecordStopResult };
+  "audio.speak": { params: AudioSpeakParams; result: AudioSpeakResult };
+  "audio.transcribe": { params: AudioTranscribeParams; result: AudioTranscribeResult };
   "backend.set": { params: BackendSetParams; result: BackendSetResult };
   "command.list": { params: CommandListParams; result: CommandListResult };
   "command.run": { params: CommandRunParams; result: CommandRunResult };
@@ -1632,6 +1764,11 @@ export type ClientMethod =
   | "agent.spawn"
   | "approval.list"
   | "approval.respond"
+  | "audio.capabilities"
+  | "audio.record.start"
+  | "audio.record.stop"
+  | "audio.speak"
+  | "audio.transcribe"
   | "backend.set"
   | "command.list"
   | "command.run"

@@ -9,10 +9,15 @@ stays about process lifecycle.  ``register_session_handlers`` is called from
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from snowpea_core.agent import loop as agent_loop
+from snowpea_core.attachments import pending
+from snowpea_core.attachments.model import Attachment as FileAttachment
+from snowpea_core.attachments.model import AttachmentError
+from snowpea_core.attachments.store import AttachmentStore
 from snowpea_core.commands.registry import register_builtin_commands
 from snowpea_core.exec.factory import build_backend
 from snowpea_core.memory import services as memory_services
@@ -24,6 +29,7 @@ from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import (
     ApprovalListResult,
     ApprovalRespondParams,
+    Attachment,
     BackendSetParams,
     CommandListResult,
     CommandRunParams,
@@ -67,6 +73,15 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.session.session import Session
 
 log = logging.getLogger("snowpea.server.session")
+
+#: Attachment failures onto wire error codes.  A file that is too large is a
+#: bad request, not a server fault, so both map to ``invalid_params``; the
+#: message names the limit.
+_ATTACHMENT_CODES: dict[str, str] = {
+    "invalid_params": errors.INVALID_PARAMS,
+    "attachment_too_large": errors.INVALID_PARAMS,
+    "internal": errors.INTERNAL,
+}
 
 #: Methods this module implements; the rest stay ``not_implemented`` at M1.
 HANDLED_METHODS: tuple[str, ...] = (
@@ -207,26 +222,61 @@ async def session_prompt_handler(
     session = _session(core, params.sessionId)
     core.hub.subscribe(conn, session.id)
     text = params.text
-    if params.attachments:
-        extra = "\n".join(
-            part for part in (_attachment_text(a) for a in params.attachments) if part
-        )
-        if extra:
-            text = f"{text}\n\n{extra}" if text else extra
+    stored, inline_text = _accept_attachments(core, session.id, params.attachments)
+    if inline_text:
+        text = f"{text}\n\n{inline_text}" if text else inline_text
+    if stored:
+        # The text keeps a marker so history, resume and a text-only model all
+        # still show what was attached; the bytes travel separately.
+        markers = " ".join(item.describe() for item in stored)
+        text = f"{text}\n\n{markers}" if text else markers
     parsed = core.commands.parse(text)
     if parsed is not None:
         name, args = parsed
+        # A slash command is not a model turn; nothing would consume the bytes.
+        pending.clear(session.id)
         return TurnResult(turnId=core.commands.start(core, session, name, args, conn))
     unattended = session.origin_conn is None
     return TurnResult(turnId=agent_loop.start_turn(core, session, text, unattended=unattended))
 
 
-def _attachment_text(attachment: object) -> str:
-    text = getattr(attachment, "text", None)
-    if text:
-        return str(text)
-    path = getattr(attachment, "path", None)
-    return f"[attachment: {path}]" if path else ""
+def _accept_attachments(
+    core: Core, session_id: str, attachments: Sequence[Attachment] | None
+) -> tuple[list[FileAttachment], str]:
+    """Validate, persist and stash a prompt's attachments.
+
+    Returns the stored attachments and the text of any ``kind="text"`` ones,
+    which are inlined into the prompt rather than stored.  Inline bytes are
+    written under ``<home>/attachments/<session>/`` so a resumed session can
+    still find them; a file the user pointed at is left where it is.
+    """
+    if not attachments:
+        pending.clear(session_id)
+        return [], ""
+    store = AttachmentStore(core.paths.attachments_dir)
+    stored: list[FileAttachment] = []
+    inline: list[str] = []
+    for entry in attachments:
+        if entry.kind == "text" or (entry.text and not entry.path and not entry.data):
+            if entry.text:
+                label = f"[{entry.name}]\n" if entry.name else ""
+                inline.append(f"{label}{entry.text}")
+            continue
+        try:
+            built = FileAttachment.from_payload(
+                {
+                    "name": entry.name or (Path(entry.path).name if entry.path else "attachment"),
+                    "mime": entry.mimeType,
+                    "path": entry.path,
+                    "data": entry.data,
+                }
+            )
+            stored.append(store.save(session_id, built))
+        except AttachmentError as exc:
+            code = _ATTACHMENT_CODES.get(exc.code, errors.INVALID_PARAMS)
+            raise RpcError(code, str(exc)) from exc
+    pending.stash(session_id, stored)
+    return stored, "\n\n".join(inline)
 
 
 async def session_interrupt_handler(

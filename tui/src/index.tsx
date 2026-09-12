@@ -13,13 +13,14 @@
 
 import React from "react";
 import { render } from "ink";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
 
 import { App } from "./app.js";
 import { captureClipboardImage, type CommandRunner } from "./util/clipboard.js";
+import { createLocalAudio, type LocalProcess, type Spawner } from "./util/audio-tools.js";
 import type { FileProbe } from "./state/attachments.js";
 import {
   SessionMemory,
@@ -202,6 +203,39 @@ export const commandRunner: CommandRunner = {
   },
 };
 
+/**
+ * Starts a recorder or a player in the background.
+ *
+ * A tool that is not installed makes `spawn` emit `ENOENT` asynchronously, so
+ * the error is swallowed here and the caller simply sees a process that does
+ * nothing; the table tries the next one only when `spawn` itself throws.
+ */
+export const spawner: Spawner = {
+  start(command, args) {
+    try {
+      const child = spawn(command, args, { stdio: "ignore", detached: false });
+      let failed = false;
+      child.on("error", () => {
+        failed = true;
+      });
+      if (failed) return null;
+      const handle: LocalProcess = {
+        command,
+        stop() {
+          try {
+            child.kill("SIGINT");
+          } catch {
+            /* it had already gone. */
+          }
+        },
+      };
+      return handle;
+    } catch {
+      return null;
+    }
+  },
+};
+
 export async function main(argv: string[] = process.argv.slice(2)): Promise<number> {
   let args: CliArgs;
   try {
@@ -283,6 +317,9 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       Date.now(),
     );
 
+  const localAudio = createLocalAudio(spawner, process.platform);
+  const recordingPath = join(dir, "tmp", `recording-${Date.now()}.wav`);
+
   let restart = false;
   const instance = render(
     <App
@@ -296,6 +333,8 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       priorSession={prior}
       probe={probe}
       captureClipboard={captureClipboard}
+      localAudio={localAudio}
+      recordingPath={recordingPath}
       onRestart={() => {
         restart = true;
       }}

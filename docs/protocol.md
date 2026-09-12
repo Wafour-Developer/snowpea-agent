@@ -40,6 +40,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
 Server capabilities advertised in the `system.hello` result:
 
 - `approvals`
+- `audio`
 - `commands`
 - `sessions`
 - `settings`
@@ -59,6 +60,11 @@ Server capabilities advertised in the `system.hello` result:
 | [`approval.list`](#approvallist) | client → server | List tool calls still waiting for a decision. |
 | [`approval.request`](#approvalrequest) | server → client | Ask the client to approve a tool call. |
 | [`approval.respond`](#approvalrespond) | client → server | Answer a pending approval and unblock the turn. |
+| [`audio.capabilities`](#audiocapabilities) | client → server | Report what voice input and output can do on this machine. |
+| [`audio.record.start`](#audiorecordstart) | client → server | Start recording the microphone. |
+| [`audio.record.stop`](#audiorecordstop) | client → server | Stop the recording and return the wav it wrote. |
+| [`audio.speak`](#audiospeak) | client → server | Synthesise speech, optionally playing it on the daemon's machine. |
+| [`audio.transcribe`](#audiotranscribe) | client → server | Transcribe recorded audio to text. |
 | [`backend.set`](#backendset) | client → server | Choose where a session's tools execute: local, docker or ssh. |
 | [`command.list`](#commandlist) | client → server | List the slash commands available to a session. |
 | [`command.run`](#commandrun) | client → server | Run a slash command; the only execution path for them. |
@@ -267,6 +273,126 @@ Answer a pending approval and unblock the turn.
 | field | type | required | description |
 |---|---|---|---|
 | `ok` | `boolean` | no | True when the call succeeded. |
+
+### `audio.capabilities`
+
+*Direction:* client → server
+
+Report what voice input and output can do on this machine.
+
+**Params**
+
+_No params (send `{}`)._
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `autoSpeak` | `boolean` | no | True when replies are spoken without being asked. |
+| `play` | `boolean` | no | True when the daemon can play audio itself. |
+| `players` | `string[]` | no | Audio players found on PATH. |
+| `reasons` | `Record<string, string>` | no | Per-capability explanation of why it is off. |
+| `record` | `boolean` | no | True when the microphone can be recorded. |
+| `recorders` | `string[]` | no | Recorders found on PATH. |
+| `stt` | `string \| null` | no | Transcription backend in use, or null when there is none. |
+| `sttProviders` | `string[]` | no | Every usable transcription backend, preferred first. |
+| `tts` | `boolean` | no | True when speech synthesis is available. |
+| `ttsProvider` | `string \| null` | no | Speech backend in use. |
+| `ttsProviders` | `string[]` | no | Every usable speech backend, preferred first. |
+| `voice` | `string \| null` | no | Configured voice, when one is set. |
+
+### `audio.record.start`
+
+*Direction:* client → server
+
+Start recording the microphone.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `sessionId` | `string \| null` | no | Session the recording belongs to. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `mime` | `string` | no | Media type of the recording. |
+| `path` | `string` | yes | Wav file being written, or the finished recording. |
+| `provider` | `string \| null` | no | Backend that transcribed it. |
+| `recording` | `boolean` | yes | True while capture is still running. |
+| `text` | `string \| null` | no | Transcript, when 'stop' was asked to transcribe. |
+
+### `audio.record.stop`
+
+*Direction:* client → server
+
+Stop the recording and return the wav it wrote.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `sessionId` | `string \| null` | no | Session that is recording. |
+| `transcribe` | `boolean` | no | Also transcribe the recording and return its text. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `mime` | `string` | no | Media type of the recording. |
+| `path` | `string` | yes | Wav file being written, or the finished recording. |
+| `provider` | `string \| null` | no | Backend that transcribed it. |
+| `recording` | `boolean` | yes | True while capture is still running. |
+| `text` | `string \| null` | no | Transcript, when 'stop' was asked to transcribe. |
+
+### `audio.speak`
+
+*Direction:* client → server
+
+Synthesise speech, optionally playing it on the daemon's machine.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `play` | `boolean` | no | Play on the daemon's machine instead of returning only a path. |
+| `sessionId` | `string \| null` | no | Session the audio belongs to. |
+| `text` | `string` | yes | What to say. |
+| `voice` | `string \| null` | no | Voice id; defaults to the setting. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `mime` | `string` | yes | Media type of that file. |
+| `path` | `string` | yes | Audio file the speech was written to. |
+| `played` | `boolean` | no | True when the daemon played it. |
+| `provider` | `string` | yes | Backend that synthesised it. |
+| `voice` | `string \| null` | no | Voice that was used. |
+
+### `audio.transcribe`
+
+*Direction:* client → server
+
+Transcribe recorded audio to text.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `data` | `string \| null` | no | Base64 (or data-URI) audio. |
+| `language` | `string \| null` | no | BCP-47 hint for the backend. |
+| `mime` | `string \| null` | no | Media type of the audio, e.g. audio/wav. |
+| `path` | `string \| null` | no | Audio file on the daemon's machine. |
+| `sessionId` | `string \| null` | no | Session the audio belongs to. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `provider` | `string` | yes | Backend that produced the transcript. |
+| `text` | `string` | yes | What the backend heard. |
 
 ### `backend.set`
 
@@ -757,7 +883,7 @@ Send user text to a session and start a turn.
 
 | field | type | required | description |
 |---|---|---|---|
-| `attachments` | `({ kind?: "file" \| "image" \| "text"; mimeType?: string \| null; path?: string \| null; text?: string \| null; })[] \| null` | no | Files or images to include. |
+| `attachments` | `({ data?: string \| null; kind?: "file" \| "image" \| "text"; mimeType?: string \| null; name?: string \| null; path?: string \| null; size?: number \| null; text?: string \| null; })[] \| null` | no | Files or images to include. |
 | `sessionId` | `string` | yes | Session to prompt. |
 | `text` | `string` | yes | User text; a leading '/' is parsed as a slash command. |
 
