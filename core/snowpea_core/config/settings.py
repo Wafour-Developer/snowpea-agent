@@ -25,6 +25,15 @@ DEFAULT_REMEMBER_PATTERNS: tuple[str, ...] = (
     r"내\s+\S+(은|는)\s+\S+.*(이다|다|야|예요|입니다)",
 )
 
+DEFAULT_AGENT_TEAM: tuple[str, ...] = (
+    "architect",
+    "critic",
+    "executor",
+    "explorer",
+    "test-engineer",
+    "verifier",
+)
+
 
 class _Model(BaseModel):
     model_config = ConfigDict(extra="allow")
@@ -34,6 +43,10 @@ class AgentsSettings(_Model):
     max_concurrent: int = 3
     #: Per-agent model profile assignment, e.g. {"executor": "openai-fast"}.
     models: dict[str, str] = Field(default_factory=dict)
+    #: Reusable global teams. The starter team keeps automatic delegation
+    #: bounded to the built-in roles instead of every custom definition.
+    teams: dict[str, list[str]] = Field(default_factory=dict)
+    default_team: str | None = None
 
 
 class ModelProfile(_Model):
@@ -259,7 +272,14 @@ class Settings(_Model):
             return cls()
         if not isinstance(raw, dict):
             return cls()
-        return cls.model_validate(raw)
+        settings = cls.model_validate(raw)
+        # Existing installations predate teams. Loading their settings is the
+        # first-setup migration point; explicit empty/disabled teams can still
+        # be represented with ``default_team: null`` after a team is defined.
+        if not settings.agents.teams and "agents" in raw:
+            settings.agents.teams["default"] = list(DEFAULT_AGENT_TEAM)
+            settings.agents.default_team = "default"
+        return settings
 
     @model_validator(mode="after")
     def _validate_model_profile_refs(self) -> Settings:
@@ -287,6 +307,7 @@ class Settings(_Model):
 
 __all__ = [
     "DEFAULT_REMEMBER_PATTERNS",
+    "DEFAULT_AGENT_TEAM",
     "AgentSettings",
     "AgentsSettings",
     "ApprovalsSettings",

@@ -8,6 +8,7 @@ to :class:`~snowpea_core.agent.team.TeamManager`, and waits for the run so that
 from __future__ import annotations
 
 import logging
+import shlex
 
 from snowpea_core.agent import team_store
 from snowpea_core.agent.team import TeamError, get_manager_for
@@ -18,7 +19,8 @@ from snowpea_core.session import events
 
 log = logging.getLogger("snowpea.commands.team")
 
-USAGE = 'Usage: /team <N> "<task>"'
+USAGE = ('Usage: /team <N> "<task>" | /team create <name> <agent...> | '
+         '/team use <name> | /team list | /team delete <name>')
 
 TEAM_ARGS_SCHEMA = {
     "type": "object",
@@ -32,6 +34,14 @@ TEAM_ARGS_SCHEMA = {
 
 async def cmd_team(ctx: CommandContext, args: str) -> None:
     """``/team 3 "add docstrings"`` — split, work in worktrees, merge."""
+    try:
+        words = shlex.split(args)
+    except ValueError:
+        await ctx.say(USAGE)
+        return
+    if words and words[0] in {"create", "use", "list", "delete"}:
+        await _configure_team(ctx, words)
+        return
     try:
         workers, task = _parse_args(args)
     except TeamError:
@@ -75,6 +85,63 @@ async def cmd_team(ctx: CommandContext, args: str) -> None:
     await ctx.say("\n".join(lines))
 
 
+async def _configure_team(ctx: CommandContext, words: list[str]) -> None:
+    """Manage the project roster without disturbing legacy team execution."""
+    from snowpea_core.agent.team_config import teams_for
+    from snowpea_core.commands.agent_cmd import definitions_for
+    from snowpea_core.config.project import ProjectSettings
+
+    action = words[0]
+    project = ProjectSettings.load(ctx.session.workdir)
+    all_teams = teams_for(ctx.core.settings, ctx.session.workdir)
+    if action == "list":
+        active = project.agents.activeTeam or ctx.core.settings.agents.default_team
+        lines = ["Teams:"]
+        for name, members in sorted(all_teams.items()):
+            lines.append(f"  {'*' if name == active else ' '} {name}: {', '.join(members)}")
+        await ctx.say("\n".join(lines))
+        return
+    if len(words) < 2:
+        await ctx.say(USAGE)
+        return
+    name = words[1]
+    if action == "create":
+        members = list(dict.fromkeys(words[2:]))
+        known = {definition.name for definition in definitions_for(ctx.core, ctx.session.workdir)}
+        missing = [member for member in members if member not in known]
+        if not members or missing:
+            detail = (
+                f" unknown agents: {', '.join(missing)}"
+                if missing
+                else " choose at least one agent"
+            )
+            await ctx.say(f"team:{detail}; available: {', '.join(sorted(known))}")
+            return
+        project.agents.teams[name] = members
+        project.agents.activeTeam = name
+    elif action == "use":
+        if name not in all_teams:
+            await ctx.say(f"team: unknown team {name}; use /team list")
+            return
+        project.agents.activeTeam = name
+    elif action == "delete":
+        if name not in project.agents.teams:
+            await ctx.say(f"team: {name} is not a project team")
+            return
+        project.agents.teams.pop(name)
+        if project.agents.activeTeam == name:
+            project.agents.activeTeam = None
+    project.save(ctx.session.workdir)
+    from snowpea_core.agent.team_config import active_team
+    selected = active_team(ctx.core.settings, ctx.session.workdir)
+    ctx.session.team = selected.name if selected else None
+    ctx.session.team_agents = selected.agents if selected else ()
+    if action == "delete":
+        await ctx.say(f"Deleted team '{name}'. Active team: {ctx.session.team or 'none'}.")
+    else:
+        await ctx.say(f"Active team '{ctx.session.team}': {', '.join(ctx.session.team_agents)}")
+
+
 async def _fail(ctx: CommandContext, message: str) -> None:
     """End the team turn unsuccessfully."""
     await ctx.say(f"team: {message}")
@@ -86,7 +153,8 @@ async def _fail(ctx: CommandContext, message: str) -> None:
 COMMANDS: tuple[Command, ...] = (
     Command(
         name="team",
-        summary='Run N agents in parallel git worktrees: /team 3 "<task>".',
+        summary=('Run a worktree team or manage the project roster: '
+                 '/team create <name> <agent...> | /team use <name> | /team list.'),
         run=cmd_team,
         args_schema=TEAM_ARGS_SCHEMA,
     ),

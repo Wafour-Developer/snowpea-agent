@@ -34284,7 +34284,7 @@ function contextWarning(context) {
   };
 }
 function summaryLine({ mode, shells, agents }) {
-  const parts = [MODE_CHIP[mode]];
+  const parts = [`${MODE_CHIP[mode]} \xB7 \u21E7Tab change mode \xB7 Ctrl+P plan`];
   if (shells > 0) parts.push(`${shells} ${shells === 1 ? "shell" : "shells"}`);
   if (agents > 0) parts.push(`\u2190 ${agents} ${agents === 1 ? "agent" : "agents"}`);
   return { text: parts.join(" \xB7 "), color: MODE_COLOR[mode], dimColor: mode === "accept" };
@@ -34741,7 +34741,7 @@ function useSpinner(active, intervalMs = SPINNER_INTERVAL_MS) {
 var import_react26 = __toESM(require_react(), 1);
 var AGENT_LIST_POLL_MS = 3e4;
 var EMPTY = [];
-function useKnownAgents(client, pollMs = AGENT_LIST_POLL_MS) {
+function useKnownAgents(client, pollMs = AGENT_LIST_POLL_MS, refreshKey = 0) {
   const [agents, setAgents] = (0, import_react26.useState)(EMPTY);
   (0, import_react26.useEffect)(() => {
     let cancelled = false;
@@ -34761,7 +34761,7 @@ function useKnownAgents(client, pollMs = AGENT_LIST_POLL_MS) {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [client, pollMs]);
+  }, [client, pollMs, refreshKey]);
   return agents;
 }
 
@@ -36935,8 +36935,8 @@ function AgentTranscript({
 
 // src/components/SectionRule.tsx
 var import_jsx_runtime16 = __toESM(require_jsx_runtime(), 1);
-function SectionRule({ width }) {
-  return /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Box_default, { width, flexShrink: 0, overflow: "hidden", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: "\u2500".repeat(Math.max(1, width)) }) });
+function SectionRule({ width, color }) {
+  return /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Box_default, { width, flexShrink: 0, overflow: "hidden", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { color, dimColor: !color, wrap: "truncate-end", children: "\u2500".repeat(Math.max(1, width)) }) });
 }
 
 // src/components/LaunchBanner.tsx
@@ -37049,6 +37049,7 @@ var WORKFLOW_COMMANDS = [
 ];
 var KEYS = [
   "Esc / F1 / q / Enter close help \xB7 \u2191\u2193 / PgUp / PgDn scroll",
+  "$agent-name task delegates directly to a member of the active team",
   "Ctrl+C quit \xB7 Esc outside help interrupts the current turn",
   "Ctrl+O expand the newest tool call or diff \xB7 Ctrl+A open the agent panel",
   "\u21E7Tab cycles accept -> auto -> plan \xB7 Ctrl+P toggles plan mode",
@@ -37209,6 +37210,7 @@ function App2({
   const [expandedId, setExpandedId] = (0, import_react36.useState)(null);
   const [queueFocused, setQueueFocused] = (0, import_react36.useState)(false);
   const [agentsExpanded, setAgentsExpanded] = (0, import_react36.useState)(false);
+  const [agentRosterVersion, setAgentRosterVersion] = (0, import_react36.useState)(0);
   const [attachments, setAttachments] = (0, import_react36.useState)([]);
   const [voice, setVoice] = (0, import_react36.useState)(initialVoice);
   const [insert, setInsert] = (0, import_react36.useState)(null);
@@ -37527,19 +37529,20 @@ function App2({
   turnActiveRef.current = state.turnActive;
   const staticCursor = staticCursorRef.current;
   const staticItems = staticBlocksRef.current;
-  const knownAgents = useKnownAgents(client);
+  const knownAgents = useKnownAgents(client, void 0, agentRosterVersion);
+  const activeTeam = knownAgents.find((agent) => agent.kind === "team")?.name ?? "main";
   const agentRows = (0, import_react36.useMemo)(
     () => buildAgentRows({
       state,
-      known: knownAgents,
+      known: knownAgents.filter((agent) => agent.kind !== "team"),
       now,
       expanded: agentsExpanded,
-      currentLabel: "main"
+      currentLabel: activeTeam
     }),
     // `now` deliberately left out: the panel should follow the session, not the
     // clock. The spinner's own tick is what refreshes the elapsed columns.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.subagents, state.teamTasks, knownAgents, agentsExpanded, now]
+    [state.subagents, state.teamTasks, knownAgents, activeTeam, agentsExpanded, now]
   );
   const agentRowCount = agentRows.length;
   (0, import_react36.useEffect)(() => {
@@ -37691,6 +37694,15 @@ function App2({
   const submit = (0, import_react36.useCallback)(
     (text) => {
       if (resumingRef.current || update.phase === "running" || update.phase === "done") return;
+      const directDelegate = /^\$([A-Za-z0-9._-]+)\s+([\s\S]+)$/.exec(text.trim());
+      if (directDelegate) {
+        void client.call("agent.spawn", {
+          sessionId,
+          name: directDelegate[1],
+          task: directDelegate[2].trim()
+        }).catch((error) => dispatch({ type: "error", message: String(error) }));
+        return;
+      }
       if (/^\/update\s*$/.test(text.trim())) {
         void client.checkUpdate(true).then((check) => {
           setUpdate((current) => fromCheck(current, check));
@@ -37767,6 +37779,9 @@ function App2({
         if (/^(help|skill|plugin)/.test(text.slice(1))) {
           const commands = await registry.refresh();
           dispatch({ type: "commands", commands });
+        }
+        if (/^team(?:\s|$)/.test(text.slice(1))) {
+          setAgentRosterVersion((version2) => version2 + 1);
         }
         if (text.slice(1).startsWith("help")) setShowHelp(true);
         return result;
@@ -38036,7 +38051,7 @@ function App2({
     agents: state.subagents.filter((agent) => agent.status === "running").length
   });
   const statusNode = /* @__PURE__ */ (0, import_jsx_runtime23.jsxs)(import_jsx_runtime23.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(SectionRule, { width: contentWidth }),
+    /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(SectionRule, { width: contentWidth, color: "green" }),
     /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(StatusHud, { rows: hudRows, width: contentWidth }),
     warning ? /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { color: warning.color, bold: warning.bold, wrap: "truncate-end", children: warning.text }) : null,
     /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(SectionRule, { width: contentWidth }),

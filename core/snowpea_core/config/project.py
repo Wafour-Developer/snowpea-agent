@@ -41,6 +41,8 @@ class ProjectAgentsSettings(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     max_concurrent: int | None = None
+    teams: dict[str, list[str]] = Field(default_factory=dict)
+    activeTeam: str | None = None
 
 
 class ProjectSettings(BaseModel):

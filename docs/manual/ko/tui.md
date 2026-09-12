@@ -277,3 +277,9 @@ uv tool install --force --reinstall 'snowpea-agent[images] @ git+https://github.
 도움말은 화면 높이에 맞춰 표시됩니다. `↑`/`↓`, `PgUp`/`PgDn`으로 스크롤하고 **Esc, F1, q 또는 Enter**로 닫습니다. 도움말에서 Esc를 눌러도 진행 중인 작업은 중단하지 않습니다.
 
 하단의 입력, 연결/모델 상태, 모드 요약, 에이전트 목록은 터미널 내용 폭 전체의 가로선으로 구분되어 현재 키 입력이 어느 영역에 적용되는지 쉽게 확인할 수 있습니다.
+
+## 팀과 짧은 위임
+
+최초 `snowpea setup`은 내장 역할로 `default` 팀을 구성합니다. `/team create delivery architect executor verifier`는 존재하는 에이전트만 골라 프로젝트 팀을 만들고 즉시 현재 세션에 적용합니다. `/team list`, `/team use <이름>`, `/team delete <이름>`으로 관리합니다. 활성 팀에서는 하단에 팀명과 해당 팀원만 표시되고 자동 위임도 팀원으로 제한됩니다.
+
+`$executor 테스트를 고쳐줘`처럼 입력하면 긴 명령 없이 해당 팀원에게 직접 위임합니다. 존재하지 않거나 현재 팀 밖인 이름은 일반 에이전트로 대체하지 않고 오류로 알려줍니다. 에이전트를 명시하지 않은 내부 위임은 팀의 `executor`, 없으면 첫 팀원에게 결정적으로 배정됩니다.

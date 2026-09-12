@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from snowpea_core.config.paths import Paths
-from snowpea_core.config.settings import AudioSettings, ModelProfile, Settings
+from snowpea_core.config.settings import DEFAULT_AGENT_TEAM, AudioSettings, ModelProfile, Settings
 from snowpea_core.setup import catalog
 
 #: The id every screen carries as its last row.
@@ -254,6 +254,10 @@ class WizardState:
     def write(self, paths: Paths, settings: Settings) -> Settings:
         """Fold the answers into ``settings`` and persist them."""
         from snowpea_core.providers.registry import ProviderRegistry
+
+        if not settings.agents.teams:
+            settings.agents.teams["default"] = list(DEFAULT_AGENT_TEAM)
+            settings.agents.default_team = "default"
 
         # Command-line setup uses the same multi-model format even though it
         # skips the interactive model-management questions.

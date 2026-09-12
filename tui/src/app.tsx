@@ -316,6 +316,7 @@ export function App({
   const [queueFocused, setQueueFocused] = useState(false);
   /** Ctrl+A opens the agent panel out past its collapsing rules. */
   const [agentsExpanded, setAgentsExpanded] = useState(false);
+  const [agentRosterVersion, setAgentRosterVersion] = useState(0);
   /** Files the next prompt will carry. */
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   /** Voice input and speech; see state/voice.ts. */
@@ -789,20 +790,21 @@ export function App({
   const staticItems = staticBlocksRef.current;
 
   // --- who is working for this session ---------------------------------------
-  const knownAgents = useKnownAgents(client);
+  const knownAgents = useKnownAgents(client, undefined, agentRosterVersion);
+  const activeTeam = knownAgents.find((agent) => agent.kind === "team")?.name ?? "main";
   const agentRows = useMemo(
     () =>
       buildAgentRows({
         state,
-        known: knownAgents,
+        known: knownAgents.filter((agent) => agent.kind !== "team"),
         now,
         expanded: agentsExpanded,
-        currentLabel: "main",
+        currentLabel: activeTeam,
       }),
     // `now` deliberately left out: the panel should follow the session, not the
     // clock. The spinner's own tick is what refreshes the elapsed columns.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.subagents, state.teamTasks, knownAgents, agentsExpanded, now],
+    [state.subagents, state.teamTasks, knownAgents, activeTeam, agentsExpanded, now],
   );
 
   // Rows come and go as delegates finish; the cursor must stay on one.
@@ -1003,6 +1005,17 @@ export function App({
   const submit = useCallback(
     (text: string) => {
       if (resumingRef.current || update.phase === "running" || update.phase === "done") return;
+      // `$executor fix the tests` is the compact, explicit delegation form.
+      // The daemon validates both the name and membership of the active team.
+      const directDelegate = /^\$([A-Za-z0-9._-]+)\s+([\s\S]+)$/.exec(text.trim());
+      if (directDelegate) {
+        void client.call("agent.spawn", {
+          sessionId,
+          name: directDelegate[1],
+          task: directDelegate[2].trim(),
+        }).catch((error: unknown) => dispatch({ type: "error", message: String(error) }));
+        return;
+      }
       // `/update` is a core builtin (headless and IDE run it as a command), but
       // in the TUI it checks freshly before opening the confirmation banner.
       if (/^\/update\s*$/.test(text.trim())) {
@@ -1089,6 +1102,9 @@ export function App({
             if (/^(help|skill|plugin)/.test(text.slice(1))) {
               const commands = await registry.refresh();
               dispatch({ type: "commands", commands });
+            }
+            if (/^team(?:\s|$)/.test(text.slice(1))) {
+              setAgentRosterVersion((version) => version + 1);
             }
             if (text.slice(1).startsWith("help")) setShowHelp(true);
             return result;
@@ -1419,7 +1435,7 @@ export function App({
   });
   const statusNode = (
     <>
-      <SectionRule width={contentWidth} />
+      <SectionRule width={contentWidth} color="green" />
       <StatusHud rows={hudRows} width={contentWidth} />
       {warning ? (
         <Text color={warning.color} bold={warning.bold} wrap="truncate-end">

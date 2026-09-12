@@ -19,6 +19,7 @@ export const WORKFLOW_COMMANDS: readonly string[] = [
 
 const KEYS = [
   "Esc / F1 / q / Enter close help · ↑↓ / PgUp / PgDn scroll",
+  "$agent-name task delegates directly to a member of the active team",
   "Ctrl+C quit · Esc outside help interrupts the current turn",
   "Ctrl+O expand the newest tool call or diff · Ctrl+A open the agent panel",
   "⇧Tab cycles accept -> auto -> plan · Ctrl+P toggles plan mode",

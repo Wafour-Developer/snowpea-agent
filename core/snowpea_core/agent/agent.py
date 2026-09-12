@@ -125,6 +125,14 @@ def build_system_prompt(
     sits in the volatile tier so that the prefix in front of it stays cacheable.
     """
     environment, context_files = environment_blocks(session)
+    persona = getattr(session, "system_prompt", None) or ""
+    if session.team_agents and not session.is_subagent:
+        team_rule = (
+            f"Active delegation team: {session.team}. Delegate only to these agents: "
+            + ", ".join(session.team_agents)
+            + ". Every delegate_task call must include one of those names in its agent field."
+        )
+        persona = f"{persona}\n\n{team_rule}".strip()
     return compose.build_system_prompt(
         mode=session.mode,
         vendor_class=compose.vendor_class_for(session.provider),
@@ -136,7 +144,7 @@ def build_system_prompt(
         context_files=context_files,
         context_fill=context_fill(session),
         reply_language=reply_language(core),
-        persona=getattr(session, "system_prompt", None) or "",
+        persona=persona,
         root=session.workdir,
     )
 

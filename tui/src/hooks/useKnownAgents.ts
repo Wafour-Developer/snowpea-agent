@@ -23,6 +23,7 @@ const EMPTY: KnownAgent[] = [];
 export function useKnownAgents(
   client: AgentListClient,
   pollMs: number = AGENT_LIST_POLL_MS,
+  refreshKey: number = 0,
 ): KnownAgent[] {
   const [agents, setAgents] = useState<KnownAgent[]>(EMPTY);
 
@@ -53,7 +54,7 @@ export function useKnownAgents(
       cancelled = true;
       clearInterval(timer);
     };
-  }, [client, pollMs]);
+  }, [client, pollMs, refreshKey]);
 
   return agents;
 }
