@@ -51,12 +51,14 @@ from snowpea_core.server.protocol import (
     SessionCreateResult,
     SessionEvent,
     SessionIdParams,
+    SessionListParams,
     SessionListResult,
     SessionPromptParams,
     SessionResumeParams,
     SessionResumeResult,
     SessionSetModeParams,
     SessionSetModeResult,
+    SessionSummary,
     ToolListResult,
     TurnResult,
 )
@@ -206,9 +208,31 @@ async def session_resume_handler(
 
 
 async def session_list_handler(
-    _conn: RpcConnection, _params: Empty, core: Core
+    _conn: RpcConnection, params: SessionListParams, core: Core
 ) -> SessionListResult:
-    return SessionListResult(sessions=core.sessions.list())
+    live = core.sessions.list()
+    if not params.includeClosed or core.store is None:
+        rows = live
+    else:
+        by_id = {row.sessionId: row for row in live}
+        for stored in await core.store.list_sessions(include_closed=True):
+            session_id = str(stored["id"])
+            if session_id in by_id:
+                continue
+            by_id[session_id] = SessionSummary(
+                sessionId=session_id,
+                workdir=str(stored["workdir"]),
+                mode=stored["mode"],
+                provider=stored.get("provider"),
+                model=stored.get("model"),
+                originSurface=stored.get("origin_surface"),
+                createdAt=str(stored["created_at"]),
+                seq=await core.store.max_seq(session_id),
+            )
+        rows = list(by_id.values())
+    if params.workdir:
+        rows = [row for row in rows if row.workdir == params.workdir]
+    return SessionListResult(sessions=sorted(rows, key=lambda row: row.createdAt, reverse=True))
 
 
 async def session_close_handler(_conn: RpcConnection, params: SessionIdParams, core: Core) -> Ok:

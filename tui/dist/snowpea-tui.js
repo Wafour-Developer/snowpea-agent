@@ -37248,6 +37248,7 @@ function App2({
   const [focus, setFocus] = (0, import_react36.useState)(INPUT_FOCUS);
   const [shellsOpen, setShellsOpen] = (0, import_react36.useState)(false);
   const [openAgent, setOpenAgent] = (0, import_react36.useState)(null);
+  const [resumeChoices, setResumeChoices] = (0, import_react36.useState)(null);
   const [agentScroll, setAgentScroll] = (0, import_react36.useState)(0);
   const [pastPrompts] = (0, import_react36.useState)(() => {
     history?.load();
@@ -37718,6 +37719,24 @@ function App2({
     showToast(`resuming ${lastSession.sessionId.slice(0, 8)}`);
     resumeSession(lastSession.sessionId, "main");
   }, [lastSession, resumeSession, showToast]);
+  const openResumePicker = (0, import_react36.useCallback)(() => {
+    showToast("loading saved sessions");
+    void client.call("session.list", { includeClosed: true, workdir }).then((result) => {
+      const choices = (Array.isArray(result?.sessions) ? result.sessions : []).filter((row) => row.sessionId !== activeSessionRef.current).map((row) => ({
+        sessionId: String(row.sessionId),
+        workdir: String(row.workdir),
+        firstPrompt: "",
+        at: Date.parse(String(row.createdAt)) || 0
+      }));
+      if (choices.length === 0) {
+        showToast("no saved sessions for this directory");
+        return;
+      }
+      setResumeChoices(choices);
+    }).catch(
+      (error) => dispatch({ type: "error", message: `could not list saved sessions: ${String(error)}` })
+    );
+  }, [client, workdir, showToast]);
   const submit = (0, import_react36.useCallback)(
     (text) => {
       if (resumingRef.current || update.phase === "running" || update.phase === "done") return;
@@ -37754,8 +37773,7 @@ function App2({
           return;
         }
         if (resume[1]) resumeSession(resume[1], "main");
-        else if (lastSession) resumeMemory();
-        else dispatch({ type: "error", message: "no earlier session for this directory" });
+        else openResumePicker();
         return;
       }
       const attach = /^\/attach\s+(.+)$/.exec(text.trim());
@@ -37838,6 +37856,7 @@ function App2({
       lastSession,
       resumeMemory,
       resumeSession,
+      openResumePicker,
       state.turnActive,
       update.phase,
       attachments,
@@ -37905,6 +37924,7 @@ function App2({
       }
       return;
     }
+    if (resumeChoices) return;
     if (key.escape && voice.speaking) {
       silence();
       return;
@@ -38048,7 +38068,24 @@ function App2({
         onBlur: () => setQueueFocused(false)
       }
     ),
-    state.pendingApproval ? /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(ApprovalPrompt, { request: state.pendingApproval, onDecide: decideApproval }) : /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(
+    state.pendingApproval ? /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(ApprovalPrompt, { request: state.pendingApproval, onDecide: decideApproval }) : resumeChoices ? /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(
+      ConfirmMenu,
+      {
+        options: [
+          ...resumeChoices.map((entry) => ({
+            label: `${entry.sessionId} \xB7 ${new Date(entry.at).toLocaleString()}`,
+            value: entry.sessionId,
+            hint: entry.workdir
+          })),
+          { label: "Cancel", value: null }
+        ],
+        escapeValue: null,
+        onChoose: (target) => {
+          setResumeChoices(null);
+          if (target) resumeSession(target, "main");
+        }
+      }
+    ) : /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(
       Chat,
       {
         onSubmit: submit,

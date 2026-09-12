@@ -43,6 +43,15 @@ function fakeClient() {
           ],
         };
       }
+      if (method === "session.list") {
+        return {
+          sessions: [{
+            sessionId: CHILD,
+            workdir: "/tmp/project",
+            createdAt: "2026-09-12T10:00:00Z",
+          }],
+        };
+      }
       if (method === "system.info") return { pid: 1, lifecycle: { summary: "idle" } };
       return { commands: [], tools: [], agents: [] };
     },
@@ -101,6 +110,11 @@ describe("session resume", () => {
       stdin.write(command);
       await sleep(60);
       stdin.write("\r");
+      if (command === "/resume") {
+        await sleep(100);
+        expect(stdout.text()).toContain(CHILD);
+        stdin.write("\r");
+      }
       await sleep(200);
       expect(stdout.text()).toContain("CHILD-ONLY-ANSWER");
       stdin.write(command);

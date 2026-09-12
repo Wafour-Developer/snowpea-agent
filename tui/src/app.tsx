@@ -338,6 +338,8 @@ export function App({
   const [shellsOpen, setShellsOpen] = useState(false);
   /** Child session whose transcript replaced the live area, if any. */
   const [openAgent, setOpenAgent] = useState<{ sessionId: string; name: string } | null>(null);
+  /** Saved sessions offered after a bare `/resume`. */
+  const [resumeChoices, setResumeChoices] = useState<SessionRecord[] | null>(null);
   /** Lines the open agent's transcript is scrolled back from its newest line. */
   const [agentScroll, setAgentScroll] = useState(0);
   /** Prompts from previous runs, read once at start. */
@@ -1004,6 +1006,27 @@ export function App({
     resumeSession(lastSession.sessionId, "main");
   }, [lastSession, resumeSession, showToast]);
 
+  const openResumePicker = useCallback(() => {
+    showToast("loading saved sessions");
+    void client.call("session.list", { includeClosed: true, workdir }).then((result) => {
+      const choices = (Array.isArray(result?.sessions) ? result.sessions : [])
+        .filter((row: any) => row.sessionId !== activeSessionRef.current)
+        .map((row: any) => ({
+          sessionId: String(row.sessionId),
+          workdir: String(row.workdir),
+          firstPrompt: "",
+          at: Date.parse(String(row.createdAt)) || 0,
+        }));
+      if (choices.length === 0) {
+        showToast("no saved sessions for this directory");
+        return;
+      }
+      setResumeChoices(choices);
+    }).catch((error: unknown) =>
+      dispatch({ type: "error", message: `could not list saved sessions: ${String(error)}` }),
+    );
+  }, [client, workdir, showToast]);
+
   const submit = useCallback(
     (text: string) => {
       if (resumingRef.current || update.phase === "running" || update.phase === "done") return;
@@ -1046,8 +1069,7 @@ export function App({
           return;
         }
         if (resume[1]) resumeSession(resume[1], "main");
-        else if (lastSession) resumeMemory();
-        else dispatch({ type: "error", message: "no earlier session for this directory" });
+        else openResumePicker();
         return;
       }
       // So are the ones that only move this surface's own switches.
@@ -1137,6 +1159,7 @@ export function App({
       lastSession,
       resumeMemory,
       resumeSession,
+      openResumePicker,
       state.turnActive,
       update.phase,
       attachments,
@@ -1217,6 +1240,8 @@ export function App({
       }
       return;
     }
+
+    if (resumeChoices) return;
 
     // Esc first stops a reply that is being read out; only then does it mean
     // whatever else Esc means here.
@@ -1400,6 +1425,22 @@ export function App({
 
       {state.pendingApproval ? (
         <ApprovalPrompt request={state.pendingApproval} onDecide={decideApproval} />
+      ) : resumeChoices ? (
+        <ConfirmMenu<string | null>
+          options={[
+            ...resumeChoices.map((entry) => ({
+              label: `${entry.sessionId} · ${new Date(entry.at).toLocaleString()}`,
+              value: entry.sessionId,
+              hint: entry.workdir,
+            })),
+            { label: "Cancel", value: null },
+          ]}
+          escapeValue={null}
+          onChoose={(target) => {
+            setResumeChoices(null);
+            if (target) resumeSession(target, "main");
+          }}
+        />
       ) : (
         <Chat
           onSubmit={submit}
