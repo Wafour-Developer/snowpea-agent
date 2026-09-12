@@ -207,7 +207,7 @@ function TimelineEntry({
 }): React.ReactElement | null {
   if (item.kind === "message") {
     const message = state.messages.find((m) => m.id === item.id);
-    return message ? <MessageView message={message} /> : null;
+    return message ? <MessageView message={message} width={width} /> : null;
   }
   if (item.kind === "tool") {
     const call = state.toolCalls.find((c) => c.callId === item.id);
@@ -285,7 +285,7 @@ function releaseEntries(state: State, items: TimelineItem[]): StaticEntry[] {
 
 export function App({
   client,
-  sessionId,
+  sessionId: initialSessionId,
   mode,
   workdir,
   provider,
@@ -302,6 +302,9 @@ export function App({
   recordingPath,
 }: AppProps): React.ReactElement {
   const { exit } = useApp();
+  const [sessionId, setSessionId] = useState(initialSessionId);
+  const activeSessionRef = useRef(initialSessionId);
+  const resumingRef = useRef(false);
   const [state, dispatch] = useReducer(reducer, initialState);
   const [showHelp, setShowHelp] = useState(false);
   const [draft, setDraft] = useState("");
@@ -443,7 +446,7 @@ export function App({
       // A delegate's events arrive on its own session; they belong to that
       // agent's transcript, never appended to this one.
       onSessionEvent: (event) =>
-        event.sessionId && event.sessionId !== sessionId
+        event.sessionId && event.sessionId !== activeSessionRef.current
           ? dispatch({ type: "child/event", sessionId: event.sessionId, event })
           : dispatch({ type: "session/event", event }),
       onStatus: (status) => dispatch({ type: "status", status }),
@@ -605,9 +608,28 @@ export function App({
    */
   const resumeSession = useCallback(
     (target: string, into: "main" | "child") => {
+      if (into === "main") {
+        if (resumingRef.current || state.turnActive) return;
+        if (target === activeSessionRef.current) return;
+        resumingRef.current = true;
+      }
       void client
         .call("session.resume", { sessionId: target, afterSeq: 0 })
         .then((result) => {
+          if (into === "main") {
+            activeSessionRef.current = target;
+            registryRef.current = new SlashRegistry(client, target);
+            staticCursorRef.current = 0;
+            turnRef.current = null;
+            turnActiveRef.current = false;
+            setOpenAgent(null);
+            setScrollOffset(0);
+            setExpandedId(null);
+            setRunningCommand(null);
+            dispatch({ type: "session/reset", sessionId: target });
+            setSessionId(target);
+            sessions?.remember({ sessionId: target, workdir, firstPrompt: "", at: Date.now() });
+          }
           const events = Array.isArray(result?.events) ? result.events : [];
           for (const event of events) {
             if (into === "child") dispatch({ type: "child/event", sessionId: target, event });
@@ -616,9 +638,10 @@ export function App({
         })
         .catch((error: unknown) =>
           dispatch({ type: "error", message: `resume failed: ${String(error)}` }),
-        );
+        )
+        .finally(() => { if (into === "main") resumingRef.current = false; });
     },
-    [client],
+    [client, state.turnActive, sessions, workdir],
   );
 
   /** Optimistically applies a mode change, then confirms it with the daemon. */
@@ -957,6 +980,7 @@ export function App({
 
   const submit = useCallback(
     (text: string) => {
+      if (resumingRef.current) return;
       // `/update` is a core builtin (headless and IDE run it as a command), but
       // in the TUI it opens the confirmation banner instead of firing blind.
       if (/^\/update\s*$/.test(text.trim())) {
@@ -965,8 +989,14 @@ export function App({
       }
       // `/resume` is the TUI's own: the session it reopens is the one this
       // surface remembers for this directory.
-      if (/^\/resume\s*$/.test(text.trim())) {
-        if (lastSession) resumeMemory();
+      const resume = /^\/resume(?:\s+(\S+))?\s*$/.exec(text.trim());
+      if (resume) {
+        if (state.turnActive) {
+          showToast("interrupt the current turn before resuming another session");
+          return;
+        }
+        if (resume[1]) resumeSession(resume[1], "main");
+        else if (lastSession) resumeMemory();
         else dispatch({ type: "error", message: "no earlier session for this directory" });
         return;
       }
@@ -1053,6 +1083,8 @@ export function App({
       state.messages,
       lastSession,
       resumeMemory,
+      resumeSession,
+      state.turnActive,
       attachments,
       capabilities,
       localAudio,

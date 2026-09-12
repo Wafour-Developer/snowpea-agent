@@ -251,3 +251,11 @@ It costs less bandwidth over a slow link, because only the rows that changed are
 | `Ctrl+C` | quit |
 
 `/help` lists every command the daemon has, including the ones your plugins added, and repeats this table.
+
+## Markdown tables
+
+Markdown tables in responses are rendered with aligned borders. Column sizing accounts for Korean, CJK and emoji terminal widths, and long paths or sentences wrap inside their cells. When there are too many columns to fit, values are stacked under their column labels instead. Inline and full-screen views use the same renderer; table source inside code fences stays literal.
+
+## Built-in and custom agents
+
+`/agent list` includes the packaged roles (`architect`, `critic`, `executor`, `explorer`, `test-engineer`, `verifier`) alongside custom definitions. Built-in roles need no user-created files and have source `builtin`. A custom definition with the same name overrides the built-in; project definitions take precedence over global definitions. The same names are available through the `agent` argument of `delegate_task`.

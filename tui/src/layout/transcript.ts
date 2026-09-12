@@ -11,6 +11,8 @@
  * Pure and React-free, so the line count is testable.
  */
 
+import { graphemes, textWidth } from "./text-width.js";
+
 import type { DiffEntry, Message, State, ToolCallEntry } from "../state/store.js";
 
 export interface Segment {
@@ -45,7 +47,7 @@ const TOOL_MARK: Record<ToolCallEntry["state"], Segment> = {
 
 export function plainLength(segments: Segment[]): number {
   let total = 0;
-  for (const segment of segments) total += segment.text.length;
+  for (const segment of segments) total += textWidth(segment.text);
   return total;
 }
 
@@ -77,29 +79,34 @@ export function sliceSegments(segments: Segment[], start: number, end: number): 
  * its role glyph.
  */
 export function wrapLine(line: Line, width: number, indent = ""): Line[] {
-  const total = plainLength(line.segments);
-  if (width <= 0 || total <= width) return [line];
-
+  if (width <= 0 || plainLength(line.segments) <= width) return [line];
   const text = lineText(line);
+  const parts = graphemes(text);
   const out: Line[] = [];
-  let pos = 0;
-  let n = 0;
-  while (pos < total) {
-    const room = out.length === 0 ? width : Math.max(1, width - indent.length);
-    let end = Math.min(total, pos + room);
-    if (end < total) {
-      const lastSpace = text.lastIndexOf(" ", end);
-      if (lastSpace > pos) end = lastSpace;
+  let start = 0;
+  while (start < parts.length) {
+    const prefix = out.length === 0 ? "" : indent;
+    const room = Math.max(1, width - textWidth(prefix));
+    let end = start;
+    let used = 0;
+    while (end < parts.length && used + parts[end].width <= room) {
+      used += parts[end].width;
+      end += 1;
     }
-    if (end <= pos) end = Math.min(total, pos + room);
-    const segments = sliceSegments(line.segments, pos, end);
+    // A single wide grapheme cannot fit a one-cell viewport: keep it intact.
+    if (end === start) end += 1;
+    if (end < parts.length) {
+      let space = end;
+      while (space > start && parts[space]?.text !== " ") space -= 1;
+      if (space > start) end = space;
+    }
+    const segments = sliceSegments(line.segments, parts[start].index, parts[end]?.index ?? text.length);
     out.push({
-      key: `${line.key}-w${n}`,
-      segments: out.length === 0 || indent.length === 0 ? segments : [{ text: indent, dimColor: true }, ...segments],
+      key: `${line.key}-w${out.length}`,
+      segments: prefix ? [{ text: prefix, dimColor: true }, ...segments] : segments,
     });
-    n += 1;
-    pos = end;
-    while (pos < total && text[pos] === " ") pos += 1;
+    start = end;
+    while (parts[start]?.text === " ") start += 1;
   }
   return out;
 }
@@ -122,14 +129,118 @@ export function inlineSegments(text: string): Segment[] {
   return parts.length > 0 ? parts : [{ text }];
 }
 
+/** Split real cell separators, not escaped pipes or pipes inside inline code. */
+function tableCells(raw: string): string[] | null {
+  const text = raw.trim();
+  if (!text.includes("|")) return null;
+  const cells: string[] = [];
+  let cell = "";
+  let ticks = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    if (text[i] === "\\" && text[i + 1] === "|") {
+      cell += "|";
+      i += 1;
+    } else if (text[i] === "`") {
+      let end = i + 1;
+      while (text[end] === "`") end += 1;
+      const count = end - i;
+      if (ticks === 0) ticks = count;
+      else if (ticks === count) ticks = 0;
+      cell += text.slice(i, end);
+      i = end - 1;
+    } else if (text[i] === "|" && ticks === 0) {
+      cells.push(cell.trim());
+      cell = "";
+    } else cell += text[i];
+  }
+  cells.push(cell.trim());
+  if (text.startsWith("|")) cells.shift();
+  if (text.endsWith("|") && cells.at(-1) === "") cells.pop();
+  return cells.length > 0 ? cells : null;
+}
+
+function tableAt(source: string[], start: number, width: number, id: string): { lines: Line[]; end: number } | null {
+  const header = tableCells(source[start]);
+  const divider = tableCells(source[start + 1] ?? "");
+  if (!header || !divider || header.length !== divider.length ||
+      !divider.every(cell => /^:?-{3,}:?$/.test(cell))) return null;
+  const rows = [header];
+  let end = start + 2;
+  while (end < source.length) {
+    const row = tableCells(source[end]);
+    if (!row || row.length !== header.length) break;
+    rows.push(row);
+    end += 1;
+  }
+  const styled = rows.map(row => row.map(inlineSegments));
+  const widths = header.map((_, col) => Math.max(2, ...styled.map(row => plainLength(row[col]))));
+  const lines: Line[] = [];
+  const add = (segments: Segment[]) => lines.push({ key: `${id}-table${start}-${lines.length}`, segments });
+  // Too many columns for this terminal: a stacked representation preserves all values.
+  if (header.length * 5 + 1 > width) {
+    styled.forEach((row, rowIndex) => {
+      if (rowIndex === 0) return;
+      row.forEach((cell, col) => {
+        const entry = { key: `${id}-table${start}-${rowIndex}-${col}`, segments: [
+          ...styled[0][col].map(segment => ({ ...segment, bold: true })), { text: ": " }, ...cell,
+        ] };
+        lines.push(...wrapLine(entry, width));
+      });
+    });
+    if (lines.length === 0) add(styled[0].flatMap((cell, col) => col ? [{ text: " / " }, ...cell] : cell));
+    return { lines, end };
+  }
+  while (widths.reduce((sum, value) => sum + value, 0) + header.length * 3 + 1 > width) {
+    const largest = widths.indexOf(Math.max(...widths));
+    widths[largest] -= 1;
+  }
+  const border = (left: string, middle: string, right: string) => add([{
+    text: left + widths.map(size => "─".repeat(size + 2)).join(middle) + right, dimColor: true,
+  }]);
+  border("┌", "┬", "┐");
+  styled.forEach((row, rowIndex) => {
+    const cells = row.map((segments, col) => wrapLine({ key: "cell", segments }, widths[col]));
+    const height = Math.max(...cells.map(cell => cell.length));
+    for (let line = 0; line < height; line += 1) {
+      const segments: Segment[] = [{ text: "│ ", dimColor: true }];
+      cells.forEach((cell, col) => {
+        const content = cell[line]?.segments ?? [];
+        const padding = Math.max(0, widths[col] - plainLength(content));
+        const right = divider[col].endsWith(":");
+        const left = right ? (divider[col].startsWith(":") ? Math.floor(padding / 2) : padding) : 0;
+        segments.push({ text: " ".repeat(left) },
+          ...content.map(segment => rowIndex === 0 ? { ...segment, bold: true } : segment),
+          { text: " ".repeat(padding - left) },
+          { text: col === cells.length - 1 ? " │" : " │ ", dimColor: true });
+      });
+      add(segments);
+    }
+    if (rowIndex === 0) border("├", "┼", "┤");
+  });
+  border("└", "┴", "┘");
+  return { lines, end };
+}
+
 /** One message, markdown-lite applied, with the role glyph on the first row. */
-export function messageLines(message: Message): Line[] {
+export function messageLines(message: Message, width = 80): Line[] {
   const out: Line[] = [];
   const body = message.streaming ? `${message.text}…` : message.text;
   const source = body.split("\n");
   let inFence = false;
 
-  source.forEach((raw, index) => {
+  for (let index = 0; index < source.length; index += 1) {
+    const raw = source[index];
+    if (!inFence) {
+      const table = tableAt(source, index, Math.max(1, width - 2), message.id);
+      if (table) {
+        table.lines.forEach((line, row) => out.push({
+          ...line,
+          segments: [index === 0 && row === 0 ? ROLE_MARK[message.role] : { text: "  " }, ...line.segments],
+        }));
+        index = table.end - 1;
+        continue;
+      }
+    }
     const key = `${message.id}-l${index}`;
     let segments: Segment[];
     if (raw.trimStart().startsWith("```")) {
@@ -147,7 +258,7 @@ export function messageLines(message: Message): Line[] {
     }
     const mark = index === 0 ? ROLE_MARK[message.role] : { text: "  " };
     out.push({ key, segments: [mark, ...segments] });
-  });
+  }
 
   return out;
 }
@@ -268,7 +379,7 @@ export function transcriptLines(
     if (item.kind === "message") {
       const message = state.messages.find((m) => m.id === item.id);
       if (!message) continue;
-      raw.push(...messageLines(message));
+      raw.push(...messageLines(message, width));
       raw.push({ key: `${item.id}-gap`, segments: [{ text: "" }] });
       continue;
     }

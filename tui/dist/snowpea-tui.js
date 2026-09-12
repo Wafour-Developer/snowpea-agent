@@ -34173,6 +34173,8 @@ function applySessionEvent(state, event) {
 }
 function reducer(state, action) {
   switch (action.type) {
+    case "session/reset":
+      return { ...initialState, status: state.status, sessionId: action.sessionId };
     case "session/ready":
       return {
         ...state,
@@ -35322,6 +35324,26 @@ function recordingLabel(startedAt, now) {
 // src/version.ts
 var TUI_VERSION = "0.1.2";
 
+// src/layout/text-width.ts
+var segmenter2 = new Intl.Segmenter(void 0, { granularity: "grapheme" });
+function graphemes(text) {
+  return Array.from(segmenter2.segment(text), ({ segment, index }) => ({
+    text: segment,
+    index,
+    width: graphemeWidth(segment)
+  }));
+}
+function graphemeWidth(text) {
+  if (/^[\p{Mark}\p{Control}\p{Format}]+$/u.test(text)) return 0;
+  if (new RegExp("\\p{Emoji_Presentation}|\\p{Regional_Indicator}|\\uFE0F|\\u20E3", "u").test(text)) return 2;
+  const code = text.codePointAt(0) ?? 0;
+  if (code >= 4352 && (code <= 4447 || code === 9001 || code === 9002 || code >= 11904 && code <= 42191 && code !== 12351 || code >= 44032 && code <= 55203 || code >= 63744 && code <= 64255 || code >= 65040 && code <= 65049 || code >= 65072 && code <= 65135 || code >= 65281 && code <= 65376 || code >= 65504 && code <= 65510 || code >= 131072 && code <= 262141)) return 2;
+  return 1;
+}
+function textWidth(text) {
+  return graphemes(text).reduce((sum, part) => sum + part.width, 0);
+}
+
 // src/layout/transcript.ts
 var TOOL_OUTPUT_LINES = 12;
 var DIFF_LINES = 40;
@@ -35337,7 +35359,7 @@ var TOOL_MARK = {
 };
 function plainLength(segments) {
   let total = 0;
-  for (const segment of segments) total += segment.text.length;
+  for (const segment of segments) total += textWidth(segment.text);
   return total;
 }
 function lineText(line) {
@@ -35358,28 +35380,33 @@ function sliceSegments(segments, start, end) {
   return out;
 }
 function wrapLine(line, width, indent = "") {
-  const total = plainLength(line.segments);
-  if (width <= 0 || total <= width) return [line];
+  if (width <= 0 || plainLength(line.segments) <= width) return [line];
   const text = lineText(line);
+  const parts = graphemes(text);
   const out = [];
-  let pos = 0;
-  let n = 0;
-  while (pos < total) {
-    const room = out.length === 0 ? width : Math.max(1, width - indent.length);
-    let end = Math.min(total, pos + room);
-    if (end < total) {
-      const lastSpace = text.lastIndexOf(" ", end);
-      if (lastSpace > pos) end = lastSpace;
+  let start = 0;
+  while (start < parts.length) {
+    const prefix = out.length === 0 ? "" : indent;
+    const room = Math.max(1, width - textWidth(prefix));
+    let end = start;
+    let used = 0;
+    while (end < parts.length && used + parts[end].width <= room) {
+      used += parts[end].width;
+      end += 1;
     }
-    if (end <= pos) end = Math.min(total, pos + room);
-    const segments = sliceSegments(line.segments, pos, end);
+    if (end === start) end += 1;
+    if (end < parts.length) {
+      let space = end;
+      while (space > start && parts[space]?.text !== " ") space -= 1;
+      if (space > start) end = space;
+    }
+    const segments = sliceSegments(line.segments, parts[start].index, parts[end]?.index ?? text.length);
     out.push({
-      key: `${line.key}-w${n}`,
-      segments: out.length === 0 || indent.length === 0 ? segments : [{ text: indent, dimColor: true }, ...segments]
+      key: `${line.key}-w${out.length}`,
+      segments: prefix ? [{ text: prefix, dimColor: true }, ...segments] : segments
     });
-    n += 1;
-    pos = end;
-    while (pos < total && text[pos] === " ") pos += 1;
+    start = end;
+    while (parts[start]?.text === " ") start += 1;
   }
   return out;
 }
@@ -35399,12 +35426,116 @@ function inlineSegments(text) {
   if (last < text.length) parts.push({ text: text.slice(last) });
   return parts.length > 0 ? parts : [{ text }];
 }
-function messageLines(message) {
+function tableCells(raw) {
+  const text = raw.trim();
+  if (!text.includes("|")) return null;
+  const cells2 = [];
+  let cell = "";
+  let ticks = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    if (text[i] === "\\" && text[i + 1] === "|") {
+      cell += "|";
+      i += 1;
+    } else if (text[i] === "`") {
+      let end = i + 1;
+      while (text[end] === "`") end += 1;
+      const count = end - i;
+      if (ticks === 0) ticks = count;
+      else if (ticks === count) ticks = 0;
+      cell += text.slice(i, end);
+      i = end - 1;
+    } else if (text[i] === "|" && ticks === 0) {
+      cells2.push(cell.trim());
+      cell = "";
+    } else cell += text[i];
+  }
+  cells2.push(cell.trim());
+  if (text.startsWith("|")) cells2.shift();
+  if (text.endsWith("|") && cells2.at(-1) === "") cells2.pop();
+  return cells2.length > 0 ? cells2 : null;
+}
+function tableAt(source, start, width, id) {
+  const header = tableCells(source[start]);
+  const divider = tableCells(source[start + 1] ?? "");
+  if (!header || !divider || header.length !== divider.length || !divider.every((cell) => /^:?-{3,}:?$/.test(cell))) return null;
+  const rows = [header];
+  let end = start + 2;
+  while (end < source.length) {
+    const row = tableCells(source[end]);
+    if (!row || row.length !== header.length) break;
+    rows.push(row);
+    end += 1;
+  }
+  const styled = rows.map((row) => row.map(inlineSegments));
+  const widths = header.map((_, col) => Math.max(2, ...styled.map((row) => plainLength(row[col]))));
+  const lines = [];
+  const add = (segments) => lines.push({ key: `${id}-table${start}-${lines.length}`, segments });
+  if (header.length * 5 + 1 > width) {
+    styled.forEach((row, rowIndex) => {
+      if (rowIndex === 0) return;
+      row.forEach((cell, col) => {
+        const entry = { key: `${id}-table${start}-${rowIndex}-${col}`, segments: [
+          ...styled[0][col].map((segment) => ({ ...segment, bold: true })),
+          { text: ": " },
+          ...cell
+        ] };
+        lines.push(...wrapLine(entry, width));
+      });
+    });
+    if (lines.length === 0) add(styled[0].flatMap((cell, col) => col ? [{ text: " / " }, ...cell] : cell));
+    return { lines, end };
+  }
+  while (widths.reduce((sum, value) => sum + value, 0) + header.length * 3 + 1 > width) {
+    const largest = widths.indexOf(Math.max(...widths));
+    widths[largest] -= 1;
+  }
+  const border = (left, middle, right) => add([{
+    text: left + widths.map((size) => "\u2500".repeat(size + 2)).join(middle) + right,
+    dimColor: true
+  }]);
+  border("\u250C", "\u252C", "\u2510");
+  styled.forEach((row, rowIndex) => {
+    const cells2 = row.map((segments, col) => wrapLine({ key: "cell", segments }, widths[col]));
+    const height = Math.max(...cells2.map((cell) => cell.length));
+    for (let line = 0; line < height; line += 1) {
+      const segments = [{ text: "\u2502 ", dimColor: true }];
+      cells2.forEach((cell, col) => {
+        const content = cell[line]?.segments ?? [];
+        const padding = Math.max(0, widths[col] - plainLength(content));
+        const right = divider[col].endsWith(":");
+        const left = right ? divider[col].startsWith(":") ? Math.floor(padding / 2) : padding : 0;
+        segments.push(
+          { text: " ".repeat(left) },
+          ...content.map((segment) => rowIndex === 0 ? { ...segment, bold: true } : segment),
+          { text: " ".repeat(padding - left) },
+          { text: col === cells2.length - 1 ? " \u2502" : " \u2502 ", dimColor: true }
+        );
+      });
+      add(segments);
+    }
+    if (rowIndex === 0) border("\u251C", "\u253C", "\u2524");
+  });
+  border("\u2514", "\u2534", "\u2518");
+  return { lines, end };
+}
+function messageLines(message, width = 80) {
   const out = [];
   const body = message.streaming ? `${message.text}\u2026` : message.text;
   const source = body.split("\n");
   let inFence = false;
-  source.forEach((raw, index) => {
+  for (let index = 0; index < source.length; index += 1) {
+    const raw = source[index];
+    if (!inFence) {
+      const table = tableAt(source, index, Math.max(1, width - 2), message.id);
+      if (table) {
+        table.lines.forEach((line, row) => out.push({
+          ...line,
+          segments: [index === 0 && row === 0 ? ROLE_MARK[message.role] : { text: "  " }, ...line.segments]
+        }));
+        index = table.end - 1;
+        continue;
+      }
+    }
     const key = `${message.id}-l${index}`;
     let segments;
     if (raw.trimStart().startsWith("```")) {
@@ -35422,7 +35553,7 @@ function messageLines(message) {
     }
     const mark = index === 0 ? ROLE_MARK[message.role] : { text: "  " };
     out.push({ key, segments: [mark, ...segments] });
-  });
+  }
   return out;
 }
 function summarizeArgs(args, max = 60) {
@@ -35516,7 +35647,7 @@ function transcriptLines(state, width, { expandedCall = null } = {}) {
     if (item.kind === "message") {
       const message = state.messages.find((m) => m.id === item.id);
       if (!message) continue;
-      raw.push(...messageLines(message));
+      raw.push(...messageLines(message, width));
       raw.push({ key: `${item.id}-gap`, segments: [{ text: "" }] });
       continue;
     }
@@ -36360,75 +36491,21 @@ function Chat({
 
 // src/components/MessageStream.tsx
 var import_jsx_runtime6 = __toESM(require_jsx_runtime(), 1);
-function renderInline(text, keyPrefix) {
-  const parts = [];
-  const pattern = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g;
-  let last = 0;
-  let match;
-  let i = 0;
-  while ((match = pattern.exec(text)) !== null) {
-    if (match.index > last) parts.push(text.slice(last, match.index));
-    const token = match[0];
-    const key = `${keyPrefix}-i${i++}`;
-    if (token.startsWith("`")) {
-      parts.push(
-        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { color: "cyan", children: token.slice(1, -1) }, key)
-      );
-    } else if (token.startsWith("**")) {
-      parts.push(
-        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { bold: true, children: token.slice(2, -2) }, key)
-      );
-    } else {
-      parts.push(
-        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { italic: true, children: token.slice(1, -1) }, key)
-      );
-    }
-    last = match.index + token.length;
-  }
-  if (last < text.length) parts.push(text.slice(last));
-  return parts;
-}
-function MarkdownLite({ text, idPrefix }) {
-  const lines = text.split("\n");
-  let inFence = false;
-  return /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Box_default, { flexDirection: "column", children: lines.map((line, index) => {
-    const key = `${idPrefix}-l${index}`;
-    if (line.trimStart().startsWith("```")) {
-      inFence = !inFence;
-      return /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { dimColor: true, children: line }, key);
-    }
-    if (inFence) {
-      return /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { color: "cyan", children: line }, key);
-    }
-    const heading = /^(#{1,6})\s+(.*)$/.exec(line);
-    if (heading) {
-      return /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { bold: true, color: "yellow", children: heading[2] }, key);
-    }
-    const bullet = /^(\s*)[-*]\s+(.*)$/.exec(line);
-    if (bullet) {
-      return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Text, { children: [
-        bullet[1],
-        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { color: "magenta", children: "\u2022 " }),
-        renderInline(bullet[2], key)
-      ] }, key);
-    }
-    return /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { children: renderInline(line, key) }, key);
-  }) });
-}
-var ROLE_LABEL = {
-  user: { label: "\u203A", color: "green" },
-  assistant: { label: "\u25C6", color: "blue" },
-  system: { label: "!", color: "yellow" }
-};
-function MessageView({ message }) {
-  const meta = ROLE_LABEL[message.role];
-  return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexDirection: "row", marginBottom: 1, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Box_default, { marginRight: 1, children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { color: meta.color, bold: true, children: meta.label }) }),
-    /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexDirection: "column", flexGrow: 1, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(MarkdownLite, { text: message.text, idPrefix: message.id }),
-      (message.attachments ?? []).map((attachment) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `\u{1F4CE} ${attachment.name}` }, `${message.id}-${attachment.name}`)),
-      message.streaming ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { dimColor: true, children: "\u2026" }) : null
-    ] })
+function MessageView({ message, width = 80 }) {
+  const lines = messageLines(message, width).flatMap((line) => wrapLine(line, width, "  "));
+  return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexDirection: "column", marginBottom: 1, children: [
+    lines.map((line) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { children: line.segments.map((segment, index) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+      Text,
+      {
+        color: segment.color,
+        dimColor: segment.dimColor,
+        bold: segment.bold,
+        italic: segment.italic,
+        children: segment.text
+      },
+      index
+    )) }, line.key)),
+    (message.attachments ?? []).map((attachment) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `  \u{1F4CE} ${attachment.name}` }, `${message.id}-${attachment.name}`))
   ] });
 }
 
@@ -37016,7 +37093,7 @@ function HelpPanel({
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Text, { dimColor: true, children: [
         "  /resume (or R on an empty input) reopens the session this ",
-        "directory was last in"
+        "directory was last in; /resume <sessionId> opens a specific live session"
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Text, { dimColor: true, children: [
         "  Paste or drop a file path to attach it \xB7 Ctrl+V takes an image ",
@@ -37075,7 +37152,7 @@ function TimelineEntry({
 }) {
   if (item.kind === "message") {
     const message = state.messages.find((m) => m.id === item.id);
-    return message ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(MessageView, { message }) : null;
+    return message ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(MessageView, { message, width }) : null;
   }
   if (item.kind === "tool") {
     const call = state.toolCalls.find((c) => c.callId === item.id);
@@ -37125,7 +37202,7 @@ function releaseEntries(state, items) {
 }
 function App2({
   client,
-  sessionId,
+  sessionId: initialSessionId,
   mode,
   workdir,
   provider,
@@ -37142,6 +37219,9 @@ function App2({
   recordingPath
 }) {
   const { exit } = use_app_default();
+  const [sessionId, setSessionId] = (0, import_react35.useState)(initialSessionId);
+  const activeSessionRef = (0, import_react35.useRef)(initialSessionId);
+  const resumingRef = (0, import_react35.useRef)(false);
   const [state, dispatch] = (0, import_react35.useReducer)(reducer, initialState);
   const [showHelp, setShowHelp] = (0, import_react35.useState)(false);
   const [draft, setDraft] = (0, import_react35.useState)("");
@@ -37208,7 +37288,7 @@ function App2({
     client.setListeners({
       // A delegate's events arrive on its own session; they belong to that
       // agent's transcript, never appended to this one.
-      onSessionEvent: (event) => event.sessionId && event.sessionId !== sessionId ? dispatch({ type: "child/event", sessionId: event.sessionId, event }) : dispatch({ type: "session/event", event }),
+      onSessionEvent: (event) => event.sessionId && event.sessionId !== activeSessionRef.current ? dispatch({ type: "child/event", sessionId: event.sessionId, event }) : dispatch({ type: "session/event", event }),
       onStatus: (status) => dispatch({ type: "status", status }),
       // An unattended turn raised a request the daemon broadcast to every
       // surface; the queue is re-read rather than trusted from the payload.
@@ -37307,7 +37387,26 @@ function App2({
   }, []);
   const resumeSession = (0, import_react35.useCallback)(
     (target, into) => {
+      if (into === "main") {
+        if (resumingRef.current || state.turnActive) return;
+        if (target === activeSessionRef.current) return;
+        resumingRef.current = true;
+      }
       void client.call("session.resume", { sessionId: target, afterSeq: 0 }).then((result) => {
+        if (into === "main") {
+          activeSessionRef.current = target;
+          registryRef.current = new SlashRegistry(client, target);
+          staticCursorRef.current = 0;
+          turnRef.current = null;
+          turnActiveRef.current = false;
+          setOpenAgent(null);
+          setScrollOffset(0);
+          setExpandedId(null);
+          setRunningCommand(null);
+          dispatch({ type: "session/reset", sessionId: target });
+          setSessionId(target);
+          sessions?.remember({ sessionId: target, workdir, firstPrompt: "", at: Date.now() });
+        }
         const events = Array.isArray(result?.events) ? result.events : [];
         for (const event of events) {
           if (into === "child") dispatch({ type: "child/event", sessionId: target, event });
@@ -37315,9 +37414,11 @@ function App2({
         }
       }).catch(
         (error) => dispatch({ type: "error", message: `resume failed: ${String(error)}` })
-      );
+      ).finally(() => {
+        if (into === "main") resumingRef.current = false;
+      });
     },
-    [client]
+    [client, state.turnActive, sessions, workdir]
   );
   const changeMode = (0, import_react35.useCallback)(
     (next) => {
@@ -37586,12 +37687,19 @@ function App2({
   }, [lastSession, resumeSession, showToast]);
   const submit = (0, import_react35.useCallback)(
     (text) => {
+      if (resumingRef.current) return;
       if (/^\/update\s*$/.test(text.trim())) {
         setUpdate(confirm);
         return;
       }
-      if (/^\/resume\s*$/.test(text.trim())) {
-        if (lastSession) resumeMemory();
+      const resume = /^\/resume(?:\s+(\S+))?\s*$/.exec(text.trim());
+      if (resume) {
+        if (state.turnActive) {
+          showToast("interrupt the current turn before resuming another session");
+          return;
+        }
+        if (resume[1]) resumeSession(resume[1], "main");
+        else if (lastSession) resumeMemory();
         else dispatch({ type: "error", message: "no earlier session for this directory" });
         return;
       }
@@ -37671,6 +37779,8 @@ function App2({
       state.messages,
       lastSession,
       resumeMemory,
+      resumeSession,
+      state.turnActive,
       attachments,
       capabilities,
       localAudio,
