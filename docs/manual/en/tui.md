@@ -275,3 +275,5 @@ uv tool install --force --reinstall 'snowpea-agent[images] @ git+https://github.
 After reinstalling, once no work is running, use `snowpea daemon stop` and then launch `snowpea` to load the new daemon code.
 
 Help stays within the terminal height. Scroll with `↑`/`↓` or `PgUp`/`PgDn`; close with **Esc, F1, q, or Enter**. Esc inside help does not interrupt the running turn.
+
+The input, connection/model status, mode summary, and agent list at the bottom are separated by rules spanning the full terminal content width, making the active region easy to distinguish.
