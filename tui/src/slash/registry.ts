@@ -13,6 +13,11 @@ const SURFACE_COMMANDS: CommandInfo[] = [
     summary: "Resume the last session in this directory, or /resume <sessionId>.",
     source: "tui",
   },
+  {
+    name: "session",
+    summary: "Delete saved sessions: /session delete <id> | clear [--all].",
+    source: "tui",
+  },
 ];
 
 function withSurfaceCommands(commands: CommandInfo[]): CommandInfo[] {

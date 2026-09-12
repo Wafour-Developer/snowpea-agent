@@ -1072,6 +1072,21 @@ export function App({
         else openResumePicker();
         return;
       }
+      const sessionDelete = /^\/session\s+delete\s+(\S+)\s*$/.exec(text.trim());
+      const sessionClear = /^\/session\s+clear(?:\s+(--all))?\s*$/.exec(text.trim());
+      if (sessionDelete || sessionClear) {
+        const params = sessionDelete
+          ? { sessionId: sessionDelete[1] }
+          : sessionClear?.[1]
+            ? { all: true }
+            : { workdir };
+        void client.call("session.deleteSaved", params).then((result) =>
+          showToast(`deleted ${Number(result?.deleted ?? 0)} saved session(s)`),
+        ).catch((error: unknown) =>
+          dispatch({ type: "error", message: `session cleanup failed: ${String(error)}` }),
+        );
+        return;
+      }
       // So are the ones that only move this surface's own switches.
       const attach = /^\/attach\s+(.+)$/.exec(text.trim());
       if (attach) {

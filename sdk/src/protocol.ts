@@ -777,6 +777,14 @@ export interface SessionListParams {
   workdir?: string | null;
 }
 
+export interface SessionDeleteSavedParams {
+  sessionId?: string | null;
+  workdir?: string | null;
+  all?: boolean;
+}
+
+export interface SessionDeleteSavedResult { deleted?: number; }
+
 /** `session.list` result. */
 export interface SessionListResult {
   /** Every live session. */
@@ -1747,6 +1755,7 @@ export interface MethodMap {
   "session.create": { params: SessionCreateParams; result: SessionCreateResult };
   "session.interrupt": { params: SessionInterruptParams; result: SessionInterruptResult };
   "session.list": { params: SessionListParams; result: SessionListResult };
+  "session.deleteSaved": { params: SessionDeleteSavedParams; result: SessionDeleteSavedResult };
   "session.prompt": { params: SessionPromptParams; result: SessionPromptResult };
   "session.resume": { params: SessionResumeParams; result: SessionResumeResult };
   "session.setMode": { params: SessionSetModeParams; result: SessionSetModeResult };
@@ -1814,6 +1823,7 @@ export type ClientMethod =
   | "session.create"
   | "session.interrupt"
   | "session.list"
+  | "session.deleteSaved"
   | "session.prompt"
   | "session.resume"
   | "session.setMode"

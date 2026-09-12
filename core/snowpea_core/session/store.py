@@ -143,6 +143,28 @@ class Store:
             self._execute, "UPDATE sessions SET closed_at = NULL WHERE id = ?", (session_id,)
         )
 
+    async def delete_sessions(self, session_ids: list[str]) -> int:
+        """Delete saved session rows and their conversation data atomically."""
+        ids = list(dict.fromkeys(session_ids))
+        if not ids:
+            return 0
+
+        def delete() -> int:
+            with self._lock:
+                if self._closed:
+                    raise StoreClosed("session store is closed")
+                marks = ",".join("?" for _ in ids)
+                before = self._conn.total_changes
+                self._conn.execute(f"DELETE FROM messages WHERE session_id IN ({marks})", ids)
+                self._conn.execute(f"DELETE FROM events WHERE session_id IN ({marks})", ids)
+                self._conn.execute(f"DELETE FROM sessions WHERE id IN ({marks})", ids)
+                deleted = self._conn.total_changes - before
+                self._conn.commit()
+                return deleted
+
+        await asyncio.to_thread(delete)
+        return len(ids)
+
     # -- events --------------------------------------------------------
     async def append_event(
         self, session_id: str, seq: int, kind: str, payload: dict[str, Any], ts: str
