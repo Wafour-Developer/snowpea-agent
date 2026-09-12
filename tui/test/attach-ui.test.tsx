@@ -8,7 +8,6 @@ import { describe, expect, it } from "vitest";
 
 import { App } from "../src/app.js";
 import { MAX_ATTACHMENT_BYTES, type FileProbe } from "../src/state/attachments.js";
-import type { AudioCapabilities } from "../src/state/voice.js";
 import { fakeStdin, fakeStdout, sleep, type } from "./tty.js";
 
 const FILES: Record<string, number> = {
@@ -24,28 +23,67 @@ const probe: FileProbe = {
   basename: (path) => path.slice(path.lastIndexOf("/") + 1),
 };
 
-const able: AudioCapabilities = { stt: true, tts: true, record: true, play: true, reasons: {} };
-
-function fakeClient() {
+/** A daemon that answers `audio.capabilities` with whatever the test wants. */
+function fakeClient(audio: Record<string, unknown> | null = null) {
+  const calls: Array<{ method: string; params: any }> = [];
+  let listeners: any;
   return {
+    calls,
     getStatus: () => "connected",
-    setListeners: () => undefined,
+    setListeners: (given: any) => {
+      listeners = given;
+    },
     onApprovalRequest: () => undefined,
     listApprovals: async () => ({ requests: [] }),
     checkUpdate: async () => ({ available: false, current: "0.1.2", latest: "0.1.2" }),
-    call: async () => ({ commands: [] }),
-    prompt: async () => ({ turnId: "t" }),
+    call: async (method: string, params: any) => {
+      calls.push({ method, params });
+      if (method === "audio.capabilities") {
+        if (!audio) throw new Error("no_audio: this daemon has no audio support");
+        return audio;
+      }
+      if (method === "audio.record.start") return { path: "/tmp/rec.wav", recording: true };
+      if (method === "audio.record.stop") {
+        return { path: "/tmp/rec.wav", recording: false, text: "spoken words", provider: "whisper" };
+      }
+      if (method === "audio.speak") {
+        return { path: "/tmp/say.wav", mime: "audio/wav", provider: "piper", played: true };
+      }
+      return { commands: [] };
+    },
+    prompt: async (sessionId: string, text: string, attachments: unknown[] = []) => {
+      calls.push({ method: "session.prompt", params: { sessionId, text, attachments } });
+      return { turnId: "t" };
+    },
     interrupt: async () => undefined,
     setMode: async () => ({ mode: "accept" }),
+    emit(event: any) {
+      listeners?.onSessionEvent?.(event);
+    },
   };
 }
 
-async function open(options: Partial<React.ComponentProps<typeof App>> = {}) {
+/** What a daemon with working audio answers. */
+const ABLE_ANSWER = {
+  stt: "whisper",
+  tts: true,
+  ttsProvider: "piper",
+  record: true,
+  play: true,
+  autoSpeak: false,
+  reasons: {},
+};
+
+async function open(
+  options: Partial<React.ComponentProps<typeof App>> = {},
+  audio: Record<string, unknown> | null = null,
+) {
+  const client = fakeClient(audio);
   const stdin = fakeStdin();
   const stdout = fakeStdout(100, 24);
   const instance = render(
     <App
-      client={fakeClient() as any}
+      client={client as any}
       sessionId="sess-1"
       mode="accept"
       workdir="/work"
@@ -54,9 +92,9 @@ async function open(options: Partial<React.ComponentProps<typeof App>> = {}) {
     />,
     { stdin, stdout: stdout.stream, exitOnCtrlC: false, patchConsole: false },
   );
-  await sleep(150);
+  await sleep(200);
   stdout.chunks.length = 0;
-  return { stdin, stdout, instance };
+  return { client, stdin, stdout, instance };
 }
 
 describe("attachments", () => {
@@ -190,7 +228,7 @@ describe("voice", () => {
   });
 
   it("arms voice input and records with Ctrl+Space", async () => {
-    const { stdin, stdout, instance } = await open({ audio: able });
+    const { stdin, stdout, instance } = await open({}, ABLE_ANSWER);
     await type(stdin, "/voice", 20);
     stdin.write("\r");
     await sleep(150);
@@ -205,7 +243,7 @@ describe("voice", () => {
   });
 
   it("turns speech on, and says so in the status line", async () => {
-    const { stdin, stdout, instance } = await open({ audio: able });
+    const { stdin, stdout, instance } = await open({}, ABLE_ANSWER);
     await type(stdin, "/tts on", 20);
     stdin.write("\r");
     await sleep(200);
@@ -224,5 +262,87 @@ describe("voice", () => {
     instance.unmount();
     expect(output).toContain("text-to-speech");
     expect(output).not.toContain("🔊");
+  });
+
+  it("sends the attachment with the prompt, as a path the daemon can read", async () => {
+    const { client, stdin, instance } = await open();
+    stdin.write("/work/shot.png");
+    await sleep(80);
+    await type(stdin, "describe it", 20);
+    stdin.write("\r");
+    await sleep(200);
+    instance.unmount();
+
+    const prompt = client.calls.find((call) => call.method === "session.prompt");
+    expect(prompt?.params.text).toBe("describe it");
+    expect(prompt?.params.attachments).toEqual([
+      {
+        kind: "image",
+        name: "shot.png",
+        path: "/work/shot.png",
+        mimeType: "image/png",
+        size: 1_260_000,
+      },
+    ]);
+  });
+
+  it("records through the daemon and puts the transcript in the draft", async () => {
+    const { client, stdin, stdout, instance } = await open({}, ABLE_ANSWER);
+    await type(stdin, "/voice", 20);
+    stdin.write("\r");
+    await sleep(150);
+
+    stdin.write("\u0000"); // Ctrl+Space starts
+    await sleep(250);
+    expect(stdout.text()).toContain("● REC 00:0");
+
+    stdin.write("\u0000"); // and stops
+    await sleep(300);
+    const output = stdout.text();
+    instance.unmount();
+
+    expect(client.calls.map((call) => call.method)).toContain("audio.record.start");
+    const stopped = client.calls.find((call) => call.method === "audio.record.stop");
+    expect(stopped?.params).toEqual({ sessionId: "sess-1", transcribe: true });
+    // What was heard is offered for review rather than sent.
+    expect(output).toContain("spoken words");
+  });
+
+  it("speaks a finished reply once /tts is on", async () => {
+    const { client, stdin, stdout, instance } = await open({}, ABLE_ANSWER);
+    await type(stdin, "/tts on", 20);
+    stdin.write("\r");
+    await sleep(200);
+
+    client.emit({
+      sessionId: "sess-1",
+      seq: 1,
+      kind: "message.done",
+      payload: { role: "assistant", text: "the tests pass" },
+    });
+    await sleep(250);
+    const output = stdout.text();
+    instance.unmount();
+
+    const spoke = client.calls.filter((call) => call.method === "audio.speak");
+    expect(spoke).toHaveLength(1);
+    expect(spoke[0].params).toMatchObject({ text: "the tests pass", play: true });
+    expect(output).toContain("🔊 speaking");
+  });
+
+  it("keeps quiet when the daemon reports no audio at all", async () => {
+    const { client, stdin, instance } = await open();
+    await type(stdin, "/tts on", 20);
+    stdin.write("\r");
+    await sleep(200);
+    client.emit({
+      sessionId: "sess-1",
+      seq: 1,
+      kind: "message.done",
+      payload: { role: "assistant", text: "the tests pass" },
+    });
+    await sleep(200);
+    instance.unmount();
+    expect(client.calls.some((call) => call.method === "audio.speak")).toBe(false);
   });
 });
