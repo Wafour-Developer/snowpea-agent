@@ -22,6 +22,8 @@ export interface Message {
   text: string;
   /** True while `message.delta` chunks are still being appended. */
   streaming: boolean;
+  /** Files sent with the prompt, shown under it in the transcript. */
+  attachments?: { name: string; mime: string; size: number }[];
 }
 
 export type ToolCallState = "running" | "ok" | "error";
@@ -194,7 +196,11 @@ export type Action =
   | { type: "mode"; mode: Mode }
   | { type: "commands"; commands: CommandInfo[] }
   | { type: "tools"; count: number }
-  | { type: "user/message"; text: string }
+  | {
+      type: "user/message";
+      text: string;
+      attachments?: { name: string; mime: string; size: number }[];
+    }
   | { type: "session/event"; event: SessionEvent }
   | { type: "child/event"; sessionId: string; event: SessionEvent }
   | { type: "approval/request"; request: ApprovalRequestParams }
@@ -501,6 +507,7 @@ export function reducer(state: State, action: Action): State {
         role: "user",
         text: action.text,
         streaming: false,
+        attachments: action.attachments?.length ? action.attachments : undefined,
       };
       return {
         ...state,

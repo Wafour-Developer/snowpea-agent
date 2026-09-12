@@ -101,6 +101,8 @@ export interface HudInput {
   context?: ContextUsage | null;
   /** Tools registered for the session, from `tool.list`. */
   toolCount?: number | null;
+  /** True while assistant replies are being spoken. */
+  speaking?: boolean;
   /** Milliseconds since this TUI attached to its session. */
   sessionMs: number;
   daemonPid?: number | null;
@@ -183,6 +185,10 @@ export function buildHudSegments(input: HudInput): HudSegment[] {
     dimColor: true,
     priority: 5,
   });
+
+  if (input.speaking) {
+    segments.push({ key: "tts", text: "🔊", color: "cyan", priority: 2 });
+  }
 
   if (input.toolCount && input.toolCount > 0) {
     segments.push({
