@@ -8,6 +8,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from snowpea_core.config.model_routing import route_for
 from snowpea_core.config.paths import utc_now
 from snowpea_core.config.project import ProjectSettings
 from snowpea_core.config.settings import Settings
@@ -68,6 +69,7 @@ class SessionManager:
         provider: str | None = None,
         model: str | None = None,
         agent: str | None = None,
+        definition_model: str | None = None,
         max_concurrent: int | None = None,
         origin_surface: str | None = None,
         origin_conn: Any = None,
@@ -80,12 +82,19 @@ class SessionManager:
         same id its gateway bindings and job history refer to (M7 §6).
         """
         resolved_dir = Path(workdir).expanduser()
+        route = route_for(
+            self.settings,
+            provider=provider,
+            model=model,
+            agent=agent,
+            definition_model=definition_model,
+        )
         session = Session(
             id=session_id or f"s-{uuid.uuid4().hex[:12]}",
             workdir=resolved_dir,
             mode=mode or self.default_mode(resolved_dir),
-            provider=provider,
-            model=model,
+            provider=route.provider,
+            model=route.model,
             agent=agent,
             origin_surface=origin_surface,
             created_at=utc_now(),

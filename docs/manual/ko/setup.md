@@ -3,7 +3,7 @@
 `snowpea setup`은 `$SNOWPEA_HOME/settings.json`을 씁니다. 형태는 세 가지입니다.
 
 ```bash
-snowpea setup            # quick: asks for one LLM vendor, defaults everything else
+snowpea setup            # quick: configure LLM models; defaults for other sections
 snowpea setup --full     # every screen, in order
 snowpea setup --blank    # asks nothing, writes the defaults
 ```
@@ -24,6 +24,30 @@ snowpea setup --blank    # asks nothing, writes the defaults
 | Done | 무엇이 쓰였는지 요약 | — |
 
 목록은 키가 필요 없는 무료 항목이 먼저, 그다음 키가 필요하거나 자체 호스팅해야 하는 무료 항목, 마지막이 유료입니다. 각 목록의 기본값에는 별표가 붙어 있습니다. LLM 벤더를 빼면 기본 설정 어디에도 유료 계정이 필요한 곳은 없습니다 — 웹 검색과 브라우저 모두 키 없이 동작합니다.
+
+## 여러 모델과 에이전트별 모델
+
+`snowpea setup providers`에서 모델을 여러 개 등록하고 기본 모델을 선택할 수 있습니다. 같은 제공자의 다른 모델도 각각 등록할 수 있습니다. 에이전트별 할당에서는 기본 내장 역할과 커스텀 에이전트에 등록한 모델을 지정하거나, 할당을 해제하여 기본 모델을 사용하게 합니다.
+
+설정 파일의 모델 프로필은 제공자와 모델 ID를 묶습니다. API 키와 base URL은 기존 `providers.<제공자>` 설정을 공유하므로 프로필마다 키를 복사할 필요가 없습니다. 다음은 구조 예시이며 모델 ID는 실제 사용할 값으로 바꾸세요.
+
+```json
+{
+  "models": {
+    "default": "daily",
+    "profiles": {
+      "daily": {"provider": "openai", "model": "your-default-model-id"},
+      "reasoning": {"provider": "anthropic", "model": "your-reasoning-model-id"}
+    }
+  },
+  "agents": {
+    "max_concurrent": 3,
+    "models": {"architect": "reasoning", "critic": "reasoning"}
+  }
+}
+```
+
+에이전트 모델 선택 우선순위는 **에이전트별 할당 → 에이전트 정의에 명시한 모델 → 기본 모델**입니다. 별도 할당이나 명시적 모델이 없는 에이전트는 `models.default`를 사용합니다. 새 일반 세션도 기본 모델로 시작하며, 세션에 명시한 provider/model은 유지됩니다. 기존 세션의 모델은 자동 변경하지 않습니다. 모델 프로필을 설정하지 않은 기존 설치는 종전 동작을 유지합니다.
 
 ## 벤더
 

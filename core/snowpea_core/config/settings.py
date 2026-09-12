@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from snowpea_core.config.paths import Paths
 from snowpea_core.config.project import AllowlistEntry
@@ -32,6 +32,28 @@ class _Model(BaseModel):
 
 class AgentsSettings(_Model):
     max_concurrent: int = 3
+    #: Per-agent model profile assignment, e.g. {"executor": "openai-fast"}.
+    models: dict[str, str] = Field(default_factory=dict)
+
+
+class ModelProfile(_Model):
+    provider: str
+    model: str
+
+    @field_validator("provider", "model")
+    @classmethod
+    def _non_empty(cls, value: str) -> str:
+        text = str(value).strip()
+        if not text:
+            raise ValueError("model profile provider/model must be non-empty")
+        return text
+
+
+class ModelsSettings(_Model):
+    #: Default profile id used for new sessions when no provider/model is explicit.
+    default: str | None = None
+    #: Named model profiles, keyed by user-chosen ids.
+    profiles: dict[str, ModelProfile] = Field(default_factory=dict)
 
 
 class TeamSettings(_Model):
@@ -216,6 +238,8 @@ class Settings(_Model):
     scheduler: SchedulerSettings = Field(default_factory=SchedulerSettings)
     updates: UpdatesSettings = Field(default_factory=UpdatesSettings)
     providers: dict[str, Any] = Field(default_factory=dict)
+    #: Multi-model profiles and the default profile for new sessions.
+    models: ModelsSettings = Field(default_factory=ModelsSettings)
     #: Chat gateways the setup wizard enabled, ``{"telegram": {"enabled":
     #: true, "token": "..."}}``.  Absent gateways are off.
     gateway: dict[str, dict[str, Any]] = Field(default_factory=dict)
@@ -236,6 +260,21 @@ class Settings(_Model):
         if not isinstance(raw, dict):
             return cls()
         return cls.model_validate(raw)
+
+    @model_validator(mode="after")
+    def _validate_model_profile_refs(self) -> Settings:
+        profiles = self.models.profiles
+        if self.models.default and self.models.default not in profiles:
+            raise ValueError(f"models.default references unknown profile: {self.models.default}")
+        missing = {
+            agent: profile
+            for agent, profile in self.agents.models.items()
+            if profile not in profiles
+        }
+        if missing:
+            pairs = ", ".join(f"{agent}={profile}" for agent, profile in sorted(missing.items()))
+            raise ValueError(f"agents.models references unknown model profile(s): {pairs}")
+        return self
 
     def save(self, paths: Paths) -> None:
         """Write ``settings.json`` atomically."""
@@ -259,6 +298,8 @@ __all__ = [
     "MediaMcpSettings",
     "MediaSettings",
     "MemorySettings",
+    "ModelProfile",
+    "ModelsSettings",
     "RalphSettings",
     "SchedulerSettings",
     "SearchSettings",

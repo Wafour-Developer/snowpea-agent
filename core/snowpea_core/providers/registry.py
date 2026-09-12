@@ -119,9 +119,29 @@ class ProviderRegistry:
         preset = PRESETS_BY_VENDOR.get(vendor)
         return preset.base_url if preset else None
 
+    def _profile(self, profile_id: str | None) -> tuple[str, str] | None:
+        if not profile_id:
+            return None
+        profile = self.settings.models.profiles.get(profile_id)
+        if profile is None:
+            return None
+        return profile.provider, profile.model
+
+    def default_profile(self) -> tuple[str, str] | None:
+        """Configured default model profile, if one exists."""
+        return self._profile(self.settings.models.default)
+
+    def agent_profile(self, agent: str | None) -> tuple[str, str] | None:
+        """Configured provider/model for ``agent``, else the default profile."""
+        assigned = self.settings.agents.models.get(agent or "")
+        return self._profile(assigned) or self.default_profile()
+
     def model_for(self, vendor: str, model: str | None = None) -> str:
         if model:
             return model
+        default = self.default_profile()
+        if default is not None and default[0] == vendor:
+            return default[1]
         configured = self.vendor_config(vendor).get("model")
         if isinstance(configured, str) and configured:
             return configured
@@ -321,6 +341,9 @@ class ProviderRegistry:
             env_vendor, _ = _split_env(env)
             if env_vendor:
                 return env_vendor
+        profile = self.default_profile()
+        if profile is not None:
+            return profile[0]
         configured = self.settings.providers.get("default")
         if isinstance(configured, str) and configured:
             return configured

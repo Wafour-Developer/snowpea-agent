@@ -3,7 +3,7 @@
 `snowpea setup` writes `$SNOWPEA_HOME/settings.json`. It has three shapes.
 
 ```bash
-snowpea setup            # quick: asks for one LLM vendor, defaults everything else
+snowpea setup            # quick: configure LLM models; defaults for other sections
 snowpea setup --full     # every screen, in order
 snowpea setup --blank    # asks nothing, writes the defaults
 ```
@@ -24,6 +24,30 @@ Quick is the right answer the first time. Full is worth one pass once you know w
 | Done | summary of what was written | — |
 
 Lists are ordered free-and-keyless first, then free-but-needs-a-key or self-hosted, then paid. The default in each list is marked with a star. Nothing in the default configuration requires a paid account beyond your LLM vendor: web search and the browser both work with no key at all.
+
+## Multiple models and agent assignments
+
+Run `snowpea setup providers` to register multiple models, choose a default, and assign registered models to built-in or custom agents. Multiple models from the same provider are supported. Clear an assignment to return an agent to the default.
+
+A model profile pairs a provider with a model ID. Credentials and base URLs remain shared in `providers.<provider>`; profiles do not duplicate API keys. This configuration illustrates the structure; replace the example model IDs with real ones.
+
+```json
+{
+  "models": {
+    "default": "daily",
+    "profiles": {
+      "daily": {"provider": "openai", "model": "your-default-model-id"},
+      "reasoning": {"provider": "anthropic", "model": "your-reasoning-model-id"}
+    }
+  },
+  "agents": {
+    "max_concurrent": 3,
+    "models": {"architect": "reasoning", "critic": "reasoning"}
+  }
+}
+```
+
+Agent routing precedence is **agent assignment → explicit model in the agent definition → default model**. Agents without an assignment or explicit definition model use `models.default`. New ordinary sessions also start with the default; explicit session provider/model overrides are preserved. Existing sessions are not automatically changed. Installations without model profiles retain their legacy behavior.
 
 ## Vendors
 
