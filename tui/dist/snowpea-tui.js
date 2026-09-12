@@ -37692,7 +37692,20 @@ function App2({
     (text) => {
       if (resumingRef.current || update.phase === "running" || update.phase === "done") return;
       if (/^\/update\s*$/.test(text.trim())) {
-        setUpdate(confirm);
+        void client.checkUpdate(true).then((check) => {
+          setUpdate((current) => fromCheck(current, check));
+          setUpdateAvailable(Boolean(check.available) && !check.error);
+          if (check.error) {
+            setUpdate((current) => progress(current, "failed", check.error ?? "update check failed"));
+          } else if (check.available) {
+            setUpdate(confirm);
+          } else {
+            setUpdate(cancel);
+            showToast(`already up to date${check.current ? ` (${check.current})` : ""}`);
+          }
+        }).catch((error) => {
+          setUpdate((current) => progress(current, "failed", String(error)));
+        });
         return;
       }
       const resume = /^\/resume(?:\s+(\S+))?\s*$/.exec(text.trim());

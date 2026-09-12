@@ -78,4 +78,17 @@ describe("startup update notification", () => {
       expect(rpc.prompt).not.toHaveBeenCalled();
     } finally { app.unmount(); }
   });
+
+  it("/update reports an up-to-date build without showing a failure", async () => {
+    const { rpc, stdin, stdout, app } = await setup();
+    rpc.checkUpdate.mockResolvedValue({ available: false, current: "0.1.2", latest: "0.1.2" });
+    try {
+      stdin.write("/update"); await sleep(60);
+      stdin.write("\r"); await sleep(100);
+      expect(rpc.checkUpdate).toHaveBeenLastCalledWith(true);
+      expect(rpc.startUpdate).not.toHaveBeenCalled();
+      expect(stdout.text()).toContain("already up to date (0.1.2)");
+      expect(stdout.text()).not.toContain("Update failed: No newer update");
+    } finally { app.unmount(); }
+  });
 });
