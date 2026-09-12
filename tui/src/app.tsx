@@ -51,6 +51,7 @@ import { useElapsed } from "./hooks/useElapsed.js";
 import { useSpinner } from "./hooks/useSpinner.js";
 import { useKnownAgents } from "./hooks/useKnownAgents.js";
 import { clampFocus, focusDown, focusUp, isInput, INPUT_FOCUS, type Focus } from "./state/focus.js";
+import { offerSession } from "./state/history.js";
 import type { SessionMemory, SessionRecord, TuiHistory } from "./state/history.js";
 import { TUI_VERSION } from "./version.js";
 import { transcriptLines } from "./layout/transcript.js";
@@ -128,6 +129,11 @@ export interface AppProps {
   history?: TuiHistory;
   /** What was last open in this directory, and where to record this one. */
   sessions?: SessionMemory;
+  /**
+   * The newest session `session.list` still has open for this directory, read
+   * before the first render so the launch banner can offer it.
+   */
+  priorSession?: SessionRecord | null;
 }
 
 /** One transcript entry — a message, a tool call, a diff or a compaction. */
@@ -232,6 +238,7 @@ export function App({
   onRestart,
   history,
   sessions,
+  priorSession = null,
 }: AppProps): React.ReactElement {
   const { exit } = useApp();
   const [state, dispatch] = useReducer(reducer, initialState);
@@ -259,7 +266,7 @@ export function App({
   /** The session last open in this directory, for the launch banner. */
   const [lastSession] = useState<SessionRecord | null>(() => {
     sessions?.load();
-    return sessions?.last(workdir) ?? null;
+    return offerSession(sessions?.last(workdir) ?? null, priorSession);
   });
   /** Shown once in the status line until the shortcut is used or it times out. */
   const [modeHintVisible, setModeHintVisible] = useState(true);
@@ -871,11 +878,6 @@ export function App({
       return;
     }
 
-    // R on an untouched input reopens the session this directory was last in.
-    if ((input === "r" || input === "R") && draft.length === 0 && lastSession) {
-      resumeMemory();
-      return;
-    }
     // Ctrl+A opens the agent panel out; Ctrl+R hands the keyboard to the
     // unattended approval backlog.
     if (key.ctrl && input === "a") {
@@ -1001,6 +1003,9 @@ export function App({
           onSubmit={submit}
           initialHistory={pastPrompts}
           onFocusDown={() => setFocus((current) => focusDown(current, agentRows.length))}
+          onQuickResume={
+            lastSession && state.messages.length === 0 ? resumeMemory : undefined
+          }
           completions={completions}
           onChange={setDraft}
           onInterrupt={() => void client.interrupt(sessionId).catch(() => undefined)}

@@ -160,6 +160,51 @@ export class SessionMemory {
   }
 }
 
+/** A session the daemon still has open, as `session.list` describes it. */
+export interface LiveSession {
+  sessionId: string;
+  workdir: string;
+  createdAt?: string;
+}
+
+/**
+ * The newest session `session.list` reports for this directory, other than the
+ * one just created.
+ */
+export function priorSession(
+  sessions: LiveSession[],
+  workdir: string,
+  currentSessionId: string,
+): SessionRecord | null {
+  const candidates = sessions
+    .filter((entry) => entry.workdir === workdir && entry.sessionId !== currentSessionId)
+    .map((entry) => ({
+      sessionId: entry.sessionId,
+      workdir: entry.workdir,
+      firstPrompt: "",
+      at: entry.createdAt ? Date.parse(entry.createdAt) || 0 : 0,
+    }))
+    .sort((a, b) => b.at - a.at);
+  return candidates[0] ?? null;
+}
+
+/**
+ * The session the launch screen may offer, or null.
+ *
+ * Only a session the daemon still has can be resumed — `session.resume` on a
+ * closed one fails — so the live list decides whether there is an offer at all,
+ * and this surface's own record only supplies the prompt that makes the line
+ * worth reading.
+ */
+export function offerSession(
+  local: SessionRecord | null,
+  live: SessionRecord | null,
+): SessionRecord | null {
+  if (!live) return null;
+  if (!local || local.sessionId !== live.sessionId) return live;
+  return { ...live, firstPrompt: local.firstPrompt, at: Math.max(live.at, local.at) };
+}
+
 /** `4m ago`, `2h ago`, `yesterday` — enough to recognise a session by. */
 export function relativeTime(then: number, now = Date.now()): string {
   const seconds = Math.max(0, Math.round((now - then) / 1000));

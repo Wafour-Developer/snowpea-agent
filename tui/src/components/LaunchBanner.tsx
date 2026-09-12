@@ -73,7 +73,11 @@ export function LaunchBanner({
           <Text wrap="truncate-end">
             <Text color="cyan">Last session: </Text>
             <Text dimColor>{`${relativeTime(lastSession.at, now)} · `}</Text>
-            <Text>{`"${previewPrompt(lastSession.firstPrompt)}"`}</Text>
+            <Text>
+              {lastSession.firstPrompt
+                ? `"${previewPrompt(lastSession.firstPrompt)}"`
+                : lastSession.sessionId.slice(0, 8)}
+            </Text>
           </Text>
           <Text dimColor>Press R or type /resume to continue it</Text>
         </Box>

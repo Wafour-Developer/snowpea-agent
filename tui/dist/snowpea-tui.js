@@ -34779,6 +34779,132 @@ function clampFocus(focus, agentRows) {
   return focus.index < agentRows ? focus : { zone: "agent", index: agentRows - 1 };
 }
 
+// src/state/history.ts
+var MAX_HISTORY = 500;
+var HISTORY_FILE = "tui-history.jsonl";
+var SESSIONS_FILE = "tui-sessions.json";
+function stateDir(env3, home) {
+  return env3.SNOWPEA_HOME && env3.SNOWPEA_HOME.length > 0 ? env3.SNOWPEA_HOME : `${home}/.snowpea`;
+}
+function parseHistory(contents) {
+  if (!contents) return [];
+  const out = [];
+  for (const line of contents.split("\n")) {
+    if (line.trim().length === 0) continue;
+    try {
+      const entry = JSON.parse(line);
+      if (typeof entry.text === "string" && entry.text.length > 0) {
+        out.push({
+          text: entry.text,
+          at: typeof entry.at === "number" ? entry.at : 0,
+          workdir: typeof entry.workdir === "string" ? entry.workdir : ""
+        });
+      }
+    } catch {
+    }
+  }
+  return out;
+}
+var TuiHistory = class {
+  constructor(store, dir) {
+    this.store = store;
+    this.dir = dir;
+  }
+  entries = [];
+  /** Read the history from disk. Safe to call before anything exists. */
+  load() {
+    this.entries = parseHistory(this.store.read(this.store.join(this.dir, HISTORY_FILE)));
+    return this.entries;
+  }
+  /** The prompts, oldest first. */
+  prompts() {
+    return this.entries.map((entry) => entry.text);
+  }
+  /**
+   * Add one prompt and write the file back.
+   *
+   * A prompt repeated straight away is not recorded twice: walking back through
+   * a history full of the same line is the thing that makes history useless.
+   */
+  add(text, workdir, now = Date.now()) {
+    const trimmed = text.trim();
+    if (trimmed.length === 0) return;
+    if (this.entries[this.entries.length - 1]?.text === trimmed) return;
+    this.entries.push({ text: trimmed, at: now, workdir });
+    if (this.entries.length > MAX_HISTORY) {
+      this.entries = this.entries.slice(this.entries.length - MAX_HISTORY);
+    }
+    try {
+      this.store.write(
+        this.store.join(this.dir, HISTORY_FILE),
+        `${this.entries.map((entry) => JSON.stringify(entry)).join("\n")}
+`
+      );
+    } catch {
+    }
+  }
+};
+function parseSessions(contents) {
+  if (!contents) return {};
+  try {
+    const parsed = JSON.parse(contents);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+var SessionMemory = class {
+  constructor(store, dir) {
+    this.store = store;
+    this.dir = dir;
+  }
+  records = {};
+  load() {
+    this.records = parseSessions(this.store.read(this.store.join(this.dir, SESSIONS_FILE)));
+    return this.records;
+  }
+  /** What was last open in this directory, if anything. */
+  last(workdir) {
+    return this.records[workdir] ?? null;
+  }
+  /** Remember this session as the directory's most recent one. */
+  remember(record) {
+    this.records[record.workdir] = record;
+    try {
+      this.store.write(
+        this.store.join(this.dir, SESSIONS_FILE),
+        `${JSON.stringify(this.records, null, 2)}
+`
+      );
+    } catch {
+    }
+  }
+};
+function priorSession(sessions, workdir, currentSessionId) {
+  const candidates = sessions.filter((entry) => entry.workdir === workdir && entry.sessionId !== currentSessionId).map((entry) => ({
+    sessionId: entry.sessionId,
+    workdir: entry.workdir,
+    firstPrompt: "",
+    at: entry.createdAt ? Date.parse(entry.createdAt) || 0 : 0
+  })).sort((a, b) => b.at - a.at);
+  return candidates[0] ?? null;
+}
+function offerSession(local, live) {
+  if (!live) return null;
+  if (!local || local.sessionId !== live.sessionId) return live;
+  return { ...live, firstPrompt: local.firstPrompt, at: Math.max(live.at, local.at) };
+}
+function relativeTime(then, now = Date.now()) {
+  const seconds = Math.max(0, Math.round((now - then) / 1e3));
+  if (seconds < 60) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return days === 1 ? "yesterday" : `${days}d ago`;
+}
+
 // src/version.ts
 var TUI_VERSION = "0.1.2";
 
@@ -35516,6 +35642,7 @@ function Chat({
   onSubmit,
   initialHistory = [],
   onFocusDown,
+  onQuickResume,
   completions,
   disabled = false,
   placeholder = "ask anything, or /command",
@@ -35582,6 +35709,10 @@ function Chat({
         return;
       }
       if (key.ctrl || key.meta || input.length === 0) return;
+      if (input === "R" && value.length === 0 && onQuickResume) {
+        onQuickResume();
+        return;
+      }
       update(value + input);
     },
     { isActive: !disabled }
@@ -36081,118 +36212,6 @@ function AgentTranscript({
   );
 }
 
-// src/state/history.ts
-var MAX_HISTORY = 500;
-var HISTORY_FILE = "tui-history.jsonl";
-var SESSIONS_FILE = "tui-sessions.json";
-function stateDir(env3, home) {
-  return env3.SNOWPEA_HOME && env3.SNOWPEA_HOME.length > 0 ? env3.SNOWPEA_HOME : `${home}/.snowpea`;
-}
-function parseHistory(contents) {
-  if (!contents) return [];
-  const out = [];
-  for (const line of contents.split("\n")) {
-    if (line.trim().length === 0) continue;
-    try {
-      const entry = JSON.parse(line);
-      if (typeof entry.text === "string" && entry.text.length > 0) {
-        out.push({
-          text: entry.text,
-          at: typeof entry.at === "number" ? entry.at : 0,
-          workdir: typeof entry.workdir === "string" ? entry.workdir : ""
-        });
-      }
-    } catch {
-    }
-  }
-  return out;
-}
-var TuiHistory = class {
-  constructor(store, dir) {
-    this.store = store;
-    this.dir = dir;
-  }
-  entries = [];
-  /** Read the history from disk. Safe to call before anything exists. */
-  load() {
-    this.entries = parseHistory(this.store.read(this.store.join(this.dir, HISTORY_FILE)));
-    return this.entries;
-  }
-  /** The prompts, oldest first. */
-  prompts() {
-    return this.entries.map((entry) => entry.text);
-  }
-  /**
-   * Add one prompt and write the file back.
-   *
-   * A prompt repeated straight away is not recorded twice: walking back through
-   * a history full of the same line is the thing that makes history useless.
-   */
-  add(text, workdir, now = Date.now()) {
-    const trimmed = text.trim();
-    if (trimmed.length === 0) return;
-    if (this.entries[this.entries.length - 1]?.text === trimmed) return;
-    this.entries.push({ text: trimmed, at: now, workdir });
-    if (this.entries.length > MAX_HISTORY) {
-      this.entries = this.entries.slice(this.entries.length - MAX_HISTORY);
-    }
-    try {
-      this.store.write(
-        this.store.join(this.dir, HISTORY_FILE),
-        `${this.entries.map((entry) => JSON.stringify(entry)).join("\n")}
-`
-      );
-    } catch {
-    }
-  }
-};
-function parseSessions(contents) {
-  if (!contents) return {};
-  try {
-    const parsed = JSON.parse(contents);
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-var SessionMemory = class {
-  constructor(store, dir) {
-    this.store = store;
-    this.dir = dir;
-  }
-  records = {};
-  load() {
-    this.records = parseSessions(this.store.read(this.store.join(this.dir, SESSIONS_FILE)));
-    return this.records;
-  }
-  /** What was last open in this directory, if anything. */
-  last(workdir) {
-    return this.records[workdir] ?? null;
-  }
-  /** Remember this session as the directory's most recent one. */
-  remember(record) {
-    this.records[record.workdir] = record;
-    try {
-      this.store.write(
-        this.store.join(this.dir, SESSIONS_FILE),
-        `${JSON.stringify(this.records, null, 2)}
-`
-      );
-    } catch {
-    }
-  }
-};
-function relativeTime(then, now = Date.now()) {
-  const seconds = Math.max(0, Math.round((now - then) / 1e3));
-  if (seconds < 60) return "just now";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return days === 1 ? "yesterday" : `${days}d ago`;
-}
-
 // src/components/LaunchBanner.tsx
 var import_jsx_runtime15 = __toESM(require_jsx_runtime(), 1);
 var PROMPT_PREVIEW = 60;
@@ -36227,7 +36246,7 @@ function LaunchBanner({
       /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(Text, { wrap: "truncate-end", children: [
         /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { color: "cyan", children: "Last session: " }),
         /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { dimColor: true, children: `${relativeTime(lastSession.at, now)} \xB7 ` }),
-        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { children: `"${previewPrompt(lastSession.firstPrompt)}"` })
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { children: lastSession.firstPrompt ? `"${previewPrompt(lastSession.firstPrompt)}"` : lastSession.sessionId.slice(0, 8) })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { dimColor: true, children: "Press R or type /resume to continue it" })
     ] }) : null,
@@ -36447,7 +36466,8 @@ function App2({
   fullscreen = false,
   onRestart,
   history,
-  sessions
+  sessions,
+  priorSession: priorSession2 = null
 }) {
   const { exit } = use_app_default();
   const [state, dispatch] = (0, import_react35.useReducer)(reducer, initialState);
@@ -36466,7 +36486,7 @@ function App2({
   });
   const [lastSession] = (0, import_react35.useState)(() => {
     sessions?.load();
-    return sessions?.last(workdir) ?? null;
+    return offerSession(sessions?.last(workdir) ?? null, priorSession2);
   });
   const [modeHintVisible, setModeHintVisible] = (0, import_react35.useState)(true);
   const [modeToast, setModeToast] = (0, import_react35.useState)(null);
@@ -36893,10 +36913,6 @@ function App2({
       }
       return;
     }
-    if ((input === "r" || input === "R") && draft.length === 0 && lastSession) {
-      resumeMemory();
-      return;
-    }
     if (key.ctrl && input === "a") {
       setAgentsExpanded((open) => !open);
       return;
@@ -36996,6 +37012,7 @@ function App2({
         onSubmit: submit,
         initialHistory: pastPrompts,
         onFocusDown: () => setFocus((current) => focusDown(current, agentRows.length)),
+        onQuickResume: lastSession && state.messages.length === 0 ? resumeMemory : void 0,
         completions,
         onChange: setDraft,
         onInterrupt: () => void client.interrupt(sessionId).catch(() => void 0),
@@ -37899,6 +37916,13 @@ async function main(argv = process.argv.slice(2)) {
   const dir = stateDir(process.env, homedir());
   const history = new TuiHistory(fileStore, dir);
   const sessions = new SessionMemory(fileStore, dir);
+  let prior = null;
+  try {
+    const listed = await client.call("session.list", {});
+    const open = Array.isArray(listed?.sessions) ? listed.sessions : [];
+    prior = priorSession(open, args.cwd, sessionId);
+  } catch {
+  }
   let restart = false;
   const instance = render_default(
     /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
@@ -37911,6 +37935,7 @@ async function main(argv = process.argv.slice(2)) {
         fullscreen: args.fullscreen,
         history,
         sessions,
+        priorSession: prior,
         onRestart: () => {
           restart = true;
         }

@@ -21,6 +21,14 @@ export interface ChatProps {
   initialHistory?: string[];
   /** ↓ at the newest entry with nothing drafted: the cursor leaves the input. */
   onFocusDown?: () => void;
+  /**
+   * `R` on an untouched input reopens the session the launch screen offered.
+   *
+   * Handled here rather than in the app so the character never lands in the
+   * draft, and offered only while the input is empty and nothing has been said
+   * yet — after that, R is just a letter.
+   */
+  onQuickResume?: () => void;
   /** Autocomplete candidates for the current input; owner calls registry.complete(). */
   completions: CommandInfo[];
   disabled?: boolean;
@@ -34,6 +42,7 @@ export function Chat({
   onSubmit,
   initialHistory = [],
   onFocusDown,
+  onQuickResume,
   completions,
   disabled = false,
   placeholder = "ask anything, or /command",
@@ -116,6 +125,10 @@ export function Chat({
       }
 
       if (key.ctrl || key.meta || input.length === 0) return;
+      if (input === "R" && value.length === 0 && onQuickResume) {
+        onQuickResume();
+        return;
+      }
       update(value + input);
     },
     { isActive: !disabled },

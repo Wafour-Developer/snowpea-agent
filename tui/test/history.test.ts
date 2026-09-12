@@ -6,6 +6,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   MAX_HISTORY,
+  offerSession,
+  priorSession,
   SessionMemory,
   TuiHistory,
   parseHistory,
@@ -105,6 +107,44 @@ describe("session memory", () => {
   it("treats a corrupt file as no memory at all", () => {
     expect(parseSessions("{not json")).toEqual({});
     expect(parseSessions(null)).toEqual({});
+  });
+});
+
+describe("priorSession", () => {
+  const listed = [
+    { sessionId: "s-old", workdir: "/repo", createdAt: "2026-09-10T10:00:00Z" },
+    { sessionId: "s-new", workdir: "/repo", createdAt: "2026-09-12T10:00:00Z" },
+    { sessionId: "s-other", workdir: "/elsewhere", createdAt: "2026-09-12T11:00:00Z" },
+    { sessionId: "s-current", workdir: "/repo", createdAt: "2026-09-12T12:00:00Z" },
+  ];
+
+  it("takes the newest session for this directory, never the current one", () => {
+    expect(priorSession(listed, "/repo", "s-current")?.sessionId).toBe("s-new");
+  });
+
+  it("has nothing to offer for a directory the daemon has not seen", () => {
+    expect(priorSession(listed, "/untouched", "s-current")).toBeNull();
+    expect(priorSession([], "/repo", "s-current")).toBeNull();
+  });
+});
+
+describe("offerSession", () => {
+  const local = { sessionId: "s-1", workdir: "/repo", firstPrompt: "do a thing", at: 100 };
+
+  it("offers nothing when the daemon has no session left to resume", () => {
+    expect(offerSession(local, null)).toBeNull();
+    expect(offerSession(null, null)).toBeNull();
+  });
+
+  it("dresses the live session with the prompt this surface remembers", () => {
+    const merged = offerSession(local, { ...local, firstPrompt: "", at: 200 });
+    expect(merged).toEqual({ ...local, at: 200 });
+  });
+
+  it("offers a live session it has no memory of, prompt and all", () => {
+    const live = { sessionId: "s-2", workdir: "/repo", firstPrompt: "", at: 300 };
+    expect(offerSession(local, live)).toEqual(live);
+    expect(offerSession(null, live)).toEqual(live);
   });
 });
 
