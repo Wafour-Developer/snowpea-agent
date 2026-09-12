@@ -32,7 +32,7 @@ from snowpea_core.setup.screens import gateway as gateway_screen
 from snowpea_core.setup.screens import providers as providers_screen
 from snowpea_core.setup.screens import search as search_screen
 from snowpea_core.setup.screens import tools as tools_screen
-from snowpea_core.setup.state import WizardState
+from snowpea_core.setup.state import WizardState, profile_id
 
 Mode = Literal["quick", "full", "blank"]
 
@@ -163,6 +163,7 @@ def run(
             _ask_for_key(state, interactive=interactive)
         if name == "providers" and state.vendor:
             _ask_for_model(state, interactive=interactive, console=console)
+            _configure_models(state, interactive=interactive, console=console, home=paths.home)
         if name == "search":
             _ask_for_search_key(state, interactive=interactive, console=console)
         if name == "audio":
@@ -286,16 +287,24 @@ def _ask_for_model(
         available = _run_sync(
             model_discovery.list_models(
                 preset,
-                api_key=state.api_key or None,
+                api_key=state.api_key
+                or str((state.provider_configs.get(state.vendor) or {}).get("api_key") or "")
+                or None,
                 base_url=state.base_url or None,
                 refresh=True,
             )
         )
     except Exception as exc:  # noqa: BLE001 - a down server must not stop setup
-        out(f"could not list models ({exc}); you can set it later with /model")
+        out(f"could not list models ({exc})")
+        entered = ui.ask_text(f"model id [{state.model or 'required'}]: ")
+        if entered:
+            state.model = entered
         return
     if not available:
-        out("could not list models (the server listed none); you can set it later with /model")
+        out("the server listed no models")
+        entered = ui.ask_text(f"model id [{state.model or 'required'}]: ")
+        if entered:
+            state.model = entered
         return
     shown = available[:MODEL_CHOICES_SHOWN]
     default_idx = shown.index(state.model) + 1 if state.model in shown else 1
@@ -310,6 +319,68 @@ def _ask_for_model(
         state.model = shown[int(picked) - 1]
     else:
         state.model = picked
+
+
+def _configure_models(
+    state: WizardState,
+    *,
+    interactive: bool,
+    console: Console | None,
+    home: Path,
+) -> None:
+    """Register more profiles, choose a default, and assign agent overrides."""
+    state.add_current_model_profile()
+    if not interactive:
+        return
+    out = console.print if console is not None else print
+    while True:
+        vendor = ui.ask_text("add another model — provider id (Enter to finish): ").strip()
+        if not vendor:
+            break
+        state.select_vendor(vendor)
+        _ask_for_key(state, interactive=True)
+        _ask_for_model(state, interactive=True, console=console)
+        profile = state.add_current_model_profile()
+        if profile:
+            out(f"registered model profile {profile}")
+
+    profiles = list(state.model_profiles)
+    if not profiles:
+        return
+    for index, profile in enumerate(profiles, 1):
+        marker = " (current default)" if profile == state.default_model else ""
+        out(f"  {index}. {profile}{marker}")
+    default_idx = profiles.index(state.default_model) + 1 if state.default_model in profiles else 1
+    prompt = f"default model (Enter={default_idx}: {profiles[default_idx - 1]}): "
+    picked = ui.ask_text(prompt).strip()
+    if picked.isdigit() and 1 <= int(picked) <= len(profiles):
+        state.set_default_model(profiles[int(picked) - 1])
+    elif picked in state.model_profiles:
+        state.set_default_model(picked)
+
+    from snowpea_core.agent.definition import builtin_agent_definitions, discover_definitions
+
+    names = sorted(
+        {definition.name for definition in builtin_agent_definitions()}
+        | {definition.name for definition in discover_definitions(Path.cwd(), home)}
+    )
+    if names:
+        out("agents: " + ", ".join(names))
+    while True:
+        agent = ui.ask_text("assign model to agent (Enter to finish): ").strip()
+        if not agent:
+            break
+        current = state.agent_models.get(agent)
+        hint = f"; Enter uses default{f' (currently {current})' if current else ''}"
+        choice = ui.ask_text(f"profile for {agent} [1-{len(profiles)}{hint}]: ").strip()
+        if not choice:
+            state.assign_agent_model(agent, None)
+        elif choice.isdigit() and 1 <= int(choice) <= len(profiles):
+            state.assign_agent_model(agent, profiles[int(choice) - 1])
+        elif choice in state.model_profiles:
+            state.assign_agent_model(agent, choice)
+        else:
+            out(f"unknown model profile: {choice}")
 
 
 def _note_missing_search_key(state: WizardState, search_providers: Any) -> None:
@@ -506,10 +577,14 @@ def _apply_flags(state: WizardState, **flags: Any) -> set[str]:
 
         if vendor not in PRESETS:
             raise SetupError(f"unknown vendor: {vendor} (try `snowpea provider list`)")
-        state.vendor = vendor
+        state.select_vendor(vendor)
         state.api_key = flags.get("key") or state.api_key
         state.model = flags.get("model") or state.model
         state.base_url = flags.get("base_url") or state.base_url
+        if flags.get("model"):
+            # An explicit CLI model is caller intent, not merely an additional
+            # profile; make it the default just as the old single-model setup did.
+            state.default_model = profile_id(vendor, str(state.model))
         if vendor == "local" and not state.base_url:
             from snowpea_core.providers.presets import LOCAL_VARIANTS
 

@@ -37,7 +37,7 @@ def apply(state: WizardState, choice: str | set[str]) -> WizardState:
     if isinstance(choice, set):
         choice = next(iter(choice), SKIP)
     if choice and choice != SKIP:
-        state.vendor = choice
+        state.select_vendor(choice)
     return state
 
 

@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from snowpea_core.config.paths import Paths
-from snowpea_core.config.settings import AudioSettings, Settings
+from snowpea_core.config.settings import AudioSettings, ModelProfile, Settings
 from snowpea_core.setup import catalog
 
 #: The id every screen carries as its last row.
@@ -32,6 +32,13 @@ class WizardState:
     variant: str | None = None
     #: True when settings.json already holds an API key for ``vendor`` (kept unless replaced).
     has_saved_key: bool = False
+    #: Per-provider LLM credentials/configuration retained across provider switches.
+    provider_configs: dict[str, dict[str, Any]] = field(default_factory=dict)
+    #: Named model profiles.  Profiles point at provider credentials without
+    #: duplicating keys/base URLs, so the same provider can host many models.
+    model_profiles: dict[str, dict[str, str]] = field(default_factory=dict)
+    default_model: str | None = None
+    agent_models: dict[str, str] = field(default_factory=dict)
     search_provider: str = catalog.DEFAULT_SEARCH_PROVIDER
     #: provider id -> credential block, e.g. ``{"exa": {"api_key": "..."}}``.
     #: Only providers the run actually touched appear here.
@@ -73,7 +80,23 @@ class WizardState:
             if isinstance(settings.providers.get("default"), str)
             else None
         )
-        saved = settings.providers.get(vendor) if vendor else None
+        provider_configs = {
+            str(pid): dict(block)
+            for pid, block in settings.providers.items()
+            if isinstance(block, dict)
+        }
+        profiles = {
+            str(pid): {"provider": profile.provider, "model": profile.model}
+            for pid, profile in settings.models.profiles.items()
+        }
+        default_profile = settings.models.default
+        if not default_profile and vendor:
+            maybe = provider_configs.get(vendor) or {}
+            legacy_model = maybe.get("model")
+            if isinstance(legacy_model, str) and legacy_model:
+                default_profile = profile_id(vendor, legacy_model)
+                profiles.setdefault(default_profile, {"provider": vendor, "model": legacy_model})
+        saved = provider_configs.get(vendor or "") if vendor else None
         saved = saved if isinstance(saved, dict) else {}
         return cls(
             vendor=vendor,
@@ -81,6 +104,14 @@ class WizardState:
             base_url=saved.get("base_url") or None,
             variant=saved.get("variant") or None,
             has_saved_key=bool(saved.get("api_key")),
+            provider_configs=provider_configs,
+            model_profiles=profiles,
+            default_model=default_profile,
+            agent_models={
+                str(name): str(profile)
+                for name, profile in getattr(settings.agents, "models", {}).items()
+                if isinstance(name, str) and isinstance(profile, str)
+            },
             search_provider=settings.search.provider or catalog.DEFAULT_SEARCH_PROVIDER,
             search_credentials={
                 str(pid): dict(block)
@@ -94,6 +125,57 @@ class WizardState:
         )
 
     # -- mutation ------------------------------------------------------
+
+    def select_vendor(self, vendor: str) -> None:
+        """Switch the active provider without leaking credentials across vendors."""
+        self.vendor = vendor
+        saved = self.provider_configs.get(vendor) or {}
+        self.api_key = None
+        self.model = str(saved.get("model") or "") or None
+        self.base_url = str(saved.get("base_url") or "") or None
+        self.variant = str(saved.get("variant") or "") or None
+        self.has_saved_key = bool(saved.get("api_key") or saved.get("token"))
+
+    def remember_current_provider(self) -> None:
+        """Store the current provider fields in the per-vendor cache."""
+        if not self.vendor:
+            return
+        block = dict(self.provider_configs.get(self.vendor) or {})
+        if self.api_key:
+            block["api_key"] = self.api_key
+        if self.model:
+            block["model"] = self.model
+        if self.base_url:
+            block["base_url"] = self.base_url
+        if self.variant:
+            block["variant"] = self.variant
+        if block:
+            self.provider_configs[self.vendor] = block
+
+    def add_current_model_profile(self, *, make_default: bool = False) -> str | None:
+        """Add the active provider/model as a reusable model profile."""
+        if not self.vendor or not self.model:
+            return None
+        self.remember_current_provider()
+        pid = profile_id(self.vendor, self.model)
+        self.model_profiles[pid] = {"provider": self.vendor, "model": self.model}
+        if make_default or not self.default_model:
+            self.default_model = pid
+        return pid
+
+    def set_default_model(self, profile: str | None) -> None:
+        if profile and profile in self.model_profiles:
+            self.default_model = profile
+
+    def assign_agent_model(self, agent: str, profile: str | None) -> None:
+        agent = agent.strip()
+        if not agent:
+            return
+        if not profile:
+            self.agent_models.pop(agent, None)
+        elif profile in self.model_profiles:
+            self.agent_models[agent] = profile
+
     def audio_block(self) -> dict[str, Any]:
         """The ``settings.audio`` object these answers describe."""
         stt: dict[str, Any] = {"provider": self.stt_provider}
@@ -173,19 +255,29 @@ class WizardState:
         """Fold the answers into ``settings`` and persist them."""
         from snowpea_core.providers.registry import ProviderRegistry
 
+        # Command-line setup uses the same multi-model format even though it
+        # skips the interactive model-management questions.
+        self.add_current_model_profile()
+        self.remember_current_provider()
+        registry = ProviderRegistry(settings)
+        for vendor, config in self.provider_configs.items():
+            if config:
+                registry.configure(vendor, dict(config))
         if self.vendor:
-            registry = ProviderRegistry(settings)
-            config: dict[str, Any] = {}
-            if self.api_key:
-                config["api_key"] = self.api_key
-            if self.model:
-                config["model"] = self.model
-            if self.base_url:
-                config["base_url"] = self.base_url
-            if self.variant:
-                config["variant"] = self.variant
-            registry.configure(self.vendor, config)
             settings.providers["default"] = self.vendor
+        settings.models.profiles = {
+            pid: ModelProfile.model_validate(block)
+            for pid, block in self.model_profiles.items()
+            if block.get("provider") and block.get("model")
+        }
+        settings.models.default = (
+            self.default_model if self.default_model in settings.models.profiles else None
+        )
+        settings.agents.models = {
+            agent: profile
+            for agent, profile in self.agent_models.items()
+            if profile in settings.models.profiles
+        }
 
         settings.search.provider = self.search_provider
         for pid, block in self.search_credentials.items():
@@ -209,9 +301,19 @@ class WizardState:
 
     def summary(self) -> list[str]:
         """The lines ``snowpea setup`` prints when it is done."""
+        profile_count = len(self.model_profiles)
+        default = self.default_model or "(none)"
+        assigned = len(self.agent_models)
         lines = [
             f"provider   {self.vendor or '(none configured)'}"
             + (f"  model {self.model}" if self.model else ""),
+            f"models     {profile_count} profile" + ("s" if profile_count != 1 else "")
+            + f" · default {default}"
+            + (
+                f" · {assigned} agent assignment" + ("s" if assigned != 1 else "")
+                if assigned
+                else ""
+            ),
             f"search     {self.search_provider}{self._search_key_note()}",
             f"browser    {self.browser_provider}",
             f"audio      in {self.stt_provider} · out {self.tts_provider}{self._voice_note()}",
@@ -257,6 +359,11 @@ class WizardState:
         return labels
 
 
+def profile_id(provider: str, model: str) -> str:
+    """Stable id for a provider/model profile."""
+    return f"{provider}:{model}"
+
+
 def _as_dict(block: Any) -> dict[str, Any]:
     """``settings.audio`` as a plain dict, model or hand-written JSON alike."""
     if isinstance(block, dict):
@@ -288,4 +395,4 @@ def _audio_from(block: Any) -> dict[str, Any]:
     }
 
 
-__all__ = ["SKIP", "SKIP_LABEL", "WizardState"]
+__all__ = ["SKIP", "SKIP_LABEL", "WizardState", "profile_id"]

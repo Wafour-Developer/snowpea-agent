@@ -460,15 +460,25 @@ class SubagentManager:
         mode = parent.mode
         if defn is not None and defn.permission not in ("", "inherit", None):
             mode = defn.permission  # type: ignore[assignment]
-        provider, model = parent.provider, parent.model
-        if defn is not None and defn.model and defn.model != "inherit":
-            provider, model = _split_model(defn.model, parent.provider)
+        definition_model = (
+            defn.model if defn is not None and defn.model and defn.model != "inherit" else None
+        )
+        assigned = bool(record.name and record.name in self.core.settings.agents.models)
+        has_model_routing = bool(self.core.settings.models.default or assigned)
+        if has_model_routing or definition_model:
+            provider, model = (None, None)
+            if definition_model and not has_model_routing:
+                provider, model = _split_model(definition_model, parent.provider)
+                definition_model = None
+        else:
+            provider, model = parent.provider, parent.model
         child = await self.core.sessions.create(
             parent.workdir,
             mode=mode,
             provider=provider,
             model=model,
             agent=record.name or None,
+            definition_model=definition_model,
             max_concurrent=self.limit_for(parent),
             origin_surface=parent.origin_surface,
             origin_conn=parent.origin_conn,

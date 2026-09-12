@@ -296,10 +296,16 @@ class NamedAgentRegistry:
         mode = None
         if definition is not None and definition.permission in MODES:
             mode = definition.permission
+        definition_model = (
+            definition.model
+            if definition is not None and definition.model and definition.model != "inherit"
+            else None
+        )
         session = await core.sessions.create(
             workdir=resolved,
             mode=mode,  # type: ignore[arg-type]
             agent=name,
+            definition_model=definition_model,
             origin_surface=namespace_for(name),
             origin_conn=None,
             session_id=session_id,
