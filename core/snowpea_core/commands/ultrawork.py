@@ -26,6 +26,7 @@ from typing import Any
 from snowpea_core.agent.definition import complete_text, parse_generated_json
 from snowpea_core.agent.subagent import get_manager
 from snowpea_core.commands.registry import Command, CommandContext
+from snowpea_core.prompts.loader import render
 from snowpea_core.providers.base import ChatMessage
 
 log = logging.getLogger("snowpea.commands.ultrawork")
@@ -35,15 +36,7 @@ USAGE = 'Usage: /ultrawork "<task>"'
 #: Never fan out wider than this, however many subtasks the model invents.
 MAX_SUBTASKS = 8
 
-SPLIT_SYSTEM = (
-    "You split a development task into independent subtasks that can run at "
-    "the same time without touching the same files.\n"
-    "Answer with a single JSON object and nothing else.\n"
-    'Shape: {"subtasks": [{"id": "T1", "title": "<one line>", '
-    '"task": "<self-contained brief for one agent>"}]}\n'
-    f"Give at most {MAX_SUBTASKS} subtasks. If the task cannot be split, "
-    "return exactly one."
-)
+SPLIT_SYSTEM = render("workflows/ultrawork-split", MAX_SUBTASKS=MAX_SUBTASKS)
 
 ULTRAWORK_ARGS_SCHEMA = {
     "type": "object",

@@ -1,0 +1,36 @@
+{
+  "steps": [
+    {
+      "match": "adapt after the refusal",
+      "text": "writing",
+      "tool_calls": [
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "out.txt",
+            "content": "x"
+          }
+        }
+      ]
+    },
+    {
+      "after_tool": "write_file",
+      "text": "reading instead",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "note.txt"
+          }
+        }
+      ]
+    },
+    {
+      "after_tool": "read_file",
+      "text": "Goal \u2014 leave note.txt alone. Steps \u2014 1. nothing."
+    }
+  ],
+  "default": {
+    "text": "nothing to do"
+  }
+}

@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from snowpea_core.agent.agent import build_messages
+from snowpea_core.prompts.loader import load
 from snowpea_core.providers.base import ChatMessage, ProviderError
 from snowpea_core.session import events
 from snowpea_core.session.history import estimate_messages
@@ -44,19 +45,7 @@ SUMMARY_MAX_TOKENS = 2048
 #: Marker that opens the summary message, so a resumed session can recognise it.
 SUMMARY_HEADING = "Session summary"
 
-SUMMARY_SYSTEM_PROMPT = (
-    "You are compacting a coding-agent conversation so it can continue in a "
-    "smaller context window. Write a dense summary of everything that the "
-    "agent still needs. Keep, in this order and under these headings:\n"
-    "- Goal: what the user is trying to achieve.\n"
-    "- Decisions: choices already made and the reasons, so they are not redone.\n"
-    "- Files: absolute paths touched or read, and what changed in each.\n"
-    "- Pending: work still outstanding, in the order it should happen.\n"
-    "- Preferences: how the user wants to be worked with.\n"
-    "Prefer concrete names, paths and values over description. Do not invent "
-    "anything that is not in the conversation, and do not address the user — "
-    "this text is notes for the agent itself."
-)
+SUMMARY_SYSTEM_PROMPT = load("workflows/compaction")
 
 
 @dataclass
@@ -94,7 +83,7 @@ def prompt_messages(core: Core, session: Session) -> list[ChatMessage]:
     except Exception:  # noqa: BLE001 - accounting must not break on a bad tool
         log.debug("could not list tool specs for context accounting", exc_info=True)
         specs = []
-    return build_messages(session, specs)
+    return build_messages(session, specs, core=core)
 
 
 def resolved_identity(core: Core, session: Session) -> tuple[str | None, str | None]:

@@ -294,11 +294,27 @@ def test_quick_non_interactive_writes_the_vendor_and_key(home: Path) -> None:
 def test_full_with_every_screen_skipped_writes_the_free_defaults(home: Path) -> None:
     """AC-02b: no TTY → every screen auto-applies its default."""
     result = wizard.run("full", home=home, interactive=False)
-    assert result.screens_shown == ["providers", "search", "browser", "tools", "gateway", "done"]
+    assert result.screens_shown == [
+        "providers",
+        "search",
+        "browser",
+        "audio",
+        "tools",
+        "gateway",
+        "done",
+    ]
 
     settings = _settings(home)
     assert settings.search.provider == "ddgs"
     assert settings.browser.provider == "local_chromium"
+    # Audio stays on "auto": the daemon works out what this machine has.
+    audio = settings.model_dump(mode="json")["audio"]
+    assert audio["stt"]["provider"] == "auto"
+    assert audio["tts"] == {
+        "enabled": True,
+        "provider": "auto",
+        "autoSpeak": False,
+    }
     assert settings.tools.enabled_categories == catalog.default_enabled_categories()
     assert settings.gateway == {}
     assert "default" not in settings.providers
@@ -309,6 +325,9 @@ def test_full_order_matches_the_contract() -> None:
         "providers",
         "search",
         "browser",
+        # Audio sits before tools: whether snowpea can listen and talk is part
+        # of how it is used, not one of the tool categories (CORE-multimodal).
+        "audio",
         "tools",
         "gateway",
         "done",

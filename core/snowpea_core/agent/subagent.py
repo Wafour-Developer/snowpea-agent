@@ -30,6 +30,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from snowpea_core.agent.definition import AgentDefinition
+from snowpea_core.prompts.loader import PromptNotFound, load
 from snowpea_core.server.protocol import AgentInfo
 from snowpea_core.session import events
 
@@ -38,6 +39,22 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.session.session import Session
 
 log = logging.getLogger("snowpea.agent.subagent")
+
+
+def role_file(name: str | None) -> str | None:
+    """``name`` when ``prompts/roles/<name>.md`` exists, else ``None``.
+
+    A project may ship its own role file and shadow the built-in one; a
+    definition whose name matches no role simply composes without one.
+    """
+    if not name:
+        return None
+    try:
+        load(f"roles/{name}")
+    except PromptNotFound:
+        return None
+    return name
+
 
 #: Statuses a record moves through, in order.
 QUEUED = "queued"
@@ -465,9 +482,18 @@ class SubagentManager:
     def _apply_definition(
         self, child: Session, defn: AgentDefinition | None, tools: list[str] | None
     ) -> None:
-        """Narrow the child's tools and replace its system prompt."""
+        """Narrow the child's tools and give it its role and persona.
+
+        Every child is marked a subagent, definition or not, so it always gets
+        the subagent preamble — before CORE-prompts, ``/ralph``, ``/ultrawork``
+        and ``/team`` workers ran on the bare base prompt with no report
+        contract at all.  A definition's own prompt is composed *after* the role
+        rather than replacing the rules.
+        """
+        child.is_subagent = True
         allowed: set[str] | None = None
         if defn is not None:
+            child.prompt_role = role_file(defn.name)
             from_defn = defn.tool_list()
             if from_defn is not None:
                 allowed = set(from_defn)

@@ -1,0 +1,35 @@
+{
+  "steps": [
+    {
+      "match": "keep retrying",
+      "text": "writing",
+      "repeat": true,
+      "tool_calls": [
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "out.txt",
+            "content": "x"
+          }
+        }
+      ]
+    },
+    {
+      "after_tool": "write_file",
+      "text": "writing again",
+      "repeat": true,
+      "tool_calls": [
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "out.txt",
+            "content": "x"
+          }
+        }
+      ]
+    }
+  ],
+  "default": {
+    "text": "nothing to do"
+  }
+}

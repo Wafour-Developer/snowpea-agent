@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from snowpea_core.exec.backend import DEFAULT_TIMEOUT
+from snowpea_core.prompts import tool_descriptions as descriptions
 from snowpea_core.tools import process as process_tools
 from snowpea_core.tools.registry import Tool, ToolContext, ToolResult
 from snowpea_core.vendor.hermes.tools.ansi_strip import strip_ansi
@@ -50,7 +51,7 @@ TOOLS: tuple[Tool, ...] = (
     Tool(
         name="shell",
         category="terminal",
-        description=("Run a shell command in the session working directory and return its output."),
+        description=descriptions.SHELL,
         input_schema={
             "type": "object",
             "properties": {

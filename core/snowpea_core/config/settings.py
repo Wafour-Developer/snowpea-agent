@@ -50,6 +50,9 @@ class ApprovalsSettings(_Model):
 
 class AgentSettings(_Model):
     max_tool_rounds: int = 50
+    #: Language the model answers in.  ``"auto"`` follows whatever the user
+    #: wrote; a tag like ``"ko"`` emits a directed override (CORE-prompts).
+    replyLanguage: str = "auto"
 
 
 class DaemonSettings(_Model):

@@ -37,10 +37,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from snowpea_core.agent import team_store
+from snowpea_core.agent.agent import reply_language
 from snowpea_core.agent.definition import complete_text, parse_generated_json
 from snowpea_core.agent.subagent import SharedBackend, get_manager
 from snowpea_core.agent.team_store import TaskRow, TeamStore, get_store
 from snowpea_core.exec.local import LocalBackend
+from snowpea_core.prompts.compose import workflow_brief
+from snowpea_core.prompts.loader import load
 from snowpea_core.providers.base import ChatMessage
 from snowpea_core.server.protocol import TeamStatusResult, TeamTask, TeamTaskUpdate
 from snowpea_core.session.session import Session
@@ -72,16 +75,7 @@ POLL_SEC = 0.02
 #: How much of a conflict diff is kept on the task row.
 MAX_HUNK_CHARS = 4000
 
-PLAN_SYSTEM = (
-    "You split a development task into independent units of work for a team of "
-    "coding agents that each work in their own git worktree.\n"
-    "Answer with a single JSON object and nothing else.\n"
-    'Shape: {"tasks": [{"id": "T1", "title": "<one line, names the files it '
-    'touches>", "depends_on": []}]}\n'
-    "Prefer tasks that touch disjoint files, because two tasks that edit the "
-    "same lines will conflict when the lead merges them. Use depends_on only "
-    "when one task genuinely cannot start before another has landed."
-)
+PLAN_SYSTEM = load("workflows/team-plan")
 
 
 class TeamError(RuntimeError):
@@ -658,24 +652,22 @@ class TeamManager:
 
     def _task_prompt(self, run: TeamRun, row: TaskRow, entry: Worktree) -> str:
         """The brief one worker subagent receives, conflict hunks included."""
+        language = reply_language(self.core)
         parts = [
-            f"You are agent {entry.n} of {run.workers} on a team working on: {run.task}",
-            f"Your task {row.id}: {row.title}",
-            (
-                f"You are in your own git worktree at {entry.path} on branch "
-                f"{entry.branch}. Edit the real files there. Do not run git; the "
-                "team commits and merges for you."
-            ),
+            workflow_brief(
+                "team-task",
+                reply_language=language,
+                WORKER_N=entry.n,
+                WORKERS=run.workers,
+                TASK=run.task,
+                TASK_ID=row.id,
+                TASK_TITLE=row.title,
+                WORKTREE_PATH=entry.path,
+                BRANCH=entry.branch,
+            )
         ]
         if row.conflict_hunks:
-            parts.append(
-                "Your previous attempt could not be merged. These are the "
-                "conflicting hunks; redo the work so it applies cleanly on top "
-                "of what other agents already merged:\n" + row.conflict_hunks
-            )
-        parts.append(
-            "When you are done, answer with one short paragraph saying what you changed."
-        )
+            parts.append(workflow_brief("team-conflict", HUNKS=row.conflict_hunks))
         return "\n\n".join(parts)
 
     # -- status ---------------------------------------------------------

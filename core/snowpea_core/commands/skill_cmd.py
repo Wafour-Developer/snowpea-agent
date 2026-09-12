@@ -24,6 +24,7 @@ from snowpea_core.agent.definition import (
 )
 from snowpea_core.commands.agent_cmd import reload_loader, strip_quotes
 from snowpea_core.commands.registry import Command, CommandContext
+from snowpea_core.prompts.loader import load
 from snowpea_core.providers.base import ChatMessage
 from snowpea_core.server import errors
 from snowpea_core.session import events
@@ -53,14 +54,7 @@ MAX_TRANSCRIPT_MESSAGES = 60
 #: Per-message clip so one huge tool result cannot fill the prompt.
 MAX_MESSAGE_CHARS = 800
 
-LEARN_SYSTEM = (
-    "You write reusable skill documents for a coding agent.\n"
-    "You are given a transcript of one session. Extract the repeatable "
-    "procedure it demonstrates.\n"
-    "Answer with a single JSON object and nothing else.\n"
-    'Shape: {"name": "<lowercase-ascii-slug>", "description": "<one line>", '
-    '"steps": ["<step>", ...], "commands": ["<example command>", ...]}'
-)
+LEARN_SYSTEM = load("workflows/skill-learn")
 
 
 def _message_text(message: ChatMessage) -> str:

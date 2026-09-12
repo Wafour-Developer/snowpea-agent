@@ -130,7 +130,7 @@ async def test_accept_mode_shell_asks_and_allow_continues(
     await client.stop()
 
 
-async def test_accept_mode_shell_denied_ends_the_turn(
+async def test_accept_mode_shell_denied_is_fed_back_to_the_model(
     daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path
 ) -> None:
     workdir = tmp_path / "project"
@@ -140,11 +140,15 @@ async def test_accept_mode_shell_denied_ends_the_turn(
     session_id = await start_session(client, workdir)
 
     turn_id = await prompt(client, session_id, "please run ls")
-    assert await client.wait_turn(turn_id) == "denied"
+    # A refusal no longer ends the turn (CORE-prompts, gap 3): it comes back to
+    # the model as a failed tool result so it can choose something else.
+    assert await client.wait_turn(turn_id) == "complete"
 
     errors_seen = [event["payload"]["code"] for event in client.of_kind("error")]
     assert errors_seen == ["approval_denied"]
-    assert client.of_kind("tool.result") == []
+    results = client.of_kind("tool.result")
+    assert [item["payload"]["ok"] for item in results] == [False]
+    assert "do not retry the same call" in results[0]["payload"]["error"]
 
     await client.stop()
 
@@ -183,11 +187,17 @@ async def test_plan_mode_denies_writes(
     session_id = await start_session(client, workdir, mode="plan")
 
     turn_id = await prompt(client, session_id, "write a greeting")
-    assert await client.wait_turn(turn_id) == "denied"
+    # A refusal no longer ends the turn (CORE-prompts, gap 3): it comes back to
+    # the model as a failed tool result so it can choose something else.
+    assert await client.wait_turn(turn_id) == "complete"
 
     assert [event["payload"]["code"] for event in client.of_kind("error")] == ["mode_denied"]
     assert not (workdir / "greeting.txt").exists()
     assert client.approval_requests == []
+    denial = client.of_kind("tool.result")[0]["payload"]
+    assert denial["ok"] is False
+    # Plan mode says what to do instead of the refused call.
+    assert "describing what you would do instead" in denial["error"]
 
     await client.stop()
 
@@ -392,7 +402,8 @@ async def test_approval_timeout_denies_and_is_logged(
         session_id = await start_session(client, workdir)
 
         turn_id = await prompt(client, session_id, "please run ls")
-        assert await client.wait_turn(turn_id) == "denied"
+        # The timeout denies the call and the model is told so; the turn goes on.
+        assert await client.wait_turn(turn_id) == "complete"
         assert [event["payload"]["code"] for event in client.of_kind("error")] == [
             "approval_timeout"
         ]
