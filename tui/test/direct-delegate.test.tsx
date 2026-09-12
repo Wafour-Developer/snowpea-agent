@@ -26,7 +26,8 @@ it("$agent task spawns that named team agent directly", async () => {
     expect(call).toHaveBeenCalledWith("agent.spawn", {
       sessionId: "s1", name: "executor", task: "fix tests",
     });
-    expect(stdout.text()).toContain("core");
+    expect(stdout.text()).toContain("Team: core");
+    expect(stdout.text()).toContain("● main");
     expect(client.prompt).not.toHaveBeenCalled();
   } finally { app.unmount(); }
 });

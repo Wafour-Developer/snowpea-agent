@@ -791,7 +791,7 @@ export function App({
 
   // --- who is working for this session ---------------------------------------
   const knownAgents = useKnownAgents(client, undefined, agentRosterVersion);
-  const activeTeam = knownAgents.find((agent) => agent.kind === "team")?.name ?? "main";
+  const activeTeam = knownAgents.find((agent) => agent.kind === "team")?.name;
   const agentRows = useMemo(
     () =>
       buildAgentRows({
@@ -799,7 +799,7 @@ export function App({
         known: knownAgents.filter((agent) => agent.kind !== "team"),
         now,
         expanded: agentsExpanded,
-        currentLabel: activeTeam,
+        currentLabel: "main",
       }),
     // `now` deliberately left out: the panel should follow the session, not the
     // clock. The spinner's own tick is what refreshes the elapsed columns.
@@ -1452,7 +1452,7 @@ export function App({
           {warning.text}
         </Text>
       ) : null}
-      <SectionRule width={contentWidth} />
+      <SectionRule width={contentWidth} label={activeTeam ? `Team: ${activeTeam}` : undefined} />
       <AgentPanel
         rows={agentRows}
         width={contentWidth}
