@@ -89,7 +89,8 @@ describe("buildAgentRows", () => {
     });
     const collapsed = rows.find((row) => row.key === "idle-more");
     expect(rows.filter((row) => row.status === "idle")).toHaveLength(MAX_IDLE_ROWS);
-    expect(collapsed?.name).toBe("2 idle agents");
+    expect(collapsed?.name).toBe("2 more idle agents");
+    expect(collapsed?.task).toBe("- four, five");
     expect(collapsed?.glyph).toBe(AGENT_GLYPH);
   });
 

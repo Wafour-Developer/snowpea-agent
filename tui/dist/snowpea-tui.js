@@ -35956,11 +35956,12 @@ function buildAgentRows({
     rows.push(...idle);
   } else {
     rows.push(...idle.slice(0, MAX_IDLE_ROWS));
+    const hidden = idle.slice(MAX_IDLE_ROWS);
     rows.push({
       key: "idle-more",
       glyph: AGENT_GLYPH,
-      name: `${idle.length - MAX_IDLE_ROWS} idle agent${idle.length - MAX_IDLE_ROWS === 1 ? "" : "s"}`,
-      task: "",
+      name: `${hidden.length} more idle agent${hidden.length === 1 ? "" : "s"}`,
+      task: `- ${hidden.map((agent) => agent.name).join(", ")}`,
       status: "",
       dim: true
     });
