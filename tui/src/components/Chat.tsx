@@ -6,7 +6,7 @@
  * to avoid pulling another dependency into the bundled artifact.
  */
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Box, Text, useInput } from "ink";
 
 import type { CommandInfo } from "../rpc/sdk.js";
@@ -21,6 +21,20 @@ export interface ChatProps {
   initialHistory?: string[];
   /** ↓ at the newest entry with nothing drafted: the cursor leaves the input. */
   onFocusDown?: () => void;
+  /** Paths pasted or dropped into the input; the owner turns them into chips. */
+  onPaste?: (text: string) => boolean;
+  /** Backspace on an empty input takes the newest chip off. */
+  onBackspaceEmpty?: () => boolean;
+  /** Ctrl+X clears every chip. */
+  onClearAttachments?: () => void;
+  /** Ctrl+Space starts or stops a recording while voice input is armed. */
+  onToggleRecording?: () => void;
+  /** Ctrl+V with nothing pasteable as text: try an image from the clipboard. */
+  onClipboard?: () => void;
+  /** Text to put in the draft, e.g. what a recording transcribed to. */
+  insert?: string | null;
+  /** Called once `insert` has been taken, so it is not applied twice. */
+  onInserted?: () => void;
   /**
    * `R` on an untouched input reopens the session the launch screen offered.
    *
@@ -43,6 +57,13 @@ export function Chat({
   initialHistory = [],
   onFocusDown,
   onQuickResume,
+  onPaste,
+  onBackspaceEmpty,
+  onClearAttachments,
+  onToggleRecording,
+  onClipboard,
+  insert = null,
+  onInserted,
   completions,
   disabled = false,
   placeholder = "ask anything, or /command",
@@ -57,6 +78,16 @@ export function Chat({
   const [selected, setSelected] = useState(0);
 
   const showPalette = value.startsWith("/") && completions.length > 0;
+
+  // Text produced elsewhere — a transcription, for now — lands in the draft for
+  // the user to read before it is sent.
+  useEffect(() => {
+    if (!insert) return;
+    update(value.length > 0 ? `${value} ${insert}` : insert);
+    onInserted?.();
+    // Only a new `insert` matters; the draft it is appended to is read live.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [insert]);
 
   const update = (next: string) => {
     setValue(next);
@@ -120,11 +151,34 @@ export function Chat({
       }
 
       if (key.backspace || key.delete) {
+        // With nothing typed, backspace takes the newest attachment off instead
+        // of doing nothing at all.
+        if (value.length === 0 && onBackspaceEmpty?.()) return;
         update(value.slice(0, -1));
         return;
       }
 
+      if (key.ctrl && input === "v") {
+        onClipboard?.();
+        return;
+      }
+
+      if (key.ctrl && input === "x") {
+        onClearAttachments?.();
+        return;
+      }
+
+      // Ctrl+Space is a NUL byte on the wire; Ink's key parser turns that into
+      // ctrl + "`", which is the form that actually arrives here.
+      if (key.ctrl && (input === " " || input === "`")) {
+        onToggleRecording?.();
+        return;
+      }
+
       if (key.ctrl || key.meta || input.length === 0) return;
+      // A paste arrives as one chunk: if it names files, it becomes chips
+      // rather than a wall of text in the draft.
+      if (input.length > 1 && onPaste?.(input)) return;
       if (input === "R" && value.length === 0 && onQuickResume) {
         onQuickResume();
         return;

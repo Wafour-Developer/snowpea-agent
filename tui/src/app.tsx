@@ -52,6 +52,24 @@ import { useSpinner } from "./hooks/useSpinner.js";
 import { useKnownAgents } from "./hooks/useKnownAgents.js";
 import { clampFocus, focusDown, focusUp, isInput, INPUT_FOCUS, type Focus } from "./state/focus.js";
 import { offerSession } from "./state/history.js";
+import {
+  addAttachments,
+  removeLast,
+  scanAttachments,
+  type Attachment,
+  type FileProbe,
+} from "./state/attachments.js";
+import {
+  initialVoice,
+  noAudio,
+  recordingLabel,
+  setTts,
+  startRecording,
+  stopRecording,
+  toggleVoiceInput,
+  type AudioCapabilities,
+  type VoiceState,
+} from "./state/voice.js";
 import type { SessionMemory, SessionRecord, TuiHistory } from "./state/history.js";
 import { TUI_VERSION } from "./version.js";
 import { transcriptLines } from "./layout/transcript.js";
@@ -81,6 +99,7 @@ import { ApprovalQueue } from "./components/ApprovalQueue.js";
 import { ConfirmMenu, type ConfirmOption } from "./components/ConfirmMenu.js";
 import { StatusHud } from "./components/StatusHud.js";
 import { AgentPanel } from "./components/AgentPanel.js";
+import { AttachmentChips } from "./components/AttachmentChips.js";
 import { AgentTranscript } from "./components/AgentTranscript.js";
 import { LaunchBanner } from "./components/LaunchBanner.js";
 import { ShellList } from "./components/ShellList.js";
@@ -134,6 +153,15 @@ export interface AppProps {
    * before the first render so the launch banner can offer it.
    */
   priorSession?: SessionRecord | null;
+  /** Resolves pasted paths against the file system; absent in tests. */
+  probe?: FileProbe;
+  /** Saves an image from the system clipboard, or null when it cannot. */
+  captureClipboard?: () => string | null;
+  /**
+   * What the daemon says it can do with audio. Everything is off until the
+   * audio protocol lands and the real answer is read.
+   */
+  audio?: AudioCapabilities;
 }
 
 /** One transcript entry — a message, a tool call, a diff or a compaction. */
@@ -239,6 +267,9 @@ export function App({
   history,
   sessions,
   priorSession = null,
+  probe,
+  captureClipboard,
+  audio = noAudio,
 }: AppProps): React.ReactElement {
   const { exit } = useApp();
   const [state, dispatch] = useReducer(reducer, initialState);
@@ -250,6 +281,12 @@ export function App({
   const [queueFocused, setQueueFocused] = useState(false);
   /** Ctrl+A opens the agent panel out past its collapsing rules. */
   const [agentsExpanded, setAgentsExpanded] = useState(false);
+  /** Files the next prompt will carry. */
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  /** Voice input and speech; see state/voice.ts. */
+  const [voice, setVoice] = useState<VoiceState>(initialVoice);
+  /** Text waiting to be put in the draft, e.g. a transcription. */
+  const [insert, setInsert] = useState<string | null>(null);
   /** Where the keyboard is: the input, the footer row, or an agent row. */
   const [focus, setFocus] = useState<Focus>(INPUT_FOCUS);
   /** True while the footer row is showing what is running. */
@@ -537,6 +574,7 @@ export function App({
         usage: state.usage,
         context: state.context,
         toolCount: state.toolCount,
+        speaking: voice.tts,
         sessionMs: sessionElapsedMs,
         daemonPid: daemon.pid,
         daemonSummary: daemon.summary,
@@ -559,6 +597,7 @@ export function App({
       state.usage,
       state.context,
       state.toolCount,
+      voice.tts,
       sessionElapsedMs,
       daemon.pid,
       daemon.summary,
@@ -660,16 +699,20 @@ export function App({
 
   // --- the working indicator -------------------------------------------------
   const phase = derivePhase(state, { runningCommand });
-  const spinnerFrame = useSpinner(phase.kind !== "idle" && phase.kind !== "approval");
+  const spinnerFrame = useSpinner(
+    voice.recording || (phase.kind !== "idle" && phase.kind !== "approval"),
+  );
   const turn = turnRef.current;
-  const workingText = workingLine({
-    phase,
-    elapsedMs: turn ? now - turn.startedAt : 0,
-    inputTokens: turn ? state.usage.inputTokens - turn.inputTokens : 0,
-    outputTokens: turn ? state.usage.outputTokens - turn.outputTokens : 0,
-    frame: spinnerFrame,
-    verbOffset: state.messages.length,
-  });
+  const workingText = voice.recording
+    ? recordingLabel(voice.startedAt, now)
+    : workingLine({
+        phase,
+        elapsedMs: turn ? now - turn.startedAt : 0,
+        inputTokens: turn ? state.usage.inputTokens - turn.inputTokens : 0,
+        outputTokens: turn ? state.usage.outputTokens - turn.outputTokens : 0,
+        frame: spinnerFrame,
+        verbOffset: state.messages.length,
+      });
 
   const layout = computeLayout({
     // One row short of the terminal on purpose; see `RESERVED_FRAME_ROW`.
@@ -724,6 +767,49 @@ export function App({
     [lines.length, layout.transcriptRows],
   );
 
+  /** Turn whatever was pasted into chips; false means it was ordinary text. */
+  const takePaste = useCallback(
+    (text: string): boolean => {
+      if (!probe) return false;
+      const { attachments: found, rejected } = scanAttachments(text, probe);
+      for (const entry of rejected) showToast(`${entry.path}: ${entry.reason}`);
+      if (found.length === 0) return rejected.length > 0;
+      setAttachments((current) => addAttachments(current, found));
+      return true;
+    },
+    [probe, showToast],
+  );
+
+  /** Ctrl+V with an image on the clipboard. */
+  const takeClipboard = useCallback(() => {
+    if (!captureClipboard || !probe) {
+      showToast("no clipboard tool available");
+      return;
+    }
+    const path = captureClipboard();
+    if (!path) {
+      showToast("no image on the clipboard");
+      return;
+    }
+    const { attachments: found } = scanAttachments(path, probe);
+    if (found.length === 0) {
+      showToast("the clipboard image could not be read");
+      return;
+    }
+    setAttachments((current) => addAttachments(current, found));
+  }, [captureClipboard, probe, showToast]);
+
+  /** Ctrl+Space, or `/rec`. */
+  const toggleRecording = useCallback(() => {
+    setVoice((current) => {
+      const outcome = current.recording
+        ? stopRecording(current, Date.now())
+        : startRecording(current, audio, Date.now());
+      showToast(outcome.message);
+      return outcome.state;
+    });
+  }, [audio, showToast]);
+
   /** Reopen the session this directory was last in. */
   const resumeMemory = useCallback(() => {
     if (!lastSession) return;
@@ -746,7 +832,36 @@ export function App({
         else dispatch({ type: "error", message: "no earlier session for this directory" });
         return;
       }
-      dispatch({ type: "user/message", text });
+      // So are the ones that only move this surface's own switches.
+      const attach = /^\/attach\s+(.+)$/.exec(text.trim());
+      if (attach) {
+        if (!takePaste(attach[1])) showToast(`no readable file at ${attach[1]}`);
+        return;
+      }
+      if (/^\/voice\s*$/.test(text.trim())) {
+        setVoice((current) => {
+          const outcome = toggleVoiceInput(current, audio);
+          showToast(outcome.message);
+          return outcome.state;
+        });
+        return;
+      }
+      if (/^\/rec\s*$/.test(text.trim())) {
+        toggleRecording();
+        return;
+      }
+      const tts = /^\/tts(?:\s+(on|off))?\s*$/.exec(text.trim());
+      if (tts) {
+        setVoice((current) => {
+          const outcome = setTts(current, audio, tts[1] !== "off");
+          showToast(outcome.message);
+          return outcome.state;
+        });
+        return;
+      }
+      const sent = attachments.map(({ name, mime, size }) => ({ name, mime, size }));
+      dispatch({ type: "user/message", text, attachments: sent });
+      setAttachments([]);
       // Remember it for the next run: ↑ reaches it, and the launch screen
       // offers the session it belongs to.
       history?.add(text, workdir);
@@ -773,7 +888,21 @@ export function App({
         dispatch({ type: "error", message: String(error) });
       });
     },
-    [client, sessionId, history, sessions, workdir, state.messages, lastSession, resumeMemory],
+    [
+      client,
+      sessionId,
+      history,
+      sessions,
+      workdir,
+      state.messages,
+      lastSession,
+      resumeMemory,
+      attachments,
+      audio,
+      showToast,
+      takePaste,
+      toggleRecording,
+    ],
   );
 
   /** Answer the y/n banner prompt: start the upgrade, or put the banner away. */
@@ -974,6 +1103,8 @@ export function App({
     <>
       <WorkingIndicator line={workingText} />
 
+      <AttachmentChips attachments={attachments} width={contentWidth} />
+
       {update.phase === "confirm" ? (
         <ConfirmMenu<boolean>
           options={UPDATE_OPTIONS}
@@ -1006,6 +1137,17 @@ export function App({
           onQuickResume={
             lastSession && state.messages.length === 0 ? resumeMemory : undefined
           }
+          onPaste={takePaste}
+          onClipboard={takeClipboard}
+          onBackspaceEmpty={() => {
+            if (attachments.length === 0) return false;
+            setAttachments(removeLast);
+            return true;
+          }}
+          onClearAttachments={() => setAttachments([])}
+          onToggleRecording={toggleRecording}
+          insert={insert}
+          onInserted={() => setInsert(null)}
           completions={completions}
           onChange={setDraft}
           onInterrupt={() => void client.interrupt(sessionId).catch(() => undefined)}

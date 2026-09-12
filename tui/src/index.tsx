@@ -13,11 +13,14 @@
 
 import React from "react";
 import { render } from "ink";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, isAbsolute, join, resolve } from "node:path";
 
 import { App } from "./app.js";
+import { captureClipboardImage, type CommandRunner } from "./util/clipboard.js";
+import type { FileProbe } from "./state/attachments.js";
 import {
   SessionMemory,
   TuiHistory,
@@ -160,6 +163,45 @@ export const fileStore: FileStore = {
   },
 };
 
+/**
+ * The file facts the attachment scanner asks for, against the real disk.
+ *
+ * `~` is expanded here because a path pasted from a shell prompt often carries
+ * it, and nothing below this point knows what home means.
+ */
+export function createProbe(cwd: string, home: string): FileProbe {
+  return {
+    resolve(path) {
+      const expanded = path.startsWith("~/") ? join(home, path.slice(2)) : path;
+      return isAbsolute(expanded) ? expanded : resolve(cwd, expanded);
+    },
+    size(path) {
+      try {
+        const stats = statSync(path);
+        return stats.isFile() ? stats.size : null;
+      } catch {
+        return null;
+      }
+    },
+    basename(path) {
+      return basename(path);
+    },
+  };
+}
+
+/** Runs a clipboard tool, answering null when it is not installed. */
+export const commandRunner: CommandRunner = {
+  run(command, args) {
+    try {
+      const result = spawnSync(command, args, { maxBuffer: 64 * 1024 * 1024 });
+      if (result.error) return null;
+      return { status: result.status ?? 1, stdout: result.stdout ?? new Uint8Array() };
+    } catch {
+      return null;
+    }
+  },
+};
+
 export async function main(argv: string[] = process.argv.slice(2)): Promise<number> {
   let args: CliArgs;
   try {
@@ -219,6 +261,28 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     // An older daemon, or none of our business: the local record still serves.
   }
 
+  const probe = createProbe(args.cwd, homedir());
+  const captureClipboard = (): string | null =>
+    captureClipboardImage(
+      {
+        runner: commandRunner,
+        platform: process.platform,
+        writeFile(path, data) {
+          try {
+            mkdirSync(join(path, ".."), { recursive: true });
+            writeFileSync(path, data);
+            return true;
+          } catch {
+            return false;
+          }
+        },
+        size: (path) => probe.size(path),
+        join,
+      },
+      dir,
+      Date.now(),
+    );
+
   let restart = false;
   const instance = render(
     <App
@@ -230,6 +294,8 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       history={history}
       sessions={sessions}
       priorSession={prior}
+      probe={probe}
+      captureClipboard={captureClipboard}
       onRestart={() => {
         restart = true;
       }}

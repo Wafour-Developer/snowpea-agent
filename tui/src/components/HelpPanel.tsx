@@ -103,6 +103,18 @@ export function HelpPanel({
           {"directory was last in"}
         </Text>
         <Text dimColor>
+          {"  Paste or drop a file path to attach it · Ctrl+V takes an image "}
+          {"from the clipboard · /attach <path>"}
+        </Text>
+        <Text dimColor>
+          {"  Backspace on an empty input drops the newest attachment, "}
+          {"Ctrl+X drops them all"}
+        </Text>
+        <Text dimColor>
+          {"  /voice arms voice input (Ctrl+Space records) · /tts on|off "}
+          {"speaks the replies"}
+        </Text>
+        <Text dimColor>
           {"  Ctrl+R focus the unattended approval queue: [a] allow [d] deny, "}
           {"↑/↓ pick, ←/→ scope"}
         </Text>

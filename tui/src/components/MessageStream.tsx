@@ -104,6 +104,11 @@ export function MessageView({ message }: { message: Message }): React.ReactEleme
       </Box>
       <Box flexDirection="column" flexGrow={1}>
         <MarkdownLite text={message.text} idPrefix={message.id} />
+        {(message.attachments ?? []).map((attachment) => (
+          <Text key={`${message.id}-${attachment.name}`} dimColor wrap="truncate-end">
+            {`📎 ${attachment.name}`}
+          </Text>
+        ))}
         {message.streaming ? <Text dimColor>…</Text> : null}
       </Box>
     </Box>

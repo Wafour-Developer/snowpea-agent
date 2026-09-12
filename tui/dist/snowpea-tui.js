@@ -1384,7 +1384,7 @@ var require_react_development = __commonJS({
           var dispatcher = resolveDispatcher();
           return dispatcher.useRef(initialValue);
         }
-        function useEffect10(create2, deps) {
+        function useEffect11(create2, deps) {
           var dispatcher = resolveDispatcher();
           return dispatcher.useEffect(create2, deps);
         }
@@ -2022,14 +2022,14 @@ var require_react_development = __commonJS({
               var thenableResult = result;
               var wasAwaited = false;
               var thenable = {
-                then: function(resolve, reject) {
+                then: function(resolve2, reject) {
                   wasAwaited = true;
                   thenableResult.then(function(returnValue2) {
                     popActScope(prevActScopeDepth);
                     if (actScopeDepth === 0) {
-                      recursivelyFlushAsyncActWork(returnValue2, resolve, reject);
+                      recursivelyFlushAsyncActWork(returnValue2, resolve2, reject);
                     } else {
-                      resolve(returnValue2);
+                      resolve2(returnValue2);
                     }
                   }, function(error2) {
                     popActScope(prevActScopeDepth);
@@ -2059,20 +2059,20 @@ var require_react_development = __commonJS({
                   ReactCurrentActQueue.current = null;
                 }
                 var _thenable = {
-                  then: function(resolve, reject) {
+                  then: function(resolve2, reject) {
                     if (ReactCurrentActQueue.current === null) {
                       ReactCurrentActQueue.current = [];
-                      recursivelyFlushAsyncActWork(returnValue, resolve, reject);
+                      recursivelyFlushAsyncActWork(returnValue, resolve2, reject);
                     } else {
-                      resolve(returnValue);
+                      resolve2(returnValue);
                     }
                   }
                 };
                 return _thenable;
               } else {
                 var _thenable2 = {
-                  then: function(resolve, reject) {
-                    resolve(returnValue);
+                  then: function(resolve2, reject) {
+                    resolve2(returnValue);
                   }
                 };
                 return _thenable2;
@@ -2088,7 +2088,7 @@ var require_react_development = __commonJS({
             actScopeDepth = prevActScopeDepth;
           }
         }
-        function recursivelyFlushAsyncActWork(returnValue, resolve, reject) {
+        function recursivelyFlushAsyncActWork(returnValue, resolve2, reject) {
           {
             var queue = ReactCurrentActQueue.current;
             if (queue !== null) {
@@ -2097,16 +2097,16 @@ var require_react_development = __commonJS({
                 enqueueTask(function() {
                   if (queue.length === 0) {
                     ReactCurrentActQueue.current = null;
-                    resolve(returnValue);
+                    resolve2(returnValue);
                   } else {
-                    recursivelyFlushAsyncActWork(returnValue, resolve, reject);
+                    recursivelyFlushAsyncActWork(returnValue, resolve2, reject);
                   }
                 });
               } catch (error2) {
                 reject(error2);
               }
             } else {
-              resolve(returnValue);
+              resolve2(returnValue);
             }
           }
         }
@@ -2167,7 +2167,7 @@ var require_react_development = __commonJS({
         exports.useContext = useContext7;
         exports.useDebugValue = useDebugValue;
         exports.useDeferredValue = useDeferredValue;
-        exports.useEffect = useEffect10;
+        exports.useEffect = useEffect11;
         exports.useId = useId;
         exports.useImperativeHandle = useImperativeHandle;
         exports.useInsertionEffect = useInsertionEffect;
@@ -28166,11 +28166,11 @@ var require_react_jsx_runtime_development = __commonJS({
             return jsxWithValidation(type, props, key, false);
           }
         }
-        var jsx23 = jsxWithValidationDynamic;
-        var jsxs19 = jsxWithValidationStatic;
+        var jsx24 = jsxWithValidationDynamic;
+        var jsxs20 = jsxWithValidationStatic;
         exports.Fragment = REACT_FRAGMENT_TYPE;
-        exports.jsx = jsx23;
-        exports.jsxs = jsxs19;
+        exports.jsx = jsx24;
+        exports.jsxs = jsxs20;
       })();
     }
   }
@@ -33438,8 +33438,8 @@ var Ink = class {
     }
   }
   async waitUntilExit() {
-    this.exitPromise ||= new Promise((resolve, reject) => {
-      this.resolveExitPromise = resolve;
+    this.exitPromise ||= new Promise((resolve2, reject) => {
+      this.resolveExitPromise = resolve2;
       this.rejectExitPromise = reject;
     });
     return this.exitPromise;
@@ -33822,9 +33822,10 @@ var import_react20 = __toESM(require_react(), 1);
 var import_react21 = __toESM(require_react(), 1);
 
 // src/index.tsx
-import { mkdirSync, readFileSync as readFileSync2, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, readFileSync as readFileSync2, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename as basename2, isAbsolute, join, resolve } from "node:path";
 
 // src/app.tsx
 var import_react35 = __toESM(require_react(), 1);
@@ -34193,7 +34194,8 @@ function reducer(state, action) {
         id: nextId("msg"),
         role: "user",
         text: action.text,
-        streaming: false
+        streaming: false,
+        attachments: action.attachments?.length ? action.attachments : void 0
       };
       return {
         ...state,
@@ -34371,6 +34373,9 @@ function buildHudSegments(input) {
     dimColor: true,
     priority: 5
   });
+  if (input.speaking) {
+    segments.push({ key: "tts", text: "\u{1F50A}", color: "cyan", priority: 2 });
+  }
   if (input.toolCount && input.toolCount > 0) {
     segments.push({
       key: "tools",
@@ -34903,6 +34908,212 @@ function relativeTime(then, now = Date.now()) {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   return days === 1 ? "yesterday" : `${days}d ago`;
+}
+
+// src/state/attachments.ts
+var MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+var MIME_BY_EXTENSION = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  bmp: "image/bmp",
+  svg: "image/svg+xml",
+  pdf: "application/pdf",
+  txt: "text/plain",
+  md: "text/markdown",
+  json: "application/json",
+  csv: "text/csv",
+  log: "text/plain",
+  ts: "text/plain",
+  tsx: "text/plain",
+  js: "text/plain",
+  py: "text/plain",
+  rs: "text/plain",
+  go: "text/plain",
+  toml: "text/plain",
+  yaml: "text/yaml",
+  yml: "text/yaml"
+};
+function mimeFor(path) {
+  const at = path.lastIndexOf(".");
+  if (at === -1) return null;
+  return MIME_BY_EXTENSION[path.slice(at + 1).toLowerCase()] ?? null;
+}
+function formatSize(bytes) {
+  if (!Number.isFinite(bytes) || bytes < 0) return "0B";
+  if (bytes < 1024) return `${Math.round(bytes)}B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)}KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+function stripPasteMarkers(text) {
+  return text.replace(/\u001B?\[20[01]~/g, "");
+}
+function fromFileUrl(text) {
+  const rest = text.slice("file://".length).replace(/^localhost/, "");
+  try {
+    return decodeURIComponent(rest);
+  } catch {
+    return rest;
+  }
+}
+function unquote(text) {
+  const trimmed = text.trim();
+  if (trimmed.length >= 2) {
+    const first = trimmed[0];
+    const last = trimmed[trimmed.length - 1];
+    if (first === '"' && last === '"' || first === "'" && last === "'") {
+      return trimmed.slice(1, -1);
+    }
+  }
+  return trimmed;
+}
+function normalizePath(text) {
+  const bare = unquote(text).replace(/\\ /g, " ");
+  return bare.startsWith("file://") ? fromFileUrl(bare) : bare;
+}
+function pathCandidates(text) {
+  const out = [];
+  for (const line of stripPasteMarkers(text).split(/[\r\n]+/)) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) continue;
+    out.push(normalizePath(trimmed));
+    const pieces = trimmed.split(/(?<!\\)\s+/).filter((piece) => piece.length > 0);
+    if (pieces.length > 1) for (const piece of pieces) out.push(normalizePath(piece));
+  }
+  return [...new Set(out)].sort((a, b) => b.length - a.length);
+}
+var counter2 = 0;
+function scanAttachments(text, probe) {
+  const attachments = [];
+  const rejected = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const candidate of pathCandidates(text)) {
+    const path = probe.resolve(candidate);
+    if (seen.has(path)) continue;
+    const size = probe.size(path);
+    if (size === null) continue;
+    seen.add(path);
+    const mime = mimeFor(path);
+    if (!mime) {
+      rejected.push({ path, reason: "unsupported file type" });
+      continue;
+    }
+    if (size > MAX_ATTACHMENT_BYTES) {
+      rejected.push({ path, reason: `too large (${formatSize(size)}, limit 20MB)` });
+      continue;
+    }
+    counter2 += 1;
+    attachments.push({
+      id: `att-${counter2}`,
+      name: probe.basename(path),
+      path,
+      mime,
+      size
+    });
+  }
+  return { attachments, rejected };
+}
+function addAttachments(current, incoming) {
+  const paths = new Set(current.map((attachment) => attachment.path));
+  return [...current, ...incoming.filter((attachment) => !paths.has(attachment.path))];
+}
+function removeLast(current) {
+  return current.slice(0, -1);
+}
+function chipLabel(attachment) {
+  return `\u{1F4CE} ${attachment.name} ${formatSize(attachment.size)}`;
+}
+
+// src/state/voice.ts
+var noAudio = {
+  stt: false,
+  tts: false,
+  record: false,
+  play: false,
+  reasons: {}
+};
+var initialVoice = {
+  input: false,
+  tts: false,
+  recording: false,
+  startedAt: null
+};
+function reasonFor(capabilities, name, fallback) {
+  const reason = capabilities.reasons?.[name];
+  return reason && reason.length > 0 ? reason : fallback;
+}
+function toggleVoiceInput(state, capabilities) {
+  if (state.input) {
+    return { state: { ...state, input: false, recording: false, startedAt: null }, message: "voice input off", ok: true };
+  }
+  if (!capabilities.stt) {
+    return {
+      state,
+      message: `voice input needs speech-to-text: ${reasonFor(capabilities, "stt", "the daemon reports none")}`,
+      ok: false
+    };
+  }
+  if (!capabilities.record) {
+    return {
+      state,
+      message: `voice input needs a microphone: ${reasonFor(capabilities, "record", "the daemon cannot record")}`,
+      ok: false
+    };
+  }
+  return { state: { ...state, input: true }, message: "voice input on \xB7 Ctrl+Space to record", ok: true };
+}
+function setTts(state, capabilities, on) {
+  if (!on) return { state: { ...state, tts: false }, message: "speech off", ok: true };
+  if (!capabilities.tts) {
+    return {
+      state,
+      message: `speech needs text-to-speech: ${reasonFor(capabilities, "tts", "the daemon reports none")}`,
+      ok: false
+    };
+  }
+  if (!capabilities.play) {
+    return {
+      state,
+      message: `speech needs an output device: ${reasonFor(capabilities, "play", "the daemon cannot play audio")}`,
+      ok: false
+    };
+  }
+  return { state: { ...state, tts: true }, message: "speech on", ok: true };
+}
+function startRecording(state, capabilities, now) {
+  if (state.recording) return { state, message: "already recording", ok: false };
+  if (!capabilities.record) {
+    return {
+      state,
+      message: `recording needs a microphone: ${reasonFor(capabilities, "record", "the daemon cannot record")}`,
+      ok: false
+    };
+  }
+  return {
+    state: { ...state, input: true, recording: true, startedAt: now },
+    message: "recording \xB7 Ctrl+Space to stop",
+    ok: true
+  };
+}
+function stopRecording(state, now) {
+  if (!state.recording) {
+    return { state, message: "not recording", ok: false, elapsedMs: 0 };
+  }
+  const elapsedMs = state.startedAt === null ? 0 : Math.max(0, now - state.startedAt);
+  return {
+    state: { ...state, recording: false, startedAt: null },
+    message: "transcribing\u2026",
+    ok: true,
+    elapsedMs
+  };
+}
+function recordingLabel(startedAt, now) {
+  const seconds = startedAt === null ? 0 : Math.max(0, Math.floor((now - startedAt) / 1e3));
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return `\u25CF REC ${String(minutes).padStart(2, "0")}:${String(rest).padStart(2, "0")}`;
 }
 
 // src/version.ts
@@ -35643,6 +35854,13 @@ function Chat({
   initialHistory = [],
   onFocusDown,
   onQuickResume,
+  onPaste,
+  onBackspaceEmpty,
+  onClearAttachments,
+  onToggleRecording,
+  onClipboard,
+  insert = null,
+  onInserted,
   completions,
   disabled = false,
   placeholder = "ask anything, or /command",
@@ -35655,6 +35873,11 @@ function Chat({
   const [historyIndex, setHistoryIndex] = (0, import_react29.useState)(null);
   const [selected, setSelected] = (0, import_react29.useState)(0);
   const showPalette = value.startsWith("/") && completions.length > 0;
+  (0, import_react29.useEffect)(() => {
+    if (!insert) return;
+    update(value.length > 0 ? `${value} ${insert}` : insert);
+    onInserted?.();
+  }, [insert]);
   const update = (next) => {
     setValue(next);
     setSelected(0);
@@ -35705,10 +35928,24 @@ function Chat({
         return;
       }
       if (key.backspace || key.delete) {
+        if (value.length === 0 && onBackspaceEmpty?.()) return;
         update(value.slice(0, -1));
         return;
       }
+      if (key.ctrl && input === "v") {
+        onClipboard?.();
+        return;
+      }
+      if (key.ctrl && input === "x") {
+        onClearAttachments?.();
+        return;
+      }
+      if (key.ctrl && (input === " " || input === "`")) {
+        onToggleRecording?.();
+        return;
+      }
       if (key.ctrl || key.meta || input.length === 0) return;
+      if (input.length > 1 && onPaste?.(input)) return;
       if (input === "R" && value.length === 0 && onQuickResume) {
         onQuickResume();
         return;
@@ -35795,6 +36032,7 @@ function MessageView({ message }) {
     /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Box_default, { marginRight: 1, children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { color: meta.color, bold: true, children: meta.label }) }),
     /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexDirection: "column", flexGrow: 1, children: [
       /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(MarkdownLite, { text: message.text, idPrefix: message.id }),
+      (message.attachments ?? []).map((attachment) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `\u{1F4CE} ${attachment.name}` }, `${message.id}-${attachment.name}`)),
       message.streaming ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { dimColor: true, children: "\u2026" }) : null
     ] })
   ] });
@@ -36176,8 +36414,21 @@ function AgentPanelInner({
 }
 var AgentPanel = import_react33.default.memo(AgentPanelInner);
 
-// src/components/AgentTranscript.tsx
+// src/components/AttachmentChips.tsx
 var import_jsx_runtime14 = __toESM(require_jsx_runtime(), 1);
+function AttachmentChips({
+  attachments,
+  width
+}) {
+  if (attachments.length === 0) return null;
+  return /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(Box_default, { width, flexWrap: "wrap", children: [
+    attachments.map((attachment) => /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { color: "cyan", children: `[${chipLabel(attachment)}] ` }, attachment.id)),
+    /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { dimColor: true, children: "(backspace removes the last \xB7 Ctrl+X clears)" })
+  ] });
+}
+
+// src/components/AgentTranscript.tsx
+var import_jsx_runtime15 = __toESM(require_jsx_runtime(), 1);
 function AgentTranscript({
   name,
   task,
@@ -36188,7 +36439,7 @@ function AgentTranscript({
   scrollIndicator: scrollIndicator2 = null,
   empty = false
 }) {
-  return /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(
+  return /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(
     Box_default,
     {
       flexDirection: "column",
@@ -36198,22 +36449,22 @@ function AgentTranscript({
       paddingX: 1,
       flexShrink: 0,
       children: [
-        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(Box_default, { justifyContent: "space-between", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(Text, { wrap: "truncate-end", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { bold: true, color: "cyan", children: `\u25EF ${name}` }),
-            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { dimColor: true, children: task ? ` \xB7 ${task}` : "" })
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(Box_default, { justifyContent: "space-between", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(Text, { wrap: "truncate-end", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { bold: true, color: "cyan", children: `\u25EF ${name}` }),
+            /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { dimColor: true, children: task ? ` \xB7 ${task}` : "" })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { dimColor: true, children: scrollIndicator2 ? `${scrollIndicator2} \xB7 ${status}` : status })
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { dimColor: true, children: scrollIndicator2 ? `${scrollIndicator2} \xB7 ${status}` : status })
         ] }),
-        empty ? /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Box_default, { height, children: /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { dimColor: true, children: "waiting for the agent's first output\u2026" }) }) : /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(TranscriptView, { lines, height }),
-        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { dimColor: true, children: "\u2191\u2193 PgUp/PgDn scroll \xB7 Esc back to the main transcript" })
+        empty ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Box_default, { height, children: /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { dimColor: true, children: "waiting for the agent's first output\u2026" }) }) : /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(TranscriptView, { lines, height }),
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { dimColor: true, children: "\u2191\u2193 PgUp/PgDn scroll \xB7 Esc back to the main transcript" })
       ]
     }
   );
 }
 
 // src/components/LaunchBanner.tsx
-var import_jsx_runtime15 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime16 = __toESM(require_jsx_runtime(), 1);
 var PROMPT_PREVIEW = 60;
 var TIPS = [
   "/help lists every command the daemon offers",
@@ -36236,26 +36487,26 @@ function LaunchBanner({
   now = Date.now()
 }) {
   const target = [provider, model].filter(Boolean).join("/");
-  return /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(Box_default, { flexDirection: "column", width, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Logo, { terminalRows, version, width, big: true }),
-    /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(Box_default, { marginTop: 1, flexDirection: "column", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `Open-source multi-vendor coding agent and personal AI assistant \xB7 v${version}${target ? ` \xB7 ${target}` : ""}` }),
-      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `${workdir} \xB7 ${mode.toUpperCase()} mode` })
+  return /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(Box_default, { flexDirection: "column", width, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Logo, { terminalRows, version, width, big: true }),
+    /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(Box_default, { marginTop: 1, flexDirection: "column", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `Open-source multi-vendor coding agent and personal AI assistant \xB7 v${version}${target ? ` \xB7 ${target}` : ""}` }),
+      /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `${workdir} \xB7 ${mode.toUpperCase()} mode` })
     ] }),
-    lastSession ? /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(Box_default, { marginTop: 1, flexDirection: "column", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(Text, { wrap: "truncate-end", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { color: "cyan", children: "Last session: " }),
-        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { dimColor: true, children: `${relativeTime(lastSession.at, now)} \xB7 ` }),
-        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { children: lastSession.firstPrompt ? `"${previewPrompt(lastSession.firstPrompt)}"` : lastSession.sessionId.slice(0, 8) })
+    lastSession ? /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(Box_default, { marginTop: 1, flexDirection: "column", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(Text, { wrap: "truncate-end", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { color: "cyan", children: "Last session: " }),
+        /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { dimColor: true, children: `${relativeTime(lastSession.at, now)} \xB7 ` }),
+        /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { children: lastSession.firstPrompt ? `"${previewPrompt(lastSession.firstPrompt)}"` : lastSession.sessionId.slice(0, 8) })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { dimColor: true, children: "Press R or type /resume to continue it" })
+      /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { dimColor: true, children: "Press R or type /resume to continue it" })
     ] }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Box_default, { marginTop: 1, marginBottom: 1, flexDirection: "column", children: TIPS.map((tip) => /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `  \xB7 ${tip}` }, tip)) })
+    /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Box_default, { marginTop: 1, marginBottom: 1, flexDirection: "column", children: TIPS.map((tip) => /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `  \xB7 ${tip}` }, tip)) })
   ] });
 }
 
 // src/components/ShellList.tsx
-var import_jsx_runtime16 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime17 = __toESM(require_jsx_runtime(), 1);
 function runningCalls(calls) {
   const running = calls.filter((call) => call.state === "running");
   return [
@@ -36269,36 +36520,36 @@ function ShellList({
   width
 }) {
   const running = runningCalls(calls);
-  return /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Box_default, { flexDirection: "column", width, children: running.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { dimColor: true, children: "    nothing running" }) : running.map((call) => /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(Text, { dimColor: true, wrap: "truncate-end", children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(Box_default, { flexDirection: "column", width, children: running.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(Text, { dimColor: true, children: "    nothing running" }) : running.map((call) => /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(Text, { dimColor: true, wrap: "truncate-end", children: [
     `    \u25E6 ${summarizeCalls([call])}`,
     call.startedAt ? ` \xB7 ${formatDuration(now - call.startedAt)}` : ""
   ] }, call.callId)) });
 }
 
 // src/components/ToolSummary.tsx
-var import_jsx_runtime17 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime18 = __toESM(require_jsx_runtime(), 1);
 var SUMMARY_GLYPH = "\u23FA";
 function ToolSummary({ calls }) {
   if (calls.length === 0) return null;
   const lines = hiddenLines(calls);
-  return /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(Box_default, { marginBottom: 1, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(Text, { color: "green", children: `${SUMMARY_GLYPH} ` }),
-    /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(Text, { children: summarizeCalls(calls) }),
-    lines > 0 ? /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(Text, { dimColor: true, children: ` (${lines} lines)` }) : null
+  return /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)(Box_default, { marginBottom: 1, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Text, { color: "green", children: `${SUMMARY_GLYPH} ` }),
+    /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Text, { children: summarizeCalls(calls) }),
+    lines > 0 ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Text, { dimColor: true, children: ` (${lines} lines)` }) : null
   ] });
 }
 
 // src/components/WorkingIndicator.tsx
 var import_react34 = __toESM(require_react(), 1);
-var import_jsx_runtime18 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime19 = __toESM(require_jsx_runtime(), 1);
 function WorkingIndicatorInner({ line }) {
   if (!line) return null;
-  return /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Box_default, { flexShrink: 0, children: /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: line }) });
+  return /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Box_default, { flexShrink: 0, children: /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: line }) });
 }
 var WorkingIndicator = import_react34.default.memo(WorkingIndicatorInner);
 
 // src/components/HelpPanel.tsx
-var import_jsx_runtime19 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime20 = __toESM(require_jsx_runtime(), 1);
 var WORKFLOW_COMMANDS = [
   "ralph",
   "ralplan",
@@ -36319,56 +36570,68 @@ function HelpPanel({
   const workflows = WORKFLOW_COMMANDS.map(
     (name) => commands.find((command) => command.name === name)
   ).filter((command) => command !== void 0);
-  return /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Box_default, { flexDirection: "column", borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
-    workflows.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Box_default, { flexDirection: "column", marginBottom: 1, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { bold: true, color: "cyan", children: "Workflows and modes" }),
-      workflows.map((command) => /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Text, { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { color: "magenta", children: `/${command.name}`.padEnd(width) }),
-        /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { dimColor: true, children: command.summary })
+  return /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Box_default, { flexDirection: "column", borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
+    workflows.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Box_default, { flexDirection: "column", marginBottom: 1, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { bold: true, color: "cyan", children: "Workflows and modes" }),
+      workflows.map((command) => /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Text, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { color: "magenta", children: `/${command.name}`.padEnd(width) }),
+        /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { dimColor: true, children: command.summary })
       ] }, `workflow-${command.name}`)),
-      runningSubagents > 0 ? /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { dimColor: true, children: `  ${runningSubagents} subagent(s) running right now` }) : null
+      runningSubagents > 0 ? /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { dimColor: true, children: `  ${runningSubagents} subagent(s) running right now` }) : null
     ] }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { bold: true, color: "cyan", children: "Commands" }),
-    commands.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { dimColor: true, children: "no commands reported by the daemon" }) : commands.map((command) => /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Text, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { color: "blue", children: `/${command.name}`.padEnd(width) }),
-      /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { dimColor: true, children: command.summary })
+    /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { bold: true, color: "cyan", children: "Commands" }),
+    commands.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { dimColor: true, children: "no commands reported by the daemon" }) : commands.map((command) => /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Text, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { color: "blue", children: `/${command.name}`.padEnd(width) }),
+      /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { dimColor: true, children: command.summary })
     ] }, command.name)),
-    /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Box_default, { marginTop: 1, flexDirection: "column", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { bold: true, color: "cyan", children: "Keys" }),
-      /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { dimColor: true, children: "  F1 close \xB7 Ctrl+C quit \xB7 Esc interrupt the current turn" }),
-      /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Text, { dimColor: true, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Box_default, { marginTop: 1, flexDirection: "column", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { bold: true, color: "cyan", children: "Keys" }),
+      /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { dimColor: true, children: "  F1 close \xB7 Ctrl+C quit \xB7 Esc interrupt the current turn" }),
+      /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Text, { dimColor: true, children: [
         "  Ctrl+O expand the newest tool call or diff \xB7 ",
         "Ctrl+A open the agent panel out"
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Text, { dimColor: true, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Text, { dimColor: true, children: [
         "  \u21E7Tab cycles mode accept -> auto -> plan -> accept \xB7 ",
         "Ctrl+P toggles plan mode"
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Text, { dimColor: true, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Text, { dimColor: true, children: [
         "  /compact folds the conversation down when the ctx segment turns ",
         "yellow or red"
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Text, { dimColor: true, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Text, { dimColor: true, children: [
         "  Delegates and named agents are listed under the status line; ",
         "Ctrl+A shows every row"
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Text, { dimColor: true, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Text, { dimColor: true, children: [
         "  \u2191 walks back through your earlier prompts \xB7 \u2193 past the newest one ",
         "moves onto the rows below the input"
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Text, { dimColor: true, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Text, { dimColor: true, children: [
         "  Enter on the footer lists what is running; Enter on an agent opens ",
         "its conversation, Esc comes back"
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Text, { dimColor: true, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Text, { dimColor: true, children: [
         "  /resume (or R on an empty input) reopens the session this ",
         "directory was last in"
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Text, { dimColor: true, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Text, { dimColor: true, children: [
+        "  Paste or drop a file path to attach it \xB7 Ctrl+V takes an image ",
+        "from the clipboard \xB7 /attach <path>"
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Text, { dimColor: true, children: [
+        "  Backspace on an empty input drops the newest attachment, ",
+        "Ctrl+X drops them all"
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Text, { dimColor: true, children: [
+        "  /voice arms voice input (Ctrl+Space records) \xB7 /tts on|off ",
+        "speaks the replies"
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Text, { dimColor: true, children: [
         "  Ctrl+R focus the unattended approval queue: [a] allow [d] deny, ",
         "\u2191/\u2193 pick, \u2190/\u2192 scope"
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Text, { dimColor: true, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Text, { dimColor: true, children: [
         "  An approval asks with a menu: \u2191\u2193 move, Enter confirms, ",
         "y/a/p/n answer directly, Esc refuses"
       ] })
@@ -36377,7 +36640,7 @@ function HelpPanel({
 }
 
 // src/components/UpdateBanner.tsx
-var import_jsx_runtime20 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime21 = __toESM(require_jsx_runtime(), 1);
 var PHASE_COLOR = {
   available: "cyan",
   confirm: "yellow",
@@ -36388,11 +36651,11 @@ var PHASE_COLOR = {
 function UpdateBanner({ update }) {
   const text = bannerText(update);
   if (text === null) return null;
-  return /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { color: PHASE_COLOR[update.phase] ?? "cyan", children: text }) });
+  return /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { color: PHASE_COLOR[update.phase] ?? "cyan", children: text }) });
 }
 
 // src/app.tsx
-var import_jsx_runtime21 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime22 = __toESM(require_jsx_runtime(), 1);
 var UPDATE_OPTIONS = [
   { label: "Update and restart", value: true, shortcut: "y" },
   { label: "Not now", value: false, shortcut: "n", danger: true }
@@ -36408,18 +36671,18 @@ function TimelineEntry({
 }) {
   if (item.kind === "message") {
     const message = state.messages.find((m) => m.id === item.id);
-    return message ? /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(MessageView, { message }) : null;
+    return message ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(MessageView, { message }) : null;
   }
   if (item.kind === "tool") {
     const call = state.toolCalls.find((c) => c.callId === item.id);
-    return call ? /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(ToolCall, { call, expanded: expandedId === item.id }) : null;
+    return call ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(ToolCall, { call, expanded: expandedId === item.id }) : null;
   }
   if (item.kind === "compaction") {
     const entry = state.compactions.find((c) => c.id === item.id);
-    return entry ? /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { dimColor: true, children: compactionDivider(entry.before, entry.after, width) }) }) : null;
+    return entry ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { dimColor: true, children: compactionDivider(entry.before, entry.after, width) }) }) : null;
   }
   const diff2 = state.diffs.find((d) => d.id === item.id);
-  return diff2 ? /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(DiffView, { diff: diff2, expanded: expandedId === item.id }) : null;
+  return diff2 ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(DiffView, { diff: diff2, expanded: expandedId === item.id }) : null;
 }
 function releaseEntries(state, items) {
   const out = [];
@@ -36467,7 +36730,10 @@ function App2({
   onRestart,
   history,
   sessions,
-  priorSession: priorSession2 = null
+  priorSession: priorSession2 = null,
+  probe,
+  captureClipboard,
+  audio = noAudio
 }) {
   const { exit } = use_app_default();
   const [state, dispatch] = (0, import_react35.useReducer)(reducer, initialState);
@@ -36476,6 +36742,9 @@ function App2({
   const [expandedId, setExpandedId] = (0, import_react35.useState)(null);
   const [queueFocused, setQueueFocused] = (0, import_react35.useState)(false);
   const [agentsExpanded, setAgentsExpanded] = (0, import_react35.useState)(false);
+  const [attachments, setAttachments] = (0, import_react35.useState)([]);
+  const [voice, setVoice] = (0, import_react35.useState)(initialVoice);
+  const [insert, setInsert] = (0, import_react35.useState)(null);
   const [focus, setFocus] = (0, import_react35.useState)(INPUT_FOCUS);
   const [shellsOpen, setShellsOpen] = (0, import_react35.useState)(false);
   const [openAgent, setOpenAgent] = (0, import_react35.useState)(null);
@@ -36537,8 +36806,8 @@ function App2({
       }
     });
     client.onApprovalRequest(
-      (request) => new Promise((resolve) => {
-        approvalResolver.current = resolve;
+      (request) => new Promise((resolve2) => {
+        approvalResolver.current = resolve2;
         dispatch({ type: "approval/request", request });
       })
     );
@@ -36640,6 +36909,7 @@ function App2({
       usage: state.usage,
       context: state.context,
       toolCount: state.toolCount,
+      speaking: voice.tts,
       sessionMs: sessionElapsedMs,
       daemonPid: daemon.pid,
       daemonSummary: daemon.summary,
@@ -36662,6 +36932,7 @@ function App2({
       state.usage,
       state.context,
       state.toolCount,
+      voice.tts,
       sessionElapsedMs,
       daemon.pid,
       daemon.summary,
@@ -36739,9 +37010,11 @@ function App2({
     [agentLines, agentScroll]
   );
   const phase = derivePhase(state, { runningCommand });
-  const spinnerFrame = useSpinner(phase.kind !== "idle" && phase.kind !== "approval");
+  const spinnerFrame = useSpinner(
+    voice.recording || phase.kind !== "idle" && phase.kind !== "approval"
+  );
   const turn = turnRef.current;
-  const workingText = workingLine({
+  const workingText = voice.recording ? recordingLabel(voice.startedAt, now) : workingLine({
     phase,
     elapsedMs: turn ? now - turn.startedAt : 0,
     inputTokens: turn ? state.usage.inputTokens - turn.inputTokens : 0,
@@ -36788,6 +37061,41 @@ function App2({
     (delta) => setScrollOffset((offset) => clampScroll(offset + delta, lines.length, layout.transcriptRows)),
     [lines.length, layout.transcriptRows]
   );
+  const takePaste = (0, import_react35.useCallback)(
+    (text) => {
+      if (!probe) return false;
+      const { attachments: found, rejected } = scanAttachments(text, probe);
+      for (const entry of rejected) showToast(`${entry.path}: ${entry.reason}`);
+      if (found.length === 0) return rejected.length > 0;
+      setAttachments((current) => addAttachments(current, found));
+      return true;
+    },
+    [probe, showToast]
+  );
+  const takeClipboard = (0, import_react35.useCallback)(() => {
+    if (!captureClipboard || !probe) {
+      showToast("no clipboard tool available");
+      return;
+    }
+    const path = captureClipboard();
+    if (!path) {
+      showToast("no image on the clipboard");
+      return;
+    }
+    const { attachments: found } = scanAttachments(path, probe);
+    if (found.length === 0) {
+      showToast("the clipboard image could not be read");
+      return;
+    }
+    setAttachments((current) => addAttachments(current, found));
+  }, [captureClipboard, probe, showToast]);
+  const toggleRecording = (0, import_react35.useCallback)(() => {
+    setVoice((current) => {
+      const outcome = current.recording ? stopRecording(current, Date.now()) : startRecording(current, audio, Date.now());
+      showToast(outcome.message);
+      return outcome.state;
+    });
+  }, [audio, showToast]);
   const resumeMemory = (0, import_react35.useCallback)(() => {
     if (!lastSession) return;
     showToast(`resuming ${lastSession.sessionId.slice(0, 8)}`);
@@ -36804,7 +37112,35 @@ function App2({
         else dispatch({ type: "error", message: "no earlier session for this directory" });
         return;
       }
-      dispatch({ type: "user/message", text });
+      const attach = /^\/attach\s+(.+)$/.exec(text.trim());
+      if (attach) {
+        if (!takePaste(attach[1])) showToast(`no readable file at ${attach[1]}`);
+        return;
+      }
+      if (/^\/voice\s*$/.test(text.trim())) {
+        setVoice((current) => {
+          const outcome = toggleVoiceInput(current, audio);
+          showToast(outcome.message);
+          return outcome.state;
+        });
+        return;
+      }
+      if (/^\/rec\s*$/.test(text.trim())) {
+        toggleRecording();
+        return;
+      }
+      const tts = /^\/tts(?:\s+(on|off))?\s*$/.exec(text.trim());
+      if (tts) {
+        setVoice((current) => {
+          const outcome = setTts(current, audio, tts[1] !== "off");
+          showToast(outcome.message);
+          return outcome.state;
+        });
+        return;
+      }
+      const sent = attachments.map(({ name, mime, size }) => ({ name, mime, size }));
+      dispatch({ type: "user/message", text, attachments: sent });
+      setAttachments([]);
       history?.add(text, workdir);
       if (state.messages.every((message) => message.role !== "user")) {
         sessions?.remember({ sessionId, workdir, firstPrompt: text, at: Date.now() });
@@ -36825,7 +37161,21 @@ function App2({
         dispatch({ type: "error", message: String(error) });
       });
     },
-    [client, sessionId, history, sessions, workdir, state.messages, lastSession, resumeMemory]
+    [
+      client,
+      sessionId,
+      history,
+      sessions,
+      workdir,
+      state.messages,
+      lastSession,
+      resumeMemory,
+      attachments,
+      audio,
+      showToast,
+      takePaste,
+      toggleRecording
+    ]
   );
   const answerUpdate = (0, import_react35.useCallback)(
     (accepted) => {
@@ -36848,11 +37198,11 @@ function App2({
   );
   const decideApproval = (0, import_react35.useCallback)(
     (decision, scope) => {
-      const resolve = approvalResolver.current;
+      const resolve2 = approvalResolver.current;
       const requestId = state.pendingApproval?.requestId;
       approvalResolver.current = null;
       if (requestId) dispatch({ type: "approval/resolved", requestId });
-      resolve?.({ decision, scope });
+      resolve2?.({ decision, scope });
     },
     [state.pendingApproval]
   );
@@ -36985,9 +37335,10 @@ function App2({
     setFocus(INPUT_FOCUS);
   }, []);
   const approvalActive = state.pendingApproval !== null;
-  const bottomNode = /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)(import_jsx_runtime21.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(WorkingIndicator, { line: workingText }),
-    update.phase === "confirm" ? /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(
+  const bottomNode = /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)(import_jsx_runtime22.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(WorkingIndicator, { line: workingText }),
+    /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(AttachmentChips, { attachments, width: contentWidth }),
+    update.phase === "confirm" ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
       ConfirmMenu,
       {
         options: UPDATE_OPTIONS,
@@ -36996,8 +37347,8 @@ function App2({
         isActive: state.pendingApproval === null
       }
     ) : null,
-    state.errors.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { color: "red", wrap: "truncate-end", children: state.errors[state.errors.length - 1] }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(
+    state.errors.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { color: "red", wrap: "truncate-end", children: state.errors[state.errors.length - 1] }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
       ApprovalQueue,
       {
         requests: state.approvalQueue,
@@ -37006,13 +37357,24 @@ function App2({
         onBlur: () => setQueueFocused(false)
       }
     ),
-    state.pendingApproval ? /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(ApprovalPrompt, { request: state.pendingApproval, onDecide: decideApproval }) : /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(
+    state.pendingApproval ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(ApprovalPrompt, { request: state.pendingApproval, onDecide: decideApproval }) : /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
       Chat,
       {
         onSubmit: submit,
         initialHistory: pastPrompts,
         onFocusDown: () => setFocus((current) => focusDown(current, agentRows.length)),
         onQuickResume: lastSession && state.messages.length === 0 ? resumeMemory : void 0,
+        onPaste: takePaste,
+        onClipboard: takeClipboard,
+        onBackspaceEmpty: () => {
+          if (attachments.length === 0) return false;
+          setAttachments(removeLast);
+          return true;
+        },
+        onClearAttachments: () => setAttachments([]),
+        onToggleRecording: toggleRecording,
+        insert,
+        onInserted: () => setInsert(null),
         completions,
         onChange: setDraft,
         onInterrupt: () => void client.interrupt(sessionId).catch(() => void 0),
@@ -37029,10 +37391,10 @@ function App2({
     ).length,
     agents: state.subagents.filter((agent) => agent.status === "running").length
   });
-  const statusNode = /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)(import_jsx_runtime21.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(StatusHud, { rows: hudRows, width: contentWidth }),
-    warning ? /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { color: warning.color, bold: warning.bold, wrap: "truncate-end", children: warning.text }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(
+  const statusNode = /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)(import_jsx_runtime22.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(StatusHud, { rows: hudRows, width: contentWidth }),
+    warning ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { color: warning.color, bold: warning.bold, wrap: "truncate-end", children: warning.text }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
       Text,
       {
         color: summary.color,
@@ -37042,8 +37404,8 @@ function App2({
         children: `${summary.text}${focus.zone === "footer" ? " \xB7 Enter to list them" : ""}`
       }
     ),
-    shellsOpen ? /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(ShellList, { calls: state.toolCalls, now, width: contentWidth }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(
+    shellsOpen ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(ShellList, { calls: state.toolCalls, now, width: contentWidth }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
       AgentPanel,
       {
         rows: agentRows,
@@ -37052,7 +37414,7 @@ function App2({
       }
     )
   ] });
-  const helpNode = showHelp ? /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(
+  const helpNode = showHelp ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
     HelpPanel,
     {
       commands: state.commands,
@@ -37060,7 +37422,7 @@ function App2({
     }
   ) : null;
   if (fullscreen) {
-    return /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(
+    return /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
       FullscreenLayout,
       {
         rows: layout.rows,
@@ -37078,13 +37440,13 @@ function App2({
     );
   }
   const live = state.timeline.slice(staticCursor);
-  return /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)(Box_default, { flexDirection: "column", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Static, { items: staticItems, children: (entry) => /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)(Box_default, { flexDirection: "column", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Static, { items: staticItems, children: (entry) => /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
       Box_default,
       {
         flexDirection: "column",
         paddingX: entry.kind === "launch" ? 0 : 1,
-        children: entry.kind === "launch" ? /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(
+        children: entry.kind === "launch" ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
           LaunchBanner,
           {
             width: terminal.columns,
@@ -37096,7 +37458,7 @@ function App2({
             model: state.model,
             lastSession
           }
-        ) : entry.kind === "tools" ? /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(ToolSummary, { calls: entry.calls }) : entry.kind === "note" ? /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { color: entry.ok ? "green" : "red", dimColor: true, children: entry.text }) }) : /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(
+        ) : entry.kind === "tools" ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(ToolSummary, { calls: entry.calls }) : entry.kind === "note" ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { color: entry.ok ? "green" : "red", dimColor: true, children: entry.text }) }) : /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
           TimelineEntry,
           {
             state,
@@ -37108,8 +37470,8 @@ function App2({
       },
       entry.key
     ) }),
-    /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)(Box_default, { flexDirection: "column", paddingX: 1, children: [
-      openAgent ? /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)(Box_default, { flexDirection: "column", paddingX: 1, children: [
+      openAgent ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
         AgentTranscript,
         {
           name: openAgent.name,
@@ -37121,7 +37483,7 @@ function App2({
           scrollIndicator: scrollIndicator(agentViewport),
           empty: agentLines.length === 0
         }
-      ) : live.map((item) => /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(
+      ) : live.map((item) => /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
         TimelineEntry,
         {
           state,
@@ -37131,12 +37493,77 @@ function App2({
         },
         `${item.kind}-${item.id}`
       )),
-      /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(UpdateBanner, { update }),
+      /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(UpdateBanner, { update }),
       helpNode,
       bottomNode,
       statusNode
     ] })
   ] });
+}
+
+// src/util/clipboard.ts
+var CLIPBOARD_COMMANDS = [
+  {
+    platforms: ["linux", "freebsd", "openbsd"],
+    command: "wl-paste",
+    writesFile: false,
+    args: () => ["-t", "image/png"]
+  },
+  {
+    platforms: ["linux", "freebsd", "openbsd"],
+    command: "xclip",
+    writesFile: false,
+    args: () => ["-selection", "clipboard", "-t", "image/png", "-o"]
+  },
+  {
+    // `pbpaste` cannot hand back an image, so the mac path is AppleScript
+    // writing the PNG flavour straight to the file.
+    platforms: ["darwin"],
+    command: "osascript",
+    writesFile: true,
+    args: (path) => [
+      "-e",
+      `set theFile to (open for access (POSIX file "${path}") with write permission)`,
+      "-e",
+      "try",
+      "-e",
+      "write (the clipboard as \xABclass PNGf\xBB) to theFile",
+      "-e",
+      "end try",
+      "-e",
+      "close access theFile"
+    ]
+  },
+  {
+    platforms: ["win32"],
+    command: "powershell",
+    writesFile: true,
+    args: (path) => [
+      "-NoProfile",
+      "-Command",
+      `$image = Get-Clipboard -Format Image; if ($image -eq $null) { exit 1 }; $image.Save('${path}')`
+    ]
+  }
+];
+function pasteFilePath(stateDir2, now, join2) {
+  return join2(stateDir2, "tmp", `paste-${now}.png`);
+}
+function captureClipboardImage(environment, stateDir2, now) {
+  const path = pasteFilePath(stateDir2, now, environment.join);
+  for (const entry of CLIPBOARD_COMMANDS) {
+    if (!entry.platforms.includes(environment.platform)) continue;
+    const result = environment.runner.run(entry.command, entry.args(path));
+    if (!result || result.status !== 0) continue;
+    if (entry.writesFile) {
+      const written = environment.size(path);
+      if (written !== null && written > 0) return path;
+      continue;
+    }
+    if (result.stdout.length === 0) continue;
+    if (!environment.writeFile(path, result.stdout)) continue;
+    return path;
+  }
+  return null;
 }
 
 // src/layout/frame.ts
@@ -37302,7 +37729,7 @@ function majorOf(version) {
   return String(version).split(".")[0] ?? "";
 }
 function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve2) => setTimeout(resolve2, ms));
 }
 var Client = class {
   options;
@@ -37427,8 +37854,8 @@ var Client = class {
       return Promise.reject(new ConnectionClosedError(`cannot call ${method}: socket is not open`));
     }
     const id = this.nextId++;
-    return new Promise((resolve, reject) => {
-      const entry = { resolve, reject };
+    return new Promise((resolve2, reject) => {
+      const entry = { resolve: resolve2, reject };
       if (timeoutMs > 0) {
         entry.timer = setTimeout(() => {
           this.pending.delete(id);
@@ -37481,7 +37908,7 @@ var Client = class {
     await this.hello();
   }
   openSocket() {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve2, reject) => {
       const ws = new wrapper_default(this.url);
       this.ws = ws;
       let settled = false;
@@ -37489,7 +37916,7 @@ var Client = class {
       ws.on("open", () => {
         everOpen = true;
         settled = true;
-        resolve();
+        resolve2();
       });
       ws.on("message", (raw) => this.onMessage(String(raw)));
       ws.on("error", (err) => {
@@ -37657,18 +38084,18 @@ var Client = class {
     this.failPending(new ConnectionClosedError("client closed"));
     if (!ws)
       return;
-    await new Promise((resolve) => {
+    await new Promise((resolve2) => {
       if (ws.readyState === wrapper_default.CLOSED) {
-        resolve();
+        resolve2();
         return;
       }
-      ws.once("close", () => resolve());
+      ws.once("close", () => resolve2());
       try {
         ws.close(code, reason);
       } catch {
-        resolve();
+        resolve2();
       }
-      setTimeout(resolve, 2e3);
+      setTimeout(resolve2, 2e3);
     });
   }
 };
@@ -37809,7 +38236,7 @@ var TuiClient = class {
 };
 
 // src/index.tsx
-var import_jsx_runtime22 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime23 = __toESM(require_jsx_runtime(), 1);
 var CLIENT_VERSION = TUI_VERSION;
 var MODES = ["plan", "accept", "auto"];
 var BOOLEAN_FLAGS = /* @__PURE__ */ new Set(["fullscreen", "no-fullscreen", "inline"]);
@@ -37883,6 +38310,36 @@ var fileStore = {
     return join(...parts);
   }
 };
+function createProbe(cwd2, home) {
+  return {
+    resolve(path) {
+      const expanded = path.startsWith("~/") ? join(home, path.slice(2)) : path;
+      return isAbsolute(expanded) ? expanded : resolve(cwd2, expanded);
+    },
+    size(path) {
+      try {
+        const stats = statSync(path);
+        return stats.isFile() ? stats.size : null;
+      } catch {
+        return null;
+      }
+    },
+    basename(path) {
+      return basename2(path);
+    }
+  };
+}
+var commandRunner = {
+  run(command, args) {
+    try {
+      const result = spawnSync(command, args, { maxBuffer: 64 * 1024 * 1024 });
+      if (result.error) return null;
+      return { status: result.status ?? 1, stdout: result.stdout ?? new Uint8Array() };
+    } catch {
+      return null;
+    }
+  }
+};
 async function main(argv = process.argv.slice(2)) {
   let args;
   try {
@@ -37923,9 +38380,29 @@ async function main(argv = process.argv.slice(2)) {
     prior = priorSession(open, args.cwd, sessionId);
   } catch {
   }
+  const probe = createProbe(args.cwd, homedir());
+  const captureClipboard = () => captureClipboardImage(
+    {
+      runner: commandRunner,
+      platform: process.platform,
+      writeFile(path, data) {
+        try {
+          mkdirSync(join(path, ".."), { recursive: true });
+          writeFileSync(path, data);
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      size: (path) => probe.size(path),
+      join
+    },
+    dir,
+    Date.now()
+  );
   let restart = false;
   const instance = render_default(
-    /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(
       App2,
       {
         client,
@@ -37936,6 +38413,8 @@ async function main(argv = process.argv.slice(2)) {
         history,
         sessions,
         priorSession: prior,
+        probe,
+        captureClipboard,
         onRestart: () => {
           restart = true;
         }
@@ -37970,6 +38449,8 @@ if (isDirectRun) {
 }
 export {
   RESTART_EXIT_CODE,
+  commandRunner,
+  createProbe,
   fileStore,
   frameStdout,
   main,
