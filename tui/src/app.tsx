@@ -503,18 +503,18 @@ export function App({
 
     refreshApprovals();
 
-    // The daemon answers from its 24h cache, so this costs nothing on most
-    // launches and never blocks the first render.
-    void client
-      .checkUpdate()
-      .then((check) => {
-        setUpdateAvailable(Boolean(check.available) && !check.error);
-        setUpdate((current) => fromCheck(current, check));
-      })
-      .catch(() => {
-        /* the check is advisory; a failure must never disturb the session. */
-      });
   }, [client, sessionId, mode, provider, model, refreshApprovals, refreshCapabilities]);
+
+  // One fresh, non-blocking check per launch, independent of session/mode changes.
+  useEffect(() => {
+    let cancelled = false;
+    void client.checkUpdate(true).then((check) => {
+      if (cancelled) return;
+      setUpdateAvailable(Boolean(check.available) && !check.error);
+      setUpdate((current) => fromCheck(current, check));
+    }).catch(() => { /* Offline startup still works. */ });
+    return () => { cancelled = true; };
+  }, [client]);
 
   // An upgrade that finished: tell the daemon to go, then ask to be restarted.
   useEffect(() => {
@@ -523,12 +523,14 @@ export function App({
     const timer = setTimeout(() => {
       void client
         .restartDaemon()
-        .catch(() => undefined)
         .then(() => {
           if (!cancelled) {
             onRestart?.();
             exit();
           }
+        })
+        .catch((error: unknown) => {
+          if (!cancelled) setUpdate((current) => updateProgress(current, "failed", `restart failed: ${String(error)}`));
         });
     }, RESTART_DELAY_MS);
     return () => {
@@ -980,7 +982,7 @@ export function App({
 
   const submit = useCallback(
     (text: string) => {
-      if (resumingRef.current) return;
+      if (resumingRef.current || update.phase === "running" || update.phase === "done") return;
       // `/update` is a core builtin (headless and IDE run it as a command), but
       // in the TUI it opens the confirmation banner instead of firing blind.
       if (/^\/update\s*$/.test(text.trim())) {
@@ -1085,6 +1087,7 @@ export function App({
       resumeMemory,
       resumeSession,
       state.turnActive,
+      update.phase,
       attachments,
       capabilities,
       localAudio,
@@ -1103,6 +1106,10 @@ export function App({
         setUpdate(cancelUpdate);
         return;
       }
+      if (state.turnActive) {
+        setUpdate((current) => updateProgress(current, "failed", "finish or interrupt the current turn before updating"));
+        return;
+      }
       setUpdate((current) => updateProgress(current, "started", "starting the update…"));
       void client
         .startUpdate()
@@ -1117,7 +1124,7 @@ export function App({
           setUpdate((current) => updateProgress(current, "failed", String(error))),
         );
     },
-    [client],
+    [client, state.turnActive],
   );
 
   const decideApproval = useCallback(
@@ -1251,11 +1258,6 @@ export function App({
       changeMode(cycleMode(state.mode));
       return;
     }
-    // U opens the same confirmation the /update command does.
-    if ((input === "U" || input === "u") && update.phase === "available") {
-      setUpdate(confirmUpdate);
-      return;
-    }
     // Ctrl+P: cheap on/off toggle for plan mode.
     if (key.ctrl && input === "p") {
       changeMode(state.mode === "plan" ? "accept" : "plan");
@@ -1312,6 +1314,7 @@ export function App({
       {update.phase === "confirm" ? (
         <ConfirmMenu<boolean>
           options={UPDATE_OPTIONS}
+          initialIndex={1}
           escapeValue={false}
           onChoose={answerUpdate}
           isActive={state.pendingApproval === null}
@@ -1338,6 +1341,7 @@ export function App({
           onSubmit={submit}
           initialHistory={pastPrompts}
           onFocusDown={() => setFocus((current) => focusDown(current, agentRows.length))}
+          onQuickUpdate={update.phase === "available" ? () => setUpdate(confirmUpdate) : undefined}
           onQuickResume={
             lastSession && state.messages.length === 0 ? resumeMemory : undefined
           }
@@ -1356,7 +1360,7 @@ export function App({
           onChange={setDraft}
           onInterrupt={() => void client.interrupt(sessionId).catch(() => undefined)}
           onToggleHelp={() => setShowHelp((v) => !v)}
-          disabled={approvalActive || queueFocused || !isInput(focus) || openAgent !== null}
+          disabled={update.phase === "confirm" || update.phase === "running" || update.phase === "done" || approvalActive || queueFocused || !isInput(focus) || openAgent !== null}
         />
       )}
     </>

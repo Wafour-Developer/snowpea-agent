@@ -51,6 +51,11 @@ describe("update state: fromCheck", () => {
     expect(fromCheck(dismissed, check()).phase).toBe("idle");
   });
 
+  it("a late startup check does not dismiss the user's confirmation", () => {
+    const pending = confirm(initialUpdateState);
+    expect(fromCheck(pending, check()).phase).toBe("confirm");
+  });
+
   it("a check arriving mid-upgrade does not rewind the phase", () => {
     const running = progress(fromCheck(initialUpdateState, check()), "started", "updating");
     expect(fromCheck(running, check()).phase).toBe("running");
@@ -63,6 +68,12 @@ describe("update state: the banner text", () => {
     expect(bannerText(state)).toBe(
       "⬆ Update available v0.1.2 (current v0.1.1) — press U or type /update",
     );
+  });
+
+  it("does not render empty versions before the startup check completes", () => {
+    const text = bannerText(confirm(initialUpdateState));
+    expect(text).toBe("⬆ Check for an update and install it? [y/N]");
+    expect(text).not.toContain("v from v");
   });
 
   it("asks before it installs anything", () => {

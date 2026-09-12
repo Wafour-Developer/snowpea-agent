@@ -30,7 +30,9 @@ import shlex
 import shutil
 import subprocess
 import sys
+from dataclasses import dataclass
 from datetime import UTC, datetime
+from importlib import metadata
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -49,6 +51,7 @@ log = logging.getLogger("snowpea.update")
 REPO = "Wafour-Developer/snowpea-agent"
 REPO_URL = f"https://github.com/{REPO}"
 TAGS_URL = f"https://api.github.com/repos/{REPO}/tags"
+COMMITS_URL = f"https://api.github.com/repos/{REPO}/commits"
 #: Distribution name on PyPI; ``system.update`` hands this to the installer.
 PACKAGE = "snowpea-agent"
 PYPI_URL = f"https://pypi.org/pypi/{PACKAGE}/json"
@@ -67,6 +70,108 @@ POLL_INTERVAL_SEC = 0.1
 CHECK_ENV = "SNOWPEA_UPDATE_CHECK"
 
 _VERSION_RE = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)")
+_SHA_RE = re.compile(r"^[0-9a-f]{7,40}$", re.IGNORECASE)
+_GIT_SOURCE_RE = re.compile(r"^(?:git\+)?(?P<url>[^@]+?)(?:@(?P<ref>[^#]+))?(?:#.*)?$")
+_TRACKED_BRANCHES = {"main", "master"}
+
+
+# ---------------------------------------------------------------------------
+# install provenance
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class GitInstall:
+    """A git branch install we can compare against GitHub safely."""
+
+    branch: str
+    installed_revision: str | None
+
+
+def _is_sha(text: str | None) -> bool:
+    return bool(text and _SHA_RE.match(text.strip()))
+
+
+def _same_revision(left: str | None, right: str | None) -> bool:
+    """True when two full/short git SHAs name the same revision."""
+    if not (_is_sha(left) and _is_sha(right)):
+        return False
+    a, b = str(left).strip().lower(), str(right).strip().lower()
+    return a.startswith(b) or b.startswith(a)
+
+
+def _clean_git_url(url: str) -> str:
+    cleaned = url.strip()
+    if cleaned.startswith("git+"):
+        cleaned = cleaned[4:]
+    cleaned = cleaned.removesuffix(".git").rstrip("/").lower()
+    return cleaned
+
+
+def _split_git_source(source: str) -> tuple[str, str | None] | None:
+    match = _GIT_SOURCE_RE.match(source.split(" @ ", 1)[-1].strip())
+    if match is None:
+        return None
+    url = _clean_git_url(match.group("url"))
+    if url != REPO_URL.lower():
+        return None
+    ref = match.group("ref")
+    return url, ref.strip() if ref else None
+
+
+def _read_direct_url_json() -> dict[str, Any]:
+    """PEP 610 provenance written by pip/uv for direct URL installs."""
+    try:
+        text = metadata.distribution(PACKAGE).read_text("direct_url.json")
+    except metadata.PackageNotFoundError:
+        return {}
+    except Exception:  # noqa: BLE001 - broken metadata must not break startup
+        log.debug("could not read direct_url.json", exc_info=True)
+        return {}
+    if not text:
+        return {}
+    try:
+        payload = json.loads(text)
+    except ValueError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def git_install_provenance(paths: Paths) -> GitInstall | None:
+    """Return the current same-repo branch install, if one is known.
+
+    A branch name alone is not enough to announce an update; we also need the
+    installed commit from direct_url.json before comparing it with GitHub.
+    """
+    install = read_install_json(paths)
+    source = str(install.get("source") or "")
+    direct = _read_direct_url_json()
+    direct_ref: str | None = None
+    direct_revision: str | None = None
+    url = direct.get("url")
+    if isinstance(url, str) and _clean_git_url(url) == REPO_URL.lower():
+        vcs_info = direct.get("vcs_info")
+        if isinstance(vcs_info, dict) and str(vcs_info.get("vcs", "")).lower() == "git":
+            requested = vcs_info.get("requested_revision")
+            commit = vcs_info.get("commit_id")
+            if isinstance(requested, str):
+                direct_ref = requested.strip() or None
+            if isinstance(commit, str) and _is_sha(commit):
+                direct_revision = commit.strip()
+
+    # A no-ref git install follows the repository's default branch (main).
+    split = _split_git_source(source) if source else None
+    recorded_branch = (split[1] or "main") if split is not None else None
+    branch: str | None
+    if direct_revision is not None and direct_ref is None:
+        branch = "main"
+    elif direct_ref and _is_sha(direct_ref) and recorded_branch in _TRACKED_BRANCHES:
+        branch = recorded_branch
+    else:
+        branch = direct_ref or recorded_branch
+    if branch not in _TRACKED_BRANCHES:
+        return None
+    return GitInstall(branch=branch, installed_revision=direct_revision)
 
 
 # ---------------------------------------------------------------------------
@@ -154,6 +259,15 @@ def version_suffix(home: Path | str | None = None) -> str:
     if not payload or not payload.get("available"):
         return ""
     latest = str(payload.get("latest") or "")
+    if payload.get("installKey"):
+        install = git_install_provenance(Paths(home=resolve_home(home)))
+        if (
+            install
+            and payload["installKey"]
+            == f"git:{install.branch}:{install.installed_revision}:{__version__}"
+        ):
+            return f" (update available: v{latest.lstrip('v')})"
+        return ""
     if not latest or not is_newer(latest, __version__):
         return ""
     return f" (update available: v{latest.lstrip('v')})"
@@ -226,9 +340,58 @@ def _answer(
     }
 
 
-async def check_update(
-    paths: Paths, settings: Settings, *, force: bool = False
-) -> dict[str, Any]:
+async def _check_git_branch(paths: Paths, install: GitInstall, force: bool) -> dict[str, Any]:
+    revision = install.installed_revision
+    source = f"git+{REPO_URL}@{install.branch}"
+    if not revision:
+        return _answer(
+            latest=__version__,
+            channel="git",
+            source=source,
+            error="cannot determine the installed git revision; reinstall from main",
+        )
+    key = f"git:{install.branch}:{revision}:{__version__}"
+    cached = None if force else read_cache(paths)
+    if cached and cached.get("installKey") == key and not cached.get("error"):
+        return {**cached, "cached": True}
+    try:
+        async with _new_client() as client:
+            response = await client.get(f"{COMMITS_URL}/{install.branch}")
+            if response.status_code != 200:
+                raise ValueError(f"GitHub update check returned HTTP {response.status_code}")
+            latest = response.json().get("sha")
+            if not isinstance(latest, str) or not re.fullmatch(r"[0-9a-fA-F]{40}", latest):
+                raise ValueError("GitHub returned an invalid commit")
+            available = False
+            if not _same_revision(revision, latest):
+                compared = await client.get(
+                    f"https://api.github.com/repos/{REPO}/compare/{revision}...{latest}"
+                )
+                if compared.status_code != 200:
+                    raise ValueError("could not verify update ancestry")
+                status = compared.json().get("status")
+                if status not in ("ahead", "behind", "identical"):
+                    raise ValueError("branch history diverged; refusing an automatic replacement")
+                available = status == "ahead"
+        answer = _answer(
+            latest=f"{__version__}+{latest[:8]}",
+            channel="git",
+            source=f"git+{REPO_URL}@{latest}",
+            release_url=f"{REPO_URL}/commit/{latest}",
+        )
+        answer.update(
+            current=f"{__version__}+{revision[:8]}",
+            available=available,
+            installKey=key,
+            trackingSource=source,
+        )
+        write_cache(paths, answer)
+        return answer
+    except Exception as exc:  # noqa: BLE001 - never break startup on a network error
+        return _answer(latest=__version__, channel="git", source=source, error=str(exc))
+
+
+async def check_update(paths: Paths, settings: Settings, *, force: bool = False) -> dict[str, Any]:
     """Answer ``system.checkUpdate``. Never raises.
 
     ``force`` skips the cache.  The configured channel (``updates.channel``)
@@ -238,13 +401,23 @@ async def check_update(
     current = __version__
     configured = str(getattr(settings.updates, "channel", "auto") or "auto").lower()
 
+    install = git_install_provenance(paths) if configured != "pypi" else None
+    if install is not None:
+        return await _check_git_branch(paths, install, force)
+
     if not force:
         cached = read_cache(paths)
-        if cached is not None:
+        if (
+            cached is not None
+            and not cached.get("installKey")
+            and cached.get("configured", "auto") == configured
+        ):
             answer = dict(cached)
             answer["current"] = current
             answer["cached"] = True
-            answer["available"] = is_newer(str(answer.get("latest") or current), current)
+            answer["available"] = not answer.get("error") and is_newer(
+                str(answer.get("latest") or current), current
+            )
             return answer
 
     try:
@@ -291,6 +464,7 @@ async def check_update(
             source=f"git+{REPO_URL}@{ref}",
             release_url=f"{REPO_URL}/releases/tag/{ref}",
         )
+    answer["configured"] = configured
     write_cache(paths, answer)
     return answer
 
@@ -427,7 +601,12 @@ async def wait_for_exit(
         await asyncio.sleep(poll_interval)
 
 
-async def watch_update(core: Core, process: subprocess.Popen[bytes], latest: str) -> None:
+async def watch_update(
+    core: Core,
+    process: subprocess.Popen[bytes],
+    latest: str,
+    tracking_source: str | None = None,
+) -> None:
     """Wait for the upgrade to finish, then announce ``done`` or ``failed``."""
     code = await wait_for_exit(process)
     if code is None:
@@ -439,6 +618,12 @@ async def watch_update(core: Core, process: subprocess.Popen[bytes], latest: str
         )
         return
     if code == 0:
+        if tracking_source:
+            try:
+                method = str(read_install_json(core.paths).get("method") or "uv")
+                write_install_json(core.paths, method, tracking_source)
+            except OSError:
+                log.warning("could not persist update tracking source", exc_info=True)
         core.restart_required = True
         await notify_progress(core, "done", f"updated to v{latest.lstrip('v')}")
     else:

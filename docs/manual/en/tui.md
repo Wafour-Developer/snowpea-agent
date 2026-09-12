@@ -259,3 +259,17 @@ Markdown tables in responses are rendered with aligned borders. Column sizing ac
 ## Built-in and custom agents
 
 `/agent list` includes the packaged roles (`architect`, `critic`, `executor`, `explorer`, `test-engineer`, `verifier`) alongside custom definitions. Built-in roles need no user-created files and have source `builtin`. A custom definition with the same name overrides the built-in; project definitions take precedence over global definitions. The same names are available through the `agent` argument of `delegate_task`.
+
+## Update notifications at startup
+
+Each launch checks for updates in the background. When a banner appears, press `U` on an empty input or type `/update` to open confirmation. Choose `y` to install and restart, or `n`/Esc to defer. Lowercase `u` in ordinary typing is not an update shortcut.
+
+Git `main`/`master` installs compare the installed commit, so a version bump is not required to detect new commits. Failed checks, unchanged builds and downgrades do not trigger installation. PyPI/release installs retain version-based checks.
+
+If an older automatic update leaves startup failing with `Cannot read properties of undefined (reading 'rawCall')`, reinstall current `main`:
+
+```sh
+uv tool install --force --reinstall 'snowpea-agent[images] @ git+https://github.com/Wafour-Developer/snowpea-agent@main'
+```
+
+After reinstalling, once no work is running, use `snowpea daemon stop` and then launch `snowpea` to load the new daemon code.

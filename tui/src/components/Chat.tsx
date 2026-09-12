@@ -43,6 +43,8 @@ export interface ChatProps {
    * yet — after that, R is just a letter.
    */
   onQuickResume?: () => void;
+  /** U on empty input opens update confirmation without entering the draft. */
+  onQuickUpdate?: () => void;
   /** Autocomplete candidates for the current input; owner calls registry.complete(). */
   completions: CommandInfo[];
   disabled?: boolean;
@@ -57,6 +59,7 @@ export function Chat({
   initialHistory = [],
   onFocusDown,
   onQuickResume,
+  onQuickUpdate,
   onPaste,
   onBackspaceEmpty,
   onClearAttachments,
@@ -179,6 +182,10 @@ export function Chat({
       // A paste arrives as one chunk: if it names files, it becomes chips
       // rather than a wall of text in the draft.
       if (input.length > 1 && onPaste?.(input)) return;
+      if (input === "U" && value.length === 0 && onQuickUpdate) {
+        onQuickUpdate();
+        return;
+      }
       if (input === "R" && value.length === 0 && onQuickResume) {
         onQuickResume();
         return;
