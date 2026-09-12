@@ -301,6 +301,16 @@ class SessionListParams(Payload):
     workdir: str | None = Field(default=None, description="Only sessions rooted here.")
 
 
+class SessionDeleteParams(Payload):
+    sessionId: str | None = Field(default=None, description="Delete one saved session.")
+    workdir: str | None = Field(default=None, description="Delete saved sessions rooted here.")
+    all: bool = Field(default=False, description="Delete saved sessions from every directory.")
+
+
+class SessionDeleteResult(Payload):
+    deleted: int = 0
+
+
 class SessionIdParams(Payload):
     sessionId: str = Field(description="Target session.")
 
@@ -1542,6 +1552,12 @@ METHODS: dict[str, RpcMethod] = {
             "Replay the events a disconnected client missed.",
         ),
         _m("session.list", SessionListParams, SessionListResult, "List live or saved sessions."),
+        _m(
+            "session.deleteSaved",
+            SessionDeleteParams,
+            SessionDeleteResult,
+            "Delete saved sessions.",
+        ),
         _m("session.close", SessionIdParams, Ok, "Close a session and release its resources."),
         _m(
             "session.prompt",
@@ -1795,6 +1811,7 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "session.create",
         "session.resume",
         "session.list",
+        "session.deleteSaved",
         "session.close",
         "session.prompt",
         "session.interrupt",

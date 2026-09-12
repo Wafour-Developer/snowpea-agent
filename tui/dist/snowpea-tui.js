@@ -33836,6 +33836,11 @@ var SURFACE_COMMANDS = [
     name: "resume",
     summary: "Resume the last session in this directory, or /resume <sessionId>.",
     source: "tui"
+  },
+  {
+    name: "session",
+    summary: "Delete saved sessions: /session delete <id> | clear [--all].",
+    source: "tui"
   }
 ];
 function withSurfaceCommands(commands) {
@@ -37774,6 +37779,17 @@ function App2({
         }
         if (resume[1]) resumeSession(resume[1], "main");
         else openResumePicker();
+        return;
+      }
+      const sessionDelete = /^\/session\s+delete\s+(\S+)\s*$/.exec(text.trim());
+      const sessionClear = /^\/session\s+clear(?:\s+(--all))?\s*$/.exec(text.trim());
+      if (sessionDelete || sessionClear) {
+        const params = sessionDelete ? { sessionId: sessionDelete[1] } : sessionClear?.[1] ? { all: true } : { workdir };
+        void client.call("session.deleteSaved", params).then(
+          (result) => showToast(`deleted ${Number(result?.deleted ?? 0)} saved session(s)`)
+        ).catch(
+          (error) => dispatch({ type: "error", message: `session cleanup failed: ${String(error)}` })
+        );
         return;
       }
       const attach = /^\/attach\s+(.+)$/.exec(text.trim());

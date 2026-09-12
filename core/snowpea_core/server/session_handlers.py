@@ -49,6 +49,8 @@ from snowpea_core.server.protocol import (
     SessionCompactResult,
     SessionCreateParams,
     SessionCreateResult,
+    SessionDeleteParams,
+    SessionDeleteResult,
     SessionEvent,
     SessionIdParams,
     SessionListParams,
@@ -233,6 +235,26 @@ async def session_list_handler(
     if params.workdir:
         rows = [row for row in rows if row.workdir == params.workdir]
     return SessionListResult(sessions=sorted(rows, key=lambda row: row.createdAt, reverse=True))
+
+
+async def session_delete_saved_handler(
+    _conn: RpcConnection, params: SessionDeleteParams, core: Core
+) -> SessionDeleteResult:
+    if core.store is None:
+        return SessionDeleteResult()
+    live_ids = {row.sessionId for row in core.sessions.list()}
+    stored = await core.store.list_sessions(include_closed=True)
+    ids = [
+        str(row["id"])
+        for row in stored
+        if str(row["id"]) not in live_ids
+        and (
+            params.all
+            or (params.sessionId and row["id"] == params.sessionId)
+            or (params.workdir and row["workdir"] == params.workdir)
+        )
+    ]
+    return SessionDeleteResult(deleted=await core.store.delete_sessions(ids))
 
 
 async def session_close_handler(_conn: RpcConnection, params: SessionIdParams, core: Core) -> Ok:
@@ -506,6 +528,7 @@ def register_session_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
     dispatcher.register("session.create", session_create_handler)
     dispatcher.register("session.resume", session_resume_handler)
     dispatcher.register("session.list", session_list_handler)
+    dispatcher.register("session.deleteSaved", session_delete_saved_handler)
     dispatcher.register("session.close", session_close_handler)
     dispatcher.register("session.prompt", session_prompt_handler)
     dispatcher.register("session.interrupt", session_interrupt_handler)

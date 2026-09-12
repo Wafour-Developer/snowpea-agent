@@ -310,6 +310,28 @@ async def test_session_list_and_close(
     await client.stop()
 
 
+async def test_delete_saved_sessions_keeps_the_live_session(
+    daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path
+) -> None:
+    workdir = tmp_path / "project"
+    workdir.mkdir()
+    client = await connect(http, daemon)
+    live_id = await start_session(client, workdir)
+    saved_id = await start_session(client, workdir)
+    assert (await client.ok("session.close", {"sessionId": saved_id}))["ok"] is True
+
+    deleted = await client.ok(
+        "session.deleteSaved", {"workdir": str(workdir)}
+    )
+    assert deleted["deleted"] == 1
+    listed = await client.ok(
+        "session.list", {"includeClosed": True, "workdir": str(workdir)}
+    )
+    assert [row["sessionId"] for row in listed["sessions"]] == [live_id]
+    assert await daemon.core.store.session(saved_id) is None  # type: ignore[union-attr]
+    await client.stop()
+
+
 # ---------------------------------------------------------------------------
 # (f) slash commands
 # ---------------------------------------------------------------------------
