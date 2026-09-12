@@ -100,7 +100,7 @@ export function HelpPanel({
         </Text>
         <Text dimColor>
           {"  /resume (or R on an empty input) reopens the session this "}
-          {"directory was last in"}
+          {"directory was last in; /resume <sessionId> opens a specific live session"}
         </Text>
         <Text dimColor>
           {"  Paste or drop a file path to attach it · Ctrl+V takes an image "}

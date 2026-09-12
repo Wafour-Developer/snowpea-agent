@@ -201,6 +201,7 @@ export type Action =
       text: string;
       attachments?: { name: string; mime: string; size: number }[];
     }
+  | { type: "session/reset"; sessionId: string }
   | { type: "session/event"; event: SessionEvent }
   | { type: "child/event"; sessionId: string; event: SessionEvent }
   | { type: "approval/request"; request: ApprovalRequestParams }
@@ -480,6 +481,9 @@ function applySessionEvent(state: State, event: SessionEvent): State {
 
 export function reducer(state: State, action: Action): State {
   switch (action.type) {
+    case "session/reset":
+      return { ...initialState, status: state.status, sessionId: action.sessionId };
+
     case "session/ready":
       return {
         ...state,
