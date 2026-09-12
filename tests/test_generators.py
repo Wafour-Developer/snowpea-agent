@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from pathlib import Path
+from types import SimpleNamespace
 
 import aiohttp
 import pytest
@@ -18,12 +19,14 @@ from _support import RpcClient, connect, fake_provider, make_daemon
 from snowpea_core.agent.definition import (
     AgentDefinition,
     DefinitionError,
+    builtin_agent_definitions,
     parse_agent_md,
     parse_agent_text,
     parse_generated_json,
     render_agent_md,
     slugify,
     validate_name,
+    write_definition,
 )
 from snowpea_core.server.app_server import Daemon
 
@@ -42,7 +45,6 @@ async def daemon(tmp_path: Path) -> AsyncIterator[Daemon]:
             yield instance
         finally:
             await instance.stop()
-
 
 
 async def start_session(client: RpcClient, workdir: Path) -> str:
@@ -122,6 +124,52 @@ def test_generated_json_is_parsed_out_of_prose() -> None:
         parse_generated_json("no object here")
 
 
+def test_delegate_task_description_names_builtin_agents() -> None:
+    from snowpea_core.tools.delegate import TOOLS
+
+    delegate = TOOLS[0]
+    agent_schema = delegate.input_schema["properties"]["agent"]
+    assert "Built-in agents available by name" in delegate.description
+    assert "executor" in delegate.description
+    assert "critic" in str(agent_schema["description"])
+    assert "custom agent names also resolve" in str(agent_schema["description"])
+
+
+def test_builtin_agent_definitions_are_visible_and_overridable(tmp_path: Path) -> None:
+    from snowpea_core.commands.agent_cmd import definitions_for
+
+    builtins = {agent.name: agent for agent in builtin_agent_definitions()}
+    assert {"architect", "critic", "executor", "explorer", "test-engineer", "verifier"} <= set(
+        builtins
+    )
+    assert builtins["executor"].source == "builtin"
+    assert builtins["executor"].prompt == ""
+    assert builtins["executor"].path and builtins["executor"].path.name == "executor.md"
+
+    workdir = project(tmp_path)
+    home = tmp_path / "home"
+    home.mkdir()
+    core = SimpleNamespace(paths=SimpleNamespace(home=home), skills=None)
+
+    definitions = {agent.name: agent for agent in definitions_for(core, workdir)}
+    assert definitions["executor"].source == "builtin"
+    assert definitions["critic"].source == "builtin"
+
+    write_definition(
+        AgentDefinition(
+            name="executor",
+            description="Project executor override.",
+            prompt="Project-specific executor persona.",
+        ),
+        workdir,
+    )
+
+    definitions = {agent.name: agent for agent in definitions_for(core, workdir)}
+    assert definitions["executor"].source == "project"
+    assert definitions["executor"].description == "Project executor override."
+    assert definitions["critic"].source == "builtin"
+
+
 # ---------------------------------------------------------------------------
 # /agent create, /agent list, agent.list
 # ---------------------------------------------------------------------------
@@ -169,6 +217,8 @@ async def test_agent_list_and_rpc_show_the_definition(
     assert agents["release-notes"]["source"] == "project"
     assert agents["release-notes"]["kind"] == "definition"
     assert agents["release-notes"]["path"].endswith("release-notes.md")
+    assert agents["executor"]["source"] == "builtin"
+    assert agents["executor"]["kind"] == "definition"
 
     await client.stop()
 
