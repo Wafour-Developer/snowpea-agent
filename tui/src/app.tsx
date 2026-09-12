@@ -1436,13 +1436,6 @@ export function App({
   const statusNode = (
     <>
       <SectionRule width={contentWidth} color="green" />
-      <StatusHud rows={hudRows} width={contentWidth} />
-      {warning ? (
-        <Text color={warning.color} bold={warning.bold} wrap="truncate-end">
-          {warning.text}
-        </Text>
-      ) : null}
-      <SectionRule width={contentWidth} />
       <Text
         color={summary.color}
         dimColor={summary.dimColor && focus.zone !== "footer"}
@@ -1452,6 +1445,13 @@ export function App({
         {`${summary.text}${focus.zone === "footer" ? " · Enter to list them" : ""}`}
       </Text>
       {shellsOpen ? <ShellList calls={state.toolCalls} now={now} width={contentWidth} /> : null}
+      <SectionRule width={contentWidth} />
+      <StatusHud rows={hudRows} width={contentWidth} />
+      {warning ? (
+        <Text color={warning.color} bold={warning.bold} wrap="truncate-end">
+          {warning.text}
+        </Text>
+      ) : null}
       <SectionRule width={contentWidth} />
       <AgentPanel
         rows={agentRows}

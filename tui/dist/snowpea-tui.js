@@ -38052,9 +38052,6 @@ function App2({
   });
   const statusNode = /* @__PURE__ */ (0, import_jsx_runtime23.jsxs)(import_jsx_runtime23.Fragment, { children: [
     /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(SectionRule, { width: contentWidth, color: "green" }),
-    /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(StatusHud, { rows: hudRows, width: contentWidth }),
-    warning ? /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { color: warning.color, bold: warning.bold, wrap: "truncate-end", children: warning.text }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(SectionRule, { width: contentWidth }),
     /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(
       Text,
       {
@@ -38066,6 +38063,9 @@ function App2({
       }
     ),
     shellsOpen ? /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(ShellList, { calls: state.toolCalls, now, width: contentWidth }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(SectionRule, { width: contentWidth }),
+    /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(StatusHud, { rows: hudRows, width: contentWidth }),
+    warning ? /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { color: warning.color, bold: warning.bold, wrap: "truncate-end", children: warning.text }) : null,
     /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(SectionRule, { width: contentWidth }),
     /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(
       AgentPanel,
