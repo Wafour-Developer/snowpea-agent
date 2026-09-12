@@ -5,13 +5,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  HUD_TWO_ROW_WIDTH,
+  MAX_HUD_ROWS,
   SEPARATOR,
   buildHudSegments,
   WORKDIR_WIDTH,
   formatElapsed,
   formatTokens,
-  hudRowCount,
   layoutHud,
   rowWidth,
   shortenPath,
@@ -81,7 +80,7 @@ describe("buildHudSegments", () => {
     const byKey = Object.fromEntries(segments.map((s) => [s.key, s.text]));
     expect(byKey.model).toBe("Model: anthropic/claude-sonnet-5");
     expect(byKey.mode).toBe("Mode: ACCEPT");
-    expect(byKey.ctx).toBe("ctx: 12.3k↑/1.2k↓ tok");
+    expect(byKey.tokens).toBe("tok 12.3k↑/1.2k↓");
     expect(byKey.cwd).toBe("/home/dev/src/snowpea");
     expect(byKey.session).toBe("session: s-50dd0a · 12m");
     expect(byKey.daemon).toBe("daemon: pid 1234 · will not exit: 1 job");
@@ -132,9 +131,42 @@ describe("buildHudSegments", () => {
   });
 });
 
+describe("the context segment", () => {
+  it("stays hidden until the daemon reports any context usage", () => {
+    expect(buildHudSegments(base).some((s) => s.key === "ctx")).toBe(false);
+  });
+
+  it("shows how full the window is, and shouts when it is nearly full", () => {
+    const at = (percent: number) =>
+      buildHudSegments({
+        ...base,
+        context: { used: 1280 * percent, window: 128_000, percent, estimated: false },
+      }).find((s) => s.key === "ctx");
+    expect(at(10)?.text).toBe("ctx 12.8k / 128.0k (10%)");
+    expect(at(10)?.color).toBeUndefined();
+    expect(at(75)?.color).toBe("yellow");
+    expect(at(96)?.color).toBe("red");
+    expect(at(96)?.text).toContain("CRITICAL");
+  });
+
+  it("says so when the window size is unknown", () => {
+    const segment = buildHudSegments({
+      ...base,
+      context: { used: 12_300, window: null, percent: null, estimated: true },
+    }).find((s) => s.key === "ctx");
+    expect(segment?.text).toBe("ctx 12.3k / ?");
+  });
+
+  it("counts the session's tools when the daemon listed them", () => {
+    expect(buildHudSegments({ ...base, toolCount: 20 }).find((s) => s.key === "tools")?.text).toBe(
+      "🔧 20 tools",
+    );
+    expect(buildHudSegments(base).some((s) => s.key === "tools")).toBe(false);
+  });
+});
+
 describe("layoutHud", () => {
-  it("uses one row when the terminal is wide", () => {
-    expect(hudRowCount(HUD_TWO_ROW_WIDTH)).toBe(1);
+  it("uses one row when everything fits on one", () => {
     const rows = layoutHud(buildHudSegments(base), 200);
     expect(rows).toHaveLength(1);
     expect(rows[0].map((s) => s.key)).toEqual([
@@ -142,15 +174,14 @@ describe("layoutHud", () => {
       "cwd",
       "model",
       "mode",
-      "ctx",
+      "tokens",
       "session",
       "daemon",
       "status",
     ]);
   });
 
-  it("splits over two rows below 110 columns", () => {
-    expect(hudRowCount(HUD_TWO_ROW_WIDTH - 1)).toBe(2);
+  it("spills onto a second row rather than dropping segments", () => {
     const rows = layoutHud(buildHudSegments(base), 100);
     expect(rows.length).toBeGreaterThan(1);
     expect(rows).toHaveLength(2);
@@ -160,7 +191,7 @@ describe("layoutHud", () => {
   it("never draws a row wider than the terminal", () => {
     for (const width of [20, 30, 45, 60, 80, 100, 120, 160]) {
       const rows = layoutHud(buildHudSegments({ ...base, pendingApprovals: 2 }), width);
-      expect(rows.length).toBeLessThanOrEqual(hudRowCount(width));
+      expect(rows.length).toBeLessThanOrEqual(MAX_HUD_ROWS);
       for (const row of rows) expect(rowWidth(row)).toBeLessThanOrEqual(width);
     }
   });

@@ -5,20 +5,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SessionEvent } from "../src/rpc/sdk.js";
-import {
-  ENGLISH_VERBS,
-  KOREAN_VERBS,
-  VERB_PERIOD_MS,
-  isKorean,
-  verbAt,
-  verbsFor,
-} from "../src/state/verbs.js";
+import { VERBS, VERB_PERIOD_MS, verbAt } from "../src/state/verbs.js";
 import {
   SPINNER_FRAMES,
   derivePhase,
   formatDuration,
   formatStats,
-  lastUserPrompt,
   toolLabel,
   turnSummaryLine,
   workingLine,
@@ -48,34 +40,24 @@ beforeEach(() => {
 
 describe("verb rotation", () => {
   it("holds a verb for the whole period and then moves on", () => {
-    expect(verbAt(ENGLISH_VERBS, 0)).toBe(ENGLISH_VERBS[0]);
-    expect(verbAt(ENGLISH_VERBS, VERB_PERIOD_MS - 1)).toBe(ENGLISH_VERBS[0]);
-    expect(verbAt(ENGLISH_VERBS, VERB_PERIOD_MS)).toBe(ENGLISH_VERBS[1]);
-    expect(verbAt(ENGLISH_VERBS, VERB_PERIOD_MS * 2)).toBe(ENGLISH_VERBS[2]);
+    expect(verbAt(0)).toBe(VERBS[0]);
+    expect(verbAt(VERB_PERIOD_MS - 1)).toBe(VERBS[0]);
+    expect(verbAt(VERB_PERIOD_MS)).toBe(VERBS[1]);
+    expect(verbAt(VERB_PERIOD_MS * 2)).toBe(VERBS[2]);
   });
 
   it("wraps around the list instead of running out", () => {
-    const past = VERB_PERIOD_MS * ENGLISH_VERBS.length;
-    expect(verbAt(ENGLISH_VERBS, past)).toBe(ENGLISH_VERBS[0]);
+    const past = VERB_PERIOD_MS * VERBS.length;
+    expect(verbAt(past)).toBe(VERBS[0]);
   });
 
   it("starts two turns on different words", () => {
-    expect(verbAt(ENGLISH_VERBS, 0, 0)).not.toBe(verbAt(ENGLISH_VERBS, 0, 1));
+    expect(verbAt(0, 0)).not.toBe(verbAt(0, 1));
   });
 
   it("offers enough words not to repeat inside a turn", () => {
-    expect(ENGLISH_VERBS.length).toBeGreaterThanOrEqual(40);
-    expect(KOREAN_VERBS.length).toBeGreaterThanOrEqual(40);
-    expect(new Set(ENGLISH_VERBS).size).toBe(ENGLISH_VERBS.length);
-    expect(new Set(KOREAN_VERBS).size).toBe(KOREAN_VERBS.length);
-  });
-
-  it("answers in Korean when the user wrote in Korean", () => {
-    expect(isKorean("이 파일 고쳐줘")).toBe(true);
-    expect(isKorean("fix this file")).toBe(false);
-    expect(verbsFor("이 파일 고쳐줘")).toBe(KOREAN_VERBS);
-    expect(verbsFor("fix this file")).toBe(ENGLISH_VERBS);
-    expect(verbsFor(null)).toBe(ENGLISH_VERBS);
+    expect(VERBS.length).toBeGreaterThanOrEqual(40);
+    expect(new Set(VERBS).size).toBe(VERBS.length);
   });
 
   it("rotates on the clock, with fake timers standing in for the wait", () => {
@@ -84,7 +66,7 @@ describe("verb rotation", () => {
       const startedAt = Date.now();
       vi.advanceTimersByTime(VERB_PERIOD_MS * 3 + 10);
       const elapsed = Date.now() - startedAt;
-      expect(verbAt(ENGLISH_VERBS, elapsed)).toBe(ENGLISH_VERBS[3]);
+      expect(verbAt(elapsed)).toBe(VERBS[3]);
     } finally {
       vi.useRealTimers();
     }
@@ -179,15 +161,14 @@ describe("formatting", () => {
       elapsedMs: 71_000,
       outputTokens: 3700,
       frame: 0,
-      prompt: "hello",
       verbOffset: 0,
     });
-    expect(line).toBe(`${SPINNER_FRAMES[0]} ${ENGLISH_VERBS[8]}… (1m 11s · ↓ 3.7k tokens)`);
+    expect(line).toBe(`${SPINNER_FRAMES[0]} ${VERBS[8]}… (1m 11s · ↓ 3.7k tokens)`);
   });
 
   it("cycles the spinner glyph with the frame", () => {
     const at = (frame: number) =>
-      workingLine({ phase: { kind: "thinking" }, elapsedMs: 0, frame, prompt: "hi" })!.slice(0, 1);
+      workingLine({ phase: { kind: "thinking" }, elapsedMs: 0, frame })!.slice(0, 1);
     expect(at(0)).toBe(SPINNER_FRAMES[0]);
     expect(at(3)).toBe(SPINNER_FRAMES[3]);
     expect(at(SPINNER_FRAMES.length)).toBe(SPINNER_FRAMES[0]);
@@ -211,17 +192,6 @@ describe("formatting", () => {
     expect(workingLine({ ...stats, phase: { kind: "idle" } })).toBeNull();
   });
 
-  it("uses the Korean list for a Korean prompt", () => {
-    const line = workingLine({
-      phase: { kind: "thinking" },
-      elapsedMs: 0,
-      frame: 0,
-      prompt: "이 파일 고쳐줘",
-      verbOffset: 0,
-    });
-    expect(line).toBe(`${SPINNER_FRAMES[0]} ${KOREAN_VERBS[0]}… (0s · ↓ 0 tokens)`);
-  });
-
   it("closes the turn with a result line", () => {
     expect(turnSummaryLine({ ok: true, elapsedMs: 12_000, outputTokens: 3700 })).toBe(
       "✓ Done in 12s · ↓ 3.7k tokens",
@@ -229,16 +199,5 @@ describe("formatting", () => {
     expect(turnSummaryLine({ ok: false, elapsedMs: 4000, outputTokens: 10 })).toBe(
       "✗ Stopped after 4s · ↓ 10 tokens",
     );
-  });
-});
-
-describe("lastUserPrompt", () => {
-  it("finds the most recent thing the user said", () => {
-    const state = apply(
-      ask(ask(initialState, "first"), "두 번째"),
-      event(1, "message.done", { text: "answer", role: "assistant" }),
-    );
-    expect(lastUserPrompt(state)).toBe("두 번째");
-    expect(lastUserPrompt(initialState)).toBeNull();
   });
 });

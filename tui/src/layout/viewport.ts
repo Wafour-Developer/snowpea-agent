@@ -139,10 +139,15 @@ export function paletteRows(commandCount: number, maxRows = 8): number {
   return Math.min(commandCount, maxRows) + 1 + 2;
 }
 
-/** Rows the interactive approval prompt occupies. */
-export function approvalPromptRows(argCount: number): number {
-  // border(2) + title + tool line + args + blank + scope row + key hint
-  return 2 + 1 + 1 + Math.max(0, argCount) + 1 + 1 + 1;
+/**
+ * Rows the interactive approval prompt occupies.
+ *
+ * `menuRows` is the answer menu: four options, one of which carries a hint
+ * line, plus the key legend under them.
+ */
+export function approvalPromptRows(argCount: number, menuRows = 6): number {
+  // border(2) + title + tool line + args + blank + the menu
+  return 2 + 1 + 1 + Math.max(0, argCount) + 1 + menuRows;
 }
 
 /** Rows the unattended approval backlog occupies. */

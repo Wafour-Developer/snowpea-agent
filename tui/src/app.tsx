@@ -43,17 +43,13 @@ import {
   type TimelineItem,
   type ToolCallEntry,
 } from "./state/store.js";
-import {
-  derivePhase,
-  lastUserPrompt,
-  turnSummaryLine,
-  workingLine,
-} from "./state/working.js";
+import { derivePhase, turnSummaryLine, workingLine } from "./state/working.js";
 import { cycleMode } from "./state/mode.js";
 import { useTerminalSize } from "./hooks/useTerminalSize.js";
 import { useDaemonInfo } from "./hooks/useDaemonInfo.js";
 import { useElapsed } from "./hooks/useElapsed.js";
 import { useSpinner } from "./hooks/useSpinner.js";
+import { useKnownAgents } from "./hooks/useKnownAgents.js";
 import { TUI_VERSION } from "./version.js";
 import { transcriptLines } from "./layout/transcript.js";
 import {
@@ -67,9 +63,11 @@ import {
   sliceViewport,
   usableRows,
 } from "./layout/viewport.js";
-import { buildHudSegments, layoutHud } from "./layout/hud.js";
+import { buildHudSegments, formatTokens, layoutHud } from "./layout/hud.js";
 import { settledCount } from "./layout/statics.js";
-import { groupCalls } from "./layout/summary.js";
+import { groupCalls, toolKind } from "./layout/summary.js";
+import { buildAgentRows } from "./layout/agents.js";
+import { compactionDivider, contextWarning, summaryLine } from "./layout/bottom.js";
 import { FullscreenLayout } from "./components/FullscreenLayout.js";
 import { Chat } from "./components/Chat.js";
 import { MessageView } from "./components/MessageStream.js";
@@ -77,15 +75,22 @@ import { ToolCall } from "./components/ToolCall.js";
 import { DiffView } from "./components/DiffView.js";
 import { ApprovalPrompt } from "./components/ApprovalPrompt.js";
 import { ApprovalQueue } from "./components/ApprovalQueue.js";
+import { ConfirmMenu, type ConfirmOption } from "./components/ConfirmMenu.js";
 import { StatusHud } from "./components/StatusHud.js";
+import { AgentPanel } from "./components/AgentPanel.js";
 import { ToolSummary } from "./components/ToolSummary.js";
 import { WorkingIndicator } from "./components/WorkingIndicator.js";
 import { Logo, logoRows } from "./components/Logo.js";
 import { HelpPanel } from "./components/HelpPanel.js";
-import { SubagentTree } from "./components/SubagentTree.js";
 import { UpdateBanner } from "./components/UpdateBanner.js";
 
 export const PLACEHOLDER_TEXT = "snowpea tui placeholder";
+
+/** The answers to "update now?", offered the same way approvals are. */
+const UPDATE_OPTIONS: ConfirmOption<boolean>[] = [
+  { label: "Update and restart", value: true, shortcut: "y" },
+  { label: "Not now", value: false, shortcut: "n", danger: true },
+];
 
 /** How often the unattended queue is re-read while it is not empty. */
 export const APPROVAL_POLL_MS = 5000;
@@ -113,15 +118,18 @@ export interface AppProps {
   onRestart?: () => void;
 }
 
-/** One transcript entry — a message, a tool call or a diff. */
+/** One transcript entry — a message, a tool call, a diff or a compaction. */
 function TimelineEntry({
   state,
   item,
-  expandedCall,
+  expandedId,
+  width,
 }: {
   state: State;
   item: TimelineItem;
-  expandedCall: string | null;
+  /** The entry Ctrl+O opened, if it is this one. */
+  expandedId: string | null;
+  width: number;
 }): React.ReactElement | null {
   if (item.kind === "message") {
     const message = state.messages.find((m) => m.id === item.id);
@@ -129,10 +137,18 @@ function TimelineEntry({
   }
   if (item.kind === "tool") {
     const call = state.toolCalls.find((c) => c.callId === item.id);
-    return call ? <ToolCall call={call} expanded={expandedCall === item.id} /> : null;
+    return call ? <ToolCall call={call} expanded={expandedId === item.id} /> : null;
+  }
+  if (item.kind === "compaction") {
+    const entry = state.compactions.find((c) => c.id === item.id);
+    return entry ? (
+      <Box marginBottom={1}>
+        <Text dimColor>{compactionDivider(entry.before, entry.after, width)}</Text>
+      </Box>
+    ) : null;
   }
   const diff = state.diffs.find((d) => d.id === item.id);
-  return diff ? <DiffView diff={diff} /> : null;
+  return diff ? <DiffView diff={diff} expanded={expandedId === item.id} /> : null;
 }
 
 /**
@@ -207,9 +223,12 @@ export function App({
   const [state, dispatch] = useReducer(reducer, initialState);
   const [showHelp, setShowHelp] = useState(false);
   const [draft, setDraft] = useState("");
-  const [expandedCall, setExpandedCall] = useState<string | null>(null);
-  /** True while the unattended queue holds the keyboard (Ctrl+A toggles it). */
+  /** Id of the transcript entry Ctrl+O opened: a tool call or a diff. */
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  /** True while the unattended queue holds the keyboard (Ctrl+R toggles it). */
   const [queueFocused, setQueueFocused] = useState(false);
+  /** Ctrl+A opens the agent panel out past its collapsing rules. */
+  const [agentsExpanded, setAgentsExpanded] = useState(false);
   /** Shown once in the status line until the shortcut is used or it times out. */
   const [modeHintVisible, setModeHintVisible] = useState(true);
   /** Transient "mode: X" toast shown in the status line after a change. */
@@ -237,7 +256,6 @@ export function App({
     inputTokens: number;
     outputTokens: number;
     errors: number;
-    prompt: string | null;
   } | null>(null);
   const turnActiveRef = useRef(false);
   /** Bumped per finished turn so each summary line gets its own Static key. */
@@ -299,6 +317,17 @@ export function App({
         // Another surface may have answered one of ours, or freed a slot that
         // lets a queued turn raise its own request; re-read the backlog.
         refreshApprovals();
+
+    // How many tools this session has; the HUD shows the count.
+    void client
+      .call("tool.list", { sessionId })
+      .then((result) => {
+        const tools = Array.isArray(result?.tools) ? result.tools.length : 0;
+        if (tools > 0) dispatch({ type: "tools", count: tools });
+      })
+      .catch(() => {
+        /* advisory: an older daemon may not answer at all. */
+      });
       },
     });
 
@@ -359,6 +388,17 @@ export function App({
     return () => clearInterval(timer);
   }, [state.approvalQueue.length, refreshApprovals]);
 
+  // A compaction is easy to miss in the scrollback, so it also says so in the
+  // status line for a beat.
+  const compactionCount = state.compactions.length;
+  useEffect(() => {
+    const latest = state.compactions[compactionCount - 1];
+    if (!latest) return;
+    showToast(`compacted: ${formatTokens(latest.before)} → ${formatTokens(latest.after)}`);
+    // Only the arrival of a new compaction matters, not the state it arrived in.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [compactionCount]);
+
   // The turn that carried the command is over; the HUD stops naming it.
   useEffect(() => {
     if (!state.turnActive) setRunningCommand(null);
@@ -379,19 +419,24 @@ export function App({
     if (modeToastTimer.current) clearTimeout(modeToastTimer.current);
   }, []);
 
+  /** Put a line in the status slot for a couple of seconds. */
+  const showToast = useCallback((text: string) => {
+    setModeToast(text);
+    if (modeToastTimer.current) clearTimeout(modeToastTimer.current);
+    modeToastTimer.current = setTimeout(() => setModeToast(null), 2500);
+  }, []);
+
   /** Optimistically applies a mode change, then confirms it with the daemon. */
   const changeMode = useCallback(
     (next: Mode) => {
       setModeHintVisible(false);
       dispatch({ type: "mode", mode: next });
-      setModeToast(`mode: ${next.toUpperCase()}`);
-      if (modeToastTimer.current) clearTimeout(modeToastTimer.current);
-      modeToastTimer.current = setTimeout(() => setModeToast(null), 2000);
+      showToast(`mode: ${next.toUpperCase()}`);
       void client
         .setMode(sessionId, next)
         .catch((error: unknown) => dispatch({ type: "error", message: String(error) }));
     },
-    [client, sessionId],
+    [client, sessionId, showToast],
   );
 
   const completions = useMemo(
@@ -422,6 +467,8 @@ export function App({
         model: state.model,
         mode: state.mode,
         usage: state.usage,
+        context: state.context,
+        toolCount: state.toolCount,
         sessionMs: sessionElapsedMs,
         daemonPid: daemon.pid,
         daemonSummary: daemon.summary,
@@ -442,6 +489,8 @@ export function App({
       state.model,
       state.mode,
       state.usage,
+      state.context,
+      state.toolCount,
       sessionElapsedMs,
       daemon.pid,
       daemon.summary,
@@ -479,7 +528,6 @@ export function App({
       inputTokens: state.usage.inputTokens,
       outputTokens: state.usage.outputTokens,
       errors: state.errors.length,
-      prompt: lastUserPrompt(state),
     };
   }
   if (!state.turnActive && turnActiveRef.current && turnRef.current) {
@@ -503,6 +551,23 @@ export function App({
   const staticCursor = staticCursorRef.current;
   const staticItems = staticBlocksRef.current;
 
+  // --- who is working for this session ---------------------------------------
+  const knownAgents = useKnownAgents(client);
+  const agentRows = useMemo(
+    () =>
+      buildAgentRows({
+        state,
+        known: knownAgents,
+        now,
+        expanded: agentsExpanded,
+        currentLabel: "main",
+      }),
+    // `now` deliberately left out: the panel should follow the session, not the
+    // clock. The spinner's own tick is what refreshes the elapsed columns.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state.subagents, state.teamTasks, knownAgents, agentsExpanded, now],
+  );
+
   // --- the working indicator -------------------------------------------------
   const phase = derivePhase(state, { runningCommand });
   const spinnerFrame = useSpinner(phase.kind !== "idle" && phase.kind !== "approval");
@@ -513,7 +578,6 @@ export function App({
     inputTokens: turn ? state.usage.inputTokens - turn.inputTokens : 0,
     outputTokens: turn ? state.usage.outputTokens - turn.outputTokens : 0,
     frame: spinnerFrame,
-    prompt: turn?.prompt ?? lastUserPrompt(state),
     verbOffset: state.messages.length,
   });
 
@@ -523,8 +587,9 @@ export function App({
     columns: terminal.columns,
     // Logo block, then the workdir row and the rule row.
     headerRows: logoRows(terminal.rows) + HEADER_ROWS,
-    // The mode bar, then however many rows the HUD packed itself into.
-    statusRows: 1 + hudRows.length,
+    // The HUD's rows, the context warning when there is one, the summary line
+    // and every row of the agent panel.
+    statusRows: hudRows.length + (contextWarning(state.context) ? 1 : 0) + 1 + agentRows.length,
     bottomRows: reserveBottomRows({
       paletteCommands: draft.startsWith("/") ? completions.length : 0,
       approvalArgs: state.pendingApproval
@@ -537,8 +602,8 @@ export function App({
     }),
   });
   const lines = useMemo(
-    () => (fullscreen ? transcriptLines(state, contentWidth, { expandedCall }) : []),
-    [fullscreen, state, contentWidth, expandedCall],
+    () => (fullscreen ? transcriptLines(state, contentWidth, { expandedCall: expandedId }) : []),
+    [fullscreen, state, contentWidth, expandedId],
   );
   // Memoized so typing, which touches neither the transcript nor the scroll
   // position, hands `TranscriptView` the very same array and its memo holds.
@@ -651,13 +716,28 @@ export function App({
       exit();
       return;
     }
+    // A prompt on screen owns every other key: mode cycling, Ctrl+O and the
+    // rest would otherwise fire underneath the question being asked.
+    if (state.pendingApproval || update.phase === "confirm") {
+      return;
+    }
+    // Ctrl+A opens the agent panel out; Ctrl+R hands the keyboard to the
+    // unattended approval backlog.
     if (key.ctrl && input === "a") {
+      setAgentsExpanded((open) => !open);
+      return;
+    }
+    if (key.ctrl && input === "r") {
       setQueueFocused((focused) => !focused && state.approvalQueue.length > 0);
       return;
     }
+    // Ctrl+O opens the newest thing worth opening: a tool call's output, or a
+    // diff that was cut short.
     if (key.ctrl && input === "o") {
-      const last = state.toolCalls[state.toolCalls.length - 1];
-      setExpandedCall((current) => (current ? null : (last?.callId ?? null)));
+      const newest = [...state.timeline]
+        .reverse()
+        .find((item) => item.kind === "tool" || item.kind === "diff");
+      setExpandedId((current: string | null) => (current ? null : (newest?.id ?? null)));
       return;
     }
     // Scrolling the transcript is ours only in full-screen mode; inline, the
@@ -687,17 +767,6 @@ export function App({
       changeMode(cycleMode(state.mode));
       return;
     }
-    // The update banner owns y/n while it is asking.
-    if (update.phase === "confirm") {
-      if (input === "y" || input === "Y") {
-        answerUpdate(true);
-        return;
-      }
-      if (input === "n" || input === "N" || key.escape) {
-        answerUpdate(false);
-        return;
-      }
-    }
     // U opens the same confirmation the /update command does.
     if ((input === "U" || input === "u") && update.phase === "available") {
       setUpdate(confirmUpdate);
@@ -715,6 +784,15 @@ export function App({
   const bottomNode = (
     <>
       <WorkingIndicator line={workingText} />
+
+      {update.phase === "confirm" ? (
+        <ConfirmMenu<boolean>
+          options={UPDATE_OPTIONS}
+          escapeValue={false}
+          onChoose={answerUpdate}
+          isActive={state.pendingApproval === null}
+        />
+      ) : null}
 
       {state.errors.length > 0 ? (
         <Text color="red" wrap="truncate-end">
@@ -744,9 +822,31 @@ export function App({
     </>
   );
 
-  // Mode, workdir and session all live in the HUD now, so it is the whole
-  // status block.
-  const statusNode = <StatusHud rows={hudRows} width={contentWidth} />;
+  // The bottom block, in the order the eye reads it: what the session is
+  // (HUD), what is wrong (the context warning), what it is doing (the summary
+  // line), and who is doing it (the agent panel).
+  const warning = contextWarning(state.context);
+  const summary = summaryLine({
+    mode: state.mode,
+    shells: state.toolCalls.filter(
+      (call) => call.state === "running" && toolKind(call.name) === "shell",
+    ).length,
+    agents: state.subagents.filter((agent) => agent.status === "running").length,
+  });
+  const statusNode = (
+    <>
+      <StatusHud rows={hudRows} width={contentWidth} />
+      {warning ? (
+        <Text color={warning.color} bold={warning.bold} wrap="truncate-end">
+          {warning.text}
+        </Text>
+      ) : null}
+      <Text color={summary.color} dimColor={summary.dimColor} wrap="truncate-end">
+        {summary.text}
+      </Text>
+      <AgentPanel rows={agentRows} width={contentWidth} />
+    </>
+  );
 
 
   const helpNode = showHelp ? (
@@ -795,7 +895,12 @@ export function App({
                 </Text>
               </Box>
             ) : (
-              <TimelineEntry state={state} item={entry.item} expandedCall={expandedCall} />
+              <TimelineEntry
+                state={state}
+                item={entry.item}
+                expandedId={expandedId}
+                width={contentWidth}
+              />
             )}
           </Box>
         )}
@@ -806,11 +911,10 @@ export function App({
           key={`${item.kind}-${item.id}`}
           state={state}
           item={item}
-          expandedCall={expandedCall}
+          expandedId={expandedId}
+          width={contentWidth}
         />
       ))}
-
-      <SubagentTree subagents={state.subagents} />
 
       <UpdateBanner update={update} />
 

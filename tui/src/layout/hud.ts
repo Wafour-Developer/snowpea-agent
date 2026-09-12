@@ -8,11 +8,19 @@
  * resort.
  */
 
+import { contextSegment } from "./bottom.js";
 import type { ConnectionStatus } from "../rpc/client.js";
+import type { ContextUsage } from "../state/store.js";
 import type { Mode } from "../rpc/sdk.js";
 
-/** Narrower than this and the HUD splits over two rows. */
-export const HUD_TWO_ROW_WIDTH = 110;
+/**
+ * Rows the HUD may use.
+ *
+ * The second one appears only when the first overflows, so a wide terminal
+ * still gets a single line and a narrow one keeps its segments instead of
+ * dropping them.
+ */
+export const MAX_HUD_ROWS = 2;
 
 /** Drawn between segments, Claude-Code style. */
 export const SEPARATOR = " | ";
@@ -89,6 +97,10 @@ export interface HudInput {
   model: string | null;
   mode: Mode;
   usage: { inputTokens: number; outputTokens: number };
+  /** Context-window usage; the segment is hidden until the daemon reports it. */
+  context?: ContextUsage | null;
+  /** Tools registered for the session, from `tool.list`. */
+  toolCount?: number | null;
   /** Milliseconds since this TUI attached to its session. */
   sessionMs: number;
   daemonPid?: number | null;
@@ -158,12 +170,28 @@ export function buildHudSegments(input: HudInput): HudSegment[] {
     priority: 2,
   });
 
+  // How full the model's context window is — the number that decides whether
+  // the user needs to run /compact — ranks above the running token total.
+  const context = contextSegment(input.context ?? null);
+  if (context) {
+    segments.push({ key: "ctx", ...context, priority: 1 });
+  }
+
   segments.push({
-    key: "ctx",
-    text: `ctx: ${formatTokens(input.usage.inputTokens)}↑/${formatTokens(input.usage.outputTokens)}↓ tok`,
+    key: "tokens",
+    text: `tok ${formatTokens(input.usage.inputTokens)}↑/${formatTokens(input.usage.outputTokens)}↓`,
     dimColor: true,
-    priority: 4,
+    priority: 5,
   });
+
+  if (input.toolCount && input.toolCount > 0) {
+    segments.push({
+      key: "tools",
+      text: `🔧 ${input.toolCount} tools`,
+      dimColor: true,
+      priority: 8,
+    });
+  }
 
   segments.push({
     key: "session",
@@ -213,10 +241,7 @@ export function buildHudSegments(input: HudInput): HudSegment[] {
   return segments;
 }
 
-/** Rows the HUD occupies at this width. */
-export function hudRowCount(width: number): number {
-  return width < HUD_TWO_ROW_WIDTH ? 2 : 1;
-}
+
 
 /** Width of a row once its segments are joined by the separator. */
 export function rowWidth(segments: HudSegment[]): number {
@@ -258,12 +283,12 @@ function truncate(segment: HudSegment, width: number): HudSegment {
 /**
  * The rows to draw.
  *
- * Wide terminals get one row; below `HUD_TWO_ROW_WIDTH` the HUD is allowed a
- * second one. When even that is not enough, segments are dropped worst-first
+ * Everything that fits on one row stays on one row; the rest spills onto a
+ * second. When even that is not enough, segments are dropped worst-first
  * (highest `priority`, then rightmost) until the rest fit. The last survivor is
  * truncated rather than dropped, so the HUD is never empty.
  */
-export function layoutHud(segments: HudSegment[], width: number, rows = hudRowCount(width)): HudSegment[][] {
+export function layoutHud(segments: HudSegment[], width: number, rows = MAX_HUD_ROWS): HudSegment[][] {
   const safeWidth = Math.max(1, Math.floor(width));
   const safeRows = Math.max(1, Math.floor(rows));
   let candidates = segments.slice();
