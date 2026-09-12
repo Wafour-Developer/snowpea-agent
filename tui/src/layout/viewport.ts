@@ -169,6 +169,7 @@ export function bottomRows({
   queueFocused = false,
   errorVisible = false,
   workingVisible = false,
+  noticeVisible = false,
 }: {
   paletteCommands?: number;
   /** Number of argument lines on the interactive prompt, or null when absent. */
@@ -178,6 +179,8 @@ export function bottomRows({
   errorVisible?: boolean;
   /** The working indicator, drawn just above the input while a turn runs. */
   workingVisible?: boolean;
+  /** A message too long for the status line, drawn above the input. */
+  noticeVisible?: boolean;
 } = {}): number {
   const input =
     approvalArgs === null ? 1 + paletteRows(paletteCommands) : approvalPromptRows(approvalArgs);
@@ -185,7 +188,8 @@ export function bottomRows({
     input +
     approvalQueueRows(queueRequests, queueFocused) +
     (errorVisible ? 1 : 0) +
-    (workingVisible ? 1 : 0)
+    (workingVisible ? 1 : 0) +
+    (noticeVisible ? 1 : 0)
   );
 }
 

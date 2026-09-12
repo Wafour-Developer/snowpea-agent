@@ -33822,7 +33822,7 @@ var import_react20 = __toESM(require_react(), 1);
 var import_react21 = __toESM(require_react(), 1);
 
 // src/index.tsx
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync as readFileSync2, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename as basename2, isAbsolute, join, resolve } from "node:path";
@@ -34910,6 +34910,179 @@ function relativeTime(then, now = Date.now()) {
   return days === 1 ? "yesterday" : `${days}d ago`;
 }
 
+// src/rpc/audio.ts
+var AUDIO_METHODS = {
+  capabilities: "audio.capabilities",
+  transcribe: "audio.transcribe",
+  speak: "audio.speak",
+  startRecording: "audio.record.start",
+  stopRecording: "audio.record.stop"
+};
+function readCapabilities(result) {
+  const value = result ?? {};
+  const reasons = value.reasons;
+  const list = (name) => Array.isArray(value[name]) ? value[name].map(String) : [];
+  const sttProvider = typeof value.stt === "string" && value.stt.length > 0 ? value.stt : null;
+  return {
+    stt: sttProvider !== null,
+    sttProvider,
+    tts: value.tts === true,
+    ttsProvider: typeof value.ttsProvider === "string" ? value.ttsProvider : null,
+    voice: typeof value.voice === "string" ? value.voice : null,
+    record: value.record === true,
+    play: value.play === true,
+    autoSpeak: value.autoSpeak === true,
+    sttProviders: list("sttProviders"),
+    ttsProviders: list("ttsProviders"),
+    players: list("players"),
+    recorders: list("recorders"),
+    reasons: typeof reasons === "object" && reasons !== null ? reasons : {}
+  };
+}
+function describeAudioError(error) {
+  const value = error;
+  const message = typeof value?.message === "string" && value.message.length > 0 ? value.message : String(error);
+  const code = typeof value?.code === "string" ? value.code : null;
+  return code && !message.includes(code) ? `${code}: ${message}` : message;
+}
+function createAudioClient(client) {
+  return {
+    async capabilities() {
+      return readCapabilities(await client.call(AUDIO_METHODS.capabilities, {}));
+    },
+    async transcribe(input) {
+      const result = await client.call(AUDIO_METHODS.transcribe, { ...input });
+      return { text: String(result?.text ?? ""), provider: result?.provider ?? void 0 };
+    },
+    async speak(input) {
+      const result = await client.call(AUDIO_METHODS.speak, { play: true, ...input });
+      return {
+        path: String(result?.path ?? ""),
+        mime: String(result?.mime ?? "audio/wav"),
+        provider: result?.provider ?? void 0,
+        played: result?.played === true
+      };
+    },
+    async startRecording(sessionId) {
+      const result = await client.call(AUDIO_METHODS.startRecording, { sessionId });
+      return {
+        path: String(result?.path ?? ""),
+        mime: result?.mime ?? void 0,
+        recording: result?.recording !== false
+      };
+    },
+    async stopRecording(input = {}) {
+      const result = await client.call(AUDIO_METHODS.stopRecording, {
+        transcribe: true,
+        ...input
+      });
+      return {
+        path: String(result?.path ?? ""),
+        mime: result?.mime ?? void 0,
+        recording: result?.recording === true,
+        text: typeof result?.text === "string" ? result.text : void 0,
+        provider: result?.provider ?? void 0
+      };
+    }
+  };
+}
+
+// src/state/audio-runtime.ts
+async function beginRecording(runtime) {
+  if (runtime.capabilities.record) {
+    try {
+      const recording = await runtime.audio.startRecording(runtime.sessionId);
+      return { where: "daemon", path: recording.path };
+    } catch (error) {
+      runtime.onToast(describeAudioError(error));
+      return null;
+    }
+  }
+  const path = runtime.localRecordingPath;
+  const process13 = runtime.local && path ? runtime.local.record(path) : null;
+  if (!process13 || !path) {
+    runtime.onToast("no recorder: neither the daemon nor this machine can record");
+    return null;
+  }
+  return { where: "local", path, process: process13 };
+}
+async function endRecording(runtime, handle) {
+  if (handle.where === "local") {
+    handle.process?.stop();
+    if (!runtime.capabilities.stt) {
+      runtime.onToast(
+        runtime.capabilities.reasons.stt ?? "no speech-to-text backend is configured"
+      );
+      return null;
+    }
+    try {
+      const transcript = await runtime.audio.transcribe({
+        path: handle.path,
+        mime: "audio/wav",
+        sessionId: runtime.sessionId
+      });
+      return transcript.text.trim().length > 0 ? transcript.text : null;
+    } catch (error) {
+      runtime.onToast(describeAudioError(error));
+      return null;
+    }
+  }
+  try {
+    const stopped = await runtime.audio.stopRecording({
+      sessionId: runtime.sessionId,
+      transcribe: runtime.capabilities.stt
+    });
+    if (!runtime.capabilities.stt) {
+      runtime.onToast(
+        runtime.capabilities.reasons.stt ?? "recorded, but there is no speech-to-text backend"
+      );
+      return null;
+    }
+    const text = (stopped.text ?? "").trim();
+    if (text.length === 0) {
+      runtime.onToast("nothing was heard");
+      return null;
+    }
+    return text;
+  } catch (error) {
+    runtime.onToast(describeAudioError(error));
+    return null;
+  }
+}
+async function speak(runtime, text) {
+  const said = text.trim();
+  if (said.length === 0) return null;
+  if (!runtime.capabilities.tts) {
+    runtime.onToast(runtime.capabilities.reasons.tts ?? "no text-to-speech backend is configured");
+    return null;
+  }
+  try {
+    const speech = await runtime.audio.speak({
+      text: said,
+      play: runtime.capabilities.play,
+      sessionId: runtime.sessionId
+    });
+    if (speech.played) return { where: "daemon" };
+    const process13 = runtime.local?.play(speech.path) ?? null;
+    if (!process13) {
+      runtime.onToast("no player: the speech was written but nothing here can play it");
+      return null;
+    }
+    return { where: "local", process: process13 };
+  } catch (error) {
+    runtime.onToast(describeAudioError(error));
+    return null;
+  }
+}
+function stopSpeaking(runtime, handle) {
+  if (!handle) return;
+  if (handle.where === "local") {
+    handle.process?.stop();
+    return;
+  }
+  runtime.onToast("the daemon is playing this one; it will finish on its own");
+}
+
 // src/state/attachments.ts
 var MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 var MIME_BY_EXTENSION = {
@@ -35029,22 +35202,31 @@ function chipLabel(attachment) {
 // src/state/voice.ts
 var noAudio = {
   stt: false,
+  sttProvider: null,
   tts: false,
+  ttsProvider: null,
+  voice: null,
   record: false,
   play: false,
+  autoSpeak: false,
+  sttProviders: [],
+  ttsProviders: [],
+  players: [],
+  recorders: [],
   reasons: {}
 };
 var initialVoice = {
   input: false,
   tts: false,
   recording: false,
-  startedAt: null
+  startedAt: null,
+  speaking: false
 };
 function reasonFor(capabilities, name, fallback) {
   const reason = capabilities.reasons?.[name];
   return reason && reason.length > 0 ? reason : fallback;
 }
-function toggleVoiceInput(state, capabilities) {
+function toggleVoiceInput(state, capabilities, { localRecorder = false } = {}) {
   if (state.input) {
     return { state: { ...state, input: false, recording: false, startedAt: null }, message: "voice input off", ok: true };
   }
@@ -35055,16 +35237,21 @@ function toggleVoiceInput(state, capabilities) {
       ok: false
     };
   }
-  if (!capabilities.record) {
+  if (!capabilities.record && !localRecorder) {
     return {
       state,
       message: `voice input needs a microphone: ${reasonFor(capabilities, "record", "the daemon cannot record")}`,
       ok: false
     };
   }
-  return { state: { ...state, input: true }, message: "voice input on \xB7 Ctrl+Space to record", ok: true };
+  const backend = capabilities.sttProvider ? ` (${capabilities.sttProvider})` : "";
+  return {
+    state: { ...state, input: true },
+    message: `voice input on${backend} \xB7 Ctrl+Space to record`,
+    ok: true
+  };
 }
-function setTts(state, capabilities, on) {
+function setTts(state, capabilities, on, { localPlayer = false } = {}) {
   if (!on) return { state: { ...state, tts: false }, message: "speech off", ok: true };
   if (!capabilities.tts) {
     return {
@@ -35073,18 +35260,19 @@ function setTts(state, capabilities, on) {
       ok: false
     };
   }
-  if (!capabilities.play) {
+  if (!capabilities.play && !localPlayer) {
     return {
       state,
       message: `speech needs an output device: ${reasonFor(capabilities, "play", "the daemon cannot play audio")}`,
       ok: false
     };
   }
-  return { state: { ...state, tts: true }, message: "speech on", ok: true };
+  const backend = capabilities.ttsProvider ? ` (${capabilities.ttsProvider})` : "";
+  return { state: { ...state, tts: true }, message: `speech on${backend}`, ok: true };
 }
-function startRecording(state, capabilities, now) {
+function startRecording(state, capabilities, now, { localRecorder = false } = {}) {
   if (state.recording) return { state, message: "already recording", ok: false };
-  if (!capabilities.record) {
+  if (!capabilities.record && !localRecorder) {
     return {
       state,
       message: `recording needs a microphone: ${reasonFor(capabilities, "record", "the daemon cannot record")}`,
@@ -35109,6 +35297,7 @@ function stopRecording(state, now) {
     elapsedMs
   };
 }
+var SPEAKING_LABEL = "\u{1F50A} speaking \xB7 esc to stop";
 function recordingLabel(startedAt, now) {
   const seconds = startedAt === null ? 0 : Math.max(0, Math.floor((now - startedAt) / 1e3));
   const minutes = Math.floor(seconds / 60);
@@ -35413,10 +35602,11 @@ function bottomRows({
   queueRequests = 0,
   queueFocused = false,
   errorVisible = false,
-  workingVisible = false
+  workingVisible = false,
+  noticeVisible = false
 } = {}) {
   const input = approvalArgs === null ? 1 + paletteRows(paletteCommands) : approvalPromptRows(approvalArgs);
-  return input + approvalQueueRows(queueRequests, queueFocused) + (errorVisible ? 1 : 0) + (workingVisible ? 1 : 0);
+  return input + approvalQueueRows(queueRequests, queueFocused) + (errorVisible ? 1 : 0) + (workingVisible ? 1 : 0) + (noticeVisible ? 1 : 0);
 }
 function scrollIndicator(view) {
   if (view.hiddenAbove === 0 && view.hiddenBelow === 0) return null;
@@ -36860,6 +37050,7 @@ var UPDATE_OPTIONS = [
   { label: "Not now", value: false, shortcut: "n", danger: true }
 ];
 var APPROVAL_POLL_MS = 5e3;
+var TOAST_INLINE_MAX = 48;
 var AGENT_TRANSCRIPT_ROWS = 12;
 var RESTART_DELAY_MS = 1200;
 function TimelineEntry({
@@ -36932,7 +37123,9 @@ function App2({
   priorSession: priorSession2 = null,
   probe,
   captureClipboard,
-  audio = noAudio
+  audio = noAudio,
+  localAudio = null,
+  recordingPath
 }) {
   const { exit } = use_app_default();
   const [state, dispatch] = (0, import_react35.useReducer)(reducer, initialState);
@@ -36944,6 +37137,10 @@ function App2({
   const [attachments, setAttachments] = (0, import_react35.useState)([]);
   const [voice, setVoice] = (0, import_react35.useState)(initialVoice);
   const [insert, setInsert] = (0, import_react35.useState)(null);
+  const [capabilities, setCapabilities] = (0, import_react35.useState)(audio);
+  const recordingRef = (0, import_react35.useRef)(null);
+  const speechRef = (0, import_react35.useRef)(null);
+  const spokenRef = (0, import_react35.useRef)(/* @__PURE__ */ new Set());
   const [focus, setFocus] = (0, import_react35.useState)(INPUT_FOCUS);
   const [shellsOpen, setShellsOpen] = (0, import_react35.useState)(false);
   const [openAgent, setOpenAgent] = (0, import_react35.useState)(null);
@@ -36970,6 +37167,15 @@ function App2({
   const [update, setUpdate] = (0, import_react35.useState)(initialUpdateState);
   const [updateAvailable, setUpdateAvailable] = (0, import_react35.useState)(false);
   const approvalResolver = (0, import_react35.useRef)(null);
+  const audioClient = (0, import_react35.useMemo)(() => createAudioClient(client), [client]);
+  const refreshCapabilities = (0, import_react35.useCallback)(() => {
+    void audioClient.capabilities().then(setCapabilities).catch(() => {
+      setCapabilities(noAudio);
+    });
+  }, [audioClient]);
+  (0, import_react35.useEffect)(() => {
+    refreshCapabilities();
+  }, [refreshCapabilities]);
   const refreshApprovals = (0, import_react35.useCallback)(() => {
     void client.listApprovals(sessionId).then((result) => dispatch({ type: "approval/list", requests: result.requests ?? [] })).catch(() => {
     });
@@ -36990,6 +37196,8 @@ function App2({
         void registryRef.current.refresh().then((commands) => dispatch({ type: "commands", commands })).catch(() => {
         });
       },
+      // Installing a backend or naming a voice is a setting; re-ask.
+      onSettingsChanged: () => refreshCapabilities(),
       onUpdateProgress: ({ phase: phase2, message }) => setUpdate((current) => {
         const next = phase2 ?? "started";
         return progress(current, next, message ?? "");
@@ -37017,7 +37225,7 @@ function App2({
       setUpdate((current) => fromCheck(current, check));
     }).catch(() => {
     });
-  }, [client, sessionId, mode, provider, model, refreshApprovals]);
+  }, [client, sessionId, mode, provider, model, refreshApprovals, refreshCapabilities]);
   (0, import_react35.useEffect)(() => {
     if (update.phase !== "done") return;
     let cancelled = false;
@@ -37039,6 +37247,18 @@ function App2({
     const timer = setInterval(refreshApprovals, APPROVAL_POLL_MS);
     return () => clearInterval(timer);
   }, [state.approvalQueue.length, refreshApprovals]);
+  const lastMessage = state.messages[state.messages.length - 1];
+  (0, import_react35.useEffect)(() => {
+    if (!voice.tts || !lastMessage) return;
+    if (lastMessage.role !== "assistant" || lastMessage.streaming) return;
+    if (spokenRef.current.has(lastMessage.id)) return;
+    spokenRef.current.add(lastMessage.id);
+    setVoice((current) => ({ ...current, speaking: true }));
+    void speak(runtime, lastMessage.text).then((handle) => {
+      speechRef.current = handle;
+      if (!handle) setVoice((current) => ({ ...current, speaking: false }));
+    });
+  }, [voice.tts, lastMessage?.id, lastMessage?.streaming]);
   const compactionCount = state.compactions.length;
   (0, import_react35.useEffect)(() => {
     const latest = state.compactions[compactionCount - 1];
@@ -37115,7 +37335,7 @@ function App2({
       pendingApprovals: state.approvalQueue.length,
       runningCommand,
       turnActive: state.turnActive,
-      toast: modeToast,
+      toast: modeToast && modeToast.length <= TOAST_INLINE_MAX ? modeToast : null,
       modeHint: modeHintVisible
     }),
     [
@@ -37213,7 +37433,7 @@ function App2({
     voice.recording || phase.kind !== "idle" && phase.kind !== "approval"
   );
   const turn = turnRef.current;
-  const workingText = voice.recording ? recordingLabel(voice.startedAt, now) : workingLine({
+  const workingText = voice.recording ? recordingLabel(voice.startedAt, now) : voice.speaking ? SPEAKING_LABEL : workingLine({
     phase,
     elapsedMs: turn ? now - turn.startedAt : 0,
     inputTokens: turn ? state.usage.inputTokens - turn.inputTokens : 0,
@@ -37236,7 +37456,8 @@ function App2({
       queueRequests: state.approvalQueue.length,
       queueFocused,
       errorVisible: state.errors.length > 0,
-      workingVisible: workingText !== null
+      workingVisible: workingText !== null,
+      noticeVisible: Boolean(modeToast && modeToast.length > TOAST_INLINE_MAX)
     })
   });
   const lines = (0, import_react35.useMemo)(
@@ -37288,13 +37509,54 @@ function App2({
     }
     setAttachments((current) => addAttachments(current, found));
   }, [captureClipboard, probe, showToast]);
+  const runtime = (0, import_react35.useMemo)(
+    () => ({
+      audio: audioClient,
+      local: localAudio,
+      capabilities,
+      sessionId,
+      localRecordingPath: recordingPath,
+      onToast: showToast
+    }),
+    [audioClient, localAudio, capabilities, sessionId, recordingPath, showToast]
+  );
   const toggleRecording = (0, import_react35.useCallback)(() => {
-    setVoice((current) => {
-      const outcome = current.recording ? stopRecording(current, Date.now()) : startRecording(current, audio, Date.now());
-      showToast(outcome.message);
-      return outcome.state;
+    if (recordingRef.current) {
+      const handle = recordingRef.current;
+      recordingRef.current = null;
+      setVoice((current) => {
+        const outcome2 = stopRecording(current, Date.now());
+        showToast(outcome2.message);
+        return outcome2.state;
+      });
+      void endRecording(runtime, handle).then((text) => {
+        if (text) setInsert(text);
+      });
+      return;
+    }
+    const outcome = startRecording(voice, capabilities, Date.now(), {
+      localRecorder: Boolean(localAudio) && Boolean(recordingPath)
     });
-  }, [audio, showToast]);
+    if (!outcome.ok) {
+      showToast(outcome.message);
+      return;
+    }
+    void beginRecording(runtime).then((handle) => {
+      if (!handle) {
+        setVoice((current) => ({ ...current, recording: false, startedAt: null }));
+        return;
+      }
+      recordingRef.current = handle;
+    });
+    setVoice(outcome.state);
+    showToast(outcome.message);
+  }, [runtime, voice, capabilities, localAudio, recordingPath, showToast]);
+  const silence = (0, import_react35.useCallback)(() => {
+    if (!speechRef.current) return;
+    stopSpeaking(runtime, speechRef.current);
+    speechRef.current = null;
+    setVoice((current) => ({ ...current, speaking: false }));
+  }, [runtime]);
   const resumeMemory = (0, import_react35.useCallback)(() => {
     if (!lastSession) return;
     showToast(`resuming ${lastSession.sessionId.slice(0, 8)}`);
@@ -37318,7 +37580,9 @@ function App2({
       }
       if (/^\/voice\s*$/.test(text.trim())) {
         setVoice((current) => {
-          const outcome = toggleVoiceInput(current, audio);
+          const outcome = toggleVoiceInput(current, capabilities, {
+            localRecorder: Boolean(localAudio) && Boolean(recordingPath)
+          });
           showToast(outcome.message);
           return outcome.state;
         });
@@ -37331,7 +37595,9 @@ function App2({
       const tts = /^\/tts(?:\s+(on|off))?\s*$/.exec(text.trim());
       if (tts) {
         setVoice((current) => {
-          const outcome = setTts(current, audio, tts[1] !== "off");
+          const outcome = setTts(current, capabilities, tts[1] !== "off", {
+            localPlayer: Boolean(localAudio)
+          });
           showToast(outcome.message);
           return outcome.state;
         });
@@ -37354,7 +37620,17 @@ function App2({
         }
         if (text.slice(1).startsWith("help")) setShowHelp(true);
         return result;
-      }) : client.prompt(sessionId, text);
+      }) : client.prompt(
+        sessionId,
+        text,
+        attachments.map((attachment) => ({
+          kind: attachment.mime.startsWith("image/") ? "image" : "file",
+          name: attachment.name,
+          path: attachment.path,
+          mimeType: attachment.mime,
+          size: attachment.size
+        }))
+      );
       void run.catch((error) => {
         setRunningCommand(null);
         dispatch({ type: "error", message: String(error) });
@@ -37370,7 +37646,9 @@ function App2({
       lastSession,
       resumeMemory,
       attachments,
-      audio,
+      capabilities,
+      localAudio,
+      recordingPath,
       showToast,
       takePaste,
       toggleRecording
@@ -37418,6 +37696,10 @@ function App2({
       return;
     }
     if (state.pendingApproval || update.phase === "confirm") {
+      return;
+    }
+    if (key.escape && voice.speaking) {
+      silence();
       return;
     }
     if (openAgent) {
@@ -37537,6 +37819,7 @@ function App2({
   const bottomNode = /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)(import_jsx_runtime22.Fragment, { children: [
     /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(WorkingIndicator, { line: workingText }),
     /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(AttachmentChips, { attachments, width: contentWidth }),
+    modeToast && modeToast.length > TOAST_INLINE_MAX ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { color: "cyan", wrap: "truncate-end", children: modeToast }) : null,
     update.phase === "confirm" ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
       ConfirmMenu,
       {
@@ -37763,6 +38046,43 @@ function captureClipboardImage(environment, stateDir2, now) {
     return path;
   }
   return null;
+}
+
+// src/util/audio-tools.ts
+var RECORDERS = [
+  { command: "sox", args: (path) => ["-d", "-r", "16000", "-c", "1", path] },
+  { command: "rec", args: (path) => ["-r", "16000", "-c", "1", path] },
+  {
+    command: "arecord",
+    args: (path) => ["-q", "-f", "S16_LE", "-r", "16000", "-c", "1", path],
+    platforms: ["linux"]
+  },
+  {
+    command: "ffmpeg",
+    args: (path) => ["-loglevel", "quiet", "-f", "avfoundation", "-i", ":0", "-y", path],
+    platforms: ["darwin"]
+  }
+];
+var PLAYERS = [
+  { command: "afplay", args: (path) => [path], platforms: ["darwin"] },
+  { command: "paplay", args: (path) => [path], platforms: ["linux"] },
+  { command: "aplay", args: (path) => ["-q", path], platforms: ["linux"] },
+  { command: "play", args: (path) => ["-q", path] },
+  { command: "ffplay", args: (path) => ["-loglevel", "quiet", "-nodisp", "-autoexit", path] }
+];
+function firstWorking(tools, spawner2, platform2, path) {
+  for (const tool of tools) {
+    if (tool.platforms && !tool.platforms.includes(platform2)) continue;
+    const process13 = spawner2.start(tool.command, tool.args(path));
+    if (process13) return process13;
+  }
+  return null;
+}
+function createLocalAudio(spawner2, platform2) {
+  return {
+    record: (path) => firstWorking(RECORDERS, spawner2, platform2, path),
+    play: (path) => firstWorking(PLAYERS, spawner2, platform2, path)
+  };
 }
 
 // src/layout/frame.ts
@@ -38345,6 +38665,7 @@ var TuiClient = class {
     client.on("commands.changed", () => this.listeners.onCommandsChanged?.());
     client.on("approval.pending", (params) => this.listeners.onApprovalPending?.(params));
     client.on("system.updateProgress", (params) => this.listeners.onUpdateProgress?.(params));
+    client.on("settings.changed", (params) => this.listeners.onSettingsChanged?.(params ?? {}));
     client.on(
       "disconnected",
       (params) => this.setStatus(params.willRetry ? "reconnecting" : "closed")
@@ -38396,8 +38717,19 @@ var TuiClient = class {
     });
     return result.sessionId;
   }
-  prompt(sessionId, text) {
-    return this.call("session.prompt", { sessionId, text });
+  /**
+   * `session.prompt`, with whatever the input had attached.
+   *
+   * Files travel as paths: the daemon runs on this machine and reading the
+   * bytes twice, once here to base64 them and once there, would be work for
+   * nothing.
+   */
+  prompt(sessionId, text, attachments = []) {
+    return this.call("session.prompt", {
+      sessionId,
+      text,
+      ...attachments.length > 0 ? { attachments } : {}
+    });
   }
   interrupt(sessionId) {
     return this.call("session.interrupt", { sessionId });
@@ -38539,6 +38871,30 @@ var commandRunner = {
     }
   }
 };
+var spawner = {
+  start(command, args) {
+    try {
+      const child = spawn(command, args, { stdio: "ignore", detached: false });
+      let failed = false;
+      child.on("error", () => {
+        failed = true;
+      });
+      if (failed) return null;
+      const handle = {
+        command,
+        stop() {
+          try {
+            child.kill("SIGINT");
+          } catch {
+          }
+        }
+      };
+      return handle;
+    } catch {
+      return null;
+    }
+  }
+};
 async function main(argv = process.argv.slice(2)) {
   let args;
   try {
@@ -38599,6 +38955,8 @@ async function main(argv = process.argv.slice(2)) {
     dir,
     Date.now()
   );
+  const localAudio = createLocalAudio(spawner, process.platform);
+  const recordingPath = join(dir, "tmp", `recording-${Date.now()}.wav`);
   let restart = false;
   const instance = render_default(
     /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(
@@ -38614,6 +38972,8 @@ async function main(argv = process.argv.slice(2)) {
         priorSession: prior,
         probe,
         captureClipboard,
+        localAudio,
+        recordingPath,
         onRestart: () => {
           restart = true;
         }
@@ -38653,7 +39013,8 @@ export {
   fileStore,
   frameStdout,
   main,
-  parseArgs
+  parseArgs,
+  spawner
 };
 /*! Bundled license information:
 

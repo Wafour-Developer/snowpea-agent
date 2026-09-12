@@ -132,6 +132,17 @@ const UPDATE_OPTIONS: ConfirmOption<boolean>[] = [
 /** How often the unattended queue is re-read while it is not empty. */
 export const APPROVAL_POLL_MS = 5000;
 
+/**
+ * Longest message the status line will carry.
+ *
+ * A daemon's explanation — "no transcription backend: install the whisper CLI,
+ * set an OpenAI API key, or configure audio.stt.command" — is far too long for
+ * a slot beside six other segments, and squeezing it in there costs the user
+ * every other thing the line says. Anything longer gets its own row above the
+ * input, where it fits and can be read.
+ */
+export const TOAST_INLINE_MAX = 48;
+
 /** Rows the open agent transcript is given, and what PgUp/PgDn move by. */
 export const AGENT_TRANSCRIPT_ROWS = 12;
 
@@ -645,7 +656,7 @@ export function App({
         pendingApprovals: state.approvalQueue.length,
         runningCommand,
         turnActive: state.turnActive,
-        toast: modeToast,
+        toast: modeToast && modeToast.length <= TOAST_INLINE_MAX ? modeToast : null,
         modeHint: modeHintVisible,
       }),
     [
@@ -798,6 +809,7 @@ export function App({
       queueFocused,
       errorVisible: state.errors.length > 0,
       workingVisible: workingText !== null,
+      noticeVisible: Boolean(modeToast && modeToast.length > TOAST_INLINE_MAX),
     }),
   });
   const lines = useMemo(
@@ -1238,6 +1250,12 @@ export function App({
       <WorkingIndicator line={workingText} />
 
       <AttachmentChips attachments={attachments} width={contentWidth} />
+
+      {modeToast && modeToast.length > TOAST_INLINE_MAX ? (
+        <Text color="cyan" wrap="truncate-end">
+          {modeToast}
+        </Text>
+      ) : null}
 
       {update.phase === "confirm" ? (
         <ConfirmMenu<boolean>

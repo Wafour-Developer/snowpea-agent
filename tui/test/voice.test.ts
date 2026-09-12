@@ -16,9 +16,32 @@ import {
   toggleVoiceInput,
   type AudioCapabilities,
 } from "../src/state/voice.js";
-import { AUDIO_METHODS, createAudioClient, readCapabilities } from "../src/rpc/audio.js";
+import {
+  AUDIO_METHODS,
+  createAudioClient,
+  describeAudioError,
+  readCapabilities,
+} from "../src/rpc/audio.js";
 
-const able: AudioCapabilities = { stt: true, tts: true, record: true, play: true, reasons: {} };
+const able: AudioCapabilities = {
+  ...noAudio,
+  stt: true,
+  sttProvider: "whisper",
+  tts: true,
+  ttsProvider: "piper",
+  record: true,
+  play: true,
+};
+
+describe("describeAudioError", () => {
+  it("keeps the daemon's own words, with its code in front", () => {
+    expect(describeAudioError({ code: "no_stt", message: "no backend is configured" })).toBe(
+      "no_stt: no backend is configured",
+    );
+    expect(describeAudioError({ message: "no_stt: already said" })).toBe("no_stt: already said");
+    expect(describeAudioError(new Error("boom"))).toBe("boom");
+  });
+});
 
 describe("with a daemon that can do none of it", () => {
   it("refuses voice input and says why", () => {
@@ -96,15 +119,36 @@ describe("recordingLabel", () => {
 });
 
 describe("the audio client", () => {
-  it("reads a capabilities answer, and a missing one as all false", () => {
-    expect(readCapabilities({ stt: true, reasons: { tts: "no voice" } })).toEqual({
+  it("reads the daemon's answer, naming the backends it reports", () => {
+    expect(
+      readCapabilities({
+        stt: "whisper",
+        sttProviders: ["whisper", "openai"],
+        tts: true,
+        ttsProvider: "piper",
+        voice: "en_GB-alan",
+        record: true,
+        play: false,
+        players: [],
+        reasons: { play: "no player on PATH" },
+      }),
+    ).toEqual({
+      ...noAudio,
       stt: true,
-      tts: false,
-      record: false,
+      sttProvider: "whisper",
+      sttProviders: ["whisper", "openai"],
+      tts: true,
+      ttsProvider: "piper",
+      voice: "en_GB-alan",
+      record: true,
       play: false,
-      reasons: { tts: "no voice" },
+      reasons: { play: "no player on PATH" },
     });
+  });
+
+  it("reads a daemon with no audio as able to do none of it", () => {
     expect(readCapabilities(undefined)).toEqual(noAudio);
+    expect(readCapabilities({ stt: null, tts: false })).toEqual(noAudio);
   });
 
   it("calls the methods the protocol names", async () => {
@@ -122,7 +166,11 @@ describe("the audio client", () => {
       text: "hello there",
       provider: "whisper",
     });
-    expect(await audio.speak({ text: "hi" })).toEqual({ path: "/tmp/a.wav", mime: "audio/wav" });
+    expect(await audio.speak({ text: "hi" })).toMatchObject({
+      path: "/tmp/a.wav",
+      mime: "audio/wav",
+      played: false,
+    });
     expect((await audio.startRecording()).path).toBe("/tmp/rec.wav");
     expect((await audio.stopRecording()).path).toBe("/tmp/rec.wav");
 
@@ -133,5 +181,7 @@ describe("the audio client", () => {
       AUDIO_METHODS.stopRecording,
     ]);
     expect(calls[1].params).toEqual({ play: true, text: "hi" });
+    // Stopping asks for the transcript in the same call.
+    expect(calls[3].params).toEqual({ transcribe: true });
   });
 });

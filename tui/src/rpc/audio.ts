@@ -103,20 +103,45 @@ export function readCapabilities(result: unknown): AudioCapabilities {
   };
 }
 
+/** The specific audio failures the daemon reports. */
+export type AudioErrorCode =
+  | "no_stt"
+  | "no_tts"
+  | "no_player"
+  | "no_recorder"
+  | "not_recording"
+  | "transcribe_failed"
+  | "synthesis_failed"
+  | "record_failed"
+  | "playback_failed";
+
+/**
+ * The code an RPC failure carries.
+ *
+ * The daemon puts the specific one in `error.data.details.audio` and a generic
+ * one in `error.data.code`; the specific one is what a caller can act on, so it
+ * wins, and older daemons that only set `code` still answer something.
+ */
+export function audioErrorCode(error: unknown): string | null {
+  const value = error as { code?: unknown; data?: { code?: unknown; details?: any } } | null;
+  const specific = value?.data?.details?.audio;
+  if (typeof specific === "string" && specific.length > 0) return specific;
+  const generic = value?.data?.code ?? value?.code;
+  return typeof generic === "string" && generic.length > 0 ? generic : null;
+}
+
 /**
  * What to show the user when one of these calls fails.
  *
  * The daemon's own message is the useful part — "no speech-to-text backend is
  * configured" says more than any wording invented here — so it is kept, with
- * the error code in front of it when there is one.
+ * the code in front of it when it adds anything.
  */
 export function describeAudioError(error: unknown): string {
-  const value = error as { code?: unknown; message?: unknown } | null;
+  const value = error as { message?: unknown } | null;
   const message =
-    typeof value?.message === "string" && value.message.length > 0
-      ? value.message
-      : String(error);
-  const code = typeof value?.code === "string" ? value.code : null;
+    typeof value?.message === "string" && value.message.length > 0 ? value.message : String(error);
+  const code = audioErrorCode(error);
   return code && !message.includes(code) ? `${code}: ${message}` : message;
 }
 
