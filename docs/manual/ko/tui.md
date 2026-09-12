@@ -273,3 +273,5 @@ uv tool install --force --reinstall 'snowpea-agent[images] @ git+https://github.
 ```
 
 재설치 후 진행 중인 작업이 없을 때 `snowpea daemon stop`으로 기존 데몬을 종료하고 `snowpea`를 실행하면 새 코드가 적용됩니다.
+
+도움말은 화면 높이에 맞춰 표시됩니다. `↑`/`↓`, `PgUp`/`PgDn`으로 스크롤하고 **Esc, F1, q 또는 Enter**로 닫습니다. 도움말에서 Esc를 눌러도 진행 중인 작업은 중단하지 않습니다.

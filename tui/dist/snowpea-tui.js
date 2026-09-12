@@ -1372,7 +1372,7 @@ var require_react_development = __commonJS({
           }
           return dispatcher.useContext(Context);
         }
-        function useState11(initialState2) {
+        function useState12(initialState2) {
           var dispatcher = resolveDispatcher();
           return dispatcher.useState(initialState2);
         }
@@ -2175,7 +2175,7 @@ var require_react_development = __commonJS({
         exports.useMemo = useMemo4;
         exports.useReducer = useReducer2;
         exports.useRef = useRef4;
-        exports.useState = useState11;
+        exports.useState = useState12;
         exports.useSyncExternalStore = useSyncExternalStore;
         exports.useTransition = useTransition;
         exports.version = ReactVersion;
@@ -7867,9 +7867,9 @@ var require_react_reconciler_development = __commonJS({
       module.exports = function $$$reconciler($$$hostConfig) {
         var exports2 = {};
         "use strict";
-        var React19 = require_react();
+        var React20 = require_react();
         var Scheduler = require_scheduler();
-        var ReactSharedInternals = React19.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED;
+        var ReactSharedInternals = React20.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED;
         var suppressWarning = false;
         function setSuppressWarning(newSuppressWarning) {
           {
@@ -27290,7 +27290,7 @@ var require_react_jsx_runtime_development = __commonJS({
     if (process.env.NODE_ENV !== "production") {
       (function() {
         "use strict";
-        var React19 = require_react();
+        var React20 = require_react();
         var REACT_ELEMENT_TYPE = Symbol.for("react.element");
         var REACT_PORTAL_TYPE = Symbol.for("react.portal");
         var REACT_FRAGMENT_TYPE = Symbol.for("react.fragment");
@@ -27316,7 +27316,7 @@ var require_react_jsx_runtime_development = __commonJS({
           }
           return null;
         }
-        var ReactSharedInternals = React19.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED;
+        var ReactSharedInternals = React20.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED;
         function error(format) {
           {
             {
@@ -33828,7 +33828,7 @@ import { homedir } from "node:os";
 import { basename as basename2, isAbsolute, join, resolve } from "node:path";
 
 // src/app.tsx
-var import_react35 = __toESM(require_react(), 1);
+var import_react36 = __toESM(require_react(), 1);
 
 // src/slash/registry.ts
 function parse(input) {
@@ -36373,7 +36373,6 @@ function SlashCommandPalette({
 
 // src/components/Chat.tsx
 var import_jsx_runtime5 = __toESM(require_jsx_runtime(), 1);
-var F1_SEQUENCES = /* @__PURE__ */ new Set(["\x1BOP", "\x1B[11~"]);
 function Chat({
   onSubmit,
   initialHistory = [],
@@ -36391,8 +36390,7 @@ function Chat({
   disabled = false,
   placeholder = "ask anything, or /command",
   onChange,
-  onInterrupt,
-  onToggleHelp
+  onInterrupt
 }) {
   const [value, setValue] = (0, import_react29.useState)("");
   const [history, setHistory] = (0, import_react29.useState)(initialHistory);
@@ -36413,10 +36411,6 @@ function Chat({
     (input, key) => {
       if (key.escape) {
         onInterrupt?.();
-        return;
-      }
-      if (F1_SEQUENCES.has(input)) {
-        onToggleHelp?.();
         return;
       }
       if (showPalette && (key.upArrow || key.downArrow)) {
@@ -37034,6 +37028,7 @@ function WorkingIndicatorInner({ line }) {
 var WorkingIndicator = import_react34.default.memo(WorkingIndicatorInner);
 
 // src/components/HelpPanel.tsx
+var import_react35 = __toESM(require_react(), 1);
 var import_jsx_runtime20 = __toESM(require_jsx_runtime(), 1);
 var WORKFLOW_COMMANDS = [
   "ralph",
@@ -37046,81 +37041,55 @@ var WORKFLOW_COMMANDS = [
   "accept",
   "auto"
 ];
-function HelpPanel({
-  commands,
-  /** Live subagents, so `/help` during a ralph run says what is in flight. */
-  runningSubagents = 0
-}) {
-  const width = commands.reduce((max, c) => Math.max(max, c.name.length), 0) + 2;
-  const workflows = WORKFLOW_COMMANDS.map(
-    (name) => commands.find((command) => command.name === name)
-  ).filter((command) => command !== void 0);
-  return /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Box_default, { flexDirection: "column", borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
-    workflows.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Box_default, { flexDirection: "column", marginBottom: 1, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { bold: true, color: "cyan", children: "Workflows and modes" }),
-      workflows.map((command) => /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Text, { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { color: "magenta", children: `/${command.name}`.padEnd(width) }),
-        /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { dimColor: true, children: command.summary })
-      ] }, `workflow-${command.name}`)),
-      runningSubagents > 0 ? /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { dimColor: true, children: `  ${runningSubagents} subagent(s) running right now` }) : null
-    ] }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { bold: true, color: "cyan", children: "Commands" }),
-    commands.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { dimColor: true, children: "no commands reported by the daemon" }) : commands.map((command) => /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Text, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { color: "blue", children: `/${command.name}`.padEnd(width) }),
-      /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { dimColor: true, children: command.summary })
-    ] }, command.name)),
-    /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Box_default, { marginTop: 1, flexDirection: "column", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { bold: true, color: "cyan", children: "Keys" }),
-      /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { dimColor: true, children: "  F1 close \xB7 Ctrl+C quit \xB7 Esc interrupt the current turn" }),
-      /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Text, { dimColor: true, children: [
-        "  Ctrl+O expand the newest tool call or diff \xB7 ",
-        "Ctrl+A open the agent panel out"
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Text, { dimColor: true, children: [
-        "  \u21E7Tab cycles mode accept -> auto -> plan -> accept \xB7 ",
-        "Ctrl+P toggles plan mode"
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Text, { dimColor: true, children: [
-        "  /compact folds the conversation down when the ctx segment turns ",
-        "yellow or red"
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Text, { dimColor: true, children: [
-        "  Delegates and named agents are listed under the status line; ",
-        "Ctrl+A shows every row"
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Text, { dimColor: true, children: [
-        "  \u2191 walks back through your earlier prompts \xB7 \u2193 past the newest one ",
-        "moves onto the rows below the input"
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Text, { dimColor: true, children: [
-        "  Enter on the footer lists what is running; Enter on an agent opens ",
-        "its conversation, Esc comes back"
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Text, { dimColor: true, children: [
-        "  /resume (or R on an empty input) reopens the session this ",
-        "directory was last in; /resume <sessionId> opens a specific live session"
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Text, { dimColor: true, children: [
-        "  Paste or drop a file path to attach it \xB7 Ctrl+V takes an image ",
-        "from the clipboard \xB7 /attach <path>"
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Text, { dimColor: true, children: [
-        "  Backspace on an empty input drops the newest attachment, ",
-        "Ctrl+X drops them all"
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Text, { dimColor: true, children: [
-        "  /voice arms voice input (Ctrl+Space records) \xB7 /tts on|off ",
-        "speaks the replies"
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Text, { dimColor: true, children: [
-        "  Ctrl+R focus the unattended approval queue: [a] allow [d] deny, ",
-        "\u2191/\u2193 pick, \u2190/\u2192 scope"
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Text, { dimColor: true, children: [
-        "  An approval asks with a menu: \u2191\u2193 move, Enter confirms, ",
-        "y/a/p/n answer directly, Esc refuses"
-      ] })
-    ] })
+var KEYS = [
+  "Esc / F1 / q / Enter close help \xB7 \u2191\u2193 / PgUp / PgDn scroll",
+  "Ctrl+C quit \xB7 Esc outside help interrupts the current turn",
+  "Ctrl+O expand the newest tool call or diff \xB7 Ctrl+A open the agent panel",
+  "\u21E7Tab cycles accept -> auto -> plan \xB7 Ctrl+P toggles plan mode",
+  "/compact folds the conversation down when context is running low",
+  "\u2191 walks through earlier prompts \xB7 \u2193 past the newest moves to the footer",
+  "Enter on an agent opens its conversation; Esc comes back",
+  "/resume or R on empty input resumes the last session; /resume <sessionId> selects one",
+  "Paste a file path to attach it \xB7 Ctrl+V pastes an image \xB7 /attach <path>",
+  "Backspace on empty input removes an attachment \xB7 Ctrl+X removes all",
+  "/voice arms input \xB7 Ctrl+Space records \xB7 /tts on|off speaks replies",
+  "Ctrl+R focuses approvals: a allow, d deny, \u2191\u2193 select, \u2190\u2192 scope",
+  "Approval menus: \u2191\u2193 select, Enter confirm, y/a/p/n answer, Esc refuse"
+];
+function HelpPanel({ commands, runningSubagents = 0, width = 80, height = 20, isActive = true }) {
+  const [offset, setOffset] = (0, import_react35.useState)(0);
+  const inner = Math.max(1, width - 4);
+  const rows = Math.max(1, height - 3);
+  const lines = [];
+  const add = (text, color, bold = false) => {
+    lines.push(...wrapLine({ key: `help-${lines.length}`, segments: [{ text, color, bold }] }, inner));
+  };
+  const workflows = commands.filter((command) => WORKFLOW_COMMANDS.includes(command.name));
+  const others = commands.filter((command) => !WORKFLOW_COMMANDS.includes(command.name));
+  const commandRows = (entries) => entries.forEach((command) => {
+    add(`/${command.name}`, "cyan", true);
+    lines.push(...wrapLine({ key: `help-${lines.length}`, segments: [{ text: `  ${command.summary}`, dimColor: true }] }, inner, "  "));
+  });
+  if (workflows.length) {
+    add("Workflows and modes", "cyan", true);
+    commandRows(workflows);
+  }
+  if (runningSubagents) add(`${runningSubagents} subagent(s) running`);
+  add("Commands", "cyan", true);
+  if (!commands.length) add("no commands reported by the daemon");
+  commandRows(others);
+  add("Keys", "cyan", true);
+  KEYS.forEach((text) => add(text));
+  const maxOffset = Math.max(0, lines.length - rows);
+  const start = Math.min(offset, maxOffset);
+  use_input_default((_input, key) => {
+    const step = key.pageDown ? rows : key.pageUp ? -rows : key.downArrow ? 1 : key.upArrow ? -1 : 0;
+    if (step) setOffset((current) => Math.min(maxOffset, Math.max(0, current + step)));
+  }, { isActive });
+  if (height < 4) return /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { wrap: "truncate-end", children: "Esc / F1 close help" });
+  return /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Box_default, { flexDirection: "column", width, height, borderStyle: "round", borderColor: "cyan", paddingX: 1, overflow: "hidden", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(TranscriptView, { lines: lines.slice(start, start + rows), height: rows }),
+    /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { color: "cyan", wrap: "truncate-end", children: `Esc / F1 / q / Enter close \xB7 \u2191\u2193 scroll \xB7 ${start + 1}-${Math.min(start + rows, lines.length)}/${lines.length}` })
   ] });
 }
 
@@ -37224,54 +37193,55 @@ function App2({
   recordingPath
 }) {
   const { exit } = use_app_default();
-  const [sessionId, setSessionId] = (0, import_react35.useState)(initialSessionId);
-  const activeSessionRef = (0, import_react35.useRef)(initialSessionId);
-  const resumingRef = (0, import_react35.useRef)(false);
-  const [state, dispatch] = (0, import_react35.useReducer)(reducer, initialState);
-  const [showHelp, setShowHelp] = (0, import_react35.useState)(false);
-  const [draft, setDraft] = (0, import_react35.useState)("");
-  const [expandedId, setExpandedId] = (0, import_react35.useState)(null);
-  const [queueFocused, setQueueFocused] = (0, import_react35.useState)(false);
-  const [agentsExpanded, setAgentsExpanded] = (0, import_react35.useState)(false);
-  const [attachments, setAttachments] = (0, import_react35.useState)([]);
-  const [voice, setVoice] = (0, import_react35.useState)(initialVoice);
-  const [insert, setInsert] = (0, import_react35.useState)(null);
-  const [capabilities, setCapabilities] = (0, import_react35.useState)(audio);
-  const recordingRef = (0, import_react35.useRef)(null);
-  const speechRef = (0, import_react35.useRef)(null);
-  const spokenRef = (0, import_react35.useRef)(/* @__PURE__ */ new Set());
-  const [focus, setFocus] = (0, import_react35.useState)(INPUT_FOCUS);
-  const [shellsOpen, setShellsOpen] = (0, import_react35.useState)(false);
-  const [openAgent, setOpenAgent] = (0, import_react35.useState)(null);
-  const [agentScroll, setAgentScroll] = (0, import_react35.useState)(0);
-  const [pastPrompts] = (0, import_react35.useState)(() => {
+  const [sessionId, setSessionId] = (0, import_react36.useState)(initialSessionId);
+  const activeSessionRef = (0, import_react36.useRef)(initialSessionId);
+  const resumingRef = (0, import_react36.useRef)(false);
+  const [state, dispatch] = (0, import_react36.useReducer)(reducer, initialState);
+  const [showHelp, setShowHelp] = (0, import_react36.useState)(false);
+  const { stdin } = use_stdin_default();
+  const [draft, setDraft] = (0, import_react36.useState)("");
+  const [expandedId, setExpandedId] = (0, import_react36.useState)(null);
+  const [queueFocused, setQueueFocused] = (0, import_react36.useState)(false);
+  const [agentsExpanded, setAgentsExpanded] = (0, import_react36.useState)(false);
+  const [attachments, setAttachments] = (0, import_react36.useState)([]);
+  const [voice, setVoice] = (0, import_react36.useState)(initialVoice);
+  const [insert, setInsert] = (0, import_react36.useState)(null);
+  const [capabilities, setCapabilities] = (0, import_react36.useState)(audio);
+  const recordingRef = (0, import_react36.useRef)(null);
+  const speechRef = (0, import_react36.useRef)(null);
+  const spokenRef = (0, import_react36.useRef)(/* @__PURE__ */ new Set());
+  const [focus, setFocus] = (0, import_react36.useState)(INPUT_FOCUS);
+  const [shellsOpen, setShellsOpen] = (0, import_react36.useState)(false);
+  const [openAgent, setOpenAgent] = (0, import_react36.useState)(null);
+  const [agentScroll, setAgentScroll] = (0, import_react36.useState)(0);
+  const [pastPrompts] = (0, import_react36.useState)(() => {
     history?.load();
     return history?.prompts() ?? [];
   });
-  const [lastSession] = (0, import_react35.useState)(() => {
+  const [lastSession] = (0, import_react36.useState)(() => {
     sessions?.load();
     return offerSession(sessions?.last(workdir) ?? null, priorSession2);
   });
-  const [modeHintVisible, setModeHintVisible] = (0, import_react35.useState)(true);
-  const [modeToast, setModeToast] = (0, import_react35.useState)(null);
-  const [runningCommand, setRunningCommand] = (0, import_react35.useState)(null);
-  const staticCursorRef = (0, import_react35.useRef)(0);
-  const staticBlocksRef = (0, import_react35.useRef)([{ key: "launch", kind: "launch" }]);
-  const turnRef = (0, import_react35.useRef)(null);
-  const turnActiveRef = (0, import_react35.useRef)(false);
-  const turnCountRef = (0, import_react35.useRef)(0);
-  const [scrollOffset, setScrollOffset] = (0, import_react35.useState)(0);
-  const modeToastTimer = (0, import_react35.useRef)(null);
-  const registryRef = (0, import_react35.useRef)(new SlashRegistry(client, sessionId));
-  const [update, setUpdate] = (0, import_react35.useState)(initialUpdateState);
-  const [updateAvailable, setUpdateAvailable] = (0, import_react35.useState)(false);
-  const approvalResolver = (0, import_react35.useRef)(null);
-  const audioClient = (0, import_react35.useMemo)(() => createAudioClient(client), [client]);
-  const audioOffered = (0, import_react35.useCallback)(
+  const [modeHintVisible, setModeHintVisible] = (0, import_react36.useState)(true);
+  const [modeToast, setModeToast] = (0, import_react36.useState)(null);
+  const [runningCommand, setRunningCommand] = (0, import_react36.useState)(null);
+  const staticCursorRef = (0, import_react36.useRef)(0);
+  const staticBlocksRef = (0, import_react36.useRef)([{ key: "launch", kind: "launch" }]);
+  const turnRef = (0, import_react36.useRef)(null);
+  const turnActiveRef = (0, import_react36.useRef)(false);
+  const turnCountRef = (0, import_react36.useRef)(0);
+  const [scrollOffset, setScrollOffset] = (0, import_react36.useState)(0);
+  const modeToastTimer = (0, import_react36.useRef)(null);
+  const registryRef = (0, import_react36.useRef)(new SlashRegistry(client, sessionId));
+  const [update, setUpdate] = (0, import_react36.useState)(initialUpdateState);
+  const [updateAvailable, setUpdateAvailable] = (0, import_react36.useState)(false);
+  const approvalResolver = (0, import_react36.useRef)(null);
+  const audioClient = (0, import_react36.useMemo)(() => createAudioClient(client), [client]);
+  const audioOffered = (0, import_react36.useCallback)(
     () => client.serverCapabilities?.().includes("audio") ?? true,
     [client]
   );
-  const refreshCapabilities = (0, import_react35.useCallback)(() => {
+  const refreshCapabilities = (0, import_react36.useCallback)(() => {
     if (!audioOffered()) {
       setCapabilities(noAudio);
       return;
@@ -37280,14 +37250,14 @@ function App2({
       setCapabilities(noAudio);
     });
   }, [audioClient, audioOffered]);
-  (0, import_react35.useEffect)(() => {
+  (0, import_react36.useEffect)(() => {
     refreshCapabilities();
   }, [refreshCapabilities]);
-  const refreshApprovals = (0, import_react35.useCallback)(() => {
+  const refreshApprovals = (0, import_react36.useCallback)(() => {
     void client.listApprovals(sessionId).then((result) => dispatch({ type: "approval/list", requests: result.requests ?? [] })).catch(() => {
     });
   }, [client, sessionId]);
-  (0, import_react35.useEffect)(() => {
+  (0, import_react36.useEffect)(() => {
     dispatch({ type: "session/ready", sessionId, mode, provider, model });
     dispatch({ type: "status", status: client.getStatus() });
     client.setListeners({
@@ -37328,7 +37298,7 @@ function App2({
     void registryRef.current.load().then((commands) => dispatch({ type: "commands", commands })).catch((error) => dispatch({ type: "error", message: String(error) }));
     refreshApprovals();
   }, [client, sessionId, mode, provider, model, refreshApprovals, refreshCapabilities]);
-  (0, import_react35.useEffect)(() => {
+  (0, import_react36.useEffect)(() => {
     let cancelled = false;
     void client.checkUpdate(true).then((check) => {
       if (cancelled) return;
@@ -37340,7 +37310,20 @@ function App2({
       cancelled = true;
     };
   }, [client]);
-  (0, import_react35.useEffect)(() => {
+  (0, import_react36.useEffect)(() => {
+    const onData = (data) => {
+      if (state.pendingApproval || update.phase === "confirm" || update.phase === "running") return;
+      if (["\x1BOP", "\x1B[11~", "\x1B[[A"].includes(data.toString())) {
+        setShowHelp((current) => !current);
+        setFocus(INPUT_FOCUS);
+      }
+    };
+    stdin.on("data", onData);
+    return () => {
+      stdin.off("data", onData);
+    };
+  }, [stdin, state.pendingApproval, update.phase]);
+  (0, import_react36.useEffect)(() => {
     if (update.phase !== "done") return;
     let cancelled = false;
     const timer = setTimeout(() => {
@@ -37358,13 +37341,13 @@ function App2({
       clearTimeout(timer);
     };
   }, [update.phase, client, onRestart, exit]);
-  (0, import_react35.useEffect)(() => {
+  (0, import_react36.useEffect)(() => {
     if (state.approvalQueue.length === 0) return;
     const timer = setInterval(refreshApprovals, APPROVAL_POLL_MS);
     return () => clearInterval(timer);
   }, [state.approvalQueue.length, refreshApprovals]);
   const lastMessage = state.messages[state.messages.length - 1];
-  (0, import_react35.useEffect)(() => {
+  (0, import_react36.useEffect)(() => {
     if (!voice.tts || !lastMessage) return;
     if (lastMessage.role !== "assistant" || lastMessage.streaming) return;
     if (spokenRef.current.has(lastMessage.id)) return;
@@ -37376,30 +37359,30 @@ function App2({
     });
   }, [voice.tts, lastMessage?.id, lastMessage?.streaming]);
   const compactionCount = state.compactions.length;
-  (0, import_react35.useEffect)(() => {
+  (0, import_react36.useEffect)(() => {
     const latest = state.compactions[compactionCount - 1];
     if (!latest) return;
     showToast(`compacted: ${formatTokens(latest.before)} \u2192 ${formatTokens(latest.after)}`);
   }, [compactionCount]);
-  (0, import_react35.useEffect)(() => {
+  (0, import_react36.useEffect)(() => {
     if (!state.turnActive) setRunningCommand(null);
   }, [state.turnActive]);
-  (0, import_react35.useEffect)(() => {
+  (0, import_react36.useEffect)(() => {
     if (state.approvalQueue.length === 0 && queueFocused) setQueueFocused(false);
   }, [state.approvalQueue.length, queueFocused]);
-  (0, import_react35.useEffect)(() => {
+  (0, import_react36.useEffect)(() => {
     const timer = setTimeout(() => setModeHintVisible(false), 6e3);
     return () => clearTimeout(timer);
   }, []);
-  (0, import_react35.useEffect)(() => () => {
+  (0, import_react36.useEffect)(() => () => {
     if (modeToastTimer.current) clearTimeout(modeToastTimer.current);
   }, []);
-  const showToast = (0, import_react35.useCallback)((text) => {
+  const showToast = (0, import_react36.useCallback)((text) => {
     setModeToast(text);
     if (modeToastTimer.current) clearTimeout(modeToastTimer.current);
     modeToastTimer.current = setTimeout(() => setModeToast(null), 2500);
   }, []);
-  const resumeSession = (0, import_react35.useCallback)(
+  const resumeSession = (0, import_react36.useCallback)(
     (target, into) => {
       if (into === "main") {
         if (resumingRef.current || state.turnActive) return;
@@ -37434,7 +37417,7 @@ function App2({
     },
     [client, state.turnActive, sessions, workdir]
   );
-  const changeMode = (0, import_react35.useCallback)(
+  const changeMode = (0, import_react36.useCallback)(
     (next) => {
       setModeHintVisible(false);
       dispatch({ type: "mode", mode: next });
@@ -37443,7 +37426,7 @@ function App2({
     },
     [client, sessionId, showToast]
   );
-  const completions = (0, import_react35.useMemo)(
+  const completions = (0, import_react36.useMemo)(
     () => draft.startsWith("/") ? registryRef.current.complete(draft) : [],
     [draft, state.commands]
   );
@@ -37452,7 +37435,7 @@ function App2({
   const daemon = useDaemonInfo(client);
   const sessionElapsedMs = useElapsed();
   const version = update.current || TUI_VERSION;
-  const hudSegments = (0, import_react35.useMemo)(
+  const hudSegments = (0, import_react36.useMemo)(
     () => buildHudSegments({
       status: state.status,
       version,
@@ -37499,7 +37482,7 @@ function App2({
       modeHintVisible
     ]
   );
-  const hudRows = (0, import_react35.useMemo)(
+  const hudRows = (0, import_react36.useMemo)(
     () => layoutHud(hudSegments, contentWidth),
     [hudSegments, contentWidth]
   );
@@ -37539,7 +37522,7 @@ function App2({
   const staticCursor = staticCursorRef.current;
   const staticItems = staticBlocksRef.current;
   const knownAgents = useKnownAgents(client);
-  const agentRows = (0, import_react35.useMemo)(
+  const agentRows = (0, import_react36.useMemo)(
     () => buildAgentRows({
       state,
       known: knownAgents,
@@ -37553,15 +37536,15 @@ function App2({
     [state.subagents, state.teamTasks, knownAgents, agentsExpanded, now]
   );
   const agentRowCount = agentRows.length;
-  (0, import_react35.useEffect)(() => {
+  (0, import_react36.useEffect)(() => {
     setFocus((current) => clampFocus(current, agentRowCount));
   }, [agentRowCount]);
   const openAgentEntry = openAgent ? state.subagents.find((agent) => agent.sessionId === openAgent.sessionId) : void 0;
-  const agentLines = (0, import_react35.useMemo)(
+  const agentLines = (0, import_react36.useMemo)(
     () => openAgent && state.children[openAgent.sessionId] ? transcriptLines(state.children[openAgent.sessionId], contentWidth - 4) : [],
     [openAgent, state.children, contentWidth]
   );
-  const agentViewport = (0, import_react35.useMemo)(
+  const agentViewport = (0, import_react36.useMemo)(
     () => sliceViewport(agentLines, AGENT_TRANSCRIPT_ROWS, agentScroll),
     [agentLines, agentScroll]
   );
@@ -37597,28 +37580,28 @@ function App2({
       noticeVisible: Boolean(modeToast && modeToast.length > TOAST_INLINE_MAX)
     })
   });
-  const lines = (0, import_react35.useMemo)(
+  const lines = (0, import_react36.useMemo)(
     () => fullscreen ? transcriptLines(state, contentWidth, { expandedCall: expandedId }) : [],
     [fullscreen, state, contentWidth, expandedId]
   );
-  const viewport = (0, import_react35.useMemo)(
+  const viewport = (0, import_react36.useMemo)(
     () => sliceViewport(lines, layout.transcriptRows, scrollOffset),
     [lines, layout.transcriptRows, scrollOffset]
   );
-  const previousLineCount = (0, import_react35.useRef)(0);
-  (0, import_react35.useEffect)(() => {
+  const previousLineCount = (0, import_react36.useRef)(0);
+  (0, import_react36.useEffect)(() => {
     const grown = lines.length - previousLineCount.current;
     previousLineCount.current = lines.length;
     if (grown > 0) setScrollOffset((offset) => offset > 0 ? offset + grown : 0);
   }, [lines.length]);
-  (0, import_react35.useEffect)(() => {
+  (0, import_react36.useEffect)(() => {
     setScrollOffset((offset) => clampScroll(offset, lines.length, layout.transcriptRows));
   }, [layout.transcriptRows, lines.length]);
-  const scrollBy = (0, import_react35.useCallback)(
+  const scrollBy = (0, import_react36.useCallback)(
     (delta) => setScrollOffset((offset) => clampScroll(offset + delta, lines.length, layout.transcriptRows)),
     [lines.length, layout.transcriptRows]
   );
-  const takePaste = (0, import_react35.useCallback)(
+  const takePaste = (0, import_react36.useCallback)(
     (text) => {
       if (!probe) return false;
       const { attachments: found, rejected } = scanAttachments(text, probe);
@@ -37629,7 +37612,7 @@ function App2({
     },
     [probe, showToast]
   );
-  const takeClipboard = (0, import_react35.useCallback)(() => {
+  const takeClipboard = (0, import_react36.useCallback)(() => {
     if (!captureClipboard || !probe) {
       showToast("no clipboard tool available");
       return;
@@ -37646,7 +37629,7 @@ function App2({
     }
     setAttachments((current) => addAttachments(current, found));
   }, [captureClipboard, probe, showToast]);
-  const runtime = (0, import_react35.useMemo)(
+  const runtime = (0, import_react36.useMemo)(
     () => ({
       audio: audioClient,
       local: localAudio,
@@ -37657,7 +37640,7 @@ function App2({
     }),
     [audioClient, localAudio, capabilities, sessionId, recordingPath, showToast]
   );
-  const toggleRecording = (0, import_react35.useCallback)(() => {
+  const toggleRecording = (0, import_react36.useCallback)(() => {
     if (recordingRef.current) {
       const handle = recordingRef.current;
       recordingRef.current = null;
@@ -37688,18 +37671,18 @@ function App2({
     setVoice(outcome.state);
     showToast(outcome.message);
   }, [runtime, voice, capabilities, localAudio, recordingPath, showToast]);
-  const silence = (0, import_react35.useCallback)(() => {
+  const silence = (0, import_react36.useCallback)(() => {
     if (!speechRef.current) return;
     stopSpeaking(runtime, speechRef.current);
     speechRef.current = null;
     setVoice((current) => ({ ...current, speaking: false }));
   }, [runtime]);
-  const resumeMemory = (0, import_react35.useCallback)(() => {
+  const resumeMemory = (0, import_react36.useCallback)(() => {
     if (!lastSession) return;
     showToast(`resuming ${lastSession.sessionId.slice(0, 8)}`);
     resumeSession(lastSession.sessionId, "main");
   }, [lastSession, resumeSession, showToast]);
-  const submit = (0, import_react35.useCallback)(
+  const submit = (0, import_react36.useCallback)(
     (text) => {
       if (resumingRef.current || update.phase === "running" || update.phase === "done") return;
       if (/^\/update\s*$/.test(text.trim())) {
@@ -37806,7 +37789,7 @@ function App2({
       toggleRecording
     ]
   );
-  const answerUpdate = (0, import_react35.useCallback)(
+  const answerUpdate = (0, import_react36.useCallback)(
     (accepted) => {
       if (!accepted) {
         setUpdate(cancel);
@@ -37829,7 +37812,7 @@ function App2({
     },
     [client, state.turnActive]
   );
-  const decideApproval = (0, import_react35.useCallback)(
+  const decideApproval = (0, import_react36.useCallback)(
     (decision, scope) => {
       const resolve2 = approvalResolver.current;
       const requestId = state.pendingApproval?.requestId;
@@ -37839,7 +37822,7 @@ function App2({
     },
     [state.pendingApproval]
   );
-  const respondQueued = (0, import_react35.useCallback)(
+  const respondQueued = (0, import_react36.useCallback)(
     (requestId, decision, scope) => {
       dispatch({ type: "approval/resolved", requestId });
       void client.respondApproval(requestId, decision, scope).catch((error) => dispatch({ type: "error", message: String(error) }));
@@ -37852,6 +37835,13 @@ function App2({
       return;
     }
     if (state.pendingApproval || update.phase === "confirm") {
+      return;
+    }
+    if (showHelp) {
+      if (key.escape || key.return || input === "q") {
+        setShowHelp(false);
+        setFocus(INPUT_FOCUS);
+      }
       return;
     }
     if (key.escape && voice.speaking) {
@@ -37939,7 +37929,7 @@ function App2({
       changeMode(state.mode === "plan" ? "accept" : "plan");
     }
   });
-  const openAgentRow = (0, import_react35.useCallback)(
+  const openAgentRow = (0, import_react36.useCallback)(
     (index) => {
       const row = agentRows[index];
       if (!row) return;
@@ -37963,7 +37953,7 @@ function App2({
     },
     [agentRows, state.subagents, state.children, resumeSession, showToast]
   );
-  const closeAgent = (0, import_react35.useCallback)(() => {
+  const closeAgent = (0, import_react36.useCallback)(() => {
     setOpenAgent(null);
     setFocus(INPUT_FOCUS);
   }, []);
@@ -38014,8 +38004,7 @@ function App2({
         completions,
         onChange: setDraft,
         onInterrupt: () => void client.interrupt(sessionId).catch(() => void 0),
-        onToggleHelp: () => setShowHelp((v) => !v),
-        disabled: update.phase === "confirm" || update.phase === "running" || update.phase === "done" || approvalActive || queueFocused || !isInput(focus) || openAgent !== null
+        disabled: showHelp || update.phase === "confirm" || update.phase === "running" || update.phase === "done" || approvalActive || queueFocused || !isInput(focus) || openAgent !== null
       }
     )
   ] });
@@ -38054,6 +38043,9 @@ function App2({
     HelpPanel,
     {
       commands: state.commands,
+      width: contentWidth,
+      height: fullscreen ? layout.transcriptRows : Math.max(4, usableRows(terminal.rows) - layout.bottomRows - layout.statusRows - (bannerText(update) ? 3 : 0)),
+      isActive: state.pendingApproval === null && update.phase !== "confirm",
       runningSubagents: state.subagents.filter((agent) => agent.status === "running").length
     }
   ) : null;
@@ -38107,7 +38099,7 @@ function App2({
       entry.key
     ) }),
     /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)(Box_default, { flexDirection: "column", paddingX: 1, children: [
-      openAgent ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
+      showHelp ? null : openAgent ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
         AgentTranscript,
         {
           name: openAgent.name,

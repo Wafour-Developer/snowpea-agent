@@ -1,19 +1,10 @@
-/**
- * Command help, rendered from `command.list`. Opened by F1 or by the result of
- * `/help`. Like the palette it has no built-in table.
- */
-
-import React from "react";
-import { Box, Text } from "ink";
-
+/** Bounded, scrollable command help; never expands into terminal scrollback. */
+import React, { useState } from "react";
+import { Box, Text, useInput } from "ink";
 import type { CommandInfo } from "../rpc/sdk.js";
+import { wrapLine, type Line } from "../layout/transcript.js";
+import { TranscriptView } from "./TranscriptView.js";
 
-/**
- * The multi-agent workflows and modes AC-03 expects `/help` to show, listed
- * first because they are the ones a new user is looking for. Whether each one
- * exists is still the daemon's answer: names missing from `command.list` are
- * not drawn.
- */
 export const WORKFLOW_COMMANDS: readonly string[] = [
   "ralph",
   "ralplan",
@@ -26,103 +17,63 @@ export const WORKFLOW_COMMANDS: readonly string[] = [
   "auto",
 ];
 
-export function HelpPanel({
-  commands,
-  /** Live subagents, so `/help` during a ralph run says what is in flight. */
-  runningSubagents = 0,
-}: {
+const KEYS = [
+  "Esc / F1 / q / Enter close help · ↑↓ / PgUp / PgDn scroll",
+  "Ctrl+C quit · Esc outside help interrupts the current turn",
+  "Ctrl+O expand the newest tool call or diff · Ctrl+A open the agent panel",
+  "⇧Tab cycles accept -> auto -> plan · Ctrl+P toggles plan mode",
+  "/compact folds the conversation down when context is running low",
+  "↑ walks through earlier prompts · ↓ past the newest moves to the footer",
+  "Enter on an agent opens its conversation; Esc comes back",
+  "/resume or R on empty input resumes the last session; /resume <sessionId> selects one",
+  "Paste a file path to attach it · Ctrl+V pastes an image · /attach <path>",
+  "Backspace on empty input removes an attachment · Ctrl+X removes all",
+  "/voice arms input · Ctrl+Space records · /tts on|off speaks replies",
+  "Ctrl+R focuses approvals: a allow, d deny, ↑↓ select, ←→ scope",
+  "Approval menus: ↑↓ select, Enter confirm, y/a/p/n answer, Esc refuse",
+];
+
+export function HelpPanel({ commands, runningSubagents = 0, width = 80, height = 20, isActive = true }: {
   commands: CommandInfo[];
   runningSubagents?: number;
+  width?: number;
+  height?: number;
+  isActive?: boolean;
 }): React.ReactElement {
-  const width = commands.reduce((max, c) => Math.max(max, c.name.length), 0) + 2;
-  const workflows = WORKFLOW_COMMANDS.map((name) =>
-    commands.find((command) => command.name === name),
-  ).filter((command): command is CommandInfo => command !== undefined);
+  const [offset, setOffset] = useState(0);
+  const inner = Math.max(1, width - 4);
+  const rows = Math.max(1, height - 3);
+  const lines: Line[] = [];
+  const add = (text: string, color?: string, bold = false) => {
+    lines.push(...wrapLine({ key: `help-${lines.length}`, segments: [{ text, color, bold }] }, inner));
+  };
+  const workflows = commands.filter(command => WORKFLOW_COMMANDS.includes(command.name));
+  const others = commands.filter(command => !WORKFLOW_COMMANDS.includes(command.name));
+  const commandRows = (entries: CommandInfo[]) => entries.forEach(command => {
+    add(`/${command.name}`, "cyan", true);
+    lines.push(...wrapLine({ key: `help-${lines.length}`, segments: [{ text: `  ${command.summary}`, dimColor: true }] }, inner, "  "));
+  });
+  if (workflows.length) {
+    add("Workflows and modes", "cyan", true);
+    commandRows(workflows);
+  }
+  if (runningSubagents) add(`${runningSubagents} subagent(s) running`);
+  add("Commands", "cyan", true);
+  if (!commands.length) add("no commands reported by the daemon");
+  commandRows(others);
+  add("Keys", "cyan", true);
+  KEYS.forEach(text => add(text));
+  const maxOffset = Math.max(0, lines.length - rows);
+  const start = Math.min(offset, maxOffset);
+  useInput((_input, key) => {
+    const step = key.pageDown ? rows : key.pageUp ? -rows : key.downArrow ? 1 : key.upArrow ? -1 : 0;
+    if (step) setOffset(current => Math.min(maxOffset, Math.max(0, current + step)));
+  }, { isActive });
+  if (height < 4) return <Text wrap="truncate-end">Esc / F1 close help</Text>;
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1}>
-      {workflows.length > 0 ? (
-        <Box flexDirection="column" marginBottom={1}>
-          <Text bold color="cyan">
-            Workflows and modes
-          </Text>
-          {workflows.map((command) => (
-            <Text key={`workflow-${command.name}`}>
-              <Text color="magenta">{`/${command.name}`.padEnd(width)}</Text>
-              <Text dimColor>{command.summary}</Text>
-            </Text>
-          ))}
-          {runningSubagents > 0 ? (
-            <Text dimColor>{`  ${runningSubagents} subagent(s) running right now`}</Text>
-          ) : null}
-        </Box>
-      ) : null}
-      <Text bold color="cyan">
-        Commands
-      </Text>
-      {commands.length === 0 ? (
-        <Text dimColor>no commands reported by the daemon</Text>
-      ) : (
-        commands.map((command) => (
-          <Text key={command.name}>
-            <Text color="blue">{`/${command.name}`.padEnd(width)}</Text>
-            <Text dimColor>{command.summary}</Text>
-          </Text>
-        ))
-      )}
-      <Box marginTop={1} flexDirection="column">
-        <Text bold color="cyan">
-          Keys
-        </Text>
-        <Text dimColor>  F1 close · Ctrl+C quit · Esc interrupt the current turn</Text>
-        <Text dimColor>
-          {"  Ctrl+O expand the newest tool call or diff · "}
-          {"Ctrl+A open the agent panel out"}
-        </Text>
-        <Text dimColor>
-          {"  ⇧Tab cycles mode accept -> auto -> plan -> accept · "}
-          {"Ctrl+P toggles plan mode"}
-        </Text>
-        <Text dimColor>
-          {"  /compact folds the conversation down when the ctx segment turns "}
-          {"yellow or red"}
-        </Text>
-        <Text dimColor>
-          {"  Delegates and named agents are listed under the status line; "}
-          {"Ctrl+A shows every row"}
-        </Text>
-        <Text dimColor>
-          {"  ↑ walks back through your earlier prompts · ↓ past the newest one "}
-          {"moves onto the rows below the input"}
-        </Text>
-        <Text dimColor>
-          {"  Enter on the footer lists what is running; Enter on an agent opens "}
-          {"its conversation, Esc comes back"}
-        </Text>
-        <Text dimColor>
-          {"  /resume (or R on an empty input) reopens the session this "}
-          {"directory was last in; /resume <sessionId> opens a specific live session"}
-        </Text>
-        <Text dimColor>
-          {"  Paste or drop a file path to attach it · Ctrl+V takes an image "}
-          {"from the clipboard · /attach <path>"}
-        </Text>
-        <Text dimColor>
-          {"  Backspace on an empty input drops the newest attachment, "}
-          {"Ctrl+X drops them all"}
-        </Text>
-        <Text dimColor>
-          {"  /voice arms voice input (Ctrl+Space records) · /tts on|off "}
-          {"speaks the replies"}
-        </Text>
-        <Text dimColor>
-          {"  Ctrl+R focus the unattended approval queue: [a] allow [d] deny, "}
-          {"↑/↓ pick, ←/→ scope"}
-        </Text>
-        <Text dimColor>
-          {"  An approval asks with a menu: ↑↓ move, Enter confirms, "}
-          {"y/a/p/n answer directly, Esc refuses"}
-        </Text>
-      </Box>
+    <Box flexDirection="column" width={width} height={height} borderStyle="round" borderColor="cyan" paddingX={1} overflow="hidden">
+      <TranscriptView lines={lines.slice(start, start + rows)} height={rows} />
+      <Text color="cyan" wrap="truncate-end">{`Esc / F1 / q / Enter close · ↑↓ scroll · ${start + 1}-${Math.min(start + rows, lines.length)}/${lines.length}`}</Text>
     </Box>
   );
 }

@@ -15,7 +15,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { Box, Static, Text, useApp, useInput } from "ink";
+import { Box, Static, Text, useApp, useInput, useStdin } from "ink";
 
 import type { TuiClient } from "./rpc/client.js";
 import type {
@@ -307,6 +307,7 @@ export function App({
   const resumingRef = useRef(false);
   const [state, dispatch] = useReducer(reducer, initialState);
   const [showHelp, setShowHelp] = useState(false);
+  const { stdin } = useStdin();
   const [draft, setDraft] = useState("");
   /** Id of the transcript entry Ctrl+O opened: a tool call or a diff. */
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -515,6 +516,19 @@ export function App({
     }).catch(() => { /* Offline startup still works. */ });
     return () => { cancelled = true; };
   }, [client]);
+
+  // Ink 5 removes F1 from useInput entirely. Read only its raw sequences here.
+  useEffect(() => {
+    const onData = (data: Buffer | string) => {
+      if (state.pendingApproval || update.phase === "confirm" || update.phase === "running") return;
+      if (["\u001bOP", "\u001b[11~", "\u001b[[A"].includes(data.toString())) {
+        setShowHelp(current => !current);
+        setFocus(INPUT_FOCUS);
+      }
+    };
+    stdin.on("data", onData);
+    return () => { stdin.off("data", onData); };
+  }, [stdin, state.pendingApproval, update.phase]);
 
   // An upgrade that finished: tell the daemon to go, then ask to be restarted.
   useEffect(() => {
@@ -1159,6 +1173,14 @@ export function App({
       return;
     }
 
+    if (showHelp) {
+      if (key.escape || key.return || input === "q") {
+        setShowHelp(false);
+        setFocus(INPUT_FOCUS);
+      }
+      return;
+    }
+
     // Esc first stops a reply that is being read out; only then does it mean
     // whatever else Esc means here.
     if (key.escape && voice.speaking) {
@@ -1359,8 +1381,7 @@ export function App({
           completions={completions}
           onChange={setDraft}
           onInterrupt={() => void client.interrupt(sessionId).catch(() => undefined)}
-          onToggleHelp={() => setShowHelp((v) => !v)}
-          disabled={update.phase === "confirm" || update.phase === "running" || update.phase === "done" || approvalActive || queueFocused || !isInput(focus) || openAgent !== null}
+          disabled={showHelp || update.phase === "confirm" || update.phase === "running" || update.phase === "done" || approvalActive || queueFocused || !isInput(focus) || openAgent !== null}
         />
       )}
     </>
@@ -1406,6 +1427,9 @@ export function App({
   const helpNode = showHelp ? (
     <HelpPanel
       commands={state.commands}
+      width={contentWidth}
+      height={fullscreen ? layout.transcriptRows : Math.max(4, usableRows(terminal.rows) - layout.bottomRows - layout.statusRows - (bannerText(update) ? 3 : 0))}
+      isActive={state.pendingApproval === null && update.phase !== "confirm"}
       runningSubagents={state.subagents.filter((agent) => agent.status === "running").length}
     />
   ) : null;
@@ -1476,7 +1500,7 @@ export function App({
       </Static>
 
       <Box flexDirection="column" paddingX={1}>
-      {openAgent ? (
+      {showHelp ? null : openAgent ? (
         <AgentTranscript
           name={openAgent.name}
           task={openAgentEntry?.task ?? ""}

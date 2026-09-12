@@ -12,9 +12,6 @@ import { Box, Text, useInput } from "ink";
 import type { CommandInfo } from "../rpc/sdk.js";
 import { SlashCommandPalette } from "./SlashCommandPalette.js";
 
-/** VT100 / xterm encodings of F1. */
-const F1_SEQUENCES = new Set(["\u001bOP", "\u001b[11~"]);
-
 export interface ChatProps {
   onSubmit: (text: string) => void;
   /** Prompts from previous runs, oldest first; ↑ walks back through them. */
@@ -51,7 +48,6 @@ export interface ChatProps {
   placeholder?: string;
   onChange?: (value: string) => void;
   onInterrupt?: () => void;
-  onToggleHelp?: () => void;
 }
 
 export function Chat({
@@ -72,7 +68,6 @@ export function Chat({
   placeholder = "ask anything, or /command",
   onChange,
   onInterrupt,
-  onToggleHelp,
 }: ChatProps): React.ReactElement {
   const [value, setValue] = useState("");
   // Seeded from the file on disk, so ↑ reaches prompts from previous runs.
@@ -104,12 +99,6 @@ export function Chat({
         onInterrupt?.();
         return;
       }
-      // Ink's Key has no F1; terminals send it as an escape sequence.
-      if (F1_SEQUENCES.has(input)) {
-        onToggleHelp?.();
-        return;
-      }
-
       if (showPalette && (key.upArrow || key.downArrow)) {
         const delta = key.downArrow ? 1 : -1;
         setSelected((i) => (i + delta + completions.length) % completions.length);
