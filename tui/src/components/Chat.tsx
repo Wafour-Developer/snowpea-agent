@@ -10,6 +10,13 @@ import React, { useEffect, useRef, useState } from "react";
 import { Box, Text, useInput } from "ink";
 
 import type { CommandInfo } from "../rpc/sdk.js";
+import {
+  agentQuery,
+  applyAgentCompletion,
+  filterAgents,
+  type AgentCandidate,
+} from "../state/agent-completion.js";
+import { AgentPalette } from "./AgentPalette.js";
 import { SlashCommandPalette } from "./SlashCommandPalette.js";
 
 export interface ChatProps {
@@ -48,6 +55,13 @@ export interface ChatProps {
   onQuickUpdate?: () => void;
   /** Autocomplete candidates for the current input; owner calls registry.complete(). */
   completions: CommandInfo[];
+  /**
+   * Every agent that could be named, for `/delegate <agent>` and `$agent`.
+   *
+   * The list is unfiltered: the draft decides which of them are offered, and
+   * the draft lives here.
+   */
+  agents?: AgentCandidate[];
   disabled?: boolean;
   placeholder?: string;
   onChange?: (value: string) => void;
@@ -70,6 +84,7 @@ export function Chat({
   append = null,
   onAppended,
   completions,
+  agents = [],
   disabled = false,
   placeholder = "ask anything, or /command",
   onChange,
@@ -84,8 +99,15 @@ export function Chat({
   /** Draft present before ↑ entered history; ↓ past the newest entry restores it. */
   const historyDraft = useRef("");
   const [selected, setSelected] = useState(0);
+  /** True while Esc has closed the agent list for the name being typed. */
+  const [agentsDismissed, setAgentsDismissed] = useState(false);
 
   const showPalette = value.startsWith("/") && completions.length > 0;
+
+  // `$name` or `/delegate name`: the same list, in the place the name goes.
+  const query = agentQuery(value, cursor);
+  const agentMatches = query ? filterAgents(agents, query.prefix) : [];
+  const showAgents = query !== null && !agentsDismissed && !showPalette;
 
   // Text produced elsewhere — a transcription, for now — lands in the draft for
   // the user to read before it is sent.
@@ -110,14 +132,34 @@ export function Chat({
     setValue(next);
     setCursor(Math.max(0, Math.min(next.length, nextCursor)));
     setSelected(0);
+    setAgentsDismissed(false);
     onChange?.(next);
   };
 
   useInput(
     (input, key) => {
       if (key.escape) {
+        // Esc closes the agent list first; only an open turn is interrupted.
+        if (showAgents) {
+          setAgentsDismissed(true);
+          return;
+        }
         onInterrupt?.();
         return;
+      }
+
+      if (showAgents && agentMatches.length > 0) {
+        if (key.upArrow || key.downArrow) {
+          const delta = key.downArrow ? 1 : -1;
+          setSelected((i) => (i + delta + agentMatches.length) % agentMatches.length);
+          return;
+        }
+        if (key.tab || key.return) {
+          const candidate = agentMatches[Math.min(selected, agentMatches.length - 1)];
+          const next = applyAgentCompletion(value, query!, candidate.name);
+          update(next.text, next.cursor);
+          return;
+        }
       }
       if (showPalette && (key.upArrow || key.downArrow)) {
         const delta = key.downArrow ? 1 : -1;
@@ -228,6 +270,13 @@ export function Chat({
 
   return (
     <Box flexDirection="column">
+      {showAgents ? (
+        <AgentPalette
+          candidates={agentMatches}
+          selectedIndex={Math.min(selected, Math.max(0, agentMatches.length - 1))}
+          prefix={query?.prefix ?? ""}
+        />
+      ) : null}
       {showPalette ? (
         <SlashCommandPalette commands={completions} selectedIndex={selected} />
       ) : null}
