@@ -894,18 +894,19 @@ export function App({
             setSessionId(target);
             sessions?.remember({ sessionId: target, workdir, firstPrompt: "", at: Date.now() });
           }
+          // The backlog is applied in one pass, not one event at a time. A
+          // resume answers with everything the session ever emitted, so a long
+          // one is thousands of events; dispatched individually each is a
+          // render, and each finished entry reaches `<Static>` on a frame of
+          // its own, which is the history visibly re-typing itself. Folded, the
+          // whole reconstructed transcript lands in a single render. The end of
+          // the array is the end of the replay — the daemon needs to say
+          // nothing extra.
           const events = Array.isArray(result?.events) ? result.events : [];
-          for (const event of events) {
-            // A child's backlog is replayed through the same batcher as its
-            // live stream, so opening an agent that has already said a lot is
-            // one repaint rather than one per token it ever produced.
-            if (into === "child") {
-              const buffer = childEventsRef.current;
-              if (buffer) buffer.push(target, event);
-              else dispatch({ type: "child/event", sessionId: target, event });
-            } else dispatch({ type: "session/event", event });
+          if (events.length > 0) {
+            if (into === "child") dispatch({ type: "child/replay", sessionId: target, events });
+            else dispatch({ type: "session/replay", events });
           }
-          if (into === "child") childEventsRef.current?.flush();
         })
         .catch((error: unknown) =>
           dispatch({ type: "error", message: `resume failed: ${String(error)}` }),

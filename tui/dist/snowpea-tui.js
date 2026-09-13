@@ -34071,6 +34071,9 @@ function patchSubagent(state, agentId, patch) {
 }
 function applySessionEvent(state, event) {
   const payload = event.payload ?? {};
+  if (typeof event.seq === "number" && state.lastSeq > 0 && event.seq <= state.lastSeq) {
+    return state;
+  }
   const base = typeof event.seq === "number" && event.seq > state.lastSeq ? { ...state, lastSeq: event.seq } : state;
   switch (event.kind) {
     case "message.delta":
@@ -34361,6 +34364,14 @@ function reducer(state, action) {
     }
     case "session/event":
       return applySessionEvent(state, action.event);
+    case "session/replay":
+      return action.events.reduce(applySessionEvent, state);
+    case "child/replay": {
+      const current2 = state.children[action.sessionId] ?? initialState;
+      const next = action.events.reduce(applySessionEvent, current2);
+      if (next === current2) return state;
+      return { ...state, children: { ...state.children, [action.sessionId]: next } };
+    }
     case "child/event": {
       const current2 = state.children[action.sessionId] ?? initialState;
       const next = applySessionEvent(current2, action.event);
@@ -38752,14 +38763,10 @@ function App2({
           sessions?.remember({ sessionId: target, workdir, firstPrompt: "", at: Date.now() });
         }
         const events = Array.isArray(result?.events) ? result.events : [];
-        for (const event of events) {
-          if (into === "child") {
-            const buffer = childEventsRef.current;
-            if (buffer) buffer.push(target, event);
-            else dispatch({ type: "child/event", sessionId: target, event });
-          } else dispatch({ type: "session/event", event });
+        if (events.length > 0) {
+          if (into === "child") dispatch({ type: "child/replay", sessionId: target, events });
+          else dispatch({ type: "session/replay", events });
         }
-        if (into === "child") childEventsRef.current?.flush();
       }).catch(
         (error) => dispatch({ type: "error", message: `resume failed: ${String(error)}` })
       ).finally(() => {

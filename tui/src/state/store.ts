@@ -284,7 +284,18 @@ export type Action =
     }
   | { type: "session/reset"; sessionId: string }
   | { type: "session/event"; event: SessionEvent }
+  /**
+   * A whole `session.resume` backlog, applied in one pass.
+   *
+   * Dispatching the events one at a time is one reducer pass and one Ink frame
+   * each, and every finished entry is promoted into `<Static>` on its own
+   * frame — so a long session appears to type its own history back out. Folding
+   * them here means the reconstructed transcript reaches the scrollback in a
+   * single render.
+   */
+  | { type: "session/replay"; events: SessionEvent[] }
   | { type: "child/event"; sessionId: string; event: SessionEvent }
+  | { type: "child/replay"; sessionId: string; events: SessionEvent[] }
   | { type: "approval/request"; request: ApprovalRequestParams }
   | { type: "approval/list"; requests: ApprovalRequestParams[] }
   | { type: "approval/resolved"; requestId: string }
@@ -424,6 +435,13 @@ function patchSubagent(
 
 function applySessionEvent(state: State, event: SessionEvent): State {
   const payload = (event.payload ?? {}) as Record<string, any>;
+  // An event this session has already accounted for is dropped rather than
+  // applied twice. The daemon may re-send the tail it just replayed — a resume
+  // races with the live subscription it sets up — and applying a delta twice
+  // would duplicate text that is already in the transcript.
+  if (typeof event.seq === "number" && state.lastSeq > 0 && event.seq <= state.lastSeq) {
+    return state;
+  }
   const base: State =
     typeof event.seq === "number" && event.seq > state.lastSeq
       ? { ...state, lastSeq: event.seq }
@@ -786,6 +804,16 @@ export function reducer(state: State, action: Action): State {
 
     case "session/event":
       return applySessionEvent(state, action.event);
+
+    case "session/replay":
+      return action.events.reduce(applySessionEvent, state);
+
+    case "child/replay": {
+      const current = state.children[action.sessionId] ?? initialState;
+      const next = action.events.reduce(applySessionEvent, current);
+      if (next === current) return state;
+      return { ...state, children: { ...state.children, [action.sessionId]: next } };
+    }
 
     case "child/event": {
       const current = state.children[action.sessionId] ?? initialState;
