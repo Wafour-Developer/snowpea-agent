@@ -95,3 +95,12 @@ core: 010e5db context+search+login | 853d9c0/04f2283/36f355f prompt library A/pe
 tui: c8ea145 indicator | 349a72d panel/approval/diffs/ctx | 34ecd6a/ab2ab88 launch+nav+drilldown | 98c42dd logo | d9597f4/2173686/ff1abfd attachments+voice
 ide: 8c4f03a IDE-CTX | 21d115b IDE-MM
 pending: reviewer (core+tui / ide), deslop, tag v0.1.2, IDE build-core repin, cancel
+
+## 2026-09-13 (post-limit) — v0.1.7 follow-through
+- analysis: .omc/research/recent-commits-analysis.md (23 commits v0.1.3–v0.1.7 by another session)
+- core: fe513d7 login hardening | 2c99bee/868f5cb Codex PKCE + transport | 89a0497 v0.1.7 fixes R1–R12 + Gemini OAuth/CodeAssist | f497895 contracts m1–m12 + deviations + manuals | 971b84b model chain + session.setModel + OAuth phase B + registry client/publish + TUI model pin | 77e8b4c/f81cc32 TUI queue/model/delegation + docs
+- ide: 511e8b7 gaps GAP-1..18 | 6edc8c1 Models chain + design pass
+- registry (GitLab): e6dbdbf..905ff03 API+web+docker+brand, node:sqlite (Node 22+)
+- site: in progress (exec-site) — landing/docs/admin/docker 8050, screenshots pipeline to run serially
+- pending: release v0.1.8 + IDE repin (release-018), reviewer-0913 verdict → deslop, screenshots, deploy (needs ssh key on duho)
+- policy (user): design=Fable, implementation=opus, docs/simple=sonnet, commits/gates=haiku; ≤3 concurrent agents; lead runs full gates once
