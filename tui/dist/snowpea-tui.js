@@ -40,9 +40,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// ../node_modules/react/cjs/react.production.min.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react/cjs/react.production.min.js
 var require_react_production_min = __commonJS({
-  "../node_modules/react/cjs/react.production.min.js"(exports) {
+  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react/cjs/react.production.min.js"(exports) {
     "use strict";
     var l = Symbol.for("react.element");
     var n = Symbol.for("react.portal");
@@ -313,9 +313,9 @@ var require_react_production_min = __commonJS({
   }
 });
 
-// ../node_modules/react/cjs/react.development.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react/cjs/react.development.js
 var require_react_development = __commonJS({
-  "../node_modules/react/cjs/react.development.js"(exports, module) {
+  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react/cjs/react.development.js"(exports, module) {
     "use strict";
     if (process.env.NODE_ENV !== "production") {
       (function() {
@@ -1372,7 +1372,7 @@ var require_react_development = __commonJS({
           }
           return dispatcher.useContext(Context);
         }
-        function useState13(initialState2) {
+        function useState14(initialState2) {
           var dispatcher = resolveDispatcher();
           return dispatcher.useState(initialState2);
         }
@@ -1384,7 +1384,7 @@ var require_react_development = __commonJS({
           var dispatcher = resolveDispatcher();
           return dispatcher.useRef(initialValue);
         }
-        function useEffect11(create2, deps) {
+        function useEffect12(create2, deps) {
           var dispatcher = resolveDispatcher();
           return dispatcher.useEffect(create2, deps);
         }
@@ -2167,7 +2167,7 @@ var require_react_development = __commonJS({
         exports.useContext = useContext7;
         exports.useDebugValue = useDebugValue;
         exports.useDeferredValue = useDeferredValue;
-        exports.useEffect = useEffect11;
+        exports.useEffect = useEffect12;
         exports.useId = useId;
         exports.useImperativeHandle = useImperativeHandle;
         exports.useInsertionEffect = useInsertionEffect;
@@ -2175,7 +2175,7 @@ var require_react_development = __commonJS({
         exports.useMemo = useMemo4;
         exports.useReducer = useReducer2;
         exports.useRef = useRef5;
-        exports.useState = useState13;
+        exports.useState = useState14;
         exports.useSyncExternalStore = useSyncExternalStore;
         exports.useTransition = useTransition;
         exports.version = ReactVersion;
@@ -2187,9 +2187,9 @@ var require_react_development = __commonJS({
   }
 });
 
-// ../node_modules/react/index.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react/index.js
 var require_react = __commonJS({
-  "../node_modules/react/index.js"(exports, module) {
+  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react/index.js"(exports, module) {
     "use strict";
     if (process.env.NODE_ENV === "production") {
       module.exports = require_react_production_min();
@@ -2199,9 +2199,9 @@ var require_react = __commonJS({
   }
 });
 
-// ../node_modules/signal-exit/signals.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/signal-exit/signals.js
 var require_signals = __commonJS({
-  "../node_modules/signal-exit/signals.js"(exports, module) {
+  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/signal-exit/signals.js"(exports, module) {
     module.exports = [
       "SIGABRT",
       "SIGALRM",
@@ -2236,9 +2236,9 @@ var require_signals = __commonJS({
   }
 });
 
-// ../node_modules/signal-exit/index.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/signal-exit/index.js
 var require_signal_exit = __commonJS({
-  "../node_modules/signal-exit/index.js"(exports, module) {
+  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/signal-exit/index.js"(exports, module) {
     var process13 = global.process;
     var processOk = function(process14) {
       return process14 && typeof process14 === "object" && typeof process14.removeListener === "function" && typeof process14.emit === "function" && typeof process14.reallyExit === "function" && typeof process14.listeners === "function" && typeof process14.kill === "function" && typeof process14.pid === "number" && typeof process14.on === "function";
@@ -2395,9 +2395,9 @@ var require_signal_exit = __commonJS({
   }
 });
 
-// ../node_modules/scheduler/cjs/scheduler.production.min.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/scheduler/cjs/scheduler.production.min.js
 var require_scheduler_production_min = __commonJS({
-  "../node_modules/scheduler/cjs/scheduler.production.min.js"(exports) {
+  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/scheduler/cjs/scheduler.production.min.js"(exports) {
     "use strict";
     function f(a, b) {
       var c = a.length;
@@ -2648,9 +2648,9 @@ var require_scheduler_production_min = __commonJS({
   }
 });
 
-// ../node_modules/scheduler/cjs/scheduler.development.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/scheduler/cjs/scheduler.development.js
 var require_scheduler_development = __commonJS({
-  "../node_modules/scheduler/cjs/scheduler.development.js"(exports) {
+  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/scheduler/cjs/scheduler.development.js"(exports) {
     "use strict";
     if (process.env.NODE_ENV !== "production") {
       (function() {
@@ -3098,9 +3098,9 @@ var require_scheduler_development = __commonJS({
   }
 });
 
-// ../node_modules/scheduler/index.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/scheduler/index.js
 var require_scheduler = __commonJS({
-  "../node_modules/scheduler/index.js"(exports, module) {
+  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/scheduler/index.js"(exports, module) {
     "use strict";
     if (process.env.NODE_ENV === "production") {
       module.exports = require_scheduler_production_min();
@@ -3110,9 +3110,9 @@ var require_scheduler = __commonJS({
   }
 });
 
-// ../node_modules/react-reconciler/cjs/react-reconciler.production.min.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react-reconciler/cjs/react-reconciler.production.min.js
 var require_react_reconciler_production_min = __commonJS({
-  "../node_modules/react-reconciler/cjs/react-reconciler.production.min.js"(exports, module) {
+  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react-reconciler/cjs/react-reconciler.production.min.js"(exports, module) {
     module.exports = function $$$reconciler($$$hostConfig) {
       var exports2 = {};
       "use strict";
@@ -7859,17 +7859,17 @@ var require_react_reconciler_production_min = __commonJS({
   }
 });
 
-// ../node_modules/react-reconciler/cjs/react-reconciler.development.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react-reconciler/cjs/react-reconciler.development.js
 var require_react_reconciler_development = __commonJS({
-  "../node_modules/react-reconciler/cjs/react-reconciler.development.js"(exports, module) {
+  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react-reconciler/cjs/react-reconciler.development.js"(exports, module) {
     "use strict";
     if (process.env.NODE_ENV !== "production") {
       module.exports = function $$$reconciler($$$hostConfig) {
         var exports2 = {};
         "use strict";
-        var React21 = require_react();
+        var React22 = require_react();
         var Scheduler = require_scheduler();
-        var ReactSharedInternals = React21.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED;
+        var ReactSharedInternals = React22.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED;
         var suppressWarning = false;
         function setSuppressWarning(newSuppressWarning) {
           {
@@ -22987,9 +22987,9 @@ var require_react_reconciler_development = __commonJS({
   }
 });
 
-// ../node_modules/react-reconciler/index.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react-reconciler/index.js
 var require_react_reconciler = __commonJS({
-  "../node_modules/react-reconciler/index.js"(exports, module) {
+  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react-reconciler/index.js"(exports, module) {
     "use strict";
     if (process.env.NODE_ENV === "production") {
       module.exports = require_react_reconciler_production_min();
@@ -22999,9 +22999,9 @@ var require_react_reconciler = __commonJS({
   }
 });
 
-// ../node_modules/react-reconciler/cjs/react-reconciler-constants.production.min.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react-reconciler/cjs/react-reconciler-constants.production.min.js
 var require_react_reconciler_constants_production_min = __commonJS({
-  "../node_modules/react-reconciler/cjs/react-reconciler-constants.production.min.js"(exports) {
+  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react-reconciler/cjs/react-reconciler-constants.production.min.js"(exports) {
     "use strict";
     exports.ConcurrentRoot = 1;
     exports.ContinuousEventPriority = 4;
@@ -23012,9 +23012,9 @@ var require_react_reconciler_constants_production_min = __commonJS({
   }
 });
 
-// ../node_modules/react-reconciler/cjs/react-reconciler-constants.development.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react-reconciler/cjs/react-reconciler-constants.development.js
 var require_react_reconciler_constants_development = __commonJS({
-  "../node_modules/react-reconciler/cjs/react-reconciler-constants.development.js"(exports) {
+  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react-reconciler/cjs/react-reconciler-constants.development.js"(exports) {
     "use strict";
     if (process.env.NODE_ENV !== "production") {
       (function() {
@@ -23052,9 +23052,9 @@ var require_react_reconciler_constants_development = __commonJS({
   }
 });
 
-// ../node_modules/react-reconciler/constants.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react-reconciler/constants.js
 var require_constants = __commonJS({
-  "../node_modules/react-reconciler/constants.js"(exports, module) {
+  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react-reconciler/constants.js"(exports, module) {
     "use strict";
     if (process.env.NODE_ENV === "production") {
       module.exports = require_react_reconciler_constants_production_min();
@@ -23064,18 +23064,18 @@ var require_constants = __commonJS({
   }
 });
 
-// ../node_modules/emoji-regex/index.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/emoji-regex/index.js
 var require_emoji_regex = __commonJS({
-  "../node_modules/emoji-regex/index.js"(exports, module) {
+  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/emoji-regex/index.js"(exports, module) {
     module.exports = () => {
       return /[#*0-9]\uFE0F?\u20E3|[\xA9\xAE\u203C\u2049\u2122\u2139\u2194-\u2199\u21A9\u21AA\u231A\u231B\u2328\u23CF\u23ED-\u23EF\u23F1\u23F2\u23F8-\u23FA\u24C2\u25AA\u25AB\u25B6\u25C0\u25FB\u25FC\u25FE\u2600-\u2604\u260E\u2611\u2614\u2615\u2618\u2620\u2622\u2623\u2626\u262A\u262E\u262F\u2638-\u263A\u2640\u2642\u2648-\u2653\u265F\u2660\u2663\u2665\u2666\u2668\u267B\u267E\u267F\u2692\u2694-\u2697\u2699\u269B\u269C\u26A0\u26A7\u26AA\u26B0\u26B1\u26BD\u26BE\u26C4\u26C8\u26CF\u26D1\u26E9\u26F0-\u26F5\u26F7\u26F8\u26FA\u2702\u2708\u2709\u270F\u2712\u2714\u2716\u271D\u2721\u2733\u2734\u2744\u2747\u2757\u2763\u27A1\u2934\u2935\u2B05-\u2B07\u2B1B\u2B1C\u2B55\u3030\u303D\u3297\u3299]\uFE0F?|[\u261D\u270C\u270D](?:\uD83C[\uDFFB-\uDFFF]|\uFE0F)?|[\u270A\u270B](?:\uD83C[\uDFFB-\uDFFF])?|[\u23E9-\u23EC\u23F0\u23F3\u25FD\u2693\u26A1\u26AB\u26C5\u26CE\u26D4\u26EA\u26FD\u2705\u2728\u274C\u274E\u2753-\u2755\u2795-\u2797\u27B0\u27BF\u2B50]|\u26D3\uFE0F?(?:\u200D\uD83D\uDCA5)?|\u26F9(?:\uD83C[\uDFFB-\uDFFF]|\uFE0F)?(?:\u200D[\u2640\u2642]\uFE0F?)?|\u2764\uFE0F?(?:\u200D(?:\uD83D\uDD25|\uD83E\uDE79))?|\uD83C(?:[\uDC04\uDD70\uDD71\uDD7E\uDD7F\uDE02\uDE37\uDF21\uDF24-\uDF2C\uDF36\uDF7D\uDF96\uDF97\uDF99-\uDF9B\uDF9E\uDF9F\uDFCD\uDFCE\uDFD4-\uDFDF\uDFF5\uDFF7]\uFE0F?|[\uDF85\uDFC2\uDFC7](?:\uD83C[\uDFFB-\uDFFF])?|[\uDFC4\uDFCA](?:\uD83C[\uDFFB-\uDFFF])?(?:\u200D[\u2640\u2642]\uFE0F?)?|[\uDFCB\uDFCC](?:\uD83C[\uDFFB-\uDFFF]|\uFE0F)?(?:\u200D[\u2640\u2642]\uFE0F?)?|[\uDCCF\uDD8E\uDD91-\uDD9A\uDE01\uDE1A\uDE2F\uDE32-\uDE36\uDE38-\uDE3A\uDE50\uDE51\uDF00-\uDF20\uDF2D-\uDF35\uDF37-\uDF43\uDF45-\uDF4A\uDF4C-\uDF7C\uDF7E-\uDF84\uDF86-\uDF93\uDFA0-\uDFC1\uDFC5\uDFC6\uDFC8\uDFC9\uDFCF-\uDFD3\uDFE0-\uDFF0\uDFF8-\uDFFF]|\uDDE6\uD83C[\uDDE8-\uDDEC\uDDEE\uDDF1\uDDF2\uDDF4\uDDF6-\uDDFA\uDDFC\uDDFD\uDDFF]|\uDDE7\uD83C[\uDDE6\uDDE7\uDDE9-\uDDEF\uDDF1-\uDDF4\uDDF6-\uDDF9\uDDFB\uDDFC\uDDFE\uDDFF]|\uDDE8\uD83C[\uDDE6\uDDE8\uDDE9\uDDEB-\uDDEE\uDDF0-\uDDF7\uDDFA-\uDDFF]|\uDDE9\uD83C[\uDDEA\uDDEC\uDDEF\uDDF0\uDDF2\uDDF4\uDDFF]|\uDDEA\uD83C[\uDDE6\uDDE8\uDDEA\uDDEC\uDDED\uDDF7-\uDDFA]|\uDDEB\uD83C[\uDDEE-\uDDF0\uDDF2\uDDF4\uDDF7]|\uDDEC\uD83C[\uDDE6\uDDE7\uDDE9-\uDDEE\uDDF1-\uDDF3\uDDF5-\uDDFA\uDDFC\uDDFE]|\uDDED\uD83C[\uDDF0\uDDF2\uDDF3\uDDF7\uDDF9\uDDFA]|\uDDEE\uD83C[\uDDE8-\uDDEA\uDDF1-\uDDF4\uDDF6-\uDDF9]|\uDDEF\uD83C[\uDDEA\uDDF2\uDDF4\uDDF5]|\uDDF0\uD83C[\uDDEA\uDDEC-\uDDEE\uDDF2\uDDF3\uDDF5\uDDF7\uDDFC\uDDFE\uDDFF]|\uDDF1\uD83C[\uDDE6-\uDDE8\uDDEE\uDDF0\uDDF7-\uDDFB\uDDFE]|\uDDF2\uD83C[\uDDE6\uDDE8-\uDDED\uDDF0-\uDDFF]|\uDDF3\uD83C[\uDDE6\uDDE8\uDDEA-\uDDEC\uDDEE\uDDF1\uDDF4\uDDF5\uDDF7\uDDFA\uDDFF]|\uDDF4\uD83C\uDDF2|\uDDF5\uD83C[\uDDE6\uDDEA-\uDDED\uDDF0-\uDDF3\uDDF7-\uDDF9\uDDFC\uDDFE]|\uDDF6\uD83C\uDDE6|\uDDF7\uD83C[\uDDEA\uDDF4\uDDF8\uDDFA\uDDFC]|\uDDF8\uD83C[\uDDE6-\uDDEA\uDDEC-\uDDF4\uDDF7-\uDDF9\uDDFB\uDDFD-\uDDFF]|\uDDF9\uD83C[\uDDE6\uDDE8\uDDE9\uDDEB-\uDDED\uDDEF-\uDDF4\uDDF7\uDDF9\uDDFB\uDDFC\uDDFF]|\uDDFA\uD83C[\uDDE6\uDDEC\uDDF2\uDDF3\uDDF8\uDDFE\uDDFF]|\uDDFB\uD83C[\uDDE6\uDDE8\uDDEA\uDDEC\uDDEE\uDDF3\uDDFA]|\uDDFC\uD83C[\uDDEB\uDDF8]|\uDDFD\uD83C\uDDF0|\uDDFE\uD83C[\uDDEA\uDDF9]|\uDDFF\uD83C[\uDDE6\uDDF2\uDDFC]|\uDF44(?:\u200D\uD83D\uDFEB)?|\uDF4B(?:\u200D\uD83D\uDFE9)?|\uDFC3(?:\uD83C[\uDFFB-\uDFFF])?(?:\u200D(?:[\u2640\u2642]\uFE0F?(?:\u200D\u27A1\uFE0F?)?|\u27A1\uFE0F?))?|\uDFF3\uFE0F?(?:\u200D(?:\u26A7\uFE0F?|\uD83C\uDF08))?|\uDFF4(?:\u200D\u2620\uFE0F?|\uDB40\uDC67\uDB40\uDC62\uDB40(?:\uDC65\uDB40\uDC6E\uDB40\uDC67|\uDC73\uDB40\uDC63\uDB40\uDC74|\uDC77\uDB40\uDC6C\uDB40\uDC73)\uDB40\uDC7F)?)|\uD83D(?:[\uDC3F\uDCFD\uDD49\uDD4A\uDD6F\uDD70\uDD73\uDD76-\uDD79\uDD87\uDD8A-\uDD8D\uDDA5\uDDA8\uDDB1\uDDB2\uDDBC\uDDC2-\uDDC4\uDDD1-\uDDD3\uDDDC-\uDDDE\uDDE1\uDDE3\uDDE8\uDDEF\uDDF3\uDDFA\uDECB\uDECD-\uDECF\uDEE0-\uDEE5\uDEE9\uDEF0\uDEF3]\uFE0F?|[\uDC42\uDC43\uDC46-\uDC50\uDC66\uDC67\uDC6B-\uDC6D\uDC72\uDC74-\uDC76\uDC78\uDC7C\uDC83\uDC85\uDC8F\uDC91\uDCAA\uDD7A\uDD95\uDD96\uDE4C\uDE4F\uDEC0\uDECC](?:\uD83C[\uDFFB-\uDFFF])?|[\uDC6E-\uDC71\uDC73\uDC77\uDC81\uDC82\uDC86\uDC87\uDE45-\uDE47\uDE4B\uDE4D\uDE4E\uDEA3\uDEB4\uDEB5](?:\uD83C[\uDFFB-\uDFFF])?(?:\u200D[\u2640\u2642]\uFE0F?)?|[\uDD74\uDD90](?:\uD83C[\uDFFB-\uDFFF]|\uFE0F)?|[\uDC00-\uDC07\uDC09-\uDC14\uDC16-\uDC25\uDC27-\uDC3A\uDC3C-\uDC3E\uDC40\uDC44\uDC45\uDC51-\uDC65\uDC6A\uDC79-\uDC7B\uDC7D-\uDC80\uDC84\uDC88-\uDC8E\uDC90\uDC92-\uDCA9\uDCAB-\uDCFC\uDCFF-\uDD3D\uDD4B-\uDD4E\uDD50-\uDD67\uDDA4\uDDFB-\uDE2D\uDE2F-\uDE34\uDE37-\uDE41\uDE43\uDE44\uDE48-\uDE4A\uDE80-\uDEA2\uDEA4-\uDEB3\uDEB7-\uDEBF\uDEC1-\uDEC5\uDED0-\uDED2\uDED5-\uDED8\uDEDC-\uDEDF\uDEEB\uDEEC\uDEF4-\uDEFC\uDFE0-\uDFEB\uDFF0]|\uDC08(?:\u200D\u2B1B)?|\uDC15(?:\u200D\uD83E\uDDBA)?|\uDC26(?:\u200D(?:\u2B1B|\uD83D\uDD25))?|\uDC3B(?:\u200D\u2744\uFE0F?)?|\uDC41\uFE0F?(?:\u200D\uD83D\uDDE8\uFE0F?)?|\uDC68(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D\uD83D(?:\uDC8B\u200D\uD83D)?\uDC68|\uD83C[\uDF3E\uDF73\uDF7C\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDC68\uDC69]\u200D\uD83D(?:\uDC66(?:\u200D\uD83D\uDC66)?|\uDC67(?:\u200D\uD83D[\uDC66\uDC67])?)|[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC66(?:\u200D\uD83D\uDC66)?|\uDC67(?:\u200D\uD83D[\uDC66\uDC67])?)|\uD83E(?:[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3]))|\uD83C(?:\uDFFB(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D\uD83D(?:\uDC8B\u200D\uD83D)?\uDC68\uD83C[\uDFFB-\uDFFF]|\uD83C[\uDF3E\uDF73\uDF7C\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83D\uDC68\uD83C[\uDFFC-\uDFFF])|\uD83E(?:[\uDD1D\uDEEF]\u200D\uD83D\uDC68\uD83C[\uDFFC-\uDFFF]|[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3])))?|\uDFFC(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D\uD83D(?:\uDC8B\u200D\uD83D)?\uDC68\uD83C[\uDFFB-\uDFFF]|\uD83C[\uDF3E\uDF73\uDF7C\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83D\uDC68\uD83C[\uDFFB\uDFFD-\uDFFF])|\uD83E(?:[\uDD1D\uDEEF]\u200D\uD83D\uDC68\uD83C[\uDFFB\uDFFD-\uDFFF]|[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3])))?|\uDFFD(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D\uD83D(?:\uDC8B\u200D\uD83D)?\uDC68\uD83C[\uDFFB-\uDFFF]|\uD83C[\uDF3E\uDF73\uDF7C\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83D\uDC68\uD83C[\uDFFB\uDFFC\uDFFE\uDFFF])|\uD83E(?:[\uDD1D\uDEEF]\u200D\uD83D\uDC68\uD83C[\uDFFB\uDFFC\uDFFE\uDFFF]|[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3])))?|\uDFFE(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D\uD83D(?:\uDC8B\u200D\uD83D)?\uDC68\uD83C[\uDFFB-\uDFFF]|\uD83C[\uDF3E\uDF73\uDF7C\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83D\uDC68\uD83C[\uDFFB-\uDFFD\uDFFF])|\uD83E(?:[\uDD1D\uDEEF]\u200D\uD83D\uDC68\uD83C[\uDFFB-\uDFFD\uDFFF]|[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3])))?|\uDFFF(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D\uD83D(?:\uDC8B\u200D\uD83D)?\uDC68\uD83C[\uDFFB-\uDFFF]|\uD83C[\uDF3E\uDF73\uDF7C\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83D\uDC68\uD83C[\uDFFB-\uDFFE])|\uD83E(?:[\uDD1D\uDEEF]\u200D\uD83D\uDC68\uD83C[\uDFFB-\uDFFE]|[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3])))?))?|\uDC69(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D\uD83D(?:\uDC8B\u200D\uD83D)?[\uDC68\uDC69]|\uD83C[\uDF3E\uDF73\uDF7C\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC66(?:\u200D\uD83D\uDC66)?|\uDC67(?:\u200D\uD83D[\uDC66\uDC67])?|\uDC69\u200D\uD83D(?:\uDC66(?:\u200D\uD83D\uDC66)?|\uDC67(?:\u200D\uD83D[\uDC66\uDC67])?))|\uD83E(?:[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3]))|\uD83C(?:\uDFFB(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D\uD83D(?:[\uDC68\uDC69]|\uDC8B\u200D\uD83D[\uDC68\uDC69])\uD83C[\uDFFB-\uDFFF]|\uD83C[\uDF3E\uDF73\uDF7C\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83D\uDC69\uD83C[\uDFFC-\uDFFF])|\uD83E(?:[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3]|\uDD1D\u200D\uD83D[\uDC68\uDC69]\uD83C[\uDFFC-\uDFFF]|\uDEEF\u200D\uD83D\uDC69\uD83C[\uDFFC-\uDFFF])))?|\uDFFC(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D\uD83D(?:[\uDC68\uDC69]|\uDC8B\u200D\uD83D[\uDC68\uDC69])\uD83C[\uDFFB-\uDFFF]|\uD83C[\uDF3E\uDF73\uDF7C\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83D\uDC69\uD83C[\uDFFB\uDFFD-\uDFFF])|\uD83E(?:[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3]|\uDD1D\u200D\uD83D[\uDC68\uDC69]\uD83C[\uDFFB\uDFFD-\uDFFF]|\uDEEF\u200D\uD83D\uDC69\uD83C[\uDFFB\uDFFD-\uDFFF])))?|\uDFFD(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D\uD83D(?:[\uDC68\uDC69]|\uDC8B\u200D\uD83D[\uDC68\uDC69])\uD83C[\uDFFB-\uDFFF]|\uD83C[\uDF3E\uDF73\uDF7C\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83D\uDC69\uD83C[\uDFFB\uDFFC\uDFFE\uDFFF])|\uD83E(?:[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3]|\uDD1D\u200D\uD83D[\uDC68\uDC69]\uD83C[\uDFFB\uDFFC\uDFFE\uDFFF]|\uDEEF\u200D\uD83D\uDC69\uD83C[\uDFFB\uDFFC\uDFFE\uDFFF])))?|\uDFFE(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D\uD83D(?:[\uDC68\uDC69]|\uDC8B\u200D\uD83D[\uDC68\uDC69])\uD83C[\uDFFB-\uDFFF]|\uD83C[\uDF3E\uDF73\uDF7C\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83D\uDC69\uD83C[\uDFFB-\uDFFD\uDFFF])|\uD83E(?:[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3]|\uDD1D\u200D\uD83D[\uDC68\uDC69]\uD83C[\uDFFB-\uDFFD\uDFFF]|\uDEEF\u200D\uD83D\uDC69\uD83C[\uDFFB-\uDFFD\uDFFF])))?|\uDFFF(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D\uD83D(?:[\uDC68\uDC69]|\uDC8B\u200D\uD83D[\uDC68\uDC69])\uD83C[\uDFFB-\uDFFF]|\uD83C[\uDF3E\uDF73\uDF7C\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83D\uDC69\uD83C[\uDFFB-\uDFFE])|\uD83E(?:[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3]|\uDD1D\u200D\uD83D[\uDC68\uDC69]\uD83C[\uDFFB-\uDFFE]|\uDEEF\u200D\uD83D\uDC69\uD83C[\uDFFB-\uDFFE])))?))?|\uDD75(?:\uD83C[\uDFFB-\uDFFF]|\uFE0F)?(?:\u200D[\u2640\u2642]\uFE0F?)?|\uDE2E(?:\u200D\uD83D\uDCA8)?|\uDE35(?:\u200D\uD83D\uDCAB)?|\uDE36(?:\u200D\uD83C\uDF2B\uFE0F?)?|\uDE42(?:\u200D[\u2194\u2195]\uFE0F?)?|\uDEB6(?:\uD83C[\uDFFB-\uDFFF])?(?:\u200D(?:[\u2640\u2642]\uFE0F?(?:\u200D\u27A1\uFE0F?)?|\u27A1\uFE0F?))?)|\uD83E(?:[\uDD0C\uDD0F\uDD18-\uDD1F\uDD30-\uDD34\uDD36\uDD77\uDDB5\uDDB6\uDDBB\uDDD2\uDDD3\uDDD5\uDEC3-\uDEC5\uDEF0\uDEF2-\uDEF8](?:\uD83C[\uDFFB-\uDFFF])?|[\uDD26\uDD35\uDD37-\uDD39\uDD3C-\uDD3E\uDDB8\uDDB9\uDDCD\uDDCF\uDDD4\uDDD6-\uDDDD](?:\uD83C[\uDFFB-\uDFFF])?(?:\u200D[\u2640\u2642]\uFE0F?)?|[\uDDDE\uDDDF](?:\u200D[\u2640\u2642]\uFE0F?)?|[\uDD0D\uDD0E\uDD10-\uDD17\uDD20-\uDD25\uDD27-\uDD2F\uDD3A\uDD3F-\uDD45\uDD47-\uDD76\uDD78-\uDDB4\uDDB7\uDDBA\uDDBC-\uDDCC\uDDD0\uDDE0-\uDDFF\uDE70-\uDE7C\uDE80-\uDE8A\uDE8E-\uDEC2\uDEC6\uDEC8\uDECD-\uDEDC\uDEDF-\uDEEA\uDEEF]|\uDDCE(?:\uD83C[\uDFFB-\uDFFF])?(?:\u200D(?:[\u2640\u2642]\uFE0F?(?:\u200D\u27A1\uFE0F?)?|\u27A1\uFE0F?))?|\uDDD1(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\uD83C[\uDF3E\uDF73\uDF7C\uDF84\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uD83E(?:[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3\uDE70]|\uDD1D\u200D\uD83E\uDDD1|\uDDD1\u200D\uD83E\uDDD2(?:\u200D\uD83E\uDDD2)?|\uDDD2(?:\u200D\uD83E\uDDD2)?))|\uD83C(?:\uDFFB(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D(?:\uD83D\uDC8B\u200D)?\uD83E\uDDD1\uD83C[\uDFFC-\uDFFF]|\uD83C[\uDF3E\uDF73\uDF7C\uDF84\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83E\uDDD1\uD83C[\uDFFC-\uDFFF])|\uD83E(?:[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3\uDE70]|\uDD1D\u200D\uD83E\uDDD1\uD83C[\uDFFB-\uDFFF]|\uDEEF\u200D\uD83E\uDDD1\uD83C[\uDFFC-\uDFFF])))?|\uDFFC(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D(?:\uD83D\uDC8B\u200D)?\uD83E\uDDD1\uD83C[\uDFFB\uDFFD-\uDFFF]|\uD83C[\uDF3E\uDF73\uDF7C\uDF84\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83E\uDDD1\uD83C[\uDFFB\uDFFD-\uDFFF])|\uD83E(?:[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3\uDE70]|\uDD1D\u200D\uD83E\uDDD1\uD83C[\uDFFB-\uDFFF]|\uDEEF\u200D\uD83E\uDDD1\uD83C[\uDFFB\uDFFD-\uDFFF])))?|\uDFFD(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D(?:\uD83D\uDC8B\u200D)?\uD83E\uDDD1\uD83C[\uDFFB\uDFFC\uDFFE\uDFFF]|\uD83C[\uDF3E\uDF73\uDF7C\uDF84\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83E\uDDD1\uD83C[\uDFFB\uDFFC\uDFFE\uDFFF])|\uD83E(?:[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3\uDE70]|\uDD1D\u200D\uD83E\uDDD1\uD83C[\uDFFB-\uDFFF]|\uDEEF\u200D\uD83E\uDDD1\uD83C[\uDFFB\uDFFC\uDFFE\uDFFF])))?|\uDFFE(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D(?:\uD83D\uDC8B\u200D)?\uD83E\uDDD1\uD83C[\uDFFB-\uDFFD\uDFFF]|\uD83C[\uDF3E\uDF73\uDF7C\uDF84\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83E\uDDD1\uD83C[\uDFFB-\uDFFD\uDFFF])|\uD83E(?:[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3\uDE70]|\uDD1D\u200D\uD83E\uDDD1\uD83C[\uDFFB-\uDFFF]|\uDEEF\u200D\uD83E\uDDD1\uD83C[\uDFFB-\uDFFD\uDFFF])))?|\uDFFF(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D(?:\uD83D\uDC8B\u200D)?\uD83E\uDDD1\uD83C[\uDFFB-\uDFFE]|\uD83C[\uDF3E\uDF73\uDF7C\uDF84\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83E\uDDD1\uD83C[\uDFFB-\uDFFE])|\uD83E(?:[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3\uDE70]|\uDD1D\u200D\uD83E\uDDD1\uD83C[\uDFFB-\uDFFF]|\uDEEF\u200D\uD83E\uDDD1\uD83C[\uDFFB-\uDFFE])))?))?|\uDEF1(?:\uD83C(?:\uDFFB(?:\u200D\uD83E\uDEF2\uD83C[\uDFFC-\uDFFF])?|\uDFFC(?:\u200D\uD83E\uDEF2\uD83C[\uDFFB\uDFFD-\uDFFF])?|\uDFFD(?:\u200D\uD83E\uDEF2\uD83C[\uDFFB\uDFFC\uDFFE\uDFFF])?|\uDFFE(?:\u200D\uD83E\uDEF2\uD83C[\uDFFB-\uDFFD\uDFFF])?|\uDFFF(?:\u200D\uD83E\uDEF2\uD83C[\uDFFB-\uDFFE])?))?)/g;
     };
   }
 });
 
-// ../node_modules/ws/lib/constants.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/constants.js
 var require_constants2 = __commonJS({
-  "../node_modules/ws/lib/constants.js"(exports, module) {
+  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/constants.js"(exports, module) {
     "use strict";
     var BINARY_TYPES = ["nodebuffer", "arraybuffer", "fragments"];
     var hasBlob = typeof Blob !== "undefined";
@@ -23096,9 +23096,9 @@ var require_constants2 = __commonJS({
   }
 });
 
-// ../node_modules/ws/lib/buffer-util.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/buffer-util.js
 var require_buffer_util = __commonJS({
-  "../node_modules/ws/lib/buffer-util.js"(exports, module) {
+  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/buffer-util.js"(exports, module) {
     "use strict";
     var { EMPTY_BUFFER } = require_constants2();
     var FastBuffer = Buffer[Symbol.species];
@@ -23171,9 +23171,9 @@ var require_buffer_util = __commonJS({
   }
 });
 
-// ../node_modules/ws/lib/limiter.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/limiter.js
 var require_limiter = __commonJS({
-  "../node_modules/ws/lib/limiter.js"(exports, module) {
+  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/limiter.js"(exports, module) {
     "use strict";
     var kDone = Symbol("kDone");
     var kRun = Symbol("kRun");
@@ -23221,9 +23221,9 @@ var require_limiter = __commonJS({
   }
 });
 
-// ../node_modules/ws/lib/permessage-deflate.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/permessage-deflate.js
 var require_permessage_deflate = __commonJS({
-  "../node_modules/ws/lib/permessage-deflate.js"(exports, module) {
+  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/permessage-deflate.js"(exports, module) {
     "use strict";
     var zlib = __require("zlib");
     var bufferUtil = require_buffer_util();
@@ -23604,9 +23604,9 @@ var require_permessage_deflate = __commonJS({
   }
 });
 
-// ../node_modules/ws/lib/validation.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/validation.js
 var require_validation = __commonJS({
-  "../node_modules/ws/lib/validation.js"(exports, module) {
+  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/validation.js"(exports, module) {
     "use strict";
     var { isUtf8 } = __require("buffer");
     var { hasBlob } = require_constants2();
@@ -23805,9 +23805,9 @@ var require_validation = __commonJS({
   }
 });
 
-// ../node_modules/ws/lib/receiver.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/receiver.js
 var require_receiver = __commonJS({
-  "../node_modules/ws/lib/receiver.js"(exports, module) {
+  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/receiver.js"(exports, module) {
     "use strict";
     var { Writable } = __require("stream");
     var PerMessageDeflate2 = require_permessage_deflate();
@@ -24428,9 +24428,9 @@ var require_receiver = __commonJS({
   }
 });
 
-// ../node_modules/ws/lib/sender.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/sender.js
 var require_sender = __commonJS({
-  "../node_modules/ws/lib/sender.js"(exports, module) {
+  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/sender.js"(exports, module) {
     "use strict";
     var { Duplex } = __require("stream");
     var { randomFillSync } = __require("crypto");
@@ -24921,9 +24921,9 @@ var require_sender = __commonJS({
   }
 });
 
-// ../node_modules/ws/lib/event-target.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/event-target.js
 var require_event_target = __commonJS({
-  "../node_modules/ws/lib/event-target.js"(exports, module) {
+  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/event-target.js"(exports, module) {
     "use strict";
     var { kForOnEventAttribute, kListener } = require_constants2();
     var kCode = Symbol("kCode");
@@ -25150,9 +25150,9 @@ var require_event_target = __commonJS({
   }
 });
 
-// ../node_modules/ws/lib/extension.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/extension.js
 var require_extension = __commonJS({
-  "../node_modules/ws/lib/extension.js"(exports, module) {
+  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/extension.js"(exports, module) {
     "use strict";
     var { tokenChars } = require_validation();
     function push(dest, name, elem) {
@@ -25303,9 +25303,9 @@ var require_extension = __commonJS({
   }
 });
 
-// ../node_modules/ws/lib/websocket.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/websocket.js
 var require_websocket = __commonJS({
-  "../node_modules/ws/lib/websocket.js"(exports, module) {
+  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/websocket.js"(exports, module) {
     "use strict";
     var EventEmitter3 = __require("events");
     var https = __require("https");
@@ -26199,9 +26199,9 @@ var require_websocket = __commonJS({
   }
 });
 
-// ../node_modules/ws/lib/stream.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/stream.js
 var require_stream = __commonJS({
-  "../node_modules/ws/lib/stream.js"(exports, module) {
+  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/stream.js"(exports, module) {
     "use strict";
     var WebSocket2 = require_websocket();
     var { Duplex } = __require("stream");
@@ -26297,9 +26297,9 @@ var require_stream = __commonJS({
   }
 });
 
-// ../node_modules/ws/lib/subprotocol.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/subprotocol.js
 var require_subprotocol = __commonJS({
-  "../node_modules/ws/lib/subprotocol.js"(exports, module) {
+  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/subprotocol.js"(exports, module) {
     "use strict";
     var { tokenChars } = require_validation();
     function parse2(header) {
@@ -26342,9 +26342,9 @@ var require_subprotocol = __commonJS({
   }
 });
 
-// ../node_modules/ws/lib/websocket-server.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/websocket-server.js
 var require_websocket_server = __commonJS({
-  "../node_modules/ws/lib/websocket-server.js"(exports, module) {
+  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/websocket-server.js"(exports, module) {
     "use strict";
     var EventEmitter3 = __require("events");
     var http = __require("http");
@@ -26743,10 +26743,10 @@ var require_websocket_server = __commonJS({
   }
 });
 
-// ../node_modules/ws/wrapper.mjs
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/wrapper.mjs
 var import_stream, import_extension, import_permessage_deflate, import_receiver, import_sender, import_subprotocol, import_websocket, import_websocket_server, wrapper_default;
 var init_wrapper = __esm({
-  "../node_modules/ws/wrapper.mjs"() {
+  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/wrapper.mjs"() {
     import_stream = __toESM(require_stream(), 1);
     import_extension = __toESM(require_extension(), 1);
     import_permessage_deflate = __toESM(require_permessage_deflate(), 1);
@@ -26759,10 +26759,10 @@ var init_wrapper = __esm({
   }
 });
 
-// ../node_modules/ink/build/devtools-window-polyfill.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/devtools-window-polyfill.js
 var customGlobal;
 var init_devtools_window_polyfill = __esm({
-  "../node_modules/ink/build/devtools-window-polyfill.js"() {
+  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/devtools-window-polyfill.js"() {
     init_wrapper();
     customGlobal = global;
     customGlobal.WebSocket ||= wrapper_default;
@@ -26830,19 +26830,19 @@ var init_react_devtools_core = __esm({
   }
 });
 
-// ../node_modules/ink/build/devtools.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/devtools.js
 var devtools_exports = {};
 var init_devtools = __esm({
-  "../node_modules/ink/build/devtools.js"() {
+  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/devtools.js"() {
     init_devtools_window_polyfill();
     init_react_devtools_core();
     react_devtools_core_default.connectToDevTools();
   }
 });
 
-// ../node_modules/cli-boxes/boxes.json
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/cli-boxes/boxes.json
 var require_boxes = __commonJS({
-  "../node_modules/cli-boxes/boxes.json"(exports, module) {
+  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/cli-boxes/boxes.json"(exports, module) {
     module.exports = {
       single: {
         topLeft: "\u250C",
@@ -26928,9 +26928,9 @@ var require_boxes = __commonJS({
   }
 });
 
-// ../node_modules/cli-boxes/index.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/cli-boxes/index.js
 var require_cli_boxes = __commonJS({
-  "../node_modules/cli-boxes/index.js"(exports, module) {
+  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/cli-boxes/index.js"(exports, module) {
     "use strict";
     var cliBoxes2 = require_boxes();
     module.exports = cliBoxes2;
@@ -26938,9 +26938,9 @@ var require_cli_boxes = __commonJS({
   }
 });
 
-// ../node_modules/mimic-fn/index.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/mimic-fn/index.js
 var require_mimic_fn = __commonJS({
-  "../node_modules/mimic-fn/index.js"(exports, module) {
+  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/mimic-fn/index.js"(exports, module) {
     "use strict";
     var mimicFn = (to, from) => {
       for (const prop of Reflect.ownKeys(from)) {
@@ -26953,9 +26953,9 @@ var require_mimic_fn = __commonJS({
   }
 });
 
-// ../node_modules/onetime/index.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/onetime/index.js
 var require_onetime = __commonJS({
-  "../node_modules/onetime/index.js"(exports, module) {
+  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/onetime/index.js"(exports, module) {
     "use strict";
     var mimicFn = require_mimic_fn();
     var calledFunctions = /* @__PURE__ */ new WeakMap();
@@ -26991,9 +26991,9 @@ var require_onetime = __commonJS({
   }
 });
 
-// ../node_modules/stack-utils/node_modules/escape-string-regexp/index.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/stack-utils/node_modules/escape-string-regexp/index.js
 var require_escape_string_regexp = __commonJS({
-  "../node_modules/stack-utils/node_modules/escape-string-regexp/index.js"(exports, module) {
+  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/stack-utils/node_modules/escape-string-regexp/index.js"(exports, module) {
     "use strict";
     var matchOperatorsRegex = /[|\\{}()[\]^$+*?.-]/g;
     module.exports = (string) => {
@@ -27005,9 +27005,9 @@ var require_escape_string_regexp = __commonJS({
   }
 });
 
-// ../node_modules/stack-utils/index.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/stack-utils/index.js
 var require_stack_utils = __commonJS({
-  "../node_modules/stack-utils/index.js"(exports, module) {
+  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/stack-utils/index.js"(exports, module) {
     "use strict";
     var escapeStringRegexp = require_escape_string_regexp();
     var cwd2 = typeof process === "object" && process && typeof process.cwd === "function" ? process.cwd() : ".";
@@ -27258,9 +27258,9 @@ var require_stack_utils = __commonJS({
   }
 });
 
-// ../node_modules/react/cjs/react-jsx-runtime.production.min.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react/cjs/react-jsx-runtime.production.min.js
 var require_react_jsx_runtime_production_min = __commonJS({
-  "../node_modules/react/cjs/react-jsx-runtime.production.min.js"(exports) {
+  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react/cjs/react-jsx-runtime.production.min.js"(exports) {
     "use strict";
     var f = require_react();
     var k = Symbol.for("react.element");
@@ -27283,14 +27283,14 @@ var require_react_jsx_runtime_production_min = __commonJS({
   }
 });
 
-// ../node_modules/react/cjs/react-jsx-runtime.development.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react/cjs/react-jsx-runtime.development.js
 var require_react_jsx_runtime_development = __commonJS({
-  "../node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
+  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
     "use strict";
     if (process.env.NODE_ENV !== "production") {
       (function() {
         "use strict";
-        var React21 = require_react();
+        var React22 = require_react();
         var REACT_ELEMENT_TYPE = Symbol.for("react.element");
         var REACT_PORTAL_TYPE = Symbol.for("react.portal");
         var REACT_FRAGMENT_TYPE = Symbol.for("react.fragment");
@@ -27316,7 +27316,7 @@ var require_react_jsx_runtime_development = __commonJS({
           }
           return null;
         }
-        var ReactSharedInternals = React21.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED;
+        var ReactSharedInternals = React22.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED;
         function error(format) {
           {
             {
@@ -28176,9 +28176,9 @@ var require_react_jsx_runtime_development = __commonJS({
   }
 });
 
-// ../node_modules/react/jsx-runtime.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react/jsx-runtime.js
 var require_jsx_runtime = __commonJS({
-  "../node_modules/react/jsx-runtime.js"(exports, module) {
+  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react/jsx-runtime.js"(exports, module) {
     "use strict";
     if (process.env.NODE_ENV === "production") {
       module.exports = require_react_jsx_runtime_production_min();
@@ -28188,15 +28188,15 @@ var require_jsx_runtime = __commonJS({
   }
 });
 
-// ../node_modules/ink/build/render.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/render.js
 import { Stream } from "node:stream";
 import process12 from "node:process";
 
-// ../node_modules/ink/build/ink.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/ink.js
 var import_react10 = __toESM(require_react(), 1);
 import process11 from "node:process";
 
-// ../node_modules/es-toolkit/dist/function/debounce.mjs
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/es-toolkit/dist/function/debounce.mjs
 function debounce(func, debounceMs, { signal, edges } = {}) {
   let pendingThis = void 0;
   let pendingArgs = null;
@@ -28250,7 +28250,7 @@ function debounce(func, debounceMs, { signal, edges } = {}) {
   return debounced;
 }
 
-// ../node_modules/es-toolkit/dist/compat/function/debounce.mjs
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/es-toolkit/dist/compat/function/debounce.mjs
 function debounce2(func, debounceMs = 0, options = {}) {
   if (typeof options !== "object") options = {};
   const { leading = false, trailing = true, maxWait } = options;
@@ -28286,7 +28286,7 @@ function debounce2(func, debounceMs = 0, options = {}) {
   return debounced;
 }
 
-// ../node_modules/es-toolkit/dist/compat/function/throttle.mjs
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/es-toolkit/dist/compat/function/throttle.mjs
 function throttle(func, throttleMs = 0, options = {}) {
   const { leading = true, trailing = true } = options;
   return debounce2(func, throttleMs, {
@@ -28296,7 +28296,7 @@ function throttle(func, throttleMs = 0, options = {}) {
   });
 }
 
-// ../node_modules/ansi-escapes/base.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ansi-escapes/base.js
 var base_exports = {};
 __export(base_exports, {
   ConEmu: () => ConEmu,
@@ -28340,7 +28340,7 @@ __export(base_exports, {
 import process2 from "node:process";
 import os from "node:os";
 
-// ../node_modules/environment/index.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/environment/index.js
 var isBrowser = globalThis.window?.document !== void 0;
 var isNode = globalThis.process?.versions?.node !== void 0;
 var isBun = globalThis.process?.versions?.bun !== void 0;
@@ -28358,7 +28358,7 @@ var isLinux = platform === "Linux" || globalThis.navigator?.platform?.startsWith
 var isIos = platform === "iOS" || globalThis.navigator?.platform === "MacIntel" && globalThis.navigator?.maxTouchPoints > 1 || /iPad|iPhone|iPod/.test(globalThis.navigator?.platform);
 var isAndroid = platform === "Android" || globalThis.navigator?.platform === "Android" || globalThis.navigator?.userAgent?.includes(" Android ") === true || globalThis.process?.platform === "android";
 
-// ../node_modules/ansi-escapes/base.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ansi-escapes/base.js
 var ESC = "\x1B[";
 var OSC = "\x1B]";
 var BEL = "\x07";
@@ -28498,12 +28498,12 @@ var ConEmu = {
 };
 var setCwd = (cwd2 = cwdFunction()) => iTerm.setCwd(cwd2) + ConEmu.setCwd(cwd2);
 
-// ../node_modules/is-in-ci/index.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/is-in-ci/index.js
 import { env } from "node:process";
 var isInCi = env.CI !== "0" && env.CI !== "false" && ("CI" in env || "CONTINUOUS_INTEGRATION" in env || Object.keys(env).some((key) => key.startsWith("CI_")));
 var is_in_ci_default = isInCi;
 
-// ../node_modules/auto-bind/index.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/auto-bind/index.js
 var getAllProperties = (object) => {
   const properties = /* @__PURE__ */ new Set();
   do {
@@ -28536,10 +28536,10 @@ function autoBind(self, { include, exclude } = {}) {
   return self;
 }
 
-// ../node_modules/ink/build/ink.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/ink.js
 var import_signal_exit2 = __toESM(require_signal_exit(), 1);
 
-// ../node_modules/patch-console/dist/index.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/patch-console/dist/index.js
 import { PassThrough } from "node:stream";
 var consoleMethods = [
   "assert",
@@ -28585,7 +28585,7 @@ var patchConsole = (callback) => {
 };
 var dist_default = patchConsole;
 
-// ../node_modules/yoga-layout/dist/binaries/yoga-wasm-base64-esm.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/yoga-layout/dist/binaries/yoga-wasm-base64-esm.js
 var loadYoga = (() => {
   var _scriptDir = import.meta.url;
   return function(loadYoga2) {
@@ -29816,7 +29816,7 @@ var loadYoga = (() => {
 })();
 var yoga_wasm_base64_esm_default = loadYoga;
 
-// ../node_modules/yoga-layout/dist/src/generated/YGEnums.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/yoga-layout/dist/src/generated/YGEnums.js
 var Align = /* @__PURE__ */ function(Align2) {
   Align2[Align2["Auto"] = 0] = "Auto";
   Align2[Align2["FlexStart"] = 1] = "FlexStart";
@@ -30019,7 +30019,7 @@ var constants = {
 };
 var YGEnums_default = constants;
 
-// ../node_modules/yoga-layout/dist/src/wrapAssembly.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/yoga-layout/dist/src/wrapAssembly.js
 function wrapAssembly(lib) {
   function patch(prototype, name, fn) {
     const original = prototype[name];
@@ -30120,16 +30120,16 @@ function wrapAssembly(lib) {
   };
 }
 
-// ../node_modules/yoga-layout/dist/src/index.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/yoga-layout/dist/src/index.js
 var Yoga = wrapAssembly(await yoga_wasm_base64_esm_default());
 var src_default = Yoga;
 
-// ../node_modules/ink/build/reconciler.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/reconciler.js
 var import_react_reconciler = __toESM(require_react_reconciler(), 1);
 var import_constants = __toESM(require_constants(), 1);
 import process3 from "node:process";
 
-// ../node_modules/ansi-regex/index.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ansi-regex/index.js
 function ansiRegex({ onlyFirst = false } = {}) {
   const ST = "(?:\\u0007|\\u001B\\u005C|\\u009C)";
   const osc = `(?:\\u001B\\][^\\u0007\\u001B\\u009C]*${ST})`;
@@ -30138,7 +30138,7 @@ function ansiRegex({ onlyFirst = false } = {}) {
   return new RegExp(pattern, onlyFirst ? void 0 : "g");
 }
 
-// ../node_modules/strip-ansi/index.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/strip-ansi/index.js
 var regex = ansiRegex();
 function stripAnsi(string) {
   if (typeof string !== "string") {
@@ -30150,7 +30150,7 @@ function stripAnsi(string) {
   return string.replace(regex, "");
 }
 
-// ../node_modules/get-east-asian-width/lookup-data.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/get-east-asian-width/lookup-data.js
 var ambiguousMinimalCodePoint = 161;
 var ambiguousMaximumCodePoint = 1114109;
 var ambiguousRanges = [161, 161, 164, 164, 167, 168, 170, 170, 173, 174, 176, 180, 182, 186, 188, 191, 198, 198, 208, 208, 215, 216, 222, 225, 230, 230, 232, 234, 236, 237, 240, 240, 242, 243, 247, 250, 252, 252, 254, 254, 257, 257, 273, 273, 275, 275, 283, 283, 294, 295, 299, 299, 305, 307, 312, 312, 319, 322, 324, 324, 328, 331, 333, 333, 338, 339, 358, 359, 363, 363, 462, 462, 464, 464, 466, 466, 468, 468, 470, 470, 472, 472, 474, 474, 476, 476, 593, 593, 609, 609, 708, 708, 711, 711, 713, 715, 717, 717, 720, 720, 728, 731, 733, 733, 735, 735, 768, 879, 913, 929, 931, 937, 945, 961, 963, 969, 1025, 1025, 1040, 1103, 1105, 1105, 8208, 8208, 8211, 8214, 8216, 8217, 8220, 8221, 8224, 8226, 8228, 8231, 8240, 8240, 8242, 8243, 8245, 8245, 8251, 8251, 8254, 8254, 8308, 8308, 8319, 8319, 8321, 8324, 8364, 8364, 8451, 8451, 8453, 8453, 8457, 8457, 8467, 8467, 8470, 8470, 8481, 8482, 8486, 8486, 8491, 8491, 8531, 8532, 8539, 8542, 8544, 8555, 8560, 8569, 8585, 8585, 8592, 8601, 8632, 8633, 8658, 8658, 8660, 8660, 8679, 8679, 8704, 8704, 8706, 8707, 8711, 8712, 8715, 8715, 8719, 8719, 8721, 8721, 8725, 8725, 8730, 8730, 8733, 8736, 8739, 8739, 8741, 8741, 8743, 8748, 8750, 8750, 8756, 8759, 8764, 8765, 8776, 8776, 8780, 8780, 8786, 8786, 8800, 8801, 8804, 8807, 8810, 8811, 8814, 8815, 8834, 8835, 8838, 8839, 8853, 8853, 8857, 8857, 8869, 8869, 8895, 8895, 8978, 8978, 9312, 9449, 9451, 9547, 9552, 9587, 9600, 9615, 9618, 9621, 9632, 9633, 9635, 9641, 9650, 9651, 9654, 9655, 9660, 9661, 9664, 9665, 9670, 9672, 9675, 9675, 9678, 9681, 9698, 9701, 9711, 9711, 9733, 9734, 9737, 9737, 9742, 9743, 9756, 9756, 9758, 9758, 9792, 9792, 9794, 9794, 9824, 9825, 9827, 9829, 9831, 9834, 9836, 9837, 9839, 9839, 9886, 9887, 9919, 9919, 9926, 9933, 9935, 9939, 9941, 9953, 9955, 9955, 9960, 9961, 9963, 9969, 9972, 9972, 9974, 9977, 9979, 9980, 9982, 9983, 10045, 10045, 10102, 10111, 11094, 11097, 12872, 12879, 57344, 63743, 65024, 65039, 65533, 65533, 127232, 127242, 127248, 127277, 127280, 127337, 127344, 127373, 127375, 127376, 127387, 127404, 917760, 917999, 983040, 1048573, 1048576, 1114109];
@@ -30161,7 +30161,7 @@ var wideMinimalCodePoint = 4352;
 var wideMaximumCodePoint = 262141;
 var wideRanges = [4352, 4447, 8986, 8987, 9001, 9002, 9193, 9196, 9200, 9200, 9203, 9203, 9725, 9726, 9748, 9749, 9776, 9783, 9800, 9811, 9855, 9855, 9866, 9871, 9875, 9875, 9889, 9889, 9898, 9899, 9917, 9918, 9924, 9925, 9934, 9934, 9940, 9940, 9962, 9962, 9970, 9971, 9973, 9973, 9978, 9978, 9981, 9981, 9989, 9989, 9994, 9995, 10024, 10024, 10060, 10060, 10062, 10062, 10067, 10069, 10071, 10071, 10133, 10135, 10160, 10160, 10175, 10175, 11035, 11036, 11088, 11088, 11093, 11093, 11904, 11929, 11931, 12019, 12032, 12245, 12272, 12287, 12289, 12350, 12353, 12438, 12441, 12543, 12549, 12591, 12593, 12686, 12688, 12773, 12783, 12830, 12832, 12871, 12880, 42124, 42128, 42182, 43360, 43388, 44032, 55203, 63744, 64255, 65040, 65049, 65072, 65106, 65108, 65126, 65128, 65131, 94176, 94180, 94192, 94198, 94208, 101589, 101631, 101662, 101760, 101874, 110576, 110579, 110581, 110587, 110589, 110590, 110592, 110882, 110898, 110898, 110928, 110930, 110933, 110933, 110948, 110951, 110960, 111355, 119552, 119638, 119648, 119670, 126980, 126980, 127183, 127183, 127374, 127374, 127377, 127386, 127488, 127490, 127504, 127547, 127552, 127560, 127568, 127569, 127584, 127589, 127744, 127776, 127789, 127797, 127799, 127868, 127870, 127891, 127904, 127946, 127951, 127955, 127968, 127984, 127988, 127988, 127992, 128062, 128064, 128064, 128066, 128252, 128255, 128317, 128331, 128334, 128336, 128359, 128378, 128378, 128405, 128406, 128420, 128420, 128507, 128591, 128640, 128709, 128716, 128716, 128720, 128722, 128725, 128728, 128732, 128735, 128747, 128748, 128756, 128764, 128992, 129003, 129008, 129008, 129292, 129338, 129340, 129349, 129351, 129535, 129648, 129660, 129664, 129674, 129678, 129734, 129736, 129736, 129741, 129756, 129759, 129770, 129775, 129784, 131072, 196605, 196608, 262141];
 
-// ../node_modules/get-east-asian-width/utilities.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/get-east-asian-width/utilities.js
 var isInRange = (ranges, codePoint) => {
   let low = 0;
   let high = Math.floor(ranges.length / 2) - 1;
@@ -30179,7 +30179,7 @@ var isInRange = (ranges, codePoint) => {
   return false;
 };
 
-// ../node_modules/get-east-asian-width/lookup.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/get-east-asian-width/lookup.js
 var commonCjkCodePoint = 19968;
 var [wideFastPathStart, wideFastPathEnd] = /* @__PURE__ */ findWideFastPathRange(wideRanges);
 function findWideFastPathRange(ranges) {
@@ -30220,7 +30220,7 @@ var isWide = (codePoint) => {
   return isInRange(wideRanges, codePoint);
 };
 
-// ../node_modules/get-east-asian-width/index.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/get-east-asian-width/index.js
 function validate(codePoint) {
   if (!Number.isSafeInteger(codePoint)) {
     throw new TypeError(`Expected a code point, got \`${typeof codePoint}\`.`);
@@ -30234,7 +30234,7 @@ function eastAsianWidth(codePoint, { ambiguousAsWide = false } = {}) {
   return 1;
 }
 
-// ../node_modules/string-width/index.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/string-width/index.js
 var import_emoji_regex = __toESM(require_emoji_regex(), 1);
 var segmenter = new Intl.Segmenter();
 var defaultIgnorableCodePointRegex = new RegExp("^\\p{Default_Ignorable_Code_Point}$", "u");
@@ -30283,7 +30283,7 @@ function stringWidth(string, options = {}) {
   return width;
 }
 
-// ../node_modules/widest-line/index.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/widest-line/index.js
 function widestLine(string) {
   let lineWidth = 0;
   for (const line of string.split("\n")) {
@@ -30292,7 +30292,7 @@ function widestLine(string) {
   return lineWidth;
 }
 
-// ../node_modules/ink/build/measure-text.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/measure-text.js
 var cache = {};
 var measureText = (text) => {
   if (text.length === 0) {
@@ -30312,7 +30312,7 @@ var measureText = (text) => {
 };
 var measure_text_default = measureText;
 
-// ../node_modules/ansi-styles/index.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ansi-styles/index.js
 var ANSI_BACKGROUND_OFFSET = 10;
 var wrapAnsi16 = (offset = 0) => (code) => `\x1B[${code + offset}m`;
 var wrapAnsi256 = (offset = 0) => (code) => `\x1B[${38 + offset};5;${code}m`;
@@ -30498,7 +30498,7 @@ function assembleStyles() {
 var ansiStyles = assembleStyles();
 var ansi_styles_default = ansiStyles;
 
-// ../node_modules/wrap-ansi/index.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/wrap-ansi/index.js
 var ESCAPES = /* @__PURE__ */ new Set([
   "\x1B",
   "\x9B"
@@ -30653,7 +30653,7 @@ function wrapAnsi(string, columns, options) {
   return String(string).normalize().replaceAll("\r\n", "\n").split("\n").map((line) => exec(line, columns, options)).join("\n");
 }
 
-// ../node_modules/is-fullwidth-code-point/index.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/is-fullwidth-code-point/index.js
 function isFullwidthCodePoint(codePoint) {
   if (!Number.isInteger(codePoint)) {
     return false;
@@ -30676,7 +30676,7 @@ function isFullwidthCodePoint(codePoint) {
   131072 <= codePoint && codePoint <= 262141);
 }
 
-// ../node_modules/cli-truncate/node_modules/slice-ansi/index.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/cli-truncate/node_modules/slice-ansi/index.js
 var astralRegex = /^[\uD800-\uDBFF][\uDC00-\uDFFF]$/;
 var ESCAPES2 = [
   "\x1B",
@@ -30759,7 +30759,7 @@ function sliceAnsi(string, begin, end) {
   return output;
 }
 
-// ../node_modules/cli-truncate/index.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/cli-truncate/index.js
 function getIndexOfNearestSpace(string, wantedIndex, shouldSearchRight) {
   if (string.charAt(wantedIndex) === " ") {
     return wantedIndex;
@@ -30831,7 +30831,7 @@ function cliTruncate(text, columns, options = {}) {
   throw new Error(`Expected \`options.position\` to be either \`start\`, \`middle\` or \`end\`, got ${position}`);
 }
 
-// ../node_modules/ink/build/wrap-text.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/wrap-text.js
 var cache2 = {};
 var wrapText = (text, maxWidth, wrapType) => {
   const cacheKey = text + String(maxWidth) + String(wrapType);
@@ -30861,7 +30861,7 @@ var wrapText = (text, maxWidth, wrapType) => {
 };
 var wrap_text_default = wrapText;
 
-// ../node_modules/ink/build/squash-text-nodes.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/squash-text-nodes.js
 var squashTextNodes = (node) => {
   let text = "";
   for (let index = 0; index < node.childNodes.length; index++) {
@@ -30886,7 +30886,7 @@ var squashTextNodes = (node) => {
 };
 var squash_text_nodes_default = squashTextNodes;
 
-// ../node_modules/ink/build/dom.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/dom.js
 var createNode = (nodeName) => {
   const node = {
     nodeName,
@@ -30996,7 +30996,7 @@ var setTextNodeValue = (node, text) => {
   markNodeAsDirty(node);
 };
 
-// ../node_modules/ink/build/styles.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/styles.js
 var applyPositionStyles = (node, style) => {
   if ("position" in style) {
     node.setPositionType(style.position === "absolute" ? src_default.POSITION_TYPE_ABSOLUTE : src_default.POSITION_TYPE_RELATIVE);
@@ -31217,7 +31217,7 @@ var styles2 = (node, style = {}) => {
 };
 var styles_default = styles2;
 
-// ../node_modules/ink/build/reconciler.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/reconciler.js
 if (process3.env["DEV"] === "true") {
   try {
     await Promise.resolve().then(() => (init_devtools(), devtools_exports));
@@ -31423,7 +31423,7 @@ var reconciler_default = (0, import_react_reconciler.default)({
   }
 });
 
-// ../node_modules/indent-string/index.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/indent-string/index.js
 function indentString(string, count = 1, options = {}) {
   const {
     indent = " ",
@@ -31456,16 +31456,16 @@ function indentString(string, count = 1, options = {}) {
   return string.replace(regex2, indent.repeat(count));
 }
 
-// ../node_modules/ink/build/get-max-width.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/get-max-width.js
 var getMaxWidth = (yogaNode) => {
   return yogaNode.getComputedWidth() - yogaNode.getComputedPadding(src_default.EDGE_LEFT) - yogaNode.getComputedPadding(src_default.EDGE_RIGHT) - yogaNode.getComputedBorder(src_default.EDGE_LEFT) - yogaNode.getComputedBorder(src_default.EDGE_RIGHT);
 };
 var get_max_width_default = getMaxWidth;
 
-// ../node_modules/ink/build/render-border.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/render-border.js
 var import_cli_boxes = __toESM(require_cli_boxes(), 1);
 
-// ../node_modules/chalk/source/vendor/ansi-styles/index.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/chalk/source/vendor/ansi-styles/index.js
 var ANSI_BACKGROUND_OFFSET2 = 10;
 var wrapAnsi162 = (offset = 0) => (code) => `\x1B[${code + offset}m`;
 var wrapAnsi2562 = (offset = 0) => (code) => `\x1B[${38 + offset};5;${code}m`;
@@ -31651,7 +31651,7 @@ function assembleStyles2() {
 var ansiStyles2 = assembleStyles2();
 var ansi_styles_default2 = ansiStyles2;
 
-// ../node_modules/chalk/source/vendor/supports-color/index.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/chalk/source/vendor/supports-color/index.js
 import process4 from "node:process";
 import os2 from "node:os";
 import tty from "node:tty";
@@ -31783,7 +31783,7 @@ var supportsColor = {
 };
 var supports_color_default = supportsColor;
 
-// ../node_modules/chalk/source/utilities.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/chalk/source/utilities.js
 function stringReplaceAll(string, substring, replacer) {
   let index = string.indexOf(substring);
   if (index === -1) {
@@ -31813,7 +31813,7 @@ function stringEncaseCRLFWithFirstIndex(string, prefix, postfix, index) {
   return returnValue;
 }
 
-// ../node_modules/chalk/source/index.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/chalk/source/index.js
 var { stdout: stdoutColor, stderr: stderrColor } = supports_color_default;
 var GENERATOR = Symbol("GENERATOR");
 var STYLER = Symbol("STYLER");
@@ -31960,7 +31960,7 @@ var chalk = createChalk();
 var chalkStderr = createChalk({ level: stderrColor ? stderrColor.level : 0 });
 var source_default = chalk;
 
-// ../node_modules/ink/build/colorize.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/colorize.js
 var rgbRegex = /^rgb\(\s?(\d+),\s?(\d+),\s?(\d+)\s?\)$/;
 var ansiRegex2 = /^ansi256\(\s?(\d+)\s?\)$/;
 var isNamedColor = (color) => {
@@ -32002,7 +32002,7 @@ var colorize = (str, color, type) => {
 };
 var colorize_default = colorize;
 
-// ../node_modules/ink/build/render-border.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/render-border.js
 var renderBorder = (x, y, node, output) => {
   if (node.style.borderStyle) {
     const width = node.yogaNode.getComputedWidth();
@@ -32063,7 +32063,7 @@ var renderBorder = (x, y, node, output) => {
 };
 var render_border_default = renderBorder;
 
-// ../node_modules/ink/build/render-node-to-output.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/render-node-to-output.js
 var applyPaddingToText = (node, text) => {
   const yogaNode = node.childNodes[0]?.yogaNode;
   if (yogaNode) {
@@ -32134,7 +32134,7 @@ var renderNodeToOutput = (node, output, options) => {
 };
 var render_node_to_output_default = renderNodeToOutput;
 
-// ../node_modules/slice-ansi/node_modules/is-fullwidth-code-point/index.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/slice-ansi/node_modules/is-fullwidth-code-point/index.js
 function isFullwidthCodePoint2(codePoint) {
   if (!Number.isInteger(codePoint)) {
     return false;
@@ -32142,7 +32142,7 @@ function isFullwidthCodePoint2(codePoint) {
   return isFullWidth(codePoint) || isWide(codePoint);
 }
 
-// ../node_modules/slice-ansi/index.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/slice-ansi/index.js
 var ESCAPES3 = /* @__PURE__ */ new Set([27, 155]);
 var CODE_POINT_0 = "0".codePointAt(0);
 var CODE_POINT_9 = "9".codePointAt(0);
@@ -32273,7 +32273,7 @@ function sliceAnsi2(string, start, end) {
   return returnValue;
 }
 
-// ../node_modules/@alcalzone/ansi-tokenize/build/ansiCodes.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/@alcalzone/ansi-tokenize/build/ansiCodes.js
 var ESCAPES4 = /* @__PURE__ */ new Set([27, 155]);
 var endCodesSet2 = /* @__PURE__ */ new Set();
 var endCodesMap2 = /* @__PURE__ */ new Map();
@@ -32308,7 +32308,7 @@ function ansiCodesToString(codes) {
   return codes.map((code) => code.code).join("");
 }
 
-// ../node_modules/@alcalzone/ansi-tokenize/build/reduce.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/@alcalzone/ansi-tokenize/build/reduce.js
 function reduceAnsiCodes2(codes) {
   return reduceAnsiCodesIncremental([], codes);
 }
@@ -32327,7 +32327,7 @@ function reduceAnsiCodesIncremental(codes, newCodes) {
   return ret;
 }
 
-// ../node_modules/@alcalzone/ansi-tokenize/build/undo.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/@alcalzone/ansi-tokenize/build/undo.js
 function undoAnsiCodes2(codes) {
   return reduceAnsiCodes2(codes).reverse().map((code) => ({
     ...code,
@@ -32335,7 +32335,7 @@ function undoAnsiCodes2(codes) {
   }));
 }
 
-// ../node_modules/@alcalzone/ansi-tokenize/build/diff.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/@alcalzone/ansi-tokenize/build/diff.js
 function diffAnsiCodes(from, to) {
   const endCodesInTo = new Set(to.map((code) => code.endCode));
   const startCodesInFrom = new Set(from.map((code) => code.code));
@@ -32348,7 +32348,7 @@ function diffAnsiCodes(from, to) {
   ];
 }
 
-// ../node_modules/@alcalzone/ansi-tokenize/build/styledChars.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/@alcalzone/ansi-tokenize/build/styledChars.js
 function styledCharsFromTokens(tokens) {
   let codes = [];
   const ret = [];
@@ -32381,7 +32381,7 @@ function styledCharsToString(chars) {
   return ret;
 }
 
-// ../node_modules/@alcalzone/ansi-tokenize/build/tokenize.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/@alcalzone/ansi-tokenize/build/tokenize.js
 function findNumberIndex2(str) {
   for (let index = 0; index < str.length; index++) {
     const charCode = str.charCodeAt(index);
@@ -32448,7 +32448,7 @@ function tokenize2(str, endChar = Number.POSITIVE_INFINITY) {
   return ret;
 }
 
-// ../node_modules/ink/build/output.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/output.js
 var Output = class {
   width;
   height;
@@ -32584,7 +32584,7 @@ var Output = class {
   }
 };
 
-// ../node_modules/ink/build/renderer.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/renderer.js
 var renderer = (node) => {
   if (node.yogaNode) {
     const output = new Output({
@@ -32620,10 +32620,10 @@ var renderer = (node) => {
 };
 var renderer_default = renderer;
 
-// ../node_modules/cli-cursor/index.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/cli-cursor/index.js
 import process6 from "node:process";
 
-// ../node_modules/restore-cursor/index.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/restore-cursor/index.js
 var import_onetime = __toESM(require_onetime(), 1);
 var import_signal_exit = __toESM(require_signal_exit(), 1);
 import process5 from "node:process";
@@ -32634,7 +32634,7 @@ var restoreCursor = (0, import_onetime.default)(() => {
 });
 var restore_cursor_default = restoreCursor;
 
-// ../node_modules/cli-cursor/index.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/cli-cursor/index.js
 var isHidden = false;
 var cliCursor = {};
 cliCursor.show = (writableStream = process6.stderr) => {
@@ -32664,7 +32664,7 @@ cliCursor.toggle = (force, writableStream) => {
 };
 var cli_cursor_default = cliCursor;
 
-// ../node_modules/ink/build/log-update.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/log-update.js
 var create = (stream, { showCursor = false } = {}) => {
   let previousLineCount = 0;
   let previousOutput = "";
@@ -32700,16 +32700,16 @@ var create = (stream, { showCursor = false } = {}) => {
 var logUpdate = { create };
 var log_update_default = logUpdate;
 
-// ../node_modules/ink/build/instances.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/instances.js
 var instances = /* @__PURE__ */ new WeakMap();
 var instances_default = instances;
 
-// ../node_modules/ink/build/components/App.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/components/App.js
 var import_react9 = __toESM(require_react(), 1);
 import { EventEmitter as EventEmitter2 } from "node:events";
 import process10 from "node:process";
 
-// ../node_modules/ink/build/components/AppContext.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/components/AppContext.js
 var import_react = __toESM(require_react(), 1);
 var AppContext = (0, import_react.createContext)({
   exit() {
@@ -32718,7 +32718,7 @@ var AppContext = (0, import_react.createContext)({
 AppContext.displayName = "InternalAppContext";
 var AppContext_default = AppContext;
 
-// ../node_modules/ink/build/components/StdinContext.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/components/StdinContext.js
 var import_react2 = __toESM(require_react(), 1);
 import { EventEmitter } from "node:events";
 import process7 from "node:process";
@@ -32735,7 +32735,7 @@ var StdinContext = (0, import_react2.createContext)({
 StdinContext.displayName = "InternalStdinContext";
 var StdinContext_default = StdinContext;
 
-// ../node_modules/ink/build/components/StdoutContext.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/components/StdoutContext.js
 var import_react3 = __toESM(require_react(), 1);
 import process8 from "node:process";
 var StdoutContext = (0, import_react3.createContext)({
@@ -32746,7 +32746,7 @@ var StdoutContext = (0, import_react3.createContext)({
 StdoutContext.displayName = "InternalStdoutContext";
 var StdoutContext_default = StdoutContext;
 
-// ../node_modules/ink/build/components/StderrContext.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/components/StderrContext.js
 var import_react4 = __toESM(require_react(), 1);
 import process9 from "node:process";
 var StderrContext = (0, import_react4.createContext)({
@@ -32757,7 +32757,7 @@ var StderrContext = (0, import_react4.createContext)({
 StderrContext.displayName = "InternalStderrContext";
 var StderrContext_default = StderrContext;
 
-// ../node_modules/ink/build/components/FocusContext.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/components/FocusContext.js
 var import_react5 = __toESM(require_react(), 1);
 var FocusContext = (0, import_react5.createContext)({
   activeId: void 0,
@@ -32783,19 +32783,19 @@ var FocusContext = (0, import_react5.createContext)({
 FocusContext.displayName = "InternalFocusContext";
 var FocusContext_default = FocusContext;
 
-// ../node_modules/ink/build/components/ErrorOverview.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/components/ErrorOverview.js
 var import_react8 = __toESM(require_react(), 1);
 var import_stack_utils = __toESM(require_stack_utils(), 1);
 import * as fs from "node:fs";
 import { cwd } from "node:process";
 
-// ../node_modules/convert-to-spaces/dist/index.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/convert-to-spaces/dist/index.js
 var convertToSpaces = (input, spaces = 2) => {
   return input.replace(/^\t+/gm, ($1) => " ".repeat($1.length * spaces));
 };
 var dist_default2 = convertToSpaces;
 
-// ../node_modules/code-excerpt/dist/index.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/code-excerpt/dist/index.js
 var generateLineNumbers = (line, around) => {
   const lineNumbers = [];
   const min = line - around;
@@ -32821,7 +32821,7 @@ var codeExcerpt = (source, line, options = {}) => {
 };
 var dist_default3 = codeExcerpt;
 
-// ../node_modules/ink/build/components/Box.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/components/Box.js
 var import_react6 = __toESM(require_react(), 1);
 var Box = (0, import_react6.forwardRef)(({ children, ...style }, ref) => {
   return import_react6.default.createElement("ink-box", { ref, style: {
@@ -32839,7 +32839,7 @@ Box.defaultProps = {
 };
 var Box_default = Box;
 
-// ../node_modules/ink/build/components/Text.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/components/Text.js
 var import_react7 = __toESM(require_react(), 1);
 function Text({ color, backgroundColor, dimColor = false, bold = false, italic = false, underline = false, strikethrough = false, inverse = false, wrap = "wrap", children }) {
   if (children === void 0 || children === null) {
@@ -32875,7 +32875,7 @@ function Text({ color, backgroundColor, dimColor = false, bold = false, italic =
   return import_react7.default.createElement("ink-text", { style: { flexGrow: 0, flexShrink: 1, flexDirection: "row", textWrap: wrap }, internal_transform: transform }, children);
 }
 
-// ../node_modules/ink/build/components/ErrorOverview.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/components/ErrorOverview.js
 var cleanupPath = (path) => {
   return path?.replace(`file://${cwd()}/`, "");
 };
@@ -32978,7 +32978,7 @@ function ErrorOverview({ error }) {
   );
 }
 
-// ../node_modules/ink/build/components/App.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/components/App.js
 var tab = "	";
 var shiftTab = "\x1B[Z";
 var escape = "\x1B";
@@ -33251,7 +33251,7 @@ var App = class extends import_react9.PureComponent {
   };
 };
 
-// ../node_modules/ink/build/ink.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/ink.js
 var noop = () => {
 };
 var Ink = class {
@@ -33467,7 +33467,7 @@ var Ink = class {
   }
 };
 
-// ../node_modules/ink/build/render.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/render.js
 var render = (node, options) => {
   const inkOptions = {
     stdout: process12.stdout,
@@ -33509,7 +33509,7 @@ var getInstance = (stdout, createInstance) => {
   return instance;
 };
 
-// ../node_modules/ink/build/components/Static.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/components/Static.js
 var import_react11 = __toESM(require_react(), 1);
 function Static(props) {
   const { items, children: render2, style: customStyle } = props;
@@ -33531,19 +33531,19 @@ function Static(props) {
   return import_react11.default.createElement("ink-box", { internal_static: true, style }, children);
 }
 
-// ../node_modules/ink/build/components/Transform.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/components/Transform.js
 var import_react12 = __toESM(require_react(), 1);
 
-// ../node_modules/ink/build/components/Newline.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/components/Newline.js
 var import_react13 = __toESM(require_react(), 1);
 
-// ../node_modules/ink/build/components/Spacer.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/components/Spacer.js
 var import_react14 = __toESM(require_react(), 1);
 
-// ../node_modules/ink/build/hooks/use-input.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/hooks/use-input.js
 var import_react16 = __toESM(require_react(), 1);
 
-// ../node_modules/ink/build/parse-keypress.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/parse-keypress.js
 import { Buffer as Buffer2 } from "node:buffer";
 var metaKeyCodeRe = /^(?:\x1b)([a-zA-Z0-9])$/;
 var fnKeyRe = /^(?:\x1b+)(O|N|\[|\[\[)(?:(\d+)(?:;(\d+))?([~^$])|(?:1;)?(\d+)?([a-zA-Z]))/;
@@ -33735,12 +33735,12 @@ var parseKeypress = (s = "") => {
 };
 var parse_keypress_default = parseKeypress;
 
-// ../node_modules/ink/build/hooks/use-stdin.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/hooks/use-stdin.js
 var import_react15 = __toESM(require_react(), 1);
 var useStdin = () => (0, import_react15.useContext)(StdinContext_default);
 var use_stdin_default = useStdin;
 
-// ../node_modules/ink/build/hooks/use-input.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/hooks/use-input.js
 var useInput = (inputHandler, options = {}) => {
   const { stdin, setRawMode, internal_exitOnCtrlC, internal_eventEmitter } = use_stdin_default();
   (0, import_react16.useEffect)(() => {
@@ -33802,23 +33802,23 @@ var useInput = (inputHandler, options = {}) => {
 };
 var use_input_default = useInput;
 
-// ../node_modules/ink/build/hooks/use-app.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/hooks/use-app.js
 var import_react17 = __toESM(require_react(), 1);
 var useApp = () => (0, import_react17.useContext)(AppContext_default);
 var use_app_default = useApp;
 
-// ../node_modules/ink/build/hooks/use-stdout.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/hooks/use-stdout.js
 var import_react18 = __toESM(require_react(), 1);
 var useStdout = () => (0, import_react18.useContext)(StdoutContext_default);
 var use_stdout_default = useStdout;
 
-// ../node_modules/ink/build/hooks/use-stderr.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/hooks/use-stderr.js
 var import_react19 = __toESM(require_react(), 1);
 
-// ../node_modules/ink/build/hooks/use-focus.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/hooks/use-focus.js
 var import_react20 = __toESM(require_react(), 1);
 
-// ../node_modules/ink/build/hooks/use-focus-manager.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/hooks/use-focus-manager.js
 var import_react21 = __toESM(require_react(), 1);
 
 // src/index.tsx
@@ -33828,7 +33828,7 @@ import { homedir } from "node:os";
 import { basename as basename2, isAbsolute, join, resolve } from "node:path";
 
 // src/app.tsx
-var import_react37 = __toESM(require_react(), 1);
+var import_react39 = __toESM(require_react(), 1);
 
 // src/slash/registry.ts
 var SURFACE_COMMANDS = [
@@ -34900,11 +34900,90 @@ function useElapsed(tickMs = ELAPSED_TICK_MS, now = Date.now) {
   return elapsed;
 }
 
-// src/hooks/useSpinner.ts
+// src/hooks/useClock.ts
 var import_react25 = __toESM(require_react(), 1);
-function useSpinner(active, intervalMs = SPINNER_INTERVAL_MS) {
-  const [frame, setFrame] = (0, import_react25.useState)(0);
+var CLOCK_TICK_MS = 1e3;
+function useClock(active, tickMs = CLOCK_TICK_MS, now = Date.now) {
+  const [stamp, setStamp] = (0, import_react25.useState)(() => now());
   (0, import_react25.useEffect)(() => {
+    if (!active) return;
+    setStamp(now());
+    const timer = setInterval(() => setStamp(now()), tickMs);
+    return () => clearInterval(timer);
+  }, [active, tickMs, now]);
+  return stamp;
+}
+
+// src/state/coalesce.ts
+var CHILD_FLUSH_MS = 66;
+function deltaText(event) {
+  if (event.kind !== "message.delta") return null;
+  const payload = event.payload;
+  const text = payload?.text;
+  return typeof text === "string" ? text : "";
+}
+function createChildEventBuffer(deliver, { intervalMs = CHILD_FLUSH_MS, setTimer = setTimeout, clearTimer = clearTimeout } = {}) {
+  const pending = /* @__PURE__ */ new Map();
+  let timer = null;
+  const merged = (entry) => ({
+    ...entry.event,
+    payload: { ...entry.event.payload, text: entry.text }
+  });
+  const drain = () => {
+    for (const [sessionId, entry] of pending) deliver(sessionId, merged(entry));
+    pending.clear();
+  };
+  const close = () => {
+    if (timer !== null) clearTimer(timer);
+    timer = null;
+  };
+  const arm = () => {
+    timer = setTimer(() => {
+      timer = null;
+      if (pending.size === 0) return;
+      drain();
+      arm();
+    }, intervalMs);
+  };
+  return {
+    push(sessionId, event) {
+      const text = deltaText(event);
+      if (text === null) {
+        const entry2 = pending.get(sessionId);
+        if (entry2) {
+          pending.delete(sessionId);
+          deliver(sessionId, merged(entry2));
+        }
+        deliver(sessionId, event);
+        return;
+      }
+      const entry = pending.get(sessionId);
+      if (entry) {
+        entry.text += text;
+        return;
+      }
+      if (timer === null) {
+        deliver(sessionId, event);
+        arm();
+        return;
+      }
+      pending.set(sessionId, { event, text });
+    },
+    flush() {
+      drain();
+    },
+    dispose() {
+      drain();
+      close();
+    }
+  };
+}
+
+// src/hooks/useSpinner.ts
+var import_react26 = __toESM(require_react(), 1);
+function useSpinner(active, intervalMs = SPINNER_INTERVAL_MS) {
+  const [frame, setFrame] = (0, import_react26.useState)(0);
+  (0, import_react26.useEffect)(() => {
     if (!active) {
       setFrame(0);
       return;
@@ -34916,12 +34995,12 @@ function useSpinner(active, intervalMs = SPINNER_INTERVAL_MS) {
 }
 
 // src/hooks/useKnownAgents.ts
-var import_react26 = __toESM(require_react(), 1);
+var import_react27 = __toESM(require_react(), 1);
 var AGENT_LIST_POLL_MS = 3e4;
 var EMPTY = [];
 function useKnownAgents(client, pollMs = AGENT_LIST_POLL_MS, refreshKey = 0) {
-  const [agents, setAgents] = (0, import_react26.useState)(EMPTY);
-  (0, import_react26.useEffect)(() => {
+  const [agents, setAgents] = (0, import_react27.useState)(EMPTY);
+  (0, import_react27.useEffect)(() => {
     let cancelled = false;
     const read = () => {
       void client.call("agent.list", {}).then((result) => {
@@ -36353,7 +36432,7 @@ function layoutAgentRow(row, width) {
 }
 
 // src/components/Logo.tsx
-var import_react27 = __toESM(require_react(), 1);
+var import_react28 = __toESM(require_react(), 1);
 
 // src/components/mark.ts
 var BIG_MARK = [
@@ -36667,10 +36746,10 @@ function LogoInner({
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `${TAGLINE}  v${version}` })
   ] });
 }
-var Logo = import_react27.default.memo(LogoInner);
+var Logo = import_react28.default.memo(LogoInner);
 
 // src/components/TranscriptView.tsx
-var import_react28 = __toESM(require_react(), 1);
+var import_react29 = __toESM(require_react(), 1);
 var import_jsx_runtime2 = __toESM(require_jsx_runtime(), 1);
 var transcriptRenderCount = { value: 0 };
 function TranscriptViewInner({
@@ -36690,7 +36769,7 @@ function TranscriptViewInner({
     `${line.key}-s${index}`
   )) }, line.key)) });
 }
-var TranscriptView = import_react28.default.memo(TranscriptViewInner);
+var TranscriptView = import_react29.default.memo(TranscriptViewInner);
 
 // src/components/FullscreenLayout.tsx
 var import_jsx_runtime3 = __toESM(require_jsx_runtime(), 1);
@@ -36723,7 +36802,7 @@ function FullscreenLayout({
 }
 
 // src/components/Chat.tsx
-var import_react29 = __toESM(require_react(), 1);
+var import_react30 = __toESM(require_react(), 1);
 
 // src/components/AgentPalette.tsx
 var import_jsx_runtime4 = __toESM(require_jsx_runtime(), 1);
@@ -36810,24 +36889,24 @@ function Chat({
   onChange,
   onInterrupt
 }) {
-  const [value, setValue] = (0, import_react29.useState)("");
-  const [cursor, setCursor] = (0, import_react29.useState)(0);
-  const [history, setHistory] = (0, import_react29.useState)(initialHistory);
-  const [historyIndex, setHistoryIndex] = (0, import_react29.useState)(null);
-  const historyDraft = (0, import_react29.useRef)("");
-  const [selected, setSelected] = (0, import_react29.useState)(0);
-  const [agentsDismissed, setAgentsDismissed] = (0, import_react29.useState)(false);
+  const [value, setValue] = (0, import_react30.useState)("");
+  const [cursor, setCursor] = (0, import_react30.useState)(0);
+  const [history, setHistory] = (0, import_react30.useState)(initialHistory);
+  const [historyIndex, setHistoryIndex] = (0, import_react30.useState)(null);
+  const historyDraft = (0, import_react30.useRef)("");
+  const [selected, setSelected] = (0, import_react30.useState)(0);
+  const [agentsDismissed, setAgentsDismissed] = (0, import_react30.useState)(false);
   const showPalette = value.startsWith("/") && completions.length > 0;
   const query = agentQuery(value, cursor);
   const agentMatches = query ? filterAgents(agents, query.prefix) : [];
   const showAgents = query !== null && !agentsDismissed && !showPalette;
-  (0, import_react29.useEffect)(() => {
+  (0, import_react30.useEffect)(() => {
     if (!insert) return;
     const text = value.length > 0 ? ` ${insert}` : insert;
     update(value.slice(0, cursor) + text + value.slice(cursor), cursor + text.length);
     onInserted?.();
   }, [insert]);
-  (0, import_react29.useEffect)(() => {
+  (0, import_react30.useEffect)(() => {
     if (!append) return;
     update(value.slice(0, cursor) + append + value.slice(cursor), cursor + append.length);
     onAppended?.();
@@ -37106,7 +37185,7 @@ function DiffView({
 }
 
 // src/components/ConfirmMenu.tsx
-var import_react30 = __toESM(require_react(), 1);
+var import_react31 = __toESM(require_react(), 1);
 var import_jsx_runtime10 = __toESM(require_jsx_runtime(), 1);
 function ConfirmMenu({
   options,
@@ -37115,7 +37194,7 @@ function ConfirmMenu({
   escapeValue,
   isActive = true
 }) {
-  const [index, setIndex] = (0, import_react30.useState)(
+  const [index, setIndex] = (0, import_react31.useState)(
     () => Math.min(Math.max(0, initialIndex), Math.max(0, options.length - 1))
   );
   use_input_default(
@@ -37238,7 +37317,7 @@ function ApprovalPrompt({
 }
 
 // src/components/ApprovalQueue.tsx
-var import_react31 = __toESM(require_react(), 1);
+var import_react32 = __toESM(require_react(), 1);
 var import_jsx_runtime12 = __toESM(require_jsx_runtime(), 1);
 function summarise(request) {
   const command = (request.args ?? {})["command"];
@@ -37252,9 +37331,9 @@ function ApprovalQueue({
   isActive = false,
   onBlur
 }) {
-  const [selected, setSelected] = (0, import_react31.useState)(0);
-  const [scopeIndex, setScopeIndex] = (0, import_react31.useState)(0);
-  (0, import_react31.useEffect)(() => {
+  const [selected, setSelected] = (0, import_react32.useState)(0);
+  const [scopeIndex, setScopeIndex] = (0, import_react32.useState)(0);
+  (0, import_react32.useEffect)(() => {
     setSelected((index) => requests.length === 0 ? 0 : Math.min(index, requests.length - 1));
   }, [requests.length]);
   const current = requests[Math.min(selected, Math.max(requests.length - 1, 0))];
@@ -37336,10 +37415,10 @@ function ApprovalQueue({
 }
 
 // src/components/StatusHud.tsx
-var import_react32 = __toESM(require_react(), 1);
+var import_react33 = __toESM(require_react(), 1);
 var import_jsx_runtime13 = __toESM(require_jsx_runtime(), 1);
 function StatusHudInner({ rows, width }) {
-  return /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Box_default, { flexDirection: "column", flexShrink: 0, width, children: rows.map((segments, rowIndex) => /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Box_default, { width, flexWrap: "nowrap", overflow: "hidden", children: segments.map((segment, index) => /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(import_react32.default.Fragment, { children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Box_default, { flexDirection: "column", flexShrink: 0, width, children: rows.map((segments, rowIndex) => /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Box_default, { width, flexWrap: "nowrap", overflow: "hidden", children: segments.map((segment, index) => /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(import_react33.default.Fragment, { children: [
     index > 0 ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { dimColor: true, children: SEPARATOR }) : null,
     /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
       Text,
@@ -37353,10 +37432,10 @@ function StatusHudInner({ rows, width }) {
     )
   ] }, segment.key)) }, `hud-row-${rowIndex}`)) });
 }
-var StatusHud = import_react32.default.memo(StatusHudInner);
+var StatusHud = import_react33.default.memo(StatusHudInner);
 
 // src/components/AgentPanel.tsx
-var import_react33 = __toESM(require_react(), 1);
+var import_react34 = __toESM(require_react(), 1);
 var import_jsx_runtime14 = __toESM(require_jsx_runtime(), 1);
 function AgentPanelInner({
   rows,
@@ -37375,7 +37454,7 @@ function AgentPanelInner({
     ] }, row.key);
   }) });
 }
-var AgentPanel = import_react33.default.memo(AgentPanelInner);
+var AgentPanel = import_react34.default.memo(AgentPanelInner);
 
 // src/components/AttachmentChips.tsx
 var import_jsx_runtime15 = __toESM(require_jsx_runtime(), 1);
@@ -37391,7 +37470,7 @@ function AttachmentChips({
 }
 
 // src/components/ModelPicker.tsx
-var import_react34 = __toESM(require_react(), 1);
+var import_react35 = __toESM(require_react(), 1);
 var import_jsx_runtime16 = __toESM(require_jsx_runtime(), 1);
 var MODEL_PICKER_ROWS = 8;
 function ModelPicker({
@@ -37401,7 +37480,7 @@ function ModelPicker({
   isActive = true,
   width
 }) {
-  const [index, setIndex] = (0, import_react34.useState)(() => {
+  const [index, setIndex] = (0, import_react35.useState)(() => {
     const current = options.findIndex((option) => option.current);
     return current === -1 ? 0 : current;
   });
@@ -37461,8 +37540,9 @@ function QueuedPrompts({
 }
 
 // src/components/AgentTranscript.tsx
+var import_react36 = __toESM(require_react(), 1);
 var import_jsx_runtime18 = __toESM(require_jsx_runtime(), 1);
-function AgentTranscript({
+function AgentTranscriptInner({
   name,
   task,
   status,
@@ -37495,6 +37575,7 @@ function AgentTranscript({
     }
   );
 }
+var AgentTranscript = import_react36.default.memo(AgentTranscriptInner);
 
 // src/components/SectionRule.tsx
 var import_jsx_runtime19 = __toESM(require_jsx_runtime(), 1);
@@ -37594,16 +37675,16 @@ function ToolSummary({ calls }) {
 }
 
 // src/components/WorkingIndicator.tsx
-var import_react35 = __toESM(require_react(), 1);
+var import_react37 = __toESM(require_react(), 1);
 var import_jsx_runtime23 = __toESM(require_jsx_runtime(), 1);
 function WorkingIndicatorInner({ line }) {
   if (!line) return null;
   return /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Box_default, { flexShrink: 0, children: /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: line }) });
 }
-var WorkingIndicator = import_react35.default.memo(WorkingIndicatorInner);
+var WorkingIndicator = import_react37.default.memo(WorkingIndicatorInner);
 
 // src/components/HelpPanel.tsx
-var import_react36 = __toESM(require_react(), 1);
+var import_react38 = __toESM(require_react(), 1);
 var import_jsx_runtime24 = __toESM(require_jsx_runtime(), 1);
 var WORKFLOW_COMMANDS = [
   "ralph",
@@ -37636,7 +37717,7 @@ var KEYS = [
   "Approval menus: \u2191\u2193 select, Enter confirm, y/a/p/n answer, Esc refuse"
 ];
 function HelpPanel({ commands, runningSubagents = 0, width = 80, height = 20, isActive = true }) {
-  const [offset, setOffset] = (0, import_react36.useState)(0);
+  const [offset, setOffset] = (0, import_react38.useState)(0);
   const inner = Math.max(1, width - 4);
   const rows = Math.max(1, height - 3);
   const lines = [];
@@ -37697,6 +37778,18 @@ var APPROVAL_POLL_MS = 5e3;
 var TOAST_INLINE_MAX = 48;
 var LSP_POLL_MS = 3e4;
 var AGENT_TRANSCRIPT_ROWS = 12;
+var AGENT_TRANSCRIPT_CHROME_ROWS = 4;
+var MIN_AGENT_TRANSCRIPT_ROWS = 3;
+function agentTranscriptRows({
+  fullscreen,
+  usable,
+  statusRows,
+  bottomRows: bottomRows2
+}) {
+  if (fullscreen) return AGENT_TRANSCRIPT_ROWS;
+  const room = usable - statusRows - bottomRows2 - AGENT_TRANSCRIPT_CHROME_ROWS;
+  return Math.max(MIN_AGENT_TRANSCRIPT_ROWS, Math.min(AGENT_TRANSCRIPT_ROWS, room));
+}
 var RESTART_DELAY_MS = 1200;
 function TimelineEntry({
   state,
@@ -37780,64 +37873,65 @@ function App2({
   recordingPath
 }) {
   const { exit } = use_app_default();
-  const [sessionId, setSessionId] = (0, import_react37.useState)(initialSessionId);
-  const activeSessionRef = (0, import_react37.useRef)(initialSessionId);
-  const resumingRef = (0, import_react37.useRef)(false);
-  const [state, dispatch] = (0, import_react37.useReducer)(reducer, initialState);
-  const [showHelp, setShowHelp] = (0, import_react37.useState)(false);
+  const [sessionId, setSessionId] = (0, import_react39.useState)(initialSessionId);
+  const activeSessionRef = (0, import_react39.useRef)(initialSessionId);
+  const resumingRef = (0, import_react39.useRef)(false);
+  const [state, dispatch] = (0, import_react39.useReducer)(reducer, initialState);
+  const [showHelp, setShowHelp] = (0, import_react39.useState)(false);
   const { stdin } = use_stdin_default();
-  const [draft, setDraft] = (0, import_react37.useState)("");
-  const [expandedId, setExpandedId] = (0, import_react37.useState)(null);
-  const [queueFocused, setQueueFocused] = (0, import_react37.useState)(false);
-  const [agentsExpanded, setAgentsExpanded] = (0, import_react37.useState)(false);
-  const [agentRosterVersion, setAgentRosterVersion] = (0, import_react37.useState)(0);
-  const [attachments, setAttachments] = (0, import_react37.useState)([]);
-  const [voice, setVoice] = (0, import_react37.useState)(initialVoice);
-  const [insert, setInsert] = (0, import_react37.useState)(null);
-  const [append, setAppend] = (0, import_react37.useState)(null);
-  const [sessionModelSource, setSessionModelSource] = (0, import_react37.useState)(null);
-  const [agentModels, setAgentModels] = (0, import_react37.useState)({});
-  const [modelPicker, setModelPicker] = (0, import_react37.useState)(null);
-  const [capabilities, setCapabilities] = (0, import_react37.useState)(audio);
-  const recordingRef = (0, import_react37.useRef)(null);
-  const speechRef = (0, import_react37.useRef)(null);
-  const spokenRef = (0, import_react37.useRef)(/* @__PURE__ */ new Set());
-  const [focus, setFocus] = (0, import_react37.useState)(INPUT_FOCUS);
-  const [shellsOpen, setShellsOpen] = (0, import_react37.useState)(false);
-  const [openAgent, setOpenAgent] = (0, import_react37.useState)(null);
-  const [resumeChoices, setResumeChoices] = (0, import_react37.useState)(null);
-  const [modePicker, setModePicker] = (0, import_react37.useState)(false);
-  const [agentScroll, setAgentScroll] = (0, import_react37.useState)(0);
-  const [pastPrompts] = (0, import_react37.useState)(() => {
+  const [draft, setDraft] = (0, import_react39.useState)("");
+  const [expandedId, setExpandedId] = (0, import_react39.useState)(null);
+  const [queueFocused, setQueueFocused] = (0, import_react39.useState)(false);
+  const [agentsExpanded, setAgentsExpanded] = (0, import_react39.useState)(false);
+  const [agentRosterVersion, setAgentRosterVersion] = (0, import_react39.useState)(0);
+  const [attachments, setAttachments] = (0, import_react39.useState)([]);
+  const [voice, setVoice] = (0, import_react39.useState)(initialVoice);
+  const [insert, setInsert] = (0, import_react39.useState)(null);
+  const [append, setAppend] = (0, import_react39.useState)(null);
+  const [sessionModelSource, setSessionModelSource] = (0, import_react39.useState)(null);
+  const [agentModels, setAgentModels] = (0, import_react39.useState)({});
+  const [modelPicker, setModelPicker] = (0, import_react39.useState)(null);
+  const [capabilities, setCapabilities] = (0, import_react39.useState)(audio);
+  const recordingRef = (0, import_react39.useRef)(null);
+  const speechRef = (0, import_react39.useRef)(null);
+  const spokenRef = (0, import_react39.useRef)(/* @__PURE__ */ new Set());
+  const [focus, setFocus] = (0, import_react39.useState)(INPUT_FOCUS);
+  const [shellsOpen, setShellsOpen] = (0, import_react39.useState)(false);
+  const [openAgent, setOpenAgent] = (0, import_react39.useState)(null);
+  const [resumeChoices, setResumeChoices] = (0, import_react39.useState)(null);
+  const [modePicker, setModePicker] = (0, import_react39.useState)(false);
+  const [agentScroll, setAgentScroll] = (0, import_react39.useState)(0);
+  const [pastPrompts] = (0, import_react39.useState)(() => {
     history?.load();
     return history?.prompts() ?? [];
   });
-  const [lastSession] = (0, import_react37.useState)(() => {
+  const [lastSession] = (0, import_react39.useState)(() => {
     sessions?.load();
     return offerSession(sessions?.last(workdir) ?? null, priorSession2);
   });
-  const [modeHintVisible, setModeHintVisible] = (0, import_react37.useState)(true);
-  const [modeToast, setModeToast] = (0, import_react37.useState)(null);
-  const [runningCommand, setRunningCommand] = (0, import_react37.useState)(null);
-  const staticCursorRef = (0, import_react37.useRef)(0);
-  const staticBlocksRef = (0, import_react37.useRef)([{ key: "launch", kind: "launch" }]);
-  const turnRef = (0, import_react37.useRef)(null);
-  const turnActiveRef = (0, import_react37.useRef)(false);
-  const turnCountRef = (0, import_react37.useRef)(0);
-  const [scrollOffset, setScrollOffset] = (0, import_react37.useState)(0);
-  const modeToastTimer = (0, import_react37.useRef)(null);
-  const droppedRef = (0, import_react37.useRef)(0);
-  const droppedTimer = (0, import_react37.useRef)(null);
-  const registryRef = (0, import_react37.useRef)(new SlashRegistry(client, sessionId));
-  const [update, setUpdate] = (0, import_react37.useState)(initialUpdateState);
-  const [updateAvailable, setUpdateAvailable] = (0, import_react37.useState)(false);
-  const approvalResolver = (0, import_react37.useRef)(null);
-  const audioClient = (0, import_react37.useMemo)(() => createAudioClient(client), [client]);
-  const audioOffered = (0, import_react37.useCallback)(
+  const [modeHintVisible, setModeHintVisible] = (0, import_react39.useState)(true);
+  const [modeToast, setModeToast] = (0, import_react39.useState)(null);
+  const [runningCommand, setRunningCommand] = (0, import_react39.useState)(null);
+  const staticCursorRef = (0, import_react39.useRef)(0);
+  const staticBlocksRef = (0, import_react39.useRef)([{ key: "launch", kind: "launch" }]);
+  const turnRef = (0, import_react39.useRef)(null);
+  const turnActiveRef = (0, import_react39.useRef)(false);
+  const turnCountRef = (0, import_react39.useRef)(0);
+  const [scrollOffset, setScrollOffset] = (0, import_react39.useState)(0);
+  const modeToastTimer = (0, import_react39.useRef)(null);
+  const droppedRef = (0, import_react39.useRef)(0);
+  const droppedTimer = (0, import_react39.useRef)(null);
+  const childEventsRef = (0, import_react39.useRef)(null);
+  const registryRef = (0, import_react39.useRef)(new SlashRegistry(client, sessionId));
+  const [update, setUpdate] = (0, import_react39.useState)(initialUpdateState);
+  const [updateAvailable, setUpdateAvailable] = (0, import_react39.useState)(false);
+  const approvalResolver = (0, import_react39.useRef)(null);
+  const audioClient = (0, import_react39.useMemo)(() => createAudioClient(client), [client]);
+  const audioOffered = (0, import_react39.useCallback)(
     () => client.serverCapabilities?.().includes("audio") ?? true,
     [client]
   );
-  const refreshCapabilities = (0, import_react37.useCallback)(() => {
+  const refreshCapabilities = (0, import_react39.useCallback)(() => {
     if (!audioOffered()) {
       setCapabilities(noAudio);
       return;
@@ -37846,21 +37940,25 @@ function App2({
       setCapabilities(noAudio);
     });
   }, [audioClient, audioOffered]);
-  (0, import_react37.useEffect)(() => {
+  (0, import_react39.useEffect)(() => {
     refreshCapabilities();
   }, [refreshCapabilities]);
-  const refreshLsp = (0, import_react37.useCallback)(() => {
+  const refreshLsp = (0, import_react39.useCallback)(() => {
     void client.call("lsp.status", {}).then((result) => dispatch({ type: "lsp/status", servers: readLspStatus(result) })).catch(() => {
       dispatch({ type: "lsp/status", servers: [] });
     });
   }, [client]);
-  const refreshApprovals = (0, import_react37.useCallback)(() => {
+  const refreshApprovals = (0, import_react39.useCallback)(() => {
     void client.listApprovals(sessionId).then((result) => dispatch({ type: "approval/list", requests: result.requests ?? [] })).catch(() => {
     });
   }, [client, sessionId]);
-  (0, import_react37.useEffect)(() => {
+  (0, import_react39.useEffect)(() => {
     dispatch({ type: "session/ready", sessionId, mode, provider, model });
     dispatch({ type: "status", status: client.getStatus() });
+    const childEvents = createChildEventBuffer(
+      (childSession, event) => dispatch({ type: "child/event", sessionId: childSession, event })
+    );
+    childEventsRef.current = childEvents;
     client.setListeners({
       // A delegate's events arrive on its own session; they belong to that
       // agent's transcript, never appended to this one.
@@ -37875,7 +37973,7 @@ function App2({
           }, 120);
         }
         if (event.sessionId && event.sessionId !== activeSessionRef.current) {
-          dispatch({ type: "child/event", sessionId: event.sessionId, event });
+          childEvents.push(event.sessionId, event);
           return;
         }
         dispatch({ type: "session/event", event });
@@ -37925,6 +38023,10 @@ function App2({
     );
     void registryRef.current.load().then((commands) => dispatch({ type: "commands", commands })).catch((error) => dispatch({ type: "error", message: String(error) }));
     refreshApprovals();
+    return () => {
+      childEvents.dispose();
+      if (childEventsRef.current === childEvents) childEventsRef.current = null;
+    };
   }, [
     client,
     sessionId,
@@ -37935,7 +38037,7 @@ function App2({
     refreshCapabilities,
     refreshLsp
   ]);
-  (0, import_react37.useEffect)(() => {
+  (0, import_react39.useEffect)(() => {
     let cancelled = false;
     void client.checkUpdate(true).then((check) => {
       if (cancelled) return;
@@ -37947,7 +38049,7 @@ function App2({
       cancelled = true;
     };
   }, [client]);
-  (0, import_react37.useEffect)(() => {
+  (0, import_react39.useEffect)(() => {
     const onData = (data) => {
       if (state.pendingApproval || update.phase === "confirm" || update.phase === "running") return;
       if (["\x1BOP", "\x1B[11~", "\x1B[[A"].includes(data.toString())) {
@@ -37960,7 +38062,7 @@ function App2({
       stdin.off("data", onData);
     };
   }, [stdin, state.pendingApproval, update.phase]);
-  (0, import_react37.useEffect)(() => {
+  (0, import_react39.useEffect)(() => {
     if (update.phase !== "done") return;
     let cancelled = false;
     const timer = setTimeout(() => {
@@ -37978,13 +38080,13 @@ function App2({
       clearTimeout(timer);
     };
   }, [update.phase, client, onRestart, exit]);
-  (0, import_react37.useEffect)(() => {
+  (0, import_react39.useEffect)(() => {
     if (state.approvalQueue.length === 0) return;
     const timer = setInterval(refreshApprovals, APPROVAL_POLL_MS);
     return () => clearInterval(timer);
   }, [state.approvalQueue.length, refreshApprovals]);
   const lastMessage = state.messages[state.messages.length - 1];
-  (0, import_react37.useEffect)(() => {
+  (0, import_react39.useEffect)(() => {
     if (!voice.tts || !lastMessage) return;
     if (lastMessage.role !== "assistant" || lastMessage.streaming) return;
     if (spokenRef.current.has(lastMessage.id)) return;
@@ -37996,38 +38098,38 @@ function App2({
     });
   }, [voice.tts, lastMessage?.id, lastMessage?.streaming]);
   const compactionCount = state.compactions.length;
-  (0, import_react37.useEffect)(() => {
+  (0, import_react39.useEffect)(() => {
     const latest = state.compactions[compactionCount - 1];
     if (!latest) return;
     showToast(`compacted: ${formatTokens(latest.before)} \u2192 ${formatTokens(latest.after)}`);
   }, [compactionCount]);
-  (0, import_react37.useEffect)(() => {
+  (0, import_react39.useEffect)(() => {
     const timer = setInterval(refreshLsp, LSP_POLL_MS);
     return () => clearInterval(timer);
   }, [refreshLsp]);
   const diagnosticsVersion = Object.keys(state.diagnostics).length;
-  (0, import_react37.useEffect)(() => {
+  (0, import_react39.useEffect)(() => {
     if (diagnosticsVersion > 0) refreshLsp();
   }, [diagnosticsVersion, refreshLsp]);
-  (0, import_react37.useEffect)(() => {
+  (0, import_react39.useEffect)(() => {
     if (!state.turnActive) setRunningCommand(null);
   }, [state.turnActive]);
-  (0, import_react37.useEffect)(() => {
+  (0, import_react39.useEffect)(() => {
     if (state.approvalQueue.length === 0 && queueFocused) setQueueFocused(false);
   }, [state.approvalQueue.length, queueFocused]);
-  (0, import_react37.useEffect)(() => {
+  (0, import_react39.useEffect)(() => {
     const timer = setTimeout(() => setModeHintVisible(false), 6e3);
     return () => clearTimeout(timer);
   }, []);
-  (0, import_react37.useEffect)(() => () => {
+  (0, import_react39.useEffect)(() => () => {
     if (modeToastTimer.current) clearTimeout(modeToastTimer.current);
   }, []);
-  const showToast = (0, import_react37.useCallback)((text) => {
+  const showToast = (0, import_react39.useCallback)((text) => {
     setModeToast(text);
     if (modeToastTimer.current) clearTimeout(modeToastTimer.current);
     modeToastTimer.current = setTimeout(() => setModeToast(null), 2500);
   }, []);
-  const resumeSession = (0, import_react37.useCallback)(
+  const resumeSession = (0, import_react39.useCallback)(
     (target, into) => {
       if (into === "main") {
         if (resumingRef.current || state.turnActive) return;
@@ -38051,9 +38153,13 @@ function App2({
         }
         const events = Array.isArray(result?.events) ? result.events : [];
         for (const event of events) {
-          if (into === "child") dispatch({ type: "child/event", sessionId: target, event });
-          else dispatch({ type: "session/event", event });
+          if (into === "child") {
+            const buffer = childEventsRef.current;
+            if (buffer) buffer.push(target, event);
+            else dispatch({ type: "child/event", sessionId: target, event });
+          } else dispatch({ type: "session/event", event });
         }
+        if (into === "child") childEventsRef.current?.flush();
       }).catch(
         (error) => dispatch({ type: "error", message: `resume failed: ${String(error)}` })
       ).finally(() => {
@@ -38062,7 +38168,7 @@ function App2({
     },
     [client, state.turnActive, sessions, workdir]
   );
-  const changeMode = (0, import_react37.useCallback)(
+  const changeMode = (0, import_react39.useCallback)(
     (next) => {
       setModeHintVisible(false);
       dispatch({ type: "mode", mode: next });
@@ -38071,7 +38177,7 @@ function App2({
     },
     [client, sessionId, showToast]
   );
-  const completions = (0, import_react37.useMemo)(
+  const completions = (0, import_react39.useMemo)(
     () => draft.startsWith("/") ? registryRef.current.complete(draft) : [],
     [draft, state.commands]
   );
@@ -38080,7 +38186,7 @@ function App2({
   const daemon = useDaemonInfo(client);
   const sessionElapsedMs = useElapsed();
   const version = update.current || TUI_VERSION;
-  const hudSegments = (0, import_react37.useMemo)(
+  const hudSegments = (0, import_react39.useMemo)(
     () => buildHudSegments({
       status: state.status,
       version,
@@ -38132,7 +38238,7 @@ function App2({
       modeHintVisible
     ]
   );
-  const hudRows = (0, import_react37.useMemo)(
+  const hudRows = (0, import_react39.useMemo)(
     () => layoutHud(hudSegments, contentWidth),
     [hudSegments, contentWidth]
   );
@@ -38171,33 +38277,32 @@ function App2({
   turnActiveRef.current = state.turnActive;
   const staticCursor = staticCursorRef.current;
   const staticItems = staticBlocksRef.current;
+  const clock = useClock(state.turnActive || voice.recording);
   const knownAgents = useKnownAgents(client, void 0, agentRosterVersion);
   const activeTeam = knownAgents.find((agent) => agent.kind === "team")?.name;
-  const agentRows = (0, import_react37.useMemo)(
+  const agentRows = (0, import_react39.useMemo)(
     () => buildAgentRows({
       state,
       known: knownAgents.filter((agent) => agent.kind !== "team"),
-      now,
+      now: clock,
       expanded: agentsExpanded,
       currentLabel: "main"
     }),
-    // `now` deliberately left out: the panel should follow the session, not the
-    // clock. The spinner's own tick is what refreshes the elapsed columns.
+    // `clock`, not `Date.now()`: the elapsed columns move once a second, so the
+    // rows are rebuilt once a second. Reading the clock on every render would
+    // hand `AgentPanel` a new array on each of the spinner's five frames a
+    // second and on every token a delegate streams.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.subagents, state.teamTasks, knownAgents, activeTeam, agentsExpanded, now]
+    [state.subagents, state.teamTasks, knownAgents, activeTeam, agentsExpanded, clock]
   );
   const agentRowCount = agentRows.length;
-  (0, import_react37.useEffect)(() => {
+  (0, import_react39.useEffect)(() => {
     setFocus((current) => clampFocus(current, agentRowCount));
   }, [agentRowCount]);
   const openAgentEntry = openAgent ? state.subagents.find((agent) => agent.sessionId === openAgent.sessionId) : void 0;
-  const agentLines = (0, import_react37.useMemo)(
+  const agentLines = (0, import_react39.useMemo)(
     () => openAgent && state.children[openAgent.sessionId] ? transcriptLines(state.children[openAgent.sessionId], contentWidth - 4) : [],
     [openAgent, state.children, contentWidth]
-  );
-  const agentViewport = (0, import_react37.useMemo)(
-    () => sliceViewport(agentLines, AGENT_TRANSCRIPT_ROWS, agentScroll),
-    [agentLines, agentScroll]
   );
   const phase = derivePhase(state, { runningCommand });
   const spinnerFrame = useSpinner(
@@ -38205,20 +38310,20 @@ function App2({
   );
   const turn = turnRef.current;
   const queuedSuffix = state.queued.length > 0 ? ` \xB7 ${queuedLabel(state.queued.length)}` : "";
-  const workingText = voice.recording ? recordingLabel(voice.startedAt, now) : voice.speaking ? SPEAKING_LABEL : workingLine({
+  const workingText = voice.recording ? recordingLabel(voice.startedAt, clock) : voice.speaking ? SPEAKING_LABEL : workingLine({
     phase,
-    elapsedMs: turn ? now - turn.startedAt : 0,
+    elapsedMs: turn ? clock - turn.startedAt : 0,
     inputTokens: turn ? state.usage.inputTokens - turn.inputTokens : 0,
     outputTokens: turn ? state.usage.outputTokens - turn.outputTokens : 0,
     frame: spinnerFrame,
     verbOffset: state.messages.length
   });
   const indicatorText = workingText === null ? null : `${workingText}${queuedSuffix}`;
-  const completableAgents = (0, import_react37.useMemo)(
+  const completableAgents = (0, import_react39.useMemo)(
     () => agentCandidates({ known: knownAgents, teamTasks: state.teamTasks, models: agentModels }),
     [knownAgents, state.teamTasks, agentModels]
   );
-  const delegation = (0, import_react37.useMemo)(
+  const delegation = (0, import_react39.useMemo)(
     () => delegationHint(draft, knownAgents.map((agent) => agent.name)),
     [draft, knownAgents]
   );
@@ -38243,28 +38348,40 @@ function App2({
       noticeVisible: Boolean(modeToast && modeToast.length > TOAST_INLINE_MAX)
     })
   });
-  const lines = (0, import_react37.useMemo)(
+  const agentWindowRows = agentTranscriptRows({
+    fullscreen,
+    usable: usableRows(terminal.rows),
+    statusRows: layout.statusRows,
+    bottomRows: layout.bottomRows
+  });
+  const agentWindowRowsRef = (0, import_react39.useRef)(agentWindowRows);
+  agentWindowRowsRef.current = agentWindowRows;
+  const agentViewport = (0, import_react39.useMemo)(
+    () => sliceViewport(agentLines, agentWindowRows, agentScroll),
+    [agentLines, agentWindowRows, agentScroll]
+  );
+  const lines = (0, import_react39.useMemo)(
     () => fullscreen ? transcriptLines(state, contentWidth, { expandedCall: expandedId }) : [],
     [fullscreen, state, contentWidth, expandedId]
   );
-  const viewport = (0, import_react37.useMemo)(
+  const viewport = (0, import_react39.useMemo)(
     () => sliceViewport(lines, layout.transcriptRows, scrollOffset),
     [lines, layout.transcriptRows, scrollOffset]
   );
-  const previousLineCount = (0, import_react37.useRef)(0);
-  (0, import_react37.useEffect)(() => {
+  const previousLineCount = (0, import_react39.useRef)(0);
+  (0, import_react39.useEffect)(() => {
     const grown = lines.length - previousLineCount.current;
     previousLineCount.current = lines.length;
     if (grown > 0) setScrollOffset((offset) => offset > 0 ? offset + grown : 0);
   }, [lines.length]);
-  (0, import_react37.useEffect)(() => {
+  (0, import_react39.useEffect)(() => {
     setScrollOffset((offset) => clampScroll(offset, lines.length, layout.transcriptRows));
   }, [layout.transcriptRows, lines.length]);
-  const scrollBy = (0, import_react37.useCallback)(
+  const scrollBy = (0, import_react39.useCallback)(
     (delta) => setScrollOffset((offset) => clampScroll(offset + delta, lines.length, layout.transcriptRows)),
     [lines.length, layout.transcriptRows]
   );
-  const takePaste = (0, import_react37.useCallback)(
+  const takePaste = (0, import_react39.useCallback)(
     (text) => {
       if (!probe) return false;
       const { attachments: found, rejected } = scanAttachments(text, probe);
@@ -38275,7 +38392,7 @@ function App2({
     },
     [probe, showToast]
   );
-  const openModelPicker = (0, import_react37.useCallback)(() => {
+  const openModelPicker = (0, import_react39.useCallback)(() => {
     const settings = client.call("settings.get", { scope: "global" }).catch(() => ({ settings: {} }));
     const projectSettings = client.call("settings.get", { scope: "project", workdir }).catch(() => ({ settings: {} }));
     const discovered = client.call("provider.models", state.provider ? { vendor: state.provider } : {}).catch(() => ({ models: [], current: null }));
@@ -38297,7 +38414,7 @@ function App2({
       }
     );
   }, [client, workdir, state.provider, state.model]);
-  const chooseModel = (0, import_react37.useCallback)(
+  const chooseModel = (0, import_react39.useCallback)(
     (ref) => {
       void client.call("session.setModel", { sessionId, model: ref === INHERIT_REF ? null : ref }).then((result) => {
         const model2 = result?.model ? String(result.model) : null;
@@ -38315,7 +38432,7 @@ function App2({
     },
     [client, sessionId, showToast]
   );
-  const takeClipboard = (0, import_react37.useCallback)(() => {
+  const takeClipboard = (0, import_react39.useCallback)(() => {
     if (!captureClipboard || !probe) {
       showToast("no clipboard tool available");
       return;
@@ -38332,7 +38449,7 @@ function App2({
     }
     setAttachments((current) => addAttachments(current, found));
   }, [captureClipboard, probe, showToast]);
-  const runtime = (0, import_react37.useMemo)(
+  const runtime = (0, import_react39.useMemo)(
     () => ({
       audio: audioClient,
       local: localAudio,
@@ -38343,7 +38460,7 @@ function App2({
     }),
     [audioClient, localAudio, capabilities, sessionId, recordingPath, showToast]
   );
-  const toggleRecording = (0, import_react37.useCallback)(() => {
+  const toggleRecording = (0, import_react39.useCallback)(() => {
     if (recordingRef.current) {
       const handle = recordingRef.current;
       recordingRef.current = null;
@@ -38374,18 +38491,18 @@ function App2({
     setVoice(outcome.state);
     showToast(outcome.message);
   }, [runtime, voice, capabilities, localAudio, recordingPath, showToast]);
-  const silence = (0, import_react37.useCallback)(() => {
+  const silence = (0, import_react39.useCallback)(() => {
     if (!speechRef.current) return;
     stopSpeaking(runtime, speechRef.current);
     speechRef.current = null;
     setVoice((current) => ({ ...current, speaking: false }));
   }, [runtime]);
-  const resumeMemory = (0, import_react37.useCallback)(() => {
+  const resumeMemory = (0, import_react39.useCallback)(() => {
     if (!lastSession) return;
     showToast(`resuming ${lastSession.sessionId.slice(0, 8)}`);
     resumeSession(lastSession.sessionId, "main");
   }, [lastSession, resumeSession, showToast]);
-  const openResumePicker = (0, import_react37.useCallback)(() => {
+  const openResumePicker = (0, import_react39.useCallback)(() => {
     showToast("loading saved sessions");
     void client.call("session.list", { includeClosed: true, workdir }).then((result) => {
       const choices = (Array.isArray(result?.sessions) ? result.sessions : []).filter((row) => row.sessionId !== activeSessionRef.current).map((row) => ({
@@ -38403,7 +38520,7 @@ function App2({
       (error) => dispatch({ type: "error", message: `could not list saved sessions: ${String(error)}` })
     );
   }, [client, workdir, showToast]);
-  const submit = (0, import_react37.useCallback)(
+  const submit = (0, import_react39.useCallback)(
     (text) => {
       if (resumingRef.current || update.phase === "running" || update.phase === "done") return;
       if (/^\/delegate(\s|$)/.test(text.trim())) {
@@ -38574,7 +38691,7 @@ function App2({
       toggleRecording
     ]
   );
-  const answerUpdate = (0, import_react37.useCallback)(
+  const answerUpdate = (0, import_react39.useCallback)(
     (accepted) => {
       if (!accepted) {
         setUpdate(cancel);
@@ -38597,7 +38714,7 @@ function App2({
     },
     [client, state.turnActive]
   );
-  const decideApproval = (0, import_react37.useCallback)(
+  const decideApproval = (0, import_react39.useCallback)(
     (decision, scope) => {
       const resolve2 = approvalResolver.current;
       const requestId = state.pendingApproval?.requestId;
@@ -38607,7 +38724,7 @@ function App2({
     },
     [state.pendingApproval]
   );
-  const respondQueued = (0, import_react37.useCallback)(
+  const respondQueued = (0, import_react39.useCallback)(
     (requestId, decision, scope) => {
       dispatch({ type: "approval/resolved", requestId });
       void client.respondApproval(requestId, decision, scope).catch((error) => dispatch({ type: "error", message: String(error) }));
@@ -38648,11 +38765,11 @@ function App2({
         return;
       }
       if (key.pageUp) {
-        setAgentScroll((offset) => offset + AGENT_TRANSCRIPT_ROWS);
+        setAgentScroll((offset) => offset + agentWindowRowsRef.current);
         return;
       }
       if (key.pageDown) {
-        setAgentScroll((offset) => Math.max(0, offset - AGENT_TRANSCRIPT_ROWS));
+        setAgentScroll((offset) => Math.max(0, offset - agentWindowRowsRef.current));
         return;
       }
     }
@@ -38720,7 +38837,7 @@ function App2({
       changeMode(state.mode === "plan" ? "accept" : "plan");
     }
   });
-  const openAgentRow = (0, import_react37.useCallback)(
+  const openAgentRow = (0, import_react39.useCallback)(
     (index) => {
       const row = agentRows[index];
       if (!row) return;
@@ -38744,7 +38861,7 @@ function App2({
     },
     [agentRows, state.subagents, state.children, resumeSession, showToast]
   );
-  const closeAgent = (0, import_react37.useCallback)(() => {
+  const closeAgent = (0, import_react39.useCallback)(() => {
     setOpenAgent(null);
     setFocus(INPUT_FOCUS);
   }, []);
@@ -38868,7 +38985,7 @@ function App2({
         children: `${summary.text}${focus.zone === "footer" ? " \xB7 Enter to choose mode" : ""}`
       }
     ),
-    shellsOpen ? /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(ShellList, { calls: state.toolCalls, now, width: contentWidth }) : null,
+    shellsOpen ? /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(ShellList, { calls: state.toolCalls, now: clock, width: contentWidth }) : null,
     /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(SectionRule, { width: contentWidth }),
     /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(StatusHud, { rows: hudRows, width: contentWidth }),
     warning ? /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Text, { color: warning.color, bold: warning.bold, wrap: "truncate-end", children: warning.text }) : null,
@@ -38947,9 +39064,9 @@ function App2({
         {
           name: openAgent.name,
           task: openAgentEntry?.task ?? "",
-          status: openAgentEntry ? agentStatusText(openAgentEntry, now) : "",
+          status: openAgentEntry ? agentStatusText(openAgentEntry, clock) : "",
           lines: agentViewport.lines,
-          height: AGENT_TRANSCRIPT_ROWS,
+          height: agentWindowRows,
           width: contentWidth,
           scrollIndicator: scrollIndicator(agentViewport),
           empty: agentLines.length === 0
@@ -39193,11 +39310,11 @@ function installAltScreen({
   };
 }
 
-// ../sdk/dist/protocol.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/sdk/dist/protocol.js
 var PROTOCOL_VERSION = "1.5.0";
 var WS_PATH = "/ws";
 
-// ../sdk/dist/client.js
+// ../../../../../../../mnt/data/work/mediagen/snowpea/sdk/dist/client.js
 init_wrapper();
 var RpcError = class extends Error {
   rpcCode;
