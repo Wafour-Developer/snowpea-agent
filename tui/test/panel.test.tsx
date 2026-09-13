@@ -91,11 +91,13 @@ describe("the bottom panel", () => {
 
     stdin.write("\u001B[B"); // into the footer
     await sleep(80);
-    expect(stdout.text()).toContain("Enter to list them");
+    expect(stdout.text()).toContain("Enter to choose mode");
 
-    stdin.write("\r"); // open what is running
+    stdin.write("\r"); // open mode picker
     await sleep(80);
-    expect(stdout.text()).toContain("nothing running");
+    expect(stdout.text()).toContain("accept mode");
+    expect(stdout.text()).toContain("auto mode");
+    expect(stdout.text()).toContain("plan mode");
 
     stdin.write("\u001B"); // back to the input
     await sleep(80);

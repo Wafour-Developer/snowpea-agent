@@ -274,6 +274,7 @@ class SessionSummary(Payload):
     contextWindow: int | None = Field(
         default=None, description="Context window of the session's model; null when unknown."
     )
+    lastPrompt: str | None = Field(default=None, description="Latest saved user input.")
 
 
 class SessionCompactParams(Payload):

@@ -49,6 +49,7 @@ function fakeClient() {
             sessionId: CHILD,
             workdir: "/tmp/project",
             createdAt: "2026-09-12T10:00:00Z",
+            lastPrompt: "fix the failing build",
           }],
         };
       }
@@ -113,6 +114,7 @@ describe("session resume", () => {
       if (command === "/resume") {
         await sleep(100);
         expect(stdout.text()).toContain(CHILD);
+        expect(stdout.text()).toContain("fix the failing build");
         stdin.write("\r");
       }
       await sleep(200);

@@ -36464,6 +36464,13 @@ function Chat({
         return;
       }
       if (key.return) {
+        if (showPalette && !value.includes(" ")) {
+          const completion = completions[selected];
+          if (completion && value !== `/${completion.name}`) {
+            update(`/${completion.name} `);
+            return;
+          }
+        }
         const text = value.trim();
         if (text.length === 0) return;
         setHistory((h) => [...h, text]);
@@ -37254,6 +37261,7 @@ function App2({
   const [shellsOpen, setShellsOpen] = (0, import_react36.useState)(false);
   const [openAgent, setOpenAgent] = (0, import_react36.useState)(null);
   const [resumeChoices, setResumeChoices] = (0, import_react36.useState)(null);
+  const [modePicker, setModePicker] = (0, import_react36.useState)(false);
   const [agentScroll, setAgentScroll] = (0, import_react36.useState)(0);
   const [pastPrompts] = (0, import_react36.useState)(() => {
     history?.load();
@@ -37730,7 +37738,7 @@ function App2({
       const choices = (Array.isArray(result?.sessions) ? result.sessions : []).filter((row) => row.sessionId !== activeSessionRef.current).map((row) => ({
         sessionId: String(row.sessionId),
         workdir: String(row.workdir),
-        firstPrompt: "",
+        firstPrompt: typeof row.lastPrompt === "string" ? row.lastPrompt : "",
         at: Date.parse(String(row.createdAt)) || 0
       }));
       if (choices.length === 0) {
@@ -37940,7 +37948,7 @@ function App2({
       }
       return;
     }
-    if (resumeChoices) return;
+    if (resumeChoices || modePicker) return;
     if (key.escape && voice.speaking) {
       silence();
       return;
@@ -37981,7 +37989,7 @@ function App2({
         return;
       }
       if (key.return) {
-        if (focus.zone === "footer") setShellsOpen((open) => !open);
+        if (focus.zone === "footer") setModePicker(true);
         else if (focus.zone === "agent") openAgentRow(focus.index);
         return;
       }
@@ -38084,14 +38092,25 @@ function App2({
         onBlur: () => setQueueFocused(false)
       }
     ),
-    state.pendingApproval ? /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(ApprovalPrompt, { request: state.pendingApproval, onDecide: decideApproval }) : resumeChoices ? /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(
+    state.pendingApproval ? /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(ApprovalPrompt, { request: state.pendingApproval, onDecide: decideApproval }) : modePicker ? /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(
+      ConfirmMenu,
+      {
+        options: ["accept", "auto", "plan"].map((value) => ({ label: `${value} mode`, value })),
+        initialIndex: Math.max(0, ["accept", "auto", "plan"].indexOf(state.mode)),
+        escapeValue: null,
+        onChoose: (value) => {
+          setModePicker(false);
+          setFocus(INPUT_FOCUS);
+          if (value) changeMode(value);
+        }
+      }
+    ) : resumeChoices ? /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(
       ConfirmMenu,
       {
         options: [
           ...resumeChoices.map((entry) => ({
-            label: `${entry.sessionId} \xB7 ${new Date(entry.at).toLocaleString()}`,
-            value: entry.sessionId,
-            hint: entry.workdir
+            label: `${entry.sessionId} \xB7 ${new Date(entry.at).toLocaleString()} \xB7 ${entry.firstPrompt ? entry.firstPrompt.length > 48 ? `${entry.firstPrompt.slice(0, 47)}\u2026` : entry.firstPrompt : "(no prompt)"}`,
+            value: entry.sessionId
           })),
           { label: "Cancel", value: null }
         ],
@@ -38146,7 +38165,7 @@ function App2({
         dimColor: summary.dimColor && focus.zone !== "footer",
         inverse: focus.zone === "footer",
         wrap: "truncate-end",
-        children: `${summary.text}${focus.zone === "footer" ? " \xB7 Enter to list them" : ""}`
+        children: `${summary.text}${focus.zone === "footer" ? " \xB7 Enter to choose mode" : ""}`
       }
     ),
     shellsOpen ? /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(ShellList, { calls: state.toolCalls, now, width: contentWidth }) : null,
