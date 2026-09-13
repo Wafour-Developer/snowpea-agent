@@ -38406,6 +38406,16 @@ function App2({
   const submit = (0, import_react37.useCallback)(
     (text) => {
       if (resumingRef.current || update.phase === "running" || update.phase === "done") return;
+      if (/^\/delegate(\s|$)/.test(text.trim())) {
+        dispatch({ type: "user/message", text, attachments: [] });
+        history?.add(text, workdir);
+        void client.prompt(sessionId, text).then((result) => {
+          const turnId = result?.turnId;
+          if (turnId) dispatch({ type: "prompt/turn", turnId, text });
+          return result;
+        }).catch((error) => dispatch({ type: "error", message: String(error) }));
+        return;
+      }
       if (/^\/update\s*$/.test(text.trim())) {
         void client.checkUpdate(true).then((check) => {
           setUpdate((current) => fromCheck(current, check));

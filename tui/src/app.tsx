@@ -1229,6 +1229,23 @@ export function App({
   const submit = useCallback(
     (text: string) => {
       if (resumingRef.current || update.phase === "running" || update.phase === "done") return;
+      // `/delegate` and `$agent` take the same road: the text goes to the
+      // daemon as a prompt and its own parser starts the turn. `command.run`
+      // would reach the same `commands.start`, but one road means one thing to
+      // check when a delegation does not answer.
+      if (/^\/delegate(\s|$)/.test(text.trim())) {
+        dispatch({ type: "user/message", text, attachments: [] });
+        history?.add(text, workdir);
+        void client
+          .prompt(sessionId, text)
+          .then((result) => {
+            const turnId = (result as { turnId?: string } | null)?.turnId;
+            if (turnId) dispatch({ type: "prompt/turn", turnId, text });
+            return result;
+          })
+          .catch((error: unknown) => dispatch({ type: "error", message: String(error) }));
+        return;
+      }
       // `$executor fix the tests` goes through the prompt like anything else.
       // Spawning the agent from here instead would run the delegate and stop:
       // nothing would carry its report back into the conversation, and the main
