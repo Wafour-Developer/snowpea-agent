@@ -1400,7 +1400,7 @@ var require_react_development = __commonJS({
           var dispatcher = resolveDispatcher();
           return dispatcher.useCallback(callback, deps);
         }
-        function useMemo4(create2, deps) {
+        function useMemo5(create2, deps) {
           var dispatcher = resolveDispatcher();
           return dispatcher.useMemo(create2, deps);
         }
@@ -2172,7 +2172,7 @@ var require_react_development = __commonJS({
         exports.useImperativeHandle = useImperativeHandle;
         exports.useInsertionEffect = useInsertionEffect;
         exports.useLayoutEffect = useLayoutEffect2;
-        exports.useMemo = useMemo4;
+        exports.useMemo = useMemo5;
         exports.useReducer = useReducer2;
         exports.useRef = useRef5;
         exports.useState = useState15;
@@ -7933,7 +7933,7 @@ var require_react_reconciler_development = __commonJS({
         var HostPortal = 4;
         var HostComponent = 5;
         var HostText = 6;
-        var Fragment4 = 7;
+        var Fragment5 = 7;
         var Mode = 8;
         var ContextConsumer = 9;
         var ContextProvider = 10;
@@ -8073,7 +8073,7 @@ var require_react_reconciler_development = __commonJS({
               return "DehydratedFragment";
             case ForwardRef:
               return getWrappedName$1(type, type.render, "ForwardRef");
-            case Fragment4:
+            case Fragment5:
               return "Fragment";
             case HostComponent:
               return type;
@@ -11207,7 +11207,7 @@ var require_react_reconciler_development = __commonJS({
             }
           }
           function updateFragment2(returnFiber, current3, fragment, lanes, key) {
-            if (current3 === null || current3.tag !== Fragment4) {
+            if (current3 === null || current3.tag !== Fragment5) {
               var created = createFiberFromFragment(fragment, returnFiber.mode, lanes, key);
               created.return = returnFiber;
               return created;
@@ -11610,7 +11610,7 @@ var require_react_reconciler_development = __commonJS({
               if (child.key === key) {
                 var elementType = element.type;
                 if (elementType === REACT_FRAGMENT_TYPE) {
-                  if (child.tag === Fragment4) {
+                  if (child.tag === Fragment5) {
                     deleteRemainingChildren(returnFiber, child.sibling);
                     var existing = useFiber(child, element.props.children);
                     existing.return = returnFiber;
@@ -17101,7 +17101,7 @@ var require_react_reconciler_development = __commonJS({
               var _resolvedProps2 = workInProgress2.elementType === type ? _unresolvedProps2 : resolveDefaultProps(type, _unresolvedProps2);
               return updateForwardRef(current3, workInProgress2, type, _resolvedProps2, renderLanes2);
             }
-            case Fragment4:
+            case Fragment5:
               return updateFragment(current3, workInProgress2, renderLanes2);
             case Mode:
               return updateMode(current3, workInProgress2, renderLanes2);
@@ -17538,7 +17538,7 @@ var require_react_reconciler_development = __commonJS({
             case SimpleMemoComponent:
             case FunctionComponent:
             case ForwardRef:
-            case Fragment4:
+            case Fragment5:
             case Mode:
             case Profiler:
             case ContextConsumer:
@@ -22306,7 +22306,7 @@ var require_react_reconciler_development = __commonJS({
           return fiber;
         }
         function createFiberFromFragment(elements, mode, lanes, key) {
-          var fiber = createFiber(Fragment4, elements, key, mode);
+          var fiber = createFiber(Fragment5, elements, key, mode);
           fiber.lanes = lanes;
           return fiber;
         }
@@ -37656,58 +37656,77 @@ function ApprovalPrompt({
 var import_react32 = __toESM(require_react(), 1);
 var import_jsx_runtime12 = __toESM(require_jsx_runtime(), 1);
 var OTHER_LABEL = "\uAE30\uD0C0 / Other\u2026";
+var CONFIRM_LABEL = "\uD655\uC778 / Confirm";
+var blank = () => ({ selected: [], text: null });
 function questionPromptRows(request) {
-  const options = request.options ?? [];
+  const questions = request.questions ?? [];
+  const first = questions[0];
+  const options = first?.options ?? [];
   const described = options.filter((option) => option.description).length;
-  const other = request.allowOther === false ? 0 : 1;
-  return 4 + options.length + described + other + 1;
+  const other = first?.allowOther === false ? 0 : 1;
+  const tabs = questions.length > 1 ? 1 : 0;
+  return 4 + tabs + options.length + described + other + 2 + 1;
 }
 function QuestionPrompt({
   request,
   onAnswer,
   isActive = true
 }) {
-  const options = request.options ?? [];
-  const allowOther = request.allowOther !== false;
-  const multi = request.multi === true;
-  const rows = allowOther ? options.length + 1 : options.length;
-  const [index, setIndex] = (0, import_react32.useState)(0);
-  const [chosen, setChosen] = (0, import_react32.useState)(() => /* @__PURE__ */ new Set());
+  const questions = (0, import_react32.useMemo)(() => request.questions ?? [], [request]);
+  const [tab2, setTab] = (0, import_react32.useState)(0);
+  const [answers, setAnswers] = (0, import_react32.useState)(() => questions.map(() => blank()));
+  const [cursor, setCursor] = (0, import_react32.useState)(0);
   const [typing, setTyping] = (0, import_react32.useState)(false);
   const [draft, setDraft] = (0, import_react32.useState)("");
+  const at = Math.min(tab2, Math.max(questions.length - 1, 0));
+  const current2 = questions[at];
+  const options = current2?.options ?? [];
+  const allowOther = current2?.allowOther !== false;
+  const multi = current2?.multi === true;
+  const answer = answers[at] ?? blank();
   const otherRow = allowOther ? options.length : -1;
-  const submit = () => {
-    if (index === otherRow && !multi) {
-      setTyping(true);
-      return;
-    }
+  const confirmRow = allowOther ? options.length + 1 : options.length;
+  const rows = confirmRow + 1;
+  const last = at === questions.length - 1;
+  const answeredAt = (index) => {
+    const entry = answers[index];
+    return Boolean(entry && (entry.selected.length > 0 || (entry.text ?? "").length > 0));
+  };
+  const patch = (next) => setAnswers((current3) => current3.map((entry, index) => index === at ? next : entry));
+  const goto = (target) => {
+    setTab((target + questions.length) % questions.length);
+    setTyping(false);
+    setDraft("");
+    setCursor(0);
+  };
+  const pick = (index) => {
+    const label = options[index]?.label ?? "";
+    if (!label) return;
     if (multi) {
-      const picked = [...chosen].sort((a, b) => a - b).map((at) => options[at]?.label ?? "");
-      const wanted = picked.filter((label) => label.length > 0);
-      if (wanted.length === 0 && index !== otherRow) {
-        onAnswer({ selected: [options[index]?.label ?? ""], text: null });
-        return;
-      }
-      if (index === otherRow || wanted.length === 0) {
-        setTyping(true);
-        return;
-      }
-      onAnswer({ selected: wanted, text: null });
+      const held = answer.selected.includes(label) ? answer.selected.filter((entry) => entry !== label) : [...answer.selected, label];
+      const ordered = options.map((option) => option.label).filter((one) => held.includes(one));
+      patch({ selected: ordered, text: answer.text });
       return;
     }
-    if (options.length === 0) {
-      setTyping(true);
+    patch({ selected: [label], text: null });
+    setCursor(confirmRow);
+  };
+  const confirm2 = () => {
+    if (!last) {
+      goto(at + 1);
       return;
     }
-    onAnswer({ selected: [options[index]?.label ?? ""], text: null });
+    onAnswer(answers);
   };
   use_input_default(
     (input, key) => {
       if (typing) {
         if (key.return) {
           const text = draft.trim();
-          const picked = multi ? [...chosen].sort((a, b) => a - b).map((at) => options[at]?.label ?? "") : [];
-          onAnswer({ selected: picked.filter(Boolean), text: text.length > 0 ? text : null });
+          patch({ selected: answer.selected, text: text.length > 0 ? text : null });
+          setTyping(false);
+          setDraft("");
+          setCursor(confirmRow);
           return;
         }
         if (key.escape) {
@@ -37723,91 +37742,140 @@ function QuestionPrompt({
         return;
       }
       if (key.escape) {
-        onAnswer({ selected: [], text: null });
+        onAnswer([]);
         return;
       }
-      if (rows > 0 && (key.upArrow || input === "k")) {
-        setIndex((at) => (at + rows - 1) % rows);
+      if (questions.length > 1 && (key.leftArrow || key.tab && key.shift)) {
+        goto(at - 1);
         return;
       }
-      if (rows > 0 && (key.downArrow || key.tab || input === "j")) {
-        setIndex((at) => (at + 1) % rows);
+      if (questions.length > 1 && (key.rightArrow || key.tab)) {
+        goto(at + 1);
         return;
       }
-      if (input === " " && multi && index !== otherRow) {
-        setChosen((current2) => {
-          const next = new Set(current2);
-          if (next.has(index)) next.delete(index);
-          else next.add(index);
-          return next;
-        });
+      if (key.upArrow || input === "k") {
+        setCursor((index) => (index + rows - 1) % rows);
+        return;
+      }
+      if (key.downArrow || input === "j") {
+        setCursor((index) => (index + 1) % rows);
+        return;
+      }
+      if (input === " " && multi && cursor < options.length) {
+        pick(cursor);
         return;
       }
       if (key.return) {
-        submit();
+        if (cursor === confirmRow) {
+          confirm2();
+          return;
+        }
+        if (cursor === otherRow || options.length === 0) {
+          setTyping(true);
+          return;
+        }
+        pick(cursor);
         return;
       }
       if (/^[1-9]$/.test(input)) {
-        const at = Number(input) - 1;
-        if (at < options.length) {
-          setIndex(at);
-          if (multi) {
-            setChosen((current2) => {
-              const next = new Set(current2);
-              if (next.has(at)) next.delete(at);
-              else next.add(at);
-              return next;
-            });
-          } else {
-            onAnswer({ selected: [options[at].label], text: null });
-          }
+        const index = Number(input) - 1;
+        if (index < options.length) {
+          setCursor(index);
+          pick(index);
         }
         return;
       }
     },
     { isActive }
   );
-  const counter3 = (request.total ?? 1) > 1 ? ` (${request.index ?? 1}/${request.total})` : "";
-  const preview = options[index]?.preview ?? "";
-  const hint = multi ? "\u2191\u2193 move \xB7 Space toggle \xB7 Enter confirm \xB7 1-9 pick \xB7 Esc cancel" : "\u2191\u2193 move \xB7 Enter choose \xB7 1-9 pick \xB7 Esc cancel";
+  const preview = options[cursor]?.preview ?? "";
+  const confirmText = last ? CONFIRM_LABEL : "\uB2E4\uC74C \uC9C8\uBB38 / Next question";
+  const hint = [
+    multi ? "Space \uC120\uD0DD" : null,
+    "\u2191\u2193 \uC774\uB3D9",
+    questions.length > 1 ? "\u2190\u2192 \uC9C8\uBB38 \uC774\uB3D9" : null,
+    "Enter \uD655\uC778",
+    "1-9 \uACE0\uB974\uAE30",
+    "Esc \uCDE8\uC18C"
+  ].filter(Boolean).join(" \xB7 ");
   return /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(Box_default, { flexDirection: "column", borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { bold: true, color: "cyan", children: request.header ? `${request.header}${counter3}` : `\uC9C8\uBB38 / Question${counter3}` }),
-    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { wrap: "wrap", children: request.question }),
+    questions.length > 1 ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Box_default, { children: questions.map((question, index) => {
+      const here = index === at;
+      const tick = answeredAt(index) ? "\u2713 " : "";
+      return /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
+        Text,
+        {
+          inverse: here,
+          bold: here,
+          color: here ? "cyan" : void 0,
+          dimColor: !here,
+          children: ` ${tick}${question.header || `Q${index + 1}`} `
+        },
+        `${request.requestId}-t${index}`
+      );
+    }) }) : /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { bold: true, color: "cyan", children: current2?.header || "\uC9C8\uBB38 / Question" }),
+    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { wrap: "wrap", children: current2?.question ?? "" }),
     /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(Box_default, { flexDirection: "row", marginTop: 1, children: [
       /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(Box_default, { flexDirection: "column", flexGrow: 1, children: [
-        options.map((option, at) => {
-          const selected = at === index;
-          const ticked = multi && chosen.has(at);
-          const box = multi ? ticked ? "[x] " : "[ ] " : "";
+        options.map((option, index) => {
+          const here = index === cursor;
+          const held = answer.selected.includes(option.label);
+          const mark = multi ? held ? "[x] " : "[ ] " : held ? "\u25CF " : "\u25CB ";
           return /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(Box_default, { flexDirection: "column", children: [
             /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(Box_default, { children: [
-              /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { color: selected ? "cyan" : void 0, bold: selected, children: selected ? "\u276F " : "  " }),
-              /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { inverse: selected, color: selected ? "cyan" : void 0, dimColor: !selected, children: ` ${at + 1}. ${box}${option.label} ` })
+              /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { color: here ? "cyan" : void 0, bold: here, children: here ? "\u276F " : "  " }),
+              /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { inverse: here, color: here ? "cyan" : void 0, dimColor: !here && !held, children: ` ${index + 1}. ${mark}${option.label} ` })
             ] }),
             option.description ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { dimColor: true, children: `      ${option.description}` }) : null
-          ] }, `${request.requestId}-o${at}`);
+          ] }, `${request.requestId}-o${index}`);
         }),
         allowOther ? /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(Box_default, { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { color: index === otherRow ? "cyan" : void 0, bold: index === otherRow, children: index === otherRow ? "\u276F " : "  " }),
+          /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { color: cursor === otherRow ? "cyan" : void 0, bold: cursor === otherRow, children: cursor === otherRow ? "\u276F " : "  " }),
           /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
             Text,
             {
-              inverse: index === otherRow,
-              color: index === otherRow ? "cyan" : void 0,
-              dimColor: index !== otherRow,
-              children: ` ${OTHER_LABEL} `
+              inverse: cursor === otherRow,
+              color: cursor === otherRow ? "cyan" : void 0,
+              dimColor: cursor !== otherRow && !answer.text,
+              children: ` ${answer.text ? `\u25CF ${answer.text}` : OTHER_LABEL} `
             }
           )
         ] }) : null
       ] }),
-      preview ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Box_default, { flexDirection: "column", marginLeft: 2, borderStyle: "single", borderColor: "gray", paddingX: 1, children: preview.split("\n").map((line, at) => /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: line }, `${request.requestId}-p${at}`)) }) : null
+      preview ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
+        Box_default,
+        {
+          flexDirection: "column",
+          marginLeft: 2,
+          borderStyle: "single",
+          borderColor: "gray",
+          paddingX: 1,
+          children: preview.split("\n").map((line, index) => /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: line }, `${request.requestId}-p${index}`))
+        }
+      ) : null
     ] }),
     typing ? /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(Box_default, { marginTop: 1, children: [
       /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { color: "cyan", children: "\u203A " }),
       /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { children: draft }),
       /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { inverse: true, children: " " }),
-      /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { dimColor: true, children: "  Enter to send \xB7 Esc to go back" })
-    ] }) : /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { dimColor: true, children: hint })
+      /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { dimColor: true, children: "  Enter to keep \xB7 Esc to go back" })
+    ] }) : /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(import_jsx_runtime12.Fragment, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(Box_default, { marginTop: 1, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { color: cursor === confirmRow ? "cyan" : void 0, bold: cursor === confirmRow, children: cursor === confirmRow ? "\u276F " : "  " }),
+        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
+          Text,
+          {
+            inverse: cursor === confirmRow,
+            bold: cursor === confirmRow,
+            color: cursor === confirmRow ? "cyan" : void 0,
+            dimColor: cursor !== confirmRow,
+            children: ` ${confirmText} `
+          }
+        ),
+        questions.length > 1 ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { dimColor: true, children: `  ${questions.filter((_, index) => answeredAt(index)).length}/${questions.length}` }) : null
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { dimColor: true, children: hint })
+    ] })
   ] });
 }
 
@@ -38276,7 +38344,9 @@ var AGENT_TRANSCRIPT_ROWS = 12;
 var AGENT_TRANSCRIPT_CHROME_ROWS = 4;
 var MIN_AGENT_TRANSCRIPT_ROWS = 3;
 var MIN_LIVE_MESSAGE_ROWS = 4;
-var INLINE_CHROME_SLACK = 4;
+var INLINE_CHROME_SLACK = 8;
+var HOLD_CHROME_SLACK = 4;
+var MESSAGE_MARGIN_ROWS = 1;
 function agentTranscriptRows({
   fullscreen,
   usable,
@@ -38835,13 +38905,17 @@ function App2({
     1,
     usableRows(terminal.rows) - layout.statusRows - layout.bottomRows - INLINE_CHROME_SLACK
   );
+  const holdRegionRows = fullscreen ? Number.POSITIVE_INFINITY : Math.max(
+    1,
+    usableRows(terminal.rows) - layout.statusRows - layout.bottomRows - HOLD_CHROME_SLACK
+  );
   const agentWindowRowsRef = (0, import_react40.useRef)(agentWindowRows);
   agentWindowRowsRef.current = agentWindowRows;
   const agentViewport = (0, import_react40.useMemo)(
     () => sliceViewport(agentLines, agentWindowRows, agentScroll),
     [agentLines, agentWindowRows, agentScroll]
   );
-  const holdRows = state.messages.some((message) => message.streaming) ? Math.max(1, liveRegionRows - MIN_LIVE_MESSAGE_ROWS) : liveRegionRows;
+  const holdRows = state.messages.some((message) => message.streaming) ? Math.max(1, holdRegionRows - MIN_LIVE_MESSAGE_ROWS) : holdRegionRows;
   const released = settledCount(state, staticCursorRef.current, holdRows);
   if (released > staticCursorRef.current) {
     staticBlocksRef.current = staticBlocksRef.current.concat(
@@ -39241,12 +39315,12 @@ function App2({
     [state.pendingApproval]
   );
   const answerQuestion = (0, import_react40.useCallback)(
-    (answer) => {
+    (answers) => {
       const resolve2 = questionResolver.current;
       const requestId = state.pendingQuestion?.requestId;
       questionResolver.current = null;
       if (requestId) dispatch({ type: "question/resolved", requestId });
-      resolve2?.({ selected: answer.selected, text: answer.text });
+      resolve2?.({ answers });
     },
     [state.pendingQuestion]
   );
@@ -39556,7 +39630,7 @@ function App2({
   const live = state.timeline.slice(staticCursor);
   const liveMessageRows = Math.max(
     MIN_LIVE_MESSAGE_ROWS,
-    liveRegionRows - live.reduce((rows, item) => item.kind === "message" ? rows : rows + entryRows(state, item), 0)
+    liveRegionRows - MESSAGE_MARGIN_ROWS - live.reduce((rows, item) => item.kind === "message" ? rows : rows + entryRows(state, item), 0)
   );
   return /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)(Box_default, { flexDirection: "column", children: [
     /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Static, { items: staticItems, children: (entry) => /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(
@@ -40424,8 +40498,8 @@ var TuiClient = class {
   respondApproval(requestId, decision, scope) {
     return this.call("approval.respond", { requestId, decision, scope });
   }
-  respondQuestion(requestId, selected, text) {
-    return this.call("question.respond", { requestId, selected, text });
+  respondQuestion(requestId, answers) {
+    return this.call("question.respond", { requestId, answers });
   }
   /** `system.checkUpdate`; the daemon caches the answer for 24h. */
   checkUpdate(force = false) {
