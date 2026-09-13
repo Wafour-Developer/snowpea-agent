@@ -110,6 +110,21 @@ class Store:
             (session_id, workdir, mode, provider, model, origin_surface, created_at),
         )
 
+    async def update_model(
+        self, session_id: str, provider: str | None, model: str | None
+    ) -> None:
+        """Persist a session's pinned route so it survives a restart.
+
+        ``/model`` used to write only ``settings.providers.<vendor>.model`` and
+        mutate the live session, so the choice was lost the moment the session
+        was restored from the store (CORE-model-assignment B-P2-3).
+        """
+        await asyncio.to_thread(
+            self._execute,
+            "UPDATE sessions SET provider = ?, model = ? WHERE id = ?",
+            (provider, model, session_id),
+        )
+
     async def update_mode(self, session_id: str, mode: str) -> None:
         await asyncio.to_thread(
             self._execute, "UPDATE sessions SET mode = ? WHERE id = ?", (mode, session_id)

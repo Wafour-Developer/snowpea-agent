@@ -33958,6 +33958,7 @@ var initialState = {
   mode: "accept",
   provider: null,
   model: null,
+  modelSource: null,
   messages: [],
   toolCalls: [],
   diffs: [],
@@ -34130,6 +34131,15 @@ function applySessionEvent(state, event) {
         outputTokens: Number(payload.usage?.outputTokens ?? entry.outputTokens),
         endedAt: Number(payload.at ?? Date.now())
       }));
+    // The daemon re-routed the session: a pin, a profile change, or a project
+    // default that just took effect. It is the authority, so the HUD follows it
+    // rather than what this surface last asked for.
+    case "model.changed": {
+      const model = "model" in payload ? payload.model ?? null : base.model;
+      const provider = "provider" in payload ? payload.provider ?? null : base.provider;
+      const source = typeof payload.source === "string" && payload.source.length > 0 ? payload.source : "model" in payload && payload.model === null ? null : base.modelSource;
+      return { ...base, model, provider, modelSource: source };
+    }
     case "mode.changed":
       return { ...base, mode: payload.mode ?? base.mode };
     case "usage":
@@ -35159,8 +35169,10 @@ function stopSpeaking(runtime, handle) {
 }
 
 // src/state/models.ts
+var INHERIT_REF = "inherit";
 function modelOptions({
   profiles = null,
+  projectProfiles = null,
   defaultProfile = null,
   agentModels = null,
   discovered = null,
@@ -35169,23 +35181,33 @@ function modelOptions({
 }) {
   const options = [];
   const covered = /* @__PURE__ */ new Set();
-  for (const [name, profile] of Object.entries(profiles ?? {})) {
-    const model = profile?.model ?? "";
-    const provider = profile?.provider ?? "";
-    if (model) covered.add(model);
-    const agents = Object.entries(agentModels ?? {}).filter(([, assigned]) => assigned === name).map(([agent]) => agent);
-    const notes = [
-      provider && model ? `${provider}/${model}` : provider || model,
-      name === defaultProfile ? "default" : "",
-      agents.length > 0 ? `used by ${agents.join(", ")}` : ""
-    ].filter(Boolean);
-    options.push({
-      ref: name,
-      label: name,
-      detail: notes.join(" \xB7 "),
-      origin: "profile",
-      current: Boolean(current) && model === current
-    });
+  const named = /* @__PURE__ */ new Set();
+  const sources = [
+    [projectProfiles, true],
+    [profiles, false]
+  ];
+  for (const [document2, fromProject] of sources) {
+    for (const [name, profile] of Object.entries(document2 ?? {})) {
+      if (named.has(name)) continue;
+      named.add(name);
+      const model = profile?.model ?? "";
+      const provider = profile?.provider ?? "";
+      if (model) covered.add(model);
+      const agents = Object.entries(agentModels ?? {}).filter(([, assigned]) => assigned === name).map(([agent]) => agent);
+      const notes = [
+        fromProject ? "[project]" : "",
+        provider && model ? `${provider}/${model}` : provider || model,
+        name === defaultProfile ? "default" : "",
+        agents.length > 0 ? `used by ${agents.join(", ")}` : ""
+      ].filter(Boolean);
+      options.push({
+        ref: name,
+        label: name,
+        detail: notes.join(" \xB7 "),
+        origin: "profile",
+        current: Boolean(current) && model === current
+      });
+    }
   }
   for (const model of discovered ?? []) {
     if (covered.has(model)) continue;
@@ -35207,6 +35229,13 @@ function modelOptions({
       current: true
     });
   }
+  options.push({
+    ref: INHERIT_REF,
+    label: "inherit (clear pin)",
+    detail: "let the project and global defaults decide again",
+    origin: "inherit",
+    current: false
+  });
   return options;
 }
 function modelSource(session) {
@@ -37726,7 +37755,7 @@ function App2({
       sessionId: state.sessionId,
       provider: state.provider,
       model: state.model,
-      modelSource: sessionModelSource,
+      modelSource: state.modelSource ?? sessionModelSource,
       mode: state.mode,
       usage: state.usage,
       context: state.context,
@@ -37750,6 +37779,7 @@ function App2({
       state.sessionId,
       state.provider,
       state.model,
+      state.modelSource,
       sessionModelSource,
       state.mode,
       state.usage,
@@ -37907,20 +37937,43 @@ function App2({
   );
   const openModelPicker = (0, import_react37.useCallback)(() => {
     const settings = client.call("settings.get", { scope: "global" }).catch(() => ({ settings: {} }));
+    const projectSettings = client.call("settings.get", { scope: "project", workdir }).catch(() => ({ settings: {} }));
     const discovered = client.call("provider.models", state.provider ? { vendor: state.provider } : {}).catch(() => ({ models: [], current: null }));
-    void Promise.all([settings, discovered]).then(([settingsResult, modelsResult]) => {
-      const document2 = settingsResult?.settings ?? {};
-      const options = modelOptions({
-        profiles: document2.models?.profiles ?? null,
-        defaultProfile: document2.models?.default ?? null,
-        agentModels: document2.agents?.models ?? null,
-        discovered: modelsResult?.models ?? null,
-        current: state.model ?? modelsResult?.current ?? null,
-        vendor: state.provider ?? modelsResult?.vendor ?? null
+    void Promise.all([settings, projectSettings, discovered]).then(
+      ([settingsResult, projectResult, modelsResult]) => {
+        const document2 = settingsResult?.settings ?? {};
+        const project = projectResult?.settings ?? {};
+        const options = modelOptions({
+          profiles: document2.models?.profiles ?? null,
+          projectProfiles: project.models?.profiles ?? null,
+          defaultProfile: document2.models?.default ?? null,
+          agentModels: document2.agents?.models ?? null,
+          discovered: modelsResult?.models ?? null,
+          current: state.model ?? modelsResult?.current ?? null,
+          vendor: state.provider ?? modelsResult?.vendor ?? null
+        });
+        setModelPicker(options);
+      }
+    );
+  }, [client, workdir, state.provider, state.model]);
+  const chooseModel = (0, import_react37.useCallback)(
+    (ref) => {
+      void client.call("session.setModel", { sessionId, model: ref === INHERIT_REF ? null : ref }).then((result) => {
+        const model2 = result?.model ? String(result.model) : null;
+        showToast(
+          result?.pinned === false ? `model: inherited${model2 ? ` (${model2})` : ""}` : `model: ${model2 ?? ref}`
+        );
+      }).catch((error) => {
+        const code = error?.code;
+        if (code === -32601) {
+          submit(`/model ${ref}`);
+          return;
+        }
+        dispatch({ type: "error", message: String(error) });
       });
-      setModelPicker(options);
-    });
-  }, [client, state.provider, state.model]);
+    },
+    [client, sessionId, showToast]
+  );
   const takeClipboard = (0, import_react37.useCallback)(() => {
     if (!captureClipboard || !probe) {
       showToast("no clipboard tool available");
@@ -38359,7 +38412,7 @@ function App2({
         onCancel: () => setModelPicker(null),
         onChoose: (option) => {
           setModelPicker(null);
-          submit(`/model ${option.ref}`);
+          chooseModel(option.ref);
         }
       }
     ) : null,

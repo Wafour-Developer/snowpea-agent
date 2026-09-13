@@ -5,8 +5,15 @@ adapter class speaks to it, which wire shape its stream deltas use, whether it
 honours parallel tool calls — so that :mod:`snowpea_core.providers.normalize`
 can stay the single normalisation point (plan §6 risk 3).
 
-OpenAI offers device-code login, OpenRouter uses PKCE, and Gemini can use
-Google Application Default Credentials (ADC) created by ``gcloud auth``.
+OpenAI offers a browser PKCE login (with device code as the headless
+fallback), OpenRouter uses PKCE, and Gemini offers Google's browser consent
+(with ``gcloud`` Application Default Credentials as the alternative).
+
+A vendor's *adapter* is not always the one named here: signing in with a
+ChatGPT or Google account produces an OAuth session that the vendor's API-key
+endpoint rejects, so :class:`~snowpea_core.providers.registry.ProviderRegistry`
+routes those to ``codex_transport`` / ``gemini_codeassist_transport`` instead
+(CORE-codex-login).
 """
 
 from __future__ import annotations
@@ -117,7 +124,9 @@ PRESETS: dict[str, VendorPreset] = {
             "OpenAI",
             "https://api.openai.com/v1",
             "gpt-4.1",
-            auth_methods=("api_key", "device_code", "oauth_token"),
+            # Browser first: a ChatGPT session is what most people have, and
+            # device code is the same account through a headless route.
+            auth_methods=("api_key", "browser_pkce", "device_code", "oauth_token"),
             env_keys=("OPENAI_API_KEY",),
             models=("gpt-4.1", "gpt-4.1-mini", "o4-mini"),
         ),
@@ -137,7 +146,7 @@ PRESETS: dict[str, VendorPreset] = {
             "https://generativelanguage.googleapis.com/v1beta",
             "gemini-2.5-pro",
             adapter="gemini_native",
-            auth_methods=("api_key", "google_adc", "oauth_token"),
+            auth_methods=("api_key", "google_oauth", "google_adc", "oauth_token"),
             env_keys=("GEMINI_API_KEY", "GOOGLE_API_KEY"),
             models=("gemini-2.5-pro", "gemini-2.5-flash"),
             tool_call_style="gemini",

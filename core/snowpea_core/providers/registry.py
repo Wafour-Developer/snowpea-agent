@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -33,11 +34,22 @@ from snowpea_core.providers.presets import (
     VendorPreset,
     preset_for,
 )
-from snowpea_core.server.protocol import ProviderInfo
+from snowpea_core.server.protocol import AuthStatus, ProviderInfo
 
 log = logging.getLogger("snowpea.providers")
 
 FAKE_PREFIX = "fake"
+
+#: ``auth_method`` values that mean "this vendor is authenticated by an OAuth
+#: session, not an API key".  They make the key fields in the block
+#: irrelevant — see :meth:`ProviderRegistry.api_key_for`.
+OAUTH_AUTH_METHODS: frozenset[str] = frozenset(
+    {"chatgpt", "device_code", "google_oauth", "google_adc", "oauth_token"}
+)
+
+#: Renew this long before a stored token actually expires, so a turn never
+#: starts with a credential that dies mid-request.
+REFRESH_SKEW_SEC = 60.0
 
 #: What to tell a user whose vendor has no usable model id.
 NO_MODEL_HINT = "run `snowpea setup provider`, or pick one in a session with `/model <name>`"
@@ -98,9 +110,23 @@ class ProviderRegistry:
         except KeyError:
             raise ProviderError("invalid_params", f"unknown provider vendor: {vendor}") from None
 
+    def auth_method_for(self, vendor: str) -> str | None:
+        """``settings.providers[vendor].auth_method``, when one was recorded."""
+        value = self.vendor_config(vendor).get("auth_method")
+        return str(value) if isinstance(value, str) and value else None
+
     def api_key_for(self, vendor: str) -> str | None:
-        """Configured key from settings, else the vendor's environment variable."""
+        """Configured key from settings, else the vendor's environment variable.
+
+        A vendor whose ``auth_method`` names an OAuth flow has **no** API key,
+        whatever is still lying in its block: a key left over from an earlier
+        setup used to outlive the login that replaced it and silently win here,
+        so the user was told the sign-in worked while every request kept using
+        the stale key (report §6.7 A-P1-2).
+        """
         config = self.vendor_config(vendor)
+        if self.auth_method_for(vendor) in OAUTH_AUTH_METHODS:
+            return None
         for field in ("api_key", "token"):
             value = config.get(field)
             if isinstance(value, str) and value:
@@ -144,16 +170,48 @@ class ProviderRegistry:
         return preset.default_model if preset else ""
 
     def is_configured(self, vendor: str) -> bool:
+        """True when this machine has *some* credential for ``vendor``.
+
+        An expired OAuth session still counts as configured — it is a session
+        that needs renewing, not an absent one — and :meth:`auth_status` is
+        what tells the two apart for a surface that shows it.
+        """
         if vendor in self._providers:
             return True
         config = self.vendor_config(vendor)
         if vendor == "local" and config.get("base_url"):
             return True
-        if vendor == "gemini" and config.get("auth_method") in ("google_adc", "oauth_token"):
-            return True
+        if self.auth_method_for(vendor) in OAUTH_AUTH_METHODS:
+            return bool(
+                config.get("access_token")
+                or config.get("oauth_token")
+                or config.get("token")
+                or self.auth_method_for(vendor) == "google_adc"
+            )
         if isinstance(config.get("oauth_token"), str) and config.get("oauth_token"):
             return True
         return bool(self.api_key_for(vendor))
+
+    def auth_status(self, vendor: str) -> AuthStatus:
+        """``"unconfigured" | "active" | "expired"`` for ``vendor``.
+
+        ``expired`` means the stored OAuth session is past (or within the
+        refresh skew of) its expiry.  It is still renewable without the user
+        typing anything as long as a refresh token is stored, so surfaces show
+        it as a state, not an error; only a refresh that *fails* asks for a new
+        login (``auth_expired``).
+        """
+        if not self.is_configured(vendor):
+            return "unconfigured"
+        config = self.vendor_config(vendor)
+        method = self.auth_method_for(vendor)
+        if method not in OAUTH_AUTH_METHODS or method == "google_adc":
+            # google_adc has no token of ours: gcloud owns the refresh.
+            return "active"
+        expires_at = config.get("expires_at")
+        if not isinstance(expires_at, int | float):
+            return "active"
+        return "expired" if float(expires_at) <= time.time() + REFRESH_SKEW_SEC else "active"
 
     def configure(self, vendor: str, config: dict[str, Any]) -> dict[str, Any]:
         """Merge ``config`` into ``settings.providers[vendor]`` and return it.
@@ -188,6 +246,9 @@ class ProviderRegistry:
     # -- model discovery -----------------------------------------------
     async def list_models(self, vendor: str, *, refresh: bool = False) -> list[str]:
         """Model ids ``vendor``'s endpoint offers (M3 contract §2, model discovery)."""
+        static = model_discovery.oauth_models(vendor, self.auth_method_for(vendor))
+        if static is not None:
+            return static
         preset = self.preset(vendor)
         return await model_discovery.list_models(
             preset,
@@ -301,10 +362,70 @@ class ProviderRegistry:
             return FakeProvider()
         return self.build(name, model)
 
+    def _oauth_saver(self, vendor: str) -> Callable[[dict[str, Any]], None]:
+        """Persist credentials a transport refreshed, so the renewal survives.
+
+        A refresh that is not written back is one round trip saved and then
+        paid for again on the next process start; the transports hand the
+        merged record here the moment they get it.
+        """
+
+        def save(credentials: dict[str, Any]) -> None:
+            self.configure(vendor, dict(credentials))
+            self.save()
+
+        return save
+
+    def _oauth_provider(self, vendor: str, resolved_model: str) -> ChatProvider | None:
+        """The adapter an OAuth session needs, or ``None`` for an API key.
+
+        A ChatGPT or Google sign-in cannot use the vendor's ordinary endpoint —
+        ``api.openai.com`` rejects a subscription token outright, and Gemini's
+        API-key host has no notion of a Google account — so those sessions are
+        routed to the backend their own CLI uses (CORE-codex-login).
+        """
+        config = self.vendor_config(vendor)
+        if vendor == "openai":
+            from snowpea_core.providers import openai_oauth
+
+            if openai_oauth.is_chatgpt_auth(config):
+                from snowpea_core.providers.codex_transport import CodexProvider
+
+                credentials = openai_oauth.normalize_stored_credentials(config)
+                model = resolved_model
+                if model not in (model_discovery.oauth_models(vendor, "chatgpt") or []):
+                    # An API-key model id (gpt-4.1) is not served by Codex.
+                    model = ""
+                return CodexProvider(
+                    credentials,
+                    model=model or None,
+                    reasoning_effort=str(config.get("reasoning_effort") or "") or None,
+                    on_credentials=self._oauth_saver(vendor),
+                )
+        if vendor == "gemini":
+            from snowpea_core.providers import google_oauth
+
+            if google_oauth.is_google_oauth(config):
+                from snowpea_core.providers.gemini_codeassist_transport import CodeAssistProvider
+
+                model = resolved_model
+                if model not in (model_discovery.oauth_models(vendor, "google_oauth") or []):
+                    model = ""
+                return CodeAssistProvider(
+                    dict(config),
+                    model=model or None,
+                    project_id=str(config.get("project_id") or "") or None,
+                    on_credentials=self._oauth_saver(vendor),
+                )
+        return None
+
     def build(self, vendor: str, model: str | None = None) -> ChatProvider:
         """Instantiate the adapter a preset names, with resolved credentials."""
         preset = self.preset(vendor)
         resolved_model = self.model_for(vendor, model)
+        oauth = self._oauth_provider(vendor, resolved_model)
+        if oauth is not None:
+            return oauth
         api_key = self.api_key_for(vendor)
         if vendor == "openai" and not api_key:
             oauth_token = self.vendor_config(vendor).get("oauth_token")
@@ -351,8 +472,18 @@ class ProviderRegistry:
             if env_vendor:
                 return env_vendor
         profile = self.default_profile()
-        if profile is not None:
+        if profile is not None and profile[0] in PRESETS:
             return profile[0]
+        if profile is not None:
+            # ``ModelProfile`` only checks that the strings are non-empty, so a
+            # default profile naming a vendor that does not exist used to be
+            # returned here ahead of every other candidate — bricking *every*
+            # session, not just routed ones (CORE-model-assignment B-P1-3).
+            log.warning(
+                "models.default profile names unknown provider %r; "
+                "falling back to the configured vendor",
+                profile[0],
+            )
         configured = self.settings.providers.get("default")
         if isinstance(configured, str) and configured:
             return configured
@@ -372,6 +503,9 @@ class ProviderRegistry:
             extra = config.get("models")
             if isinstance(extra, list):
                 models = [str(m) for m in extra] or models
+            static = model_discovery.oauth_models(vendor, self.auth_method_for(vendor))
+            if static is not None:
+                models = static
             infos.append(
                 ProviderInfo(
                     vendor=vendor,
@@ -381,6 +515,7 @@ class ProviderRegistry:
                     configured=self.is_configured(vendor),
                     default=vendor == default,
                     authMethods=list(preset.auth_methods),
+                    authStatus=self.auth_status(vendor),
                 )
             )
         return infos

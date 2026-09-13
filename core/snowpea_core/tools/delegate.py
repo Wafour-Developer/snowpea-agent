@@ -65,6 +65,7 @@ async def delegate_task(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         agent=agent,
         tools=_tool_list(args.get("tools")),
         timeout=_timeout(args.get("timeout")),
+        model=str(args.get("model", "") or "").strip() or None,
     )
     if not result.ok:
         return ToolResult(
@@ -107,6 +108,14 @@ TOOLS: tuple[Tool, ...] = (
                 "timeout": {
                     "type": "number",
                     "description": "Seconds to wait before giving up on the sub-agent.",
+                },
+                "model": {
+                    "type": "string",
+                    "description": (
+                        "Run this one delegation on a specific model: a configured "
+                        "profile id, a 'vendor:model' pair, or a bare vendor name. "
+                        "Outranks the agent's own assignment; omit it to use that."
+                    ),
                 },
             },
             "required": ["task"],

@@ -81,6 +81,45 @@ def normalise_teams(value: Any) -> Any:
     return cleaned
 
 
+class ModelProfile(BaseModel):
+    """A named ``provider``/``model`` pair, referenced everywhere by its id.
+
+    Defined here rather than in :mod:`snowpea_core.config.settings` so the
+    project document can hold profiles too without importing the global one;
+    ``settings.ModelProfile`` re-exports it, so the old name still works.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    provider: str
+    model: str
+
+    @field_validator("provider", "model")
+    @classmethod
+    def _non_empty(cls, value: str) -> str:
+        text = str(value).strip()
+        if not text:
+            raise ValueError("model profile provider/model must be non-empty")
+        return text
+
+
+class ProjectModelsSettings(BaseModel):
+    """Project-scoped model routing (CORE-model-assignment B-P2-4).
+
+    The same three keys as the global ``models`` block plus ``agents``, so a
+    repository can pin its own default and its own per-agent assignments
+    without touching ``$SNOWPEA_HOME``.  Each key merges over the global one
+    the way ``team_config.teams_for`` already merges teams: project wins.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    default: str | None = None
+    profiles: dict[str, ModelProfile] = Field(default_factory=dict)
+    #: Per-agent profile ids, e.g. ``{"executor": "fast"}``.
+    agents: dict[str, str] = Field(default_factory=dict)
+
+
 class ProjectAgentsSettings(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -100,6 +139,7 @@ class ProjectSettings(BaseModel):
     allowlist: list[AllowlistEntry] = Field(default_factory=list)
     backend: dict[str, Any] = Field(default_factory=dict)
     agents: ProjectAgentsSettings = Field(default_factory=ProjectAgentsSettings)
+    models: ProjectModelsSettings = Field(default_factory=ProjectModelsSettings)
 
     _normalise_allowlist = field_validator("allowlist", mode="before")(_coerce_allowlist)
 
@@ -140,8 +180,12 @@ class ProjectSettings(BaseModel):
 __all__ = [
     "PROJECT_DIR_NAME",
     "PROJECT_SETTINGS_NAME",
+    "AGENT_NAME_RE",
     "AllowlistEntry",
     "Mode",
+    "ModelProfile",
     "ProjectAgentsSettings",
+    "ProjectModelsSettings",
     "ProjectSettings",
+    "normalise_teams",
 ]

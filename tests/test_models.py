@@ -280,24 +280,44 @@ class _Hub:
 
 
 class _Core:
-    def __init__(self, registry: ProviderRegistry) -> None:
+    """The slice of ``Core`` ``/model`` touches.
+
+    It grew with CORE-model-assignment: the command now lists model profiles
+    and pins the session through ``SessionManager.set_model`` so the choice is
+    persisted, rather than only mutating ``session.model`` in memory.
+    """
+
+    def __init__(self, registry: ProviderRegistry, workdir: Path) -> None:
+        from snowpea_core.session.manager import SessionManager
+
         self.providers = registry
         self.hub = _Hub()
+        self.settings = registry.settings
+        self.paths = Paths.create(workdir)
+        self.store = None
+        self.sessions = SessionManager(settings=self.settings)
+        self.saved = 0
+
+    def mark_settings_saved(self) -> None:
+        self.saved += 1
 
 
 class _Session:
-    def __init__(self) -> None:
+    def __init__(self, workdir: Path) -> None:
         self.id = "s-1"
         self.provider = "local"
         self.model: str | None = None
+        self.workdir = workdir
+        self.agent: str | None = None
 
 
-def _ctx(registry: ProviderRegistry) -> Any:
+def _ctx(registry: ProviderRegistry, workdir: Path | None = None) -> Any:
     from snowpea_core.commands.registry import CommandContext
 
+    directory = workdir or Path(registry.paths.home if registry.paths else ".")
     return CommandContext(
-        core=_Core(registry),  # type: ignore[arg-type]
-        session=_Session(),  # type: ignore[arg-type]
+        core=_Core(registry, directory),  # type: ignore[arg-type]
+        session=_Session(directory),  # type: ignore[arg-type]
         turn_id="t-1",
     )
 
@@ -327,7 +347,7 @@ async def test_model_command_sets_and_persists(tmp_path: Path, server: FakeServe
     await model_cmd.cmd_model(ctx, MODEL_IDS[1])
 
     assert ctx.session.model == MODEL_IDS[1]
-    assert f"model: {MODEL_IDS[1]}" in "\n".join(_texts(ctx))
+    assert f"model: local/{MODEL_IDS[1]}" in "\n".join(_texts(ctx))
     assert Settings.load(Paths.create(tmp_path)).providers["local"]["model"] == MODEL_IDS[1]
 
 
@@ -447,7 +467,7 @@ async def test_provider_models_handler(tmp_path: Path, server: FakeServer) -> No
     from snowpea_core.server.protocol import ProviderModelsParams
     from snowpea_core.server.session_handlers import provider_models_handler
 
-    core = _Core(_registry(tmp_path, server.base_url))
+    core = _Core(_registry(tmp_path, server.base_url), tmp_path)
     result = await provider_models_handler(
         None,  # type: ignore[arg-type]
         ProviderModelsParams(vendor="local"),
@@ -465,3 +485,69 @@ async def test_run_sync_works_inside_a_running_loop(server: FakeServer) -> None:
         model_discovery.list_models(PRESETS["local"], base_url=server.base_url)
     )
     assert list(listed) == list(MODEL_IDS)
+
+
+# ---------------------------------------------------------------------------
+# /model and model profiles (CORE-model-assignment B-P3-1)
+# ---------------------------------------------------------------------------
+
+
+def _with_profiles(registry: ProviderRegistry) -> ProviderRegistry:
+    from snowpea_core.config.project import ModelProfile
+
+    registry.settings.models.profiles = {
+        "fast": ModelProfile(provider="local", model=MODEL_IDS[0]),
+        "deep": ModelProfile(provider="local", model=MODEL_IDS[1]),
+    }
+    registry.settings.models.default = "fast"
+    return registry
+
+
+async def test_model_listing_shows_the_configured_profiles(
+    tmp_path: Path, server: FakeServer
+) -> None:
+    """The listing used to show only the vendor's models, never the profiles."""
+    ctx = _ctx(_with_profiles(_registry(tmp_path, server.base_url)), tmp_path)
+
+    await model_cmd.cmd_model(ctx, "")
+
+    said = "\n".join(_texts(ctx))
+    assert "Model profiles:" in said
+    assert "* fast" in said, "models.default is marked"
+    assert "deep" in said
+
+
+async def test_model_pins_the_session_to_a_profile_id(
+    tmp_path: Path, server: FakeServer
+) -> None:
+    ctx = _ctx(_with_profiles(_registry(tmp_path, server.base_url)), tmp_path)
+
+    await model_cmd.cmd_model(ctx, "deep")
+
+    assert (ctx.session.provider, ctx.session.model) == ("local", MODEL_IDS[1])
+    assert "model: local/" in "\n".join(_texts(ctx))
+    # The surfaces hear about it, so a HUD fed once by session/ready updates.
+    assert any(kind == "model.changed" for kind, _payload in ctx.core.hub.events)
+
+
+async def test_model_default_writes_the_global_default(
+    tmp_path: Path, server: FakeServer
+) -> None:
+    ctx = _ctx(_with_profiles(_registry(tmp_path, server.base_url)), tmp_path)
+
+    await model_cmd.cmd_model(ctx, "default deep")
+
+    assert ctx.core.settings.models.default == "deep"
+    assert Settings.load(Paths.create(tmp_path)).models.default == "deep"
+    assert "default model profile is now deep" in "\n".join(_texts(ctx))
+
+
+async def test_model_default_refuses_an_unknown_profile(
+    tmp_path: Path, server: FakeServer
+) -> None:
+    ctx = _ctx(_with_profiles(_registry(tmp_path, server.base_url)), tmp_path)
+
+    await model_cmd.cmd_model(ctx, "default nope")
+
+    assert ctx.core.settings.models.default == "fast"
+    assert "unknown profile" in "\n".join(_texts(ctx))

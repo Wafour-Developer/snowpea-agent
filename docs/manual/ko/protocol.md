@@ -41,7 +41,7 @@ HTTP 엔드포인트는 프로브, 설치 스크립트, 디버깅을 위한 읽�
 | 영역 | 메서드 |
 |---|---|
 | system | `system.hello`, `system.info`, `system.health`, `system.shutdown` |
-| session | `session.create`, `session.list`, `session.resume`, `session.close`, `session.prompt`, `session.interrupt`, `session.compact`, `session.deleteSaved`, `session.setMode` |
+| session | `session.create`, `session.list`, `session.resume`, `session.close`, `session.prompt`, `session.interrupt`, `session.compact`, `session.deleteSaved`, `session.setMode`, `session.setModel` |
 | commands and tools | `command.list`, `command.run`, `tool.list` |
 | approvals | `approval.list`, `approval.respond`, `permission.allowlist.add` / `list` / `remove` |
 | providers | `provider.list`, `provider.configure`, `provider.loginWeb` |
@@ -59,7 +59,7 @@ HTTP 엔드포인트는 프로브, 설치 스크립트, 디버깅을 위한 읽�
 
 알림은 데몬에서 구독 중인 클라이언트로 흘러갑니다.
 
-- `session.event(sessionId, seq, kind, payload, ts)`는 한 턴 안에서 일어나는 모든 일을 담습니다. 종류는 `message.delta`, `message.done`, `tool.call`, `tool.result`, `diff`, `subagent.spawn`, `subagent.update`, `subagent.done`, `team.task.update`, `mode.changed`, `backend.changed`, `usage`, `error`, `turn.done`입니다.
+- `session.event(sessionId, seq, kind, payload, ts)`는 한 턴 안에서 일어나는 모든 일을 담습니다. 종류는 `message.delta`, `message.done`, `tool.call`, `tool.result`, `diff`, `subagent.spawn`, `subagent.update`, `subagent.done`, `team.task.update`, `mode.changed`, `backend.changed`, `model.changed`, `usage`, `context`, `compaction`, `audio.spoken`, `error`, `turn.queued`, `turn.dequeued`, `turn.done`입니다.
 - 무인 승인 큐를 위한 `approval.pending`과 `approval.resolved`.
 - `job.event`와 `gateway.event`.
 - 스킬이나 플러그인을 리로드한 뒤의 `commands.changed`.

@@ -27,7 +27,7 @@ Auth methods per preset (`providers/presets.py`): `openai` = `("api_key","device
 - `providers/gemini_native.py` — `generateContent` streaming (`streamGenerateContent?alt=sse`), function declarations, functionCall/functionResponse parts.
 - `providers/anthropic_native.py` — already M1.
 - `providers/registry.py.get(vendor, model)` resolves: `SNOWPEA_PROVIDER` (`fake:<script>` or `<vendor>[:model]`) → session/provider arg → `settings.providers.default` → first configured vendor. Credentials from `settings.providers[vendor].api_key` or `env_keys`; for `openai` a stored `oauth_token` is used as the bearer credential when no API key is set, and `gemini` passes `auth_method`/`oauth_token` straight to `gemini_native`.
-- The **model profile layer sits above this** (v0.1.x, §6): `SessionManager.create` calls `config/model_routing.route_for()` — `agents.models[agent]` → the agent definition's `model:` → `models.default` — and hands the resolved `(provider, model)` to `ProviderRegistry.get()`. `route_for` returning `ModelRoute(None, None)` means "no multi-model settings apply", and the registry's own resolution above is then used unchanged.
+- The **model profile layer sits above this** (v0.1.x, §6): `SessionManager.create` calls `config/model_routing.route_for()` — explicit override → the agent's assignment (project over global) → the definition's `model:` → the session pin → the project default → `models.default` — and hands the resolved `(provider, model)` to `ProviderRegistry.get()`. `route_for` returning `ModelRoute(None, None)` means "no multi-model settings apply", and the registry's own resolution above is then used unchanged.
 
 ## 3. Web token login (`providers/auth_web.py`)
 
@@ -83,17 +83,27 @@ Added in v0.1.x. `settings.json` carries two related blocks (`config/settings.py
 }
 ```
 
-`route_for(settings, *, provider, model, agent, definition_model) -> ModelRoute{provider, model}` resolves in strict precedence order, first non-empty wins:
+A project may carry the same block, plus `agents`, in `<workdir>/.snowpea/settings.json` (`ProjectModelsSettings`, `config/project.py`). Each key merges over the global one key by key — project wins — exactly as `team_config.teams_for` merges teams. `ModelProfile` lives in `config/project.py` and is re-exported from `config/settings.py`. (CORE-model-assignment)
 
-1. explicit `provider` / `model` arguments (already-resolved caller intent — `session.create`, `/model`, an RPC arg);
-2. `settings.agents.models[agent]`;
+`route_for(settings, *, provider, model, agent, definition_model, workdir, session_pin) -> ModelRoute{provider, model}` resolves in strict precedence order, first non-empty wins:
+
+1. explicit `provider` / `model` arguments (already-resolved caller intent — `session.create`, `delegate_task(model=…)`, `agent.spawn(model=…)`, an RPC arg);
+2. the agent's assignment: project `models.agents[agent]` over global `agents.models[agent]`;
 3. `definition_model` — the `model:` field of the agent's `.md` definition;
-4. `settings.models.default`.
+4. `session_pin` — what `/model` or `session.setModel` fixed on this session, and what a subagent inherits from its parent;
+5. project `models.default`;
+6. global `settings.models.default`.
 
-Returning `ModelRoute(None, None)` is meaningful: it means "no multi-model settings apply", and the caller MUST keep the old `ProviderRegistry` default or parent inheritance rather than substituting anything. The only caller in core is `SessionManager.create`.
+Returning `ModelRoute(None, None)` is meaningful: it means "no multi-model settings apply", and the caller MUST keep the old `ProviderRegistry` default or parent inheritance rather than substituting anything. The only caller in core is `SessionManager.create`, which also derives `definition_model` itself through the `definition_model_for` hook `wire_core` injects — callers MUST NOT be required to pass it.
 
-A reference is resolved by `resolve_reference`: a known profile id wins; `"inherit"` and the empty string resolve to nothing; `vendor:model` is accepted as the legacy spelling; a bare unknown word is read as a bare vendor name.
+A reference is resolved by `resolve_reference`: a known profile id wins (project profiles included); `"inherit"` and the empty string resolve to nothing; `vendor:model` is accepted as the legacy spelling; a bare word is accepted **only when it names a vendor in `PRESETS`**, otherwise it logs a warning and resolves to nothing so the next rung applies.
 
-The settings validator MUST reject unknown profile references — both `models.default` and every value in `agents.models` — so a typo is a load-time error rather than a silent fall-through to a different model (`Settings` model validator, `config/settings.py`).
+There MUST be exactly one implementation of this precedence. `agent/subagent.py` previously held a second one (`_split_model`) that never consulted `models.profiles`, so a valid profile id in an agent `.md` was read as a vendor name; it is deleted.
 
-`/model` lists the configured vendor's models and accepts either a name or a **row number** (`/model 2`); it always persists to `settings.providers.<vendor>.model`, so there is no `--save` flag (`commands/model_cmd.py`). `provider.models(vendor?)` asks one vendor's endpoint what it actually serves, defaulting to `ProviderRegistry.default_vendor()`. The `local` preset's `default_model` is a placeholder: an `openai_compat` adapter built with a placeholder and no `model_resolver` MUST raise `model_not_configured` rather than calling the server (`providers/openai_compat.py`, `providers/registry.py`), and a listing made only of placeholders counts as no listing.
+The settings validator MUST reject unknown profile references — both `models.default` and every value in `agents.models` — on the `settings.set` path, so a typo is `invalid_params` rather than a silent fall-through. On the **load** path it MUST NOT be fatal: `Settings.load` drops the unresolvable references, logs them at ERROR and boots degraded, because a daemon that refuses to start leaves no `settings.set` to repair it with. Any other validation failure still raises.
+
+`settings.set` merges, and a merge cannot express a removal, so **`null` in a patch deletes the key** (`config/patch.deep_merge`, shared with `server/settings_handlers.py`). That is the only way to delete a profile, an agent assignment or a team over RPC. It is safe for scalars because every optional field in `Settings`/`ProjectSettings` defaults to `None`, so deleting a key and setting it to `null` validate to the same document. The validator still runs afterwards: deleting a profile that `models.default` still names is `invalid_params`.
+
+`ProviderRegistry.default_vendor()` MUST ignore a default profile whose provider is not in `PRESETS` and fall through to `providers.default`; a bogus default profile must break at most the sessions that route through it, never every session.
+
+`/model` lists the configured profiles (project merged over global, effective default marked) above the vendor's models and accepts a profile id, `vendor:model`, a bare vendor, a model name, a **row number** (`/model 2`), `inherit` to clear the pin, or `default <id>` to write `models.default`. A pin is persisted on the **session row** (`Store.update_model`) so it survives a restart and `session.resume`, and emits `model.changed`; a plain model id of the current vendor additionally persists to `settings.providers.<vendor>.model` (`commands/model_cmd.py`). `provider.models(vendor?)` asks one vendor's endpoint what it actually serves, defaulting to `ProviderRegistry.default_vendor()`. The `local` preset's `default_model` is a placeholder: an `openai_compat` adapter built with a placeholder and no `model_resolver` MUST raise `model_not_configured` rather than calling the server (`providers/openai_compat.py`, `providers/registry.py`), and a listing made only of placeholders counts as no listing.

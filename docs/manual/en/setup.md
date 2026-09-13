@@ -47,7 +47,54 @@ A model profile pairs a provider with a model ID. Credentials and base URLs rema
 }
 ```
 
-Agent routing precedence is **agent assignment → explicit model in the agent definition → default model**. Agents without an assignment or explicit definition model use `models.default`. New ordinary sessions also start with the default; explicit session provider/model overrides are preserved. Existing sessions are not automatically changed. Installations without model profiles retain their legacy behavior.
+### Which model a turn actually uses
+
+Five rungs, highest first. The first one that resolves wins; anything left unresolved falls through to the vendor's own default.
+
+| # | Rung | Set it with |
+|---|---|---|
+| 1 | a one-off override for this delegation | `delegate_task(model=…)`, `agent.spawn(model=…)` |
+| 2 | the agent's assignment | `snowpea model assign <agent> <profile>`, or `agents.models` / project `models.agents` |
+| 3 | the session pin | `/model <profile>`, `session.setModel` |
+| 4 | the project default | project `models.default` |
+| 5 | the global default | `models.default`, or `snowpea model default <profile>` |
+
+Rung 2 reads the agent's assignment first and the agent definition's own `model:` field second. A reference is a profile id, a `vendor:model` pair, or a bare vendor name; `inherit` means "no opinion, keep going".
+
+New ordinary sessions start at rung 4/5. Existing sessions are not automatically changed when you edit settings, except that a session you pinned keeps its pin — the pin is stored with the session and survives a restart. Installations with no model profiles at all retain their legacy behaviour.
+
+### Per-project models
+
+A repository can carry its own `models` block in `<workdir>/.snowpea/settings.json`, with the same three keys plus `agents`. Each merges over the global one key by key, so you only state what differs:
+
+```json
+{
+  "models": {
+    "default": "reasoning",
+    "agents": {"executor": "daily"},
+    "profiles": {"local": {"provider": "ollama", "model": "your-local-model-id"}}
+  }
+}
+```
+
+From the shell:
+
+```bash
+snowpea model profiles                       # the merged view, each row tagged global or project
+snowpea model default reasoning --project    # this repository's default
+snowpea model assign executor daily --project
+snowpea model assign executor                # omit the id to clear the assignment
+```
+
+### Deleting a profile
+
+`settings.set` merges, and a merge cannot express a removal — so `null` deletes the key:
+
+```json
+{"models": {"profiles": {"daily": null}}}
+```
+
+Move `models.default` off a profile before deleting it; the settings validator refuses a document whose default names a profile that no longer exists.
 
 ## Vendors
 
@@ -56,9 +103,9 @@ Eleven vendors ship in v0.1.
 | Vendor id | Label | Adapter | Auth |
 |---|---|---|---|
 | `anthropic` | Anthropic | native Messages API | API key |
-| `openai` | OpenAI | OpenAI-compatible | API key, device-code login |
+| `openai` | OpenAI | OpenAI-compatible, or the Codex backend for a ChatGPT login | API key, browser login (ChatGPT), device code |
 | `openrouter` | OpenRouter | OpenAI-compatible | API key, OAuth PKCE login |
-| `gemini` | Google Gemini | native | API key, Google OAuth (ADC via `gcloud`), access token |
+| `gemini` | Google Gemini | native, or the Code Assist API for a Google login | API key, browser login (Google), ADC via `gcloud`, access token |
 | `xai` | xAI Grok | OpenAI-compatible | API key |
 | `glm` | Zhipu GLM | OpenAI-compatible | API key |
 | `minimax` | MiniMax | OpenAI-compatible | API key |
@@ -74,10 +121,8 @@ snowpea provider list --json
 
 `provider list` shows each vendor's auth methods, default model, and whether it is configured.
 
-On a desktop, `snowpea provider login gemini` opens Google's ADC login. On a
-remote/headless machine, run `snowpea provider login gemini --token` and paste
-the OAuth access token at the hidden prompt. OpenAI supports the same `--token`
-form. Omit the value so the token does not appear in shell history.
+`provider list --json` also carries `authStatus` per vendor: `active`,
+`expired` (an OAuth session past its expiry), or `unconfigured`.
 
 ### Adding a key
 
@@ -90,20 +135,68 @@ Environment variables are picked up too — if `OPENAI_API_KEY` or `ANTHROPIC_AP
 
 ### Browser login
 
-Two vendors support logging in through a browser instead of pasting a key.
+Three vendors can be signed into through a browser instead of a pasted key.
 
 ```bash
-snowpea provider login openai        # device code: a code appears, you approve it in the browser
+snowpea provider login openai        # ChatGPT: consent page, callback on localhost:1455
+snowpea provider login gemini        # Google: consent page, callback on a free localhost port
 snowpea provider login openrouter    # OAuth PKCE: a local callback receives the code
 ```
 
 `snowpea setup --login openai` is an alias of the same thing. Any other vendor answers with `login_unsupported` and tells you the `--vendor`/`--key` command to run instead:
 
-**Troubleshooting:** a device-code login can fail with `device authorization failed (HTTP 403)` from some networks/accounts even though the same request works elsewhere — the wizard prints the vendor's own error text and re-asks the authentication choice instead of exiting, so pick "1=API key" or "3=OAuth token" to continue.
-
 ```bash
 snowpea provider login deepseek
 ```
+
+**A ChatGPT or Google login is not an API key.** It signs in to your
+*subscription*, which the vendors' API-key endpoints refuse, so snowpea sends
+those turns to the backend each vendor's own CLI uses — `chatgpt.com`'s Codex
+API for OpenAI, the Code Assist API for Gemini. That switch is automatic; what
+you notice is the model list, which becomes the set those backends serve
+(`gpt-5-codex`, `gpt-5`, … / `gemini-2.5-pro`, `gemini-2.5-flash`). Nothing
+changes for API-key users.
+
+**On a machine without a usable browser** — over SSH, or a Linux session with no
+display — the browser step is skipped automatically in favour of the headless
+flow: a device code for OpenAI, `gcloud auth application-default login` for
+Gemini. Force it anywhere with `--device-code`, or by exporting
+`SNOWPEA_HEADLESS_LOGIN=1`:
+
+```bash
+snowpea provider login openai --device-code
+snowpea provider login gemini --token        # or paste an OAuth access token
+```
+
+Omit the value after `--token` so it does not appear in shell history. A pasted
+token is checked with one authenticated request before it is stored; a failure
+is a warning, not a refusal, since the check itself can fail offline.
+
+**Logins expire, and snowpea renews them.** The refresh token is stored next to
+the access token and used automatically — before a turn when the token is about
+to expire, and once more if the backend rejects it anyway. Only when the
+refresh itself fails do you have to act, and the error says so in as many
+words:
+
+```
+your ChatGPT login expired and could not be renewed — run `snowpea provider login openai` to sign in again
+```
+
+Until then the vendor shows as `expired` rather than `active` in
+`snowpea provider list` and on the setup screen.
+
+**Troubleshooting.**
+
+| What you see | What it means |
+|---|---|
+| `device authorization failed (HTTP 403)` | Some networks and accounts refuse the device-code request. Use the browser login instead, or an API key. |
+| `port 1455 is already in use` | OpenAI accepts only `http://localhost:1455/auth/callback`, so the port cannot be moved. Close the other sign-in holding it (another Codex or snowpea login), or use `--device-code`. |
+| The browser opens and nothing happens | The callback never arrived — check that the browser is on *this* machine. Over SSH use `--device-code`. |
+| `the callback state did not match` | The page that answered was not the sign-in snowpea started. Run the login again. |
+| `gemini OAuth login needs the Google Cloud CLI` | Only the `gcloud` ADC route needs it; the browser login does not. |
+
+The setup wizard prints the vendor's own error text and re-asks the
+authentication choice instead of exiting, so a failed login never ends the run.
 
 ### A local model
 

@@ -178,11 +178,15 @@ async def agents_list(home: Path | str | None = None, *, as_json: bool = False) 
 # ---------------------------------------------------------------------------
 
 
-async def model_profiles(home: Path | str | None = None, *, as_json: bool = False) -> int:
+async def model_profiles(
+    home: Path | str | None = None, *, workdir: str | None = None, as_json: bool = False
+) -> int:
     """``snowpea model profiles [--json]`` — what ``models.*`` currently says.
 
     ``models.profiles``, ``models.default`` and ``agents.models`` were
-    reachable only through the interactive wizard (GAP-17).
+    reachable only through the interactive wizard (GAP-17).  The listing is the
+    routing's own view: the project's ``models`` block merged over the global
+    one, each row tagged with where it came from.
     """
     try:
         result = await _call(home, "settings.get", {"scope": "global"})
@@ -190,14 +194,32 @@ async def model_profiles(home: Path | str | None = None, *, as_json: bool = Fals
         return _fail(str(exc), EXIT_NO_DAEMON)
     except RpcCallError as exc:
         return _fail(f"settings.get failed ({exc.code}): {exc.message}", EXIT_USAGE)
+    from snowpea_core.config.project import ProjectSettings
+
     settings = result.get("settings") or {}
     models = settings.get("models") or {}
-    profiles = models.get("profiles") or {}
-    assignments = (settings.get("agents") or {}).get("models") or {}
+    profiles = dict(models.get("profiles") or {})
+    assignments = dict((settings.get("agents") or {}).get("models") or {})
+    directory = Path(workdir or Path.cwd()).expanduser().resolve()
+    # Same merge the daemon routes with: project over global, project wins.
+    project = ProjectSettings.load(directory).models
+    project_profiles = {
+        name: profile.model_dump(mode="json") for name, profile in project.profiles.items()
+    }
+    profiles.update(project_profiles)
+    assignments.update(project.agents)
+    effective_default = project.default or models.get("default")
     payload = {
-        "default": models.get("default"),
+        "workdir": str(directory),
+        "default": effective_default,
+        "globalDefault": models.get("default"),
+        "projectDefault": project.default,
         "profiles": profiles,
         "agents": assignments,
+        "project": {
+            "profiles": project_profiles,
+            "agents": dict(project.agents),
+        },
     }
     if as_json:
         _print_json(payload)
@@ -207,24 +229,69 @@ async def model_profiles(home: Path | str | None = None, *, as_json: bool = Fals
     else:
         width = max(len(name) for name in profiles)
         for name, profile in sorted(profiles.items()):
-            marker = "*" if name == models.get("default") else " "
+            marker = "*" if name == effective_default else " "
+            scope = "project" if name in project_profiles else "global"
             provider = (profile or {}).get("provider", "")
             model = (profile or {}).get("model", "")
-            print(f"{marker} {name:<{width}}  {provider}:{model}")
+            print(f"{marker} {name:<{width}}  {provider}:{model}  [{scope}]")
     if assignments:
         print("agents:")
         for agent, profile in sorted(assignments.items()):
-            print(f"    {agent} -> {profile}")
+            scope = "project" if agent in project.agents else "global"
+            print(f"    {agent} -> {profile}  [{scope}]")
     return EXIT_OK
 
 
+async def _write_project_models(workdir: str | None, mutate: Any) -> tuple[Path, Any]:
+    """Apply ``mutate`` to ``<workdir>/.snowpea/settings.json``'s ``models`` block."""
+    from snowpea_core.config.project import ProjectSettings
+
+    directory = Path(workdir or Path.cwd()).expanduser().resolve()
+    project = ProjectSettings.load(directory)
+    mutate(project.models)
+    return project.save(directory), project
+
+
 async def model_assign(
-    agent: str, profile: str, home: Path | str | None = None, *, as_json: bool = False
+    agent: str,
+    profile: str | None,
+    home: Path | str | None = None,
+    *,
+    project: bool = False,
+    workdir: str | None = None,
+    as_json: bool = False,
 ) -> int:
-    """``snowpea model assign <agent> <profileId>`` → ``agents.models``."""
-    if not agent.strip() or not profile.strip():
-        return _fail("usage: snowpea model assign <agent> <profileId>", EXIT_USAGE)
-    patch = {"agents": {"models": {agent.strip(): profile.strip()}}}
+    """``snowpea model assign <agent> <profileId>`` → ``agents.models``.
+
+    An omitted ``profileId`` clears the assignment; over RPC that rides the
+    ``null`` delete sentinel ``settings.set`` gained for exactly this
+    (CORE-model-assignment).
+    """
+    name = agent.strip()
+    if not name:
+        return _fail("usage: snowpea model assign <agent> [<profileId>]", EXIT_USAGE)
+    reference = (profile or "").strip() or None
+
+    if project:
+        def mutate(models: Any) -> None:
+            if reference is None:
+                models.agents.pop(name, None)
+            else:
+                models.agents[name] = reference
+
+        path, _ = await _write_project_models(workdir, mutate)
+        if as_json:
+            _print_json({"scope": "project", "agent": name, "profile": reference,
+                         "path": str(path)})
+            return EXIT_OK
+        print(
+            f"{name} now uses model profile {reference} in {path}"
+            if reference
+            else f"cleared {name}'s project model assignment ({path})"
+        )
+        return EXIT_OK
+
+    patch = {"agents": {"models": {name: reference}}}
     try:
         result = await _call(home, "settings.set", {"scope": "global", "patch": patch})
     except DaemonError as exc:
@@ -235,17 +302,43 @@ async def model_assign(
     if as_json:
         _print_json(result.get("settings") or {})
         return EXIT_OK
-    print(f"{agent} now uses model profile {profile}")
+    print(
+        f"{name} now uses model profile {reference}"
+        if reference
+        else f"cleared {name}'s model assignment"
+    )
     return EXIT_OK
 
 
 async def model_default(
-    profile: str | None = None, home: Path | str | None = None, *, as_json: bool = False
+    profile: str | None = None,
+    home: Path | str | None = None,
+    *,
+    project: bool = False,
+    workdir: str | None = None,
+    as_json: bool = False,
 ) -> int:
     """``snowpea model default [profileId]`` → ``models.default``."""
-    if not profile:
-        return await model_profiles(home, as_json=as_json)
-    patch = {"models": {"default": profile.strip()}}
+    if not profile and not project:
+        return await model_profiles(home, workdir=workdir, as_json=as_json)
+    reference = (profile or "").strip() or None
+
+    if project:
+        def mutate(models: Any) -> None:
+            models.default = reference
+
+        path, _ = await _write_project_models(workdir, mutate)
+        if as_json:
+            _print_json({"scope": "project", "default": reference, "path": str(path)})
+            return EXIT_OK
+        print(
+            f"project default model profile is now {reference} ({path})"
+            if reference
+            else f"cleared the project default model profile ({path})"
+        )
+        return EXIT_OK
+
+    patch = {"models": {"default": reference}}
     try:
         result = await _call(home, "settings.set", {"scope": "global", "patch": patch})
     except DaemonError as exc:
@@ -255,7 +348,11 @@ async def model_default(
     if as_json:
         _print_json(result.get("settings") or {})
         return EXIT_OK
-    print(f"default model profile is now {profile}")
+    print(
+        f"default model profile is now {reference}"
+        if reference
+        else "cleared the default model profile"
+    )
     return EXIT_OK
 
 
@@ -516,12 +613,18 @@ async def provider_models(
 
 
 async def provider_login(
-    vendor: str, home: Path | str | None = None, *, token: str | None = None
+    vendor: str,
+    home: Path | str | None = None,
+    *,
+    token: str | None = None,
+    method: str | None = None,
 ) -> int:
     """``snowpea provider login <vendor>`` → ``provider.loginWeb``.
 
-    Only OpenAI (device code) and OpenRouter (OAuth PKCE) have a browser login;
-    every other vendor answers ``login_unsupported`` with the API-key command.
+    OpenAI and Gemini open a browser (falling back to their headless flow on a
+    machine without one, or when ``--device-code`` asks for it); OpenRouter
+    uses PKCE.  Every other vendor answers ``login_unsupported`` with the
+    API-key command.
     """
     if not vendor:
         return _fail("usage: snowpea provider login <vendor>", EXIT_USAGE)
@@ -534,7 +637,19 @@ async def provider_login(
         entered = token or getpass.getpass(f"{vendor} OAuth access token: ").strip()
         if not entered:
             return _fail("OAuth access token cannot be empty", EXIT_USAGE)
-        config = {"oauth_token": entered, "auth_method": "oauth_token"}
+        problem = await _probe_oauth_token(vendor, entered)
+        if problem:
+            # A warning, not a refusal: the probe can fail for reasons that
+            # have nothing to do with the token (offline, blocked endpoint).
+            print(f"warning: {problem}")
+        # ``None`` clears whatever the previous auth method left behind, so a
+        # stale API key cannot outlive the token that replaced it.
+        config = {
+            "oauth_token": entered,
+            "auth_method": "oauth_token",
+            "api_key": None,
+            "access_token": None,
+        }
         try:
             await _call(home, "provider.configure", {"vendor": vendor, "config": config})
         except DaemonError as exc:
@@ -549,7 +664,9 @@ async def provider_login(
         await client.connect()
         try:
             await client.call(
-                "provider.loginWeb", {"vendor": vendor, "method": "web"}, timeout=900.0
+                "provider.loginWeb",
+                {"vendor": vendor, "method": method or "web"},
+                timeout=900.0,
             )
         finally:
             await client.close()
@@ -559,6 +676,25 @@ async def provider_login(
         return _fail(f"{vendor} login failed ({exc.code}): {exc.message}", EXIT_USAGE)
     print(f"{vendor}: signed in; credentials saved to settings.json")
     return EXIT_OK
+
+
+async def _probe_oauth_token(vendor: str, token: str) -> str | None:
+    """One cheap authenticated call, so a bad paste is caught at entry.
+
+    ``None`` means the token worked — or that the check could not be made,
+    which must never be reported as a bad token.
+    """
+    from snowpea_core.providers import models as model_discovery
+    from snowpea_core.providers.presets import PRESETS
+
+    preset = PRESETS.get(vendor)
+    if preset is None:  # pragma: no cover - guarded by the caller
+        return None
+    try:
+        listed = await model_discovery.list_models(preset, api_key=token, refresh=True)
+    except Exception as exc:  # noqa: BLE001 - a probe never blocks a login
+        return f"could not verify the token ({exc}); saving it anyway"
+    return None if listed else f"{vendor} accepted the token but listed no models"
 
 
 # ---------------------------------------------------------------------------
@@ -1140,12 +1276,17 @@ def resolve_install_source(source: str) -> str:
     return text
 
 
+#: ``--source registry`` is the friendly alias for the hosted source label.
+SOURCE_ALIASES: dict[str, str] = {"registry": "snowpea-registry", "snowpea": "snowpea-registry"}
+
+
 async def skill_command(
     action: str,
     argument: str = "",
     home: Path | str | None = None,
     *,
     as_json: bool = False,
+    source: str | None = None,
 ) -> int:
     """``snowpea skill list|search <query>|install <source>|remove <name>``."""
     if action == "install":
@@ -1158,7 +1299,8 @@ async def skill_command(
     }
     if action not in methods:
         return _fail(
-            "usage: snowpea skill list|search <query>|install <source>|remove <name>",
+            "usage: snowpea skill list|search <query>|install <source>|remove <name>"
+            "|publish <dir>|rate <id> <stars>",
             EXIT_USAGE,
         )
     if action in ("search", "install", "remove") and not argument:
@@ -1180,6 +1322,9 @@ async def skill_command(
 
     skills = [item for item in (result.get("skills") or []) if isinstance(item, dict)]
     unavailable = [str(item) for item in (result.get("unavailable") or [])]
+    if action == "search" and source:
+        wanted = SOURCE_ALIASES.get(source.strip().lower(), source.strip())
+        skills = [skill for skill in skills if str(skill.get("source", "")) == wanted]
     if as_json:
         _print_json({"skills": skills, "unavailable": unavailable} if unavailable else skills)
         return EXIT_OK
@@ -1195,9 +1340,110 @@ async def skill_command(
     for skill in skills:
         name = str(skill.get("name", ""))
         kind = str(skill.get("kind", "skill"))
-        source = str(skill.get("source", ""))
+        source_label = str(skill.get("source", ""))
         summary = str(skill.get("summary", ""))
-        print(f"{name:<{width}}  {kind:<8} {source:<22} {summary}".rstrip())
+        print(f"{name:<{width}}  {kind:<8} {source_label:<22} {summary}".rstrip())
+    return EXIT_OK
+
+
+# ---------------------------------------------------------------------------
+# skill publish / skill rate — talk to the hosted registry directly, no daemon
+# ---------------------------------------------------------------------------
+
+
+def _registry_settings(home: Path | str | None):
+    from snowpea_core.config.settings import Settings
+
+    paths = Paths.create(home)
+    return Settings.load(paths)
+
+
+async def skill_publish_command(
+    directory: str,
+    home: Path | str | None = None,
+    *,
+    registry: str | None = None,
+    token: str | None = None,
+    as_json: bool = False,
+) -> int:
+    """``snowpea skill publish <dir> [--registry <url>] [--token <t>]``."""
+    from snowpea_core.skills import publish as publish_mod
+    from snowpea_core.skills import registry_client
+
+    if not directory:
+        return _fail(
+            "usage: snowpea skill publish <dir> [--registry <url>] [--token <t>]", EXIT_USAGE
+        )
+    try:
+        package = publish_mod.load_skill_dir(directory)
+    except publish_mod.PublishError as exc:
+        return _fail(str(exc), EXIT_USAGE)
+
+    settings = _registry_settings(home)
+    url = registry_client.resolve_url(registry, settings)
+    resolved_token = registry_client.resolve_token(token, settings)
+    if not resolved_token:
+        resolved_token = getpass.getpass(f"{url} publisher token: ").strip()
+    if not resolved_token:
+        return _fail("a publisher token is required to publish", EXIT_USAGE)
+
+    zip_bytes = publish_mod.build_zip(package)
+    client = registry_client.HttpRegistryClient(url)
+    try:
+        result = await client.publish(
+            zip_bytes, filename=f"{package.name}.zip", token=resolved_token
+        )
+    except registry_client.RegistryError as exc:
+        return _fail(f"publish failed: {exc}", EXIT_USAGE)
+
+    skill = result.get("skill") if isinstance(result, dict) else None
+    install_url = (skill or {}).get("installUrl") if isinstance(skill, dict) else None
+    if as_json:
+        _print_json(result)
+        return EXIT_OK
+    created = "published" if result.get("created") else "updated"
+    print(f"{created} {package.name}" + (f" — {install_url}" if install_url else ""))
+    print(f"install with: snowpea skill install registry:{package.name}")
+    return EXIT_OK
+
+
+async def skill_rate_command(
+    identifier: str,
+    stars: str,
+    comment: str | None,
+    home: Path | str | None = None,
+    *,
+    registry: str | None = None,
+    token: str | None = None,
+    as_json: bool = False,
+) -> int:
+    """``snowpea skill rate <id> <stars> [--comment <text>]``."""
+    from snowpea_core.skills import registry_client
+
+    if not identifier or not stars:
+        return _fail("usage: snowpea skill rate <id> <1-5> [--comment <text>]", EXIT_USAGE)
+    try:
+        stars_int = int(stars)
+    except ValueError:
+        return _fail(f"stars must be an integer 1-5, got {stars!r}", EXIT_USAGE)
+    if not 1 <= stars_int <= 5:
+        return _fail(f"stars must be 1-5, got {stars_int}", EXIT_USAGE)
+
+    settings = _registry_settings(home)
+    url = registry_client.resolve_url(registry, settings)
+    resolved_token = registry_client.resolve_token(token, settings)
+    client = registry_client.HttpRegistryClient(url)
+    try:
+        result = await client.rate(identifier, stars_int, comment=comment, token=resolved_token)
+    except registry_client.RegistryError as exc:
+        return _fail(f"rate failed: {exc}", EXIT_USAGE)
+
+    if as_json:
+        _print_json(result)
+        return EXIT_OK
+    rating = result.get("rating")
+    count = result.get("ratingCount")
+    print(f"rated {identifier}: {stars_int} stars (average {rating}, {count} ratings)")
     return EXIT_OK
 
 
@@ -1538,6 +1784,9 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
         "profiles", help="list configured model profiles and per-agent assignments"
     )
     model_profiles_parser.add_argument(
+        "--workdir", default=None, help="project whose models block to merge in"
+    )
+    model_profiles_parser.add_argument(
         "--json", dest="sub_json", action="store_true", help="emit JSON"
     )
     model_assign_parser = model_sub.add_parser(
@@ -1548,6 +1797,12 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
         "profile", nargs="?", default=None, help="profile id; omit to clear the assignment"
     )
     model_assign_parser.add_argument(
+        "--project",
+        action="store_true",
+        help="write it to this project instead of global settings",
+    )
+    model_assign_parser.add_argument("--workdir", default=None, help="project to write it to")
+    model_assign_parser.add_argument(
         "--json", dest="sub_json", action="store_true", help="emit JSON"
     )
     model_default_parser = model_sub.add_parser(
@@ -1556,6 +1811,12 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
     model_default_parser.add_argument(
         "profile", nargs="?", default=None, help="profile id to make the default"
     )
+    model_default_parser.add_argument(
+        "--project",
+        action="store_true",
+        help="set this project's default instead of the global one",
+    )
+    model_default_parser.add_argument("--workdir", default=None, help="project to write it to")
     model_default_parser.add_argument(
         "--json", dest="sub_json", action="store_true", help="emit JSON"
     )
@@ -1579,6 +1840,12 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
         "login", help="browser login, or enter an OAuth token on a remote machine"
     )
     provider_login_parser.add_argument("vendor", help="vendor to log into")
+    provider_login_parser.add_argument(
+        "--device-code",
+        dest="device_code",
+        action="store_true",
+        help="use the headless flow (device code / gcloud) instead of a browser",
+    )
     provider_login_parser.add_argument(
         "--token",
         nargs="?",
@@ -1657,6 +1924,28 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
         if argument:
             skill_action.add_argument(argument)
         skill_action.add_argument("--json", dest="sub_json", action="store_true", help="emit JSON")
+        if name == "search":
+            skill_action.add_argument(
+                "--source",
+                default=None,
+                help="only show hits from this source, e.g. registry (snowpea-registry)",
+            )
+
+    skill_publish = skill_sub.add_parser(
+        "publish", help="zip a skill directory and publish it to the registry"
+    )
+    skill_publish.add_argument("dir", help="path to the skill directory (holds SKILL.md)")
+    skill_publish.add_argument("--registry", default=None, help="registry base URL override")
+    skill_publish.add_argument("--token", default=None, help="publisher token override")
+    skill_publish.add_argument("--json", dest="sub_json", action="store_true", help="emit JSON")
+
+    skill_rate = skill_sub.add_parser("rate", help="rate a registry skill 1-5 stars")
+    skill_rate.add_argument("id", help="registry skill id")
+    skill_rate.add_argument("stars", help="1-5")
+    skill_rate.add_argument("--comment", default=None, help="optional review text")
+    skill_rate.add_argument("--registry", default=None, help="registry base URL override")
+    skill_rate.add_argument("--token", default=None, help="publisher token override (optional)")
+    skill_rate.add_argument("--json", dest="sub_json", action="store_true", help="emit JSON")
 
     daemon = sub.add_parser("daemon", help="control the core daemon")
     daemon_sub = daemon.add_subparsers(dest="action", metavar="<action>")
@@ -1848,21 +2137,29 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
         )
     if subcommand == "model":
         if action == "profiles":
-            return await model_profiles(home, as_json=as_json)
+            return await model_profiles(
+                home, workdir=getattr(args, "workdir", None), as_json=as_json
+            )
         if action == "assign":
             return await model_assign(
                 str(getattr(args, "agent", "") or ""),
-                str(getattr(args, "profile", "") or ""),
+                getattr(args, "profile", None),
                 home,
+                project=bool(getattr(args, "project", False)),
+                workdir=getattr(args, "workdir", None),
                 as_json=as_json,
             )
         if action == "default":
             return await model_default(
-                getattr(args, "profile", None), home, as_json=as_json
+                getattr(args, "profile", None),
+                home,
+                project=bool(getattr(args, "project", False)),
+                workdir=getattr(args, "workdir", None),
+                as_json=as_json,
             )
         return _fail(
-            "usage: snowpea model profiles [--json] | assign <agent> <profileId>"
-            " | default [profileId]",
+            "usage: snowpea model profiles [--json] | assign <agent> [<profileId>]"
+            " | default [profileId]  (both accept --project)",
             EXIT_USAGE,
         )
     if subcommand == "update":
@@ -1912,10 +2209,13 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
                 getattr(args, "vendor", None) or None, home, as_json=as_json
             )
         if action == "login":
+            vendor_name = str(getattr(args, "vendor", "") or "")
+            headless = {"openai": "device_code", "gemini": "google_adc"}
             return await provider_login(
-                str(getattr(args, "vendor", "") or ""),
+                vendor_name,
                 home,
                 token=getattr(args, "token", None),
+                method=headless.get(vendor_name) if getattr(args, "device_code", False) else None,
             )
         return _fail("usage: snowpea provider list|models|login <vendor>", EXIT_USAGE)
     if subcommand == "gateway":
@@ -1960,13 +2260,37 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
             EXIT_USAGE,
         )
     if subcommand == "skill":
-        argument = (
-            getattr(args, "query", None)
-            or getattr(args, "source", None)
-            or getattr(args, "name", None)
-            or ""
+        if action == "publish":
+            return await skill_publish_command(
+                str(getattr(args, "dir", "") or ""),
+                home,
+                registry=getattr(args, "registry", None),
+                token=getattr(args, "token", None),
+                as_json=as_json,
+            )
+        if action == "rate":
+            return await skill_rate_command(
+                str(getattr(args, "id", "") or ""),
+                str(getattr(args, "stars", "") or ""),
+                getattr(args, "comment", None),
+                home,
+                registry=getattr(args, "registry", None),
+                token=getattr(args, "token", None),
+                as_json=as_json,
+            )
+        if action == "install":
+            argument = getattr(args, "source", None) or ""
+        elif action == "search":
+            argument = getattr(args, "query", None) or ""
+        else:
+            argument = getattr(args, "name", None) or ""
+        return await skill_command(
+            str(action or ""),
+            str(argument),
+            home,
+            as_json=as_json,
+            source=getattr(args, "source", None) if action == "search" else None,
         )
-        return await skill_command(str(action or ""), str(argument), home, as_json=as_json)
     if subcommand == "daemon":
         if action == "status":
             return await daemon_status(home, as_json=as_json)
@@ -2010,6 +2334,8 @@ __all__ = [
     "search_test",
     "setup_command",
     "skill_command",
+    "skill_publish_command",
+    "skill_rate_command",
     "team_status",
     "tools_list",
     "update_cli",

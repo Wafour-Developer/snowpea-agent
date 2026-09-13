@@ -8,6 +8,7 @@ stays about process lifecycle.  ``register_session_handlers`` is called from
 
 from __future__ import annotations
 
+import functools
 import logging
 import shutil
 from collections.abc import Sequence
@@ -59,6 +60,8 @@ from snowpea_core.server.protocol import (
     SessionPromptParams,
     SessionResumeParams,
     SessionResumeResult,
+    SessionSetModelParams,
+    SessionSetModelResult,
     SessionSetModeParams,
     SessionSetModeResult,
     SessionSummary,
@@ -99,6 +102,7 @@ HANDLED_METHODS: tuple[str, ...] = (
     "session.interrupt",
     "session.compact",
     "session.setMode",
+    "session.setModel",
     "command.list",
     "command.run",
     "tool.list",
@@ -112,10 +116,21 @@ HANDLED_METHODS: tuple[str, ...] = (
 )
 
 
+def _definition_model(core: Core, agent: str, workdir: Path) -> str | None:
+    """``model:`` from the agent definition named ``agent``, visible at ``workdir``."""
+    from snowpea_core.commands.agent_cmd import definitions_for
+
+    for definition in definitions_for(core, workdir):
+        if definition.name == agent:
+            return definition.model or None
+    return None
+
+
 def wire_core(core: Core) -> Core:
     """Give ``Core``'s collaborators the store, settings and hub they need."""
     core.store = Store.open(core.paths)
     core.sessions.bind(core.store, core.settings, core.hub)
+    core.sessions.definition_model_for = functools.partial(_definition_model, core)
     core.hub.bind(core.store, core.sessions)
     core.approvals.bind(core.settings, core.paths, core.hub)
     core.providers.bind(core.settings, core.paths)
@@ -131,6 +146,9 @@ def wire_core(core: Core) -> Core:
     register_builtin_commands(core.commands)
     core.skills = SkillLoader(core)
     core.skills.load_sync()
+    from snowpea_core.skills import registry_client
+
+    registry_client.configure_client(core.settings)
     return core
 
 
@@ -419,6 +437,27 @@ async def session_set_mode_handler(
     return SessionSetModeResult(mode=mode)
 
 
+async def session_set_model_handler(
+    _conn: RpcConnection, params: SessionSetModelParams, core: Core
+) -> SessionSetModelResult:
+    """``session.setModel`` — the RPC half of ``/model <ref>``.
+
+    Same code path as the command, so the TUI, the IDE and headless all pin a
+    session the same way and all get the pin persisted on the session row.
+    """
+    session = _session(core, params.sessionId)
+    try:
+        route = await core.sessions.set_model(session, params.model)
+    except ValueError as exc:
+        raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
+    await core.hub.emit_event(session.id, events.model_changed(route.provider, route.model))
+    return SessionSetModelResult(
+        provider=route.provider,
+        model=route.model,
+        pinned=bool((params.model or "").strip() not in ("", "inherit")),
+    )
+
+
 # ---------------------------------------------------------------------------
 # command.* / tool.*
 # ---------------------------------------------------------------------------
@@ -579,6 +618,7 @@ def register_session_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
     dispatcher.register("session.interrupt", session_interrupt_handler)
     dispatcher.register("session.compact", session_compact_handler)
     dispatcher.register("session.setMode", session_set_mode_handler)
+    dispatcher.register("session.setModel", session_set_model_handler)
     dispatcher.register("command.list", command_list_handler)
     dispatcher.register("command.run", command_run_handler)
     dispatcher.register("tool.list", tool_list_handler)

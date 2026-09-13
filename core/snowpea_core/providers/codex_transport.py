@@ -50,6 +50,7 @@ from snowpea_core.providers.base import (
 )
 from snowpea_core.providers.normalize import parse_arguments, text_of
 from snowpea_core.providers.openai_compat import sse_payloads
+from snowpea_core.server.errors import AUTH_EXPIRED, RpcError
 
 log = logging.getLogger("snowpea.providers.codex")
 
@@ -79,6 +80,9 @@ CODEX_MODELS: tuple[str, ...] = (
 _REASONING_PREFIXES = ("gpt-5", "o1", "o3", "o4", "codex")
 REASONING_EFFORTS: tuple[str, ...] = ("minimal", "low", "medium", "high")
 DEFAULT_REASONING_EFFORT = "medium"
+
+#: Renew this long before the stored token expires.
+REFRESH_SKEW_SEC = 60.0
 
 #: Response headers worth surfacing: the ChatGPT plan's rolling quota.
 _QUOTA_HEADER_PREFIXES = ("x-codex-", "x-ratelimit-")
@@ -393,9 +397,21 @@ class CodexProvider:
         return body
 
     async def _refresh(self) -> None:
-        """Renew the access token and hand the fresh credentials to the caller."""
+        """Renew the access token and hand the fresh credentials to the caller.
+
+        A refresh that fails is the end of the session: it becomes
+        ``auth_expired`` — a distinct code, so a surface can offer the login
+        instead of reporting a malformed request.
+        """
         log.info("codex: access token rejected, refreshing")
-        self.credentials = await openai_oauth.refresh_credentials(self.credentials)
+        try:
+            self.credentials = await openai_oauth.refresh_credentials(self.credentials)
+        except RpcError as exc:
+            raise ProviderError(
+                AUTH_EXPIRED,
+                f"{self._tag()}: your ChatGPT login expired and could not be renewed "
+                f"({exc.message}) — run `snowpea provider login openai` to sign in again",
+            ) from exc
         if self._on_credentials is not None:
             result = self._on_credentials(dict(self.credentials))
             if result is not None and hasattr(result, "__await__"):
@@ -442,6 +458,13 @@ class CodexProvider:
         """Stream one assistant turn from the Codex backend."""
         body = self.build_request(messages, tools, max_tokens=max_tokens)
         refreshed = False
+        # A token that dies mid-request costs a whole turn; renew it first
+        # when it is already inside the skew.
+        if openai_oauth.is_expired(self.credentials, skew_sec=REFRESH_SKEW_SEC) and (
+            self.credentials.get("refresh_token")
+        ):
+            await self._refresh()
+            refreshed = True
         while True:
             try:
                 async for event in self._stream_once(body):
@@ -452,9 +475,10 @@ class CodexProvider:
                 # cannot duplicate output the caller has already seen.
                 if refreshed or not self.credentials.get("refresh_token"):
                     raise ProviderError(
-                        "invalid_params",
-                        f"{self._tag()}: the ChatGPT session is no longer valid "
-                        f"({exc.detail or 'HTTP 401'}); run `snowpea setup --login openai`",
+                        AUTH_EXPIRED,
+                        f"{self._tag()}: your ChatGPT login expired "
+                        f"({exc.detail or 'HTTP 401'}) — run "
+                        f"`snowpea provider login openai` to sign in again",
                     ) from exc
                 refreshed = True
                 await self._refresh()

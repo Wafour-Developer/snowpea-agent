@@ -32,7 +32,7 @@ These are answered by the terminal UI itself rather than by the core, so they do
 | Command | What it does |
 |---|---|
 | `/resume` | reopen the session this directory was last in, and replay it |
-| `/model` | pick a model or profile from a list; `/model <ref>` switches directly |
+| `/model` | pick a model or profile from a list; `/model <ref>` pins this session (persisted, survives a restart); `/model inherit` clears the pin; `/model default <id>` sets `models.default` |
 | `$<agent> <prompt>` | hand one prompt to a named agent |
 | `/attach <path>` | attach a file to the next prompt |
 | `/voice` | arm voice input; `Ctrl+Space` then records |
@@ -115,9 +115,13 @@ snowpea session clear --all
 snowpea model profiles --json
 snowpea model default fast
 snowpea model assign executor deep
+snowpea model assign executor daily --project
+snowpea model assign executor
 ```
 
-`model profiles` prints `models.profiles` with the default marked, plus the per-agent assignments in `agents.models`. `model assign` routes one agent to a profile; the daemon refuses a profile id that does not exist.
+`model profiles` prints the routing's own view — the project's `models` block merged over the global one, each row tagged `[global]` or `[project]`, with the effective default marked — plus the per-agent assignments. `model assign` routes one agent to a profile and `model default` sets the fallback; both take `--project` to write `<workdir>/.snowpea/settings.json` instead, and both clear the setting when the profile id is omitted. The daemon refuses a profile id that does not exist.
+
+See [Setup](setup.md) for the five-rung precedence chain these settings feed.
 
 ### Search
 

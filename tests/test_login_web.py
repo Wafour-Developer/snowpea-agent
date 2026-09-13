@@ -112,7 +112,7 @@ async def test_login_web_returns_user_code_immediately_and_finishes_in_backgroun
 
     core = _core(tmp_path, monkeypatch)
     conn = _FakeConn()
-    params = ProviderLoginWebParams(vendor="openai", method="web")
+    params = ProviderLoginWebParams(vendor="openai", method="device_code")
 
     result = await provider_login_web_handler(conn, params, core)  # type: ignore[arg-type]
 
@@ -128,8 +128,15 @@ async def test_login_web_returns_user_code_immediately_and_finishes_in_backgroun
 
     assert _phases(core.hub, "openai") == ["started", "await_user", "polling", "done"]  # type: ignore[arg-type]
     stored = json.loads((tmp_path / "settings.json").read_text(encoding="utf-8"))
-    assert stored["providers"]["openai"]["token"] == "tok-abc"
+    # Device code and the browser flow now leave the *same* record behind, so
+    # the Codex transport can serve either without knowing which one ran.
+    assert stored["providers"]["openai"]["access_token"] == "tok-abc"
     assert stored["providers"]["openai"]["refresh_token"] == "ref-abc"
+    assert stored["providers"]["openai"]["auth_method"] == "chatgpt"
+    assert "token" not in stored["providers"]["openai"]
+    assert "expires_in" not in stored["providers"]["openai"]
+    # An absolute instant, not a bare duration nothing could check later.
+    assert stored["providers"]["openai"]["expires_at"] > 0
 
 
 async def test_login_web_reports_failure_phase_and_does_not_persist(
@@ -157,7 +164,7 @@ async def test_login_web_reports_failure_phase_and_does_not_persist(
 
     core = _core(tmp_path, monkeypatch)
     conn = _FakeConn()
-    params = ProviderLoginWebParams(vendor="openai", method="web")
+    params = ProviderLoginWebParams(vendor="openai", method="device_code")
 
     result = await provider_login_web_handler(conn, params, core)  # type: ignore[arg-type]
     assert result.status == "await_user"
@@ -195,7 +202,7 @@ async def test_gemini_google_adc_login_persists_only_auth_method(
     core = _core(tmp_path, monkeypatch)
     conn = _FakeConn()
     result = await provider_login_web_handler(  # type: ignore[arg-type]
-        conn, ProviderLoginWebParams(vendor="gemini", method="web"), core
+        conn, ProviderLoginWebParams(vendor="gemini", method="google_adc"), core
     )
     assert result.status == "await_user"
     await conn.run_spawned()

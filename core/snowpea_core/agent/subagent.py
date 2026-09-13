@@ -30,6 +30,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from snowpea_core.agent.definition import AgentDefinition
+from snowpea_core.config.model_routing import ModelRoute, model_config_for, resolve_reference
 from snowpea_core.prompts.loader import PromptNotFound, load
 from snowpea_core.server.protocol import AgentInfo
 from snowpea_core.session import events
@@ -127,6 +128,11 @@ class SubagentRecord:
     error: str | None = None
     input_tokens: int = 0
     output_tokens: int = 0
+    #: Caller's explicit model override for this one delegation, resolved from
+    #: ``delegate_task(model=…)`` / ``agent.spawn(model=…)``.  Highest rung of
+    #: the precedence chain (CORE-model-assignment).
+    provider_override: str | None = None
+    model_override: str | None = None
 
     @property
     def ok(self) -> bool:
@@ -344,6 +350,7 @@ class SubagentManager:
         agent: str | None = None,
         tools: list[str] | None = None,
         timeout: float | None = None,
+        model: str | None = None,
     ) -> tuple[str, asyncio.Task[SubagentResult]]:
         """Start a subagent in the background; returns its id and its task.
 
@@ -352,7 +359,15 @@ class SubagentManager:
         """
         record = self.new_record(parent, task, agent)
         runner = asyncio.ensure_future(
-            self.run(parent, task, agent=agent, tools=tools, timeout=timeout, record=record)
+            self.run(
+                parent,
+                task,
+                agent=agent,
+                tools=tools,
+                timeout=timeout,
+                record=record,
+                model=model,
+            )
         )
         return record.agent_id, runner
 
@@ -365,11 +380,41 @@ class SubagentManager:
         tools: list[str] | None = None,
         timeout: float | None = None,
         record: SubagentRecord | None = None,
+        model: str | None = None,
     ) -> SubagentResult:
-        """Delegate ``task`` to a child session and return its final answer."""
+        """Delegate ``task`` to a child session and return its final answer.
+
+        ``model`` is a one-shot override — a profile id, ``vendor:model`` or a
+        bare vendor — and outranks everything else for this delegation only
+        (CORE-model-assignment).  An unresolvable reference is refused rather
+        than silently ignored: the caller asked for a specific model.
+        """
         brief = (task or "").strip()
         if record is None:
             record = self.new_record(parent, task, agent)
+        if model:
+            route = resolve_reference(
+                self.core.settings,
+                model,
+                config=model_config_for(self.core.settings, parent.workdir),
+            )
+            if not route.resolved():
+                record.status = ERROR
+                record.error = (
+                    f"unknown model {model!r}: not a profile id, a 'vendor:model' pair "
+                    "or a known vendor"
+                )
+                await self.emit_spawn(record)
+                await self.emit_done(record)
+                return SubagentResult(
+                    agent_id=record.agent_id,
+                    ok=False,
+                    summary="",
+                    status=ERROR,
+                    error=record.error,
+                    usage=record.usage(),
+                )
+            record.provider_override, record.model_override = route.provider, route.model
         if parent.team_agents and not agent:
             agent = "executor" if "executor" in parent.team_agents else parent.team_agents[0]
             record.name = agent
@@ -487,24 +532,17 @@ class SubagentManager:
         definition_model = (
             defn.model if defn is not None and defn.model and defn.model != "inherit" else None
         )
-        # Two precedence rules live in this codebase and both are load-bearing
-        # (CORE-fixes-v017 R10).  :func:`config.model_routing.route_for` is the
-        # real one and runs inside ``sessions.create`` below.  The branch here
-        # exists only for installs with *no* multi-model settings at all: there
-        # a definition's bare ``model:`` still has to be split against the
-        # parent's provider so the child inherits the parent vendor, which
-        # ``route_for`` cannot do because it never sees the parent.  When any
-        # routing settings exist, ``definition_model`` is handed straight to
-        # ``route_for`` and this legacy split is skipped.
-        assigned = bool(record.name and record.name in self.core.settings.agents.models)
-        has_model_routing = bool(self.core.settings.models.default or assigned)
-        if has_model_routing or definition_model:
-            provider, model = (None, None)
-            if definition_model and not has_model_routing:
-                provider, model = _split_model(definition_model, parent.provider)
-                definition_model = None
-        else:
-            provider, model = parent.provider, parent.model
+        # ``route_for`` owns the whole precedence chain — there is no second
+        # copy of it here any more.  The old bypass resolved a definition's
+        # ``model:`` through ``_split_model``, which never consulted
+        # ``models.profiles``, so a *valid profile id* in an agent .md was read
+        # as a vendor name and the child died at its first turn with
+        # "unknown provider vendor: fast" (CORE-model-assignment B-P1-1).
+        #
+        # The parent's own route is passed as the session pin: it is what the
+        # child inherits when neither an explicit override, an assignment, a
+        # definition nor a default has anything to say.
+        provider, model = (record.provider_override, record.model_override)
         child = await self.core.sessions.create(
             parent.workdir,
             mode=mode,
@@ -515,6 +553,7 @@ class SubagentManager:
             max_concurrent=self.limit_for(parent),
             origin_surface=parent.origin_surface,
             origin_conn=parent.origin_conn,
+            session_pin=ModelRoute(parent.provider, parent.model),
         )
         child.parent_session_id = parent.id
         child.unattended = parent.unattended
@@ -546,15 +585,6 @@ class SubagentManager:
             explicit = {str(name) for name in tools if str(name).strip()}
             allowed = explicit if allowed is None else (allowed & explicit)
         child.allowed_tools = allowed
-
-
-def _split_model(value: str, fallback_vendor: str | None) -> tuple[str | None, str | None]:
-    """``"anthropic:claude-sonnet-4"`` -> ``("anthropic", "claude-sonnet-4")``."""
-    text = value.strip()
-    if ":" in text:
-        vendor, _, model = text.partition(":")
-        return (vendor.strip() or fallback_vendor), (model.strip() or None)
-    return (text or fallback_vendor), None
 
 
 def _last_assistant_text(session: Session) -> str:

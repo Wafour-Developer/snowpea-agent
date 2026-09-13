@@ -47,7 +47,54 @@ snowpea setup --blank    # asks nothing, writes the defaults
 }
 ```
 
-에이전트 모델 선택 우선순위는 **에이전트별 할당 → 에이전트 정의에 명시한 모델 → 기본 모델**입니다. 별도 할당이나 명시적 모델이 없는 에이전트는 `models.default`를 사용합니다. 새 일반 세션도 기본 모델로 시작하며, 세션에 명시한 provider/model은 유지됩니다. 기존 세션의 모델은 자동 변경하지 않습니다. 모델 프로필을 설정하지 않은 기존 설치는 종전 동작을 유지합니다.
+### 한 턴이 실제로 쓰는 모델
+
+다섯 단계이고, 위에서부터 먼저 결정되는 쪽이 이깁니다. 끝까지 정해지지 않으면 벤더 기본값으로 넘어갑니다.
+
+| # | 단계 | 설정 방법 |
+|---|---|---|
+| 1 | 이번 위임에만 적용하는 일회성 지정 | `delegate_task(model=…)`, `agent.spawn(model=…)` |
+| 2 | 에이전트별 할당 | `snowpea model assign <agent> <profile>`, 또는 `agents.models` / 프로젝트 `models.agents` |
+| 3 | 세션 고정 | `/model <profile>`, `session.setModel` |
+| 4 | 프로젝트 기본값 | 프로젝트 `models.default` |
+| 5 | 전역 기본값 | `models.default`, 또는 `snowpea model default <profile>` |
+
+2단계는 에이전트별 할당을 먼저 보고, 없으면 에이전트 정의의 `model:` 필드를 봅니다. 참조로는 프로필 id, `vendor:model` 쌍, 벤더 이름을 쓸 수 있고 `inherit`은 "의견 없음, 다음 단계로"라는 뜻입니다.
+
+새 일반 세션은 4~5단계에서 시작합니다. 설정을 고쳐도 기존 세션의 모델은 자동으로 바뀌지 않으며, 직접 고정해 둔 세션은 그 고정을 유지합니다 — 고정값은 세션과 함께 저장되어 재시작 후에도 남습니다. 모델 프로필을 하나도 설정하지 않은 기존 설치는 종전 동작을 유지합니다.
+
+### 프로젝트별 모델
+
+저장소마다 `<workdir>/.snowpea/settings.json`에 자기 `models` 블록을 둘 수 있습니다. 전역과 같은 세 키에 `agents`가 더 있고, 각각 키 단위로 전역 위에 덮이므로 다른 것만 적으면 됩니다.
+
+```json
+{
+  "models": {
+    "default": "reasoning",
+    "agents": {"executor": "daily"},
+    "profiles": {"local": {"provider": "ollama", "model": "your-local-model-id"}}
+  }
+}
+```
+
+셸에서는:
+
+```bash
+snowpea model profiles                       # 병합된 목록. 각 줄에 global/project 표시
+snowpea model default reasoning --project    # 이 저장소의 기본값
+snowpea model assign executor daily --project
+snowpea model assign executor                # id를 빼면 할당 해제
+```
+
+### 프로필 삭제
+
+`settings.set`은 병합이라 삭제를 표현할 수 없습니다. 그래서 `null`이 키를 지웁니다:
+
+```json
+{"models": {"profiles": {"daily": null}}}
+```
+
+프로필을 지우기 전에 `models.default`를 다른 곳으로 옮겨 주세요. 기본값이 없는 프로필을 가리키는 문서는 설정 검증이 거부합니다.
 
 ## 벤더
 
@@ -72,12 +119,8 @@ snowpea provider list
 snowpea provider list --json
 ```
 
-`provider list`는 각 벤더의 인증 방식, 기본 모델, 설정 여부를 보여줍니다.
+`provider list`는 각 벤더의 인증 방식, 기본 모델, 설정 여부를 보여줍니다. `--json`에는 벤더별 `authStatus`도 담깁니다: `active`, `expired`(만료된 OAuth 세션), `unconfigured`.
 
-데스크톱에서는 `snowpea provider login gemini`가 Google ADC 로그인을 엽니다.
-원격/headless 머신에서는 `snowpea provider login gemini --token`을 실행한 뒤
-숨김 프롬프트에 OAuth access token을 붙여 넣으세요. OpenAI도 같은 `--token`
-방식을 지원합니다. 토큰이 셸 기록에 남지 않도록 값은 명령행에서 생략하세요.
 
 ### 키 추가하기
 
@@ -90,20 +133,50 @@ snowpea setup --vendor anthropic --key sk-ant-... --model claude-sonnet-4-5
 
 ### 브라우저 로그인
 
-두 벤더는 키를 붙여넣는 대신 브라우저로 로그인하는 방식을 지원합니다.
+세 벤더는 키를 붙여넣는 대신 브라우저로 로그인할 수 있습니다.
 
 ```bash
-snowpea provider login openai        # device code: a code appears, you approve it in the browser
-snowpea provider login openrouter    # OAuth PKCE: a local callback receives the code
+snowpea provider login openai        # ChatGPT: 동의 화면, localhost:1455 콜백
+snowpea provider login gemini        # Google: 동의 화면, 비어 있는 localhost 포트로 콜백
+snowpea provider login openrouter    # OAuth PKCE: 로컬 콜백이 코드를 받음
 ```
 
 `snowpea setup --login openai`도 같은 동작을 하는 별칭입니다. 그 외 벤더는 `login_unsupported`로 답하며 대신 돌릴 `--vendor`/`--key` 명령을 알려줍니다.
 
-**문제 해결:** 같은 요청이 다른 곳에서는 성공하는데도 일부 네트워크·계정에서는 device-code 로그인이 `device authorization failed (HTTP 403)`로 실패할 수 있습니다 — 마법사는 종료하지 않고 벤더가 보낸 오류 문구를 출력한 뒤 인증 방법을 다시 묻습니다. 이때 "1=API key" 또는 "3=OAuth token"을 선택해 계속 진행하세요.
-
 ```bash
 snowpea provider login deepseek
 ```
+
+**ChatGPT·Google 로그인은 API 키가 아닙니다.** 구독 계정으로 로그인하는 것이라 두 벤더의 API 키 엔드포인트는 이 토큰을 거부합니다. 그래서 snowpea는 해당 대화를 각 벤더의 공식 CLI가 쓰는 백엔드 — OpenAI는 `chatgpt.com`의 Codex API, Gemini는 Code Assist API — 로 보냅니다. 전환은 자동이며, 눈에 보이는 차이는 모델 목록이 그 백엔드가 제공하는 집합(`gpt-5-codex`, `gpt-5`, … / `gemini-2.5-pro`, `gemini-2.5-flash`)으로 바뀐다는 점입니다. API 키 사용자에게는 달라지는 것이 없습니다.
+
+**브라우저를 쓸 수 없는 환경** — SSH 접속이거나 디스플레이가 없는 리눅스 세션 — 에서는 브라우저 단계를 건너뛰고 헤드리스 방식으로 자동 전환합니다. OpenAI는 device code, Gemini는 `gcloud auth application-default login`입니다. 어디서든 강제하려면 `--device-code`를 쓰거나 `SNOWPEA_HEADLESS_LOGIN=1`을 내보내세요.
+
+```bash
+snowpea provider login openai --device-code
+snowpea provider login gemini --token        # 또는 OAuth 액세스 토큰 붙여넣기
+```
+
+`--token` 뒤의 값은 생략해야 셸 기록에 남지 않습니다. 붙여넣은 토큰은 저장 전에 인증 요청 한 번으로 확인하며, 실패해도 거부가 아니라 경고입니다(오프라인 등 토큰과 무관한 이유로도 실패할 수 있기 때문입니다).
+
+**로그인은 만료되고, snowpea가 알아서 갱신합니다.** 리프레시 토큰을 액세스 토큰과 함께 저장해 두고, 만료가 임박한 턴 직전에 한 번, 그래도 백엔드가 거부하면 한 번 더 갱신합니다. 사용자가 직접 할 일은 갱신 자체가 실패했을 때뿐이고, 그때는 오류 문구가 그대로 알려 줍니다.
+
+```
+your ChatGPT login expired and could not be renewed — run `snowpea provider login openai` to sign in again
+```
+
+그 전까지는 `snowpea provider list`와 설치 화면에서 해당 벤더가 `active`가 아니라 `expired`로 표시됩니다.
+
+**문제 해결**
+
+| 표시되는 내용 | 의미 |
+|---|---|
+| `device authorization failed (HTTP 403)` | 일부 네트워크·계정은 device-code 요청을 거부합니다. 브라우저 로그인이나 API 키를 쓰세요. |
+| `port 1455 is already in use` | OpenAI는 `http://localhost:1455/auth/callback`만 허용하므로 포트를 바꿀 수 없습니다. 그 포트를 잡고 있는 다른 로그인(다른 Codex나 snowpea)을 닫거나 `--device-code`를 쓰세요. |
+| 브라우저는 열리는데 아무 일도 없음 | 콜백이 도착하지 않은 것입니다. 브라우저가 *이* 컴퓨터에서 열렸는지 확인하고, SSH라면 `--device-code`를 쓰세요. |
+| `the callback state did not match` | 응답한 페이지가 snowpea가 시작한 로그인이 아닙니다. 로그인을 다시 실행하세요. |
+| `gemini OAuth login needs the Google Cloud CLI` | `gcloud` ADC 방식에만 필요합니다. 브라우저 로그인에는 필요 없습니다. |
+
+설치 마법사는 종료하지 않고 벤더가 보낸 오류 문구를 출력한 뒤 인증 방법을 다시 묻습니다. 로그인 실패로 설치가 끝나는 일은 없습니다.
 
 ### 로컬 모델
 

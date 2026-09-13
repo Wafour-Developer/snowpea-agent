@@ -13,10 +13,17 @@ import os
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from snowpea_core.config.paths import Paths
-from snowpea_core.config.project import AllowlistEntry, normalise_teams
+from snowpea_core.config.project import AllowlistEntry, ModelProfile, normalise_teams
 
 log = logging.getLogger("snowpea.settings")
 
@@ -51,6 +58,39 @@ DEFAULT_AGENT_TEAM: tuple[str, ...] = (
 )
 
 
+def _drop_unresolvable_model_refs(raw: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    """Remove ``models.default`` / ``agents.models`` entries with no profile.
+
+    Returns the repaired document and a human-readable list of what went, so
+    the caller can log it.  Only these two keys are touched: any other
+    validation failure is a real error and must still raise.
+    """
+    models = raw.get("models")
+    profiles = models.get("profiles") if isinstance(models, dict) else None
+    known = set(profiles) if isinstance(profiles, dict) else set()
+    repaired = dict(raw)
+    dropped: list[str] = []
+
+    if isinstance(models, dict) and isinstance(models.get("default"), str):
+        if models["default"] not in known:
+            dropped.append(f"models.default={models['default']}")
+            repaired["models"] = {k: v for k, v in models.items() if k != "default"}
+
+    agents = raw.get("agents")
+    if isinstance(agents, dict) and isinstance(agents.get("models"), dict):
+        assignments = agents["models"]
+        keep = {
+            agent: profile
+            for agent, profile in assignments.items()
+            if isinstance(profile, str) and profile in known
+        }
+        if len(keep) != len(assignments):
+            gone = sorted(set(assignments) - set(keep))
+            dropped += [f"agents.models.{agent}={assignments[agent]}" for agent in gone]
+            repaired["agents"] = {**agents, "models": keep}
+    return repaired, dropped
+
+
 class _Model(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -65,19 +105,6 @@ class AgentsSettings(_Model):
     default_team: str | None = None
 
     _normalise_teams = field_validator("teams", mode="before")(normalise_teams)
-
-
-class ModelProfile(_Model):
-    provider: str
-    model: str
-
-    @field_validator("provider", "model")
-    @classmethod
-    def _non_empty(cls, value: str) -> str:
-        text = str(value).strip()
-        if not text:
-            raise ValueError("model profile provider/model must be non-empty")
-        return text
 
 
 class ModelsSettings(_Model):
@@ -249,6 +276,25 @@ class McpSettings(_Model):
     enabled: bool = True
 
 
+class SkillRegistrySettings(_Model):
+    """The hosted skill registry ``skill.search``/``skill publish`` talk to.
+
+    ``url`` and ``token`` are both overridable per call: ``url`` by
+    ``SNOWPEA_REGISTRY_URL`` or ``--registry``, ``token`` by
+    ``SNOWPEA_REGISTRY_TOKEN`` or ``--token``.  ``None`` means "use the
+    built-in default" (``registry_client.REGISTRY_URL``), not "no registry".
+    """
+
+    url: str | None = None
+    token: str | None = None
+
+
+class SkillsSettings(_Model):
+    """Skill discovery/publishing configuration (M6-M7 §1)."""
+
+    registry: SkillRegistrySettings = Field(default_factory=SkillRegistrySettings)
+
+
 class Settings(_Model):
     """Daemon-wide settings, persisted as JSON."""
 
@@ -264,6 +310,7 @@ class Settings(_Model):
     media: MediaSettings = Field(default_factory=MediaSettings)
     audio: AudioSettings = Field(default_factory=AudioSettings)
     mcp: McpSettings = Field(default_factory=McpSettings)
+    skills: SkillsSettings = Field(default_factory=SkillsSettings)
     memory: MemorySettings = Field(default_factory=MemorySettings)
     context: ContextSettings = Field(default_factory=ContextSettings)
     scheduler: SchedulerSettings = Field(default_factory=SchedulerSettings)
@@ -290,7 +337,25 @@ class Settings(_Model):
             return cls()
         if not isinstance(raw, dict):
             return cls()
-        settings = cls.model_validate(raw)
+        try:
+            settings = cls.model_validate(raw)
+        except ValidationError:
+            # A settings file the strict validator rejects used to escape out
+            # of ``load``, and the daemon died on startup — which left no
+            # ``settings.set`` to repair it with, so the only way back was
+            # hand-editing JSON.  Boot degraded instead: drop the references
+            # that do not resolve, keep everything else, and say so loudly
+            # (CORE-model-assignment B-P1-2).
+            raw, dropped = _drop_unresolvable_model_refs(raw)
+            if not dropped:
+                raise
+            log.error(
+                "ignoring unusable model routing in %s (%s); "
+                "fix it with `snowpea model profiles` or by editing the file",
+                path,
+                "; ".join(dropped),
+            )
+            settings = cls.model_validate(raw)
         # Existing installations predate teams. Loading their settings is the
         # first-setup migration point; explicit empty/disabled teams can still
         # be represented with ``default_team: null`` after a team is defined.
@@ -355,6 +420,8 @@ __all__ = [
     "SchedulerSettings",
     "SearchSettings",
     "Settings",
+    "SkillRegistrySettings",
+    "SkillsSettings",
     "SttSettings",
     "TeamSettings",
     "ToolsSettings",

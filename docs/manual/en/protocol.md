@@ -41,7 +41,7 @@ The result carries `protocolVersion`, `serverVersion` and a `capabilities` list,
 | Area | Methods |
 |---|---|
 | system | `system.hello`, `system.info`, `system.health`, `system.shutdown` |
-| session | `session.create`, `session.list`, `session.resume`, `session.close`, `session.prompt`, `session.interrupt`, `session.compact`, `session.deleteSaved`, `session.setMode` |
+| session | `session.create`, `session.list`, `session.resume`, `session.close`, `session.prompt`, `session.interrupt`, `session.compact`, `session.deleteSaved`, `session.setMode`, `session.setModel` |
 | commands and tools | `command.list`, `command.run`, `tool.list` |
 | approvals | `approval.list`, `approval.respond`, and `permission.allowlist.add` / `list` / `remove` |
 | providers | `provider.list`, `provider.configure`, `provider.loginWeb` |
@@ -59,7 +59,7 @@ One method goes the other way. `approval.request` is a server-to-client *request
 
 Notifications flow from the daemon to subscribed clients.
 
-- `session.event(sessionId, seq, kind, payload, ts)` carries everything that happens in a turn. Kinds: `message.delta`, `message.done`, `tool.call`, `tool.result`, `diff`, `subagent.spawn`, `subagent.update`, `subagent.done`, `team.task.update`, `mode.changed`, `backend.changed`, `usage`, `error`, `turn.done`.
+- `session.event(sessionId, seq, kind, payload, ts)` carries everything that happens in a turn. Kinds: `message.delta`, `message.done`, `tool.call`, `tool.result`, `diff`, `subagent.spawn`, `subagent.update`, `subagent.done`, `team.task.update`, `mode.changed`, `backend.changed`, `model.changed`, `usage`, `context`, `compaction`, `audio.spoken`, `error`, `turn.queued`, `turn.dequeued`, `turn.done`.
 - `approval.pending` and `approval.resolved` for the unattended approval queue.
 - `job.event` and `gateway.event`.
 - `commands.changed` after a skill or plugin reload.

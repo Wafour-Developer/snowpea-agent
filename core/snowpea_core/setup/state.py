@@ -57,6 +57,10 @@ class WizardState:
     auto_speak: bool = False
     #: category id -> enabled.
     tool_categories: dict[str, bool] = field(default_factory=dict)
+    #: ``skills.registry.token``; ``None`` keeps whatever is already saved.
+    registry_token: str | None = None
+    #: True once ``settings.json`` already has a registry token (kept unless replaced).
+    has_saved_registry_token: bool = False
     #: gateway id -> its config block (``{"enabled": True, "token": "...",
     #: "allowed_user_id": "123"}``).
     gateways: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -123,6 +127,10 @@ class WizardState:
             browser_provider=settings.browser.provider or catalog.DEFAULT_BROWSER_PROVIDER,
             tool_categories=defaults,
             gateways=gateways,
+            has_saved_registry_token=bool(
+                getattr(getattr(settings, "skills", None), "registry", None)
+                and getattr(settings.skills.registry, "token", None)
+            ),
             **_audio_from(getattr(settings, "audio", None)),
         )
 
@@ -305,6 +313,8 @@ class WizardState:
                 settings.search.credentials[pid] = existing
         settings.browser.provider = self.browser_provider
         settings.tools.enabled_categories = self.enabled_categories()
+        if self.registry_token:
+            settings.skills.registry.token = self.registry_token
         settings.gateway = {
             gid: block for gid, block in self.gateways.items() if block.get("enabled")
         }
@@ -337,9 +347,17 @@ class WizardState:
             f"audio      in {self.stt_provider} · out {self.tts_provider}{self._voice_note()}",
             f"tools      {len(self.enabled_categories())} categories on"
             f" ({', '.join(self.enabled_categories())})",
+            f"registry   {self._registry_token_note()}",
             "messenger  " + (", ".join(self._gateway_labels()) or "(none)"),
         ]
         return lines + list(self.notes)
+
+    def _registry_token_note(self) -> str:
+        if self.registry_token:
+            return "publisher token saved"
+        if self.has_saved_registry_token:
+            return "publisher token saved (kept)"
+        return "no publisher token"
 
     def _voice_note(self) -> str:
         """``" · voice nova · auto-speak"`` — only what was actually chosen."""

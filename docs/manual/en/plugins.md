@@ -35,9 +35,40 @@ snowpea skill search "pdf"
 snowpea skill search "code review" --json
 ```
 
-Three sources are queried together, and each hit carries the `source` it came from: `claude-marketplace` (the `marketplace.json` of every registered marketplace repository), `agentskills.io`, and `hermes-hub`. A source that fails contributes nothing rather than failing the search. Feed a hit's install spec straight back to `skill install`.
+Four sources are queried together, and each hit carries the `source` it came from: `claude-marketplace` (the `marketplace.json` of every registered marketplace repository), `agentskills.io`, `hermes-hub`, and `snowpea-registry` (the hosted registry at `registry.snowpea.ai`). A source that fails contributes nothing rather than failing the search. Feed a hit's install spec straight back to `skill install`; a registry hit's is `registry:<id>`.
+
+```bash
+snowpea skill search "planning" --source registry
+```
+
+`--source registry` (or `--source snowpea` — both are the same alias) keeps only the hosted-registry hits.
 
 Registered marketplaces live in `$SNOWPEA_HOME/marketplaces.json`, seeded with the oh-my-claudecode marketplace.
+
+## Publishing to the registry
+
+```bash
+snowpea skill install registry:ralplan          # download and install by id
+snowpea setup tools                              # save a publisher token once (masked)
+snowpea skill publish ./my-skill                 # zip + validate + upload
+snowpea skill rate ralplan 5 --comment "great"   # 1-5 stars, one per caller
+```
+
+`publish` reads `<dir>/SKILL.md`, checks its frontmatter locally (`name` must
+match `^[a-z0-9][a-z0-9._-]{1,63}$`, `description` must be 8-500 characters —
+the same rules the registry enforces), zips the directory (`.git`,
+`__pycache__`, `node_modules` and other build junk excluded), and uploads it
+with `Authorization: Bearer <token>`. The token comes from `--token`, the
+`SNOWPEA_REGISTRY_TOKEN` environment variable, or `settings.skills.registry.token`
+(set once via `snowpea setup tools`'s masked prompt) — checked in that order.
+Bump the `version` in the frontmatter before republishing; the registry
+refuses a version it has already seen. `/skill publish <dir>` does the same
+thing from inside a running session, resolving a relative path against the
+session's working directory.
+
+The registry base URL is `https://registry.snowpea.ai/v1` by default,
+overridable per call with `--registry <url>`, for a whole shell with
+`SNOWPEA_REGISTRY_URL`, or permanently via `settings.skills.registry.url`.
 
 ## SKILL.md
 

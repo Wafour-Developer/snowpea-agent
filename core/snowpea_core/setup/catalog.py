@@ -332,6 +332,8 @@ def vendor_catalog(settings: Any = None) -> list[CatalogItem]:
         description = preset.default_model
         if logins:
             description += "  (web login: " + ", ".join(logins) + ")"
+        if registry.auth_status(vendor) == "expired":
+            description += "  — login expired, sign in again"
         items.append(
             CatalogItem(
                 id=vendor,
@@ -340,7 +342,10 @@ def vendor_catalog(settings: Any = None) -> list[CatalogItem]:
                 key="self-hosted" if vendor == "local" else "key required",
                 default=False,
                 description=description,
-                active=registry.is_configured(vendor),
+                # An expired OAuth session is configured but not usable, and
+                # showing it as ``[active]`` is what left users staring at a
+                # vendor that 401s on every prompt (report §6.5).
+                active=registry.auth_status(vendor) == "active",
             )
         )
     return items

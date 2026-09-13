@@ -474,7 +474,13 @@ class TeamManager:
         """Run one task as a subagent in the worktree and commit the result."""
         manager = get_manager(self.core)
         anchor = self._anchor(run, entry)
-        result = await manager.run(anchor, self._task_prompt(run, row, entry))
+        # Name the worker so its model profile is consulted: with no active
+        # team the anchor carries no roster, and an unnamed subagent falls
+        # outside ``agents.models`` entirely (CORE-model-assignment B-P2-2).
+        worker_agent = None if anchor.team_agents else "executor"
+        result = await manager.run(
+            anchor, self._task_prompt(run, row, entry), agent=worker_agent
+        )
         if not result.ok:
             await self._transition(
                 run,
@@ -628,6 +634,12 @@ class TeamManager:
         this unregistered stand-in — the lead's id, the worktree's path — is
         what puts the worker inside its own checkout while its ``subagent.*``
         events still land on the lead's session.
+
+        ``team``/``team_agents`` are copied too.  Without them
+        ``SubagentManager.run`` never fills in the ``"executor"`` default, so
+        ``record.name`` stayed empty, ``agents.models`` was never consulted and
+        every worktree worker ignored per-agent profiles — and the team
+        membership guard never fired either (CORE-model-assignment B-P2-2).
         """
         lead = run.session
         anchor = Session(
@@ -636,6 +648,9 @@ class TeamManager:
             mode=lead.mode,
             provider=lead.provider,
             model=lead.model,
+            agent=lead.agent,
+            team=lead.team,
+            team_agents=lead.team_agents,
             origin_surface=lead.origin_surface,
             created_at=lead.created_at,
             max_concurrent=max(1, run.workers),

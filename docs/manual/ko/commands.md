@@ -32,7 +32,7 @@ snowpea commands list --json
 | 명령 | 하는 일 |
 |---|---|
 | `/resume` | 이 디렉터리에서 마지막으로 쓰던 세션을 다시 열고 재생 |
-| `/model` | 목록에서 모델·프로필을 고름. `/model <ref>` 는 바로 전환 |
+| `/model` | 목록에서 모델·프로필을 고름. `/model <ref>` 는 이 세션에 고정(저장되어 재시작 후에도 유지), `/model inherit` 은 고정 해제, `/model default <id>` 는 `models.default` 설정 |
 | `$<에이전트> <프롬프트>` | 프롬프트 하나를 그 에이전트에게 넘김 |
 | `/attach <경로>` | 다음 프롬프트에 파일을 첨부 |
 | `/voice` | 음성 입력을 켬. 이후 `Ctrl+Space` 로 녹음 |
@@ -115,9 +115,13 @@ snowpea session clear --all
 snowpea model profiles --json
 snowpea model default fast
 snowpea model assign executor deep
+snowpea model assign executor daily --project
+snowpea model assign executor
 ```
 
-`model profiles`는 `models.profiles`를 기본값 표시와 함께, 그리고 `agents.models`의 에이전트별 지정을 같이 출력합니다. `model assign`은 에이전트 하나를 프로필에 연결합니다. 없는 프로필 id는 데몬이 거부합니다.
+`model profiles`는 라우팅이 실제로 보는 그대로를 출력합니다 — 프로젝트 `models` 블록을 전역 위에 덮은 결과, 각 줄에 `[global]`/`[project]` 표시, 실제 적용되는 기본값에 `*` — 그리고 에이전트별 지정도 같이 나옵니다. `model assign`은 에이전트 하나를 프로필에 연결하고 `model default`는 기본값을 정합니다. 둘 다 `--project`를 주면 `<workdir>/.snowpea/settings.json`에 쓰고, 프로필 id를 빼면 해당 설정을 지웁니다. 없는 프로필 id는 데몬이 거부합니다.
+
+이 설정들이 들어가는 5단계 우선순위는 [설정](setup.md)을 보세요.
 
 ### 검색
 

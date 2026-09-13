@@ -131,7 +131,12 @@ async def agent_spawn_handler(
     task = params.task.strip()
     if not task:
         raise RpcError(errors.INVALID_PARAMS, "agent.spawn needs a non-empty task")
-    agent_id, _runner = get_manager(core).spawn(session, task, agent=params.name.strip() or None)
+    agent_id, _runner = get_manager(core).spawn(
+        session,
+        task,
+        agent=params.name.strip() or None,
+        model=(params.model or "").strip() or None,
+    )
     return AgentSpawnResult(agentId=agent_id)
 
 

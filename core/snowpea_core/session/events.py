@@ -20,6 +20,7 @@ from snowpea_core.server.protocol import (
     MessageDelta,
     MessageDone,
     ModeChanged,
+    ModelChanged,
     ToolCallEvent,
     ToolResultEvent,
     TurnDequeued,
@@ -61,6 +62,11 @@ def diff(path: str, patch: str) -> Event:
 
 def mode_changed(mode: str) -> Event:
     return _pack(ModeChanged(mode=mode))  # type: ignore[arg-type]
+
+
+def model_changed(provider: str | None, model: str | None) -> Event:
+    """This session is now talking to ``provider``/``model``."""
+    return _pack(ModelChanged(provider=provider, model=model))
 
 
 def backend_changed(backend: str) -> Event:
@@ -154,6 +160,7 @@ __all__ = [
     "message_delta",
     "message_done",
     "mode_changed",
+    "model_changed",
     "tool_call",
     "tool_result",
     "turn_dequeued",

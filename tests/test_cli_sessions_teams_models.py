@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import Any
 
 import aiohttp
 import pytest
@@ -290,3 +291,111 @@ async def test_resume_needs_an_unknown_session_to_fail_cleanly(
 async def test_resume_without_a_prompt_is_a_usage_error() -> None:
     """``--resume`` alone would otherwise be silently dropped on the TUI path."""
     assert cli_main(["--resume", "s-1"]) == cli_commands.EXIT_USAGE
+
+
+# ---------------------------------------------------------------------------
+# CORE-model-assignment: session.setModel, project models, clearing
+# ---------------------------------------------------------------------------
+
+
+async def _profiles(client: Any) -> None:
+    await client.ok(
+        "settings.set",
+        {
+            "scope": "global",
+            "patch": {
+                "models": {
+                    "default": "fast",
+                    "profiles": {
+                        "fast": {"provider": "openai", "model": "gpt-fast"},
+                        "deep": {"provider": "anthropic", "model": "claude-deep"},
+                    },
+                }
+            },
+        },
+    )
+
+
+async def test_session_set_model_pins_and_clears(daemon: Daemon, tmp_path: Path) -> None:
+    workdir = tmp_path / "project"
+    workdir.mkdir()
+    async with aiohttp.ClientSession() as http:
+        client = await connect(http, daemon)
+        try:
+            await _profiles(client)
+            created = await client.ok("session.create", {"workdir": str(workdir)})
+            session_id = str(created["sessionId"])
+
+            pinned = await client.ok(
+                "session.setModel", {"sessionId": session_id, "model": "deep"}
+            )
+            assert (pinned["provider"], pinned["model"]) == ("anthropic", "claude-deep")
+            assert pinned["pinned"] is True
+            # The surfaces are told, so a HUD fed once by session/ready updates.
+            assert client.of_kind("model.changed")[-1]["payload"]["model"] == "claude-deep"
+
+            cleared = await client.ok(
+                "session.setModel", {"sessionId": session_id, "model": None}
+            )
+            assert cleared["model"] == "gpt-fast"  # back to models.default
+            assert cleared["pinned"] is False
+
+            frame = await client.call(
+                "session.setModel", {"sessionId": session_id, "model": "nope"}
+            )
+            assert frame.get("error") is not None
+            assert "unknown model" in str(frame["error"])
+        finally:
+            await client.stop()
+
+
+async def test_model_profiles_shows_the_project_merged_view(
+    daemon: Daemon, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    workdir = tmp_path / "project"
+    workdir.mkdir()
+    async with aiohttp.ClientSession() as http:
+        client = await connect(http, daemon)
+        await _profiles(client)
+        await client.stop()
+
+    assert (
+        await run(daemon, "model", "default", "deep", "--project", "--workdir", str(workdir),
+                  "--json")
+        == 0
+    )
+    capsys.readouterr()
+    assert (
+        await run(daemon, "model", "assign", "executor", "deep", "--project",
+                  "--workdir", str(workdir), "--json")
+        == 0
+    )
+    capsys.readouterr()
+
+    assert await run(daemon, "model", "profiles", "--workdir", str(workdir), "--json") == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["globalDefault"] == "fast"
+    assert payload["projectDefault"] == "deep"
+    assert payload["default"] == "deep"  # project wins
+    assert payload["agents"] == {"executor": "deep"}
+    assert payload["project"]["agents"] == {"executor": "deep"}
+
+
+async def test_model_assign_can_clear_a_global_assignment(
+    daemon: Daemon, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Clearing rides the null delete sentinel; it used to be impossible."""
+    async with aiohttp.ClientSession() as http:
+        client = await connect(http, daemon)
+        await _profiles(client)
+        await client.stop()
+
+    assert await run(daemon, "model", "assign", "executor", "deep", "--json") == 0
+    capsys.readouterr()
+    assert await run(daemon, "model", "profiles", "--json") == 0
+    assert json.loads(capsys.readouterr().out)["agents"] == {"executor": "deep"}
+
+    assert await run(daemon, "model", "assign", "executor") == 0
+    assert "cleared" in capsys.readouterr().out
+    assert await run(daemon, "model", "profiles", "--json") == 0
+    assert json.loads(capsys.readouterr().out)["agents"] == {}

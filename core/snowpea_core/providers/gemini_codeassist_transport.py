@@ -42,6 +42,7 @@ from snowpea_core.providers.base import ChatMessage, ProviderError, StreamEvent,
 from snowpea_core.providers.normalize import GeminiStreamNormalizer, build_gemini_request
 from snowpea_core.providers.openai_compat import sse_payloads
 from snowpea_core.providers.presets import PRESETS
+from snowpea_core.server.errors import AUTH_EXPIRED, RpcError
 
 log = logging.getLogger("snowpea.providers.gemini_codeassist")
 
@@ -67,6 +68,9 @@ CLIENT_METADATA: dict[str, str] = {
 
 #: Tier used when ``loadCodeAssist`` offers no default of its own.
 FREE_TIER_ID = "free-tier"
+
+#: Renew this long before the stored token expires.
+REFRESH_SKEW_SEC = 60.0
 
 #: How long onboarding may take, and how often the operation is polled.
 ONBOARD_TIMEOUT_SEC = 120.0
@@ -185,7 +189,14 @@ class CodeAssistProvider:
     async def _refresh(self) -> None:
         """Renew the access token and hand the fresh record to the caller."""
         log.info("code assist: access token rejected, refreshing")
-        self.credentials = await google_oauth.refresh_credentials(self.credentials)
+        try:
+            self.credentials = await google_oauth.refresh_credentials(self.credentials)
+        except RpcError as exc:
+            raise ProviderError(
+                AUTH_EXPIRED,
+                f"{self._tag()}: your Google login expired and could not be renewed "
+                f"({exc.message}) — run `snowpea provider login gemini` to sign in again",
+            ) from exc
         await self._persist()
 
     # -- onboarding ----------------------------------------------------
@@ -287,7 +298,9 @@ class CodeAssistProvider:
         refreshed = False
         # Google's access tokens last an hour and always carry an expiry, so a
         # stale one is renewed up front rather than costing a doomed request.
-        if google_oauth.is_expired(self.credentials) and self.credentials.get("refresh_token"):
+        if google_oauth.is_expired(self.credentials, skew_sec=REFRESH_SKEW_SEC) and (
+            self.credentials.get("refresh_token")
+        ):
             await self._refresh()
             refreshed = True
         while True:
@@ -302,9 +315,10 @@ class CodeAssistProvider:
                 # duplicate output the caller has already seen.
                 if refreshed or not self.credentials.get("refresh_token"):
                     raise ProviderError(
-                        "invalid_params",
-                        f"{self._tag()}: the Google session is no longer valid "
-                        f"({exc.detail or 'HTTP 401'}); run `snowpea setup --login gemini`",
+                        AUTH_EXPIRED,
+                        f"{self._tag()}: your Google login expired "
+                        f"({exc.detail or 'HTTP 401'}) — run "
+                        f"`snowpea provider login gemini` to sign in again",
                     ) from exc
                 refreshed = True
                 await self._refresh()

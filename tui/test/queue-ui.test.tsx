@@ -26,7 +26,9 @@ function fakeClient(answers: Record<string, unknown> = {}) {
     checkUpdate: async () => ({ available: false, current: "0.1.7", latest: "0.1.7" }),
     call: async (method: string, params: any) => {
       calls.push({ method, params });
-      return (answers[method] as any) ?? { commands: [] };
+      const answer = answers[method];
+      if (answer instanceof Error) throw answer;
+      return (answer as any) ?? { commands: [] };
     },
     prompt: async (sessionId: string, text: string) => {
       calls.push({ method: "session.prompt", params: { sessionId, text } });
@@ -139,7 +141,7 @@ describe("the model picker", () => {
     expect(output).toContain("Enter pick");
   });
 
-  it("runs /model <ref> for the row that was picked", async () => {
+  it("pins the session to the row that was picked", async () => {
     const { client, stdin, instance } = await open(answers);
     await type(stdin, "/model", 15);
     stdin.write("\r");
@@ -147,12 +149,44 @@ describe("the model picker", () => {
     stdin.write("\u001B[B"); // move to the second profile
     await sleep(80);
     stdin.write("\r");
-    await sleep(200);
+    await sleep(250);
+    instance.unmount();
+
+    const pinned = client.calls.find((call) => call.method === "session.setModel");
+    expect(pinned?.params).toEqual({ sessionId: "sess-1", model: "deep" });
+  });
+
+  it("clears the pin from the inherit row", async () => {
+    const { client, stdin, instance } = await open(answers);
+    await type(stdin, "/model", 15);
+    stdin.write("\r");
+    await sleep(300);
+    // The clear-pin row is last, so one step up from the top reaches it.
+    stdin.write("\u001B[A");
+    await sleep(80);
+    stdin.write("\r");
+    await sleep(250);
+    instance.unmount();
+
+    const pinned = client.calls.find((call) => call.method === "session.setModel");
+    expect(pinned?.params).toEqual({ sessionId: "sess-1", model: null });
+  });
+
+  it("falls back to the command on a daemon without session.setModel", async () => {
+    const { client, stdin, instance } = await open({
+      ...answers,
+      "session.setModel": Object.assign(new Error("no such method"), { code: -32601 }),
+    });
+    await type(stdin, "/model", 15);
+    stdin.write("\r");
+    await sleep(300);
+    stdin.write("\r");
+    await sleep(300);
     instance.unmount();
 
     const ran = client.calls.filter((call) => call.method === "command.run");
     expect(ran.map((call) => `${call.params.name} ${call.params.args}`.trim())).toContain(
-      "model deep",
+      "model fast",
     );
   });
 

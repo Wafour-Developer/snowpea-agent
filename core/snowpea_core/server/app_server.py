@@ -428,8 +428,21 @@ async def provider_configure_handler(
             "oauth_token",
             "refresh_token",
             "auth_method",
+            # The OAuth session record a browser login produces: a client must
+            # be able to write it, and to clear it by sending ``None``.
+            "access_token",
+            "id_token",
+            "expires_at",
+            "account_id",
+            "plan_type",
+            "project_id",
         )
     }
+    if config and all(value is None for value in config.values()):
+        # A patch of nothing but ``None`` is a deliberate "forget this vendor",
+        # not the empty call the guard below refuses.
+        _persist_provider(core, params.vendor, config)
+        return Ok(ok=True)
     if not config:
         raise RpcError(
             errors.INVALID_PARAMS,
@@ -442,11 +455,18 @@ async def provider_configure_handler(
 async def provider_login_web_handler(
     conn: RpcConnection, params: ProviderLoginWebParams, core: Core
 ) -> ProviderLoginWebResult:
-    """``provider.loginWeb`` — device code (OpenAI) or OAuth PKCE (OpenRouter).
+    """``provider.loginWeb`` — start the interactive login a vendor supports.
 
-    Answers as soon as the device code / PKCE URL is known, then keeps polling
-    for approval in a background task that reports each phase via
-    ``provider.loginProgress`` and persists the token when it lands.
+    ``method`` selects the flow (``browser_pkce`` / ``google_oauth`` for a
+    browser, ``device_code`` / ``google_adc`` for a headless machine,
+    ``oauth_pkce`` for OpenRouter); omitting it, or passing ``web``, picks the
+    best one this machine can actually complete.
+
+    Answers as soon as the consent URL / device code is known, then finishes in
+    a background task that reports each phase via ``provider.loginProgress``
+    and persists the credentials when they land.  Persisting goes through
+    ``ProviderRegistry.configure``, so the ``None`` fields a login result
+    carries **remove** the credentials of whatever auth method it replaced.
     """
 
     async def on_progress(fields: dict[str, Any]) -> None:

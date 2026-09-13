@@ -341,8 +341,10 @@ async def test_a_second_401_asks_for_a_new_login(monkeypatch: pytest.MonkeyPatch
         return httpx.Response(401, json={"detail": "nope"})
 
     provider = _provider(handler)
-    with pytest.raises(ProviderError, match="setup --login openai"):
+    with pytest.raises(ProviderError) as raised:
         await drain(provider, FIRST_TURN)
+    assert raised.value.code == "auth_expired"
+    assert "provider login openai" in str(raised.value)
     assert calls == 2
 
 
@@ -358,7 +360,7 @@ async def test_a_401_without_a_refresh_token_does_not_retry() -> None:
         handler,
         credentials={"auth_method": "chatgpt", "access_token": _jwt_access_token()},
     )
-    with pytest.raises(ProviderError, match="no longer valid"):
+    with pytest.raises(ProviderError, match="your ChatGPT login expired"):
         await drain(provider, FIRST_TURN)
     assert calls == 1
 

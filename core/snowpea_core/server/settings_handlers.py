@@ -11,12 +11,12 @@ a corrupt file), then persisted and echoed back with secrets masked.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from pydantic import ValidationError
 
 from snowpea_core.config import hot_reload
-from snowpea_core.config.patch import MASK, SECRET_KEYS, mask_secrets
+from snowpea_core.config.patch import MASK, SECRET_KEYS, deep_merge, mask_secrets
 from snowpea_core.config.project import ProjectSettings
 from snowpea_core.config.settings import Settings
 from snowpea_core.server import errors
@@ -61,20 +61,11 @@ _MASK = MASK
 _mask_secrets = mask_secrets
 
 
-def _deep_merge(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
-    """Merge ``patch`` into ``base``, recursing into nested dicts only.
-
-    A list or scalar in the patch replaces the corresponding value wholesale
-    (no list-merging heuristics); a dict merges key by key.
-    """
-    merged = dict(base)
-    for key, value in patch.items():
-        existing = merged.get(key)
-        if isinstance(existing, dict) and isinstance(value, dict):
-            merged[key] = _deep_merge(existing, value)
-        else:
-            merged[key] = value
-    return merged
+#: Merge for ``settings.set``: a dict merges key by key, a list or scalar
+#: replaces, and ``null`` **deletes** the key — the only way to remove a model
+#: profile, an agent assignment or a team over RPC (CORE-model-assignment).
+#: Shared with the ``settings_set`` tool so the two cannot drift.
+_deep_merge = deep_merge
 
 
 def _require_workdir(params: SettingsGetParams | SettingsSetParams) -> str:
