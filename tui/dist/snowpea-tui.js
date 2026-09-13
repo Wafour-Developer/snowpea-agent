@@ -40,9 +40,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react/cjs/react.production.min.js
+// ../node_modules/react/cjs/react.production.min.js
 var require_react_production_min = __commonJS({
-  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react/cjs/react.production.min.js"(exports) {
+  "../node_modules/react/cjs/react.production.min.js"(exports) {
     "use strict";
     var l = Symbol.for("react.element");
     var n = Symbol.for("react.portal");
@@ -313,9 +313,9 @@ var require_react_production_min = __commonJS({
   }
 });
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react/cjs/react.development.js
+// ../node_modules/react/cjs/react.development.js
 var require_react_development = __commonJS({
-  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react/cjs/react.development.js"(exports, module) {
+  "../node_modules/react/cjs/react.development.js"(exports, module) {
     "use strict";
     if (process.env.NODE_ENV !== "production") {
       (function() {
@@ -1372,7 +1372,7 @@ var require_react_development = __commonJS({
           }
           return dispatcher.useContext(Context);
         }
-        function useState14(initialState2) {
+        function useState15(initialState2) {
           var dispatcher = resolveDispatcher();
           return dispatcher.useState(initialState2);
         }
@@ -2175,7 +2175,7 @@ var require_react_development = __commonJS({
         exports.useMemo = useMemo4;
         exports.useReducer = useReducer2;
         exports.useRef = useRef5;
-        exports.useState = useState14;
+        exports.useState = useState15;
         exports.useSyncExternalStore = useSyncExternalStore;
         exports.useTransition = useTransition;
         exports.version = ReactVersion;
@@ -2187,9 +2187,9 @@ var require_react_development = __commonJS({
   }
 });
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react/index.js
+// ../node_modules/react/index.js
 var require_react = __commonJS({
-  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react/index.js"(exports, module) {
+  "../node_modules/react/index.js"(exports, module) {
     "use strict";
     if (process.env.NODE_ENV === "production") {
       module.exports = require_react_production_min();
@@ -2199,9 +2199,9 @@ var require_react = __commonJS({
   }
 });
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/signal-exit/signals.js
+// ../node_modules/signal-exit/signals.js
 var require_signals = __commonJS({
-  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/signal-exit/signals.js"(exports, module) {
+  "../node_modules/signal-exit/signals.js"(exports, module) {
     module.exports = [
       "SIGABRT",
       "SIGALRM",
@@ -2236,9 +2236,9 @@ var require_signals = __commonJS({
   }
 });
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/signal-exit/index.js
+// ../node_modules/signal-exit/index.js
 var require_signal_exit = __commonJS({
-  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/signal-exit/index.js"(exports, module) {
+  "../node_modules/signal-exit/index.js"(exports, module) {
     var process13 = global.process;
     var processOk = function(process14) {
       return process14 && typeof process14 === "object" && typeof process14.removeListener === "function" && typeof process14.emit === "function" && typeof process14.reallyExit === "function" && typeof process14.listeners === "function" && typeof process14.kill === "function" && typeof process14.pid === "number" && typeof process14.on === "function";
@@ -2395,9 +2395,9 @@ var require_signal_exit = __commonJS({
   }
 });
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/scheduler/cjs/scheduler.production.min.js
+// ../node_modules/scheduler/cjs/scheduler.production.min.js
 var require_scheduler_production_min = __commonJS({
-  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/scheduler/cjs/scheduler.production.min.js"(exports) {
+  "../node_modules/scheduler/cjs/scheduler.production.min.js"(exports) {
     "use strict";
     function f(a, b) {
       var c = a.length;
@@ -2648,9 +2648,9 @@ var require_scheduler_production_min = __commonJS({
   }
 });
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/scheduler/cjs/scheduler.development.js
+// ../node_modules/scheduler/cjs/scheduler.development.js
 var require_scheduler_development = __commonJS({
-  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/scheduler/cjs/scheduler.development.js"(exports) {
+  "../node_modules/scheduler/cjs/scheduler.development.js"(exports) {
     "use strict";
     if (process.env.NODE_ENV !== "production") {
       (function() {
@@ -3098,9 +3098,9 @@ var require_scheduler_development = __commonJS({
   }
 });
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/scheduler/index.js
+// ../node_modules/scheduler/index.js
 var require_scheduler = __commonJS({
-  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/scheduler/index.js"(exports, module) {
+  "../node_modules/scheduler/index.js"(exports, module) {
     "use strict";
     if (process.env.NODE_ENV === "production") {
       module.exports = require_scheduler_production_min();
@@ -3110,9 +3110,9 @@ var require_scheduler = __commonJS({
   }
 });
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react-reconciler/cjs/react-reconciler.production.min.js
+// ../node_modules/react-reconciler/cjs/react-reconciler.production.min.js
 var require_react_reconciler_production_min = __commonJS({
-  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react-reconciler/cjs/react-reconciler.production.min.js"(exports, module) {
+  "../node_modules/react-reconciler/cjs/react-reconciler.production.min.js"(exports, module) {
     module.exports = function $$$reconciler($$$hostConfig) {
       var exports2 = {};
       "use strict";
@@ -7859,17 +7859,17 @@ var require_react_reconciler_production_min = __commonJS({
   }
 });
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react-reconciler/cjs/react-reconciler.development.js
+// ../node_modules/react-reconciler/cjs/react-reconciler.development.js
 var require_react_reconciler_development = __commonJS({
-  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react-reconciler/cjs/react-reconciler.development.js"(exports, module) {
+  "../node_modules/react-reconciler/cjs/react-reconciler.development.js"(exports, module) {
     "use strict";
     if (process.env.NODE_ENV !== "production") {
       module.exports = function $$$reconciler($$$hostConfig) {
         var exports2 = {};
         "use strict";
-        var React22 = require_react();
+        var React23 = require_react();
         var Scheduler = require_scheduler();
-        var ReactSharedInternals = React22.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED;
+        var ReactSharedInternals = React23.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED;
         var suppressWarning = false;
         function setSuppressWarning(newSuppressWarning) {
           {
@@ -10704,14 +10704,14 @@ var require_react_reconciler_development = __commonJS({
           }
         }
         var ReactDebugCurrentFrame$1 = ReactSharedInternals.ReactDebugCurrentFrame;
-        var current = null;
+        var current2 = null;
         var isRendering = false;
         function getCurrentFiberOwnerNameInDevOrNull() {
           {
-            if (current === null) {
+            if (current2 === null) {
               return null;
             }
-            var owner = current._debugOwner;
+            var owner = current2._debugOwner;
             if (owner !== null && typeof owner !== "undefined") {
               return getComponentNameFromFiber(owner);
             }
@@ -10720,29 +10720,29 @@ var require_react_reconciler_development = __commonJS({
         }
         function getCurrentFiberStackInDev() {
           {
-            if (current === null) {
+            if (current2 === null) {
               return "";
             }
-            return getStackByFiberInDevAndProd(current);
+            return getStackByFiberInDevAndProd(current2);
           }
         }
         function resetCurrentFiber() {
           {
             ReactDebugCurrentFrame$1.getCurrentStack = null;
-            current = null;
+            current2 = null;
             isRendering = false;
           }
         }
         function setCurrentFiber(fiber) {
           {
             ReactDebugCurrentFrame$1.getCurrentStack = fiber === null ? null : getCurrentFiberStackInDev;
-            current = fiber;
+            current2 = fiber;
             isRendering = false;
           }
         }
         function getCurrentFiber() {
           {
-            return current;
+            return current2;
           }
         }
         function setIsRendering(rendering) {
@@ -11007,7 +11007,7 @@ var require_react_reconciler_development = __commonJS({
         function isReactClass(type) {
           return type.prototype && type.prototype.isReactComponent;
         }
-        function coerceRef(returnFiber, current2, element) {
+        function coerceRef(returnFiber, current3, element) {
           var mixedRef = element.ref;
           if (mixedRef !== null && typeof mixedRef !== "function" && typeof mixedRef !== "object") {
             {
@@ -11045,8 +11045,8 @@ var require_react_reconciler_development = __commonJS({
                 checkPropStringCoercion(mixedRef, "ref");
               }
               var stringRef = "" + mixedRef;
-              if (current2 !== null && current2.ref !== null && typeof current2.ref === "function" && current2.ref._stringRef === stringRef) {
-                return current2.ref;
+              if (current3 !== null && current3.ref !== null && typeof current3.ref === "function" && current3.ref._stringRef === stringRef) {
+                return current3.ref;
               }
               var ref = function(value) {
                 var refs = resolvedInst.refs;
@@ -11137,9 +11137,9 @@ var require_react_reconciler_development = __commonJS({
               newFiber.flags |= Forked;
               return lastPlacedIndex;
             }
-            var current2 = newFiber.alternate;
-            if (current2 !== null) {
-              var oldIndex = current2.index;
+            var current3 = newFiber.alternate;
+            if (current3 !== null) {
+              var oldIndex = current3.index;
               if (oldIndex < lastPlacedIndex) {
                 newFiber.flags |= Placement;
                 return lastPlacedIndex;
@@ -11157,31 +11157,31 @@ var require_react_reconciler_development = __commonJS({
             }
             return newFiber;
           }
-          function updateTextNode(returnFiber, current2, textContent, lanes) {
-            if (current2 === null || current2.tag !== HostText) {
+          function updateTextNode(returnFiber, current3, textContent, lanes) {
+            if (current3 === null || current3.tag !== HostText) {
               var created = createFiberFromText(textContent, returnFiber.mode, lanes);
               created.return = returnFiber;
               return created;
             } else {
-              var existing = useFiber(current2, textContent);
+              var existing = useFiber(current3, textContent);
               existing.return = returnFiber;
               return existing;
             }
           }
-          function updateElement(returnFiber, current2, element, lanes) {
+          function updateElement(returnFiber, current3, element, lanes) {
             var elementType = element.type;
             if (elementType === REACT_FRAGMENT_TYPE) {
-              return updateFragment2(returnFiber, current2, element.props.children, lanes, element.key);
+              return updateFragment2(returnFiber, current3, element.props.children, lanes, element.key);
             }
-            if (current2 !== null) {
-              if (current2.elementType === elementType || // Keep this check inline so it only runs on the false path:
-              isCompatibleFamilyForHotReloading(current2, element) || // Lazy types should reconcile their resolved type.
+            if (current3 !== null) {
+              if (current3.elementType === elementType || // Keep this check inline so it only runs on the false path:
+              isCompatibleFamilyForHotReloading(current3, element) || // Lazy types should reconcile their resolved type.
               // We need to do this after the Hot Reloading check above,
               // because hot reloading has different semantics than prod because
               // it doesn't resuspend. So we can't let the call below suspend.
-              typeof elementType === "object" && elementType !== null && elementType.$$typeof === REACT_LAZY_TYPE && resolveLazy(elementType) === current2.type) {
-                var existing = useFiber(current2, element.props);
-                existing.ref = coerceRef(returnFiber, current2, element);
+              typeof elementType === "object" && elementType !== null && elementType.$$typeof === REACT_LAZY_TYPE && resolveLazy(elementType) === current3.type) {
+                var existing = useFiber(current3, element.props);
+                existing.ref = coerceRef(returnFiber, current3, element);
                 existing.return = returnFiber;
                 {
                   existing._debugSource = element._source;
@@ -11191,28 +11191,28 @@ var require_react_reconciler_development = __commonJS({
               }
             }
             var created = createFiberFromElement(element, returnFiber.mode, lanes);
-            created.ref = coerceRef(returnFiber, current2, element);
+            created.ref = coerceRef(returnFiber, current3, element);
             created.return = returnFiber;
             return created;
           }
-          function updatePortal(returnFiber, current2, portal, lanes) {
-            if (current2 === null || current2.tag !== HostPortal || current2.stateNode.containerInfo !== portal.containerInfo || current2.stateNode.implementation !== portal.implementation) {
+          function updatePortal(returnFiber, current3, portal, lanes) {
+            if (current3 === null || current3.tag !== HostPortal || current3.stateNode.containerInfo !== portal.containerInfo || current3.stateNode.implementation !== portal.implementation) {
               var created = createFiberFromPortal(portal, returnFiber.mode, lanes);
               created.return = returnFiber;
               return created;
             } else {
-              var existing = useFiber(current2, portal.children || []);
+              var existing = useFiber(current3, portal.children || []);
               existing.return = returnFiber;
               return existing;
             }
           }
-          function updateFragment2(returnFiber, current2, fragment, lanes, key) {
-            if (current2 === null || current2.tag !== Fragment4) {
+          function updateFragment2(returnFiber, current3, fragment, lanes, key) {
+            if (current3 === null || current3.tag !== Fragment4) {
               var created = createFiberFromFragment(fragment, returnFiber.mode, lanes, key);
               created.return = returnFiber;
               return created;
             } else {
-              var existing = useFiber(current2, fragment);
+              var existing = useFiber(current3, fragment);
               existing.return = returnFiber;
               return existing;
             }
@@ -11717,8 +11717,8 @@ var require_react_reconciler_development = __commonJS({
         }
         var reconcileChildFibers = ChildReconciler(true);
         var mountChildFibers = ChildReconciler(false);
-        function cloneChildFibers(current2, workInProgress2) {
-          if (current2 !== null && workInProgress2.child !== current2.child) {
+        function cloneChildFibers(current3, workInProgress2) {
+          if (current3 !== null && workInProgress2.child !== current3.child) {
             throw new Error("Resuming work not yet implemented.");
           }
           if (workInProgress2.child === null) {
@@ -12084,9 +12084,9 @@ var require_react_reconciler_development = __commonJS({
           };
           fiber.updateQueue = queue;
         }
-        function cloneUpdateQueue(current2, workInProgress2) {
+        function cloneUpdateQueue(current3, workInProgress2) {
           var queue = workInProgress2.updateQueue;
-          var currentQueue = current2.updateQueue;
+          var currentQueue = current3.updateQueue;
           if (queue === currentQueue) {
             var clone = {
               baseState: currentQueue.baseState,
@@ -12151,9 +12151,9 @@ var require_react_reconciler_development = __commonJS({
         }
         function enqueueCapturedUpdate(workInProgress2, capturedUpdate) {
           var queue = workInProgress2.updateQueue;
-          var current2 = workInProgress2.alternate;
-          if (current2 !== null) {
-            var currentQueue = current2.updateQueue;
+          var current3 = workInProgress2.alternate;
+          if (current3 !== null) {
+            var currentQueue = current3.updateQueue;
             if (queue === currentQueue) {
               var newFirst = null;
               var newLast = null;
@@ -12287,9 +12287,9 @@ var require_react_reconciler_development = __commonJS({
               lastBaseUpdate.next = firstPendingUpdate;
             }
             lastBaseUpdate = lastPendingUpdate;
-            var current2 = workInProgress2.alternate;
-            if (current2 !== null) {
-              var currentQueue = current2.updateQueue;
+            var current3 = workInProgress2.alternate;
+            if (current3 !== null) {
+              var currentQueue = current3.updateQueue;
               var currentLastBaseUpdate = currentQueue.lastBaseUpdate;
               if (currentLastBaseUpdate !== lastBaseUpdate) {
                 if (currentLastBaseUpdate === null) {
@@ -12681,19 +12681,19 @@ var require_react_reconciler_development = __commonJS({
           }
           return true;
         }
-        function renderWithHooks(current2, workInProgress2, Component, props, secondArg, nextRenderLanes) {
+        function renderWithHooks(current3, workInProgress2, Component, props, secondArg, nextRenderLanes) {
           renderLanes = nextRenderLanes;
           currentlyRenderingFiber$1 = workInProgress2;
           {
-            hookTypesDev = current2 !== null ? current2._debugHookTypes : null;
+            hookTypesDev = current3 !== null ? current3._debugHookTypes : null;
             hookTypesUpdateIndexDev = -1;
-            ignorePreviousDependencies = current2 !== null && current2.type !== workInProgress2.type;
+            ignorePreviousDependencies = current3 !== null && current3.type !== workInProgress2.type;
           }
           workInProgress2.memoizedState = null;
           workInProgress2.updateQueue = null;
           workInProgress2.lanes = NoLanes;
           {
-            if (current2 !== null && current2.memoizedState !== null) {
+            if (current3 !== null && current3.memoizedState !== null) {
               ReactCurrentDispatcher$1.current = HooksDispatcherOnUpdateInDEV;
             } else if (hookTypesDev !== null) {
               ReactCurrentDispatcher$1.current = HooksDispatcherOnMountWithHookTypesInDEV;
@@ -12737,12 +12737,12 @@ var require_react_reconciler_development = __commonJS({
             currentHookNameInDev = null;
             hookTypesDev = null;
             hookTypesUpdateIndexDev = -1;
-            if (current2 !== null && (current2.flags & StaticMask) !== (workInProgress2.flags & StaticMask) && // Disable this warning in legacy mode, because legacy Suspense is weird
+            if (current3 !== null && (current3.flags & StaticMask) !== (workInProgress2.flags & StaticMask) && // Disable this warning in legacy mode, because legacy Suspense is weird
             // and creates false positives. To make this work in legacy mode, we'd
             // need to mark fibers that commit in an incomplete state, somehow. For
             // now I'll disable the warning that most of the bugs that would trigger
             // it are either exclusive to concurrent mode or exist in both.
-            (current2.mode & ConcurrentMode) !== NoMode) {
+            (current3.mode & ConcurrentMode) !== NoMode) {
               error("Internal React error: Expected static flag was missing. Please notify the React team.");
             }
           }
@@ -12757,14 +12757,14 @@ var require_react_reconciler_development = __commonJS({
           localIdCounter = 0;
           return didRenderIdHook;
         }
-        function bailoutHooks(current2, workInProgress2, lanes) {
-          workInProgress2.updateQueue = current2.updateQueue;
+        function bailoutHooks(current3, workInProgress2, lanes) {
+          workInProgress2.updateQueue = current3.updateQueue;
           if ((workInProgress2.mode & StrictEffectsMode) !== NoMode) {
             workInProgress2.flags &= ~(MountPassiveDev | MountLayoutDev | Passive | Update);
           } else {
             workInProgress2.flags &= ~(Passive | Update);
           }
-          current2.lanes = removeLanes(current2.lanes, lanes);
+          current3.lanes = removeLanes(current3.lanes, lanes);
         }
         function resetHooksAfterThrow() {
           ReactCurrentDispatcher$1.current = ContextOnlyDispatcher;
@@ -12810,9 +12810,9 @@ var require_react_reconciler_development = __commonJS({
         function updateWorkInProgressHook() {
           var nextCurrentHook;
           if (currentHook === null) {
-            var current2 = currentlyRenderingFiber$1.alternate;
-            if (current2 !== null) {
-              nextCurrentHook = current2.memoizedState;
+            var current3 = currentlyRenderingFiber$1.alternate;
+            if (current3 !== null) {
+              nextCurrentHook = current3.memoizedState;
             } else {
               nextCurrentHook = null;
             }
@@ -12886,8 +12886,8 @@ var require_react_reconciler_development = __commonJS({
             throw new Error("Should have a queue. This is likely a bug in React. Please file an issue.");
           }
           queue.lastRenderedReducer = reducer2;
-          var current2 = currentHook;
-          var baseQueue = current2.baseQueue;
+          var current3 = currentHook;
+          var baseQueue = current3.baseQueue;
           var pendingQueue = queue.pending;
           if (pendingQueue !== null) {
             if (baseQueue !== null) {
@@ -12897,16 +12897,16 @@ var require_react_reconciler_development = __commonJS({
               pendingQueue.next = baseFirst;
             }
             {
-              if (current2.baseQueue !== baseQueue) {
+              if (current3.baseQueue !== baseQueue) {
                 error("Internal error: Expected work-in-progress queue to be a clone. This is a bug in React.");
               }
             }
-            current2.baseQueue = baseQueue = pendingQueue;
+            current3.baseQueue = baseQueue = pendingQueue;
             queue.pending = null;
           }
           if (baseQueue !== null) {
             var first = baseQueue.next;
-            var newState = current2.baseState;
+            var newState = current3.baseState;
             var newBaseState = null;
             var newBaseQueueFirst = null;
             var newBaseQueueLast = null;
@@ -15055,9 +15055,9 @@ var require_react_reconciler_development = __commonJS({
           instance.context = nextContext;
           return shouldUpdate;
         }
-        function updateClassInstance(current2, workInProgress2, ctor, newProps, renderLanes2) {
+        function updateClassInstance(current3, workInProgress2, ctor, newProps, renderLanes2) {
           var instance = workInProgress2.stateNode;
-          cloneUpdateQueue(current2, workInProgress2);
+          cloneUpdateQueue(current3, workInProgress2);
           var unresolvedOldProps = workInProgress2.memoizedProps;
           var oldProps = workInProgress2.type === workInProgress2.elementType ? unresolvedOldProps : resolveDefaultProps(workInProgress2.type, unresolvedOldProps);
           instance.props = oldProps;
@@ -15085,12 +15085,12 @@ var require_react_reconciler_development = __commonJS({
           newState = workInProgress2.memoizedState;
           if (unresolvedOldProps === unresolvedNewProps && oldState === newState && !hasContextChanged() && !checkHasForceUpdateAfterProcessing() && !enableLazyContextPropagation) {
             if (typeof instance.componentDidUpdate === "function") {
-              if (unresolvedOldProps !== current2.memoizedProps || oldState !== current2.memoizedState) {
+              if (unresolvedOldProps !== current3.memoizedProps || oldState !== current3.memoizedState) {
                 workInProgress2.flags |= Update;
               }
             }
             if (typeof instance.getSnapshotBeforeUpdate === "function") {
-              if (unresolvedOldProps !== current2.memoizedProps || oldState !== current2.memoizedState) {
+              if (unresolvedOldProps !== current3.memoizedProps || oldState !== current3.memoizedState) {
                 workInProgress2.flags |= Snapshot;
               }
             }
@@ -15122,12 +15122,12 @@ var require_react_reconciler_development = __commonJS({
             }
           } else {
             if (typeof instance.componentDidUpdate === "function") {
-              if (unresolvedOldProps !== current2.memoizedProps || oldState !== current2.memoizedState) {
+              if (unresolvedOldProps !== current3.memoizedProps || oldState !== current3.memoizedState) {
                 workInProgress2.flags |= Update;
               }
             }
             if (typeof instance.getSnapshotBeforeUpdate === "function") {
-              if (unresolvedOldProps !== current2.memoizedProps || oldState !== current2.memoizedState) {
+              if (unresolvedOldProps !== current3.memoizedProps || oldState !== current3.memoizedState) {
                 workInProgress2.flags |= Snapshot;
               }
             }
@@ -15441,18 +15441,18 @@ var require_react_reconciler_development = __commonJS({
           didWarnAboutTailOptions = {};
           didWarnAboutDefaultPropsOnFunctionComponent = {};
         }
-        function reconcileChildren(current2, workInProgress2, nextChildren, renderLanes2) {
-          if (current2 === null) {
+        function reconcileChildren(current3, workInProgress2, nextChildren, renderLanes2) {
+          if (current3 === null) {
             workInProgress2.child = mountChildFibers(workInProgress2, null, nextChildren, renderLanes2);
           } else {
-            workInProgress2.child = reconcileChildFibers(workInProgress2, current2.child, nextChildren, renderLanes2);
+            workInProgress2.child = reconcileChildFibers(workInProgress2, current3.child, nextChildren, renderLanes2);
           }
         }
-        function forceUnmountCurrentAndReconcile(current2, workInProgress2, nextChildren, renderLanes2) {
-          workInProgress2.child = reconcileChildFibers(workInProgress2, current2.child, null, renderLanes2);
+        function forceUnmountCurrentAndReconcile(current3, workInProgress2, nextChildren, renderLanes2) {
+          workInProgress2.child = reconcileChildFibers(workInProgress2, current3.child, null, renderLanes2);
           workInProgress2.child = reconcileChildFibers(workInProgress2, null, nextChildren, renderLanes2);
         }
-        function updateForwardRef(current2, workInProgress2, Component, nextProps, renderLanes2) {
+        function updateForwardRef(current3, workInProgress2, Component, nextProps, renderLanes2) {
           {
             if (workInProgress2.type !== workInProgress2.elementType) {
               var innerPropTypes = Component.propTypes;
@@ -15478,12 +15478,12 @@ var require_react_reconciler_development = __commonJS({
           {
             ReactCurrentOwner$1.current = workInProgress2;
             setIsRendering(true);
-            nextChildren = renderWithHooks(current2, workInProgress2, render2, nextProps, ref, renderLanes2);
+            nextChildren = renderWithHooks(current3, workInProgress2, render2, nextProps, ref, renderLanes2);
             hasId = checkDidRenderIdHook();
             if (workInProgress2.mode & StrictLegacyMode) {
               setIsStrictModeForDevtools(true);
               try {
-                nextChildren = renderWithHooks(current2, workInProgress2, render2, nextProps, ref, renderLanes2);
+                nextChildren = renderWithHooks(current3, workInProgress2, render2, nextProps, ref, renderLanes2);
                 hasId = checkDidRenderIdHook();
               } finally {
                 setIsStrictModeForDevtools(false);
@@ -15494,19 +15494,19 @@ var require_react_reconciler_development = __commonJS({
           {
             markComponentRenderStopped();
           }
-          if (current2 !== null && !didReceiveUpdate) {
-            bailoutHooks(current2, workInProgress2, renderLanes2);
-            return bailoutOnAlreadyFinishedWork(current2, workInProgress2, renderLanes2);
+          if (current3 !== null && !didReceiveUpdate) {
+            bailoutHooks(current3, workInProgress2, renderLanes2);
+            return bailoutOnAlreadyFinishedWork(current3, workInProgress2, renderLanes2);
           }
           if (getIsHydrating() && hasId) {
             pushMaterializedTreeId(workInProgress2);
           }
           workInProgress2.flags |= PerformedWork;
-          reconcileChildren(current2, workInProgress2, nextChildren, renderLanes2);
+          reconcileChildren(current3, workInProgress2, nextChildren, renderLanes2);
           return workInProgress2.child;
         }
-        function updateMemoComponent(current2, workInProgress2, Component, nextProps, renderLanes2) {
-          if (current2 === null) {
+        function updateMemoComponent(current3, workInProgress2, Component, nextProps, renderLanes2) {
+          if (current3 === null) {
             var type = Component.type;
             if (isSimpleFunctionComponent(type) && Component.compare === null && // SimpleMemoComponent codepath doesn't resolve outer props either.
             Component.defaultProps === void 0) {
@@ -15519,7 +15519,7 @@ var require_react_reconciler_development = __commonJS({
               {
                 validateFunctionComponentInDev(workInProgress2, type);
               }
-              return updateSimpleMemoComponent(current2, workInProgress2, resolvedType, nextProps, renderLanes2);
+              return updateSimpleMemoComponent(current3, workInProgress2, resolvedType, nextProps, renderLanes2);
             }
             {
               var innerPropTypes = type.propTypes;
@@ -15559,14 +15559,14 @@ var require_react_reconciler_development = __commonJS({
               );
             }
           }
-          var currentChild = current2.child;
-          var hasScheduledUpdateOrContext = checkScheduledUpdateOrContext(current2, renderLanes2);
+          var currentChild = current3.child;
+          var hasScheduledUpdateOrContext = checkScheduledUpdateOrContext(current3, renderLanes2);
           if (!hasScheduledUpdateOrContext) {
             var prevProps = currentChild.memoizedProps;
             var compare = Component.compare;
             compare = compare !== null ? compare : shallowEqual;
-            if (compare(prevProps, nextProps) && current2.ref === workInProgress2.ref) {
-              return bailoutOnAlreadyFinishedWork(current2, workInProgress2, renderLanes2);
+            if (compare(prevProps, nextProps) && current3.ref === workInProgress2.ref) {
+              return bailoutOnAlreadyFinishedWork(current3, workInProgress2, renderLanes2);
             }
           }
           workInProgress2.flags |= PerformedWork;
@@ -15576,7 +15576,7 @@ var require_react_reconciler_development = __commonJS({
           workInProgress2.child = newChild;
           return newChild;
         }
-        function updateSimpleMemoComponent(current2, workInProgress2, Component, nextProps, renderLanes2) {
+        function updateSimpleMemoComponent(current3, workInProgress2, Component, nextProps, renderLanes2) {
           {
             if (workInProgress2.type !== workInProgress2.elementType) {
               var outerMemoType = workInProgress2.elementType;
@@ -15602,26 +15602,26 @@ var require_react_reconciler_development = __commonJS({
               }
             }
           }
-          if (current2 !== null) {
-            var prevProps = current2.memoizedProps;
-            if (shallowEqual(prevProps, nextProps) && current2.ref === workInProgress2.ref && // Prevent bailout if the implementation changed due to hot reload.
-            workInProgress2.type === current2.type) {
+          if (current3 !== null) {
+            var prevProps = current3.memoizedProps;
+            if (shallowEqual(prevProps, nextProps) && current3.ref === workInProgress2.ref && // Prevent bailout if the implementation changed due to hot reload.
+            workInProgress2.type === current3.type) {
               didReceiveUpdate = false;
               workInProgress2.pendingProps = nextProps = prevProps;
-              if (!checkScheduledUpdateOrContext(current2, renderLanes2)) {
-                workInProgress2.lanes = current2.lanes;
-                return bailoutOnAlreadyFinishedWork(current2, workInProgress2, renderLanes2);
-              } else if ((current2.flags & ForceUpdateForLegacySuspense) !== NoFlags) {
+              if (!checkScheduledUpdateOrContext(current3, renderLanes2)) {
+                workInProgress2.lanes = current3.lanes;
+                return bailoutOnAlreadyFinishedWork(current3, workInProgress2, renderLanes2);
+              } else if ((current3.flags & ForceUpdateForLegacySuspense) !== NoFlags) {
                 didReceiveUpdate = true;
               }
             }
           }
-          return updateFunctionComponent(current2, workInProgress2, Component, nextProps, renderLanes2);
+          return updateFunctionComponent(current3, workInProgress2, Component, nextProps, renderLanes2);
         }
-        function updateOffscreenComponent(current2, workInProgress2, renderLanes2) {
+        function updateOffscreenComponent(current3, workInProgress2, renderLanes2) {
           var nextProps = workInProgress2.pendingProps;
           var nextChildren = nextProps.children;
-          var prevState = current2 !== null ? current2.memoizedState : null;
+          var prevState = current3 !== null ? current3.memoizedState : null;
           if (nextProps.mode === "hidden" || enableLegacyHidden) {
             if ((workInProgress2.mode & ConcurrentMode) === NoMode) {
               var nextState = {
@@ -15670,20 +15670,20 @@ var require_react_reconciler_development = __commonJS({
             }
             pushRenderLanes(workInProgress2, _subtreeRenderLanes);
           }
-          reconcileChildren(current2, workInProgress2, nextChildren, renderLanes2);
+          reconcileChildren(current3, workInProgress2, nextChildren, renderLanes2);
           return workInProgress2.child;
         }
-        function updateFragment(current2, workInProgress2, renderLanes2) {
+        function updateFragment(current3, workInProgress2, renderLanes2) {
           var nextChildren = workInProgress2.pendingProps;
-          reconcileChildren(current2, workInProgress2, nextChildren, renderLanes2);
+          reconcileChildren(current3, workInProgress2, nextChildren, renderLanes2);
           return workInProgress2.child;
         }
-        function updateMode(current2, workInProgress2, renderLanes2) {
+        function updateMode(current3, workInProgress2, renderLanes2) {
           var nextChildren = workInProgress2.pendingProps.children;
-          reconcileChildren(current2, workInProgress2, nextChildren, renderLanes2);
+          reconcileChildren(current3, workInProgress2, nextChildren, renderLanes2);
           return workInProgress2.child;
         }
-        function updateProfiler(current2, workInProgress2, renderLanes2) {
+        function updateProfiler(current3, workInProgress2, renderLanes2) {
           {
             workInProgress2.flags |= Update;
             {
@@ -15694,19 +15694,19 @@ var require_react_reconciler_development = __commonJS({
           }
           var nextProps = workInProgress2.pendingProps;
           var nextChildren = nextProps.children;
-          reconcileChildren(current2, workInProgress2, nextChildren, renderLanes2);
+          reconcileChildren(current3, workInProgress2, nextChildren, renderLanes2);
           return workInProgress2.child;
         }
-        function markRef(current2, workInProgress2) {
+        function markRef(current3, workInProgress2) {
           var ref = workInProgress2.ref;
-          if (current2 === null && ref !== null || current2 !== null && current2.ref !== ref) {
+          if (current3 === null && ref !== null || current3 !== null && current3.ref !== ref) {
             workInProgress2.flags |= Ref;
             {
               workInProgress2.flags |= RefStatic;
             }
           }
         }
-        function updateFunctionComponent(current2, workInProgress2, Component, nextProps, renderLanes2) {
+        function updateFunctionComponent(current3, workInProgress2, Component, nextProps, renderLanes2) {
           {
             if (workInProgress2.type !== workInProgress2.elementType) {
               var innerPropTypes = Component.propTypes;
@@ -15735,12 +15735,12 @@ var require_react_reconciler_development = __commonJS({
           {
             ReactCurrentOwner$1.current = workInProgress2;
             setIsRendering(true);
-            nextChildren = renderWithHooks(current2, workInProgress2, Component, nextProps, context, renderLanes2);
+            nextChildren = renderWithHooks(current3, workInProgress2, Component, nextProps, context, renderLanes2);
             hasId = checkDidRenderIdHook();
             if (workInProgress2.mode & StrictLegacyMode) {
               setIsStrictModeForDevtools(true);
               try {
-                nextChildren = renderWithHooks(current2, workInProgress2, Component, nextProps, context, renderLanes2);
+                nextChildren = renderWithHooks(current3, workInProgress2, Component, nextProps, context, renderLanes2);
                 hasId = checkDidRenderIdHook();
               } finally {
                 setIsStrictModeForDevtools(false);
@@ -15751,18 +15751,18 @@ var require_react_reconciler_development = __commonJS({
           {
             markComponentRenderStopped();
           }
-          if (current2 !== null && !didReceiveUpdate) {
-            bailoutHooks(current2, workInProgress2, renderLanes2);
-            return bailoutOnAlreadyFinishedWork(current2, workInProgress2, renderLanes2);
+          if (current3 !== null && !didReceiveUpdate) {
+            bailoutHooks(current3, workInProgress2, renderLanes2);
+            return bailoutOnAlreadyFinishedWork(current3, workInProgress2, renderLanes2);
           }
           if (getIsHydrating() && hasId) {
             pushMaterializedTreeId(workInProgress2);
           }
           workInProgress2.flags |= PerformedWork;
-          reconcileChildren(current2, workInProgress2, nextChildren, renderLanes2);
+          reconcileChildren(current3, workInProgress2, nextChildren, renderLanes2);
           return workInProgress2.child;
         }
-        function updateClassComponent(current2, workInProgress2, Component, nextProps, renderLanes2) {
+        function updateClassComponent(current3, workInProgress2, Component, nextProps, renderLanes2) {
           {
             switch (shouldError(workInProgress2)) {
               case false: {
@@ -15808,16 +15808,16 @@ var require_react_reconciler_development = __commonJS({
           var instance = workInProgress2.stateNode;
           var shouldUpdate;
           if (instance === null) {
-            resetSuspendedCurrentOnMountInLegacyMode(current2, workInProgress2);
+            resetSuspendedCurrentOnMountInLegacyMode(current3, workInProgress2);
             constructClassInstance(workInProgress2, Component, nextProps);
             mountClassInstance(workInProgress2, Component, nextProps, renderLanes2);
             shouldUpdate = true;
-          } else if (current2 === null) {
+          } else if (current3 === null) {
             shouldUpdate = resumeMountClassInstance(workInProgress2, Component, nextProps, renderLanes2);
           } else {
-            shouldUpdate = updateClassInstance(current2, workInProgress2, Component, nextProps, renderLanes2);
+            shouldUpdate = updateClassInstance(current3, workInProgress2, Component, nextProps, renderLanes2);
           }
-          var nextUnitOfWork = finishClassComponent(current2, workInProgress2, Component, shouldUpdate, hasContext, renderLanes2);
+          var nextUnitOfWork = finishClassComponent(current3, workInProgress2, Component, shouldUpdate, hasContext, renderLanes2);
           {
             var inst = workInProgress2.stateNode;
             if (shouldUpdate && inst.props !== nextProps) {
@@ -15829,14 +15829,14 @@ var require_react_reconciler_development = __commonJS({
           }
           return nextUnitOfWork;
         }
-        function finishClassComponent(current2, workInProgress2, Component, shouldUpdate, hasContext, renderLanes2) {
-          markRef(current2, workInProgress2);
+        function finishClassComponent(current3, workInProgress2, Component, shouldUpdate, hasContext, renderLanes2) {
+          markRef(current3, workInProgress2);
           var didCaptureError = (workInProgress2.flags & DidCapture) !== NoFlags;
           if (!shouldUpdate && !didCaptureError) {
             if (hasContext) {
               invalidateContextProvider(workInProgress2, Component, false);
             }
-            return bailoutOnAlreadyFinishedWork(current2, workInProgress2, renderLanes2);
+            return bailoutOnAlreadyFinishedWork(current3, workInProgress2, renderLanes2);
           }
           var instance = workInProgress2.stateNode;
           ReactCurrentOwner$1.current = workInProgress2;
@@ -15868,10 +15868,10 @@ var require_react_reconciler_development = __commonJS({
             }
           }
           workInProgress2.flags |= PerformedWork;
-          if (current2 !== null && didCaptureError) {
-            forceUnmountCurrentAndReconcile(current2, workInProgress2, nextChildren, renderLanes2);
+          if (current3 !== null && didCaptureError) {
+            forceUnmountCurrentAndReconcile(current3, workInProgress2, nextChildren, renderLanes2);
           } else {
-            reconcileChildren(current2, workInProgress2, nextChildren, renderLanes2);
+            reconcileChildren(current3, workInProgress2, nextChildren, renderLanes2);
           }
           workInProgress2.memoizedState = instance.state;
           if (hasContext) {
@@ -15888,15 +15888,15 @@ var require_react_reconciler_development = __commonJS({
           }
           pushHostContainer(workInProgress2, root.containerInfo);
         }
-        function updateHostRoot(current2, workInProgress2, renderLanes2) {
+        function updateHostRoot(current3, workInProgress2, renderLanes2) {
           pushHostRootContext(workInProgress2);
-          if (current2 === null) {
+          if (current3 === null) {
             throw new Error("Should have a current fiber. This is a bug in React.");
           }
           var nextProps = workInProgress2.pendingProps;
           var prevState = workInProgress2.memoizedState;
           var prevChildren = prevState.element;
-          cloneUpdateQueue(current2, workInProgress2);
+          cloneUpdateQueue(current3, workInProgress2);
           processUpdateQueue(workInProgress2, nextProps, null, renderLanes2);
           var nextState = workInProgress2.memoizedState;
           var root = workInProgress2.stateNode;
@@ -15914,10 +15914,10 @@ var require_react_reconciler_development = __commonJS({
             workInProgress2.memoizedState = overrideState;
             if (workInProgress2.flags & ForceClientRender) {
               var recoverableError = createCapturedValueAtFiber(new Error("There was an error while hydrating. Because the error happened outside of a Suspense boundary, the entire root will switch to client rendering."), workInProgress2);
-              return mountHostRootWithoutHydrating(current2, workInProgress2, nextChildren, renderLanes2, recoverableError);
+              return mountHostRootWithoutHydrating(current3, workInProgress2, nextChildren, renderLanes2, recoverableError);
             } else if (nextChildren !== prevChildren) {
               var _recoverableError = createCapturedValueAtFiber(new Error("This root received an early update, before anything was able hydrate. Switched the entire root to client rendering."), workInProgress2);
-              return mountHostRootWithoutHydrating(current2, workInProgress2, nextChildren, renderLanes2, _recoverableError);
+              return mountHostRootWithoutHydrating(current3, workInProgress2, nextChildren, renderLanes2, _recoverableError);
             } else {
               enterHydrationState(workInProgress2);
               var child = mountChildFibers(workInProgress2, null, nextChildren, renderLanes2);
@@ -15931,27 +15931,27 @@ var require_react_reconciler_development = __commonJS({
           } else {
             resetHydrationState();
             if (nextChildren === prevChildren) {
-              return bailoutOnAlreadyFinishedWork(current2, workInProgress2, renderLanes2);
+              return bailoutOnAlreadyFinishedWork(current3, workInProgress2, renderLanes2);
             }
-            reconcileChildren(current2, workInProgress2, nextChildren, renderLanes2);
+            reconcileChildren(current3, workInProgress2, nextChildren, renderLanes2);
           }
           return workInProgress2.child;
         }
-        function mountHostRootWithoutHydrating(current2, workInProgress2, nextChildren, renderLanes2, recoverableError) {
+        function mountHostRootWithoutHydrating(current3, workInProgress2, nextChildren, renderLanes2, recoverableError) {
           resetHydrationState();
           queueHydrationError(recoverableError);
           workInProgress2.flags |= ForceClientRender;
-          reconcileChildren(current2, workInProgress2, nextChildren, renderLanes2);
+          reconcileChildren(current3, workInProgress2, nextChildren, renderLanes2);
           return workInProgress2.child;
         }
-        function updateHostComponent(current2, workInProgress2, renderLanes2) {
+        function updateHostComponent(current3, workInProgress2, renderLanes2) {
           pushHostContext(workInProgress2);
-          if (current2 === null) {
+          if (current3 === null) {
             tryToClaimNextHydratableInstance(workInProgress2);
           }
           var type = workInProgress2.type;
           var nextProps = workInProgress2.pendingProps;
-          var prevProps = current2 !== null ? current2.memoizedProps : null;
+          var prevProps = current3 !== null ? current3.memoizedProps : null;
           var nextChildren = nextProps.children;
           var isDirectTextChild = shouldSetTextContent(type, nextProps);
           if (isDirectTextChild) {
@@ -15959,12 +15959,12 @@ var require_react_reconciler_development = __commonJS({
           } else if (prevProps !== null && shouldSetTextContent(type, prevProps)) {
             workInProgress2.flags |= ContentReset;
           }
-          markRef(current2, workInProgress2);
-          reconcileChildren(current2, workInProgress2, nextChildren, renderLanes2);
+          markRef(current3, workInProgress2);
+          reconcileChildren(current3, workInProgress2, nextChildren, renderLanes2);
           return workInProgress2.child;
         }
-        function updateHostText(current2, workInProgress2) {
-          if (current2 === null) {
+        function updateHostText(current3, workInProgress2) {
+          if (current3 === null) {
             tryToClaimNextHydratableInstance(workInProgress2);
           }
           return null;
@@ -16212,19 +16212,19 @@ var require_react_reconciler_development = __commonJS({
             transitions: prevOffscreenState.transitions
           };
         }
-        function shouldRemainOnFallback(suspenseContext, current2, workInProgress2, renderLanes2) {
-          if (current2 !== null) {
-            var suspenseState = current2.memoizedState;
+        function shouldRemainOnFallback(suspenseContext, current3, workInProgress2, renderLanes2) {
+          if (current3 !== null) {
+            var suspenseState = current3.memoizedState;
             if (suspenseState === null) {
               return false;
             }
           }
           return hasSuspenseContext(suspenseContext, ForceSuspenseFallback);
         }
-        function getRemainingWorkInPrimaryTree(current2, renderLanes2) {
-          return removeLanes(current2.childLanes, renderLanes2);
+        function getRemainingWorkInPrimaryTree(current3, renderLanes2) {
+          return removeLanes(current3.childLanes, renderLanes2);
         }
-        function updateSuspenseComponent(current2, workInProgress2, renderLanes2) {
+        function updateSuspenseComponent(current3, workInProgress2, renderLanes2) {
           var nextProps = workInProgress2.pendingProps;
           {
             if (shouldSuspend(workInProgress2)) {
@@ -16234,11 +16234,11 @@ var require_react_reconciler_development = __commonJS({
           var suspenseContext = suspenseStackCursor.current;
           var showFallback = false;
           var didSuspend = (workInProgress2.flags & DidCapture) !== NoFlags;
-          if (didSuspend || shouldRemainOnFallback(suspenseContext, current2)) {
+          if (didSuspend || shouldRemainOnFallback(suspenseContext, current3)) {
             showFallback = true;
             workInProgress2.flags &= ~DidCapture;
           } else {
-            if (current2 === null || current2.memoizedState !== null) {
+            if (current3 === null || current3.memoizedState !== null) {
               {
                 suspenseContext = addSubtreeSuspenseContext(suspenseContext, InvisibleParentSuspenseContext);
               }
@@ -16246,7 +16246,7 @@ var require_react_reconciler_development = __commonJS({
           }
           suspenseContext = setDefaultShallowSuspenseContext(suspenseContext);
           pushSuspenseContext(workInProgress2, suspenseContext);
-          if (current2 === null) {
+          if (current3 === null) {
             tryToClaimNextHydratableInstance(workInProgress2);
             var suspenseState = workInProgress2.memoizedState;
             if (suspenseState !== null) {
@@ -16267,26 +16267,26 @@ var require_react_reconciler_development = __commonJS({
               return mountSuspensePrimaryChildren(workInProgress2, nextPrimaryChildren);
             }
           } else {
-            var prevState = current2.memoizedState;
+            var prevState = current3.memoizedState;
             if (prevState !== null) {
               var _dehydrated = prevState.dehydrated;
               if (_dehydrated !== null) {
-                return updateDehydratedSuspenseComponent(current2, workInProgress2, didSuspend, nextProps, _dehydrated, prevState, renderLanes2);
+                return updateDehydratedSuspenseComponent(current3, workInProgress2, didSuspend, nextProps, _dehydrated, prevState, renderLanes2);
               }
             }
             if (showFallback) {
               var _nextFallbackChildren = nextProps.fallback;
               var _nextPrimaryChildren = nextProps.children;
-              var fallbackChildFragment = updateSuspenseFallbackChildren(current2, workInProgress2, _nextPrimaryChildren, _nextFallbackChildren, renderLanes2);
+              var fallbackChildFragment = updateSuspenseFallbackChildren(current3, workInProgress2, _nextPrimaryChildren, _nextFallbackChildren, renderLanes2);
               var _primaryChildFragment2 = workInProgress2.child;
-              var prevOffscreenState = current2.child.memoizedState;
+              var prevOffscreenState = current3.child.memoizedState;
               _primaryChildFragment2.memoizedState = prevOffscreenState === null ? mountSuspenseOffscreenState(renderLanes2) : updateSuspenseOffscreenState(prevOffscreenState, renderLanes2);
-              _primaryChildFragment2.childLanes = getRemainingWorkInPrimaryTree(current2, renderLanes2);
+              _primaryChildFragment2.childLanes = getRemainingWorkInPrimaryTree(current3, renderLanes2);
               workInProgress2.memoizedState = SUSPENDED_MARKER;
               return fallbackChildFragment;
             } else {
               var _nextPrimaryChildren2 = nextProps.children;
-              var _primaryChildFragment3 = updateSuspensePrimaryChildren(current2, workInProgress2, _nextPrimaryChildren2, renderLanes2);
+              var _primaryChildFragment3 = updateSuspensePrimaryChildren(current3, workInProgress2, _nextPrimaryChildren2, renderLanes2);
               workInProgress2.memoizedState = null;
               return _primaryChildFragment3;
             }
@@ -16336,11 +16336,11 @@ var require_react_reconciler_development = __commonJS({
         function mountWorkInProgressOffscreenFiber(offscreenProps, mode, renderLanes2) {
           return createFiberFromOffscreen(offscreenProps, mode, NoLanes, null);
         }
-        function updateWorkInProgressOffscreenFiber(current2, offscreenProps) {
-          return createWorkInProgress(current2, offscreenProps);
+        function updateWorkInProgressOffscreenFiber(current3, offscreenProps) {
+          return createWorkInProgress(current3, offscreenProps);
         }
-        function updateSuspensePrimaryChildren(current2, workInProgress2, primaryChildren, renderLanes2) {
-          var currentPrimaryChildFragment = current2.child;
+        function updateSuspensePrimaryChildren(current3, workInProgress2, primaryChildren, renderLanes2) {
+          var currentPrimaryChildFragment = current3.child;
           var currentFallbackChildFragment = currentPrimaryChildFragment.sibling;
           var primaryChildFragment = updateWorkInProgressOffscreenFiber(currentPrimaryChildFragment, {
             mode: "visible",
@@ -16363,9 +16363,9 @@ var require_react_reconciler_development = __commonJS({
           workInProgress2.child = primaryChildFragment;
           return primaryChildFragment;
         }
-        function updateSuspenseFallbackChildren(current2, workInProgress2, primaryChildren, fallbackChildren, renderLanes2) {
+        function updateSuspenseFallbackChildren(current3, workInProgress2, primaryChildren, fallbackChildren, renderLanes2) {
           var mode = workInProgress2.mode;
-          var currentPrimaryChildFragment = current2.child;
+          var currentPrimaryChildFragment = current3.child;
           var currentFallbackChildFragment = currentPrimaryChildFragment.sibling;
           var primaryChildProps = {
             mode: "hidden",
@@ -16411,11 +16411,11 @@ var require_react_reconciler_development = __commonJS({
           workInProgress2.child = primaryChildFragment;
           return fallbackChildFragment;
         }
-        function retrySuspenseComponentWithoutHydrating(current2, workInProgress2, renderLanes2, recoverableError) {
+        function retrySuspenseComponentWithoutHydrating(current3, workInProgress2, renderLanes2, recoverableError) {
           if (recoverableError !== null) {
             queueHydrationError(recoverableError);
           }
-          reconcileChildFibers(workInProgress2, current2.child, null, renderLanes2);
+          reconcileChildFibers(workInProgress2, current3.child, null, renderLanes2);
           var nextProps = workInProgress2.pendingProps;
           var primaryChildren = nextProps.children;
           var primaryChildFragment = mountSuspensePrimaryChildren(workInProgress2, primaryChildren);
@@ -16423,7 +16423,7 @@ var require_react_reconciler_development = __commonJS({
           workInProgress2.memoizedState = null;
           return primaryChildFragment;
         }
-        function mountSuspenseFallbackAfterRetryWithoutHydrating(current2, workInProgress2, primaryChildren, fallbackChildren, renderLanes2) {
+        function mountSuspenseFallbackAfterRetryWithoutHydrating(current3, workInProgress2, primaryChildren, fallbackChildren, renderLanes2) {
           var fiberMode = workInProgress2.mode;
           var primaryChildProps = {
             mode: "visible",
@@ -16437,7 +16437,7 @@ var require_react_reconciler_development = __commonJS({
           primaryChildFragment.sibling = fallbackChildFragment;
           workInProgress2.child = primaryChildFragment;
           if ((workInProgress2.mode & ConcurrentMode) !== NoMode) {
-            reconcileChildFibers(workInProgress2, current2.child, null, renderLanes2);
+            reconcileChildFibers(workInProgress2, current3.child, null, renderLanes2);
           }
           return fallbackChildFragment;
         }
@@ -16454,12 +16454,12 @@ var require_react_reconciler_development = __commonJS({
           }
           return null;
         }
-        function updateDehydratedSuspenseComponent(current2, workInProgress2, didSuspend, nextProps, suspenseInstance, suspenseState, renderLanes2) {
+        function updateDehydratedSuspenseComponent(current3, workInProgress2, didSuspend, nextProps, suspenseInstance, suspenseState, renderLanes2) {
           if (!didSuspend) {
             warnIfHydrating();
             if ((workInProgress2.mode & ConcurrentMode) === NoMode) {
               return retrySuspenseComponentWithoutHydrating(
-                current2,
+                current3,
                 workInProgress2,
                 renderLanes2,
                 // TODO: When we delete legacy mode, we should make this error argument
@@ -16483,9 +16483,9 @@ var require_react_reconciler_development = __commonJS({
                 error2 = new Error("The server could not finish this Suspense boundary, likely due to an error during server rendering. Switched to client rendering.");
               }
               var capturedValue = createCapturedValue(error2, digest, stack);
-              return retrySuspenseComponentWithoutHydrating(current2, workInProgress2, renderLanes2, capturedValue);
+              return retrySuspenseComponentWithoutHydrating(current3, workInProgress2, renderLanes2, capturedValue);
             }
-            var hasContextChanged2 = includesSomeLane(renderLanes2, current2.childLanes);
+            var hasContextChanged2 = includesSomeLane(renderLanes2, current3.childLanes);
             if (didReceiveUpdate || hasContextChanged2) {
               var root = getWorkInProgressRoot();
               if (root !== null) {
@@ -16493,17 +16493,17 @@ var require_react_reconciler_development = __commonJS({
                 if (attemptHydrationAtLane !== NoLane && attemptHydrationAtLane !== suspenseState.retryLane) {
                   suspenseState.retryLane = attemptHydrationAtLane;
                   var eventTime = NoTimestamp;
-                  enqueueConcurrentRenderForLane(current2, attemptHydrationAtLane);
-                  scheduleUpdateOnFiber(root, current2, attemptHydrationAtLane, eventTime);
+                  enqueueConcurrentRenderForLane(current3, attemptHydrationAtLane);
+                  scheduleUpdateOnFiber(root, current3, attemptHydrationAtLane, eventTime);
                 }
               }
               renderDidSuspendDelayIfPossible();
               var _capturedValue = createCapturedValue(new Error("This Suspense boundary received an update before it finished hydrating. This caused the boundary to switch to client rendering. The usual way to fix this is to wrap the original update in startTransition."));
-              return retrySuspenseComponentWithoutHydrating(current2, workInProgress2, renderLanes2, _capturedValue);
+              return retrySuspenseComponentWithoutHydrating(current3, workInProgress2, renderLanes2, _capturedValue);
             } else if (isSuspenseInstancePending(suspenseInstance)) {
               workInProgress2.flags |= DidCapture;
-              workInProgress2.child = current2.child;
-              var retry = retryDehydratedSuspenseBoundary.bind(null, current2);
+              workInProgress2.child = current3.child;
+              var retry = retryDehydratedSuspenseBoundary.bind(null, current3);
               registerSuspenseInstanceRetry(suspenseInstance, retry);
               return null;
             } else {
@@ -16517,15 +16517,15 @@ var require_react_reconciler_development = __commonJS({
             if (workInProgress2.flags & ForceClientRender) {
               workInProgress2.flags &= ~ForceClientRender;
               var _capturedValue2 = createCapturedValue(new Error("There was an error while hydrating this Suspense boundary. Switched to client rendering."));
-              return retrySuspenseComponentWithoutHydrating(current2, workInProgress2, renderLanes2, _capturedValue2);
+              return retrySuspenseComponentWithoutHydrating(current3, workInProgress2, renderLanes2, _capturedValue2);
             } else if (workInProgress2.memoizedState !== null) {
-              workInProgress2.child = current2.child;
+              workInProgress2.child = current3.child;
               workInProgress2.flags |= DidCapture;
               return null;
             } else {
               var nextPrimaryChildren = nextProps.children;
               var nextFallbackChildren = nextProps.fallback;
-              var fallbackChildFragment = mountSuspenseFallbackAfterRetryWithoutHydrating(current2, workInProgress2, nextPrimaryChildren, nextFallbackChildren, renderLanes2);
+              var fallbackChildFragment = mountSuspenseFallbackAfterRetryWithoutHydrating(current3, workInProgress2, nextPrimaryChildren, nextFallbackChildren, renderLanes2);
               var _primaryChildFragment4 = workInProgress2.child;
               _primaryChildFragment4.memoizedState = mountSuspenseOffscreenState(renderLanes2);
               workInProgress2.memoizedState = SUSPENDED_MARKER;
@@ -16683,7 +16683,7 @@ var require_react_reconciler_development = __commonJS({
             renderState.tailMode = tailMode;
           }
         }
-        function updateSuspenseListComponent(current2, workInProgress2, renderLanes2) {
+        function updateSuspenseListComponent(current3, workInProgress2, renderLanes2) {
           var nextProps = workInProgress2.pendingProps;
           var revealOrder = nextProps.revealOrder;
           var tailMode = nextProps.tail;
@@ -16691,14 +16691,14 @@ var require_react_reconciler_development = __commonJS({
           validateRevealOrder(revealOrder);
           validateTailOptions(tailMode, revealOrder);
           validateSuspenseListChildren(newChildren, revealOrder);
-          reconcileChildren(current2, workInProgress2, newChildren, renderLanes2);
+          reconcileChildren(current3, workInProgress2, newChildren, renderLanes2);
           var suspenseContext = suspenseStackCursor.current;
           var shouldForceFallback = hasSuspenseContext(suspenseContext, ForceSuspenseFallback);
           if (shouldForceFallback) {
             suspenseContext = setShallowSuspenseContext(suspenseContext, ForceSuspenseFallback);
             workInProgress2.flags |= DidCapture;
           } else {
-            var didSuspendBefore = current2 !== null && (current2.flags & DidCapture) !== NoFlags;
+            var didSuspendBefore = current3 !== null && (current3.flags & DidCapture) !== NoFlags;
             if (didSuspendBefore) {
               propagateSuspenseContextChange(workInProgress2, workInProgress2.child, renderLanes2);
             }
@@ -16775,18 +16775,18 @@ var require_react_reconciler_development = __commonJS({
           }
           return workInProgress2.child;
         }
-        function updatePortalComponent(current2, workInProgress2, renderLanes2) {
+        function updatePortalComponent(current3, workInProgress2, renderLanes2) {
           pushHostContainer(workInProgress2, workInProgress2.stateNode.containerInfo);
           var nextChildren = workInProgress2.pendingProps;
-          if (current2 === null) {
+          if (current3 === null) {
             workInProgress2.child = reconcileChildFibers(workInProgress2, null, nextChildren, renderLanes2);
           } else {
-            reconcileChildren(current2, workInProgress2, nextChildren, renderLanes2);
+            reconcileChildren(current3, workInProgress2, nextChildren, renderLanes2);
           }
           return workInProgress2.child;
         }
         var hasWarnedAboutUsingNoValuePropOnContextProvider = false;
-        function updateContextProvider(current2, workInProgress2, renderLanes2) {
+        function updateContextProvider(current3, workInProgress2, renderLanes2) {
           var providerType = workInProgress2.type;
           var context = providerType._context;
           var newProps = workInProgress2.pendingProps;
@@ -16810,7 +16810,7 @@ var require_react_reconciler_development = __commonJS({
               var oldValue = oldProps.value;
               if (objectIs(oldValue, newValue)) {
                 if (oldProps.children === newProps.children && !hasContextChanged()) {
-                  return bailoutOnAlreadyFinishedWork(current2, workInProgress2, renderLanes2);
+                  return bailoutOnAlreadyFinishedWork(current3, workInProgress2, renderLanes2);
                 }
               } else {
                 propagateContextChange(workInProgress2, context, renderLanes2);
@@ -16818,11 +16818,11 @@ var require_react_reconciler_development = __commonJS({
             }
           }
           var newChildren = newProps.children;
-          reconcileChildren(current2, workInProgress2, newChildren, renderLanes2);
+          reconcileChildren(current3, workInProgress2, newChildren, renderLanes2);
           return workInProgress2.child;
         }
         var hasWarnedAboutUsingContextAsConsumer = false;
-        function updateContextConsumer(current2, workInProgress2, renderLanes2) {
+        function updateContextConsumer(current3, workInProgress2, renderLanes2) {
           var context = workInProgress2.type;
           {
             if (context._context === void 0) {
@@ -16859,24 +16859,24 @@ var require_react_reconciler_development = __commonJS({
             markComponentRenderStopped();
           }
           workInProgress2.flags |= PerformedWork;
-          reconcileChildren(current2, workInProgress2, newChildren, renderLanes2);
+          reconcileChildren(current3, workInProgress2, newChildren, renderLanes2);
           return workInProgress2.child;
         }
         function markWorkInProgressReceivedUpdate() {
           didReceiveUpdate = true;
         }
-        function resetSuspendedCurrentOnMountInLegacyMode(current2, workInProgress2) {
+        function resetSuspendedCurrentOnMountInLegacyMode(current3, workInProgress2) {
           if ((workInProgress2.mode & ConcurrentMode) === NoMode) {
-            if (current2 !== null) {
-              current2.alternate = null;
+            if (current3 !== null) {
+              current3.alternate = null;
               workInProgress2.alternate = null;
               workInProgress2.flags |= Placement;
             }
           }
         }
-        function bailoutOnAlreadyFinishedWork(current2, workInProgress2, renderLanes2) {
-          if (current2 !== null) {
-            workInProgress2.dependencies = current2.dependencies;
+        function bailoutOnAlreadyFinishedWork(current3, workInProgress2, renderLanes2) {
+          if (current3 !== null) {
+            workInProgress2.dependencies = current3.dependencies;
           }
           {
             stopProfilerTimerIfRunning();
@@ -16887,16 +16887,16 @@ var require_react_reconciler_development = __commonJS({
               return null;
             }
           }
-          cloneChildFibers(current2, workInProgress2);
+          cloneChildFibers(current3, workInProgress2);
           return workInProgress2.child;
         }
-        function remountFiber(current2, oldWorkInProgress, newWorkInProgress) {
+        function remountFiber(current3, oldWorkInProgress, newWorkInProgress) {
           {
             var returnFiber = oldWorkInProgress.return;
             if (returnFiber === null) {
               throw new Error("Cannot swap the root fiber.");
             }
-            current2.alternate = null;
+            current3.alternate = null;
             oldWorkInProgress.alternate = null;
             newWorkInProgress.index = oldWorkInProgress.index;
             newWorkInProgress.sibling = oldWorkInProgress.sibling;
@@ -16919,23 +16919,23 @@ var require_react_reconciler_development = __commonJS({
             }
             var deletions = returnFiber.deletions;
             if (deletions === null) {
-              returnFiber.deletions = [current2];
+              returnFiber.deletions = [current3];
               returnFiber.flags |= ChildDeletion;
             } else {
-              deletions.push(current2);
+              deletions.push(current3);
             }
             newWorkInProgress.flags |= Placement;
             return newWorkInProgress;
           }
         }
-        function checkScheduledUpdateOrContext(current2, renderLanes2) {
-          var updateLanes = current2.lanes;
+        function checkScheduledUpdateOrContext(current3, renderLanes2) {
+          var updateLanes = current3.lanes;
           if (includesSomeLane(updateLanes, renderLanes2)) {
             return true;
           }
           return false;
         }
-        function attemptEarlyBailoutIfNoScheduledUpdate(current2, workInProgress2, renderLanes2) {
+        function attemptEarlyBailoutIfNoScheduledUpdate(current3, workInProgress2, renderLanes2) {
           switch (workInProgress2.tag) {
             case HostRoot:
               pushHostRootContext(workInProgress2);
@@ -16985,10 +16985,10 @@ var require_react_reconciler_development = __commonJS({
                 var primaryChildFragment = workInProgress2.child;
                 var primaryChildLanes = primaryChildFragment.childLanes;
                 if (includesSomeLane(renderLanes2, primaryChildLanes)) {
-                  return updateSuspenseComponent(current2, workInProgress2, renderLanes2);
+                  return updateSuspenseComponent(current3, workInProgress2, renderLanes2);
                 } else {
                   pushSuspenseContext(workInProgress2, setDefaultShallowSuspenseContext(suspenseStackCursor.current));
-                  var child = bailoutOnAlreadyFinishedWork(current2, workInProgress2, renderLanes2);
+                  var child = bailoutOnAlreadyFinishedWork(current3, workInProgress2, renderLanes2);
                   if (child !== null) {
                     return child.sibling;
                   } else {
@@ -17001,11 +17001,11 @@ var require_react_reconciler_development = __commonJS({
               break;
             }
             case SuspenseListComponent: {
-              var didSuspendBefore = (current2.flags & DidCapture) !== NoFlags;
+              var didSuspendBefore = (current3.flags & DidCapture) !== NoFlags;
               var _hasChildWork = includesSomeLane(renderLanes2, workInProgress2.childLanes);
               if (didSuspendBefore) {
                 if (_hasChildWork) {
-                  return updateSuspenseListComponent(current2, workInProgress2, renderLanes2);
+                  return updateSuspenseListComponent(current3, workInProgress2, renderLanes2);
                 }
                 workInProgress2.flags |= DidCapture;
               }
@@ -17025,32 +17025,32 @@ var require_react_reconciler_development = __commonJS({
             case OffscreenComponent:
             case LegacyHiddenComponent: {
               workInProgress2.lanes = NoLanes;
-              return updateOffscreenComponent(current2, workInProgress2, renderLanes2);
+              return updateOffscreenComponent(current3, workInProgress2, renderLanes2);
             }
           }
-          return bailoutOnAlreadyFinishedWork(current2, workInProgress2, renderLanes2);
+          return bailoutOnAlreadyFinishedWork(current3, workInProgress2, renderLanes2);
         }
-        function beginWork(current2, workInProgress2, renderLanes2) {
+        function beginWork(current3, workInProgress2, renderLanes2) {
           {
-            if (workInProgress2._debugNeedsRemount && current2 !== null) {
-              return remountFiber(current2, workInProgress2, createFiberFromTypeAndProps(workInProgress2.type, workInProgress2.key, workInProgress2.pendingProps, workInProgress2._debugOwner || null, workInProgress2.mode, workInProgress2.lanes));
+            if (workInProgress2._debugNeedsRemount && current3 !== null) {
+              return remountFiber(current3, workInProgress2, createFiberFromTypeAndProps(workInProgress2.type, workInProgress2.key, workInProgress2.pendingProps, workInProgress2._debugOwner || null, workInProgress2.mode, workInProgress2.lanes));
             }
           }
-          if (current2 !== null) {
-            var oldProps = current2.memoizedProps;
+          if (current3 !== null) {
+            var oldProps = current3.memoizedProps;
             var newProps = workInProgress2.pendingProps;
             if (oldProps !== newProps || hasContextChanged() || // Force a re-render if the implementation changed due to hot reload:
-            workInProgress2.type !== current2.type) {
+            workInProgress2.type !== current3.type) {
               didReceiveUpdate = true;
             } else {
-              var hasScheduledUpdateOrContext = checkScheduledUpdateOrContext(current2, renderLanes2);
+              var hasScheduledUpdateOrContext = checkScheduledUpdateOrContext(current3, renderLanes2);
               if (!hasScheduledUpdateOrContext && // If this is the second pass of an error or suspense boundary, there
               // may not be work scheduled on `current`, so we check for this flag.
               (workInProgress2.flags & DidCapture) === NoFlags) {
                 didReceiveUpdate = false;
-                return attemptEarlyBailoutIfNoScheduledUpdate(current2, workInProgress2, renderLanes2);
+                return attemptEarlyBailoutIfNoScheduledUpdate(current3, workInProgress2, renderLanes2);
               }
-              if ((current2.flags & ForceUpdateForLegacySuspense) !== NoFlags) {
+              if ((current3.flags & ForceUpdateForLegacySuspense) !== NoFlags) {
                 didReceiveUpdate = true;
               } else {
                 didReceiveUpdate = false;
@@ -17067,50 +17067,50 @@ var require_react_reconciler_development = __commonJS({
           workInProgress2.lanes = NoLanes;
           switch (workInProgress2.tag) {
             case IndeterminateComponent: {
-              return mountIndeterminateComponent(current2, workInProgress2, workInProgress2.type, renderLanes2);
+              return mountIndeterminateComponent(current3, workInProgress2, workInProgress2.type, renderLanes2);
             }
             case LazyComponent: {
               var elementType = workInProgress2.elementType;
-              return mountLazyComponent(current2, workInProgress2, elementType, renderLanes2);
+              return mountLazyComponent(current3, workInProgress2, elementType, renderLanes2);
             }
             case FunctionComponent: {
               var Component = workInProgress2.type;
               var unresolvedProps = workInProgress2.pendingProps;
               var resolvedProps = workInProgress2.elementType === Component ? unresolvedProps : resolveDefaultProps(Component, unresolvedProps);
-              return updateFunctionComponent(current2, workInProgress2, Component, resolvedProps, renderLanes2);
+              return updateFunctionComponent(current3, workInProgress2, Component, resolvedProps, renderLanes2);
             }
             case ClassComponent: {
               var _Component = workInProgress2.type;
               var _unresolvedProps = workInProgress2.pendingProps;
               var _resolvedProps = workInProgress2.elementType === _Component ? _unresolvedProps : resolveDefaultProps(_Component, _unresolvedProps);
-              return updateClassComponent(current2, workInProgress2, _Component, _resolvedProps, renderLanes2);
+              return updateClassComponent(current3, workInProgress2, _Component, _resolvedProps, renderLanes2);
             }
             case HostRoot:
-              return updateHostRoot(current2, workInProgress2, renderLanes2);
+              return updateHostRoot(current3, workInProgress2, renderLanes2);
             case HostComponent:
-              return updateHostComponent(current2, workInProgress2, renderLanes2);
+              return updateHostComponent(current3, workInProgress2, renderLanes2);
             case HostText:
-              return updateHostText(current2, workInProgress2);
+              return updateHostText(current3, workInProgress2);
             case SuspenseComponent:
-              return updateSuspenseComponent(current2, workInProgress2, renderLanes2);
+              return updateSuspenseComponent(current3, workInProgress2, renderLanes2);
             case HostPortal:
-              return updatePortalComponent(current2, workInProgress2, renderLanes2);
+              return updatePortalComponent(current3, workInProgress2, renderLanes2);
             case ForwardRef: {
               var type = workInProgress2.type;
               var _unresolvedProps2 = workInProgress2.pendingProps;
               var _resolvedProps2 = workInProgress2.elementType === type ? _unresolvedProps2 : resolveDefaultProps(type, _unresolvedProps2);
-              return updateForwardRef(current2, workInProgress2, type, _resolvedProps2, renderLanes2);
+              return updateForwardRef(current3, workInProgress2, type, _resolvedProps2, renderLanes2);
             }
             case Fragment4:
-              return updateFragment(current2, workInProgress2, renderLanes2);
+              return updateFragment(current3, workInProgress2, renderLanes2);
             case Mode:
-              return updateMode(current2, workInProgress2, renderLanes2);
+              return updateMode(current3, workInProgress2, renderLanes2);
             case Profiler:
-              return updateProfiler(current2, workInProgress2, renderLanes2);
+              return updateProfiler(current3, workInProgress2, renderLanes2);
             case ContextProvider:
-              return updateContextProvider(current2, workInProgress2, renderLanes2);
+              return updateContextProvider(current3, workInProgress2, renderLanes2);
             case ContextConsumer:
-              return updateContextConsumer(current2, workInProgress2, renderLanes2);
+              return updateContextConsumer(current3, workInProgress2, renderLanes2);
             case MemoComponent: {
               var _type2 = workInProgress2.type;
               var _unresolvedProps3 = workInProgress2.pendingProps;
@@ -17130,25 +17130,25 @@ var require_react_reconciler_development = __commonJS({
                 }
               }
               _resolvedProps3 = resolveDefaultProps(_type2.type, _resolvedProps3);
-              return updateMemoComponent(current2, workInProgress2, _type2, _resolvedProps3, renderLanes2);
+              return updateMemoComponent(current3, workInProgress2, _type2, _resolvedProps3, renderLanes2);
             }
             case SimpleMemoComponent: {
-              return updateSimpleMemoComponent(current2, workInProgress2, workInProgress2.type, workInProgress2.pendingProps, renderLanes2);
+              return updateSimpleMemoComponent(current3, workInProgress2, workInProgress2.type, workInProgress2.pendingProps, renderLanes2);
             }
             case IncompleteClassComponent: {
               var _Component2 = workInProgress2.type;
               var _unresolvedProps4 = workInProgress2.pendingProps;
               var _resolvedProps4 = workInProgress2.elementType === _Component2 ? _unresolvedProps4 : resolveDefaultProps(_Component2, _unresolvedProps4);
-              return mountIncompleteClassComponent(current2, workInProgress2, _Component2, _resolvedProps4, renderLanes2);
+              return mountIncompleteClassComponent(current3, workInProgress2, _Component2, _resolvedProps4, renderLanes2);
             }
             case SuspenseListComponent: {
-              return updateSuspenseListComponent(current2, workInProgress2, renderLanes2);
+              return updateSuspenseListComponent(current3, workInProgress2, renderLanes2);
             }
             case ScopeComponent: {
               break;
             }
             case OffscreenComponent: {
-              return updateOffscreenComponent(current2, workInProgress2, renderLanes2);
+              return updateOffscreenComponent(current3, workInProgress2, renderLanes2);
             }
           }
           throw new Error("Unknown unit of work tag (" + workInProgress2.tag + "). This error is likely caused by a bug in React. Please file an issue.");
@@ -17162,8 +17162,8 @@ var require_react_reconciler_development = __commonJS({
             workInProgress2.flags |= RefStatic;
           }
         }
-        function hadNoMutationsEffects(current2, completedWork) {
-          var didBailout = current2 !== null && current2.child === completedWork.child;
+        function hadNoMutationsEffects(current3, completedWork) {
+          var didBailout = current3 !== null && current3.child === completedWork.child;
           if (didBailout) {
             return true;
           }
@@ -17208,10 +17208,10 @@ var require_react_reconciler_development = __commonJS({
               node = node.sibling;
             }
           };
-          updateHostContainer = function(current2, workInProgress2) {
+          updateHostContainer = function(current3, workInProgress2) {
           };
-          updateHostComponent$1 = function(current2, workInProgress2, type, newProps, rootContainerInstance) {
-            var oldProps = current2.memoizedProps;
+          updateHostComponent$1 = function(current3, workInProgress2, type, newProps, rootContainerInstance) {
+            var oldProps = current3.memoizedProps;
             if (oldProps === newProps) {
               return;
             }
@@ -17223,7 +17223,7 @@ var require_react_reconciler_development = __commonJS({
               markUpdate(workInProgress2);
             }
           };
-          updateHostText$1 = function(current2, workInProgress2, oldText, newText) {
+          updateHostText$1 = function(current3, workInProgress2, oldText, newText) {
             if (oldText !== newText) {
               markUpdate(workInProgress2);
             }
@@ -17317,9 +17317,9 @@ var require_react_reconciler_development = __commonJS({
               node = node.sibling;
             }
           };
-          updateHostContainer = function(current2, workInProgress2) {
+          updateHostContainer = function(current3, workInProgress2) {
             var portalOrRoot = workInProgress2.stateNode;
-            var childrenUnchanged = hadNoMutationsEffects(current2, workInProgress2);
+            var childrenUnchanged = hadNoMutationsEffects(current3, workInProgress2);
             if (childrenUnchanged) ;
             else {
               var container = portalOrRoot.containerInfo;
@@ -17330,10 +17330,10 @@ var require_react_reconciler_development = __commonJS({
               finalizeContainerChildren(container, newChildSet);
             }
           };
-          updateHostComponent$1 = function(current2, workInProgress2, type, newProps, rootContainerInstance) {
-            var currentInstance = current2.stateNode;
-            var oldProps = current2.memoizedProps;
-            var childrenUnchanged = hadNoMutationsEffects(current2, workInProgress2);
+          updateHostComponent$1 = function(current3, workInProgress2, type, newProps, rootContainerInstance) {
+            var currentInstance = current3.stateNode;
+            var oldProps = current3.memoizedProps;
+            var childrenUnchanged = hadNoMutationsEffects(current3, workInProgress2);
             if (childrenUnchanged && oldProps === newProps) {
               workInProgress2.stateNode = currentInstance;
               return;
@@ -17359,22 +17359,22 @@ var require_react_reconciler_development = __commonJS({
               appendAllChildren(newInstance, workInProgress2, false, false);
             }
           };
-          updateHostText$1 = function(current2, workInProgress2, oldText, newText) {
+          updateHostText$1 = function(current3, workInProgress2, oldText, newText) {
             if (oldText !== newText) {
               var rootContainerInstance = getRootHostContainer();
               var currentHostContext = getHostContext();
               workInProgress2.stateNode = createTextInstance(newText, rootContainerInstance, currentHostContext, workInProgress2);
               markUpdate(workInProgress2);
             } else {
-              workInProgress2.stateNode = current2.stateNode;
+              workInProgress2.stateNode = current3.stateNode;
             }
           };
         } else {
-          updateHostContainer = function(current2, workInProgress2) {
+          updateHostContainer = function(current3, workInProgress2) {
           };
-          updateHostComponent$1 = function(current2, workInProgress2, type, newProps, rootContainerInstance) {
+          updateHostComponent$1 = function(current3, workInProgress2, type, newProps, rootContainerInstance) {
           };
-          updateHostText$1 = function(current2, workInProgress2, oldText, newText) {
+          updateHostText$1 = function(current3, workInProgress2, oldText, newText) {
           };
         }
         function cutOffTailIfNeeded(renderState, hasRenderedATailFallback) {
@@ -17477,7 +17477,7 @@ var require_react_reconciler_development = __commonJS({
           completedWork.childLanes = newChildLanes;
           return didBailout;
         }
-        function completeDehydratedSuspenseBoundary(current2, workInProgress2, nextState) {
+        function completeDehydratedSuspenseBoundary(current3, workInProgress2, nextState) {
           if (hasUnhydratedTailNodes() && (workInProgress2.mode & ConcurrentMode) !== NoMode && (workInProgress2.flags & DidCapture) === NoFlags) {
             warnIfUnhydratedTailNodes(workInProgress2);
             resetHydrationState();
@@ -17486,7 +17486,7 @@ var require_react_reconciler_development = __commonJS({
           }
           var wasHydrated = popHydrationState(workInProgress2);
           if (nextState !== null && nextState.dehydrated !== null) {
-            if (current2 === null) {
+            if (current3 === null) {
               if (!wasHydrated) {
                 throw new Error("A dehydrated suspense component was completed without a hydrated node. This is probably a bug in React.");
               }
@@ -17529,7 +17529,7 @@ var require_react_reconciler_development = __commonJS({
             return true;
           }
         }
-        function completeWork(current2, workInProgress2, renderLanes2) {
+        function completeWork(current3, workInProgress2, renderLanes2) {
           var newProps = workInProgress2.pendingProps;
           popTreeContext(workInProgress2);
           switch (workInProgress2.tag) {
@@ -17562,13 +17562,13 @@ var require_react_reconciler_development = __commonJS({
                 fiberRoot.context = fiberRoot.pendingContext;
                 fiberRoot.pendingContext = null;
               }
-              if (current2 === null || current2.child === null) {
+              if (current3 === null || current3.child === null) {
                 var wasHydrated = popHydrationState(workInProgress2);
                 if (wasHydrated) {
                   markUpdate(workInProgress2);
                 } else {
-                  if (current2 !== null) {
-                    var prevState = current2.memoizedState;
+                  if (current3 !== null) {
+                    var prevState = current3.memoizedState;
                     if (
                       // Check if this is a client root
                       !prevState.isDehydrated || // Check if we reverted to client rendering (e.g. due to an error)
@@ -17580,7 +17580,7 @@ var require_react_reconciler_development = __commonJS({
                   }
                 }
               }
-              updateHostContainer(current2, workInProgress2);
+              updateHostContainer(current3, workInProgress2);
               bubbleProperties(workInProgress2);
               return null;
             }
@@ -17588,9 +17588,9 @@ var require_react_reconciler_development = __commonJS({
               popHostContext(workInProgress2);
               var rootContainerInstance = getRootHostContainer();
               var type = workInProgress2.type;
-              if (current2 !== null && workInProgress2.stateNode != null) {
-                updateHostComponent$1(current2, workInProgress2, type, newProps, rootContainerInstance);
-                if (current2.ref !== workInProgress2.ref) {
+              if (current3 !== null && workInProgress2.stateNode != null) {
+                updateHostComponent$1(current3, workInProgress2, type, newProps, rootContainerInstance);
+                if (current3.ref !== workInProgress2.ref) {
                   markRef$1(workInProgress2);
                 }
               } else {
@@ -17624,9 +17624,9 @@ var require_react_reconciler_development = __commonJS({
             }
             case HostText: {
               var newText = newProps;
-              if (current2 && workInProgress2.stateNode != null) {
-                var oldText = current2.memoizedProps;
-                updateHostText$1(current2, workInProgress2, oldText, newText);
+              if (current3 && workInProgress2.stateNode != null) {
+                var oldText = current3.memoizedProps;
+                updateHostText$1(current3, workInProgress2, oldText, newText);
               } else {
                 if (typeof newText !== "string") {
                   if (workInProgress2.stateNode === null) {
@@ -17650,8 +17650,8 @@ var require_react_reconciler_development = __commonJS({
             case SuspenseComponent: {
               popSuspenseContext(workInProgress2);
               var nextState = workInProgress2.memoizedState;
-              if (current2 === null || current2.memoizedState !== null && current2.memoizedState.dehydrated !== null) {
-                var fallthroughToNormalSuspensePath = completeDehydratedSuspenseBoundary(current2, workInProgress2, nextState);
+              if (current3 === null || current3.memoizedState !== null && current3.memoizedState.dehydrated !== null) {
+                var fallthroughToNormalSuspensePath = completeDehydratedSuspenseBoundary(current3, workInProgress2, nextState);
                 if (!fallthroughToNormalSuspensePath) {
                   if (workInProgress2.flags & ShouldCapture) {
                     return workInProgress2;
@@ -17668,13 +17668,13 @@ var require_react_reconciler_development = __commonJS({
                 return workInProgress2;
               }
               var nextDidTimeout = nextState !== null;
-              var prevDidTimeout = current2 !== null && current2.memoizedState !== null;
+              var prevDidTimeout = current3 !== null && current3.memoizedState !== null;
               if (nextDidTimeout !== prevDidTimeout) {
                 if (nextDidTimeout) {
                   var _offscreenFiber2 = workInProgress2.child;
                   _offscreenFiber2.flags |= Visibility;
                   if ((workInProgress2.mode & ConcurrentMode) !== NoMode) {
-                    var hasInvisibleChildContext = current2 === null && (workInProgress2.memoizedProps.unstable_avoidThisFallback !== true || !enableSuspenseAvoidThisFallback);
+                    var hasInvisibleChildContext = current3 === null && (workInProgress2.memoizedProps.unstable_avoidThisFallback !== true || !enableSuspenseAvoidThisFallback);
                     if (hasInvisibleChildContext || hasSuspenseContext(suspenseStackCursor.current, InvisibleParentSuspenseContext)) {
                       renderDidSuspend();
                     } else {
@@ -17702,8 +17702,8 @@ var require_react_reconciler_development = __commonJS({
             }
             case HostPortal:
               popHostContainer(workInProgress2);
-              updateHostContainer(current2, workInProgress2);
-              if (current2 === null) {
+              updateHostContainer(current3, workInProgress2);
+              if (current3 === null) {
                 preparePortalMount(workInProgress2.stateNode.containerInfo);
               }
               bubbleProperties(workInProgress2);
@@ -17732,7 +17732,7 @@ var require_react_reconciler_development = __commonJS({
               var renderedTail = renderState.rendering;
               if (renderedTail === null) {
                 if (!didSuspendAlready) {
-                  var cannotBeSuspended = renderHasNotSuspendedYet() && (current2 === null || (current2.flags & DidCapture) === NoFlags);
+                  var cannotBeSuspended = renderHasNotSuspendedYet() && (current3 === null || (current3.flags & DidCapture) === NoFlags);
                   if (!cannotBeSuspended) {
                     var row = workInProgress2.child;
                     while (row !== null) {
@@ -17830,8 +17830,8 @@ var require_react_reconciler_development = __commonJS({
               popRenderLanes(workInProgress2);
               var _nextState = workInProgress2.memoizedState;
               var nextIsHidden = _nextState !== null;
-              if (current2 !== null) {
-                var _prevState = current2.memoizedState;
+              if (current3 !== null) {
+                var _prevState = current3.memoizedState;
                 var prevIsHidden = _prevState !== null;
                 if (prevIsHidden !== nextIsHidden && // LegacyHidden doesn't do any hiding — it only pre-renders.
                 !enableLegacyHidden) {
@@ -17861,7 +17861,7 @@ var require_react_reconciler_development = __commonJS({
           }
           throw new Error("Unknown unit of work tag (" + workInProgress2.tag + "). This error is likely caused by a bug in React. Please file an issue.");
         }
-        function unwindWork(current2, workInProgress2, renderLanes2) {
+        function unwindWork(current3, workInProgress2, renderLanes2) {
           popTreeContext(workInProgress2);
           switch (workInProgress2.tag) {
             case ClassComponent: {
@@ -17935,7 +17935,7 @@ var require_react_reconciler_development = __commonJS({
               return null;
           }
         }
-        function unwindInterruptedWork(current2, interruptedWork, renderLanes2) {
+        function unwindInterruptedWork(current3, interruptedWork, renderLanes2) {
           popTreeContext(interruptedWork);
           switch (interruptedWork.tag) {
             case ClassComponent: {
@@ -18096,70 +18096,70 @@ var require_react_reconciler_development = __commonJS({
             clearCaughtError();
           }
         }
-        var callComponentWillUnmountWithTimer = function(current2, instance) {
-          instance.props = current2.memoizedProps;
-          instance.state = current2.memoizedState;
-          if (current2.mode & ProfileMode) {
+        var callComponentWillUnmountWithTimer = function(current3, instance) {
+          instance.props = current3.memoizedProps;
+          instance.state = current3.memoizedState;
+          if (current3.mode & ProfileMode) {
             try {
               startLayoutEffectTimer();
               instance.componentWillUnmount();
             } finally {
-              recordLayoutEffectDuration(current2);
+              recordLayoutEffectDuration(current3);
             }
           } else {
             instance.componentWillUnmount();
           }
         };
-        function safelyCallCommitHookLayoutEffectListMount(current2, nearestMountedAncestor) {
+        function safelyCallCommitHookLayoutEffectListMount(current3, nearestMountedAncestor) {
           try {
-            commitHookEffectListMount(Layout, current2);
+            commitHookEffectListMount(Layout, current3);
           } catch (error2) {
-            captureCommitPhaseError(current2, nearestMountedAncestor, error2);
+            captureCommitPhaseError(current3, nearestMountedAncestor, error2);
           }
         }
-        function safelyCallComponentWillUnmount(current2, nearestMountedAncestor, instance) {
+        function safelyCallComponentWillUnmount(current3, nearestMountedAncestor, instance) {
           try {
-            callComponentWillUnmountWithTimer(current2, instance);
+            callComponentWillUnmountWithTimer(current3, instance);
           } catch (error2) {
-            captureCommitPhaseError(current2, nearestMountedAncestor, error2);
+            captureCommitPhaseError(current3, nearestMountedAncestor, error2);
           }
         }
-        function safelyCallComponentDidMount(current2, nearestMountedAncestor, instance) {
+        function safelyCallComponentDidMount(current3, nearestMountedAncestor, instance) {
           try {
             instance.componentDidMount();
           } catch (error2) {
-            captureCommitPhaseError(current2, nearestMountedAncestor, error2);
+            captureCommitPhaseError(current3, nearestMountedAncestor, error2);
           }
         }
-        function safelyAttachRef(current2, nearestMountedAncestor) {
+        function safelyAttachRef(current3, nearestMountedAncestor) {
           try {
-            commitAttachRef(current2);
+            commitAttachRef(current3);
           } catch (error2) {
-            captureCommitPhaseError(current2, nearestMountedAncestor, error2);
+            captureCommitPhaseError(current3, nearestMountedAncestor, error2);
           }
         }
-        function safelyDetachRef(current2, nearestMountedAncestor) {
-          var ref = current2.ref;
+        function safelyDetachRef(current3, nearestMountedAncestor) {
+          var ref = current3.ref;
           if (ref !== null) {
             if (typeof ref === "function") {
               var retVal;
               try {
-                if (enableProfilerTimer && enableProfilerCommitHooks && current2.mode & ProfileMode) {
+                if (enableProfilerTimer && enableProfilerCommitHooks && current3.mode & ProfileMode) {
                   try {
                     startLayoutEffectTimer();
                     retVal = ref(null);
                   } finally {
-                    recordLayoutEffectDuration(current2);
+                    recordLayoutEffectDuration(current3);
                   }
                 } else {
                   retVal = ref(null);
                 }
               } catch (error2) {
-                captureCommitPhaseError(current2, nearestMountedAncestor, error2);
+                captureCommitPhaseError(current3, nearestMountedAncestor, error2);
               }
               {
                 if (typeof retVal === "function") {
-                  error("Unexpected return value from a callback ref in %s. A callback ref should not return a function.", getComponentNameFromFiber(current2));
+                  error("Unexpected return value from a callback ref in %s. A callback ref should not return a function.", getComponentNameFromFiber(current3));
                 }
               }
             } else {
@@ -18167,11 +18167,11 @@ var require_react_reconciler_development = __commonJS({
             }
           }
         }
-        function safelyCallDestroy(current2, nearestMountedAncestor, destroy) {
+        function safelyCallDestroy(current3, nearestMountedAncestor, destroy) {
           try {
             destroy();
           } catch (error2) {
-            captureCommitPhaseError(current2, nearestMountedAncestor, error2);
+            captureCommitPhaseError(current3, nearestMountedAncestor, error2);
           }
         }
         var focusedInstanceHandle = null;
@@ -18217,7 +18217,7 @@ var require_react_reconciler_development = __commonJS({
           }
         }
         function commitBeforeMutationEffectsOnFiber(finishedWork) {
-          var current2 = finishedWork.alternate;
+          var current3 = finishedWork.alternate;
           var flags = finishedWork.flags;
           if ((flags & Snapshot) !== NoFlags) {
             setCurrentFiber(finishedWork);
@@ -18228,9 +18228,9 @@ var require_react_reconciler_development = __commonJS({
                 break;
               }
               case ClassComponent: {
-                if (current2 !== null) {
-                  var prevProps = current2.memoizedProps;
-                  var prevState = current2.memoizedState;
+                if (current3 !== null) {
+                  var prevProps = current3.memoizedProps;
+                  var prevState = current3.memoizedState;
                   var instance = finishedWork.stateNode;
                   {
                     if (finishedWork.type === finishedWork.elementType && !didWarnAboutReassigningProps) {
@@ -18413,7 +18413,7 @@ var require_react_reconciler_development = __commonJS({
             }
           }
         }
-        function commitLayoutEffectOnFiber(finishedRoot, current2, finishedWork, committedLanes) {
+        function commitLayoutEffectOnFiber(finishedRoot, current3, finishedWork, committedLanes) {
           if ((finishedWork.flags & LayoutMask) !== NoFlags) {
             switch (finishedWork.tag) {
               case FunctionComponent:
@@ -18437,7 +18437,7 @@ var require_react_reconciler_development = __commonJS({
                 var instance = finishedWork.stateNode;
                 if (finishedWork.flags & Update) {
                   if (!offscreenSubtreeWasHidden) {
-                    if (current2 === null) {
+                    if (current3 === null) {
                       {
                         if (finishedWork.type === finishedWork.elementType && !didWarnAboutReassigningProps) {
                           if (instance.props !== finishedWork.memoizedProps) {
@@ -18459,8 +18459,8 @@ var require_react_reconciler_development = __commonJS({
                         instance.componentDidMount();
                       }
                     } else {
-                      var prevProps = finishedWork.elementType === finishedWork.type ? current2.memoizedProps : resolveDefaultProps(finishedWork.type, current2.memoizedProps);
-                      var prevState = current2.memoizedState;
+                      var prevProps = finishedWork.elementType === finishedWork.type ? current3.memoizedProps : resolveDefaultProps(finishedWork.type, current3.memoizedProps);
+                      var prevState = current3.memoizedState;
                       {
                         if (finishedWork.type === finishedWork.elementType && !didWarnAboutReassigningProps) {
                           if (instance.props !== finishedWork.memoizedProps) {
@@ -18520,7 +18520,7 @@ var require_react_reconciler_development = __commonJS({
               }
               case HostComponent: {
                 var _instance2 = finishedWork.stateNode;
-                if (current2 === null && finishedWork.flags & Update) {
+                if (current3 === null && finishedWork.flags & Update) {
                   var type = finishedWork.type;
                   var props = finishedWork.memoizedProps;
                   commitMount(_instance2, type, props, finishedWork);
@@ -18538,7 +18538,7 @@ var require_react_reconciler_development = __commonJS({
                   var _finishedWork$memoize2 = finishedWork.memoizedProps, onCommit = _finishedWork$memoize2.onCommit, onRender = _finishedWork$memoize2.onRender;
                   var effectDuration = finishedWork.stateNode.effectDuration;
                   var commitTime2 = getCommitTime();
-                  var phase = current2 === null ? "mount" : "update";
+                  var phase = current3 === null ? "mount" : "update";
                   {
                     if (isCurrentUpdateNested()) {
                       phase = "nested-update";
@@ -18760,11 +18760,11 @@ var require_react_reconciler_development = __commonJS({
             }
           }
         }
-        function emptyPortalContainer(current2) {
+        function emptyPortalContainer(current3) {
           if (!supportsPersistence) {
             return;
           }
-          var portal = current2.stateNode;
+          var portal = current3.stateNode;
           var containerInfo = portal.containerInfo;
           var emptyChildSet = createContainerChildSet(containerInfo);
           replaceContainerChildren(containerInfo, emptyChildSet);
@@ -19066,9 +19066,9 @@ var require_react_reconciler_development = __commonJS({
           }
           var newState = finishedWork.memoizedState;
           if (newState === null) {
-            var current2 = finishedWork.alternate;
-            if (current2 !== null) {
-              var prevState = current2.memoizedState;
+            var current3 = finishedWork.alternate;
+            if (current3 !== null) {
+              var prevState = current3.memoizedState;
               if (prevState !== null) {
                 var suspenseInstance = prevState.dehydrated;
                 if (suspenseInstance !== null) {
@@ -19137,7 +19137,7 @@ var require_react_reconciler_development = __commonJS({
           setCurrentFiber(prevDebugFiber);
         }
         function commitMutationEffectsOnFiber(finishedWork, root, lanes) {
-          var current2 = finishedWork.alternate;
+          var current3 = finishedWork.alternate;
           var flags = finishedWork.flags;
           switch (finishedWork.tag) {
             case FunctionComponent:
@@ -19175,8 +19175,8 @@ var require_react_reconciler_development = __commonJS({
               recursivelyTraverseMutationEffects(root, finishedWork);
               commitReconciliationEffects(finishedWork);
               if (flags & Ref) {
-                if (current2 !== null) {
-                  safelyDetachRef(current2, current2.return);
+                if (current3 !== null) {
+                  safelyDetachRef(current3, current3.return);
                 }
               }
               return;
@@ -19185,8 +19185,8 @@ var require_react_reconciler_development = __commonJS({
               recursivelyTraverseMutationEffects(root, finishedWork);
               commitReconciliationEffects(finishedWork);
               if (flags & Ref) {
-                if (current2 !== null) {
-                  safelyDetachRef(current2, current2.return);
+                if (current3 !== null) {
+                  safelyDetachRef(current3, current3.return);
                 }
               }
               if (supportsMutation) {
@@ -19202,7 +19202,7 @@ var require_react_reconciler_development = __commonJS({
                   var _instance4 = finishedWork.stateNode;
                   if (_instance4 != null) {
                     var newProps = finishedWork.memoizedProps;
-                    var oldProps = current2 !== null ? current2.memoizedProps : newProps;
+                    var oldProps = current3 !== null ? current3.memoizedProps : newProps;
                     var type = finishedWork.type;
                     var updatePayload = finishedWork.updateQueue;
                     finishedWork.updateQueue = null;
@@ -19228,7 +19228,7 @@ var require_react_reconciler_development = __commonJS({
                   }
                   var textInstance = finishedWork.stateNode;
                   var newText = finishedWork.memoizedProps;
-                  var oldText = current2 !== null ? current2.memoizedProps : newText;
+                  var oldText = current3 !== null ? current3.memoizedProps : newText;
                   try {
                     commitTextUpdate(textInstance, oldText, newText);
                   } catch (error2) {
@@ -19243,8 +19243,8 @@ var require_react_reconciler_development = __commonJS({
               commitReconciliationEffects(finishedWork);
               if (flags & Update) {
                 if (supportsMutation && supportsHydration) {
-                  if (current2 !== null) {
-                    var prevRootState = current2.memoizedState;
+                  if (current3 !== null) {
+                    var prevRootState = current3.memoizedState;
                     if (prevRootState.isDehydrated) {
                       try {
                         commitHydratedContainer(root.containerInfo);
@@ -19310,7 +19310,7 @@ var require_react_reconciler_development = __commonJS({
               return;
             }
             case OffscreenComponent: {
-              var _wasHidden = current2 !== null && current2.memoizedState !== null;
+              var _wasHidden = current3 !== null && current3.memoizedState !== null;
               if (
                 // TODO: Remove this dead flag
                 finishedWork.mode & ConcurrentMode
@@ -19402,8 +19402,8 @@ var require_react_reconciler_development = __commonJS({
                 commitLayoutMountEffects_complete(subtreeRoot, root, committedLanes);
                 continue;
               } else {
-                var current2 = fiber.alternate;
-                var wasHidden = current2 !== null && current2.memoizedState !== null;
+                var current3 = fiber.alternate;
+                var wasHidden = current3 !== null && current3.memoizedState !== null;
                 var newOffscreenSubtreeWasHidden = wasHidden || offscreenSubtreeWasHidden;
                 var prevOffscreenSubtreeIsHidden = offscreenSubtreeIsHidden;
                 var prevOffscreenSubtreeWasHidden = offscreenSubtreeWasHidden;
@@ -19443,10 +19443,10 @@ var require_react_reconciler_development = __commonJS({
           while (nextEffect !== null) {
             var fiber = nextEffect;
             if ((fiber.flags & LayoutMask) !== NoFlags) {
-              var current2 = fiber.alternate;
+              var current3 = fiber.alternate;
               setCurrentFiber(fiber);
               try {
-                commitLayoutEffectOnFiber(root, current2, fiber, committedLanes);
+                commitLayoutEffectOnFiber(root, current3, fiber, committedLanes);
               } catch (error2) {
                 captureCommitPhaseError(fiber, fiber.return, error2);
               }
@@ -19742,17 +19742,17 @@ var require_react_reconciler_development = __commonJS({
             nextEffect = returnFiber;
           }
         }
-        function commitPassiveUnmountInsideDeletedTreeOnFiber(current2, nearestMountedAncestor) {
-          switch (current2.tag) {
+        function commitPassiveUnmountInsideDeletedTreeOnFiber(current3, nearestMountedAncestor) {
+          switch (current3.tag) {
             case FunctionComponent:
             case ForwardRef:
             case SimpleMemoComponent: {
-              if (current2.mode & ProfileMode) {
+              if (current3.mode & ProfileMode) {
                 startPassiveEffectTimer();
-                commitHookEffectListUnmount(Passive$1, current2, nearestMountedAncestor);
-                recordPassiveEffectDuration(current2);
+                commitHookEffectListUnmount(Passive$1, current3, nearestMountedAncestor);
+                recordPassiveEffectDuration(current3);
               } else {
-                commitHookEffectListUnmount(Passive$1, current2, nearestMountedAncestor);
+                commitHookEffectListUnmount(Passive$1, current3, nearestMountedAncestor);
               }
               break;
             }
@@ -20365,8 +20365,8 @@ var require_react_reconciler_development = __commonJS({
           }
         }
         function scheduleInitialHydrationOnRoot(root, lane, eventTime) {
-          var current2 = root.current;
-          current2.lanes = lane;
+          var current3 = root.current;
+          current3.lanes = lane;
           markRootUpdated(root, lane, eventTime);
           ensureRootIsScheduled(root, eventTime);
         }
@@ -20816,8 +20816,8 @@ var require_react_reconciler_development = __commonJS({
           if (workInProgress !== null) {
             var interruptedWork = workInProgress.return;
             while (interruptedWork !== null) {
-              var current2 = interruptedWork.alternate;
-              unwindInterruptedWork(current2, interruptedWork);
+              var current3 = interruptedWork.alternate;
+              unwindInterruptedWork(current3, interruptedWork);
               interruptedWork = interruptedWork.return;
             }
           }
@@ -21023,15 +21023,15 @@ var require_react_reconciler_development = __commonJS({
           }
         }
         function performUnitOfWork(unitOfWork) {
-          var current2 = unitOfWork.alternate;
+          var current3 = unitOfWork.alternate;
           setCurrentFiber(unitOfWork);
           var next;
           if ((unitOfWork.mode & ProfileMode) !== NoMode) {
             startProfilerTimer(unitOfWork);
-            next = beginWork$1(current2, unitOfWork, subtreeRenderLanes);
+            next = beginWork$1(current3, unitOfWork, subtreeRenderLanes);
             stopProfilerTimerIfRunningAndRecordDelta(unitOfWork, true);
           } else {
-            next = beginWork$1(current2, unitOfWork, subtreeRenderLanes);
+            next = beginWork$1(current3, unitOfWork, subtreeRenderLanes);
           }
           resetCurrentFiber();
           unitOfWork.memoizedProps = unitOfWork.pendingProps;
@@ -21045,16 +21045,16 @@ var require_react_reconciler_development = __commonJS({
         function completeUnitOfWork(unitOfWork) {
           var completedWork = unitOfWork;
           do {
-            var current2 = completedWork.alternate;
+            var current3 = completedWork.alternate;
             var returnFiber = completedWork.return;
             if ((completedWork.flags & Incomplete) === NoFlags) {
               setCurrentFiber(completedWork);
               var next = void 0;
               if ((completedWork.mode & ProfileMode) === NoMode) {
-                next = completeWork(current2, completedWork, subtreeRenderLanes);
+                next = completeWork(current3, completedWork, subtreeRenderLanes);
               } else {
                 startProfilerTimer(completedWork);
-                next = completeWork(current2, completedWork, subtreeRenderLanes);
+                next = completeWork(current3, completedWork, subtreeRenderLanes);
                 stopProfilerTimerIfRunningAndRecordDelta(completedWork, false);
               }
               resetCurrentFiber();
@@ -21063,7 +21063,7 @@ var require_react_reconciler_development = __commonJS({
                 return;
               }
             } else {
-              var _next = unwindWork(current2, completedWork);
+              var _next = unwindWork(current3, completedWork);
               if (_next !== null) {
                 _next.flags &= HostEffectMask;
                 workInProgress = _next;
@@ -21523,20 +21523,20 @@ var require_react_reconciler_development = __commonJS({
         }
         function invokeEffectsInDev(firstChild, fiberFlags, invokeEffectFn) {
           {
-            var current2 = firstChild;
+            var current3 = firstChild;
             var subtreeRoot = null;
-            while (current2 !== null) {
-              var primarySubtreeFlag = current2.subtreeFlags & fiberFlags;
-              if (current2 !== subtreeRoot && current2.child !== null && primarySubtreeFlag !== NoFlags) {
-                current2 = current2.child;
+            while (current3 !== null) {
+              var primarySubtreeFlag = current3.subtreeFlags & fiberFlags;
+              if (current3 !== subtreeRoot && current3.child !== null && primarySubtreeFlag !== NoFlags) {
+                current3 = current3.child;
               } else {
-                if ((current2.flags & fiberFlags) !== NoFlags) {
-                  invokeEffectFn(current2);
+                if ((current3.flags & fiberFlags) !== NoFlags) {
+                  invokeEffectFn(current3);
                 }
-                if (current2.sibling !== null) {
-                  current2 = current2.sibling;
+                if (current3.sibling !== null) {
+                  current3 = current3.sibling;
                 } else {
-                  current2 = subtreeRoot = current2.return;
+                  current3 = subtreeRoot = current3.return;
                 }
               }
             }
@@ -21564,7 +21564,7 @@ var require_react_reconciler_development = __commonJS({
             } else {
               didWarnStateUpdateForNotYetMountedComponent = /* @__PURE__ */ new Set([componentName]);
             }
-            var previousFiber = current;
+            var previousFiber = current2;
             try {
               setCurrentFiber(fiber);
               error("Can't perform a React state update on a component that hasn't mounted yet. This indicates that you have a side-effect in your render function that asynchronously later calls tries to update the component. Move this work to useEffect instead.");
@@ -21580,22 +21580,22 @@ var require_react_reconciler_development = __commonJS({
         var beginWork$1;
         {
           var dummyFiber = null;
-          beginWork$1 = function(current2, unitOfWork, lanes) {
+          beginWork$1 = function(current3, unitOfWork, lanes) {
             var originalWorkInProgressCopy = assignFiberPropertiesInDEV(dummyFiber, unitOfWork);
             try {
-              return beginWork(current2, unitOfWork, lanes);
+              return beginWork(current3, unitOfWork, lanes);
             } catch (originalError) {
               if (didSuspendOrErrorWhileHydratingDEV() || originalError !== null && typeof originalError === "object" && typeof originalError.then === "function") {
                 throw originalError;
               }
               resetContextDependencies();
               resetHooksAfterThrow();
-              unwindInterruptedWork(current2, unitOfWork);
+              unwindInterruptedWork(current3, unitOfWork);
               assignFiberPropertiesInDEV(unitOfWork, originalWorkInProgressCopy);
               if (unitOfWork.mode & ProfileMode) {
                 startProfilerTimer(unitOfWork);
               }
-              invokeGuardedCallback(null, beginWork, null, current2, unitOfWork, lanes);
+              invokeGuardedCallback(null, beginWork, null, current3, unitOfWork, lanes);
               if (hasCaughtError()) {
                 var replayError = clearCaughtError();
                 if (typeof replayError === "object" && replayError !== null && replayError._suppressLogging && typeof originalError === "object" && originalError !== null && !originalError._suppressLogging) {
@@ -21687,7 +21687,7 @@ var require_react_reconciler_development = __commonJS({
               }
             }
             if (ReactCurrentActQueue$1.current === null) {
-              var previousFiber = current;
+              var previousFiber = current2;
               try {
                 setCurrentFiber(fiber);
                 error("An update to %s inside a test was not wrapped in act(...).\n\nWhen testing, code that causes React state updates should be wrapped into act(...):\n\nact(() => {\n  /* fire events that update state */\n});\n/* assert on the output */\n\nThis ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act", getComponentNameFromFiber(fiber));
@@ -22079,23 +22079,23 @@ var require_react_reconciler_development = __commonJS({
           }
           return IndeterminateComponent;
         }
-        function createWorkInProgress(current2, pendingProps) {
-          var workInProgress2 = current2.alternate;
+        function createWorkInProgress(current3, pendingProps) {
+          var workInProgress2 = current3.alternate;
           if (workInProgress2 === null) {
-            workInProgress2 = createFiber(current2.tag, pendingProps, current2.key, current2.mode);
-            workInProgress2.elementType = current2.elementType;
-            workInProgress2.type = current2.type;
-            workInProgress2.stateNode = current2.stateNode;
+            workInProgress2 = createFiber(current3.tag, pendingProps, current3.key, current3.mode);
+            workInProgress2.elementType = current3.elementType;
+            workInProgress2.type = current3.type;
+            workInProgress2.stateNode = current3.stateNode;
             {
-              workInProgress2._debugSource = current2._debugSource;
-              workInProgress2._debugOwner = current2._debugOwner;
-              workInProgress2._debugHookTypes = current2._debugHookTypes;
+              workInProgress2._debugSource = current3._debugSource;
+              workInProgress2._debugOwner = current3._debugOwner;
+              workInProgress2._debugHookTypes = current3._debugHookTypes;
             }
-            workInProgress2.alternate = current2;
-            current2.alternate = workInProgress2;
+            workInProgress2.alternate = current3;
+            current3.alternate = workInProgress2;
           } else {
             workInProgress2.pendingProps = pendingProps;
-            workInProgress2.type = current2.type;
+            workInProgress2.type = current3.type;
             workInProgress2.flags = NoFlags;
             workInProgress2.subtreeFlags = NoFlags;
             workInProgress2.deletions = null;
@@ -22104,38 +22104,38 @@ var require_react_reconciler_development = __commonJS({
               workInProgress2.actualStartTime = -1;
             }
           }
-          workInProgress2.flags = current2.flags & StaticMask;
-          workInProgress2.childLanes = current2.childLanes;
-          workInProgress2.lanes = current2.lanes;
-          workInProgress2.child = current2.child;
-          workInProgress2.memoizedProps = current2.memoizedProps;
-          workInProgress2.memoizedState = current2.memoizedState;
-          workInProgress2.updateQueue = current2.updateQueue;
-          var currentDependencies = current2.dependencies;
+          workInProgress2.flags = current3.flags & StaticMask;
+          workInProgress2.childLanes = current3.childLanes;
+          workInProgress2.lanes = current3.lanes;
+          workInProgress2.child = current3.child;
+          workInProgress2.memoizedProps = current3.memoizedProps;
+          workInProgress2.memoizedState = current3.memoizedState;
+          workInProgress2.updateQueue = current3.updateQueue;
+          var currentDependencies = current3.dependencies;
           workInProgress2.dependencies = currentDependencies === null ? null : {
             lanes: currentDependencies.lanes,
             firstContext: currentDependencies.firstContext
           };
-          workInProgress2.sibling = current2.sibling;
-          workInProgress2.index = current2.index;
-          workInProgress2.ref = current2.ref;
+          workInProgress2.sibling = current3.sibling;
+          workInProgress2.index = current3.index;
+          workInProgress2.ref = current3.ref;
           {
-            workInProgress2.selfBaseDuration = current2.selfBaseDuration;
-            workInProgress2.treeBaseDuration = current2.treeBaseDuration;
+            workInProgress2.selfBaseDuration = current3.selfBaseDuration;
+            workInProgress2.treeBaseDuration = current3.treeBaseDuration;
           }
           {
-            workInProgress2._debugNeedsRemount = current2._debugNeedsRemount;
+            workInProgress2._debugNeedsRemount = current3._debugNeedsRemount;
             switch (workInProgress2.tag) {
               case IndeterminateComponent:
               case FunctionComponent:
               case SimpleMemoComponent:
-                workInProgress2.type = resolveFunctionForHotReloading(current2.type);
+                workInProgress2.type = resolveFunctionForHotReloading(current3.type);
                 break;
               case ClassComponent:
-                workInProgress2.type = resolveClassForHotReloading(current2.type);
+                workInProgress2.type = resolveClassForHotReloading(current3.type);
                 break;
               case ForwardRef:
-                workInProgress2.type = resolveForwardRefForHotReloading(current2.type);
+                workInProgress2.type = resolveForwardRefForHotReloading(current3.type);
                 break;
             }
           }
@@ -22143,8 +22143,8 @@ var require_react_reconciler_development = __commonJS({
         }
         function resetWorkInProgress(workInProgress2, renderLanes2) {
           workInProgress2.flags &= StaticMask | Placement;
-          var current2 = workInProgress2.alternate;
-          if (current2 === null) {
+          var current3 = workInProgress2.alternate;
+          if (current3 === null) {
             workInProgress2.childLanes = NoLanes;
             workInProgress2.lanes = renderLanes2;
             workInProgress2.child = null;
@@ -22159,23 +22159,23 @@ var require_react_reconciler_development = __commonJS({
               workInProgress2.treeBaseDuration = 0;
             }
           } else {
-            workInProgress2.childLanes = current2.childLanes;
-            workInProgress2.lanes = current2.lanes;
-            workInProgress2.child = current2.child;
+            workInProgress2.childLanes = current3.childLanes;
+            workInProgress2.lanes = current3.lanes;
+            workInProgress2.child = current3.child;
             workInProgress2.subtreeFlags = NoFlags;
             workInProgress2.deletions = null;
-            workInProgress2.memoizedProps = current2.memoizedProps;
-            workInProgress2.memoizedState = current2.memoizedState;
-            workInProgress2.updateQueue = current2.updateQueue;
-            workInProgress2.type = current2.type;
-            var currentDependencies = current2.dependencies;
+            workInProgress2.memoizedProps = current3.memoizedProps;
+            workInProgress2.memoizedState = current3.memoizedState;
+            workInProgress2.updateQueue = current3.updateQueue;
+            workInProgress2.type = current3.type;
+            var currentDependencies = current3.dependencies;
             workInProgress2.dependencies = currentDependencies === null ? null : {
               lanes: currentDependencies.lanes,
               firstContext: currentDependencies.firstContext
             };
             {
-              workInProgress2.selfBaseDuration = current2.selfBaseDuration;
-              workInProgress2.treeBaseDuration = current2.treeBaseDuration;
+              workInProgress2.selfBaseDuration = current3.selfBaseDuration;
+              workInProgress2.treeBaseDuration = current3.treeBaseDuration;
             }
           }
           return workInProgress2;
@@ -22552,7 +22552,7 @@ var require_react_reconciler_development = __commonJS({
               var componentName = getComponentNameFromFiber(fiber) || "Component";
               if (!didWarnAboutFindNodeInStrictMode[componentName]) {
                 didWarnAboutFindNodeInStrictMode[componentName] = true;
-                var previousFiber = current;
+                var previousFiber = current2;
                 try {
                   setCurrentFiber(hostFiber);
                   if (fiber.mode & StrictLegacyMode) {
@@ -22581,12 +22581,12 @@ var require_react_reconciler_development = __commonJS({
           var hydrate = true;
           var root = createFiberRoot(containerInfo, tag, hydrate, initialChildren, hydrationCallbacks, isStrictMode, concurrentUpdatesByDefaultOverride, identifierPrefix, onRecoverableError);
           root.context = getContextForSubtree(null);
-          var current2 = root.current;
+          var current3 = root.current;
           var eventTime = requestEventTime();
-          var lane = requestUpdateLane(current2);
+          var lane = requestUpdateLane(current3);
           var update = createUpdate(eventTime, lane);
           update.callback = callback !== void 0 && callback !== null ? callback : null;
-          enqueueUpdate(current2, update, lane);
+          enqueueUpdate(current3, update, lane);
           scheduleInitialHydrationOnRoot(root, lane, eventTime);
           return root;
         }
@@ -22607,9 +22607,9 @@ var require_react_reconciler_development = __commonJS({
             container.pendingContext = context;
           }
           {
-            if (isRendering && current !== null && !didWarnAboutNestedUpdates) {
+            if (isRendering && current2 !== null && !didWarnAboutNestedUpdates) {
               didWarnAboutNestedUpdates = true;
-              error("Render methods should be a pure function of props and state; triggering nested component updates from render is not allowed. If necessary, trigger nested updates in componentDidUpdate.\n\nCheck the render method of %s.", getComponentNameFromFiber(current) || "Unknown");
+              error("Render methods should be a pure function of props and state; triggering nested component updates from render is not allowed. If necessary, trigger nested updates in componentDidUpdate.\n\nCheck the render method of %s.", getComponentNameFromFiber(current2) || "Unknown");
             }
           }
           var update = createUpdate(eventTime, lane);
@@ -22912,7 +22912,7 @@ var require_react_reconciler_development = __commonJS({
           return null;
         }
         function getCurrentFiberForDevTools() {
-          return current;
+          return current2;
         }
         function injectIntoDevTools(devToolsConfig) {
           var findFiberByHostInstance = devToolsConfig.findFiberByHostInstance;
@@ -22987,9 +22987,9 @@ var require_react_reconciler_development = __commonJS({
   }
 });
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react-reconciler/index.js
+// ../node_modules/react-reconciler/index.js
 var require_react_reconciler = __commonJS({
-  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react-reconciler/index.js"(exports, module) {
+  "../node_modules/react-reconciler/index.js"(exports, module) {
     "use strict";
     if (process.env.NODE_ENV === "production") {
       module.exports = require_react_reconciler_production_min();
@@ -22999,9 +22999,9 @@ var require_react_reconciler = __commonJS({
   }
 });
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react-reconciler/cjs/react-reconciler-constants.production.min.js
+// ../node_modules/react-reconciler/cjs/react-reconciler-constants.production.min.js
 var require_react_reconciler_constants_production_min = __commonJS({
-  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react-reconciler/cjs/react-reconciler-constants.production.min.js"(exports) {
+  "../node_modules/react-reconciler/cjs/react-reconciler-constants.production.min.js"(exports) {
     "use strict";
     exports.ConcurrentRoot = 1;
     exports.ContinuousEventPriority = 4;
@@ -23012,9 +23012,9 @@ var require_react_reconciler_constants_production_min = __commonJS({
   }
 });
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react-reconciler/cjs/react-reconciler-constants.development.js
+// ../node_modules/react-reconciler/cjs/react-reconciler-constants.development.js
 var require_react_reconciler_constants_development = __commonJS({
-  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react-reconciler/cjs/react-reconciler-constants.development.js"(exports) {
+  "../node_modules/react-reconciler/cjs/react-reconciler-constants.development.js"(exports) {
     "use strict";
     if (process.env.NODE_ENV !== "production") {
       (function() {
@@ -23052,9 +23052,9 @@ var require_react_reconciler_constants_development = __commonJS({
   }
 });
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react-reconciler/constants.js
+// ../node_modules/react-reconciler/constants.js
 var require_constants = __commonJS({
-  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react-reconciler/constants.js"(exports, module) {
+  "../node_modules/react-reconciler/constants.js"(exports, module) {
     "use strict";
     if (process.env.NODE_ENV === "production") {
       module.exports = require_react_reconciler_constants_production_min();
@@ -23064,18 +23064,18 @@ var require_constants = __commonJS({
   }
 });
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/emoji-regex/index.js
+// ../node_modules/emoji-regex/index.js
 var require_emoji_regex = __commonJS({
-  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/emoji-regex/index.js"(exports, module) {
+  "../node_modules/emoji-regex/index.js"(exports, module) {
     module.exports = () => {
       return /[#*0-9]\uFE0F?\u20E3|[\xA9\xAE\u203C\u2049\u2122\u2139\u2194-\u2199\u21A9\u21AA\u231A\u231B\u2328\u23CF\u23ED-\u23EF\u23F1\u23F2\u23F8-\u23FA\u24C2\u25AA\u25AB\u25B6\u25C0\u25FB\u25FC\u25FE\u2600-\u2604\u260E\u2611\u2614\u2615\u2618\u2620\u2622\u2623\u2626\u262A\u262E\u262F\u2638-\u263A\u2640\u2642\u2648-\u2653\u265F\u2660\u2663\u2665\u2666\u2668\u267B\u267E\u267F\u2692\u2694-\u2697\u2699\u269B\u269C\u26A0\u26A7\u26AA\u26B0\u26B1\u26BD\u26BE\u26C4\u26C8\u26CF\u26D1\u26E9\u26F0-\u26F5\u26F7\u26F8\u26FA\u2702\u2708\u2709\u270F\u2712\u2714\u2716\u271D\u2721\u2733\u2734\u2744\u2747\u2757\u2763\u27A1\u2934\u2935\u2B05-\u2B07\u2B1B\u2B1C\u2B55\u3030\u303D\u3297\u3299]\uFE0F?|[\u261D\u270C\u270D](?:\uD83C[\uDFFB-\uDFFF]|\uFE0F)?|[\u270A\u270B](?:\uD83C[\uDFFB-\uDFFF])?|[\u23E9-\u23EC\u23F0\u23F3\u25FD\u2693\u26A1\u26AB\u26C5\u26CE\u26D4\u26EA\u26FD\u2705\u2728\u274C\u274E\u2753-\u2755\u2795-\u2797\u27B0\u27BF\u2B50]|\u26D3\uFE0F?(?:\u200D\uD83D\uDCA5)?|\u26F9(?:\uD83C[\uDFFB-\uDFFF]|\uFE0F)?(?:\u200D[\u2640\u2642]\uFE0F?)?|\u2764\uFE0F?(?:\u200D(?:\uD83D\uDD25|\uD83E\uDE79))?|\uD83C(?:[\uDC04\uDD70\uDD71\uDD7E\uDD7F\uDE02\uDE37\uDF21\uDF24-\uDF2C\uDF36\uDF7D\uDF96\uDF97\uDF99-\uDF9B\uDF9E\uDF9F\uDFCD\uDFCE\uDFD4-\uDFDF\uDFF5\uDFF7]\uFE0F?|[\uDF85\uDFC2\uDFC7](?:\uD83C[\uDFFB-\uDFFF])?|[\uDFC4\uDFCA](?:\uD83C[\uDFFB-\uDFFF])?(?:\u200D[\u2640\u2642]\uFE0F?)?|[\uDFCB\uDFCC](?:\uD83C[\uDFFB-\uDFFF]|\uFE0F)?(?:\u200D[\u2640\u2642]\uFE0F?)?|[\uDCCF\uDD8E\uDD91-\uDD9A\uDE01\uDE1A\uDE2F\uDE32-\uDE36\uDE38-\uDE3A\uDE50\uDE51\uDF00-\uDF20\uDF2D-\uDF35\uDF37-\uDF43\uDF45-\uDF4A\uDF4C-\uDF7C\uDF7E-\uDF84\uDF86-\uDF93\uDFA0-\uDFC1\uDFC5\uDFC6\uDFC8\uDFC9\uDFCF-\uDFD3\uDFE0-\uDFF0\uDFF8-\uDFFF]|\uDDE6\uD83C[\uDDE8-\uDDEC\uDDEE\uDDF1\uDDF2\uDDF4\uDDF6-\uDDFA\uDDFC\uDDFD\uDDFF]|\uDDE7\uD83C[\uDDE6\uDDE7\uDDE9-\uDDEF\uDDF1-\uDDF4\uDDF6-\uDDF9\uDDFB\uDDFC\uDDFE\uDDFF]|\uDDE8\uD83C[\uDDE6\uDDE8\uDDE9\uDDEB-\uDDEE\uDDF0-\uDDF7\uDDFA-\uDDFF]|\uDDE9\uD83C[\uDDEA\uDDEC\uDDEF\uDDF0\uDDF2\uDDF4\uDDFF]|\uDDEA\uD83C[\uDDE6\uDDE8\uDDEA\uDDEC\uDDED\uDDF7-\uDDFA]|\uDDEB\uD83C[\uDDEE-\uDDF0\uDDF2\uDDF4\uDDF7]|\uDDEC\uD83C[\uDDE6\uDDE7\uDDE9-\uDDEE\uDDF1-\uDDF3\uDDF5-\uDDFA\uDDFC\uDDFE]|\uDDED\uD83C[\uDDF0\uDDF2\uDDF3\uDDF7\uDDF9\uDDFA]|\uDDEE\uD83C[\uDDE8-\uDDEA\uDDF1-\uDDF4\uDDF6-\uDDF9]|\uDDEF\uD83C[\uDDEA\uDDF2\uDDF4\uDDF5]|\uDDF0\uD83C[\uDDEA\uDDEC-\uDDEE\uDDF2\uDDF3\uDDF5\uDDF7\uDDFC\uDDFE\uDDFF]|\uDDF1\uD83C[\uDDE6-\uDDE8\uDDEE\uDDF0\uDDF7-\uDDFB\uDDFE]|\uDDF2\uD83C[\uDDE6\uDDE8-\uDDED\uDDF0-\uDDFF]|\uDDF3\uD83C[\uDDE6\uDDE8\uDDEA-\uDDEC\uDDEE\uDDF1\uDDF4\uDDF5\uDDF7\uDDFA\uDDFF]|\uDDF4\uD83C\uDDF2|\uDDF5\uD83C[\uDDE6\uDDEA-\uDDED\uDDF0-\uDDF3\uDDF7-\uDDF9\uDDFC\uDDFE]|\uDDF6\uD83C\uDDE6|\uDDF7\uD83C[\uDDEA\uDDF4\uDDF8\uDDFA\uDDFC]|\uDDF8\uD83C[\uDDE6-\uDDEA\uDDEC-\uDDF4\uDDF7-\uDDF9\uDDFB\uDDFD-\uDDFF]|\uDDF9\uD83C[\uDDE6\uDDE8\uDDE9\uDDEB-\uDDED\uDDEF-\uDDF4\uDDF7\uDDF9\uDDFB\uDDFC\uDDFF]|\uDDFA\uD83C[\uDDE6\uDDEC\uDDF2\uDDF3\uDDF8\uDDFE\uDDFF]|\uDDFB\uD83C[\uDDE6\uDDE8\uDDEA\uDDEC\uDDEE\uDDF3\uDDFA]|\uDDFC\uD83C[\uDDEB\uDDF8]|\uDDFD\uD83C\uDDF0|\uDDFE\uD83C[\uDDEA\uDDF9]|\uDDFF\uD83C[\uDDE6\uDDF2\uDDFC]|\uDF44(?:\u200D\uD83D\uDFEB)?|\uDF4B(?:\u200D\uD83D\uDFE9)?|\uDFC3(?:\uD83C[\uDFFB-\uDFFF])?(?:\u200D(?:[\u2640\u2642]\uFE0F?(?:\u200D\u27A1\uFE0F?)?|\u27A1\uFE0F?))?|\uDFF3\uFE0F?(?:\u200D(?:\u26A7\uFE0F?|\uD83C\uDF08))?|\uDFF4(?:\u200D\u2620\uFE0F?|\uDB40\uDC67\uDB40\uDC62\uDB40(?:\uDC65\uDB40\uDC6E\uDB40\uDC67|\uDC73\uDB40\uDC63\uDB40\uDC74|\uDC77\uDB40\uDC6C\uDB40\uDC73)\uDB40\uDC7F)?)|\uD83D(?:[\uDC3F\uDCFD\uDD49\uDD4A\uDD6F\uDD70\uDD73\uDD76-\uDD79\uDD87\uDD8A-\uDD8D\uDDA5\uDDA8\uDDB1\uDDB2\uDDBC\uDDC2-\uDDC4\uDDD1-\uDDD3\uDDDC-\uDDDE\uDDE1\uDDE3\uDDE8\uDDEF\uDDF3\uDDFA\uDECB\uDECD-\uDECF\uDEE0-\uDEE5\uDEE9\uDEF0\uDEF3]\uFE0F?|[\uDC42\uDC43\uDC46-\uDC50\uDC66\uDC67\uDC6B-\uDC6D\uDC72\uDC74-\uDC76\uDC78\uDC7C\uDC83\uDC85\uDC8F\uDC91\uDCAA\uDD7A\uDD95\uDD96\uDE4C\uDE4F\uDEC0\uDECC](?:\uD83C[\uDFFB-\uDFFF])?|[\uDC6E-\uDC71\uDC73\uDC77\uDC81\uDC82\uDC86\uDC87\uDE45-\uDE47\uDE4B\uDE4D\uDE4E\uDEA3\uDEB4\uDEB5](?:\uD83C[\uDFFB-\uDFFF])?(?:\u200D[\u2640\u2642]\uFE0F?)?|[\uDD74\uDD90](?:\uD83C[\uDFFB-\uDFFF]|\uFE0F)?|[\uDC00-\uDC07\uDC09-\uDC14\uDC16-\uDC25\uDC27-\uDC3A\uDC3C-\uDC3E\uDC40\uDC44\uDC45\uDC51-\uDC65\uDC6A\uDC79-\uDC7B\uDC7D-\uDC80\uDC84\uDC88-\uDC8E\uDC90\uDC92-\uDCA9\uDCAB-\uDCFC\uDCFF-\uDD3D\uDD4B-\uDD4E\uDD50-\uDD67\uDDA4\uDDFB-\uDE2D\uDE2F-\uDE34\uDE37-\uDE41\uDE43\uDE44\uDE48-\uDE4A\uDE80-\uDEA2\uDEA4-\uDEB3\uDEB7-\uDEBF\uDEC1-\uDEC5\uDED0-\uDED2\uDED5-\uDED8\uDEDC-\uDEDF\uDEEB\uDEEC\uDEF4-\uDEFC\uDFE0-\uDFEB\uDFF0]|\uDC08(?:\u200D\u2B1B)?|\uDC15(?:\u200D\uD83E\uDDBA)?|\uDC26(?:\u200D(?:\u2B1B|\uD83D\uDD25))?|\uDC3B(?:\u200D\u2744\uFE0F?)?|\uDC41\uFE0F?(?:\u200D\uD83D\uDDE8\uFE0F?)?|\uDC68(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D\uD83D(?:\uDC8B\u200D\uD83D)?\uDC68|\uD83C[\uDF3E\uDF73\uDF7C\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDC68\uDC69]\u200D\uD83D(?:\uDC66(?:\u200D\uD83D\uDC66)?|\uDC67(?:\u200D\uD83D[\uDC66\uDC67])?)|[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC66(?:\u200D\uD83D\uDC66)?|\uDC67(?:\u200D\uD83D[\uDC66\uDC67])?)|\uD83E(?:[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3]))|\uD83C(?:\uDFFB(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D\uD83D(?:\uDC8B\u200D\uD83D)?\uDC68\uD83C[\uDFFB-\uDFFF]|\uD83C[\uDF3E\uDF73\uDF7C\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83D\uDC68\uD83C[\uDFFC-\uDFFF])|\uD83E(?:[\uDD1D\uDEEF]\u200D\uD83D\uDC68\uD83C[\uDFFC-\uDFFF]|[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3])))?|\uDFFC(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D\uD83D(?:\uDC8B\u200D\uD83D)?\uDC68\uD83C[\uDFFB-\uDFFF]|\uD83C[\uDF3E\uDF73\uDF7C\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83D\uDC68\uD83C[\uDFFB\uDFFD-\uDFFF])|\uD83E(?:[\uDD1D\uDEEF]\u200D\uD83D\uDC68\uD83C[\uDFFB\uDFFD-\uDFFF]|[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3])))?|\uDFFD(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D\uD83D(?:\uDC8B\u200D\uD83D)?\uDC68\uD83C[\uDFFB-\uDFFF]|\uD83C[\uDF3E\uDF73\uDF7C\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83D\uDC68\uD83C[\uDFFB\uDFFC\uDFFE\uDFFF])|\uD83E(?:[\uDD1D\uDEEF]\u200D\uD83D\uDC68\uD83C[\uDFFB\uDFFC\uDFFE\uDFFF]|[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3])))?|\uDFFE(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D\uD83D(?:\uDC8B\u200D\uD83D)?\uDC68\uD83C[\uDFFB-\uDFFF]|\uD83C[\uDF3E\uDF73\uDF7C\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83D\uDC68\uD83C[\uDFFB-\uDFFD\uDFFF])|\uD83E(?:[\uDD1D\uDEEF]\u200D\uD83D\uDC68\uD83C[\uDFFB-\uDFFD\uDFFF]|[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3])))?|\uDFFF(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D\uD83D(?:\uDC8B\u200D\uD83D)?\uDC68\uD83C[\uDFFB-\uDFFF]|\uD83C[\uDF3E\uDF73\uDF7C\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83D\uDC68\uD83C[\uDFFB-\uDFFE])|\uD83E(?:[\uDD1D\uDEEF]\u200D\uD83D\uDC68\uD83C[\uDFFB-\uDFFE]|[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3])))?))?|\uDC69(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D\uD83D(?:\uDC8B\u200D\uD83D)?[\uDC68\uDC69]|\uD83C[\uDF3E\uDF73\uDF7C\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC66(?:\u200D\uD83D\uDC66)?|\uDC67(?:\u200D\uD83D[\uDC66\uDC67])?|\uDC69\u200D\uD83D(?:\uDC66(?:\u200D\uD83D\uDC66)?|\uDC67(?:\u200D\uD83D[\uDC66\uDC67])?))|\uD83E(?:[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3]))|\uD83C(?:\uDFFB(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D\uD83D(?:[\uDC68\uDC69]|\uDC8B\u200D\uD83D[\uDC68\uDC69])\uD83C[\uDFFB-\uDFFF]|\uD83C[\uDF3E\uDF73\uDF7C\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83D\uDC69\uD83C[\uDFFC-\uDFFF])|\uD83E(?:[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3]|\uDD1D\u200D\uD83D[\uDC68\uDC69]\uD83C[\uDFFC-\uDFFF]|\uDEEF\u200D\uD83D\uDC69\uD83C[\uDFFC-\uDFFF])))?|\uDFFC(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D\uD83D(?:[\uDC68\uDC69]|\uDC8B\u200D\uD83D[\uDC68\uDC69])\uD83C[\uDFFB-\uDFFF]|\uD83C[\uDF3E\uDF73\uDF7C\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83D\uDC69\uD83C[\uDFFB\uDFFD-\uDFFF])|\uD83E(?:[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3]|\uDD1D\u200D\uD83D[\uDC68\uDC69]\uD83C[\uDFFB\uDFFD-\uDFFF]|\uDEEF\u200D\uD83D\uDC69\uD83C[\uDFFB\uDFFD-\uDFFF])))?|\uDFFD(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D\uD83D(?:[\uDC68\uDC69]|\uDC8B\u200D\uD83D[\uDC68\uDC69])\uD83C[\uDFFB-\uDFFF]|\uD83C[\uDF3E\uDF73\uDF7C\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83D\uDC69\uD83C[\uDFFB\uDFFC\uDFFE\uDFFF])|\uD83E(?:[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3]|\uDD1D\u200D\uD83D[\uDC68\uDC69]\uD83C[\uDFFB\uDFFC\uDFFE\uDFFF]|\uDEEF\u200D\uD83D\uDC69\uD83C[\uDFFB\uDFFC\uDFFE\uDFFF])))?|\uDFFE(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D\uD83D(?:[\uDC68\uDC69]|\uDC8B\u200D\uD83D[\uDC68\uDC69])\uD83C[\uDFFB-\uDFFF]|\uD83C[\uDF3E\uDF73\uDF7C\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83D\uDC69\uD83C[\uDFFB-\uDFFD\uDFFF])|\uD83E(?:[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3]|\uDD1D\u200D\uD83D[\uDC68\uDC69]\uD83C[\uDFFB-\uDFFD\uDFFF]|\uDEEF\u200D\uD83D\uDC69\uD83C[\uDFFB-\uDFFD\uDFFF])))?|\uDFFF(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D\uD83D(?:[\uDC68\uDC69]|\uDC8B\u200D\uD83D[\uDC68\uDC69])\uD83C[\uDFFB-\uDFFF]|\uD83C[\uDF3E\uDF73\uDF7C\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83D\uDC69\uD83C[\uDFFB-\uDFFE])|\uD83E(?:[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3]|\uDD1D\u200D\uD83D[\uDC68\uDC69]\uD83C[\uDFFB-\uDFFE]|\uDEEF\u200D\uD83D\uDC69\uD83C[\uDFFB-\uDFFE])))?))?|\uDD75(?:\uD83C[\uDFFB-\uDFFF]|\uFE0F)?(?:\u200D[\u2640\u2642]\uFE0F?)?|\uDE2E(?:\u200D\uD83D\uDCA8)?|\uDE35(?:\u200D\uD83D\uDCAB)?|\uDE36(?:\u200D\uD83C\uDF2B\uFE0F?)?|\uDE42(?:\u200D[\u2194\u2195]\uFE0F?)?|\uDEB6(?:\uD83C[\uDFFB-\uDFFF])?(?:\u200D(?:[\u2640\u2642]\uFE0F?(?:\u200D\u27A1\uFE0F?)?|\u27A1\uFE0F?))?)|\uD83E(?:[\uDD0C\uDD0F\uDD18-\uDD1F\uDD30-\uDD34\uDD36\uDD77\uDDB5\uDDB6\uDDBB\uDDD2\uDDD3\uDDD5\uDEC3-\uDEC5\uDEF0\uDEF2-\uDEF8](?:\uD83C[\uDFFB-\uDFFF])?|[\uDD26\uDD35\uDD37-\uDD39\uDD3C-\uDD3E\uDDB8\uDDB9\uDDCD\uDDCF\uDDD4\uDDD6-\uDDDD](?:\uD83C[\uDFFB-\uDFFF])?(?:\u200D[\u2640\u2642]\uFE0F?)?|[\uDDDE\uDDDF](?:\u200D[\u2640\u2642]\uFE0F?)?|[\uDD0D\uDD0E\uDD10-\uDD17\uDD20-\uDD25\uDD27-\uDD2F\uDD3A\uDD3F-\uDD45\uDD47-\uDD76\uDD78-\uDDB4\uDDB7\uDDBA\uDDBC-\uDDCC\uDDD0\uDDE0-\uDDFF\uDE70-\uDE7C\uDE80-\uDE8A\uDE8E-\uDEC2\uDEC6\uDEC8\uDECD-\uDEDC\uDEDF-\uDEEA\uDEEF]|\uDDCE(?:\uD83C[\uDFFB-\uDFFF])?(?:\u200D(?:[\u2640\u2642]\uFE0F?(?:\u200D\u27A1\uFE0F?)?|\u27A1\uFE0F?))?|\uDDD1(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\uD83C[\uDF3E\uDF73\uDF7C\uDF84\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uD83E(?:[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3\uDE70]|\uDD1D\u200D\uD83E\uDDD1|\uDDD1\u200D\uD83E\uDDD2(?:\u200D\uD83E\uDDD2)?|\uDDD2(?:\u200D\uD83E\uDDD2)?))|\uD83C(?:\uDFFB(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D(?:\uD83D\uDC8B\u200D)?\uD83E\uDDD1\uD83C[\uDFFC-\uDFFF]|\uD83C[\uDF3E\uDF73\uDF7C\uDF84\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83E\uDDD1\uD83C[\uDFFC-\uDFFF])|\uD83E(?:[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3\uDE70]|\uDD1D\u200D\uD83E\uDDD1\uD83C[\uDFFB-\uDFFF]|\uDEEF\u200D\uD83E\uDDD1\uD83C[\uDFFC-\uDFFF])))?|\uDFFC(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D(?:\uD83D\uDC8B\u200D)?\uD83E\uDDD1\uD83C[\uDFFB\uDFFD-\uDFFF]|\uD83C[\uDF3E\uDF73\uDF7C\uDF84\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83E\uDDD1\uD83C[\uDFFB\uDFFD-\uDFFF])|\uD83E(?:[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3\uDE70]|\uDD1D\u200D\uD83E\uDDD1\uD83C[\uDFFB-\uDFFF]|\uDEEF\u200D\uD83E\uDDD1\uD83C[\uDFFB\uDFFD-\uDFFF])))?|\uDFFD(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D(?:\uD83D\uDC8B\u200D)?\uD83E\uDDD1\uD83C[\uDFFB\uDFFC\uDFFE\uDFFF]|\uD83C[\uDF3E\uDF73\uDF7C\uDF84\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83E\uDDD1\uD83C[\uDFFB\uDFFC\uDFFE\uDFFF])|\uD83E(?:[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3\uDE70]|\uDD1D\u200D\uD83E\uDDD1\uD83C[\uDFFB-\uDFFF]|\uDEEF\u200D\uD83E\uDDD1\uD83C[\uDFFB\uDFFC\uDFFE\uDFFF])))?|\uDFFE(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D(?:\uD83D\uDC8B\u200D)?\uD83E\uDDD1\uD83C[\uDFFB-\uDFFD\uDFFF]|\uD83C[\uDF3E\uDF73\uDF7C\uDF84\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83E\uDDD1\uD83C[\uDFFB-\uDFFD\uDFFF])|\uD83E(?:[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3\uDE70]|\uDD1D\u200D\uD83E\uDDD1\uD83C[\uDFFB-\uDFFF]|\uDEEF\u200D\uD83E\uDDD1\uD83C[\uDFFB-\uDFFD\uDFFF])))?|\uDFFF(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D(?:\uD83D\uDC8B\u200D)?\uD83E\uDDD1\uD83C[\uDFFB-\uDFFE]|\uD83C[\uDF3E\uDF73\uDF7C\uDF84\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83E\uDDD1\uD83C[\uDFFB-\uDFFE])|\uD83E(?:[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3\uDE70]|\uDD1D\u200D\uD83E\uDDD1\uD83C[\uDFFB-\uDFFF]|\uDEEF\u200D\uD83E\uDDD1\uD83C[\uDFFB-\uDFFE])))?))?|\uDEF1(?:\uD83C(?:\uDFFB(?:\u200D\uD83E\uDEF2\uD83C[\uDFFC-\uDFFF])?|\uDFFC(?:\u200D\uD83E\uDEF2\uD83C[\uDFFB\uDFFD-\uDFFF])?|\uDFFD(?:\u200D\uD83E\uDEF2\uD83C[\uDFFB\uDFFC\uDFFE\uDFFF])?|\uDFFE(?:\u200D\uD83E\uDEF2\uD83C[\uDFFB-\uDFFD\uDFFF])?|\uDFFF(?:\u200D\uD83E\uDEF2\uD83C[\uDFFB-\uDFFE])?))?)/g;
     };
   }
 });
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/constants.js
+// ../node_modules/ws/lib/constants.js
 var require_constants2 = __commonJS({
-  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/constants.js"(exports, module) {
+  "../node_modules/ws/lib/constants.js"(exports, module) {
     "use strict";
     var BINARY_TYPES = ["nodebuffer", "arraybuffer", "fragments"];
     var hasBlob = typeof Blob !== "undefined";
@@ -23096,9 +23096,9 @@ var require_constants2 = __commonJS({
   }
 });
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/buffer-util.js
+// ../node_modules/ws/lib/buffer-util.js
 var require_buffer_util = __commonJS({
-  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/buffer-util.js"(exports, module) {
+  "../node_modules/ws/lib/buffer-util.js"(exports, module) {
     "use strict";
     var { EMPTY_BUFFER } = require_constants2();
     var FastBuffer = Buffer[Symbol.species];
@@ -23171,9 +23171,9 @@ var require_buffer_util = __commonJS({
   }
 });
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/limiter.js
+// ../node_modules/ws/lib/limiter.js
 var require_limiter = __commonJS({
-  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/limiter.js"(exports, module) {
+  "../node_modules/ws/lib/limiter.js"(exports, module) {
     "use strict";
     var kDone = Symbol("kDone");
     var kRun = Symbol("kRun");
@@ -23221,9 +23221,9 @@ var require_limiter = __commonJS({
   }
 });
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/permessage-deflate.js
+// ../node_modules/ws/lib/permessage-deflate.js
 var require_permessage_deflate = __commonJS({
-  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/permessage-deflate.js"(exports, module) {
+  "../node_modules/ws/lib/permessage-deflate.js"(exports, module) {
     "use strict";
     var zlib = __require("zlib");
     var bufferUtil = require_buffer_util();
@@ -23604,9 +23604,9 @@ var require_permessage_deflate = __commonJS({
   }
 });
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/validation.js
+// ../node_modules/ws/lib/validation.js
 var require_validation = __commonJS({
-  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/validation.js"(exports, module) {
+  "../node_modules/ws/lib/validation.js"(exports, module) {
     "use strict";
     var { isUtf8 } = __require("buffer");
     var { hasBlob } = require_constants2();
@@ -23805,9 +23805,9 @@ var require_validation = __commonJS({
   }
 });
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/receiver.js
+// ../node_modules/ws/lib/receiver.js
 var require_receiver = __commonJS({
-  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/receiver.js"(exports, module) {
+  "../node_modules/ws/lib/receiver.js"(exports, module) {
     "use strict";
     var { Writable } = __require("stream");
     var PerMessageDeflate2 = require_permessage_deflate();
@@ -24428,9 +24428,9 @@ var require_receiver = __commonJS({
   }
 });
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/sender.js
+// ../node_modules/ws/lib/sender.js
 var require_sender = __commonJS({
-  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/sender.js"(exports, module) {
+  "../node_modules/ws/lib/sender.js"(exports, module) {
     "use strict";
     var { Duplex } = __require("stream");
     var { randomFillSync } = __require("crypto");
@@ -24446,7 +24446,7 @@ var require_sender = __commonJS({
     var RANDOM_POOL_SIZE = 8 * 1024;
     var randomPool;
     var randomPoolPointer = RANDOM_POOL_SIZE;
-    var DEFAULT = 0;
+    var DEFAULT2 = 0;
     var DEFLATING = 1;
     var GET_BLOB_DATA = 2;
     var Sender2 = class _Sender {
@@ -24469,7 +24469,7 @@ var require_sender = __commonJS({
         this._compress = false;
         this._bufferedBytes = 0;
         this._queue = [];
-        this._state = DEFAULT;
+        this._state = DEFAULT2;
         this.onerror = NOOP;
         this[kWebSocket] = void 0;
       }
@@ -24606,7 +24606,7 @@ var require_sender = __commonJS({
           readOnly: false,
           rsv1: false
         };
-        if (this._state !== DEFAULT) {
+        if (this._state !== DEFAULT2) {
           this.enqueue([this.dispatch, buf, false, options, cb]);
         } else {
           this.sendFrame(_Sender.frame(buf, options), cb);
@@ -24648,12 +24648,12 @@ var require_sender = __commonJS({
           rsv1: false
         };
         if (isBlob(data)) {
-          if (this._state !== DEFAULT) {
+          if (this._state !== DEFAULT2) {
             this.enqueue([this.getBlobData, data, false, options, cb]);
           } else {
             this.getBlobData(data, false, options, cb);
           }
-        } else if (this._state !== DEFAULT) {
+        } else if (this._state !== DEFAULT2) {
           this.enqueue([this.dispatch, data, false, options, cb]);
         } else {
           this.sendFrame(_Sender.frame(data, options), cb);
@@ -24695,12 +24695,12 @@ var require_sender = __commonJS({
           rsv1: false
         };
         if (isBlob(data)) {
-          if (this._state !== DEFAULT) {
+          if (this._state !== DEFAULT2) {
             this.enqueue([this.getBlobData, data, false, options, cb]);
           } else {
             this.getBlobData(data, false, options, cb);
           }
-        } else if (this._state !== DEFAULT) {
+        } else if (this._state !== DEFAULT2) {
           this.enqueue([this.dispatch, data, false, options, cb]);
         } else {
           this.sendFrame(_Sender.frame(data, options), cb);
@@ -24761,12 +24761,12 @@ var require_sender = __commonJS({
           rsv1
         };
         if (isBlob(data)) {
-          if (this._state !== DEFAULT) {
+          if (this._state !== DEFAULT2) {
             this.enqueue([this.getBlobData, data, this._compress, opts, cb]);
           } else {
             this.getBlobData(data, this._compress, opts, cb);
           }
-        } else if (this._state !== DEFAULT) {
+        } else if (this._state !== DEFAULT2) {
           this.enqueue([this.dispatch, data, this._compress, opts, cb]);
         } else {
           this.dispatch(data, this._compress, opts, cb);
@@ -24809,7 +24809,7 @@ var require_sender = __commonJS({
           this._bufferedBytes -= options[kByteLength];
           const data = toBuffer(arrayBuffer);
           if (!compress) {
-            this._state = DEFAULT;
+            this._state = DEFAULT2;
             this.sendFrame(_Sender.frame(data, options), cb);
             this.dequeue();
           } else {
@@ -24859,7 +24859,7 @@ var require_sender = __commonJS({
             return;
           }
           this._bufferedBytes -= options[kByteLength];
-          this._state = DEFAULT;
+          this._state = DEFAULT2;
           options.readOnly = false;
           this.sendFrame(_Sender.frame(buf, options), cb);
           this.dequeue();
@@ -24871,7 +24871,7 @@ var require_sender = __commonJS({
        * @private
        */
       dequeue() {
-        while (this._state === DEFAULT && this._queue.length) {
+        while (this._state === DEFAULT2 && this._queue.length) {
           const params = this._queue.shift();
           this._bufferedBytes -= params[3][kByteLength];
           Reflect.apply(params[0], this, params.slice(1));
@@ -24921,9 +24921,9 @@ var require_sender = __commonJS({
   }
 });
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/event-target.js
+// ../node_modules/ws/lib/event-target.js
 var require_event_target = __commonJS({
-  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/event-target.js"(exports, module) {
+  "../node_modules/ws/lib/event-target.js"(exports, module) {
     "use strict";
     var { kForOnEventAttribute, kListener } = require_constants2();
     var kCode = Symbol("kCode");
@@ -25150,9 +25150,9 @@ var require_event_target = __commonJS({
   }
 });
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/extension.js
+// ../node_modules/ws/lib/extension.js
 var require_extension = __commonJS({
-  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/extension.js"(exports, module) {
+  "../node_modules/ws/lib/extension.js"(exports, module) {
     "use strict";
     var { tokenChars } = require_validation();
     function push(dest, name, elem) {
@@ -25303,9 +25303,9 @@ var require_extension = __commonJS({
   }
 });
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/websocket.js
+// ../node_modules/ws/lib/websocket.js
 var require_websocket = __commonJS({
-  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/websocket.js"(exports, module) {
+  "../node_modules/ws/lib/websocket.js"(exports, module) {
     "use strict";
     var EventEmitter3 = __require("events");
     var https = __require("https");
@@ -26199,9 +26199,9 @@ var require_websocket = __commonJS({
   }
 });
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/stream.js
+// ../node_modules/ws/lib/stream.js
 var require_stream = __commonJS({
-  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/stream.js"(exports, module) {
+  "../node_modules/ws/lib/stream.js"(exports, module) {
     "use strict";
     var WebSocket2 = require_websocket();
     var { Duplex } = __require("stream");
@@ -26297,9 +26297,9 @@ var require_stream = __commonJS({
   }
 });
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/subprotocol.js
+// ../node_modules/ws/lib/subprotocol.js
 var require_subprotocol = __commonJS({
-  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/subprotocol.js"(exports, module) {
+  "../node_modules/ws/lib/subprotocol.js"(exports, module) {
     "use strict";
     var { tokenChars } = require_validation();
     function parse2(header) {
@@ -26342,9 +26342,9 @@ var require_subprotocol = __commonJS({
   }
 });
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/websocket-server.js
+// ../node_modules/ws/lib/websocket-server.js
 var require_websocket_server = __commonJS({
-  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/lib/websocket-server.js"(exports, module) {
+  "../node_modules/ws/lib/websocket-server.js"(exports, module) {
     "use strict";
     var EventEmitter3 = __require("events");
     var http = __require("http");
@@ -26743,10 +26743,10 @@ var require_websocket_server = __commonJS({
   }
 });
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/wrapper.mjs
+// ../node_modules/ws/wrapper.mjs
 var import_stream, import_extension, import_permessage_deflate, import_receiver, import_sender, import_subprotocol, import_websocket, import_websocket_server, wrapper_default;
 var init_wrapper = __esm({
-  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ws/wrapper.mjs"() {
+  "../node_modules/ws/wrapper.mjs"() {
     import_stream = __toESM(require_stream(), 1);
     import_extension = __toESM(require_extension(), 1);
     import_permessage_deflate = __toESM(require_permessage_deflate(), 1);
@@ -26759,10 +26759,10 @@ var init_wrapper = __esm({
   }
 });
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/devtools-window-polyfill.js
+// ../node_modules/ink/build/devtools-window-polyfill.js
 var customGlobal;
 var init_devtools_window_polyfill = __esm({
-  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/devtools-window-polyfill.js"() {
+  "../node_modules/ink/build/devtools-window-polyfill.js"() {
     init_wrapper();
     customGlobal = global;
     customGlobal.WebSocket ||= wrapper_default;
@@ -26830,19 +26830,19 @@ var init_react_devtools_core = __esm({
   }
 });
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/devtools.js
+// ../node_modules/ink/build/devtools.js
 var devtools_exports = {};
 var init_devtools = __esm({
-  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/devtools.js"() {
+  "../node_modules/ink/build/devtools.js"() {
     init_devtools_window_polyfill();
     init_react_devtools_core();
     react_devtools_core_default.connectToDevTools();
   }
 });
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/cli-boxes/boxes.json
+// ../node_modules/cli-boxes/boxes.json
 var require_boxes = __commonJS({
-  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/cli-boxes/boxes.json"(exports, module) {
+  "../node_modules/cli-boxes/boxes.json"(exports, module) {
     module.exports = {
       single: {
         topLeft: "\u250C",
@@ -26928,9 +26928,9 @@ var require_boxes = __commonJS({
   }
 });
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/cli-boxes/index.js
+// ../node_modules/cli-boxes/index.js
 var require_cli_boxes = __commonJS({
-  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/cli-boxes/index.js"(exports, module) {
+  "../node_modules/cli-boxes/index.js"(exports, module) {
     "use strict";
     var cliBoxes2 = require_boxes();
     module.exports = cliBoxes2;
@@ -26938,9 +26938,9 @@ var require_cli_boxes = __commonJS({
   }
 });
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/mimic-fn/index.js
+// ../node_modules/mimic-fn/index.js
 var require_mimic_fn = __commonJS({
-  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/mimic-fn/index.js"(exports, module) {
+  "../node_modules/mimic-fn/index.js"(exports, module) {
     "use strict";
     var mimicFn = (to, from) => {
       for (const prop of Reflect.ownKeys(from)) {
@@ -26953,9 +26953,9 @@ var require_mimic_fn = __commonJS({
   }
 });
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/onetime/index.js
+// ../node_modules/onetime/index.js
 var require_onetime = __commonJS({
-  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/onetime/index.js"(exports, module) {
+  "../node_modules/onetime/index.js"(exports, module) {
     "use strict";
     var mimicFn = require_mimic_fn();
     var calledFunctions = /* @__PURE__ */ new WeakMap();
@@ -26991,9 +26991,9 @@ var require_onetime = __commonJS({
   }
 });
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/stack-utils/node_modules/escape-string-regexp/index.js
+// ../node_modules/stack-utils/node_modules/escape-string-regexp/index.js
 var require_escape_string_regexp = __commonJS({
-  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/stack-utils/node_modules/escape-string-regexp/index.js"(exports, module) {
+  "../node_modules/stack-utils/node_modules/escape-string-regexp/index.js"(exports, module) {
     "use strict";
     var matchOperatorsRegex = /[|\\{}()[\]^$+*?.-]/g;
     module.exports = (string) => {
@@ -27005,9 +27005,9 @@ var require_escape_string_regexp = __commonJS({
   }
 });
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/stack-utils/index.js
+// ../node_modules/stack-utils/index.js
 var require_stack_utils = __commonJS({
-  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/stack-utils/index.js"(exports, module) {
+  "../node_modules/stack-utils/index.js"(exports, module) {
     "use strict";
     var escapeStringRegexp = require_escape_string_regexp();
     var cwd2 = typeof process === "object" && process && typeof process.cwd === "function" ? process.cwd() : ".";
@@ -27258,9 +27258,9 @@ var require_stack_utils = __commonJS({
   }
 });
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react/cjs/react-jsx-runtime.production.min.js
+// ../node_modules/react/cjs/react-jsx-runtime.production.min.js
 var require_react_jsx_runtime_production_min = __commonJS({
-  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react/cjs/react-jsx-runtime.production.min.js"(exports) {
+  "../node_modules/react/cjs/react-jsx-runtime.production.min.js"(exports) {
     "use strict";
     var f = require_react();
     var k = Symbol.for("react.element");
@@ -27283,14 +27283,14 @@ var require_react_jsx_runtime_production_min = __commonJS({
   }
 });
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react/cjs/react-jsx-runtime.development.js
+// ../node_modules/react/cjs/react-jsx-runtime.development.js
 var require_react_jsx_runtime_development = __commonJS({
-  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
+  "../node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
     "use strict";
     if (process.env.NODE_ENV !== "production") {
       (function() {
         "use strict";
-        var React22 = require_react();
+        var React23 = require_react();
         var REACT_ELEMENT_TYPE = Symbol.for("react.element");
         var REACT_PORTAL_TYPE = Symbol.for("react.portal");
         var REACT_FRAGMENT_TYPE = Symbol.for("react.fragment");
@@ -27316,7 +27316,7 @@ var require_react_jsx_runtime_development = __commonJS({
           }
           return null;
         }
-        var ReactSharedInternals = React22.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED;
+        var ReactSharedInternals = React23.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED;
         function error(format) {
           {
             {
@@ -28166,19 +28166,19 @@ var require_react_jsx_runtime_development = __commonJS({
             return jsxWithValidation(type, props, key, false);
           }
         }
-        var jsx28 = jsxWithValidationDynamic;
-        var jsxs23 = jsxWithValidationStatic;
+        var jsx29 = jsxWithValidationDynamic;
+        var jsxs24 = jsxWithValidationStatic;
         exports.Fragment = REACT_FRAGMENT_TYPE;
-        exports.jsx = jsx28;
-        exports.jsxs = jsxs23;
+        exports.jsx = jsx29;
+        exports.jsxs = jsxs24;
       })();
     }
   }
 });
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react/jsx-runtime.js
+// ../node_modules/react/jsx-runtime.js
 var require_jsx_runtime = __commonJS({
-  "../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/react/jsx-runtime.js"(exports, module) {
+  "../node_modules/react/jsx-runtime.js"(exports, module) {
     "use strict";
     if (process.env.NODE_ENV === "production") {
       module.exports = require_react_jsx_runtime_production_min();
@@ -28188,15 +28188,15 @@ var require_jsx_runtime = __commonJS({
   }
 });
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/render.js
+// ../node_modules/ink/build/render.js
 import { Stream } from "node:stream";
 import process12 from "node:process";
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/ink.js
+// ../node_modules/ink/build/ink.js
 var import_react10 = __toESM(require_react(), 1);
 import process11 from "node:process";
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/es-toolkit/dist/function/debounce.mjs
+// ../node_modules/es-toolkit/dist/function/debounce.mjs
 function debounce(func, debounceMs, { signal, edges } = {}) {
   let pendingThis = void 0;
   let pendingArgs = null;
@@ -28250,7 +28250,7 @@ function debounce(func, debounceMs, { signal, edges } = {}) {
   return debounced;
 }
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/es-toolkit/dist/compat/function/debounce.mjs
+// ../node_modules/es-toolkit/dist/compat/function/debounce.mjs
 function debounce2(func, debounceMs = 0, options = {}) {
   if (typeof options !== "object") options = {};
   const { leading = false, trailing = true, maxWait } = options;
@@ -28286,7 +28286,7 @@ function debounce2(func, debounceMs = 0, options = {}) {
   return debounced;
 }
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/es-toolkit/dist/compat/function/throttle.mjs
+// ../node_modules/es-toolkit/dist/compat/function/throttle.mjs
 function throttle(func, throttleMs = 0, options = {}) {
   const { leading = true, trailing = true } = options;
   return debounce2(func, throttleMs, {
@@ -28296,7 +28296,7 @@ function throttle(func, throttleMs = 0, options = {}) {
   });
 }
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ansi-escapes/base.js
+// ../node_modules/ansi-escapes/base.js
 var base_exports = {};
 __export(base_exports, {
   ConEmu: () => ConEmu,
@@ -28340,7 +28340,7 @@ __export(base_exports, {
 import process2 from "node:process";
 import os from "node:os";
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/environment/index.js
+// ../node_modules/environment/index.js
 var isBrowser = globalThis.window?.document !== void 0;
 var isNode = globalThis.process?.versions?.node !== void 0;
 var isBun = globalThis.process?.versions?.bun !== void 0;
@@ -28358,7 +28358,7 @@ var isLinux = platform === "Linux" || globalThis.navigator?.platform?.startsWith
 var isIos = platform === "iOS" || globalThis.navigator?.platform === "MacIntel" && globalThis.navigator?.maxTouchPoints > 1 || /iPad|iPhone|iPod/.test(globalThis.navigator?.platform);
 var isAndroid = platform === "Android" || globalThis.navigator?.platform === "Android" || globalThis.navigator?.userAgent?.includes(" Android ") === true || globalThis.process?.platform === "android";
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ansi-escapes/base.js
+// ../node_modules/ansi-escapes/base.js
 var ESC = "\x1B[";
 var OSC = "\x1B]";
 var BEL = "\x07";
@@ -28498,12 +28498,12 @@ var ConEmu = {
 };
 var setCwd = (cwd2 = cwdFunction()) => iTerm.setCwd(cwd2) + ConEmu.setCwd(cwd2);
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/is-in-ci/index.js
+// ../node_modules/is-in-ci/index.js
 import { env } from "node:process";
 var isInCi = env.CI !== "0" && env.CI !== "false" && ("CI" in env || "CONTINUOUS_INTEGRATION" in env || Object.keys(env).some((key) => key.startsWith("CI_")));
 var is_in_ci_default = isInCi;
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/auto-bind/index.js
+// ../node_modules/auto-bind/index.js
 var getAllProperties = (object) => {
   const properties = /* @__PURE__ */ new Set();
   do {
@@ -28536,10 +28536,10 @@ function autoBind(self, { include, exclude } = {}) {
   return self;
 }
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/ink.js
+// ../node_modules/ink/build/ink.js
 var import_signal_exit2 = __toESM(require_signal_exit(), 1);
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/patch-console/dist/index.js
+// ../node_modules/patch-console/dist/index.js
 import { PassThrough } from "node:stream";
 var consoleMethods = [
   "assert",
@@ -28585,7 +28585,7 @@ var patchConsole = (callback) => {
 };
 var dist_default = patchConsole;
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/yoga-layout/dist/binaries/yoga-wasm-base64-esm.js
+// ../node_modules/yoga-layout/dist/binaries/yoga-wasm-base64-esm.js
 var loadYoga = (() => {
   var _scriptDir = import.meta.url;
   return function(loadYoga2) {
@@ -29816,7 +29816,7 @@ var loadYoga = (() => {
 })();
 var yoga_wasm_base64_esm_default = loadYoga;
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/yoga-layout/dist/src/generated/YGEnums.js
+// ../node_modules/yoga-layout/dist/src/generated/YGEnums.js
 var Align = /* @__PURE__ */ function(Align2) {
   Align2[Align2["Auto"] = 0] = "Auto";
   Align2[Align2["FlexStart"] = 1] = "FlexStart";
@@ -30019,7 +30019,7 @@ var constants = {
 };
 var YGEnums_default = constants;
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/yoga-layout/dist/src/wrapAssembly.js
+// ../node_modules/yoga-layout/dist/src/wrapAssembly.js
 function wrapAssembly(lib) {
   function patch(prototype, name, fn) {
     const original = prototype[name];
@@ -30120,16 +30120,16 @@ function wrapAssembly(lib) {
   };
 }
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/yoga-layout/dist/src/index.js
+// ../node_modules/yoga-layout/dist/src/index.js
 var Yoga = wrapAssembly(await yoga_wasm_base64_esm_default());
 var src_default = Yoga;
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/reconciler.js
+// ../node_modules/ink/build/reconciler.js
 var import_react_reconciler = __toESM(require_react_reconciler(), 1);
 var import_constants = __toESM(require_constants(), 1);
 import process3 from "node:process";
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ansi-regex/index.js
+// ../node_modules/ansi-regex/index.js
 function ansiRegex({ onlyFirst = false } = {}) {
   const ST = "(?:\\u0007|\\u001B\\u005C|\\u009C)";
   const osc = `(?:\\u001B\\][^\\u0007\\u001B\\u009C]*${ST})`;
@@ -30138,7 +30138,7 @@ function ansiRegex({ onlyFirst = false } = {}) {
   return new RegExp(pattern, onlyFirst ? void 0 : "g");
 }
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/strip-ansi/index.js
+// ../node_modules/strip-ansi/index.js
 var regex = ansiRegex();
 function stripAnsi(string) {
   if (typeof string !== "string") {
@@ -30150,7 +30150,7 @@ function stripAnsi(string) {
   return string.replace(regex, "");
 }
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/get-east-asian-width/lookup-data.js
+// ../node_modules/get-east-asian-width/lookup-data.js
 var ambiguousMinimalCodePoint = 161;
 var ambiguousMaximumCodePoint = 1114109;
 var ambiguousRanges = [161, 161, 164, 164, 167, 168, 170, 170, 173, 174, 176, 180, 182, 186, 188, 191, 198, 198, 208, 208, 215, 216, 222, 225, 230, 230, 232, 234, 236, 237, 240, 240, 242, 243, 247, 250, 252, 252, 254, 254, 257, 257, 273, 273, 275, 275, 283, 283, 294, 295, 299, 299, 305, 307, 312, 312, 319, 322, 324, 324, 328, 331, 333, 333, 338, 339, 358, 359, 363, 363, 462, 462, 464, 464, 466, 466, 468, 468, 470, 470, 472, 472, 474, 474, 476, 476, 593, 593, 609, 609, 708, 708, 711, 711, 713, 715, 717, 717, 720, 720, 728, 731, 733, 733, 735, 735, 768, 879, 913, 929, 931, 937, 945, 961, 963, 969, 1025, 1025, 1040, 1103, 1105, 1105, 8208, 8208, 8211, 8214, 8216, 8217, 8220, 8221, 8224, 8226, 8228, 8231, 8240, 8240, 8242, 8243, 8245, 8245, 8251, 8251, 8254, 8254, 8308, 8308, 8319, 8319, 8321, 8324, 8364, 8364, 8451, 8451, 8453, 8453, 8457, 8457, 8467, 8467, 8470, 8470, 8481, 8482, 8486, 8486, 8491, 8491, 8531, 8532, 8539, 8542, 8544, 8555, 8560, 8569, 8585, 8585, 8592, 8601, 8632, 8633, 8658, 8658, 8660, 8660, 8679, 8679, 8704, 8704, 8706, 8707, 8711, 8712, 8715, 8715, 8719, 8719, 8721, 8721, 8725, 8725, 8730, 8730, 8733, 8736, 8739, 8739, 8741, 8741, 8743, 8748, 8750, 8750, 8756, 8759, 8764, 8765, 8776, 8776, 8780, 8780, 8786, 8786, 8800, 8801, 8804, 8807, 8810, 8811, 8814, 8815, 8834, 8835, 8838, 8839, 8853, 8853, 8857, 8857, 8869, 8869, 8895, 8895, 8978, 8978, 9312, 9449, 9451, 9547, 9552, 9587, 9600, 9615, 9618, 9621, 9632, 9633, 9635, 9641, 9650, 9651, 9654, 9655, 9660, 9661, 9664, 9665, 9670, 9672, 9675, 9675, 9678, 9681, 9698, 9701, 9711, 9711, 9733, 9734, 9737, 9737, 9742, 9743, 9756, 9756, 9758, 9758, 9792, 9792, 9794, 9794, 9824, 9825, 9827, 9829, 9831, 9834, 9836, 9837, 9839, 9839, 9886, 9887, 9919, 9919, 9926, 9933, 9935, 9939, 9941, 9953, 9955, 9955, 9960, 9961, 9963, 9969, 9972, 9972, 9974, 9977, 9979, 9980, 9982, 9983, 10045, 10045, 10102, 10111, 11094, 11097, 12872, 12879, 57344, 63743, 65024, 65039, 65533, 65533, 127232, 127242, 127248, 127277, 127280, 127337, 127344, 127373, 127375, 127376, 127387, 127404, 917760, 917999, 983040, 1048573, 1048576, 1114109];
@@ -30161,7 +30161,7 @@ var wideMinimalCodePoint = 4352;
 var wideMaximumCodePoint = 262141;
 var wideRanges = [4352, 4447, 8986, 8987, 9001, 9002, 9193, 9196, 9200, 9200, 9203, 9203, 9725, 9726, 9748, 9749, 9776, 9783, 9800, 9811, 9855, 9855, 9866, 9871, 9875, 9875, 9889, 9889, 9898, 9899, 9917, 9918, 9924, 9925, 9934, 9934, 9940, 9940, 9962, 9962, 9970, 9971, 9973, 9973, 9978, 9978, 9981, 9981, 9989, 9989, 9994, 9995, 10024, 10024, 10060, 10060, 10062, 10062, 10067, 10069, 10071, 10071, 10133, 10135, 10160, 10160, 10175, 10175, 11035, 11036, 11088, 11088, 11093, 11093, 11904, 11929, 11931, 12019, 12032, 12245, 12272, 12287, 12289, 12350, 12353, 12438, 12441, 12543, 12549, 12591, 12593, 12686, 12688, 12773, 12783, 12830, 12832, 12871, 12880, 42124, 42128, 42182, 43360, 43388, 44032, 55203, 63744, 64255, 65040, 65049, 65072, 65106, 65108, 65126, 65128, 65131, 94176, 94180, 94192, 94198, 94208, 101589, 101631, 101662, 101760, 101874, 110576, 110579, 110581, 110587, 110589, 110590, 110592, 110882, 110898, 110898, 110928, 110930, 110933, 110933, 110948, 110951, 110960, 111355, 119552, 119638, 119648, 119670, 126980, 126980, 127183, 127183, 127374, 127374, 127377, 127386, 127488, 127490, 127504, 127547, 127552, 127560, 127568, 127569, 127584, 127589, 127744, 127776, 127789, 127797, 127799, 127868, 127870, 127891, 127904, 127946, 127951, 127955, 127968, 127984, 127988, 127988, 127992, 128062, 128064, 128064, 128066, 128252, 128255, 128317, 128331, 128334, 128336, 128359, 128378, 128378, 128405, 128406, 128420, 128420, 128507, 128591, 128640, 128709, 128716, 128716, 128720, 128722, 128725, 128728, 128732, 128735, 128747, 128748, 128756, 128764, 128992, 129003, 129008, 129008, 129292, 129338, 129340, 129349, 129351, 129535, 129648, 129660, 129664, 129674, 129678, 129734, 129736, 129736, 129741, 129756, 129759, 129770, 129775, 129784, 131072, 196605, 196608, 262141];
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/get-east-asian-width/utilities.js
+// ../node_modules/get-east-asian-width/utilities.js
 var isInRange = (ranges, codePoint) => {
   let low = 0;
   let high = Math.floor(ranges.length / 2) - 1;
@@ -30179,7 +30179,7 @@ var isInRange = (ranges, codePoint) => {
   return false;
 };
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/get-east-asian-width/lookup.js
+// ../node_modules/get-east-asian-width/lookup.js
 var commonCjkCodePoint = 19968;
 var [wideFastPathStart, wideFastPathEnd] = /* @__PURE__ */ findWideFastPathRange(wideRanges);
 function findWideFastPathRange(ranges) {
@@ -30220,7 +30220,7 @@ var isWide = (codePoint) => {
   return isInRange(wideRanges, codePoint);
 };
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/get-east-asian-width/index.js
+// ../node_modules/get-east-asian-width/index.js
 function validate(codePoint) {
   if (!Number.isSafeInteger(codePoint)) {
     throw new TypeError(`Expected a code point, got \`${typeof codePoint}\`.`);
@@ -30234,7 +30234,7 @@ function eastAsianWidth(codePoint, { ambiguousAsWide = false } = {}) {
   return 1;
 }
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/string-width/index.js
+// ../node_modules/string-width/index.js
 var import_emoji_regex = __toESM(require_emoji_regex(), 1);
 var segmenter = new Intl.Segmenter();
 var defaultIgnorableCodePointRegex = new RegExp("^\\p{Default_Ignorable_Code_Point}$", "u");
@@ -30283,7 +30283,7 @@ function stringWidth(string, options = {}) {
   return width;
 }
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/widest-line/index.js
+// ../node_modules/widest-line/index.js
 function widestLine(string) {
   let lineWidth = 0;
   for (const line of string.split("\n")) {
@@ -30292,7 +30292,7 @@ function widestLine(string) {
   return lineWidth;
 }
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/measure-text.js
+// ../node_modules/ink/build/measure-text.js
 var cache = {};
 var measureText = (text) => {
   if (text.length === 0) {
@@ -30312,7 +30312,7 @@ var measureText = (text) => {
 };
 var measure_text_default = measureText;
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ansi-styles/index.js
+// ../node_modules/ansi-styles/index.js
 var ANSI_BACKGROUND_OFFSET = 10;
 var wrapAnsi16 = (offset = 0) => (code) => `\x1B[${code + offset}m`;
 var wrapAnsi256 = (offset = 0) => (code) => `\x1B[${38 + offset};5;${code}m`;
@@ -30498,7 +30498,7 @@ function assembleStyles() {
 var ansiStyles = assembleStyles();
 var ansi_styles_default = ansiStyles;
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/wrap-ansi/index.js
+// ../node_modules/wrap-ansi/index.js
 var ESCAPES = /* @__PURE__ */ new Set([
   "\x1B",
   "\x9B"
@@ -30653,7 +30653,7 @@ function wrapAnsi(string, columns, options) {
   return String(string).normalize().replaceAll("\r\n", "\n").split("\n").map((line) => exec(line, columns, options)).join("\n");
 }
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/is-fullwidth-code-point/index.js
+// ../node_modules/is-fullwidth-code-point/index.js
 function isFullwidthCodePoint(codePoint) {
   if (!Number.isInteger(codePoint)) {
     return false;
@@ -30676,7 +30676,7 @@ function isFullwidthCodePoint(codePoint) {
   131072 <= codePoint && codePoint <= 262141);
 }
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/cli-truncate/node_modules/slice-ansi/index.js
+// ../node_modules/cli-truncate/node_modules/slice-ansi/index.js
 var astralRegex = /^[\uD800-\uDBFF][\uDC00-\uDFFF]$/;
 var ESCAPES2 = [
   "\x1B",
@@ -30710,7 +30710,7 @@ var checkAnsi = (ansiCodes, isEscapes, endAnsiCode) => {
     output = output.filter((element, index) => output.indexOf(element) === index);
     if (endAnsiCode !== void 0) {
       const fistEscapeCode = wrapAnsi2(ansi_styles_default.codes.get(Number.parseInt(endAnsiCode, 10)));
-      output = output.reduce((current, next) => next === fistEscapeCode ? [next, ...current] : [...current, next], []);
+      output = output.reduce((current2, next) => next === fistEscapeCode ? [next, ...current2] : [...current2, next], []);
     }
   }
   return output.join("");
@@ -30759,7 +30759,7 @@ function sliceAnsi(string, begin, end) {
   return output;
 }
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/cli-truncate/index.js
+// ../node_modules/cli-truncate/index.js
 function getIndexOfNearestSpace(string, wantedIndex, shouldSearchRight) {
   if (string.charAt(wantedIndex) === " ") {
     return wantedIndex;
@@ -30831,7 +30831,7 @@ function cliTruncate(text, columns, options = {}) {
   throw new Error(`Expected \`options.position\` to be either \`start\`, \`middle\` or \`end\`, got ${position}`);
 }
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/wrap-text.js
+// ../node_modules/ink/build/wrap-text.js
 var cache2 = {};
 var wrapText = (text, maxWidth, wrapType) => {
   const cacheKey = text + String(maxWidth) + String(wrapType);
@@ -30861,7 +30861,7 @@ var wrapText = (text, maxWidth, wrapType) => {
 };
 var wrap_text_default = wrapText;
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/squash-text-nodes.js
+// ../node_modules/ink/build/squash-text-nodes.js
 var squashTextNodes = (node) => {
   let text = "";
   for (let index = 0; index < node.childNodes.length; index++) {
@@ -30886,7 +30886,7 @@ var squashTextNodes = (node) => {
 };
 var squash_text_nodes_default = squashTextNodes;
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/dom.js
+// ../node_modules/ink/build/dom.js
 var createNode = (nodeName) => {
   const node = {
     nodeName,
@@ -30996,7 +30996,7 @@ var setTextNodeValue = (node, text) => {
   markNodeAsDirty(node);
 };
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/styles.js
+// ../node_modules/ink/build/styles.js
 var applyPositionStyles = (node, style) => {
   if ("position" in style) {
     node.setPositionType(style.position === "absolute" ? src_default.POSITION_TYPE_ABSOLUTE : src_default.POSITION_TYPE_RELATIVE);
@@ -31217,7 +31217,7 @@ var styles2 = (node, style = {}) => {
 };
 var styles_default = styles2;
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/reconciler.js
+// ../node_modules/ink/build/reconciler.js
 if (process3.env["DEV"] === "true") {
   try {
     await Promise.resolve().then(() => (init_devtools(), devtools_exports));
@@ -31423,7 +31423,7 @@ var reconciler_default = (0, import_react_reconciler.default)({
   }
 });
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/indent-string/index.js
+// ../node_modules/indent-string/index.js
 function indentString(string, count = 1, options = {}) {
   const {
     indent = " ",
@@ -31456,16 +31456,16 @@ function indentString(string, count = 1, options = {}) {
   return string.replace(regex2, indent.repeat(count));
 }
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/get-max-width.js
+// ../node_modules/ink/build/get-max-width.js
 var getMaxWidth = (yogaNode) => {
   return yogaNode.getComputedWidth() - yogaNode.getComputedPadding(src_default.EDGE_LEFT) - yogaNode.getComputedPadding(src_default.EDGE_RIGHT) - yogaNode.getComputedBorder(src_default.EDGE_LEFT) - yogaNode.getComputedBorder(src_default.EDGE_RIGHT);
 };
 var get_max_width_default = getMaxWidth;
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/render-border.js
+// ../node_modules/ink/build/render-border.js
 var import_cli_boxes = __toESM(require_cli_boxes(), 1);
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/chalk/source/vendor/ansi-styles/index.js
+// ../node_modules/chalk/source/vendor/ansi-styles/index.js
 var ANSI_BACKGROUND_OFFSET2 = 10;
 var wrapAnsi162 = (offset = 0) => (code) => `\x1B[${code + offset}m`;
 var wrapAnsi2562 = (offset = 0) => (code) => `\x1B[${38 + offset};5;${code}m`;
@@ -31651,7 +31651,7 @@ function assembleStyles2() {
 var ansiStyles2 = assembleStyles2();
 var ansi_styles_default2 = ansiStyles2;
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/chalk/source/vendor/supports-color/index.js
+// ../node_modules/chalk/source/vendor/supports-color/index.js
 import process4 from "node:process";
 import os2 from "node:os";
 import tty from "node:tty";
@@ -31783,7 +31783,7 @@ var supportsColor = {
 };
 var supports_color_default = supportsColor;
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/chalk/source/utilities.js
+// ../node_modules/chalk/source/utilities.js
 function stringReplaceAll(string, substring, replacer) {
   let index = string.indexOf(substring);
   if (index === -1) {
@@ -31813,7 +31813,7 @@ function stringEncaseCRLFWithFirstIndex(string, prefix, postfix, index) {
   return returnValue;
 }
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/chalk/source/index.js
+// ../node_modules/chalk/source/index.js
 var { stdout: stdoutColor, stderr: stderrColor } = supports_color_default;
 var GENERATOR = Symbol("GENERATOR");
 var STYLER = Symbol("STYLER");
@@ -31960,7 +31960,7 @@ var chalk = createChalk();
 var chalkStderr = createChalk({ level: stderrColor ? stderrColor.level : 0 });
 var source_default = chalk;
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/colorize.js
+// ../node_modules/ink/build/colorize.js
 var rgbRegex = /^rgb\(\s?(\d+),\s?(\d+),\s?(\d+)\s?\)$/;
 var ansiRegex2 = /^ansi256\(\s?(\d+)\s?\)$/;
 var isNamedColor = (color) => {
@@ -32002,7 +32002,7 @@ var colorize = (str, color, type) => {
 };
 var colorize_default = colorize;
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/render-border.js
+// ../node_modules/ink/build/render-border.js
 var renderBorder = (x, y, node, output) => {
   if (node.style.borderStyle) {
     const width = node.yogaNode.getComputedWidth();
@@ -32063,7 +32063,7 @@ var renderBorder = (x, y, node, output) => {
 };
 var render_border_default = renderBorder;
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/render-node-to-output.js
+// ../node_modules/ink/build/render-node-to-output.js
 var applyPaddingToText = (node, text) => {
   const yogaNode = node.childNodes[0]?.yogaNode;
   if (yogaNode) {
@@ -32134,7 +32134,7 @@ var renderNodeToOutput = (node, output, options) => {
 };
 var render_node_to_output_default = renderNodeToOutput;
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/slice-ansi/node_modules/is-fullwidth-code-point/index.js
+// ../node_modules/slice-ansi/node_modules/is-fullwidth-code-point/index.js
 function isFullwidthCodePoint2(codePoint) {
   if (!Number.isInteger(codePoint)) {
     return false;
@@ -32142,7 +32142,7 @@ function isFullwidthCodePoint2(codePoint) {
   return isFullWidth(codePoint) || isWide(codePoint);
 }
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/slice-ansi/index.js
+// ../node_modules/slice-ansi/index.js
 var ESCAPES3 = /* @__PURE__ */ new Set([27, 155]);
 var CODE_POINT_0 = "0".codePointAt(0);
 var CODE_POINT_9 = "9".codePointAt(0);
@@ -32273,7 +32273,7 @@ function sliceAnsi2(string, start, end) {
   return returnValue;
 }
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/@alcalzone/ansi-tokenize/build/ansiCodes.js
+// ../node_modules/@alcalzone/ansi-tokenize/build/ansiCodes.js
 var ESCAPES4 = /* @__PURE__ */ new Set([27, 155]);
 var endCodesSet2 = /* @__PURE__ */ new Set();
 var endCodesMap2 = /* @__PURE__ */ new Map();
@@ -32308,7 +32308,7 @@ function ansiCodesToString(codes) {
   return codes.map((code) => code.code).join("");
 }
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/@alcalzone/ansi-tokenize/build/reduce.js
+// ../node_modules/@alcalzone/ansi-tokenize/build/reduce.js
 function reduceAnsiCodes2(codes) {
   return reduceAnsiCodesIncremental([], codes);
 }
@@ -32327,7 +32327,7 @@ function reduceAnsiCodesIncremental(codes, newCodes) {
   return ret;
 }
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/@alcalzone/ansi-tokenize/build/undo.js
+// ../node_modules/@alcalzone/ansi-tokenize/build/undo.js
 function undoAnsiCodes2(codes) {
   return reduceAnsiCodes2(codes).reverse().map((code) => ({
     ...code,
@@ -32335,7 +32335,7 @@ function undoAnsiCodes2(codes) {
   }));
 }
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/@alcalzone/ansi-tokenize/build/diff.js
+// ../node_modules/@alcalzone/ansi-tokenize/build/diff.js
 function diffAnsiCodes(from, to) {
   const endCodesInTo = new Set(to.map((code) => code.endCode));
   const startCodesInFrom = new Set(from.map((code) => code.code));
@@ -32348,7 +32348,7 @@ function diffAnsiCodes(from, to) {
   ];
 }
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/@alcalzone/ansi-tokenize/build/styledChars.js
+// ../node_modules/@alcalzone/ansi-tokenize/build/styledChars.js
 function styledCharsFromTokens(tokens) {
   let codes = [];
   const ret = [];
@@ -32381,7 +32381,7 @@ function styledCharsToString(chars) {
   return ret;
 }
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/@alcalzone/ansi-tokenize/build/tokenize.js
+// ../node_modules/@alcalzone/ansi-tokenize/build/tokenize.js
 function findNumberIndex2(str) {
   for (let index = 0; index < str.length; index++) {
     const charCode = str.charCodeAt(index);
@@ -32448,7 +32448,7 @@ function tokenize2(str, endChar = Number.POSITIVE_INFINITY) {
   return ret;
 }
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/output.js
+// ../node_modules/ink/build/output.js
 var Output = class {
   width;
   height;
@@ -32584,7 +32584,7 @@ var Output = class {
   }
 };
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/renderer.js
+// ../node_modules/ink/build/renderer.js
 var renderer = (node) => {
   if (node.yogaNode) {
     const output = new Output({
@@ -32620,10 +32620,10 @@ var renderer = (node) => {
 };
 var renderer_default = renderer;
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/cli-cursor/index.js
+// ../node_modules/cli-cursor/index.js
 import process6 from "node:process";
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/restore-cursor/index.js
+// ../node_modules/restore-cursor/index.js
 var import_onetime = __toESM(require_onetime(), 1);
 var import_signal_exit = __toESM(require_signal_exit(), 1);
 import process5 from "node:process";
@@ -32634,7 +32634,7 @@ var restoreCursor = (0, import_onetime.default)(() => {
 });
 var restore_cursor_default = restoreCursor;
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/cli-cursor/index.js
+// ../node_modules/cli-cursor/index.js
 var isHidden = false;
 var cliCursor = {};
 cliCursor.show = (writableStream = process6.stderr) => {
@@ -32664,7 +32664,7 @@ cliCursor.toggle = (force, writableStream) => {
 };
 var cli_cursor_default = cliCursor;
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/log-update.js
+// ../node_modules/ink/build/log-update.js
 var create = (stream, { showCursor = false } = {}) => {
   let previousLineCount = 0;
   let previousOutput = "";
@@ -32700,16 +32700,16 @@ var create = (stream, { showCursor = false } = {}) => {
 var logUpdate = { create };
 var log_update_default = logUpdate;
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/instances.js
+// ../node_modules/ink/build/instances.js
 var instances = /* @__PURE__ */ new WeakMap();
 var instances_default = instances;
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/components/App.js
+// ../node_modules/ink/build/components/App.js
 var import_react9 = __toESM(require_react(), 1);
 import { EventEmitter as EventEmitter2 } from "node:events";
 import process10 from "node:process";
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/components/AppContext.js
+// ../node_modules/ink/build/components/AppContext.js
 var import_react = __toESM(require_react(), 1);
 var AppContext = (0, import_react.createContext)({
   exit() {
@@ -32718,7 +32718,7 @@ var AppContext = (0, import_react.createContext)({
 AppContext.displayName = "InternalAppContext";
 var AppContext_default = AppContext;
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/components/StdinContext.js
+// ../node_modules/ink/build/components/StdinContext.js
 var import_react2 = __toESM(require_react(), 1);
 import { EventEmitter } from "node:events";
 import process7 from "node:process";
@@ -32735,7 +32735,7 @@ var StdinContext = (0, import_react2.createContext)({
 StdinContext.displayName = "InternalStdinContext";
 var StdinContext_default = StdinContext;
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/components/StdoutContext.js
+// ../node_modules/ink/build/components/StdoutContext.js
 var import_react3 = __toESM(require_react(), 1);
 import process8 from "node:process";
 var StdoutContext = (0, import_react3.createContext)({
@@ -32746,7 +32746,7 @@ var StdoutContext = (0, import_react3.createContext)({
 StdoutContext.displayName = "InternalStdoutContext";
 var StdoutContext_default = StdoutContext;
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/components/StderrContext.js
+// ../node_modules/ink/build/components/StderrContext.js
 var import_react4 = __toESM(require_react(), 1);
 import process9 from "node:process";
 var StderrContext = (0, import_react4.createContext)({
@@ -32757,7 +32757,7 @@ var StderrContext = (0, import_react4.createContext)({
 StderrContext.displayName = "InternalStderrContext";
 var StderrContext_default = StderrContext;
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/components/FocusContext.js
+// ../node_modules/ink/build/components/FocusContext.js
 var import_react5 = __toESM(require_react(), 1);
 var FocusContext = (0, import_react5.createContext)({
   activeId: void 0,
@@ -32783,19 +32783,19 @@ var FocusContext = (0, import_react5.createContext)({
 FocusContext.displayName = "InternalFocusContext";
 var FocusContext_default = FocusContext;
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/components/ErrorOverview.js
+// ../node_modules/ink/build/components/ErrorOverview.js
 var import_react8 = __toESM(require_react(), 1);
 var import_stack_utils = __toESM(require_stack_utils(), 1);
 import * as fs from "node:fs";
 import { cwd } from "node:process";
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/convert-to-spaces/dist/index.js
+// ../node_modules/convert-to-spaces/dist/index.js
 var convertToSpaces = (input, spaces = 2) => {
   return input.replace(/^\t+/gm, ($1) => " ".repeat($1.length * spaces));
 };
 var dist_default2 = convertToSpaces;
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/code-excerpt/dist/index.js
+// ../node_modules/code-excerpt/dist/index.js
 var generateLineNumbers = (line, around) => {
   const lineNumbers = [];
   const min = line - around;
@@ -32821,7 +32821,7 @@ var codeExcerpt = (source, line, options = {}) => {
 };
 var dist_default3 = codeExcerpt;
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/components/Box.js
+// ../node_modules/ink/build/components/Box.js
 var import_react6 = __toESM(require_react(), 1);
 var Box = (0, import_react6.forwardRef)(({ children, ...style }, ref) => {
   return import_react6.default.createElement("ink-box", { ref, style: {
@@ -32839,7 +32839,7 @@ Box.defaultProps = {
 };
 var Box_default = Box;
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/components/Text.js
+// ../node_modules/ink/build/components/Text.js
 var import_react7 = __toESM(require_react(), 1);
 function Text({ color, backgroundColor, dimColor = false, bold = false, italic = false, underline = false, strikethrough = false, inverse = false, wrap = "wrap", children }) {
   if (children === void 0 || children === null) {
@@ -32875,7 +32875,7 @@ function Text({ color, backgroundColor, dimColor = false, bold = false, italic =
   return import_react7.default.createElement("ink-text", { style: { flexGrow: 0, flexShrink: 1, flexDirection: "row", textWrap: wrap }, internal_transform: transform }, children);
 }
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/components/ErrorOverview.js
+// ../node_modules/ink/build/components/ErrorOverview.js
 var cleanupPath = (path) => {
   return path?.replace(`file://${cwd()}/`, "");
 };
@@ -32978,7 +32978,7 @@ function ErrorOverview({ error }) {
   );
 }
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/components/App.js
+// ../node_modules/ink/build/components/App.js
 var tab = "	";
 var shiftTab = "\x1B[Z";
 var escape = "\x1B";
@@ -33251,7 +33251,7 @@ var App = class extends import_react9.PureComponent {
   };
 };
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/ink.js
+// ../node_modules/ink/build/ink.js
 var noop = () => {
 };
 var Ink = class {
@@ -33467,7 +33467,7 @@ var Ink = class {
   }
 };
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/render.js
+// ../node_modules/ink/build/render.js
 var render = (node, options) => {
   const inkOptions = {
     stdout: process12.stdout,
@@ -33509,7 +33509,7 @@ var getInstance = (stdout, createInstance) => {
   return instance;
 };
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/components/Static.js
+// ../node_modules/ink/build/components/Static.js
 var import_react11 = __toESM(require_react(), 1);
 function Static(props) {
   const { items, children: render2, style: customStyle } = props;
@@ -33531,19 +33531,19 @@ function Static(props) {
   return import_react11.default.createElement("ink-box", { internal_static: true, style }, children);
 }
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/components/Transform.js
+// ../node_modules/ink/build/components/Transform.js
 var import_react12 = __toESM(require_react(), 1);
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/components/Newline.js
+// ../node_modules/ink/build/components/Newline.js
 var import_react13 = __toESM(require_react(), 1);
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/components/Spacer.js
+// ../node_modules/ink/build/components/Spacer.js
 var import_react14 = __toESM(require_react(), 1);
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/hooks/use-input.js
+// ../node_modules/ink/build/hooks/use-input.js
 var import_react16 = __toESM(require_react(), 1);
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/parse-keypress.js
+// ../node_modules/ink/build/parse-keypress.js
 import { Buffer as Buffer2 } from "node:buffer";
 var metaKeyCodeRe = /^(?:\x1b)([a-zA-Z0-9])$/;
 var fnKeyRe = /^(?:\x1b+)(O|N|\[|\[\[)(?:(\d+)(?:;(\d+))?([~^$])|(?:1;)?(\d+)?([a-zA-Z]))/;
@@ -33735,12 +33735,12 @@ var parseKeypress = (s = "") => {
 };
 var parse_keypress_default = parseKeypress;
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/hooks/use-stdin.js
+// ../node_modules/ink/build/hooks/use-stdin.js
 var import_react15 = __toESM(require_react(), 1);
 var useStdin = () => (0, import_react15.useContext)(StdinContext_default);
 var use_stdin_default = useStdin;
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/hooks/use-input.js
+// ../node_modules/ink/build/hooks/use-input.js
 var useInput = (inputHandler, options = {}) => {
   const { stdin, setRawMode, internal_exitOnCtrlC, internal_eventEmitter } = use_stdin_default();
   (0, import_react16.useEffect)(() => {
@@ -33802,23 +33802,23 @@ var useInput = (inputHandler, options = {}) => {
 };
 var use_input_default = useInput;
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/hooks/use-app.js
+// ../node_modules/ink/build/hooks/use-app.js
 var import_react17 = __toESM(require_react(), 1);
 var useApp = () => (0, import_react17.useContext)(AppContext_default);
 var use_app_default = useApp;
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/hooks/use-stdout.js
+// ../node_modules/ink/build/hooks/use-stdout.js
 var import_react18 = __toESM(require_react(), 1);
 var useStdout = () => (0, import_react18.useContext)(StdoutContext_default);
 var use_stdout_default = useStdout;
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/hooks/use-stderr.js
+// ../node_modules/ink/build/hooks/use-stderr.js
 var import_react19 = __toESM(require_react(), 1);
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/hooks/use-focus.js
+// ../node_modules/ink/build/hooks/use-focus.js
 var import_react20 = __toESM(require_react(), 1);
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/node_modules/ink/build/hooks/use-focus-manager.js
+// ../node_modules/ink/build/hooks/use-focus-manager.js
 var import_react21 = __toESM(require_react(), 1);
 
 // src/index.tsx
@@ -33828,7 +33828,7 @@ import { homedir } from "node:os";
 import { basename as basename2, isAbsolute, join, resolve } from "node:path";
 
 // src/app.tsx
-var import_react39 = __toESM(require_react(), 1);
+var import_react40 = __toESM(require_react(), 1);
 
 // src/slash/registry.ts
 var SURFACE_COMMANDS = [
@@ -33915,12 +33915,12 @@ var initialUpdateState = {
   dismissed: false
 };
 function fromCheck(state, check) {
-  const current = check.current ?? state.current;
+  const current2 = check.current ?? state.current;
   const latest = check.latest ?? state.latest;
   if (!check.available || check.error || state.phase === "running" || state.phase === "done" || state.phase === "confirm") {
-    return { ...state, current, latest };
+    return { ...state, current: current2, latest };
   }
-  return { ...state, phase: state.dismissed ? "idle" : "available", current, latest };
+  return { ...state, phase: state.dismissed ? "idle" : "available", current: current2, latest };
 }
 function confirm(state) {
   if (state.phase === "running" || state.phase === "done") return state;
@@ -33965,6 +33965,7 @@ var initialState = {
   timeline: [],
   pendingApproval: null,
   approvalQueue: [],
+  pendingQuestion: null,
   commands: [],
   subagents: [],
   teamTasks: [],
@@ -33979,6 +33980,7 @@ var initialState = {
   children: {},
   lastSeq: 0,
   turnActive: false,
+  reasoningChars: 0,
   errors: []
 };
 var counter = 0;
@@ -34010,21 +34012,42 @@ function appendDelta(state, text) {
     timeline: pushTimeline(state, { kind: "message", id: message.id })
   };
 }
+function outputLimitNote(truncated, continuations) {
+  if (truncated) return "response hit the output limit and is incomplete";
+  if (continuations > 0) return "response hit the output limit; continued";
+  return null;
+}
+function withLimitNote(state, payload) {
+  const note = outputLimitNote(
+    Boolean(payload.truncated),
+    Number(payload.continuations ?? 0)
+  );
+  if (!note) return state;
+  const message = { id: nextId("msg"), role: "system", text: note, streaming: false };
+  return {
+    ...state,
+    messages: [...state.messages, message],
+    timeline: pushTimeline(state, { kind: "message", id: message.id })
+  };
+}
 function finishMessage(state, payload) {
   const text = typeof payload.text === "string" ? payload.text : void 0;
   const role = typeof payload.role === "string" ? payload.role : "assistant";
   const last = state.messages[state.messages.length - 1];
   if (last && last.streaming && last.role === role) {
     const messages = state.messages.slice(0, -1).concat({ ...last, text: text ?? last.text, streaming: false });
-    return { ...state, messages };
+    return withLimitNote({ ...state, messages }, payload);
   }
   if (text === void 0) return state;
   const message = { id: nextId("msg"), role, text, streaming: false };
-  return {
-    ...state,
-    messages: [...state.messages, message],
-    timeline: pushTimeline(state, { kind: "message", id: message.id })
-  };
+  return withLimitNote(
+    {
+      ...state,
+      messages: [...state.messages, message],
+      timeline: pushTimeline(state, { kind: "message", id: message.id })
+    },
+    payload
+  );
 }
 function patchSubagent(state, agentId, patch) {
   const index = state.subagents.findIndex((entry) => entry.agentId === agentId);
@@ -34039,6 +34062,9 @@ function applySessionEvent(state, event) {
   switch (event.kind) {
     case "message.delta":
       return appendDelta(base, String(payload.text ?? ""));
+    // Thinking, not an answer: counted for the working line, never appended.
+    case "message.reasoning":
+      return { ...base, reasoningChars: Number(payload.chars ?? base.reasoningChars) };
     case "message.done":
       return finishMessage(base, payload);
     case "tool.call": {
@@ -34100,6 +34126,7 @@ function applySessionEvent(state, event) {
         agentId: String(payload.agentId ?? nextId("agent")),
         name: String(payload.name ?? ""),
         task: String(payload.task ?? ""),
+        title: String(payload.title ?? ""),
         status: payload.status ?? "queued",
         lastText: "",
         summary: "",
@@ -34120,6 +34147,7 @@ function applySessionEvent(state, event) {
         status: payload.status ?? entry.status,
         lastText: String(payload.lastText ?? payload.text ?? entry.lastText),
         name: String(payload.name ?? entry.name),
+        title: String(payload.title ?? entry.title),
         outputTokens: Number(payload.usage?.outputTokens ?? entry.outputTokens),
         sessionId: typeof payload.sessionId === "string" ? payload.sessionId : entry.sessionId
       }));
@@ -34128,6 +34156,7 @@ function applySessionEvent(state, event) {
         ...entry,
         status: payload.status ?? (payload.ok === false ? "error" : "done"),
         summary: String(payload.summary ?? payload.result ?? ""),
+        title: String(payload.title ?? entry.title),
         lastText: "",
         inputTokens: Number(payload.usage?.inputTokens ?? entry.inputTokens),
         outputTokens: Number(payload.usage?.outputTokens ?? entry.outputTokens),
@@ -34303,15 +34332,16 @@ function reducer(state, action) {
         ...state,
         messages: [...state.messages, message],
         timeline: pushTimeline(state, { kind: "message", id: message.id }),
-        turnActive: true
+        turnActive: true,
+        reasoningChars: 0
       };
     }
     case "session/event":
       return applySessionEvent(state, action.event);
     case "child/event": {
-      const current = state.children[action.sessionId] ?? initialState;
-      const next = applySessionEvent(current, action.event);
-      if (next === current) return state;
+      const current2 = state.children[action.sessionId] ?? initialState;
+      const next = applySessionEvent(current2, action.event);
+      if (next === current2) return state;
       return { ...state, children: { ...state.children, [action.sessionId]: next } };
     }
     case "approval/request":
@@ -34328,6 +34358,13 @@ function reducer(state, action) {
         ...state,
         pendingApproval: state.pendingApproval?.requestId === action.requestId ? null : state.pendingApproval,
         approvalQueue: state.approvalQueue.filter((r) => r.requestId !== action.requestId)
+      };
+    case "question/request":
+      return { ...state, pendingQuestion: action.request };
+    case "question/resolved":
+      return {
+        ...state,
+        pendingQuestion: state.pendingQuestion?.requestId === action.requestId ? null : state.pendingQuestion
       };
     case "error":
       return { ...state, errors: [...state.errors, action.message] };
@@ -34608,13 +34645,13 @@ function pack(segments, width, rows) {
   const out = [[]];
   for (const segment of segments) {
     if (segment.text.length > width) return null;
-    const current = out[out.length - 1];
-    if (current.length === 0) {
-      current.push(segment);
+    const current2 = out[out.length - 1];
+    if (current2.length === 0) {
+      current2.push(segment);
       continue;
     }
-    if (rowWidth(current) + SEPARATOR.length + segment.text.length <= width) {
-      current.push(segment);
+    if (rowWidth(current2) + SEPARATOR.length + segment.text.length <= width) {
+      current2.push(segment);
       continue;
     }
     if (out.length >= rows) return null;
@@ -34760,6 +34797,7 @@ function derivePhase(state, { runningCommand = null } = {}) {
   const agents = state.subagents.filter((agent) => agent.status === "running").length;
   if (agents > 0) return { kind: "subagents", running: agents };
   if (runningCommand) return { kind: "command", name: runningCommand };
+  if (state.reasoningChars > 0) return { kind: "reasoning", chars: state.reasoningChars };
   return { kind: "thinking" };
 }
 function formatDuration(ms) {
@@ -34791,6 +34829,9 @@ function workingLine(input) {
     return `${spinner} ${phase.running} ${plural} working\u2026 ${stats}`;
   }
   if (phase.kind === "command") return `${spinner} ${phase.name}\u2026 ${stats}`;
+  if (phase.kind === "reasoning") {
+    return `${spinner} Thinking (${formatTokens(phase.chars)} chars)\u2026 ${stats}`;
+  }
   const verb = verbAt(input.elapsedMs, input.verbOffset ?? 0);
   return `${spinner} ${verb}\u2026 ${stats}`;
 }
@@ -34835,9 +34876,9 @@ function useTerminalSize(debounceMs = RESIZE_DEBOUNCE_MS) {
   const timer = (0, import_react22.useRef)(null);
   (0, import_react22.useEffect)(() => {
     if (!stdout) return;
-    const apply = () => setSize((current) => {
+    const apply = () => setSize((current2) => {
       const next = readSize(stdout);
-      return current.columns === next.columns && current.rows === next.rows ? current : next;
+      return current2.columns === next.columns && current2.rows === next.rows ? current2 : next;
     });
     const onResize = () => {
       if (timer.current) clearTimeout(timer.current);
@@ -34872,7 +34913,7 @@ function useDaemonInfo(client, pollMs = DAEMON_INFO_POLL_MS) {
         if (cancelled) return;
         const next = fromSystemInfo(result);
         setInfo(
-          (current) => current.pid === next.pid && current.summary === next.summary ? current : next
+          (current2) => current2.pid === next.pid && current2.summary === next.summary ? current2 : next
         );
       }).catch(() => {
       });
@@ -35008,7 +35049,7 @@ function useKnownAgents(client, pollMs = AGENT_LIST_POLL_MS, refreshKey = 0) {
         if (cancelled) return;
         const next = Array.isArray(result?.agents) ? result.agents : EMPTY;
         setAgents(
-          (current) => current.length === next.length && current.every((agent, index) => agent.name === next[index]?.name) ? current : next
+          (current2) => current2.length === next.length && current2.every((agent, index) => agent.name === next[index]?.name) ? current2 : next
         );
       }).catch(() => {
       });
@@ -35366,7 +35407,7 @@ function modelOptions({
   agentModels = null,
   discovered = null,
   discoveredSource = null,
-  current = null,
+  current: current2 = null,
   vendor = null
 }) {
   const options = [];
@@ -35395,7 +35436,7 @@ function modelOptions({
         label: name,
         detail: notes.join(" \xB7 "),
         origin: "profile",
-        current: Boolean(current) && model === current
+        current: Boolean(current2) && model === current2
       });
     }
   }
@@ -35408,13 +35449,13 @@ function modelOptions({
       label: model,
       detail: [vendor, fallbackTag].filter(Boolean).join(" \xB7 "),
       origin: "discovered",
-      current: model === current
+      current: model === current2
     });
   }
-  if (current && !covered.has(current)) {
+  if (current2 && !covered.has(current2)) {
     options.unshift({
-      ref: current,
-      label: current,
+      ref: current2,
+      label: current2,
       detail: [vendor, "in use"].filter(Boolean).join(" \xB7 "),
       origin: "current",
       current: true
@@ -35617,12 +35658,12 @@ function scanAttachments(text, probe) {
   }
   return { attachments, rejected };
 }
-function addAttachments(current, incoming) {
-  const paths = new Set(current.map((attachment) => attachment.path));
-  return [...current, ...incoming.filter((attachment) => !paths.has(attachment.path))];
+function addAttachments(current2, incoming) {
+  const paths = new Set(current2.map((attachment) => attachment.path));
+  return [...current2, ...incoming.filter((attachment) => !paths.has(attachment.path))];
 }
-function removeLast(current) {
-  return current.slice(0, -1);
+function removeLast(current2) {
+  return current2.slice(0, -1);
 }
 function chipLabel(attachment) {
   return `\u{1F4CE} ${attachment.name} ${formatSize(attachment.size)}`;
@@ -36164,6 +36205,7 @@ function approvalQueueRows(requestCount, focused = false) {
 function bottomRows({
   paletteCommands = 0,
   approvalArgs = null,
+  questionRows = 0,
   queueRequests = 0,
   queueFocused = false,
   errorVisible = false,
@@ -36172,7 +36214,7 @@ function bottomRows({
   queuedRows = 0,
   delegationVisible = false
 } = {}) {
-  const input = approvalArgs === null ? 1 + paletteRows(paletteCommands) : approvalPromptRows(approvalArgs);
+  const input = questionRows > 0 ? questionRows : approvalArgs === null ? 1 + paletteRows(paletteCommands) : approvalPromptRows(approvalArgs);
   return input + approvalQueueRows(queueRequests, queueFocused) + (errorVisible ? 1 : 0) + (workingVisible ? 1 : 0) + (noticeVisible ? 1 : 0) + Math.max(0, queuedRows) + (delegationVisible ? 1 : 0);
 }
 function scrollIndicator(view) {
@@ -36210,9 +36252,45 @@ function settledCount(state, cursor = 0) {
   return count;
 }
 
+// src/layout/language.ts
+var UI_LANGUAGES = ["en", "ko", "ja", "zh"];
+var DEFAULT = "en";
+var current = DEFAULT;
+function asUiLanguage(tag) {
+  const key = String(tag ?? "").trim().toLowerCase().replace("_", "-").split("-")[0];
+  return UI_LANGUAGES.includes(key) ? key : DEFAULT;
+}
+function uiLanguage() {
+  return current;
+}
+function setUiLanguage(tag) {
+  current = asUiLanguage(tag);
+  return current;
+}
+function detectLanguage(text) {
+  if (!text) return DEFAULT;
+  let kana = 0;
+  let han = 0;
+  for (const character of text) {
+    const code = character.codePointAt(0) ?? 0;
+    if (code >= 44032 && code <= 55203 || code >= 4352 && code <= 4607 || code >= 12592 && code <= 12687) {
+      return "ko";
+    }
+    if (code >= 12352 && code <= 12447 || code >= 12448 && code <= 12543 || code >= 65382 && code <= 65437) {
+      kana += 1;
+    } else if (code >= 19968 && code <= 40959 || code >= 13312 && code <= 19903 || code >= 63744 && code <= 64255) {
+      han += 1;
+    }
+  }
+  if (kana > 0) return "ja";
+  if (han > 0) return "zh";
+  return DEFAULT;
+}
+
 // src/layout/summary.ts
 function toolKind(name) {
   const lower = name.toLowerCase();
+  if (/(^|_)delegate/.test(lower)) return "delegate";
   if (/(^|_)(bash|shell|exec|run|terminal)/.test(lower)) return "shell";
   if (/(^|_)(read|cat|open|view)/.test(lower)) return "read";
   if (/(^|_)(search|grep|glob|find|rg)/.test(lower)) return "search";
@@ -36229,41 +36307,177 @@ function subject(call) {
   }
   return null;
 }
-var PLURAL = {
-  shell: { one: "Ran shell command", many: (n) => `Ran ${n} shell commands` },
-  read: { one: "Read a file", many: (n) => `Read ${n} files` },
-  search: { one: "Searched", many: (n) => `Searched ${n} patterns` },
-  edit: { one: "Edited a file", many: (n) => `Edited ${n} files` },
-  write: { one: "Wrote a file", many: (n) => `Wrote ${n} files` },
-  fetch: { one: "Fetched a page", many: (n) => `Fetched ${n} pages` },
-  other: { one: "Ran a tool", many: (n) => `Ran ${n} tools` }
+var EN = {
+  one: {
+    shell: "Ran shell command",
+    read: "Read a file",
+    search: "Searched",
+    edit: "Edited a file",
+    write: "Wrote a file",
+    fetch: "Fetched a page",
+    delegate: "Delegated a task",
+    other: "Ran a tool"
+  },
+  many: {
+    shell: (n) => `Ran ${n} shell commands`,
+    read: (n) => `Read ${n} files`,
+    search: (n) => `Searched ${n} patterns`,
+    edit: (n) => `Edited ${n} files`,
+    write: (n) => `Wrote ${n} files`,
+    fetch: (n) => `Fetched ${n} pages`,
+    delegate: (n) => `Delegated ${n} tasks`,
+    other: (n) => `Ran ${n} tools`
+  },
+  single: {
+    shell: (what) => `Ran shell: ${what}`,
+    read: (what) => `Read ${what}`,
+    search: (what) => `Searched "${what}"`,
+    edit: (what) => `Edited ${what}`,
+    write: (what) => `Wrote ${what}`,
+    fetch: (what) => `Fetched ${what}`,
+    delegate: (what) => `Delegated: ${what}`
+  },
+  tool: (name) => `Ran ${name}`
 };
-function summarizeCalls(calls) {
+var KO = {
+  one: {
+    shell: "\uC178 \uBA85\uB839 \uC2E4\uD589",
+    read: "\uD30C\uC77C \uC77D\uC74C",
+    search: "\uAC80\uC0C9",
+    edit: "\uD30C\uC77C \uC218\uC815",
+    write: "\uD30C\uC77C \uC791\uC131",
+    fetch: "\uD398\uC774\uC9C0 \uAC00\uC838\uC634",
+    delegate: "\uC791\uC5C5 \uC704\uC784",
+    other: "\uB3C4\uAD6C \uC2E4\uD589"
+  },
+  many: {
+    shell: (n) => `\uC178 \uBA85\uB839 ${n}\uAC1C \uC2E4\uD589`,
+    read: (n) => `\uD30C\uC77C ${n}\uAC1C \uC77D\uC74C`,
+    search: (n) => `${n}\uAC1C \uD328\uD134 \uAC80\uC0C9`,
+    edit: (n) => `\uD30C\uC77C ${n}\uAC1C \uC218\uC815`,
+    write: (n) => `\uD30C\uC77C ${n}\uAC1C \uC791\uC131`,
+    fetch: (n) => `\uD398\uC774\uC9C0 ${n}\uAC1C \uAC00\uC838\uC634`,
+    delegate: (n) => `\uC791\uC5C5 ${n}\uAC1C \uC704\uC784`,
+    other: (n) => `\uB3C4\uAD6C ${n}\uAC1C \uC2E4\uD589`
+  },
+  single: {
+    shell: (what) => `\uC178 \uC2E4\uD589: ${what}`,
+    read: (what) => `${what} \uC77D\uC74C`,
+    search: (what) => `"${what}" \uAC80\uC0C9`,
+    edit: (what) => `${what} \uC218\uC815`,
+    write: (what) => `${what} \uC791\uC131`,
+    fetch: (what) => `${what} \uAC00\uC838\uC634`,
+    delegate: (what) => `\uC704\uC784: ${what}`
+  },
+  tool: (name) => `${name} \uC2E4\uD589`
+};
+var JA = {
+  one: {
+    shell: "\u30B7\u30A7\u30EB\u30B3\u30DE\u30F3\u30C9\u3092\u5B9F\u884C",
+    read: "\u30D5\u30A1\u30A4\u30EB\u3092\u8AAD\u307F\u8FBC\u307F",
+    search: "\u691C\u7D22",
+    edit: "\u30D5\u30A1\u30A4\u30EB\u3092\u7DE8\u96C6",
+    write: "\u30D5\u30A1\u30A4\u30EB\u3092\u4F5C\u6210",
+    fetch: "\u30DA\u30FC\u30B8\u3092\u53D6\u5F97",
+    delegate: "\u30BF\u30B9\u30AF\u3092\u59D4\u4EFB",
+    other: "\u30C4\u30FC\u30EB\u3092\u5B9F\u884C"
+  },
+  many: {
+    shell: (n) => `\u30B7\u30A7\u30EB\u30B3\u30DE\u30F3\u30C9 ${n} \u4EF6\u3092\u5B9F\u884C`,
+    read: (n) => `\u30D5\u30A1\u30A4\u30EB ${n} \u4EF6\u3092\u8AAD\u307F\u8FBC\u307F`,
+    search: (n) => `\u30D1\u30BF\u30FC\u30F3 ${n} \u4EF6\u3092\u691C\u7D22`,
+    edit: (n) => `\u30D5\u30A1\u30A4\u30EB ${n} \u4EF6\u3092\u7DE8\u96C6`,
+    write: (n) => `\u30D5\u30A1\u30A4\u30EB ${n} \u4EF6\u3092\u4F5C\u6210`,
+    fetch: (n) => `\u30DA\u30FC\u30B8 ${n} \u4EF6\u3092\u53D6\u5F97`,
+    delegate: (n) => `\u30BF\u30B9\u30AF ${n} \u4EF6\u3092\u59D4\u4EFB`,
+    other: (n) => `\u30C4\u30FC\u30EB ${n} \u4EF6\u3092\u5B9F\u884C`
+  },
+  single: {
+    shell: (what) => `\u30B7\u30A7\u30EB\u5B9F\u884C: ${what}`,
+    read: (what) => `${what} \u3092\u8AAD\u307F\u8FBC\u307F`,
+    search: (what) => `"${what}" \u3092\u691C\u7D22`,
+    edit: (what) => `${what} \u3092\u7DE8\u96C6`,
+    write: (what) => `${what} \u3092\u4F5C\u6210`,
+    fetch: (what) => `${what} \u3092\u53D6\u5F97`,
+    delegate: (what) => `\u59D4\u4EFB: ${what}`
+  },
+  tool: (name) => `${name} \u3092\u5B9F\u884C`
+};
+var ZH = {
+  one: {
+    shell: "\u6267\u884C\u4E86 shell \u547D\u4EE4",
+    read: "\u8BFB\u53D6\u4E86\u6587\u4EF6",
+    search: "\u8FDB\u884C\u4E86\u641C\u7D22",
+    edit: "\u4FEE\u6539\u4E86\u6587\u4EF6",
+    write: "\u5199\u5165\u4E86\u6587\u4EF6",
+    fetch: "\u6293\u53D6\u4E86\u9875\u9762",
+    delegate: "\u59D4\u6D3E\u4E86\u4EFB\u52A1",
+    other: "\u8C03\u7528\u4E86\u5DE5\u5177"
+  },
+  many: {
+    shell: (n) => `\u6267\u884C\u4E86 ${n} \u6761 shell \u547D\u4EE4`,
+    read: (n) => `\u8BFB\u53D6\u4E86 ${n} \u4E2A\u6587\u4EF6`,
+    search: (n) => `\u641C\u7D22\u4E86 ${n} \u4E2A\u6A21\u5F0F`,
+    edit: (n) => `\u4FEE\u6539\u4E86 ${n} \u4E2A\u6587\u4EF6`,
+    write: (n) => `\u5199\u5165\u4E86 ${n} \u4E2A\u6587\u4EF6`,
+    fetch: (n) => `\u6293\u53D6\u4E86 ${n} \u4E2A\u9875\u9762`,
+    delegate: (n) => `\u59D4\u6D3E\u4E86 ${n} \u4E2A\u4EFB\u52A1`,
+    other: (n) => `\u8C03\u7528\u4E86 ${n} \u4E2A\u5DE5\u5177`
+  },
+  single: {
+    shell: (what) => `\u6267\u884C shell: ${what}`,
+    read: (what) => `\u8BFB\u53D6 ${what}`,
+    search: (what) => `\u641C\u7D22 "${what}"`,
+    edit: (what) => `\u4FEE\u6539 ${what}`,
+    write: (what) => `\u5199\u5165 ${what}`,
+    fetch: (what) => `\u6293\u53D6 ${what}`,
+    delegate: (what) => `\u59D4\u6D3E: ${what}`
+  },
+  tool: (name) => `${name}`
+};
+var CATALOG = { en: EN, ko: KO, ja: JA, zh: ZH };
+function verbsFor(language) {
+  return CATALOG[language] ?? EN;
+}
+function delegateTitle(call) {
+  if (toolKind(call.name) !== "delegate") return null;
+  const title = (call.args ?? {}).title;
+  return typeof title === "string" && title.trim().length > 0 ? title.trim() : null;
+}
+function summarizeCalls(calls, language = uiLanguage()) {
   if (calls.length === 0) return "";
+  const verbs = verbsFor(language);
   const kinds = new Set(calls.map((call) => toolKind(call.name)));
   const kind = kinds.size === 1 ? [...kinds][0] : "other";
   if (calls.length === 1) {
     const call = calls[0];
+    const title = delegateTitle(call);
+    if (title) return clip(title, 60);
+    if (kind === "delegate") {
+      const agent = (call.args ?? {}).agent;
+      const named = typeof agent === "string" && agent.trim().length > 0 ? agent.trim() : null;
+      return named ? verbs.single.delegate(clip(named, 30)) : verbs.one.delegate;
+    }
     const what = subject(call);
-    if (!what) return kind === "other" ? `Ran ${clip(call.name, 30)}` : PLURAL[kind].one;
+    if (!what) return kind === "other" ? verbs.tool(clip(call.name, 30)) : verbs.one[kind];
     switch (kind) {
       case "shell":
-        return `Ran shell: ${clip(what, 40)}`;
+        return verbs.single.shell(clip(what, 40));
       case "read":
-        return `Read ${basename(what)}`;
+        return verbs.single.read(basename(what));
       case "edit":
-        return `Edited ${basename(what)}`;
+        return verbs.single.edit(basename(what));
       case "write":
-        return `Wrote ${basename(what)}`;
+        return verbs.single.write(basename(what));
       case "search":
-        return `Searched "${clip(what, 30)}"`;
+        return verbs.single.search(clip(what, 30));
       case "fetch":
-        return `Fetched ${clip(what, 40)}`;
+        return verbs.single.fetch(clip(what, 40));
       default:
-        return `Ran ${clip(call.name, 30)}`;
+        return verbs.tool(clip(call.name, 30));
     }
   }
-  return PLURAL[kind].many(calls.length);
+  return verbs.many[kind](calls.length);
 }
 function hiddenLines(calls) {
   let total = 0;
@@ -36331,7 +36545,9 @@ function subagentRow(entry, now) {
     glyph: STATUS_GLYPH[status] ?? AGENT_GLYPH,
     color: STATUS_COLOR2[status],
     name: entry.name || "agent",
-    task: entry.task || entry.lastText || "",
+    // The model's own one-line title beats the brief it wrote for the child:
+    // the brief is written for a machine, often in English, and is long.
+    task: entry.title || entry.task || entry.lastText || "",
     status: agentStatusText(entry, now),
     dim: entry.status === "done"
   };
@@ -36966,8 +37182,8 @@ function Chat({
           return;
         }
         if (key.upArrow && historyIndex === null) historyDraft.current = value;
-        const current = historyIndex ?? history.length;
-        const next = key.upArrow ? Math.max(0, current - 1) : Math.min(history.length, current + 1);
+        const current2 = historyIndex ?? history.length;
+        const next = key.upArrow ? Math.max(0, current2 - 1) : Math.min(history.length, current2 + 1);
         setHistoryIndex(next === history.length ? null : next);
         update(next === history.length ? historyDraft.current : history[next]);
         return;
@@ -37317,9 +37533,168 @@ function ApprovalPrompt({
   ] });
 }
 
-// src/components/ApprovalQueue.tsx
+// src/components/QuestionPrompt.tsx
 var import_react32 = __toESM(require_react(), 1);
 var import_jsx_runtime12 = __toESM(require_jsx_runtime(), 1);
+var OTHER_LABEL = "\uAE30\uD0C0 / Other\u2026";
+function questionPromptRows(request) {
+  const options = request.options ?? [];
+  const described = options.filter((option) => option.description).length;
+  const other = request.allowOther === false ? 0 : 1;
+  return 4 + options.length + described + other + 1;
+}
+function QuestionPrompt({
+  request,
+  onAnswer,
+  isActive = true
+}) {
+  const options = request.options ?? [];
+  const allowOther = request.allowOther !== false;
+  const multi = request.multi === true;
+  const rows = allowOther ? options.length + 1 : options.length;
+  const [index, setIndex] = (0, import_react32.useState)(0);
+  const [chosen, setChosen] = (0, import_react32.useState)(() => /* @__PURE__ */ new Set());
+  const [typing, setTyping] = (0, import_react32.useState)(false);
+  const [draft, setDraft] = (0, import_react32.useState)("");
+  const otherRow = allowOther ? options.length : -1;
+  const submit = () => {
+    if (index === otherRow && !multi) {
+      setTyping(true);
+      return;
+    }
+    if (multi) {
+      const picked = [...chosen].sort((a, b) => a - b).map((at) => options[at]?.label ?? "");
+      const wanted = picked.filter((label) => label.length > 0);
+      if (wanted.length === 0 && index !== otherRow) {
+        onAnswer({ selected: [options[index]?.label ?? ""], text: null });
+        return;
+      }
+      if (index === otherRow || wanted.length === 0) {
+        setTyping(true);
+        return;
+      }
+      onAnswer({ selected: wanted, text: null });
+      return;
+    }
+    if (options.length === 0) {
+      setTyping(true);
+      return;
+    }
+    onAnswer({ selected: [options[index]?.label ?? ""], text: null });
+  };
+  use_input_default(
+    (input, key) => {
+      if (typing) {
+        if (key.return) {
+          const text = draft.trim();
+          const picked = multi ? [...chosen].sort((a, b) => a - b).map((at) => options[at]?.label ?? "") : [];
+          onAnswer({ selected: picked.filter(Boolean), text: text.length > 0 ? text : null });
+          return;
+        }
+        if (key.escape) {
+          setTyping(false);
+          setDraft("");
+          return;
+        }
+        if (key.backspace || key.delete) {
+          setDraft((value) => value.slice(0, -1));
+          return;
+        }
+        if (input && !key.ctrl && !key.meta) setDraft((value) => value + input);
+        return;
+      }
+      if (key.escape) {
+        onAnswer({ selected: [], text: null });
+        return;
+      }
+      if (rows > 0 && (key.upArrow || input === "k")) {
+        setIndex((at) => (at + rows - 1) % rows);
+        return;
+      }
+      if (rows > 0 && (key.downArrow || key.tab || input === "j")) {
+        setIndex((at) => (at + 1) % rows);
+        return;
+      }
+      if (input === " " && multi && index !== otherRow) {
+        setChosen((current2) => {
+          const next = new Set(current2);
+          if (next.has(index)) next.delete(index);
+          else next.add(index);
+          return next;
+        });
+        return;
+      }
+      if (key.return) {
+        submit();
+        return;
+      }
+      if (/^[1-9]$/.test(input)) {
+        const at = Number(input) - 1;
+        if (at < options.length) {
+          setIndex(at);
+          if (multi) {
+            setChosen((current2) => {
+              const next = new Set(current2);
+              if (next.has(at)) next.delete(at);
+              else next.add(at);
+              return next;
+            });
+          } else {
+            onAnswer({ selected: [options[at].label], text: null });
+          }
+        }
+        return;
+      }
+    },
+    { isActive }
+  );
+  const counter3 = (request.total ?? 1) > 1 ? ` (${request.index ?? 1}/${request.total})` : "";
+  const preview = options[index]?.preview ?? "";
+  const hint = multi ? "\u2191\u2193 move \xB7 Space toggle \xB7 Enter confirm \xB7 1-9 pick \xB7 Esc cancel" : "\u2191\u2193 move \xB7 Enter choose \xB7 1-9 pick \xB7 Esc cancel";
+  return /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(Box_default, { flexDirection: "column", borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { bold: true, color: "cyan", children: request.header ? `${request.header}${counter3}` : `\uC9C8\uBB38 / Question${counter3}` }),
+    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { wrap: "wrap", children: request.question }),
+    /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(Box_default, { flexDirection: "row", marginTop: 1, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(Box_default, { flexDirection: "column", flexGrow: 1, children: [
+        options.map((option, at) => {
+          const selected = at === index;
+          const ticked = multi && chosen.has(at);
+          const box = multi ? ticked ? "[x] " : "[ ] " : "";
+          return /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(Box_default, { flexDirection: "column", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(Box_default, { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { color: selected ? "cyan" : void 0, bold: selected, children: selected ? "\u276F " : "  " }),
+              /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { inverse: selected, color: selected ? "cyan" : void 0, dimColor: !selected, children: ` ${at + 1}. ${box}${option.label} ` })
+            ] }),
+            option.description ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { dimColor: true, children: `      ${option.description}` }) : null
+          ] }, `${request.requestId}-o${at}`);
+        }),
+        allowOther ? /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(Box_default, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { color: index === otherRow ? "cyan" : void 0, bold: index === otherRow, children: index === otherRow ? "\u276F " : "  " }),
+          /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
+            Text,
+            {
+              inverse: index === otherRow,
+              color: index === otherRow ? "cyan" : void 0,
+              dimColor: index !== otherRow,
+              children: ` ${OTHER_LABEL} `
+            }
+          )
+        ] }) : null
+      ] }),
+      preview ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Box_default, { flexDirection: "column", marginLeft: 2, borderStyle: "single", borderColor: "gray", paddingX: 1, children: preview.split("\n").map((line, at) => /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: line }, `${request.requestId}-p${at}`)) }) : null
+    ] }),
+    typing ? /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(Box_default, { marginTop: 1, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { color: "cyan", children: "\u203A " }),
+      /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { children: draft }),
+      /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { inverse: true, children: " " }),
+      /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { dimColor: true, children: "  Enter to send \xB7 Esc to go back" })
+    ] }) : /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { dimColor: true, children: hint })
+  ] });
+}
+
+// src/components/ApprovalQueue.tsx
+var import_react33 = __toESM(require_react(), 1);
+var import_jsx_runtime13 = __toESM(require_jsx_runtime(), 1);
 function summarise(request) {
   const command = (request.args ?? {})["command"];
   if (typeof command === "string" && command.length > 0) return command;
@@ -37332,12 +37707,12 @@ function ApprovalQueue({
   isActive = false,
   onBlur
 }) {
-  const [selected, setSelected] = (0, import_react32.useState)(0);
-  const [scopeIndex, setScopeIndex] = (0, import_react32.useState)(0);
-  (0, import_react32.useEffect)(() => {
+  const [selected, setSelected] = (0, import_react33.useState)(0);
+  const [scopeIndex, setScopeIndex] = (0, import_react33.useState)(0);
+  (0, import_react33.useEffect)(() => {
     setSelected((index) => requests.length === 0 ? 0 : Math.min(index, requests.length - 1));
   }, [requests.length]);
-  const current = requests[Math.min(selected, Math.max(requests.length - 1, 0))];
+  const current2 = requests[Math.min(selected, Math.max(requests.length - 1, 0))];
   use_input_default(
     (input, key) => {
       if (requests.length === 0) return;
@@ -37358,8 +37733,8 @@ function ApprovalQueue({
         return;
       }
       const decision = input.toLowerCase() === "a" ? "allow" : input.toLowerCase() === "d" ? "deny" : null;
-      if (decision && current) {
-        onRespond?.(current.requestId, decision, APPROVAL_SCOPES[scopeIndex]);
+      if (decision && current2) {
+        onRespond?.(current2.requestId, decision, APPROVAL_SCOPES[scopeIndex]);
         return;
       }
       if (key.escape) onBlur?.();
@@ -37367,7 +37742,7 @@ function ApprovalQueue({
     { isActive: isActive && requests.length > 0 }
   );
   if (requests.length === 0) return null;
-  return /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(
+  return /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
     Box_default,
     {
       flexDirection: "column",
@@ -37375,14 +37750,14 @@ function ApprovalQueue({
       borderColor: isActive ? "yellow" : "gray",
       paddingX: 1,
       children: [
-        /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(Text, { bold: true, dimColor: !isActive, color: isActive ? "yellow" : void 0, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(Text, { bold: true, dimColor: !isActive, color: isActive ? "yellow" : void 0, children: [
           "Unattended approvals (",
           requests.length,
           ")"
         ] }),
         requests.map((request) => {
-          const picked = isActive && request.requestId === current?.requestId;
-          return /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(Text, { dimColor: !picked, inverse: picked, children: [
+          const picked = isActive && request.requestId === current2?.requestId;
+          return /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(Text, { dimColor: !picked, inverse: picked, children: [
             picked ? "> " : "  ",
             request.tool,
             " \xB7 risk=",
@@ -37394,10 +37769,10 @@ function ApprovalQueue({
             summarise(request)
           ] }, request.requestId);
         }),
-        isActive ? /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(import_jsx_runtime12.Fragment, { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(Box_default, { marginTop: 1, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { children: "scope: " }),
-            APPROVAL_SCOPES.map((scope, index) => /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
+        isActive ? /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(import_jsx_runtime13.Fragment, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(Box_default, { marginTop: 1, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { children: "scope: " }),
+            APPROVAL_SCOPES.map((scope, index) => /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
               Text,
               {
                 inverse: index === scopeIndex,
@@ -37408,20 +37783,20 @@ function ApprovalQueue({
               scope
             ))
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { dimColor: true, children: "[a] allow [d] deny \u2191/\u2193 pick \u2190/\u2192 scope \xB7 Ctrl+A leave" })
-        ] }) : /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { dimColor: true, children: "Ctrl+A to answer them here." })
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { dimColor: true, children: "[a] allow [d] deny \u2191/\u2193 pick \u2190/\u2192 scope \xB7 Ctrl+A leave" })
+        ] }) : /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { dimColor: true, children: "Ctrl+A to answer them here." })
       ]
     }
   );
 }
 
 // src/components/StatusHud.tsx
-var import_react33 = __toESM(require_react(), 1);
-var import_jsx_runtime13 = __toESM(require_jsx_runtime(), 1);
+var import_react34 = __toESM(require_react(), 1);
+var import_jsx_runtime14 = __toESM(require_jsx_runtime(), 1);
 function StatusHudInner({ rows, width }) {
-  return /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Box_default, { flexDirection: "column", flexShrink: 0, width, children: rows.map((segments, rowIndex) => /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Box_default, { width, flexWrap: "nowrap", overflow: "hidden", children: segments.map((segment, index) => /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(import_react33.default.Fragment, { children: [
-    index > 0 ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { dimColor: true, children: SEPARATOR }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Box_default, { flexDirection: "column", flexShrink: 0, width, children: rows.map((segments, rowIndex) => /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Box_default, { width, flexWrap: "nowrap", overflow: "hidden", children: segments.map((segment, index) => /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(import_react34.default.Fragment, { children: [
+    index > 0 ? /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { dimColor: true, children: SEPARATOR }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
       Text,
       {
         color: segment.color,
@@ -37433,46 +37808,46 @@ function StatusHudInner({ rows, width }) {
     )
   ] }, segment.key)) }, `hud-row-${rowIndex}`)) });
 }
-var StatusHud = import_react33.default.memo(StatusHudInner);
+var StatusHud = import_react34.default.memo(StatusHudInner);
 
 // src/components/AgentPanel.tsx
-var import_react34 = __toESM(require_react(), 1);
-var import_jsx_runtime14 = __toESM(require_jsx_runtime(), 1);
+var import_react35 = __toESM(require_react(), 1);
+var import_jsx_runtime15 = __toESM(require_jsx_runtime(), 1);
 function AgentPanelInner({
   rows,
   width,
   focusedIndex = null
 }) {
   if (rows.length === 0) return null;
-  return /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Box_default, { flexDirection: "column", flexShrink: 0, width, children: rows.map((row, index) => {
+  return /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Box_default, { flexDirection: "column", flexShrink: 0, width, children: rows.map((row, index) => {
     const focused = index === focusedIndex;
     const line = layoutAgentRow(row, width - 1);
-    return /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(Box_default, { width, flexWrap: "nowrap", overflow: "hidden", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { color: row.color, dimColor: row.dim && !row.color, inverse: focused, bold: focused, children: line.left }),
-      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { dimColor: !focused, inverse: focused, wrap: "truncate-end", children: line.task }),
-      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { dimColor: true, inverse: focused, children: line.gap }),
-      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { dimColor: row.dim && !focused, color: row.color, inverse: focused, children: line.status })
+    return /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(Box_default, { width, flexWrap: "nowrap", overflow: "hidden", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { color: row.color, dimColor: row.dim && !row.color, inverse: focused, bold: focused, children: line.left }),
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { dimColor: !focused, inverse: focused, wrap: "truncate-end", children: line.task }),
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { dimColor: true, inverse: focused, children: line.gap }),
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { dimColor: row.dim && !focused, color: row.color, inverse: focused, children: line.status })
     ] }, row.key);
   }) });
 }
-var AgentPanel = import_react34.default.memo(AgentPanelInner);
+var AgentPanel = import_react35.default.memo(AgentPanelInner);
 
 // src/components/AttachmentChips.tsx
-var import_jsx_runtime15 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime16 = __toESM(require_jsx_runtime(), 1);
 function AttachmentChips({
   attachments,
   width
 }) {
   if (attachments.length === 0) return null;
-  return /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(Box_default, { width, flexWrap: "wrap", children: [
-    attachments.map((attachment) => /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { color: "cyan", children: `[${chipLabel(attachment)}] ` }, attachment.id)),
-    /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { dimColor: true, children: "(backspace removes the last \xB7 Ctrl+X clears)" })
+  return /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(Box_default, { width, flexWrap: "wrap", children: [
+    attachments.map((attachment) => /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { color: "cyan", children: `[${chipLabel(attachment)}] ` }, attachment.id)),
+    /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { dimColor: true, children: "(backspace removes the last \xB7 Ctrl+X clears)" })
   ] });
 }
 
 // src/components/ModelPicker.tsx
-var import_react35 = __toESM(require_react(), 1);
-var import_jsx_runtime16 = __toESM(require_jsx_runtime(), 1);
+var import_react36 = __toESM(require_react(), 1);
+var import_jsx_runtime17 = __toESM(require_jsx_runtime(), 1);
 var MODEL_PICKER_ROWS = 8;
 function ModelPicker({
   options,
@@ -37481,9 +37856,9 @@ function ModelPicker({
   isActive = true,
   width
 }) {
-  const [index, setIndex] = (0, import_react35.useState)(() => {
-    const current = options.findIndex((option) => option.current);
-    return current === -1 ? 0 : current;
+  const [index, setIndex] = (0, import_react36.useState)(() => {
+    const current2 = options.findIndex((option) => option.current);
+    return current2 === -1 ? 0 : current2;
   });
   use_input_default(
     (input, key) => {
@@ -37509,23 +37884,23 @@ function ModelPicker({
     Math.min(index - MODEL_PICKER_ROWS + 2, options.length - MODEL_PICKER_ROWS)
   );
   const shown = options.slice(start, start + MODEL_PICKER_ROWS);
-  return /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(Box_default, { flexDirection: "column", width, borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { bold: true, color: "cyan", children: "Model" }),
-    options.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { dimColor: true, children: "no profiles configured and the vendor listed nothing" }) : shown.map((option) => {
+  return /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(Box_default, { flexDirection: "column", width, borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(Text, { bold: true, color: "cyan", children: "Model" }),
+    options.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(Text, { dimColor: true, children: "no profiles configured and the vendor listed nothing" }) : shown.map((option) => {
       const selected = options[index] === option;
-      return /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(Box_default, { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { color: selected ? "green" : void 0, children: selected ? "\u276F " : "  " }),
-        /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { inverse: selected, bold: option.current, children: option.label }),
-        /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { dimColor: true, children: option.detail ? `  ${option.detail}` : "" }),
-        option.current ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { color: "green", children: "  \u2190 in use" }) : null
+      return /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(Box_default, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(Text, { color: selected ? "green" : void 0, children: selected ? "\u276F " : "  " }),
+        /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(Text, { inverse: selected, bold: option.current, children: option.label }),
+        /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(Text, { dimColor: true, children: option.detail ? `  ${option.detail}` : "" }),
+        option.current ? /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(Text, { color: "green", children: "  \u2190 in use" }) : null
       ] }, `${option.origin}-${option.ref}`);
     }),
-    /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { dimColor: true, children: "\u2191\u2193 move \xB7 Enter pick \xB7 Esc cancel" })
+    /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(Text, { dimColor: true, children: "\u2191\u2193 move \xB7 Enter pick \xB7 Esc cancel" })
   ] });
 }
 
 // src/components/QueuedPrompts.tsx
-var import_jsx_runtime17 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime18 = __toESM(require_jsx_runtime(), 1);
 var MAX_QUEUED_ROWS = 3;
 function QueuedPrompts({
   queued,
@@ -37534,15 +37909,15 @@ function QueuedPrompts({
   if (queued.length === 0) return null;
   const shown = queued.slice(0, MAX_QUEUED_ROWS);
   const hidden = queued.length - shown.length;
-  return /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(Box_default, { flexDirection: "column", width, flexShrink: 0, children: [
-    shown.map((entry, index) => /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `   ${index + 1}. ${clip(entry.text || "(queued prompt)", Math.max(10, width - 8))}` }, entry.turnId)),
-    hidden > 0 ? /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(Text, { dimColor: true, children: `   \u2026 ${hidden} more queued` }) : null
+  return /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)(Box_default, { flexDirection: "column", width, flexShrink: 0, children: [
+    shown.map((entry, index) => /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `   ${index + 1}. ${clip(entry.text || "(queued prompt)", Math.max(10, width - 8))}` }, entry.turnId)),
+    hidden > 0 ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Text, { dimColor: true, children: `   \u2026 ${hidden} more queued` }) : null
   ] });
 }
 
 // src/components/AgentTranscript.tsx
-var import_react36 = __toESM(require_react(), 1);
-var import_jsx_runtime18 = __toESM(require_jsx_runtime(), 1);
+var import_react37 = __toESM(require_react(), 1);
+var import_jsx_runtime19 = __toESM(require_jsx_runtime(), 1);
 function AgentTranscriptInner({
   name,
   task,
@@ -37553,7 +37928,7 @@ function AgentTranscriptInner({
   scrollIndicator: scrollIndicator2 = null,
   empty = false
 }) {
-  return /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)(
+  return /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(
     Box_default,
     {
       flexDirection: "column",
@@ -37563,23 +37938,23 @@ function AgentTranscriptInner({
       paddingX: 1,
       flexShrink: 0,
       children: [
-        /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)(Box_default, { justifyContent: "space-between", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)(Text, { wrap: "truncate-end", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Text, { bold: true, color: "cyan", children: `\u25EF ${name}` }),
-            /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Text, { dimColor: true, children: task ? ` \xB7 ${task}` : "" })
+        /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Box_default, { justifyContent: "space-between", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Text, { wrap: "truncate-end", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { bold: true, color: "cyan", children: `\u25EF ${name}` }),
+            /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { dimColor: true, children: task ? ` \xB7 ${task}` : "" })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Text, { dimColor: true, children: scrollIndicator2 ? `${scrollIndicator2} \xB7 ${status}` : status })
+          /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { dimColor: true, children: scrollIndicator2 ? `${scrollIndicator2} \xB7 ${status}` : status })
         ] }),
-        empty ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Box_default, { height, children: /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Text, { dimColor: true, children: "waiting for the agent's first output\u2026" }) }) : /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(TranscriptView, { lines, height }),
-        /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Text, { dimColor: true, children: "\u2191\u2193 PgUp/PgDn scroll \xB7 Esc back to the main transcript" })
+        empty ? /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Box_default, { height, children: /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { dimColor: true, children: "waiting for the agent's first output\u2026" }) }) : /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(TranscriptView, { lines, height }),
+        /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { dimColor: true, children: "\u2191\u2193 PgUp/PgDn scroll \xB7 Esc back to the main transcript" })
       ]
     }
   );
 }
-var AgentTranscript = import_react36.default.memo(AgentTranscriptInner);
+var AgentTranscript = import_react37.default.memo(AgentTranscriptInner);
 
 // src/components/SectionRule.tsx
-var import_jsx_runtime19 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime20 = __toESM(require_jsx_runtime(), 1);
 function SectionRule({
   width,
   color,
@@ -37587,11 +37962,11 @@ function SectionRule({
 }) {
   const suffix = label ? ` ${label}` : "";
   const rule = `${"\u2500".repeat(Math.max(1, width - suffix.length))}${suffix}`.slice(0, Math.max(1, width));
-  return /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Box_default, { width, flexShrink: 0, overflow: "hidden", children: /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { color, dimColor: !color, wrap: "truncate-end", children: rule }) });
+  return /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Box_default, { width, flexShrink: 0, overflow: "hidden", children: /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { color, dimColor: !color, wrap: "truncate-end", children: rule }) });
 }
 
 // src/components/LaunchBanner.tsx
-var import_jsx_runtime20 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime21 = __toESM(require_jsx_runtime(), 1);
 var PROMPT_PREVIEW = 60;
 var TIPS = [
   "/help lists every command the daemon offers",
@@ -37622,27 +37997,27 @@ function LaunchBanner({
   const paint = paintProp ?? colorMode(process.env, Boolean(process.stdout?.isTTY));
   const description = "Open-source multi-vendor coding agent and personal AI assistant";
   const meta = [`v${version}`, target, workdir, mode.toUpperCase()].filter(Boolean).join(" \xB7 ");
-  return /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Box_default, { flexDirection: "column", width, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Logo, { terminalRows, version, width, big: true, mode: paint }),
-    /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { dimColor: true, children: "\u2500".repeat(Math.max(0, width)) }),
-    /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Box_default, { flexDirection: "column", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { wrap: "truncate-end", children: centre(description, width) }),
-      /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: centre(meta, width) })
+  return /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)(Box_default, { flexDirection: "column", width, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Logo, { terminalRows, version, width, big: true, mode: paint }),
+    /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { dimColor: true, children: "\u2500".repeat(Math.max(0, width)) }),
+    /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)(Box_default, { flexDirection: "column", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { wrap: "truncate-end", children: centre(description, width) }),
+      /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: centre(meta, width) })
     ] }),
-    lastSession ? /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Box_default, { marginTop: 1, flexDirection: "column", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Text, { wrap: "truncate-end", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { color: "cyan", children: "Last session: " }),
-        /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { dimColor: true, children: `${relativeTime(lastSession.at, now)} \xB7 ` }),
-        /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { children: lastSession.firstPrompt ? `"${previewPrompt(lastSession.firstPrompt)}"` : lastSession.sessionId.slice(0, 8) })
+    lastSession ? /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)(Box_default, { marginTop: 1, flexDirection: "column", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)(Text, { wrap: "truncate-end", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { color: "cyan", children: "Last session: " }),
+        /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { dimColor: true, children: `${relativeTime(lastSession.at, now)} \xB7 ` }),
+        /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { children: lastSession.firstPrompt ? `"${previewPrompt(lastSession.firstPrompt)}"` : lastSession.sessionId.slice(0, 8) })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { dimColor: true, children: "Press R or type /resume to continue it" })
+      /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { dimColor: true, children: "Press R or type /resume to continue it" })
     ] }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Box_default, { marginTop: 1, marginBottom: 1, flexDirection: "column", children: TIPS.map((tip) => /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `  \xB7 ${tip}` }, tip)) })
+    /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Box_default, { marginTop: 1, marginBottom: 1, flexDirection: "column", children: TIPS.map((tip) => /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `  \xB7 ${tip}` }, tip)) })
   ] });
 }
 
 // src/components/ShellList.tsx
-var import_jsx_runtime21 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime22 = __toESM(require_jsx_runtime(), 1);
 function runningCalls(calls) {
   const running = calls.filter((call) => call.state === "running");
   return [
@@ -37656,37 +38031,37 @@ function ShellList({
   width
 }) {
   const running = runningCalls(calls);
-  return /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Box_default, { flexDirection: "column", width, children: running.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { dimColor: true, children: "    nothing running" }) : running.map((call) => /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)(Text, { dimColor: true, wrap: "truncate-end", children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Box_default, { flexDirection: "column", width, children: running.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { dimColor: true, children: "    nothing running" }) : running.map((call) => /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)(Text, { dimColor: true, wrap: "truncate-end", children: [
     `    \u25E6 ${summarizeCalls([call])}`,
     call.startedAt ? ` \xB7 ${formatDuration(now - call.startedAt)}` : ""
   ] }, call.callId)) });
 }
 
 // src/components/ToolSummary.tsx
-var import_jsx_runtime22 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime23 = __toESM(require_jsx_runtime(), 1);
 var SUMMARY_GLYPH = "\u23FA";
 function ToolSummary({ calls }) {
   if (calls.length === 0) return null;
   const lines = hiddenLines(calls);
-  return /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)(Box_default, { marginBottom: 1, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { color: "green", children: `${SUMMARY_GLYPH} ` }),
-    /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { children: summarizeCalls(calls) }),
-    lines > 0 ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { dimColor: true, children: ` (${lines} lines)` }) : null
+  return /* @__PURE__ */ (0, import_jsx_runtime23.jsxs)(Box_default, { marginBottom: 1, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { color: "green", children: `${SUMMARY_GLYPH} ` }),
+    /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { children: summarizeCalls(calls) }),
+    lines > 0 ? /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { dimColor: true, children: ` (${lines} lines)` }) : null
   ] });
 }
 
 // src/components/WorkingIndicator.tsx
-var import_react37 = __toESM(require_react(), 1);
-var import_jsx_runtime23 = __toESM(require_jsx_runtime(), 1);
-function WorkingIndicatorInner({ line }) {
-  if (!line) return null;
-  return /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Box_default, { flexShrink: 0, children: /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: line }) });
-}
-var WorkingIndicator = import_react37.default.memo(WorkingIndicatorInner);
-
-// src/components/HelpPanel.tsx
 var import_react38 = __toESM(require_react(), 1);
 var import_jsx_runtime24 = __toESM(require_jsx_runtime(), 1);
+function WorkingIndicatorInner({ line }) {
+  if (!line) return null;
+  return /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(Box_default, { flexShrink: 0, children: /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: line }) });
+}
+var WorkingIndicator = import_react38.default.memo(WorkingIndicatorInner);
+
+// src/components/HelpPanel.tsx
+var import_react39 = __toESM(require_react(), 1);
+var import_jsx_runtime25 = __toESM(require_jsx_runtime(), 1);
 var WORKFLOW_COMMANDS = [
   "ralph",
   "ralplan",
@@ -37718,7 +38093,7 @@ var KEYS = [
   "Approval menus: \u2191\u2193 select, Enter confirm, y/a/p/n answer, Esc refuse"
 ];
 function HelpPanel({ commands, runningSubagents = 0, width = 80, height = 20, isActive = true }) {
-  const [offset, setOffset] = (0, import_react38.useState)(0);
+  const [offset, setOffset] = (0, import_react39.useState)(0);
   const inner = Math.max(1, width - 4);
   const rows = Math.max(1, height - 3);
   const lines = [];
@@ -37745,17 +38120,17 @@ function HelpPanel({ commands, runningSubagents = 0, width = 80, height = 20, is
   const start = Math.min(offset, maxOffset);
   use_input_default((_input, key) => {
     const step = key.pageDown ? rows : key.pageUp ? -rows : key.downArrow ? 1 : key.upArrow ? -1 : 0;
-    if (step) setOffset((current) => Math.min(maxOffset, Math.max(0, current + step)));
+    if (step) setOffset((current2) => Math.min(maxOffset, Math.max(0, current2 + step)));
   }, { isActive });
-  if (height < 4) return /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(Text, { wrap: "truncate-end", children: "Esc / F1 close help" });
-  return /* @__PURE__ */ (0, import_jsx_runtime24.jsxs)(Box_default, { flexDirection: "column", width, height, borderStyle: "round", borderColor: "cyan", paddingX: 1, overflow: "hidden", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(TranscriptView, { lines: lines.slice(start, start + rows), height: rows }),
-    /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(Text, { color: "cyan", wrap: "truncate-end", children: `Esc / F1 / q / Enter close \xB7 \u2191\u2193 scroll \xB7 ${start + 1}-${Math.min(start + rows, lines.length)}/${lines.length}` })
+  if (height < 4) return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(Text, { wrap: "truncate-end", children: "Esc / F1 close help" });
+  return /* @__PURE__ */ (0, import_jsx_runtime25.jsxs)(Box_default, { flexDirection: "column", width, height, borderStyle: "round", borderColor: "cyan", paddingX: 1, overflow: "hidden", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(TranscriptView, { lines: lines.slice(start, start + rows), height: rows }),
+    /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(Text, { color: "cyan", wrap: "truncate-end", children: `Esc / F1 / q / Enter close \xB7 \u2191\u2193 scroll \xB7 ${start + 1}-${Math.min(start + rows, lines.length)}/${lines.length}` })
   ] });
 }
 
 // src/components/UpdateBanner.tsx
-var import_jsx_runtime25 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime26 = __toESM(require_jsx_runtime(), 1);
 var PHASE_COLOR = {
   available: "cyan",
   confirm: "yellow",
@@ -37766,11 +38141,11 @@ var PHASE_COLOR = {
 function UpdateBanner({ update }) {
   const text = bannerText(update);
   if (text === null) return null;
-  return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(Text, { color: PHASE_COLOR[update.phase] ?? "cyan", children: text }) });
+  return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Text, { color: PHASE_COLOR[update.phase] ?? "cyan", children: text }) });
 }
 
 // src/app.tsx
-var import_jsx_runtime26 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime27 = __toESM(require_jsx_runtime(), 1);
 var UPDATE_OPTIONS = [
   { label: "Update and restart", value: true, shortcut: "y" },
   { label: "Not now", value: false, shortcut: "n", danger: true }
@@ -37800,18 +38175,18 @@ function TimelineEntry({
 }) {
   if (item.kind === "message") {
     const message = state.messages.find((m) => m.id === item.id);
-    return message ? /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(MessageView, { message, width }) : null;
+    return message ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(MessageView, { message, width }) : null;
   }
   if (item.kind === "tool") {
     const call = state.toolCalls.find((c) => c.callId === item.id);
-    return call ? /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(ToolCall, { call, expanded: expandedId === item.id }) : null;
+    return call ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(ToolCall, { call, expanded: expandedId === item.id }) : null;
   }
   if (item.kind === "compaction") {
     const entry = state.compactions.find((c) => c.id === item.id);
-    return entry ? /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Text, { dimColor: true, children: compactionDivider(entry.before, entry.after, width) }) }) : null;
+    return entry ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Text, { dimColor: true, children: compactionDivider(entry.before, entry.after, width) }) }) : null;
   }
   const diff2 = state.diffs.find((d) => d.id === item.id);
-  return diff2 ? /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(
+  return diff2 ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(
     DiffView,
     {
       diff: diff2,
@@ -37874,65 +38249,66 @@ function App2({
   recordingPath
 }) {
   const { exit } = use_app_default();
-  const [sessionId, setSessionId] = (0, import_react39.useState)(initialSessionId);
-  const activeSessionRef = (0, import_react39.useRef)(initialSessionId);
-  const resumingRef = (0, import_react39.useRef)(false);
-  const [state, dispatch] = (0, import_react39.useReducer)(reducer, initialState);
-  const [showHelp, setShowHelp] = (0, import_react39.useState)(false);
+  const [sessionId, setSessionId] = (0, import_react40.useState)(initialSessionId);
+  const activeSessionRef = (0, import_react40.useRef)(initialSessionId);
+  const resumingRef = (0, import_react40.useRef)(false);
+  const [state, dispatch] = (0, import_react40.useReducer)(reducer, initialState);
+  const [showHelp, setShowHelp] = (0, import_react40.useState)(false);
   const { stdin } = use_stdin_default();
-  const [draft, setDraft] = (0, import_react39.useState)("");
-  const [expandedId, setExpandedId] = (0, import_react39.useState)(null);
-  const [queueFocused, setQueueFocused] = (0, import_react39.useState)(false);
-  const [agentsExpanded, setAgentsExpanded] = (0, import_react39.useState)(false);
-  const [agentRosterVersion, setAgentRosterVersion] = (0, import_react39.useState)(0);
-  const [attachments, setAttachments] = (0, import_react39.useState)([]);
-  const [voice, setVoice] = (0, import_react39.useState)(initialVoice);
-  const [insert, setInsert] = (0, import_react39.useState)(null);
-  const [append, setAppend] = (0, import_react39.useState)(null);
-  const [sessionModelSource, setSessionModelSource] = (0, import_react39.useState)(null);
-  const [agentModels, setAgentModels] = (0, import_react39.useState)({});
-  const [modelPicker, setModelPicker] = (0, import_react39.useState)(null);
-  const [capabilities, setCapabilities] = (0, import_react39.useState)(audio);
-  const recordingRef = (0, import_react39.useRef)(null);
-  const speechRef = (0, import_react39.useRef)(null);
-  const spokenRef = (0, import_react39.useRef)(/* @__PURE__ */ new Set());
-  const [focus, setFocus] = (0, import_react39.useState)(INPUT_FOCUS);
-  const [shellsOpen, setShellsOpen] = (0, import_react39.useState)(false);
-  const [openAgent, setOpenAgent] = (0, import_react39.useState)(null);
-  const [resumeChoices, setResumeChoices] = (0, import_react39.useState)(null);
-  const [modePicker, setModePicker] = (0, import_react39.useState)(false);
-  const [agentScroll, setAgentScroll] = (0, import_react39.useState)(0);
-  const [pastPrompts] = (0, import_react39.useState)(() => {
+  const [draft, setDraft] = (0, import_react40.useState)("");
+  const [expandedId, setExpandedId] = (0, import_react40.useState)(null);
+  const [queueFocused, setQueueFocused] = (0, import_react40.useState)(false);
+  const [agentsExpanded, setAgentsExpanded] = (0, import_react40.useState)(false);
+  const [agentRosterVersion, setAgentRosterVersion] = (0, import_react40.useState)(0);
+  const [attachments, setAttachments] = (0, import_react40.useState)([]);
+  const [voice, setVoice] = (0, import_react40.useState)(initialVoice);
+  const [insert, setInsert] = (0, import_react40.useState)(null);
+  const [append, setAppend] = (0, import_react40.useState)(null);
+  const [sessionModelSource, setSessionModelSource] = (0, import_react40.useState)(null);
+  const [agentModels, setAgentModels] = (0, import_react40.useState)({});
+  const [modelPicker, setModelPicker] = (0, import_react40.useState)(null);
+  const [capabilities, setCapabilities] = (0, import_react40.useState)(audio);
+  const recordingRef = (0, import_react40.useRef)(null);
+  const speechRef = (0, import_react40.useRef)(null);
+  const spokenRef = (0, import_react40.useRef)(/* @__PURE__ */ new Set());
+  const [focus, setFocus] = (0, import_react40.useState)(INPUT_FOCUS);
+  const [shellsOpen, setShellsOpen] = (0, import_react40.useState)(false);
+  const [openAgent, setOpenAgent] = (0, import_react40.useState)(null);
+  const [resumeChoices, setResumeChoices] = (0, import_react40.useState)(null);
+  const [modePicker, setModePicker] = (0, import_react40.useState)(false);
+  const [agentScroll, setAgentScroll] = (0, import_react40.useState)(0);
+  const [pastPrompts] = (0, import_react40.useState)(() => {
     history?.load();
     return history?.prompts() ?? [];
   });
-  const [lastSession] = (0, import_react39.useState)(() => {
+  const [lastSession] = (0, import_react40.useState)(() => {
     sessions?.load();
     return offerSession(sessions?.last(workdir) ?? null, priorSession2);
   });
-  const [modeHintVisible, setModeHintVisible] = (0, import_react39.useState)(true);
-  const [modeToast, setModeToast] = (0, import_react39.useState)(null);
-  const [runningCommand, setRunningCommand] = (0, import_react39.useState)(null);
-  const staticCursorRef = (0, import_react39.useRef)(0);
-  const staticBlocksRef = (0, import_react39.useRef)([{ key: "launch", kind: "launch" }]);
-  const turnRef = (0, import_react39.useRef)(null);
-  const turnActiveRef = (0, import_react39.useRef)(false);
-  const turnCountRef = (0, import_react39.useRef)(0);
-  const [scrollOffset, setScrollOffset] = (0, import_react39.useState)(0);
-  const modeToastTimer = (0, import_react39.useRef)(null);
-  const droppedRef = (0, import_react39.useRef)(0);
-  const droppedTimer = (0, import_react39.useRef)(null);
-  const childEventsRef = (0, import_react39.useRef)(null);
-  const registryRef = (0, import_react39.useRef)(new SlashRegistry(client, sessionId));
-  const [update, setUpdate] = (0, import_react39.useState)(initialUpdateState);
-  const [updateAvailable, setUpdateAvailable] = (0, import_react39.useState)(false);
-  const approvalResolver = (0, import_react39.useRef)(null);
-  const audioClient = (0, import_react39.useMemo)(() => createAudioClient(client), [client]);
-  const audioOffered = (0, import_react39.useCallback)(
+  const [modeHintVisible, setModeHintVisible] = (0, import_react40.useState)(true);
+  const [modeToast, setModeToast] = (0, import_react40.useState)(null);
+  const [runningCommand, setRunningCommand] = (0, import_react40.useState)(null);
+  const staticCursorRef = (0, import_react40.useRef)(0);
+  const staticBlocksRef = (0, import_react40.useRef)([{ key: "launch", kind: "launch" }]);
+  const turnRef = (0, import_react40.useRef)(null);
+  const turnActiveRef = (0, import_react40.useRef)(false);
+  const turnCountRef = (0, import_react40.useRef)(0);
+  const [scrollOffset, setScrollOffset] = (0, import_react40.useState)(0);
+  const modeToastTimer = (0, import_react40.useRef)(null);
+  const droppedRef = (0, import_react40.useRef)(0);
+  const droppedTimer = (0, import_react40.useRef)(null);
+  const childEventsRef = (0, import_react40.useRef)(null);
+  const registryRef = (0, import_react40.useRef)(new SlashRegistry(client, sessionId));
+  const [update, setUpdate] = (0, import_react40.useState)(initialUpdateState);
+  const [updateAvailable, setUpdateAvailable] = (0, import_react40.useState)(false);
+  const approvalResolver = (0, import_react40.useRef)(null);
+  const questionResolver = (0, import_react40.useRef)(null);
+  const audioClient = (0, import_react40.useMemo)(() => createAudioClient(client), [client]);
+  const audioOffered = (0, import_react40.useCallback)(
     () => client.serverCapabilities?.().includes("audio") ?? true,
     [client]
   );
-  const refreshCapabilities = (0, import_react39.useCallback)(() => {
+  const refreshCapabilities = (0, import_react40.useCallback)(() => {
     if (!audioOffered()) {
       setCapabilities(noAudio);
       return;
@@ -37941,19 +38317,19 @@ function App2({
       setCapabilities(noAudio);
     });
   }, [audioClient, audioOffered]);
-  (0, import_react39.useEffect)(() => {
+  (0, import_react40.useEffect)(() => {
     refreshCapabilities();
   }, [refreshCapabilities]);
-  const refreshLsp = (0, import_react39.useCallback)(() => {
+  const refreshLsp = (0, import_react40.useCallback)(() => {
     void client.call("lsp.status", {}).then((result) => dispatch({ type: "lsp/status", servers: readLspStatus(result) })).catch(() => {
       dispatch({ type: "lsp/status", servers: [] });
     });
   }, [client]);
-  const refreshApprovals = (0, import_react39.useCallback)(() => {
+  const refreshApprovals = (0, import_react40.useCallback)(() => {
     void client.listApprovals(sessionId).then((result) => dispatch({ type: "approval/list", requests: result.requests ?? [] })).catch(() => {
     });
   }, [client, sessionId]);
-  (0, import_react39.useEffect)(() => {
+  (0, import_react40.useEffect)(() => {
     dispatch({ type: "session/ready", sessionId, mode, provider, model });
     dispatch({ type: "status", status: client.getStatus() });
     const childEvents = createChildEventBuffer(
@@ -37990,9 +38366,9 @@ function App2({
       },
       // Installing a backend or naming a voice is a setting; re-ask.
       onSettingsChanged: () => refreshCapabilities(),
-      onUpdateProgress: ({ phase: phase2, message }) => setUpdate((current) => {
+      onUpdateProgress: ({ phase: phase2, message }) => setUpdate((current2) => {
         const next = phase2 ?? "started";
-        return progress(current, next, message ?? "");
+        return progress(current2, next, message ?? "");
       }),
       onApprovalResolved: ({ requestId }) => {
         dispatch({ type: "approval/resolved", requestId });
@@ -38022,6 +38398,12 @@ function App2({
         dispatch({ type: "approval/request", request });
       })
     );
+    client.onQuestionRequest(
+      (request) => new Promise((resolve2) => {
+        questionResolver.current = resolve2;
+        dispatch({ type: "question/request", request });
+      })
+    );
     void registryRef.current.load().then((commands) => dispatch({ type: "commands", commands })).catch((error) => dispatch({ type: "error", message: String(error) }));
     refreshApprovals();
     return () => {
@@ -38038,23 +38420,24 @@ function App2({
     refreshCapabilities,
     refreshLsp
   ]);
-  (0, import_react39.useEffect)(() => {
+  (0, import_react40.useEffect)(() => {
     let cancelled = false;
     void client.checkUpdate(true).then((check) => {
       if (cancelled) return;
       setUpdateAvailable(Boolean(check.available) && !check.error);
-      setUpdate((current) => fromCheck(current, check));
+      setUpdate((current2) => fromCheck(current2, check));
     }).catch(() => {
     });
     return () => {
       cancelled = true;
     };
   }, [client]);
-  (0, import_react39.useEffect)(() => {
+  (0, import_react40.useEffect)(() => {
     const onData = (data) => {
-      if (state.pendingApproval || update.phase === "confirm" || update.phase === "running") return;
+      if (state.pendingQuestion || state.pendingApproval) return;
+      if (update.phase === "confirm" || update.phase === "running") return;
       if (["\x1BOP", "\x1B[11~", "\x1B[[A"].includes(data.toString())) {
-        setShowHelp((current) => !current);
+        setShowHelp((current2) => !current2);
         setFocus(INPUT_FOCUS);
       }
     };
@@ -38062,8 +38445,8 @@ function App2({
     return () => {
       stdin.off("data", onData);
     };
-  }, [stdin, state.pendingApproval, update.phase]);
-  (0, import_react39.useEffect)(() => {
+  }, [stdin, state.pendingApproval, state.pendingQuestion, update.phase]);
+  (0, import_react40.useEffect)(() => {
     if (update.phase !== "done") return;
     let cancelled = false;
     const timer = setTimeout(() => {
@@ -38073,7 +38456,7 @@ function App2({
           exit();
         }
       }).catch((error) => {
-        if (!cancelled) setUpdate((current) => progress(current, "failed", `restart failed: ${String(error)}`));
+        if (!cancelled) setUpdate((current2) => progress(current2, "failed", `restart failed: ${String(error)}`));
       });
     }, RESTART_DELAY_MS);
     return () => {
@@ -38081,56 +38464,56 @@ function App2({
       clearTimeout(timer);
     };
   }, [update.phase, client, onRestart, exit]);
-  (0, import_react39.useEffect)(() => {
+  (0, import_react40.useEffect)(() => {
     if (state.approvalQueue.length === 0) return;
     const timer = setInterval(refreshApprovals, APPROVAL_POLL_MS);
     return () => clearInterval(timer);
   }, [state.approvalQueue.length, refreshApprovals]);
   const lastMessage = state.messages[state.messages.length - 1];
-  (0, import_react39.useEffect)(() => {
+  (0, import_react40.useEffect)(() => {
     if (!voice.tts || !lastMessage) return;
     if (lastMessage.role !== "assistant" || lastMessage.streaming) return;
     if (spokenRef.current.has(lastMessage.id)) return;
     spokenRef.current.add(lastMessage.id);
-    setVoice((current) => ({ ...current, speaking: true }));
+    setVoice((current2) => ({ ...current2, speaking: true }));
     void speak(runtime, lastMessage.text).then((handle) => {
       speechRef.current = handle;
-      if (!handle) setVoice((current) => ({ ...current, speaking: false }));
+      if (!handle) setVoice((current2) => ({ ...current2, speaking: false }));
     });
   }, [voice.tts, lastMessage?.id, lastMessage?.streaming]);
   const compactionCount = state.compactions.length;
-  (0, import_react39.useEffect)(() => {
+  (0, import_react40.useEffect)(() => {
     const latest = state.compactions[compactionCount - 1];
     if (!latest) return;
     showToast(`compacted: ${formatTokens(latest.before)} \u2192 ${formatTokens(latest.after)}`);
   }, [compactionCount]);
-  (0, import_react39.useEffect)(() => {
+  (0, import_react40.useEffect)(() => {
     const timer = setInterval(refreshLsp, LSP_POLL_MS);
     return () => clearInterval(timer);
   }, [refreshLsp]);
   const diagnosticsVersion = Object.keys(state.diagnostics).length;
-  (0, import_react39.useEffect)(() => {
+  (0, import_react40.useEffect)(() => {
     if (diagnosticsVersion > 0) refreshLsp();
   }, [diagnosticsVersion, refreshLsp]);
-  (0, import_react39.useEffect)(() => {
+  (0, import_react40.useEffect)(() => {
     if (!state.turnActive) setRunningCommand(null);
   }, [state.turnActive]);
-  (0, import_react39.useEffect)(() => {
+  (0, import_react40.useEffect)(() => {
     if (state.approvalQueue.length === 0 && queueFocused) setQueueFocused(false);
   }, [state.approvalQueue.length, queueFocused]);
-  (0, import_react39.useEffect)(() => {
+  (0, import_react40.useEffect)(() => {
     const timer = setTimeout(() => setModeHintVisible(false), 6e3);
     return () => clearTimeout(timer);
   }, []);
-  (0, import_react39.useEffect)(() => () => {
+  (0, import_react40.useEffect)(() => () => {
     if (modeToastTimer.current) clearTimeout(modeToastTimer.current);
   }, []);
-  const showToast = (0, import_react39.useCallback)((text) => {
+  const showToast = (0, import_react40.useCallback)((text) => {
     setModeToast(text);
     if (modeToastTimer.current) clearTimeout(modeToastTimer.current);
     modeToastTimer.current = setTimeout(() => setModeToast(null), 2500);
   }, []);
-  const resumeSession = (0, import_react39.useCallback)(
+  const resumeSession = (0, import_react40.useCallback)(
     (target, into) => {
       if (into === "main") {
         if (resumingRef.current || state.turnActive) return;
@@ -38169,7 +38552,7 @@ function App2({
     },
     [client, state.turnActive, sessions, workdir]
   );
-  const changeMode = (0, import_react39.useCallback)(
+  const changeMode = (0, import_react40.useCallback)(
     (next) => {
       setModeHintVisible(false);
       dispatch({ type: "mode", mode: next });
@@ -38178,7 +38561,7 @@ function App2({
     },
     [client, sessionId, showToast]
   );
-  const completions = (0, import_react39.useMemo)(
+  const completions = (0, import_react40.useMemo)(
     () => draft.startsWith("/") ? registryRef.current.complete(draft) : [],
     [draft, state.commands]
   );
@@ -38187,7 +38570,7 @@ function App2({
   const daemon = useDaemonInfo(client);
   const sessionElapsedMs = useElapsed();
   const version = update.current || TUI_VERSION;
-  const hudSegments = (0, import_react39.useMemo)(
+  const hudSegments = (0, import_react40.useMemo)(
     () => buildHudSegments({
       status: state.status,
       version,
@@ -38239,7 +38622,7 @@ function App2({
       modeHintVisible
     ]
   );
-  const hudRows = (0, import_react39.useMemo)(
+  const hudRows = (0, import_react40.useMemo)(
     () => layoutHud(hudSegments, contentWidth),
     [hudSegments, contentWidth]
   );
@@ -38281,7 +38664,7 @@ function App2({
   const clock = useClock(state.turnActive || voice.recording);
   const knownAgents = useKnownAgents(client, void 0, agentRosterVersion);
   const activeTeam = knownAgents.find((agent) => agent.kind === "team")?.name;
-  const agentRows = (0, import_react39.useMemo)(
+  const agentRows = (0, import_react40.useMemo)(
     () => buildAgentRows({
       state,
       known: knownAgents.filter((agent) => agent.kind !== "team"),
@@ -38297,11 +38680,11 @@ function App2({
     [state.subagents, state.teamTasks, knownAgents, activeTeam, agentsExpanded, clock]
   );
   const agentRowCount = agentRows.length;
-  (0, import_react39.useEffect)(() => {
-    setFocus((current) => clampFocus(current, agentRowCount));
+  (0, import_react40.useEffect)(() => {
+    setFocus((current2) => clampFocus(current2, agentRowCount));
   }, [agentRowCount]);
   const openAgentEntry = openAgent ? state.subagents.find((agent) => agent.sessionId === openAgent.sessionId) : void 0;
-  const agentLines = (0, import_react39.useMemo)(
+  const agentLines = (0, import_react40.useMemo)(
     () => openAgent && state.children[openAgent.sessionId] ? transcriptLines(state.children[openAgent.sessionId], contentWidth - 4) : [],
     [openAgent, state.children, contentWidth]
   );
@@ -38320,11 +38703,11 @@ function App2({
     verbOffset: state.messages.length
   });
   const indicatorText = workingText === null ? null : `${workingText}${queuedSuffix}`;
-  const completableAgents = (0, import_react39.useMemo)(
+  const completableAgents = (0, import_react40.useMemo)(
     () => agentCandidates({ known: knownAgents, teamTasks: state.teamTasks, models: agentModels }),
     [knownAgents, state.teamTasks, agentModels]
   );
-  const delegation = (0, import_react39.useMemo)(
+  const delegation = (0, import_react40.useMemo)(
     () => delegationHint(draft, knownAgents.map((agent) => agent.name)),
     [draft, knownAgents]
   );
@@ -38341,6 +38724,7 @@ function App2({
       paletteCommands: draft.startsWith("/") ? completions.length : 0,
       approvalArgs: state.pendingApproval ? Object.keys(state.pendingApproval.args ?? {}).length : null,
       queueRequests: state.approvalQueue.length,
+      questionRows: state.pendingQuestion ? questionPromptRows(state.pendingQuestion) : 0,
       queueFocused,
       errorVisible: state.errors.length > 0,
       workingVisible: workingText !== null,
@@ -38355,45 +38739,45 @@ function App2({
     statusRows: layout.statusRows,
     bottomRows: layout.bottomRows
   });
-  const agentWindowRowsRef = (0, import_react39.useRef)(agentWindowRows);
+  const agentWindowRowsRef = (0, import_react40.useRef)(agentWindowRows);
   agentWindowRowsRef.current = agentWindowRows;
-  const agentViewport = (0, import_react39.useMemo)(
+  const agentViewport = (0, import_react40.useMemo)(
     () => sliceViewport(agentLines, agentWindowRows, agentScroll),
     [agentLines, agentWindowRows, agentScroll]
   );
-  const lines = (0, import_react39.useMemo)(
+  const lines = (0, import_react40.useMemo)(
     () => fullscreen ? transcriptLines(state, contentWidth, { expandedCall: expandedId }) : [],
     [fullscreen, state, contentWidth, expandedId]
   );
-  const viewport = (0, import_react39.useMemo)(
+  const viewport = (0, import_react40.useMemo)(
     () => sliceViewport(lines, layout.transcriptRows, scrollOffset),
     [lines, layout.transcriptRows, scrollOffset]
   );
-  const previousLineCount = (0, import_react39.useRef)(0);
-  (0, import_react39.useEffect)(() => {
+  const previousLineCount = (0, import_react40.useRef)(0);
+  (0, import_react40.useEffect)(() => {
     const grown = lines.length - previousLineCount.current;
     previousLineCount.current = lines.length;
     if (grown > 0) setScrollOffset((offset) => offset > 0 ? offset + grown : 0);
   }, [lines.length]);
-  (0, import_react39.useEffect)(() => {
+  (0, import_react40.useEffect)(() => {
     setScrollOffset((offset) => clampScroll(offset, lines.length, layout.transcriptRows));
   }, [layout.transcriptRows, lines.length]);
-  const scrollBy = (0, import_react39.useCallback)(
+  const scrollBy = (0, import_react40.useCallback)(
     (delta) => setScrollOffset((offset) => clampScroll(offset + delta, lines.length, layout.transcriptRows)),
     [lines.length, layout.transcriptRows]
   );
-  const takePaste = (0, import_react39.useCallback)(
+  const takePaste = (0, import_react40.useCallback)(
     (text) => {
       if (!probe) return false;
       const { attachments: found, rejected } = scanAttachments(text, probe);
       for (const entry of rejected) showToast(`${entry.path}: ${entry.reason}`);
       if (found.length === 0) return rejected.length > 0;
-      setAttachments((current) => addAttachments(current, found));
+      setAttachments((current2) => addAttachments(current2, found));
       return true;
     },
     [probe, showToast]
   );
-  const openModelPicker = (0, import_react39.useCallback)(() => {
+  const openModelPicker = (0, import_react40.useCallback)(() => {
     const settings = client.call("settings.get", { scope: "global" }).catch(() => ({ settings: {} }));
     const projectSettings = client.call("settings.get", { scope: "project", workdir }).catch(() => ({ settings: {} }));
     const discovered = client.call("provider.models", state.provider ? { vendor: state.provider } : {}).catch(() => ({ models: [], current: null }));
@@ -38415,7 +38799,7 @@ function App2({
       }
     );
   }, [client, workdir, state.provider, state.model]);
-  const chooseModel = (0, import_react39.useCallback)(
+  const chooseModel = (0, import_react40.useCallback)(
     (ref) => {
       void client.call("session.setModel", { sessionId, model: ref === INHERIT_REF ? null : ref }).then((result) => {
         const model2 = result?.model ? String(result.model) : null;
@@ -38433,7 +38817,7 @@ function App2({
     },
     [client, sessionId, showToast]
   );
-  const takeClipboard = (0, import_react39.useCallback)(() => {
+  const takeClipboard = (0, import_react40.useCallback)(() => {
     if (!captureClipboard || !probe) {
       showToast("no clipboard tool available");
       return;
@@ -38448,9 +38832,9 @@ function App2({
       showToast("the clipboard image could not be read");
       return;
     }
-    setAttachments((current) => addAttachments(current, found));
+    setAttachments((current2) => addAttachments(current2, found));
   }, [captureClipboard, probe, showToast]);
-  const runtime = (0, import_react39.useMemo)(
+  const runtime = (0, import_react40.useMemo)(
     () => ({
       audio: audioClient,
       local: localAudio,
@@ -38461,12 +38845,12 @@ function App2({
     }),
     [audioClient, localAudio, capabilities, sessionId, recordingPath, showToast]
   );
-  const toggleRecording = (0, import_react39.useCallback)(() => {
+  const toggleRecording = (0, import_react40.useCallback)(() => {
     if (recordingRef.current) {
       const handle = recordingRef.current;
       recordingRef.current = null;
-      setVoice((current) => {
-        const outcome2 = stopRecording(current, Date.now());
+      setVoice((current2) => {
+        const outcome2 = stopRecording(current2, Date.now());
         showToast(outcome2.message);
         return outcome2.state;
       });
@@ -38484,7 +38868,7 @@ function App2({
     }
     void beginRecording(runtime).then((handle) => {
       if (!handle) {
-        setVoice((current) => ({ ...current, recording: false, startedAt: null }));
+        setVoice((current2) => ({ ...current2, recording: false, startedAt: null }));
         return;
       }
       recordingRef.current = handle;
@@ -38492,18 +38876,18 @@ function App2({
     setVoice(outcome.state);
     showToast(outcome.message);
   }, [runtime, voice, capabilities, localAudio, recordingPath, showToast]);
-  const silence = (0, import_react39.useCallback)(() => {
+  const silence = (0, import_react40.useCallback)(() => {
     if (!speechRef.current) return;
     stopSpeaking(runtime, speechRef.current);
     speechRef.current = null;
-    setVoice((current) => ({ ...current, speaking: false }));
+    setVoice((current2) => ({ ...current2, speaking: false }));
   }, [runtime]);
-  const resumeMemory = (0, import_react39.useCallback)(() => {
+  const resumeMemory = (0, import_react40.useCallback)(() => {
     if (!lastSession) return;
     showToast(`resuming ${lastSession.sessionId.slice(0, 8)}`);
     resumeSession(lastSession.sessionId, "main");
   }, [lastSession, resumeSession, showToast]);
-  const openResumePicker = (0, import_react39.useCallback)(() => {
+  const openResumePicker = (0, import_react40.useCallback)(() => {
     showToast("loading saved sessions");
     void client.call("session.list", { includeClosed: true, workdir }).then((result) => {
       const choices = (Array.isArray(result?.sessions) ? result.sessions : []).filter((row) => row.sessionId !== activeSessionRef.current).map((row) => ({
@@ -38521,7 +38905,7 @@ function App2({
       (error) => dispatch({ type: "error", message: `could not list saved sessions: ${String(error)}` })
     );
   }, [client, workdir, showToast]);
-  const submit = (0, import_react39.useCallback)(
+  const submit = (0, import_react40.useCallback)(
     (text) => {
       if (resumingRef.current || update.phase === "running" || update.phase === "done") return;
       if (/^\/delegate(\s|$)/.test(text.trim())) {
@@ -38536,10 +38920,10 @@ function App2({
       }
       if (/^\/update\s*$/.test(text.trim())) {
         void client.checkUpdate(true).then((check) => {
-          setUpdate((current) => fromCheck(current, check));
+          setUpdate((current2) => fromCheck(current2, check));
           setUpdateAvailable(Boolean(check.available) && !check.error);
           if (check.error) {
-            setUpdate((current) => progress(current, "failed", check.error ?? "update check failed"));
+            setUpdate((current2) => progress(current2, "failed", check.error ?? "update check failed"));
           } else if (check.available) {
             setUpdate(confirm);
           } else {
@@ -38547,7 +38931,7 @@ function App2({
             showToast(`already up to date${check.current ? ` (${check.current})` : ""}`);
           }
         }).catch((error) => {
-          setUpdate((current) => progress(current, "failed", String(error)));
+          setUpdate((current2) => progress(current2, "failed", String(error)));
         });
         return;
       }
@@ -38604,8 +38988,8 @@ function App2({
         return;
       }
       if (/^\/voice\s*$/.test(text.trim())) {
-        setVoice((current) => {
-          const outcome = toggleVoiceInput(current, capabilities, {
+        setVoice((current2) => {
+          const outcome = toggleVoiceInput(current2, capabilities, {
             localRecorder: Boolean(localAudio) && Boolean(recordingPath)
           });
           showToast(outcome.message);
@@ -38619,8 +39003,8 @@ function App2({
       }
       const tts = /^\/tts(?:\s+(on|off))?\s*$/.exec(text.trim());
       if (tts) {
-        setVoice((current) => {
-          const outcome = setTts(current, capabilities, tts[1] !== "off", {
+        setVoice((current2) => {
+          const outcome = setTts(current2, capabilities, tts[1] !== "off", {
             localPlayer: Boolean(localAudio)
           });
           showToast(outcome.message);
@@ -38692,30 +39076,30 @@ function App2({
       toggleRecording
     ]
   );
-  const answerUpdate = (0, import_react39.useCallback)(
+  const answerUpdate = (0, import_react40.useCallback)(
     (accepted) => {
       if (!accepted) {
         setUpdate(cancel);
         return;
       }
       if (state.turnActive) {
-        setUpdate((current) => progress(current, "failed", "finish or interrupt the current turn before updating"));
+        setUpdate((current2) => progress(current2, "failed", "finish or interrupt the current turn before updating"));
         return;
       }
-      setUpdate((current) => progress(current, "started", "starting the update\u2026"));
+      setUpdate((current2) => progress(current2, "started", "starting the update\u2026"));
       void client.startUpdate().then((result) => {
         if (!result.started) {
           setUpdate(
-            (current) => progress(current, "failed", result.error ?? "the update did not start")
+            (current2) => progress(current2, "failed", result.error ?? "the update did not start")
           );
         }
       }).catch(
-        (error) => setUpdate((current) => progress(current, "failed", String(error)))
+        (error) => setUpdate((current2) => progress(current2, "failed", String(error)))
       );
     },
     [client, state.turnActive]
   );
-  const decideApproval = (0, import_react39.useCallback)(
+  const decideApproval = (0, import_react40.useCallback)(
     (decision, scope) => {
       const resolve2 = approvalResolver.current;
       const requestId = state.pendingApproval?.requestId;
@@ -38725,7 +39109,17 @@ function App2({
     },
     [state.pendingApproval]
   );
-  const respondQueued = (0, import_react39.useCallback)(
+  const answerQuestion = (0, import_react40.useCallback)(
+    (answer) => {
+      const resolve2 = questionResolver.current;
+      const requestId = state.pendingQuestion?.requestId;
+      questionResolver.current = null;
+      if (requestId) dispatch({ type: "question/resolved", requestId });
+      resolve2?.({ selected: answer.selected, text: answer.text });
+    },
+    [state.pendingQuestion]
+  );
+  const respondQueued = (0, import_react40.useCallback)(
     (requestId, decision, scope) => {
       dispatch({ type: "approval/resolved", requestId });
       void client.respondApproval(requestId, decision, scope).catch((error) => dispatch({ type: "error", message: String(error) }));
@@ -38737,7 +39131,7 @@ function App2({
       exit();
       return;
     }
-    if (state.pendingApproval || update.phase === "confirm" || modelPicker) {
+    if (state.pendingQuestion || state.pendingApproval || update.phase === "confirm" || modelPicker) {
       return;
     }
     if (showHelp) {
@@ -38780,11 +39174,11 @@ function App2({
         return;
       }
       if (key.upArrow) {
-        setFocus((current) => focusUp(current));
+        setFocus((current2) => focusUp(current2));
         return;
       }
       if (key.downArrow) {
-        setFocus((current) => focusDown(current, agentRows.length));
+        setFocus((current2) => focusDown(current2, agentRows.length));
         return;
       }
       if (key.return) {
@@ -38809,7 +39203,7 @@ function App2({
     }
     if (key.ctrl && input === "o") {
       const newest = [...state.timeline].reverse().find((item) => item.kind === "tool" || item.kind === "diff");
-      setExpandedId((current) => current ? null : newest?.id ?? null);
+      setExpandedId((current2) => current2 ? null : newest?.id ?? null);
       return;
     }
     if (fullscreen) {
@@ -38838,7 +39232,7 @@ function App2({
       changeMode(state.mode === "plan" ? "accept" : "plan");
     }
   });
-  const openAgentRow = (0, import_react39.useCallback)(
+  const openAgentRow = (0, import_react40.useCallback)(
     (index) => {
       const row = agentRows[index];
       if (!row) return;
@@ -38862,23 +39256,23 @@ function App2({
     },
     [agentRows, state.subagents, state.children, resumeSession, showToast]
   );
-  const closeAgent = (0, import_react39.useCallback)(() => {
+  const closeAgent = (0, import_react40.useCallback)(() => {
     setOpenAgent(null);
     setFocus(INPUT_FOCUS);
   }, []);
   const approvalActive = state.pendingApproval !== null;
-  const bottomNode = /* @__PURE__ */ (0, import_jsx_runtime26.jsxs)(import_jsx_runtime26.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(WorkingIndicator, { line: indicatorText }),
-    delegation ? /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Text, { color: delegation.known ? "magenta" : "yellow", wrap: "truncate-end", children: `[${delegationLabel(delegation)}]` }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(QueuedPrompts, { queued: state.queued, width: contentWidth }),
-    /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(AttachmentChips, { attachments, width: contentWidth }),
-    modeToast && modeToast.length > TOAST_INLINE_MAX ? /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Text, { color: "cyan", wrap: "truncate-end", children: modeToast }) : null,
-    modelPicker ? /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(
+  const bottomNode = /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)(import_jsx_runtime27.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(WorkingIndicator, { line: indicatorText }),
+    delegation ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Text, { color: delegation.known ? "magenta" : "yellow", wrap: "truncate-end", children: `[${delegationLabel(delegation)}]` }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(QueuedPrompts, { queued: state.queued, width: contentWidth }),
+    /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(AttachmentChips, { attachments, width: contentWidth }),
+    modeToast && modeToast.length > TOAST_INLINE_MAX ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Text, { color: "cyan", wrap: "truncate-end", children: modeToast }) : null,
+    modelPicker ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(
       ModelPicker,
       {
         options: modelPicker,
         width: contentWidth,
-        isActive: state.pendingApproval === null,
+        isActive: state.pendingApproval === null && state.pendingQuestion === null,
         onCancel: () => setModelPicker(null),
         onChoose: (option) => {
           setModelPicker(null);
@@ -38886,27 +39280,27 @@ function App2({
         }
       }
     ) : null,
-    update.phase === "confirm" ? /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(
+    update.phase === "confirm" ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(
       ConfirmMenu,
       {
         options: UPDATE_OPTIONS,
         initialIndex: 1,
         escapeValue: false,
         onChoose: answerUpdate,
-        isActive: state.pendingApproval === null
+        isActive: state.pendingApproval === null && state.pendingQuestion === null
       }
     ) : null,
-    state.errors.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Text, { color: "red", wrap: "truncate-end", children: state.errors[state.errors.length - 1] }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(
+    state.errors.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Text, { color: "red", wrap: "truncate-end", children: state.errors[state.errors.length - 1] }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(
       ApprovalQueue,
       {
         requests: state.approvalQueue,
         onRespond: respondQueued,
-        isActive: queueFocused && state.pendingApproval === null,
+        isActive: queueFocused && state.pendingApproval === null && state.pendingQuestion === null,
         onBlur: () => setQueueFocused(false)
       }
     ),
-    state.pendingApproval ? /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(ApprovalPrompt, { request: state.pendingApproval, onDecide: decideApproval }) : modePicker ? /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(
+    state.pendingQuestion ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(QuestionPrompt, { request: state.pendingQuestion, onAnswer: answerQuestion }) : state.pendingApproval ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(ApprovalPrompt, { request: state.pendingApproval, onDecide: decideApproval }) : modePicker ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(
       ConfirmMenu,
       {
         options: ["accept", "auto", "plan"].map((value) => ({ label: `${value} mode`, value })),
@@ -38918,7 +39312,7 @@ function App2({
           if (value) changeMode(value);
         }
       }
-    ) : resumeChoices ? /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(
+    ) : resumeChoices ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(
       ConfirmMenu,
       {
         options: [
@@ -38934,12 +39328,12 @@ function App2({
           if (target) resumeSession(target, "main");
         }
       }
-    ) : /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(
+    ) : /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(
       Chat,
       {
         onSubmit: submit,
         initialHistory: pastPrompts,
-        onFocusDown: () => setFocus((current) => focusDown(current, agentRows.length)),
+        onFocusDown: () => setFocus((current2) => focusDown(current2, agentRows.length)),
         onQuickUpdate: update.phase === "available" ? () => setUpdate(confirm) : void 0,
         onQuickResume: lastSession && state.messages.length === 0 ? resumeMemory : void 0,
         onPaste: takePaste,
@@ -38974,9 +39368,9 @@ function App2({
     ).length,
     agents: state.subagents.filter((agent) => agent.status === "running").length
   });
-  const statusNode = /* @__PURE__ */ (0, import_jsx_runtime26.jsxs)(import_jsx_runtime26.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(SectionRule, { width: contentWidth, color: "green" }),
-    /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(
+  const statusNode = /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)(import_jsx_runtime27.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(SectionRule, { width: contentWidth, color: "green" }),
+    /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(
       Text,
       {
         color: summary.color,
@@ -38986,12 +39380,12 @@ function App2({
         children: `${summary.text}${focus.zone === "footer" ? " \xB7 Enter to choose mode" : ""}`
       }
     ),
-    shellsOpen ? /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(ShellList, { calls: state.toolCalls, now: clock, width: contentWidth }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(SectionRule, { width: contentWidth }),
-    /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(StatusHud, { rows: hudRows, width: contentWidth }),
-    warning ? /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Text, { color: warning.color, bold: warning.bold, wrap: "truncate-end", children: warning.text }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(SectionRule, { width: contentWidth, label: activeTeam ? `Team: ${activeTeam}` : void 0 }),
-    /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(
+    shellsOpen ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(ShellList, { calls: state.toolCalls, now: clock, width: contentWidth }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(SectionRule, { width: contentWidth }),
+    /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(StatusHud, { rows: hudRows, width: contentWidth }),
+    warning ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Text, { color: warning.color, bold: warning.bold, wrap: "truncate-end", children: warning.text }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(SectionRule, { width: contentWidth, label: activeTeam ? `Team: ${activeTeam}` : void 0 }),
+    /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(
       AgentPanel,
       {
         rows: agentRows,
@@ -39000,18 +39394,18 @@ function App2({
       }
     )
   ] });
-  const helpNode = showHelp ? /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(
+  const helpNode = showHelp ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(
     HelpPanel,
     {
       commands: state.commands,
       width: contentWidth,
       height: fullscreen ? layout.transcriptRows : Math.max(4, usableRows(terminal.rows) - layout.bottomRows - layout.statusRows - (bannerText(update) ? 3 : 0)),
-      isActive: state.pendingApproval === null && update.phase !== "confirm",
+      isActive: state.pendingApproval === null && state.pendingQuestion === null && update.phase !== "confirm",
       runningSubagents: state.subagents.filter((agent) => agent.status === "running").length
     }
   ) : null;
   if (fullscreen) {
-    return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(
+    return /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(
       FullscreenLayout,
       {
         rows: layout.rows,
@@ -39029,13 +39423,13 @@ function App2({
     );
   }
   const live = state.timeline.slice(staticCursor);
-  return /* @__PURE__ */ (0, import_jsx_runtime26.jsxs)(Box_default, { flexDirection: "column", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Static, { items: staticItems, children: (entry) => /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)(Box_default, { flexDirection: "column", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Static, { items: staticItems, children: (entry) => /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(
       Box_default,
       {
         flexDirection: "column",
         paddingX: entry.kind === "launch" ? 0 : 1,
-        children: entry.kind === "launch" ? /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(
+        children: entry.kind === "launch" ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(
           LaunchBanner,
           {
             width: terminal.columns,
@@ -39047,7 +39441,7 @@ function App2({
             model: state.model,
             lastSession
           }
-        ) : entry.kind === "tools" ? /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(ToolSummary, { calls: entry.calls }) : entry.kind === "note" ? /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Text, { color: entry.ok ? "green" : "red", dimColor: true, children: entry.text }) }) : /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(
+        ) : entry.kind === "tools" ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(ToolSummary, { calls: entry.calls }) : entry.kind === "note" ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Text, { color: entry.ok ? "green" : "red", dimColor: true, children: entry.text }) }) : /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(
           TimelineEntry,
           {
             state,
@@ -39059,8 +39453,8 @@ function App2({
       },
       entry.key
     ) }),
-    /* @__PURE__ */ (0, import_jsx_runtime26.jsxs)(Box_default, { flexDirection: "column", paddingX: 1, children: [
-      showHelp ? null : openAgent ? /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)(Box_default, { flexDirection: "column", paddingX: 1, children: [
+      showHelp ? null : openAgent ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(
         AgentTranscript,
         {
           name: openAgent.name,
@@ -39072,7 +39466,7 @@ function App2({
           scrollIndicator: scrollIndicator(agentViewport),
           empty: agentLines.length === 0
         }
-      ) : live.map((item) => /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(
+      ) : live.map((item) => /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(
         TimelineEntry,
         {
           state,
@@ -39082,7 +39476,7 @@ function App2({
         },
         `${item.kind}-${item.id}`
       )),
-      /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(UpdateBanner, { update }),
+      /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(UpdateBanner, { update }),
       helpNode,
       bottomNode,
       statusNode
@@ -39311,11 +39705,11 @@ function installAltScreen({
   };
 }
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/sdk/dist/protocol.js
+// ../sdk/dist/protocol.js
 var PROTOCOL_VERSION = "1.5.0";
 var WS_PATH = "/ws";
 
-// ../../../../../../../mnt/data/work/mediagen/snowpea/sdk/dist/client.js
+// ../sdk/dist/client.js
 init_wrapper();
 var RpcError = class extends Error {
   rpcCode;
@@ -39745,6 +40139,8 @@ var TuiClient = class {
   lastSeq = /* @__PURE__ */ new Map();
   listeners = {};
   status = "connecting";
+  /** True once `agent.replyLanguage` named a language; `auto` leaves it false. */
+  languagePinned = false;
   /**
    * Highest `seq` observed for a session, or 0 when nothing arrived yet.
    * Prefers the SDK's own high-water mark, which also counts resume replays.
@@ -39781,18 +40177,49 @@ var TuiClient = class {
     client.on("approval.resolved", (params) => this.listeners.onApprovalResolved?.(params));
     client.on("commands.changed", () => this.listeners.onCommandsChanged?.());
     client.on("approval.pending", (params) => this.listeners.onApprovalPending?.(params));
+    client.on("question.resolved", (params) => this.listeners.onQuestionResolved?.(params));
     client.on("system.updateProgress", (params) => this.listeners.onUpdateProgress?.(params));
-    client.on("settings.changed", (params) => this.listeners.onSettingsChanged?.(params ?? {}));
+    client.on("settings.changed", (params) => {
+      void this.loadUiLanguage();
+      this.listeners.onSettingsChanged?.(params ?? {});
+    });
     client.on(
       "disconnected",
       (params) => this.setStatus(params.willRetry ? "reconnecting" : "closed")
     );
     client.on("reconnected", () => this.setStatus("connected"));
     this.setStatus("connected");
+    await this.loadUiLanguage();
+  }
+  /**
+   * Draw the harness's own wording in the user's language.
+   *
+   * `agent.replyLanguage` is the authority when it names one; on `auto` the
+   * language is not known until the user writes something, and
+   * :meth:`prompt` fills it in from what they typed. A daemon that cannot
+   * answer `settings.get` leaves the chrome in English, which is what it was
+   * before this existed.
+   */
+  async loadUiLanguage() {
+    try {
+      const settings = await this.call("settings.get", { scope: "global" });
+      const configured = String(settings?.settings?.agent?.replyLanguage ?? "auto").trim();
+      if (configured && configured.toLowerCase() !== "auto") {
+        setUiLanguage(configured);
+        this.languagePinned = true;
+      } else {
+        this.languagePinned = false;
+      }
+    } catch {
+    }
   }
   /** Bind the interactive server→client approval prompt. */
   onApprovalRequest(handler) {
     this.require().onRequest("approval.request", handler);
+  }
+  /** Bind the `ask_user` picker; the daemon blocks on the answer. */
+  onQuestionRequest(handler) {
+    this.require().onRequest("question.request", handler);
   }
   /**
    * Record the seq and forward. Replayed events at or below the high-water
@@ -39842,6 +40269,7 @@ var TuiClient = class {
    * nothing.
    */
   prompt(sessionId, text, attachments = []) {
+    if (!this.languagePinned && text.trim().length > 0) setUiLanguage(detectLanguage(text));
     return this.call("session.prompt", {
       sessionId,
       text,
@@ -39859,6 +40287,9 @@ var TuiClient = class {
   }
   respondApproval(requestId, decision, scope) {
     return this.call("approval.respond", { requestId, decision, scope });
+  }
+  respondQuestion(requestId, selected, text) {
+    return this.call("question.respond", { requestId, selected, text });
   }
   /** `system.checkUpdate`; the daemon caches the answer for 24h. */
   checkUpdate(force = false) {
@@ -39884,7 +40315,7 @@ var TuiClient = class {
 };
 
 // src/index.tsx
-var import_jsx_runtime27 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime28 = __toESM(require_jsx_runtime(), 1);
 var CLIENT_VERSION = TUI_VERSION;
 var MODES = ["plan", "accept", "auto"];
 var BOOLEAN_FLAGS = /* @__PURE__ */ new Set(["fullscreen", "no-fullscreen", "inline"]);
@@ -40076,7 +40507,7 @@ async function main(argv = process.argv.slice(2)) {
   const recordingPath = join(dir, "tmp", `recording-${Date.now()}.wav`);
   let restart = false;
   const instance = render_default(
-    /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(
       App2,
       {
         client,
