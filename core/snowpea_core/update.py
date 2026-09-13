@@ -373,8 +373,20 @@ async def _check_git_branch(paths: Paths, install: GitInstall, force: bool) -> d
                 if status not in ("ahead", "behind", "identical"):
                     raise ValueError("branch history diverged; refusing an automatic replacement")
                 available = status == "ahead"
+        # A branch install tracks commits, but the prompt should still name a
+        # newer release version when the branch contains one.  Otherwise an
+        # old daemon misleadingly offers "v0.1.2+newsha from v0.1.2+oldsha"
+        # even when that new commit is the v0.1.3 release.  Tag discovery is
+        # presentation-only: a failure must not invalidate the ancestry check.
+        display_version = __version__
+        try:
+            tagged_version, _tag = await _git_latest(client)
+            if tagged_version and is_newer(tagged_version, display_version):
+                display_version = tagged_version
+        except Exception:  # noqa: BLE001 - commit updates work without tags
+            log.debug("could not resolve a display version for git update", exc_info=True)
         answer = _answer(
-            latest=f"{__version__}+{latest[:8]}",
+            latest=f"{display_version}+{latest[:8]}",
             channel="git",
             source=f"git+{REPO_URL}@{latest}",
             release_url=f"{REPO_URL}/commit/{latest}",
