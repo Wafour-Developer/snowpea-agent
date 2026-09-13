@@ -11,7 +11,8 @@ id                           tag                        needs
 ``ddgs``                     free · no key              nothing
 ``firecrawl``                paid · key optional        nothing (keyless, rate-limited)
 ``brave_free``               free · key required        ``BRAVE_API_KEY``
-``exa_free`` / ``exa``       free|paid · key required   ``EXA_API_KEY``
+``exa_free``                 free · no key              hosted Exa MCP
+``exa``                      paid · key required         ``EXA_API_KEY``
 ``keenable_free``/``keenable`` free|paid · key required ``KEENABLE_API_KEY``
 ``parallel_free``/``parallel`` free|paid · key required ``PARALLEL_API_KEY``
 ``tavily``                   free · key required        ``TAVILY_API_KEY``
@@ -20,11 +21,9 @@ id                           tag                        needs
 ``firecrawl_selfhost``       free · self-hosted         ``FIRECRAWL_URL``
 ===========================  =========================  ===================
 
-The ``*_free`` ids used to be tagged ``no key``, which made ``web_search``
-silently fall through to ddgs while the user believed their choice was in use.
-They are free *tiers* of keyed products — the endpoints answer ``402`` (Exa) or
-``401`` (Parallel, Keenable, Tavily) without credentials — so they are tagged
-``key required`` and :meth:`available` is false until a key is configured.
+The ``exa_free`` id is the anonymous, rate-limited hosted Exa MCP.  The other
+product ``*_free`` ids are free *tiers* of keyed APIs, so their catalog tags
+still say ``key required`` rather than silently falling through to ddgs.
 """
 
 from __future__ import annotations
@@ -40,6 +39,7 @@ from snowpea_core.tools.search_providers.base import (
 from snowpea_core.tools.search_providers.providers import (
     BraveFreeProvider,
     DdgsProvider,
+    ExaMcpProvider,
     ExaProvider,
     FirecrawlProvider,
     KeenableProvider,
@@ -69,10 +69,11 @@ PROVIDER_ORDER: tuple[str, ...] = (
 
 #: Providers ``web_search`` may fall back onto, in order.  Each is still
 #: gated by :meth:`SearchProvider.available`, so the ones that need a key or a
-#: URL are only reached once they have one; ``ddgs`` and the keyless Firecrawl
-#: cloud endpoint are the two that always answer.
+#: URL are only reached once they have one; ``ddgs``, hosted Exa MCP and the
+#: keyless Firecrawl cloud endpoint can answer without local credentials.
 FREE_CHAIN: tuple[str, ...] = (
     "ddgs",
+    "exa_free",
     "searxng",
     "brave_free",
     "tavily",
@@ -85,14 +86,13 @@ def _build() -> dict[str, SearchProvider]:
     providers: list[SearchProvider] = [
         DdgsProvider(),
         BraveFreeProvider(),
-        ExaProvider(
+        ExaMcpProvider(
             SearchProviderMeta(
                 id="exa_free",
-                label="Exa (free tier)",
+                label="Exa Free (hosted MCP)",
                 tier="free",
-                key="key required",
-                env=("EXA_API_KEY",),
-                endpoint="https://api.exa.ai/search",
+                key="no key",
+                endpoint="https://mcp.exa.ai/mcp",
             )
         ),
         KeenableProvider(

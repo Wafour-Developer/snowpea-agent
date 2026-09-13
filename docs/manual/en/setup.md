@@ -131,7 +131,8 @@ snowpea setup search
 | `ddgs` | free, no key | nothing |
 | `firecrawl` | paid, key optional | nothing; the cloud search endpoint answers keyless but rate-limited |
 | `brave_free` | free, key required | `BRAVE_API_KEY` |
-| `exa_free`, `exa` | key required | `EXA_API_KEY` |
+| `exa_free` | no key | Anonymous, rate-limited hosted MCP at `https://mcp.exa.ai/mcp` |
+| `exa` | key required | `EXA_API_KEY` (direct REST API) |
 | `keenable_free`, `keenable` | key required | `KEENABLE_API_KEY` |
 | `parallel_free`, `parallel` | key required | `PARALLEL_API_KEY` |
 | `tavily` | free, key required | `TAVILY_API_KEY` |
@@ -141,7 +142,9 @@ snowpea setup search
 
 Choosing a key-required provider in `snowpea setup search` prompts for the key (masked) and stores it under `search.credentials.<id>.api_key`; leaving it empty prints a warning, because a provider without its key cannot answer.
 
-When the configured provider cannot run, `web_search` falls back and says so rather than pretending. The tool output starts with `[search via ddgs — fallback from exa_free: exa_free needs an API key ($EXA_API_KEY)]`, the session gets one `error{code:"search_provider_unavailable"}` event, and the assistant is instructed to repeat the reason to you.
+`exa_free` uses Exa's official hosted MCP tools (`web_search_exa` and `web_fetch_exa`) anonymously; no API key prompt is shown. Anonymous rate limits still apply. Choose `exa` instead when you want the direct API with `EXA_API_KEY` and paid account limits.
+
+When the configured provider cannot run, `web_search` falls back and says so rather than pretending. The session gets one `error{code:"search_provider_unavailable"}` event, and the assistant is instructed to repeat the reason to you.
 
 Check which provider actually answers:
 

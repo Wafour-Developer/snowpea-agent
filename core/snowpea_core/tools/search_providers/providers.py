@@ -3,9 +3,9 @@
 Every id in the catalog has a real HTTP client here — there is no "listed but
 not wired up" tier any more.  What separates them is what each one *needs*:
 
-* keyless          ``ddgs``, ``firecrawl`` (its cloud ``/v1/search`` answers
-                   without credentials, rate-limited)
-* an API key       ``brave_free``, ``tavily``, ``exa``/``exa_free``,
+* keyless          ``ddgs``, ``exa_free`` (hosted MCP), ``firecrawl`` (its
+                   cloud ``/v1/search`` answers without credentials, rate-limited)
+* an API key       ``brave_free``, ``tavily``, ``exa``,
                    ``keenable``/``keenable_free``, ``parallel``/``parallel_free``,
                    ``xai_grok``
 * a base URL       ``searxng``, ``firecrawl_selfhost``
@@ -15,16 +15,15 @@ if called anyway, raises :class:`SearchProviderUnavailable` with the name of
 the setting and the environment variable that would fix it.  ``web_search``
 turns that sentence into the reason it shows the user.
 
-The "free" ids that need a key (``exa_free``, ``keenable_free``,
-``parallel_free``) are free *tiers* of a keyed product, not keyless endpoints:
-``POST https://api.exa.ai/search`` answers ``402``, Parallel ``401 no API key``
-and Keenable ``401 missing authentication`` when asked without credentials.
-They are tagged ``free · key required`` for exactly that reason.
+``exa_free`` uses Exa's hosted Streamable HTTP MCP endpoint, which officially
+allows anonymous access with rate limits.  The paid ``exa`` id continues to use
+the direct REST API and an API key.
 """
 
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import Any
 
 from snowpea_core.tools import http_util
@@ -271,12 +270,7 @@ class TavilyProvider(_KeyedProvider):
 
 
 class ExaProvider(_KeyedProvider):
-    """Exa.
-
-    There is no keyless Exa: the documented endpoint answers ``402 Payment
-    required`` without an ``x-api-key``, so ``exa_free`` is the free *tier* of
-    a keyed product and carries the same client as ``exa``.
-    """
+    """Exa's direct paid REST API; the free id uses the hosted MCP instead."""
 
     def __init__(self, meta: SearchProviderMeta, settings: Any = None) -> None:
         super().__init__(settings)
@@ -309,6 +303,62 @@ class ExaProvider(_KeyedProvider):
             snippet_keys=("text", "snippet", "summary", "highlights"),
             limit=limit,
         )
+
+
+class ExaMcpProvider(_Provider):
+    """Anonymous, rate-limited Exa search through the official hosted MCP."""
+
+    def __init__(self, meta: SearchProviderMeta, settings: Any = None) -> None:
+        super().__init__(settings)
+        self.meta = meta
+
+    async def _call(self, tool: str, arguments: dict[str, Any]) -> str:
+        try:
+            from mcp import ClientSession
+            from mcp.client.streamable_http import streamable_http_client
+
+            async with asyncio.timeout(REQUEST_TIMEOUT):
+                async with streamable_http_client(self.meta.endpoint) as streams:
+                    async with ClientSession(*streams[:2]) as session:
+                        await session.initialize()
+                        result = await session.call_tool(tool, arguments)
+        except Exception as exc:  # noqa: BLE001 - remote MCP failures trigger fallback
+            raise SearchProviderUnavailable(f"Exa MCP unavailable: {exc}") from exc
+        if getattr(result, "isError", False):
+            raise SearchProviderUnavailable("Exa MCP reported an error")
+        return "\n".join(
+            str(getattr(item, "text", ""))
+            for item in getattr(result, "content", [])
+            if getattr(item, "type", "") == "text"
+        ).strip()
+
+    async def search(self, query: str, *, limit: int) -> list[SearchHit]:
+        text = await self._call("web_search_exa", {"query": query, "numResults": limit})
+        hits: list[SearchHit] = []
+        for block in re.split(r"\n\s*---\s*\n", text):
+            title = re.search(r"^Title:\s*(.+)$", block, re.MULTILINE)
+            url = re.search(r"^URL:\s*(\S+)$", block, re.MULTILINE)
+            if url is None:
+                continue
+            metadata = {"Title", "URL", "Published", "Author", "Highlights"}
+            snippet = "\n".join(
+                line for line in block.splitlines()
+                if line.strip() and line.split(":", 1)[0] not in metadata
+            ).strip()
+            hits.append(
+                SearchHit(
+                    title=title.group(1).strip() if title else url.group(1),
+                    url=url.group(1),
+                    snippet=snippet,
+                )
+            )
+            if len(hits) >= limit:
+                break
+        return hits
+
+    async def extract(self, url: str) -> str | None:
+        text = await self._call("web_fetch_exa", {"urls": [url]})
+        return text or None
 
 
 class KeenableProvider(_KeyedProvider):
@@ -570,6 +620,7 @@ __all__ = [
     "REQUEST_TIMEOUT",
     "BraveFreeProvider",
     "DdgsProvider",
+    "ExaMcpProvider",
     "ExaProvider",
     "FirecrawlProvider",
     "KeenableProvider",

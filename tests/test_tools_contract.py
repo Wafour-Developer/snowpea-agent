@@ -306,7 +306,7 @@ def test_provider_registry_order_matches_the_contract() -> None:
 def test_provider_tags_match_the_contract() -> None:
     """Tags say what a provider really needs (CORE-search-fix).
 
-    ``ddgs`` is the only keyless id in the catalog; the Firecrawl cloud search
+    ``ddgs`` and Exa's hosted MCP are keyless; the Firecrawl cloud search
     endpoint answers without credentials too, which is ``key optional``, not
     ``no key``.  Everything else needs a key or a URL.
     """
@@ -316,13 +316,14 @@ def test_provider_tags_match_the_contract() -> None:
     assert tags["tavily"] == ("free", "key required")
     assert tags["searxng"] == ("free", "self-hosted")
     assert tags["firecrawl_selfhost"] == ("free", "self-hosted")
-    for free_tier in ("exa_free", "keenable_free", "parallel_free"):
+    assert tags["exa_free"] == ("free", "no key")
+    for free_tier in ("keenable_free", "parallel_free"):
         assert tags[free_tier] == ("free", "key required"), free_tier
     for paid in ("exa", "keenable", "parallel", "xai_grok"):
         assert tags[paid] == ("paid", "key required"), paid
     assert tags["firecrawl"] == ("paid", "key optional")
     assert search_providers.get("ddgs").meta.default is True
-    assert [m.id for m in search_providers.metas() if m.key == "no key"] == ["ddgs"]
+    assert [m.id for m in search_providers.metas() if m.key == "no key"] == ["ddgs", "exa_free"]
 
 
 def test_free_chain_starts_with_the_preferred_provider() -> None:

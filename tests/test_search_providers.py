@@ -31,7 +31,6 @@ from snowpea_core.tools.search_providers.base import SearchHit, SearchProviderUn
 #: Ids that must refuse to run until an API key is configured.
 KEY_REQUIRED = (
     "brave_free",
-    "exa_free",
     "keenable_free",
     "parallel_free",
     "tavily",
@@ -98,9 +97,9 @@ def fake_ddgs(monkeypatch: pytest.MonkeyPatch, title: str = "From ddgs") -> None
 # ---------------------------------------------------------------------------
 
 
-def test_only_ddgs_is_tagged_keyless() -> None:
+def test_keyless_options_include_exa_hosted_mcp() -> None:
     keyless = [meta.id for meta in search_providers.metas() if meta.key == "no key"]
-    assert keyless == ["ddgs"]
+    assert keyless == ["ddgs", "exa_free"]
 
 
 @pytest.mark.parametrize("provider_id", KEY_REQUIRED)
@@ -120,13 +119,22 @@ def test_self_hosted_providers_are_unavailable_without_a_url(provider_id: str) -
     assert provider.available(Settings()) is False
 
 
-async def test_exa_free_without_a_key_refuses_rather_than_pretending() -> None:
+async def test_exa_free_uses_the_anonymous_hosted_mcp(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     provider = search_providers.get("exa_free")
     assert provider is not None
-    provider.bind(Settings())
-    with pytest.raises(SearchProviderUnavailable) as excinfo:
-        await provider.search("anything", limit=3)
-    assert "EXA_API_KEY" in str(excinfo.value)
+    assert provider.meta.endpoint == "https://mcp.exa.ai/mcp"
+    assert provider.available(Settings()) is True
+
+    async def fake_call(tool: str, arguments: dict[str, Any]) -> str:
+        assert tool == "web_search_exa"
+        assert arguments == {"query": "anything", "numResults": 1}
+        return "Title: MCP hit\nURL: https://example.com/mcp\nHighlights:\nbody"
+
+    monkeypatch.setattr(provider, "_call", fake_call)
+    hits = await provider.search("anything", limit=1)
+    assert hits == [SearchHit("MCP hit", "https://example.com/mcp", "body")]
 
 
 def test_every_catalog_id_has_a_real_client() -> None:
@@ -149,14 +157,19 @@ async def test_fallback_is_named_in_the_output_and_the_result(
     ctx.core.settings.search.provider = "exa_free"
     fake_ddgs(monkeypatch)
 
+    async def refuse(query: str, *, limit: int) -> list[SearchHit]:
+        raise SearchProviderUnavailable("anonymous MCP rate limit")
+
+    monkeypatch.setattr(search_providers.get("exa_free"), "search", refuse)
+
     result = await run_search(ctx, query="snowpea agent github")
 
     assert result.ok, result.error
     assert result.output.startswith("[search via ddgs — fallback from exa_free:")
-    assert "EXA_API_KEY" in result.output.splitlines()[0]
+    assert "anonymous MCP rate limit" in result.output.splitlines()[0]
     assert result.meta["provider"] == "ddgs"
     assert result.meta["fallback_from"] == "exa_free"
-    assert "API key" in result.meta["reason"]
+    assert "rate limit" in result.meta["reason"]
 
 
 async def test_the_fallback_event_is_emitted_once_per_session(
@@ -164,6 +177,11 @@ async def test_the_fallback_event_is_emitted_once_per_session(
 ) -> None:
     ctx.core.settings.search.provider = "exa_free"
     fake_ddgs(monkeypatch)
+
+    async def refuse(query: str, *, limit: int) -> list[SearchHit]:
+        raise SearchProviderUnavailable("anonymous MCP rate limit")
+
+    monkeypatch.setattr(search_providers.get("exa_free"), "search", refuse)
 
     await run_search(ctx, query="one")
     await run_search(ctx, query="two")
@@ -204,15 +222,15 @@ async def test_a_configured_exa_key_makes_the_exa_client_answer(
         )
 
     monkeypatch.setattr(http_util, "new_client", mock_transport(handler))
-    ctx.core.settings.search.provider = "exa_free"
-    ctx.core.settings.search.credentials = {"exa_free": {"api_key": "exa-secret"}}
+    ctx.core.settings.search.provider = "exa"
+    ctx.core.settings.search.credentials = {"exa": {"api_key": "exa-secret"}}
 
     result = await run_search(ctx, query="x")
 
     assert result.ok, result.error
     assert seen["url"] == "https://api.exa.ai/search"
     assert seen["key"] == "exa-secret"
-    assert result.meta["provider"] == "exa_free"
+    assert result.meta["provider"] == "exa"
     assert result.meta["fallback_from"] is None
     assert "https://example.com/exa" in result.output
     assert ctx.core.hub.errors() == []  # type: ignore[attr-defined]
@@ -222,7 +240,7 @@ async def test_the_key_may_come_from_the_environment(
     ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("EXA_API_KEY", "from-env")
-    provider = search_providers.get("exa_free")
+    provider = search_providers.get("exa")
     assert provider is not None
     assert provider.available(ctx.core.settings) is True
 
@@ -236,6 +254,7 @@ async def test_every_provider_failing_reports_the_configured_one(
         raise SearchProviderUnavailable("no network in tests")
 
     monkeypatch.setattr(search_providers.get("ddgs"), "search", refuse)
+    monkeypatch.setattr(search_providers.get("exa_free"), "search", refuse)
     monkeypatch.setattr(search_providers.get("firecrawl"), "search", refuse)
 
     result = await run_search(ctx, query="anything")
@@ -260,10 +279,11 @@ def test_tool_list_reports_the_configured_provider() -> None:
     assert by_name["web_search"].state == "active"
 
 
-def test_tool_list_shows_the_fallback_when_the_choice_cannot_run() -> None:
+def test_tool_list_shows_keyless_exa_free_as_active() -> None:
     settings = Settings()
     settings.search.provider = "exa_free"
     registry = register_builtin_tools(ToolRegistry())
     infos = web.annotate(registry.list(), settings)
     by_name = {info.name: info for info in infos}
-    assert by_name["web_search"].provider == "exa_free → ddgs"
+    assert by_name["web_search"].provider == "exa_free"
+    assert by_name["web_search"].state == "active"
