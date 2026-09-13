@@ -117,6 +117,22 @@ Press R or type /resume to continue it
 
 它从你当前所处的模式开始，`Enter` 取走高亮的那个，`Esc` 则不动模式。无论哪种方式，模式摘要行都画在状态行的上方，而不是下方。
 
+## 选择模型
+
+`/model <ref>` 把会话切换到某个模型 id 或具名配置。只输入 `/model` 会打开一个选择器，而不是打印一份你还得照着敲回去的列表：
+
+```text
+╭──────────────────────────────────────────────────────────────╮
+│ Model                                                        │
+│ ❯ fast    anthropic/claude-haiku-4-5 · used by reviewer       │
+│   deep    anthropic/claude-sonnet-4-5 · default               │
+│   claude-opus-4-1    anthropic                                │
+│ ↑↓ move · Enter pick · Esc cancel                             │
+╰──────────────────────────────────────────────────────────────╯
+```
+
+排在最前的是设置里的模型配置——`models.profiles`，以及说明哪个是默认、哪个代理用哪个的 `models.default` 与 `agents.models`；然后是厂商 endpoint 报告的模型；最后，如果别处都没提到，就是当前正在用的模型。`Enter` 会对光标所在行执行 `/model <ref>`。状态行的 `Model:` 给出正在使用的模型，守护进程说明来源时也会一并标出。
+
 ## 审批
 
 守护进程要问的时候，用菜单来问。`↑`/`↓` 移动，`Enter` 选中当前行，`Esc` 拒绝：
@@ -205,7 +221,27 @@ ctx 34% (68k/200k)
 
 `Esc` 会连同正在运行的回合一起把队列丢掉。中断意味着「停下我刚才要的事」，而这必须包括还在等着的后续项，否则 Stop 之后队列照跑不误。每一条被丢掉的 prompt 都会以 reason 为 `dropped` 的 `turn.dequeued` 报告给客户端，随后是它自己的 `turn.done`，于是不会有任何等着那个 turn id 的东西被晾着。
 
-客户端还会在一条 prompt 进入队列时看到 `turn.queued`，在一条出队时看到 reason 为 `started` 的 `turn.dequeued`。终端 UI 目前还没有画出队列指示（待办）——在它画出来之前，排队的 prompt 只是安静地等到自己那一回合开始。
+队列排空的过程界面是看得见的：工作指示行上会多出 `⏳ N queued`，等待中的 prompt 按将要执行的顺序编号，以暗色列在输入行下面。
+
+```text
+✽ Noodling… (4s · ↓ 0 tokens) · ⏳ 2 queued
+   1. run the tests after this
+   2. then read the diff
+ > ask anything, or /command
+```
+
+一条 prompt 轮到自己时就从列表里消失。`Esc` 会清空整个队列，并且只提示一次——`2 queued prompts dropped`——而不是每条一行。
+
+### 把一条 prompt 交给某个代理
+
+以 `$名字 ` 开头的草稿会交给那个代理，而不是主会话，并且在你发送之前输入区就会这么说：
+
+```text
+[delegate to executor]
+> $executor review the queue work
+```
+
+名字来自守护进程的代理列表。没有代理叫那个名字时依然会显示，并标上 `(no such agent)`，因为这件事值得在按 `Enter` 之前看到，而不是之后。
 
 ### 看进一个代理内部
 

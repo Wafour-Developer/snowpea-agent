@@ -32,6 +32,8 @@ These are answered by the terminal UI itself rather than by the core, so they do
 | Command | What it does |
 |---|---|
 | `/resume` | reopen the session this directory was last in, and replay it |
+| `/model` | pick a model or profile from a list; `/model <ref>` switches directly |
+| `$<agent> <prompt>` | hand one prompt to a named agent |
 | `/attach <path>` | attach a file to the next prompt |
 | `/voice` | arm voice input; `Ctrl+Space` then records |
 | `/rec` | start or stop recording, same as `Ctrl+Space` |

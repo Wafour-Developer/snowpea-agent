@@ -117,6 +117,22 @@ There is also a picker, for when you want a mode rather than the next one. `↓`
 
 It starts on the mode you are in, `Enter` takes the highlighted one and `Esc` leaves the mode alone. Either way the mode summary row is drawn above the status line, not below it.
 
+## Choosing a model
+
+`/model <ref>` switches the session to a model id or a named profile. `/model` on its own opens a picker rather than printing a list you would have to type back:
+
+```text
+╭──────────────────────────────────────────────────────────────╮
+│ Model                                                        │
+│ ❯ fast    anthropic/claude-haiku-4-5 · used by reviewer       │
+│   deep    anthropic/claude-sonnet-4-5 · default               │
+│   claude-opus-4-1    anthropic                                │
+│ ↑↓ move · Enter pick · Esc cancel                             │
+╰──────────────────────────────────────────────────────────────╯
+```
+
+The rows are your model profiles first — `models.profiles`, with `models.default` and `agents.models` saying which is the default and which agent uses which — then whatever the vendor's endpoint reports, then the model in use if nothing else named it. `Enter` runs `/model <ref>` for the row you are on. The status line's `Model:` segment names the model in use, and adds where it came from when the daemon says.
+
 ## Approvals
 
 When the daemon asks, it asks with a menu. `↑`/`↓` move, `Enter` takes the highlighted row, `Esc` refuses:
@@ -205,7 +221,27 @@ You do not have to wait for a turn to finish. A prompt sent while one is running
 
 `Esc` drops the queue along with the running turn. Interrupting means stop what I asked for, and that has to include the follow-ups still waiting, or Stop would be followed by the queue running anyway. Every dropped prompt is reported to clients as `turn.dequeued` with reason `dropped`, followed by its own `turn.done`, so nothing waiting on that turn id is left hanging.
 
-Clients also see `turn.queued` when a prompt goes in and `turn.dequeued` with reason `started` when one comes out. The terminal UI does not yet draw a queue indicator (pending) — until it does, a queued prompt simply waits in silence until its turn begins.
+While the queue drains the UI shows it: the working line gains a `⏳ N queued` count, and the prompts themselves are listed under the input, dimmed and numbered in the order they will run.
+
+```text
+✽ Noodling… (4s · ↓ 0 tokens) · ⏳ 2 queued
+   1. run the tests after this
+   2. then read the diff
+ > ask anything, or /command
+```
+
+A prompt leaves the list the moment its turn starts. `Esc` clears the whole queue and says so once — `2 queued prompts dropped` — rather than one notice per prompt.
+
+### Handing one prompt to an agent
+
+A draft that starts with `$name ` goes to that agent rather than to the main session, and the input says so before you send it:
+
+```text
+[delegate to executor]
+> $executor review the queue work
+```
+
+The names come from the daemon's agent list. A name nothing answers to is still shown, marked `(no such agent)`, because that is worth seeing before `Enter` rather than after.
 
 ### Looking inside an agent
 

@@ -117,6 +117,22 @@ También hay un selector, para cuando quieres un modo concreto en vez del siguie
 
 Empieza en el modo en el que estás, `Enter` toma el resaltado y `Esc` deja el modo como estaba. En cualquier caso la línea de resumen del modo se dibuja encima de la línea de estado, no debajo.
 
+## Elegir modelo
+
+`/model <ref>` cambia la sesión a un id de modelo o a un perfil con nombre. `/model` a secas abre un selector en lugar de imprimir una lista que luego tendrías que teclear de vuelta:
+
+```text
+╭──────────────────────────────────────────────────────────────╮
+│ Model                                                        │
+│ ❯ fast    anthropic/claude-haiku-4-5 · used by reviewer       │
+│   deep    anthropic/claude-sonnet-4-5 · default               │
+│   claude-opus-4-1    anthropic                                │
+│ ↑↓ move · Enter pick · Esc cancel                             │
+╰──────────────────────────────────────────────────────────────╯
+```
+
+Primero van tus perfiles de modelo — `models.profiles`, con `models.default` y `agents.models` diciendo cuál es el predeterminado y qué agente usa cuál —, después lo que reporte el endpoint del proveedor, y por último el modelo en uso si nada más lo nombró. `Enter` ejecuta `/model <ref>` para la fila en la que estás. El segmento `Model:` de la línea de estado nombra el modelo en uso, y añade de dónde viene cuando el daemon lo dice.
+
 ## Aprobaciones
 
 Cuando el daemon pregunta, pregunta con un menú. `↑`/`↓` mueven, `Enter` toma la fila resaltada, `Esc` rechaza:
@@ -205,7 +221,27 @@ No tienes que esperar a que termine un turno. Un prompt enviado mientras hay uno
 
 `Esc` descarta la cola junto con el turno en marcha. Interrumpir significa «para lo que te he pedido», y eso tiene que incluir los mensajes de seguimiento que siguen esperando, o al Stop le seguiría la cola ejecutándose igualmente. Cada prompt descartado se reporta a los clientes como `turn.dequeued` con motivo `dropped`, seguido de su propio `turn.done`, así que nada que estuviera esperando ese id de turno se queda colgado.
 
-Los clientes también ven `turn.queued` cuando un prompt entra y `turn.dequeued` con motivo `started` cuando sale uno. La interfaz de terminal todavía no dibuja un indicador de cola (pendiente): hasta que lo haga, un prompt encolado simplemente espera en silencio a que empiece su turno.
+Mientras la cola se vacía la interfaz la muestra: la línea de trabajo gana un contador `⏳ N queued`, y los prompts en espera se listan bajo la entrada, atenuados y numerados en el orden en que se ejecutarán.
+
+```text
+✽ Noodling… (4s · ↓ 0 tokens) · ⏳ 2 queued
+   1. run the tests after this
+   2. then read the diff
+ > ask anything, or /command
+```
+
+Un prompt sale de la lista en cuanto empieza su turno. `Esc` vacía la cola entera y lo dice una sola vez — `2 queued prompts dropped` — en lugar de un aviso por prompt.
+
+### Pasarle un prompt a un agente
+
+Un borrador que empieza por `$nombre ` va a ese agente en vez de a la sesión principal, y la entrada lo dice antes de que lo envíes:
+
+```text
+[delegate to executor]
+> $executor review the queue work
+```
+
+Los nombres vienen de la lista de agentes del daemon. Un nombre al que no responde nadie se muestra igualmente, marcado `(no such agent)`, porque eso conviene verlo antes de `Enter` y no después.
 
 ### Mirar dentro de un agente
 
