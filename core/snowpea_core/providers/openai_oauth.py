@@ -31,10 +31,8 @@ device-code and Responses-API knowledge is adapted from hermes-agent (MIT),
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import binascii
-import errno
 import json
 import logging
 import secrets
@@ -45,7 +43,6 @@ from typing import Any
 from urllib.parse import urlencode
 
 import httpx
-from aiohttp import web
 
 from snowpea_core.providers.auth_web import (
     LoginResult,
@@ -58,6 +55,7 @@ from snowpea_core.providers.auth_web import (
     _report,
     new_pkce_pair,
 )
+from snowpea_core.providers.oauth_callback import OAuthCallbackServer
 from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
 
@@ -91,17 +89,6 @@ AUTH_METHOD = "chatgpt"
 DEFAULT_TIMEOUT_SEC = 300.0
 #: Refresh this long before the access token actually expires.
 REFRESH_SKEW_SEC = 120.0
-
-_SUCCESS_PAGE = (
-    "<!doctype html><meta charset=utf-8><title>Snowpea</title>"
-    "<body style='font:16px system-ui;padding:3rem'>"
-    "<h1>Signed in</h1><p>You can close this tab and return to Snowpea.</p>"
-)
-_FAILURE_PAGE = (
-    "<!doctype html><meta charset=utf-8><title>Snowpea</title>"
-    "<body style='font:16px system-ui;padding:3rem'>"
-    "<h1>Login failed</h1><p>{detail}</p>"
-)
 
 #: Credential fields never shown to a UI or written to a log.
 SECRET_FIELDS = frozenset({"access_token", "refresh_token", "id_token", "token", "api_key"})
@@ -220,11 +207,69 @@ def mask_credentials(credentials: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+#: Where a stored ChatGPT access token may live.  ``token`` is what the
+#: device-code flow in :mod:`~snowpea_core.providers.auth_web` has always
+#: written, and ``oauth_token`` is the wizard's paste-a-token field; both hold
+#: the same kind of ChatGPT credential as ``access_token``.
+TOKEN_FIELDS: tuple[str, ...] = ("access_token", "token", "oauth_token")
+
+
+def stored_token(config: dict[str, Any] | None) -> str | None:
+    """The ChatGPT access token in ``config``, whichever field carries it."""
+    if not isinstance(config, dict):
+        return None
+    for field in TOKEN_FIELDS:
+        value = config.get(field)
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
+def normalize_stored_credentials(
+    config: dict[str, Any] | None, *, now: Callable[[], float] = time.time
+) -> dict[str, Any]:
+    """One credential record, whichever login produced it.
+
+    The device-code flow stores ``{"token": ..., "refresh_token": ...,
+    "expires_in": ...}``; the browser flow stores ``access_token`` plus
+    ``expires_at``/``account_id``/``plan_type``.  Both describe the same
+    ChatGPT session, and :mod:`snowpea_core.providers.codex_transport` should
+    not have to care which one it was handed — so both come through here
+    first.  ``expires_in`` is resolved against *now*, which is the best that
+    can be done for a record that never stored an absolute time.
+    """
+    source = dict(config or {})
+    token = stored_token(source)
+    credentials = {key: value for key, value in source.items() if key not in TOKEN_FIELDS}
+    if token:
+        credentials["access_token"] = token
+    credentials["auth_method"] = AUTH_METHOD
+    expires_in = credentials.pop("expires_in", None)
+    if "expires_at" not in credentials and isinstance(expires_in, int | float) and expires_in > 0:
+        credentials["expires_at"] = float(now()) + float(expires_in)
+    if not credentials.get("account_id") and token:
+        account_id = account_id_of(token)
+        if account_id:
+            credentials["account_id"] = account_id
+    return credentials
+
+
 def is_chatgpt_auth(config: dict[str, Any] | None) -> bool:
-    """True when ``settings.providers.openai`` holds a ChatGPT OAuth session."""
+    """True when ``settings.providers.openai`` holds a ChatGPT OAuth session.
+
+    Either the login said so (``auth_method: "chatgpt"``), or the stored token
+    is itself a JWT carrying OpenAI's ``chatgpt_account_id`` claim — which a
+    ``sk-...`` API key never is, and which is how a session stored by the
+    device-code flow before this module existed is still recognised.
+    """
     if not isinstance(config, dict):
         return False
-    return str(config.get("auth_method") or "") == AUTH_METHOD and bool(config.get("access_token"))
+    token = stored_token(config)
+    if not token:
+        return False
+    if str(config.get("auth_method") or "") == AUTH_METHOD:
+        return True
+    return account_id_of(token) is not None
 
 
 def is_expired(
@@ -328,82 +373,24 @@ def build_authorize_url(
     )
 
 
-class CodexCallbackServer:
-    """One-shot ``localhost:1455/auth/callback`` listener with state checking.
+class CodexCallbackServer(OAuthCallbackServer):
+    """The shared callback server, pinned to the redirect OpenAI registered.
 
-    Distinct from :class:`~snowpea_core.providers.auth_web.CallbackServer`: the
-    port is fixed (OpenAI registered it), the ``state`` parameter is verified,
-    and the browser gets a real HTML page instead of a line of text.
+    OpenAI accepts exactly ``http://localhost:1455/auth/callback`` for
+    :data:`CLIENT_ID`, so unlike Google's client there is no ephemeral-port
+    fallback: a busy port is a clear error with a way out, not a silent switch
+    to a redirect the vendor would reject.
     """
 
-    def __init__(self, state: str, *, host: str = CALLBACK_HOST, path: str = CALLBACK_PATH) -> None:
-        self.host = host
-        self.path = path
-        self.port = CALLBACK_PORT
-        self._state = state
-        self._future: Any = None
-        self._runner: web.AppRunner | None = None
-
-    async def start(self, port: int = CALLBACK_PORT) -> int:
-        self._future = asyncio.get_running_loop().create_future()
-        app = web.Application()
-        app.router.add_get(self.path, self._handle)
-        self._runner = web.AppRunner(app)
-        await self._runner.setup()
-        site = web.TCPSite(self._runner, self.host, port)
-        try:
-            await site.start()
-        except OSError as exc:
-            await self.close()
-            if exc.errno in (errno.EADDRINUSE, errno.EACCES):
-                raise RpcError(
-                    errors.INTERNAL,
-                    f"openai: port {port} is already in use, and OpenAI only accepts "
-                    f"{REDIRECT_URI} as a redirect. Close whatever is listening on it "
-                    f"(often another Codex or Snowpea login) and try again, or use the "
-                    f"headless device-code login instead.",
-                    data={"vendor": "openai", "port": port},
-                ) from exc
-            raise RpcError(
-                errors.INTERNAL, f"openai: could not open the login callback port ({exc})"
-            ) from exc
-        self.port = port
-        return port
-
-    async def _handle(self, request: web.Request) -> web.Response:
-        code = request.query.get("code", "")
-        state = request.query.get("state", "")
-        error = request.query.get("error", "") or request.query.get("error_description", "")
-        detail = ""
-        if error:
-            detail = f"OpenAI refused the login: {error}"
-        elif not code:
-            detail = "the callback carried no authorization code"
-        elif state != self._state:
-            # A mismatched state means this callback is not the one we started.
-            detail = "the callback state did not match; the login was not completed"
-        if self._future is not None and not self._future.done():
-            if detail:
-                self._future.set_exception(RpcError(errors.INTERNAL, f"openai: {detail}"))
-            else:
-                self._future.set_result(code)
-        if detail:
-            return web.Response(text=_FAILURE_PAGE.format(detail=detail), content_type="text/html")
-        return web.Response(text=_SUCCESS_PAGE, content_type="text/html")
-
-    async def wait(self, timeout: float) -> str:
-        if self._future is None:  # pragma: no cover - start() always runs first
-            raise RpcError(errors.INTERNAL, "openai: callback server was not started")
-        return await asyncio.wait_for(asyncio.shield(self._future), timeout=timeout)
-
-    async def close(self) -> None:
-        if self._runner is not None:
-            await self._runner.cleanup()
-            self._runner = None
-
-    @property
-    def callback_url(self) -> str:
-        return f"http://localhost:{self.port}{self.path}"
+    def __init__(self, state: str) -> None:
+        super().__init__(
+            state,
+            path=CALLBACK_PATH,
+            port=CALLBACK_PORT,
+            host=CALLBACK_HOST,
+            redirect_host="localhost",
+            vendor="openai",
+        )
 
 
 async def browser_login_start(

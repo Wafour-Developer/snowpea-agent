@@ -319,7 +319,7 @@ class CodexProvider:
         on_credentials: Callable[[dict[str, Any]], Any] | None = None,
         transport: httpx.BaseTransport | httpx.AsyncBaseTransport | None = None,
     ) -> None:
-        self.credentials = dict(credentials or {})
+        self.credentials = openai_oauth.normalize_stored_credentials(credentials)
         self.model = model or DEFAULT_MODEL
         self._base_url = (base_url or BASE_URL).rstrip("/")
         self._timeout = timeout
