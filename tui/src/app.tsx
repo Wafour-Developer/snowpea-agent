@@ -25,6 +25,7 @@ import type {
   ApprovalScope,
   CommandInfo,
   Mode,
+  SessionEvent,
 } from "./rpc/sdk.js";
 import { SlashRegistry } from "./slash/registry.js";
 import {
@@ -48,6 +49,8 @@ import { cycleMode } from "./state/mode.js";
 import { useTerminalSize } from "./hooks/useTerminalSize.js";
 import { useDaemonInfo } from "./hooks/useDaemonInfo.js";
 import { useElapsed } from "./hooks/useElapsed.js";
+import { useClock } from "./hooks/useClock.js";
+import { createChildEventBuffer, type ChildEventBuffer } from "./state/coalesce.js";
 import { useSpinner } from "./hooks/useSpinner.js";
 import { useKnownAgents } from "./hooks/useKnownAgents.js";
 import { clampFocus, focusDown, focusUp, isInput, INPUT_FOCUS, type Focus } from "./state/focus.js";
@@ -153,8 +156,43 @@ export const TOAST_INLINE_MAX = 48;
 /** How often `lsp.status` is re-read; server states change without an event. */
 export const LSP_POLL_MS = 30_000;
 
-/** Rows the open agent transcript is given, and what PgUp/PgDn move by. */
+/** The tallest the open agent transcript is ever drawn; see `agentTranscriptRows`. */
 export const AGENT_TRANSCRIPT_ROWS = 12;
+
+/**
+ * The transcript's own chrome: the rounded border, the name row, the key hint.
+ *
+ * Counted so the window can be shrunk to whatever the terminal has left. In
+ * the inline layout the live region is drawn *below* the scrollback, and Ink
+ * clears the whole screen and rewrites every static block it has ever written
+ * as soon as that region is as tall as the terminal (see `RESERVED_FRAME_ROW`)
+ * — with a delegate streaming behind it, that clear lands tens of times a
+ * second and the terminal does nothing but flicker.
+ */
+export const AGENT_TRANSCRIPT_CHROME_ROWS = 4;
+
+/** However cramped the terminal is, a window this short is still readable. */
+export const MIN_AGENT_TRANSCRIPT_ROWS = 3;
+
+/** Rows to give the open agent transcript, inline layout included. */
+export function agentTranscriptRows({
+  fullscreen,
+  usable,
+  statusRows,
+  bottomRows,
+}: {
+  fullscreen: boolean;
+  /** Rows the frame may use — `usableRows(terminal.rows)`. */
+  usable: number;
+  statusRows: number;
+  bottomRows: number;
+}): number {
+  // Full-screen owns the alternate buffer and keeps its own fixed height, so
+  // the window there is a constant and the layout absorbs the rest.
+  if (fullscreen) return AGENT_TRANSCRIPT_ROWS;
+  const room = usable - statusRows - bottomRows - AGENT_TRANSCRIPT_CHROME_ROWS;
+  return Math.max(MIN_AGENT_TRANSCRIPT_ROWS, Math.min(AGENT_TRANSCRIPT_ROWS, room));
+}
 
 /** How long "Updated to vX — restarting…" stays on screen before the restart. */
 export const RESTART_DELAY_MS = 1200;
@@ -421,6 +459,8 @@ export function App({
   /** Dropped queue entries, counted so one notice covers the whole flush. */
   const droppedRef = useRef(0);
   const droppedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Frame-rate limiter for the delegates' token streams; see state/coalesce.ts. */
+  const childEventsRef = useRef<ChildEventBuffer<SessionEvent> | null>(null);
   const registryRef = useRef<SlashRegistry>(new SlashRegistry(client, sessionId));
   /** Update banner state; see state/update.ts. */
   const [update, setUpdate] = useState<UpdateState>(initialUpdateState);
@@ -497,6 +537,15 @@ export function App({
     dispatch({ type: "session/ready", sessionId, mode, provider, model });
     dispatch({ type: "status", status: client.getStatus() });
 
+    // A delegate's tokens arrive as fast as its endpoint produces them, and
+    // each one would otherwise be a dispatch and a repaint; they are batched
+    // into frames instead. Everything that is not a delta still goes straight
+    // through, behind whatever text it followed.
+    const childEvents = createChildEventBuffer<SessionEvent>((childSession, event) =>
+      dispatch({ type: "child/event", sessionId: childSession, event }),
+    );
+    childEventsRef.current = childEvents;
+
     client.setListeners({
       // A delegate's events arrive on its own session; they belong to that
       // agent's transcript, never appended to this one.
@@ -513,7 +562,7 @@ export function App({
           }, 120);
         }
         if (event.sessionId && event.sessionId !== activeSessionRef.current) {
-          dispatch({ type: "child/event", sessionId: event.sessionId, event });
+          childEvents.push(event.sessionId, event);
           return;
         }
         dispatch({ type: "session/event", event });
@@ -597,6 +646,10 @@ export function App({
 
     refreshApprovals();
 
+    return () => {
+      childEvents.dispose();
+      if (childEventsRef.current === childEvents) childEventsRef.current = null;
+    };
   }, [
     client,
     sessionId,
@@ -763,9 +816,16 @@ export function App({
           }
           const events = Array.isArray(result?.events) ? result.events : [];
           for (const event of events) {
-            if (into === "child") dispatch({ type: "child/event", sessionId: target, event });
-            else dispatch({ type: "session/event", event });
+            // A child's backlog is replayed through the same batcher as its
+            // live stream, so opening an agent that has already said a lot is
+            // one repaint rather than one per token it ever produced.
+            if (into === "child") {
+              const buffer = childEventsRef.current;
+              if (buffer) buffer.push(target, event);
+              else dispatch({ type: "child/event", sessionId: target, event });
+            } else dispatch({ type: "session/event", event });
           }
+          if (into === "child") childEventsRef.current?.flush();
         })
         .catch((error: unknown) =>
           dispatch({ type: "error", message: `resume failed: ${String(error)}` }),
@@ -908,6 +968,12 @@ export function App({
   const staticItems = staticBlocksRef.current;
 
   // --- who is working for this session ---------------------------------------
+  // Everything on screen that counts time shows whole seconds, so it reads one
+  // clock that moves once a second rather than `Date.now()` per render; see
+  // hooks/useClock.ts for why that matters to the repaint rate.
+  // Only while something is being timed: an idle session must not repaint at
+  // all, which is the same rule the spinner's timer follows.
+  const clock = useClock(state.turnActive || voice.recording);
   const knownAgents = useKnownAgents(client, undefined, agentRosterVersion);
   const activeTeam = knownAgents.find((agent) => agent.kind === "team")?.name;
   const agentRows = useMemo(
@@ -915,14 +981,16 @@ export function App({
       buildAgentRows({
         state,
         known: knownAgents.filter((agent) => agent.kind !== "team"),
-        now,
+        now: clock,
         expanded: agentsExpanded,
         currentLabel: "main",
       }),
-    // `now` deliberately left out: the panel should follow the session, not the
-    // clock. The spinner's own tick is what refreshes the elapsed columns.
+    // `clock`, not `Date.now()`: the elapsed columns move once a second, so the
+    // rows are rebuilt once a second. Reading the clock on every render would
+    // hand `AgentPanel` a new array on each of the spinner's five frames a
+    // second and on every token a delegate streams.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.subagents, state.teamTasks, knownAgents, activeTeam, agentsExpanded, now],
+    [state.subagents, state.teamTasks, knownAgents, activeTeam, agentsExpanded, clock],
   );
 
   // Rows come and go as delegates finish; the cursor must stay on one.
@@ -942,10 +1010,6 @@ export function App({
         : [],
     [openAgent, state.children, contentWidth],
   );
-  const agentViewport = useMemo(
-    () => sliceViewport(agentLines, AGENT_TRANSCRIPT_ROWS, agentScroll),
-    [agentLines, agentScroll],
-  );
 
   // --- the working indicator -------------------------------------------------
   const phase = derivePhase(state, { runningCommand });
@@ -955,12 +1019,12 @@ export function App({
   const turn = turnRef.current;
   const queuedSuffix = state.queued.length > 0 ? ` · ${queuedLabel(state.queued.length)}` : "";
   const workingText = voice.recording
-    ? recordingLabel(voice.startedAt, now)
+    ? recordingLabel(voice.startedAt, clock)
     : voice.speaking
       ? SPEAKING_LABEL
       : workingLine({
         phase,
-        elapsedMs: turn ? now - turn.startedAt : 0,
+        elapsedMs: turn ? clock - turn.startedAt : 0,
         inputTokens: turn ? state.usage.inputTokens - turn.inputTokens : 0,
         outputTokens: turn ? state.usage.outputTokens - turn.outputTokens : 0,
         frame: spinnerFrame,
@@ -1008,6 +1072,25 @@ export function App({
       noticeVisible: Boolean(modeToast && modeToast.length > TOAST_INLINE_MAX),
     }),
   });
+  // How tall the open agent's window may be. Inline, the live region sits under
+  // the scrollback and Ink clears the whole terminal on every frame once that
+  // region reaches the terminal's height — so the window takes what the status
+  // block and the input leave over, and no more.
+  const agentWindowRows = agentTranscriptRows({
+    fullscreen,
+    usable: usableRows(terminal.rows),
+    statusRows: layout.statusRows,
+    bottomRows: layout.bottomRows,
+  });
+  // The key handler reads the height through a ref: PgUp must move by whatever
+  // is on screen now, without rebinding `useInput` on every resize.
+  const agentWindowRowsRef = useRef(agentWindowRows);
+  agentWindowRowsRef.current = agentWindowRows;
+  const agentViewport = useMemo(
+    () => sliceViewport(agentLines, agentWindowRows, agentScroll),
+    [agentLines, agentWindowRows, agentScroll],
+  );
+
   const lines = useMemo(
     () => (fullscreen ? transcriptLines(state, contentWidth, { expandedCall: expandedId }) : []),
     [fullscreen, state, contentWidth, expandedId],
@@ -1528,11 +1611,11 @@ export function App({
         return;
       }
       if (key.pageUp) {
-        setAgentScroll((offset) => offset + AGENT_TRANSCRIPT_ROWS);
+        setAgentScroll((offset) => offset + agentWindowRowsRef.current);
         return;
       }
       if (key.pageDown) {
-        setAgentScroll((offset) => Math.max(0, offset - AGENT_TRANSCRIPT_ROWS));
+        setAgentScroll((offset) => Math.max(0, offset - agentWindowRowsRef.current));
         return;
       }
     }
@@ -1798,7 +1881,7 @@ export function App({
       >
         {`${summary.text}${focus.zone === "footer" ? " · Enter to choose mode" : ""}`}
       </Text>
-      {shellsOpen ? <ShellList calls={state.toolCalls} now={now} width={contentWidth} /> : null}
+      {shellsOpen ? <ShellList calls={state.toolCalls} now={clock} width={contentWidth} /> : null}
       <SectionRule width={contentWidth} />
       <StatusHud rows={hudRows} width={contentWidth} />
       {warning ? (
@@ -1896,9 +1979,9 @@ export function App({
         <AgentTranscript
           name={openAgent.name}
           task={openAgentEntry?.task ?? ""}
-          status={openAgentEntry ? agentStatusText(openAgentEntry, now) : ""}
+          status={openAgentEntry ? agentStatusText(openAgentEntry, clock) : ""}
           lines={agentViewport.lines}
-          height={AGENT_TRANSCRIPT_ROWS}
+          height={agentWindowRows}
           width={contentWidth}
           scrollIndicator={scrollIndicator(agentViewport)}
           empty={agentLines.length === 0}

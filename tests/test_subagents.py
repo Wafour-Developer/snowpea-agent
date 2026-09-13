@@ -26,6 +26,8 @@ from snowpea_core.agent.subagent import (
     RUNNING,
     SUBAGENT_KIND,
     SubagentManager,
+    SubagentRecord,
+    _ChildWatcher,
     get_manager,
 )
 from snowpea_core.config.project import ModelProfile
@@ -202,6 +204,52 @@ async def test_child_events_flow_on_the_child_session(daemon: Daemon, workdir: P
     assert "message.done" in [e["kind"] for e in child_events]
     parent_kinds = [e["kind"] for e in everything.events if e["sessionId"] == session.id]
     assert parent_kinds[0] == "subagent.spawn"
+
+
+async def test_a_childs_token_stream_does_not_become_parent_events() -> None:
+    """The parent's panel is refreshed per message, never per token.
+
+    ``subagent.update`` carries the child's last text into the parent's agent
+    panel, and every one of them is a repaint in whatever surface is watching.
+    A child streams a ``message.delta`` per token, so republishing those would
+    put a hundred events a second on the parent session — which is what made
+    the TUI's agent panel flicker.  The watcher therefore reacts to whole
+    messages and to tool calls, and counts usage silently.
+    """
+    record = SubagentRecord(
+        agent_id="a1", name="executor", task="stream a lot", parent_session_id="parent"
+    )
+
+    class _CountingManager:
+        def __init__(self) -> None:
+            self.updates: list[str] = []
+
+        async def emit_update(self, rec: SubagentRecord, *, last_text: str = "") -> None:
+            self.updates.append(last_text)
+
+    manager = _CountingManager()
+    watcher = _ChildWatcher(manager, record)  # type: ignore[arg-type]
+
+    for index in range(200):
+        await watcher.notify(
+            "session.event", {"kind": "message.delta", "payload": {"text": f"tok{index} "}}
+        )
+    assert manager.updates == [], "a delta must not reach the parent"
+
+    await watcher.notify(
+        "session.event", {"kind": "usage", "payload": {"inputTokens": 7, "outputTokens": 9}}
+    )
+    assert manager.updates == [], "usage is counted, not announced"
+    assert record.usage() == {"inputTokens": 7, "outputTokens": 9}
+
+    await watcher.notify(
+        "session.event", {"kind": "tool.call", "payload": {"name": "read_file"}}
+    )
+    await watcher.notify(
+        "session.event", {"kind": "message.done", "payload": {"text": "all 200 tokens"}}
+    )
+    assert manager.updates == ["calling read_file", "all 200 tokens"]
+    assert record.summary == "all 200 tokens"
 
 
 # ---------------------------------------------------------------------------
