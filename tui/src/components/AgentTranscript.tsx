@@ -29,7 +29,7 @@ export interface AgentTranscriptProps {
   empty?: boolean;
 }
 
-export function AgentTranscript({
+function AgentTranscriptInner({
   name,
   task,
   status,
@@ -68,3 +68,11 @@ export function AgentTranscript({
     </Box>
   );
 }
+
+/**
+ * Memoized: the spinner repaints the live region five times a second and a
+ * delegate's tokens repaint it faster still, and neither has to rebuild this
+ * subtree. Every prop is either a primitive or an array the app memoizes, so
+ * the default shallow compare is the right one.
+ */
+export const AgentTranscript = React.memo(AgentTranscriptInner);
