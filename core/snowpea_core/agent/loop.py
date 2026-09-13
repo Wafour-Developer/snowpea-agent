@@ -580,7 +580,23 @@ async def _drive(
     memory_block = await context_for_turn(core, session, text)
     denials = 0
 
-    for _round in range(config.max_tool_rounds):
+    rounds_left = config.max_tool_rounds
+    while True:
+        if rounds_left <= 0:
+            # The budget is a checkpoint, not a wall: a long implementing turn
+            # legitimately makes hundreds of calls. Ask the person watching
+            # whether to go on; an unattended turn has nobody to ask and stops.
+            if unattended or not await _ask_to_continue(core, session, config):
+                await hub.emit_event(
+                    session.id,
+                    events.error(
+                        errors.INTERNAL, f"stopped after {config.max_tool_rounds} tool rounds"
+                    ),
+                )
+                await finish_turn(core, session, turn_id, "error")
+                return "error"
+            rounds_left = config.max_tool_rounds
+        rounds_left -= 1
         if session.interrupt.is_set():
             await finish_turn(core, session, turn_id, "interrupted")
             return "interrupted"
@@ -636,12 +652,45 @@ async def _drive(
                 return outcome
         session.history.compact()
 
-    await hub.emit_event(
-        session.id,
-        events.error(errors.INTERNAL, f"stopped after {config.max_tool_rounds} tool rounds"),
-    )
-    await finish_turn(core, session, turn_id, "error")
-    return "error"
+
+#: The continue / stop rows of the tool-round checkpoint, per reply language.
+_CONTINUE_ROWS: dict[str, tuple[str, str, str, str]] = {
+    "ko": ("도구 호출 한도", "도구 호출 {n}회에 도달했습니다. 계속할까요?",
+           "계속 (추천) — {n}회 더 진행합니다", "여기서 멈춤 — 지금까지의 작업만 남깁니다"),
+    "en": ("Tool-call budget", "The turn has made {n} tool calls. Keep going?",
+           "Continue (recommended) — another {n} calls", "Stop here — keep what is done"),
+}
+
+
+async def _ask_to_continue(core: Core, session: Session, config: AgentConfig) -> bool:
+    """Put the round-budget checkpoint to the person; True means go on."""
+    from snowpea_core.server.protocol import QuestionItem, QuestionOption
+    from snowpea_core.tools.delegate import detected_language
+
+    questions = getattr(core, "questions", None)
+    if questions is None:
+        return False
+    lang = "ko" if detected_language(session) == "ko" else "en"
+    header, question, go_on, stop = _CONTINUE_ROWS[lang]
+    n = config.max_tool_rounds
+    try:
+        answers = await questions.ask(
+            session,
+            [QuestionItem(
+                header=header,
+                question=question.format(n=n),
+                options=[
+                    QuestionOption(label=go_on.format(n=n)),
+                    QuestionOption(label=stop),
+                ],
+                allowOther=False,
+            )],
+        )
+    except Exception:  # noqa: BLE001 - a surface that cannot ask means stop
+        return False
+    answer = answers[0] if answers else None
+    return bool(answer and not answer.declined and not answer.timed_out
+                and answer.selected and answer.selected[0] == go_on.format(n=n))
 
 
 async def _run_one_call(

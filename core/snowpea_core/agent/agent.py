@@ -52,7 +52,7 @@ _ENV_CACHE: dict[str, tuple[float, str, str]] = {}
 class AgentConfig:
     """Per-turn knobs resolved from settings."""
 
-    max_tool_rounds: int = 50
+    max_tool_rounds: int = 200
     #: Output tokens one provider call may produce, already clamped to what
     #: the session's model accepts (CORE-reasoning-budget).
     max_tokens: int = DEFAULT_MAX_TOKENS

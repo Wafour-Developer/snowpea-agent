@@ -141,7 +141,9 @@ class QuestionsSettings(_Model):
 
 
 class AgentSettings(_Model):
-    max_tool_rounds: int = 50
+    #: Tool calls one turn may make before the loop checks in with the person
+    #: (a picker: continue or stop). An unattended turn stops at the budget.
+    max_tool_rounds: int = 200
     #: Language the model answers in.  ``"auto"`` follows whatever the user
     #: wrote; a tag like ``"ko"`` emits a directed override (CORE-prompts).
     replyLanguage: str = "auto"

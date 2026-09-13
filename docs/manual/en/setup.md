@@ -260,6 +260,11 @@ budget on thinking and answers nothing.
 }
 ```
 
+`agent.max_tool_rounds` (200) is how many tool calls one turn may make before
+the agent checks in with a picker — continue for another budget, or stop here.
+It is a checkpoint for a long implementing turn, not a limit on the work; a
+headless (`-c`) turn has nobody to ask and stops at the budget.
+
 `agent.max_tokens` (16384) is what one call to the model may produce, and a
 vendor block overrides it for that vendor. Either way it is clamped to what
 the model actually accepts, so a ceiling like `gpt-4`'s 8192 is respected
