@@ -23,6 +23,8 @@ import type {
   ApprovalRequestParams,
   ApprovalResponse,
   ApprovalScope,
+  QuestionRequestParams,
+  QuestionResponse,
   CommandInfo,
   Mode,
   SessionEvent,
@@ -114,6 +116,11 @@ import { MessageView } from "./components/MessageStream.js";
 import { ToolCall } from "./components/ToolCall.js";
 import { DiffView } from "./components/DiffView.js";
 import { ApprovalPrompt } from "./components/ApprovalPrompt.js";
+import {
+  QuestionPrompt,
+  questionPromptRows,
+  type QuestionAnswer,
+} from "./components/QuestionPrompt.js";
 import { ApprovalQueue } from "./components/ApprovalQueue.js";
 import { ConfirmMenu, type ConfirmOption } from "./components/ConfirmMenu.js";
 import { StatusHud } from "./components/StatusHud.js";
@@ -472,6 +479,8 @@ export function App({
   const [updateAvailable, setUpdateAvailable] = useState(false);
   /** Resolver for the approval promise the SDK is awaiting. */
   const approvalResolver = useRef<((response: ApprovalResponse) => void) | null>(null);
+  /** Resolver for the `ask_user` question the daemon is blocked on. */
+  const questionResolver = useRef<((response: QuestionResponse) => void) | null>(null);
 
   const audioClient = useMemo<AudioClient>(() => createAudioClient(client), [client]);
   /**
@@ -639,6 +648,14 @@ export function App({
         }),
     );
 
+    client.onQuestionRequest(
+      (request: QuestionRequestParams) =>
+        new Promise<QuestionResponse>((resolve) => {
+          questionResolver.current = resolve;
+          dispatch({ type: "question/request", request });
+        }),
+    );
+
     void registryRef.current
       .load()
       .then((commands: CommandInfo[]) => dispatch({ type: "commands", commands }))
@@ -675,7 +692,8 @@ export function App({
   // Ink 5 removes F1 from useInput entirely. Read only its raw sequences here.
   useEffect(() => {
     const onData = (data: Buffer | string) => {
-      if (state.pendingApproval || update.phase === "confirm" || update.phase === "running") return;
+      if (state.pendingQuestion || state.pendingApproval) return;
+      if (update.phase === "confirm" || update.phase === "running") return;
       if (["\u001bOP", "\u001b[11~", "\u001b[[A"].includes(data.toString())) {
         setShowHelp(current => !current);
         setFocus(INPUT_FOCUS);
@@ -683,7 +701,7 @@ export function App({
     };
     stdin.on("data", onData);
     return () => { stdin.off("data", onData); };
-  }, [stdin, state.pendingApproval, update.phase]);
+  }, [stdin, state.pendingApproval, state.pendingQuestion, update.phase]);
 
   // An upgrade that finished: tell the daemon to go, then ask to be restarted.
   useEffect(() => {
@@ -1064,6 +1082,7 @@ export function App({
         ? Object.keys(state.pendingApproval.args ?? {}).length
         : null,
       queueRequests: state.approvalQueue.length,
+      questionRows: state.pendingQuestion ? questionPromptRows(state.pendingQuestion) : 0,
       queueFocused,
       errorVisible: state.errors.length > 0,
       workingVisible: workingText !== null,
@@ -1558,6 +1577,17 @@ export function App({
     [state.pendingApproval],
   );
 
+  const answerQuestion = useCallback(
+    (answer: QuestionAnswer) => {
+      const resolve = questionResolver.current;
+      const requestId = state.pendingQuestion?.requestId;
+      questionResolver.current = null;
+      if (requestId) dispatch({ type: "question/resolved", requestId });
+      resolve?.({ selected: answer.selected, text: answer.text });
+    },
+    [state.pendingQuestion],
+  );
+
   const respondQueued = useCallback(
     (requestId: string, decision: ApprovalDecision, scope: ApprovalScope) => {
       dispatch({ type: "approval/resolved", requestId });
@@ -1575,7 +1605,7 @@ export function App({
     }
     // A prompt on screen owns every other key: mode cycling, Ctrl+O and the
     // rest would otherwise fire underneath the question being asked.
-    if (state.pendingApproval || update.phase === "confirm" || modelPicker) {
+    if (state.pendingQuestion || state.pendingApproval || update.phase === "confirm" || modelPicker) {
       return;
     }
 
@@ -1758,7 +1788,7 @@ export function App({
         <ModelPicker
           options={modelPicker}
           width={contentWidth}
-          isActive={state.pendingApproval === null}
+          isActive={state.pendingApproval === null && state.pendingQuestion === null}
           onCancel={() => setModelPicker(null)}
           onChoose={(option) => {
             setModelPicker(null);
@@ -1773,7 +1803,7 @@ export function App({
           initialIndex={1}
           escapeValue={false}
           onChoose={answerUpdate}
-          isActive={state.pendingApproval === null}
+          isActive={state.pendingApproval === null && state.pendingQuestion === null}
         />
       ) : null}
 
@@ -1786,11 +1816,13 @@ export function App({
       <ApprovalQueue
         requests={state.approvalQueue}
         onRespond={respondQueued}
-        isActive={queueFocused && state.pendingApproval === null}
+        isActive={queueFocused && state.pendingApproval === null && state.pendingQuestion === null}
         onBlur={() => setQueueFocused(false)}
       />
 
-      {state.pendingApproval ? (
+      {state.pendingQuestion ? (
+        <QuestionPrompt request={state.pendingQuestion} onAnswer={answerQuestion} />
+      ) : state.pendingApproval ? (
         <ApprovalPrompt request={state.pendingApproval} onDecide={decideApproval} />
       ) : modePicker ? (
         <ConfirmMenu<Mode | null>
@@ -1904,7 +1936,7 @@ export function App({
       commands={state.commands}
       width={contentWidth}
       height={fullscreen ? layout.transcriptRows : Math.max(4, usableRows(terminal.rows) - layout.bottomRows - layout.statusRows - (bannerText(update) ? 3 : 0))}
-      isActive={state.pendingApproval === null && update.phase !== "confirm"}
+      isActive={state.pendingApproval === null && state.pendingQuestion === null && update.phase !== "confirm"}
       runningSubagents={state.subagents.filter((agent) => agent.status === "running").length}
     />
   ) : null;

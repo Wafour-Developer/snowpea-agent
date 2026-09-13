@@ -2,7 +2,7 @@
 name: ralplan
 description: Consensus planning — planner, architect and critic argue until the plan holds, before any code is written.
 argument-hint: "<task description>"
-allowed-tools: [read_file, list_dir, glob, grep, git_status, git_diff, git_log, delegate_task, memory_write, memory_search]
+allowed-tools: [read_file, list_dir, glob, grep, git_status, git_diff, git_log, delegate_task, memory_write, memory_search, ask_user, queue_command]
 ---
 
 # Ralplan
@@ -27,7 +27,38 @@ A task is **vague and needs this skill** when it reads like "improve the app",
 "make it faster", "add authentication" — an intent with no target. That is what
 ralplan is for. Continue.
 
+## Language
+
+Plan in the language the user writes in. Decide from **$ARGUMENTS** and the
+first message, then stay there for the plan, the review trail, the hand-off
+picker and everything in between. Do not switch because a tool result, a
+reviewer's answer or this file is in English.
+
+Write natively in that language; do not translate the English in this file.
+Never mix scripts inside one word or one sentence. Real runs have produced
+"드로uwen 컬 백킹", "行列", "셔더" and "문지르면" — half-transliterated words,
+characters from the wrong script, and verbs invented by translating an English
+one. Every one of those is a sign you were translating instead of writing.
+
+When the language is Korean:
+
+- 계획의 제목은 `## 원칙`, `## 결정 요인`, `## 선택지`, `## 계획`, `## 위험`,
+  `## 완료 조건`, `## 결정 기록`, `## 검토 이력` 으로 씁니다.
+- 기술 용어는 한국어 문장 안에서 영어 그대로 둡니다: Three.js, WebGL2, LRU, p95,
+  VAO, backface culling, shader. 억지로 옮기지 않습니다.
+- 게이트와 검증은 **통과 / 실패** 로 씁니다. "문지르면", "문지는 순간" 같은 말은
+  영어 동사를 번역하다 나온 것이므로 쓰지 않습니다. "이 명령이 실패하는 순간
+  멈춥니다" 가 맞는 표현입니다.
+- `delegate_task` 로 보내는 프롬프트는 영어여도 됩니다. 다만 리뷰어에게
+  **사용자의 언어로 답하라**고 반드시 적습니다.
+
 ## The loop
+
+**The whole loop runs inside one turn.** Rounds 0 to 4 are steps you take
+yourself, back to back, without handing control to the user in between. The turn
+may only end at "What to produce" — or at the five-iteration ceiling, which is
+also a finished result. Nothing in this loop is a place to stop and ask whether
+to continue. **Do not stop to ask whether to continue.**
 
 ### Round 0 — ground yourself
 
@@ -37,7 +68,12 @@ Call `memory_search` on the task's key nouns. Facts first, opinions after.
 
 ### Round 1 — the planner draft
 
-You are the planner. Write, in the conversation:
+You are the planner. This draft is **not the deliverable**: it is the thing the
+architect and the critic are about to tear at, and the user is not waiting for
+it. Show it in brief — a few lines per heading is enough, the full plan comes at
+the end — and then, in this same turn, immediately call `delegate_task(architect)`.
+
+Sketch, in the conversation:
 
 - **Principles** — three to five rules this change must respect, drawn from how
   the codebase already works, not from general good taste.
@@ -47,6 +83,10 @@ You are the planner. Write, in the conversation:
   only one way" is nearly always a sign the problem was not understood.
 - **The plan** — the chosen option as ordered steps, each naming the files it
   touches and how it is verified.
+
+Before ending this turn: architect called? critic called? verdict `APPROVE` or
+five iterations? plan in the final shape? `memory_write` done? hand-off asked?
+If any answer is no, the turn is not over — keep going.
 
 ### Round 2 — the architect
 
@@ -134,10 +174,38 @@ Status: pending approval
 
 Call `memory_write` once with the decision and its consequences, tagged `plan`.
 
-Then stop. End with one line offering the next step — `/ralph <title>` to drive
-it to done, or `/ultrawork <title>` when the steps are independent — and let the
-user choose. The plan is marked `pending approval` and stays that way until they
-say otherwise.
+## Handing off
+
+Then ask, do not announce. Call `ask_user` with "다음 단계는 어떻게 할까요?" (or
+its equivalent in the user's language) and these options, in this order:
+
+1. **The precondition, when the recommendation has one.** If the right next step
+   should not start until something has been checked, that check comes first:
+   "먼저 단계 0만 실행 (npm run gpu-check) — 통과하면 다시 묻습니다". Choosing it
+   queues only that check with `queue_command` when it is a slash command; when
+   it is a shell command, print it on its own line for the user to run. The
+   planner never runs shell itself.
+2. `/ralph <title>` — when the steps depend on each other in sequence.
+3. `/ultrawork <title>` — when the steps are independent.
+4. `/ralplan <title>` — when the plan came out contested and wants replanning.
+5. "여기서 멈춤 — 계획만 남깁니다 / stop here".
+
+Put the one you recommend first among the commands, mark its label "(추천)" /
+"(recommended)", and give the one-line reason as its description — that reason is
+usually the shape of the dependency between the steps. The free-text row is
+always there, so the user can type their own command or instruction instead of
+picking.
+
+Then act on the answer, and only on the answer:
+
+- A command they picked: `queue_command` it. It starts as its own turn the
+  moment this one ends, so say what you queued and stop.
+- Free text starting with `/`: `queue_command` it the same way.
+- Any other free text: treat it as a new instruction and keep working on it.
+- "여기서 멈춤", a decline, or a timeout: stop.
+
+Never queue a command the user did not choose. The plan is marked
+`pending approval` and stays that way until they say otherwise.
 
 ## Differences from OMC
 
@@ -158,11 +226,11 @@ kept. These differ:
   `$SNOWPEA_HOME`. When the project defines neither, `delegate_task` still runs
   the review with the session's own settings, so the loop works on a fresh
   checkout — it just has no specialised persona behind it.
-- **No `--interactive`, `--deliberate`, `--architect codex` or `--critic codex`
-  flags.** OMC can route a review pass to the Codex CLI and can gate on
-  `AskUserQuestion` prompts. snowpea has one provider per session and no
-  question tool, so the run is always non-interactive and always ends at
-  `pending approval`.
+- **No `--deliberate`, `--architect codex` or `--critic codex` flags.** OMC can
+  route a review pass to the Codex CLI. snowpea has one provider per session, so
+  both reviews run through `delegate_task`. The interactive part *is* kept: the
+  hand-off is an `ask_user` picker, the way OMC's `AskUserQuestion` gate is, and
+  the plan still ends at `pending approval` until the user picks something.
 - **No pre-mortem mode.** OMC's `--deliberate` adds three failure scenarios and
   an expanded unit/integration/e2e/observability test plan for high-risk work.
   Here the Risks section is always required instead of being a mode.

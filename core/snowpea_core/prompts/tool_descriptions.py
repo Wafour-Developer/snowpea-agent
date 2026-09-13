@@ -98,6 +98,27 @@ LSP_WORKSPACE_SYMBOLS = (
     "looking for a definition rather than for text."
 )
 
+ASK_USER = (
+    "Ask the user a question and wait for the answer. Use it whenever the answer is a "
+    "choice out of a closed set — a library, a strategy, a scope — instead of writing "
+    "\"(a) … (b) … (c) …\" into the transcript and hoping they type a letter back: the "
+    "client draws the options as a list the user moves through with the arrow keys. Give "
+    "2-8 options, each with a label of a few words and one line saying what choosing it "
+    "costs or buys; put the one you recommend first and mark it \"(추천)\" / "
+    "\"(recommended)\". Put the reason the answer matters in the question itself. Leave "
+    "options out for a genuinely open question. Set multiSelect when several answers can "
+    "be true at once. A free-text \"Other\" row is added for you. The tool blocks, so ask "
+    "only what you cannot work out yourself, and read the result: a declined or timed-out "
+    "question is not agreement."
+)
+
+QUEUE_COMMAND = (
+    "Queue a slash command the user has just chosen, e.g. \"/ralph fix the flaky test\". "
+    "It does not run inline: it starts as its own turn the moment this one ends, with its "
+    "own history. Only queue what the user picked — never a command you decided on "
+    "yourself — and say in your reply what you queued."
+)
+
 LSP_HOVER = (
     "The type and documentation the language server has for the symbol at a position: "
     "signature, inferred type, docstring. Use it to confirm what a function actually "
@@ -113,6 +134,7 @@ LSP_RENAME = (
 )
 
 __all__ = [
+    "ASK_USER",
     "DELEGATE_TASK",
     "EDIT_FILE",
     "GLOB",
@@ -124,6 +146,7 @@ __all__ = [
     "LSP_RENAME",
     "LSP_SYMBOLS",
     "LSP_WORKSPACE_SYMBOLS",
+    "QUEUE_COMMAND",
     "READ_FILE",
     "SHELL",
     "WRITE_FILE",

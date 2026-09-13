@@ -18,6 +18,10 @@ from typing import Any, Protocol, runtime_checkable
 
 #: Prefix of the ``callback_data`` an approval button carries (contract §4).
 APPROVAL_CALLBACK_PREFIX = "apr"
+#: Prefix of the ``callback_data`` an ``ask_user`` option button carries.
+QUESTION_CALLBACK_PREFIX = "qst"
+#: The index reserved for the free-text row, so "Other" is a button too.
+QUESTION_OTHER = "other"
 
 
 class GatewayError(RuntimeError):
@@ -69,6 +73,78 @@ class PlatformAdapter(Protocol):
         """Stop receiving and release the transport."""
 
 
+def question_callback(request_id: str, choice: str) -> str:
+    """``qst:<requestId>:<index>`` — what an option button carries.
+
+    ``<index>`` is the option's position from 1, or ``other`` for the free-text
+    row.  A number, not the label: platform callback payloads are short, and a
+    label in Korean would not survive the limit.
+    """
+    return f"{QUESTION_CALLBACK_PREFIX}:{request_id}:{choice}"
+
+
+def parse_question_callback(data: str | None) -> tuple[str, str] | None:
+    """Split an option callback back into ``(requestId, index-or-"other")``."""
+    if not data:
+        return None
+    parts = data.split(":")
+    if len(parts) != 3 or parts[0] != QUESTION_CALLBACK_PREFIX:
+        return None
+    request_id, choice = parts[1], parts[2]
+    if not request_id or not choice:
+        return None
+    if choice != QUESTION_OTHER and not choice.isdigit():
+        return None
+    return request_id, choice
+
+
+def question_buttons(
+    request_id: str, options: list[dict[str, Any]], allow_other: bool
+) -> list[Button]:
+    """One numbered button per option, plus "Other" when free text is allowed.
+
+    The button says the number and the label; the numbers also appear in the
+    message body, so a platform that drops the keyboard still leaves the user
+    able to reply "2".
+    """
+    buttons = [
+        Button(
+            text=f"{index}. {str(option.get('label', ''))[:40]}",
+            data=question_callback(request_id, str(index)),
+        )
+        for index, option in enumerate(options, start=1)
+    ]
+    if allow_other:
+        buttons.append(
+            Button(
+                text="\u270f\ufe0f 기타 / Other", data=question_callback(request_id, QUESTION_OTHER)
+            )
+        )
+    return buttons
+
+
+def question_text(request: dict[str, Any]) -> str:
+    """The question as chat text: header, question, numbered options, how to reply."""
+    lines: list[str] = []
+    header = str(request.get("header") or "").strip()
+    total = int(request.get("total") or 1)
+    index = int(request.get("index") or 1)
+    counter = f" ({index}/{total})" if total > 1 else ""
+    lines.append(f"\u2753 {header}{counter}" if header else f"\u2753 질문{counter}")
+    lines.append(str(request.get("question") or "").strip())
+    options = list(request.get("options") or [])
+    for position, option in enumerate(options, start=1):
+        label = str(option.get("label", ""))
+        description = str(option.get("description") or "").strip()
+        lines.append(f"{position}. {label}" + (f" \u2014 {description}" if description else ""))
+    if options:
+        hint = "번호로 답해 주세요 (예: 1,3)" if request.get("multi") else "번호로 답해 주세요"
+        lines.append(f"({hint} / reply with the number, or type your own answer)")
+    else:
+        lines.append("(답을 그대로 적어 주세요 / reply with your answer)")
+    return "\n".join(line for line in lines if line)
+
+
 def approval_callback(request_id: str, decision: str) -> str:
     """``apr:<requestId>:allow|deny`` — what an approval button carries."""
     return f"{APPROVAL_CALLBACK_PREFIX}:{request_id}:{decision}"
@@ -108,6 +184,8 @@ def approval_text(tool: str, args: dict[str, Any], session_id: str) -> str:
 
 __all__ = [
     "APPROVAL_CALLBACK_PREFIX",
+    "QUESTION_CALLBACK_PREFIX",
+    "QUESTION_OTHER",
     "Button",
     "GatewayError",
     "InboundMessage",
@@ -117,4 +195,8 @@ __all__ = [
     "approval_callback",
     "approval_text",
     "parse_approval_callback",
+    "parse_question_callback",
+    "question_buttons",
+    "question_callback",
+    "question_text",
 ]
