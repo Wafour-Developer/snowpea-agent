@@ -576,8 +576,8 @@ class ProviderInfo(Payload):
     authMethods: list[str] = Field(
         default_factory=lambda: ["api_key"],
         description=(
-            "Login flows the vendor supports: 'api_key' everywhere, plus 'device_code' "
-            "(OpenAI) or 'oauth_pkce' (OpenRouter)."
+            "Login flows the vendor supports: 'api_key' everywhere, plus provider-specific "
+            "device-code, PKCE, Google ADC, or direct OAuth-token authentication."
         ),
     )
 

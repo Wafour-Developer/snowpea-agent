@@ -1,4 +1,4 @@
-"""Browser token login for the two vendors that offer one (M3 contract §3).
+"""Interactive token login for providers that offer one (M3 contract §3).
 
 * ``openai`` — OAuth 2.0 **device code**: ask for a code, show the user a URL
   and a short code, poll the token endpoint until they approve it.
@@ -19,6 +19,8 @@ import base64
 import hashlib
 import logging
 import secrets
+import shutil
+import subprocess
 import time
 import webbrowser
 from collections.abc import Callable
@@ -55,6 +57,11 @@ ENDPOINTS: dict[str, dict[str, Any]] = {
         "callback_path": "/callback",
         "callback_port": 0,
         "timeout_sec": 300.0,
+    },
+    "gemini": {
+        "method": "google_adc",
+        "verification_url": "https://accounts.google.com/",
+        "timeout_sec": 900.0,
     },
 }
 
@@ -494,6 +501,86 @@ async def oauth_pkce_login(
 
 
 # ---------------------------------------------------------------------------
+# Google Application Default Credentials (Gemini)
+# ---------------------------------------------------------------------------
+
+
+async def google_adc_start(
+    vendor: str = "gemini", *, on_progress: ProgressHook | None = None
+) -> LoginStart:
+    """Start Google's supported desktop OAuth flow through the Cloud CLI.
+
+    Google owns browser consent, refresh-token storage, and refresh. Snowpea
+    persists only the selected auth method, never Google's refresh token.
+    """
+    executable = shutil.which("gcloud")
+    if not executable:
+        raise RpcError(
+            errors.LOGIN_UNSUPPORTED,
+            "gemini OAuth login needs the Google Cloud CLI (`gcloud`); "
+            "install it or configure a Gemini API key",
+        )
+    await _report(on_progress, vendor=vendor, method="google_adc", phase="started")
+    process = await asyncio.create_subprocess_exec(
+        executable,
+        "auth",
+        "application-default",
+        "login",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    verification = str(ENDPOINTS[vendor]["verification_url"])
+
+    async def finish() -> LoginResult:
+        await _report(
+            on_progress,
+            vendor=vendor,
+            method="google_adc",
+            phase="await_user",
+            verificationUri=verification,
+        )
+        await _report(on_progress, vendor=vendor, method="google_adc", phase="polling")
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(), float(ENDPOINTS[vendor]["timeout_sec"])
+            )
+        except TimeoutError as exc:
+            process.kill()
+            raise RpcError(errors.INTERNAL, "gemini: Google OAuth login timed out") from exc
+        if process.returncode:
+            detail = (stderr or stdout).decode("utf-8", "replace").strip()[-400:]
+            raise RpcError(errors.INTERNAL, f"gemini: Google OAuth login failed: {detail}")
+        await _report(
+            on_progress,
+            vendor=vendor,
+            method="google_adc",
+            phase="done",
+            message="gemini: signed in with Google ADC",
+        )
+        return LoginResult(
+            vendor=vendor,
+            method="google_adc",
+            credentials={"auth_method": "google_adc"},
+            message="gemini: signed in with Google ADC",
+        )
+
+    return LoginStart(
+        vendor=vendor,
+        method="google_adc",
+        verification_uri=verification,
+        expires_in_sec=float(ENDPOINTS[vendor]["timeout_sec"]),
+        finish=finish,
+    )
+
+
+async def google_adc_login(
+    vendor: str = "gemini", *, on_progress: ProgressHook | None = None
+) -> LoginResult:
+    started = await google_adc_start(vendor, on_progress=on_progress)
+    return await started.finish()
+
+
+# ---------------------------------------------------------------------------
 # entry point
 # ---------------------------------------------------------------------------
 
@@ -512,6 +599,8 @@ async def login(
         return await device_code_login(
             vendor, client=client, on_prompt=on_prompt, open_browser=open_browser
         )
+    if resolved == "google_adc":
+        return await google_adc_login(vendor)
     return await oauth_pkce_login(
         vendor, client=client, on_prompt=on_prompt, open_browser=open_browser
     )
@@ -540,6 +629,8 @@ async def login_started(
             open_browser=open_browser,
             on_progress=on_progress,
         )
+    if resolved == "google_adc":
+        return await google_adc_start(vendor, on_progress=on_progress)
     return await oauth_pkce_start(
         vendor,
         client=client,
@@ -557,6 +648,8 @@ __all__ = [
     "LoginStart",
     "device_code_login",
     "device_code_start",
+    "google_adc_login",
+    "google_adc_start",
     "login",
     "login_started",
     "method_for",

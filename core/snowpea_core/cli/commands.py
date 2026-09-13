@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import getpass
 import json
 import re
 import sys
@@ -267,7 +268,9 @@ async def provider_models(
     return EXIT_OK
 
 
-async def provider_login(vendor: str, home: Path | str | None = None) -> int:
+async def provider_login(
+    vendor: str, home: Path | str | None = None, *, token: str | None = None
+) -> int:
     """``snowpea provider login <vendor>`` → ``provider.loginWeb``.
 
     Only OpenAI (device code) and OpenRouter (OAuth PKCE) have a browser login;
@@ -275,6 +278,24 @@ async def provider_login(vendor: str, home: Path | str | None = None) -> int:
     """
     if not vendor:
         return _fail("usage: snowpea provider login <vendor>", EXIT_USAGE)
+    if token is not None:
+        if vendor not in ("openai", "gemini"):
+            return _fail(
+                f"{vendor} does not expose an OAuth access-token login; use its API key",
+                EXIT_USAGE,
+            )
+        entered = token or getpass.getpass(f"{vendor} OAuth access token: ").strip()
+        if not entered:
+            return _fail("OAuth access token cannot be empty", EXIT_USAGE)
+        config = {"oauth_token": entered, "auth_method": "oauth_token"}
+        try:
+            await _call(home, "provider.configure", {"vendor": vendor, "config": config})
+        except DaemonError as exc:
+            return _fail(str(exc), EXIT_NO_DAEMON)
+        except RpcCallError as exc:
+            return _fail(f"{vendor} token login failed ({exc.code}): {exc.message}", EXIT_USAGE)
+        print(f"{vendor}: OAuth token saved to settings.json")
+        return EXIT_OK
     try:
         info = await ensure_daemon(home)
         client = DaemonClient(info)
@@ -1170,9 +1191,17 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
         "--json", dest="sub_json", action="store_true", help="emit JSON"
     )
     provider_login_parser = provider_sub.add_parser(
-        "login", help="browser login (openai, openrouter)"
+        "login", help="browser login, or enter an OAuth token on a remote machine"
     )
     provider_login_parser.add_argument("vendor", help="vendor to log into")
+    provider_login_parser.add_argument(
+        "--token",
+        nargs="?",
+        const="",
+        default=None,
+        metavar="TOKEN",
+        help="use an OAuth access token; omit TOKEN for a hidden prompt",
+    )
 
     search = sub.add_parser("search", help="check the web-search provider")
     search_sub = search.add_subparsers(dest="action", metavar="<action>")
@@ -1400,7 +1429,11 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
                 getattr(args, "vendor", None) or None, home, as_json=as_json
             )
         if action == "login":
-            return await provider_login(str(getattr(args, "vendor", "") or ""), home)
+            return await provider_login(
+                str(getattr(args, "vendor", "") or ""),
+                home,
+                token=getattr(args, "token", None),
+            )
         return _fail("usage: snowpea provider list|models|login <vendor>", EXIT_USAGE)
     if subcommand == "gateway":
         if action == "bind":

@@ -48,6 +48,10 @@ class FakeResponse:
     def json(self) -> Any:
         return self._payload
 
+    @property
+    def text(self) -> str:
+        return self._payload if isinstance(self._payload, str) else json.dumps(self._payload)
+
 
 class FakeClient:
     """Answers ``get`` from a routing table; records what was asked for."""

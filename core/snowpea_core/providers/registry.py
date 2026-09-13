@@ -154,6 +154,10 @@ class ProviderRegistry:
         config = self.vendor_config(vendor)
         if vendor == "local" and config.get("base_url"):
             return True
+        if vendor == "gemini" and config.get("auth_method") in ("google_adc", "oauth_token"):
+            return True
+        if isinstance(config.get("oauth_token"), str) and config.get("oauth_token"):
+            return True
         return bool(self.api_key_for(vendor))
 
     def configure(self, vendor: str, config: dict[str, Any]) -> dict[str, Any]:
@@ -307,6 +311,9 @@ class ProviderRegistry:
         preset = self.preset(vendor)
         resolved_model = self.model_for(vendor, model)
         api_key = self.api_key_for(vendor)
+        if vendor == "openai" and not api_key:
+            oauth_token = self.vendor_config(vendor).get("oauth_token")
+            api_key = oauth_token if isinstance(oauth_token, str) and oauth_token else None
         base_url = self.base_url_for(vendor)
         if preset.adapter == "anthropic_native":
             from snowpea_core.providers.anthropic_native import AnthropicProvider
@@ -315,7 +322,14 @@ class ProviderRegistry:
         if preset.adapter == "gemini_native":
             from snowpea_core.providers.gemini_native import GeminiProvider
 
-            return GeminiProvider(preset, api_key=api_key, model=resolved_model, base_url=base_url)
+            return GeminiProvider(
+                preset,
+                api_key=api_key,
+                auth_method=str(self.vendor_config(vendor).get("auth_method") or "") or None,
+                oauth_token=str(self.vendor_config(vendor).get("oauth_token") or "") or None,
+                model=resolved_model,
+                base_url=base_url,
+            )
         from snowpea_core.providers.openai_compat import OpenAICompatProvider
 
         resolver: Callable[[], Awaitable[str]] | None = None

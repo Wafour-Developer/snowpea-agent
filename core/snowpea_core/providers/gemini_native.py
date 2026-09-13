@@ -9,7 +9,10 @@ HTTP, auth and SSE framing.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import shutil
+import subprocess
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -36,6 +39,8 @@ class GeminiProvider:
         preset: VendorPreset | None = None,
         *,
         api_key: str | None = None,
+        auth_method: str | None = None,
+        oauth_token: str | None = None,
         model: str | None = None,
         base_url: str | None = None,
         timeout: float = DEFAULT_TIMEOUT,
@@ -43,16 +48,43 @@ class GeminiProvider:
         self.preset = preset or PRESETS["gemini"]
         self.model = model or self.preset.default_model
         self._api_key = api_key
+        self._auth_method = auth_method
+        self._oauth_token_value = oauth_token
         self._base_url = (base_url or self.preset.base_url or "").rstrip("/")
         self._timeout = timeout
-        if not api_key and not replay.is_replay():
-            raise ProviderError("invalid_params", "gemini: no API key configured")
+        if (
+            not api_key
+            and auth_method not in ("google_adc", "oauth_token")
+            and not replay.is_replay()
+        ):
+            raise ProviderError("invalid_params", "gemini: no API key or Google OAuth configured")
 
     def _tag(self) -> str:
         """``gemini (gemini-2.5-pro)`` — errors name the vendor *and* the model."""
         return f"{self.vendor} ({self.model})" if self.model else self.vendor
 
-    def _client(self) -> httpx.AsyncClient:
+    async def _oauth_token(self) -> str:
+        executable = shutil.which("gcloud")
+        if not executable:
+            raise ProviderError("invalid_params", "gemini: gcloud is required for Google OAuth")
+        process = await asyncio.create_subprocess_exec(
+            executable,
+            "auth",
+            "application-default",
+            "print-access-token",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        stdout, stderr = await process.communicate()
+        token = stdout.decode().strip()
+        if process.returncode or not token:
+            detail = stderr.decode("utf-8", "replace").strip()[-300:]
+            raise ProviderError(
+                "invalid_params", f"gemini: could not refresh Google OAuth token: {detail}"
+            )
+        return token
+
+    async def _client(self) -> httpx.AsyncClient:
         headers = {
             "content-type": "application/json",
             "accept": "text/event-stream",
@@ -60,6 +92,10 @@ class GeminiProvider:
         if self._api_key:
             # Header auth keeps the key out of URLs, logs and fixtures.
             headers["x-goog-api-key"] = self._api_key
+        elif self._auth_method == "google_adc":
+            headers["authorization"] = f"Bearer {await self._oauth_token()}"
+        elif self._auth_method == "oauth_token" and self._oauth_token_value:
+            headers["authorization"] = f"Bearer {self._oauth_token_value}"
         kwargs: dict[str, Any] = {
             "base_url": self._base_url,
             "headers": headers,
@@ -82,7 +118,7 @@ class GeminiProvider:
         path = f"/models/{self.model}:streamGenerateContent"
         normalizer = GeminiStreamNormalizer(self.preset)
         try:
-            async with self._client() as client:
+            async with await self._client() as client:
                 async with client.stream(
                     "POST", path, params={"alt": "sse"}, json=body
                 ) as response:

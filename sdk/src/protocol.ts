@@ -650,7 +650,7 @@ export type ProviderListParams = Record<string, unknown>;
 export interface ProviderListResult {
   /** Known chat providers. */
   providers?: ({
-    /** Login flows the vendor supports: 'api_key' everywhere, plus 'device_code' (OpenAI) or 'oauth_pkce' (OpenRouter). */
+    /** Login flows the vendor supports: 'api_key' everywhere, plus provider-specific device-code, PKCE, Google ADC, or direct OAuth-token authentication. */
     authMethods?: string[];
     /** True when credentials are present. */
     configured?: boolean;
