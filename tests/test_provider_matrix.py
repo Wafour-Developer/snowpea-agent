@@ -17,6 +17,7 @@ import json
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -173,7 +174,7 @@ async def test_exhausted_tape_is_an_error(registry: ProviderRegistry) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_provider_list_has_eleven_entries_and_two_web_logins(
+def test_provider_list_has_eleven_entries_and_three_interactive_logins(
     registry: ProviderRegistry,
 ) -> None:
     infos = registry.list()
@@ -184,10 +185,11 @@ def test_provider_list_has_eleven_entries_and_two_web_logins(
     assert all("api_key" in info.authMethods for info in infos)
 
     web = [info.vendor for info in infos if len(info.authMethods) > 1]
-    assert web == ["openai", "openrouter"]
-    assert set(WEB_LOGIN_VENDORS) == {"openai", "openrouter"}
-    assert PRESETS["openai"].auth_methods == ("api_key", "device_code")
+    assert web == ["openai", "openrouter", "gemini"]
+    assert set(WEB_LOGIN_VENDORS) == {"openai", "openrouter", "gemini"}
+    assert PRESETS["openai"].auth_methods == ("api_key", "device_code", "oauth_token")
     assert PRESETS["openrouter"].auth_methods == ("api_key", "oauth_pkce")
+    assert PRESETS["gemini"].auth_methods == ("api_key", "google_adc", "oauth_token")
 
 
 def test_configured_follows_settings_and_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -203,6 +205,41 @@ def test_configured_follows_settings_and_env(monkeypatch: pytest.MonkeyPatch) ->
     # settings win over the environment
     registry.configure("deepseek", {"api_key": "from-settings"})
     assert registry.api_key_for("deepseek") == "from-settings"
+
+
+def test_gemini_oauth_token_is_not_mistaken_for_an_api_key() -> None:
+    settings = Settings()
+    settings.providers["gemini"] = {
+        "auth_method": "oauth_token",
+        "oauth_token": "ya29.remote-token",
+    }
+    registry = ProviderRegistry(settings)
+    provider = registry.build("gemini")
+    assert registry.is_configured("gemini")
+    assert registry.api_key_for("gemini") is None
+    assert provider._api_key is None  # noqa: SLF001
+    assert provider._oauth_token_value == "ya29.remote-token"  # noqa: SLF001
+
+
+async def test_remote_oauth_token_login_uses_provider_configure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from snowpea_core.cli import commands
+
+    called = AsyncMock(return_value={"ok": True})
+    monkeypatch.setattr(commands, "_call", called)
+    assert await commands.provider_login("gemini", token="ya29.remote-token") == 0
+    called.assert_awaited_once_with(
+        None,
+        "provider.configure",
+        {
+            "vendor": "gemini",
+            "config": {
+                "oauth_token": "ya29.remote-token",
+                "auth_method": "oauth_token",
+            },
+        },
+    )
 
 
 def test_resolution_order(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -255,8 +292,10 @@ def _never_open_a_browser(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[str]
     yield opened
 
 
-@pytest.mark.parametrize("vendor", [v for v in VENDORS if v not in ("openai", "openrouter")])
-async def test_login_web_is_unsupported_for_the_other_nine(vendor: str) -> None:
+@pytest.mark.parametrize(
+    "vendor", [v for v in VENDORS if v not in ("openai", "openrouter", "gemini")]
+)
+async def test_login_web_is_unsupported_for_api_key_only_vendors(vendor: str) -> None:
     with pytest.raises(RpcError) as excinfo:
         await auth_web.login(vendor, "web")
     assert excinfo.value.code == "login_unsupported"
@@ -402,7 +441,7 @@ async def test_provider_list_handler_returns_eleven(tmp_path: Path) -> None:
 
     result = await provider_list_handler(None, None, _core(tmp_path))  # type: ignore[arg-type]
     assert len(result.providers) == 11
-    assert sum(len(p.authMethods) > 1 for p in result.providers) == 2
+    assert sum(len(p.authMethods) > 1 for p in result.providers) == 3
 
 
 async def test_provider_configure_handler_persists_settings(tmp_path: Path) -> None:

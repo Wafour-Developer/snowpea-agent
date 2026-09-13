@@ -5,8 +5,8 @@ adapter class speaks to it, which wire shape its stream deltas use, whether it
 honours parallel tool calls — so that :mod:`snowpea_core.providers.normalize`
 can stay the single normalisation point (plan §6 risk 3).
 
-Exactly two vendors offer a browser login: OpenAI (device code) and OpenRouter
-(OAuth PKCE).  The other nine are API key only.
+OpenAI offers device-code login, OpenRouter uses PKCE, and Gemini can use
+Google Application Default Credentials (ADC) created by ``gcloud auth``.
 """
 
 from __future__ import annotations
@@ -117,7 +117,7 @@ PRESETS: dict[str, VendorPreset] = {
             "OpenAI",
             "https://api.openai.com/v1",
             "gpt-4.1",
-            auth_methods=("api_key", "device_code"),
+            auth_methods=("api_key", "device_code", "oauth_token"),
             env_keys=("OPENAI_API_KEY",),
             models=("gpt-4.1", "gpt-4.1-mini", "o4-mini"),
         ),
@@ -137,6 +137,7 @@ PRESETS: dict[str, VendorPreset] = {
             "https://generativelanguage.googleapis.com/v1beta",
             "gemini-2.5-pro",
             adapter="gemini_native",
+            auth_methods=("api_key", "google_adc", "oauth_token"),
             env_keys=("GEMINI_API_KEY", "GOOGLE_API_KEY"),
             models=("gemini-2.5-pro", "gemini-2.5-flash"),
             tool_call_style="gemini",
@@ -241,7 +242,7 @@ PRESETS_BY_VENDOR: dict[str, VendorPreset] = PRESETS
 DEFAULT_VENDOR = "anthropic"
 DEFAULT_MODEL = PRESETS["anthropic"].default_model
 
-#: Vendors with a browser login flow (plan §2.8): exactly two.
+#: Vendors with an interactive login flow.
 WEB_LOGIN_VENDORS: tuple[str, ...] = tuple(
     preset.id for preset in PRESETS.values() if len(preset.auth_methods) > 1
 )

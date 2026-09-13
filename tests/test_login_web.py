@@ -175,7 +175,40 @@ async def test_login_web_reports_failure_phase_and_does_not_persist(
 
 
 # ---------------------------------------------------------------------------
-# other vendors stay unsupported
+# Gemini Google ADC
+# ---------------------------------------------------------------------------
+
+
+async def test_gemini_google_adc_login_persists_only_auth_method(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Process:
+        returncode = 0
+
+        async def communicate(self) -> tuple[bytes, bytes]:
+            return b"Credentials saved\n", b""
+
+    monkeypatch.setattr(auth_web.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(
+        auth_web.asyncio, "create_subprocess_exec", lambda *a, **kw: _async_value(Process())
+    )
+    core = _core(tmp_path, monkeypatch)
+    conn = _FakeConn()
+    result = await provider_login_web_handler(  # type: ignore[arg-type]
+        conn, ProviderLoginWebParams(vendor="gemini", method="web"), core
+    )
+    assert result.status == "await_user"
+    await conn.run_spawned()
+    stored = json.loads((tmp_path / "settings.json").read_text(encoding="utf-8"))
+    assert stored["providers"]["gemini"] == {"auth_method": "google_adc"}
+
+
+async def _async_value(value: Any) -> Any:
+    return value
+
+
+# ---------------------------------------------------------------------------
+# API-key-only vendors stay unsupported
 # ---------------------------------------------------------------------------
 
 

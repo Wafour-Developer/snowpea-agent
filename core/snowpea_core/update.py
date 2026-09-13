@@ -52,6 +52,7 @@ REPO = "Wafour-Developer/snowpea-agent"
 REPO_URL = f"https://github.com/{REPO}"
 TAGS_URL = f"https://api.github.com/repos/{REPO}/tags"
 COMMITS_URL = f"https://api.github.com/repos/{REPO}/commits"
+RAW_VERSION_URL = f"https://raw.githubusercontent.com/{REPO}"
 #: Distribution name on PyPI; ``system.update`` hands this to the installer.
 PACKAGE = "snowpea-agent"
 PYPI_URL = f"https://pypi.org/pypi/{PACKAGE}/json"
@@ -318,6 +319,15 @@ async def _git_latest(client: httpx.AsyncClient) -> tuple[str | None, str | None
     return ".".join(str(part) for part in best[0]), best[1]
 
 
+async def _git_version_at(client: httpx.AsyncClient, revision: str) -> str | None:
+    """Package version declared by an exact repository revision."""
+    response = await client.get(f"{RAW_VERSION_URL}/{revision}/core/snowpea_core/__init__.py")
+    if response.status_code != 200:
+        return None
+    match = re.search(r'^__version__\s*=\s*["\']([^"\']+)["\']', response.text, re.MULTILINE)
+    return match.group(1) if match and parse_version(match.group(1)) else None
+
+
 def _answer(
     *,
     latest: str,
@@ -380,11 +390,11 @@ async def _check_git_branch(paths: Paths, install: GitInstall, force: bool) -> d
         # presentation-only: a failure must not invalidate the ancestry check.
         display_version = __version__
         try:
-            tagged_version, _tag = await _git_latest(client)
-            if tagged_version and is_newer(tagged_version, display_version):
-                display_version = tagged_version
+            commit_version = await _git_version_at(client, latest)
+            if commit_version and is_newer(commit_version, display_version):
+                display_version = commit_version
         except Exception:  # noqa: BLE001 - commit updates work without tags
-            log.debug("could not resolve a display version for git update", exc_info=True)
+            log.debug("could not read the version at the update commit", exc_info=True)
         answer = _answer(
             latest=f"{display_version}+{latest[:8]}",
             channel="git",
@@ -637,11 +647,31 @@ async def watch_update(
             except OSError:
                 log.warning("could not persist update tracking source", exc_info=True)
         core.restart_required = True
-        await notify_progress(core, "done", f"updated to v{latest.lstrip('v')}")
+        installed = installed_cli_version() or latest.lstrip("v")
+        await notify_progress(core, "done", f"updated to v{installed}")
     else:
         await notify_progress(
             core, "failed", f"the upgrade exited with status {code}; see {core.paths.update_log}"
         )
+
+
+def installed_cli_version() -> str | None:
+    """Ask the freshly replaced executable what version is now on disk."""
+    executable = shutil.which("snowpea")
+    if not executable:
+        return None
+    try:
+        completed = subprocess.run(  # noqa: S603 - executable came from PATH
+            [executable, "--version"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    match = re.search(r"\bsnowpea\s+v?([0-9]+\.[0-9]+\.[0-9]+)", completed.stdout)
+    return match.group(1) if completed.returncode == 0 and match else None
 
 
 async def background_check(core: Core) -> None:

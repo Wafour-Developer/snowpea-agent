@@ -108,14 +108,16 @@ The daemon binds a loopback port chosen at start-up and records it, with a token
 
 ## Vendors
 
-Eleven vendors ship in v0.1. Two support a browser login; the rest take an API key.
+Eleven vendors ship in v0.1. OpenAI and OpenRouter support browser login; Gemini
+also supports Google OAuth through Application Default Credentials. The remaining
+providers use vendor API keys.
 
 | Vendor | Adapter | Login |
 |---|---|---|
 | Anthropic | native Messages API | API key |
-| OpenAI | OpenAI-compatible | API key or **browser login** (device code) |
+| OpenAI | OpenAI-compatible | API key, **browser login** (device code), or access token |
 | OpenRouter | OpenAI-compatible | API key or **browser login** (OAuth PKCE) |
-| Google Gemini | native | API key |
+| Google Gemini | native | API key or **Google OAuth login** (`gcloud` ADC / remote access token) |
 | xAI Grok | OpenAI-compatible | API key |
 | Zhipu GLM | OpenAI-compatible | API key |
 | MiniMax | OpenAI-compatible | API key |

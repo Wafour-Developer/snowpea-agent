@@ -417,12 +417,23 @@ async def provider_configure_handler(
     config = {
         key: value
         for key, value in (params.config or {}).items()
-        if key in ("api_key", "base_url", "model", "models", "variant", "token", "refresh_token")
+        if key
+        in (
+            "api_key",
+            "base_url",
+            "model",
+            "models",
+            "variant",
+            "token",
+            "oauth_token",
+            "refresh_token",
+            "auth_method",
+        )
     }
     if not config:
         raise RpcError(
             errors.INVALID_PARAMS,
-            "provider.configure needs at least one of api_key, base_url, model",
+            "provider.configure needs credentials, base_url, or model",
         )
     _persist_provider(core, params.vendor, config)
     return Ok(ok=True)

@@ -58,7 +58,7 @@ v0.1에는 11종이 들어 있습니다.
 | `anthropic` | Anthropic | native Messages API | API 키 |
 | `openai` | OpenAI | OpenAI 호환 | API 키, 디바이스 코드 로그인 |
 | `openrouter` | OpenRouter | OpenAI 호환 | API 키, OAuth PKCE 로그인 |
-| `gemini` | Google Gemini | native | API 키 |
+| `gemini` | Google Gemini | native | API 키, Google OAuth (`gcloud` ADC), access token 직접 입력 |
 | `xai` | xAI Grok | OpenAI 호환 | API 키 |
 | `glm` | Zhipu GLM | OpenAI 호환 | API 키 |
 | `minimax` | MiniMax | OpenAI 호환 | API 키 |
@@ -73,6 +73,11 @@ snowpea provider list --json
 ```
 
 `provider list`는 각 벤더의 인증 방식, 기본 모델, 설정 여부를 보여줍니다.
+
+데스크톱에서는 `snowpea provider login gemini`가 Google ADC 로그인을 엽니다.
+원격/headless 머신에서는 `snowpea provider login gemini --token`을 실행한 뒤
+숨김 프롬프트에 OAuth access token을 붙여 넣으세요. OpenAI도 같은 `--token`
+방식을 지원합니다. 토큰이 셸 기록에 남지 않도록 값은 명령행에서 생략하세요.
 
 ### 키 추가하기
 

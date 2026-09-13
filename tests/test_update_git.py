@@ -61,14 +61,16 @@ async def test_git_update_prompt_uses_the_new_release_version(tmp_path, monkeypa
             f"https://api.github.com/repos/{updates.REPO}/compare/{OLD}...{NEW}": FakeResponse(
                 200, {"status": "ahead"}
             ),
-            updates.TAGS_URL: FakeResponse(200, [{"name": "v0.1.4"}]),
+            f"{updates.RAW_VERSION_URL}/{NEW}/core/snowpea_core/__init__.py": FakeResponse(
+                200, '__version__ = "0.1.5"\n'
+            ),
         },
     )
 
     answer = await updates.check_update(Paths.create(tmp_path), Settings())
 
     assert answer["current"] == f"0.1.2+{OLD[:8]}"
-    assert answer["latest"] == f"0.1.4+{NEW[:8]}"
+    assert answer["latest"] == f"0.1.5+{NEW[:8]}"
 
 
 @pytest.mark.parametrize("status", ["behind", "diverged"])
@@ -116,12 +118,14 @@ async def test_successful_upgrade_preserves_branch_for_next_launch(tmp_path, mon
     paths = Paths.create(tmp_path)
     core = SimpleNamespace(paths=paths, restart_required=False)
     monkeypatch.setattr(updates, "notify_progress", AsyncMock())
+    monkeypatch.setattr(updates, "installed_cli_version", lambda: "0.1.5")
     await updates.watch_update(
         core, SimpleNamespace(poll=lambda: 0), "0.1.2+bbbbbbbb", f"git+{updates.REPO_URL}@main"
     )
     provenance(monkeypatch, revision=NEW, ref=NEW)
     assert updates.git_install_provenance(paths).branch == "main"
     assert core.restart_required is True
+    updates.notify_progress.assert_awaited_with(core, "done", "updated to v0.1.5")
 
 
 async def test_git_check_internal_metadata_stays_out_of_rpc(tmp_path, monkeypatch):

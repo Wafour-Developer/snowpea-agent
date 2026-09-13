@@ -58,7 +58,7 @@ Eleven vendors ship in v0.1.
 | `anthropic` | Anthropic | native Messages API | API key |
 | `openai` | OpenAI | OpenAI-compatible | API key, device-code login |
 | `openrouter` | OpenRouter | OpenAI-compatible | API key, OAuth PKCE login |
-| `gemini` | Google Gemini | native | API key |
+| `gemini` | Google Gemini | native | API key, Google OAuth (ADC via `gcloud`), access token |
 | `xai` | xAI Grok | OpenAI-compatible | API key |
 | `glm` | Zhipu GLM | OpenAI-compatible | API key |
 | `minimax` | MiniMax | OpenAI-compatible | API key |
@@ -73,6 +73,11 @@ snowpea provider list --json
 ```
 
 `provider list` shows each vendor's auth methods, default model, and whether it is configured.
+
+On a desktop, `snowpea provider login gemini` opens Google's ADC login. On a
+remote/headless machine, run `snowpea provider login gemini --token` and paste
+the OAuth access token at the hidden prompt. OpenAI supports the same `--token`
+form. Omit the value so the token does not appear in shell history.
 
 ### Adding a key
 
