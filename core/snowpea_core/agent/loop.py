@@ -15,6 +15,7 @@ import asyncio
 import logging
 import uuid
 from dataclasses import dataclass, field
+from time import monotonic
 from typing import TYPE_CHECKING, Any
 
 from snowpea_core.agent.agent import AgentConfig, build_messages
@@ -54,6 +55,14 @@ MAX_CONTINUATIONS = 2
 
 #: What the model is told when its answer was cut off mid-sentence.
 CONTINUE_INSTRUCTION = "Continue exactly where you stopped, without repeating."
+
+#: Shortest gap between two ``message.reasoning`` events, in seconds.
+#:
+#: Reasoning arrives a fragment at a time and carries a running character
+#: count, so publishing every fragment costs every attached surface a repaint
+#: to move a number nobody reads that closely.  Fragments inside one window are
+#: concatenated and sent as one event (CORE-reasoning-budget).
+REASONING_EMIT_INTERVAL = 0.15
 
 
 @dataclass(frozen=True)
@@ -183,11 +192,36 @@ async def _stream_once(
     extra: dict[str, Any] = (
         {"thinking": thinking} if getattr(provider, "supports_thinking_option", False) else {}
     )
+
+    # Thinking is streamed a fragment at a time, and every fragment published
+    # is a repaint in every attached surface — for a minutes-long think, a
+    # hundred a second, all to move one character count. They are batched into
+    # ``REASONING_EMIT_INTERVAL`` windows instead: the first fragment goes out
+    # at once so "Thinking…" appears immediately, the rest are concatenated,
+    # and the count each window carries is the running total, so a surface that
+    # only reads ``chars`` is never behind.
+    pending_reasoning: list[str] = []
+    last_reasoning_at = 0.0
+
+    async def flush_reasoning() -> None:
+        nonlocal last_reasoning_at
+        if not pending_reasoning:
+            return
+        text = "".join(pending_reasoning)
+        pending_reasoning.clear()
+        last_reasoning_at = monotonic()
+        await hub.emit_event(
+            session.id,
+            events.message_reasoning(text, reasoning_base + attempt.reasoning_chars),
+        )
+
     async for event in provider.stream(messages, specs, max_tokens=max_tokens, **extra):
         if session.interrupt.is_set():
             attempt.interrupted = True
             break
         if event.kind == "text_delta" and event.text:
+            # The answer has started, so whatever thinking led to it is over.
+            await flush_reasoning()
             chunks.append(event.text)
             await hub.emit_event(session.id, events.message_delta(event.text))
         elif event.kind == "reasoning_delta" and event.text:
@@ -195,13 +229,11 @@ async def _stream_once(
             # published so a surface can say the model is working, and how
             # much of the budget the working has already taken.
             attempt.reasoning_chars += len(event.text)
-            await hub.emit_event(
-                session.id,
-                events.message_reasoning(
-                    event.text, reasoning_base + attempt.reasoning_chars
-                ),
-            )
+            pending_reasoning.append(event.text)
+            if monotonic() - last_reasoning_at >= REASONING_EMIT_INTERVAL:
+                await flush_reasoning()
         elif event.kind == "tool_call" and event.tool_call is not None:
+            await flush_reasoning()
             attempt.calls.append(event.tool_call)
         elif event.kind == "usage" and event.usage is not None:
             # The vendor's own prompt count beats any local estimate.
@@ -215,6 +247,9 @@ async def _stream_once(
             if event.error:
                 await hub.emit_event(session.id, events.error(errors.INTERNAL, event.error))
             attempt.stop_reason = event.stop_reason or "end_turn"
+    # Nothing thought is dropped, including by an interrupt: the last window is
+    # always published, so the totals a surface shows match what was counted.
+    await flush_reasoning()
     attempt.text = "".join(chunks)
     return attempt
 

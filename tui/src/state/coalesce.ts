@@ -52,6 +52,117 @@ export interface BufferOptions {
   clearTimer?: (handle: any) => void;
 }
 
+/**
+ * The window the main session's counter events are batched into: 4 Hz.
+ *
+ * `message.reasoning` and `usage` carry no text anybody reads — they move the
+ * "Thinking (n chars)…" line and the token counters. A long thinking block
+ * emits one reasoning event per delta, and each one is a state change and a
+ * repaint of the whole live region. Four a second is as fast as a number worth
+ * reading changes.
+ */
+export const LIVE_FLUSH_MS = 250;
+
+export interface LiveEventThrottle<E extends CoalescableEvent> {
+  /** Take one main-session event; it is delivered now or when the window ends. */
+  push(event: E): void;
+  /** Deliver everything pending immediately. */
+  flush(): void;
+  /** Flush and stop the timer. */
+  dispose(): void;
+}
+
+/** Number from a payload field, or 0. */
+function count(event: CoalescableEvent, field: string): number {
+  const value = (event.payload as Record<string, unknown> | undefined)?.[field];
+  return typeof value === "number" ? value : Number(value ?? 0) || 0;
+}
+
+/**
+ * How two events of the same kind combine, or null when this kind is not
+ * batched at all.
+ *
+ * `message.reasoning` carries the running total, so the newest one says
+ * everything the ones before it did. `usage` carries an increment, so the
+ * batch has to add them up or tokens go missing from the counters.
+ */
+function mergeLive<E extends CoalescableEvent>(kind: string, older: E, newer: E): E | null {
+  if (kind === "message.reasoning") return newer;
+  if (kind === "usage") {
+    return {
+      ...newer,
+      payload: {
+        ...(newer.payload as object | undefined),
+        inputTokens: count(older, "inputTokens") + count(newer, "inputTokens"),
+        outputTokens: count(older, "outputTokens") + count(newer, "outputTokens"),
+      },
+    } as E;
+  }
+  return null;
+}
+
+/**
+ * Rate-limit the main session's counter events without touching its text.
+ *
+ * `message.delta` deliberately does not go through this: the answer is what
+ * the user is reading, and it must appear as it is written.
+ */
+export function createLiveEventThrottle<E extends CoalescableEvent>(
+  deliver: (event: E) => void,
+  { intervalMs = LIVE_FLUSH_MS, setTimer = setTimeout, clearTimer = clearTimeout }: BufferOptions = {},
+): LiveEventThrottle<E> {
+  const pending = new Map<string, E>();
+  let timer: unknown = null;
+
+  const drain = (): void => {
+    for (const event of pending.values()) deliver(event);
+    pending.clear();
+  };
+
+  const arm = (): void => {
+    timer = setTimer(() => {
+      timer = null;
+      if (pending.size === 0) return;
+      drain();
+      arm();
+    }, intervalMs);
+  };
+
+  return {
+    push(event: E): void {
+      const kind = String(event.kind ?? "");
+      const batched = mergeLive(kind, event, event) !== null;
+      if (!batched) {
+        // Order before rate: a message or a tool call comes after the counters
+        // that led up to it.
+        drain();
+        deliver(event);
+        return;
+      }
+      const held = pending.get(kind);
+      if (held) {
+        pending.set(kind, mergeLive(kind, held, event) as E);
+        return;
+      }
+      if (timer === null) {
+        // Leading edge: the first "Thinking…" must appear at once.
+        deliver(event);
+        arm();
+        return;
+      }
+      pending.set(kind, event);
+    },
+    flush(): void {
+      drain();
+    },
+    dispose(): void {
+      drain();
+      if (timer !== null) clearTimer(timer);
+      timer = null;
+    },
+  };
+}
+
 function deltaText(event: CoalescableEvent): string | null {
   if (event.kind !== "message.delta") return null;
   const payload = event.payload as { text?: unknown } | undefined;

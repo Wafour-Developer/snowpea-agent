@@ -1043,9 +1043,9 @@ var require_react_development = __commonJS({
             return children;
           }
           var result = [];
-          var count = 0;
+          var count2 = 0;
           mapIntoArray(children, result, "", "", function(child) {
-            return func.call(context, child, count++);
+            return func.call(context, child, count2++);
           });
           return result;
         }
@@ -28401,10 +28401,10 @@ var cursorMove = (x, y) => {
   }
   return returnValue;
 };
-var cursorUp = (count = 1) => ESC + count + "A";
-var cursorDown = (count = 1) => ESC + count + "B";
-var cursorForward = (count = 1) => ESC + count + "C";
-var cursorBackward = (count = 1) => ESC + count + "D";
+var cursorUp = (count2 = 1) => ESC + count2 + "A";
+var cursorDown = (count2 = 1) => ESC + count2 + "B";
+var cursorForward = (count2 = 1) => ESC + count2 + "C";
+var cursorBackward = (count2 = 1) => ESC + count2 + "D";
 var cursorLeft = ESC + "G";
 var cursorSavePosition = isTerminalApp ? "\x1B7" : ESC + "s";
 var cursorRestorePosition = isTerminalApp ? "\x1B8" : ESC + "u";
@@ -28413,12 +28413,12 @@ var cursorNextLine = ESC + "E";
 var cursorPrevLine = ESC + "F";
 var cursorHide = ESC + "?25l";
 var cursorShow = ESC + "?25h";
-var eraseLines = (count) => {
+var eraseLines = (count2) => {
   let clear = "";
-  for (let i = 0; i < count; i++) {
-    clear += eraseLine + (i < count - 1 ? cursorUp() : "");
+  for (let i = 0; i < count2; i++) {
+    clear += eraseLine + (i < count2 - 1 ? cursorUp() : "");
   }
-  if (count) {
+  if (count2) {
     clear += cursorLeft;
   }
   return clear;
@@ -31424,7 +31424,7 @@ var reconciler_default = (0, import_react_reconciler.default)({
 });
 
 // ../node_modules/indent-string/index.js
-function indentString(string, count = 1, options = {}) {
+function indentString(string, count2 = 1, options = {}) {
   const {
     indent = " ",
     includeEmptyLines = false
@@ -31434,14 +31434,14 @@ function indentString(string, count = 1, options = {}) {
       `Expected \`input\` to be a \`string\`, got \`${typeof string}\``
     );
   }
-  if (typeof count !== "number") {
+  if (typeof count2 !== "number") {
     throw new TypeError(
-      `Expected \`count\` to be a \`number\`, got \`${typeof count}\``
+      `Expected \`count\` to be a \`number\`, got \`${typeof count2}\``
     );
   }
-  if (count < 0) {
+  if (count2 < 0) {
     throw new RangeError(
-      `Expected \`count\` to be at least 0, got \`${count}\``
+      `Expected \`count\` to be at least 0, got \`${count2}\``
     );
   }
   if (typeof indent !== "string") {
@@ -31449,11 +31449,11 @@ function indentString(string, count = 1, options = {}) {
       `Expected \`options.indent\` to be a \`string\`, got \`${typeof indent}\``
     );
   }
-  if (count === 0) {
+  if (count2 === 0) {
     return string;
   }
   const regex2 = includeEmptyLines ? /^/gm : /^(?!\s*$)/gm;
-  return string.replace(regex2, indent.repeat(count));
+  return string.replace(regex2, indent.repeat(count2));
 }
 
 // ../node_modules/ink/build/get-max-width.js
@@ -34519,11 +34519,11 @@ function shortSessionId(sessionId) {
   return sessionId.length <= 8 ? sessionId : sessionId.slice(0, 8);
 }
 var WORKDIR_WIDTH = 28;
-function formatTokens(count) {
-  if (!Number.isFinite(count) || count <= 0) return "0";
-  if (count < 1e3) return String(Math.round(count));
-  if (count < 1e6) return `${(count / 1e3).toFixed(1)}k`;
-  return `${(count / 1e6).toFixed(1)}M`;
+function formatTokens(count2) {
+  if (!Number.isFinite(count2) || count2 <= 0) return "0";
+  if (count2 < 1e3) return String(Math.round(count2));
+  if (count2 < 1e6) return `${(count2 / 1e3).toFixed(1)}k`;
+  return `${(count2 / 1e6).toFixed(1)}M`;
 }
 function formatElapsed(ms) {
   const seconds = Math.max(0, Math.floor(ms / 1e3));
@@ -34835,8 +34835,8 @@ function workingLine(input) {
   const verb = verbAt(input.elapsedMs, input.verbOffset ?? 0);
   return `${spinner} ${verb}\u2026 ${stats}`;
 }
-function queuedLabel(count) {
-  return `\u23F3 ${count} queued`;
+function queuedLabel(count2) {
+  return `\u23F3 ${count2} queued`;
 }
 function turnSummaryLine({
   ok,
@@ -34957,6 +34957,71 @@ function useClock(active, tickMs = CLOCK_TICK_MS, now = Date.now) {
 
 // src/state/coalesce.ts
 var CHILD_FLUSH_MS = 66;
+var LIVE_FLUSH_MS = 250;
+function count(event, field) {
+  const value = event.payload?.[field];
+  return typeof value === "number" ? value : Number(value ?? 0) || 0;
+}
+function mergeLive(kind, older, newer) {
+  if (kind === "message.reasoning") return newer;
+  if (kind === "usage") {
+    return {
+      ...newer,
+      payload: {
+        ...newer.payload,
+        inputTokens: count(older, "inputTokens") + count(newer, "inputTokens"),
+        outputTokens: count(older, "outputTokens") + count(newer, "outputTokens")
+      }
+    };
+  }
+  return null;
+}
+function createLiveEventThrottle(deliver, { intervalMs = LIVE_FLUSH_MS, setTimer = setTimeout, clearTimer = clearTimeout } = {}) {
+  const pending = /* @__PURE__ */ new Map();
+  let timer = null;
+  const drain = () => {
+    for (const event of pending.values()) deliver(event);
+    pending.clear();
+  };
+  const arm = () => {
+    timer = setTimer(() => {
+      timer = null;
+      if (pending.size === 0) return;
+      drain();
+      arm();
+    }, intervalMs);
+  };
+  return {
+    push(event) {
+      const kind = String(event.kind ?? "");
+      const batched = mergeLive(kind, event, event) !== null;
+      if (!batched) {
+        drain();
+        deliver(event);
+        return;
+      }
+      const held = pending.get(kind);
+      if (held) {
+        pending.set(kind, mergeLive(kind, held, event));
+        return;
+      }
+      if (timer === null) {
+        deliver(event);
+        arm();
+        return;
+      }
+      pending.set(kind, event);
+    },
+    flush() {
+      drain();
+    },
+    dispose() {
+      drain();
+      if (timer !== null) clearTimer(timer);
+      timer = null;
+    }
+  };
+}
 function deltaText(event) {
   if (event.kind !== "message.delta") return null;
   const payload = event.payload;
@@ -35893,9 +35958,9 @@ function tableCells(raw) {
     } else if (text[i] === "`") {
       let end = i + 1;
       while (text[end] === "`") end += 1;
-      const count = end - i;
-      if (ticks === 0) ticks = count;
-      else if (ticks === count) ticks = 0;
+      const count2 = end - i;
+      if (ticks === 0) ticks = count2;
+      else if (ticks === count2) ticks = 0;
       cell += text.slice(i, end);
       i = end - 1;
     } else if (text[i] === "|" && ticks === 0) {
@@ -36226,6 +36291,19 @@ function scrollIndicator(view) {
 }
 
 // src/layout/statics.ts
+var UNKNOWN_ENTRY_ROWS = 1;
+var ENTRY_CHROME_ROWS = 2;
+function entryRows(state, item) {
+  if (item.kind === "tool") {
+    const call = state.toolCalls.find((c) => c.callId === item.id);
+    return call ? toolCallLines(call, false).length + ENTRY_CHROME_ROWS : UNKNOWN_ENTRY_ROWS;
+  }
+  if (item.kind === "diff") {
+    const diff2 = state.diffs.find((d) => d.id === item.id);
+    return diff2 ? diffLines(diff2).length + ENTRY_CHROME_ROWS : UNKNOWN_ENTRY_ROWS;
+  }
+  return UNKNOWN_ENTRY_ROWS;
+}
 function isSettled(state, item) {
   if (item.kind === "message") {
     const message = state.messages.find((m) => m.id === item.id);
@@ -36237,19 +36315,22 @@ function isSettled(state, item) {
   }
   return true;
 }
-function settledCount(state, cursor = 0) {
+function settledCount(state, cursor = 0, liveRows = Number.POSITIVE_INFINITY) {
   const total = state.timeline.length;
   const start = Math.max(0, Math.min(Math.floor(cursor), total));
-  let count = start;
-  while (count < total && isSettled(state, state.timeline[count])) count += 1;
+  let count2 = start;
+  while (count2 < total && isSettled(state, state.timeline[count2])) count2 += 1;
   if (state.turnActive) {
-    while (count > start) {
-      const kind = state.timeline[count - 1].kind;
-      if (kind !== "tool" && kind !== "diff") break;
-      count -= 1;
+    let rows = 0;
+    while (count2 > start) {
+      const item = state.timeline[count2 - 1];
+      if (item.kind !== "tool" && item.kind !== "diff") break;
+      rows += entryRows(state, item);
+      if (rows > liveRows) break;
+      count2 -= 1;
     }
   }
-  return count;
+  return count2;
 }
 
 // src/layout/language.ts
@@ -36896,20 +36977,20 @@ function gradientAt(position) {
   return at <= 0.5 ? mix(MINT, SNOWPEA, at * 2) : mix(SNOWPEA, TEAL, (at - 0.5) * 2);
 }
 function gradientColors(rows, mode) {
-  const count = Math.max(1, Math.floor(rows));
-  if (mode === "none") return new Array(count).fill(void 0);
+  const count2 = Math.max(1, Math.floor(rows));
+  if (mode === "none") return new Array(count2).fill(void 0);
   if (mode === "basic") {
-    return Array.from({ length: count }, (_, row) => {
+    return Array.from({ length: count2 }, (_, row) => {
       const index = Math.min(
         BASIC_RAMP.length - 1,
-        Math.floor(row / Math.max(1, count - 1) * BASIC_RAMP.length)
+        Math.floor(row / Math.max(1, count2 - 1) * BASIC_RAMP.length)
       );
       return BASIC_RAMP[index];
     });
   }
   return Array.from(
-    { length: count },
-    (_, row) => toHex(gradientAt(count === 1 ? 0 : row / (count - 1)))
+    { length: count2 },
+    (_, row) => toHex(gradientAt(count2 === 1 ? 0 : row / (count2 - 1)))
   );
 }
 
@@ -38336,6 +38417,9 @@ function App2({
       (childSession, event) => dispatch({ type: "child/event", sessionId: childSession, event })
     );
     childEventsRef.current = childEvents;
+    const liveEvents = createLiveEventThrottle(
+      (event) => dispatch({ type: "session/event", event })
+    );
     client.setListeners({
       // A delegate's events arrive on its own session; they belong to that
       // agent's transcript, never appended to this one.
@@ -38344,16 +38428,16 @@ function App2({
           droppedRef.current += 1;
           if (droppedTimer.current) clearTimeout(droppedTimer.current);
           droppedTimer.current = setTimeout(() => {
-            const count = droppedRef.current;
+            const count2 = droppedRef.current;
             droppedRef.current = 0;
-            if (count > 0) showToast(`${count} queued prompt${count === 1 ? "" : "s"} dropped`);
+            if (count2 > 0) showToast(`${count2} queued prompt${count2 === 1 ? "" : "s"} dropped`);
           }, 120);
         }
         if (event.sessionId && event.sessionId !== activeSessionRef.current) {
           childEvents.push(event.sessionId, event);
           return;
         }
-        dispatch({ type: "session/event", event });
+        liveEvents.push(event);
       },
       onStatus: (status) => dispatch({ type: "status", status }),
       // An unattended turn raised a request the daemon broadcast to every
@@ -38408,6 +38492,7 @@ function App2({
     refreshApprovals();
     return () => {
       childEvents.dispose();
+      liveEvents.dispose();
       if (childEventsRef.current === childEvents) childEventsRef.current = null;
     };
   }, [
@@ -38626,41 +38711,7 @@ function App2({
     () => layoutHud(hudSegments, contentWidth),
     [hudSegments, contentWidth]
   );
-  const released = settledCount(state, staticCursorRef.current);
-  if (released > staticCursorRef.current) {
-    staticBlocksRef.current = staticBlocksRef.current.concat(
-      releaseEntries(state, state.timeline.slice(staticCursorRef.current, released))
-    );
-    staticCursorRef.current = released;
-  }
   const now = Date.now();
-  if (state.turnActive && !turnActiveRef.current) {
-    turnRef.current = {
-      startedAt: now,
-      inputTokens: state.usage.inputTokens,
-      outputTokens: state.usage.outputTokens,
-      errors: state.errors.length
-    };
-  }
-  if (!state.turnActive && turnActiveRef.current && turnRef.current) {
-    const turn2 = turnRef.current;
-    turnCountRef.current += 1;
-    staticBlocksRef.current = staticBlocksRef.current.concat({
-      key: `turn-${turnCountRef.current}`,
-      kind: "note",
-      ok: state.errors.length === turn2.errors,
-      text: turnSummaryLine({
-        ok: state.errors.length === turn2.errors,
-        elapsedMs: now - turn2.startedAt,
-        inputTokens: state.usage.inputTokens - turn2.inputTokens,
-        outputTokens: state.usage.outputTokens - turn2.outputTokens
-      })
-    });
-    turnRef.current = null;
-  }
-  turnActiveRef.current = state.turnActive;
-  const staticCursor = staticCursorRef.current;
-  const staticItems = staticBlocksRef.current;
   const clock = useClock(state.turnActive || voice.recording);
   const knownAgents = useKnownAgents(client, void 0, agentRosterVersion);
   const activeTeam = knownAgents.find((agent) => agent.kind === "team")?.name;
@@ -38739,12 +38790,50 @@ function App2({
     statusRows: layout.statusRows,
     bottomRows: layout.bottomRows
   });
+  const liveRegionRows = fullscreen ? Number.POSITIVE_INFINITY : Math.max(
+    1,
+    usableRows(terminal.rows) - layout.statusRows - layout.bottomRows
+  );
   const agentWindowRowsRef = (0, import_react40.useRef)(agentWindowRows);
   agentWindowRowsRef.current = agentWindowRows;
   const agentViewport = (0, import_react40.useMemo)(
     () => sliceViewport(agentLines, agentWindowRows, agentScroll),
     [agentLines, agentWindowRows, agentScroll]
   );
+  const released = settledCount(state, staticCursorRef.current, liveRegionRows);
+  if (released > staticCursorRef.current) {
+    staticBlocksRef.current = staticBlocksRef.current.concat(
+      releaseEntries(state, state.timeline.slice(staticCursorRef.current, released))
+    );
+    staticCursorRef.current = released;
+  }
+  if (state.turnActive && !turnActiveRef.current) {
+    turnRef.current = {
+      startedAt: now,
+      inputTokens: state.usage.inputTokens,
+      outputTokens: state.usage.outputTokens,
+      errors: state.errors.length
+    };
+  }
+  if (!state.turnActive && turnActiveRef.current && turnRef.current) {
+    const turn2 = turnRef.current;
+    turnCountRef.current += 1;
+    staticBlocksRef.current = staticBlocksRef.current.concat({
+      key: `turn-${turnCountRef.current}`,
+      kind: "note",
+      ok: state.errors.length === turn2.errors,
+      text: turnSummaryLine({
+        ok: state.errors.length === turn2.errors,
+        elapsedMs: now - turn2.startedAt,
+        inputTokens: state.usage.inputTokens - turn2.inputTokens,
+        outputTokens: state.usage.outputTokens - turn2.outputTokens
+      })
+    });
+    turnRef.current = null;
+  }
+  turnActiveRef.current = state.turnActive;
+  const staticCursor = staticCursorRef.current;
+  const staticItems = staticBlocksRef.current;
   const lines = (0, import_react40.useMemo)(
     () => fullscreen ? transcriptLines(state, contentWidth, { expandedCall: expandedId }) : [],
     [fullscreen, state, contentWidth, expandedId]

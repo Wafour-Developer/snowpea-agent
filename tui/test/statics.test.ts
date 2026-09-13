@@ -136,3 +136,56 @@ describe("holding a diff back", () => {
     expect(settledCount(state)).toBe(3);
   });
 });
+
+describe("the height bound on what is held back", () => {
+  /** A turn that has already finished `count` edits, each with a diff. */
+  function longTurn(count: number, patchRows = 8): State {
+    let state = ask(initialState, "implement it");
+    const patch = Array.from({ length: patchRows }, (_, i) => `+line ${i}`).join("\n");
+    for (let i = 0; i < count; i += 1) {
+      state = apply(
+        state,
+        event(i * 3 + 1, "tool.call", { callId: `c${i}`, name: "edit_file", args: {} }),
+        event(i * 3 + 2, "tool.result", { callId: `c${i}`, ok: true }),
+        event(i * 3 + 3, "diff", { path: `f${i}.ts`, patch }),
+      );
+    }
+    return state;
+  }
+
+  it("still holds a short run whole, so its summary stays one line", () => {
+    const state = longTurn(2);
+    // 1 user message + 2 × (tool, diff)
+    expect(state.timeline).toHaveLength(5);
+    expect(settledCount(state, 0, 80)).toBe(1);
+  });
+
+  it("releases the older cards of a long run rather than filling the screen", () => {
+    const state = longTurn(12);
+    expect(state.timeline).toHaveLength(25);
+
+    const held = state.timeline.length - settledCount(state, 0, 20);
+    expect(held).toBeGreaterThan(0);
+    // What stays live has to fit; the whole run would be some 120 rows.
+    expect(held).toBeLessThan(6);
+  });
+
+  it("holds everything when no bound is given, as it always did", () => {
+    const state = longTurn(12);
+    expect(settledCount(state, 0)).toBe(1);
+  });
+
+  it("never goes backwards once entries have been released", () => {
+    const state = longTurn(12);
+    const first = settledCount(state, 0, 20);
+    expect(settledCount(state, first, 20)).toBeGreaterThanOrEqual(first);
+  });
+
+  it("releases the whole run at the end of the turn regardless", () => {
+    const state = apply(
+      longTurn(12),
+      event(99, "turn.done", { turnId: "t-1", reason: "complete" }),
+    );
+    expect(settledCount(state, 0, 20)).toBe(state.timeline.length);
+  });
+});

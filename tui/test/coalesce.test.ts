@@ -7,7 +7,11 @@
 
 import { describe, expect, it } from "vitest";
 
-import { createChildEventBuffer, type CoalescableEvent } from "../src/state/coalesce.js";
+import {
+  createChildEventBuffer,
+  createLiveEventThrottle,
+  type CoalescableEvent,
+} from "../src/state/coalesce.js";
 import {
   AGENT_TRANSCRIPT_ROWS,
   MIN_AGENT_TRANSCRIPT_ROWS,
@@ -146,6 +150,93 @@ describe("the child event batcher", () => {
     buffer.push("child", delta("b", 2));
     buffer.dispose();
     expect(texts()).toEqual(["a", "b"]);
+  });
+});
+
+/**
+ * The main session's counter events: the thinking line and the token counters.
+ * Text is deliberately not in here — an answer must appear as it is written.
+ */
+describe("the live counter throttle", () => {
+  function liveHarness() {
+    const timer = manualTimer();
+    const delivered: CoalescableEvent[] = [];
+    const throttle = createLiveEventThrottle<CoalescableEvent>(
+      (event) => delivered.push(event),
+      { intervalMs: 250, setTimer: timer.setTimer, clearTimer: timer.clearTimer },
+    );
+    return { timer, delivered, throttle };
+  }
+
+  const reasoning = (chars: number, text = "…"): CoalescableEvent => ({
+    sessionId: "sess-1",
+    kind: "message.reasoning",
+    payload: { text, chars },
+  });
+
+  it("shows the first thought at once, then one update per window", () => {
+    const { timer, delivered, throttle } = liveHarness();
+    throttle.push(reasoning(8));
+    expect(delivered).toHaveLength(1);
+
+    for (let i = 2; i <= 40; i += 1) throttle.push(reasoning(i * 8));
+    expect(delivered).toHaveLength(1);
+
+    timer.tick();
+    expect(delivered).toHaveLength(2);
+    // The count is a running total, so the newest one says it all.
+    expect((delivered[1].payload as any).chars).toBe(320);
+  });
+
+  it("adds up usage, which is an increment and not a total", () => {
+    const { timer, delivered, throttle } = liveHarness();
+    const usage = (input: number, output: number): CoalescableEvent => ({
+      kind: "usage",
+      payload: { inputTokens: input, outputTokens: output },
+    });
+    throttle.push(usage(1000, 10)); // leading edge
+    for (let i = 0; i < 9; i += 1) throttle.push(usage(100, 5));
+    timer.tick();
+
+    const totals = delivered.reduce(
+      (sum, e) => ({
+        input: sum.input + Number((e.payload as any).inputTokens),
+        output: sum.output + Number((e.payload as any).outputTokens),
+      }),
+      { input: 0, output: 0 },
+    );
+    expect(totals).toEqual({ input: 1900, output: 55 });
+    expect(delivered).toHaveLength(2);
+  });
+
+  it("never delays the answer itself", () => {
+    const { delivered, throttle } = liveHarness();
+    for (let i = 0; i < 5; i += 1) {
+      throttle.push({ kind: "message.delta", payload: { text: `tok${i}` } });
+    }
+    expect(delivered).toHaveLength(5);
+  });
+
+  it("flushes the counters before the event that ends them", () => {
+    const { delivered, throttle } = liveHarness();
+    throttle.push(reasoning(8)); // leading edge
+    throttle.push(reasoning(16)); // held
+    throttle.push({ kind: "message.done", payload: { role: "assistant", text: "hi" } });
+
+    expect(delivered.map((e) => e.kind)).toEqual([
+      "message.reasoning",
+      "message.reasoning",
+      "message.done",
+    ]);
+    expect((delivered[1].payload as any).chars).toBe(16);
+  });
+
+  it("publishes the last count when it is torn down mid-think", () => {
+    const { delivered, throttle } = liveHarness();
+    throttle.push(reasoning(8));
+    throttle.push(reasoning(4096));
+    throttle.dispose();
+    expect((delivered[delivered.length - 1].payload as any).chars).toBe(4096);
   });
 });
 
