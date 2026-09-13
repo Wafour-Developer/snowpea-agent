@@ -104,3 +104,9 @@ pending: reviewer (core+tui / ide), deslop, tag v0.1.2, IDE build-core repin, ca
 - site: in progress (exec-site) — landing/docs/admin/docker 8050, screenshots pipeline to run serially
 - pending: release v0.1.8 + IDE repin (release-018), reviewer-0913 verdict → deslop, screenshots, deploy (needs ssh key on duho)
 - policy (user): design=Fable, implementation=opus, docs/simple=sonnet, commits/gates=haiku; ≤3 concurrent agents; lead runs full gates once
+- 2026-09-13 later: 4432bea masked-secret guard/wizard OAuth models | 20f8eaa setup flicker + provider tags | 2fec113 federated skill search/install | 74224f4 model-resolution chain (all vendors, live Codex list) | 016c3c7 LSP integration (m13, protocol 1.5.0)
+- ide: 6edc8c1 design pass | 4f8da40 review fixes | 7af84e9 naming | 91f001c projects + viewers (IDE-VP)
+- registry: 1443322 federated hubs (ClawHub 1001, Claude marketplaces 14; agentskills/hermes-hub do not exist) | e67ace9 download proxy | pushed
+- site: 730a605 mark+table | 39ed10d copy | 39e3d00 sources internal + marketing headers | 5dec554 | 342909a real TUI shots; IDE shots pending (stale bundled core / empty state)
+- in flight: TUI LSP surfaces, IDE LSP surfaces, IDE shots; then release v0.1.9 + IDE repin; deploy needs ssh key on duho
+- known flake: tests/test_named_agent_persistence.py::test_named_agents_survive_a_restart_with_isolated_memory (timing; passes in isolation)
