@@ -123,7 +123,7 @@ import { ApprovalPrompt } from "./components/ApprovalPrompt.js";
 import {
   QuestionPrompt,
   questionPromptRows,
-  type QuestionAnswer,
+  type QuestionAnswerItem,
 } from "./components/QuestionPrompt.js";
 import { ApprovalQueue } from "./components/ApprovalQueue.js";
 import { ConfirmMenu, type ConfirmOption } from "./components/ConfirmMenu.js";
@@ -205,10 +205,26 @@ export const MIN_LIVE_MESSAGE_ROWS = 4;
  * and re-emitting the entire scrollback instead, which is the flicker the user
  * sees as old text flashing at the top before the view drops back down.
  *
- * Measured against the real inline frame, the gap is three rows; four is
- * cheap insurance, and costs only that much of the streaming window.
+ * This number is empirical, not derived, and that is the honest description of
+ * it: every attempt to enumerate the rows those blocks really draw has missed
+ * some — a prompt that wrapped to two rows, the blank separators between
+ * entries, the queued-prompt preview that exists only while a prompt waits.
+ * Four was enough for a 30-row terminal with nothing queued and a short panel,
+ * and still put a 120x35 pane exactly on `rows`, where Ink clears. Eight leaves
+ * real headroom across every case that has been measured, and what it costs is
+ * rows of the streaming window — the cheapest thing here to give up, since that
+ * text is one `message.done` away from being in the scrollback in full.
  */
-export const INLINE_CHROME_SLACK = 4;
+export const INLINE_CHROME_SLACK = 8;
+
+/**
+ * The slack the hold budget carries — smaller, because a wrong guess there
+ * costs a summary line rather than a screen clear (see `holdRegionRows`).
+ */
+export const HOLD_CHROME_SLACK = 4;
+
+/** The blank row `MessageView` draws under itself, which the cap must pay for. */
+export const MESSAGE_MARGIN_ROWS = 1;
 
 /** Rows to give the open agent transcript, inline layout included. */
 export function agentTranscriptRows({
@@ -1116,6 +1132,20 @@ export function App({
       1,
       usableRows(terminal.rows) - layout.statusRows - layout.bottomRows - INLINE_CHROME_SLACK,
     );
+  // What may be *held* on screen is budgeted separately, and less
+  // pessimistically. The two decisions are not the same: the message window is
+  // the one unbounded element, so its cap carries the full safety margin, while
+  // the hold only decides whether a finished card waits for its neighbours so
+  // the run can reach the scrollback as one summary line. Charging the hold the
+  // same margin left nothing holdable on a small terminal and split every run
+  // into one line per call. The sum stays bounded because the window's cap
+  // subtracts the rows the held cards actually take, below.
+  const holdRegionRows = fullscreen
+    ? Number.POSITIVE_INFINITY
+    : Math.max(
+      1,
+      usableRows(terminal.rows) - layout.statusRows - layout.bottomRows - HOLD_CHROME_SLACK,
+    );
 
   // The key handler reads the height through a ref: PgUp must move by whatever
   // is on screen now, without rebinding `useInput` on every resize.
@@ -1142,8 +1172,8 @@ export function App({
   // together overflow the terminal again — which is the implementing turn the
   // user saw flicker after the plan-mode one was fixed.
   const holdRows = state.messages.some((message) => message.streaming)
-    ? Math.max(1, liveRegionRows - MIN_LIVE_MESSAGE_ROWS)
-    : liveRegionRows;
+    ? Math.max(1, holdRegionRows - MIN_LIVE_MESSAGE_ROWS)
+    : holdRegionRows;
   const released = settledCount(state, staticCursorRef.current, holdRows);
   if (released > staticCursorRef.current) {
     staticBlocksRef.current = staticBlocksRef.current.concat(
@@ -1651,12 +1681,12 @@ export function App({
   );
 
   const answerQuestion = useCallback(
-    (answer: QuestionAnswer) => {
+    (answers: QuestionAnswerItem[]) => {
       const resolve = questionResolver.current;
       const requestId = state.pendingQuestion?.requestId;
       questionResolver.current = null;
       if (requestId) dispatch({ type: "question/resolved", requestId });
-      resolve?.({ selected: answer.selected, text: answer.text });
+      resolve?.({ answers });
     },
     [state.pendingQuestion],
   );
@@ -2046,6 +2076,7 @@ export function App({
   const liveMessageRows = Math.max(
     MIN_LIVE_MESSAGE_ROWS,
     liveRegionRows -
+    MESSAGE_MARGIN_ROWS -
     live.reduce((rows, item) => (item.kind === "message" ? rows : rows + entryRows(state, item)), 0),
   );
 
