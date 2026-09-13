@@ -98,8 +98,7 @@ def reply_language_rule(language: str) -> str:
     return (
         f"Language override. Reply in {name}, whatever language the user writes in. "
         "Keep code, file paths, commands, identifiers and log excerpts exactly as "
-        f"they are — never translate them. When you delegate, tell the subagent to "
-        f"answer in {name} too, because it cannot see this conversation."
+        "they are — never translate them."
     )
 
 
