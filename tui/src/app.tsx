@@ -63,6 +63,7 @@ import {
 } from "./state/audio-runtime.js";
 import { createAudioClient, describeAudioError, type AudioClient } from "./rpc/audio.js";
 import { INHERIT_REF, modelOptions, modelSource, type ModelOption } from "./state/models.js";
+import { lspTable, readLspStatus } from "./state/lsp.js";
 import { delegationHint, delegationLabel } from "./state/delegation.js";
 import type { LocalAudio } from "./util/audio-tools.js";
 import {
@@ -148,6 +149,9 @@ export const APPROVAL_POLL_MS = 5000;
  */
 export const TOAST_INLINE_MAX = 48;
 
+/** How often `lsp.status` is re-read; server states change without an event. */
+export const LSP_POLL_MS = 30_000;
+
 /** Rows the open agent transcript is given, and what PgUp/PgDn move by. */
 export const AGENT_TRANSCRIPT_ROWS = 12;
 
@@ -227,7 +231,13 @@ function TimelineEntry({
     ) : null;
   }
   const diff = state.diffs.find((d) => d.id === item.id);
-  return diff ? <DiffView diff={diff} expanded={expandedId === item.id} /> : null;
+  return diff ? (
+    <DiffView
+      diff={diff}
+      expanded={expandedId === item.id}
+      diagnostics={state.diagnostics[diff.path]}
+    />
+  ) : null;
 }
 
 /**
@@ -454,6 +464,23 @@ export function App({
   }, [refreshCapabilities]);
 
 
+  /**
+   * What the language servers are doing.
+   *
+   * Read on connect, whenever a server publishes diagnostics — that is the
+   * moment one has just become useful — and on a slow timer for the states no
+   * event announces, like a server going broken on its second crash.
+   */
+  const refreshLsp = useCallback(() => {
+    void client
+      .call("lsp.status", {})
+      .then((result) => dispatch({ type: "lsp/status", servers: readLspStatus(result) }))
+      .catch(() => {
+        // A daemon without the feature; the segment simply stays hidden.
+        dispatch({ type: "lsp/status", servers: [] });
+      });
+  }, [client]);
+
   const refreshApprovals = useCallback(() => {
     void client
       .listApprovals(sessionId)
@@ -513,6 +540,8 @@ export function App({
         // Another surface may have answered one of ours, or freed a slot that
         // lets a queued turn raise its own request; re-read the backlog.
         refreshApprovals();
+      },
+    });
 
     // Where the model came from, when the daemon reports it.
     void client
@@ -526,6 +555,8 @@ export function App({
         /* advisory: the HUD just leaves the tag off. */
       });
 
+    refreshLsp();
+
     // How many tools this session has; the HUD shows the count.
     void client
       .call("tool.list", { sessionId })
@@ -536,8 +567,6 @@ export function App({
       .catch(() => {
         /* advisory: an older daemon may not answer at all. */
       });
-      },
-    });
 
     client.onApprovalRequest(
       (request: ApprovalRequestParams) =>
@@ -554,7 +583,16 @@ export function App({
 
     refreshApprovals();
 
-  }, [client, sessionId, mode, provider, model, refreshApprovals, refreshCapabilities]);
+  }, [
+    client,
+    sessionId,
+    mode,
+    provider,
+    model,
+    refreshApprovals,
+    refreshCapabilities,
+    refreshLsp,
+  ]);
 
   // One fresh, non-blocking check per launch, independent of session/mode changes.
   useEffect(() => {
@@ -638,6 +676,19 @@ export function App({
     // Only the arrival of a new compaction matters, not the state it arrived in.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [compactionCount]);
+
+  // Servers start, become ready and break without an event of their own.
+  useEffect(() => {
+    const timer = setInterval(refreshLsp, LSP_POLL_MS);
+    return () => clearInterval(timer);
+  }, [refreshLsp]);
+
+  // Diagnostics mean a server just did something; its state may have changed
+  // with it.
+  const diagnosticsVersion = Object.keys(state.diagnostics).length;
+  useEffect(() => {
+    if (diagnosticsVersion > 0) refreshLsp();
+  }, [diagnosticsVersion, refreshLsp]);
 
   // The turn that carried the command is over; the HUD stops naming it.
   useEffect(() => {
@@ -754,6 +805,7 @@ export function App({
         usage: state.usage,
         context: state.context,
         toolCount: state.toolCount,
+        lsp: state.lsp,
         speaking: voice.tts,
         sessionMs: sessionElapsedMs,
         daemonPid: daemon.pid,
@@ -779,6 +831,7 @@ export function App({
       state.usage,
       state.context,
       state.toolCount,
+      state.lsp,
       voice.tts,
       sessionElapsedMs,
       daemon.pid,
@@ -1219,6 +1272,21 @@ export function App({
         ).catch((error: unknown) =>
           dispatch({ type: "error", message: `session cleanup failed: ${String(error)}` }),
         );
+        return;
+      }
+      // `/lsp` is this surface's own: the daemon answers `lsp.status`, and the
+      // table belongs in the transcript rather than in a toast.
+      if (/^\/lsp\s*$/.test(text.trim())) {
+        void client
+          .call("lsp.status", {})
+          .then((result) => {
+            const servers = readLspStatus(result);
+            dispatch({ type: "lsp/status", servers });
+            dispatch({ type: "note", text: lspTable(servers) });
+          })
+          .catch((error: unknown) =>
+            dispatch({ type: "note", text: `lsp.status failed: ${String(error)}` }),
+          );
         return;
       }
       // `/model` with an argument is the daemon's command; bare `/model` is a

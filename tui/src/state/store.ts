@@ -13,6 +13,7 @@ import type {
   SessionEvent,
 } from "../rpc/sdk.js";
 import type { ConnectionStatus } from "../rpc/client.js";
+import type { FileDiagnostics, LspServer } from "./lsp.js";
 
 export type MessageRole = "user" | "assistant" | "system";
 
@@ -171,6 +172,10 @@ export interface State {
   toolCount: number | null;
   /** Prompts accepted but not started, oldest first. */
   queued: QueuedPrompt[];
+  /** Language servers the daemon has running, from `lsp.status`. */
+  lsp: LspServer[];
+  /** Diagnostics counts per file, from `lsp.diagnostics` events. */
+  diagnostics: Record<string, FileDiagnostics>;
   /**
    * Text of prompts by turn id, until their turn finishes.
    *
@@ -214,6 +219,8 @@ export const initialState: State = {
   toolCount: null,
   queued: [],
   promptTexts: {},
+  lsp: [],
+  diagnostics: {},
   children: {},
   lastSeq: 0,
   turnActive: false,
@@ -226,6 +233,9 @@ export type Action =
   | { type: "mode"; mode: Mode }
   | { type: "commands"; commands: CommandInfo[] }
   | { type: "tools"; count: number }
+  | { type: "lsp/status"; servers: LspServer[] }
+  /** A line this surface wrote itself, e.g. the `/lsp` table. */
+  | { type: "note"; text: string }
   /** `session.prompt` answered: this turn id is the text we just sent. */
   | { type: "prompt/turn"; turnId: string; text: string }
   | {
@@ -519,6 +529,27 @@ function applySessionEvent(state: State, event: SessionEvent): State {
         errors: [...base.errors, `${payload.code ?? "error"}: ${payload.message ?? ""}`],
       };
 
+    // A language server published for a file this session touched. Only the
+    // counts arrive: the text of every diagnostic is already in the tool result
+    // the model saw.
+    case "lsp.diagnostics": {
+      const path = String(payload.path ?? "");
+      if (path.length === 0) return base;
+      const entry: FileDiagnostics = {
+        count: Number(payload.count ?? 0),
+        errors: Number(payload.errors ?? 0),
+        warnings: Number(payload.warnings ?? 0),
+      };
+      // A file that came back clean drops out rather than sitting at zero.
+      if (entry.count <= 0) {
+        if (!(path in base.diagnostics)) return base;
+        const diagnostics = { ...base.diagnostics };
+        delete diagnostics[path];
+        return { ...base, diagnostics };
+      }
+      return { ...base, diagnostics: { ...base.diagnostics, [path]: entry } };
+    }
+
     case "turn.queued": {
       const turnId = String(payload.turnId ?? "");
       if (turnId.length === 0) return base;
@@ -578,6 +609,23 @@ export function reducer(state: State, action: Action): State {
 
     case "tools":
       return { ...state, toolCount: action.count };
+
+    case "lsp/status":
+      return { ...state, lsp: action.servers };
+
+    case "note": {
+      const message: Message = {
+        id: nextId("msg"),
+        role: "system",
+        text: action.text,
+        streaming: false,
+      };
+      return {
+        ...state,
+        messages: [...state.messages, message],
+        timeline: pushTimeline(state, { kind: "message", id: message.id }),
+      };
+    }
 
     case "prompt/turn": {
       const promptTexts = { ...state.promptTexts, [action.turnId]: action.text };

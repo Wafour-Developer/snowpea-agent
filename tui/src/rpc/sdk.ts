@@ -9,6 +9,8 @@
 
 import type {
   ApprovalRequestParams as SdkApprovalRequestParams,
+  LspDiagnosticsEventPayload,
+  LspStatusResult,
   ApprovalRequestResult,
   Client,
   CommandListResult,
@@ -52,3 +54,10 @@ export type ConnectFn = (options: {
   token: string;
   clientVersion: string;
 }) => Promise<SdkClient>;
+
+/** `lsp.status` result (M13 §4). */
+export type LspStatus = LspStatusResult;
+/** One server row of that result. */
+export type LspServerStatus = NonNullable<LspStatusResult["servers"]>[number];
+/** `lsp.diagnostics` notification payload. */
+export type LspDiagnostics = LspDiagnosticsEventPayload;

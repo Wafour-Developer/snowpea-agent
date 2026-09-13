@@ -107,3 +107,32 @@ describe("settledCount", () => {
     expect(settledCount(initialState)).toBe(0);
   });
 });
+
+describe("holding a diff back", () => {
+  it("keeps a trailing diff live while the turn runs, so a badge can land", () => {
+    const state = apply(
+      ask(initialState, "edit it"),
+      event(1, "diff", { path: "a.py", patch: "+x" }),
+    );
+    expect(state.turnActive).toBe(true);
+    expect(settledCount(state)).toBe(1);
+  });
+
+  it("releases it once the turn is over", () => {
+    const state = apply(
+      ask(initialState, "edit it"),
+      event(1, "diff", { path: "a.py", patch: "+x" }),
+      event(2, "turn.done", { turnId: "t-1", reason: "complete" }),
+    );
+    expect(settledCount(state)).toBe(2);
+  });
+
+  it("releases it when something that is not a diff follows", () => {
+    const state = apply(
+      ask(initialState, "edit it"),
+      event(1, "diff", { path: "a.py", patch: "+x" }),
+      event(2, "message.done", { role: "assistant", text: "done" }),
+    );
+    expect(settledCount(state)).toBe(3);
+  });
+});

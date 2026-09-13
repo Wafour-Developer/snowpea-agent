@@ -33974,6 +33974,8 @@ var initialState = {
   toolCount: null,
   queued: [],
   promptTexts: {},
+  lsp: [],
+  diagnostics: {},
   children: {},
   lastSeq: 0,
   turnActive: false,
@@ -34197,6 +34199,25 @@ function applySessionEvent(state, event) {
         ...base,
         errors: [...base.errors, `${payload.code ?? "error"}: ${payload.message ?? ""}`]
       };
+    // A language server published for a file this session touched. Only the
+    // counts arrive: the text of every diagnostic is already in the tool result
+    // the model saw.
+    case "lsp.diagnostics": {
+      const path = String(payload.path ?? "");
+      if (path.length === 0) return base;
+      const entry = {
+        count: Number(payload.count ?? 0),
+        errors: Number(payload.errors ?? 0),
+        warnings: Number(payload.warnings ?? 0)
+      };
+      if (entry.count <= 0) {
+        if (!(path in base.diagnostics)) return base;
+        const diagnostics = { ...base.diagnostics };
+        delete diagnostics[path];
+        return { ...base, diagnostics };
+      }
+      return { ...base, diagnostics: { ...base.diagnostics, [path]: entry } };
+    }
     case "turn.queued": {
       const turnId = String(payload.turnId ?? "");
       if (turnId.length === 0) return base;
@@ -34245,6 +34266,21 @@ function reducer(state, action) {
       return { ...state, commands: action.commands };
     case "tools":
       return { ...state, toolCount: action.count };
+    case "lsp/status":
+      return { ...state, lsp: action.servers };
+    case "note": {
+      const message = {
+        id: nextId("msg"),
+        role: "system",
+        text: action.text,
+        streaming: false
+      };
+      return {
+        ...state,
+        messages: [...state.messages, message],
+        timeline: pushTimeline(state, { kind: "message", id: message.id })
+      };
+    }
     case "prompt/turn": {
       const promptTexts = { ...state.promptTexts, [action.turnId]: action.text };
       const index = state.queued.findIndex((entry) => entry.turnId === action.turnId);
@@ -34360,6 +34396,69 @@ function compactionDivider(before, after, width) {
   return `${"\u2500".repeat(left)}${label}${"\u2500".repeat(room - left)}`;
 }
 
+// src/state/lsp.ts
+var STATES = ["starting", "ready", "broken", "stopped"];
+function readLspStatus(result) {
+  const rows = result?.servers;
+  if (!Array.isArray(rows)) return [];
+  return rows.flatMap((row) => {
+    const value = row ?? {};
+    const id = typeof value.id === "string" ? value.id : "";
+    if (id.length === 0) return [];
+    const state = STATES.includes(value.state) ? value.state : "stopped";
+    return [
+      {
+        id,
+        root: typeof value.root === "string" ? value.root : "",
+        state,
+        languageId: typeof value.languageId === "string" ? value.languageId : "",
+        pid: typeof value.pid === "number" ? value.pid : null
+      }
+    ];
+  });
+}
+function lspSummary(servers) {
+  const summary = { ready: 0, starting: 0, broken: 0, stopped: 0 };
+  for (const server of servers) summary[server.state] += 1;
+  return summary;
+}
+function lspLabel(servers) {
+  const { ready, broken, starting } = lspSummary(servers);
+  if (ready === 0 && broken === 0 && starting === 0) return null;
+  return `lsp ${ready}${broken > 0 ? "!" : ""}`;
+}
+function lspColor(servers) {
+  return lspSummary(servers).broken > 0 ? "red" : void 0;
+}
+function lspTable(servers) {
+  if (servers.length === 0) {
+    return "no language servers are running (lsp.enabled=false, or nothing matched this project)";
+  }
+  const width = Math.max(...servers.map((server) => server.id.length));
+  const rows = servers.map((server) => {
+    const pid = server.pid === null ? "" : ` pid ${server.pid}`;
+    const language = server.languageId ? ` ${server.languageId}` : "";
+    return `  ${server.id.padEnd(width)}  ${server.state}${language}${pid}  ${server.root}`;
+  });
+  const { ready, broken } = lspSummary(servers);
+  const tail = broken > 0 ? `, ${broken} broken` : "";
+  return [`language servers (${ready} ready${tail})`, ...rows].join("\n");
+}
+function diagnosticLineColor(line) {
+  const text = line.trimStart();
+  if (text.startsWith("ERROR")) return "red";
+  if (text.startsWith("WARNING")) return "yellow";
+  return void 0;
+}
+function diagnosticsBadge(diagnostics) {
+  if (!diagnostics || diagnostics.count <= 0) return null;
+  return `\u26A0 ${diagnostics.count}`;
+}
+function diagnosticsColor(diagnostics) {
+  if (!diagnostics || diagnostics.count <= 0) return void 0;
+  return diagnostics.errors > 0 ? "red" : "yellow";
+}
+
 // src/layout/hud.ts
 var MAX_HUD_ROWS = 2;
 var SEPARATOR = " | ";
@@ -34441,6 +34540,16 @@ function buildHudSegments(input) {
     dimColor: true,
     priority: 5
   });
+  const lsp = lspLabel(input.lsp ?? []);
+  if (lsp) {
+    segments.push({
+      key: "lsp",
+      text: lsp,
+      color: lspColor(input.lsp ?? []),
+      dimColor: lspColor(input.lsp ?? []) === void 0,
+      priority: 6
+    });
+  }
   if (input.speaking) {
     segments.push({ key: "tts", text: "\u{1F50A}", color: "cyan", priority: 2 });
   }
@@ -35736,12 +35845,19 @@ function toolCallLines(call, expanded) {
   ];
   if (!expanded && all.length > 0) head.push({ text: ` (${all.length} lines)`, dimColor: true });
   const out = [{ key: `${call.callId}-h`, segments: head }];
-  shown.forEach(
-    (line, index) => out.push({
+  shown.forEach((line, index) => {
+    const severity = diagnosticLineColor(line);
+    out.push({
       key: `${call.callId}-o${index}`,
-      segments: [{ text: `  ${line}`, dimColor: !call.error, color: call.error ? "red" : void 0 }]
-    })
-  );
+      segments: [
+        {
+          text: `  ${line}`,
+          dimColor: !call.error && severity === void 0,
+          color: call.error ? "red" : severity
+        }
+      ]
+    });
+  });
   if (expanded && hidden > 0) {
     out.push({ key: `${call.callId}-more`, segments: [{ text: `  \u2026 ${hidden} more lines`, dimColor: true }] });
   }
@@ -35945,7 +36061,11 @@ function settledCount(state, cursor = 0) {
   let count = start;
   while (count < total && isSettled(state, state.timeline[count])) count += 1;
   if (state.turnActive) {
-    while (count > start && state.timeline[count - 1].kind === "tool") count -= 1;
+    while (count > start) {
+      const kind = state.timeline[count - 1].kind;
+      if (kind !== "tool" && kind !== "diff") break;
+      count -= 1;
+    }
   }
   return count;
 }
@@ -36748,10 +36868,21 @@ function ToolCall({
         " lines)"
       ] }) : null
     ] }),
-    shown.map((line, index) => /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(Text, { dimColor: !call.error, color: call.error ? "red" : void 0, children: [
-      "  ",
-      line
-    ] }, `${call.callId}-o${index}`)),
+    shown.map((line, index) => {
+      const severity = diagnosticLineColor(line);
+      return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(
+        Text,
+        {
+          dimColor: !call.error && severity === void 0,
+          color: call.error ? "red" : severity,
+          children: [
+            "  ",
+            line
+          ]
+        },
+        `${call.callId}-o${index}`
+      );
+    }),
     expanded && hidden > 0 ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { dimColor: true, children: `  \u2026 ${hidden} more lines` }) : null
   ] });
 }
@@ -36788,14 +36919,19 @@ function diffHeader(diff2) {
 }
 function DiffView({
   diff: diff2,
-  expanded = false
+  expanded = false,
+  diagnostics
 }) {
+  const badge = diagnosticsBadge(diagnostics);
   const lines = diff2.patch.split("\n");
   const limit = expanded ? EXPANDED_LINES : COLLAPSED_LINES;
   const shown = lines.slice(0, limit);
   const hidden = lines.length - shown.length;
   return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(Box_default, { flexDirection: "column", marginBottom: 1, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { bold: true, color: diff2.created ? "green" : "yellow", children: diffHeader(diff2) }),
+    /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(Text, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { bold: true, color: diff2.created ? "green" : "yellow", children: diffHeader(diff2) }),
+      badge ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { color: diagnosticsColor(diagnostics), children: `  ${badge}` }) : null
+    ] }),
     shown.map((line, index) => /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
       Text,
       {
@@ -37400,6 +37536,7 @@ var UPDATE_OPTIONS = [
 ];
 var APPROVAL_POLL_MS = 5e3;
 var TOAST_INLINE_MAX = 48;
+var LSP_POLL_MS = 3e4;
 var AGENT_TRANSCRIPT_ROWS = 12;
 var RESTART_DELAY_MS = 1200;
 function TimelineEntry({
@@ -37421,7 +37558,14 @@ function TimelineEntry({
     return entry ? /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(Text, { dimColor: true, children: compactionDivider(entry.before, entry.after, width) }) }) : null;
   }
   const diff2 = state.diffs.find((d) => d.id === item.id);
-  return diff2 ? /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(DiffView, { diff: diff2, expanded: expandedId === item.id }) : null;
+  return diff2 ? /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(
+    DiffView,
+    {
+      diff: diff2,
+      expanded: expandedId === item.id,
+      diagnostics: state.diagnostics[diff2.path]
+    }
+  ) : null;
 }
 function releaseEntries(state, items) {
   const out = [];
@@ -37545,6 +37689,11 @@ function App2({
   (0, import_react37.useEffect)(() => {
     refreshCapabilities();
   }, [refreshCapabilities]);
+  const refreshLsp = (0, import_react37.useCallback)(() => {
+    void client.call("lsp.status", {}).then((result) => dispatch({ type: "lsp/status", servers: readLspStatus(result) })).catch(() => {
+      dispatch({ type: "lsp/status", servers: [] });
+    });
+  }, [client]);
   const refreshApprovals = (0, import_react37.useCallback)(() => {
     void client.listApprovals(sessionId).then((result) => dispatch({ type: "approval/list", requests: result.requests ?? [] })).catch(() => {
     });
@@ -37589,18 +37738,19 @@ function App2({
       onApprovalResolved: ({ requestId }) => {
         dispatch({ type: "approval/resolved", requestId });
         refreshApprovals();
-        void client.call("session.list", {}).then((result) => {
-          const sessions2 = Array.isArray(result?.sessions) ? result.sessions : [];
-          const mine = sessions2.find((entry) => entry?.sessionId === sessionId);
-          setSessionModelSource(modelSource(mine));
-        }).catch(() => {
-        });
-        void client.call("tool.list", { sessionId }).then((result) => {
-          const tools = Array.isArray(result?.tools) ? result.tools.length : 0;
-          if (tools > 0) dispatch({ type: "tools", count: tools });
-        }).catch(() => {
-        });
       }
+    });
+    void client.call("session.list", {}).then((result) => {
+      const sessions2 = Array.isArray(result?.sessions) ? result.sessions : [];
+      const mine = sessions2.find((entry) => entry?.sessionId === sessionId);
+      setSessionModelSource(modelSource(mine));
+    }).catch(() => {
+    });
+    refreshLsp();
+    void client.call("tool.list", { sessionId }).then((result) => {
+      const tools = Array.isArray(result?.tools) ? result.tools.length : 0;
+      if (tools > 0) dispatch({ type: "tools", count: tools });
+    }).catch(() => {
     });
     client.onApprovalRequest(
       (request) => new Promise((resolve2) => {
@@ -37610,7 +37760,16 @@ function App2({
     );
     void registryRef.current.load().then((commands) => dispatch({ type: "commands", commands })).catch((error) => dispatch({ type: "error", message: String(error) }));
     refreshApprovals();
-  }, [client, sessionId, mode, provider, model, refreshApprovals, refreshCapabilities]);
+  }, [
+    client,
+    sessionId,
+    mode,
+    provider,
+    model,
+    refreshApprovals,
+    refreshCapabilities,
+    refreshLsp
+  ]);
   (0, import_react37.useEffect)(() => {
     let cancelled = false;
     void client.checkUpdate(true).then((check) => {
@@ -37677,6 +37836,14 @@ function App2({
     if (!latest) return;
     showToast(`compacted: ${formatTokens(latest.before)} \u2192 ${formatTokens(latest.after)}`);
   }, [compactionCount]);
+  (0, import_react37.useEffect)(() => {
+    const timer = setInterval(refreshLsp, LSP_POLL_MS);
+    return () => clearInterval(timer);
+  }, [refreshLsp]);
+  const diagnosticsVersion = Object.keys(state.diagnostics).length;
+  (0, import_react37.useEffect)(() => {
+    if (diagnosticsVersion > 0) refreshLsp();
+  }, [diagnosticsVersion, refreshLsp]);
   (0, import_react37.useEffect)(() => {
     if (!state.turnActive) setRunningCommand(null);
   }, [state.turnActive]);
@@ -37762,6 +37929,7 @@ function App2({
       usage: state.usage,
       context: state.context,
       toolCount: state.toolCount,
+      lsp: state.lsp,
       speaking: voice.tts,
       sessionMs: sessionElapsedMs,
       daemonPid: daemon.pid,
@@ -37787,6 +37955,7 @@ function App2({
       state.usage,
       state.context,
       state.toolCount,
+      state.lsp,
       voice.tts,
       sessionElapsedMs,
       daemon.pid,
@@ -38120,6 +38289,16 @@ function App2({
           (result) => showToast(`deleted ${Number(result?.deleted ?? 0)} saved session(s)`)
         ).catch(
           (error) => dispatch({ type: "error", message: `session cleanup failed: ${String(error)}` })
+        );
+        return;
+      }
+      if (/^\/lsp\s*$/.test(text.trim())) {
+        void client.call("lsp.status", {}).then((result) => {
+          const servers = readLspStatus(result);
+          dispatch({ type: "lsp/status", servers });
+          dispatch({ type: "note", text: lspTable(servers) });
+        }).catch(
+          (error) => dispatch({ type: "note", text: `lsp.status failed: ${String(error)}` })
         );
         return;
       }
