@@ -122,7 +122,9 @@ def test_vendor_catalog_lists_eleven_with_login_tags() -> None:
     logins = {item.id: catalog.vendor_auth_tags(item.id) for item in items}
     assert "device_code" in logins["openai"]
     assert "oauth_pkce" in logins["openrouter"]
-    assert sum(1 for tags in logins.values() if set(tags) - {"api_key"}) == 2
+    assert "google_adc" in logins["gemini"]
+    assert "oauth_token" in logins["gemini"]
+    assert sum(1 for tags in logins.values() if set(tags) - {"api_key"}) == 3
 
 
 def test_vendor_catalog_marks_configured_vendors_active() -> None:
@@ -130,6 +132,43 @@ def test_vendor_catalog_marks_configured_vendors_active() -> None:
     settings.providers["deepseek"] = {"api_key": "sk-test"}
     by_id = {item.id: item for item in catalog.vendor_catalog(settings)}
     assert by_id["deepseek"].active is True
+
+
+def test_wizard_provider_prompt_accepts_remote_oauth_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    answers = iter(["3", "ya29.remote"])
+    monkeypatch.setattr(ui, "ask_text", lambda *a, **kw: next(answers))
+    state = WizardState.from_settings(Settings())
+    state.select_vendor("gemini")
+    wizard._ask_for_key(state, interactive=True)  # noqa: SLF001
+    state.remember_current_provider()
+    assert state.provider_configs["gemini"] == {
+        "oauth_token": "ya29.remote",
+        "auth_method": "oauth_token",
+    }
+
+
+def test_wizard_provider_prompt_runs_browser_login(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from snowpea_core.providers import auth_web
+
+    async def logged_in(vendor: str):
+        return auth_web.LoginResult(
+            vendor=vendor,
+            method="google_adc",
+            credentials={"auth_method": "google_adc"},
+            message="signed in",
+        )
+
+    monkeypatch.setattr(ui, "ask_text", lambda *a, **kw: "2")
+    monkeypatch.setattr(auth_web, "login", logged_in)
+    state = WizardState.from_settings(Settings())
+    state.select_vendor("gemini")
+    wizard._ask_for_key(state, interactive=True)  # noqa: SLF001
+    assert state.provider_configs["gemini"] == {"auth_method": "google_adc"}
+    assert state.notes == ["signed in"]
 
 
 # ---------------------------------------------------------------------------

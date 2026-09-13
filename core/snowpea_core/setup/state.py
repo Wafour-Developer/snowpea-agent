@@ -26,6 +26,8 @@ class WizardState:
 
     vendor: str | None = None
     api_key: str | None = None
+    oauth_token: str | None = None
+    auth_method: str | None = None
     model: str | None = None
     base_url: str | None = None
     #: ``local`` only: vllm | ollama | lmstudio (picks the base_url default and quirks).
@@ -131,10 +133,14 @@ class WizardState:
         self.vendor = vendor
         saved = self.provider_configs.get(vendor) or {}
         self.api_key = None
+        self.oauth_token = None
+        self.auth_method = str(saved.get("auth_method") or "") or None
         self.model = str(saved.get("model") or "") or None
         self.base_url = str(saved.get("base_url") or "") or None
         self.variant = str(saved.get("variant") or "") or None
-        self.has_saved_key = bool(saved.get("api_key") or saved.get("token"))
+        self.has_saved_key = bool(
+            saved.get("api_key") or saved.get("token") or saved.get("oauth_token")
+        )
 
     def remember_current_provider(self) -> None:
         """Store the current provider fields in the per-vendor cache."""
@@ -143,6 +149,14 @@ class WizardState:
         block = dict(self.provider_configs.get(self.vendor) or {})
         if self.api_key:
             block["api_key"] = self.api_key
+            block.pop("oauth_token", None)
+            block.pop("auth_method", None)
+        if self.oauth_token:
+            block["oauth_token"] = self.oauth_token
+            block["auth_method"] = "oauth_token"
+            block.pop("api_key", None)
+        elif self.auth_method:
+            block["auth_method"] = self.auth_method
         if self.model:
             block["model"] = self.model
         if self.base_url:

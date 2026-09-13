@@ -248,6 +248,32 @@ def _ask_for_key(state: WizardState, *, interactive: bool) -> None:
         if entered_key:
             state.api_key = entered_key
         return
+    from snowpea_core.providers import auth_web
+    from snowpea_core.providers.presets import PRESETS
+
+    methods = PRESETS[state.vendor].auth_methods
+    if len(methods) > 1:
+        options = ["1=API key"]
+        options.append("2=browser login")
+        if "oauth_token" in methods:
+            options.append("3=OAuth token (remote/headless)")
+        picked = ui.ask_text(f"authentication [{', '.join(options)}] (Enter=1): ").strip()
+        if picked == "2":
+            result = _run_sync(auth_web.login(state.vendor))
+            block = dict(state.provider_configs.get(state.vendor) or {})
+            block.update(result.credentials)
+            block.pop("api_key", None)
+            block.pop("oauth_token", None)
+            state.provider_configs[state.vendor] = block
+            state.auth_method = str(result.credentials.get("auth_method") or "") or None
+            state.notes.append(result.message)
+            return
+        if picked == "3" and "oauth_token" in methods:
+            entered = ui.ask_text(f"{state.vendor} OAuth access token: ", secret=True).strip()
+            if entered:
+                state.oauth_token = entered
+                state.auth_method = "oauth_token"
+            return
     key_hint = "saved — Enter to keep" if state.has_saved_key else "Enter to use the environment"
     entered = ui.ask_text(f"{state.vendor} API key [{key_hint}]: ", secret=True)
     if entered:
