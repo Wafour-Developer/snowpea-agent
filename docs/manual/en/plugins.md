@@ -28,6 +28,8 @@ snowpea skill remove my-plugin
 
 Installing copies the plugin into `$SNOWPEA_HOME/plugins/<name>` and reloads the registry. A reload emits a `commands.changed` notification, so the TUI refreshes its palette without a restart.
 
+You can also ask the agent inside the TUI. "Find me a pdf skill" makes it call `skill_search`, and it answers with the candidates and the install spec of each one; "install the second one" makes it call `skill_install` with that spec. `skill_list` shows what is already installed and `skill_remove` deletes a plugin. Searching and listing are `read` tools and happen without a prompt; installing and removing are `exec`, so accept mode asks you first and plan mode refuses — the agent cannot install anything you did not approve. An install reloads in place, and the agent tells you which new `/commands`, agents and MCP servers it brought.
+
 ## Searching
 
 ```bash

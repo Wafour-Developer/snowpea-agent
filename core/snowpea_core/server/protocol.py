@@ -1060,6 +1060,12 @@ class SkillInfo(Payload):
     installSpec: str = Field(
         default="", description="What to pass to skill.install to get this entry."
     )
+    rating: float = Field(
+        default=0.0, description="Average rating, when the source publishes one; 0 means unrated."
+    )
+    downloads: int = Field(
+        default=0, description="Download count, when the source publishes one; 0 means unknown."
+    )
 
 
 class SkillSearchResult(Payload):

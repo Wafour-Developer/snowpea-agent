@@ -180,6 +180,7 @@ def register_builtin_tools(registry: ToolRegistry) -> ToolRegistry:
         process,
         settings_tools,
         shell,
+        skills_tools,
         stubs,
         web,
     )
@@ -193,6 +194,7 @@ def register_builtin_tools(registry: ToolRegistry) -> ToolRegistry:
         *git.TOOLS,
         *web.TOOLS,
         *settings_tools.TOOLS,
+        *skills_tools.TOOLS,
         *browser.TOOLS,
         *stubs.TOOLS,
         *media.TOOLS,

@@ -4,9 +4,9 @@ Every tool carries one permission tag. The mode decides what happens to each tag
 
 | tag | tools |
 |---|---|
-| `read` | `read_file`, `list_dir`, `glob`, `grep`, `git_status`, `git_diff`, `git_log`, `process_list`, `memory_search`, `transcribe_audio` |
+| `read` | `read_file`, `list_dir`, `glob`, `grep`, `git_status`, `git_diff`, `git_log`, `process_list`, `memory_search`, `transcribe_audio`, `skill_search`, `skill_list` |
 | `write` | `write_file`, `edit_file`, `git_commit`, `memory_write` |
-| `exec` | `shell`, `process_kill`, `delegate_task` |
+| `exec` | `shell`, `process_kill`, `delegate_task`, `skill_install`, `skill_remove` |
 | `network` | `web_search`, `web_extract`, `browser_*`, media tools, `text_to_speech`, MCP servers by default |
 | `send` | `schedule_create`, `schedule_list`, `schedule_cancel` |
 

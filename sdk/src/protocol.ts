@@ -1118,6 +1118,8 @@ export type SkillListParams = Record<string, unknown>;
 export interface SkillListResult {
   /** Installed skills. */
   skills?: ({
+    /** Download count, when the source publishes one; 0 means unknown. */
+    downloads?: number;
     /** Registry id; empty for local entries. */
     id?: string;
     /** What to pass to skill.install to get this entry. */
@@ -1128,6 +1130,8 @@ export interface SkillListResult {
     kind?: "skill" | "agent" | "command" | "plugin";
     /** Skill name. */
     name: string;
+    /** Average rating, when the source publishes one; 0 means unrated. */
+    rating?: number;
     /** Where it came from: builtin, global, project, plugin:<name> for an installed entry, or the marketplace that offered it. */
     source?: string;
     /** What the skill does. */
@@ -1166,6 +1170,8 @@ export interface SkillSearchParams {
 export interface SkillSearchResult {
   /** Matching skills. */
   skills?: ({
+    /** Download count, when the source publishes one; 0 means unknown. */
+    downloads?: number;
     /** Registry id; empty for local entries. */
     id?: string;
     /** What to pass to skill.install to get this entry. */
@@ -1176,6 +1182,8 @@ export interface SkillSearchResult {
     kind?: "skill" | "agent" | "command" | "plugin";
     /** Skill name. */
     name: string;
+    /** Average rating, when the source publishes one; 0 means unrated. */
+    rating?: number;
     /** Where it came from: builtin, global, project, plugin:<name> for an installed entry, or the marketplace that offered it. */
     source?: string;
     /** What the skill does. */

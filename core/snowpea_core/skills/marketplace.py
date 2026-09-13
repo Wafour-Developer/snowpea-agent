@@ -88,6 +88,10 @@ class SkillHit:
     description: str
     source: str
     install_spec: str = ""
+    #: Popularity, when the source publishes it.  Zero means "not published",
+    #: never "nobody liked it", so callers must not print a bare 0.
+    rating: float = 0.0
+    downloads: int = 0
 
 
 @dataclass
@@ -215,7 +219,22 @@ def _hit(item: dict[str, Any], source: str, default_spec: str = "") -> SkillHit:
         description=str(item.get("description") or item.get("summary") or "").strip(),
         source=source,
         install_spec=spec,
+        rating=_number(item, "rating", "averageRating", "stars"),
+        downloads=int(_number(item, "downloads", "downloadCount", "installs")),
     )
+
+
+def _number(item: dict[str, Any], *keys: str) -> float:
+    """The first of ``keys`` that holds a number; ``0.0`` when none does."""
+    for key in keys:
+        value = item.get(key)
+        if isinstance(value, bool) or value is None:
+            continue
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            continue
+    return 0.0
 
 
 async def search_claude_marketplaces(query: str, home: Path | str) -> SourceResult:
