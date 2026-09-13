@@ -209,12 +209,34 @@ describe("the live counter throttle", () => {
     expect(delivered).toHaveLength(2);
   });
 
-  it("never delays the answer itself", () => {
-    const { delivered, throttle } = liveHarness();
+  it("shows the first token at once and batches the answer at 15 Hz", () => {
+    const { timer, delivered, throttle } = liveHarness();
     for (let i = 0; i < 5; i += 1) {
-      throttle.push({ kind: "message.delta", payload: { text: `tok${i}` } });
+      throttle.push({ kind: "message.delta", payload: { text: `tok${i} ` } });
     }
-    expect(delivered).toHaveLength(5);
+    // The first token is on screen; the rest wait out the text window.
+    expect(delivered).toHaveLength(1);
+    timer.tick();
+
+    // Every token, in order, nothing repeated and nothing lost.
+    const text = delivered.map((e) => (e.payload as any).text).join("");
+    expect(text).toBe("tok0 tok1 tok2 tok3 tok4 ");
+    expect(delivered).toHaveLength(2);
+  });
+
+  it("lets text pre-empt the longer window the counters are queued on", () => {
+    const { timer, delivered, throttle } = liveHarness();
+    throttle.push(reasoning(8)); // leading edge, arms the 250 ms window
+    throttle.push({ kind: "message.delta", payload: { text: "a" } });
+    throttle.push(reasoning(16));
+    // Text has the shorter window, so it pre-empts; one tick sends both, and
+    // the counters ride along on a repaint the text has already paid for.
+    timer.tick();
+    expect(delivered.map((e) => e.kind)).toEqual([
+      "message.reasoning",
+      "message.delta",
+      "message.reasoning",
+    ]);
   });
 
   it("flushes the counters before the event that ends them", () => {

@@ -110,7 +110,7 @@ import {
   usableRows,
 } from "./layout/viewport.js";
 import { buildHudSegments, formatTokens, layoutHud } from "./layout/hud.js";
-import { settledCount } from "./layout/statics.js";
+import { entryRows, settledCount } from "./layout/statics.js";
 import { groupCalls, toolKind } from "./layout/summary.js";
 import { agentStatusText, buildAgentRows } from "./layout/agents.js";
 import { compactionDivider, contextWarning, summaryLine } from "./layout/bottom.js";
@@ -185,6 +185,31 @@ export const AGENT_TRANSCRIPT_CHROME_ROWS = 4;
 /** However cramped the terminal is, a window this short is still readable. */
 export const MIN_AGENT_TRANSCRIPT_ROWS = 3;
 
+/**
+ * Rows a message being streamed keeps even on a terminal with no room.
+ *
+ * Below this the window says nothing useful; a terminal this small is going to
+ * scroll whatever happens, and the whole message reaches the scrollback intact
+ * as soon as it is finished.
+ */
+export const MIN_LIVE_MESSAGE_ROWS = 4;
+
+/**
+ * Rows the inline frame holds back beyond the layout's own reservations.
+ *
+ * `reserveBottomRows` and the status block describe what they *need*; what they
+ * actually draw is a little more — the rule lines, the update banner's box, the
+ * paddings between blocks. The difference only matters here, because this is
+ * the one budget that has to be right in the pessimistic direction: one row
+ * over and Ink stops updating the frame in place and starts clearing the screen
+ * and re-emitting the entire scrollback instead, which is the flicker the user
+ * sees as old text flashing at the top before the view drops back down.
+ *
+ * Measured against the real inline frame, the gap is three rows; four is
+ * cheap insurance, and costs only that much of the streaming window.
+ */
+export const INLINE_CHROME_SLACK = 4;
+
 /** Rows to give the open agent transcript, inline layout included. */
 export function agentTranscriptRows({
   fullscreen,
@@ -257,16 +282,25 @@ function TimelineEntry({
   item,
   expandedId,
   width,
+  maxMessageRows,
 }: {
   state: State;
   item: TimelineItem;
   /** The entry Ctrl+O opened, if it is this one. */
   expandedId: string | null;
   width: number;
+  /**
+   * Rows a message may occupy. Passed only by the inline live region, where an
+   * entry still being written has to stay inside the terminal; `<Static>` draws
+   * the whole thing, so the scrollback is always complete.
+   */
+  maxMessageRows?: number;
 }): React.ReactElement | null {
   if (item.kind === "message") {
     const message = state.messages.find((m) => m.id === item.id);
-    return message ? <MessageView message={message} width={width} /> : null;
+    return message ? (
+      <MessageView message={message} width={width} maxRows={maxMessageRows} />
+    ) : null;
   }
   if (item.kind === "tool") {
     const call = state.toolCalls.find((c) => c.callId === item.id);
@@ -1080,7 +1114,7 @@ export function App({
     ? Number.POSITIVE_INFINITY
     : Math.max(
       1,
-      usableRows(terminal.rows) - layout.statusRows - layout.bottomRows,
+      usableRows(terminal.rows) - layout.statusRows - layout.bottomRows - INLINE_CHROME_SLACK,
     );
 
   // The key handler reads the height through a ref: PgUp must move by whatever
@@ -1102,7 +1136,15 @@ export function App({
   // still live is repainted on every frame, so a long turn's finished edits
   // have to reach the scrollback as they complete rather than piling up on
   // screen until the turn ends.
-  const released = settledCount(state, staticCursorRef.current, liveRegionRows);
+  // A message still being written shares the region with the cards held beside
+  // it, so the hold has to leave it room: without that reservation the cards
+  // can take the whole budget, the message keeps its floor on top, and the two
+  // together overflow the terminal again — which is the implementing turn the
+  // user saw flicker after the plan-mode one was fixed.
+  const holdRows = state.messages.some((message) => message.streaming)
+    ? Math.max(1, liveRegionRows - MIN_LIVE_MESSAGE_ROWS)
+    : liveRegionRows;
+  const released = settledCount(state, staticCursorRef.current, holdRows);
   if (released > staticCursorRef.current) {
     staticBlocksRef.current = staticBlocksRef.current.concat(
       releaseEntries(state, state.timeline.slice(staticCursorRef.current, released)),
@@ -1995,6 +2037,18 @@ export function App({
   // what follows is the live tail that a keystroke is allowed to repaint.
   const live = state.timeline.slice(staticCursor);
 
+  // Rows a live message may occupy: the region's budget, less whatever the
+  // cards held beside it already take. A plan is one message that streams for
+  // minutes, so without this the region outgrows the terminal and Ink switches
+  // to clearing the screen before every frame — under tmux, a view that shakes
+  // between the top and the bottom of the text. What the window hides is one
+  // `message.done` away from the scrollback, complete.
+  const liveMessageRows = Math.max(
+    MIN_LIVE_MESSAGE_ROWS,
+    liveRegionRows -
+    live.reduce((rows, item) => (item.kind === "message" ? rows : rows + entryRows(state, item)), 0),
+  );
+
   return (
     <Box flexDirection="column">
       <Static items={staticItems}>
@@ -2057,6 +2111,7 @@ export function App({
             item={item}
             expandedId={expandedId}
             width={contentWidth}
+            maxMessageRows={liveMessageRows}
           />
         ))
       )}

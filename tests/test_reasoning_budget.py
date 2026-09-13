@@ -183,6 +183,50 @@ async def test_reasoning_is_published_and_never_stored(daemon: Daemon, tmp_path:
     assert recorder.texts().strip() == "LGTM"
 
 
+async def test_prose_before_a_tool_call_is_not_announced_as_a_message(
+    daemon: Daemon, tmp_path: Path
+) -> None:
+    """Intermediate prose stays unannounced, so the chat surfaces stay quiet.
+
+    The model's prose *is* finished once it reaches for a tool, and a renderer
+    badly wants to know that — an open message can never leave the TUI's live
+    region, and it pins every tool card behind it there.  But ``message.done``
+    is also what the chat gateways forward, so one per tool round would send a
+    model's intermediate muttering to people's phones.  The inference belongs to
+    the surface that needs it (see ``tool.call`` in the TUI's store), and this
+    test is here so nobody moves it back.
+    """
+    core = daemon.core
+    assert core is not None
+    session = await _session(
+        core,
+        tmp_path,
+        {
+            "steps": [
+                {
+                    "match": "list it",
+                    "text": "I will look at the directory first.",
+                    "tool_calls": [{"name": "shell", "arguments": {"command": "true"}}],
+                },
+                {"after_tool": "shell", "text": "all done"},
+            ],
+            "default": {"text": ""},
+        },
+    )
+    recorder = _watch(core, session)
+
+    await run_turn(core, session, "list it")
+
+    kinds = recorder.kinds()
+    assert "tool.call" in kinds, kinds
+    # One announced message for the whole turn: the answer after the tool ran.
+    done = recorder.of_kind("message.done")
+    assert [event["payload"]["text"] for event in done] == ["all done"], kinds
+    # The prose was still streamed, so a surface can show it as it arrives.
+    streamed = "".join(str(e["payload"]["text"]) for e in recorder.of_kind("message.delta"))
+    assert "I will look at the directory first." in streamed
+
+
 async def test_a_long_think_is_published_in_windows_not_per_fragment(
     daemon: Daemon, tmp_path: Path
 ) -> None:

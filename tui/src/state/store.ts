@@ -415,8 +415,23 @@ function applySessionEvent(state: State, event: SessionEvent): State {
         state: "running",
         startedAt: Number(payload.at ?? Date.now()),
       };
+      // A tool call closes whatever the model was saying: it stopped writing to
+      // go and do something, so that message will never grow again. The daemon
+      // does not send `message.done` here — it would reach the chat gateways
+      // and forward a model's intermediate muttering to people's phones — so
+      // the inference is made here. It matters because an open message can
+      // never leave the live region, and entries may only reach the scrollback
+      // in order: one unclosed message pins every tool card and diff behind it
+      // on screen for the rest of the turn, until the region is taller than the
+      // terminal and Ink starts clearing the screen for every frame.
+      const last = base.messages[base.messages.length - 1];
+      const messages =
+        last && last.streaming && last.role === "assistant"
+          ? base.messages.slice(0, -1).concat({ ...last, streaming: false })
+          : base.messages;
       return {
         ...base,
+        messages,
         toolCalls: [...base.toolCalls, entry],
         timeline: pushTimeline(base, { kind: "tool", id: entry.callId }),
       };
