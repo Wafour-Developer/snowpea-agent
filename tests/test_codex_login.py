@@ -375,3 +375,49 @@ async def test_the_callback_port_is_released_after_a_login() -> None:
             token_handler=token_handler, callback=_hit_callback
         )
         assert result.credentials["access_token"] == "at"
+
+
+# ---------------------------------------------------------------------------
+# one credential record, whichever login produced it
+# ---------------------------------------------------------------------------
+
+
+def test_a_device_code_record_normalises_to_the_browser_one() -> None:
+    """The device flow stores ``{"token": ..., "expires_in": ...}``; the
+    transport must not have to know which flow ran."""
+    normalized = openai_oauth.normalize_stored_credentials(
+        {"token": _id_token("acct_5", "plus"), "refresh_token": "rt", "expires_in": 3600},
+        now=lambda: 100.0,
+    )
+    assert normalized["auth_method"] == "chatgpt"
+    assert normalized["access_token"] == _id_token("acct_5", "plus")
+    assert "token" not in normalized and "expires_in" not in normalized
+    assert normalized["refresh_token"] == "rt"
+    assert normalized["expires_at"] == 3700.0
+    # The account id is recovered from the token the device flow never parsed.
+    assert normalized["account_id"] == "acct_5"
+
+
+def test_normalising_a_browser_record_changes_nothing_but_the_method() -> None:
+    browser = {
+        "auth_method": "chatgpt",
+        "access_token": "at",
+        "refresh_token": "rt",
+        "expires_at": 4_600.0,
+        "account_id": "acct_1",
+        "plan_type": "pro",
+    }
+    assert openai_oauth.normalize_stored_credentials(browser) == browser
+
+
+def test_a_pasted_oauth_token_is_recognised_as_a_chatgpt_session() -> None:
+    assert openai_oauth.is_chatgpt_auth({"oauth_token": _id_token()})
+    # …but a plain API key is not, whatever field it sits in.
+    assert not openai_oauth.is_chatgpt_auth({"token": "sk-not-a-jwt"})
+    assert not openai_oauth.is_chatgpt_auth({"api_key": "sk-proj-xyz"})
+
+
+def test_stored_token_prefers_the_browser_field() -> None:
+    assert openai_oauth.stored_token({"access_token": "a", "token": "b"}) == "a"
+    assert openai_oauth.stored_token({"token": "b"}) == "b"
+    assert openai_oauth.stored_token({}) is None

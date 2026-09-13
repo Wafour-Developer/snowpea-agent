@@ -373,3 +373,22 @@ def test_the_static_model_list_is_what_a_chatgpt_account_can_pick() -> None:
     assert codex_transport.DEFAULT_MODEL in models
     assert "gpt-5" in models and "o4-mini" in models
     assert models == list(codex_transport.CODEX_MODELS)
+
+
+async def test_a_device_code_session_streams_without_conversion_by_the_caller() -> None:
+    """A session stored by the device-code flow (``token``, no ``auth_method``)
+    is the same ChatGPT session and must work unchanged."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["authorization"] == f"Bearer {_jwt_access_token('acct_9')}"
+        assert request.headers["chatgpt-account-id"] == "acct_9"
+        return httpx.Response(
+            200,
+            content=_sse([{"type": "response.completed", "response": {"status": "completed"}}]),
+            headers={"content-type": "text/event-stream"},
+        )
+
+    provider = _provider(
+        handler, credentials={"token": _jwt_access_token("acct_9"), "refresh_token": "rt"}
+    )
+    assert kinds(await drain(provider, FIRST_TURN)) == ["done"]
