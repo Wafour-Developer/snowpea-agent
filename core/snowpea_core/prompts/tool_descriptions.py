@@ -107,9 +107,11 @@ ASK_USER = (
     "costs or buys; put the one you recommend first and mark it \"(추천)\" / "
     "\"(recommended)\". Put the reason the answer matters in the question itself. Leave "
     "options out for a genuinely open question. Set multiSelect when several answers can "
-    "be true at once. A free-text \"Other\" row is added for you. The tool blocks, so ask "
-    "only what you cannot work out yourself, and read the result: a declined or timed-out "
-    "question is not agreement."
+    "be true at once. A free-text \"Other\" row is added for you. Several related questions "
+    "belong in one call: the client shows them as tabs the user can walk back through and "
+    "change their mind in before confirming, and you get every answer at once. The tool "
+    "blocks, so ask only what you cannot work out yourself, and read the result: a declined "
+    "or timed-out question is not agreement."
 )
 
 SET_MODE = (

@@ -312,9 +312,12 @@ async def run_headless(args: argparse.Namespace, home: str | None) -> int:
         reports an empty answer as declined, so the agent knows it was refused
         rather than agreed with.
         """
-        question = str(params.get("question") or "").strip()
-        _err(f"question needs an interactive client, declined: {question}")
-        return {"selected": [], "text": None}
+        asked = [
+            str(item.get("question") or "").strip() for item in (params.get("questions") or [])
+        ]
+        for question in asked:
+            _err(f"question needs an interactive client, declined: {question}")
+        return {"answers": []}
 
     try:
         info = await ensure_daemon(home)

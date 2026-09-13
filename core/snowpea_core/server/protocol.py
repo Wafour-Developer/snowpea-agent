@@ -573,19 +573,11 @@ class QuestionOption(Payload):
     )
 
 
-class QuestionRequest(Payload):
-    """A question from the agent waiting on a human answer.
+class QuestionItem(Payload):
+    """One question of a batch; a surface draws it as one tab."""
 
-    The shape mirrors ``ApprovalRequest`` on purpose: same id field, same
-    timeout field, same server->client call and the same pending/resolved
-    notifications, so a client that already renders approvals has nothing new
-    to learn about the transport.
-    """
-
-    requestId: str = Field(description="Id to answer with question.respond.")
-    sessionId: str = Field(description="Session whose turn is blocked.")
     header: str = Field(
-        default="", description="Short chip above the question, e.g. \"Auth method\" (<=12 chars)."
+        default="", description="Short chip naming the question, e.g. \"Auth method\"."
     )
     question: str = Field(description="The question, including why the answer matters.")
     options: list[QuestionOption] = Field(
@@ -595,9 +587,30 @@ class QuestionRequest(Payload):
     allowOther: bool = Field(
         default=True, description="Offer a free-text '기타 / Other' row alongside the options."
     )
-    timeoutSec: int = Field(default=600, description="Seconds before the question gives up.")
-    index: int = Field(default=1, description="Position of this question in the batch, from 1.")
-    total: int = Field(default=1, description="How many questions the tool call asks in all.")
+
+
+class QuestionRequest(Payload):
+    """Questions from the agent waiting on a human answer.
+
+    The transport mirrors ``ApprovalRequest`` on purpose: same id field, same
+    timeout field, same server->client call and the same pending/resolved
+    notifications, so a client that already renders approvals has nothing new
+    to learn.
+
+    The whole batch arrives at once, and one answer set goes back.  That is
+    what lets a surface show the questions as tabs the user can walk back
+    through and change their mind in before submitting; asking them one
+    blocking request at a time would make an earlier answer unreachable the
+    moment it was given.  A client with no tabs to draw — a messenger — is
+    free to ask them one after another itself and answer once at the end.
+    """
+
+    requestId: str = Field(description="Id to answer with question.respond.")
+    sessionId: str = Field(description="Session whose turn is blocked.")
+    questions: list[QuestionItem] = Field(
+        default_factory=list, description="The questions, in the order they were asked."
+    )
+    timeoutSec: int = Field(default=600, description="Seconds before the batch gives up.")
 
 
 class QuestionListResult(Payload):
@@ -606,23 +619,33 @@ class QuestionListResult(Payload):
     )
 
 
-class QuestionRespondParams(Payload):
-    requestId: str = Field(description="Question being answered.")
+class QuestionAnswerItem(Payload):
+    """One question's answer.  Both fields empty means it was not answered."""
+
     selected: list[str] = Field(
         default_factory=list, description="Labels the human picked, in the order offered."
     )
     text: str | None = Field(default=None, description="Free text, for 'Other' or no options.")
 
 
+class QuestionRespondParams(Payload):
+    requestId: str = Field(description="Batch being answered.")
+    answers: list[QuestionAnswerItem] = Field(
+        default_factory=list,
+        description="One entry per question, in question order; empty declines the batch.",
+    )
+
+
 class QuestionAnswer(Payload):
     """Result of the server-initiated ``question.request``.
 
-    Both fields empty means the human declined: Esc in the TUI, or a client
-    that has no way to ask.
+    An empty list means the human declined the whole batch: Esc in the TUI, or
+    a client that has no way to ask.
     """
 
-    selected: list[str] = Field(default_factory=list, description="Labels the human picked.")
-    text: str | None = Field(default=None, description="Free text, when there was any.")
+    answers: list[QuestionAnswerItem] = Field(
+        default_factory=list, description="One entry per question, in question order."
+    )
 
 
 class AllowlistAddParams(Payload):

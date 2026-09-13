@@ -769,12 +769,43 @@ export interface QuestionListParams {
 export interface QuestionListResult {
   /** Questions still waiting for an answer. */
   requests?: ({
+    /** The questions, in the order they were asked. */
+    questions?: ({
+      /** Offer a free-text '기타 / Other' row alongside the options. */
+      allowOther?: boolean;
+      /** Short chip naming the question, e.g. "Auth method". */
+      header?: string;
+      /** More than one option may be picked. */
+      multi?: boolean;
+      /** Closed set of answers; empty means free text. */
+      options?: ({
+        /** One dim line under the label. */
+        description?: string;
+        /** What the row says, and what comes back in selected[]. */
+        label: string;
+        /** Monospace block beside the list, for an option easier shown than told. */
+        preview?: string;
+      })[];
+      /** The question, including why the answer matters. */
+      question: string;
+    })[];
+    /** Id to answer with question.respond. */
+    requestId: string;
+    /** Session whose turn is blocked. */
+    sessionId: string;
+    /** Seconds before the batch gives up. */
+    timeoutSec?: number;
+  })[];
+}
+
+/** `question.request` params. Ask the client to put a question to the human. */
+export interface QuestionRequestParams {
+  /** The questions, in the order they were asked. */
+  questions?: ({
     /** Offer a free-text '기타 / Other' row alongside the options. */
     allowOther?: boolean;
-    /** Short chip above the question, e.g. "Auth method" (<=12 chars). */
+    /** Short chip naming the question, e.g. "Auth method". */
     header?: string;
-    /** Position of this question in the batch, from 1. */
-    index?: number;
     /** More than one option may be picked. */
     multi?: boolean;
     /** Closed set of answers; empty means free text. */
@@ -788,64 +819,37 @@ export interface QuestionListResult {
     })[];
     /** The question, including why the answer matters. */
     question: string;
-    /** Id to answer with question.respond. */
-    requestId: string;
-    /** Session whose turn is blocked. */
-    sessionId: string;
-    /** Seconds before the question gives up. */
-    timeoutSec?: number;
-    /** How many questions the tool call asks in all. */
-    total?: number;
   })[];
-}
-
-/** `question.request` params. Ask the client to put a question to the human. */
-export interface QuestionRequestParams {
-  /** Offer a free-text '기타 / Other' row alongside the options. */
-  allowOther?: boolean;
-  /** Short chip above the question, e.g. "Auth method" (<=12 chars). */
-  header?: string;
-  /** Position of this question in the batch, from 1. */
-  index?: number;
-  /** More than one option may be picked. */
-  multi?: boolean;
-  /** Closed set of answers; empty means free text. */
-  options?: ({
-    /** One dim line under the label. */
-    description?: string;
-    /** What the row says, and what comes back in selected[]. */
-    label: string;
-    /** Monospace block beside the list, for an option easier shown than told. */
-    preview?: string;
-  })[];
-  /** The question, including why the answer matters. */
-  question: string;
   /** Id to answer with question.respond. */
   requestId: string;
   /** Session whose turn is blocked. */
   sessionId: string;
-  /** Seconds before the question gives up. */
+  /** Seconds before the batch gives up. */
   timeoutSec?: number;
-  /** How many questions the tool call asks in all. */
-  total?: number;
 }
 
 /** `question.request` result. */
 export interface QuestionRequestResult {
-  /** Labels the human picked. */
-  selected?: string[];
-  /** Free text, when there was any. */
-  text?: string | null;
+  /** One entry per question, in question order. */
+  answers?: ({
+    /** Labels the human picked, in the order offered. */
+    selected?: string[];
+    /** Free text, for 'Other' or no options. */
+    text?: string | null;
+  })[];
 }
 
 /** `question.respond` params. Answer a pending question and unblock the turn. */
 export interface QuestionRespondParams {
-  /** Question being answered. */
+  /** One entry per question, in question order; empty declines the batch. */
+  answers?: ({
+    /** Labels the human picked, in the order offered. */
+    selected?: string[];
+    /** Free text, for 'Other' or no options. */
+    text?: string | null;
+  })[];
+  /** Batch being answered. */
   requestId: string;
-  /** Labels the human picked, in the order offered. */
-  selected?: string[];
-  /** Free text, for 'Other' or no options. */
-  text?: string | null;
 }
 
 /** `question.respond` result. */
@@ -1613,33 +1617,32 @@ export interface ProviderLoginProgressPayload {
 export interface QuestionPendingPayload {
   /** The question now in the shared queue. */
   request: {
-    /** Offer a free-text '기타 / Other' row alongside the options. */
-    allowOther?: boolean;
-    /** Short chip above the question, e.g. "Auth method" (<=12 chars). */
-    header?: string;
-    /** Position of this question in the batch, from 1. */
-    index?: number;
-    /** More than one option may be picked. */
-    multi?: boolean;
-    /** Closed set of answers; empty means free text. */
-    options?: ({
-      /** One dim line under the label. */
-      description?: string;
-      /** What the row says, and what comes back in selected[]. */
-      label: string;
-      /** Monospace block beside the list, for an option easier shown than told. */
-      preview?: string;
+    /** The questions, in the order they were asked. */
+    questions?: ({
+      /** Offer a free-text '기타 / Other' row alongside the options. */
+      allowOther?: boolean;
+      /** Short chip naming the question, e.g. "Auth method". */
+      header?: string;
+      /** More than one option may be picked. */
+      multi?: boolean;
+      /** Closed set of answers; empty means free text. */
+      options?: ({
+        /** One dim line under the label. */
+        description?: string;
+        /** What the row says, and what comes back in selected[]. */
+        label: string;
+        /** Monospace block beside the list, for an option easier shown than told. */
+        preview?: string;
+      })[];
+      /** The question, including why the answer matters. */
+      question: string;
     })[];
-    /** The question, including why the answer matters. */
-    question: string;
     /** Id to answer with question.respond. */
     requestId: string;
     /** Session whose turn is blocked. */
     sessionId: string;
-    /** Seconds before the question gives up. */
+    /** Seconds before the batch gives up. */
     timeoutSec?: number;
-    /** How many questions the tool call asks in all. */
-    total?: number;
   };
 }
 

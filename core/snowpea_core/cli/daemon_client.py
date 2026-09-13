@@ -386,9 +386,9 @@ class DaemonClient:
                 try:
                     reply: dict[str, Any] = await self.question_handler(params)
                 except Exception:
-                    reply = {"selected": [], "text": None}
+                    reply = {"answers": []}
             else:
-                reply = {"selected": [], "text": None}
+                reply = {"answers": []}
             await self._respond(frame["id"], result=reply)
             return
         if method == "approval.request" and self.approval_handler is not None:

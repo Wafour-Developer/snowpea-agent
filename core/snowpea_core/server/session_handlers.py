@@ -556,11 +556,10 @@ async def question_list_handler(
 async def question_respond_handler(
     conn: RpcConnection, params: QuestionRespondParams, core: Core
 ) -> Ok:
-    """Answer a question from any surface; a question carries no authority."""
+    """Answer a batch from any surface; a question carries no authority."""
     await core.questions.respond(
         params.requestId,
-        list(params.selected),
-        params.text,
+        [answer.model_dump(mode="json") for answer in params.answers],
         by=conn.surface_id,
     )
     return Ok(ok=True)

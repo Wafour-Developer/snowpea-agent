@@ -143,7 +143,7 @@ class RpcClient:
         timeout: float = DEFAULT_TIMEOUT,
         approval_mode: str = "allow",
         approval_scope: str = "once",
-        question_answer: dict[str, Any] | None = None,
+        question_answer: list[dict[str, Any]] | None = None,
     ) -> None:
         self._ws = ws
         self._next_id = 0
@@ -158,8 +158,9 @@ class RpcClient:
         self.approval_scope = approval_scope
         #: Server->client ``question.request`` params this client was sent.
         self.questions: list[dict[str, Any]] = []
-        #: What to answer them with; ``None`` never answers, so the daemon
-        #: times the question out the way an absent human would.
+        #: What to answer them with — one entry per question, as
+        #: ``question.request`` expects.  ``None`` never answers, so the daemon
+        #: times the batch out the way an absent human would.
         self.question_answer = question_answer
 
     def start(self) -> None:
@@ -194,7 +195,11 @@ class RpcClient:
             if self.question_answer is None:
                 return
             await self._ws.send_json(
-                {"jsonrpc": "2.0", "id": frame["id"], "result": self.question_answer}
+                {
+                    "jsonrpc": "2.0",
+                    "id": frame["id"],
+                    "result": {"answers": self.question_answer},
+                }
             )
             return
         if frame.get("method") != "approval.request":
@@ -295,7 +300,7 @@ async def connect(
     timeout: float = DEFAULT_TIMEOUT,
     approval_mode: str = "allow",
     approval_scope: str = "once",
-    question_answer: dict[str, Any] | None = None,
+    question_answer: list[dict[str, Any]] | None = None,
 ) -> RpcClient:
     """Open ``/ws``, complete ``system.hello`` and return the ready client."""
     ws = await http.ws_connect(f"http://127.0.0.1:{daemon.port}/ws")

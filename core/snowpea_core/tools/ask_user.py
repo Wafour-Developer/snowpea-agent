@@ -19,6 +19,11 @@ Both normalise to the same internal question, and either may be written flat
 (``question`` / ``options`` at the top level) when there is only one.  "Other"
 is added by the client, not by the caller, exactly as in both originals.
 
+A batch goes out as *one* request carrying every question, not one request per
+question.  That is what lets the TUI draw them as tabs the user can walk back
+through and change their mind in before confirming; asking one at a time would
+seal each answer the instant it was given.
+
 ``queue_command`` is the other half of an interview that ends in a choice.  A
 tool cannot *run* a slash command: ``CommandRegistry.start``/``run`` overwrite
 ``session.turn_task`` and ``session.current_turn``, which the turn calling the
@@ -34,7 +39,7 @@ from __future__ import annotations
 from typing import Any
 
 from snowpea_core.prompts import tool_descriptions as descriptions
-from snowpea_core.server.protocol import QuestionOption
+from snowpea_core.server.protocol import QuestionItem, QuestionOption
 from snowpea_core.tools.registry import Tool, ToolContext, ToolResult
 
 #: Options a single question may offer.  Claude Code caps at 4 and Hermes at 5;
@@ -97,6 +102,16 @@ class _Question:
             _first(raw, "allow_other", "allowOther", "allow_free_text", default=True)
         )
 
+    def item(self) -> QuestionItem:
+        """The question as the wire carries it."""
+        return QuestionItem(
+            header=self.header,
+            question=self.text,
+            options=list(self.options),
+            multi=self.multi,
+            allowOther=self.allow_other,
+        )
+
 
 def _questions(args: dict[str, Any]) -> list[_Question]:
     """Every question this call asks, flat shape or ``questions[]``."""
@@ -134,22 +149,15 @@ async def ask_user(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     if queue is None:  # pragma: no cover - a core without a queue is a test double
         return ToolResult(ok=False, error="this daemon cannot ask the user questions")
 
-    answers: list[Any] = []
+    answers = await queue.ask(
+        ctx.session,
+        [question.item() for question in questions],
+        cancel_event=getattr(ctx.session, "interrupt", None),
+    )
+
     payload: list[dict[str, Any]] = []
     by_question: dict[str, list[str]] = {}
-    for index, question in enumerate(questions, start=1):
-        answer = await queue.ask(
-            ctx.session,
-            question.text,
-            header=question.header,
-            options=question.options,
-            multi=question.multi,
-            allow_other=question.allow_other,
-            cancel_event=getattr(ctx.session, "interrupt", None),
-            index=index,
-            total=len(questions),
-        )
-        answers.append(answer)
+    for question, answer in zip(questions, answers, strict=False):
         payload.append(
             {
                 "question": question.text,
@@ -161,19 +169,15 @@ async def ask_user(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             }
         )
         by_question[question.text] = list(answer.selected)
-        # A person who walked away or said no is not going to answer the next
-        # one either; asking anyway just burns the remaining timeouts.
-        if answer.timed_out or answer.declined:
-            break
 
     first = answers[0]
     output = "\n".join(_describe(q, a) for q, a in zip(questions, answers, strict=False))
-    if first.timed_out:
+    if all(answer.timed_out for answer in answers):
         output += (
             "\n\nNo interactive client answered. Say what you will assume and why, "
             "or ask again once the user is back."
         )
-    elif first.declined:
+    elif all(answer.declined for answer in answers):
         output += "\n\nThe user declined to choose. Do not treat this as agreement."
     return ToolResult(
         ok=True,

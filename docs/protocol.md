@@ -835,7 +835,7 @@ List questions the agent is still waiting on.
 
 | field | type | required | description |
 |---|---|---|---|
-| `requests` | `({ allowOther?: boolean; header?: string; index?: number; multi?: boolean; options?: ({ description?: string; label: string; preview?: string; })[]; question: string; requestId: string; sessionId: string; timeoutSec?: number; total?: number; })[]` | no | Questions still waiting for an answer. |
+| `requests` | `({ questions?: ({ allowOther?: boolean; header?: string; multi?: boolean; options?: ({ description?: string; label: string; preview?: string; })[]; question: string; })[]; requestId: string; sessionId: string; timeoutSec?: number; })[]` | no | Questions still waiting for an answer. |
 
 ### `question.request`
 
@@ -847,23 +847,16 @@ Ask the client to put a question to the human.
 
 | field | type | required | description |
 |---|---|---|---|
-| `allowOther` | `boolean` | no | Offer a free-text '기타 / Other' row alongside the options. |
-| `header` | `string` | no | Short chip above the question, e.g. "Auth method" (<=12 chars). |
-| `index` | `number` | no | Position of this question in the batch, from 1. |
-| `multi` | `boolean` | no | More than one option may be picked. |
-| `options` | `({ description?: string; label: string; preview?: string; })[]` | no | Closed set of answers; empty means free text. |
-| `question` | `string` | yes | The question, including why the answer matters. |
+| `questions` | `({ allowOther?: boolean; header?: string; multi?: boolean; options?: ({ description?: string; label: string; preview?: string; })[]; question: string; })[]` | no | The questions, in the order they were asked. |
 | `requestId` | `string` | yes | Id to answer with question.respond. |
 | `sessionId` | `string` | yes | Session whose turn is blocked. |
-| `timeoutSec` | `number` | no | Seconds before the question gives up. |
-| `total` | `number` | no | How many questions the tool call asks in all. |
+| `timeoutSec` | `number` | no | Seconds before the batch gives up. |
 
 **Result**
 
 | field | type | required | description |
 |---|---|---|---|
-| `selected` | `string[]` | no | Labels the human picked. |
-| `text` | `string \| null` | no | Free text, when there was any. |
+| `answers` | `({ selected?: string[]; text?: string \| null; })[]` | no | One entry per question, in question order. |
 
 ### `question.respond`
 
@@ -875,9 +868,8 @@ Answer a pending question and unblock the turn.
 
 | field | type | required | description |
 |---|---|---|---|
-| `requestId` | `string` | yes | Question being answered. |
-| `selected` | `string[]` | no | Labels the human picked, in the order offered. |
-| `text` | `string \| null` | no | Free text, for 'Other' or no options. |
+| `answers` | `({ selected?: string[]; text?: string \| null; })[]` | no | One entry per question, in question order; empty declines the batch. |
+| `requestId` | `string` | yes | Batch being answered. |
 
 **Result**
 
@@ -1504,7 +1496,7 @@ List the tools registered for a session.
 
 | field | type | required | description |
 |---|---|---|---|
-| `request` | `{ allowOther?: boolean; header?: string; index?: number; multi?: boolean; options?: ({ description?: string; label: string; preview?: string; })[]; question: string; requestId: string; sessionId: string; timeoutSec?: number; total?: number; }` | yes | The question now in the shared queue. |
+| `request` | `{ questions?: ({ allowOther?: boolean; header?: string; multi?: boolean; options?: ({ description?: string; label: string; preview?: string; })[]; question: string; })[]; requestId: string; sessionId: string; timeoutSec?: number; }` | yes | The question now in the shared queue. |
 
 ### `question.resolved`
 

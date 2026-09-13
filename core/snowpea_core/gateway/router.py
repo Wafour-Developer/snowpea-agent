@@ -211,10 +211,13 @@ class GatewayConnection:
         self.surface_id = f"gateway:{binding.platform}:{channel_id}"
         #: Approval requests this conversation was asked about.
         self.asked: set[str] = set()
-        #: The ``ask_user`` question this chat is looking at, if any.  Only one
-        #: at a time: the tool asks a batch in sequence, and a chat with two
-        #: open questions has no way to say which number answers which.
+        #: The ``ask_user`` batch this chat is working through, if any.  A
+        #: messenger has no tabs, so it posts one question at a time and keeps
+        #: the answers here until the last one is in.
         self.question: dict[str, Any] | None = None
+        #: Index of the question now posted, and the answers collected so far.
+        self.question_at: int = 0
+        self.question_answers: list[dict[str, Any]] = []
 
     async def notify(self, method: str, params: dict[str, Any]) -> None:
         if self.closed:
@@ -268,30 +271,51 @@ class GatewayConnection:
         )
 
     async def _question_pending(self, params: dict[str, Any]) -> None:
-        """Post an ``ask_user`` question with one button per option."""
+        """Start an ``ask_user`` batch: post its first question."""
         request = params.get("request") or {}
         if request.get("sessionId") != self.session_id:
             return
         request_id = str(request.get("requestId", ""))
-        if not request_id:
+        if not request_id or not (request.get("questions") or []):
             return
         self.question = dict(request)
+        self.question_at = 0
+        self.question_answers = []
+        await self.post_question()
+
+    async def post_question(self) -> None:
+        """Post the question the chat is on, with one button per option."""
+        request = self.question or {}
+        items = list(request.get("questions") or [])
+        if not 0 <= self.question_at < len(items):
+            return
+        item = items[self.question_at]
+        request_id = str(request.get("requestId", ""))
         await self.router.send(
             self.binding,
             self.channel_id,
-            question_text(request),
+            question_text(item, self.question_at + 1, len(items)),
             buttons=question_buttons(
                 request_id,
-                list(request.get("options") or []),
-                bool(request.get("allowOther", True)),
+                list(item.get("options") or []),
+                bool(item.get("allowOther", True)),
             ),
         )
+
+    def current_question(self) -> dict[str, Any]:
+        """The question this chat is on, or an empty dict when there is none."""
+        items = list((self.question or {}).get("questions") or [])
+        if not 0 <= self.question_at < len(items):
+            return {}
+        return items[self.question_at]
 
     async def _question_resolved(self, params: dict[str, Any]) -> None:
         request_id = str(params.get("requestId", ""))
         if not self.question or self.question.get("requestId") != request_id:
             return
         self.question = None
+        self.question_at = 0
+        self.question_answers = []
 
 
 class GatewayRouter:
@@ -624,10 +648,10 @@ class GatewayRouter:
         except Exception as exc:  # noqa: BLE001 - already answered or gone
             log.info("approval %s from %s was not applied: %s", request_id, by, exc)
 
-    def _open_question(self, binding: Binding, channel_id: str) -> dict[str, Any] | None:
-        """The question this conversation is looking at, if there is one."""
+    def _open_question(self, binding: Binding, channel_id: str) -> GatewayConnection | None:
+        """The conversation's open ``ask_user`` batch, if there is one."""
         conn = self._conns.get((binding.id, channel_id))
-        return conn.question if conn is not None else None
+        return conn if conn is not None and conn.question else None
 
     async def _handle_question_button(
         self, binding: Binding, message: InboundMessage, request_id: str, choice: str
@@ -640,8 +664,10 @@ class GatewayRouter:
         asks the user to type instead.
         """
         adapter = self._adapters.get(binding.id)
-        question = self._open_question(binding, message.channel_id) or {}
-        options = list(question.get("options") or [])
+        conn = self._open_question(binding, message.channel_id)
+        if conn is None or str((conn.question or {}).get("requestId")) != request_id:
+            return
+        options = list(conn.current_question().get("options") or [])
         if choice == QUESTION_OTHER:
             if adapter is not None and message.callback_id:
                 with contextlib.suppress(AttributeError, Exception):
@@ -657,43 +683,62 @@ class GatewayRouter:
         if adapter is not None and message.callback_id:
             with contextlib.suppress(AttributeError, Exception):
                 await adapter.acknowledge(message.callback_id, label)  # type: ignore[attr-defined]
-        await self._respond_question(binding, message, request_id, [label], None)
+        await self._advance_question(binding, message, conn, [label], None)
 
     async def _answer_open_question(self, binding: Binding, message: InboundMessage) -> bool:
         """Read a typed reply as the answer to the open question; True if it was one."""
-        question = self._open_question(binding, message.channel_id)
-        if not question:
+        conn = self._open_question(binding, message.channel_id)
+        if conn is None:
             return False
-        request_id = str(question.get("requestId", ""))
-        options = list(question.get("options") or [])
+        item = conn.current_question()
+        options = list(item.get("options") or [])
         text = message.text.strip()
-        picked = _picked_labels(text, options, bool(question.get("multi")))
+        picked = _picked_labels(text, options, bool(item.get("multi")))
         if picked:
-            await self._respond_question(binding, message, request_id, picked, None)
+            await self._advance_question(binding, message, conn, picked, None)
             return True
-        if options and not question.get("allowOther", True):
+        if options and not item.get("allowOther", True):
             await self.send(
                 binding,
                 message.channel_id,
                 f"번호로 답해 주세요 (1-{len(options)}) / reply with a number.",
             )
             return True
-        await self._respond_question(binding, message, request_id, [], text)
+        await self._advance_question(binding, message, conn, [], text)
         return True
+
+    async def _advance_question(
+        self,
+        binding: Binding,
+        message: InboundMessage,
+        conn: GatewayConnection,
+        selected: list[str],
+        text: str | None,
+    ) -> None:
+        """Record one answer, then post the next question or submit the batch."""
+        request = conn.question or {}
+        items = list(request.get("questions") or [])
+        conn.question_answers.append({"selected": selected, "text": text})
+        conn.question_at += 1
+        if conn.question_at < len(items):
+            await conn.post_question()
+            return
+        await self._respond_question(
+            binding, message, str(request.get("requestId", "")), conn.question_answers
+        )
 
     async def _respond_question(
         self,
         binding: Binding,
         message: InboundMessage,
         request_id: str,
-        selected: list[str],
-        text: str | None,
+        answers: list[dict[str, Any]],
     ) -> None:
         if self.core is None:
             return
         by = f"gateway:{binding.platform}:{message.user_id}"
         try:
-            await self.core.questions.respond(request_id, selected, text, by=by)
+            await self.core.questions.respond(request_id, answers, by=by)
         except Exception as exc:  # noqa: BLE001 - already answered or gone
             log.info("question %s from %s was not applied: %s", request_id, by, exc)
 

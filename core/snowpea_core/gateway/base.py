@@ -123,22 +123,24 @@ def question_buttons(
     return buttons
 
 
-def question_text(request: dict[str, Any]) -> str:
-    """The question as chat text: header, question, numbered options, how to reply."""
+def question_text(item: dict[str, Any], index: int = 1, total: int = 1) -> str:
+    """One question as chat text: header, question, numbered options, how to reply.
+
+    A messenger has no tabs, so it walks the batch one message at a time and
+    the counter says where in it the user is.
+    """
     lines: list[str] = []
-    header = str(request.get("header") or "").strip()
-    total = int(request.get("total") or 1)
-    index = int(request.get("index") or 1)
+    header = str(item.get("header") or "").strip()
     counter = f" ({index}/{total})" if total > 1 else ""
     lines.append(f"\u2753 {header}{counter}" if header else f"\u2753 질문{counter}")
-    lines.append(str(request.get("question") or "").strip())
-    options = list(request.get("options") or [])
+    lines.append(str(item.get("question") or "").strip())
+    options = list(item.get("options") or [])
     for position, option in enumerate(options, start=1):
         label = str(option.get("label", ""))
         description = str(option.get("description") or "").strip()
         lines.append(f"{position}. {label}" + (f" \u2014 {description}" if description else ""))
     if options:
-        hint = "번호로 답해 주세요 (예: 1,3)" if request.get("multi") else "번호로 답해 주세요"
+        hint = "번호로 답해 주세요 (예: 1,3)" if item.get("multi") else "번호로 답해 주세요"
         lines.append(f"({hint} / reply with the number, or type your own answer)")
     else:
         lines.append("(답을 그대로 적어 주세요 / reply with your answer)")
