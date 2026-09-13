@@ -6,6 +6,11 @@ over ``question.request``; a second client answering through
 ``question.respond``; a client that has never heard of the method (headless);
 and a timeout.  The argument normalisation is tested on its own because the
 schema is a superset of two other tools' and a regression there is silent.
+
+A batch is one request carrying every question, answered once — that is what
+lets a surface show them as tabs and let the user change an earlier answer — so
+the only sequencing here is the *messenger*, which walks the batch one message
+at a time on its own.
 """
 
 from __future__ import annotations
@@ -159,8 +164,8 @@ class _Origin:
 
     closed = False
 
-    def __init__(self, reply: dict[str, Any] | None = None, raises: bool = False) -> None:
-        self.reply = reply or {"selected": [], "text": None}
+    def __init__(self, answers: list[dict[str, Any]] | None = None, raises: bool = False) -> None:
+        self.reply = {"answers": list(answers or [])}
         self.raises = raises
         self.asked: list[dict[str, Any]] = []
 
@@ -174,7 +179,7 @@ class _Origin:
 
 @pytest.mark.asyncio
 async def test_the_answer_comes_back_as_text_and_a_payload() -> None:
-    origin = _Origin({"selected": ["Raw WebGL2"], "text": None})
+    origin = _Origin([{"selected": ["Raw WebGL2"], "text": None}])
     result = await ask_user(_ctx(_core(), _session(origin)), dict(RENDERER))
     assert result.ok is True
     assert "선택: Raw WebGL2" in result.output
@@ -198,28 +203,29 @@ async def test_the_answer_comes_back_as_text_and_a_payload() -> None:
     # The options reach the client in the order they were offered, with their
     # descriptions, which is the whole point of the picker.
     [asked] = origin.asked
-    assert [option["label"] for option in asked["options"]] == [
+    [item] = asked["questions"]
+    assert [option["label"] for option in item["options"]] == [
         "three.js (추천)",
         "Raw WebGL2",
     ]
-    assert asked["options"][0]["description"] == "빠른 시작, 엔진 통제력 낮음"
-    assert asked["allowOther"] is True
+    assert item["options"][0]["description"] == "빠른 시작, 엔진 통제력 낮음"
+    assert item["allowOther"] is True
 
 
 @pytest.mark.asyncio
 async def test_multi_select_returns_every_label() -> None:
-    origin = _Origin({"selected": ["three.js (추천)", "Raw WebGL2"], "text": None})
+    origin = _Origin([{"selected": ["three.js (추천)", "Raw WebGL2"], "text": None}])
     result = await ask_user(_ctx(_core(), _session(origin)), {**RENDERER, "multi": True})
     assert result.meta is not None and result.meta["selected"] == [
         "three.js (추천)",
         "Raw WebGL2",
     ]
-    assert origin.asked[0]["multi"] is True
+    assert origin.asked[0]["questions"][0]["multi"] is True
 
 
 @pytest.mark.asyncio
 async def test_other_text_comes_back_as_text() -> None:
-    origin = _Origin({"selected": [], "text": "babylon.js"})
+    origin = _Origin([{"selected": [], "text": "babylon.js"}])
     result = await ask_user(_ctx(_core(), _session(origin)), dict(RENDERER))
     assert "answer: babylon.js" in result.output
     assert result.meta is not None and result.meta["text"] == "babylon.js"
@@ -228,7 +234,7 @@ async def test_other_text_comes_back_as_text() -> None:
 
 @pytest.mark.asyncio
 async def test_an_empty_answer_is_declined_not_agreement() -> None:
-    origin = _Origin({"selected": [], "text": None})
+    origin = _Origin([{"selected": [], "text": None}])
     result = await ask_user(_ctx(_core(), _session(origin)), dict(RENDERER))
     assert result.meta is not None and result.meta["declined"] is True
     assert "Do not treat this as agreement" in result.output
@@ -262,16 +268,43 @@ async def test_a_question_nobody_answers_times_out() -> None:
 
 
 @pytest.mark.asyncio
-async def test_questions_are_asked_in_sequence_and_stop_at_a_decline() -> None:
-    core = _core()
-    origin = _Origin({"selected": [], "text": None})
-    result = await ask_user(
-        _ctx(core, _session(origin)),
-        {"questions": [{"question": "first?"}, {"question": "second?"}]},
+async def test_a_batch_goes_out_as_one_request_and_comes_back_in_order() -> None:
+    """Every question in one request: that is what makes the TUI's tabs possible."""
+    origin = _Origin(
+        [
+            {"selected": ["Raw WebGL2"], "text": None},
+            {"selected": ["IndexedDB"], "text": None},
+        ]
     )
-    assert len(origin.asked) == 1
-    assert origin.asked[0]["total"] == 2
-    assert result.meta is not None and len(result.meta["answers"]) == 1
+    result = await ask_user(
+        _ctx(_core(), _session(origin)),
+        {
+            "questions": [
+                {"header": "렌더러", "question": "first?", "options": ["three.js", "Raw WebGL2"]},
+                {"header": "저장", "question": "second?", "options": ["IndexedDB", "서버"]},
+            ]
+        },
+    )
+    [asked] = origin.asked
+    assert [item["header"] for item in asked["questions"]] == ["렌더러", "저장"]
+    assert result.meta is not None
+    assert [entry["selected"] for entry in result.meta["answers"]] == [
+        ["Raw WebGL2"],
+        ["IndexedDB"],
+    ]
+    assert result.meta["byQuestion"] == {"first?": ["Raw WebGL2"], "second?": ["IndexedDB"]}
+
+
+@pytest.mark.asyncio
+async def test_a_short_answer_set_declines_the_questions_it_left_out() -> None:
+    """Esc on the second of three declines the rest; it is not a missing entry."""
+    origin = _Origin([{"selected": ["one"], "text": None}])
+    result = await ask_user(
+        _ctx(_core(), _session(origin)),
+        {"questions": [{"question": "one?"}, {"question": "two?"}, {"question": "three?"}]},
+    )
+    assert result.meta is not None
+    assert [entry["declined"] for entry in result.meta["answers"]] == [False, True, True]
 
 
 @pytest.mark.asyncio
@@ -279,7 +312,7 @@ async def test_a_pending_question_is_announced_and_then_resolved() -> None:
     """``question.pending`` / ``question.resolved`` so a second surface can follow."""
     core = _core()
     hub = core.questions.hub
-    origin = _Origin({"selected": ["Raw WebGL2"], "text": None})
+    origin = _Origin([{"selected": ["Raw WebGL2"], "text": None}])
     await ask_user(_ctx(core, _session(origin)), dict(RENDERER))
     assert [method for method, _ in hub.sent] == ["question.pending", "question.resolved"]
 
@@ -336,19 +369,11 @@ async def test_queue_command_queues_rather_than_running_inline(
 
 
 def test_a_messenger_gets_numbered_options_and_a_button_each() -> None:
-    request = {
-        "requestId": "qu-1",
-        **RENDERER,
-        "options": RENDERER["options"],
-        "allowOther": True,
-        "index": 1,
-        "total": 2,
-    }
-    text = question_text(request)
-    assert "1. three.js (추천) — 빠른 시작, 엔티" not in text  # no mangling
+    item = {**RENDERER, "allowOther": True}
+    text = question_text(item, 1, 2)
     assert "1. three.js (추천)" in text
     assert "2. Raw WebGL2" in text
-    assert "(1/2)" in text
+    assert "(1/2)" in text  # a messenger has no tabs, so it counts instead
     buttons = question_buttons("qu-1", list(RENDERER["options"]), True)
     assert [button.data for button in buttons] == [
         "qst:qu-1:1",
@@ -357,6 +382,34 @@ def test_a_messenger_gets_numbered_options_and_a_button_each() -> None:
     ]
     assert parse_question_callback("qst:qu-1:2") == ("qu-1", "2")
     assert parse_question_callback("apr:qu-1:allow") is None
+
+
+def test_a_messenger_walks_a_batch_one_message_at_a_time() -> None:
+    """No tabs in a chat, so the router posts question 2 only after question 1."""
+    from snowpea_core.gateway.router import Binding, GatewayConnection
+
+    posted: list[str] = []
+
+    class _Router:
+        async def send(self, binding: Any, channel_id: str, text: str, **kwargs: Any) -> None:
+            posted.append(text)
+
+    binding = Binding(id="b1", platform="telegram", credentials_ref="tg")
+    conn = GatewayConnection(_Router(), binding, "c1")  # type: ignore[arg-type]
+    conn.session_id = "s-1"
+    conn.question = {
+        "requestId": "qu-1",
+        "sessionId": "s-1",
+        "questions": [
+            {"header": "렌더러", "question": "first?", "options": [{"label": "a"}]},
+            {"header": "저장", "question": "second?", "options": [{"label": "b"}]},
+        ],
+    }
+    assert conn.current_question()["header"] == "렌더러"
+    conn.question_at = 1
+    assert conn.current_question()["header"] == "저장"
+    conn.question_at = 5
+    assert conn.current_question() == {}
 
 
 def test_a_typed_number_answers_a_messenger_question() -> None:
@@ -390,14 +443,15 @@ async def test_question_request_round_trips_over_the_wire(
     daemon = await make_daemon(snowpea_home / "wire")
     try:
         client = await connect(
-            http, daemon, question_answer={"selected": ["Raw WebGL2"], "text": None}
+            http, daemon, question_answer=[{"selected": ["Raw WebGL2"], "text": None}]
         )
         created = await client.ok("session.create", {"workdir": str(tmp_path)})
         ctx = await _tool_ctx(daemon, created["sessionId"])
         result = await asyncio.wait_for(ask_user(ctx, dict(RENDERER)), TIMEOUT)
         assert result.meta is not None and result.meta["selected"] == ["Raw WebGL2"]
-        assert client.questions[0]["question"] == RENDERER["question"]
-        assert client.questions[0]["header"] == "렌더러"
+        [item] = client.questions[0]["questions"]
+        assert item["question"] == RENDERER["question"]
+        assert item["header"] == "렌더러"
         await client.stop()
     finally:
         await daemon.stop()
@@ -446,7 +500,10 @@ async def test_a_second_client_can_list_and_answer_a_question(
 
         await watcher.ok(
             "question.respond",
-            {"requestId": request_id, "selected": ["three.js (추천)"], "text": None},
+            {
+                "requestId": request_id,
+                "answers": [{"selected": ["three.js (추천)"], "text": None}],
+            },
         )
         result = await asyncio.wait_for(task, TIMEOUT)
         assert result.meta is not None and result.meta["selected"] == ["three.js (추천)"]

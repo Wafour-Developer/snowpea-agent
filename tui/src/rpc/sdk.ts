@@ -39,8 +39,12 @@ export type ApprovalScope = NonNullable<ApprovalRequestResult["scope"]>;
 /** Server→client `question.request` — the `ask_user` tool's picker. */
 export type QuestionRequestParams = SdkQuestionRequestParams;
 export type QuestionResponse = QuestionRequestResult;
+/** One question of the batch; the TUI draws each as a tab. */
+export type QuestionItem = NonNullable<SdkQuestionRequestParams["questions"]>[number];
 /** One row of the picker. */
-export type QuestionOption = NonNullable<SdkQuestionRequestParams["options"]>[number];
+export type QuestionOption = NonNullable<QuestionItem["options"]>[number];
+/** One question's answer, as `question.respond` carries it. */
+export type QuestionAnswerItem = NonNullable<QuestionRequestResult["answers"]>[number];
 
 export type Mode = SessionSetModeParams["mode"];
 

@@ -25,7 +25,7 @@ from __future__ import annotations
 from typing import Any
 
 from snowpea_core.prompts import tool_descriptions as descriptions
-from snowpea_core.server.protocol import QuestionOption
+from snowpea_core.server.protocol import QuestionItem, QuestionOption
 from snowpea_core.session import events
 from snowpea_core.tools.delegate import delegation_language
 from snowpea_core.tools.registry import Tool, ToolContext, ToolResult
@@ -121,15 +121,21 @@ async def set_mode(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     reason = str(args.get("reason") or "").strip()
     question = f"{reason}\n{text['question']}".strip() if reason else text["question"]
 
-    answer = await queue.ask(
+    # One question, so one item in the batch; the queue always answers in kind.
+    answers = await queue.ask(
         ctx.session,
-        question,
-        header=text["header"],
-        options=[option for _, option in rows],
-        multi=False,
-        allow_other=False,
+        [
+            QuestionItem(
+                header=text["header"],
+                question=question,
+                options=[option for _, option in rows],
+                multi=False,
+                allowOther=False,
+            )
+        ],
         cancel_event=getattr(ctx.session, "interrupt", None),
     )
+    answer = answers[0]
 
     picked = next(
         (mode for mode, option in rows if option.label in answer.selected),

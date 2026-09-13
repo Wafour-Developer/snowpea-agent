@@ -99,10 +99,12 @@ class _Origin:
 
     async def call(self, method: str, params: dict[str, Any], timeout: float | None = None) -> Any:
         assert method == "question.request"
-        self.asked.append(params)
+        # ``set_mode`` asks exactly one question, so the batch has one item and
+        # one answer; the tests still write the answer in the singular.
+        self.asked.append(params["questions"][0])
         if self.raises:
             raise RuntimeError("question.request is not supported by this client")
-        return self.reply
+        return {"answers": [self.reply]}
 
 
 def _session(origin: Any = None, said: str = "계획을 세워줘") -> Session:
@@ -304,7 +306,9 @@ async def test_picking_accept_lets_the_same_turn_start_writing(
     daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path
 ) -> None:
     workdir = _workdir(tmp_path)
-    client = await connect(http, daemon, question_answer={"selected": [KO_LABELS[0]], "text": None})
+    client = await connect(
+        http, daemon, question_answer=[{"selected": [KO_LABELS[0]], "text": None}]
+    )
     session_id = await _plan_session(client, workdir)
 
     turn_id = await prompt(client, session_id, "계획을 마무리해줘")
@@ -326,7 +330,7 @@ async def test_staying_in_plan_keeps_the_write_refused(
 ) -> None:
     workdir = _workdir(tmp_path)
     client = await connect(
-        http, daemon, question_answer={"selected": ["plan 모드 유지"], "text": None}
+        http, daemon, question_answer=[{"selected": ["plan 모드 유지"], "text": None}]
     )
     session_id = await _plan_session(client, workdir)
 

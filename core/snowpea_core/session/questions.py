@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING, Any
 from snowpea_core.config.settings import Settings
 from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
-from snowpea_core.server.protocol import QuestionOption, QuestionRequest
+from snowpea_core.server.protocol import QuestionItem, QuestionRequest
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.session.manager import EventHub
@@ -66,7 +66,7 @@ class Answer:
 @dataclass
 class _Pending:
     request: QuestionRequest
-    future: asyncio.Future[Answer]
+    future: asyncio.Future[list[Answer]]
     origin_conn: Any = None
     task: asyncio.Task[None] | None = None
 
@@ -111,30 +111,26 @@ class QuestionQueue:
     async def ask(
         self,
         session: Session,
-        question: str,
+        questions: list[QuestionItem],
         *,
-        header: str = "",
-        options: list[QuestionOption] | None = None,
-        multi: bool = False,
-        allow_other: bool = True,
         timeout_sec: int | None = None,
         cancel_event: asyncio.Event | None = None,
-        index: int = 1,
-        total: int = 1,
-    ) -> Answer:
-        """Put one question to the human; block until answered, refused or timed out."""
+    ) -> list[Answer]:
+        """Put a batch of questions to the human; block until they answer.
+
+        One request, one answer set, however many questions: the surface owns
+        how it walks the user through them, and can let them go back and change
+        an earlier answer before submitting.  The returned list always has one
+        entry per question, so the caller never has to check a length.
+        """
+        if not questions:
+            return []
         timeout = timeout_sec if timeout_sec is not None else self.timeout_sec
         request = QuestionRequest(
             requestId=f"qu-{uuid.uuid4().hex[:12]}",
             sessionId=session.id,
-            header=header,
-            question=question,
-            options=list(options or []),
-            multi=multi,
-            allowOther=allow_other,
+            questions=list(questions),
             timeoutSec=timeout,
-            index=index,
-            total=total,
         )
         loop = asyncio.get_running_loop()
         origin = getattr(session, "origin_conn", None)
@@ -145,18 +141,18 @@ class QuestionQueue:
             entry.task = asyncio.ensure_future(self._ask_origin(entry))
         outer = float(timeout) + (GRACE_SECONDS if entry.task is not None else 0.0)
         try:
-            answer = await self._await_answer(entry, outer, cancel_event)
+            answers = await self._await_answers(entry, outer, cancel_event)
         except RpcError as exc:  # pragma: no cover - transport failure
             log.debug("question %s failed on the wire: %s", request.requestId, exc)
-            answer = Answer(declined=True, by="error")
+            answers = _declined(len(questions), by="error")
         finally:
             self._pending.pop(request.requestId, None)
             if entry.task is not None and not entry.task.done():
                 entry.task.cancel()
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await entry.task
-        await self._resolve(request, answer)
-        return answer
+        await self._resolve(request, answers)
+        return _padded(answers, len(questions))
 
     async def _broadcast_pending(self, request: QuestionRequest, exclude: Any = None) -> None:
         """Announce the question so a second surface can show it too."""
@@ -166,9 +162,9 @@ class QuestionQueue:
             "question.pending", {"request": request.model_dump(mode="json")}, exclude=exclude
         )
 
-    async def _await_answer(
+    async def _await_answers(
         self, entry: _Pending, timeout: float, cancel_event: asyncio.Event | None
-    ) -> Answer:
+    ) -> list[Answer]:
         """Wait for the answer, the timeout, or an interrupt — whichever comes first."""
         waiters: list[asyncio.Future[Any]] = [entry.future]
         watcher: asyncio.Task[bool] | None = None
@@ -182,11 +178,12 @@ class QuestionQueue:
                 watcher.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await watcher
+        count = len(entry.request.questions)
         if entry.future.done():
             return entry.future.result()
         if cancel_event is not None and cancel_event.is_set():
-            return Answer(declined=True, by="interrupted")
-        return Answer(timed_out=True, by="timeout")
+            return _declined(count, by="interrupted")
+        return [Answer(timed_out=True, by="timeout") for _ in range(count)]
 
     async def _ask_origin(self, entry: _Pending) -> None:
         """Send ``question.request`` to the origin connection and record the answer."""
@@ -197,25 +194,26 @@ class QuestionQueue:
                 request.model_dump(mode="json"),
                 timeout=float(request.timeoutSec),
             )
-            answer = _answer_from(reply, by="origin")
+            answers = _answers_from(reply.get("answers"), by="origin")
         except TimeoutError:
-            answer = Answer(timed_out=True, by="timeout")
+            answers = [
+                Answer(timed_out=True, by="timeout") for _ in range(len(request.questions))
+            ]
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 - a client that cannot ask declines
             # This is the headless and IDE-less path: an unknown s2c method
             # comes back as a JSON-RPC error, which is a "no", never a hang.
             log.debug("question %s could not reach its origin: %s", request.requestId, exc)
-            answer = Answer(declined=True, by="origin-unreachable")
+            answers = _declined(len(request.questions), by="origin-unreachable")
         if not entry.future.done():
-            entry.future.set_result(answer)
+            entry.future.set_result(_padded(answers, len(request.questions)))
 
     # -- the answer ----------------------------------------------------
     async def respond(
         self,
         request_id: str,
-        selected: list[str] | None = None,
-        text: str | None = None,
+        answers: list[dict[str, Any]] | None = None,
         by: str = "client",
     ) -> None:
         """Resolve a pending question (``question.respond``).
@@ -228,31 +226,23 @@ class QuestionQueue:
             raise RpcError(errors.NOT_FOUND, f"no pending question {request_id}")
         if entry.future.done():
             return
-        picked = [str(label) for label in (selected or [])]
-        body = text if text is None else str(text)
-        entry.future.set_result(
-            Answer(
-                selected=picked,
-                text=body,
-                declined=not picked and not (body or "").strip(),
-                by=by,
-            )
-        )
+        count = len(entry.request.questions)
+        entry.future.set_result(_padded(_answers_from(answers, by=by), count))
 
-    async def _resolve(self, request: QuestionRequest, answer: Answer) -> None:
-        """Tell every surface the question is over, so nobody keeps showing it."""
+    async def _resolve(self, request: QuestionRequest, answers: list[Answer]) -> None:
+        """Tell every surface the batch is over, so nobody keeps showing it."""
         if self.hub is None:
             return
-        await self.hub.notify(
-            "question.resolved", {"requestId": request.requestId, "by": answer.by}
-        )
+        by = answers[0].by if answers else "unknown"
+        await self.hub.notify("question.resolved", {"requestId": request.requestId, "by": by})
 
 
-def _answer_from(reply: dict[str, Any], *, by: str) -> Answer:
-    """Read a ``question.request`` result, treating anything empty as a decline."""
-    raw = reply.get("selected")
-    selected = [str(label) for label in raw] if isinstance(raw, list) else []
-    text = reply.get("text")
+def _answer_from(raw: Any, *, by: str) -> Answer:
+    """One answer entry, treating anything empty as a decline of that question."""
+    entry = raw if isinstance(raw, dict) else {}
+    picked = entry.get("selected")
+    selected = [str(label) for label in picked] if isinstance(picked, list) else []
+    text = entry.get("text")
     body = None if text is None else str(text)
     return Answer(
         selected=selected,
@@ -260,6 +250,30 @@ def _answer_from(reply: dict[str, Any], *, by: str) -> Answer:
         declined=not selected and not (body or "").strip(),
         by=by,
     )
+
+
+def _answers_from(raw: Any, *, by: str) -> list[Answer]:
+    """The answer list off the wire; anything unusable is no answer at all."""
+    if not isinstance(raw, list):
+        return []
+    return [_answer_from(entry, by=by) for entry in raw]
+
+
+def _declined(count: int, *, by: str) -> list[Answer]:
+    return [Answer(declined=True, by=by) for _ in range(count)]
+
+
+def _padded(answers: list[Answer], count: int) -> list[Answer]:
+    """Exactly ``count`` answers.
+
+    A surface that submits fewer than it was asked — Esc on the second tab of
+    three — has declined the rest, and the caller should be told that rather
+    than have to reason about a short list.
+    """
+    if len(answers) >= count:
+        return answers[:count]
+    by = answers[-1].by if answers else "unknown"
+    return answers + _declined(count - len(answers), by=by)
 
 
 __all__ = ["GRACE_SECONDS", "Answer", "QuestionQueue", "QuestionRequests"]

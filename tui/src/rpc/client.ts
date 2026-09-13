@@ -268,8 +268,11 @@ export class TuiClient {
     return this.call("approval.respond", { requestId, decision, scope });
   }
 
-  respondQuestion(requestId: string, selected: string[], text: string | null): Promise<unknown> {
-    return this.call("question.respond", { requestId, selected, text });
+  respondQuestion(
+    requestId: string,
+    answers: { selected: string[]; text: string | null }[],
+  ): Promise<unknown> {
+    return this.call("question.respond", { requestId, answers });
   }
 
   /** `system.checkUpdate`; the daemon caches the answer for 24h. */

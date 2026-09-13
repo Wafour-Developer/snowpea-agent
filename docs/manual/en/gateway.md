@@ -83,7 +83,9 @@ What should the renderer be? This decides how much engine control you keep.
 [1. three.js (recommended)] [2. Raw WebGL2] [✏️ 기타 / Other]
 ```
 
-Unlike an approval, anyone in the conversation may answer: a question grants no permission, so there is nothing for a stranger to abuse. Press a button, or type the number — `2`, or `1,3` when the question takes several answers. Anything that is not a number is taken as a free-text answer, which is also what the "Other" button asks you for. A batch of questions arrives one at a time. After `questions.timeoutSec` (600 seconds by default) the agent is told nobody answered.
+Unlike an approval, anyone in the conversation may answer: a question grants no permission, so there is nothing for a stranger to abuse. Press a button, or type the number — `2`, or `1,3` when the question takes several answers. Anything that is not a number is taken as a free-text answer, which is also what the "Other" button asks you for.
+
+When one `ask_user` call carries several questions, the terminal shows them as tabs; a chat has no tabs, so the gateway posts them one at a time — the header line counts them (`❓ Storage (2/3)`) and the next question only appears once the current one is answered. All the answers go back together when the last one is in. After `questions.timeoutSec` (600 seconds by default) the agent is told nobody answered.
 
 ## Named agents
 
