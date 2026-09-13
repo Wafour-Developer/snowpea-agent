@@ -837,6 +837,9 @@ class JobInfo(Payload):
     task: str = Field(description="Prompt run on each firing.")
     mode: Mode = Field(default="accept", description="Permission mode for the run.")
     channel: str | None = Field(default=None, description="Channel that receives the output.")
+    originSessionId: str | None = Field(
+        default=None, description="TUI/chat session that also receives every result."
+    )
     nextRunAt: str | None = Field(default=None, description="UTC ISO-8601 time of the next firing.")
     state: Literal["scheduled", "running", "cancelled"] = Field(
         "scheduled", description="Current job state."

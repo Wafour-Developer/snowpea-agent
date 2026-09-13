@@ -110,6 +110,7 @@ async def cmd_schedule(ctx: CommandContext, args: str) -> None:
             parsed["task"],
             mode=parsed["mode"],
             channel=parsed["channel"],
+            origin_session_id=ctx.session.id,
             agent=parsed["agent"],
             workdir=str(ctx.session.workdir),
         )

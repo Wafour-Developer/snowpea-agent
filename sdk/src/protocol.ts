@@ -496,6 +496,8 @@ export interface JobListResult {
     mode?: "plan" | "accept" | "auto";
     /** UTC ISO-8601 time of the next firing. */
     nextRunAt?: string | null;
+    /** TUI/chat session that also receives every result. */
+    originSessionId?: string | null;
     /** Schedule as given. */
     spec: string;
     /** Current job state. */
@@ -759,6 +761,21 @@ export interface SessionCreateResult {
   sessionId: string;
 }
 
+/** `session.deleteSaved` params. Delete saved sessions. */
+export interface SessionDeleteSavedParams {
+  /** Delete saved sessions from every directory. */
+  all?: boolean;
+  /** Delete one saved session. */
+  sessionId?: string | null;
+  /** Delete saved sessions rooted here. */
+  workdir?: string | null;
+}
+
+/** `session.deleteSaved` result. */
+export interface SessionDeleteSavedResult {
+  deleted?: number;
+}
+
 /** `session.interrupt` params. Stop the running turn as soon as possible. */
 export interface SessionInterruptParams {
   /** Target session. */
@@ -771,19 +788,13 @@ export interface SessionInterruptResult {
   ok?: boolean;
 }
 
-/** `session.list` params. List live sessions, optionally including saved sessions. */
+/** `session.list` params. List live or saved sessions. */
 export interface SessionListParams {
+  /** Include persisted closed sessions. */
   includeClosed?: boolean;
+  /** Only sessions rooted here. */
   workdir?: string | null;
 }
-
-export interface SessionDeleteSavedParams {
-  sessionId?: string | null;
-  workdir?: string | null;
-  all?: boolean;
-}
-
-export interface SessionDeleteSavedResult { deleted?: number; }
 
 /** `session.list` result. */
 export interface SessionListResult {
@@ -795,6 +806,8 @@ export interface SessionListResult {
     contextWindow?: number | null;
     /** UTC ISO-8601 creation timestamp. */
     createdAt: string;
+    /** Latest saved user input. */
+    lastPrompt?: string | null;
     /** Current permission mode. */
     mode: "plan" | "accept" | "auto";
     /** Model id in use. */
@@ -805,8 +818,6 @@ export interface SessionListResult {
     provider?: string | null;
     /** Sequence number of the latest event. */
     seq?: number;
-    /** Latest saved user input. */
-    lastPrompt?: string | null;
     /** Session id. */
     sessionId: string;
     /** Absolute working directory. */
@@ -1755,9 +1766,9 @@ export interface MethodMap {
   "session.close": { params: SessionCloseParams; result: SessionCloseResult };
   "session.compact": { params: SessionCompactParams; result: SessionCompactResult };
   "session.create": { params: SessionCreateParams; result: SessionCreateResult };
+  "session.deleteSaved": { params: SessionDeleteSavedParams; result: SessionDeleteSavedResult };
   "session.interrupt": { params: SessionInterruptParams; result: SessionInterruptResult };
   "session.list": { params: SessionListParams; result: SessionListResult };
-  "session.deleteSaved": { params: SessionDeleteSavedParams; result: SessionDeleteSavedResult };
   "session.prompt": { params: SessionPromptParams; result: SessionPromptResult };
   "session.resume": { params: SessionResumeParams; result: SessionResumeResult };
   "session.setMode": { params: SessionSetModeParams; result: SessionSetModeResult };
@@ -1823,9 +1834,9 @@ export type ClientMethod =
   | "session.close"
   | "session.compact"
   | "session.create"
+  | "session.deleteSaved"
   | "session.interrupt"
   | "session.list"
-  | "session.deleteSaved"
   | "session.prompt"
   | "session.resume"
   | "session.setMode"

@@ -88,8 +88,9 @@ Server capabilities advertised in the `system.hello` result:
 | [`session.close`](#sessionclose) | client → server | Close a session and release its resources. |
 | [`session.compact`](#sessioncompact) | client → server | Summarise the conversation so far and replace the history with it. |
 | [`session.create`](#sessioncreate) | client → server | Open a session rooted at a working directory. |
+| [`session.deleteSaved`](#sessiondeletesaved) | client → server | Delete saved sessions. |
 | [`session.interrupt`](#sessioninterrupt) | client → server | Stop the running turn as soon as possible. |
-| [`session.list`](#sessionlist) | client → server | List every live session. |
+| [`session.list`](#sessionlist) | client → server | List live or saved sessions. |
 | [`session.prompt`](#sessionprompt) | client → server | Send user text to a session and start a turn. |
 | [`session.resume`](#sessionresume) | client → server | Replay the events a disconnected client missed. |
 | [`session.setMode`](#sessionsetmode) | client → server | Switch a session between plan, accept and auto. |
@@ -558,7 +559,7 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `jobs` | `({ channel?: string \| null; enabled?: boolean; jobId: string; kind?: "cron" \| "once" \| "interval"; lastRunAt?: string \| null; lastStatus?: "ok" \| "error" \| "denied_by_timeout" \| null; mode?: "plan" \| "accept" \| "auto"; nextRunAt?: string \| null; spec: string; state?: "scheduled" \| "running" \| "cancelled"; task: string; })[]` | no | Known jobs. |
+| `jobs` | `({ channel?: string \| null; enabled?: boolean; jobId: string; kind?: "cron" \| "once" \| "interval"; lastRunAt?: string \| null; lastStatus?: "ok" \| "error" \| "denied_by_timeout" \| null; mode?: "plan" \| "accept" \| "auto"; nextRunAt?: string \| null; originSessionId?: string \| null; spec: string; state?: "scheduled" \| "running" \| "cancelled"; task: string; })[]` | no | Known jobs. |
 
 ### `job.runNow`
 
@@ -839,6 +840,26 @@ Open a session rooted at a working directory.
 |---|---|---|---|
 | `sessionId` | `string` | yes | Id of the new session. |
 
+### `session.deleteSaved`
+
+*Direction:* client → server
+
+Delete saved sessions.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `all` | `boolean` | no | Delete saved sessions from every directory. |
+| `sessionId` | `string \| null` | no | Delete one saved session. |
+| `workdir` | `string \| null` | no | Delete saved sessions rooted here. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `deleted` | `number` | no |  |
+
 ### `session.interrupt`
 
 *Direction:* client → server
@@ -861,17 +882,20 @@ Stop the running turn as soon as possible.
 
 *Direction:* client → server
 
-List every live session.
+List live or saved sessions.
 
 **Params**
 
-_No params (send `{}`)._
+| field | type | required | description |
+|---|---|---|---|
+| `includeClosed` | `boolean` | no | Include persisted closed sessions. |
+| `workdir` | `string \| null` | no | Only sessions rooted here. |
 
 **Result**
 
 | field | type | required | description |
 |---|---|---|---|
-| `sessions` | `({ contextUsed?: number; contextWindow?: number \| null; createdAt: string; mode: "plan" \| "accept" \| "auto"; model?: string \| null; originSurface?: string \| null; provider?: string \| null; seq?: number; sessionId: string; workdir: string; })[]` | no | Every live session. |
+| `sessions` | `({ contextUsed?: number; contextWindow?: number \| null; createdAt: string; lastPrompt?: string \| null; mode: "plan" \| "accept" \| "auto"; model?: string \| null; originSurface?: string \| null; provider?: string \| null; seq?: number; sessionId: string; workdir: string; })[]` | no | Every live session. |
 
 ### `session.prompt`
 
