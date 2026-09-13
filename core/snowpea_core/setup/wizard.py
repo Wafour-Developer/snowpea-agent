@@ -573,7 +573,9 @@ def _vendor_options(state: WizardState) -> list[tuple[str, str, tuple[str, ...]]
 
     rows: list[tuple[str, str, tuple[str, ...]]] = []
     for item in vendor_catalog(state.as_settings()):
-        tags = tuple(item.tags) + (("active", ui.CONFIGURED) if item.active else ())
+        # ``item.tags`` already carries ``active``/``default`` from the catalog;
+        # only the hidden filled-circle marker is added here.
+        tags = tuple(item.tags) + ((ui.CONFIGURED,) if item.active else ())
         rows.append((item.id, item.label, tags))
     return rows
 
