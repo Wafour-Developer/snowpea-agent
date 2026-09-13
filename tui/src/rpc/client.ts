@@ -9,6 +9,7 @@
  *   - binds the server→client `approval.request` handler.
  */
 
+import { detectLanguage, setUiLanguage } from "../layout/language.js";
 import {
   connect as sdkConnect,
   type ApprovalRequestParams,
@@ -72,6 +73,8 @@ export class TuiClient {
   private readonly lastSeq = new Map<string, number>();
   private listeners: TuiClientListeners = {};
   private status: ConnectionStatus = "connecting";
+  /** True once `agent.replyLanguage` named a language; `auto` leaves it false. */
+  private languagePinned = false;
 
   constructor(private readonly options: TuiClientOptions) {}
 
@@ -117,7 +120,10 @@ export class TuiClient {
     client.on("commands.changed", () => this.listeners.onCommandsChanged?.());
     client.on("approval.pending", (params: any) => this.listeners.onApprovalPending?.(params));
     client.on("system.updateProgress", (params: any) => this.listeners.onUpdateProgress?.(params));
-    client.on("settings.changed", (params: any) => this.listeners.onSettingsChanged?.(params ?? {}));
+    client.on("settings.changed", (params: any) => {
+      void this.loadUiLanguage();
+      this.listeners.onSettingsChanged?.(params ?? {});
+    });
     // The SDK owns reconnect and replays each tracked session with
     // `session.resume(afterSeq)` before emitting `reconnected`; the TUI only
     // renders the transition.
@@ -127,6 +133,31 @@ export class TuiClient {
     client.on("reconnected", () => this.setStatus("connected"));
 
     this.setStatus("connected");
+    await this.loadUiLanguage();
+  }
+
+  /**
+   * Draw the harness's own wording in the user's language.
+   *
+   * `agent.replyLanguage` is the authority when it names one; on `auto` the
+   * language is not known until the user writes something, and
+   * :meth:`prompt` fills it in from what they typed. A daemon that cannot
+   * answer `settings.get` leaves the chrome in English, which is what it was
+   * before this existed.
+   */
+  private async loadUiLanguage(): Promise<void> {
+    try {
+      const settings = await this.call("settings.get", { scope: "global" });
+      const configured = String(settings?.settings?.agent?.replyLanguage ?? "auto").trim();
+      if (configured && configured.toLowerCase() !== "auto") {
+        setUiLanguage(configured);
+        this.languagePinned = true;
+      } else {
+        this.languagePinned = false;
+      }
+    } catch {
+      // Not fatal: the wording stays as it is.
+    }
   }
 
   /** Bind the interactive server→client approval prompt. */
@@ -191,6 +222,10 @@ export class TuiClient {
     text: string,
     attachments: PromptAttachment[] = [],
   ): Promise<{ turnId: string }> {
+    // On `auto` the user's own words are the only signal there is, and the
+    // daemon derives the delegation language the same way (util/lang.py), so
+    // the chrome and the briefs agree.
+    if (!this.languagePinned && text.trim().length > 0) setUiLanguage(detectLanguage(text));
     return this.call("session.prompt", {
       sessionId,
       text,

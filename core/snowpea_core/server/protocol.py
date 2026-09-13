@@ -1235,6 +1235,13 @@ class SubagentSpawn(Payload):
     agentId: str = Field(description="Id correlating this subagent's events.")
     name: str = Field(default="", description="Named agent that was spawned.")
     task: str = Field(default="", description="Task it was given.")
+    title: str = Field(
+        default="",
+        description=(
+            "One-line label for the delegation, written by the delegating model in "
+            "the user's language; empty when it wrote none."
+        ),
+    )
     status: SubagentStatus = Field(
         default="queued", description="State at spawn: queued until a concurrency slot frees up."
     )
@@ -1248,6 +1255,13 @@ class SubagentUpdate(Payload):
 
     kind: Literal["subagent.update"] = "subagent.update"
     agentId: str = Field(description="Subagent reporting progress.")
+    title: str = Field(
+        default="",
+        description=(
+            "One-line label for the delegation, written by the delegating model in "
+            "the user's language; empty when it wrote none."
+        ),
+    )
     status: SubagentStatus = Field(default="running", description="Lifecycle state.")
     text: str = Field(default="", description="Human-readable progress text.")
     lastText: str = Field(default="", description="Most recent text the subagent produced.")
@@ -1268,6 +1282,13 @@ class SubagentDone(Payload):
     kind: Literal["subagent.done"] = "subagent.done"
     agentId: str = Field(description="Subagent that finished.")
     ok: bool = Field(default=True, description="False when it failed.")
+    title: str = Field(
+        default="",
+        description=(
+            "One-line label for the delegation, written by the delegating model in "
+            "the user's language; empty when it wrote none."
+        ),
+    )
     result: str = Field(default="", description="Final report.")
     status: SubagentStatus = Field(default="done", description="Terminal state: done or error.")
     summary: str = Field(default="", description="The subagent's final answer.")
