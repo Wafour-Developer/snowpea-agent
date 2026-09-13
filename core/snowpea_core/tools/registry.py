@@ -58,6 +58,9 @@ class Tool:
     run: ToolRun
     state: ToolState = "active"
     source: str = "builtin"
+    #: Why an inactive tool is inactive, shown by ``tool.list``; empty while it
+    #: is active.  ``lsp_*`` sets it when ``lsp.enabled`` is false (M13 §4).
+    reason: str = ""
     #: Optional per-call override of :attr:`permission`.  A write that lands on
     #: a snowpea configuration file is re-tagged ``config``, which the mode
     #: matrix never resolves to a silent ``allow`` (see ``tools/config_guard``).
@@ -71,6 +74,7 @@ class Tool:
             state=self.state,
             source=self.source,
             description=self.description,
+            reason=self.reason,
         )
 
     def spec(self) -> ToolSpec:
@@ -163,6 +167,7 @@ def register_builtin_tools(registry: ToolRegistry) -> ToolRegistry:
     MCP tools are not here: they are discovered per workdir and registered by
     :func:`snowpea_core.tools.mcp_client.sync_tools`.
     """
+    from snowpea_core.lsp import tools as lsp_tools
     from snowpea_core.tools import (
         audio_tools,
         browser,
@@ -193,6 +198,7 @@ def register_builtin_tools(registry: ToolRegistry) -> ToolRegistry:
         *media.TOOLS,
         *audio_tools.TOOLS,
         *delegate.TOOLS,
+        *lsp_tools.TOOLS,
     ):
         registry.register(tool)
     return registry

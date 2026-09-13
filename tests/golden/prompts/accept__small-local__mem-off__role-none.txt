@@ -14,6 +14,8 @@ Working in the codebase.
 - Edit with edit_file. Use write_file only for a new file or a deliberate full
   rewrite. Do not print a code block to the user as a substitute for making the
   change; apply it, then say what changed.
+- After an edit, read the Diagnostics block in the result before moving on, and
+  use lsp_references before renaming a symbol or changing a signature.
 - If an edit fails to apply, re-read the file for its current exact text before
   retrying; never resend a stale one. After two failures on the same region,
   rewrite the enclosing function or file with write_file instead.

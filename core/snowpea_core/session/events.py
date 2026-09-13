@@ -17,6 +17,7 @@ from snowpea_core.server.protocol import (
     ContextEvent,
     DiffEvent,
     ErrorEvent,
+    LspDiagnostics,
     MessageDelta,
     MessageDone,
     ModeChanged,
@@ -134,6 +135,11 @@ def turn_queued(turn_id: str, position: int, queued: int) -> Event:
 def turn_dequeued(turn_id: str, reason: str = "started", queued: int = 0) -> Event:
     """A queued prompt started running (``started``) or was flushed (``dropped``)."""
     return _pack(TurnDequeued(turnId=turn_id, reason=reason, queued=queued))  # type: ignore[arg-type]
+
+
+def lsp_diagnostics(path: str, *, count: int, errors: int, warnings: int) -> Event:
+    """One language server's verdict on one file (M13 contract §4)."""
+    return _pack(LspDiagnostics(path=path, count=count, errors=errors, warnings=warnings))
 
 
 def turn_done(turn_id: str, reason: str = "complete") -> Event:

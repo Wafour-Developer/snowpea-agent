@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.4.0";
+export const PROTOCOL_VERSION = "1.5.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -545,6 +545,26 @@ export interface JobScheduleResult {
   jobId: string;
   /** UTC ISO-8601 time of the first firing. */
   nextRunAt?: string | null;
+}
+
+/** `lsp.status` params. Report every language server the daemon has started and its state. */
+export type LspStatusParams = Record<string, unknown>;
+
+/** `lsp.status` result. */
+export interface LspStatusResult {
+  /** One row per (server, root) pair. */
+  servers?: ({
+    /** Server id, e.g. 'pyright' or 'gopls'. */
+    id: string;
+    /** LSP language id the server's first extension maps to. */
+    languageId?: string;
+    /** Process id while it is running. */
+    pid?: number | null;
+    /** Project root the server was started in. */
+    root: string;
+    /** starting, ready, broken or stopped. */
+    state: "starting" | "ready" | "broken" | "stopped";
+  })[];
 }
 
 /** `memory.search` params. Recall stored memories matching a query. */
@@ -1361,6 +1381,8 @@ export interface ToolListResult {
     permissionTag: "read" | "write" | "exec" | "network" | "send" | "config";
     /** Backing provider for tools that have one, e.g. the web-search provider id; reads "configured → answering" when the configured one cannot run. */
     provider?: string;
+    /** Why an inactive tool is inactive, e.g. "lsp.enabled is false". */
+    reason?: string;
     /** builtin, skill, plugin or MCP server name. */
     source?: string;
     /** Inactive tools are hidden from the model. */
@@ -1568,6 +1590,19 @@ export interface ErrorEventPayload {
   message: string;
 }
 
+/** Payload of `session.event` with kind `lsp.diagnostics`. */
+export interface LspDiagnosticsEventPayload {
+  /** Diagnostics of every severity. */
+  count?: number;
+  /** How many of them are errors. */
+  errors?: number;
+  kind?: "lsp.diagnostics";
+  /** File the diagnostics are about. */
+  path: string;
+  /** How many of them are warnings. */
+  warnings?: number;
+}
+
 /** Payload of `session.event` with kind `message.delta`. */
 export interface MessageDeltaEventPayload {
   kind?: "message.delta";
@@ -1749,6 +1784,7 @@ export interface SessionEventKindMap {
   "context": ContextEventPayload;
   "diff": DiffEventPayload;
   "error": ErrorEventPayload;
+  "lsp.diagnostics": LspDiagnosticsEventPayload;
   "message.delta": MessageDeltaEventPayload;
   "message.done": MessageDoneEventPayload;
   "mode.changed": ModeChangedEventPayload;
@@ -1773,6 +1809,7 @@ export const SESSION_EVENT_KINDS: readonly SessionEventKind[] = [
   "context",
   "diff",
   "error",
+  "lsp.diagnostics",
   "message.delta",
   "message.done",
   "mode.changed",
@@ -1819,6 +1856,7 @@ export interface MethodMap {
   "job.list": { params: JobListParams; result: JobListResult };
   "job.runNow": { params: JobRunNowParams; result: JobRunNowResult };
   "job.schedule": { params: JobScheduleParams; result: JobScheduleResult };
+  "lsp.status": { params: LspStatusParams; result: LspStatusResult };
   "memory.search": { params: MemorySearchParams; result: MemorySearchResult };
   "memory.write": { params: MemoryWriteParams; result: MemoryWriteResult };
   "permission.allowlist.add": { params: PermissionAllowlistAddParams; result: PermissionAllowlistAddResult };
@@ -1888,6 +1926,7 @@ export type ClientMethod =
   | "job.list"
   | "job.runNow"
   | "job.schedule"
+  | "lsp.status"
   | "memory.search"
   | "memory.write"
   | "permission.allowlist.add"

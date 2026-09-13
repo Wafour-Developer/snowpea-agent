@@ -62,11 +62,65 @@ DELEGATE_TASK = (
     "worked."
 )
 
+LSP_DIAGNOSTICS = (
+    "Ask the language server what is wrong with a file: type errors, undefined names, "
+    "unused imports, each with a line and column. Use it after an edit whose "
+    "Diagnostics block was empty because the server was still starting, or before you "
+    "hand work back, rather than running the whole test suite to find a typo. Omit "
+    "path for everything the servers have seen so far."
+)
+
+LSP_DEFINITION = (
+    "Jump to where a symbol is defined, given a file and the zero-based line and "
+    "character of a use of it. Use this rather than grepping for the name: it follows "
+    "imports and re-exports, and it cannot be fooled by a comment or a string that "
+    "happens to spell the same word."
+)
+
+LSP_REFERENCES = (
+    "List every use of the symbol at a position, across the whole project. Run it "
+    "before you rename anything, change a function's signature, or delete something "
+    "you believe is dead. grep finds the spelling; this finds the symbol."
+)
+
+LSP_SYMBOLS = (
+    "Outline one file: its classes, functions and methods, with the line each starts "
+    "on. Use it to find your way around a long file before reading it, rather than "
+    "pulling the whole thing into context."
+)
+
+LSP_WORKSPACE_SYMBOLS = (
+    "Find a class, function or constant by name anywhere in the project when you do "
+    "not know which file holds it. Reach for it before glob and grep when you are "
+    "looking for a definition rather than for text."
+)
+
+LSP_HOVER = (
+    "The type and documentation the language server has for the symbol at a position: "
+    "signature, inferred type, docstring. Use it to confirm what a function actually "
+    "takes before you call it, instead of inferring it from nearby call sites."
+)
+
+LSP_RENAME = (
+    "Rename the symbol at a position everywhere it is used, through the language "
+    "server, and write the result to disk. Prefer it over a find-and-replace, which "
+    "cannot tell a symbol from a string that spells it the same way. Read the list of "
+    "changed files it returns. If the server declines, do the rename by hand with "
+    "lsp_references as the checklist."
+)
+
 __all__ = [
     "DELEGATE_TASK",
     "EDIT_FILE",
     "GLOB",
     "GREP",
+    "LSP_DEFINITION",
+    "LSP_DIAGNOSTICS",
+    "LSP_HOVER",
+    "LSP_REFERENCES",
+    "LSP_RENAME",
+    "LSP_SYMBOLS",
+    "LSP_WORKSPACE_SYMBOLS",
     "READ_FILE",
     "SHELL",
     "WRITE_FILE",

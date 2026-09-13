@@ -17,6 +17,7 @@ If you have just installed snowpea, read [Install](install.md), then [Setup](set
 | [Commands](commands.md) | you want the full list of slash commands and CLI subcommands |
 | [Attachments and voice](voice.md) | sending images and files in a prompt, speaking to the agent and having it speak back |
 | [Plugins](plugins.md) | installing or writing skills, agents, commands, hooks and MCP servers |
+| [Language servers](lsp.md) | diagnostics after an edit, and the lsp_* tools |
 | [Scheduler](scheduler.md) | you want work to happen while you are away |
 | [Gateway](gateway.md) | you want to talk to the agent from Telegram, Discord or Slack |
 | [Backends](backends.md) | the code lives in a container or on another host |

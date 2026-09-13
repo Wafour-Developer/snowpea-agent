@@ -47,6 +47,25 @@ async def _read_existing(ctx: ToolContext, path: str) -> str | None:
         return None
 
 
+async def _with_diagnostics(ctx: ToolContext, result: ToolResult) -> ToolResult:
+    """Append the language server's ``Diagnostics`` block to a successful write.
+
+    The agent gets what an editor shows the moment a file is saved, which is
+    the whole point of M13.  It is strictly additive: a missing server, a
+    disabled one or one that has not finished starting within the three-second
+    budget leaves the result exactly as it was (contract §3, AC-43).
+    """
+    if not result.ok or not result.path:
+        return result
+    from snowpea_core import lsp
+
+    block = await lsp.diagnostics_block(ctx, result.path)
+    if not block:
+        return result
+    result.output = f"{result.output}\n\n{block}" if result.output else block
+    return result
+
+
 async def read_file(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     path = str(args.get("path", "")).strip()
     if not path:
@@ -80,11 +99,14 @@ async def write_file(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         await ctx.backend.write_file(path, content)
     except OSError as exc:
         return ToolResult(ok=False, error=f"{type(exc).__name__}: {exc}")
-    return ToolResult(
-        ok=True,
-        output=f"wrote {len(content)} characters to {path}",
-        diff=unified_diff(path, before, content) or None,
-        path=path,
+    return await _with_diagnostics(
+        ctx,
+        ToolResult(
+            ok=True,
+            output=f"wrote {len(content)} characters to {path}",
+            diff=unified_diff(path, before, content) or None,
+            path=path,
+        ),
     )
 
 
@@ -125,11 +147,14 @@ async def edit_file(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     except OSError as exc:
         return ToolResult(ok=False, error=f"{type(exc).__name__}: {exc}")
     replaced = occurrences if replace_all and occurrences else 1
-    return ToolResult(
-        ok=True,
-        output=f"replaced {replaced} occurrence(s) in {path}",
-        diff=unified_diff(path, before, after) or None,
-        path=path,
+    return await _with_diagnostics(
+        ctx,
+        ToolResult(
+            ok=True,
+            output=f"replaced {replaced} occurrence(s) in {path}",
+            diff=unified_diff(path, before, after) or None,
+            path=path,
+        ),
     )
 
 

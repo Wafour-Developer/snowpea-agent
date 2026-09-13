@@ -22,6 +22,7 @@ from snowpea_core.attachments.model import AttachmentError
 from snowpea_core.attachments.store import AttachmentStore
 from snowpea_core.commands.registry import register_builtin_commands
 from snowpea_core.exec.factory import build_backend
+from snowpea_core.lsp import wire_lsp
 from snowpea_core.memory import services as memory_services
 from snowpea_core.memory import wire_memory
 from snowpea_core.providers.base import ProviderError
@@ -138,6 +139,7 @@ def wire_core(core: Core) -> Core:
     # hook keeps that write from looking like an outside edit next turn.
     core.providers.on_saved = core.mark_settings_saved
     register_builtin_tools(core.tools)
+    wire_lsp(core)
     wire_memory(core)
     wire_scheduler(core)
     media_tools.refresh_state(core)
