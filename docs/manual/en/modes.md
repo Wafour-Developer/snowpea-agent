@@ -4,7 +4,7 @@ Every tool carries one permission tag. The mode decides what happens to each tag
 
 | tag | tools |
 |---|---|
-| `read` | `read_file`, `list_dir`, `glob`, `grep`, `git_status`, `git_diff`, `git_log`, `process_list`, `memory_search`, `transcribe_audio`, `skill_search`, `skill_list` |
+| `read` | `read_file`, `list_dir`, `glob`, `grep`, `git_status`, `git_diff`, `git_log`, `process_list`, `memory_search`, `transcribe_audio`, `skill_search`, `skill_list`, `ask_user`, `set_mode` |
 | `write` | `write_file`, `edit_file`, `git_commit`, `memory_write` |
 | `exec` | `shell`, `process_kill`, `delegate_task`, `skill_install`, `skill_remove` |
 | `network` | `web_search`, `web_extract`, `browser_*`, media tools, `text_to_speech`, MCP servers by default |
@@ -23,6 +23,16 @@ Every tool carries one permission tag. The mode decides what happens to each tag
 **accept** is the working default, and matches Claude Code's acceptEdits: file reads and edits happen without a prompt, while shell commands, network calls and anything that sends a message ask first.
 
 **auto** asks nothing. Use it when you are watching, in a throwaway container, or for a scheduled job whose blast radius you have thought about.
+
+## Leaving plan mode
+
+A finished plan does not ask you to change modes yourself. The agent calls `set_mode("accept")`, which puts a picker in front of you: switch to accept and start implementing, switch to auto and start implementing, or stay in plan mode and keep the plan as the whole answer. The recommended row comes first and is marked `(recommended)`.
+
+Whatever you pick takes effect immediately, in the turn that asked. Choose accept and the agent keeps going and starts editing files right there; no second prompt, no repeated plan. Stay in plan mode, press Esc, or let the question time out and nothing changes.
+
+Headless runs (`snowpea -c`) have nobody to ask, so the question declines itself and the mode stays as it was — plan mode is still a read-only gate in CI. On a bound chat the question arrives as buttons; see [gateway](gateway.md).
+
+`/plan`, `/accept`, `/auto` and `/mode` still work, and are what you use to switch modes on your own initiative.
 
 ## Switching
 

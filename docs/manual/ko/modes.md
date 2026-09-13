@@ -4,7 +4,7 @@
 
 | 태그 | 툴 |
 |---|---|
-| `read` | `read_file`, `list_dir`, `glob`, `grep`, `git_status`, `git_diff`, `git_log`, `process_list`, `memory_search`, `transcribe_audio`, `skill_search`, `skill_list` |
+| `read` | `read_file`, `list_dir`, `glob`, `grep`, `git_status`, `git_diff`, `git_log`, `process_list`, `memory_search`, `transcribe_audio`, `skill_search`, `skill_list`, `ask_user`, `set_mode` |
 | `write` | `write_file`, `edit_file`, `git_commit`, `memory_write` |
 | `exec` | `shell`, `process_kill`, `delegate_task`, `skill_install`, `skill_remove` |
 | `network` | `web_search`, `web_extract`, `browser_*`, 미디어 툴, `text_to_speech`, 기본적으로 MCP 서버 |
@@ -23,6 +23,16 @@
 **accept**는 일하기 위한 기본값이며, Claude Code의 acceptEdits와 대응합니다: 파일 읽기와 편집은 묻지 않고 흐르고, 셸 명령·네트워크 호출·무언가를 발송하는 동작은 먼저 묻습니다.
 
 **auto**는 아무것도 묻지 않습니다. 지켜보고 있을 때, 버려도 되는 컨테이너 안에 있을 때, 혹은 파급 범위를 이미 따져 본 예약 잡에서 쓰세요.
+
+## plan 모드 나가기
+
+계획이 끝나면 에이전트는 모드를 직접 바꾸라고 부탁하지 않습니다. `set_mode("accept")`를 호출해 선택 UI를 띄웁니다 — accept 모드로 전환하고 구현 시작, auto 모드로 전환하고 구현 시작, plan 모드 유지 중에서 고르면 됩니다. 추천하는 항목이 맨 위에 오고 `(추천)` 표시가 붙습니다.
+
+고른 것은 그 자리에서, 질문을 띄운 그 턴 안에서 적용됩니다. accept를 고르면 에이전트가 같은 턴에서 곧바로 파일을 고치기 시작합니다 — 다시 프롬프트를 쓸 필요도, 계획을 다시 받을 필요도 없습니다. plan 유지를 고르거나 Esc를 누르거나 질문이 타임아웃되면 아무것도 바뀌지 않습니다.
+
+헤드리스 실행(`snowpea -c`)은 물어볼 상대가 없으므로 질문이 스스로 거부되고 모드는 그대로입니다 — plan 모드는 CI에서 여전히 읽기 전용 게이트입니다. 연결된 채팅방에서는 질문이 버튼으로 도착합니다. [게이트웨이](gateway.md)를 보세요.
+
+`/plan`, `/accept`, `/auto`, `/mode`는 그대로 있고, 사용자가 먼저 모드를 바꾸고 싶을 때 쓰는 수단입니다.
 
 ## 전환
 

@@ -275,8 +275,9 @@ async def test_plan_mode_denies_writes(
     assert client.approval_requests == []
     denial = client.of_kind("tool.result")[0]["payload"]
     assert denial["ok"] is False
-    # Plan mode says what to do instead of the refused call.
-    assert "describing what you would do instead" in denial["error"]
+    # Plan mode routes the model into the mode picker rather than into a
+    # sentence asking the user to switch modes by hand.
+    assert 'call set_mode("accept")' in denial["error"]
 
     await client.stop()
 

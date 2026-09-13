@@ -296,7 +296,9 @@ async def test_accept_mode_asks_before_installing() -> None:
     assert policy.decide("accept", TOOLS["skill_install"].permission) == "ask"
     assert policy.decide("accept", TOOLS["skill_remove"].permission) == "ask"
     assert policy.decide("accept", TOOLS["skill_search"].permission) == "allow"
-    assert policy.decide("plan", TOOLS["skill_install"].permission) == "deny"
+    # Plan mode asks before an ``exec`` call rather than refusing it (621bb0b);
+    # an install still cannot happen without the user saying so.
+    assert policy.decide("plan", TOOLS["skill_install"].permission) == "ask"
 
 
 async def test_the_four_tools_are_in_the_builtin_catalog() -> None:
