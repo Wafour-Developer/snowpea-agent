@@ -35,24 +35,33 @@ snowpea skill search "pdf"
 snowpea skill search "code review" --json
 ```
 
-네 출처가 함께 조회되고, 각 결과는 자신이 나온 `source`를 달고 나옵니다: `claude-marketplace`(등록된 모든 마켓플레이스 저장소의 `marketplace.json`), `agentskills.io`, `hermes-hub`, 그리고 `snowpea-registry`(`registry.snowpea.ai`에 호스팅되는 레지스트리). 한 출처가 실패해도 검색 전체가 실패하지 않고 그 출처만 아무것도 기여하지 않습니다. 결과의 설치 스펙을 그대로 `skill install`에 넣으면 되고, 레지스트리 결과는 `registry:<id>` 형태입니다.
+두 출처가 함께 조회됩니다: `claude-marketplace`(등록된 모든 마켓플레이스 저장소의 `marketplace.json`)와 `registry.snowpea.ai`에 호스팅되는 레지스트리 — 이 레지스트리 자체가 다른 스킬 허브들을 **연합(federate)**하므로, 한 번의 호출로 여러 곳의 결과가 함께 돌아올 수 있습니다. 각 결과는 실제로 나온 `source`를 달고 나옵니다: `local`(레지스트리에 직접 배포된 스킬), `clawhub`(ClawHub), `claude-marketplaces`(레지스트리가 미러링하는 GitHub 기반 Claude Code 마켓플레이스) — `snowpea skill search` 출력에는 사람이 읽을 라벨(예: `ClawHub`)로 보입니다. 한 허브, 또는 레지스트리 전체가 응답하지 않아도 검색 전체가 실패하지 않고 그만큼만 빠집니다 — 어떤 허브가 살아 있는지는 `snowpea skill sources`로 확인하세요.
 
 ```bash
 snowpea skill search "planning" --source registry
+snowpea skill sources
 ```
 
-`--source registry`(또는 같은 뜻인 `--source snowpea`)는 호스팅 레지스트리 결과만 남깁니다.
+`--source registry`(또는 같은 뜻인 `--source snowpea`)는 레지스트리가 연합하는 모든 허브의 결과만 남깁니다. `snowpea skill sources`는 각 허브의 id, 라벨, 활성/비활성 상태(비활성이면 이유), 스킬 수, 마지막 동기화 상태를 보여줍니다.
 
 등록된 마켓플레이스는 `$SNOWPEA_HOME/marketplaces.json`에 있고, oh-my-claudecode 마켓플레이스가 기본으로 들어 있습니다.
+
+> 이전 버전에 있던 agentskills.io/hermes-hub 어댑터는 제거되었습니다:
+> agentskills.io는 스킬 목록 API가 없는 Agent Skills **명세** 사이트였고,
+> hermes-hub.ai는 아예 도메인이 풀리지 않았습니다. 둘 다 여기서 추측해서
+> 만드는 대신, 레지스트리의 연합 쪽에서 이유와 함께 비활성 상태로 처리됩니다.
 
 ## 레지스트리에 배포하기
 
 ```bash
 snowpea skill install registry:ralplan          # id로 내려받아 설치
+snowpea skill install clawhub:@cua/driver       # 연합된 다른 허브의 스펙도 그대로 동작
 snowpea setup tools                              # 배포자 토큰을 한 번 저장(마스킹 입력)
 snowpea skill publish ./my-skill                 # 압축 + 검증 + 업로드
 snowpea skill rate ralplan 5 --comment "좋아요"   # 1-5점, 호출자당 하나
 ```
+
+`skill install`은 검색 결과가 내놓는 어떤 설치 스펙이든 받아들입니다 — 로컬에 배포된 스킬이면 `registry:<id>`, 연합된 허브의 스펙이면 `clawhub:<id>`나 `github:<owner>/<repo>[@plugin]` 같은 형태이며, 모두 레지스트리 자체의 다운로드 프록시로 풀립니다. `github:` 스펙은 그 허브에 내려받을 아카이브가 없어 레지스트리가 처리하지 못할 때(501) 순수 `git clone`으로 대체됩니다. 다른 연합 스펙은 이런 대체 수단이 없어 레지스트리가 알려준 이유가 그대로 나타납니다.
 
 `publish`는 `<dir>/SKILL.md`를 읽어 프런트매터를 로컬에서 먼저 검사합니다
 (`name`은 `^[a-z0-9][a-z0-9._-]{1,63}$`를 만족해야 하고, `description`은

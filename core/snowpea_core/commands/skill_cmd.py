@@ -1,16 +1,18 @@
-"""``/skill learn|publish`` (M6 §2, M6-M7 §1).
+"""``/skill learn|publish|sources`` (M6 §2, M6-M7 §1, CORE-registry-client §4b).
 
 ``/skill learn`` replays this session's history to the provider, asks for a
 JSON summary (``name``, ``description``, ``steps``, ``commands``) and writes
 it as ``<workdir>/.snowpea/skills/<name>/SKILL.md``.  Reloading the skill
 loader afterwards is what makes ``/<name>`` a command.
 
-``/skill publish <dir>`` forwards to the same zip-and-upload code the CLI's
-``snowpea skill publish`` uses (:mod:`snowpea_core.skills.publish` and
+``/skill publish <dir>`` and ``/skill sources`` forward to the same code the
+CLI's ``snowpea skill publish``/``snowpea skill sources`` use
+(:mod:`snowpea_core.skills.publish` and
 :mod:`snowpea_core.skills.registry_client`), so a session can ship a skill to
-the hosted registry without dropping to a shell.  Both stay slash commands
-rather than RPC methods: the contract's ``skill.*`` RPC surface is
-``search|install|list|reload|remove`` and nothing else.
+the hosted registry, or see which hubs it federates, without dropping to a
+shell.  All three stay slash commands rather than RPC methods: the contract's
+``skill.*`` RPC surface is ``search|install|list|reload|remove`` and nothing
+else.
 """
 
 from __future__ import annotations
@@ -43,17 +45,18 @@ SKILL_ARGS_SCHEMA = {
     "properties": {
         "action": {
             "type": "string",
-            "enum": ["learn", "publish"],
+            "enum": ["learn", "publish", "sources"],
             "description": (
                 "'learn [name]' writes a SKILL.md from this session; "
-                "'publish <dir>' uploads it to the registry."
+                "'publish <dir>' uploads it to the registry; "
+                "'sources' lists the hubs the registry federates."
             ),
         },
         "name": {"type": "string", "description": "Name for the new skill (optional)."},
     },
 }
 
-USAGE = "Usage: /skill learn [name] | /skill publish <dir>"
+USAGE = "Usage: /skill learn [name] | /skill publish <dir> | /skill sources"
 
 #: How many of the most recent messages are summarised.
 MAX_TRANSCRIPT_MESSAGES = 60
@@ -208,8 +211,34 @@ async def publish_skill(ctx: CommandContext, directory: str) -> None:
     )
 
 
+async def sources_skill(ctx: CommandContext) -> None:
+    """``/skill sources`` — every hub the registry federates, and its health."""
+    from snowpea_core.skills import registry_client
+
+    url = registry_client.resolve_url(settings=ctx.core.settings)
+    client = registry_client.HttpRegistryClient(url)
+    try:
+        sources = await client.sources()
+    except registry_client.RegistryError as exc:
+        await ctx.emit(events.error(errors.INTERNAL, str(exc)))
+        await ctx.say(f"Could not reach {url}: {exc}")
+        return
+    if not sources:
+        await ctx.say(f"{url}: no sources reported")
+        return
+    lines = []
+    for row in sources:
+        sid = str(row.get("id", ""))
+        label = str(row.get("label", ""))
+        status = "enabled" if row.get("enabled") else f"disabled ({row.get('disabledReason')})"
+        count = row.get("count")
+        suffix = f" — {count} skills" if count is not None else ""
+        lines.append(f"- {sid} ({label}): {status}{suffix}")
+    await ctx.say("\n".join(lines))
+
+
 async def cmd_skill(ctx: CommandContext, args: str) -> None:
-    """``/skill learn [name]`` or ``/skill publish <dir>``."""
+    """``/skill learn [name]``, ``/skill publish <dir>`` or ``/skill sources``."""
     action, _, rest = args.strip().partition(" ")
     action = action.lower()
     if not action:
@@ -222,10 +251,13 @@ async def cmd_skill(ctx: CommandContext, args: str) -> None:
             return
         await publish_skill(ctx, directory)
         return
+    if action == "sources":
+        await sources_skill(ctx)
+        return
     if action != "learn":
         await ctx.say(
-            f"/skill only handles 'learn' and 'publish' here; use the snowpea CLI for "
-            f"search/install/list/rate.\n{USAGE}"
+            f"/skill only handles 'learn', 'publish' and 'sources' here; use the snowpea CLI "
+            f"for search/install/list/rate.\n{USAGE}"
         )
         return
     requested = strip_quotes(rest)
@@ -258,6 +290,7 @@ __all__ = [
     "learn_skill",
     "publish_skill",
     "render_skill_md",
+    "sources_skill",
     "transcript",
     "write_skill",
 ]

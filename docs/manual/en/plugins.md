@@ -35,24 +35,34 @@ snowpea skill search "pdf"
 snowpea skill search "code review" --json
 ```
 
-Four sources are queried together, and each hit carries the `source` it came from: `claude-marketplace` (the `marketplace.json` of every registered marketplace repository), `agentskills.io`, `hermes-hub`, and `snowpea-registry` (the hosted registry at `registry.snowpea.ai`). A source that fails contributes nothing rather than failing the search. Feed a hit's install spec straight back to `skill install`; a registry hit's is `registry:<id>`.
+Two sources are queried together: `claude-marketplace` (the `marketplace.json` of every registered marketplace repository) and the hosted registry at `registry.snowpea.ai` — which is itself a *federation* of other skill hubs, so one call to it can return hits from several places at once. Each hit carries the `source` it actually came from: `local` (the registry's own published skills), `clawhub` (ClawHub), `claude-marketplaces` (GitHub-hosted Claude Code marketplaces the registry mirrors), shown by their human label (e.g. `ClawHub`) in `snowpea skill search`'s output. A hub, or the whole registry, being unreachable contributes nothing rather than failing the search — run `snowpea skill sources` to see which hubs are up.
 
 ```bash
 snowpea skill search "planning" --source registry
+snowpea skill sources
 ```
 
-`--source registry` (or `--source snowpea` — both are the same alias) keeps only the hosted-registry hits.
+`--source registry` (or `--source snowpea` — both are the same alias) keeps only hosted-registry hits, across every hub it federates. `snowpea skill sources` lists each hub's id, label, enabled/disabled state (and why, if disabled), skill count and last sync status.
 
 Registered marketplaces live in `$SNOWPEA_HOME/marketplaces.json`, seeded with the oh-my-claudecode marketplace.
+
+> agentskills.io and hermes-hub adapters that shipped in an earlier version
+> are gone: agentskills.io turned out to be the Agent Skills *specification*
+> site with no skill-listing API, and hermes-hub.ai does not resolve at all.
+> Both are handled — disabled, with the reason — on the registry's federation
+> side instead of being guessed at here.
 
 ## Publishing to the registry
 
 ```bash
 snowpea skill install registry:ralplan          # download and install by id
+snowpea skill install clawhub:@cua/driver       # any federated hub's spec works too
 snowpea setup tools                              # save a publisher token once (masked)
 snowpea skill publish ./my-skill                 # zip + validate + upload
 snowpea skill rate ralplan 5 --comment "great"   # 1-5 stars, one per caller
 ```
+
+`skill install` accepts any install spec a search hit hands back — `registry:<id>` for a locally published skill, or a federated spec like `clawhub:<id>` or `github:<owner>/<repo>[@plugin]` — resolving it through the registry's own download proxy. A `github:` spec falls back to a plain `git clone` when the registry cannot serve an archive for it (its hub carries no downloadable body); other federated specs have no such fallback and surface the registry's reason instead.
 
 `publish` reads `<dir>/SKILL.md`, checks its frontmatter locally (`name` must
 match `^[a-z0-9][a-z0-9._-]{1,63}$`, `description` must be 8-500 characters —

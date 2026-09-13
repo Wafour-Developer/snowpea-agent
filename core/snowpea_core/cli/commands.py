@@ -607,6 +607,11 @@ async def provider_models(
     if not listed:
         print(f"{name}: no models reported; set one with `snowpea setup provider`")
         return EXIT_OK
+    # Say which rung answered: a curated fallback and the vendor's own catalog
+    # look identical in a plain list, and only one of them is authoritative.
+    detail = str(result.get("detail") or "")
+    if detail:
+        print(f"{name}: {detail}")
     for model in listed:
         print(f"{'*' if model == current else ' '} {model}")
     return EXIT_OK
@@ -1300,7 +1305,7 @@ async def skill_command(
     if action not in methods:
         return _fail(
             "usage: snowpea skill list|search <query>|install <source>|remove <name>"
-            "|publish <dir>|rate <id> <stars>",
+            "|publish <dir>|rate <id> <stars>|sources",
             EXIT_USAGE,
         )
     if action in ("search", "install", "remove") and not argument:
@@ -1444,6 +1449,46 @@ async def skill_rate_command(
     rating = result.get("rating")
     count = result.get("ratingCount")
     print(f"rated {identifier}: {stars_int} stars (average {rating}, {count} ratings)")
+    return EXIT_OK
+
+
+async def skill_sources_command(
+    home: Path | str | None = None,
+    *,
+    registry: str | None = None,
+    as_json: bool = False,
+) -> int:
+    """``snowpea skill sources`` — every hub the registry federates, and its health."""
+    from snowpea_core.skills import registry_client
+
+    settings = _registry_settings(home)
+    url = registry_client.resolve_url(registry, settings)
+    client = registry_client.HttpRegistryClient(url)
+    try:
+        sources = await client.sources()
+    except registry_client.RegistryError as exc:
+        return _fail(f"could not reach {url}: {exc}", EXIT_USAGE)
+
+    if as_json:
+        _print_json(sources)
+        return EXIT_OK
+    if not sources:
+        print(f"{url}: no sources reported")
+        return EXIT_OK
+    width = max(len(str(row.get("id", ""))) for row in sources)
+    for row in sources:
+        sid = str(row.get("id", ""))
+        label = str(row.get("label", ""))
+        enabled = row.get("enabled")
+        status = "enabled" if enabled else f"disabled ({row.get('disabledReason') or '?'})"
+        count = row.get("count")
+        last_error = row.get("lastError")
+        line = f"{sid:<{width}}  {label:<24} {status:<12}"
+        if count is not None:
+            line += f" {count} skills"
+        if last_error:
+            line += f"  — last error: {last_error}"
+        print(line.rstrip())
     return EXIT_OK
 
 
@@ -1947,6 +1992,12 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
     skill_rate.add_argument("--token", default=None, help="publisher token override (optional)")
     skill_rate.add_argument("--json", dest="sub_json", action="store_true", help="emit JSON")
 
+    skill_sources = skill_sub.add_parser(
+        "sources", help="list the hubs the registry federates, and their health"
+    )
+    skill_sources.add_argument("--registry", default=None, help="registry base URL override")
+    skill_sources.add_argument("--json", dest="sub_json", action="store_true", help="emit JSON")
+
     daemon = sub.add_parser("daemon", help="control the core daemon")
     daemon_sub = daemon.add_subparsers(dest="action", metavar="<action>")
     status_parser = daemon_sub.add_parser("status", help="show the running daemon")
@@ -2278,6 +2329,10 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
                 token=getattr(args, "token", None),
                 as_json=as_json,
             )
+        if action == "sources":
+            return await skill_sources_command(
+                home, registry=getattr(args, "registry", None), as_json=as_json
+            )
         if action == "install":
             argument = getattr(args, "source", None) or ""
         elif action == "search":
@@ -2336,6 +2391,7 @@ __all__ = [
     "skill_command",
     "skill_publish_command",
     "skill_rate_command",
+    "skill_sources_command",
     "team_status",
     "tools_list",
     "update_cli",
