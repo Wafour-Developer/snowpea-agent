@@ -96,6 +96,27 @@ snowpea session compact s-abc123 "keep the API design decisions"
 
 Compaction keeps a long session inside that window. `/compact` summarises everything so far into one "Session summary" system message, keeps the last few messages verbatim and continues from there; `session compact` is the same thing from the shell. It also happens on its own once a turn would pass `context.autoCompactPercent` of the window (85 by default), between turns and never in the middle of a tool loop. Set `context.autoCompact` to `false` to leave it to `/compact` alone.
 
+### Sessions
+
+```bash
+snowpea session list
+snowpea session list --include-closed --workdir ~/src/api --json
+snowpea session delete s-abc123
+snowpea session clear --all
+```
+
+`session list` prints the live sessions, and with `--include-closed` the saved ones too — id, mode, creation time, working directory and the last prompt each saw. `session delete` and `session clear` remove saved sessions along with their attachments and speech files; a live session is never deleted, so close it first. Pick an id out of `session list` and continue it with `snowpea -c "…" --resume <id>`.
+
+### Model profiles
+
+```bash
+snowpea model profiles --json
+snowpea model default fast
+snowpea model assign executor deep
+```
+
+`model profiles` prints `models.profiles` with the default marked, plus the per-agent assignments in `agents.models`. `model assign` routes one agent to a profile; the daemon refuses a profile id that does not exist.
+
 ### Search
 
 ```bash
@@ -157,12 +178,16 @@ snowpea gateway unbind <binding-id>
 
 ```bash
 snowpea team status
+snowpea team list
+snowpea team create delivery architect executor verifier
+snowpea team use delivery
+snowpea team delete delivery
 snowpea service install
 snowpea service status
 snowpea service uninstall
 ```
 
-`team status` reports each task's state and retry count for a running team. `service` registers the daemon to start at login — a systemd user unit on Linux, a launchd agent on macOS, a scheduled task on Windows. It is off by default, and you only need it if you want schedules and gateways to survive a reboot without anyone logging into a terminal.
+`team status` reports each task's state and retry count for a running team. `team list`, `create`, `use` and `delete` manage the reusable agent rosters instead: the same project teams `/team create` writes to `<workdir>/.snowpea/settings.json`, listed together with the global ones and with the active team marked. `team delete` removes project teams only. `service` registers the daemon to start at login — a systemd user unit on Linux, a launchd agent on macOS, a scheduled task on Windows. It is off by default, and you only need it if you want schedules and gateways to survive a reboot without anyone logging into a terminal.
 
 ### Global options
 
@@ -176,6 +201,7 @@ snowpea service uninstall
 | `--cwd DIR` | working directory of the session |
 | `--timeout SEC` | abort the turn after SEC seconds |
 | `--provider VENDOR` | vendor for this session |
+| `--resume SESSION_ID` | continue a saved session instead of opening a new one |
 | `--approve-none` | deny every approval instead of prompting |
 
 ## Running a slash command headlessly

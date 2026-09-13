@@ -131,11 +131,6 @@ class ProviderRegistry:
         """Configured default model profile, if one exists."""
         return self._profile(self.settings.models.default)
 
-    def agent_profile(self, agent: str | None) -> tuple[str, str] | None:
-        """Configured provider/model for ``agent``, else the default profile."""
-        assigned = self.settings.agents.models.get(agent or "")
-        return self._profile(assigned) or self.default_profile()
-
     def model_for(self, vendor: str, model: str | None = None) -> str:
         if model:
             return model

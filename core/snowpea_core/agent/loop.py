@@ -119,9 +119,42 @@ def start_turn(core: Core, session: Session, text: str, *, unattended: bool = Fa
     task = session.turn_task
     if task is not None and not task.done():
         session.queued_turns.append(queued)
+        # The prompt was accepted but will not start yet; say so, or the user
+        # has no way to tell it from a dropped keystroke (CORE-fixes-v017 R5).
+        waiting = len(session.queued_turns)
+        _emit_soon(core, session, events.turn_queued(turn_id, waiting, waiting))
         return turn_id
     session.turn_task = asyncio.ensure_future(_drain_turns(core, session, queued))
     return turn_id
+
+
+def _emit_soon(core: Core, session: Session, event: events.Event) -> None:
+    """Emit from a synchronous caller, preserving submission order."""
+    asyncio.ensure_future(core.hub.emit_event(session.id, event))
+
+
+async def flush_queued_turns(core: Core, session: Session) -> list[str]:
+    """Drop every queued prompt and tell the surfaces which ones went.
+
+    ``session.interrupt`` means "stop what I asked for", and that has to
+    include the follow-ups still waiting behind the running turn — otherwise
+    Stop is followed by the queue draining anyway (CORE-fixes-v017 R3).  Each
+    dropped prompt also gets its own ``turn.done`` so a client awaiting that
+    turn id is not left hanging.
+
+    The copy-and-clear is synchronous, before the first ``await``, so exactly
+    the prompts that were waiting when Stop was pressed are dropped and one
+    typed a moment later is not.
+    """
+    dropped = list(session.queued_turns)
+    session.queued_turns.clear()
+    for index, queued in enumerate(dropped):
+        remaining = len(dropped) - index - 1
+        await core.hub.emit_event(
+            session.id, events.turn_dequeued(queued.turn_id, "dropped", remaining)
+        )
+        await core.hub.emit_event(session.id, events.turn_done(queued.turn_id, "interrupted"))
+    return [queued.turn_id for queued in dropped]
 
 
 async def _drain_turns(core: Core, session: Session, first: QueuedTurn) -> None:
@@ -139,9 +172,17 @@ async def _drain_turns(core: Core, session: Session, first: QueuedTurn) -> None:
                 unattended=queued.unattended,
                 attachments=queued.attachments,
             )
+            # The queue is *not* re-flushed here.  ``session.interrupt`` already
+            # emptied it synchronously, at the instant Stop was pressed; a
+            # prompt that arrived after that is new user intent and must still
+            # run, not be swallowed by the interrupt that preceded it.
             if not session.queued_turns:
                 break
             queued = session.queued_turns.pop(0)
+            await core.hub.emit_event(
+                session.id,
+                events.turn_dequeued(queued.turn_id, "started", len(session.queued_turns)),
+            )
     finally:
         session.current_turn = None
 

@@ -487,6 +487,15 @@ class SubagentManager:
         definition_model = (
             defn.model if defn is not None and defn.model and defn.model != "inherit" else None
         )
+        # Two precedence rules live in this codebase and both are load-bearing
+        # (CORE-fixes-v017 R10).  :func:`config.model_routing.route_for` is the
+        # real one and runs inside ``sessions.create`` below.  The branch here
+        # exists only for installs with *no* multi-model settings at all: there
+        # a definition's bare ``model:`` still has to be split against the
+        # parent's provider so the child inherits the parent vendor, which
+        # ``route_for`` cannot do because it never sees the parent.  When any
+        # routing settings exist, ``definition_model`` is handed straight to
+        # ``route_for`` and this legacy split is skipped.
         assigned = bool(record.name and record.name in self.core.settings.agents.models)
         has_model_routing = bool(self.core.settings.models.default or assigned)
         if has_model_routing or definition_model:

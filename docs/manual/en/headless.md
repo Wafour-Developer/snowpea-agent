@@ -18,6 +18,7 @@ snowpea -c "summarize today's diff" --json --cwd ~/src/api --timeout 300
 | `--cwd DIR` | working directory of the session |
 | `--timeout SEC` | interrupt and close the session after SEC seconds |
 | `--provider VENDOR` | vendor for this run |
+| `--resume SESSION_ID` | continue a saved session instead of opening a new one |
 | `--approve-none` | deny every approval instead of prompting |
 | `--home DIR` | override `SNOWPEA_HOME` |
 
@@ -31,6 +32,49 @@ A slash command is a valid prompt, because the command registry belongs to the c
 snowpea -c "/ralph add a failing test then make it pass" --mode auto
 snowpea -c "/deepinit"
 ```
+
+## Continuing a saved session
+
+`-c` normally opens a fresh session. `--resume` continues one you already have, which is the headless half of the TUI's `/resume`: the saved history is reloaded and the prompt is appended to it.
+
+```bash
+snowpea session list --include-closed
+snowpea -c "and now write the tests" --resume s-4f2c9a1b7e30
+```
+
+`--mode` and `--provider` are ignored with `--resume` — the saved session keeps its own. `--resume` on its own does nothing: inside the TUI, use `/resume` to pick a session interactively.
+
+## Saved sessions
+
+Sessions persist in `$SNOWPEA_HOME/state.db` after they close, and their attachments and speech under `$SNOWPEA_HOME/attachments/<id>/` and `$SNOWPEA_HOME/audio/<id>/`. Deleting a saved session removes all of it.
+
+```bash
+snowpea session list                                  # live sessions
+snowpea session list --include-closed --json          # plus the saved ones
+snowpea session list --include-closed --workdir ~/src/api
+snowpea session delete s-4f2c9a1b7e30                 # one saved session
+snowpea session clear --workdir ~/src/api             # every saved session of one project
+snowpea session clear --all                           # every saved session, everywhere
+```
+
+A live session is never deleted; close it first. Each row prints the session id, mode, creation time, working directory and the last prompt it saw.
+
+## Teams and model profiles
+
+Project teams and per-agent model routing are settings, so they can be configured without a UI.
+
+```bash
+snowpea team list                                     # global + project teams, * marks the active one
+snowpea team create delivery architect executor verifier
+snowpea team use delivery
+snowpea team delete delivery
+
+snowpea model profiles --json                         # profiles, the default, per-agent assignments
+snowpea model default fast                            # models.default
+snowpea model assign executor deep                    # agents.models.executor
+```
+
+`snowpea team create` writes `<workdir>/.snowpea/settings.json` — the same file `/team create` writes — and refuses an agent name it cannot find. `snowpea team delete` removes project teams only; a global team is edited in `$SNOWPEA_HOME/settings.json`. `snowpea model assign` is rejected by the daemon if the profile id does not exist.
 
 ## Exit codes
 

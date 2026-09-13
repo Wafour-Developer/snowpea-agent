@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.3.0` (semver)
+- **Protocol version:** `1.4.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.3.0"
+    "protocolVersion": "1.4.0"
   }
 }
 ```
@@ -1547,6 +1547,15 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | `ok` | `boolean` | yes | False when the tool failed. |
 | `output` | `string` | no | Output handed back to the model. |
 
+### kind `turn.dequeued`
+
+| field | type | required | description |
+|---|---|---|---|
+| `kind` | `"turn.dequeued"` | no |  |
+| `queued` | `number` | no | Prompts still waiting after this one left. |
+| `reason` | `"started" \| "dropped"` | no | started = it is now running, dropped = it was discarded. |
+| `turnId` | `string` | yes | Turn id that left the queue. |
+
 ### kind `turn.done`
 
 | field | type | required | description |
@@ -1554,6 +1563,15 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | `kind` | `"turn.done"` | no |  |
 | `reason` | `"complete" \| "interrupted" \| "error" \| "denied" \| "timeout"` | no | Why the turn ended. |
 | `turnId` | `string` | yes | Turn that ended. |
+
+### kind `turn.queued`
+
+| field | type | required | description |
+|---|---|---|---|
+| `kind` | `"turn.queued"` | no |  |
+| `position` | `number` | yes | 1-based place in the queue behind the running turn. |
+| `queued` | `number` | yes | Prompts waiting in the queue after this one was added. |
+| `turnId` | `string` | yes | Turn id assigned to the queued prompt. |
 
 ### kind `usage`
 

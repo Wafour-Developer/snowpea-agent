@@ -9,6 +9,7 @@ stays about process lifecycle.  ``register_session_handlers`` is called from
 from __future__ import annotations
 
 import logging
+import shutil
 from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -267,7 +268,31 @@ async def session_delete_saved_handler(
             or (params.workdir and row["workdir"] == params.workdir)
         )
     ]
-    return SessionDeleteResult(deleted=await core.store.delete_sessions(ids))
+    deleted = await core.store.delete_sessions(ids)
+    for session_id in ids:
+        _purge_session_files(core, session_id)
+    return SessionDeleteResult(deleted=deleted)
+
+
+def _purge_session_files(core: Core, session_id: str) -> None:
+    """Remove the on-disk bytes a deleted session owned.
+
+    Deleting a session used to leave ``<home>/attachments/<id>/`` and
+    ``<home>/audio/<id>/`` behind forever: an unbounded disk leak, and a
+    privacy surprise for a user who deleted a thread because of what they
+    had pasted into it (CORE-fixes-v017 R4).  Best effort — the rows are
+    already gone, and a file that will not delete must not fail the RPC.
+    """
+    try:
+        AttachmentStore(core.paths.attachments_dir).purge(session_id)
+    except OSError:
+        log.warning("could not purge attachments for %s", session_id, exc_info=True)
+    try:
+        audio = core.paths.audio_dir / session_id
+        if audio.is_dir():
+            shutil.rmtree(audio, ignore_errors=True)
+    except OSError:  # pragma: no cover - rmtree already ignores errors
+        log.warning("could not purge audio for %s", session_id, exc_info=True)
 
 
 async def session_close_handler(_conn: RpcConnection, params: SessionIdParams, core: Core) -> Ok:
@@ -344,8 +369,15 @@ def _accept_attachments(
 async def session_interrupt_handler(
     _conn: RpcConnection, params: SessionIdParams, core: Core
 ) -> Ok:
+    """``session.interrupt`` — stop the running turn *and* the queue behind it.
+
+    Flushing the queue is part of Stop: a user who queued three follow-ups and
+    then interrupted used to watch all three run anyway (CORE-fixes-v017 R3).
+    Each dropped prompt is announced as ``turn.dequeued`` + ``turn.done``.
+    """
     session = _session(core, params.sessionId)
     session.interrupt.set()
+    await agent_loop.flush_queued_turns(core, session)
     return Ok(ok=True)
 
 

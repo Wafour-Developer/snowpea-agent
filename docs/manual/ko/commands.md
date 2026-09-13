@@ -96,6 +96,27 @@ snowpea session compact s-abc123 "API 설계 결정은 남겨줘"
 
 긴 세션을 그 윈도우 안에 유지하는 수단이 compaction 입니다. `/compact` 는 지금까지의 내용을 "Session summary" 시스템 메시지 하나로 요약하고, 마지막 몇 개 메시지는 그대로 남긴 뒤 이어서 진행합니다. `session compact` 는 셸에서 같은 일을 합니다. 한 턴이 윈도우의 `context.autoCompactPercent`(기본 85)를 넘길 것 같으면 자동으로도 실행되며, 툴 루프 중간이 아니라 항상 턴과 턴 사이에 일어납니다. `context.autoCompact` 를 `false` 로 두면 `/compact` 로만 하게 됩니다.
 
+### 세션
+
+```bash
+snowpea session list
+snowpea session list --include-closed --workdir ~/src/api --json
+snowpea session delete s-abc123
+snowpea session clear --all
+```
+
+`session list`는 살아 있는 세션을, `--include-closed`를 주면 저장된 세션까지 보여줍니다 — id, 모드, 생성 시각, 작업 디렉터리, 마지막 프롬프트. `session delete`와 `session clear`는 저장된 세션을 첨부·음성 파일까지 함께 지웁니다. 살아 있는 세션은 절대 지워지지 않으니 먼저 닫아 주세요. `session list`에서 고른 id는 `snowpea -c "…" --resume <id>`로 이어갈 수 있습니다.
+
+### 모델 프로필
+
+```bash
+snowpea model profiles --json
+snowpea model default fast
+snowpea model assign executor deep
+```
+
+`model profiles`는 `models.profiles`를 기본값 표시와 함께, 그리고 `agents.models`의 에이전트별 지정을 같이 출력합니다. `model assign`은 에이전트 하나를 프로필에 연결합니다. 없는 프로필 id는 데몬이 거부합니다.
+
 ### 검색
 
 ```bash
@@ -157,12 +178,16 @@ snowpea gateway unbind <binding-id>
 
 ```bash
 snowpea team status
+snowpea team list
+snowpea team create delivery architect executor verifier
+snowpea team use delivery
+snowpea team delete delivery
 snowpea service install
 snowpea service status
 snowpea service uninstall
 ```
 
-`team status`는 돌고 있는 팀의 태스크별 상태와 재시도 횟수를 보여줍니다. `service`는 데몬을 로그인 시 자동 시작하도록 등록합니다 — Linux에서는 systemd 사용자 유닛, macOS에서는 launchd 에이전트, Windows에서는 예약 작업입니다. 기본값은 꺼짐이고, 스케줄과 게이트웨이가 터미널 로그인 없이도 재부팅을 넘겨 살아남아야 할 때만 필요합니다.
+`team status`는 돌고 있는 팀의 태스크별 상태와 재시도 횟수를 보여줍니다. `team list`·`create`·`use`·`delete`는 재사용 가능한 에이전트 팀 쪽입니다. `/team create`가 쓰는 것과 같은 `<workdir>/.snowpea/settings.json`의 프로젝트 팀을 전역 팀과 함께 보여주고, 활성 팀에 표시를 붙입니다. `team delete`는 프로젝트 팀만 지웁니다. `service`는 데몬을 로그인 시 자동 시작하도록 등록합니다 — Linux에서는 systemd 사용자 유닛, macOS에서는 launchd 에이전트, Windows에서는 예약 작업입니다. 기본값은 꺼짐이고, 스케줄과 게이트웨이가 터미널 로그인 없이도 재부팅을 넘겨 살아남아야 할 때만 필요합니다.
 
 ### 전역 옵션
 
@@ -176,6 +201,7 @@ snowpea service uninstall
 | `--cwd DIR` | 세션의 작업 디렉터리 |
 | `--timeout SEC` | SEC초 뒤 턴을 중단 |
 | `--provider VENDOR` | 이번 세션의 벤더 |
+| `--resume SESSION_ID` | 새 세션 대신 저장된 세션을 이어서 진행 |
 | `--approve-none` | 묻는 대신 모든 승인을 거부 |
 
 ## 슬래시 명령을 헤드리스로 돌리기

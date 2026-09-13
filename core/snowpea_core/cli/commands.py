@@ -17,6 +17,7 @@ import json
 import re
 import sys
 import time
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -169,6 +170,252 @@ async def agents_list(home: Path | str | None = None, *, as_json: bool = False) 
         tail = str(agent.get("description") or agent.get("task") or "")
         marker = f"[{kind}{'/' + status if status else ''}]"
         print(f"{name:<{width}}  {marker:<22} {tail}".rstrip())
+    return EXIT_OK
+
+
+# ---------------------------------------------------------------------------
+# model profiles (GAP-17) and project teams (GAP-16)
+# ---------------------------------------------------------------------------
+
+
+async def model_profiles(home: Path | str | None = None, *, as_json: bool = False) -> int:
+    """``snowpea model profiles [--json]`` — what ``models.*`` currently says.
+
+    ``models.profiles``, ``models.default`` and ``agents.models`` were
+    reachable only through the interactive wizard (GAP-17).
+    """
+    try:
+        result = await _call(home, "settings.get", {"scope": "global"})
+    except DaemonError as exc:
+        return _fail(str(exc), EXIT_NO_DAEMON)
+    except RpcCallError as exc:
+        return _fail(f"settings.get failed ({exc.code}): {exc.message}", EXIT_USAGE)
+    settings = result.get("settings") or {}
+    models = settings.get("models") or {}
+    profiles = models.get("profiles") or {}
+    assignments = (settings.get("agents") or {}).get("models") or {}
+    payload = {
+        "default": models.get("default"),
+        "profiles": profiles,
+        "agents": assignments,
+    }
+    if as_json:
+        _print_json(payload)
+        return EXIT_OK
+    if not profiles:
+        print("no model profiles configured; run `snowpea setup` to add one")
+    else:
+        width = max(len(name) for name in profiles)
+        for name, profile in sorted(profiles.items()):
+            marker = "*" if name == models.get("default") else " "
+            provider = (profile or {}).get("provider", "")
+            model = (profile or {}).get("model", "")
+            print(f"{marker} {name:<{width}}  {provider}:{model}")
+    if assignments:
+        print("agents:")
+        for agent, profile in sorted(assignments.items()):
+            print(f"    {agent} -> {profile}")
+    return EXIT_OK
+
+
+async def model_assign(
+    agent: str, profile: str, home: Path | str | None = None, *, as_json: bool = False
+) -> int:
+    """``snowpea model assign <agent> <profileId>`` → ``agents.models``."""
+    if not agent.strip() or not profile.strip():
+        return _fail("usage: snowpea model assign <agent> <profileId>", EXIT_USAGE)
+    patch = {"agents": {"models": {agent.strip(): profile.strip()}}}
+    try:
+        result = await _call(home, "settings.set", {"scope": "global", "patch": patch})
+    except DaemonError as exc:
+        return _fail(str(exc), EXIT_NO_DAEMON)
+    except RpcCallError as exc:
+        # An unknown profile id is rejected by the settings validator itself.
+        return _fail(f"settings.set failed ({exc.code}): {exc.message}", EXIT_USAGE)
+    if as_json:
+        _print_json(result.get("settings") or {})
+        return EXIT_OK
+    print(f"{agent} now uses model profile {profile}")
+    return EXIT_OK
+
+
+async def model_default(
+    profile: str | None = None, home: Path | str | None = None, *, as_json: bool = False
+) -> int:
+    """``snowpea model default [profileId]`` → ``models.default``."""
+    if not profile:
+        return await model_profiles(home, as_json=as_json)
+    patch = {"models": {"default": profile.strip()}}
+    try:
+        result = await _call(home, "settings.set", {"scope": "global", "patch": patch})
+    except DaemonError as exc:
+        return _fail(str(exc), EXIT_NO_DAEMON)
+    except RpcCallError as exc:
+        return _fail(f"settings.set failed ({exc.code}): {exc.message}", EXIT_USAGE)
+    if as_json:
+        _print_json(result.get("settings") or {})
+        return EXIT_OK
+    print(f"default model profile is now {profile}")
+    return EXIT_OK
+
+
+def _known_agent_names(workdir: Path, home: Path | str | None) -> set[str]:
+    """Agent definitions visible from a shell, without a daemon session.
+
+    Plugin-provided definitions are *not* here — they exist only inside a
+    running daemon — so an unknown name is refused with that caveat spelled
+    out rather than silently accepted.
+    """
+    from snowpea_core.agent.definition import builtin_agent_definitions, discover_definitions
+
+    resolved_home = resolve_home(home)
+    names = {defn.name for defn in builtin_agent_definitions()}
+    names |= {defn.name for defn in discover_definitions(workdir, resolved_home)}
+    return names
+
+
+def _team_workdir(workdir: str | None) -> Path:
+    return Path(workdir or Path.cwd()).expanduser().resolve()
+
+
+async def team_list(
+    home: Path | str | None = None, *, workdir: str | None = None, as_json: bool = False
+) -> int:
+    """``snowpea team list`` — global teams merged with this project's (GAP-16).
+
+    The merge mirrors :func:`snowpea_core.agent.team_config.teams_for`: project
+    teams win on a name clash, and ``activeTeam`` wins over ``default_team``.
+    """
+    from snowpea_core.config.project import ProjectSettings
+
+    directory = _team_workdir(workdir)
+    try:
+        result = await _call(home, "settings.get", {"scope": "global"})
+    except DaemonError as exc:
+        return _fail(str(exc), EXIT_NO_DAEMON)
+    except RpcCallError as exc:
+        return _fail(f"settings.get failed ({exc.code}): {exc.message}", EXIT_USAGE)
+    global_agents = ((result.get("settings") or {}).get("agents")) or {}
+    global_teams = {
+        name: list(members)
+        for name, members in (global_agents.get("teams") or {}).items()
+        if isinstance(members, list)
+    }
+    project = ProjectSettings.load(directory)
+    # Same merge rule as ``team_config.teams_for``: project wins on a clash.
+    merged = dict(global_teams)
+    merged.update({name: list(members) for name, members in project.agents.teams.items()})
+    active = project.agents.activeTeam or global_agents.get("default_team")
+    if as_json:
+        _print_json(
+            {
+                "workdir": str(directory),
+                "active": active,
+                "teams": merged,
+                "project": {name: list(m) for name, m in project.agents.teams.items()},
+                "global": global_teams,
+            }
+        )
+        return EXIT_OK
+    if not merged:
+        print("no teams configured; snowpea team create <name> <agent...>")
+        return EXIT_OK
+    for name, members in sorted(merged.items()):
+        scope = "project" if name in project.agents.teams else "global"
+        marker = "*" if name == active else " "
+        print(f"{marker} {name} [{scope}]: {', '.join(members)}")
+    return EXIT_OK
+
+
+async def team_create(
+    name: str,
+    agents: Sequence[str],
+    home: Path | str | None = None,
+    *,
+    workdir: str | None = None,
+    use: bool = False,
+    as_json: bool = False,
+) -> int:
+    """``snowpea team create <name> <agent...>`` — write a project team.
+
+    Project scope only: ``<workdir>/.snowpea/settings.json`` is the file the
+    daemon already merges over global teams, and writing it needs no daemon.
+    """
+    from snowpea_core.config.project import ProjectSettings
+
+    directory = _team_workdir(workdir)
+    members = list(dict.fromkeys(agent.strip() for agent in agents if agent.strip()))
+    if not members:
+        return _fail("usage: snowpea team create <name> <agent...>", EXIT_USAGE)
+    known = _known_agent_names(directory, home)
+    missing = [member for member in members if member not in known]
+    if missing:
+        return _fail(
+            f"unknown agents: {', '.join(missing)}; available: {', '.join(sorted(known))}"
+            " (plugin-provided agents are only visible to /team create in a session)",
+            EXIT_USAGE,
+        )
+    project = ProjectSettings.load(directory)
+    project.agents.teams[name] = members
+    if use or project.agents.activeTeam is None:
+        project.agents.activeTeam = name
+    path = project.save(directory)
+    if as_json:
+        _print_json({"team": name, "agents": members, "active": project.agents.activeTeam,
+                     "path": str(path)})
+        return EXIT_OK
+    print(f"team '{name}': {', '.join(members)} ({path})")
+    if project.agents.activeTeam == name:
+        print(f"active team is now '{name}'")
+    return EXIT_OK
+
+
+async def team_use(
+    name: str, home: Path | str | None = None, *, workdir: str | None = None,
+    as_json: bool = False,
+) -> int:
+    """``snowpea team use <name>`` — set ``agents.activeTeam`` for this project."""
+    from snowpea_core.config.project import ProjectSettings
+
+    directory = _team_workdir(workdir)
+    try:
+        result = await _call(home, "settings.get", {"scope": "global"})
+    except DaemonError as exc:
+        return _fail(str(exc), EXIT_NO_DAEMON)
+    except RpcCallError as exc:
+        return _fail(f"settings.get failed ({exc.code}): {exc.message}", EXIT_USAGE)
+    global_teams = (((result.get("settings") or {}).get("agents")) or {}).get("teams") or {}
+    project = ProjectSettings.load(directory)
+    if name not in project.agents.teams and name not in global_teams:
+        return _fail(f"unknown team: {name}; see snowpea team list", EXIT_USAGE)
+    project.agents.activeTeam = name
+    path = project.save(directory)
+    if as_json:
+        _print_json({"active": name, "path": str(path)})
+        return EXIT_OK
+    print(f"active team is now '{name}'")
+    return EXIT_OK
+
+
+async def team_delete(
+    name: str, home: Path | str | None = None, *, workdir: str | None = None,
+    as_json: bool = False,
+) -> int:
+    """``snowpea team delete <name>`` — remove a *project* team definition."""
+    from snowpea_core.config.project import ProjectSettings
+
+    directory = _team_workdir(workdir)
+    project = ProjectSettings.load(directory)
+    if name not in project.agents.teams:
+        return _fail(f"{name} is not a project team; see snowpea team list", EXIT_USAGE)
+    project.agents.teams.pop(name)
+    if project.agents.activeTeam == name:
+        project.agents.activeTeam = None
+    path = project.save(directory)
+    if as_json:
+        _print_json({"deleted": name, "active": project.agents.activeTeam, "path": str(path)})
+        return EXIT_OK
+    print(f"deleted team '{name}'; active team: {project.agents.activeTeam or 'none'}")
     return EXIT_OK
 
 
@@ -1104,6 +1351,82 @@ async def session_context(
     return EXIT_OK
 
 
+async def session_list(
+    home: Path | str | None = None,
+    *,
+    include_closed: bool = False,
+    workdir: str | None = None,
+    as_json: bool = False,
+) -> int:
+    """``snowpea session list [--include-closed] [--workdir DIR]`` → ``session.list``.
+
+    Saved sessions used to be reachable only from the TUI's ``/resume`` picker,
+    so a headless user could neither see what had accumulated under
+    ``$SNOWPEA_HOME`` nor pick an id to resume (GAP-14).
+    """
+    params: dict[str, Any] = {"includeClosed": include_closed}
+    if workdir:
+        params["workdir"] = str(Path(workdir).expanduser().resolve())
+    try:
+        result = await _call(home, "session.list", params)
+    except DaemonError as exc:
+        return _fail(str(exc), EXIT_NO_DAEMON)
+    except RpcCallError as exc:
+        return _fail(f"session.list failed ({exc.code}): {exc.message}", EXIT_USAGE)
+    sessions = [row for row in (result.get("sessions") or []) if isinstance(row, dict)]
+    if as_json:
+        _print_json(sessions)
+        return EXIT_OK
+    if not sessions:
+        print("no saved sessions" if include_closed else "no live sessions")
+        return EXIT_OK
+    width = max(len(str(row.get("sessionId", ""))) for row in sessions)
+    for row in sessions:
+        prompt = str(row.get("lastPrompt") or "").replace("\n", " ").strip()
+        if len(prompt) > 60:
+            prompt = prompt[:57] + "..."
+        print(
+            f"{str(row.get('sessionId', '')):<{width}}  {str(row.get('mode', '')):<6}"
+            f"  {row.get('createdAt', '')}  {row.get('workdir', '')}"
+            + (f"  {prompt}" if prompt else "")
+        )
+    return EXIT_OK
+
+
+async def session_delete(
+    home: Path | str | None = None,
+    *,
+    session_id: str | None = None,
+    workdir: str | None = None,
+    all_dirs: bool = False,
+    as_json: bool = False,
+) -> int:
+    """``snowpea session delete <id>`` / ``session clear`` → ``session.deleteSaved``.
+
+    A live session is never deleted; the daemon skips those.  Deleting also
+    removes the session's attachments and audio from disk.
+    """
+    params: dict[str, Any] = {}
+    if session_id:
+        params["sessionId"] = session_id
+    elif all_dirs:
+        params["all"] = True
+    else:
+        params["workdir"] = str(Path(workdir or Path.cwd()).expanduser().resolve())
+    try:
+        result = await _call(home, "session.deleteSaved", params)
+    except DaemonError as exc:
+        return _fail(str(exc), EXIT_NO_DAEMON)
+    except RpcCallError as exc:
+        return _fail(f"session.deleteSaved failed ({exc.code}): {exc.message}", EXIT_USAGE)
+    if as_json:
+        _print_json(result)
+        return EXIT_OK
+    deleted = int(result.get("deleted") or 0)
+    print(f"deleted {deleted} saved session{'' if deleted == 1 else 's'}")
+    return EXIT_OK
+
+
 async def session_compact(
     session_id: str,
     home: Path | str | None = None,
@@ -1172,6 +1495,68 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
         "instructions", nargs="?", default=None, help="what the summary must keep"
     )
     session_compact_parser.add_argument(
+        "--json", dest="sub_json", action="store_true", help="emit JSON"
+    )
+    session_list_parser = session_sub.add_parser(
+        "list", help="list live sessions, and saved ones with --include-closed"
+    )
+    session_list_parser.add_argument(
+        "--include-closed",
+        dest="include_closed",
+        action="store_true",
+        help="include persisted, already closed sessions",
+    )
+    session_list_parser.add_argument(
+        "--workdir", default=None, help="only sessions rooted in this directory"
+    )
+    session_list_parser.add_argument(
+        "--json", dest="sub_json", action="store_true", help="emit JSON"
+    )
+    session_delete_parser = session_sub.add_parser(
+        "delete", help="delete one saved session and the files it owned"
+    )
+    session_delete_parser.add_argument("session_id", help="saved session to delete")
+    session_delete_parser.add_argument(
+        "--json", dest="sub_json", action="store_true", help="emit JSON"
+    )
+    session_clear_parser = session_sub.add_parser(
+        "clear", help="delete the saved sessions of one directory, or all of them"
+    )
+    session_clear_parser.add_argument(
+        "--all", dest="clear_all", action="store_true", help="every directory, not just this one"
+    )
+    session_clear_parser.add_argument(
+        "--workdir", default=None, help="directory to clear (default: the current one)"
+    )
+    session_clear_parser.add_argument(
+        "--json", dest="sub_json", action="store_true", help="emit JSON"
+    )
+
+    model_parser = sub.add_parser("model", help="inspect and assign model profiles")
+    model_sub = model_parser.add_subparsers(dest="action", metavar="<action>")
+    model_profiles_parser = model_sub.add_parser(
+        "profiles", help="list configured model profiles and per-agent assignments"
+    )
+    model_profiles_parser.add_argument(
+        "--json", dest="sub_json", action="store_true", help="emit JSON"
+    )
+    model_assign_parser = model_sub.add_parser(
+        "assign", help="route one agent to a model profile"
+    )
+    model_assign_parser.add_argument("agent", help="agent name, e.g. executor")
+    model_assign_parser.add_argument(
+        "profile", nargs="?", default=None, help="profile id; omit to clear the assignment"
+    )
+    model_assign_parser.add_argument(
+        "--json", dest="sub_json", action="store_true", help="emit JSON"
+    )
+    model_default_parser = model_sub.add_parser(
+        "default", help="show or set the default model profile"
+    )
+    model_default_parser.add_argument(
+        "profile", nargs="?", default=None, help="profile id to make the default"
+    )
+    model_default_parser.add_argument(
         "--json", dest="sub_json", action="store_true", help="emit JSON"
     )
 
@@ -1350,6 +1735,35 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
     team_status_parser.add_argument(
         "--json", dest="sub_json", action="store_true", help="emit JSON"
     )
+    team_list_parser = team_sub.add_parser("list", help="list configured agent teams")
+    team_list_parser.add_argument(
+        "--workdir", default=None, help="project whose teams to read (default: the current one)"
+    )
+    team_list_parser.add_argument("--json", dest="sub_json", action="store_true", help="emit JSON")
+    team_create_parser = team_sub.add_parser(
+        "create", help="define a reusable agent team for this project"
+    )
+    team_create_parser.add_argument("name", help="team name")
+    team_create_parser.add_argument("agents", nargs="+", help="agent names, in delegation order")
+    team_create_parser.add_argument(
+        "--workdir", default=None, help="project to write it to (default: the current one)"
+    )
+    team_create_parser.add_argument(
+        "--use", action="store_true", help="also make it the active team"
+    )
+    team_create_parser.add_argument(
+        "--json", dest="sub_json", action="store_true", help="emit JSON"
+    )
+    team_use_parser = team_sub.add_parser("use", help="make a team the active one")
+    team_use_parser.add_argument("name", help="team to activate")
+    team_use_parser.add_argument("--workdir", default=None, help="project to write it to")
+    team_use_parser.add_argument("--json", dest="sub_json", action="store_true", help="emit JSON")
+    team_delete_parser = team_sub.add_parser("delete", help="remove a team definition")
+    team_delete_parser.add_argument("name", help="team to delete")
+    team_delete_parser.add_argument("--workdir", default=None, help="project to write it to")
+    team_delete_parser.add_argument(
+        "--json", dest="sub_json", action="store_true", help="emit JSON"
+    )
 
     for name in PLACEHOLDER_SUBCOMMANDS:
         placeholder_parser = sub.add_parser(name, help=f"{name} (not yet implemented)")
@@ -1409,8 +1823,46 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
                 instructions=getattr(args, "instructions", None) or None,
                 as_json=as_json,
             )
+        if action == "list":
+            return await session_list(
+                home,
+                include_closed=bool(getattr(args, "include_closed", False)),
+                workdir=getattr(args, "workdir", None),
+                as_json=as_json,
+            )
+        if action == "delete":
+            return await session_delete(
+                home, session_id=str(getattr(args, "session_id", "") or ""), as_json=as_json
+            )
+        if action == "clear":
+            return await session_delete(
+                home,
+                workdir=getattr(args, "workdir", None),
+                all_dirs=bool(getattr(args, "clear_all", False)),
+                as_json=as_json,
+            )
         return _fail(
-            "usage: snowpea session context [id] [--json] | compact <id> [instructions]",
+            "usage: snowpea session context [id] [--json] | compact <id> [instructions]"
+            " | list [--include-closed] [--workdir DIR] | delete <id> | clear [--all]",
+            EXIT_USAGE,
+        )
+    if subcommand == "model":
+        if action == "profiles":
+            return await model_profiles(home, as_json=as_json)
+        if action == "assign":
+            return await model_assign(
+                str(getattr(args, "agent", "") or ""),
+                str(getattr(args, "profile", "") or ""),
+                home,
+                as_json=as_json,
+            )
+        if action == "default":
+            return await model_default(
+                getattr(args, "profile", None), home, as_json=as_json
+            )
+        return _fail(
+            "usage: snowpea model profiles [--json] | assign <agent> <profileId>"
+            " | default [profileId]",
             EXIT_USAGE,
         )
     if subcommand == "update":
@@ -1418,9 +1870,40 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
             home, check_only=bool(getattr(args, "check_only", False)), as_json=as_json
         )
     if subcommand == "team":
-        if action != "status":
-            return _fail("usage: snowpea team status [teamId] [--json]", EXIT_USAGE)
-        return await team_status(getattr(args, "team_id", None), home, as_json=as_json)
+        if action == "status":
+            return await team_status(getattr(args, "team_id", None), home, as_json=as_json)
+        if action == "list":
+            return await team_list(
+                home, workdir=getattr(args, "workdir", None), as_json=as_json
+            )
+        if action == "create":
+            return await team_create(
+                str(getattr(args, "name", "") or ""),
+                list(getattr(args, "agents", []) or []),
+                home,
+                workdir=getattr(args, "workdir", None),
+                use=bool(getattr(args, "use", False)),
+                as_json=as_json,
+            )
+        if action == "use":
+            return await team_use(
+                str(getattr(args, "name", "") or ""),
+                home,
+                workdir=getattr(args, "workdir", None),
+                as_json=as_json,
+            )
+        if action == "delete":
+            return await team_delete(
+                str(getattr(args, "name", "") or ""),
+                home,
+                workdir=getattr(args, "workdir", None),
+                as_json=as_json,
+            )
+        return _fail(
+            "usage: snowpea team status [teamId] | list | create <name> <agent...>"
+            " | use <name> | delete <name>",
+            EXIT_USAGE,
+        )
     if subcommand == "provider":
         if action == "list":
             return await provider_list(home, as_json=as_json)

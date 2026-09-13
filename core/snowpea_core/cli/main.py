@@ -98,6 +98,13 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="run one headless turn with PROMPT and exit",
     )
+    parser.add_argument(
+        "--resume",
+        dest="resume",
+        metavar="SESSION_ID",
+        default=None,
+        help="continue a saved session instead of opening a new one (see `snowpea session list`)",
+    )
     parser.add_argument("--json", action="store_true", help="emit JSON Lines instead of text")
     parser.add_argument("--cwd", default=None, help="working directory of the session")
     parser.add_argument(
@@ -272,6 +279,9 @@ async def run_headless(args: argparse.Namespace, home: str | None) -> int:
         _err(f"--cwd is not a directory: {workdir}")
         return EXIT_USAGE
     workdir = workdir.resolve()
+    if getattr(args, "resume", None) and (args.mode or args.provider):
+        # The saved session keeps its own mode, provider and workdir.
+        _err("--mode/--provider are ignored with --resume; the saved session keeps its own")
 
     renderer: Renderer = JsonRenderer() if args.json else PlainRenderer()
     tracker = TurnTracker()
@@ -309,21 +319,35 @@ async def run_headless(args: argparse.Namespace, home: str | None) -> int:
 
     session_id: str | None = None
     exit_code = EXIT_AGENT_FAILED
+    resume_id = str(getattr(args, "resume", None) or "").strip()
     try:
-        create_params: dict[str, Any] = {
-            "workdir": str(workdir),
-            "originSurface": "cli",
-        }
-        if args.mode:
-            create_params["mode"] = args.mode
-        if args.provider:
-            create_params["provider"] = args.provider
-        try:
-            created = await client.call("session.create", create_params)
-        except RpcCallError as exc:
-            _err(f"session.create failed ({exc.code}): {exc.message}")
-            return _exit_code_for_rpc_error(exc)
-        session_id = str(created.get("sessionId", ""))
+        if resume_id:
+            # ``-c "…" --resume <id>`` is the headless half of the TUI's
+            # /resume: the saved history is reloaded and this prompt continues
+            # it, instead of talking to a brand new session (GAP-15).
+            # The replayed events are deliberately discarded: a headless run
+            # renders *this* turn, not the history it is continuing.
+            try:
+                resumed = await client.call("session.resume", {"sessionId": resume_id})
+            except RpcCallError as exc:
+                _err(f"session.resume failed ({exc.code}): {exc.message}")
+                return _exit_code_for_rpc_error(exc)
+            session_id = str(resumed.get("sessionId", "") or resume_id)
+        else:
+            create_params: dict[str, Any] = {
+                "workdir": str(workdir),
+                "originSurface": "cli",
+            }
+            if args.mode:
+                create_params["mode"] = args.mode
+            if args.provider:
+                create_params["provider"] = args.provider
+            try:
+                created = await client.call("session.create", create_params)
+            except RpcCallError as exc:
+                _err(f"session.create failed ({exc.code}): {exc.message}")
+                return _exit_code_for_rpc_error(exc)
+            session_id = str(created.get("sessionId", ""))
 
         consumer = asyncio.ensure_future(_consume(client, session_id, renderer, tracker))
         try:
@@ -393,6 +417,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             return asyncio.run(cli_commands.dispatch(args, home))
         if args.prompt is not None:
             return asyncio.run(run_headless(args, home))
+        if getattr(args, "resume", None):
+            _err("--resume needs a prompt: snowpea -c \"…\" --resume <sessionId>")
+            _err("inside the TUI, use /resume to pick a saved session")
+            return EXIT_USAGE
     except KeyboardInterrupt:  # pragma: no cover - interactive
         return EXIT_TIMEOUT
     return launch_tui(args, home)

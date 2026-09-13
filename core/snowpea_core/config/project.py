@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import json
+import logging
+import re
 import uuid
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+
+log = logging.getLogger("snowpea.config.project")
 
 Mode = Literal["plan", "accept", "auto"]
 
@@ -37,12 +41,54 @@ def _coerce_allowlist(value: Any) -> Any:
     return value
 
 
+#: An agent name is a definition-file stem: ``architect``, ``test-engineer``,
+#: ``my.agent_2``.  Anything else could never resolve to a definition.
+AGENT_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+def normalise_teams(value: Any) -> Any:
+    """Validate and tidy an ``agents.teams`` mapping.
+
+    ``models.default`` and ``agents.models`` are schema-validated at load time
+    but team membership was not, so a hand-edited settings file loaded happily
+    and only failed much later, at delegation (CORE-fixes-v017 R11).  What can
+    be checked here is shape: a non-empty team name, a list of well-formed,
+    non-empty, de-duplicated agent names.  Whether such an agent *exists* is
+    deliberately not checked — definitions are discovered per workdir at
+    runtime, so an unknown name stays a delegation-time refusal.
+    """
+    if not isinstance(value, dict):
+        return value
+    cleaned: dict[str, list[str]] = {}
+    for raw_name, raw_members in value.items():
+        name = str(raw_name).strip()
+        if not name:
+            raise ValueError("agents.teams has a team with an empty name")
+        if not isinstance(raw_members, list):
+            raise ValueError(f"agents.teams[{name}] must be a list of agent names")
+        members: list[str] = []
+        for entry in raw_members:
+            if not isinstance(entry, str):
+                raise ValueError(f"agents.teams[{name}] must contain only agent names")
+            member = entry.strip()
+            if not AGENT_NAME_RE.match(member):
+                raise ValueError(f"agents.teams[{name}] has an invalid agent name: {entry!r}")
+            if member not in members:
+                members.append(member)
+        if not members:
+            raise ValueError(f"agents.teams[{name}] is empty; delete the team instead")
+        cleaned[name] = members
+    return cleaned
+
+
 class ProjectAgentsSettings(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     max_concurrent: int | None = None
     teams: dict[str, list[str]] = Field(default_factory=dict)
     activeTeam: str | None = None
+
+    _normalise_teams = field_validator("teams", mode="before")(normalise_teams)
 
 
 class ProjectSettings(BaseModel):
@@ -73,7 +119,13 @@ class ProjectSettings(BaseModel):
             return cls()
         if not isinstance(raw, dict):
             return cls()
-        return cls.model_validate(raw)
+        try:
+            return cls.model_validate(raw)
+        except ValidationError:
+            # Project settings are read on every session create; a hand-edited
+            # file must degrade to "inherit everything", not break the session.
+            log.warning("ignoring invalid project settings at %s", path, exc_info=True)
+            return cls()
 
     def save(self, workdir: Path | str) -> Path:
         """Write the project settings file, creating ``.snowpea/`` if needed."""

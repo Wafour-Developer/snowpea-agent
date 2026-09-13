@@ -55,3 +55,19 @@ def test_invalid_profile_references_are_rejected() -> None:
 def test_legacy_settings_keep_inherited_route() -> None:
     route = route_for(Settings(), agent="executor")
     assert (route.provider, route.model) == (None, None)
+
+
+def test_a_bare_vendor_name_must_be_a_real_vendor() -> None:
+    """CORE-fixes-v017 R12: a typo'd ``model:`` must not pick a phantom provider.
+
+    A bare string used to be taken at face value as a vendor name, so a
+    hand-written agent definition saying ``model: anthropc`` silently routed to
+    a provider that does not exist with ``model=None``.  It now falls through
+    to the configured default instead.
+    """
+    settings = configured()
+    assert route_for(settings, definition_model="anthropic").provider == "anthropic"
+    typo = route_for(settings, agent="executor", definition_model="anthropc")
+    assert (typo.provider, typo.model) == ("openai", "gpt-daily")
+    # With nothing configured at all there is simply no route, not a bad one.
+    assert route_for(Settings(), definition_model="anthropc") == route_for(Settings())
