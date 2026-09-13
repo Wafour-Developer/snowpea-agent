@@ -258,7 +258,7 @@ Read [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) ([한국어](docs/CONTRIBUTING
 ## Known limitations (v0.1)
 
 - **MCP over SSE** is parsed but not implemented; stdio MCP servers work. (`tools/mcp_client.py`)
-- **OpenAI device-code login** uses a placeholder client id because OpenAI publishes no public device-code client for API keys; use an API key. OpenRouter OAuth PKCE works.
+- **OpenAI device-code login** authenticates a ChatGPT/Codex subscription. Direct OpenAI API billing remains a separate API-key path.
 - **Marketplace search endpoints** for agentskills.io and hermes-hub are documented guesses; Claude Code marketplaces (`marketplace.json` repos) work.
 - **Messenger delivery, scheduled delivery and approval timeouts** are verified with a fake adapter; live Telegram/Discord/Slack runs need your own credentials (`tests/e2e/v01_smoke.sh` steps 10–11).
 - Protocol is `0.1.0`; the v1.0 freeze gate applies before the v0.2 IDE.
