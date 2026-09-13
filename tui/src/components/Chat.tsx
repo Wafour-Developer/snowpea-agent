@@ -6,7 +6,7 @@
  * to avoid pulling another dependency into the bundled artifact.
  */
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Box, Text, useInput } from "ink";
 
 import type { CommandInfo } from "../rpc/sdk.js";
@@ -76,9 +76,13 @@ export function Chat({
   onInterrupt,
 }: ChatProps): React.ReactElement {
   const [value, setValue] = useState("");
+  /** Insertion point within `value`; unlike a terminal cursor this is stable across renders. */
+  const [cursor, setCursor] = useState(0);
   // Seeded from the file on disk, so ↑ reaches prompts from previous runs.
   const [history, setHistory] = useState<string[]>(initialHistory);
   const [historyIndex, setHistoryIndex] = useState<number | null>(null);
+  /** Draft present before ↑ entered history; ↓ past the newest entry restores it. */
+  const historyDraft = useRef("");
   const [selected, setSelected] = useState(0);
 
   const showPalette = value.startsWith("/") && completions.length > 0;
@@ -87,7 +91,8 @@ export function Chat({
   // the user to read before it is sent.
   useEffect(() => {
     if (!insert) return;
-    update(value.length > 0 ? `${value} ${insert}` : insert);
+    const text = value.length > 0 ? ` ${insert}` : insert;
+    update(value.slice(0, cursor) + text + value.slice(cursor), cursor + text.length);
     onInserted?.();
     // Only a new `insert` matters; the draft it is appended to is read live.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -95,14 +100,15 @@ export function Chat({
 
   useEffect(() => {
     if (!append) return;
-    update(value + append);
+    update(value.slice(0, cursor) + append + value.slice(cursor), cursor + append.length);
     onAppended?.();
     // Only a new `append` matters; the current draft is read live.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [append]);
 
-  const update = (next: string) => {
+  const update = (next: string, nextCursor = next.length) => {
     setValue(next);
+    setCursor(Math.max(0, Math.min(next.length, nextCursor)));
     setSelected(0);
     onChange?.(next);
   };
@@ -128,6 +134,13 @@ export function Chat({
       // mode-cycle shortcut handled by the parent's own `useInput`.
       if (key.tab || input === "[Z" || input === "[Z") return;
 
+      if (key.leftArrow || key.rightArrow) {
+        setCursor((position) => key.leftArrow
+          ? Math.max(0, position - 1)
+          : Math.min(value.length, position + 1));
+        return;
+      }
+
       if (key.upArrow || key.downArrow) {
         // Down with nothing left to go forward to hands the keyboard to the
         // rows under the input, the way Claude Code does.
@@ -139,10 +152,11 @@ export function Chat({
           if (key.downArrow) onFocusDown?.();
           return;
         }
+        if (key.upArrow && historyIndex === null) historyDraft.current = value;
         const current = historyIndex ?? history.length;
         const next = key.upArrow ? Math.max(0, current - 1) : Math.min(history.length, current + 1);
         setHistoryIndex(next === history.length ? null : next);
-        update(next === history.length ? "" : history[next]);
+        update(next === history.length ? historyDraft.current : history[next]);
         return;
       }
 
@@ -163,11 +177,17 @@ export function Chat({
         return;
       }
 
+      // Most terminals report the Backspace byte (DEL, 0x7f) as `key.delete`.
+      // Treat both Ink spellings as backward deletion so attachment removal and
+      // editing remain consistent across terminals.
       if (key.backspace || key.delete) {
         // With nothing typed, backspace takes the newest attachment off instead
         // of doing nothing at all.
         if (value.length === 0 && onBackspaceEmpty?.()) return;
-        update(value.slice(0, -1));
+        if (cursor > 0) {
+          setHistoryIndex(null);
+          update(value.slice(0, cursor - 1) + value.slice(cursor), cursor - 1);
+        }
         return;
       }
 
@@ -200,7 +220,8 @@ export function Chat({
         onQuickResume();
         return;
       }
-      update(value + input);
+      setHistoryIndex(null);
+      update(value.slice(0, cursor) + input + value.slice(cursor), cursor + input.length);
     },
     { isActive: !disabled },
   );
@@ -215,9 +236,13 @@ export function Chat({
         {value.length === 0 ? (
           <Text dimColor>{placeholder}</Text>
         ) : (
-          <Text>{value}</Text>
+          <>
+            <Text>{value.slice(0, cursor)}</Text>
+            <Text inverse>{value[cursor] ?? " "}</Text>
+            <Text>{value.slice(cursor + 1)}</Text>
+          </>
         )}
-        <Text inverse>{" "}</Text>
+        {value.length === 0 ? <Text inverse>{" "}</Text> : null}
       </Box>
     </Box>
   );

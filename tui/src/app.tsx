@@ -1073,6 +1073,14 @@ export function App({
         else openResumePicker();
         return;
       }
+      if (/^\/sessions\s*$/.test(text.trim())) {
+        if (state.turnActive) {
+          showToast("interrupt the current turn before resuming another session");
+          return;
+        }
+        openResumePicker();
+        return;
+      }
       const sessionDelete = /^\/session\s+delete\s+(\S+)\s*$/.exec(text.trim());
       const sessionClear = /^\/session\s+clear(?:\s+(--all))?\s*$/.exec(text.trim());
       if (sessionDelete || sessionClear) {
@@ -1496,7 +1504,10 @@ export function App({
           append={append}
           onAppended={() => setAppend(null)}
           completions={completions}
-          onChange={setDraft}
+          onChange={(next) => {
+            setDraft(next);
+            if (next.length > 0 && state.errors.length > 0) dispatch({ type: "errors/clear" });
+          }}
           onInterrupt={() => void client.interrupt(sessionId).catch(() => undefined)}
           disabled={showHelp || update.phase === "confirm" || update.phase === "running" || update.phase === "done" || approvalActive || queueFocused || !isInput(focus) || openAgent !== null}
         />

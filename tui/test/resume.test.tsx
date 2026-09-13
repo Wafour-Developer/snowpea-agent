@@ -70,6 +70,32 @@ function fakeClient() {
 
 
 describe("session resume", () => {
+  it("clears a command error as soon as the next input begins", async () => {
+    const client = fakeClient();
+    const call = client.call;
+    client.call = async (method, params) => {
+      if (method === "command.run") throw new Error("not_found: unknown command: /nonesuch");
+      return call(method, params);
+    };
+    const stdin = fakeStdin();
+    const stdout = fakeStdout(100, 24);
+    const instance = render(
+      <App client={client as any} sessionId="current" mode="accept" workdir="/tmp/project" />,
+      { stdin, stdout: stdout.stream, exitOnCtrlC: false, patchConsole: false },
+    );
+    try {
+      await sleep(150);
+      stdin.write("/nonesuch ");
+      await sleep(50);
+      stdin.write("\r");
+      await sleep(150);
+      expect(stdout.text()).toContain("unknown command: /nonesuch");
+      stdin.write("n");
+      await sleep(100);
+      expect(stdout.chunks.at(-1)).not.toContain("unknown command: /nonesuch");
+    } finally { instance.unmount(); }
+  });
+
   it("keeps the current session when resume fails", async () => {
     const client = fakeClient();
     const call = client.call;
@@ -97,7 +123,7 @@ describe("session resume", () => {
       expect(client.calls.find(c => c.method === "session.prompt")?.params.sessionId).toBe("current");
     } finally { instance.unmount(); }
   });
-  it.each(["/resume", `/resume ${CHILD}`])("switches subsequent prompts and commands with %s without duplicate replay", async (command) => {
+  it.each(["/resume", "/sessions", `/resume ${CHILD}`])("switches subsequent prompts and commands with %s without duplicate replay", async (command) => {
     const client = fakeClient();
     const stdin = fakeStdin();
     const stdout = fakeStdout(100, 24);
@@ -111,7 +137,7 @@ describe("session resume", () => {
       stdin.write(command);
       await sleep(60);
       stdin.write("\r");
-      if (command === "/resume") {
+      if (command === "/resume" || command === "/sessions") {
         await sleep(100);
         expect(stdout.text()).toContain(CHILD);
         expect(stdout.text()).toContain("fix the failing build");

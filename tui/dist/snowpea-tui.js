@@ -1380,7 +1380,7 @@ var require_react_development = __commonJS({
           var dispatcher = resolveDispatcher();
           return dispatcher.useReducer(reducer2, initialArg, init);
         }
-        function useRef4(initialValue) {
+        function useRef5(initialValue) {
           var dispatcher = resolveDispatcher();
           return dispatcher.useRef(initialValue);
         }
@@ -2174,7 +2174,7 @@ var require_react_development = __commonJS({
         exports.useLayoutEffect = useLayoutEffect2;
         exports.useMemo = useMemo4;
         exports.useReducer = useReducer2;
-        exports.useRef = useRef4;
+        exports.useRef = useRef5;
         exports.useState = useState12;
         exports.useSyncExternalStore = useSyncExternalStore;
         exports.useTransition = useTransition;
@@ -7933,7 +7933,7 @@ var require_react_reconciler_development = __commonJS({
         var HostPortal = 4;
         var HostComponent = 5;
         var HostText = 6;
-        var Fragment3 = 7;
+        var Fragment4 = 7;
         var Mode = 8;
         var ContextConsumer = 9;
         var ContextProvider = 10;
@@ -8073,7 +8073,7 @@ var require_react_reconciler_development = __commonJS({
               return "DehydratedFragment";
             case ForwardRef:
               return getWrappedName$1(type, type.render, "ForwardRef");
-            case Fragment3:
+            case Fragment4:
               return "Fragment";
             case HostComponent:
               return type;
@@ -11207,7 +11207,7 @@ var require_react_reconciler_development = __commonJS({
             }
           }
           function updateFragment2(returnFiber, current2, fragment, lanes, key) {
-            if (current2 === null || current2.tag !== Fragment3) {
+            if (current2 === null || current2.tag !== Fragment4) {
               var created = createFiberFromFragment(fragment, returnFiber.mode, lanes, key);
               created.return = returnFiber;
               return created;
@@ -11610,7 +11610,7 @@ var require_react_reconciler_development = __commonJS({
               if (child.key === key) {
                 var elementType = element.type;
                 if (elementType === REACT_FRAGMENT_TYPE) {
-                  if (child.tag === Fragment3) {
+                  if (child.tag === Fragment4) {
                     deleteRemainingChildren(returnFiber, child.sibling);
                     var existing = useFiber(child, element.props.children);
                     existing.return = returnFiber;
@@ -17101,7 +17101,7 @@ var require_react_reconciler_development = __commonJS({
               var _resolvedProps2 = workInProgress2.elementType === type ? _unresolvedProps2 : resolveDefaultProps(type, _unresolvedProps2);
               return updateForwardRef(current2, workInProgress2, type, _resolvedProps2, renderLanes2);
             }
-            case Fragment3:
+            case Fragment4:
               return updateFragment(current2, workInProgress2, renderLanes2);
             case Mode:
               return updateMode(current2, workInProgress2, renderLanes2);
@@ -17538,7 +17538,7 @@ var require_react_reconciler_development = __commonJS({
             case SimpleMemoComponent:
             case FunctionComponent:
             case ForwardRef:
-            case Fragment3:
+            case Fragment4:
             case Mode:
             case Profiler:
             case ContextConsumer:
@@ -22306,7 +22306,7 @@ var require_react_reconciler_development = __commonJS({
           return fiber;
         }
         function createFiberFromFragment(elements, mode, lanes, key) {
-          var fiber = createFiber(Fragment3, elements, key, mode);
+          var fiber = createFiber(Fragment4, elements, key, mode);
           fiber.lanes = lanes;
           return fiber;
         }
@@ -33841,6 +33841,11 @@ var SURFACE_COMMANDS = [
     name: "session",
     summary: "Delete saved sessions: /session delete <id> | clear [--all].",
     source: "tui"
+  },
+  {
+    name: "sessions",
+    summary: "List saved sessions and choose one to resume.",
+    source: "tui"
   }
 ];
 function withSurfaceCommands(commands) {
@@ -34208,6 +34213,8 @@ function reducer(state, action) {
       return { ...state, commands: action.commands };
     case "tools":
       return { ...state, toolCount: action.count };
+    case "errors/clear":
+      return state.errors.length === 0 ? state : { ...state, errors: [] };
     case "user/message": {
       const message = {
         id: nextId("msg"),
@@ -36413,22 +36420,26 @@ function Chat({
   onInterrupt
 }) {
   const [value, setValue] = (0, import_react29.useState)("");
+  const [cursor, setCursor] = (0, import_react29.useState)(0);
   const [history, setHistory] = (0, import_react29.useState)(initialHistory);
   const [historyIndex, setHistoryIndex] = (0, import_react29.useState)(null);
+  const historyDraft = (0, import_react29.useRef)("");
   const [selected, setSelected] = (0, import_react29.useState)(0);
   const showPalette = value.startsWith("/") && completions.length > 0;
   (0, import_react29.useEffect)(() => {
     if (!insert) return;
-    update(value.length > 0 ? `${value} ${insert}` : insert);
+    const text = value.length > 0 ? ` ${insert}` : insert;
+    update(value.slice(0, cursor) + text + value.slice(cursor), cursor + text.length);
     onInserted?.();
   }, [insert]);
   (0, import_react29.useEffect)(() => {
     if (!append) return;
-    update(value + append);
+    update(value.slice(0, cursor) + append + value.slice(cursor), cursor + append.length);
     onAppended?.();
   }, [append]);
-  const update = (next) => {
+  const update = (next, nextCursor = next.length) => {
     setValue(next);
+    setCursor(Math.max(0, Math.min(next.length, nextCursor)));
     setSelected(0);
     onChange?.(next);
   };
@@ -36448,6 +36459,10 @@ function Chat({
         return;
       }
       if (key.tab || input === "\x1B[Z" || input === "[Z") return;
+      if (key.leftArrow || key.rightArrow) {
+        setCursor((position) => key.leftArrow ? Math.max(0, position - 1) : Math.min(value.length, position + 1));
+        return;
+      }
       if (key.upArrow || key.downArrow) {
         if (key.downArrow && historyIndex === null) {
           onFocusDown?.();
@@ -36457,10 +36472,11 @@ function Chat({
           if (key.downArrow) onFocusDown?.();
           return;
         }
+        if (key.upArrow && historyIndex === null) historyDraft.current = value;
         const current = historyIndex ?? history.length;
         const next = key.upArrow ? Math.max(0, current - 1) : Math.min(history.length, current + 1);
         setHistoryIndex(next === history.length ? null : next);
-        update(next === history.length ? "" : history[next]);
+        update(next === history.length ? historyDraft.current : history[next]);
         return;
       }
       if (key.return) {
@@ -36481,7 +36497,10 @@ function Chat({
       }
       if (key.backspace || key.delete) {
         if (value.length === 0 && onBackspaceEmpty?.()) return;
-        update(value.slice(0, -1));
+        if (cursor > 0) {
+          setHistoryIndex(null);
+          update(value.slice(0, cursor - 1) + value.slice(cursor), cursor - 1);
+        }
         return;
       }
       if (key.ctrl && input === "v") {
@@ -36506,7 +36525,8 @@ function Chat({
         onQuickResume();
         return;
       }
-      update(value + input);
+      setHistoryIndex(null);
+      update(value.slice(0, cursor) + input + value.slice(cursor), cursor + input.length);
     },
     { isActive: !disabled }
   );
@@ -36514,8 +36534,12 @@ function Chat({
     showPalette ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(SlashCommandPalette, { commands: completions, selectedIndex: selected }) : null,
     /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(Box_default, { children: [
       /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Text, { color: disabled ? "gray" : "green", children: "> " }),
-      value.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Text, { dimColor: true, children: placeholder }) : /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Text, { children: value }),
-      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Text, { inverse: true, children: " " })
+      value.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Text, { dimColor: true, children: placeholder }) : /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Text, { children: value.slice(0, cursor) }),
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Text, { inverse: true, children: value[cursor] ?? " " }),
+        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Text, { children: value.slice(cursor + 1) })
+      ] }),
+      value.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Text, { inverse: true, children: " " }) : null
     ] })
   ] });
 }
@@ -37789,6 +37813,14 @@ function App2({
         else openResumePicker();
         return;
       }
+      if (/^\/sessions\s*$/.test(text.trim())) {
+        if (state.turnActive) {
+          showToast("interrupt the current turn before resuming another session");
+          return;
+        }
+        openResumePicker();
+        return;
+      }
       const sessionDelete = /^\/session\s+delete\s+(\S+)\s*$/.exec(text.trim());
       const sessionClear = /^\/session\s+clear(?:\s+(--all))?\s*$/.exec(text.trim());
       if (sessionDelete || sessionClear) {
@@ -38142,7 +38174,10 @@ function App2({
         append,
         onAppended: () => setAppend(null),
         completions,
-        onChange: setDraft,
+        onChange: (next) => {
+          setDraft(next);
+          if (next.length > 0 && state.errors.length > 0) dispatch({ type: "errors/clear" });
+        },
         onInterrupt: () => void client.interrupt(sessionId).catch(() => void 0),
         disabled: showHelp || update.phase === "confirm" || update.phase === "running" || update.phase === "done" || approvalActive || queueFocused || !isInput(focus) || openAgent !== null
       }

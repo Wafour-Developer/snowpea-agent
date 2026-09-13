@@ -207,6 +207,7 @@ export type Action =
   | { type: "approval/request"; request: ApprovalRequestParams }
   | { type: "approval/list"; requests: ApprovalRequestParams[] }
   | { type: "approval/resolved"; requestId: string }
+  | { type: "errors/clear" }
   | { type: "error"; message: string };
 
 let counter = 0;
@@ -504,6 +505,9 @@ export function reducer(state: State, action: Action): State {
 
     case "tools":
       return { ...state, toolCount: action.count };
+
+    case "errors/clear":
+      return state.errors.length === 0 ? state : { ...state, errors: [] };
 
     case "user/message": {
       const message: Message = {
