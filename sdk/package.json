@@ -1,6 +1,6 @@
 {
   "name": "@snowpea/sdk",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "description": "TypeScript client SDK for the snowpea daemon protocol.",
   "license": "MIT",
   "type": "module",
