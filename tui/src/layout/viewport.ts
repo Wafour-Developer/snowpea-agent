@@ -170,6 +170,8 @@ export function bottomRows({
   errorVisible = false,
   workingVisible = false,
   noticeVisible = false,
+  queuedRows = 0,
+  delegationVisible = false,
 }: {
   paletteCommands?: number;
   /** Number of argument lines on the interactive prompt, or null when absent. */
@@ -181,6 +183,10 @@ export function bottomRows({
   workingVisible?: boolean;
   /** A message too long for the status line, drawn above the input. */
   noticeVisible?: boolean;
+  /** Rows the queued-prompt list occupies. */
+  queuedRows?: number;
+  /** The `$agent` chip above the input. */
+  delegationVisible?: boolean;
 } = {}): number {
   const input =
     approvalArgs === null ? 1 + paletteRows(paletteCommands) : approvalPromptRows(approvalArgs);
@@ -189,7 +195,9 @@ export function bottomRows({
     approvalQueueRows(queueRequests, queueFocused) +
     (errorVisible ? 1 : 0) +
     (workingVisible ? 1 : 0) +
-    (noticeVisible ? 1 : 0)
+    (noticeVisible ? 1 : 0) +
+    Math.max(0, queuedRows) +
+    (delegationVisible ? 1 : 0)
   );
 }
 
