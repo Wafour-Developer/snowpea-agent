@@ -304,13 +304,27 @@ async def run_headless(args: argparse.Namespace, home: str | None) -> int:
         tracker.denied = True
         return {"decision": "deny", "scope": "once"}
 
+    async def question_handler(params: dict[str, Any]) -> dict[str, Any]:
+        """Decline every ``ask_user`` question: headless has no picker.
+
+        Answering at once, and saying so on stderr, is kinder than letting the
+        question sit out its timeout in a script nobody is watching.  The tool
+        reports an empty answer as declined, so the agent knows it was refused
+        rather than agreed with.
+        """
+        question = str(params.get("question") or "").strip()
+        _err(f"question needs an interactive client, declined: {question}")
+        return {"selected": [], "text": None}
+
     try:
         info = await ensure_daemon(home)
     except DaemonError as exc:
         _err(str(exc))
         return EXIT_NO_DAEMON
 
-    client = DaemonClient(info, approval_handler=approval_handler)
+    client = DaemonClient(
+        info, approval_handler=approval_handler, question_handler=question_handler
+    )
     try:
         await client.connect()
     except DaemonError as exc:

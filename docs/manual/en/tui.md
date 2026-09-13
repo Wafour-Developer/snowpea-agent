@@ -164,6 +164,40 @@ The cursor starts on `Yes`, so `Enter` means yes. `y`, `a`, `p` and `n` still wo
 
 Approvals raised by a turn with nobody watching — a scheduled job, a Telegram message — queue instead. `Ctrl+R` hands the keyboard to that queue; `/approvals` lists it.
 
+## Questions
+
+An approval is the daemon asking whether it may do something. A **question** is the agent asking *you* something, through the `ask_user` tool, and it is drawn as a picker rather than as "(a) … (b) … (c) …" in the transcript:
+
+```text
+╭──────────────────────────────────────────────────────╮
+│ Renderer                                             │
+│ What should the renderer be? This decides how much   │
+│ engine control you keep.                             │
+│                                                      │
+│ ❯  1. three.js (recommended)                         │
+│       fast start, little control over the engine     │
+│    2. Raw WebGL2                                     │
+│       more work, complete control                    │
+│    기타 / Other…                                      │
+│ ↑↓ move · Enter choose · 1-9 pick · Esc cancel       │
+╰──────────────────────────────────────────────────────╯
+```
+
+`↑`/`↓` (or `j`/`k`) move, `1`–`9` jump straight to a row and answer, `Enter` takes the highlighted one. When the question allows several answers, `Space` ticks a row and `Enter` sends the set. The last row, `기타 / Other…`, opens a one-line text input for an answer nobody offered. `Esc` answers "I am not choosing", and the agent is told the question was declined rather than left to read silence as agreement.
+
+A question is drawn ahead of a pending approval and owns the keyboard while it is up. It gives up after ten minutes by default — `questions.timeoutSec` in `settings.json`.
+
+Two lines of it, from a skill:
+
+```text
+ask_user(question="Where should the cache live? An in-process cache is simpler; Redis survives a restart.",
+         options=[{"label": "In-process (recommended)", "description": "no new service"}, {"label": "Redis", "description": "survives a restart, one more thing to run"}])
+```
+
+The argument schema is a superset of Claude Code's `AskUserQuestion` — `questions[]` with `header`, `question`, `options[]` of `{label, description}`, `multiSelect` and an optional `preview` — and of Hermes' `clarify`, whose `choices[]` of plain strings and `multi_select` are accepted too, so a skill ported from either works unchanged. `allow_other` defaults to true and the "Other" row is added for you.
+
+On a messenger binding the same question arrives as numbered text with one button per option plus an "Other" button, and a typed reply of `2` (or `1,3` for a multi-select) answers it. Headless `snowpea -c` has no picker to draw, so it declines the question at once and says so on stderr instead of waiting out the timeout.
+
 ## Diffs
 
 A file change appears where it happened, in the conversation:

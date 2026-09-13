@@ -10,6 +10,7 @@ import type {
   ApprovalScope,
   CommandInfo,
   Mode,
+  QuestionRequestParams,
   SessionEvent,
 } from "../rpc/sdk.js";
 import type { ConnectionStatus } from "../rpc/client.js";
@@ -122,6 +123,9 @@ export interface ApprovalEntry extends ApprovalRequestParams {
   source: ApprovalSource;
 }
 
+/** A question from `ask_user`, waiting on this surface. */
+export type QuestionEntry = QuestionRequestParams;
+
 export interface Usage {
   inputTokens: number;
   outputTokens: number;
@@ -165,6 +169,10 @@ export interface State {
   pendingApproval: ApprovalEntry | null;
   /** Unattended backlog, seeded from `approval.list`. */
   approvalQueue: ApprovalEntry[];
+  /** The `ask_user` question this surface is being asked, at most one.
+   *  It is drawn ahead of any approval: the daemon is blocked on it, and the
+   *  question is the thing the user was in the middle of thinking about. */
+  pendingQuestion: QuestionEntry | null;
   commands: CommandInfo[];
   /** Delegated children of this session, in the order they were spawned. */
   subagents: SubagentEntry[];
@@ -225,6 +233,7 @@ export const initialState: State = {
   timeline: [],
   pendingApproval: null,
   approvalQueue: [],
+  pendingQuestion: null,
   commands: [],
   subagents: [],
   teamTasks: [],
@@ -265,6 +274,8 @@ export type Action =
   | { type: "approval/request"; request: ApprovalRequestParams }
   | { type: "approval/list"; requests: ApprovalRequestParams[] }
   | { type: "approval/resolved"; requestId: string }
+  | { type: "question/request"; request: QuestionRequestParams }
+  | { type: "question/resolved"; requestId: string }
   | { type: "errors/clear" }
   | { type: "error"; message: string };
 
@@ -741,6 +752,16 @@ export function reducer(state: State, action: Action): State {
         pendingApproval:
           state.pendingApproval?.requestId === action.requestId ? null : state.pendingApproval,
         approvalQueue: state.approvalQueue.filter((r) => r.requestId !== action.requestId),
+      };
+
+    case "question/request":
+      return { ...state, pendingQuestion: action.request };
+
+    case "question/resolved":
+      return {
+        ...state,
+        pendingQuestion:
+          state.pendingQuestion?.requestId === action.requestId ? null : state.pendingQuestion,
       };
 
     case "error":

@@ -25,6 +25,7 @@ function fakeClient(servers: unknown[] = []) {
       listeners = given;
     },
     onApprovalRequest: () => undefined,
+    onQuestionRequest: () => undefined,
     listApprovals: async () => ({ requests: [] }),
     checkUpdate: async () => ({ available: false, current: "0.1.9", latest: "0.1.9" }),
     call: async (method: string, params: any) => {

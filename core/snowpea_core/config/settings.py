@@ -134,6 +134,12 @@ class ApprovalsSettings(_Model):
     timeoutSec: int = 300
 
 
+class QuestionsSettings(_Model):
+    """``ask_user``.  Longer than an approval: a real question needs thinking about."""
+
+    timeoutSec: int = 600
+
+
 class AgentSettings(_Model):
     max_tool_rounds: int = 50
     #: Language the model answers in.  ``"auto"`` follows whatever the user
@@ -342,6 +348,7 @@ class Settings(_Model):
     ralph: RalphSettings = Field(default_factory=RalphSettings)
     team: TeamSettings = Field(default_factory=TeamSettings)
     approvals: ApprovalsSettings = Field(default_factory=ApprovalsSettings)
+    questions: QuestionsSettings = Field(default_factory=QuestionsSettings)
     agent: AgentSettings = Field(default_factory=AgentSettings)
     daemon: DaemonSettings = Field(default_factory=DaemonSettings)
     search: SearchSettings = Field(default_factory=SearchSettings)
