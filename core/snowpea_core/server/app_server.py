@@ -43,6 +43,7 @@ from snowpea_core.server.errors import RpcError
 from snowpea_core.server.gateway_handlers import register_gateway_handlers
 from snowpea_core.server.job_handlers import register_job_handlers
 from snowpea_core.server.lifecycle import Lifecycle
+from snowpea_core.server.lsp_handlers import register_lsp_handlers
 from snowpea_core.server.protocol import (
     METHODS as PROTOCOL_METHODS,
 )
@@ -112,6 +113,9 @@ class Core:
     #: Plugins, skills, agent definitions and hooks (US-017); ``wire_core``
     #: builds it and ``Daemon.start`` does the first full reload.
     skills: Any = None
+    #: Language servers (M13); ``wire_core`` builds the manager, and
+    #: ``Daemon.stop`` shuts every server down.
+    lsp: Any = None
     #: Named persistent agents (US-021); ``Daemon.start`` builds it and
     #: restores its sessions before the gateway re-attaches its bindings.
     named_agents: Any = None
@@ -537,6 +541,7 @@ def build_dispatcher(core: Core) -> RpcDispatcher:
     register_gateway_handlers(dispatcher)
     register_team_handlers(dispatcher)
     register_settings_handlers(dispatcher)
+    register_lsp_handlers(dispatcher)
     register_update_handlers(dispatcher)
     dispatcher.register("provider.configure", provider_configure_handler)
     dispatcher.register("provider.loginWeb", provider_login_web_handler)
@@ -699,6 +704,10 @@ class Daemon:
                 setattr(self.core, attribute, None)
             await self.core.lifecycle.stop()
             await stop_scheduler(self.core)
+            if self.core.lsp is not None:
+                # Language servers are children of this process; leaving them
+                # running would leak a gopls per daemon restart.
+                await self.core.lsp.shutdown()
             if self.core.gateway is not None:
                 await self.core.gateway.stop()
             if self.core.named_agents is not None:

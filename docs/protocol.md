@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.4.0` (semver)
+- **Protocol version:** `1.5.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.4.0"
+    "protocolVersion": "1.5.0"
   }
 }
 ```
@@ -42,6 +42,7 @@ Server capabilities advertised in the `system.hello` result:
 - `approvals`
 - `audio`
 - `commands`
+- `lsp`
 - `sessions`
 - `settings`
 - `setup`
@@ -76,6 +77,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`job.list`](#joblist) | client → server | List scheduled jobs and their next run times. |
 | [`job.runNow`](#jobrunnow) | client → server | Fire a scheduled job immediately. |
 | [`job.schedule`](#jobschedule) | client → server | Schedule a prompt to run unattended. |
+| [`lsp.status`](#lspstatus) | client → server | Report every language server the daemon has started and its state. |
 | [`memory.search`](#memorysearch) | client → server | Recall stored memories matching a query. |
 | [`memory.write`](#memorywrite) | client → server | Store a memory with tags. |
 | [`permission.allowlist.add`](#permissionallowlistadd) | client → server | Promote a pattern from ask to allow. |
@@ -604,6 +606,22 @@ Schedule a prompt to run unattended.
 |---|---|---|---|
 | `jobId` | `string` | yes | Id of the scheduled job. |
 | `nextRunAt` | `string \| null` | no | UTC ISO-8601 time of the first firing. |
+
+### `lsp.status`
+
+*Direction:* client → server
+
+Report every language server the daemon has started and its state.
+
+**Params**
+
+_No params (send `{}`)._
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `servers` | `({ id: string; languageId?: string; pid?: number \| null; root: string; state: "starting" \| "ready" \| "broken" \| "stopped"; })[]` | no | One row per (server, root) pair. |
 
 ### `memory.search`
 
@@ -1342,7 +1360,7 @@ List the tools registered for a session.
 
 | field | type | required | description |
 |---|---|---|---|
-| `tools` | `({ category: string; description?: string; name: string; permissionTag: "read" \| "write" \| "exec" \| "network" \| "send" \| "config"; provider?: string; source?: string; state?: "active" \| "inactive"; })[]` | no | Registered tools. |
+| `tools` | `({ category: string; description?: string; name: string; permissionTag: "read" \| "write" \| "exec" \| "network" \| "send" \| "config"; provider?: string; reason?: string; source?: string; state?: "active" \| "inactive"; })[]` | no | Registered tools. |
 
 ## Notifications
 
@@ -1480,6 +1498,16 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | `code` | `string` | yes | One of the protocol error codes. |
 | `kind` | `"error"` | no |  |
 | `message` | `string` | yes | Human-readable detail. |
+
+### kind `lsp.diagnostics`
+
+| field | type | required | description |
+|---|---|---|---|
+| `count` | `number` | no | Diagnostics of every severity. |
+| `errors` | `number` | no | How many of them are errors. |
+| `kind` | `"lsp.diagnostics"` | no |  |
+| `path` | `string` | yes | File the diagnostics are about. |
+| `warnings` | `number` | no | How many of them are warnings. |
 
 ### kind `message.delta`
 

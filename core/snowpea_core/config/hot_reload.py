@@ -120,6 +120,15 @@ def rebind(core: Any, settings: Settings) -> None:
         except Exception:  # noqa: BLE001 - a reload must never fail on this
             log.debug("could not refresh the audio tool state", exc_info=True)
 
+        # Turning ``lsp.enabled`` off must take the seven ``lsp_*`` tools out
+        # of the model's list on the next turn, not at the next restart (M13 §3).
+        from snowpea_core.lsp import tools as lsp_tools
+
+        try:
+            lsp_tools.refresh_state(core)
+        except Exception:  # noqa: BLE001 - a reload must never fail on this
+            log.debug("could not refresh the lsp tool state", exc_info=True)
+
     # A changed ``skills.registry.url`` must retarget skill.search immediately,
     # not after the next daemon restart.
     if getattr(core, "skills", None) is not None:

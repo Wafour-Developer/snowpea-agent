@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.4.0"
+PROTOCOL_VERSION = "1.5.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -36,6 +36,8 @@ Decision = Literal["allow", "deny"]
 ApprovalScope = Literal["once", "session", "project", "always"]
 AllowlistScope = Literal["session", "project", "always"]
 BackendKind = Literal["local", "docker", "ssh"]
+#: What a language server is doing right now (M13 contract §4).
+LspServerState = Literal["starting", "ready", "broken", "stopped"]
 #: State of a vendor's stored credential (CORE-codex-login).
 AuthStatus = Literal["unconfigured", "active", "expired"]
 TurnReason = Literal["complete", "interrupted", "error", "denied", "timeout"]
@@ -502,6 +504,10 @@ class ToolInfo(Payload):
             "Backing provider for tools that have one, e.g. the web-search provider id; "
             'reads "configured → answering" when the configured one cannot run.'
         ),
+    )
+    reason: str = Field(
+        default="",
+        description="Why an inactive tool is inactive, e.g. \"lsp.enabled is false\".",
     )
 
 
@@ -1421,6 +1427,20 @@ class TurnDone(Payload):
     reason: TurnReason = Field(default="complete", description="Why the turn ended.")
 
 
+class LspDiagnostics(Payload):
+    """A language server published diagnostics for a file in this session.
+
+    Carries only the counts: a surface wants a badge, and the text of every
+    diagnostic already reaches the model through the tool result.
+    """
+
+    kind: Literal["lsp.diagnostics"] = "lsp.diagnostics"
+    path: str = Field(description="File the diagnostics are about.")
+    count: int = Field(default=0, description="Diagnostics of every severity.")
+    errors: int = Field(default=0, description="How many of them are errors.")
+    warnings: int = Field(default=0, description="How many of them are warnings.")
+
+
 SessionEventPayload = Annotated[
     MessageDelta
     | MessageDone
@@ -1441,7 +1461,8 @@ SessionEventPayload = Annotated[
     | AudioSpoken
     | TurnQueued
     | TurnDequeued
-    | TurnDone,
+    | TurnDone
+    | LspDiagnostics,
     Field(discriminator="kind"),
 ]
 
@@ -1467,6 +1488,7 @@ SESSION_EVENT_MODELS: dict[str, type[BaseModel]] = {
     "turn.queued": TurnQueued,
     "turn.dequeued": TurnDequeued,
     "turn.done": TurnDone,
+    "lsp.diagnostics": LspDiagnostics,
 }
 
 SESSION_EVENT_KINDS: tuple[str, ...] = tuple(SESSION_EVENT_MODELS)
@@ -1576,6 +1598,31 @@ class SettingsChangedNotification(Payload):
 
 
 # --------------------------------------------------------------------------
+# lsp.*
+# --------------------------------------------------------------------------
+
+
+class LspServerStatus(Payload):
+    """One language server the daemon has started, or tried to (M13 §4)."""
+
+    id: str = Field(description="Server id, e.g. 'pyright' or 'gopls'.")
+    root: str = Field(description="Project root the server was started in.")
+    state: LspServerState = Field(description="starting, ready, broken or stopped.")
+    languageId: str = Field(
+        default="", description="LSP language id the server's first extension maps to."
+    )
+    pid: int | None = Field(default=None, description="Process id while it is running.")
+
+
+class LspStatusResult(Payload):
+    """``lsp.status`` — every server, for the TUI's `lsp` segment and `/lsp`."""
+
+    servers: list[LspServerStatus] = Field(
+        default_factory=list, description="One row per (server, root) pair."
+    )
+
+
+# --------------------------------------------------------------------------
 # registries
 # --------------------------------------------------------------------------
 
@@ -1624,6 +1671,12 @@ METHODS: dict[str, RpcMethod] = {
             "Liveness probe; answers as long as the daemon serves requests.",
         ),
         _m("system.shutdown", Empty, Ok, "Ask the daemon to shut down gracefully."),
+        _m(
+            "lsp.status",
+            Empty,
+            LspStatusResult,
+            "Report every language server the daemon has started and its state.",
+        ),
         _m(
             "system.checkUpdate",
             CheckUpdateParams,
@@ -1897,6 +1950,7 @@ EVENTS: dict[str, type[BaseModel]] = {
 
 CAPABILITIES: list[str] = [
     "audio",
+    "lsp",
     "sessions",
     "approvals",
     "commands",
@@ -1972,6 +2026,7 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "settings.get",
         "settings.set",
         "setup.catalog",
+        "lsp.status",
     }
 )
 

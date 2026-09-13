@@ -266,6 +266,30 @@ class ContextSettings(_Model):
     keepLastMessages: int = 4
 
 
+class LspSettings(_Model):
+    """Language-server integration (M13 contract §3).
+
+    Off-by-default auto-install is deliberate: AC-46 requires that nothing is
+    ever downloaded unless the user asked for it, so a server that is not on
+    PATH simply produces no diagnostics.
+    """
+
+    #: False takes the seven ``lsp_*`` tools out of ``tool.list`` and stops the
+    #: ``Diagnostics`` block being appended to an edit.
+    enabled: bool = True
+    #: True lets snowpea install a missing server with npm, pip or go into
+    #: ``$SNOWPEA_HOME/lsp``.  False never touches the network.
+    autoInstall: bool = False
+    #: Server ids to leave alone, e.g. ``["eslint"]``.
+    disabled: list[str] = Field(default_factory=list)
+    #: User-defined servers, and overrides for builtin ones:
+    #: ``{"clangd": {"command": ["clangd", "--header-insertion=never"]}}``.
+    servers: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    #: Seconds a server may sit unused before it is shut down; 0 disables the
+    #: sweep and keeps every started server alive for the daemon's lifetime.
+    idleTimeoutSec: int = 600
+
+
 class McpSettings(_Model):
     """Extra MCP servers and their permission tags (M2 contract §6)."""
 
@@ -310,6 +334,7 @@ class Settings(_Model):
     media: MediaSettings = Field(default_factory=MediaSettings)
     audio: AudioSettings = Field(default_factory=AudioSettings)
     mcp: McpSettings = Field(default_factory=McpSettings)
+    lsp: LspSettings = Field(default_factory=LspSettings)
     skills: SkillsSettings = Field(default_factory=SkillsSettings)
     memory: MemorySettings = Field(default_factory=MemorySettings)
     context: ContextSettings = Field(default_factory=ContextSettings)
@@ -410,6 +435,7 @@ __all__ = [
     "BrowserSettings",
     "ContextSettings",
     "DaemonSettings",
+    "LspSettings",
     "McpSettings",
     "MediaMcpSettings",
     "MediaSettings",

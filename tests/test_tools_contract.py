@@ -81,6 +81,15 @@ CATALOG: dict[str, tuple[str, str]] = {
     # uploads it, which its description says.
     "text_to_speech": ("audio", "network"),
     "transcribe_audio": ("audio", "read"),
+    # The LSP tools land in the same builtin catalog (M13 contract §3); they
+    # are listed here so a rename or a retag shows up as a contract change.
+    "lsp_diagnostics": ("lsp", "read"),
+    "lsp_definition": ("lsp", "read"),
+    "lsp_references": ("lsp", "read"),
+    "lsp_symbols": ("lsp", "read"),
+    "lsp_workspace_symbols": ("lsp", "read"),
+    "lsp_hover": ("lsp", "read"),
+    "lsp_rename": ("lsp", "write"),
 }
 
 INACTIVE_AT_M2 = {
