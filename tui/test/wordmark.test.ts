@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   LETTER_WIDTHS,
+  MARK_WIDTH,
   MASTER_HEIGHT,
   MASTER_WIDTH,
   WORD,
@@ -18,8 +19,12 @@ import {
   WORDMARK_ROWS,
   fitWordmark,
   gapFor,
+  gapFor,
   letterWidthFor,
+  lockupWidth,
+  markGapFor,
   masterOf,
+  renderMiniMark,
   renderWordmark,
   shadowRow,
   sproutColumn,
@@ -93,21 +98,21 @@ describe("the masters", () => {
 });
 
 describe("fitting", () => {
-  it("takes the widest size the terminal has room for", () => {
+  it("takes the widest size the terminal has room for, mark included", () => {
     for (const width of LETTER_WIDTHS) {
-      expect(letterWidthFor(wordmarkWidth(width))).toBe(width);
-      expect(letterWidthFor(wordmarkWidth(width) - 1) ?? 0).toBeLessThan(width);
+      expect(letterWidthFor(lockupWidth(width))).toBe(width);
+      expect(letterWidthFor(lockupWidth(width) - 1) ?? 0).toBeLessThan(width);
     }
   });
 
   it("gives up rather than spilling past a narrow terminal", () => {
     const smallest = LETTER_WIDTHS[LETTER_WIDTHS.length - 1];
-    expect(letterWidthFor(wordmarkWidth(smallest) - 1)).toBeNull();
+    expect(letterWidthFor(lockupWidth(smallest) - 1)).toBeNull();
     expect(fitWordmark(20)).toBeNull();
   });
 
   it("never draws wider than it was asked for", () => {
-    for (const columns of [48, 60, 80, 100, 120, 160, 200]) {
+    for (const columns of [66, 80, 100, 120, 160, 200]) {
       const rows = fitWordmark(columns);
       expect(rows, `nothing fitted at ${columns}`).not.toBeNull();
       for (const row of rows!) expect([...row].length).toBeLessThanOrEqual(columns);
@@ -174,5 +179,47 @@ describe("the trimmings", () => {
       expect(column).toBeGreaterThanOrEqual(lastLetterStart);
       expect(column).toBeLessThan(lastLetterStart + width);
     }
+  });
+});
+
+describe("the mark", () => {
+  it("stands in front of the letters, at the same height", () => {
+    const lockup = fitWordmark(120)!;
+    const letters = renderWordmark(letterWidthFor(120)!);
+    expect(lockup).toHaveLength(letters.length);
+    expect(lockup).toHaveLength(WORDMARK_ROWS);
+    for (const row of lockup) expect([...row]).toHaveLength(lockupWidth(letterWidthFor(120)!));
+  });
+
+  it("leaves a letter of air between itself and the S", () => {
+    const width = letterWidthFor(120)!;
+    const lockup = fitWordmark(120)!;
+    const gap = markGapFor(width);
+    // The columns between the mark and the first letter are blank in every row.
+    for (const row of lockup) {
+      const air = [...row].slice(MARK_WIDTH, MARK_WIDTH + gap);
+      expect(air.join("").trim()).toBe("");
+    }
+    expect(gap).toBeGreaterThan(gapFor(width));
+  });
+
+  it("keeps the whole lockup inside the ladder", () => {
+    for (const columns of [66, 80, 100, 120, 160, 200]) {
+      const width = letterWidthFor(columns);
+      expect(width, `nothing fitted at ${columns}`).not.toBeNull();
+      expect(lockupWidth(width!)).toBeLessThanOrEqual(columns);
+      for (const row of fitWordmark(columns)!) {
+        expect([...row]).toHaveLength(lockupWidth(width!));
+      }
+    }
+  });
+
+  it("shrinks to a ring for the compact form, two rows like the small wordmark", () => {
+    const mini = renderMiniMark();
+    expect(mini).toHaveLength(2);
+    const lengths = new Set(mini.map((row) => [...row].length));
+    expect(lengths.size).toBe(1);
+    // An open ring: the middle of the top row is not inked.
+    expect(mini[0]).toMatch(/^[▄█].*[▄█]$/);
   });
 });

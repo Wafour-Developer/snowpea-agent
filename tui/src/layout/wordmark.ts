@@ -15,6 +15,8 @@
  * Pure, so `test/wordmark.test.ts` can check both the letterforms and the fit.
  */
 
+import { BIG_MARK, MINI_MARK } from "../components/mark.js";
+
 /** Bitmap columns each letter is drawn on. */
 export const MASTER_WIDTH = 10;
 /** Bitmap rows each letter is drawn on; two per terminal row. */
@@ -168,15 +170,39 @@ export function gapFor(letterWidth: number): number {
   return Math.max(1, Math.round(letterWidth / 8));
 }
 
-/** Columns the whole word needs at this letter width. */
+/** Columns the letters alone need at this letter width. */
 export function wordmarkWidth(letterWidth: number, word = WORD): number {
   return word.length * letterWidth + (word.length - 1) * gapFor(letterWidth);
 }
 
-/** The widest letter size that fits, or null when even the smallest does not. */
+/** Columns the mark occupies; it is square, so this follows its row count. */
+export const MARK_WIDTH = BIG_MARK[0].length;
+
+/**
+ * The air between the mark and the S: twice the gap between letters.
+ *
+ * One letter's width reads as a missing letter and costs a whole rung of the
+ * size ladder; twice the letter gap separates the two halves of the lockup
+ * without either.
+ */
+export function markGapFor(letterWidth: number): number {
+  return gapFor(letterWidth) * 2;
+}
+
+/** Columns the lockup needs: the mark, its air, then the word. */
+export function lockupWidth(letterWidth: number, word = WORD): number {
+  return MARK_WIDTH + markGapFor(letterWidth) + wordmarkWidth(letterWidth, word);
+}
+
+/**
+ * The widest letter size that fits, or null when even the smallest does not.
+ *
+ * What has to fit is the whole lockup — the mark stands in front of the word,
+ * so it is part of the measurement, not decoration added afterwards.
+ */
 export function letterWidthFor(columns: number, word = WORD): number | null {
   for (const width of LETTER_WIDTHS) {
-    if (wordmarkWidth(width, word) <= columns) return width;
+    if (lockupWidth(width, word) <= columns) return width;
   }
   return null;
 }
@@ -197,16 +223,31 @@ function sampledRows(character: string, width: number): boolean[][] {
   );
 }
 
+/** Pair two half-pixel rows of a bitmap into one row of half blocks. */
+function halfBlockRow(bitmap: readonly string[], row: number): string {
+  const top = bitmap[row * 2] ?? "";
+  const bottom = bitmap[row * 2 + 1] ?? "";
+  let line = "";
+  for (let column = 0; column < top.length; column += 1) {
+    line += HALF_BLOCKS[(top[column] === "#" ? 1 : 0) + (bottom[column] === "#" ? 2 : 0)];
+  }
+  return line;
+}
+
 /**
  * The word at a given letter width, as `WORDMARK_ROWS` rows of half blocks.
+ *
+ * `withMark` puts the sprout in front of it, which is the launch lockup; the
+ * letters alone are what the tests measure against.
  */
-export function renderWordmark(letterWidth: number, word = WORD): string[] {
+export function renderWordmark(letterWidth: number, word = WORD, withMark = false): string[] {
   const width = Math.max(1, Math.floor(letterWidth));
   const gap = gapFor(width);
+  const markGap = " ".repeat(markGapFor(width));
   const letters = word.split("").map((character) => sampledRows(character, width));
 
   return Array.from({ length: WORDMARK_ROWS }, (_, row) => {
-    let line = "";
+    let line = withMark ? `${halfBlockRow(BIG_MARK, row)}${markGap}` : "";
     letters.forEach((letter, index) => {
       if (index > 0) line += " ".repeat(gap);
       const top = letter[row * 2];
@@ -219,10 +260,15 @@ export function renderWordmark(letterWidth: number, word = WORD): string[] {
   });
 }
 
-/** The biggest wordmark that fits `columns`, or null when none does. */
+/** The mark alone, two rows, for the compact form. */
+export function renderMiniMark(): string[] {
+  return Array.from({ length: MINI_MARK.length / 2 }, (_, row) => halfBlockRow(MINI_MARK, row));
+}
+
+/** The biggest lockup that fits `columns`, or null when none does. */
 export function fitWordmark(columns: number, word = WORD): string[] | null {
   const width = letterWidthFor(Math.max(0, Math.floor(columns)), word);
-  return width === null ? null : renderWordmark(width, word);
+  return width === null ? null : renderWordmark(width, word, true);
 }
 
 /**

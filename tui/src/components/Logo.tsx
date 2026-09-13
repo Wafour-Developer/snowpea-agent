@@ -12,11 +12,13 @@ import React from "react";
 import { Box, Text } from "ink";
 
 import {
+  LETTER_WIDTHS,
   WORDMARK_ROWS,
   fitWordmark,
   letterWidthFor,
+  lockupWidth,
+  renderMiniMark,
   shadowRow,
-  sproutColumn,
 } from "../layout/wordmark.js";
 import { colorMode, gradientColors, type ColorMode } from "../layout/palette.js";
 
@@ -26,8 +28,14 @@ export const LOGO_COLLAPSE_ROWS = 24;
 /** Rows the compact block occupies: two wordmark rows and the tagline. */
 export const LOGO_EXPANDED_ROWS = 3;
 export const LOGO_COLLAPSED_ROWS = 1;
-/** Narrower than this and even the smallest big wordmark will not fit. */
-export const BIG_WORDMARK_MIN_COLUMNS = 48;
+/**
+ * Narrower than this and the lockup will not fit.
+ *
+ * The mark is square and the letters are seven rows tall, so the two together
+ * have a floor: below it the compact two-row form takes over, with the mark
+ * reduced to its ring.
+ */
+export const BIG_WORDMARK_MIN_COLUMNS = lockupWidth(LETTER_WIDTHS[LETTER_WIDTHS.length - 1]);
 
 /** Hand-drawn half-block wordmark, 30 columns wide. */
 export const WORDMARK: readonly [string, string] = [
@@ -86,16 +94,12 @@ function LogoInner({
 }: LogoProps): React.ReactElement {
   const bigRows = big ? fitWordmark(width) : null;
   if (bigRows) {
-    const letterWidth = letterWidthFor(width) ?? 0;
     const drawn = [...bigRows[0]].length;
     const paint = mode ?? colorMode(process.env, Boolean(process.stdout?.isTTY));
     const colors = gradientColors(bigRows.length, paint);
     const accent = paint === "none" ? undefined : LOGO_COLOR;
     return (
       <Box flexDirection="column" flexShrink={0} width={width}>
-        <Text color={accent} wrap="truncate-end">
-          {`${" ".repeat(sproutColumn(letterWidth))}${SPROUT}`}
-        </Text>
         {bigRows.map((row, index) => (
           <Text key={`wordmark-${index}`} color={colors[index]} bold wrap="truncate-end">
             {row}
@@ -118,13 +122,14 @@ function LogoInner({
     );
   }
 
+  const mini = renderMiniMark();
   return (
     <Box flexDirection="column" flexShrink={0} width={width}>
       <Text color={LOGO_COLOR} bold wrap="truncate-end">
-        {WORDMARK[0]}
+        {`${mini[0]} ${WORDMARK[0]}`}
       </Text>
       <Text color={LOGO_COLOR} bold wrap="truncate-end">
-        {`${WORDMARK[1]}  ${SPROUT}`}
+        {`${mini[1]} ${WORDMARK[1]}`}
       </Text>
       <Text dimColor wrap="truncate-end">
         {`${TAGLINE}  v${version}`}
