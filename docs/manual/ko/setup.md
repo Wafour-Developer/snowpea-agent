@@ -224,6 +224,47 @@ snowpea setup --vendor local --base-url http://localhost:11434/v1 --model qwen3:
 
 `/v1/chat/completions`를 말하는 것이면 무엇이든 동작합니다 — vLLM, Ollama, LM Studio, llama.cpp의 서버까지. 다만 tool calling은 불러온 모델이 직접 지원해야 하며, 그렇지 않으면 에이전트가 말은 하지만 행동은 하지 못합니다.
 
+### 출력 한도와 thinking
+
+추론 모델(Qwen3, DeepSeek-R1, GLM의 thinking 계열)은 답을 쓰기 *전에* 생각을
+먼저 흘려보내고, 그 생각도 답과 같은 `max_tokens`에서 깎입니다. 한도를 너무
+작게 주면 모델이 예산을 전부 생각에 쓰고 아무것도 답하지 못합니다.
+
+```json
+{
+  "agent": { "max_tokens": 16384, "thinking": "auto" },
+  "providers": {
+    "local": { "max_tokens": 32768, "thinking": "off" }
+  }
+}
+```
+
+`agent.max_tokens`(16384)는 모델 호출 한 번이 낼 수 있는 토큰이고, 벤더 블록이
+그 벤더에 한해 이를 덮어씁니다. 어느 쪽이든 모델이 실제로 받아들이는 값으로
+잘리므로, `gpt-4`의 8192 같은 상한은 보내고 거절당하는 대신 지켜집니다.
+
+`agent.thinking`은 `on`, `off`, `auto`입니다. 기본값 `auto`는 사람이 보고 있는
+세션에서는 생각하고, 위임된 세션에서는 조용히 갑니다 — 거기서는 보고서가 곧
+출력이고, 숨은 추론은 예산만 먹습니다. `off`는
+`chat_template_kwargs: {"enable_thinking": false}`를 보내며, Qwen 계열
+서버(vLLM, SGLang)가 이를 따르고 나머지는 무시합니다. 에이전트 정의는
+프런트매터의 `thinking: on`으로 둘 다 덮어쓸 수 있습니다.
+
+데몬은 턴이 한도에서 멈췄을 때도 반응합니다. 본문이 비어 있는데 추론 토큰만
+쓴 답은 thinking을 끄고 한 번 다시 묻고(스위치가 없는 벤더면 예산을 두 배로),
+문장 중간에 잘린 답은 최대 두 번까지 이어받아 조각을 붙입니다. TUI가 어느
+쪽이었는지 알려 줍니다 — `response hit the output limit; continued`, 그래도
+모자랐다면 `… and is incomplete`. 끝내 잘린 `delegate_task` 요약은
+`[truncated at max_tokens after 2 continuations]`로 끝납니다.
+
+**빈 응답 / 잘린 응답**
+
+| 보이는 것 | 의미 |
+|---|---|
+| 모델이 아무것도 답하지 않음 | 예산을 전부 숨은 추론에 썼습니다. `agent.max_tokens`를 올리거나 해당 벤더의 `thinking`을 `off`로 두세요. |
+| 답이 문장 중간에 끊김 | 이 작업에 예산이 부족합니다. 데몬이 두 번 이어받고 그래도 모자라면 그렇게 말합니다. `agent.max_tokens`를 올리세요. |
+| `HTTP 400 … max_tokens` | 모델 상한이 예산보다 낮은데 snowpea 표에 없는 모델입니다. `providers.<vendor>.max_tokens`에 공개된 상한을 적으세요. |
+
 ### 어떤 벤더가 쓰이는가
 
 우선순위 순서는: `SNOWPEA_PROVIDER` 환경 변수, 그다음 명령줄의 `--provider`나 세션의 `provider` 인자, 그다음 settings의 `providers.default`, 마지막으로 설정된 첫 번째 벤더입니다.
@@ -305,7 +346,7 @@ snowpea setup --gateway telegram --token 123456:ABC-your-bot-token
 
 ## 디스크에 남는 것
 
-`$SNOWPEA_HOME/settings.json`에는 `providers`, `search.provider`, `browser.provider`, `tools.enabled_categories`, `gateway`, `agents.max_concurrent`(3), `team.max_conflict_retries`(2), `approvals.timeoutSec`(300), `memory.enabled`(true)가 담깁니다. 모드·allowlist·백엔드에 대한 프로젝트별 오버라이드는 `<project>/.snowpea/settings.json`에 있고 전역 파일보다 우선합니다. 비밀값은 `settings.json`에 절대 쓰이지 않고, 로그에도 남지 않습니다.
+`$SNOWPEA_HOME/settings.json`에는 `providers`, `search.provider`, `browser.provider`, `tools.enabled_categories`, `gateway`, `agents.max_concurrent`(3), `team.max_conflict_retries`(2), `approvals.timeoutSec`(300), `agent.max_tokens`(16384), `agent.thinking`(`auto`), `memory.enabled`(true)가 담깁니다. 모드·allowlist·백엔드에 대한 프로젝트별 오버라이드는 `<project>/.snowpea/settings.json`에 있고 전역 파일보다 우선합니다. 비밀값은 `settings.json`에 절대 쓰이지 않고, 로그에도 남지 않습니다.
 
 ## 다음
 

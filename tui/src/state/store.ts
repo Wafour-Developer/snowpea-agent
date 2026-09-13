@@ -201,6 +201,14 @@ export interface State {
   children: Record<string, State>;
   lastSeq: number;
   turnActive: boolean;
+  /**
+   * Characters of hidden reasoning the model has streamed in this turn.
+   *
+   * Reasoning never joins the transcript — it is not the answer, and it counts
+   * against the output budget — so the working line is the only place it shows.
+   * Reset when a turn starts.
+   */
+  reasoningChars: number;
   errors: string[];
 }
 
@@ -231,6 +239,7 @@ export const initialState: State = {
   children: {},
   lastSeq: 0,
   turnActive: false,
+  reasoningChars: 0,
   errors: [],
 };
 
@@ -304,6 +313,36 @@ function appendDelta(state: State, text: string): State {
   };
 }
 
+/**
+ * What to say when the model ran out of room.
+ *
+ * A turn that was resumed still delivered a whole answer, so it only gets a
+ * footnote; one that is still cut off after the daemon's two continuations has
+ * to say so, or a half review reads as a short one.
+ */
+export function outputLimitNote(
+  truncated: boolean,
+  continuations: number,
+): string | null {
+  if (truncated) return "response hit the output limit and is incomplete";
+  if (continuations > 0) return "response hit the output limit; continued";
+  return null;
+}
+
+function withLimitNote(state: State, payload: Record<string, unknown>): State {
+  const note = outputLimitNote(
+    Boolean(payload.truncated),
+    Number(payload.continuations ?? 0),
+  );
+  if (!note) return state;
+  const message: Message = { id: nextId("msg"), role: "system", text: note, streaming: false };
+  return {
+    ...state,
+    messages: [...state.messages, message],
+    timeline: pushTimeline(state, { kind: "message", id: message.id }),
+  };
+}
+
 function finishMessage(state: State, payload: Record<string, unknown>): State {
   const text = typeof payload.text === "string" ? payload.text : undefined;
   const role = (typeof payload.role === "string" ? payload.role : "assistant") as MessageRole;
@@ -312,15 +351,18 @@ function finishMessage(state: State, payload: Record<string, unknown>): State {
     const messages = state.messages
       .slice(0, -1)
       .concat({ ...last, text: text ?? last.text, streaming: false });
-    return { ...state, messages };
+    return withLimitNote({ ...state, messages }, payload);
   }
   if (text === undefined) return state;
   const message: Message = { id: nextId("msg"), role, text, streaming: false };
-  return {
-    ...state,
-    messages: [...state.messages, message],
-    timeline: pushTimeline(state, { kind: "message", id: message.id }),
-  };
+  return withLimitNote(
+    {
+      ...state,
+      messages: [...state.messages, message],
+      timeline: pushTimeline(state, { kind: "message", id: message.id }),
+    },
+    payload,
+  );
 }
 
 /** Replace one subagent entry in place; unknown ids are ignored. */
@@ -346,6 +388,10 @@ function applySessionEvent(state: State, event: SessionEvent): State {
   switch (event.kind) {
     case "message.delta":
       return appendDelta(base, String(payload.text ?? ""));
+
+    // Thinking, not an answer: counted for the working line, never appended.
+    case "message.reasoning":
+      return { ...base, reasoningChars: Number(payload.chars ?? base.reasoningChars) };
 
     case "message.done":
       return finishMessage(base, payload);
@@ -662,6 +708,7 @@ export function reducer(state: State, action: Action): State {
         messages: [...state.messages, message],
         timeline: pushTimeline(state, { kind: "message", id: message.id }),
         turnActive: true,
+        reasoningChars: 0,
       };
     }
 

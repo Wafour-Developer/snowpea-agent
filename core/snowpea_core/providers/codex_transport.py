@@ -309,6 +309,8 @@ class CodexProvider:
     """Streaming ``ChatProvider`` for a ChatGPT/Codex OAuth session."""
 
     vendor = "openai"
+    #: No thinking switch on this backend; the agent loop does not offer one.
+    supports_thinking_option = False
 
     def __init__(
         self,

@@ -32,6 +32,10 @@ DONE = "[DONE]"
 class OpenAICompatProvider:
     """Streaming ``ChatProvider`` for any OpenAI-compatible endpoint."""
 
+    #: ``chat_template_kwargs`` reaches every server in this dialect, so the
+    #: agent loop may ask this adapter to turn thinking off.
+    supports_thinking_option = True
+
     def __init__(
         self,
         preset: VendorPreset | str = "openai",
@@ -109,10 +113,13 @@ class OpenAICompatProvider:
         tools: list[ToolSpec],
         *,
         max_tokens: int = 4096,
+        thinking: str | None = None,
     ) -> AsyncIterator[StreamEvent]:
         """Stream one assistant turn, normalised to :class:`StreamEvent`."""
         model = await self._ensure_model()
-        body = build_openai_request(self.preset, model, messages, tools, max_tokens=max_tokens)
+        body = build_openai_request(
+            self.preset, model, messages, tools, max_tokens=max_tokens, thinking=thinking
+        )
         normalizer = OpenAIStreamNormalizer(self.preset)
         try:
             async with self._client() as client:

@@ -15,6 +15,7 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from snowpea_core.config.settings import DEFAULT_MAX_TOKENS
 from snowpea_core.prompts import compose
 from snowpea_core.prompts import environment as prompt_env
 from snowpea_core.prompts.loader import load
@@ -52,7 +53,11 @@ class AgentConfig:
     """Per-turn knobs resolved from settings."""
 
     max_tool_rounds: int = 50
-    max_tokens: int = 4096
+    #: Output tokens one provider call may produce, already clamped to what
+    #: the session's model accepts (CORE-reasoning-budget).
+    max_tokens: int = DEFAULT_MAX_TOKENS
+    #: ``"on"`` or ``"off"`` — ``"auto"`` is resolved before it gets here.
+    thinking: str = "on"
 
 
 def tool_lines(tools: list[ToolSpec]) -> str:
