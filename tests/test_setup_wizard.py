@@ -372,6 +372,113 @@ def test_ask_interactive_enter_on_skip_returns_the_default(
     assert ui.ask(screen, console=console, interactive=True) == "a"
 
 
+def test_ask_repaints_in_place_without_clearing_the_screen(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A keypress must rewrite the menu rows, not redraw the terminal.
+
+    Clearing the screen on every ↑/↓ is what made the whole wizard flicker, so
+    this pins the mechanism: no clear-screen escape (and no ``Console.clear``
+    call), a cursor-up of exactly the screen's height, erased rows, and the
+    cursor hidden for as long as the menu is open.
+    """
+    from rich.console import Console
+
+    cleared: list[bool] = []
+    monkeypatch.setattr(Console, "clear", lambda self, home=True: cleared.append(True))
+    keys = iter(["down", "down", "enter"])
+    monkeypatch.setattr(ui, "read_key", lambda stream=None: next(keys))
+    state = WizardState.from_settings(Settings())
+    screen = search_screen.build(state)
+    stream = io.StringIO()
+    console = Console(file=stream, width=100, force_terminal=False)
+
+    ui.ask(screen, console=console, interactive=True)
+
+    out = stream.getvalue()
+    height = len(ui.screen_lines(screen, cursor=0, chosen=set()))
+    assert cleared == []
+    assert "\x1b[2J" not in out and "\x1b[3J" not in out and "\x1bc" not in out
+    assert out.count(f"\x1b[{height}A") == 2  # one per keypress that moved
+    assert ui.CLEAR_LINE in out
+    assert out.startswith(ui.CURSOR_HIDE)
+    assert out.endswith(ui.CURSOR_SHOW)
+
+
+def test_ask_restores_the_cursor_when_the_screen_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from rich.console import Console
+
+    def boom(stream: Any = None) -> str:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(ui, "read_key", boom)
+    state = WizardState.from_settings(Settings())
+    stream = io.StringIO()
+    console = Console(file=stream, width=100, force_terminal=False)
+    with pytest.raises(KeyboardInterrupt):
+        ui.ask(search_screen.build(state), console=console, interactive=True)
+    assert stream.getvalue().endswith(ui.CURSOR_SHOW)
+
+
+def test_screen_height_is_stable_across_cursor_moves() -> None:
+    state = WizardState.from_settings(Settings())
+    screen = tools_screen.build(state)
+    chosen = {item.id for item in screen.items if item.selected}
+    heights = {
+        len(ui.screen_lines(screen, cursor=index, chosen=chosen))
+        for index in range(len(screen.items))
+    }
+    assert len(heights) == 1
+
+
+# ---------------------------------------------------------------------------
+# provider state
+# ---------------------------------------------------------------------------
+
+
+def test_configured_local_provider_reads_active_and_default() -> None:
+    """A local server with a base_url and a model is set up — not ``[inactive]``.
+
+    The wizard used to build the vendor list from an empty registry, so the
+    provider the user had just configured and selected still printed
+    ``[inactive]``.
+    """
+    settings = Settings()
+    settings.providers["local"] = {"base_url": "http://localhost:8000/v1", "model": "qwen3"}
+    settings.providers["default"] = "local"
+    state = WizardState.from_settings(settings)
+    state.add_current_model_profile(make_default=True)
+
+    rows = {item.id: item for item in providers_screen.build(state).items}
+    assert rows["local"].active is True
+    assert "active" in rows["local"].tags
+    assert "inactive" not in rows["local"].tags
+    assert "default" in rows["local"].tags
+    assert rows["anthropic"].active is False
+
+
+def test_local_provider_active_state_agrees_with_the_registry() -> None:
+    """One helper behind the screen, ``provider list`` and ``provider.list``."""
+    from snowpea_core.providers.registry import ProviderRegistry
+
+    settings = Settings()
+    settings.providers["local"] = {"base_url": "http://localhost:8000/v1"}
+    registry = ProviderRegistry(settings)
+    assert registry.is_configured("local")
+    assert registry.auth_status("local") == "active"
+    info = {item.vendor: item for item in registry.list()}
+    assert info["local"].configured is True
+    by_id = {item.id: item for item in catalog.vendor_catalog(settings)}
+    assert by_id["local"].active is True
+
+
+def test_unconfigured_local_provider_stays_inactive() -> None:
+    by_id = {item.id: item for item in catalog.vendor_catalog(Settings())}
+    assert by_id["local"].active is False
+
+
 # ---------------------------------------------------------------------------
 # the wizard
 # ---------------------------------------------------------------------------
