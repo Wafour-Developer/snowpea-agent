@@ -18,9 +18,11 @@ import asyncio
 import base64
 import hashlib
 import logging
+import os
 import secrets
 import shutil
 import subprocess
+import sys
 import time
 import webbrowser
 from collections.abc import Callable
@@ -113,7 +115,11 @@ async def _post_with_retry(
 #: Vendor login endpoints and flow parameters — data, not code.
 ENDPOINTS: dict[str, dict[str, Any]] = {
     "openai": {
+        # The browser flow is the one a desktop user should get; device code is
+        # the headless fallback.  Both end in the same ChatGPT credential
+        # record (``providers/openai_oauth.py``).
         "method": "device_code",
+        "methods": ("browser_pkce", "device_code"),
         "device_authorization_url": "https://auth.openai.com/api/accounts/deviceauth/usercode",
         "device_poll_url": "https://auth.openai.com/api/accounts/deviceauth/token",
         "token_url": "https://auth.openai.com/oauth/token",
@@ -125,6 +131,7 @@ ENDPOINTS: dict[str, dict[str, Any]] = {
     },
     "openrouter": {
         "method": "oauth_pkce",
+        "methods": ("oauth_pkce",),
         "auth_url": "https://openrouter.ai/auth",
         "keys_url": "https://openrouter.ai/api/v1/auth/keys",
         "callback_host": "127.0.0.1",
@@ -133,13 +140,44 @@ ENDPOINTS: dict[str, dict[str, Any]] = {
         "timeout_sec": 300.0,
     },
     "gemini": {
-        "method": "google_adc",
+        # Google's own browser consent first; ``gcloud`` ADC stays for people
+        # who already live in it (and is all a machine without a browser has).
+        "method": "google_oauth",
+        "methods": ("google_oauth", "google_adc"),
         "verification_url": "https://accounts.google.com/",
         "timeout_sec": 900.0,
     },
 }
 
 API_KEY_HINT = "run `snowpea setup --vendor {vendor} --key <API key>` instead"
+
+#: Credential fields a *successful* login must remove, because
+#: ``ProviderRegistry.configure`` deletes a key whose incoming value is
+#: ``None``.  Without this a stale API key outlives the login and silently
+#: wins over it in ``api_key_for`` (report §6.7 A-P1-2).
+_CLEAR_STALE_KEYS: dict[str, Any] = {"api_key": None, "oauth_token": None}
+#: The mirror image: a flow that mints an API key clears the OAuth material.
+_CLEAR_STALE_OAUTH: dict[str, Any] = {"oauth_token": None, "token": None, "auth_method": None}
+
+#: Set to ``1`` to force the headless flow even where a browser could open.
+FORCE_HEADLESS_ENV = "SNOWPEA_HEADLESS_LOGIN"
+
+
+def browser_available() -> bool:
+    """Whether a browser on *this* machine could show a consent page.
+
+    macOS and Windows always can.  On Linux a session with no display server
+    cannot, and an SSH session's browser would open on the wrong machine — in
+    both cases the user must be offered the headless flow instead, because a
+    browser login there fails in a way they cannot see.
+    """
+    if (os.environ.get(FORCE_HEADLESS_ENV) or "").strip() in ("1", "true", "yes"):
+        return False
+    if os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_TTY"):
+        return False
+    if sys.platform in ("darwin", "win32"):
+        return True
+    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
 
 
 @dataclass
@@ -178,6 +216,9 @@ class LoginStart:
     finish: Callable[[], Any] = field(default=None, repr=False)  # type: ignore[assignment]
 
 
+#: Flows that put a consent page in front of the user on *this* machine.
+BROWSER_METHODS: frozenset[str] = frozenset({"browser_pkce", "oauth_pkce", "google_oauth"})
+
 Prompt = Callable[[str], None]
 #: Called at each phase of a browser login: started, await_user, polling, done, failed.
 ProgressHook = Callable[[dict[str, Any]], Any]
@@ -206,18 +247,42 @@ def unsupported(vendor: str) -> RpcError:
     return RpcError(errors.LOGIN_UNSUPPORTED, detail)
 
 
-def method_for(vendor: str, method: str | None = None) -> str:
-    """Validate ``vendor``/``method``, or raise ``login_unsupported``."""
+def methods_for(vendor: str) -> tuple[str, ...]:
+    """Every interactive login ``vendor`` supports, best first."""
     config = ENDPOINTS.get(vendor)
     if config is None:
         raise unsupported(vendor)
-    supported = str(config["method"])
-    if method and method not in (supported, "web", "browser"):
-        raise RpcError(
-            errors.LOGIN_UNSUPPORTED,
-            f"{vendor} supports '{supported}', not '{method}'",
-        )
-    return supported
+    declared = config.get("methods")
+    return tuple(declared) if declared else (str(config["method"]),)
+
+
+def default_method(vendor: str) -> str:
+    """The flow to start when the caller did not name one.
+
+    The first declared method wins *unless* it needs a browser this machine
+    cannot open, in which case the headless alternative is used — a login that
+    silently waits on a consent page nobody can see is worse than one that
+    prints a code.
+    """
+    supported = methods_for(vendor)
+    if supported[0] in BROWSER_METHODS and not browser_available():
+        headless = [m for m in supported if m not in BROWSER_METHODS]
+        if headless:
+            return headless[0]
+    return supported[0]
+
+
+def method_for(vendor: str, method: str | None = None) -> str:
+    """Validate ``vendor``/``method``, or raise ``login_unsupported``."""
+    supported = methods_for(vendor)
+    if not method or method in ("web", "browser", "auto"):
+        return default_method(vendor)
+    if method in supported:
+        return method
+    raise RpcError(
+        errors.LOGIN_UNSUPPORTED,
+        f"{vendor} supports {' or '.join(supported)}, not '{method}'",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -347,11 +412,15 @@ async def device_code_start(
                     )
                     body = polled.json() if polled.content else {}
                 if polled.status_code < 400 and body.get("access_token"):
-                    credentials: dict[str, Any] = {"token": str(body["access_token"])}
-                    if body.get("refresh_token"):
-                        credentials["refresh_token"] = str(body["refresh_token"])
-                    if body.get("expires_in"):
-                        credentials["expires_in"] = int(body["expires_in"])
+                    # Device code and the browser flow authenticate the *same*
+                    # ChatGPT account, so they must leave the same record
+                    # behind: absolute ``expires_at`` (a bare duration cannot
+                    # be checked later), the account claim, and an
+                    # ``auth_method`` that routes to the Codex transport.
+                    from snowpea_core.providers import openai_oauth
+
+                    credentials = openai_oauth.credentials_from_tokens(body)
+                    credentials.update(_CLEAR_STALE_KEYS)
                     await _report(
                         on_progress,
                         vendor=vendor,
@@ -564,7 +633,7 @@ async def oauth_pkce_start(
             return LoginResult(
                 vendor=vendor,
                 method="oauth_pkce",
-                credentials={"api_key": key},
+                credentials={"api_key": key, **_CLEAR_STALE_OAUTH},
                 message=f"{vendor}: API key stored",
             )
         except TimeoutError as exc:
@@ -675,7 +744,7 @@ async def google_adc_start(
         return LoginResult(
             vendor=vendor,
             method="google_adc",
-            credentials={"auth_method": "google_adc"},
+            credentials={"auth_method": "google_adc", **_CLEAR_STALE_KEYS},
             message="gemini: signed in with Google ADC",
         )
 
@@ -709,16 +778,10 @@ async def login(
     open_browser: bool = True,
 ) -> LoginResult:
     """Start the browser login ``vendor`` supports, or raise ``login_unsupported``."""
-    resolved = method_for(vendor, method)
-    if resolved == "device_code":
-        return await device_code_login(
-            vendor, client=client, on_prompt=on_prompt, open_browser=open_browser
-        )
-    if resolved == "google_adc":
-        return await google_adc_login(vendor)
-    return await oauth_pkce_login(
-        vendor, client=client, on_prompt=on_prompt, open_browser=open_browser
+    started = await login_started(
+        vendor, method, client=client, on_prompt=on_prompt, open_browser=open_browser
     )
+    return await started.finish()
 
 
 async def login_started(
@@ -736,6 +799,28 @@ async def login_started(
     immediately and keep polling in a background task.
     """
     resolved = method_for(vendor, method)
+    if resolved == "browser_pkce":
+        # Imported here: openai_oauth imports this module for its shared
+        # plumbing, so a module-level import would be a cycle.
+        from snowpea_core.providers import openai_oauth
+
+        return await openai_oauth.browser_login_start(
+            vendor,
+            client=client,
+            on_prompt=on_prompt,
+            open_browser=open_browser,
+            on_progress=on_progress,
+        )
+    if resolved == "google_oauth":
+        from snowpea_core.providers import google_oauth
+
+        return await google_oauth.browser_login_start(
+            vendor,
+            client=client,
+            on_prompt=on_prompt,
+            open_browser=open_browser,
+            on_progress=on_progress,
+        )
     if resolved == "device_code":
         return await device_code_start(
             vendor,
@@ -757,7 +842,9 @@ async def login_started(
 
 __all__ = [
     "API_KEY_HINT",
+    "BROWSER_METHODS",
     "ENDPOINTS",
+    "FORCE_HEADLESS_ENV",
     "CallbackServer",
     "LoginResult",
     "LoginStart",
@@ -765,9 +852,12 @@ __all__ = [
     "device_code_start",
     "google_adc_login",
     "google_adc_start",
+    "browser_available",
+    "default_method",
     "login",
     "login_started",
     "method_for",
+    "methods_for",
     "new_pkce_pair",
     "oauth_pkce_login",
     "oauth_pkce_start",

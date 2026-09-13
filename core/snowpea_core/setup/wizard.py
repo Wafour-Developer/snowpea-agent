@@ -174,6 +174,8 @@ def run(
             _configure_models(state, interactive=interactive, console=console, home=paths.home)
         if name == "search":
             _ask_for_search_key(state, interactive=interactive, console=console)
+        if name == "tools":
+            _ask_for_registry_token(state, interactive=interactive)
         if name == "audio":
             _ask_for_audio(state, asker, interactive=interactive, console=console)
         if name == "gateway":
@@ -254,51 +256,70 @@ def _ask_for_key(state: WizardState, *, interactive: bool) -> None:
 
     methods = PRESETS[state.vendor].auth_methods
     if len(methods) > 1:
-        options = ["1=API key"]
-        options.append("2=browser login")
+        # One numbered row per flow this vendor really supports, so the
+        # headless routes are visible rather than hidden behind "browser
+        # login" silently falling back to them.
+        choices: list[tuple[str, str | None]] = [("API key", None)]
+        for flow in auth_web.methods_for(state.vendor):
+            choices.append((_LOGIN_LABELS.get(flow, flow), flow))
         if "oauth_token" in methods:
-            options.append("3=OAuth token (remote/headless)")
-        prompt = f"authentication [{', '.join(options)}] (Enter=1): "
+            choices.append(("OAuth token (remote/headless)", "oauth_token"))
+        labels = ", ".join(f"{i + 1}={label}" for i, (label, _) in enumerate(choices))
+        prompt = f"authentication [{labels}] (Enter=1): "
         while True:
             try:
                 picked = ui.ask_text(prompt).strip()
             except (KeyboardInterrupt, EOFError):
                 state.notes.append(f"{state.vendor}: login cancelled — left unconfigured")
                 return
-            if picked == "2":
-                try:
-                    result = _run_sync(auth_web.login(state.vendor))
-                except (KeyboardInterrupt, EOFError):
-                    state.notes.append(f"{state.vendor}: login cancelled — left unconfigured")
-                    return
-                except RpcError as exc:
-                    print(f"login failed: {exc.message}")
-                    data = exc.data if isinstance(exc.data, dict) else {}
-                    if data.get("status") == 403:
-                        print(
-                            "hint: the vendor refused the device-code request from this "
-                            "network/account; try again, use an API key, or paste an "
-                            "OAuth token (option 3)"
-                        )
-                    continue
-                except Exception as exc:  # noqa: BLE001 - interactive setup must remain usable
-                    print(f"login failed: {exc}")
-                    continue
-                block = dict(state.provider_configs.get(state.vendor) or {})
-                block.update(result.credentials)
-                block.pop("api_key", None)
-                block.pop("oauth_token", None)
-                state.provider_configs[state.vendor] = block
-                state.auth_method = str(result.credentials.get("auth_method") or "") or None
-                state.notes.append(result.message)
-                return
-            if picked == "3" and "oauth_token" in methods:
+            try:
+                index = int(picked) - 1 if picked else 0
+            except ValueError:
+                index = -1
+            if not 0 <= index < len(choices):
+                print(f"pick a number between 1 and {len(choices)}")
+                continue
+            method = choices[index][1]
+            if method is None:
+                break
+            if method == "oauth_token":
                 entered = ui.ask_text(f"{state.vendor} OAuth access token: ", secret=True).strip()
-                if entered:
-                    state.oauth_token = entered
-                    state.auth_method = "oauth_token"
+                if not entered:
+                    return
+                # A pasted token is the one credential nobody can sanity-check
+                # by eye; one cheap authenticated call now beats an opaque 401
+                # on the first prompt (report §6.7 A-P2-2).
+                problem = _probe_token(state.vendor, entered)
+                if problem:
+                    print(f"warning: {problem}")
+                state.oauth_token = entered
+                state.auth_method = "oauth_token"
                 return
-            break
+            try:
+                result = _run_sync(auth_web.login(state.vendor, method))
+            except (KeyboardInterrupt, EOFError):
+                state.notes.append(f"{state.vendor}: login cancelled — left unconfigured")
+                return
+            except RpcError as exc:
+                print(f"login failed: {exc.message}")
+                data = exc.data if isinstance(exc.data, dict) else {}
+                if data.get("status") == 403:
+                    print(
+                        "hint: the vendor refused the request from this network/account; "
+                        "try the browser login, an API key, or paste an OAuth token"
+                    )
+                if data.get("port"):
+                    print(
+                        f"hint: close whatever is listening on port {data['port']}, "
+                        "or pick the headless login instead"
+                    )
+                continue
+            except Exception as exc:  # noqa: BLE001 - interactive setup must remain usable
+                print(f"login failed: {exc}")
+                continue
+            _apply_login(state, result.credentials)
+            state.notes.append(result.message)
+            return
     key_hint = "saved — Enter to keep" if state.has_saved_key else "Enter to use the environment"
     try:
         entered = ui.ask_text(f"{state.vendor} API key [{key_hint}]: ", secret=True)
@@ -307,6 +328,66 @@ def _ask_for_key(state: WizardState, *, interactive: bool) -> None:
         return
     if entered:
         state.api_key = entered
+
+
+#: What each login flow is called on the authentication menu.
+_LOGIN_LABELS: dict[str, str] = {
+    "browser_pkce": "browser login",
+    "oauth_pkce": "browser login",
+    "google_oauth": "browser login (Google)",
+    "device_code": "device code (headless)",
+    "google_adc": "gcloud ADC (headless)",
+}
+
+
+def _apply_login(state: WizardState, credentials: dict[str, Any]) -> None:
+    """Fold a finished login into the vendor's block.
+
+    Order matters. Stale credentials are cleared **first** and the fresh ones
+    written afterwards — clearing after the update is what silently deleted the
+    API key OpenRouter's browser login had just minted, leaving the run with an
+    unconfigured default vendor and a summary claiming success (report §6.7
+    A-P1-1).
+    """
+    block = dict(state.provider_configs.get(state.vendor or "") or {})
+    # ``None`` rather than ``pop``: ``write()`` merges this block onto what is
+    # already in settings.json, and only an explicit ``None`` removes a field
+    # there.  Dropping the key here would leave the old credential on disk —
+    # which is how a stale API key used to outlive the login (report §6.6).
+    for stale in ("api_key", "token", "oauth_token", "access_token", "refresh_token"):
+        if stale in block:
+            block[stale] = None
+    block.update(credentials)
+    state.provider_configs[state.vendor or ""] = block
+    state.auth_method = str(credentials.get("auth_method") or "") or None
+    if credentials.get("api_key"):
+        # A flow that mints a real API key (OpenRouter) keeps using the
+        # API-key path; the state field is what ``write()`` persists.
+        state.api_key = str(credentials["api_key"])
+        state.auth_method = None
+    else:
+        state.api_key = None
+    state.oauth_token = None
+
+
+def _probe_token(vendor: str, token: str) -> str | None:
+    """Ask the vendor one cheap authenticated question about a pasted token.
+
+    Returns a human sentence when the token looks unusable, or ``None`` when it
+    worked (or the check itself could not run — an offline machine must not be
+    told its token is bad).
+    """
+    from snowpea_core.providers import models as model_discovery
+    from snowpea_core.providers.presets import PRESETS
+
+    preset = PRESETS.get(vendor)
+    if preset is None:  # pragma: no cover - guarded by the caller
+        return None
+    try:
+        listed = _run_sync(model_discovery.list_models(preset, api_key=token, refresh=True))
+    except Exception as exc:  # noqa: BLE001 - a probe never blocks setup
+        return f"could not verify the token ({exc}); saving it anyway"
+    return None if listed else f"{vendor} accepted the token but listed no models"
 
 
 #: Never scroll the terminal: a vLLM node can advertise dozens of aliases.
@@ -553,6 +634,21 @@ def _test_voice(state: WizardState, out: Any) -> None:
         out(f"could not play the test ({exc.code}): {exc}")
     except Exception as exc:  # noqa: BLE001 - a failed test must not stop setup
         out(f"could not test the voice: {exc}")
+
+
+def _ask_for_registry_token(state: WizardState, *, interactive: bool) -> None:
+    """Optional publisher token for ``snowpea skill publish``/``rate``.
+
+    Skipping this leaves publishing to ``SNOWPEA_REGISTRY_TOKEN`` or a
+    per-call ``--token``; it never blocks search or install, which need no
+    token at all.
+    """
+    if not interactive:
+        return
+    hint = "saved — Enter to keep" if state.has_saved_registry_token else "optional, Enter to skip"
+    entered = ui.ask_text(f"skill registry publisher token [{hint}]: ", secret=True)
+    if entered:
+        state.registry_token = entered
 
 
 def _ask_for_search_key(

@@ -147,6 +147,8 @@ export interface State {
   mode: Mode;
   provider: string | null;
   model: string | null;
+  /** Where the model came from — pin, profile, project, global — when told. */
+  modelSource: string | null;
   messages: Message[];
   toolCalls: ToolCallEntry[];
   diffs: DiffEntry[];
@@ -196,6 +198,7 @@ export const initialState: State = {
   mode: "accept",
   provider: null,
   model: null,
+  modelSource: null,
   messages: [],
   toolCalls: [],
   diffs: [],
@@ -429,6 +432,24 @@ function applySessionEvent(state: State, event: SessionEvent): State {
         outputTokens: Number(payload.usage?.outputTokens ?? entry.outputTokens),
         endedAt: Number(payload.at ?? Date.now()),
       }));
+
+    // The daemon re-routed the session: a pin, a profile change, or a project
+    // default that just took effect. It is the authority, so the HUD follows it
+    // rather than what this surface last asked for.
+    case "model.changed": {
+      // A field that is present but null means "cleared" — the daemon sends
+      // that when a pin is dropped — while an absent field means "unchanged".
+      // Keeping the old model after a clear would name a pin that is gone.
+      const model = "model" in payload ? (payload.model ?? null) : base.model;
+      const provider = "provider" in payload ? (payload.provider ?? null) : base.provider;
+      const source =
+        typeof payload.source === "string" && payload.source.length > 0
+          ? payload.source
+          : "model" in payload && payload.model === null
+            ? null
+            : base.modelSource;
+      return { ...base, model, provider, modelSource: source };
+    }
 
     case "mode.changed":
       return { ...base, mode: (payload.mode ?? base.mode) as Mode };

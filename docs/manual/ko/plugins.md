@@ -35,9 +35,39 @@ snowpea skill search "pdf"
 snowpea skill search "code review" --json
 ```
 
-세 출처가 함께 조회되고, 각 결과는 자신이 나온 `source`를 달고 나옵니다: `claude-marketplace`(등록된 모든 마켓플레이스 저장소의 `marketplace.json`), `agentskills.io`, `hermes-hub`. 한 출처가 실패해도 검색 전체가 실패하지 않고 그 출처만 아무것도 기여하지 않습니다. 결과의 설치 스펙을 그대로 `skill install`에 넣으면 됩니다.
+네 출처가 함께 조회되고, 각 결과는 자신이 나온 `source`를 달고 나옵니다: `claude-marketplace`(등록된 모든 마켓플레이스 저장소의 `marketplace.json`), `agentskills.io`, `hermes-hub`, 그리고 `snowpea-registry`(`registry.snowpea.ai`에 호스팅되는 레지스트리). 한 출처가 실패해도 검색 전체가 실패하지 않고 그 출처만 아무것도 기여하지 않습니다. 결과의 설치 스펙을 그대로 `skill install`에 넣으면 되고, 레지스트리 결과는 `registry:<id>` 형태입니다.
+
+```bash
+snowpea skill search "planning" --source registry
+```
+
+`--source registry`(또는 같은 뜻인 `--source snowpea`)는 호스팅 레지스트리 결과만 남깁니다.
 
 등록된 마켓플레이스는 `$SNOWPEA_HOME/marketplaces.json`에 있고, oh-my-claudecode 마켓플레이스가 기본으로 들어 있습니다.
+
+## 레지스트리에 배포하기
+
+```bash
+snowpea skill install registry:ralplan          # id로 내려받아 설치
+snowpea setup tools                              # 배포자 토큰을 한 번 저장(마스킹 입력)
+snowpea skill publish ./my-skill                 # 압축 + 검증 + 업로드
+snowpea skill rate ralplan 5 --comment "좋아요"   # 1-5점, 호출자당 하나
+```
+
+`publish`는 `<dir>/SKILL.md`를 읽어 프런트매터를 로컬에서 먼저 검사합니다
+(`name`은 `^[a-z0-9][a-z0-9._-]{1,63}$`를 만족해야 하고, `description`은
+8-500자여야 합니다 — 레지스트리가 서버 쪽에서 강제하는 것과 같은 규칙입니다).
+그다음 디렉터리를 압축하고(`.git`, `__pycache__`, `node_modules` 등 빌드
+찌꺼기는 제외) `Authorization: Bearer <token>`으로 업로드합니다. 토큰은
+`--token`, `SNOWPEA_REGISTRY_TOKEN` 환경변수, `settings.skills.registry.token`
+(`snowpea setup tools`의 마스킹 입력으로 한 번 저장) 순서로 찾습니다. 다시
+배포하기 전에는 프런트매터의 `version`을 올리세요 — 레지스트리는 이미 본
+버전을 거부합니다. `/skill publish <dir>`는 실행 중인 세션 안에서 같은
+일을 하며, 상대 경로는 세션의 작업 디렉터리 기준으로 풀립니다.
+
+레지스트리 기본 주소는 `https://registry.snowpea.ai/v1`이고, 호출마다
+`--registry <url>`로, 셸 전체에는 `SNOWPEA_REGISTRY_URL`로, 영구적으로는
+`settings.skills.registry.url`로 바꿀 수 있습니다.
 
 ## SKILL.md
 

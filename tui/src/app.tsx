@@ -62,7 +62,7 @@ import {
   type SpeechHandle,
 } from "./state/audio-runtime.js";
 import { createAudioClient, describeAudioError, type AudioClient } from "./rpc/audio.js";
-import { modelOptions, modelSource, type ModelOption } from "./state/models.js";
+import { INHERIT_REF, modelOptions, modelSource, type ModelOption } from "./state/models.js";
 import { delegationHint, delegationLabel } from "./state/delegation.js";
 import type { LocalAudio } from "./util/audio-tools.js";
 import {
@@ -749,7 +749,7 @@ export function App({
         sessionId: state.sessionId,
         provider: state.provider,
         model: state.model,
-        modelSource: sessionModelSource,
+        modelSource: state.modelSource ?? sessionModelSource,
         mode: state.mode,
         usage: state.usage,
         context: state.context,
@@ -773,6 +773,7 @@ export function App({
       state.sessionId,
       state.provider,
       state.model,
+      state.modelSource,
       sessionModelSource,
       state.mode,
       state.usage,
@@ -991,23 +992,62 @@ export function App({
     const settings = client
       .call("settings.get", { scope: "global" })
       .catch(() => ({ settings: {} }));
+    const projectSettings = client
+      .call("settings.get", { scope: "project", workdir })
+      .catch(() => ({ settings: {} }));
     const discovered = client
       .call("provider.models", state.provider ? { vendor: state.provider } : {})
       .catch(() => ({ models: [], current: null }));
 
-    void Promise.all([settings, discovered]).then(([settingsResult, modelsResult]) => {
+    void Promise.all([settings, projectSettings, discovered]).then(
+      ([settingsResult, projectResult, modelsResult]) => {
       const document = (settingsResult?.settings ?? {}) as Record<string, any>;
+      const project = (projectResult?.settings ?? {}) as Record<string, any>;
       const options = modelOptions({
         profiles: document.models?.profiles ?? null,
+        projectProfiles: project.models?.profiles ?? null,
         defaultProfile: document.models?.default ?? null,
         agentModels: document.agents?.models ?? null,
         discovered: modelsResult?.models ?? null,
         current: state.model ?? modelsResult?.current ?? null,
         vendor: state.provider ?? modelsResult?.vendor ?? null,
       });
-      setModelPicker(options);
-    });
-  }, [client, state.provider, state.model]);
+        setModelPicker(options);
+      },
+    );
+  }, [client, workdir, state.provider, state.model]);
+
+  /**
+   * Pin the session to a model, or clear the pin.
+   *
+   * `session.setModel` is the method that persists it. An older daemon does not
+   * have it and answers `method_not_found`, which is the one failure worth
+   * retrying through the command — every other failure is the daemon refusing,
+   * and repeating the refusal through a second path would only hide it.
+   */
+  const chooseModel = useCallback(
+    (ref: string) => {
+      void client
+        .call("session.setModel", { sessionId, model: ref === INHERIT_REF ? null : ref })
+        .then((result) => {
+          const model = result?.model ? String(result.model) : null;
+          showToast(
+            result?.pinned === false
+              ? `model: inherited${model ? ` (${model})` : ""}`
+              : `model: ${model ?? ref}`,
+          );
+        })
+        .catch((error: unknown) => {
+          const code = (error as { code?: unknown } | null)?.code;
+          if (code === -32601) {
+            submit(`/model ${ref}`);
+            return;
+          }
+          dispatch({ type: "error", message: String(error) });
+        });
+    },
+    [client, sessionId, showToast],
+  );
 
   /** Ctrl+V with an image on the clipboard. */
   const takeClipboard = useCallback(() => {
@@ -1539,7 +1579,7 @@ export function App({
           onCancel={() => setModelPicker(null)}
           onChoose={(option) => {
             setModelPicker(null);
-            submit(`/model ${option.ref}`);
+            chooseModel(option.ref);
           }}
         />
       ) : null}

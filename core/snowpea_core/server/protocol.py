@@ -36,6 +36,8 @@ Decision = Literal["allow", "deny"]
 ApprovalScope = Literal["once", "session", "project", "always"]
 AllowlistScope = Literal["session", "project", "always"]
 BackendKind = Literal["local", "docker", "ssh"]
+#: State of a vendor's stored credential (CORE-codex-login).
+AuthStatus = Literal["unconfigured", "active", "expired"]
 TurnReason = Literal["complete", "interrupted", "error", "denied", "timeout"]
 #: Why a queued prompt left the queue: it started running, or it was dropped.
 QueuedTurnReason = Literal["started", "dropped"]
@@ -339,6 +341,25 @@ class SessionSetModeResult(Payload):
     mode: Mode = Field(description="Mode now in effect.")
 
 
+class SessionSetModelParams(Payload):
+    """``session.setModel`` — pin one session to a model (CORE-model-assignment)."""
+
+    sessionId: str = Field(description="Session to pin.")
+    model: str | None = Field(
+        default=None,
+        description=(
+            "A models.profiles id, a 'vendor:model' pair, or a bare vendor name. "
+            "Null or 'inherit' clears the pin and lets the configured routing decide."
+        ),
+    )
+
+
+class SessionSetModelResult(Payload):
+    provider: str | None = Field(default=None, description="Vendor now in effect.")
+    model: str | None = Field(default=None, description="Model id now in effect.")
+    pinned: bool = Field(default=False, description="False when the pin was cleared.")
+
+
 # --------------------------------------------------------------------------
 # audio.*
 # --------------------------------------------------------------------------
@@ -582,6 +603,13 @@ class ProviderInfo(Payload):
             "device-code, PKCE, Google ADC, or direct OAuth-token authentication."
         ),
     )
+    authStatus: AuthStatus = Field(
+        default="unconfigured",
+        description=(
+            "State of the stored credential: 'unconfigured', 'active', or 'expired' when an "
+            "OAuth session is past its expiry and needs refreshing or a new login."
+        ),
+    )
 
 
 class ProviderListResult(Payload):
@@ -611,7 +639,13 @@ class ProviderConfigureParams(Payload):
 
 class ProviderLoginWebParams(Payload):
     vendor: str = Field(description="Vendor to log into.")
-    method: str = Field(description="Login flow to start, e.g. 'oauth'.")
+    method: str = Field(
+        description=(
+            "Login flow to start: 'browser_pkce' or 'google_oauth' (browser), 'device_code' or "
+            "'google_adc' (headless), 'oauth_pkce' (OpenRouter). 'web' or an empty value picks "
+            "the best flow this machine can complete."
+        )
+    )
 
 
 class ProviderLoginWebResult(Payload):
@@ -731,6 +765,14 @@ class AgentSpawnParams(Payload):
     task: str = Field(description="Task handed to the agent.")
     sessionId: str | None = Field(
         default=None, description="Parent session, when spawned from one."
+    )
+    model: str | None = Field(
+        default=None,
+        description=(
+            "Run this one spawn on a specific model: a models.profiles id, a "
+            "'vendor:model' pair, or a bare vendor. Outranks the agent's own "
+            "assignment; null uses the configured routing."
+        ),
     )
 
 
@@ -1317,6 +1359,19 @@ class AudioSpoken(Payload):
     voice: str | None = Field(default=None, description="Voice that was used.")
 
 
+class ModelChanged(Payload):
+    """The session's provider/model changed (``/model``, ``session.setModel``).
+
+    The HUD is fed once by ``session/ready`` and had no way to learn about a
+    later pin, so it showed a stale model for the rest of the session
+    (CORE-model-assignment B-P2-3).
+    """
+
+    kind: Literal["model.changed"] = "model.changed"
+    provider: str | None = Field(default=None, description="Vendor now in effect.")
+    model: str | None = Field(default=None, description="Model id now in effect.")
+
+
 class TurnQueued(Payload):
     """A prompt arrived while a turn was running and was put in the FIFO.
 
@@ -1367,6 +1422,7 @@ SessionEventPayload = Annotated[
     | TeamTaskUpdate
     | ModeChanged
     | BackendChanged
+    | ModelChanged
     | UsageEvent
     | ContextEvent
     | CompactionEvent
@@ -1391,6 +1447,7 @@ SESSION_EVENT_MODELS: dict[str, type[BaseModel]] = {
     "team.task.update": TeamTaskUpdate,
     "mode.changed": ModeChanged,
     "backend.changed": BackendChanged,
+    "model.changed": ModelChanged,
     "usage": UsageEvent,
     "context": ContextEvent,
     "compaction": CompactionEvent,
@@ -1618,6 +1675,12 @@ METHODS: dict[str, RpcMethod] = {
             SessionSetModeParams,
             SessionSetModeResult,
             "Switch a session between plan, accept and auto.",
+        ),
+        _m(
+            "session.setModel",
+            SessionSetModelParams,
+            SessionSetModelResult,
+            "Pin a session to a model profile, or clear the pin.",
         ),
         _m(
             "audio.capabilities",
@@ -1858,6 +1921,7 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "session.interrupt",
         "session.compact",
         "session.setMode",
+        "session.setModel",
         "audio.capabilities",
         "audio.transcribe",
         "audio.speak",

@@ -14,6 +14,7 @@ export const HTTP_ENDPOINTS = {
 export type ErrorCode =
   | "approval_denied"
   | "approval_timeout"
+  | "auth_expired"
   | "internal"
   | "invalid_params"
   | "login_unsupported"
@@ -26,6 +27,7 @@ export type ErrorCode =
 export const ERROR_CODES: readonly ErrorCode[] = [
   "approval_denied",
   "approval_timeout",
+  "auth_expired",
   "internal",
   "invalid_params",
   "login_unsupported",
@@ -129,6 +131,8 @@ export interface AgentListResult {
 
 /** `agent.spawn` params. Run a named agent on a task. */
 export interface AgentSpawnParams {
+  /** Run this one spawn on a specific model: a models.profiles id, a 'vendor:model' pair, or a bare vendor. Outranks the agent's own assignment; null uses the configured routing. */
+  model?: string | null;
   /** Agent to run. */
   name: string;
   /** Parent session, when spawned from one. */
@@ -652,6 +656,8 @@ export interface ProviderListResult {
   providers?: ({
     /** Login flows the vendor supports: 'api_key' everywhere, plus provider-specific device-code, PKCE, Google ADC, or direct OAuth-token authentication. */
     authMethods?: string[];
+    /** State of the stored credential: 'unconfigured', 'active', or 'expired' when an OAuth session is past its expiry and needs refreshing or a new login. */
+    authStatus?: "unconfigured" | "active" | "expired";
     /** True when credentials are present. */
     configured?: boolean;
     /** True for the vendor used when none is named. */
@@ -669,7 +675,7 @@ export interface ProviderListResult {
 
 /** `provider.loginWeb` params. Start a browser-based login flow for a provider. */
 export interface ProviderLoginWebParams {
-  /** Login flow to start, e.g. 'oauth'. */
+  /** Login flow to start: 'browser_pkce' or 'google_oauth' (browser), 'device_code' or 'google_adc' (headless), 'oauth_pkce' (OpenRouter). 'web' or an empty value picks the best flow this machine can complete. */
   method: string;
   /** Vendor to log into. */
   vendor: string;
@@ -895,6 +901,24 @@ export interface SessionSetModeParams {
 export interface SessionSetModeResult {
   /** Mode now in effect. */
   mode: "plan" | "accept" | "auto";
+}
+
+/** `session.setModel` params. Pin a session to a model profile, or clear the pin. */
+export interface SessionSetModelParams {
+  /** A models.profiles id, a 'vendor:model' pair, or a bare vendor name. Null or 'inherit' clears the pin and lets the configured routing decide. */
+  model?: string | null;
+  /** Session to pin. */
+  sessionId: string;
+}
+
+/** `session.setModel` result. */
+export interface SessionSetModelResult {
+  /** Model id now in effect. */
+  model?: string | null;
+  /** False when the pin was cleared. */
+  pinned?: boolean;
+  /** Vendor now in effect. */
+  provider?: string | null;
 }
 
 /** `settings.get` params. Read global or project settings, with secrets masked. */
@@ -1563,6 +1587,15 @@ export interface ModeChangedEventPayload {
   mode: "plan" | "accept" | "auto";
 }
 
+/** Payload of `session.event` with kind `model.changed`. */
+export interface ModelChangedEventPayload {
+  kind?: "model.changed";
+  /** Model id now in effect. */
+  model?: string | null;
+  /** Vendor now in effect. */
+  provider?: string | null;
+}
+
 /** Payload of `session.event` with kind `subagent.done`. */
 export interface SubagentDoneEventPayload {
   /** Subagent that finished. */
@@ -1715,6 +1748,7 @@ export interface SessionEventKindMap {
   "message.delta": MessageDeltaEventPayload;
   "message.done": MessageDoneEventPayload;
   "mode.changed": ModeChangedEventPayload;
+  "model.changed": ModelChangedEventPayload;
   "subagent.done": SubagentDoneEventPayload;
   "subagent.spawn": SubagentSpawnEventPayload;
   "subagent.update": SubagentUpdateEventPayload;
@@ -1738,6 +1772,7 @@ export const SESSION_EVENT_KINDS: readonly SessionEventKind[] = [
   "message.delta",
   "message.done",
   "mode.changed",
+  "model.changed",
   "subagent.done",
   "subagent.spawn",
   "subagent.update",
@@ -1798,6 +1833,7 @@ export interface MethodMap {
   "session.prompt": { params: SessionPromptParams; result: SessionPromptResult };
   "session.resume": { params: SessionResumeParams; result: SessionResumeResult };
   "session.setMode": { params: SessionSetModeParams; result: SessionSetModeResult };
+  "session.setModel": { params: SessionSetModelParams; result: SessionSetModelResult };
   "settings.get": { params: SettingsGetParams; result: SettingsGetResult };
   "settings.set": { params: SettingsSetParams; result: SettingsSetResult };
   "setup.catalog": { params: SetupCatalogParams; result: SetupCatalogResult };
@@ -1866,6 +1902,7 @@ export type ClientMethod =
   | "session.prompt"
   | "session.resume"
   | "session.setMode"
+  | "session.setModel"
   | "settings.get"
   | "settings.set"
   | "setup.catalog"

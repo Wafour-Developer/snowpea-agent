@@ -375,6 +375,8 @@ def test_the_wizard_asks_for_the_token_and_the_user_id(monkeypatch: Any, tmp_pat
 
     def fake_ask_text(prompt: str, *, interactive: Any = None, secret: bool = False) -> str:
         asked.append(prompt)
+        if "registry" in prompt:  # the optional registry token on screen ④
+            return ""
         return "123:ABC" if secret else "12345"
 
     monkeypatch.setattr(ui, "ask_text", fake_ask_text)
@@ -391,6 +393,7 @@ def test_the_wizard_asks_for_the_token_and_the_user_id(monkeypatch: Any, tmp_pat
         ask=ask,
     )
 
+    asked = [prompt for prompt in asked if "registry" not in prompt]
     assert len(asked) == 2
     assert "token" in asked[0]
     assert "user id" in asked[1] and "@userinfobot" in asked[1]

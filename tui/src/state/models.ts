@@ -12,7 +12,10 @@
  */
 
 /** Where an option came from. */
-export type ModelOrigin = "profile" | "discovered" | "current";
+export type ModelOrigin = "profile" | "discovered" | "current" | "inherit";
+
+/** The ref that clears a session's pin and lets the routing decide again. */
+export const INHERIT_REF = "inherit";
 
 export interface ModelOption {
   /** What `/model <ref>` is called with. */
@@ -33,8 +36,10 @@ export interface ModelProfile {
 }
 
 export interface ModelPickerInput {
-  /** `models.profiles` from `settings.get`. */
+  /** `models.profiles` from the global `settings.get`. */
   profiles?: Record<string, ModelProfile> | null;
+  /** `models.profiles` from the project document; these are tagged. */
+  projectProfiles?: Record<string, ModelProfile> | null;
   /** `models.default`, marked in the listing. */
   defaultProfile?: string | null;
   /** `agents.models`: which profile each named agent uses. */
@@ -57,6 +62,7 @@ export interface ModelPickerInput {
  */
 export function modelOptions({
   profiles = null,
+  projectProfiles = null,
   defaultProfile = null,
   agentModels = null,
   discovered = null,
@@ -65,26 +71,38 @@ export function modelOptions({
 }: ModelPickerInput): ModelOption[] {
   const options: ModelOption[] = [];
   const covered = new Set<string>();
+  const named = new Set<string>();
 
-  for (const [name, profile] of Object.entries(profiles ?? {})) {
-    const model = profile?.model ?? "";
-    const provider = profile?.provider ?? "";
-    if (model) covered.add(model);
-    const agents = Object.entries(agentModels ?? {})
-      .filter(([, assigned]) => assigned === name)
-      .map(([agent]) => agent);
-    const notes = [
-      provider && model ? `${provider}/${model}` : provider || model,
-      name === defaultProfile ? "default" : "",
-      agents.length > 0 ? `used by ${agents.join(", ")}` : "",
-    ].filter(Boolean);
-    options.push({
-      ref: name,
-      label: name,
-      detail: notes.join(" · "),
-      origin: "profile",
-      current: Boolean(current) && model === current,
-    });
+  // The project's profiles come first and shadow a global one of the same
+  // name, which is the order the daemon resolves them in.
+  const sources: Array<[Record<string, ModelProfile> | null, boolean]> = [
+    [projectProfiles, true],
+    [profiles, false],
+  ];
+  for (const [document, fromProject] of sources) {
+    for (const [name, profile] of Object.entries(document ?? {})) {
+      if (named.has(name)) continue;
+      named.add(name);
+      const model = profile?.model ?? "";
+      const provider = profile?.provider ?? "";
+      if (model) covered.add(model);
+      const agents = Object.entries(agentModels ?? {})
+        .filter(([, assigned]) => assigned === name)
+        .map(([agent]) => agent);
+      const notes = [
+        fromProject ? "[project]" : "",
+        provider && model ? `${provider}/${model}` : provider || model,
+        name === defaultProfile ? "default" : "",
+        agents.length > 0 ? `used by ${agents.join(", ")}` : "",
+      ].filter(Boolean);
+      options.push({
+        ref: name,
+        label: name,
+        detail: notes.join(" · "),
+        origin: "profile",
+        current: Boolean(current) && model === current,
+      });
+    }
   }
 
   for (const model of discovered ?? []) {
@@ -110,6 +128,16 @@ export function modelOptions({
       current: true,
     });
   }
+
+  // Clearing the pin is a choice like any other, so it is a row rather than a
+  // command you have to know about.
+  options.push({
+    ref: INHERIT_REF,
+    label: "inherit (clear pin)",
+    detail: "let the project and global defaults decide again",
+    origin: "inherit",
+    current: false,
+  });
 
   return options;
 }

@@ -265,3 +265,81 @@ async def test_saving_tightens_an_already_world_readable_settings_file(tmp_path:
     os.chmod(paths.settings_json, 0o644)
     Settings().save(paths)
     assert stat.S_IMODE(paths.settings_json.stat().st_mode) == 0o600
+
+
+async def test_null_in_a_patch_deletes_the_key(daemon: Daemon) -> None:
+    """A deep merge cannot express a removal, so ``null`` means "delete".
+
+    Without it there was no way to delete a model profile, an agent assignment
+    or a team over RPC at all — the key survived every patch
+    (CORE-model-assignment).
+    """
+    async with aiohttp.ClientSession() as http:
+        client = await connect(http, daemon)
+        try:
+            await client.ok(
+                "settings.set",
+                {
+                    "scope": "global",
+                    "patch": {
+                        "models": {
+                            "default": "fast",
+                            "profiles": {
+                                "fast": {"provider": "openai", "model": "gpt-fast"},
+                                "deep": {"provider": "anthropic", "model": "claude-deep"},
+                            },
+                        },
+                        "agents": {"models": {"executor": "fast", "architect": "deep"}},
+                    },
+                },
+            )
+
+            cleared = await client.ok(
+                "settings.set",
+                {"scope": "global", "patch": {"agents": {"models": {"executor": None}}}},
+            )
+            assert cleared["settings"]["agents"]["models"] == {"architect": "deep"}
+
+            # Deleting a profile that nothing references works; the sibling stays.
+            # ``default`` has to move off it first — see the next test.
+            dropped = await client.ok(
+                "settings.set",
+                {
+                    "scope": "global",
+                    "patch": {"models": {"default": "deep", "profiles": {"fast": None}}},
+                },
+            )
+            assert set(dropped["settings"]["models"]["profiles"]) == {"deep"}
+
+            # It is persisted, not just echoed.
+            on_disk = json.loads(daemon.paths.settings_json.read_text(encoding="utf-8"))
+            assert set(on_disk["models"]["profiles"]) == {"deep"}
+        finally:
+            await client.stop()
+
+
+async def test_deleting_a_profile_that_is_still_referenced_is_refused(daemon: Daemon) -> None:
+    """The validator still runs after the delete, so the document stays consistent."""
+    async with aiohttp.ClientSession() as http:
+        client = await connect(http, daemon)
+        try:
+            await client.ok(
+                "settings.set",
+                {
+                    "scope": "global",
+                    "patch": {
+                        "models": {
+                            "default": "fast",
+                            "profiles": {"fast": {"provider": "openai", "model": "gpt-fast"}},
+                        }
+                    },
+                },
+            )
+            frame = await client.call(
+                "settings.set",
+                {"scope": "global", "patch": {"models": {"profiles": {"fast": None}}}},
+            )
+            assert frame.get("error") is not None
+            assert "unknown profile" in str(frame["error"])
+        finally:
+            await client.stop()

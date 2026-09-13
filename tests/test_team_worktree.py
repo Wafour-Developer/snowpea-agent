@@ -418,3 +418,29 @@ async def test_team_outside_a_git_repository_fails_the_turn(
     ]
     assert reasons == ["error"], recorder.texts()
     assert "git repository" in recorder.texts()
+
+
+async def test_a_worker_anchor_keeps_the_team_and_is_named(daemon: Daemon, repo: Path) -> None:
+    """B-P2-2: worktree workers used to ignore per-agent model profiles.
+
+    ``_anchor`` copied the lead's workdir, mode and route but never its
+    ``team``/``team_agents``, so ``SubagentManager.run`` never filled in the
+    ``"executor"`` default, ``record.name`` stayed empty and ``agents.models``
+    was never consulted for a single worktree worker.
+    """
+    core = daemon.core
+    assert core is not None
+    lead = await core.sessions.create(repo, mode="auto")
+    lead.team = "delivery"
+    lead.team_agents = ("architect", "executor")
+
+    manager = team.get_manager_for(core)
+    run = team.TeamRun(id="t-test", session=lead, repo=repo, task="anything", workers=1)
+    entry = team.Worktree(n=1, path=repo, branch="snowpea/t-test/w1")
+    anchor = manager._anchor(run, entry)
+
+    assert anchor.team == "delivery"
+    assert anchor.team_agents == ("architect", "executor")
+    # With a roster the worker is picked from it; with none it is named
+    # "executor" explicitly so a profile assignment can apply either way.
+    assert anchor.workdir == entry.path

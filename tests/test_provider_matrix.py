@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -187,9 +188,19 @@ def test_provider_list_has_eleven_entries_and_three_interactive_logins(
     web = [info.vendor for info in infos if len(info.authMethods) > 1]
     assert web == ["openai", "openrouter", "gemini"]
     assert set(WEB_LOGIN_VENDORS) == {"openai", "openrouter", "gemini"}
-    assert PRESETS["openai"].auth_methods == ("api_key", "device_code", "oauth_token")
+    assert PRESETS["openai"].auth_methods == (
+        "api_key",
+        "browser_pkce",
+        "device_code",
+        "oauth_token",
+    )
     assert PRESETS["openrouter"].auth_methods == ("api_key", "oauth_pkce")
-    assert PRESETS["gemini"].auth_methods == ("api_key", "google_adc", "oauth_token")
+    assert PRESETS["gemini"].auth_methods == (
+        "api_key",
+        "google_oauth",
+        "google_adc",
+        "oauth_token",
+    )
 
 
 def test_configured_follows_settings_and_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -225,10 +236,21 @@ async def test_remote_oauth_token_login_uses_provider_configure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from snowpea_core.cli import commands
+    from snowpea_core.providers import models as model_discovery
 
+    probed: list[str | None] = []
+
+    async def listing(_preset: Any, *, api_key: str | None = None, **_kwargs: Any) -> list[str]:
+        probed.append(api_key)
+        return ["gemini-2.5-pro"]
+
+    monkeypatch.setattr(model_discovery, "list_models", listing)
     called = AsyncMock(return_value={"ok": True})
     monkeypatch.setattr(commands, "_call", called)
     assert await commands.provider_login("gemini", token="ya29.remote-token") == 0
+    # The pasted token is checked with one authenticated call before it is
+    # stored, instead of failing opaquely on the first prompt.
+    assert probed == ["ya29.remote-token"]
     called.assert_awaited_once_with(
         None,
         "provider.configure",
@@ -237,9 +259,32 @@ async def test_remote_oauth_token_login_uses_provider_configure(
             "config": {
                 "oauth_token": "ya29.remote-token",
                 "auth_method": "oauth_token",
+                # ``None`` removes the credentials this token replaces.
+                "api_key": None,
+                "access_token": None,
             },
         },
     )
+
+
+async def test_a_pasted_token_that_fails_its_probe_is_still_stored_with_a_warning(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The probe can fail for reasons unrelated to the token (offline, blocked
+    endpoint), so it warns rather than refusing the login."""
+    from snowpea_core.cli import commands
+    from snowpea_core.providers import models as model_discovery
+
+    async def listing(*_args: Any, **_kwargs: Any) -> list[str]:
+        raise RuntimeError("HTTP 401: invalid authentication")
+
+    monkeypatch.setattr(model_discovery, "list_models", listing)
+    called = AsyncMock(return_value={"ok": True})
+    monkeypatch.setattr(commands, "_call", called)
+    assert await commands.provider_login("openai", token="expired-token") == 0
+    out = capsys.readouterr().out
+    assert "warning:" in out and "401" in out
+    assert called.await_count == 1
 
 
 def test_resolution_order(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -309,11 +354,13 @@ async def test_device_code_login_polls_until_granted(
 
     def handler(request: httpx.Request) -> httpx.Response:
         nonlocal polls
-        if request.url.path.endswith("/device/code"):
+        # OpenAI's real device endpoint; the old ``/oauth/device/code`` guess
+        # was a placeholder that answered 403 behind Cloudflare.
+        if request.url.path.endswith("/deviceauth/usercode"):
             return httpx.Response(
                 200,
                 json={
-                    "device_code": "dev-123",
+                    "device_auth_id": "dev-123",
                     "user_code": "WXYZ-1234",
                     "verification_uri": "https://auth.openai.com/activate",
                     "interval": 0,
@@ -338,8 +385,15 @@ async def test_device_code_login_polls_until_granted(
 
     assert polls == 3
     assert result.method == "device_code"
-    assert result.credentials["token"] == "tok-abc"
+    # The headless flow signs into the same ChatGPT account as the browser
+    # one, so it must leave the same record — including the ``auth_method``
+    # that routes the vendor to the Codex transport.
+    assert result.credentials["access_token"] == "tok-abc"
     assert result.credentials["refresh_token"] == "ref-abc"
+    assert result.credentials["auth_method"] == "chatgpt"
+    assert result.credentials["expires_at"] > time.time()
+    # A stale API key must not outlive the login that replaced it.
+    assert result.credentials["api_key"] is None
     assert any("WXYZ-1234" in line for line in prompts)
     assert _never_open_a_browser == ["https://auth.openai.com/activate"]
 
@@ -397,7 +451,14 @@ async def test_oauth_pkce_login_exchanges_the_callback_code(
     finally:
         await client.aclose()
 
-    assert result.credentials == {"api_key": "or-key-xyz"}
+    # The minted key, plus the clearing instructions that stop an earlier
+    # OAuth session from outliving it (``None`` removes the field).
+    assert result.credentials == {
+        "api_key": "or-key-xyz",
+        "oauth_token": None,
+        "token": None,
+        "auth_method": None,
+    }
     assert exchanged["code"] == "code-789"
     assert exchanged["code_challenge_method"] == "S256"
     assert len(exchanged["code_verifier"]) >= 43

@@ -1,13 +1,16 @@
-"""``/skill learn`` — turn the current session into a reusable skill (M6 §2).
+"""``/skill learn|publish`` (M6 §2, M6-M7 §1).
 
-The command replays this session's history to the provider, asks for a JSON
-summary (``name``, ``description``, ``steps``, ``commands``) and writes it as
-``<workdir>/.snowpea/skills/<name>/SKILL.md``.  Reloading the skill loader
-afterwards is what makes ``/<name>`` a command.
+``/skill learn`` replays this session's history to the provider, asks for a
+JSON summary (``name``, ``description``, ``steps``, ``commands``) and writes
+it as ``<workdir>/.snowpea/skills/<name>/SKILL.md``.  Reloading the skill
+loader afterwards is what makes ``/<name>`` a command.
 
-``skill.learn`` is deliberately *not* an RPC method: the contract lists
-``skill.search|install|list|reload`` and nothing else, so learning stays a
-slash command.
+``/skill publish <dir>`` forwards to the same zip-and-upload code the CLI's
+``snowpea skill publish`` uses (:mod:`snowpea_core.skills.publish` and
+:mod:`snowpea_core.skills.registry_client`), so a session can ship a skill to
+the hosted registry without dropping to a shell.  Both stay slash commands
+rather than RPC methods: the contract's ``skill.*`` RPC surface is
+``search|install|list|reload|remove`` and nothing else.
 """
 
 from __future__ import annotations
@@ -40,14 +43,17 @@ SKILL_ARGS_SCHEMA = {
     "properties": {
         "action": {
             "type": "string",
-            "enum": ["learn"],
-            "description": "'learn [name]' writes a SKILL.md from this session.",
+            "enum": ["learn", "publish"],
+            "description": (
+                "'learn [name]' writes a SKILL.md from this session; "
+                "'publish <dir>' uploads it to the registry."
+            ),
         },
         "name": {"type": "string", "description": "Name for the new skill (optional)."},
     },
 }
 
-USAGE = "Usage: /skill learn [name]"
+USAGE = "Usage: /skill learn [name] | /skill publish <dir>"
 
 #: How many of the most recent messages are summarised.
 MAX_TRANSCRIPT_MESSAGES = 60
@@ -161,17 +167,65 @@ async def learn_skill(core: Core, session: Session, requested_name: str) -> Path
     return path
 
 
+async def publish_skill(ctx: CommandContext, directory: str) -> None:
+    """``/skill publish <dir>`` — the same zip-and-upload path as the CLI."""
+    from snowpea_core.skills import publish as publish_mod
+    from snowpea_core.skills import registry_client
+
+    candidate = Path(directory).expanduser()
+    if not candidate.is_absolute():
+        candidate = Path(ctx.session.workdir) / candidate
+    try:
+        package = publish_mod.load_skill_dir(candidate)
+    except publish_mod.PublishError as exc:
+        await ctx.emit(events.error(errors.INVALID_PARAMS, str(exc)))
+        await ctx.say(f"Could not publish: {exc}")
+        return
+
+    url = registry_client.resolve_url(settings=ctx.core.settings)
+    token = registry_client.resolve_token(settings=ctx.core.settings)
+    if not token:
+        await ctx.say(
+            f"Could not publish: no registry token configured for {url}. "
+            "Set one with `snowpea setup tools`, SNOWPEA_REGISTRY_TOKEN, or "
+            "`snowpea skill publish --token <t>` from a shell."
+        )
+        return
+
+    client = registry_client.HttpRegistryClient(url)
+    zip_bytes = publish_mod.build_zip(package)
+    try:
+        result = await client.publish(zip_bytes, filename=f"{package.name}.zip", token=token)
+    except registry_client.RegistryError as exc:
+        await ctx.emit(events.error(errors.INTERNAL, str(exc)))
+        await ctx.say(f"Publish failed: {exc}")
+        return
+
+    created = "Published" if result.get("created") else "Updated"
+    await ctx.say(
+        f"{created} '{package.name}' to {url}. "
+        f"Install it with `snowpea skill install registry:{package.name}`."
+    )
+
+
 async def cmd_skill(ctx: CommandContext, args: str) -> None:
-    """``/skill learn [name]``."""
+    """``/skill learn [name]`` or ``/skill publish <dir>``."""
     action, _, rest = args.strip().partition(" ")
     action = action.lower()
     if not action:
         await ctx.say(USAGE)
         return
+    if action == "publish":
+        directory = strip_quotes(rest)
+        if not directory:
+            await ctx.say(USAGE)
+            return
+        await publish_skill(ctx, directory)
+        return
     if action != "learn":
         await ctx.say(
-            f"/skill only handles 'learn' here; use the snowpea CLI for "
-            f"search/install/list.\n{USAGE}"
+            f"/skill only handles 'learn' and 'publish' here; use the snowpea CLI for "
+            f"search/install/list/rate.\n{USAGE}"
         )
         return
     requested = strip_quotes(rest)
@@ -202,6 +256,7 @@ __all__ = [
     "cmd_skill",
     "learn_messages",
     "learn_skill",
+    "publish_skill",
     "render_skill_md",
     "transcript",
     "write_skill",

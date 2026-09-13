@@ -1,10 +1,30 @@
-"""Resolve configured model profiles for sessions and agents."""
+"""Resolve configured model profiles for sessions and agents.
+
+One function — :func:`route_for` — owns the whole policy, so there is exactly
+one place that decides which provider and model a session talks to.  The chain
+it implements, highest priority first (CORE-model-assignment):
+
+1. **An explicit override.**  ``provider``/``model`` passed by the caller:
+   ``delegate_task(model=…)``, ``agent.spawn(model=…)``, ``--provider``.
+2. **The agent's own assignment.**  Project ``models.agents[<agent>]`` merged
+   over global ``agents.models[<agent>]`` (project wins), then the agent
+   definition's ``.md`` ``model:`` field.
+3. **The session pin.**  What ``/model`` or ``session.setModel`` fixed on this
+   session — inherited by its children and restored with it.
+4. **The project default.**  ``.snowpea/settings.json`` ``models.default``.
+5. **The global default.**  ``$SNOWPEA_HOME/settings.json`` ``models.default``.
+
+Anything unresolved returns ``ModelRoute(None, None)``, which means "no opinion"
+— the caller keeps the provider registry's defaults or the parent's route.
+"""
 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from pathlib import Path
 
+from snowpea_core.config.project import ModelProfile, ProjectSettings
 from snowpea_core.config.settings import Settings
 from snowpea_core.providers.presets import PRESETS
 
@@ -18,6 +38,43 @@ class ModelRoute:
     provider: str | None = None
     model: str | None = None
 
+    def resolved(self) -> bool:
+        """True when this route actually says something."""
+        return self.provider is not None or self.model is not None
+
+
+@dataclass(frozen=True)
+class ModelConfig:
+    """Global model settings with a project's merged over them.
+
+    Merging mirrors :func:`snowpea_core.agent.team_config.teams_for`: the
+    project document wins key by key, so a repository can add a profile, change
+    one agent's assignment or set its own default without restating the rest.
+    """
+
+    profiles: dict[str, ModelProfile] = field(default_factory=dict)
+    agents: dict[str, str] = field(default_factory=dict)
+    default: str | None = None
+    project_default: str | None = None
+
+
+def model_config_for(settings: Settings, workdir: Path | str | None = None) -> ModelConfig:
+    """Merge ``<workdir>/.snowpea/settings.json``'s ``models`` block over the global one."""
+    profiles = dict(settings.models.profiles)
+    agents = dict(settings.agents.models)
+    project_default: str | None = None
+    if workdir is not None:
+        project = ProjectSettings.load(workdir).models
+        profiles.update(project.profiles)
+        agents.update(project.agents)
+        project_default = project.default
+    return ModelConfig(
+        profiles=profiles,
+        agents=agents,
+        default=settings.models.default,
+        project_default=project_default,
+    )
+
 
 def route_for(
     settings: Settings,
@@ -26,36 +83,45 @@ def route_for(
     model: str | None = None,
     agent: str | None = None,
     definition_model: str | None = None,
+    workdir: Path | str | None = None,
+    session_pin: ModelRoute | None = None,
 ) -> ModelRoute:
-    """Choose a model route for a new session.
-
-    Explicit ``provider``/``model`` arguments are already-resolved caller intent
-    and always win. Otherwise named agent assignments win over an agent
-    definition's ``model`` field, and the global default profile is used last.
-    If no multi-model settings are present, return ``None`` values so callers
-    keep the old provider registry defaults or parent inheritance.
-    """
-
+    """Choose a model route for a new session; see the module docstring."""
     if provider is not None or model is not None:
         return ModelRoute(provider, model)
 
-    assignment = None
-    if agent:
-        assignment = settings.agents.models.get(agent)
-    for reference in (assignment, definition_model, settings.models.default):
-        route = resolve_reference(settings, reference)
-        if route.provider is not None or route.model is not None:
+    config = model_config_for(settings, workdir)
+
+    assignment = config.agents.get(agent) if agent else None
+    for reference in (assignment, definition_model):
+        route = resolve_reference(settings, reference, config=config)
+        if route.resolved():
+            return route
+
+    if session_pin is not None and session_pin.resolved():
+        return session_pin
+
+    for reference in (config.project_default, config.default):
+        route = resolve_reference(settings, reference, config=config)
+        if route.resolved():
             return route
     return ModelRoute()
 
 
-def resolve_reference(settings: Settings, reference: str | None) -> ModelRoute:
-    """Resolve a profile id or legacy ``vendor[:model]`` reference."""
+def resolve_reference(
+    settings: Settings, reference: str | None, *, config: ModelConfig | None = None
+) -> ModelRoute:
+    """Resolve a profile id, a legacy ``vendor[:model]`` pair, or a bare vendor.
 
+    ``config`` carries the project-merged profile table; without it only the
+    global profiles are visible, which is what a caller holding nothing but
+    ``Settings`` gets.
+    """
     text = str(reference or "").strip()
     if not text or text == "inherit":
         return ModelRoute()
-    profile = settings.models.profiles.get(text)
+    profiles = config.profiles if config is not None else settings.models.profiles
+    profile = profiles.get(text)
     if profile is not None:
         return ModelRoute(profile.provider, profile.model)
     if ":" in text:
@@ -75,4 +141,27 @@ def resolve_reference(settings: Settings, reference: str | None) -> ModelRoute:
     return ModelRoute()
 
 
-__all__ = ["ModelRoute", "resolve_reference", "route_for"]
+def unknown_reference(
+    settings: Settings, reference: str | None, *, workdir: Path | str | None = None
+) -> bool:
+    """True when ``reference`` is non-empty and resolves to nothing.
+
+    Used by the surfaces that want to *report* a bad reference rather than
+    quietly fall through to the default.
+    """
+    text = str(reference or "").strip()
+    if not text or text == "inherit":
+        return False
+    return not resolve_reference(
+        settings, text, config=model_config_for(settings, workdir)
+    ).resolved()
+
+
+__all__ = [
+    "ModelConfig",
+    "ModelRoute",
+    "model_config_for",
+    "resolve_reference",
+    "route_for",
+    "unknown_reference",
+]

@@ -19,6 +19,10 @@ APPROVAL_TIMEOUT = "approval_timeout"
 TOOL_INACTIVE = "tool_inactive"
 NOT_IMPLEMENTED = "not_implemented"
 LOGIN_UNSUPPORTED = "login_unsupported"
+#: A stored OAuth session expired and could not be refreshed; the user has to
+#: sign in again.  Distinct from ``invalid_params`` so a surface can offer the
+#: login instead of blaming the request (CORE-codex-login).
+AUTH_EXPIRED = "auth_expired"
 INTERNAL = "internal"
 
 ERROR_CODES: tuple[str, ...] = (
@@ -32,6 +36,7 @@ ERROR_CODES: tuple[str, ...] = (
     TOOL_INACTIVE,
     NOT_IMPLEMENTED,
     LOGIN_UNSUPPORTED,
+    AUTH_EXPIRED,
     INTERNAL,
 )
 

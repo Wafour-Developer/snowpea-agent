@@ -120,5 +120,15 @@ def rebind(core: Any, settings: Settings) -> None:
         except Exception:  # noqa: BLE001 - a reload must never fail on this
             log.debug("could not refresh the audio tool state", exc_info=True)
 
+    # A changed ``skills.registry.url`` must retarget skill.search immediately,
+    # not after the next daemon restart.
+    if getattr(core, "skills", None) is not None:
+        from snowpea_core.skills import registry_client
+
+        try:
+            registry_client.configure_client(settings)
+        except Exception:  # noqa: BLE001 - a reload must never fail on this
+            log.debug("could not reconfigure the skill registry client", exc_info=True)
+
 
 __all__ = ["MISSING", "changed_keys", "rebind", "stamp"]

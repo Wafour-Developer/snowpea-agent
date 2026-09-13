@@ -99,3 +99,41 @@ describe("queuedLabel", () => {
     expect(queuedLabel(3)).toBe("⏳ 3 queued");
   });
 });
+
+describe("model.changed", () => {
+  it("follows the daemon's routing, provider and all", () => {
+    const state = apply(
+      initialState,
+      event(1, "model.changed", { model: "claude-sonnet-4-5", provider: "anthropic" }),
+    );
+    expect(state.model).toBe("claude-sonnet-4-5");
+    expect(state.provider).toBe("anthropic");
+  });
+
+  it("keeps a source tag when the event carries one, and leaves it alone when not", () => {
+    let state = apply(initialState, event(1, "model.changed", { model: "a", source: "pin" }));
+    expect(state.modelSource).toBe("pin");
+    state = apply(state, event(2, "model.changed", { model: "b" }));
+    expect(state.modelSource).toBe("pin");
+    expect(state.model).toBe("b");
+  });
+
+  it("clears the model when a pin is dropped, rather than naming a gone pin", () => {
+    // What the daemon actually sends on `session.setModel {model: null}`.
+    const state = apply(
+      initialState,
+      event(1, "model.changed", { model: "pinned-model", provider: "fake", source: "pin" }),
+      event(2, "model.changed", { model: null, provider: null }),
+    );
+    expect(state).toMatchObject({ model: null, provider: null, modelSource: null });
+  });
+
+  it("holds what it had when the event says nothing", () => {
+    const state = apply(
+      initialState,
+      event(1, "model.changed", { model: "a", provider: "openai" }),
+      event(2, "model.changed", {}),
+    );
+    expect(state).toMatchObject({ model: "a", provider: "openai" });
+  });
+});

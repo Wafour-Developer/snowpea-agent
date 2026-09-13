@@ -48,6 +48,27 @@ ANTHROPIC_VERSION = "2023-06-01"
 _CACHE: dict[tuple[str, str], tuple[float, list[str]]] = {}
 
 
+def oauth_models(vendor: str, auth_method: str | None) -> list[str] | None:
+    """The static list an OAuth account must use, or ``None`` to go and ask.
+
+    A ChatGPT or Google sign-in does not reach the vendor's ordinary API, and
+    neither OAuth backend publishes a ``/models`` endpoint: Codex has none at
+    all, and Code Assist answers for the *project*, not the account.  Asking
+    anyway costs a guaranteed 401 right after a successful login (report §6.7
+    A-P2-1), so the supported set is declared instead.
+    """
+    method = (auth_method or "").strip()
+    if vendor == "openai" and method == "chatgpt":
+        from snowpea_core.providers.codex_transport import CODEX_MODELS
+
+        return list(CODEX_MODELS)
+    if vendor == "gemini" and method == "google_oauth":
+        from snowpea_core.providers.gemini_codeassist_transport import CODE_ASSIST_MODELS
+
+        return list(CODE_ASSIST_MODELS)
+    return None
+
+
 def is_placeholder(model: str | None) -> bool:
     """True when ``model`` is a stand-in rather than a real model id."""
     return (model or "").strip().lower() in PLACEHOLDER_MODELS
@@ -205,4 +226,5 @@ __all__ = [
     "cache_put",
     "is_placeholder",
     "list_models",
+    "oauth_models",
 ]

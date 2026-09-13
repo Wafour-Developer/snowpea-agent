@@ -37,6 +37,7 @@ EVENTS: dict[str, type[BaseModel]]   # 알림 페이로드 스키마
 | session.prompt | sessionId, text, attachments?: list[Attachment] | turnId |
 | session.interrupt | sessionId | ok |
 | session.setMode | sessionId, mode | mode |
+| session.setModel | sessionId, model? | provider, model, pinned |
 | command.list | sessionId? | commands: list[CommandInfo{name, summary, argsSchema, source}] |
 | command.run | sessionId, name, args: str | turnId |
 | tool.list | sessionId? | tools: list[ToolInfo{name, category, permissionTag, state, source, description}] |
@@ -47,7 +48,7 @@ EVENTS: dict[str, type[BaseModel]]   # 알림 페이로드 스키마
 | backend.set | sessionId, kind: "local"\|"docker"\|"ssh", config: dict | ok |
 | agent.*, team.*, job.*, gateway.*, memory.*, skill.* | 플랜 §3.5 그대로 (M1은 스키마만 정의, 구현은 `error{code:"not_implemented"}`) | |
 
-`PROTOCOL_VERSION`은 현재 `1.4.0`이다 (`server/protocol.py`의 `PROTOCOL_VERSION`). 위 코드 블록이 M1 시점에 적어 둔 `"0.1.0"`과 M8의 `1.0.0` 계획은 모두 폐기되었다 — 프로토콜은 추가 변경마다 minor를 올려 왔고(1.0.0 → 1.1.0 update → 1.2.0 context/models/login → 1.3.0 `config` 권한 태그 → 1.4.0 `turn.queued`/`turn.dequeued`), v1.0 freeze gate는 v0.2 IDE 이전에 별도로 잡는다.
+`PROTOCOL_VERSION`은 현재 `1.4.0`이다 (`server/protocol.py`의 `PROTOCOL_VERSION`). 위 코드 블록이 M1 시점에 적어 둔 `"0.1.0"`과 M8의 `1.0.0` 계획은 모두 폐기되었다 — 프로토콜은 추가 변경마다 minor를 올려 왔고(1.0.0 → 1.1.0 update → 1.2.0 context/models/login → 1.3.0 `config` 권한 태그 → 1.4.0 `turn.queued`/`turn.dequeued`/`model.changed`와 `session.setModel`), v1.0 freeze gate는 v0.2 IDE 이전에 별도로 잡는다.
 
 `SessionSummary`는 계약 이후 세 필드가 추가되었다(모두 가산적): `contextUsed`, `contextWindow` (CORE-context), `lastPrompt: str|None` — 그 세션에 마지막으로 저장된 **user** 메시지의 텍스트 (`server/protocol.py`의 `SessionSummary`). `session.list` 결과는 `createdAt` **내림차순**으로 정렬된다 (`server/session_handlers.py`의 `session_list_handler`). (v0.1.x에서 추가)
 
@@ -55,7 +56,7 @@ EVENTS: dict[str, type[BaseModel]]   # 알림 페이로드 스키마
 
 알림: `session.event(sessionId, seq, kind, payload, ts)`; `approval.resolved(requestId, decision, by)`; `job.event`; `gateway.event`.
 
-`session.event.kind` ∈ `message.delta{text}` · `message.done{text, role}` · `tool.call{callId, name, args}` · `tool.result{callId, name, ok, output, error?}` · `diff{path, patch}` · `subagent.spawn/update/done{agentId, ...}` · `team.task.update` · `mode.changed{mode}` · `backend.changed{kind}` · `usage{inputTokens, outputTokens}` · `context{used, window, estimated, …}` · `compaction{…}` · `audio.spoken{…}` · `turn.queued{turnId, position, queued}` · `turn.dequeued{turnId, reason: "started"|"dropped", queued}` · `error{code, message}` · `turn.done{turnId, reason: "complete"|"interrupted"|"error"|"denied"|"timeout"}`. 뒤의 여섯 종류(`context`·`compaction`·`audio.spoken`·`turn.queued`·`turn.dequeued`·`backend.changed`)는 v0.1.x에서 추가되었다. 현재 목록의 정본은 `server/protocol.py`의 `SESSION_EVENT_MODELS`다.
+`session.event.kind` ∈ `message.delta{text}` · `message.done{text, role}` · `tool.call{callId, name, args}` · `tool.result{callId, name, ok, output, error?}` · `diff{path, patch}` · `subagent.spawn/update/done{agentId, ...}` · `team.task.update` · `mode.changed{mode}` · `backend.changed{kind}` · `model.changed{provider, model}` · `usage{inputTokens, outputTokens}` · `context{used, window, estimated, …}` · `compaction{…}` · `audio.spoken{…}` · `turn.queued{turnId, position, queued}` · `turn.dequeued{turnId, reason: "started"|"dropped", queued}` · `error{code, message}` · `turn.done{turnId, reason: "complete"|"interrupted"|"error"|"denied"|"timeout"}`. 뒤의 일곱 종류(`context`·`compaction`·`audio.spoken`·`turn.queued`·`turn.dequeued`·`backend.changed`·`model.changed`)는 v0.1.x에서 추가되었다. 현재 목록의 정본은 `server/protocol.py`의 `SESSION_EVENT_MODELS`다.
 
 에러 코드(문자열, JSON-RPC `error.data.code`): `unauthorized`, `protocol_incompatible`, `not_found`, `invalid_params`, `mode_denied`, `approval_denied`, `approval_timeout`, `tool_inactive`, `not_implemented`, `login_unsupported`, `internal`.
 

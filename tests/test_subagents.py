@@ -28,6 +28,7 @@ from snowpea_core.agent.subagent import (
     SubagentManager,
     get_manager,
 )
+from snowpea_core.config.project import ModelProfile
 from snowpea_core.server.app_server import Core, Daemon
 
 FIXTURE = Path(__file__).parent / "fixtures" / "providers" / "fake" / "subagents.json"
@@ -529,3 +530,98 @@ def test_deepinit_picks_the_directories_worth_documenting(tmp_path: Path) -> Non
     assert [path.name for path in deepinit.interesting_dirs(root)] == ["src"]
     assert "src/AGENTS.md" in deepinit.dir_task(root / "src", root)
     assert "- src/AGENTS.md" in deepinit.root_task(root, [root / "src"])
+
+
+# ---------------------------------------------------------------------------
+# per-agent model assignment (CORE-model-assignment)
+# ---------------------------------------------------------------------------
+
+
+async def _observe_child(manager: SubagentManager, core: Core, runner: Any) -> dict[str, Any]:
+    """Snapshot the child session's route while the delegation is alive."""
+    seen: dict[str, Any] = {}
+    deadline = asyncio.get_running_loop().time() + TIMEOUT
+    while not seen and asyncio.get_running_loop().time() < deadline:
+        await asyncio.sleep(0.01)
+        for record in manager.records():
+            child = core.sessions.get(record.session_id) if record.session_id else None
+            if child is not None:
+                seen = {"provider": child.provider, "model": child.model, "agent": child.agent}
+    await asyncio.wait_for(runner, timeout=TIMEOUT)
+    return seen
+
+
+async def test_a_profile_id_in_an_agent_definition_is_not_read_as_a_vendor(
+    daemon: Daemon, workdir: Path
+) -> None:
+    """B-P1-1: the live repro from the review.
+
+    Profiles configured, **no** ``models.default`` and no assignment: the old
+    bypass split ``model: fast`` as a vendor name and the child died at its
+    first turn with ``unknown provider vendor: fast``.
+    """
+    core = daemon.core
+    assert core is not None
+    core.settings.models.profiles = {
+        "fast": ModelProfile(provider="openai", model="gpt-fast")
+    }
+    core.settings.models.default = None
+    write_definition(
+        AgentDefinition(name="scribe", description="Writes.", model="fast"), workdir
+    )
+    session = await open_session(core, workdir)
+    manager = get_manager(core)
+    runner = asyncio.ensure_future(manager.run(session, "do a thing", agent="scribe"))
+    seen = await _observe_child(manager, core, runner)
+    assert (seen["provider"], seen["model"]) == ("openai", "gpt-fast")
+
+
+async def test_a_delegation_model_override_outranks_the_assignment(
+    daemon: Daemon, workdir: Path
+) -> None:
+    core = daemon.core
+    assert core is not None
+    core.settings.models.profiles = {
+        "fast": ModelProfile(provider="openai", model="gpt-fast"),
+        "deep": ModelProfile(provider="anthropic", model="claude-deep"),
+    }
+    core.settings.agents.models = {"executor": "fast"}
+    session = await open_session(core, workdir)
+    manager = get_manager(core)
+    runner = asyncio.ensure_future(
+        manager.run(session, "do a thing", agent="executor", model="deep")
+    )
+    seen = await _observe_child(manager, core, runner)
+    assert (seen["provider"], seen["model"]) == ("anthropic", "claude-deep")
+
+
+async def test_an_unresolvable_delegation_model_is_refused(
+    daemon: Daemon, workdir: Path
+) -> None:
+    """The caller asked for a specific model; falling back would be a lie."""
+    core = daemon.core
+    assert core is not None
+    session = await open_session(core, workdir)
+    result = await get_manager(core).run(
+        session, "do a thing", agent="executor", model="no-such-profile"
+    )
+    assert not result.ok
+    assert result.error is not None and "unknown model" in result.error
+
+
+async def test_a_child_inherits_the_parents_pin_when_nothing_else_applies(
+    daemon: Daemon, workdir: Path
+) -> None:
+    """The pin is rung 3: it applies when no assignment or definition does."""
+    core = daemon.core
+    assert core is not None
+    core.settings.models.profiles = {"deep": ModelProfile(provider="anthropic", model="deep-1")}
+    core.settings.models.default = "deep"
+    session = await open_session(core, workdir)
+    await core.sessions.set_model(session, "openai:pinned-by-the-user")
+
+    manager = get_manager(core)
+    runner = asyncio.ensure_future(manager.run(session, "do a thing"))
+    seen = await _observe_child(manager, core, runner)
+    # It used to be dropped for every child the moment any models.default existed.
+    assert (seen["provider"], seen["model"]) == ("openai", "pinned-by-the-user")

@@ -35,7 +35,8 @@ log = logging.getLogger("snowpea.skills.marketplace")
 SOURCE_CLAUDE = "claude-marketplace"
 SOURCE_AGENTSKILLS = "agentskills.io"
 SOURCE_HERMES = "hermes-hub"
-SOURCES: tuple[str, ...] = (SOURCE_CLAUDE, SOURCE_AGENTSKILLS, SOURCE_HERMES)
+SOURCE_REGISTRY = "snowpea-registry"
+SOURCES: tuple[str, ...] = (SOURCE_CLAUDE, SOURCE_AGENTSKILLS, SOURCE_HERMES, SOURCE_REGISTRY)
 
 AGENTSKILLS_ENDPOINT = "https://agentskills.io/api/v1/skills"
 HERMES_ENDPOINT = "https://hermes-hub.ai/api/v1/skills"
@@ -287,14 +288,14 @@ async def search(query: str, home: Path | str) -> SearchReport:
 
 
 async def _hosted(query: str) -> SourceResult:
-    """The snowpea.ai registry; the v0.1 stub answers with nothing."""
+    """The hosted snowpea-registry; offline or unset contributes nothing."""
     from snowpea_core.skills import registry_client
 
     try:
         items = await registry_client.CLIENT.search(query)
     except Exception as exc:  # noqa: BLE001
-        return SourceResult(unavailable=[f"snowpea.ai: {_reason(exc)}"])
-    return SourceResult(hits=[_hit(item, "snowpea.ai") for item in items])
+        return SourceResult(unavailable=[f"{SOURCE_REGISTRY}: {_reason(exc)}"])
+    return SourceResult(hits=[_hit(item, SOURCE_REGISTRY) for item in items])
 
 
 # ---------------------------------------------------------------------------
@@ -387,6 +388,9 @@ async def install(source: str, plugins_dir: Path, home: Path | str) -> Path:
     if not spec:
         raise InstallError("skill.install needs a source")
 
+    if spec.startswith("registry:"):
+        return await _install_from_registry(spec, plugins_dir)
+
     local = Path(spec).expanduser()
     if local.exists() and local.is_dir():
         name = str(read_plugin_json(local).get("name") or local.name)
@@ -422,6 +426,94 @@ async def install(source: str, plugins_dir: Path, home: Path | str) -> Path:
     )
 
 
+#: A single extracted skill package larger than this is refused (path safety
+#: caps the archive itself; this caps what it expands to, against zip bombs).
+MAX_EXTRACTED_BYTES = 100 * 1024 * 1024
+
+
+async def _install_from_registry(spec: str, plugins_dir: Path) -> Path:
+    """``registry:<id>`` — download the zip and unpack it under ``plugins_dir``."""
+    from snowpea_core.skills import registry_client
+
+    ident = spec.split(":", 1)[1].strip()
+    if not ident:
+        raise InstallError("registry: needs a skill id, e.g. registry:ralplan")
+
+    client = registry_client.CLIENT
+    if not hasattr(client, "download"):
+        client = registry_client.HttpRegistryClient(registry_client.resolve_url())
+    try:
+        downloaded = await client.download(ident)  # type: ignore[union-attr]
+    except registry_client.RegistryError as exc:
+        raise InstallError(f"registry:{ident}: {exc}") from exc
+    except Exception as exc:  # noqa: BLE001 - network/timeout errors, reported the same way
+        raise InstallError(f"registry:{ident}: {exc}") from exc
+
+    target = plugins_dir / ident
+    if target.exists():
+        shutil.rmtree(target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        _extract_zip_safely(downloaded.content, target)
+    except Exception:
+        shutil.rmtree(target, ignore_errors=True)
+        raise
+    return target
+
+
+def _extract_zip_safely(content: bytes, target: Path) -> None:
+    """Unzip ``content`` into ``target``, refusing path traversal and zip bombs.
+
+    Entries are ``<id>/<path>`` (the registry's own convention); a single
+    top-level directory wrapping everything is stripped so the result lands
+    directly in ``target`` rather than ``target/<id>/...``.
+    """
+    import io
+    import zipfile
+
+    target.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(io.BytesIO(content)) as archive:
+        infos = [info for info in archive.infolist() if not info.is_dir()]
+        total = sum(info.file_size for info in infos)
+        if total > MAX_EXTRACTED_BYTES:
+            raise InstallError(
+                f"package expands to {total} bytes, over the {MAX_EXTRACTED_BYTES} byte cap"
+            )
+        names = [info.filename for info in infos]
+        prefix = _common_wrapper_dir(names)
+        for info in infos:
+            name = info.filename
+            if prefix:
+                name = name[len(prefix) :]
+            path = _safe_join(target, name)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with archive.open(info) as src, path.open("wb") as dst:
+                shutil.copyfileobj(src, dst)
+
+
+def _common_wrapper_dir(names: list[str]) -> str:
+    """The single top-level ``<dir>/`` every entry shares, or ``""``."""
+    if not names:
+        return ""
+    firsts = {name.split("/", 1)[0] for name in names if "/" in name}
+    if len(firsts) == 1 and all("/" in name for name in names):
+        return f"{next(iter(firsts))}/"
+    return ""
+
+
+def _safe_join(base: Path, relative: str) -> Path:
+    """``base / relative``, refusing anything that would escape ``base``."""
+    text = relative.replace("\\", "/")
+    if not text or text.startswith("/") or "\x00" in text or any(
+        part in ("..", "") for part in text.split("/")[:-1]
+    ) or text.split("/")[-1] in ("..",):
+        raise InstallError(f"unsafe path in package: {relative!r}")
+    resolved = (base / text).resolve()
+    if resolved != base.resolve() and base.resolve() not in resolved.parents:
+        raise InstallError(f"unsafe path in package: {relative!r}")
+    return resolved
+
+
 __all__ = [
     "AGENTSKILLS_ENDPOINT",
     "CLONE_TIMEOUT_SEC",
@@ -431,11 +523,13 @@ __all__ = [
     "HttpFetcher",
     "InstallError",
     "MARKETPLACES_FILE",
+    "MAX_EXTRACTED_BYTES",
     "SHORTCUTS",
     "SOURCES",
     "SOURCE_AGENTSKILLS",
     "SOURCE_CLAUDE",
     "SOURCE_HERMES",
+    "SOURCE_REGISTRY",
     "SearchReport",
     "SkillHit",
     "SourceResult",

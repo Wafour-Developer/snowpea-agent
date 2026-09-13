@@ -9,7 +9,12 @@ from pathlib import Path
 from typing import Any
 
 from snowpea_core.agent.team_config import active_team
-from snowpea_core.config.model_routing import route_for
+from snowpea_core.config.model_routing import (
+    ModelRoute,
+    model_config_for,
+    resolve_reference,
+    route_for,
+)
 from snowpea_core.config.paths import utc_now
 from snowpea_core.config.project import ProjectSettings
 from snowpea_core.config.settings import Settings
@@ -41,6 +46,13 @@ class SessionManager:
         #: Coroutines run with the session id when a session closes, so a tool
         #: that holds per-session state (a browser context, say) can release it.
         self.on_close: list[Any] = []
+        #: ``(agent_name, workdir) -> the definition's ``model:`` field``.
+        #: Injected by ``wire_core`` because resolving a definition needs the
+        #: plugin loader, which lives on ``Core``.  Three of the five session
+        #: creators used to forget to pass ``definition_model`` by hand; making
+        #: it derived here is what stops that from happening again
+        #: (CORE-model-assignment B-P2-1).
+        self.definition_model_for: Any = None
 
     def bind(self, store: Store, settings: Settings, hub: EventHub) -> None:
         """Late wiring from ``app_server`` once ``Core`` exists."""
@@ -76,6 +88,7 @@ class SessionManager:
         origin_surface: str | None = None,
         origin_conn: Any = None,
         session_id: str | None = None,
+        session_pin: ModelRoute | None = None,
     ) -> Session:
         """Register a new session and persist its row.
 
@@ -85,12 +98,16 @@ class SessionManager:
         """
         resolved_dir = Path(workdir).expanduser()
         selected_team = active_team(self.settings, resolved_dir)
+        if definition_model is None and agent:
+            definition_model = self._definition_model(agent, resolved_dir)
         route = route_for(
             self.settings,
             provider=provider,
             model=model,
             agent=agent,
             definition_model=definition_model,
+            workdir=resolved_dir,
+            session_pin=session_pin,
         )
         session = Session(
             id=session_id or f"s-{uuid.uuid4().hex[:12]}",
@@ -119,6 +136,17 @@ class SessionManager:
             )
         log.info("session %s created (%s, mode=%s)", session.id, session.workdir, session.mode)
         return session
+
+    def _definition_model(self, agent: str, workdir: Path) -> str | None:
+        """The agent definition's ``model:`` field, or ``None`` if unknown."""
+        lookup = self.definition_model_for
+        if lookup is None:
+            return None
+        try:
+            return lookup(agent, workdir)
+        except Exception:  # noqa: BLE001 - routing must not fail on a bad file
+            log.debug("could not read the definition model for %s", agent, exc_info=True)
+            return None
 
     def get(self, session_id: str) -> Session | None:
         return self._sessions.get(session_id)
@@ -174,6 +202,46 @@ class SessionManager:
         if self.store is not None:
             await self.store.update_mode(session.id, mode)
         return mode
+
+    async def set_model(self, session: Session, reference: str | None) -> ModelRoute:
+        """Pin ``session`` to a model, or clear the pin, and persist it.
+
+        Returns the route now in effect.  ``None``/``"inherit"`` clears the pin
+        and re-runs the configured routing for this session's agent and
+        workdir, so clearing goes back to what a fresh session would get
+        rather than to nothing (CORE-model-assignment B-P2-3).
+
+        Raises :class:`ValueError` when ``reference`` resolves to nothing — a
+        pin the user asked for must not silently become something else.
+        """
+        text = str(reference or "").strip()
+        if not text or text == "inherit":
+            route = route_for(
+                self.settings,
+                agent=session.agent,
+                definition_model=(
+                    self._definition_model(session.agent, Path(session.workdir))
+                    if session.agent
+                    else None
+                ),
+                workdir=session.workdir,
+            )
+        else:
+            route = resolve_reference(
+                self.settings,
+                text,
+                config=model_config_for(self.settings, session.workdir),
+            )
+            if not route.resolved():
+                raise ValueError(
+                    f"unknown model {text!r}: not a profile id, a 'vendor:model' pair "
+                    "or a known vendor"
+                )
+        session.provider = route.provider
+        session.model = route.model
+        if self.store is not None:
+            await self.store.update_model(session.id, route.provider, route.model)
+        return route
 
     async def close(self, session_id: str) -> bool:
         """Close a session, cancelling any in-flight turn."""

@@ -94,6 +94,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`session.prompt`](#sessionprompt) | client → server | Send user text to a session and start a turn. |
 | [`session.resume`](#sessionresume) | client → server | Replay the events a disconnected client missed. |
 | [`session.setMode`](#sessionsetmode) | client → server | Switch a session between plan, accept and auto. |
+| [`session.setModel`](#sessionsetmodel) | client → server | Pin a session to a model profile, or clear the pin. |
 | [`settings.get`](#settingsget) | client → server | Read global or project settings, with secrets masked. |
 | [`settings.set`](#settingsset) | client → server | Deep-merge a patch into global or project settings and persist it. |
 | [`setup.catalog`](#setupcatalog) | client → server | The setup wizard's vendor, search, browser, tools and gateway catalogs. |
@@ -201,6 +202,7 @@ Run a named agent on a task.
 
 | field | type | required | description |
 |---|---|---|---|
+| `model` | `string \| null` | no | Run this one spawn on a specific model: a models.profiles id, a 'vendor:model' pair, or a bare vendor. Outranks the agent's own assignment; null uses the configured routing. |
 | `name` | `string` | yes | Agent to run. |
 | `sessionId` | `string \| null` | no | Parent session, when spawned from one. |
 | `task` | `string` | yes | Task handed to the agent. |
@@ -731,7 +733,7 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `providers` | `({ authMethods?: string[]; configured?: boolean; default?: boolean; defaultModel?: string; label?: string; models?: string[]; vendor: string; })[]` | no | Known chat providers. |
+| `providers` | `({ authMethods?: string[]; authStatus?: "unconfigured" \| "active" \| "expired"; configured?: boolean; default?: boolean; defaultModel?: string; label?: string; models?: string[]; vendor: string; })[]` | no | Known chat providers. |
 
 ### `provider.loginWeb`
 
@@ -743,7 +745,7 @@ Start a browser-based login flow for a provider.
 
 | field | type | required | description |
 |---|---|---|---|
-| `method` | `string` | yes | Login flow to start, e.g. 'oauth'. |
+| `method` | `string` | yes | Login flow to start: 'browser_pkce' or 'google_oauth' (browser), 'device_code' or 'google_adc' (headless), 'oauth_pkce' (OpenRouter). 'web' or an empty value picks the best flow this machine can complete. |
 | `vendor` | `string` | yes | Vendor to log into. |
 
 **Result**
@@ -955,6 +957,27 @@ Switch a session between plan, accept and auto.
 | field | type | required | description |
 |---|---|---|---|
 | `mode` | `"plan" \| "accept" \| "auto"` | yes | Mode now in effect. |
+
+### `session.setModel`
+
+*Direction:* client → server
+
+Pin a session to a model profile, or clear the pin.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `model` | `string \| null` | no | A models.profiles id, a 'vendor:model' pair, or a bare vendor name. Null or 'inherit' clears the pin and lets the configured routing decide. |
+| `sessionId` | `string` | yes | Session to pin. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `model` | `string \| null` | no | Model id now in effect. |
+| `pinned` | `boolean` | no | False when the pin was cleared. |
+| `provider` | `string \| null` | no | Vendor now in effect. |
 
 ### `settings.get`
 
@@ -1478,6 +1501,14 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | `kind` | `"mode.changed"` | no |  |
 | `mode` | `"plan" \| "accept" \| "auto"` | yes | Mode now in effect. |
 
+### kind `model.changed`
+
+| field | type | required | description |
+|---|---|---|---|
+| `kind` | `"model.changed"` | no |  |
+| `model` | `string \| null` | no | Model id now in effect. |
+| `provider` | `string \| null` | no | Vendor now in effect. |
+
 ### kind `subagent.done`
 
 | field | type | required | description |
@@ -1589,6 +1620,7 @@ Returned as the string `error.data.code` of a JSON-RPC error response.
 |---|---|
 | `approval_denied` | The user denied the approval request. |
 | `approval_timeout` | No approval arrived before `approvals.timeoutSec` elapsed. |
+| `auth_expired` |  |
 | `internal` | Unexpected server-side failure. |
 | `invalid_params` | Params failed schema validation. |
 | `login_unsupported` | The vendor does not support the requested login method. |

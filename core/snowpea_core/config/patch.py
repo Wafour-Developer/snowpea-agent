@@ -52,11 +52,24 @@ def deep_merge(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
 
     A list or scalar in the patch replaces the corresponding value wholesale; a
     dict merges key by key.
+
+    **``null`` deletes.**  A merge alone cannot express a removal, so there was
+    no way to delete a model profile, an agent assignment or a team through
+    ``settings.set`` at all — the key simply survived every patch
+    (CORE-model-assignment).  ``{"models": {"profiles": {"fast": null}}}``
+    therefore removes ``fast``.
+
+    This costs nothing for the scalar fields: every optional field in
+    ``Settings`` and ``ProjectSettings`` defaults to ``None``, so deleting a key
+    and setting it to ``null`` land on exactly the same validated document.
+    Deleting a key that is not there is a no-op, not an error.
     """
     merged = dict(base)
     for key, value in patch.items():
         existing = merged.get(key)
-        if isinstance(existing, dict) and isinstance(value, dict):
+        if value is None:
+            merged.pop(key, None)
+        elif isinstance(existing, dict) and isinstance(value, dict):
             merged[key] = deep_merge(existing, value)
         else:
             merged[key] = value

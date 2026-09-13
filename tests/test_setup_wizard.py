@@ -12,6 +12,7 @@ import argparse
 import io
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -137,7 +138,9 @@ def test_vendor_catalog_marks_configured_vendors_active() -> None:
 def test_wizard_provider_prompt_accepts_remote_oauth_token(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    answers = iter(["3", "ya29.remote"])
+    # gemini's menu is now [1=API key, 2=browser login (Google),
+    # 3=gcloud ADC (headless), 4=OAuth token].
+    answers = iter(["4", "ya29.remote"])
     monkeypatch.setattr(ui, "ask_text", lambda *a, **kw: next(answers))
     state = WizardState.from_settings(Settings())
     state.select_vendor("gemini")
@@ -154,11 +157,16 @@ def test_wizard_provider_prompt_runs_browser_login(
 ) -> None:
     from snowpea_core.providers import auth_web
 
-    async def logged_in(vendor: str):
+    async def logged_in(vendor: str, method: str | None = None):
+        assert method == "google_oauth"
         return auth_web.LoginResult(
             vendor=vendor,
-            method="google_adc",
-            credentials={"auth_method": "google_adc"},
+            method="google_oauth",
+            credentials={
+                "auth_method": "google_oauth",
+                "access_token": "ya29.at",
+                "api_key": None,
+            },
             message="signed in",
         )
 
@@ -167,7 +175,13 @@ def test_wizard_provider_prompt_runs_browser_login(
     state = WizardState.from_settings(Settings())
     state.select_vendor("gemini")
     wizard._ask_for_key(state, interactive=True)  # noqa: SLF001
-    assert state.provider_configs["gemini"] == {"auth_method": "google_adc"}
+    # ``api_key: None`` is a clearing instruction, not a credential: it is what
+    # removes a stale key from settings.json when the block is merged.
+    assert state.provider_configs["gemini"] == {
+        "auth_method": "google_oauth",
+        "access_token": "ya29.at",
+        "api_key": None,
+    }
     assert state.notes == ["signed in"]
 
 
@@ -181,7 +195,7 @@ def test_wizard_browser_login_403_reprompts_instead_of_crashing(
     from snowpea_core.providers import auth_web
     from snowpea_core.server.errors import RpcError
 
-    async def failing_login(vendor: str):
+    async def failing_login(vendor: str, method: str | None = None):
         raise RpcError(
             "internal",
             f"{vendor}: device authorization failed (HTTP 403): access_denied",
@@ -200,7 +214,7 @@ def test_wizard_browser_login_403_reprompts_instead_of_crashing(
     assert "login failed:" in out
     assert "access_denied" in out or "403" in out
     assert "hint:" in out
-    assert "option 3" in out
+    assert "paste an OAuth token" in out
     # The wizard recovered and accepted the fallback API key.
     assert state.api_key == "sk-fallback-key"
 
@@ -212,7 +226,7 @@ def test_wizard_browser_login_ctrl_c_leaves_vendor_unconfigured(
     leave the vendor unconfigured and let the rest of setup continue."""
     from snowpea_core.providers import auth_web
 
-    async def interrupted_login(vendor: str):
+    async def interrupted_login(vendor: str, method: str | None = None):
         raise KeyboardInterrupt
 
     monkeypatch.setattr(ui, "ask_text", lambda *a, **kw: "2")
@@ -745,3 +759,134 @@ def test_a_keyless_provider_is_never_asked_for_a_key(
 
     assert not any("API key" in prompt for prompt in asked)
     assert "no API key" not in "\n".join(result.summary())
+
+
+# ---------------------------------------------------------------------------
+# CORE-codex-login phase B: the two credential bugs the wizard used to have
+# ---------------------------------------------------------------------------
+
+
+def test_openrouter_browser_login_keeps_the_api_key_it_just_minted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The bug: the wizard cleared stale credentials *after* storing the fresh
+    ones, so OpenRouter's PKCE login deleted the key it had just been given —
+    the run ended with the default vendor unconfigured while the summary said
+    ``API key stored`` (report §6.7 A-P1-1)."""
+    from snowpea_core.providers import auth_web
+
+    async def logged_in(vendor: str, method: str | None = None):
+        return auth_web.LoginResult(
+            vendor=vendor,
+            method="oauth_pkce",
+            credentials={
+                "api_key": "sk-or-v1-fresh",
+                "oauth_token": None,
+                "token": None,
+                "auth_method": None,
+            },
+            message="openrouter: API key stored",
+        )
+
+    monkeypatch.setattr(ui, "ask_text", lambda *a, **kw: "2")
+    monkeypatch.setattr(auth_web, "login", logged_in)
+    state = WizardState.from_settings(Settings())
+    state.select_vendor("openrouter")
+
+    wizard._ask_for_key(state, interactive=True)  # noqa: SLF001
+    state.remember_current_provider()
+
+    assert state.api_key == "sk-or-v1-fresh"
+    assert state.provider_configs["openrouter"]["api_key"] == "sk-or-v1-fresh"
+    assert state.notes == ["openrouter: API key stored"]
+
+
+def test_a_browser_login_clears_the_api_key_it_replaces(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The mirror image (A-P1-2): after signing in with ChatGPT, an API key
+    from an earlier setup must not survive to win in ``api_key_for``."""
+    from snowpea_core.providers import auth_web
+
+    async def logged_in(vendor: str, method: str | None = None):
+        return auth_web.LoginResult(
+            vendor=vendor,
+            method="browser_pkce",
+            credentials={
+                "auth_method": "chatgpt",
+                "access_token": "at",
+                "refresh_token": "rt",
+                "api_key": None,
+                "oauth_token": None,
+            },
+            message="openai: signed in with ChatGPT",
+        )
+
+    monkeypatch.setattr(ui, "ask_text", lambda *a, **kw: "2")
+    monkeypatch.setattr(auth_web, "login", logged_in)
+    state = WizardState.from_settings(Settings())
+    state.provider_configs["openai"] = {"api_key": "sk-old", "model": "gpt-4.1"}
+    state.select_vendor("openai")
+
+    wizard._ask_for_key(state, interactive=True)  # noqa: SLF001
+    state.remember_current_provider()
+
+    block = state.provider_configs["openai"]
+    # ``None`` is what removes the field from settings.json on merge.
+    assert block["api_key"] is None
+    assert block["auth_method"] == "chatgpt"
+    assert block["access_token"] == "at"
+    assert state.api_key is None
+    # Unrelated settings in the block survive the login.
+    assert block["model"] == "gpt-4.1"
+
+
+def test_a_pasted_oauth_token_is_probed_before_it_is_stored(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A pasted token is the one credential nobody can check by eye, so the
+    wizard makes one authenticated call and warns rather than waiting for an
+    opaque 401 on the first prompt (report §6.7 A-P2-2)."""
+    from snowpea_core.providers import models as model_discovery
+
+    probed: list[str | None] = []
+
+    async def listing(preset, *, api_key=None, **_kwargs):
+        probed.append(api_key)
+        raise RuntimeError("HTTP 401: invalid authentication")
+
+    monkeypatch.setattr(model_discovery, "list_models", listing)
+    answers = iter(["4", "ya29.expired"])
+    monkeypatch.setattr(ui, "ask_text", lambda *a, **kw: next(answers))
+    state = WizardState.from_settings(Settings())
+    state.select_vendor("gemini")
+
+    wizard._ask_for_key(state, interactive=True)  # noqa: SLF001
+
+    assert probed == ["ya29.expired"]
+    out = capsys.readouterr().out
+    assert "warning:" in out and "401" in out
+    # Warned, not refused: the probe can fail for reasons unrelated to the token.
+    assert state.oauth_token == "ya29.expired"
+    assert state.auth_method == "oauth_token"
+
+
+def test_the_authentication_menu_lists_every_flow_the_vendor_supports(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prompts: list[str] = []
+
+    def ask(prompt: str, **_kwargs: Any) -> str:
+        prompts.append(prompt)
+        return "1" if "authentication" in prompt else ""
+
+    monkeypatch.setattr(ui, "ask_text", ask)
+    state = WizardState.from_settings(Settings())
+    state.select_vendor("openai")
+    wizard._ask_for_key(state, interactive=True)  # noqa: SLF001
+
+    menu = next(p for p in prompts if "authentication" in p)
+    assert "1=API key" in menu
+    assert "browser login" in menu
+    assert "device code (headless)" in menu
+    assert "OAuth token" in menu
