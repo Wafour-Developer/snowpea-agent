@@ -18,6 +18,11 @@ const SURFACE_COMMANDS: CommandInfo[] = [
     summary: "Delete saved sessions: /session delete <id> | clear [--all].",
     source: "tui",
   },
+  {
+    name: "sessions",
+    summary: "List saved sessions and choose one to resume.",
+    source: "tui",
+  },
 ];
 
 function withSurfaceCommands(commands: CommandInfo[]): CommandInfo[] {
