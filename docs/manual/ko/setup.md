@@ -224,6 +224,13 @@ snowpea setup --vendor local --base-url http://localhost:11434/v1 --model qwen3:
 
 `/v1/chat/completions`를 말하는 것이면 무엇이든 동작합니다 — vLLM, Ollama, LM Studio, llama.cpp의 서버까지. 다만 tool calling은 불러온 모델이 직접 지원해야 하며, 그렇지 않으면 에이전트가 말은 하지만 행동은 하지 못합니다.
 
+### 도구 호출 한도
+
+`agent.max_tool_rounds`(기본 200)는 한 턴이 물어보지 않고 만들 수 있는 도구
+호출 횟수입니다. 한도에 닿으면 에이전트가 선택창을 띄워 "계속"(같은 횟수만큼
+더) 또는 "여기서 멈춤"을 묻습니다. 긴 구현 턴을 위한 체크포인트이지 작업량
+제한이 아니며, 물어볼 사람이 없는 헤드리스(`-c`) 턴은 한도에서 멈춥니다.
+
 ### 출력 한도와 thinking
 
 추론 모델(Qwen3, DeepSeek-R1, GLM의 thinking 계열)은 답을 쓰기 *전에* 생각을
