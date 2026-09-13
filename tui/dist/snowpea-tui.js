@@ -36295,6 +36295,30 @@ function layoutAgentRow(row, width) {
 // src/components/Logo.tsx
 var import_react27 = __toESM(require_react(), 1);
 
+// src/components/mark.ts
+var BIG_MARK = [
+  "................",
+  ".........####...",
+  "........######..",
+  "........##...##.",
+  "........##..##..",
+  "..####..######..",
+  "..##########....",
+  "..#######.......",
+  "...#####...##...",
+  ".....###...###..",
+  "......##....#...",
+  ".....###........",
+  "......#.........",
+  "................"
+];
+var MINI_MARK = [
+  ".####.",
+  "##..##",
+  "##..##",
+  ".####."
+];
+
 // src/layout/wordmark.ts
 var MASTER_WIDTH = 10;
 var MASTER_HEIGHT = 14;
@@ -36423,9 +36447,16 @@ function gapFor(letterWidth) {
 function wordmarkWidth(letterWidth, word = WORD) {
   return word.length * letterWidth + (word.length - 1) * gapFor(letterWidth);
 }
+var MARK_WIDTH = BIG_MARK[0].length;
+function markGapFor(letterWidth) {
+  return gapFor(letterWidth) * 2;
+}
+function lockupWidth(letterWidth, word = WORD) {
+  return MARK_WIDTH + markGapFor(letterWidth) + wordmarkWidth(letterWidth, word);
+}
 function letterWidthFor(columns, word = WORD) {
   for (const width of LETTER_WIDTHS) {
-    if (wordmarkWidth(width, word) <= columns) return width;
+    if (lockupWidth(width, word) <= columns) return width;
   }
   return null;
 }
@@ -36442,12 +36473,22 @@ function sampledRows(character, width) {
     })
   );
 }
-function renderWordmark(letterWidth, word = WORD) {
+function halfBlockRow(bitmap, row) {
+  const top = bitmap[row * 2] ?? "";
+  const bottom = bitmap[row * 2 + 1] ?? "";
+  let line = "";
+  for (let column = 0; column < top.length; column += 1) {
+    line += HALF_BLOCKS[(top[column] === "#" ? 1 : 0) + (bottom[column] === "#" ? 2 : 0)];
+  }
+  return line;
+}
+function renderWordmark(letterWidth, word = WORD, withMark = false) {
   const width = Math.max(1, Math.floor(letterWidth));
   const gap = gapFor(width);
+  const markGap = " ".repeat(markGapFor(width));
   const letters = word.split("").map((character) => sampledRows(character, width));
   return Array.from({ length: WORDMARK_ROWS }, (_, row) => {
-    let line = "";
+    let line = withMark ? `${halfBlockRow(BIG_MARK, row)}${markGap}` : "";
     letters.forEach((letter, index) => {
       if (index > 0) line += " ".repeat(gap);
       const top = letter[row * 2];
@@ -36459,16 +36500,15 @@ function renderWordmark(letterWidth, word = WORD) {
     return line;
   });
 }
+function renderMiniMark() {
+  return Array.from({ length: MINI_MARK.length / 2 }, (_, row) => halfBlockRow(MINI_MARK, row));
+}
 function fitWordmark(columns, word = WORD) {
   const width = letterWidthFor(Math.max(0, Math.floor(columns)), word);
-  return width === null ? null : renderWordmark(width, word);
+  return width === null ? null : renderWordmark(width, word, true);
 }
 function shadowRow(width) {
   return "\u2591".repeat(Math.max(0, Math.floor(width)));
-}
-function sproutColumn(letterWidth, word = WORD) {
-  const gap = gapFor(letterWidth);
-  return (word.length - 1) * (letterWidth + gap) + Math.floor(letterWidth / 2);
 }
 
 // src/layout/palette.ts
@@ -36522,6 +36562,7 @@ var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
 var LOGO_COLLAPSE_ROWS = 24;
 var LOGO_EXPANDED_ROWS = 3;
 var LOGO_COLLAPSED_ROWS = 1;
+var BIG_WORDMARK_MIN_COLUMNS = lockupWidth(LETTER_WIDTHS[LETTER_WIDTHS.length - 1]);
 var WORDMARK = [
   "\u2588\u2580\u2580 \u2588\u2584 \u2588 \u2588\u2580\u2588 \u2588 \u2588 \u2588 \u2588\u2580\u2588 \u2588\u2580\u2580 \u2584\u2580\u2588",
   "\u2584\u2588\u2588 \u2588 \u2580\u2588 \u2588\u2584\u2588 \u2580\u2584\u2580\u2584\u2580 \u2588\u2580\u2580 \u2588\u2588\u2584 \u2588\u2580\u2588"
@@ -36547,13 +36588,11 @@ function LogoInner({
 }) {
   const bigRows = big ? fitWordmark(width) : null;
   if (bigRows) {
-    const letterWidth = letterWidthFor(width) ?? 0;
     const drawn = [...bigRows[0]].length;
     const paint = mode ?? colorMode(process.env, Boolean(process.stdout?.isTTY));
     const colors = gradientColors(bigRows.length, paint);
     const accent = paint === "none" ? void 0 : LOGO_COLOR;
     return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Box_default, { flexDirection: "column", flexShrink: 0, width, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Text, { color: accent, wrap: "truncate-end", children: `${" ".repeat(sproutColumn(letterWidth))}${SPROUT}` }),
       bigRows.map((row, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Text, { color: colors[index], bold: true, wrap: "truncate-end", children: row }, `wordmark-${index}`)),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: shadowRow(drawn) })
     ] });
@@ -36561,9 +36600,10 @@ function LogoInner({
   if (isCollapsed(terminalRows)) {
     return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Box_default, { flexShrink: 0, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Text, { color: LOGO_COLOR, bold: true, wrap: "truncate-end", children: collapsedLine(version) }) });
   }
+  const mini = renderMiniMark();
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Box_default, { flexDirection: "column", flexShrink: 0, width, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Text, { color: LOGO_COLOR, bold: true, wrap: "truncate-end", children: WORDMARK[0] }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Text, { color: LOGO_COLOR, bold: true, wrap: "truncate-end", children: `${WORDMARK[1]}  ${SPROUT}` }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Text, { color: LOGO_COLOR, bold: true, wrap: "truncate-end", children: `${mini[0]} ${WORDMARK[0]}` }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Text, { color: LOGO_COLOR, bold: true, wrap: "truncate-end", children: `${mini[1]} ${WORDMARK[1]}` }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `${TAGLINE}  v${version}` })
   ] });
 }
