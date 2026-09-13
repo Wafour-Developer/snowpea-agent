@@ -158,6 +158,7 @@ class Scheduler:
         *,
         mode: Mode = "accept",
         channel: str | None = None,
+        origin_session_id: str | None = None,
         agent: str | None = None,
         workdir: str | None = None,
     ) -> Job:
@@ -170,6 +171,7 @@ class Scheduler:
             task.strip(),
             mode=mode,
             channel=channel,
+            origin_session_id=origin_session_id,
             agent=agent,
             workdir=workdir,
             next_run=first_run(parsed),
@@ -332,7 +334,8 @@ class Scheduler:
 
     # -- delivery ------------------------------------------------------
     async def deliver(self, job: Job, text: str) -> None:
-        """Send the run's answer to the job's channel, logging it when we cannot."""
+        """Notify the creating session and any configured external channel."""
+        session_delivered = await self._deliver_to_session(job, text)
         channel = job.channel or LOG_CHANNEL
         if channel != LOG_CHANNEL:
             gateway = getattr(self.core, "gateway", None)
@@ -345,7 +348,33 @@ class Scheduler:
                     log.warning("could not deliver job %s to %s", job.id, channel, exc_info=True)
             else:
                 log.info("no gateway is bound; job %s output goes to the log", job.id)
-        self._append_log(job, channel, text)
+        if not session_delivered or job.channel is not None:
+            self._append_log(job, channel, text)
+
+    async def _deliver_to_session(self, job: Job, text: str) -> bool:
+        """Persist and broadcast a reminder in the TUI session that created it."""
+        session_id = job.origin_session_id
+        if not session_id:
+            return False
+        session = self.core.sessions.get(session_id)
+        restored = session is None
+        if session is None:
+            session = await self.core.sessions.restore(session_id)
+        if session is None:
+            log.warning("job %s refers to missing session %s", job.id, session_id)
+            return False
+        from snowpea_core.session import events
+
+        try:
+            await self.core.hub.emit_event(
+                session_id,
+                events.message_done(f"⏰ Scheduled reminder ({job.id})\n\n{text.strip()}"),
+            )
+            return True
+        finally:
+            if restored:
+                with contextlib.suppress(Exception):
+                    await self.core.sessions.close(session_id)
 
     def _append_log(self, job: Job, channel: str, text: str) -> None:
         path = self.core.paths.jobs_log

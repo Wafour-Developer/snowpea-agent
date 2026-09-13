@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -21,7 +22,7 @@ from _support import connect, fake_provider, make_daemon
 
 from snowpea_core.cli import commands as cli_commands
 from snowpea_core.scheduler import services
-from snowpea_core.scheduler.jobs import utc_now
+from snowpea_core.scheduler.jobs import SCHEMA, JobStore, utc_now
 from snowpea_core.scheduler.nl_parse import first_run, parse_spec
 from snowpea_core.server.app_server import Daemon
 from snowpea_core.server.lifecycle import Lifecycle
@@ -170,6 +171,21 @@ async def test_schedule_over_rpc_shows_up_in_job_list(
     assert daemon.core is not None
     assert daemon.core.lifecycle.counters["jobs"] == 1
     await client.stop()
+
+
+async def test_existing_job_database_is_migrated_for_session_delivery(tmp_path: Path) -> None:
+    path = tmp_path / "legacy.db"
+    legacy_schema = SCHEMA.replace("    origin_session_id TEXT,\n", "")
+    connection = sqlite3.connect(path)
+    connection.executescript(legacy_schema)
+    connection.close()
+
+    store = JobStore(path)
+    try:
+        columns = store._query("PRAGMA table_info(jobs)")  # noqa: SLF001 - migration contract
+        assert "origin_session_id" in {str(row[1]) for row in columns}
+    finally:
+        store.close()
 
 
 async def test_schedule_rejects_an_unparseable_spec(
@@ -348,6 +364,7 @@ async def test_slash_schedule_registers_a_job(
     listing = await client.ok("job.list", {})
     assert [job["task"] for job in listing["jobs"]] == ["echo hi"]
     assert listing["jobs"][0]["spec"] == "in 60s"
+    assert listing["jobs"][0]["originSessionId"] == session["sessionId"]
 
     # ...and /schedule list can read it back.
     turn = await client.ok(
@@ -485,4 +502,15 @@ async def test_model_registering_an_auto_job_needs_approval(
     jobs = (await client.ok("job.list", {}))["jobs"]
     assert [job["spec"] for job in jobs] == ["매일 09:00"]
     assert jobs[0]["mode"] == "auto"
+    assert jobs[0]["originSessionId"] == session["sessionId"]
+
+    before = len(client.of_kind("message.done"))
+    await client.ok("job.runNow", {"jobId": jobs[0]["jobId"]}, timeout=30.0)
+    delivered = client.of_kind("message.done")[before:]
+    assert delivered
+    assert f"Scheduled reminder ({jobs[0]['jobId']})" in delivered[-1]["payload"]["text"]
+    assert "repo summary: nothing changed" in delivered[-1]["payload"]["text"]
+    # An explicitly configured channel is additional, not a replacement for
+    # delivery into the session that created the job.
+    assert jobs[0]["jobId"] in jobs_log(daemon)
     await client.stop()

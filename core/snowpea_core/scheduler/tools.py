@@ -109,6 +109,7 @@ async def schedule_create(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             task,
             mode=mode,  # type: ignore[arg-type]
             channel=str(channel) if channel else None,
+            origin_session_id=ctx.session.id,
             workdir=str(ctx.session.workdir),
         )
     except ValueError as exc:

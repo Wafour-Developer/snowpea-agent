@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     task         TEXT NOT NULL,
     mode         TEXT NOT NULL DEFAULT 'accept',
     channel      TEXT,
+    origin_session_id TEXT,
     agent        TEXT,
     workdir      TEXT,
     enabled      INTEGER NOT NULL DEFAULT 1,
@@ -105,6 +106,7 @@ class Job(BaseModel):
     task: str = ""
     mode: Mode = "accept"
     channel: str | None = None
+    origin_session_id: str | None = None
     agent: str | None = None
     workdir: str | None = None
     enabled: bool = True
@@ -121,6 +123,7 @@ class Job(BaseModel):
         *,
         mode: Mode = "accept",
         channel: str | None = None,
+        origin_session_id: str | None = None,
         agent: str | None = None,
         workdir: str | None = None,
         next_run: datetime | None = None,
@@ -135,6 +138,7 @@ class Job(BaseModel):
             task=task,
             mode=mode,
             channel=channel,
+            origin_session_id=origin_session_id,
             agent=agent,
             workdir=workdir,
         )
@@ -158,6 +162,7 @@ class Job(BaseModel):
             task=self.task,
             mode=self.mode,
             channel=self.channel,
+            originSessionId=self.origin_session_id,
             nextRunAt=iso(self.next_run),
             state=self.state,
             enabled=self.enabled,
@@ -176,6 +181,7 @@ class Job(BaseModel):
             self.task,
             self.mode,
             self.channel,
+            self.origin_session_id,
             self.agent,
             self.workdir,
             1 if self.enabled else 0,
@@ -197,6 +203,7 @@ class Job(BaseModel):
             task=row["task"],
             mode=row["mode"],
             channel=row["channel"],
+            origin_session_id=row["origin_session_id"],
             agent=row["agent"],
             workdir=row["workdir"],
             enabled=bool(row["enabled"]),
@@ -213,10 +220,10 @@ Jobs = list[Job]
 Rows = list[dict[str, Any]]
 
 _COLUMNS = (
-    "id, spec, kind, cron, interval_sec, next_run, task, mode, channel, agent,"
+    "id, spec, kind, cron, interval_sec, next_run, task, mode, channel, origin_session_id, agent,"
     " workdir, enabled, state, last_run, last_status, created_at"
 )
-_PLACEHOLDERS = ", ".join("?" * 16)
+_PLACEHOLDERS = ", ".join("?" * 17)
 
 
 class JobStore:
@@ -230,6 +237,11 @@ class JobStore:
         self._conn.row_factory = sqlite3.Row
         with self._lock:
             self._conn.executescript(SCHEMA)
+            columns = {
+                str(row[1]) for row in self._conn.execute("PRAGMA table_info(jobs)").fetchall()
+            }
+            if "origin_session_id" not in columns:
+                self._conn.execute("ALTER TABLE jobs ADD COLUMN origin_session_id TEXT")
             self._conn.commit()
 
     @classmethod
