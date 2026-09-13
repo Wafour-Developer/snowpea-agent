@@ -48,6 +48,12 @@ DEFAULT_REMEMBER_PATTERNS: tuple[str, ...] = (
     r"내\s+\S+(은|는)\s+\S+.*(이다|다|야|예요|입니다)",
 )
 
+#: Output tokens one provider call may produce, before per-model clamping.
+DEFAULT_MAX_TOKENS = 16384
+
+#: Values ``agent.thinking`` and ``providers.<vendor>.thinking`` accept.
+THINKING_CHOICES: tuple[str, ...] = ("on", "off", "auto")
+
 DEFAULT_AGENT_TEAM: tuple[str, ...] = (
     "architect",
     "critic",
@@ -133,6 +139,16 @@ class AgentSettings(_Model):
     #: Language the model answers in.  ``"auto"`` follows whatever the user
     #: wrote; a tag like ``"ko"`` emits a directed override (CORE-prompts).
     replyLanguage: str = "auto"
+    #: Output budget for one provider call.  A reasoning model spends this on
+    #: hidden thinking *before* it writes anything, so the old 4096 produced
+    #: empty and half-written answers; the default is generous and clamped per
+    #: model by ``providers/context_windows.py`` (CORE-reasoning-budget).
+    max_tokens: int = DEFAULT_MAX_TOKENS
+    #: ``"on"`` | ``"off"`` | ``"auto"``.  ``"auto"`` thinks in the session a
+    #: person is watching and stays quiet in a delegated one, where the report
+    #: is the whole output.  ``settings.providers.<vendor>.thinking`` overrides
+    #: it per vendor, and an agent definition's ``thinking:`` outranks both.
+    thinking: str = "auto"
 
 
 class DaemonSettings(_Model):
@@ -425,9 +441,11 @@ class Settings(_Model):
 
 
 __all__ = [
+    "DEFAULT_MAX_TOKENS",
     "DEFAULT_REMEMBER_PATTERNS",
     "FILE_MODE",
     "DEFAULT_AGENT_TEAM",
+    "THINKING_CHOICES",
     "AgentSettings",
     "AgentsSettings",
     "ApprovalsSettings",

@@ -15,7 +15,13 @@ import {
   turnSummaryLine,
   workingLine,
 } from "../src/state/working.js";
-import { __resetIdCounter, initialState, reducer, type State } from "../src/state/store.js";
+import {
+  __resetIdCounter,
+  initialState,
+  outputLimitNote,
+  reducer,
+  type State,
+} from "../src/state/store.js";
 
 function event(seq: number, kind: string, payload: Record<string, unknown>): SessionEvent {
   return { sessionId: "sess-1", seq, kind, payload };
@@ -199,5 +205,57 @@ describe("formatting", () => {
     expect(turnSummaryLine({ ok: false, elapsedMs: 4000, outputTokens: 10 })).toBe(
       "✗ Stopped after 4s · ↓ 10 tokens",
     );
+  });
+});
+
+describe("hidden reasoning", () => {
+  it("counts the thinking without putting it in the transcript", () => {
+    const state = apply(
+      ask(initialState, "review this"),
+      event(1, "message.reasoning", { text: "weighing", chars: 8 }),
+      event(2, "message.reasoning", { text: " it up", chars: 14 }),
+    );
+    expect(state.reasoningChars).toBe(14);
+    expect(state.messages.filter((m) => m.role === "assistant")).toHaveLength(0);
+  });
+
+  it("says how much of it there has been", () => {
+    const state = apply(
+      ask(initialState, "review this"),
+      event(1, "message.reasoning", { text: "…", chars: 1788 }),
+    );
+    const phase = derivePhase(state);
+    expect(phase).toEqual({ kind: "reasoning", chars: 1788 });
+    expect(workingLine({ phase, elapsedMs: 1000 })).toContain("Thinking (1.8k chars)");
+  });
+
+  it("starts each turn from nothing", () => {
+    const state = apply(
+      ask(initialState, "one"),
+      event(1, "message.reasoning", { text: "…", chars: 40 }),
+    );
+    expect(ask(state, "two").reasoningChars).toBe(0);
+  });
+});
+
+describe("the output limit", () => {
+  it("keeps quiet about a turn that never hit it", () => {
+    expect(outputLimitNote(false, 0)).toBeNull();
+  });
+
+  it("footnotes a turn that was resumed, and warns about one that was not", () => {
+    expect(outputLimitNote(false, 1)).toMatch(/continued/);
+    expect(outputLimitNote(true, 2)).toMatch(/incomplete/);
+  });
+
+  it("puts the note in the transcript under the answer", () => {
+    const state = apply(
+      ask(initialState, "review this"),
+      event(1, "message.delta", { text: "first half " }),
+      event(2, "message.done", { text: "first half second half", continuations: 1 }),
+    );
+    const last = state.messages[state.messages.length - 1];
+    expect(last.role).toBe("system");
+    expect(last.text).toMatch(/continued/);
   });
 });

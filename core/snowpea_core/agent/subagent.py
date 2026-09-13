@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING, Any
 
 from snowpea_core.agent.definition import AgentDefinition
 from snowpea_core.config.model_routing import ModelRoute, model_config_for, resolve_reference
+from snowpea_core.config.settings import THINKING_CHOICES
 from snowpea_core.prompts.loader import PromptNotFound, load
 from snowpea_core.server.protocol import AgentInfo
 from snowpea_core.session import events
@@ -68,6 +69,11 @@ SUBAGENT_KIND = "subagent"
 
 #: Records kept per parent session so ``agent.list`` stays bounded.
 MAX_RECORDS = 200
+
+#: Appended to a summary the child could not finish inside the output budget.
+#: A caller reading a review has to be told it is incomplete, or it reads as a
+#: short review rather than a cut-off one (CORE-reasoning-budget).
+TRUNCATED_MARK = "[truncated at max_tokens after {count} continuations]"
 
 #: Attribute the manager is cached under on :class:`Core`.
 CORE_ATTR = "_subagents"
@@ -132,6 +138,10 @@ class SubagentRecord:
     error: str | None = None
     input_tokens: int = 0
     output_tokens: int = 0
+    #: True when the child's last answer still ended at the output limit.
+    truncated: bool = False
+    #: How many times that answer was resumed before it was given up on.
+    continuations: int = 0
     #: Caller's explicit model override for this one delegation, resolved from
     #: ``delegate_task(model=…)`` / ``agent.spawn(model=…)``.  Highest rung of
     #: the precedence chain (CORE-model-assignment).
@@ -203,6 +213,8 @@ class _ChildWatcher:
             return
         if kind == "message.done":
             text = str(payload.get("text") or "")
+            record.truncated = bool(payload.get("truncated"))
+            record.continuations = int(payload.get("continuations") or 0)
             if not text:
                 return
             record.summary = text
@@ -524,6 +536,11 @@ class SubagentManager:
                 await coro
             if not record.summary:
                 record.summary = _last_assistant_text(child)
+            if record.truncated:
+                record.summary = (
+                    f"{record.summary}\n\n"
+                    f"{TRUNCATED_MARK.format(count=record.continuations)}"
+                ).strip()
         except TimeoutError:
             child.interrupt.set()
             record.status = ERROR
@@ -589,6 +606,10 @@ class SubagentManager:
         allowed: set[str] | None = None
         if defn is not None:
             child.prompt_role = role_file(defn.name)
+            # A delegated turn does not think by default — its report is the
+            # whole output — unless the definition asks for it by name.
+            if defn.thinking in THINKING_CHOICES:
+                child.thinking = defn.thinking
             from_defn = defn.tool_list()
             if from_defn is not None:
                 allowed = set(from_defn)
@@ -622,6 +643,7 @@ __all__ = [
     "QUEUED",
     "RUNNING",
     "SUBAGENT_KIND",
+    "TRUNCATED_MARK",
     "SharedBackend",
     "SubagentManager",
     "SubagentRecord",

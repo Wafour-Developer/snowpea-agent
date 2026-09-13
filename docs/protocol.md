@@ -1537,9 +1537,19 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 
 | field | type | required | description |
 |---|---|---|---|
+| `continuations` | `number` | no | How many times the turn was resumed after hitting the output limit. |
 | `kind` | `"message.done"` | no |  |
 | `role` | `"assistant" \| "user" \| "system"` | no | Who produced the message. |
 | `text` | `string` | yes | Full message text. |
+| `truncated` | `boolean` | no | The answer still hit the output limit and is incomplete. |
+
+### kind `message.reasoning`
+
+| field | type | required | description |
+|---|---|---|---|
+| `chars` | `number` | no | Characters of reasoning so far in this turn. |
+| `kind` | `"message.reasoning"` | no |  |
+| `text` | `string` | no | Reasoning fragment; not part of the answer. |
 
 ### kind `mode.changed`
 
