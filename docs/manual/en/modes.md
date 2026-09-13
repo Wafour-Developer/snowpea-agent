@@ -14,11 +14,11 @@ Every tool carries one permission tag. The mode decides what happens to each tag
 
 | mode | read | write | exec | network | send |
 |---|---|---|---|---|---|
-| **plan** | allow | deny | deny | allow | deny |
+| **plan** | allow | deny | ask | allow | deny |
 | **accept** (default) | allow | allow | ask | ask | ask |
 | **auto** | allow | allow | allow | allow | allow |
 
-**plan** is for thinking. The agent can read your repository and search the web, and cannot change anything. A denied call produces an `error` event with code `mode_denied` and ends the turn; headless runs exit `4`.
+**plan** is for thinking. The agent can read your repository and search the web, and cannot change anything; a shell command asks you first, so a planner can check a tool version or run the tests without being able to edit. A denied call produces an `error` event with code `mode_denied` and ends the turn; headless runs exit `4`.
 
 **accept** is the working default, and matches Claude Code's acceptEdits: file reads and edits happen without a prompt, while shell commands, network calls and anything that sends a message ask first.
 
