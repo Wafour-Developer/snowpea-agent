@@ -112,7 +112,8 @@ def test_request_is_a_responses_body_with_instructions_and_input_items() -> None
     assert body["stream"] is True
     # The Codex backend keeps no server-side state for us.
     assert body["store"] is False
-    assert body["max_output_tokens"] == 4096
+    # The ChatGPT backend refuses the parameter; the budget must never be sent.
+    assert "max_output_tokens" not in body
     assert body["tools"] == [
         {
             "type": "function",

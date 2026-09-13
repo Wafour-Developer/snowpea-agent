@@ -392,8 +392,10 @@ class CodexProvider:
             body["tools"] = tool_specs_to_responses(tools)
             body["tool_choice"] = "auto"
             body["parallel_tool_calls"] = True
-        if max_tokens > 0:
-            body["max_output_tokens"] = max_tokens
+        # The ChatGPT Codex backend rejects ``max_output_tokens`` outright
+        # ("Unsupported parameter"), and the Codex CLI itself never sends it,
+        # so the budget the agent loop passes is accepted and ignored here.
+        del max_tokens
         if supports_reasoning(self.model):
             body["reasoning"] = {"effort": self._effort}
         return body
