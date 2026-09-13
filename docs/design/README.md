@@ -17,6 +17,7 @@ generated, and [`../protocol.md`](../protocol.md) wins wherever a contract disag
 | [m10-multimodal-audio-contract.md](m10-multimodal-audio-contract.md) | Attachments, vision content parts, STT/TTS chains and audio RPCs (ships CORE-multimodal) | AC-27 … AC-31 |
 | [m11-context-compaction-contract.md](m11-context-compaction-contract.md) | Context-window tracking, compaction, store lifetime and shutdown ordering (ships CORE-context, CORE-memory-race, CORE-session-race) | AC-32 … AC-36 |
 | [m12-tui-contract.md](m12-tui-contract.md) | Terminal UI surface: layout, HUD, panels, slash registry, resume picker, exit codes | AC-37 … AC-42 |
+| [m13-lsp-contract.md](m13-lsp-contract.md) | LSP integration (v0.2): language-server registry ported from opencode, diagnostics after edits, lsp_* tools, lsp.status | AC-43 … AC-47 |
 
 **M4 has no standalone contract file.** Its subject — the plan/accept/auto permission matrix, the
 allowlist promotion rules and the approval queue — lives in
