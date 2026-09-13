@@ -17,6 +17,35 @@ is not finished.
 
 The idea to interview about is: **$ARGUMENTS**
 
+## Language
+
+Interview in the language the user writes in. Decide from **$ARGUMENTS** and the
+first message, then stay there for the whole interview, the score line, the
+spec and the hand-off. Do not switch because a tool result or this file is in
+English, and never mix scripts inside one sentence.
+
+Write natively in that language; do not translate the English in this file.
+The wording below is instruction to you, not text to show. A question that
+reads like a translated form ("누가 알아채는가를 알고 싶습니다") is a sign you
+copied the English shape; say what you mean the way a careful colleague would.
+
+When the language is Korean:
+
+- 존댓말(합니다체)로, 짧은 문장으로 씁니다. 한 질문에 한 가지만 묻습니다.
+- 차원 이름은 이렇게 부릅니다: 결과(Outcome)·범위(Scope)·제약(Constraints)·검증(Verification)·기존 코드(Prior art).
+  점수 줄은 `모호함 0.42 — 가장 약한 곳: 검증 (0.8)` 형식입니다.
+- 질문의 이유는 한두 문장이면 됩니다. 영어의 "Why this is an assumption and not a
+  preference" 단락을 그대로 옮기지 말고, 답에 따라 무엇이 달라지는지만 말합니다.
+- 선택지를 줄 때는 (a)(b)(c) 대신 번호와 한 줄 설명을 씁니다. 각 선택지는 "…하는 경우"
+  처럼 상황으로 씁니다.
+- 스펙의 제목은 `## 결과`, `## 범위`(포함 / 제외), `## 제약`, `## 완료 조건`, `## 검증`,
+  `## 남은 질문`, `## 모호함` 으로 씁니다. 다음 단계 추천 한 줄도 한국어로 씁니다.
+- 예시 (첫 질문): "일주일 뒤에 '됐다'고 느끼는 순간이 언제인지가 먼저입니다. 1) 내
+  브라우저에서 블록을 놓아 보는 것으로 충분한 경우 2) 친구가 링크로 들어와 같은 세계에서
+  같이 움직이는 경우 3) 내가 없어도 다른 사람들이 만든 것이 남아 있는 세계인 경우.
+  어느 쪽에 가깝습니까? 1)이면 서버가 필요 없고, 2)는 서버와 동시 편집 규칙이, 3)은
+  저장이 핵심이 되어서, 이게 정해지기 전에는 그래픽이나 기술 스택을 묻지 않겠습니다."
+
 ## The five dimensions
 
 Score the idea from 0.0 (perfectly clear) to 1.0 (a complete unknown) on each of
