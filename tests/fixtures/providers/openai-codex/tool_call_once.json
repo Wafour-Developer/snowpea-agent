@@ -1,0 +1,53 @@
+{
+  "vendor": "openai-codex",
+  "model": "gpt-5-codex",
+  "wire": "responses",
+  "synthetic": true,
+  "note": "Synthetic golden fixture written from the documented OpenAI Responses wire format (no real ChatGPT session was used). Scenario: call shell once, then answer. Consumed by tests/test_codex_transport.py, not by the replay matrix.",
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "url": "https://chatgpt.com/backend-api/codex/responses",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "text/event-stream",
+          "authorization": "***",
+          "chatgpt-account-id": "***",
+          "openai-beta": "responses=experimental",
+          "originator": "snowpea"
+        }
+      },
+      "response_stream": [
+        {"type": "response.created", "response": {"id": "resp_1", "status": "in_progress"}},
+        {"type": "response.output_text.delta", "item_id": "msg_1", "delta": "Checking"},
+        {"type": "response.output_text.delta", "item_id": "msg_1", "delta": " the files."},
+        {"type": "response.output_item.added", "output_index": 1, "item": {"id": "fc_1", "type": "function_call", "name": "shell", "call_id": "call_1", "arguments": ""}},
+        {"type": "response.function_call_arguments.delta", "item_id": "fc_1", "delta": "{\"command\""},
+        {"type": "response.output_item.done", "output_index": 1, "item": {"id": "fc_1", "type": "function_call", "status": "completed", "name": "shell", "call_id": "call_1", "arguments": "{\"command\": \"ls\"}"}},
+        {"type": "response.completed", "response": {"id": "resp_1", "status": "completed", "usage": {"input_tokens": 412, "output_tokens": 37, "total_tokens": 449}}}
+      ]
+    },
+    {
+      "request": {
+        "method": "POST",
+        "url": "https://chatgpt.com/backend-api/codex/responses",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "text/event-stream",
+          "authorization": "***",
+          "chatgpt-account-id": "***",
+          "openai-beta": "responses=experimental",
+          "originator": "snowpea"
+        }
+      },
+      "response_stream": [
+        {"type": "response.created", "response": {"id": "resp_2", "status": "in_progress"}},
+        {"type": "response.output_item.added", "output_index": 0, "item": {"id": "msg_2", "type": "message", "role": "assistant"}},
+        {"type": "response.output_text.delta", "item_id": "msg_2", "delta": "There are three files: a.txt, b.txt and c.txt."},
+        {"type": "response.output_item.done", "output_index": 0, "item": {"id": "msg_2", "type": "message", "role": "assistant", "status": "completed", "content": [{"type": "output_text", "text": "There are three files: a.txt, b.txt and c.txt."}]}},
+        {"type": "response.completed", "response": {"id": "resp_2", "status": "completed", "usage": {"input_tokens": 501, "output_tokens": 14, "total_tokens": 515}}}
+      ]
+    }
+  ]
+}
