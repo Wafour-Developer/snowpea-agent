@@ -14,7 +14,7 @@ agent asked to *show* `settings.json` rewrote it, because `write_file` carries t
    get an honest refusal, but none of the thirteen ids use it. `test_every_catalog_id_has_a_real_client`
    pins that.
 
-2. **The `*_free` ids are free *tiers*, not keyless endpoints, and the tags now say so.** This was
+2. **Most `*_free` ids are free *tiers*, not keyless endpoints.** This was
    checked against the live APIs rather than inferred from the docs pages:
 
    | endpoint | keyless response |
@@ -26,8 +26,9 @@ agent asked to *show* `settings.json` rewrote it, because `write_file` carries t
    | `POST https://api.x.ai/v1/chat/completions` | `401 unauthenticated:no-credentials` |
    | `POST https://api.firecrawl.dev/v1/search` | **`200` with real results** |
 
-   So `exa_free`, `keenable_free`, `parallel_free` and `tavily` are re-tagged `key required` and
-   `available()` is false without a key. `ddgs` is the only `no key` id left.
+   `keenable_free`, `parallel_free` and `tavily` therefore remain `key required` and unavailable
+   without a key. `exa_free` now intentionally differs: it uses Exa's official anonymous hosted
+   MCP at `https://mcp.exa.ai/mcp`, while paid `exa` keeps the keyed REST endpoint.
 
 3. **Firecrawl Cloud is tagged `key optional`, not `no key`.** Its cloud `/v1/search` answered two
    distinct keyless queries with real results, so calling it "key required" would be as dishonest as
@@ -37,14 +38,14 @@ agent asked to *show* `settings.json` rewrote it, because `write_file` carries t
    like any other failure — nothing silently degrades.
 
 4. **`FREE_CHAIN` is now the *fallback* chain, ordered by what a user is likely to have configured**
-   (`ddgs`, `searxng`, `brave_free`, `tavily`, `firecrawl_selfhost`, `firecrawl`). Every entry is
+   (`ddgs`, `exa_free`, `searxng`, `brave_free`, `tavily`, `firecrawl_selfhost`, `firecrawl`). Every entry is
    still gated by `available()`, so the keyed ones are only reached once they have a key. The old
-   chain listed `exa_free`/`keenable_free`/`parallel_free` ahead of the real ones, which is precisely
+   chain listed unwired `*_free` entries ahead of real clients, which is precisely
    how the fall-through went unnoticed.
 
 5. **The fallback is reported in three places, not one.** `ToolResult` gained a `meta` dict
    (`provider`, `fallback_from`, `reason`); the text handed to the model starts with
-   `[search via ddgs — fallback from exa_free: exa_free needs an API key ($EXA_API_KEY)]`; and the
+   `[search via ddgs — fallback from exa_free: anonymous MCP rate limit]`; and the
    session gets one non-fatal `error{code:"search_provider_unavailable"}` event. The event is emitted
    **once per session**, tracked by an attribute on the `Session` object rather than a new field, to
    avoid colliding with concurrent work in `session/`. A per-turn event would have turned a warning

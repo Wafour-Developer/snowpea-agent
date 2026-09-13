@@ -511,11 +511,77 @@ def test_parser_accepts_every_documented_flag() -> None:
 
 
 def test_search_key_flag_is_saved_under_the_provider(home: Path) -> None:
-    wizard.run("full", home=home, search_provider="exa_free", search_key="exa-secret",
+    wizard.run("full", home=home, search_provider="exa", search_key="exa-secret",
                interactive=False)
     settings = _settings(home)
-    assert settings.search.provider == "exa_free"
-    assert settings.search.credentials["exa_free"]["api_key"] == "exa-secret"
+    assert settings.search.provider == "exa"
+    assert settings.search.credentials["exa"]["api_key"] == "exa-secret"
+
+
+def test_interactive_search_provider_flag_still_prompts_for_its_key(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The flag skips provider selection, but must not skip credentials."""
+    asked: list[tuple[str, bool]] = []
+
+    def fake_ask_text(prompt: str, *, secret: bool = False) -> str:
+        asked.append((prompt, secret))
+        return "flag-selected-key"
+
+    monkeypatch.setattr(ui, "ask_text", fake_ask_text)
+    wizard.run(
+        "full",
+        home=home,
+        search_provider="exa",
+        interactive=True,
+        ask=lambda screen, **kwargs: SKIP,
+    )
+
+    assert any("Exa" in prompt and secret for prompt, secret in asked), asked
+    settings = _settings(home)
+    assert settings.search.credentials["exa"]["api_key"] == "flag-selected-key"
+
+
+def test_search_key_flag_does_not_prompt_for_the_key_again(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    asked: list[str] = []
+    monkeypatch.setattr(
+        ui, "ask_text", lambda prompt, *, secret=False: asked.append(prompt) or "unexpected"
+    )
+
+    wizard.run(
+        "full",
+        home=home,
+        search_provider="exa",
+        search_key="provided-key",
+        interactive=True,
+        ask=lambda screen, **kwargs: SKIP,
+    )
+
+    assert not any("Exa" in prompt and "API key" in prompt for prompt in asked)
+    assert _settings(home).search.credentials["exa"]["api_key"] == "provided-key"
+
+
+def test_exa_free_mcp_never_prompts_for_an_api_key(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    asked: list[str] = []
+    monkeypatch.setattr(
+        ui, "ask_text", lambda prompt, *, secret=False: asked.append(prompt) or "unexpected"
+    )
+
+    result = wizard.run(
+        "full",
+        home=home,
+        search_provider="exa_free",
+        interactive=True,
+        ask=lambda screen, **kwargs: SKIP,
+    )
+
+    assert not any("API key" in prompt for prompt in asked)
+    assert result.settings.search.provider == "exa_free"
+    assert "no API key" not in "\n".join(result.summary())
 
 
 def test_search_key_without_a_provider_is_a_usage_error(home: Path) -> None:
@@ -525,9 +591,9 @@ def test_search_key_without_a_provider_is_a_usage_error(home: Path) -> None:
 
 def test_a_key_required_provider_without_a_key_warns_in_the_summary(home: Path) -> None:
     """The silent-fallback bug, caught at setup time instead of at search time."""
-    result = wizard.run("full", home=home, search_provider="exa_free", interactive=False)
+    result = wizard.run("full", home=home, search_provider="exa", interactive=False)
     notes = "\n".join(result.summary())
-    assert "exa_free: no API key" in notes
+    assert "exa: no API key" in notes
     assert "EXA_API_KEY" in notes
 
 
@@ -545,15 +611,15 @@ def test_the_search_screen_prompts_for_the_key(
 
     def asker(screen: Screen, console=None, interactive=True):  # type: ignore[no-untyped-def]
         if screen.title == search_screen.TITLE:
-            return "exa_free"
+            return "exa"
         return SKIP
 
     wizard.run("full", home=home, interactive=True, ask=asker)
 
     assert any("Exa" in prompt and secret for prompt, secret in asked), asked
     settings = _settings(home)
-    assert settings.search.provider == "exa_free"
-    assert settings.search.credentials["exa_free"]["api_key"] == "typed-key"
+    assert settings.search.provider == "exa"
+    assert settings.search.credentials["exa"]["api_key"] == "typed-key"
 
 
 def test_an_empty_answer_leaves_the_warning(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:

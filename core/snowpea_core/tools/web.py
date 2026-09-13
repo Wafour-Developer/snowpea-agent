@@ -4,8 +4,8 @@
 chain.  When the configured provider could not answer, the result says so in
 three places rather than pretending the search went as asked:
 
-* the text handed to the model starts with
-  ``[search via ddgs — fallback from exa_free: Exa (free tier) needs an API key …]``
+* the text handed to the model starts with a concrete fallback reason, for
+  example ``[search via ddgs — fallback from exa_free: Exa MCP rate limit …]``
   so the assistant can tell the user in its reply;
 * :class:`~snowpea_core.tools.registry.ToolResult` carries ``meta`` with
   ``provider``, ``fallback_from`` and ``reason``;

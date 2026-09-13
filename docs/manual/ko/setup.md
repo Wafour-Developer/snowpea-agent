@@ -131,7 +131,8 @@ snowpea setup search
 | `ddgs` | free, no key | 없음 |
 | `firecrawl` | paid, key optional | 없음. 클라우드 검색 엔드포인트는 키 없이도 응답하지만 호출 제한이 있습니다 |
 | `brave_free` | free, key required | `BRAVE_API_KEY` |
-| `exa_free`, `exa` | key required | `EXA_API_KEY` |
+| `exa_free` | 키 없음 | `https://mcp.exa.ai/mcp`의 익명·속도 제한 호스팅 MCP |
+| `exa` | 키 필요 | `EXA_API_KEY` (직접 REST API) |
 | `keenable_free`, `keenable` | key required | `KEENABLE_API_KEY` |
 | `parallel_free`, `parallel` | key required | `PARALLEL_API_KEY` |
 | `tavily` | free, key required | `TAVILY_API_KEY` |
@@ -141,7 +142,9 @@ snowpea setup search
 
 `snowpea setup search`에서 키가 필요한 제공자를 고르면 키를 (가려진 입력으로) 묻고 `search.credentials.<id>.api_key`에 저장합니다. 비워 두면 경고가 나옵니다. 키 없는 제공자는 검색에 답할 수 없기 때문입니다.
 
-설정한 제공자가 동작하지 못하면 `web_search`는 다른 제공자로 넘어가되 그 사실을 숨기지 않습니다. 도구 출력은 `[search via ddgs — fallback from exa_free: exa_free needs an API key ($EXA_API_KEY)]`로 시작하고, 세션에는 `error{code:"search_provider_unavailable"}` 이벤트가 한 번 발생하며, 어시스턴트는 그 이유를 사용자에게 그대로 전하도록 지시받습니다.
+`exa_free`는 Exa 공식 호스팅 MCP의 `web_search_exa`와 `web_fetch_exa`를 익명으로 사용하므로 API 키를 묻지 않습니다. 단, 익명 사용량 제한은 적용됩니다. 유료 계정 한도와 직접 API를 사용하려면 `exa`를 선택하고 `EXA_API_KEY`를 입력합니다.
+
+설정한 제공자가 동작하지 못하면 `web_search`는 다른 제공자로 넘어가되 그 사실을 숨기지 않습니다. 세션에는 `error{code:"search_provider_unavailable"}` 이벤트가 한 번 발생하며, 어시스턴트는 그 이유를 사용자에게 그대로 전하도록 지시받습니다.
 
 실제로 어떤 제공자가 응답하는지 확인하려면:
 

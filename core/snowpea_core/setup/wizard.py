@@ -145,6 +145,14 @@ def run(
     asker = ask or ui.ask
     shown: list[str] = []
 
+    # A CLI flag answers the provider-selection screen, not the credential
+    # step.  Keep those concerns separate (as Hermes does for tool backends):
+    # an interactive `--search-provider exa` must still offer a masked
+    # key prompt unless the same invocation supplied --search-key.  Previously
+    # `answered` skipped `_show("search", ...)`, accidentally skipping the key.
+    if "search" in answered and interactive and search_provider and not search_key:
+        _ask_for_search_key(state, interactive=True, console=console)
+
     order: Sequence[tuple[str, Any]] = ()
     if section is not None:
         order = (SECTIONS[section], ("done", done_screen))
