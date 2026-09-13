@@ -98,6 +98,29 @@ STATIC_WINDOWS: dict[str, int] = {
     "qwen": 131072,
 }
 
+#: ``model id prefix -> largest ``max_tokens`` the vendor accepts``.  Same
+#: longest-prefix matching as :data:`STATIC_WINDOWS`, and the same rule for a
+#: model that is not listed: ``None``, which means "do not clamp".
+#:
+#: Only models whose ceiling is *below* the default budget really matter — a
+#: request over the cap is a 400, not a truncation — so the table stays short
+#: and only carries numbers taken from a published model card
+#: (CORE-reasoning-budget).
+MAX_OUTPUT_TOKENS: dict[str, int] = {
+    # -- OpenAI ------------------------------------------------------------
+    "gpt-4o": 16384,
+    "gpt-4-turbo": 4096,
+    "gpt-4": 8192,
+    "gpt-3.5-turbo": 4096,
+    # -- Google Gemini -----------------------------------------------------
+    "gemini-1.5": 8192,
+    "gemini-2.0": 8192,
+    # -- DeepSeek ----------------------------------------------------------
+    "deepseek-chat": 8192,
+    # -- Moonshot Kimi -----------------------------------------------------
+    "moonshot-v1-8k": 4096,
+}
+
 #: OpenRouter ids are ``<vendor>/<model>``; the slug after the slash is looked
 #: up in :data:`STATIC_WINDOWS` with the vendor's own dots restored
 #: (``claude-sonnet-4.5`` -> ``claude-sonnet-4-5`` is *not* needed, because the
@@ -134,8 +157,8 @@ def cache_put(vendor: str, base_url: str, model: str, window: int | None) -> Non
 # ---------------------------------------------------------------------------
 
 
-def static_window(model: str | None) -> int | None:
-    """Window for ``model`` from :data:`STATIC_WINDOWS`, else ``None``.
+def _longest_prefix(table: dict[str, int], model: str | None) -> int | None:
+    """Look ``model`` up in a prefix table, else ``None``.
 
     Matching is case-insensitive, ignores an OpenRouter ``vendor/`` prefix and
     any ``:free`` / ``@version`` suffix, and prefers the longest key that the
@@ -149,17 +172,40 @@ def static_window(model: str | None) -> int | None:
         candidates.append(name.rsplit(OPENROUTER_SEPARATOR, 1)[1])
     for candidate in candidates:
         trimmed = candidate.split(":", 1)[0].split("@", 1)[0]
-        exact = STATIC_WINDOWS.get(trimmed)
+        exact = table.get(trimmed)
         if exact is not None:
             return exact
         best: int | None = None
         best_len = -1
-        for prefix, window in STATIC_WINDOWS.items():
+        for prefix, value in table.items():
             if trimmed.startswith(prefix) and len(prefix) > best_len:
-                best, best_len = window, len(prefix)
+                best, best_len = value, len(prefix)
         if best is not None:
             return best
     return None
+
+
+def static_window(model: str | None) -> int | None:
+    """Window for ``model`` from :data:`STATIC_WINDOWS`, else ``None``."""
+    return _longest_prefix(STATIC_WINDOWS, model)
+
+
+def max_output_tokens(model: str | None) -> int | None:
+    """Largest ``max_tokens`` ``model`` accepts, or ``None`` when unknown."""
+    return _longest_prefix(MAX_OUTPUT_TOKENS, model)
+
+
+def clamp_output_tokens(model: str | None, requested: int) -> int:
+    """``requested``, lowered to whatever ``model`` actually accepts.
+
+    A budget is a wish: asking a model for more output than its ceiling is
+    rejected outright by most vendors, so the setting is clamped here rather
+    than turning a long answer into an HTTP 400.
+    """
+    cap = max_output_tokens(model)
+    if cap is None:
+        return max(1, requested)
+    return max(1, min(requested, cap))
 
 
 def preset_window(preset: VendorPreset, model: str | None = None) -> int | None:
@@ -307,11 +353,14 @@ async def discover_window(
 __all__ = [
     "CACHE_TTL_SEC",
     "LOOKUP_TIMEOUT",
+    "MAX_OUTPUT_TOKENS",
     "STATIC_WINDOWS",
     "cache_clear",
     "cache_get",
     "cache_put",
+    "clamp_output_tokens",
     "discover_window",
+    "max_output_tokens",
     "preset_window",
     "static_window",
     "window_from_ollama_show",

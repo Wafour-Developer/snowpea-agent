@@ -34,7 +34,9 @@ export type WorkingPhase =
   /** A slash command owns the turn. */
   | { kind: "command"; name: string }
   /** The model is thinking. */
-  | { kind: "thinking" };
+  | { kind: "thinking" }
+  /** The model is thinking *out loud*, and the daemon is counting it. */
+  | { kind: "reasoning"; chars: number };
 
 /** First argument that looks like what the tool is working on. */
 function firstArg(args: Record<string, unknown>, keys: string[]): string | null {
@@ -111,6 +113,9 @@ export function derivePhase(
   if (agents > 0) return { kind: "subagents", running: agents };
 
   if (runningCommand) return { kind: "command", name: runningCommand };
+  // Hidden reasoning is the one thing the transcript cannot show, so the
+  // indicator says how much of it there has been.
+  if (state.reasoningChars > 0) return { kind: "reasoning", chars: state.reasoningChars };
   return { kind: "thinking" };
 }
 
@@ -166,6 +171,9 @@ export function workingLine(input: WorkingLineInput): string | null {
     return `${spinner} ${phase.running} ${plural} working… ${stats}`;
   }
   if (phase.kind === "command") return `${spinner} ${phase.name}… ${stats}`;
+  if (phase.kind === "reasoning") {
+    return `${spinner} Thinking (${formatTokens(phase.chars)} chars)… ${stats}`;
+  }
 
   const verb = verbAt(input.elapsedMs, input.verbOffset ?? 0);
   return `${spinner} ${verb}… ${stats}`;

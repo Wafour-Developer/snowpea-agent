@@ -1186,6 +1186,19 @@ class MessageDelta(Payload):
     text: str = Field(description="Text fragment to append to the current message.")
 
 
+class MessageReasoning(Payload):
+    """Hidden reasoning the model streamed before it wrote anything.
+
+    The text never joins the transcript or the history — it exists so a
+    surface can say the model is thinking, and how much of the output budget
+    the thinking has already taken (CORE-reasoning-budget).
+    """
+
+    kind: Literal["message.reasoning"] = "message.reasoning"
+    text: str = Field("", description="Reasoning fragment; not part of the answer.")
+    chars: int = Field(0, description="Characters of reasoning so far in this turn.")
+
+
 class MessageDone(Payload):
     """A completed message."""
 
@@ -1193,6 +1206,12 @@ class MessageDone(Payload):
     text: str = Field(description="Full message text.")
     role: Literal["assistant", "user", "system"] = Field(
         "assistant", description="Who produced the message."
+    )
+    truncated: bool = Field(
+        False, description="The answer still hit the output limit and is incomplete."
+    )
+    continuations: int = Field(
+        0, description="How many times the turn was resumed after hitting the output limit."
     )
 
 
@@ -1443,6 +1462,7 @@ class LspDiagnostics(Payload):
 
 SessionEventPayload = Annotated[
     MessageDelta
+    | MessageReasoning
     | MessageDone
     | ToolCallEvent
     | ToolResultEvent
@@ -1469,6 +1489,7 @@ SessionEventPayload = Annotated[
 #: ``session.event`` payload model per ``kind`` (contract §1).
 SESSION_EVENT_MODELS: dict[str, type[BaseModel]] = {
     "message.delta": MessageDelta,
+    "message.reasoning": MessageReasoning,
     "message.done": MessageDone,
     "tool.call": ToolCallEvent,
     "tool.result": ToolResultEvent,

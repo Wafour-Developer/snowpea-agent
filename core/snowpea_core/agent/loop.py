@@ -14,15 +14,17 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from snowpea_core.agent.agent import AgentConfig, build_messages
 from snowpea_core.attachments import pending
+from snowpea_core.config.settings import THINKING_CHOICES
 from snowpea_core.exec.local import LocalBackend
 from snowpea_core.memory import context_for_turn, nudge_after_turn
 from snowpea_core.permissions.policy import UNPROMOTABLE, PermissionPolicy
 from snowpea_core.providers import content as content_parts
+from snowpea_core.providers import context_windows
 from snowpea_core.providers.base import ChatMessage, ProviderError, ToolCall
 from snowpea_core.server import errors
 from snowpea_core.session import compaction, events
@@ -44,6 +46,14 @@ log = logging.getLogger("snowpea.agent")
 
 #: Refusals tolerated in one turn before it ends with reason ``"denied"``.
 MAX_DENIALS_PER_TURN = 3
+
+#: How many times one assistant turn may be resumed after the model stopped at
+#: the output limit.  Two is enough for a long review and still bounded
+#: (CORE-reasoning-budget).
+MAX_CONTINUATIONS = 2
+
+#: What the model is told when its answer was cut off mid-sentence.
+CONTINUE_INSTRUCTION = "Continue exactly where you stopped, without repeating."
 
 
 @dataclass(frozen=True)
@@ -97,8 +107,229 @@ def backend_for(core: Core, session: Session) -> Any:
     return session.backend or LocalBackend(session.workdir)
 
 
-def agent_config(core: Core) -> AgentConfig:
-    return AgentConfig(max_tool_rounds=max(1, core.settings.agent.max_tool_rounds))
+def agent_config(core: Core, session: Session | None = None) -> AgentConfig:
+    """Tool rounds, output budget and the thinking switch for one turn.
+
+    The budget and the switch are per-vendor, so they are read off the
+    provider registry (which owns ``settings.providers.<vendor>``) whenever a
+    session says which vendor it talks to.  ``"auto"`` thinking resolves here
+    and nowhere else: on for a session someone is watching, off for a
+    delegated one, where the report *is* the output and hidden reasoning only
+    eats the budget (CORE-reasoning-budget).
+    """
+    settings = core.settings
+    max_tokens = settings.agent.max_tokens
+    thinking = settings.agent.thinking
+    registry = getattr(core, "providers", None)
+    if registry is not None:
+        try:
+            vendor = (session.provider if session else None) or registry.default_vendor()
+            max_tokens = registry.max_tokens_for(vendor, session.model if session else None)
+            thinking = registry.thinking_for(vendor)
+        except ProviderError:
+            # An unknown or unconfigured vendor is the turn's problem to
+            # report, not the budget's; the global settings still apply.
+            log.debug("could not resolve the output budget", exc_info=True)
+    definition_choice = getattr(session, "thinking", None) if session else None
+    if definition_choice in THINKING_CHOICES:
+        thinking = definition_choice
+    if thinking not in ("on", "off"):
+        thinking = "off" if session is not None and session.is_subagent else "on"
+    return AgentConfig(
+        max_tool_rounds=max(1, settings.agent.max_tool_rounds),
+        max_tokens=max(1, int(max_tokens)),
+        thinking=thinking,
+    )
+
+
+@dataclass
+class _Attempt:
+    """What one (possibly resumed) assistant turn produced."""
+
+    text: str = ""
+    calls: list[ToolCall] = field(default_factory=list)
+    stop_reason: str = "end_turn"
+    #: Characters of hidden reasoning; published, never stored.
+    reasoning_chars: int = 0
+    reasoning_tokens: int = 0
+    #: How many times the answer was resumed after an output-limit stop.
+    continuations: int = 0
+    interrupted: bool = False
+
+    @property
+    def truncated(self) -> bool:
+        """True when the answer still ends at the output limit."""
+        return self.stop_reason == "max_tokens"
+
+
+async def _stream_once(
+    core: Core,
+    session: Session,
+    provider: Any,
+    messages: list[ChatMessage],
+    specs: list[Any],
+    *,
+    max_tokens: int,
+    thinking: str,
+    reasoning_base: int = 0,
+) -> _Attempt:
+    """One provider call, drained into an :class:`_Attempt`."""
+    hub = core.hub
+    attempt = _Attempt()
+    chunks: list[str] = []
+    # ``thinking`` is offered only to an adapter that declares a switch, so a
+    # provider written before the option existed (or a test double) keeps its
+    # two-argument signature.
+    extra: dict[str, Any] = (
+        {"thinking": thinking} if getattr(provider, "supports_thinking_option", False) else {}
+    )
+    async for event in provider.stream(messages, specs, max_tokens=max_tokens, **extra):
+        if session.interrupt.is_set():
+            attempt.interrupted = True
+            break
+        if event.kind == "text_delta" and event.text:
+            chunks.append(event.text)
+            await hub.emit_event(session.id, events.message_delta(event.text))
+        elif event.kind == "reasoning_delta" and event.text:
+            # Hidden thinking joins neither the answer nor the history: it is
+            # published so a surface can say the model is working, and how
+            # much of the budget the working has already taken.
+            attempt.reasoning_chars += len(event.text)
+            await hub.emit_event(
+                session.id,
+                events.message_reasoning(
+                    event.text, reasoning_base + attempt.reasoning_chars
+                ),
+            )
+        elif event.kind == "tool_call" and event.tool_call is not None:
+            attempt.calls.append(event.tool_call)
+        elif event.kind == "usage" and event.usage is not None:
+            # The vendor's own prompt count beats any local estimate.
+            attempt.reasoning_tokens += event.usage.reasoning_tokens
+            compaction.record_provider_usage(session, event.usage.input_tokens)
+            await hub.emit_event(
+                session.id,
+                events.usage(event.usage.input_tokens, event.usage.output_tokens),
+            )
+        elif event.kind == "done":
+            if event.error:
+                await hub.emit_event(session.id, events.error(errors.INTERNAL, event.error))
+            attempt.stop_reason = event.stop_reason or "end_turn"
+    attempt.text = "".join(chunks)
+    return attempt
+
+
+async def _model_turn(
+    core: Core,
+    session: Session,
+    provider: Any,
+    messages: list[ChatMessage],
+    specs: list[Any],
+    config: AgentConfig,
+) -> _Attempt:
+    """One assistant turn, including the recovery from an output-limit stop.
+
+    A reasoning model can spend the whole budget thinking and answer nothing,
+    and a long review can stop mid-sentence.  Neither used to be visible: the
+    turn simply ended with an empty or half-written message (CORE-reasoning-
+    budget).  Two recoveries, in this order:
+
+    * nothing visible and reasoning tokens burned -> ask again once with
+      thinking off, or, when the provider has no such switch, with twice the
+      budget;
+    * something visible -> resume it, at most :data:`MAX_CONTINUATIONS` times,
+      and join the pieces.
+    """
+    attempt = await _stream_once(
+        core,
+        session,
+        provider,
+        messages,
+        specs,
+        max_tokens=config.max_tokens,
+        thinking=config.thinking,
+    )
+    if attempt.interrupted or not attempt.truncated or attempt.calls:
+        return attempt
+
+    if not attempt.text.strip() and attempt.reasoning_tokens > 0:
+        spent = attempt.reasoning_tokens
+        can_stop_thinking = (
+            bool(getattr(provider, "supports_thinking_option", False))
+            and config.thinking != "off"
+        )
+        if can_stop_thinking:
+            log.info(
+                "turn spent its whole %d-token budget on reasoning (%d tokens); "
+                "retrying with thinking off",
+                config.max_tokens,
+                spent,
+            )
+            budget, thinking = config.max_tokens, "off"
+        else:
+            budget = context_windows.clamp_output_tokens(
+                session.model, config.max_tokens * 2
+            )
+            thinking = config.thinking
+            log.info(
+                "turn spent its whole %d-token budget on reasoning (%d tokens); "
+                "retrying with %d",
+                config.max_tokens,
+                spent,
+                budget,
+            )
+        retry = await _stream_once(
+            core,
+            session,
+            provider,
+            messages,
+            specs,
+            max_tokens=budget,
+            thinking=thinking,
+            reasoning_base=attempt.reasoning_chars,
+        )
+        retry.reasoning_chars += attempt.reasoning_chars
+        retry.reasoning_tokens += attempt.reasoning_tokens
+        attempt = retry
+        if attempt.interrupted or not attempt.truncated or attempt.calls:
+            return attempt
+
+    while (
+        attempt.truncated
+        and attempt.text.strip()
+        and not attempt.calls
+        and not attempt.interrupted
+        and attempt.continuations < MAX_CONTINUATIONS
+    ):
+        log.info("answer hit the output limit; continuing (%d)", attempt.continuations + 1)
+        # The partial answer is handed back as the assistant turn it was, with
+        # the instruction as the next user message.  It is a local list: the
+        # session history only ever sees the joined text, so an interrupted
+        # continuation cannot leave half an answer behind.
+        resumed = await _stream_once(
+            core,
+            session,
+            provider,
+            [
+                *messages,
+                ChatMessage(role="assistant", content=attempt.text),
+                ChatMessage(role="user", content=CONTINUE_INSTRUCTION),
+            ],
+            specs,
+            max_tokens=config.max_tokens,
+            thinking=config.thinking,
+            reasoning_base=attempt.reasoning_chars,
+        )
+        attempt = _Attempt(
+            text=attempt.text + resumed.text,
+            calls=resumed.calls,
+            stop_reason=resumed.stop_reason,
+            reasoning_chars=attempt.reasoning_chars + resumed.reasoning_chars,
+            reasoning_tokens=attempt.reasoning_tokens + resumed.reasoning_tokens,
+            continuations=attempt.continuations + 1,
+            interrupted=resumed.interrupted,
+        )
+    return attempt
 
 
 def start_turn(core: Core, session: Session, text: str, *, unattended: bool = False) -> str:
@@ -287,7 +518,7 @@ async def _drive(
 ) -> str:
     """The loop proper; emits ``turn.done`` itself and returns its reason."""
     hub = core.hub
-    config = agent_config(core)
+    config = agent_config(core, session)
     policy: PermissionPolicy = core.policy
     backend = backend_for(core, session)
     provider = core.providers.get(session.provider, session.model)
@@ -321,37 +552,24 @@ async def _drive(
 
         specs = core.tools.specs(session)
         messages = build_messages(session, specs, memory_block, core=core)
-        chunks: list[str] = []
-        calls: list[ToolCall] = []
-        interrupted = False
+        attempt = await _model_turn(core, session, provider, messages, specs, config)
+        calls = attempt.calls
 
-        async for event in provider.stream(messages, specs, max_tokens=config.max_tokens):
-            if session.interrupt.is_set():
-                interrupted = True
-                break
-            if event.kind == "text_delta" and event.text:
-                chunks.append(event.text)
-                await hub.emit_event(session.id, events.message_delta(event.text))
-            elif event.kind == "tool_call" and event.tool_call is not None:
-                calls.append(event.tool_call)
-            elif event.kind == "usage" and event.usage is not None:
-                # The vendor's own prompt count beats any local estimate.
-                compaction.record_provider_usage(session, event.usage.input_tokens)
-                await hub.emit_event(
-                    session.id,
-                    events.usage(event.usage.input_tokens, event.usage.output_tokens),
-                )
-            elif event.kind == "done" and event.error:
-                await hub.emit_event(session.id, events.error(errors.INTERNAL, event.error))
-
-        if interrupted:
+        if attempt.interrupted:
             await finish_turn(core, session, turn_id, "interrupted")
             return "interrupted"
 
-        assistant_text = "".join(chunks)
+        assistant_text = attempt.text
         if not calls:
             session.history.append(ChatMessage(role="assistant", content=assistant_text))
-            await hub.emit_event(session.id, events.message_done(assistant_text))
+            await hub.emit_event(
+                session.id,
+                events.message_done(
+                    assistant_text,
+                    truncated=attempt.truncated,
+                    continuations=attempt.continuations,
+                ),
+            )
             await speak_reply(core, session, assistant_text)
             await finish_turn(core, session, turn_id, "complete")
             await nudge_after_turn(core, session, text)

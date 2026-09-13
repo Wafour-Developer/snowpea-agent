@@ -38,6 +38,11 @@ class ChatMessage:
 class Usage:
     input_tokens: int = 0
     output_tokens: int = 0
+    #: Hidden reasoning tokens, when the vendor reports them
+    #: (``completion_tokens_details.reasoning_tokens``).  They are part of
+    #: :attr:`output_tokens` and therefore of the output budget, which is why
+    #: a reasoning model can spend a whole turn and answer nothing.
+    reasoning_tokens: int = 0
 
 
 @dataclass
@@ -45,13 +50,14 @@ class StreamEvent:
     """One incremental event from a provider stream.
 
     kind:
-      text_delta -> ``text``
-      tool_call  -> ``tool_call``
-      usage      -> ``usage``
-      done       -> ``stop_reason`` ("end_turn" | "tool_use" | "max_tokens" | "error")
+      text_delta     -> ``text``
+      reasoning_delta-> ``text`` (hidden thinking; never joins the transcript)
+      tool_call      -> ``tool_call``
+      usage          -> ``usage``
+      done           -> ``stop_reason`` ("end_turn" | "tool_use" | "max_tokens" | "error")
     """
 
-    kind: Literal["text_delta", "tool_call", "usage", "done"]
+    kind: Literal["text_delta", "reasoning_delta", "tool_call", "usage", "done"]
     text: str = ""
     tool_call: ToolCall | None = None
     usage: Usage | None = None
@@ -72,12 +78,18 @@ class ChatProvider(Protocol):
     vendor: str
     model: str
 
+    #: True for an adapter that can be told not to think (``thinking="off"``).
+    #: The agent loop reads it before retrying a turn that spent its whole
+    #: budget on hidden reasoning.
+    supports_thinking_option: bool
+
     def stream(
         self,
         messages: list[ChatMessage],
         tools: list[ToolSpec],
         *,
         max_tokens: int = 4096,
+        thinking: str | None = None,
     ) -> AsyncIterator[StreamEvent]: ...
 
 

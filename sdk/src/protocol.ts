@@ -1634,11 +1634,24 @@ export interface MessageDeltaEventPayload {
 
 /** Payload of `session.event` with kind `message.done`. */
 export interface MessageDoneEventPayload {
+  /** How many times the turn was resumed after hitting the output limit. */
+  continuations?: number;
   kind?: "message.done";
   /** Who produced the message. */
   role?: "assistant" | "user" | "system";
   /** Full message text. */
   text: string;
+  /** The answer still hit the output limit and is incomplete. */
+  truncated?: boolean;
+}
+
+/** Payload of `session.event` with kind `message.reasoning`. */
+export interface MessageReasoningEventPayload {
+  /** Characters of reasoning so far in this turn. */
+  chars?: number;
+  kind?: "message.reasoning";
+  /** Reasoning fragment; not part of the answer. */
+  text?: string;
 }
 
 /** Payload of `session.event` with kind `mode.changed`. */
@@ -1809,6 +1822,7 @@ export interface SessionEventKindMap {
   "lsp.diagnostics": LspDiagnosticsEventPayload;
   "message.delta": MessageDeltaEventPayload;
   "message.done": MessageDoneEventPayload;
+  "message.reasoning": MessageReasoningEventPayload;
   "mode.changed": ModeChangedEventPayload;
   "model.changed": ModelChangedEventPayload;
   "subagent.done": SubagentDoneEventPayload;
@@ -1834,6 +1848,7 @@ export const SESSION_EVENT_KINDS: readonly SessionEventKind[] = [
   "lsp.diagnostics",
   "message.delta",
   "message.done",
+  "message.reasoning",
   "mode.changed",
   "model.changed",
   "subagent.done",
