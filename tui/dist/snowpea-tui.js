@@ -33974,6 +33974,7 @@ var initialState = {
   compactions: [],
   toolCount: null,
   queued: [],
+  deferredPrompts: [],
   promptTexts: {},
   lsp: [],
   diagnostics: {},
@@ -34049,6 +34050,18 @@ function finishMessage(state, payload) {
     payload
   );
 }
+function flushDeferred(state) {
+  if (state.deferredPrompts.length === 0) return state;
+  let next = { ...state, deferredPrompts: [] };
+  for (const message of state.deferredPrompts) {
+    next = {
+      ...next,
+      messages: [...next.messages, message],
+      timeline: pushTimeline(next, { kind: "message", id: message.id })
+    };
+  }
+  return next;
+}
 function patchSubagent(state, agentId, patch) {
   const index = state.subagents.findIndex((entry) => entry.agentId === agentId);
   if (index === -1) return state;
@@ -34066,7 +34079,7 @@ function applySessionEvent(state, event) {
     case "message.reasoning":
       return { ...base, reasoningChars: Number(payload.chars ?? base.reasoningChars) };
     case "message.done":
-      return finishMessage(base, payload);
+      return flushDeferred(finishMessage(base, payload));
     case "tool.call": {
       const entry = {
         callId: String(payload.callId ?? nextId("call")),
@@ -34077,11 +34090,11 @@ function applySessionEvent(state, event) {
       };
       const last = base.messages[base.messages.length - 1];
       const messages = last && last.streaming && last.role === "assistant" ? base.messages.slice(0, -1).concat({ ...last, streaming: false }) : base.messages;
+      const settled = flushDeferred({ ...base, messages });
       return {
-        ...base,
-        messages,
-        toolCalls: [...base.toolCalls, entry],
-        timeline: pushTimeline(base, { kind: "tool", id: entry.callId })
+        ...settled,
+        toolCalls: [...settled.toolCalls, entry],
+        timeline: pushTimeline(settled, { kind: "tool", id: entry.callId })
       };
     }
     case "tool.result": {
@@ -34272,7 +34285,7 @@ function applySessionEvent(state, event) {
       const promptTexts = { ...base.promptTexts };
       if (finished) delete promptTexts[finished];
       const messages = base.messages.map((m) => m.streaming ? { ...m, streaming: false } : m);
-      return { ...base, messages, promptTexts, turnActive: false };
+      return { ...flushDeferred({ ...base, messages }), promptTexts, turnActive: false };
     }
     default:
       return base;
@@ -34331,6 +34344,13 @@ function reducer(state, action) {
         streaming: false,
         attachments: action.attachments?.length ? action.attachments : void 0
       };
+      if (state.messages.some((m) => m.streaming)) {
+        return {
+          ...state,
+          deferredPrompts: [...state.deferredPrompts, message],
+          reasoningChars: 0
+        };
+      }
       return {
         ...state,
         messages: [...state.messages, message],
@@ -39628,9 +39648,15 @@ function App2({
     );
   }
   const live = state.timeline.slice(staticCursor);
+  const liveMessages = Math.max(1, live.filter((item) => item.kind === "message").length);
   const liveMessageRows = Math.max(
     MIN_LIVE_MESSAGE_ROWS,
-    liveRegionRows - MESSAGE_MARGIN_ROWS - live.reduce((rows, item) => item.kind === "message" ? rows : rows + entryRows(state, item), 0)
+    Math.floor(
+      (liveRegionRows - MESSAGE_MARGIN_ROWS * liveMessages - live.reduce(
+        (rows, item) => item.kind === "message" ? rows : rows + entryRows(state, item),
+        0
+      )) / liveMessages
+    )
   );
   return /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)(Box_default, { flexDirection: "column", children: [
     /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Static, { items: staticItems, children: (entry) => /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(

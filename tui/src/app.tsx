@@ -2073,11 +2073,24 @@ export function App({
   // to clearing the screen before every frame — under tmux, a view that shakes
   // between the top and the bottom of the text. What the window hides is one
   // `message.done` away from the scrollback, complete.
+  // The budget is shared, because there can be more than one live message: a
+  // prompt queued mid-answer puts the user's entry into the timeline between
+  // the text that had arrived and the text still coming, which splits the
+  // answer into two entries, neither of which ever closes. Capping each of them
+  // to the whole budget let the pair add up to twice it, and the frame reached
+  // the terminal's height again — the one case that still flickered.
+  const liveMessages = Math.max(1, live.filter((item) => item.kind === "message").length);
   const liveMessageRows = Math.max(
     MIN_LIVE_MESSAGE_ROWS,
-    liveRegionRows -
-    MESSAGE_MARGIN_ROWS -
-    live.reduce((rows, item) => (item.kind === "message" ? rows : rows + entryRows(state, item)), 0),
+    Math.floor(
+      (liveRegionRows -
+        MESSAGE_MARGIN_ROWS * liveMessages -
+        live.reduce(
+          (rows, item) => (item.kind === "message" ? rows : rows + entryRows(state, item)),
+          0,
+        )) /
+      liveMessages,
+    ),
   );
 
   return (

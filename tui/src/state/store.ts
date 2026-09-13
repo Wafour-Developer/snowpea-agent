@@ -187,6 +187,19 @@ export interface State {
   toolCount: number | null;
   /** Prompts accepted but not started, oldest first. */
   queued: QueuedPrompt[];
+  /**
+   * User prompts typed while the model was mid-answer, waiting for a place in
+   * the transcript.
+   *
+   * A queued prompt must not be spliced into the timeline while an assistant
+   * message is still streaming: the deltas that arrive after it would start a
+   * second message, leaving the answer as two entries with the user's line
+   * between them. Neither half ever closes, so both stay in the live region;
+   * `message.done` then replaces only the newer half with the complete text and
+   * the prefix is on screen twice. The prompt is visible in the queued list the
+   * whole time, and joins the transcript after the message it interrupted.
+   */
+  deferredPrompts: Message[];
   /** Language servers the daemon has running, from `lsp.status`. */
   lsp: LspServer[];
   /** Diagnostics counts per file, from `lsp.diagnostics` events. */
@@ -242,6 +255,7 @@ export const initialState: State = {
   compactions: [],
   toolCount: null,
   queued: [],
+  deferredPrompts: [],
   promptTexts: {},
   lsp: [],
   diagnostics: {},
@@ -376,6 +390,25 @@ function finishMessage(state: State, payload: Record<string, unknown>): State {
   );
 }
 
+/**
+ * Move prompts that waited for the answer into the transcript, in order.
+ *
+ * Called wherever a message stops streaming, so the user's line lands after the
+ * message it interrupted rather than inside it.
+ */
+function flushDeferred(state: State): State {
+  if (state.deferredPrompts.length === 0) return state;
+  let next: State = { ...state, deferredPrompts: [] };
+  for (const message of state.deferredPrompts) {
+    next = {
+      ...next,
+      messages: [...next.messages, message],
+      timeline: pushTimeline(next, { kind: "message", id: message.id }),
+    };
+  }
+  return next;
+}
+
 /** Replace one subagent entry in place; unknown ids are ignored. */
 function patchSubagent(
   state: State,
@@ -405,7 +438,7 @@ function applySessionEvent(state: State, event: SessionEvent): State {
       return { ...base, reasoningChars: Number(payload.chars ?? base.reasoningChars) };
 
     case "message.done":
-      return finishMessage(base, payload);
+      return flushDeferred(finishMessage(base, payload));
 
     case "tool.call": {
       const entry: ToolCallEntry = {
@@ -429,11 +462,13 @@ function applySessionEvent(state: State, event: SessionEvent): State {
         last && last.streaming && last.role === "assistant"
           ? base.messages.slice(0, -1).concat({ ...last, streaming: false })
           : base.messages;
+      // The message just closed, so anything that was waiting on it can land —
+      // before the tool card, which is where it happened in time.
+      const settled = flushDeferred({ ...base, messages });
       return {
-        ...base,
-        messages,
-        toolCalls: [...base.toolCalls, entry],
-        timeline: pushTimeline(base, { kind: "tool", id: entry.callId }),
+        ...settled,
+        toolCalls: [...settled.toolCalls, entry],
+        timeline: pushTimeline(settled, { kind: "tool", id: entry.callId }),
       };
     }
 
@@ -657,7 +692,9 @@ function applySessionEvent(state: State, event: SessionEvent): State {
       const promptTexts = { ...base.promptTexts };
       if (finished) delete promptTexts[finished];
       const messages = base.messages.map((m) => (m.streaming ? { ...m, streaming: false } : m));
-      return { ...base, messages, promptTexts, turnActive: false };
+      // Nothing may be left stranded by a turn that ended without a final
+      // message — an interrupt, or an error.
+      return { ...flushDeferred({ ...base, messages }), promptTexts, turnActive: false };
     }
 
     default:
@@ -729,6 +766,15 @@ export function reducer(state: State, action: Action): State {
         streaming: false,
         attachments: action.attachments?.length ? action.attachments : undefined,
       };
+      // Mid-answer, this prompt waits: see `deferredPrompts`. The queued list
+      // under the input is what shows it in the meantime.
+      if (state.messages.some((m) => m.streaming)) {
+        return {
+          ...state,
+          deferredPrompts: [...state.deferredPrompts, message],
+          reasoningChars: 0,
+        };
+      }
       return {
         ...state,
         messages: [...state.messages, message],
