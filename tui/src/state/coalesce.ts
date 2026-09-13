@@ -41,7 +41,7 @@ export interface ChildEventBuffer<E extends CoalescableEvent> {
 }
 
 interface Pending<E> {
-  /** The first delta of the run, whose seq and role the merged event keeps. */
+  /** The newest delta of the run, whose seq the merged event keeps. */
   event: E;
   text: string;
 }
@@ -110,6 +110,9 @@ export function createChildEventBuffer<E extends CoalescableEvent>(
       const entry = pending.get(sessionId);
       if (entry) {
         entry.text += text;
+        // The batch stands in for every delta in it, so it carries the newest
+        // seq: the store's `lastSeq` must not go backwards.
+        entry.event = event;
         return;
       }
       if (timer === null) {
