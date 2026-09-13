@@ -20,6 +20,7 @@ from snowpea_core.server.protocol import (
     LspDiagnostics,
     MessageDelta,
     MessageDone,
+    MessageReasoning,
     ModeChanged,
     ModelChanged,
     ToolCallEvent,
@@ -43,8 +44,19 @@ def message_delta(text: str) -> Event:
     return _pack(MessageDelta(text=text))
 
 
-def message_done(text: str, role: str = "assistant") -> Event:
-    return _pack(MessageDone(text=text, role=role))  # type: ignore[arg-type]
+def message_reasoning(text: str, chars: int) -> Event:
+    """The model is thinking; ``chars`` is the running total for the turn."""
+    return _pack(MessageReasoning(text=text, chars=chars))
+
+
+def message_done(
+    text: str, role: str = "assistant", *, truncated: bool = False, continuations: int = 0
+) -> Event:
+    return _pack(
+        MessageDone(  # type: ignore[arg-type]
+            text=text, role=role, truncated=truncated, continuations=continuations
+        )
+    )
 
 
 def tool_call(call_id: str, name: str, args: dict[str, Any]) -> Event:
@@ -165,6 +177,7 @@ __all__ = [
     "error",
     "message_delta",
     "message_done",
+    "message_reasoning",
     "mode_changed",
     "model_changed",
     "tool_call",

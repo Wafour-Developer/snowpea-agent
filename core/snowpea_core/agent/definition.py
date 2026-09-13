@@ -70,6 +70,10 @@ class AgentDefinition:
     tools: list[str] | str = ALL_TOOLS
     permission: str = "inherit"
     max_turns: int | None = None
+    #: ``"on"`` | ``"off"`` | ``"inherit"``.  A reviewer that genuinely wants
+    #: hidden reasoning says ``thinking: on``; everything else inherits, which
+    #: for a delegated turn means off (CORE-reasoning-budget).
+    thinking: str = "inherit"
     prompt: str = ""
     #: Where it was read from, when it came off disk.
     path: Path | None = None
@@ -90,6 +94,7 @@ class AgentDefinition:
             "tools": self.tools,
             "permission": self.permission,
             "max_turns": self.max_turns,
+            "thinking": self.thinking,
             "prompt": self.prompt,
             "source": self.source,
             "path": str(self.path) if self.path else None,
@@ -223,6 +228,8 @@ def render_agent_md(defn: AgentDefinition) -> str:
     ]
     if defn.max_turns is not None:
         fields.append(("max_turns", defn.max_turns))
+    if defn.thinking != "inherit":
+        fields.append(("thinking", defn.thinking))
     head = "\n".join(f"{key}: {_render_value(value)}" for key, value in fields)
     return f"{FENCE}\n{head}\n{FENCE}\n\n{defn.prompt.strip()}\n"
 
@@ -264,6 +271,7 @@ def parse_agent_text(
         tools=tools,
         permission=str(meta.get("permission") or "inherit"),
         max_turns=max_turns,
+        thinking=str(meta.get("thinking") or "inherit"),
         prompt=body,
         path=path,
         source=source,

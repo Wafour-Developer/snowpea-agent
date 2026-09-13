@@ -135,6 +135,13 @@ def messages_to_openai(
     return out
 
 
+#: What a Qwen-style server wants in order *not* to think.  vLLM and SGLang
+#: both forward ``chat_template_kwargs`` into the chat template, and the
+#: Qwen3 template reads ``enable_thinking`` from it; a server whose template
+#: has no such variable ignores the key rather than failing the request.
+THINKING_OFF_TEMPLATE_KWARGS: dict[str, Any] = {"enable_thinking": False}
+
+
 def build_openai_request(
     preset: VendorPreset,
     model: str,
@@ -143,14 +150,23 @@ def build_openai_request(
     *,
     max_tokens: int,
     include_usage: bool = True,
+    thinking: str | None = None,
 ) -> dict[str, Any]:
-    """The full JSON body for a streaming ``/chat/completions`` call."""
+    """The full JSON body for a streaming ``/chat/completions`` call.
+
+    ``thinking`` is ``"on"``, ``"off"`` or ``None`` ("say nothing").  Only
+    ``"off"`` puts anything on the wire: hidden reasoning counts against
+    ``max_tokens``, so a reviewer turn that must produce visible text asks the
+    server to skip it (CORE-reasoning-budget).
+    """
     body: dict[str, Any] = {
         "model": model,
         "messages": messages_to_openai(messages, vision=content.supports_vision(preset.id, model)),
         "max_tokens": max_tokens,
         "stream": True,
     }
+    if thinking == "off":
+        body["chat_template_kwargs"] = dict(THINKING_OFF_TEMPLATE_KWARGS)
     if include_usage:
         body["stream_options"] = {"include_usage": True}
     if tools:
@@ -253,6 +269,27 @@ def build_gemini_request(
 # ---------------------------------------------------------------------------
 
 
+#: Where a server puts hidden reasoning on a streaming delta (or, for a
+#: non-streaming body, on ``message``).  ``reasoning`` is what vLLM and
+#: OpenRouter send; ``reasoning_content`` is DeepSeek's and SGLang's spelling.
+REASONING_KEYS: tuple[str, ...] = ("reasoning", "reasoning_content")
+
+
+def _reasoning_of(delta: dict[str, Any]) -> str:
+    """Hidden reasoning text on one delta, whichever key the vendor used."""
+    for key in REASONING_KEYS:
+        value = delta.get(key)
+        if isinstance(value, str) and value:
+            return value
+        if isinstance(value, list):
+            joined = "".join(
+                str(part.get("text", "")) for part in value if isinstance(part, dict)
+            )
+            if joined:
+                return joined
+    return ""
+
+
 class _Normalizer:
     """Common buffering: tool calls and usage are flushed before ``done``."""
 
@@ -305,6 +342,9 @@ class OpenAIStreamNormalizer(_Normalizer):
                 # Non-streaming fallback: the whole message in one chunk.
                 message = choice.get("message")
                 delta = message if isinstance(message, dict) else {}
+            reasoning = _reasoning_of(delta)
+            if reasoning:
+                yield StreamEvent(kind="reasoning_delta", text=reasoning)
             text = delta.get("content")
             if isinstance(text, str) and text:
                 yield StreamEvent(kind="text_delta", text=text)
@@ -322,9 +362,14 @@ class OpenAIStreamNormalizer(_Normalizer):
                 yield from self._flush_tool_calls()
 
     def _absorb_usage(self, usage: dict[str, Any]) -> None:
+        details = usage.get("completion_tokens_details")
+        reasoning = 0
+        if isinstance(details, dict):
+            reasoning = int(details.get("reasoning_tokens") or 0)
         self.usage = Usage(
             input_tokens=int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0),
             output_tokens=int(usage.get("completion_tokens") or usage.get("output_tokens") or 0),
+            reasoning_tokens=reasoning,
         )
 
     def _absorb_tool_calls(self, raw: Any) -> None:
@@ -416,7 +461,9 @@ class GeminiStreamNormalizer(_Normalizer):
 
 
 __all__ = [
+    "REASONING_KEYS",
     "STOP_REASONS",
+    "THINKING_OFF_TEMPLATE_KWARGS",
     "GeminiStreamNormalizer",
     "OpenAIStreamNormalizer",
     "build_gemini_request",

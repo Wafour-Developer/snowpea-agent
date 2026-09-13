@@ -232,6 +232,50 @@ snowpea setup --vendor local --base-url http://localhost:11434/v1 --model qwen3:
 
 Anything that speaks `/v1/chat/completions` works — vLLM, Ollama, LM Studio, llama.cpp's server. Tool calling has to be supported by the model you load, or the agent will be able to talk but not act.
 
+### Output budget and thinking
+
+A reasoning model — Qwen3, DeepSeek-R1, GLM's thinking variants — streams its
+thinking *before* it writes anything, and that thinking is charged to the same
+`max_tokens` as the answer. Ask for too little and the model spends the whole
+budget on thinking and answers nothing.
+
+```json
+{
+  "agent": { "max_tokens": 16384, "thinking": "auto" },
+  "providers": {
+    "local": { "max_tokens": 32768, "thinking": "off" }
+  }
+}
+```
+
+`agent.max_tokens` (16384) is what one call to the model may produce, and a
+vendor block overrides it for that vendor. Either way it is clamped to what
+the model actually accepts, so a ceiling like `gpt-4`'s 8192 is respected
+rather than sent and rejected.
+
+`agent.thinking` is `on`, `off` or `auto`. `auto` — the default — thinks in the
+session you are watching and stays quiet in a delegated one, where the report
+*is* the output and hidden reasoning only eats the budget. `off` sends
+`chat_template_kwargs: {"enable_thinking": false}`, which Qwen-style servers
+(vLLM, SGLang) honour and others ignore. One agent definition can overrule
+both with `thinking: on` in its frontmatter.
+
+The daemon also reacts when a turn stops at the limit: an answer that is empty
+but burned reasoning tokens is asked again once with thinking off (or twice
+the budget, for a vendor with no switch), and an answer cut off mid-sentence is
+resumed up to twice and the pieces joined. The TUI says which happened —
+`response hit the output limit; continued`, or `… and is incomplete` when even
+that was not enough. A `delegate_task` summary that is still cut off ends with
+`[truncated at max_tokens after 2 continuations]`.
+
+**Empty or truncated answers**
+
+| What you see | What it means |
+|---|---|
+| The model answers with nothing at all | The whole budget went on hidden reasoning. Raise `agent.max_tokens`, or set the vendor's `thinking` to `off`. |
+| The answer stops mid-sentence | The budget is too small for this kind of task; the daemon resumes twice and then says so. Raise `agent.max_tokens`. |
+| `HTTP 400 … max_tokens` | The model's ceiling is below the budget and is not in snowpea's table — set `providers.<vendor>.max_tokens` to the published limit. |
+
 ### Which vendor gets used
 
 In order of precedence: the `SNOWPEA_PROVIDER` environment variable, then `--provider` on the command line or the `provider` argument of the session, then `providers.default` in settings, then the first configured vendor.
@@ -315,7 +359,7 @@ The token is stored in `$SNOWPEA_HOME/credentials.json` (mode `0600`), and the m
 
 ## What ends up on disk
 
-`$SNOWPEA_HOME/settings.json` holds `providers`, `search.provider`, `browser.provider`, `tools.enabled_categories`, `gateway`, `agents.max_concurrent` (3), `team.max_conflict_retries` (2), `approvals.timeoutSec` (300) and `memory.enabled` (true). Per-project overrides for mode, allowlist and backend live in `<project>/.snowpea/settings.json` and win over the global file. Secrets are never written into `settings.json`, and never logged.
+`$SNOWPEA_HOME/settings.json` holds `providers`, `search.provider`, `browser.provider`, `tools.enabled_categories`, `gateway`, `agents.max_concurrent` (3), `team.max_conflict_retries` (2), `approvals.timeoutSec` (300), `agent.max_tokens` (16384), `agent.thinking` (`auto`) and `memory.enabled` (true). Per-project overrides for mode, allowlist and backend live in `<project>/.snowpea/settings.json` and win over the global file. Secrets are never written into `settings.json`, and never logged.
 
 ## Next
 

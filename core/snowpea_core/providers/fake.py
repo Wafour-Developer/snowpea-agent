@@ -11,7 +11,9 @@ Script format::
          "tool_calls": [{"name": "shell", "arguments": {"command": "ls"}}],
          "text": "running"},
         {"after_tool": "shell", "text": "done"},
-        {"match": "stall", "delaySec": 5, "text": "too late"}
+        {"match": "stall", "delaySec": 5, "text": "too late"},
+        {"match": "review", "reasoning": "thinking hard", "reasoningTokens": 400,
+         "stopReason": "length", "text": ""}
       ],
       "default": {"text": "fake default reply"}
     }
@@ -22,6 +24,13 @@ Matching rules, evaluated per ``stream()`` call, in order:
   * Each step is consumed once unless ``"repeat": true``.
   * ``"delaySec": N`` sleeps N seconds before the step emits anything, which is
     how the CLI's ``--timeout`` exit code is driven deterministically.
+  * ``"reasoning"`` is emitted as ``reasoning_delta`` and, with
+    ``"reasoningTokens"`` and ``"stopReason": "length"``, reproduces a model
+    that spent its whole output budget thinking (CORE-reasoning-budget).
+  * ``"thinking": "off"`` on a step makes it match only a call the agent loop
+    asked not to think, which is how the retry path is exercised.  Turning
+    thinking off suppresses ``reasoning`` and ``reasoningTokens``; it does not
+    suppress ``stopReason``, because a long answer can still run out of room.
   * If nothing matches, ``default`` is used (or an empty completion).
 The same input always yields the same output.
 """
@@ -37,6 +46,7 @@ from pathlib import Path
 from typing import Any
 
 from .base import ChatMessage, ProviderError, StreamEvent, ToolCall, ToolSpec, Usage
+from .normalize import STOP_REASONS
 
 
 def _last_user_text(messages: list[ChatMessage]) -> str:
@@ -80,10 +90,16 @@ def _last_tool_name(messages: list[ChatMessage]) -> str | None:
 class FakeProvider:
     vendor = "fake"
 
+    #: The scripted provider honours ``thinking`` so a test can watch the loop
+    #: retry a reasoning-starved turn with it off.
+    supports_thinking_option = True
+
     def __init__(self, script: dict[str, Any] | None = None, model: str = "fake-1") -> None:
         self.model = model
         self._script = script or {"steps": [], "default": {"text": "fake default reply"}}
         self._used: set[int] = set()
+        #: ``(max_tokens, thinking)`` of every call, oldest first.
+        self.calls: list[tuple[int, str | None]] = []
 
     @classmethod
     def from_env(cls, value: str | None = None) -> FakeProvider:
@@ -96,11 +112,14 @@ class FakeProvider:
             raise ProviderError("invalid_params", f"fake provider script not found: {p}")
         return cls(json.loads(p.read_text(encoding="utf-8")))
 
-    def _pick(self, messages: list[ChatMessage]) -> dict[str, Any]:
+    def _pick(self, messages: list[ChatMessage], thinking: str | None = None) -> dict[str, Any]:
         user_text = _last_user_text(messages).lower()
         tool_name = _last_tool_name(messages)
         for idx, step in enumerate(self._script.get("steps", [])):
             if idx in self._used and not step.get("repeat"):
+                continue
+            wants = step.get("thinking")
+            if wants is not None and str(wants) != (thinking or ""):
                 continue
             after = step.get("after_tool")
             if after is not None:
@@ -120,11 +139,17 @@ class FakeProvider:
         tools: list[ToolSpec],
         *,
         max_tokens: int = 4096,
+        thinking: str | None = None,
     ) -> AsyncIterator[StreamEvent]:
-        step = self._pick(messages)
+        self.calls.append((max_tokens, thinking))
+        step = self._pick(messages, thinking)
         delay = float(step.get("delaySec") or 0.0)
         if delay > 0:
             await asyncio.sleep(delay)
+        reasoning = str(step.get("reasoning", ""))
+        if reasoning and thinking != "off":
+            for i in range(0, len(reasoning), 8):
+                yield StreamEvent(kind="reasoning_delta", text=reasoning[i : i + 8])
         text = str(step.get("text", ""))
         # Emit text in small deltas so streaming consumers are exercised.
         for i in range(0, len(text), 8):
@@ -140,7 +165,17 @@ class FakeProvider:
                 ),
             )
         in_tokens = _prompt_chars(messages) // 4
+        reasoning_tokens = 0 if thinking == "off" else int(step.get("reasoningTokens") or 0)
         yield StreamEvent(
-            kind="usage", usage=Usage(input_tokens=in_tokens, output_tokens=len(text) // 4)
+            kind="usage",
+            usage=Usage(
+                input_tokens=in_tokens,
+                output_tokens=len(text) // 4 + reasoning_tokens,
+                reasoning_tokens=reasoning_tokens,
+            ),
         )
+        scripted = step.get("stopReason")
+        if scripted:
+            yield StreamEvent(kind="done", stop_reason=STOP_REASONS.get(str(scripted), "end_turn"))
+            return
         yield StreamEvent(kind="done", stop_reason="tool_use" if calls else "end_turn")

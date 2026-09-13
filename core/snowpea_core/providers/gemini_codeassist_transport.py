@@ -112,6 +112,8 @@ class CodeAssistProvider:
     """Streaming ``ChatProvider`` for a Google-OAuth Gemini account."""
 
     vendor = "gemini"
+    #: No thinking switch on this backend; the agent loop does not offer one.
+    supports_thinking_option = False
 
     def __init__(
         self,

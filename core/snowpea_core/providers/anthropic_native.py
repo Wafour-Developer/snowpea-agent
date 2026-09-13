@@ -114,6 +114,8 @@ class AnthropicProvider:
     """Streaming ``ChatProvider`` backed by ``anthropic.AsyncAnthropic``."""
 
     vendor = "anthropic"
+    #: No thinking switch on this backend; the agent loop does not offer one.
+    supports_thinking_option = False
 
     def __init__(
         self,

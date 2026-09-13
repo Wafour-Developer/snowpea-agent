@@ -39,6 +39,10 @@ class Session:
     #: True for a session a parent agent spawned: it gets the subagent preamble
     #: (no user is watching; the final message is the whole report).
     is_subagent: bool = False
+    #: ``"on"`` | ``"off"`` | ``"auto"`` for this session only — an agent
+    #: definition's ``thinking:``.  ``None`` falls back to the vendor block and
+    #: then ``agent.thinking`` (CORE-reasoning-budget).
+    thinking: str | None = None
     #: Long-term memory namespace (M5 contract §1): ``"default"`` for
     #: interactive sessions, ``"agent:<name>"`` for named agents.
     memory_namespace: str = "default"

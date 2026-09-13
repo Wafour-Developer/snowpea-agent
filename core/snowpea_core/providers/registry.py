@@ -22,7 +22,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from snowpea_core.config.paths import Paths, resolve_home
-from snowpea_core.config.settings import Settings
+from snowpea_core.config.settings import THINKING_CHOICES, Settings
 from snowpea_core.providers import context_windows
 from snowpea_core.providers import models as model_discovery
 from snowpea_core.providers.base import ChatProvider, ProviderError
@@ -308,6 +308,31 @@ class ProviderRegistry:
         if preset is None:
             return None
         return preset.context_window(resolved_model)
+
+    # -- output budget and thinking (CORE-reasoning-budget) ------------
+    def max_tokens_for(self, vendor: str, model: str | None = None) -> int:
+        """Output tokens one call to ``vendor``/``model`` may produce.
+
+        ``settings.providers.<vendor>.max_tokens`` overrides the global
+        ``agent.max_tokens``; either way the answer is clamped to what the
+        model actually accepts, because a budget above a vendor's ceiling is
+        an HTTP 400 rather than a longer answer.
+        """
+        override = _as_positive_int(self.vendor_config(vendor).get("max_tokens"))
+        budget = override if override is not None else self.settings.agent.max_tokens
+        return context_windows.clamp_output_tokens(self.model_for(vendor, model), int(budget))
+
+    def thinking_for(self, vendor: str) -> str:
+        """``"on"`` | ``"off"`` | ``"auto"`` for ``vendor``.
+
+        ``settings.providers.<vendor>.thinking`` wins over ``agent.thinking``;
+        an unrecognised value is read as ``"auto"`` rather than refused, so a
+        typo degrades to today's behaviour instead of failing every turn.
+        """
+        configured = self.vendor_config(vendor).get("thinking")
+        if not isinstance(configured, str) or not configured:
+            configured = self.settings.agent.thinking
+        return configured if configured in THINKING_CHOICES else "auto"
 
     async def resolve_context_window(
         self, vendor: str, model: str | None = None, *, refresh: bool = False
