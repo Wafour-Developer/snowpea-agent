@@ -56,10 +56,13 @@ GLOB = (
 DELEGATE_TASK = (
     "Hand a self-contained task to a subagent and return its report. Call it several "
     "times in one turn to run them in parallel. The child sees nothing of this "
-    "conversation, so put everything it needs in the task, including any required "
-    "output language. Its reply is a self-report, not a verified fact: for anything "
-    "with an external effect, verify the result yourself before telling the user it "
-    "worked."
+    "conversation, so put everything it needs in the task; the brief itself may be "
+    "English for precision, and the output language is appended for you. Pass title "
+    "as a one-line description of the delegation in the user's language — it is what "
+    "the user sees while it runs. Its reply is a self-report, not a verified fact: "
+    "for anything with an external effect, verify the result yourself before telling "
+    "the user it worked. Relay what it found in your own words; never paste its "
+    "report."
 )
 
 LSP_DIAGNOSTICS = (

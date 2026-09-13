@@ -122,6 +122,10 @@ class SubagentRecord:
     name: str
     task: str
     parent_session_id: str
+    #: One-line, user-language label the caller wrote for this delegation
+    #: (``delegate_task(title=…)``); ``""`` when it did not write one, and the
+    #: surface falls back to its own wording.
+    title: str = ""
     status: str = QUEUED
     session_id: str | None = None
     summary: str = ""
@@ -278,6 +282,7 @@ class SubagentManager:
                     "agentId": record.agent_id,
                     "name": record.name,
                     "task": record.task,
+                    "title": record.title,
                     "status": record.status,
                     "sessionId": record.session_id,
                 },
@@ -292,6 +297,7 @@ class SubagentManager:
                 {
                     "agentId": record.agent_id,
                     "status": record.status,
+                    "title": record.title,
                     "text": last_text,
                     "lastText": last_text,
                     "name": record.name,
@@ -308,6 +314,7 @@ class SubagentManager:
                 {
                     "agentId": record.agent_id,
                     "ok": record.ok,
+                    "title": record.title,
                     "result": record.summary,
                     "status": record.status,
                     "summary": record.summary or (record.error or ""),
@@ -331,13 +338,16 @@ class SubagentManager:
         return None
 
     # -- the run --------------------------------------------------------
-    def new_record(self, parent: Session, task: str, agent: str | None) -> SubagentRecord:
+    def new_record(
+        self, parent: Session, task: str, agent: str | None, title: str = ""
+    ) -> SubagentRecord:
         """Register a queued record; its id is what ``agent.spawn`` answers."""
         record = SubagentRecord(
             agent_id=new_agent_id(),
             name=agent or "",
             task=(task or "").strip(),
             parent_session_id=parent.id,
+            title=(title or "").strip(),
         )
         self._remember(record)
         return record
@@ -351,13 +361,14 @@ class SubagentManager:
         tools: list[str] | None = None,
         timeout: float | None = None,
         model: str | None = None,
+        title: str = "",
     ) -> tuple[str, asyncio.Task[SubagentResult]]:
         """Start a subagent in the background; returns its id and its task.
 
         ``agent.spawn`` answers the moment the id exists, because a client wants
         the correlation id now and the events later.
         """
-        record = self.new_record(parent, task, agent)
+        record = self.new_record(parent, task, agent, title)
         runner = asyncio.ensure_future(
             self.run(
                 parent,
@@ -367,6 +378,7 @@ class SubagentManager:
                 timeout=timeout,
                 record=record,
                 model=model,
+                title=title,
             )
         )
         return record.agent_id, runner
@@ -381,6 +393,7 @@ class SubagentManager:
         timeout: float | None = None,
         record: SubagentRecord | None = None,
         model: str | None = None,
+        title: str = "",
     ) -> SubagentResult:
         """Delegate ``task`` to a child session and return its final answer.
 
@@ -391,7 +404,7 @@ class SubagentManager:
         """
         brief = (task or "").strip()
         if record is None:
-            record = self.new_record(parent, task, agent)
+            record = self.new_record(parent, task, agent, title)
         if model:
             route = resolve_reference(
                 self.core.settings,

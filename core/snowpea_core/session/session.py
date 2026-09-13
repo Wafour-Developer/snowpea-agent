@@ -42,6 +42,14 @@ class Session:
     #: Long-term memory namespace (M5 contract §1): ``"default"`` for
     #: interactive sessions, ``"agent:<name>"`` for named agents.
     memory_namespace: str = "default"
+    #: Language tag detected from the user's own words, cached so a turn that
+    #: delegates four times detects once.  Refreshed by
+    #: ``tools.delegate.detected_language`` whenever a newer user message is in
+    #: the history; empty until something has asked.
+    detected_language: str = ""
+    #: The user text :attr:`detected_language` was derived from, so a new user
+    #: message invalidates the cache without a hook in the turn path.
+    detected_language_source: str = ""
     created_at: str = ""
     closed_at: str | None = None
     max_concurrent: int = 3
