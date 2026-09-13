@@ -35486,7 +35486,7 @@ function recordingLabel(startedAt, now) {
 }
 
 // src/version.ts
-var TUI_VERSION = "0.1.8";
+var TUI_VERSION = "0.1.9";
 
 // src/layout/text-width.ts
 var segmenter2 = new Intl.Segmenter(void 0, { granularity: "grapheme" });
@@ -38844,7 +38844,7 @@ function installAltScreen({
 }
 
 // ../sdk/dist/protocol.js
-var PROTOCOL_VERSION = "1.4.0";
+var PROTOCOL_VERSION = "1.5.0";
 var WS_PATH = "/ws";
 
 // ../sdk/dist/client.js
