@@ -3,33 +3,41 @@
  *
  * The daemon runs them and `lsp.status` reports them; this turns that into the
  * HUD's segment, the `/lsp` table, and the colour a diagnostic line is drawn
- * in. The protocol types are declared here rather than imported because the LSP
- * work is on its own branch: the shapes are the branch's, and this file is what
- * changes when the generated types land.
+ * in.
+ *
+ * The wire shapes come from the generated protocol; the rows here are the same
+ * data with the optional fields filled in, so the rest of the TUI never has to
+ * ask whether a server reported a pid.
  *
  * Pure, so `test/lsp.test.ts` can check every state without a language server.
  */
 
-/** Lifecycle of one server, as the daemon reports it (M13 §4). */
-export type LspServerState = "starting" | "ready" | "broken" | "stopped";
+import type { LspDiagnostics, LspServerStatus } from "../rpc/sdk.js";
 
-/** One row of `lsp.status`. */
-export interface LspServer {
-  id: string;
-  root: string;
-  state: LspServerState;
-  languageId: string;
+/** Lifecycle of one server, as the daemon reports it (M13 §4). */
+export type LspServerState = LspServerStatus["state"];
+
+/** One row of `lsp.status`, with the optional fields settled. */
+export interface LspServer extends Required<Omit<LspServerStatus, "pid">> {
   pid: number | null;
 }
 
 /** Diagnostics counts for one file, from the `lsp.diagnostics` event. */
-export interface FileDiagnostics {
-  count: number;
-  errors: number;
-  warnings: number;
-}
+export type FileDiagnostics = Required<Pick<LspDiagnostics, "count" | "errors" | "warnings">>;
 
 const STATES: readonly LspServerState[] = ["starting", "ready", "broken", "stopped"];
+
+/**
+ * A state the protocol adds stops this compiling until it is listed above,
+ * which is the point: an unlisted state would silently read as `stopped`.
+ */
+const STATES_ARE_EXHAUSTIVE: Record<LspServerState, true> = {
+  starting: true,
+  ready: true,
+  broken: true,
+  stopped: true,
+};
+void STATES_ARE_EXHAUSTIVE;
 
 /**
  * Read an `lsp.status` answer.

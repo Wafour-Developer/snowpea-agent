@@ -9,6 +9,7 @@
  */
 
 import { contextSegment } from "./bottom.js";
+import { lspColor, lspLabel, type LspServer } from "../state/lsp.js";
 import type { ConnectionStatus } from "../rpc/client.js";
 import type { ContextUsage } from "../state/store.js";
 import type { Mode } from "../rpc/sdk.js";
@@ -105,6 +106,8 @@ export interface HudInput {
   toolCount?: number | null;
   /** True while assistant replies are being spoken. */
   speaking?: boolean;
+  /** Language servers, for the `lsp N` segment. */
+  lsp?: readonly LspServer[];
   /** Milliseconds since this TUI attached to its session. */
   sessionMs: number;
   daemonPid?: number | null;
@@ -189,6 +192,19 @@ export function buildHudSegments(input: HudInput): HudSegment[] {
     dimColor: true,
     priority: 5,
   });
+
+  // Language servers, when there are any: the count that is ready, with a bang
+  // when one of them is broken.
+  const lsp = lspLabel(input.lsp ?? []);
+  if (lsp) {
+    segments.push({
+      key: "lsp",
+      text: lsp,
+      color: lspColor(input.lsp ?? []),
+      dimColor: lspColor(input.lsp ?? []) === undefined,
+      priority: 6,
+    });
+  }
 
   if (input.speaking) {
     segments.push({ key: "tts", text: "🔊", color: "cyan", priority: 2 });

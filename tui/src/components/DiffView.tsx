@@ -13,6 +13,7 @@
 import React from "react";
 import { Box, Text } from "ink";
 
+import { diagnosticsBadge, diagnosticsColor, type FileDiagnostics } from "../state/lsp.js";
 import type { DiffEntry } from "../state/store.js";
 
 /** Lines of patch shown before the rest is folded away. */
@@ -61,19 +62,26 @@ export function diffHeader(diff: DiffEntry): string {
 export function DiffView({
   diff,
   expanded = false,
+  diagnostics,
 }: {
   diff: DiffEntry;
   /** Ctrl+O opened this one. */
   expanded?: boolean;
+  /** What a language server said about this file, when it said anything. */
+  diagnostics?: FileDiagnostics;
 }): React.ReactElement {
+  const badge = diagnosticsBadge(diagnostics);
   const lines = diff.patch.split("\n");
   const limit = expanded ? EXPANDED_LINES : COLLAPSED_LINES;
   const shown = lines.slice(0, limit);
   const hidden = lines.length - shown.length;
   return (
     <Box flexDirection="column" marginBottom={1}>
-      <Text bold color={diff.created ? "green" : "yellow"}>
-        {diffHeader(diff)}
+      <Text>
+        <Text bold color={diff.created ? "green" : "yellow"}>
+          {diffHeader(diff)}
+        </Text>
+        {badge ? <Text color={diagnosticsColor(diagnostics)}>{`  ${badge}`}</Text> : null}
       </Text>
       {shown.map((line, index) => (
         <Text

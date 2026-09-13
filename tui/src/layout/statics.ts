@@ -47,12 +47,22 @@ export function settledCount(state: State, cursor = 0): number {
   let count = start;
   while (count < total && isSettled(state, state.timeline[count])) count += 1;
 
-  // A tool run that ends the released range is not finished being a run: while
-  // the turn is live, more calls can still join it, and releasing it now would
-  // split one summary line into several. Only a non-tool entry after the run —
-  // or the end of the turn — proves it is over.
+  // Two kinds of entry are held back while the turn is live.
+  //
+  // A tool run that ends the released range is not finished being a run: more
+  // calls can still join it, and releasing it now would split one summary line
+  // into several. A diff is held for a different reason — a language server
+  // publishes its diagnostics a moment after the edit, and the badge those put
+  // on the header cannot be added to a line already in the scrollback.
+  //
+  // Either way, a non-tool, non-diff entry after them, or the end of the turn,
+  // proves there is nothing more to come.
   if (state.turnActive) {
-    while (count > start && state.timeline[count - 1].kind === "tool") count -= 1;
+    while (count > start) {
+      const kind = state.timeline[count - 1].kind;
+      if (kind !== "tool" && kind !== "diff") break;
+      count -= 1;
+    }
   }
   return count;
 }

@@ -3,6 +3,7 @@
 import React from "react";
 import { Box, Text } from "ink";
 
+import { diagnosticLineColor } from "../state/lsp.js";
 import type { ToolCallEntry } from "../state/store.js";
 
 const STATE_GLYPH: Record<ToolCallEntry["state"], { glyph: string; color: string }> = {
@@ -44,12 +45,21 @@ export function ToolCall({
         <Text dimColor> {summarizeArgs(call.args)}</Text>
         {!expanded && lines.length > 0 ? <Text dimColor> ({lines.length} lines)</Text> : null}
       </Text>
-      {shown.map((line, index) => (
-        <Text key={`${call.callId}-o${index}`} dimColor={!call.error} color={call.error ? "red" : undefined}>
-          {"  "}
-          {line}
-        </Text>
-      ))}
+      {shown.map((line, index) => {
+        // A Diagnostics block from a language server is the part of a tool
+        // result worth reading in colour: its severities are the news.
+        const severity = diagnosticLineColor(line);
+        return (
+          <Text
+            key={`${call.callId}-o${index}`}
+            dimColor={!call.error && severity === undefined}
+            color={call.error ? "red" : severity}
+          >
+            {"  "}
+            {line}
+          </Text>
+        );
+      })}
       {expanded && hidden > 0 ? <Text dimColor>{`  … ${hidden} more lines`}</Text> : null}
     </Box>
   );

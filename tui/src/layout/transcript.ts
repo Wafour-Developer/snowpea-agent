@@ -13,6 +13,7 @@
 
 import { graphemes, textWidth } from "./text-width.js";
 
+import { diagnosticLineColor } from "../state/lsp.js";
 import type { DiffEntry, Message, State, ToolCallEntry } from "../state/store.js";
 
 export interface Segment {
@@ -285,12 +286,19 @@ export function toolCallLines(call: ToolCallEntry, expanded: boolean): Line[] {
   if (!expanded && all.length > 0) head.push({ text: ` (${all.length} lines)`, dimColor: true });
 
   const out: Line[] = [{ key: `${call.callId}-h`, segments: head }];
-  shown.forEach((line, index) =>
+  shown.forEach((line, index) => {
+    const severity = diagnosticLineColor(line);
     out.push({
       key: `${call.callId}-o${index}`,
-      segments: [{ text: `  ${line}`, dimColor: !call.error, color: call.error ? "red" : undefined }],
-    }),
-  );
+      segments: [
+        {
+          text: `  ${line}`,
+          dimColor: !call.error && severity === undefined,
+          color: call.error ? "red" : severity,
+        },
+      ],
+    });
+  });
   if (expanded && hidden > 0) {
     out.push({ key: `${call.callId}-more`, segments: [{ text: `  … ${hidden} more lines`, dimColor: true }] });
   }
