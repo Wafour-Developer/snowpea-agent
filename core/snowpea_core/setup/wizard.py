@@ -235,7 +235,15 @@ def _ask_for_key(state: WizardState, *, interactive: bool) -> None:
         variants = list(LOCAL_VARIANTS)
         saved_idx = variants.index(state.variant) + 1 if state.variant in variants else 1
         labels = ", ".join(f"{i + 1}={LOCAL_VARIANTS[v].label}" for i, v in enumerate(variants))
-        picked = ui.ask_text(f"local server type [{labels}] (Enter={saved_idx}): ")
+        picked = _menu_pick(
+            "local server type",
+            [(v, LOCAL_VARIANTS[v].label, ()) for v in variants],
+            default_id=variants[saved_idx - 1],
+        )
+        if picked is not None:
+            picked = str(variants.index(picked) + 1)
+        else:
+            picked = ui.ask_text(f"local server type [{labels}] (Enter={saved_idx}): ")
         try:
             variant = variants[int(picked) - 1] if picked else variants[saved_idx - 1]
         except (ValueError, IndexError):
@@ -268,12 +276,17 @@ def _ask_for_key(state: WizardState, *, interactive: bool) -> None:
         prompt = f"authentication [{labels}] (Enter=1): "
         while True:
             try:
-                picked = ui.ask_text(prompt).strip()
+                menu = _menu_pick(
+                    f"{state.vendor} authentication",
+                    [(str(i), label, ()) for i, (label, _) in enumerate(choices)],
+                    default_id="0",
+                )
+                picked = menu if menu is not None else ui.ask_text(prompt).strip()
             except (KeyboardInterrupt, EOFError):
                 state.notes.append(f"{state.vendor}: login cancelled — left unconfigured")
                 return
             try:
-                index = int(picked) - 1 if picked else 0
+                index = int(picked) - (0 if menu is not None else 1) if picked else 0
             except ValueError:
                 index = -1
             if not 0 <= index < len(choices):
@@ -540,6 +553,20 @@ def _agent_tags(state: WizardState, name: str) -> tuple[str, ...]:
     return (f"uses {current}",) if current else ()
 
 
+def _ask_yes_no(question: str, *, default: bool) -> bool:
+    """A yes/no question as an arrow-key menu, or ``[Y/n]`` text off a TTY."""
+    picked = _menu_pick(
+        question, [("yes", "Yes", ()), ("no", "No", ())], default_id="yes" if default else "no"
+    )
+    if picked is not None:
+        return picked == "yes"
+    hint = "Y/n" if default else "y/N"
+    answer = ui.ask_text(f"{question} [{hint}]: ").strip().lower()
+    if not answer:
+        return default
+    return answer.startswith("y")
+
+
 def _vendor_options(state: WizardState) -> list[tuple[str, str, tuple[str, ...]]]:
     """Every vendor as a menu row, tagged like the provider screen."""
     from snowpea_core.setup.catalog import vendor_catalog
@@ -707,11 +734,11 @@ def _ask_for_audio(
     voice = ui.ask_text(f"voice [{voice_hint}]: ")
     if voice:
         state.tts_voice = voice
-    current = "Y/n" if state.auto_speak else "y/N"
-    spoken = ui.ask_text(f"read replies aloud by default? [{current}]: ").strip().lower()
-    if spoken:
-        state.auto_speak = spoken.startswith("y")
-    if ui.ask_text("test the voice now? [y/N]: ").strip().lower().startswith("y"):
+    if _ask_yes_no("read replies aloud by default?", default=state.auto_speak):
+        state.auto_speak = True
+    else:
+        state.auto_speak = False
+    if _ask_yes_no("test the voice now?", default=False):
         _test_voice(state, out)
 
 
