@@ -35176,6 +35176,7 @@ function modelOptions({
   defaultProfile = null,
   agentModels = null,
   discovered = null,
+  discoveredSource = null,
   current = null,
   vendor = null
 }) {
@@ -35209,13 +35210,14 @@ function modelOptions({
       });
     }
   }
+  const fallbackTag = { settings: "from settings", cache: "cached list", curated: "curated list" }[discoveredSource ?? ""] ?? "";
   for (const model of discovered ?? []) {
     if (covered.has(model)) continue;
     covered.add(model);
     options.push({
       ref: model,
       label: model,
-      detail: vendor ?? "",
+      detail: [vendor, fallbackTag].filter(Boolean).join(" \xB7 "),
       origin: "discovered",
       current: model === current
     });
@@ -37949,6 +37951,7 @@ function App2({
           defaultProfile: document2.models?.default ?? null,
           agentModels: document2.agents?.models ?? null,
           discovered: modelsResult?.models ?? null,
+          discoveredSource: modelsResult?.source ?? null,
           current: state.model ?? modelsResult?.current ?? null,
           vendor: state.provider ?? modelsResult?.vendor ?? null
         });

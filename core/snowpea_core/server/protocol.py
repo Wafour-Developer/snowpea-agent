@@ -628,6 +628,17 @@ class ProviderModelsResult(Payload):
         default_factory=list, description="Model ids the vendor's endpoint reports."
     )
     current: str = Field(default="", description="Model this vendor uses today.")
+    source: str = Field(
+        default="live",
+        description=(
+            "Which rung answered: live (the vendor's endpoint), settings "
+            "(providers.<vendor>.models), cache (the last good listing) or "
+            "curated (this build's list, merged with models.dev)."
+        ),
+    )
+    detail: str = Field(
+        default="", description="One line naming the source, for a picker to show."
+    )
 
 
 class ProviderConfigureParams(Payload):

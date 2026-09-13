@@ -707,8 +707,12 @@ export interface ProviderModelsParams {
 export interface ProviderModelsResult {
   /** Model this vendor uses today. */
   current?: string;
+  /** One line naming the source, for a picker to show. */
+  detail?: string;
   /** Model ids the vendor's endpoint reports. */
   models?: string[];
+  /** Which rung answered: live (the vendor's endpoint), settings (providers.<vendor>.models), cache (the last good listing) or curated (this build's list, merged with models.dev). */
+  source?: string;
   /** Vendor the listing came from. */
   vendor: string;
 }

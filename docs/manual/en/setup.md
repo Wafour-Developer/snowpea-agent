@@ -25,6 +25,32 @@ Quick is the right answer the first time. Full is worth one pass once you know w
 
 Lists are ordered free-and-keyless first, then free-but-needs-a-key or self-hosted, then paid. The default in each list is marked with a star. Nothing in the default configuration requires a paid account beyond your LLM vendor: web search and the browser both work with no key at all.
 
+## Where the model list comes from
+
+Every surface that lists models — the setup wizard, `snowpea provider models`, the `provider.models` RPC and the TUI `/model` picker — asks one function, which tries four things in order and tells you which one answered:
+
+| Rung | Source | When it answers |
+| --- | --- | --- |
+| 1 | **live** — the vendor's own endpoint | whenever the vendor can be reached with your credential |
+| 2 | **settings** — `providers.<vendor>.models`, or `.oauth_models` for an OAuth account | when the live listing fails or you have pinned a list |
+| 3 | **cache** — the last good listing, under `$SNOWPEA_HOME/cache/models-<vendor>-<auth>.json` | when the vendor is unreachable and nothing is pinned |
+| 4 | **curated** — this build's list, merged with the public [models.dev](https://models.dev) catalog | last resort, and the normal answer for backends that publish no listing |
+
+The live endpoint differs by vendor *and* by how you signed in: `/v1/models` for the OpenAI-compatible vendors, `/v1beta/models` for a Gemini API key, Anthropic's `/v1/models`, Ollama's `/api/tags` for a local server that has no OpenAI-compatible listing, and — for a ChatGPT subscription — the Codex backend's own per-account catalog at `chatgpt.com/backend-api/codex/models`, which is what the Codex CLI shows. A Google sign-in runs on Code Assist, which publishes no model listing at all, so those accounts always show the curated list; that is the correct answer there, not a degraded one.
+
+To pin a list yourself — an account with early access to a model nothing advertises yet, or a server whose listing lies:
+
+```json
+{
+  "providers": {
+    "local": {"base_url": "http://localhost:8000/v1", "models": ["Qwen/Qwen3-32B"]},
+    "openai": {"auth_method": "chatgpt", "oauth_models": ["gpt-5.1-codex"]}
+  }
+}
+```
+
+`models` applies to any account; `oauth_models` applies only when that provider is signed in with OAuth, so one block can pin the Codex catalog without also pinning what an API key would see. Both are read on the next listing — no restart. Set `SNOWPEA_MODELS_DEV=0` to keep the curated rung off the network entirely.
+
 ## Multiple models and agent assignments
 
 Run `snowpea setup providers` to register multiple models, choose a default, and assign registered models to built-in or custom agents. Multiple models from the same provider are supported. Clear an assignment to return an agent to the default.

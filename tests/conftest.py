@@ -22,9 +22,12 @@ from snowpea_core.gateway.fake import FakeAdapter
 def snowpea_home() -> Iterator[Path]:
     # SNOWPEA_UPDATE_CHECK=0 keeps every daemon the suite starts off the
     # network; tests/test_update.py drives the check explicitly instead.
+    # SNOWPEA_MODELS_DEV=0 does the same for the public models.dev catalog the
+    # curated model rung merges in: tests/test_model_resolution.py drives that
+    # path with an httpx.MockTransport instead of reaching the internet.
     with tempfile.TemporaryDirectory(prefix="snowpea-home-") as tmp:
         home = Path(tmp)
-        with env_vars(SNOWPEA_HOME=str(home), SNOWPEA_UPDATE_CHECK="0"):
+        with env_vars(SNOWPEA_HOME=str(home), SNOWPEA_UPDATE_CHECK="0", SNOWPEA_MODELS_DEV="0"):
             yield home
 
 

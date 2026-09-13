@@ -21,7 +21,7 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from snowpea_core.config.paths import Paths
+from snowpea_core.config.paths import Paths, resolve_home
 from snowpea_core.config.settings import Settings
 from snowpea_core.providers import context_windows
 from snowpea_core.providers import models as model_discovery
@@ -254,15 +254,36 @@ class ProviderRegistry:
     # -- model discovery -----------------------------------------------
     async def list_models(self, vendor: str, *, refresh: bool = False) -> list[str]:
         """Model ids ``vendor``'s endpoint offers (M3 contract §2, model discovery)."""
-        static = model_discovery.oauth_models(vendor, self.auth_method_for(vendor))
-        if static is not None:
-            return static
+        return (await self.model_listing(vendor, refresh=refresh)).models
+
+    async def model_listing(
+        self, vendor: str, *, refresh: bool = False, transport: Any = None
+    ) -> model_discovery.ModelListing:
+        """The catalog *and* which rung answered — live, settings, cache, curated.
+
+        Every surface that lists models goes through here, so the wizard, the
+        ``provider.models`` RPC, ``snowpea provider models`` and the TUI
+        ``/model`` picker cannot disagree about what an account can run, or
+        about whether the list is the vendor's own answer or a fallback.
+        """
+        auth_method = self.auth_method_for(vendor)
         preset = self.preset(vendor)
-        return await model_discovery.list_models(
-            preset,
+
+        def remember(credentials: dict[str, Any]) -> None:
+            """Keep a token refreshed during discovery instead of burning it."""
+            self.settings.providers[vendor] = {**self.vendor_config(vendor), **credentials}
+
+        return await model_discovery.resolve_models(
+            vendor,
+            preset=preset,
+            auth_method=auth_method,
             api_key=self.api_key_for(vendor),
             base_url=self.base_url_for(vendor),
+            credentials=self.vendor_config(vendor),
+            home=self.paths.home if self.paths is not None else resolve_home(),
             refresh=refresh,
+            transport=transport,
+            on_credentials=remember,
         )
 
     # -- context windows (CORE-context) --------------------------------
@@ -401,8 +422,11 @@ class ProviderRegistry:
 
                 credentials = openai_oauth.normalize_stored_credentials(config)
                 model = resolved_model
-                if model not in (model_discovery.oauth_models(vendor, "chatgpt") or []):
-                    # An API-key model id (gpt-4.1) is not served by Codex.
+                # Only an API-key model id (gpt-4.1) is dropped.  A model the
+                # account's own Codex catalog offers must be sent as chosen,
+                # even when this build has never heard of it — the live list is
+                # where new and preview models turn up first.
+                if model_discovery.rejected_for_oauth(vendor, "chatgpt", model):
                     model = ""
                 return CodexProvider(
                     credentials,
@@ -417,7 +441,7 @@ class ProviderRegistry:
                 from snowpea_core.providers.gemini_codeassist_transport import CodeAssistProvider
 
                 model = resolved_model
-                if model not in (model_discovery.oauth_models(vendor, "google_oauth") or []):
+                if model_discovery.rejected_for_oauth(vendor, "google_oauth", model):
                     model = ""
                 return CodeAssistProvider(
                     dict(config),
@@ -507,13 +531,16 @@ class ProviderRegistry:
         infos: list[ProviderInfo] = []
         for vendor, preset in PRESETS.items():
             config = self.vendor_config(vendor)
-            models = list(preset.models)
-            extra = config.get("models")
-            if isinstance(extra, list):
-                models = [str(m) for m in extra] or models
-            static = model_discovery.oauth_models(vendor, self.auth_method_for(vendor))
-            if static is not None:
-                models = static
+            # The same rungs ``model_listing`` uses, minus the live one: a
+            # synchronous listing may not make eleven HTTP calls, but it must
+            # not contradict the picker either, so a catalog discovered live
+            # once is served from the cache here.
+            models = model_discovery.offline_models(
+                vendor,
+                self.auth_method_for(vendor),
+                config,
+                home=self.paths.home if self.paths is not None else resolve_home(),
+            )
             infos.append(
                 ProviderInfo(
                     vendor=vendor,

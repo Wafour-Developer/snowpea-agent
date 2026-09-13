@@ -25,6 +25,32 @@ snowpea setup --blank    # asks nothing, writes the defaults
 
 목록은 키가 필요 없는 무료 항목이 먼저, 그다음 키가 필요하거나 자체 호스팅해야 하는 무료 항목, 마지막이 유료입니다. 각 목록의 기본값에는 별표가 붙어 있습니다. LLM 벤더를 빼면 기본 설정 어디에도 유료 계정이 필요한 곳은 없습니다 — 웹 검색과 브라우저 모두 키 없이 동작합니다.
 
+## 모델 목록은 어디서 오는가
+
+모델을 보여주는 모든 곳 — 설정 마법사, `snowpea provider models`, `provider.models` RPC, TUI `/model` 선택창 — 은 하나의 함수를 씁니다. 이 함수는 네 단계를 순서대로 시도하고, 어느 단계가 답했는지도 함께 알려줍니다.
+
+| 단계 | 출처 | 언제 답하나 |
+| --- | --- | --- |
+| 1 | **live** — 벤더의 실제 엔드포인트 | 자격 증명으로 벤더에 닿을 수 있을 때 |
+| 2 | **settings** — `providers.<벤더>.models`, OAuth 계정이면 `.oauth_models` | 실시간 조회가 실패했거나 목록을 직접 고정해 둔 경우 |
+| 3 | **cache** — 마지막으로 성공한 목록, `$SNOWPEA_HOME/cache/models-<벤더>-<인증>.json` | 벤더에 닿을 수 없고 고정해 둔 목록도 없을 때 |
+| 4 | **curated** — 이 빌드의 목록에 공개 [models.dev](https://models.dev) 카탈로그를 합친 것 | 마지막 수단이며, 목록을 공개하지 않는 백엔드에서는 이것이 정상 응답 |
+
+실시간 엔드포인트는 벤더뿐 아니라 **로그인 방식**에 따라서도 다릅니다. OpenAI 호환 벤더는 `/v1/models`, Gemini API 키는 `/v1beta/models`, Anthropic은 `/v1/models`, OpenAI 호환 목록이 없는 로컬 서버는 Ollama의 `/api/tags`를 씁니다. ChatGPT 구독 계정은 Codex 백엔드의 계정별 카탈로그(`chatgpt.com/backend-api/codex/models`)를 조회하며, 이는 Codex CLI가 보여 주는 목록과 같습니다. 반면 Google 로그인은 Code Assist 백엔드로 연결되는데 이 백엔드는 모델 목록을 전혀 공개하지 않으므로 항상 선언된(curated) 목록을 보여 줍니다 — 기능이 떨어져서가 아니라 그것이 정확한 답이기 때문입니다.
+
+목록을 직접 고정하려면 — 아직 어디에도 공개되지 않은 모델을 미리 쓸 수 있는 계정이거나, 목록을 엉터리로 내려주는 서버인 경우 — 다음처럼 적습니다.
+
+```json
+{
+  "providers": {
+    "local": {"base_url": "http://localhost:8000/v1", "models": ["Qwen/Qwen3-32B"]},
+    "openai": {"auth_method": "chatgpt", "oauth_models": ["gpt-5.1-codex"]}
+  }
+}
+```
+
+`models`는 모든 계정에 적용되고, `oauth_models`는 해당 제공자를 OAuth로 로그인했을 때만 적용됩니다. 덕분에 한 블록 안에서 Codex 카탈로그만 고정하고 API 키로 볼 목록은 건드리지 않을 수 있습니다. 둘 다 다음 조회부터 바로 반영되며 재시작이 필요 없습니다. `SNOWPEA_MODELS_DEV=0`으로 두면 curated 단계에서도 네트워크를 쓰지 않습니다.
+
 ## 여러 모델과 에이전트별 모델
 
 `snowpea setup providers`에서 모델을 여러 개 등록하고 기본 모델을 선택할 수 있습니다. 같은 제공자의 다른 모델도 각각 등록할 수 있습니다. 에이전트별 할당에서는 기본 내장 역할과 커스텀 에이전트에 등록한 모델을 지정하거나, 할당을 해제하여 기본 모델을 사용하게 합니다.

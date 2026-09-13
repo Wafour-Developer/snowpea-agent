@@ -84,21 +84,24 @@ async def _list(ctx: CommandContext, vendor: str) -> None:
     current = _current(ctx, vendor)
     profiles = _profile_lines(ctx)
     try:
-        available = await ctx.core.providers.list_models(vendor)
+        listing = await ctx.core.providers.model_listing(vendor)
     except ProviderError as exc:
         await ctx.say(
-            "\n".join(profiles)
-            + f"{vendor}: could not list models ({exc}).\n"
+            "\n".join(profiles) + f"{vendor}: could not list models ({exc}).\n"
             f"Current model: {current or 'unset'}.\n{USAGE}"
         )
         return
+    available = listing.models
     if not available:
+        # ``listing.error`` is why the live rung came back empty; without it a
+        # dead endpoint and a vendor with nothing to offer read the same.
+        why = f": could not list models ({listing.error})" if listing.error else " listed no models"
         await ctx.say(
-            "\n".join(profiles)
-            + f"{vendor} listed no models.\nCurrent model: {current or 'unset'}.\n{USAGE}"
+            "\n".join(profiles) + f"{vendor}{why}.\nCurrent model: {current or 'unset'}.\n{USAGE}"
         )
         return
-    lines = [*profiles, f"Models for {vendor}:"]
+    # Name the rung: a curated fallback must not pass for the vendor's answer.
+    lines = [*profiles, f"Models for {vendor} ({listing.detail}):"]
     for index, name in enumerate(available, 1):
         mark = "*" if name == current else " "
         lines.append(f" {mark} {index}. {name}")

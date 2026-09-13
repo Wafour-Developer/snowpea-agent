@@ -103,6 +103,16 @@ class Paths:
         return self.home / "audio"
 
     @property
+    def cache_dir(self) -> Path:
+        """Throwaway lookups that must survive a restart but never a reinstall.
+
+        Model catalogs live here (``models-<vendor>-<auth>.json`` and the
+        shared ``models-dev.json``): losing the directory costs one HTTP round
+        trip, never a setting.  Created on first write, like ``attachments``.
+        """
+        return self.home / "cache"
+
+    @property
     def daemon_log(self) -> Path:
         return self.logs_dir / "daemon.log"
 

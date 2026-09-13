@@ -46,6 +46,13 @@ export interface ModelPickerInput {
   agentModels?: Record<string, string> | null;
   /** `provider.models` — what the vendor's endpoint reports. */
   discovered?: string[] | null;
+  /**
+   * Which rung of the daemon's model chain answered: `live` (the vendor's own
+   * endpoint), `settings`, `cache` or `curated`. Anything but `live` is a
+   * fallback, and a picker that does not say so invites the user to blame the
+   * model for an id the vendor never confirmed it serves.
+   */
+  discoveredSource?: string | null;
   /** The model the session is on. */
   current?: string | null;
   /** The vendor serving it. */
@@ -66,6 +73,7 @@ export function modelOptions({
   defaultProfile = null,
   agentModels = null,
   discovered = null,
+  discoveredSource = null,
   current = null,
   vendor = null,
 }: ModelPickerInput): ModelOption[] {
@@ -105,13 +113,17 @@ export function modelOptions({
     }
   }
 
+  const fallbackTag =
+    { settings: "from settings", cache: "cached list", curated: "curated list" }[
+      discoveredSource ?? ""
+    ] ?? "";
   for (const model of discovered ?? []) {
     if (covered.has(model)) continue;
     covered.add(model);
     options.push({
       ref: model,
       label: model,
-      detail: vendor ?? "",
+      detail: [vendor, fallbackTag].filter(Boolean).join(" · "),
       origin: "discovered",
       current: model === current,
     });
