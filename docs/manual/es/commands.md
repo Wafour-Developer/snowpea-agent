@@ -34,6 +34,8 @@ Estos los responde la propia interfaz de terminal, no el core, así que no apare
 | Comando | Qué hace |
 |---|---|
 | `/resume` | reabre la sesión en la que estuvo este directorio por última vez y la reproduce |
+| `/model` | elige un modelo o perfil de una lista; `/model <ref>` cambia directamente |
+| `$<agente> <prompt>` | pasa un prompt a un agente con nombre |
 | `/attach <ruta>` | adjunta un fichero al siguiente prompt |
 | `/voice` | activa la entrada por voz; después `Ctrl+Space` graba |
 | `/rec` | empieza o para la grabación, igual que `Ctrl+Space` |
