@@ -890,3 +890,30 @@ def test_the_authentication_menu_lists_every_flow_the_vendor_supports(
     assert "browser login" in menu
     assert "device code (headless)" in menu
     assert "OAuth token" in menu
+
+
+def test_a_browser_login_uses_the_declared_model_list_instead_of_the_api(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A ChatGPT sign-in has no API key and no ``/models`` endpoint; asking
+    api.openai.com right after the login used to print a 401 and demand a
+    model id by hand (live report, 2026-09-13)."""
+    from snowpea_core.providers import models as model_discovery
+    from snowpea_core.providers.codex_transport import CODEX_MODELS
+
+    async def listing(preset, **_kwargs):
+        raise AssertionError("the vendor API must not be asked for an OAuth account")
+
+    monkeypatch.setattr(model_discovery, "list_models", listing)
+    monkeypatch.setattr(ui, "ask_text", lambda *a, **kw: "")
+    state = WizardState.from_settings(Settings())
+    state.select_vendor("openai")
+    wizard._apply_login(  # noqa: SLF001
+        state, {"auth_method": "chatgpt", "access_token": "tok", "refresh_token": "r"}
+    )
+
+    wizard._ask_for_model(state, interactive=True)  # noqa: SLF001
+
+    out = capsys.readouterr().out
+    assert "could not list models" not in out
+    assert state.model == CODEX_MODELS[0]

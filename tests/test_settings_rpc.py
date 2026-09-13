@@ -103,6 +103,82 @@ async def test_settings_get_masks_secrets(daemon: Daemon) -> None:
             await client.stop()
 
 
+async def test_settings_set_rejects_masked_secret_global(daemon: Daemon) -> None:
+    async with aiohttp.ClientSession() as http:
+        client = await connect(http, daemon)
+        try:
+            # Store a real secret first.
+            await client.ok(
+                "settings.set",
+                {
+                    "scope": "global",
+                    "patch": {
+                        "search": {"credentials": {"brave_free": {"api_key": "sk-real-secret"}}}
+                    },
+                },
+            )
+
+            # A naive read-modify-write that echoes the masked "***" back,
+            # bundled with an unrelated change, must be rejected wholesale.
+            frame = await client.call(
+                "settings.set",
+                {
+                    "scope": "global",
+                    "patch": {
+                        "defaultMode": "accept",
+                        "search": {"credentials": {"brave_free": {"api_key": "***"}}},
+                    },
+                },
+            )
+            assert frame["error"]["data"]["code"] == "invalid_params"
+            assert "api_key" in frame["error"]["message"]
+
+            # Neither the masked write nor the unrelated sibling change landed.
+            on_disk = json.loads(daemon.paths.settings_json.read_text(encoding="utf-8"))
+            assert on_disk["search"]["credentials"]["brave_free"]["api_key"] == "sk-real-secret"
+            assert on_disk.get("defaultMode") != "accept"
+
+            # A real value can still be stored afterwards.
+            result = await client.ok(
+                "settings.set",
+                {
+                    "scope": "global",
+                    "patch": {
+                        "search": {"credentials": {"brave_free": {"api_key": "sk-new-real"}}}
+                    },
+                },
+            )
+            assert result["settings"]["search"]["credentials"]["brave_free"]["api_key"] == "***"
+            on_disk = json.loads(daemon.paths.settings_json.read_text(encoding="utf-8"))
+            assert on_disk["search"]["credentials"]["brave_free"]["api_key"] == "sk-new-real"
+        finally:
+            await client.stop()
+
+
+async def test_settings_set_rejects_masked_secret_project(
+    daemon: Daemon, tmp_path: Path
+) -> None:
+    workdir = tmp_path / "project-masked"
+    workdir.mkdir()
+    async with aiohttp.ClientSession() as http:
+        client = await connect(http, daemon)
+        try:
+            frame = await client.call(
+                "settings.set",
+                {
+                    "scope": "project",
+                    "workdir": str(workdir),
+                    "patch": {"media": {"mcp": {"api_key": "***"}}},
+                },
+            )
+            assert frame["error"]["data"]["code"] == "invalid_params"
+
+            written = workdir / ".snowpea" / "settings.json"
+            assert not written.exists()
+        finally:
+            await client.stop()
+
+
 async def test_settings_set_project_scope_writes_snowpea_dir(
     daemon: Daemon, tmp_path: Path
 ) -> None:

@@ -46,7 +46,7 @@ Mode changes are local key gestures that call `session.setMode`:
 Context is rendered from the `context` session event (M11 §1) by `layout/bottom.ts::contextSegment`:
 `ctx 34% (68k/200k)` when the window is known, `ctx 12.3k used` when it is not, and the segment is
 omitted entirely until a `context` event has arrived at all. An estimated reading is prefixed `~`.
-The `?` spelling belongs to the CLI renderer, not this surface. Above `CONTEXT_ALERT_PERCENT`,
+The `?` spelling belongs to the CLI renderer, not this surface. Above `CONTEXT_ALERT_PERCENT` (80%),
 `contextWarning` adds its own row — `[!!] context 96% — /compact to free space` — because a bare
 percentage tells the user nothing they can act on.
 
@@ -70,7 +70,7 @@ into terminal scrollback (`components/HelpPanel.tsx`, whose first line states th
 
 It lists the workflow commands from one constant — `HelpPanel.WORKFLOW_COMMANDS = ralph, ralplan,
 ultrawork, deepinit, deep-research, deep-interview, plan, accept, auto` (the nine AC-03 requires) —
-and a `KEYS` table of fourteen lines, which MUST document at minimum:
+and a `KEYS` table of seventeen lines, which MUST document at minimum:
 
 ```
 Esc / F1 / q / Enter close help · ↑↓ / PgUp / PgDn scroll

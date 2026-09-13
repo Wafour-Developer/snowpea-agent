@@ -272,6 +272,50 @@ class WizardState:
         """Ids of the messengers that are on, in a stable order."""
         return sorted(gid for gid, block in self.gateways.items() if block.get("enabled"))
 
+    def as_settings(self) -> Settings:
+        """A :class:`Settings` view of the provider answers collected so far.
+
+        The provider screen has to show the *current* state — what is saved in
+        ``settings.json`` plus whatever this run has already answered — and the
+        only object that can tell ``[active]`` from ``[inactive]`` is
+        :class:`~snowpea_core.providers.registry.ProviderRegistry`.  Building
+        this throwaway ``Settings`` is what lets the screen, ``snowpea provider
+        list`` and the ``provider.list`` RPC all read the same helper instead of
+        each deciding for itself (the wizard used to ask an *empty* registry and
+        so printed ``[inactive]`` on every vendor).
+        """
+        settings = Settings()
+        for vendor, block in self.provider_configs.items():
+            clean = {key: value for key, value in dict(block).items() if value is not None}
+            if clean:
+                settings.providers[vendor] = clean
+        if self.vendor:
+            pending = dict(settings.providers.get(self.vendor) or {})
+            if self.api_key:
+                pending["api_key"] = self.api_key
+            if self.oauth_token:
+                pending["oauth_token"] = self.oauth_token
+                pending["auth_method"] = "oauth_token"
+            elif self.auth_method:
+                pending["auth_method"] = self.auth_method
+            if self.model:
+                pending["model"] = self.model
+            if self.base_url:
+                pending["base_url"] = self.base_url
+            if self.variant:
+                pending["variant"] = self.variant
+            if pending:
+                settings.providers[self.vendor] = pending
+            settings.providers["default"] = self.vendor
+        settings.models.profiles = {
+            pid: ModelProfile.model_validate(block)
+            for pid, block in self.model_profiles.items()
+            if block.get("provider") and block.get("model")
+        }
+        if self.default_model in settings.models.profiles:
+            settings.models.default = self.default_model
+        return settings
+
     # -- output --------------------------------------------------------
     def write(self, paths: Paths, settings: Settings) -> Settings:
         """Fold the answers into ``settings`` and persist them."""

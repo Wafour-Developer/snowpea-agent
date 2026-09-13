@@ -179,8 +179,16 @@ class ProviderRegistry:
         if vendor in self._providers:
             return True
         config = self.vendor_config(vendor)
-        if vendor == "local" and config.get("base_url"):
-            return True
+        preset = PRESETS_BY_VENDOR.get(vendor)
+        # A keyless vendor (the self-hosted OpenAI-compatible ``local`` one and
+        # its vLLM/Ollama/LM Studio variants) is configured by what it points
+        # at, not by a credential: a saved ``base_url`` or ``model`` is the
+        # whole setup, and reporting it as unconfigured is what made the setup
+        # wizard print ``[inactive]`` next to a provider the user had finished
+        # configuring and selected as the default.
+        if preset is not None and not preset.key_required:
+            if config.get("base_url") or config.get("model"):
+                return True
         if self.auth_method_for(vendor) in OAUTH_AUTH_METHODS:
             return bool(
                 config.get("access_token")

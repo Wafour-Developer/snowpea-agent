@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 from pydantic import ValidationError
 
 from snowpea_core.config import hot_reload
-from snowpea_core.config.patch import MASK, SECRET_KEYS, deep_merge, mask_secrets
+from snowpea_core.config.patch import deep_merge, mask_secrets, reject_masked_secrets
 from snowpea_core.config.project import ProjectSettings
 from snowpea_core.config.settings import Settings
 from snowpea_core.server import errors
@@ -51,13 +51,6 @@ HANDLED_METHODS: tuple[str, ...] = (
     "setup.catalog",
 )
 
-#: Field names masked in every ``settings.get`` / ``settings.set`` response.
-#:
-#: Shared with the ``settings_get`` / ``settings_set`` tools via
-#: :mod:`snowpea_core.config.patch` so the two masking paths cannot drift
-#: (CORE-fixes-v017 R1: ``oauth_token`` was masked by neither).
-_SECRET_KEYS = SECRET_KEYS
-_MASK = MASK
 _mask_secrets = mask_secrets
 
 
@@ -91,6 +84,14 @@ async def settings_set_handler(
     """``settings.set`` — deep-merge ``patch`` into settings and persist it."""
     if not isinstance(params.patch, dict):
         raise RpcError(errors.INVALID_PARAMS, "patch must be an object")
+
+    # A client that reads back ``settings.get``'s masked response and echoes
+    # it into a patch (naive read-modify-write) must not be able to persist
+    # the literal "***" mask as a real credential.
+    try:
+        reject_masked_secrets(params.patch)
+    except ValueError as exc:
+        raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
 
     if params.scope == "project":
         workdir = _require_workdir(params)

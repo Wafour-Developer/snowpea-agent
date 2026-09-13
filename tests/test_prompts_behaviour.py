@@ -269,3 +269,38 @@ async def test_project_context_files_reach_the_prompt(
     assert "Always use tabs in this repo." in prompt
     assert '<context file="AGENTS.md">' in prompt
     await client.stop()
+
+
+async def test_the_team_roster_reaches_subagent_prompts_too(
+    daemon: Daemon, http: aiohttp.ClientSession, workdir: Path
+) -> None:
+    """A delegating worker must learn valid names from its own prompt, not from
+    a rejection.
+
+    ``subagent.py``'s membership check enforces ``parent.team_agents`` against
+    *any* delegator, subagent included, so the roster line in the prompt must
+    not be gated on ``is_subagent`` (it was, previously — a worker only found
+    out the valid names after `delegate_task` refused an invalid one).
+    """
+    client = await connect(http, daemon)
+    session_id = await open_session(client, workdir, "accept")
+    session = daemon.core.sessions.get(session_id)
+    assert session is not None
+    session.team = "core"
+    session.team_agents = ("executor", "verifier")
+
+    roster_line = (
+        "Active delegation team: core. Delegate only to these agents: executor, verifier."
+    )
+
+    session.is_subagent = False
+    assert roster_line in agent.build_system_prompt(session, [], core=daemon.core)
+
+    session.is_subagent = True
+    assert roster_line in agent.build_system_prompt(session, [], core=daemon.core)
+
+    # No roster at all still means no line, subagent or not.
+    session.team = None
+    session.team_agents = ()
+    assert "Active delegation team" not in agent.build_system_prompt(session, [], core=daemon.core)
+    await client.stop()

@@ -427,23 +427,33 @@ def _ask_for_model(
     except KeyError:
         return
     out("checking models…")
-    try:
-        available = _run_sync(
-            model_discovery.list_models(
-                preset,
-                api_key=state.api_key
-                or str((state.provider_configs.get(state.vendor) or {}).get("api_key") or "")
-                or None,
-                base_url=state.base_url or None,
-                refresh=True,
+    # A ChatGPT / Google sign-in has no ``/models`` endpoint and no API key;
+    # asking the vendor's ordinary API would only earn a 401 right after a
+    # successful login (report §6.7 A-P2-1).  The supported set is declared.
+    oauth_method = state.auth_method or str(
+        (state.provider_configs.get(state.vendor) or {}).get("auth_method") or ""
+    )
+    declared = model_discovery.oauth_models(state.vendor, oauth_method or None)
+    if declared is not None:
+        available = declared
+    else:
+        try:
+            available = _run_sync(
+                model_discovery.list_models(
+                    preset,
+                    api_key=state.api_key
+                    or str((state.provider_configs.get(state.vendor) or {}).get("api_key") or "")
+                    or None,
+                    base_url=state.base_url or None,
+                    refresh=True,
+                )
             )
-        )
-    except Exception as exc:  # noqa: BLE001 - a down server must not stop setup
-        out(f"could not list models ({exc})")
-        entered = ui.ask_text(f"model id [{state.model or 'required'}]: ")
-        if entered:
-            state.model = entered
-        return
+        except Exception as exc:  # noqa: BLE001 - a down server must not stop setup
+            out(f"could not list models ({exc})")
+            entered = ui.ask_text(f"model id [{state.model or 'required'}]: ")
+            if entered:
+                state.model = entered
+            return
     if not available:
         out("the server listed no models")
         entered = ui.ask_text(f"model id [{state.model or 'required'}]: ")
