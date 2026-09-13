@@ -31,21 +31,95 @@ from urllib.parse import urlencode
 import httpx
 from aiohttp import web
 
+from snowpea_core import __version__ as _VERSION
 from snowpea_core.providers.presets import PRESETS
 from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
 
 log = logging.getLogger("snowpea.providers.auth")
 
+#: Sent on every outgoing browser-login request so vendor-side logs (and our
+#: own) can tell a Snowpea request apart from an anonymous client.
+USER_AGENT = f"snowpea-agent/{_VERSION} (+https://github.com/Wafour-Developer/snowpea-agent)"
+DEFAULT_HEADERS: dict[str, str] = {"User-Agent": USER_AGENT, "Accept": "application/json"}
+
+#: How long to wait before retrying a device-authorization request that came
+#: back rate-limited, server-erroring, or refused.
+_RETRY_AFTER_SEC = 1.0
+_RETRY_STATUSES = (403, 429, 500, 502, 503, 504)
+
+
+def _error_detail(response: httpx.Response) -> str:
+    """Pull a human-readable detail out of a non-2xx response body.
+
+    Vendors report failures as JSON (``error``/``error_description``/
+    ``message``) or plain text; either way we want it in the exception so a
+    403 doesn't read as an opaque, unexplained crash.
+    """
+    try:
+        body = response.json()
+    except ValueError:
+        text = (response.text or "").strip()
+        return text[:200]
+    if isinstance(body, dict):
+        for key in ("error_description", "error", "message", "detail"):
+            value = body.get(key)
+            if value:
+                return str(value)[:200]
+    return str(body)[:200]
+
+
+async def _post_with_retry(
+    http: httpx.AsyncClient,
+    url: str,
+    *,
+    vendor: str,
+    action: str,
+    sleep: Callable[[float], Any] = asyncio.sleep,
+    retry: bool = True,
+    **kwargs: Any,
+) -> httpx.Response:
+    """POST with the shared headers, one retry on a transient failure, and
+    transport errors mapped onto :class:`RpcError` instead of leaking a raw
+    ``httpx`` exception up through the wizard/RPC layers.
+    """
+    headers = dict(DEFAULT_HEADERS)
+    headers.update(kwargs.pop("headers", None) or {})
+    attempts = 2 if retry else 1
+    last_exc: Exception | None = None
+    response: httpx.Response | None = None
+    for attempt in range(attempts):
+        try:
+            response = await http.post(url, headers=headers, **kwargs)
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.TransportError) as exc:
+            last_exc = exc
+            if attempt + 1 < attempts:
+                await sleep(_RETRY_AFTER_SEC)
+                continue
+            raise RpcError(
+                errors.INTERNAL,
+                f"{vendor}: could not reach the server for {action} ({exc})",
+            ) from exc
+        if response.status_code in _RETRY_STATUSES and attempt + 1 < attempts:
+            await sleep(_RETRY_AFTER_SEC)
+            continue
+        return response
+    if response is not None:
+        return response
+    raise RpcError(  # pragma: no cover - defensive, last_exc always set above
+        errors.INTERNAL, f"{vendor}: could not reach the server for {action} ({last_exc})"
+    )
+
 #: Vendor login endpoints and flow parameters — data, not code.
 ENDPOINTS: dict[str, dict[str, Any]] = {
     "openai": {
         "method": "device_code",
-        "device_authorization_url": "https://auth.openai.com/oauth/device/code",
+        "device_authorization_url": "https://auth.openai.com/api/accounts/deviceauth/usercode",
+        "device_poll_url": "https://auth.openai.com/api/accounts/deviceauth/token",
         "token_url": "https://auth.openai.com/oauth/token",
-        "client_id": "snowpea-cli",
-        "scope": "openid profile email offline_access api.read api.write",
-        "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+        "client_id": "app_EMoamEEZ73f0CkXaXp7hrann",
+        "verification_uri": "https://auth.openai.com/codex/device",
+        "redirect_uri": "https://auth.openai.com/deviceauth/callback",
         "poll_interval_sec": 5.0,
         "timeout_sec": 900.0,
     },
@@ -188,19 +262,30 @@ async def device_code_start(
     http = client or httpx.AsyncClient(timeout=30.0)
     await _report(on_progress, vendor=vendor, method="device_code", phase="started")
     try:
-        start = await http.post(
+        start = await _post_with_retry(
+            http,
             str(config["device_authorization_url"]),
-            data={"client_id": config["client_id"], "scope": config["scope"]},
+            vendor=vendor,
+            action="device authorization",
+            sleep=sleep,
+            json={"client_id": config["client_id"]},
         )
         if start.status_code >= 400:
+            detail = _error_detail(start)
+            message = f"{vendor}: device authorization failed (HTTP {start.status_code})"
+            if detail:
+                message += f": {detail}"
             raise RpcError(
                 errors.INTERNAL,
-                f"{vendor}: device authorization failed (HTTP {start.status_code})",
+                message,
+                data={"vendor": vendor, "status": start.status_code, "body": detail},
             )
         payload = start.json()
-        device_code = str(payload.get("device_code") or "")
+        device_code = str(payload.get("device_auth_id") or payload.get("device_code") or "")
         user_code = str(payload.get("user_code") or "")
-        verification_uri = str(payload.get("verification_uri") or "")
+        verification_uri = str(
+            payload.get("verification_uri") or config.get("verification_uri") or ""
+        )
         verification_uri_complete = str(payload.get("verification_uri_complete") or "")
         verification = verification_uri_complete or verification_uri
         if not device_code or not verification:
@@ -234,15 +319,33 @@ async def device_code_start(
                 if now() >= deadline:
                     raise RpcError(errors.INTERNAL, f"{vendor}: device login timed out")
                 await sleep(poll_interval)
-                polled = await http.post(
-                    str(config["token_url"]),
-                    data={
-                        "client_id": config["client_id"],
-                        "device_code": device_code,
-                        "grant_type": config["grant_type"],
-                    },
+                polled = await _post_with_retry(
+                    http,
+                    str(config.get("device_poll_url") or config["token_url"]),
+                    vendor=vendor,
+                    action="device login poll",
+                    sleep=sleep,
+                    retry=False,
+                    json={"device_auth_id": device_code, "user_code": user_code},
                 )
                 body = polled.json() if polled.content else {}
+                if polled.status_code < 400 and body.get("authorization_code"):
+                    polled = await _post_with_retry(
+                        http,
+                        str(config["token_url"]),
+                        vendor=vendor,
+                        action="token exchange",
+                        sleep=sleep,
+                        retry=False,
+                        data={
+                            "grant_type": "authorization_code",
+                            "code": body["authorization_code"],
+                            "redirect_uri": config["redirect_uri"],
+                            "client_id": config["client_id"],
+                            "code_verifier": body.get("code_verifier", ""),
+                        },
+                    )
+                    body = polled.json() if polled.content else {}
                 if polled.status_code < 400 and body.get("access_token"):
                     credentials: dict[str, Any] = {"token": str(body["access_token"])}
                     if body.get("refresh_token"):
@@ -263,14 +366,18 @@ async def device_code_start(
                         message=f"{vendor}: signed in",
                     )
                 error = str(body.get("error") or "")
-                if error == "authorization_pending":
+                if error == "authorization_pending" or polled.status_code in (403, 404):
                     continue
                 if error == "slow_down":
                     poll_interval += 5.0
                     continue
+                detail = str(
+                    body.get("error_description") or body.get("message") or ""
+                ).strip()[:200]
+                reason = error or detail or str(polled.status_code)
                 raise RpcError(
                     errors.INTERNAL,
-                    f"{vendor}: device login failed ({error or polled.status_code})",
+                    f"{vendor}: device login failed ({reason})",
                 )
         except Exception as exc:
             await _report(
@@ -423,8 +530,11 @@ async def oauth_pkce_start(
             )
             await _report(on_progress, vendor=vendor, method="oauth_pkce", phase="polling")
             code = await server.wait(float(timeout_sec or config["timeout_sec"]))
-            exchanged = await http.post(
+            exchanged = await _post_with_retry(
+                http,
                 str(config["keys_url"]),
+                vendor=vendor,
+                action="key exchange",
                 json={
                     "code": code,
                     "code_verifier": verifier,
@@ -432,9 +542,14 @@ async def oauth_pkce_start(
                 },
             )
             if exchanged.status_code >= 400:
+                detail = _error_detail(exchanged)
+                message = f"{vendor}: key exchange failed (HTTP {exchanged.status_code})"
+                if detail:
+                    message += f": {detail}"
                 raise RpcError(
                     errors.INTERNAL,
-                    f"{vendor}: key exchange failed (HTTP {exchanged.status_code})",
+                    message,
+                    data={"vendor": vendor, "status": exchanged.status_code, "body": detail},
                 )
             key = str((exchanged.json() or {}).get("key") or "")
             if not key:

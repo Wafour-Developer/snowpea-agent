@@ -118,7 +118,7 @@ Everything above lives under `audio` in `$SNOWPEA_HOME/settings.json`, and the d
 }
 ```
 
-`autoSpeak` reads every reply aloud. `player` and `recorder` force one tool instead of the first one found.
+`autoSpeak` reads every reply aloud: the daemon synthesises the reply as it finishes, plays it if this machine has a player, and emits an `audio.spoken` session event carrying the file either way — so a client on another machine can play it itself. Speaking never affects the turn: a missing backend or a broken player is a log line and a silent reply, not a failed answer. `player` and `recorder` force one tool instead of the first one found.
 
 ## When nothing happens
 

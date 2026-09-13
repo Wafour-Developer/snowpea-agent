@@ -99,6 +99,8 @@ snowpea provider login openrouter    # OAuth PKCE: a local callback receives the
 
 `snowpea setup --login openai`도 같은 동작을 하는 별칭입니다. 그 외 벤더는 `login_unsupported`로 답하며 대신 돌릴 `--vendor`/`--key` 명령을 알려줍니다.
 
+**문제 해결:** 같은 요청이 다른 곳에서는 성공하는데도 일부 네트워크·계정에서는 device-code 로그인이 `device authorization failed (HTTP 403)`로 실패할 수 있습니다 — 마법사는 종료하지 않고 벤더가 보낸 오류 문구를 출력한 뒤 인증 방법을 다시 묻습니다. 이때 "1=API key" 또는 "3=OAuth token"을 선택해 계속 진행하세요.
+
 ```bash
 snowpea provider login deepseek
 ```

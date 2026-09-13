@@ -182,9 +182,48 @@ model and the two registered tools.
     you have not transcribed", "keep the text short enough to listen to" — the convention the
     prompt-library story established for the other tools.
 
+## The lead's four rulings
+
+23. **The websocket frame cap is 32MB** (`transport_ws.MAX_MESSAGE_BYTES`), up from aiohttp's 4MB
+    default, so a 20MB attachment still fits once base64 has added a third. The attachment cap
+    stays at 20MB: the thing that refuses an oversized file should be the check that can name the
+    limit, not a dropped connection.
+
+24. **The screen-order change is recorded in the contract.**
+    `docs/design/m3-providers-setup-contract.md` §5 now names the Audio section and says why it
+    carries no circled numeral.
+
+25. **Both audio tools re-tag themselves per call.** `permission_for` resolves the backend and
+    answers `network` when it is hosted (`openai`, `studio`) and `read` when it is local. `read`
+    rather than `exec` or `write` for the local case is deliberate: what the mode matrix gates is
+    egress and changes to your project, and a local backend does neither — it spawns a known binary
+    and writes into `SNOWPEA_HOME`. Tagging it `exec` would deny it in plan mode, where "read this
+    out to me" is a reasonable thing to ask. `text_to_speech` is still *declared* `network`, the
+    stricter of its two possibilities, so a hook that ever fails cannot widen it.
+
+26. **The installers ask for `snowpea-agent[images]`, not `--with pillow`.** Two spellings, because
+    one does not fit every source: a URL takes the PEP 508 direct reference
+    (`snowpea-agent[images] @ git+https://…`), and a path or a plain package name takes the extra
+    inline (`/opt/snowpea[images]`). Both were checked against uv. The payoff over `--with` is that
+    `install.json` records a source that already carries the extra, so `snowpea update` repeats it
+    with no second flag; `update.with_images` applies the same two-spelling rule to the uv, pipx
+    and pip upgrade paths.
+
+## Auto-speak
+
+27. **`audio.spoken` is a session event, not a top-level notification.** It belongs to a session's
+    timeline — it happens between `message.done` and `turn.done` — so it is ordered with the reply
+    it speaks and replayed on resume like every other session event. Clients read it from
+    `session.event` with `kind: "audio.spoken"`.
+
+28. **Speaking can never fail a turn.** `loop.speak_reply` swallows everything: no backend, a
+    synthesiser that times out, a player that exits non-zero. A failed *playback* is not even a
+    failed speak — the event still carries the path, with `played: false`, so a client on another
+    machine (or one whose daemon has no speakers) can play the file itself.
+
 ## Documentation
 
-22. **One manual page covers both halves.** `docs/manual/{en,ko}/voice.md` — attachments and voice
+29. **One manual page covers both halves.** `docs/manual/{en,ko}/voice.md` — attachments and voice
     are one story from the user's side ("the terminal is not text-only any more"), and splitting
     them would have meant two pages that each explain half of `audio.capabilities`. Linked from
     both index pages and `docs/manual/README.md`; the tool tables in `modes.md` gained the two new
