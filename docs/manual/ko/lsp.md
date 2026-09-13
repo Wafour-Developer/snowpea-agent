@@ -55,6 +55,8 @@ typescript, deno, vue, eslint, biome, oxlint, gopls, ruby-lsp, pyright, ruff, ty
 
 두 번 죽은 서버는 `broken`으로 보고되고 그 데몬이 사는 동안 다시 시작되지 않습니다. 설치를 고친 뒤 데몬을 다시 띄우세요.
 
+`lsp.status`는 어떤 루트가 실제로 띄운 서버만 압니다. 파일을 먼저 건드리지 않고도 snowpea가 *돌릴 수 있는* 서버 전부를 보려면 `lsp.catalog`를 물어보세요 — 등록된 id마다 한 줄씩, `languageIds`, `extensions`, `installable`(`autoInstall`이 npm·pip·go로 구할 수 있는지) 여부와 손으로 설치할 명령을 담은 `installHint`, 지금 `disabled`인지(기본으로 꺼져 있거나, `lsp.disabled`에 이름이 있거나, `lsp.servers` 오버라이드로 꺼진 경우)를 답합니다. 설정 화면의 LSP 카드가 아무것도 뜨기 전에 보여주는 목록이 바로 이것입니다.
+
 ```bash
 snowpea daemon stop
 snowpea daemon start

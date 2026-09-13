@@ -77,6 +77,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`job.list`](#joblist) | client → server | List scheduled jobs and their next run times. |
 | [`job.runNow`](#jobrunnow) | client → server | Fire a scheduled job immediately. |
 | [`job.schedule`](#jobschedule) | client → server | Schedule a prompt to run unattended. |
+| [`lsp.catalog`](#lspcatalog) | client → server | List every registered language server, regardless of whether it has started. |
 | [`lsp.status`](#lspstatus) | client → server | Report every language server the daemon has started and its state. |
 | [`memory.search`](#memorysearch) | client → server | Recall stored memories matching a query. |
 | [`memory.write`](#memorywrite) | client → server | Store a memory with tags. |
@@ -606,6 +607,22 @@ Schedule a prompt to run unattended.
 |---|---|---|---|
 | `jobId` | `string` | yes | Id of the scheduled job. |
 | `nextRunAt` | `string \| null` | no | UTC ISO-8601 time of the first firing. |
+
+### `lsp.catalog`
+
+*Direction:* client → server
+
+List every registered language server, regardless of whether it has started.
+
+**Params**
+
+_No params (send `{}`)._
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `servers` | `({ disabled: boolean; extensions?: string[]; id: string; installHint?: string \| null; installable: boolean; languageIds?: string[]; })[]` | no | One row per registered server id. |
 
 ### `lsp.status`
 

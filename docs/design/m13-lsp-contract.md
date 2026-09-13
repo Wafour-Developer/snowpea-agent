@@ -44,6 +44,15 @@ compiler is watching".
 ## 4. Protocol (additive, 1.4.0 → 1.5.0)
 
 * `lsp.status {}` → `{servers: [{id, root, state: starting|ready|broken|stopped, languageId, pid?}]}`
+* `lsp.catalog {}` → `{servers: [{id, languageIds, extensions, installable, installHint?, disabled}]}` —
+  every server registered in `lsp/servers.py`, whether or not it has ever started (unlike
+  `lsp.status`, which only knows about servers a root has actually spawned). `installable`
+  is true when `lsp.autoInstall` could obtain it (npm/pip/go); `installHint` is a manual
+  install command for that case (e.g. `"pip install ty"`), `null` for PATH-only servers.
+  `disabled` reflects what `lsp.servers.catalog()` would actually start: a default-off id
+  (`ty`, `ruff`), one named in `lsp.disabled`, or one an `lsp.servers` override explicitly
+  disables. Additive to 1.5.0 — no protocol version bump. Backs a settings UI's LSP card
+  (§5) so it can list every server and its status without needing one already running.
 * session event `lsp.diagnostics {path, count, errors, warnings}` after each publish so the TUI/IDE can show a badge.
 * `tool.list` reports the lsp tools with `state: inactive` + reason when `lsp.enabled=false`.
 

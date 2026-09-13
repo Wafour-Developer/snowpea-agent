@@ -547,6 +547,28 @@ export interface JobScheduleResult {
   nextRunAt?: string | null;
 }
 
+/** `lsp.catalog` params. List every registered language server, regardless of whether it has started. */
+export type LspCatalogParams = Record<string, unknown>;
+
+/** `lsp.catalog` result. */
+export interface LspCatalogResult {
+  /** One row per registered server id. */
+  servers?: ({
+    /** True when settings (lsp.disabled, a default-off id, or an explicit lsp.servers override) keep this server from starting. */
+    disabled: boolean;
+    /** Extensions or whole filenames this server claims. */
+    extensions?: string[];
+    /** Server id, e.g. 'pyright' or 'gopls'. */
+    id: string;
+    /** A command that installs it manually, e.g. 'pip install ty'. */
+    installHint?: string | null;
+    /** True when lsp.autoInstall could obtain it (npm/pip/go); False means it must already be on PATH. */
+    installable: boolean;
+    /** LSP language ids this server's extensions map to. */
+    languageIds?: string[];
+  })[];
+}
+
 /** `lsp.status` params. Report every language server the daemon has started and its state. */
 export type LspStatusParams = Record<string, unknown>;
 
@@ -1856,6 +1878,7 @@ export interface MethodMap {
   "job.list": { params: JobListParams; result: JobListResult };
   "job.runNow": { params: JobRunNowParams; result: JobRunNowResult };
   "job.schedule": { params: JobScheduleParams; result: JobScheduleResult };
+  "lsp.catalog": { params: LspCatalogParams; result: LspCatalogResult };
   "lsp.status": { params: LspStatusParams; result: LspStatusResult };
   "memory.search": { params: MemorySearchParams; result: MemorySearchResult };
   "memory.write": { params: MemoryWriteParams; result: MemoryWriteResult };
@@ -1926,6 +1949,7 @@ export type ClientMethod =
   | "job.list"
   | "job.runNow"
   | "job.schedule"
+  | "lsp.catalog"
   | "lsp.status"
   | "memory.search"
   | "memory.write"

@@ -26,7 +26,7 @@ from snowpea_core.lsp import diagnostic, language, servers
 from snowpea_core.lsp import tools as lsp_tools
 from snowpea_core.lsp.manager import LspManager, manager_for
 from snowpea_core.server.app_server import Core
-from snowpea_core.server.lsp_handlers import lsp_status_handler
+from snowpea_core.server.lsp_handlers import lsp_catalog_handler, lsp_status_handler
 from snowpea_core.server.protocol import Empty
 from snowpea_core.session import events
 from snowpea_core.session.session import Session
@@ -630,6 +630,49 @@ async def test_lsp_status_is_empty_before_anything_is_touched(core: Core) -> Non
     assert result.servers == []
 
 
+async def test_lsp_catalog_lists_every_builtin_server_regardless_of_state(
+    core: Core,
+) -> None:
+    result = await lsp_catalog_handler(None, Empty(), core)  # type: ignore[arg-type]
+    assert {row.id for row in result.servers} == {s.id for s in servers.BUILTIN}
+    pyright = next(row for row in result.servers if row.id == "pyright")
+    assert ".py" in pyright.extensions
+    assert "python" in pyright.languageIds
+    assert pyright.disabled is False
+
+
+async def test_lsp_catalog_marks_default_off_servers_disabled(core: Core) -> None:
+    result = await lsp_catalog_handler(None, Empty(), core)  # type: ignore[arg-type]
+    by_id = {row.id for row in result.servers if row.disabled}
+    assert servers.DISABLED_BY_DEFAULT <= by_id
+
+
+async def test_lsp_catalog_disabled_reflects_settings_lsp_disabled(
+    tmp_path: Path,
+) -> None:
+    core = build_core(tmp_path, lsp_settings=LspSettings(disabled=["gopls"]))
+    result = await lsp_catalog_handler(None, Empty(), core)  # type: ignore[arg-type]
+    gopls = next(row for row in result.servers if row.id == "gopls")
+    assert gopls.disabled is True
+    rust = next(row for row in result.servers if row.id == "rust")
+    assert rust.disabled is False
+
+
+async def test_lsp_catalog_installable_matches_whether_install_is_declared(
+    core: Core,
+) -> None:
+    result = await lsp_catalog_handler(None, Empty(), core)  # type: ignore[arg-type]
+    by_id = {row.id: row for row in result.servers}
+    assert by_id["pyright"].installable is True
+    assert by_id["pyright"].installHint == "npm install -g pyright"
+    assert by_id["ty"].installHint == "pip install ty"
+    gopls = next(s for s in servers.BUILTIN if s.id == "gopls")
+    assert gopls.install is not None and gopls.install.kind == "go"
+    assert by_id["gopls"].installHint == "go install golang.org/x/tools/gopls@latest"
+    assert by_id["rust"].installable is False
+    assert by_id["rust"].installHint is None
+
+
 def test_the_lsp_diagnostics_event_validates_against_the_protocol() -> None:
     kind, payload = events.lsp_diagnostics("a.py", count=3, errors=2, warnings=1)
     assert kind == "lsp.diagnostics"
@@ -648,6 +691,8 @@ def test_the_protocol_declares_lsp_status_and_the_event() -> None:
     assert PROTOCOL_VERSION == "1.5.0"
     assert "lsp.status" in METHODS
     assert "lsp.status" in IMPLEMENTED_METHODS
+    assert "lsp.catalog" in METHODS
+    assert "lsp.catalog" in IMPLEMENTED_METHODS
     assert "lsp.diagnostics" in SESSION_EVENT_KINDS
 
 

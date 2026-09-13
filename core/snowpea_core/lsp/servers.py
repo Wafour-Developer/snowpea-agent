@@ -707,6 +707,24 @@ def from_settings(spec: dict[str, Any], server_id: str) -> ServerInfo | None:
     )
 
 
+def install_hint(install: Install | None) -> str | None:
+    """A human-readable command that would obtain ``install`` manually.
+
+    Used by ``lsp.catalog`` to tell a user what to run when they would rather
+    install a server themselves than flip on ``lsp.autoInstall``; ``None``
+    when the server has no :class:`Install` (PATH-only, contract §4).
+    """
+    if install is None:
+        return None
+    if install.kind == "npm":
+        return f"npm install -g {install.package}"
+    if install.kind == "pip":
+        return f"pip install {install.package}"
+    if install.kind == "go":
+        return f"go install {install.package}"
+    return None  # pragma: no cover - InstallKind is exhaustive
+
+
 def catalog(
     *,
     disabled: Iterable[str] = (),
@@ -768,6 +786,7 @@ __all__ = [
     "find_tsserver",
     "from_settings",
     "has_tsserver",
+    "install_hint",
     "lsp_home",
     "python_path",
     "resolve_command",

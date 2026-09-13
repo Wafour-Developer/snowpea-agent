@@ -55,6 +55,8 @@ The daemon answers `lsp.status` with one row per server — its id, its project 
 
 A server that failed twice is reported `broken` and is not started again for the life of the daemon: fix the install, then restart it.
 
+`lsp.status` only knows about servers that a root has actually spawned. To see every server snowpea *could* run — without touching a file first — ask `lsp.catalog`: one row per registered id with its `languageIds`, `extensions`, whether it is `installable` (`autoInstall` could obtain it with npm/pip/go) with an `installHint` command for doing that by hand, and whether it is currently `disabled` (off by default, named in `lsp.disabled`, or disabled through an `lsp.servers` override). This is what a settings screen's LSP card lists before anything has started.
+
 ```bash
 snowpea daemon stop
 snowpea daemon start
