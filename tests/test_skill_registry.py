@@ -84,6 +84,8 @@ async def test_search_returns_results_and_survives_a_dead_registry(
 ) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert "q=ralplan" in str(request.url)
+        assert "sources=all" in str(request.url)
+        assert "live=1" in str(request.url)
         return httpx.Response(
             200,
             json={
@@ -93,7 +95,8 @@ async def test_search_returns_results_and_survives_a_dead_registry(
                         "name": "ralplan",
                         "description": "Consensus planning.",
                         "installSpec": "registry:ralplan",
-                        "source": "snowpea-registry",
+                        "source": "local",
+                        "sourceLabel": "snowpea registry",
                     }
                 ],
                 "total": 1,
@@ -109,6 +112,46 @@ async def test_search_returns_results_and_survives_a_dead_registry(
     assert hits[0]["id"] == "ralplan"
 
 
+async def test_search_with_sources_surfaces_per_hub_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "results": [
+                    {
+                        "id": "clawhub:@cua/driver",
+                        "name": "driver",
+                        "description": "CUA driver skill.",
+                        "installSpec": "clawhub:@cua/driver",
+                        "source": "clawhub",
+                        "sourceLabel": "ClawHub",
+                    }
+                ],
+                "unavailable": [
+                    {
+                        "id": "hermes",
+                        "label": "Hermes Hub",
+                        "reason": "hermes-hub.ai does not resolve (NXDOMAIN).",
+                    }
+                ],
+            },
+        )
+
+    monkeypatch.setattr(http_util, "new_client", mock_transport(handler))
+    client = HttpRegistryClient("https://registry.example/v1")
+    results, hub_failures = await client.search_with_sources("driver")
+    assert results[0]["id"] == "clawhub:@cua/driver"
+    assert hub_failures == [
+        {
+            "id": "hermes",
+            "label": "Hermes Hub",
+            "reason": "hermes-hub.ai does not resolve (NXDOMAIN).",
+        }
+    ]
+
+
 async def test_search_offline_returns_empty_not_raise(monkeypatch: pytest.MonkeyPatch) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("refused", request=request)
@@ -116,6 +159,7 @@ async def test_search_offline_returns_empty_not_raise(monkeypatch: pytest.Monkey
     monkeypatch.setattr(http_util, "new_client", mock_transport(handler))
     client = HttpRegistryClient("https://dead.example/v1")
     assert await client.search("anything") == []
+    assert await client.search_with_sources("anything") == ([], [])
 
 
 async def test_resolve_returns_download_url() -> None:
@@ -127,6 +171,33 @@ async def test_resolve_returns_download_url() -> None:
     assert (
         await client.resolve("ralplan") == "https://registry.example/v1/skills/ralplan/download"
     )
+    assert await client.resolve("clawhub:@cua/driver") == (
+        "https://registry.example/v1/skills/clawhub%3A%40cua%2Fdriver/download"
+    )
+
+
+async def test_sources_lists_hub_health(monkeypatch: pytest.MonkeyPatch) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert str(request.url).endswith("/sources")
+        return httpx.Response(
+            200,
+            json={
+                "sources": [
+                    {"id": "local", "label": "snowpea registry", "enabled": True, "count": 6},
+                    {
+                        "id": "hermes",
+                        "label": "Hermes Hub",
+                        "enabled": False,
+                        "disabledReason": "hermes-hub.ai does not resolve (NXDOMAIN).",
+                    },
+                ]
+            },
+        )
+
+    monkeypatch.setattr(http_util, "new_client", mock_transport(handler))
+    client = HttpRegistryClient("https://registry.example/v1")
+    sources = await client.sources()
+    assert {row["id"] for row in sources} == {"local", "hermes"}
 
 
 def _zip_bytes(files: dict[str, str]) -> bytes:
@@ -173,6 +244,33 @@ async def test_download_404_raises_registry_error(monkeypatch: pytest.MonkeyPatc
     client = HttpRegistryClient("https://registry.example/v1")
     with pytest.raises(RegistryError):
         await client.download("missing")
+
+
+async def test_download_percent_encodes_a_federated_spec(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        return httpx.Response(200, content=b"zip-bytes")
+
+    monkeypatch.setattr(http_util, "new_client", mock_transport(handler))
+    client = HttpRegistryClient("https://registry.example/v1")
+    await client.download("clawhub:@cua/driver")
+    assert seen["url"] == "https://registry.example/v1/skills/clawhub%3A%40cua%2Fdriver/download"
+
+
+async def test_download_501_raises_not_fetchable(monkeypatch: pytest.MonkeyPatch) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            501, json={"error": {"code": "not_fetchable", "message": "no archive for this hub"}}
+        )
+
+    monkeypatch.setattr(http_util, "new_client", mock_transport(handler))
+    client = HttpRegistryClient("https://registry.example/v1")
+    with pytest.raises(registry_client.RegistryNotFetchable, match="no archive"):
+        await client.download("clawhub:@cua/driver")
 
 
 async def test_publish_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -326,17 +424,38 @@ async def test_install_registry_spec_rejects_path_traversal(
     assert not (tmp_path / "evil.txt").exists()
 
 
-async def test_search_includes_registry_source(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_search_includes_registry_source_with_its_own_label(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A federated hit's ``sourceLabel`` becomes the hit's ``source``, not a
+    fixed ``snowpea-registry`` constant — different hits from the same call
+    can carry different hub labels."""
+
     class _Client:
-        async def search(self, query: str) -> list[dict[str, Any]]:
-            return [
-                {
-                    "id": "ralplan",
-                    "name": "ralplan",
-                    "description": "planning",
-                    "installSpec": "registry:ralplan",
-                }
-            ]
+        async def search_with_sources(
+            self, query: str
+        ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+            return (
+                [
+                    {
+                        "id": "ralplan",
+                        "name": "ralplan",
+                        "description": "planning",
+                        "installSpec": "registry:ralplan",
+                        "source": "local",
+                        "sourceLabel": "snowpea registry",
+                    },
+                    {
+                        "id": "clawhub:@cua/driver",
+                        "name": "driver",
+                        "description": "driver skill",
+                        "installSpec": "clawhub:@cua/driver",
+                        "source": "clawhub",
+                        "sourceLabel": "ClawHub",
+                    },
+                ],
+                [],
+            )
 
     monkeypatch.setattr(registry_client, "CLIENT", _Client())
 
@@ -344,11 +463,119 @@ async def test_search_includes_registry_source(monkeypatch: pytest.MonkeyPatch) 
         return marketplace.SourceResult()
 
     monkeypatch.setattr(marketplace, "search_claude_marketplaces", empty)
-    monkeypatch.setattr(marketplace, "search_agentskills", lambda *_a, **_k: empty())
-    monkeypatch.setattr(marketplace, "search_hermes_hub", lambda *_a, **_k: empty())
 
     report = await marketplace.search("ralplan", "/tmp")
-    assert any(hit.source == SOURCE_REGISTRY for hit in report.hits)
+    assert {hit.source for hit in report.hits} == {"snowpea registry", "ClawHub"}
+
+
+async def test_search_reports_per_hub_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _Client:
+        async def search_with_sources(
+            self, query: str
+        ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+            return [], [{"id": "hermes", "label": "Hermes Hub", "reason": "does not resolve"}]
+
+    monkeypatch.setattr(registry_client, "CLIENT", _Client())
+
+    async def empty(*_args: Any, **_kwargs: Any) -> marketplace.SourceResult:
+        return marketplace.SourceResult()
+
+    monkeypatch.setattr(marketplace, "search_claude_marketplaces", empty)
+
+    report = await marketplace.search("x", "/tmp")
+    assert any("Hermes Hub" in line and "does not resolve" in line for line in report.unavailable)
+
+
+async def test_search_whole_registry_down_reports_generic_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _DeadClient:
+        async def search_with_sources(
+            self, query: str
+        ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+            raise ConnectionError("refused")
+
+    monkeypatch.setattr(registry_client, "CLIENT", _DeadClient())
+
+    async def empty(*_args: Any, **_kwargs: Any) -> marketplace.SourceResult:
+        return marketplace.SourceResult()
+
+    monkeypatch.setattr(marketplace, "search_claude_marketplaces", empty)
+
+    report = await marketplace.search("x", "/tmp")
+    assert any(SOURCE_REGISTRY in line for line in report.unavailable)
+
+
+# ---------------------------------------------------------------------------
+# marketplace.install — federated install specs
+# ---------------------------------------------------------------------------
+
+
+async def test_install_clawhub_spec_downloads_via_registry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    payload = _zip_bytes({"driver/SKILL.md": "---\nname: driver\n---\nbody"})
+    monkeypatch.setattr(registry_client, "CLIENT", _FakeDownloadClient(payload))
+    plugins_dir = tmp_path / "plugins"
+    target = await install("clawhub:@cua/driver", plugins_dir, tmp_path / "home")
+    assert target == plugins_dir / "driver"
+    assert (target / "SKILL.md").exists()
+
+
+async def test_install_github_spec_falls_back_to_clone_on_501(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class _NotFetchableClient:
+        async def download(self, identifier: str, *, version: str | None = None) -> Any:
+            raise registry_client.RegistryNotFetchable("no archive for this hub")
+
+    monkeypatch.setattr(registry_client, "CLIENT", _NotFetchableClient())
+
+    cloned: dict[str, Any] = {}
+
+    async def fake_clone(url: str, target: Path) -> None:
+        cloned["url"] = url
+        target.mkdir(parents=True, exist_ok=True)
+        (target / "SKILL.md").write_text("---\nname: repo\n---\n", encoding="utf-8")
+
+    monkeypatch.setattr(marketplace, "_clone", fake_clone)
+    plugins_dir = tmp_path / "plugins"
+    target = await install("github:owner/repo@plugin", plugins_dir, tmp_path / "home")
+    assert cloned["url"] == "https://github.com/owner/repo.git"
+    # The whole repo is cloned (a plugin subdir hint is not extracted, same
+    # simplification as the existing git-url "#subdir" form), so the target
+    # directory is named after the repo, not the plugin.
+    assert target == plugins_dir / "repo"
+
+
+async def test_install_clawhub_spec_501_with_no_fallback_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class _NotFetchableClient:
+        async def download(self, identifier: str, *, version: str | None = None) -> Any:
+            raise registry_client.RegistryNotFetchable("no archive for this hub")
+
+    monkeypatch.setattr(registry_client, "CLIENT", _NotFetchableClient())
+    plugins_dir = tmp_path / "plugins"
+    with pytest.raises(marketplace.InstallError, match="no archive"):
+        await install("clawhub:@cua/driver", plugins_dir, tmp_path / "home")
+
+
+def test_has_external_scheme() -> None:
+    assert marketplace._has_external_scheme("registry:ralplan")
+    assert marketplace._has_external_scheme("clawhub:@cua/driver")
+    assert marketplace._has_external_scheme("github:owner/repo@plugin")
+    assert not marketplace._has_external_scheme("fixture-market/pdf-toolkit")
+    assert not marketplace._has_external_scheme("https://example.com/repo.git")
+    assert not marketplace._has_external_scheme("git@github.com:owner/repo.git")
+    assert not marketplace._has_external_scheme("./local/dir")
+
+
+def test_name_from_spec() -> None:
+    assert marketplace._name_from_spec("registry:ralplan") == "ralplan"
+    assert marketplace._name_from_spec("clawhub:@cua/driver") == "driver"
+    assert marketplace._name_from_spec("github:owner/repo@plugin") == "plugin"
+    assert marketplace._name_from_spec("github:owner/repo") == "repo"
 
 
 # ---------------------------------------------------------------------------
@@ -420,3 +647,31 @@ async def test_cli_skill_rate_happy_path(
 async def test_cli_skill_rate_rejects_bad_stars(tmp_path: Path) -> None:
     code = await cli_commands.skill_rate_command("ralplan", "9", None, tmp_path / "home")
     assert code != 0
+
+
+async def test_cli_skill_sources_happy_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "sources": [
+                    {"id": "local", "label": "snowpea registry", "enabled": True, "count": 6},
+                    {
+                        "id": "hermes",
+                        "label": "Hermes Hub",
+                        "enabled": False,
+                        "disabledReason": "does not resolve",
+                    },
+                ]
+            },
+        )
+
+    monkeypatch.setattr(http_util, "new_client", mock_transport(handler))
+    code = await cli_commands.skill_sources_command(
+        tmp_path / "home", registry="https://registry.example/v1"
+    )
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "local" in out and "hermes" in out and "does not resolve" in out

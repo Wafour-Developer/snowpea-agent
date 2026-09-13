@@ -1,0 +1,21 @@
+{
+  "results": [
+    {
+      "id": "clawhub:@fixtures/pdf-extract",
+      "name": "pdf-extract",
+      "description": "Extract text and tables from a PDF.",
+      "installSpec": "clawhub:@fixtures/pdf-extract",
+      "source": "clawhub",
+      "sourceLabel": "ClawHub"
+    },
+    {
+      "id": "github:snowpea-fixtures/pdf-ocr",
+      "name": "pdf-ocr",
+      "description": "OCR a scanned PDF so it becomes searchable.",
+      "installSpec": "github:snowpea-fixtures/pdf-ocr",
+      "source": "claude-marketplaces",
+      "sourceLabel": "Claude marketplaces"
+    }
+  ],
+  "unavailable": []
+}

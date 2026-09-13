@@ -30,8 +30,13 @@ log = logging.getLogger("snowpea.skills.registry")
 #: The public registry; not contacted unless something asks it to be.
 REGISTRY_URL = "https://registry.snowpea.ai/v1"
 
-#: Network timeout for every registry call (search, download, publish, rate).
+#: Network timeout for every registry call (download, publish, rate).
 REGISTRY_TIMEOUT_SEC = 10.0
+
+#: The federated search fans out to every hub with ``live=1``; a slow hub
+#: costs its own results, not the whole call, so this stays short (§4b: each
+#: hub gets its own 4s budget server-side).
+SEARCH_TIMEOUT_SEC = 6.0
 
 #: A downloaded skill zip larger than this is refused before it is written.
 MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024
@@ -39,6 +44,15 @@ MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024
 
 class RegistryError(RuntimeError):
     """A registry call that reached the server but was refused, or timed out."""
+
+
+class RegistryNotFetchable(RegistryError):
+    """The registry knows the id but cannot serve a zip for it (HTTP 501).
+
+    A federated item whose hub carries no downloadable archive (e.g. a
+    ClawHub feed entry) answers this way; the caller may still have its own
+    fallback (a ``github:`` spec can be ``git clone``d directly).
+    """
 
 
 def resolve_url(explicit: str | None = None, settings: Any = None) -> str:
@@ -70,6 +84,10 @@ def _settings_str(settings: Any, field: str) -> str | None:
     registry = getattr(getattr(settings, "skills", None), "registry", None)
     value = getattr(registry, field, None)
     return value if isinstance(value, str) and value else None
+
+
+#: One hub's federated search failure (§4b's ``unavailable`` array).
+HubFailure = dict[str, Any]
 
 
 class RegistryClient(Protocol):
@@ -119,25 +137,71 @@ class HttpRegistryClient:
         self.timeout = timeout
 
     async def search(self, query: str) -> list[dict[str, Any]]:
+        results, _hub_failures = await self._search(query)
+        return results
+
+    async def search_with_sources(
+        self, query: str
+    ) -> tuple[list[dict[str, Any]], list[HubFailure]]:
+        """The federated search (``sources=all&live=1``) plus per-hub failures.
+
+        Never raises: a registry that cannot be reached at all answers
+        ``([], [])`` — the caller (:mod:`snowpea_core.skills.marketplace`)
+        treats that the same as an unreachable source, using its own outer
+        try/except for the "whole registry is down" message.
+        """
+        return await self._search(query)
+
+    async def _search(self, query: str) -> tuple[list[dict[str, Any]], list[HubFailure]]:
+        url = f"{self.url}/skills?q={quote(query)}&sources=all&live=1"
         try:
-            payload = await self._get_json(f"{self.url}/skills?q={quote(query)}")
+            from snowpea_core.tools import http_util
+
+            async with http_util.new_client(timeout=SEARCH_TIMEOUT_SEC) as client:
+                response = await client.get(url)
+                self._raise_for_error(response)
+                payload = response.json()
         except Exception as exc:  # noqa: BLE001 - offline must not break aggregated search
             log.info("snowpea-registry unavailable: %s", exc)
-            return []
+            return [], []
         results = payload.get("results") if isinstance(payload, dict) else None
-        return [item for item in (results or []) if isinstance(item, dict)]
+        hub_failures = payload.get("unavailable") if isinstance(payload, dict) else None
+        return (
+            [item for item in (results or []) if isinstance(item, dict)],
+            [hub for hub in (hub_failures or []) if isinstance(hub, dict)],
+        )
 
     async def resolve(self, identifier: str) -> str | None:
-        """``registry:<id>`` and a bare id both resolve to the download URL."""
-        ident = identifier.split(":", 1)[1] if identifier.startswith("registry:") else identifier
-        if not ident.strip():
+        """Any install spec resolves to its download URL on this registry."""
+        if not identifier.strip():
             return None
-        return f"{self.url}/skills/{quote(ident)}/download"
+        return f"{self.url}/skills/{self._encode_id(identifier)}/download"
+
+    async def sources(self) -> list[dict[str, Any]]:
+        """``GET /v1/sources`` — every hub's health (``id, label, enabled, ...``)."""
+        payload = await self._get_json(f"{self.url}/sources")
+        sources = payload.get("sources") if isinstance(payload, dict) else None
+        return [item for item in (sources or []) if isinstance(item, dict)]
+
+    @staticmethod
+    def _encode_id(identifier: str) -> str:
+        """``registry:<id>`` keeps the bare id (path-safe); anything else — a
+        federated spec like ``clawhub:@cua/driver`` — is percent-encoded
+        whole, ``/`` and ``@`` included, since the registry's own id for it
+        *is* that whole string.
+        """
+        if identifier.startswith("registry:"):
+            return quote(identifier.split(":", 1)[1])
+        return quote(identifier, safe="")
 
     async def download(self, identifier: str, *, version: str | None = None) -> DownloadedSkill:
-        """Fetch the zip for ``identifier`` (bare id or ``registry:<id>``)."""
+        """Fetch the zip for ``identifier`` — ``registry:<id>``, a bare local
+        id, or any federated spec (``clawhub:...``, ``github:...``) the
+        registry's generic download proxy can serve. Raises
+        :class:`RegistryNotFetchable` on a 501 (the hub has no archive).
+        """
         ident = identifier.split(":", 1)[1] if identifier.startswith("registry:") else identifier
-        url = f"{self.url}/skills/{quote(ident)}/download"
+        url = f"{self.url}/skills/{self._encode_id(identifier)}/download"
         if version:
             url += f"?v={quote(version)}"
         from snowpea_core.tools import http_util
@@ -146,6 +210,10 @@ class HttpRegistryClient:
             response = await client.get(url)
             if response.status_code == 404:
                 raise RegistryError(f"no skill named {ident!r} on {self.url}")
+            if response.status_code == 501:
+                raise RegistryNotFetchable(
+                    self._error_message(response) or f"{ident} is not fetchable from its hub"
+                )
             self._raise_for_error(response)
             content_length = response.headers.get("content-length")
             if content_length and int(content_length) > MAX_DOWNLOAD_BYTES:
@@ -212,18 +280,21 @@ class HttpRegistryClient:
             return response.json()
 
     @staticmethod
-    def _raise_for_error(response: Any) -> None:
-        if response.status_code < 400:
-            return
-        message = f"HTTP {response.status_code}"
+    def _error_message(response: Any) -> str | None:
         try:
             body = response.json()
             detail = body.get("error") if isinstance(body, dict) else None
             if isinstance(detail, dict) and detail.get("message"):
-                message = f"{detail.get('code', response.status_code)}: {detail['message']}"
+                return f"{detail.get('code', response.status_code)}: {detail['message']}"
         except Exception:  # noqa: BLE001 - a non-JSON error body still gets reported
-            pass
-        raise RegistryError(message)
+            return None
+        return None
+
+    @classmethod
+    def _raise_for_error(cls, response: Any) -> None:
+        if response.status_code < 400:
+            return
+        raise RegistryError(cls._error_message(response) or f"HTTP {response.status_code}")
 
 
 def _filename_from_disposition(header: str | None) -> str | None:
@@ -257,10 +328,13 @@ __all__ = [
     "MAX_DOWNLOAD_BYTES",
     "REGISTRY_TIMEOUT_SEC",
     "REGISTRY_URL",
+    "SEARCH_TIMEOUT_SEC",
     "DownloadedSkill",
     "HttpRegistryClient",
+    "HubFailure",
     "RegistryClient",
     "RegistryError",
+    "RegistryNotFetchable",
     "StubRegistryClient",
     "configure_client",
     "resolve_token",

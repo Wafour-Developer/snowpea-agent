@@ -1,23 +1,35 @@
-"""Skill discovery and installation (M6 contract §1).
+"""Skill discovery and installation (M6 contract §1, CORE-registry-client §4b).
 
-``skill.search`` aggregates three sources, each labelled on every hit:
+``skill.search`` aggregates two sources:
 
 ===================  ==========================================================
 ``claude-marketplace``  ``marketplace.json`` of each registered Claude Code
                         marketplace repo (``$SNOWPEA_HOME/marketplaces.json``,
                         seeded with the oh-my-claudecode repo).
-``agentskills.io``      ``GET https://agentskills.io/api/v1/skills?q=<query>``
-``hermes-hub``          ``GET https://hermes-hub.ai/api/v1/skills?q=<query>``
+the hosted registry     ``GET /v1/skills?sources=all&live=1`` on
+                        ``registry_client.CLIENT`` — itself a federation of the
+                        registry's own published skills plus mirrored/live
+                        hits from other hubs (ClawHub, Claude marketplaces).
+                        Each hit already carries its own ``source``/
+                        ``sourceLabel``, so no adapter is needed per hub here.
 ===================  ==========================================================
 
-Everything network-facing goes through :data:`FETCHER`, so the tests swap one
-object for a fixture reader instead of patching call sites.  A source that
-fails (offline, 404, malformed JSON) contributes nothing and never fails the
-search as a whole.
+``agentskills.io`` and ``hermes-hub`` adapters were removed: agentskills.io is
+the Agent Skills *specification* site with no skill-listing API, and
+hermes-hub.ai does not resolve. Both are now handled, disabled, on the
+registry side (``GET /v1/sources``) instead of being guessed at here.
 
-``skill.install(source)`` accepts a local path, a git URL, ``<marketplace>/<plugin>``
-or the ``oh-my-claudecode`` shortcut, and lands the plugin in
-``$SNOWPEA_HOME/plugins/<name>``.
+Everything network-facing for the local marketplace scan goes through
+:data:`FETCHER`, so the tests swap one object for a fixture reader instead of
+patching call sites. A source that fails (offline, 404, malformed JSON)
+contributes nothing and never fails the search as a whole.
+
+``skill.install(source)`` accepts a local path, a git URL,
+``<marketplace>/<plugin>``, the ``oh-my-claudecode`` shortcut, or any
+registry-issued install spec (``registry:<id>``, ``clawhub:<id>``,
+``github:<owner>/<repo>[@plugin]``, ...) — the last group resolved through the
+registry's own generic download proxy, with a ``git clone`` fallback for
+``github:`` specs the registry cannot serve (501).
 """
 
 from __future__ import annotations
@@ -33,13 +45,12 @@ from typing import Any
 log = logging.getLogger("snowpea.skills.marketplace")
 
 SOURCE_CLAUDE = "claude-marketplace"
-SOURCE_AGENTSKILLS = "agentskills.io"
-SOURCE_HERMES = "hermes-hub"
+#: Fallback label for a hosted-registry hit that carries neither ``source``
+#: nor ``sourceLabel`` (should not happen against a real registry, but a test
+#: double or a future API bump must not crash on it) and for the outer
+#: "the whole registry is unreachable" failure.
 SOURCE_REGISTRY = "snowpea-registry"
-SOURCES: tuple[str, ...] = (SOURCE_CLAUDE, SOURCE_AGENTSKILLS, SOURCE_HERMES, SOURCE_REGISTRY)
-
-AGENTSKILLS_ENDPOINT = "https://agentskills.io/api/v1/skills"
-HERMES_ENDPOINT = "https://hermes-hub.ai/api/v1/skills"
+SOURCES: tuple[str, ...] = (SOURCE_CLAUDE, SOURCE_REGISTRY)
 
 #: ``skill.install oh-my-claudecode`` means this repository.
 SHORTCUTS: dict[str, str] = {
@@ -243,30 +254,6 @@ def _keywords(item: dict[str, Any]) -> list[str]:
     return [str(value)]
 
 
-async def _search_endpoint(query: str, endpoint: str, source: str) -> SourceResult:
-    url = f"{endpoint}?q={query.strip().replace(' ', '+')}"
-    try:
-        payload = await FETCHER.get_json(url)
-    except Exception as exc:  # noqa: BLE001 - offline is reported, never raised
-        log.info("%s unavailable: %s", source, exc)
-        return SourceResult(unavailable=[f"{source}: {_reason(exc)}"])
-    return SourceResult(
-        hits=[
-            _hit(item, source)
-            for item in _items(payload)
-            if _matches(query, str(item.get("name") or ""), str(item.get("description") or ""))
-        ]
-    )
-
-
-async def search_agentskills(query: str) -> SourceResult:
-    return await _search_endpoint(query, AGENTSKILLS_ENDPOINT, SOURCE_AGENTSKILLS)
-
-
-async def search_hermes_hub(query: str) -> SourceResult:
-    return await _search_endpoint(query, HERMES_ENDPOINT, SOURCE_HERMES)
-
-
 async def search(query: str, home: Path | str) -> SearchReport:
     """Every source, concurrently, in the documented order.
 
@@ -276,8 +263,6 @@ async def search(query: str, home: Path | str) -> SearchReport:
     """
     results = await asyncio.gather(
         search_claude_marketplaces(query, home),
-        search_agentskills(query),
-        search_hermes_hub(query),
         _hosted(query),
     )
     report = SearchReport()
@@ -288,14 +273,36 @@ async def search(query: str, home: Path | str) -> SearchReport:
 
 
 async def _hosted(query: str) -> SourceResult:
-    """The hosted snowpea-registry; offline or unset contributes nothing."""
+    """The hosted, federated registry; offline or unset contributes nothing.
+
+    A registry that answers carries per-item ``source``/``sourceLabel`` (its
+    own skills as well as anything it mirrors or fanned out to live), plus a
+    per-hub ``unavailable`` list when a ``live=1`` fan-out partially failed
+    (one dead hub costs its own results, not the whole search). A registry
+    that cannot be reached at all is reported the same way every other source
+    is: one line naming it, never an exception.
+    """
     from snowpea_core.skills import registry_client
 
+    client = registry_client.CLIENT
     try:
-        items = await registry_client.CLIENT.search(query)
+        if hasattr(client, "search_with_sources"):
+            items, hub_failures = await client.search_with_sources(query)  # type: ignore[union-attr]
+        else:
+            items, hub_failures = await client.search(query), []
     except Exception as exc:  # noqa: BLE001
         return SourceResult(unavailable=[f"{SOURCE_REGISTRY}: {_reason(exc)}"])
-    return SourceResult(hits=[_hit(item, SOURCE_REGISTRY) for item in items])
+    hits = [
+        _hit(item, str(item.get("sourceLabel") or item.get("source") or SOURCE_REGISTRY))
+        for item in items
+    ]
+    unavailable = [
+        f"{hub.get('label') or hub.get('id') or SOURCE_REGISTRY}: "
+        f"{hub.get('reason') or 'unavailable'}"
+        for hub in hub_failures
+        if isinstance(hub, dict)
+    ]
+    return SourceResult(hits=hits, unavailable=unavailable)
 
 
 # ---------------------------------------------------------------------------
@@ -382,14 +389,13 @@ async def resolve_marketplace_entry(spec: str, home: Path | str) -> str | None:
 async def install(source: str, plugins_dir: Path, home: Path | str) -> Path:
     """Put the plugin named by ``source`` under ``plugins_dir``; return its path.
 
-    Accepts a local path, a git URL, ``<marketplace>/<plugin>`` or a shortcut.
+    Accepts a local path, a git URL, ``<marketplace>/<plugin>``, a shortcut, or
+    any registry-issued install spec (``registry:<id>``, ``clawhub:<id>``,
+    ``github:<owner>/<repo>[@plugin]``, ...).
     """
     spec = source.strip()
     if not spec:
         raise InstallError("skill.install needs a source")
-
-    if spec.startswith("registry:"):
-        return await _install_from_registry(spec, plugins_dir)
 
     local = Path(spec).expanduser()
     if local.exists() and local.is_dir():
@@ -410,6 +416,9 @@ async def install(source: str, plugins_dir: Path, home: Path | str) -> Path:
         await _clone(url, target)
         return target
 
+    if _has_external_scheme(spec):
+        return await _install_from_registry(spec, plugins_dir)
+
     if "/" in spec:
         resolved = await resolve_marketplace_entry(spec, home)
         if resolved:
@@ -426,30 +435,54 @@ async def install(source: str, plugins_dir: Path, home: Path | str) -> Path:
     )
 
 
+def _has_external_scheme(spec: str) -> bool:
+    """True for ``registry:``/``clawhub:``/``github:``-shaped install specs.
+
+    Excludes ``git@host:path`` (scp-style git) and ``http(s)://`` (already
+    handled by :func:`is_git_url`) — anything whose "scheme" is not a bare
+    alphanumeric token is left to the other resolvers.
+    """
+    if spec.startswith(("http://", "https://")):
+        return False
+    scheme, sep, rest = spec.partition(":")
+    if not sep or not rest:
+        return False
+    return bool(scheme) and scheme.replace("-", "").isalnum()
+
+
 #: A single extracted skill package larger than this is refused (path safety
 #: caps the archive itself; this caps what it expands to, against zip bombs).
 MAX_EXTRACTED_BYTES = 100 * 1024 * 1024
 
 
 async def _install_from_registry(spec: str, plugins_dir: Path) -> Path:
-    """``registry:<id>`` — download the zip and unpack it under ``plugins_dir``."""
+    """Any registry install spec — ``registry:<id>``, ``clawhub:<id>``,
+    ``github:<owner>/<repo>[@plugin]``, ... — via the registry's generic
+    download proxy, falling back to ``git clone`` for a ``github:`` spec the
+    registry answers 501 (cannot fetch) for.
+    """
     from snowpea_core.skills import registry_client
 
-    ident = spec.split(":", 1)[1].strip()
-    if not ident:
+    if spec.startswith("registry:") and not spec.split(":", 1)[1].strip():
         raise InstallError("registry: needs a skill id, e.g. registry:ralplan")
 
     client = registry_client.CLIENT
     if not hasattr(client, "download"):
         client = registry_client.HttpRegistryClient(registry_client.resolve_url())
     try:
-        downloaded = await client.download(ident)  # type: ignore[union-attr]
+        downloaded = await client.download(spec)  # type: ignore[union-attr]
+    except registry_client.RegistryNotFetchable as exc:
+        fallback = await _fallback_install(spec, plugins_dir)
+        if fallback is not None:
+            return fallback
+        raise InstallError(f"{spec}: {exc}") from exc
     except registry_client.RegistryError as exc:
-        raise InstallError(f"registry:{ident}: {exc}") from exc
+        raise InstallError(f"{spec}: {exc}") from exc
     except Exception as exc:  # noqa: BLE001 - network/timeout errors, reported the same way
-        raise InstallError(f"registry:{ident}: {exc}") from exc
+        raise InstallError(f"{spec}: {exc}") from exc
 
-    target = plugins_dir / ident
+    name = _name_from_spec(spec)
+    target = plugins_dir / name
     if target.exists():
         shutil.rmtree(target)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -459,6 +492,41 @@ async def _install_from_registry(spec: str, plugins_dir: Path) -> Path:
         shutil.rmtree(target, ignore_errors=True)
         raise
     return target
+
+
+async def _fallback_install(spec: str, plugins_dir: Path) -> Path | None:
+    """``github:<owner>/<repo>[@plugin]`` clones the repo directly when the
+    registry cannot serve a zip for it (501). Any other scheme has no
+    client-side fallback, so ``None`` tells the caller to surface the 501.
+    """
+    if not spec.startswith("github:"):
+        return None
+    repo_spec = spec[len("github:") :].partition("@")[0]
+    if not repo_spec:
+        return None
+    url = f"https://github.com/{repo_spec}.git"
+    target = plugins_dir / plugin_name_from(repo_spec)
+    await _clone(url, target)
+    return target
+
+
+def _name_from_spec(spec: str) -> str:
+    """A directory-safe plugin name for any install spec, prefixed or not.
+
+    ``registry:ralplan`` -> ``ralplan``; ``clawhub:@cua/driver`` -> ``driver``
+    (its last path segment); ``github:owner/repo@plugin`` -> ``plugin`` (what
+    is actually being installed out of the monorepo), or ``repo`` with no
+    ``@plugin`` suffix.
+    """
+    text = spec.split(":", 1)[1] if ":" in spec else spec
+    text = text.strip()
+    if not text:
+        return spec.split(":", 1)[0] or "plugin"
+    if "@" in text[1:]:
+        _head, _, tail = text.rpartition("@")
+        if tail:
+            return plugin_name_from(tail)
+    return plugin_name_from(text.lstrip("@"))
 
 
 def _extract_zip_safely(content: bytes, target: Path) -> None:
@@ -515,20 +583,16 @@ def _safe_join(base: Path, relative: str) -> Path:
 
 
 __all__ = [
-    "AGENTSKILLS_ENDPOINT",
     "CLONE_TIMEOUT_SEC",
     "DEFAULT_MARKETPLACES",
     "FETCHER",
-    "HERMES_ENDPOINT",
     "HttpFetcher",
     "InstallError",
     "MARKETPLACES_FILE",
     "MAX_EXTRACTED_BYTES",
     "SHORTCUTS",
     "SOURCES",
-    "SOURCE_AGENTSKILLS",
     "SOURCE_CLAUDE",
-    "SOURCE_HERMES",
     "SOURCE_REGISTRY",
     "SearchReport",
     "SkillHit",
@@ -541,8 +605,6 @@ __all__ = [
     "resolve_marketplace_entry",
     "save_marketplaces",
     "search",
-    "search_agentskills",
     "search_claude_marketplaces",
-    "search_hermes_hub",
     "set_fetcher",
 ]

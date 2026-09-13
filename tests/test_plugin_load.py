@@ -24,7 +24,7 @@ from test_session_loop import prompt, start_session
 
 from snowpea_core.server.app_server import Daemon
 from snowpea_core.skills import loader as skill_loader
-from snowpea_core.skills import marketplace
+from snowpea_core.skills import marketplace, registry_client
 
 pytestmark = pytest.mark.asyncio
 
@@ -36,19 +36,37 @@ MARKETPLACE_DIR = FIXTURES / "marketplace"
 TIMEOUT = 15.0
 
 
-class FixtureFetcher(marketplace.HttpFetcher):
-    """Offline stand-in for the HTTP layer the three search sources share."""
+class FixtureRegistryClient:
+    """Offline stand-in for the hosted, federated registry — CORE-registry-client.
 
-    ENDPOINTS = {
-        "agentskills.io": MARKETPLACE_DIR / "agentskills.json",
-        "hermes-hub": MARKETPLACE_DIR / "hermes.json",
-    }
+    Replaces the removed ``agentskills.io``/``hermes-hub`` guess adapters:
+    two of the three fixture hits that used to come from those now come from
+    here, each carrying a distinct hub ``sourceLabel`` the way a real
+    federated response would.
+    """
 
-    async def get_json(self, url: str) -> Any:
-        for needle, path in self.ENDPOINTS.items():
-            if needle in url:
-                return json.loads(path.read_text(encoding="utf-8"))
-        return await super().get_json(url)
+    def __init__(self, payload: dict[str, Any] | None = None) -> None:
+        self._payload = payload or json.loads(
+            (MARKETPLACE_DIR / "registry.json").read_text(encoding="utf-8")
+        )
+
+    async def search_with_sources(
+        self, query: str
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        results = [
+            item
+            for item in self._payload.get("results", [])
+            if query.lower() in str(item.get("name", "")).lower()
+            or query.lower() in str(item.get("description", "")).lower()
+        ]
+        return results, list(self._payload.get("unavailable", []))
+
+    async def search(self, query: str) -> list[dict[str, Any]]:
+        results, _unavailable = await self.search_with_sources(query)
+        return results
+
+    async def resolve(self, identifier: str) -> str | None:
+        return None
 
 
 @pytest_asyncio.fixture
@@ -220,10 +238,10 @@ async def test_pre_tool_hook_can_block_a_call(
 # ---------------------------------------------------------------------------
 
 
-async def test_search_aggregates_three_sources(
+async def test_search_aggregates_local_marketplace_and_registry(
     daemon: Daemon, http: aiohttp.ClientSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(marketplace, "FETCHER", FixtureFetcher())
+    monkeypatch.setattr(registry_client, "CLIENT", FixtureRegistryClient())
     marketplace.save_marketplaces(
         daemon.paths.home,
         [{"name": "fixture-market", "url": str(MARKETPLACE_DIR / "claude.json")}],
@@ -234,7 +252,7 @@ async def test_search_aggregates_three_sources(
     skills = result["skills"]
     assert result["unavailable"] == []
     sources = {str(row["source"]) for row in skills}
-    assert sources == {"claude-marketplace", "agentskills.io", "hermes-hub"}
+    assert sources == {"claude-marketplace", "ClawHub", "Claude marketplaces"}
     assert all(row["installSpec"] for row in skills)
     assert {row["name"] for row in skills} >= {"pdf-toolkit", "pdf-extract", "pdf-ocr"}
     assert "spreadsheet-toolkit" not in {row["name"] for row in skills}
@@ -250,7 +268,17 @@ async def test_search_names_unreachable_sources(
         async def get_json(self, url: str) -> Any:
             raise OSError("network is unreachable")
 
+    class DeadRegistryClient:
+        async def search_with_sources(
+            self, query: str
+        ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+            raise ConnectionError("registry unreachable")
+
+        async def resolve(self, identifier: str) -> str | None:
+            return None
+
     monkeypatch.setattr(marketplace, "FETCHER", DeadFetcher())
+    monkeypatch.setattr(registry_client, "CLIENT", DeadRegistryClient())
     marketplace.save_marketplaces(
         daemon.paths.home,
         [{"name": "fixture-market", "url": str(MARKETPLACE_DIR / "claude.json")}],
@@ -260,9 +288,10 @@ async def test_search_names_unreachable_sources(
     result = await client.ok("skill.search", {"query": "pdf"})
     assert result["skills"] == []
     reported = " ".join(result["unavailable"])
-    for source in ("claude-marketplace", "agentskills.io", "hermes-hub"):
-        assert source in reported
+    assert "claude-marketplace" in reported
     assert "network is unreachable" in reported
+    assert marketplace.SOURCE_REGISTRY in reported
+    assert "registry unreachable" in reported
     await client.stop()
 
 
