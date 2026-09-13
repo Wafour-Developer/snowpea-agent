@@ -1682,6 +1682,8 @@ export interface SubagentDoneEventPayload {
   status?: "queued" | "running" | "done" | "error";
   /** The subagent's final answer. */
   summary?: string;
+  /** One-line label for the delegation, written by the delegating model in the user's language; empty when it wrote none. */
+  title?: string;
   /** Tokens the subagent consumed. */
   usage?: {
     /** Prompt tokens the subagent used. */
@@ -1704,6 +1706,8 @@ export interface SubagentSpawnEventPayload {
   status?: "queued" | "running" | "done" | "error";
   /** Task it was given. */
   task?: string;
+  /** One-line label for the delegation, written by the delegating model in the user's language; empty when it wrote none. */
+  title?: string;
 }
 
 /** Payload of `session.event` with kind `subagent.update`. */
@@ -1721,6 +1725,8 @@ export interface SubagentUpdateEventPayload {
   status?: "queued" | "running" | "done" | "error";
   /** Human-readable progress text. */
   text?: string;
+  /** One-line label for the delegation, written by the delegating model in the user's language; empty when it wrote none. */
+  title?: string;
 }
 
 /** Payload of `session.event` with kind `team.task.update`. */

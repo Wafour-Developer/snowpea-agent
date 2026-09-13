@@ -112,6 +112,18 @@ snowpea model assign executor daily --project
 snowpea model assign executor                # omit the id to clear the assignment
 ```
 
+### Reply language
+
+`agent.replyLanguage` decides what language answers come back in. `"auto"`, the default, follows whatever language you wrote in; a tag such as `"ko"` or `"ja"` pins it whatever you write.
+
+```json
+{"agent": {"replyLanguage": "ko"}}
+```
+
+It reaches delegations too. A subagent sees none of your conversation, so `delegate_task` appends one short English line to every brief naming the output language — the setting when it names one, otherwise the language of your own last message (Hangul → Korean, kana → Japanese, Han → Chinese, Cyrillic → Russian, anything else → English). The brief itself may stay in English, which models read most precisely; what comes back is in your language. You never read the child's report directly: the main agent relays what it found, in your language, in its own words.
+
+The terminal UI follows the same setting for its own wording, so a Korean session reads `파일 3개 읽음` rather than `Read 3 files`. Korean, Japanese and Chinese have wording of their own; every other language keeps the English chrome.
+
 ### Deleting a profile
 
 `settings.set` merges, and a merge cannot express a removal — so `null` deletes the key:

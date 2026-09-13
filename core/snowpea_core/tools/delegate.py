@@ -11,12 +11,19 @@ sees the same tool simply become ``active``.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from snowpea_core.agent.agent import reply_language
 from snowpea_core.agent.definition import builtin_agent_definitions
 from snowpea_core.agent.subagent import get_manager
 from snowpea_core.prompts import tool_descriptions as descriptions
+from snowpea_core.prompts.compose import language_name
+from snowpea_core.session.history import message_text
 from snowpea_core.tools.registry import Tool, ToolContext, ToolResult
+from snowpea_core.util.lang import DEFAULT_LANGUAGE, detect_language
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from snowpea_core.session.session import Session
 
 #: Upper bound on ``timeout``, mirroring the ``shell`` tool's own ceiling.
 MAX_TIMEOUT = 3600.0
@@ -53,16 +60,64 @@ def _timeout(value: Any) -> float | None:
     return min(MAX_TIMEOUT, seconds)
 
 
+def last_user_text(session: Session) -> str:
+    """The most recent thing the user themselves wrote, or ``""``."""
+    for message in reversed(session.history.snapshot()):
+        if message.role == "user":
+            return message_text(message).strip()
+    return ""
+
+
+def detected_language(session: Session) -> str:
+    """Language of the session's last user message, cached on the session.
+
+    The cache key is the text itself, so a new user message refreshes it
+    without a hook in the turn path: the agent loop is owned elsewhere, and a
+    lazy read here costs one history scan per delegation.
+    """
+    text = last_user_text(session)
+    if not text:
+        return session.detected_language or DEFAULT_LANGUAGE
+    if session.detected_language and session.detected_language_source == text:
+        return session.detected_language
+    tag = detect_language(text)
+    session.detected_language = tag
+    session.detected_language_source = text
+    return tag
+
+
+def delegation_language(ctx: ToolContext) -> str:
+    """What the child should answer in: the setting, or what the user wrote."""
+    configured = (reply_language(ctx.core) or "auto").strip()
+    if configured and configured.lower() != "auto":
+        return configured
+    return detected_language(ctx.session)
+
+
+def language_line(tag: str) -> str:
+    """The short English instruction appended to every brief.
+
+    English on purpose: it is read by the child *model*, and a technical brief
+    is more precisely understood in English than the user's reply has to be.
+    """
+    return f"Answer in {language_name(tag)} ({tag}). Keep code, paths and commands as they are."
+
+
 async def delegate_task(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     """Run one subagent and report what it answered."""
     task = str(args.get("task", "") or "").strip()
     if not task:
         return ToolResult(ok=False, error="task is required")
     agent = str(args.get("agent", "") or "").strip() or None
+    # The model is told to write briefs in whatever language suits it; the
+    # output language is not left to chance, because the parent has to relay
+    # the report to a user who may read neither.
+    task = f"{task}\n\n{language_line(delegation_language(ctx))}"
     result = await get_manager(ctx.core).run(
         ctx.session,
         task,
         agent=agent,
+        title=str(args.get("title", "") or "").strip(),
         tools=_tool_list(args.get("tools")),
         timeout=_timeout(args.get("timeout")),
         model=str(args.get("model", "") or "").strip() or None,
@@ -89,6 +144,13 @@ TOOLS: tuple[Tool, ...] = (
                     "description": (
                         "What the sub-agent should do, written so it needs no "
                         "other context than the project itself."
+                    ),
+                },
+                "title": {
+                    "type": "string",
+                    "description": (
+                        "A one-line title for this delegation in the user's "
+                        "language, shown in the UI."
                     ),
                 },
                 "agent": {
@@ -126,4 +188,14 @@ TOOLS: tuple[Tool, ...] = (
 )
 
 
-__all__ = ["BUILTIN_AGENT_HINT", "BUILTIN_AGENT_NAMES", "MAX_TIMEOUT", "TOOLS", "delegate_task"]
+__all__ = [
+    "BUILTIN_AGENT_HINT",
+    "BUILTIN_AGENT_NAMES",
+    "MAX_TIMEOUT",
+    "TOOLS",
+    "delegate_task",
+    "delegation_language",
+    "detected_language",
+    "language_line",
+    "last_user_text",
+]
