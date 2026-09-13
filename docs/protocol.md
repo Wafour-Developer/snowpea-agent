@@ -1568,6 +1568,7 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | `sessionId` | `string \| null` | no | The subagent's own session. |
 | `status` | `"queued" \| "running" \| "done" \| "error"` | no | Terminal state: done or error. |
 | `summary` | `string` | no | The subagent's final answer. |
+| `title` | `string` | no | One-line label for the delegation, written by the delegating model in the user's language; empty when it wrote none. |
 | `usage` | `{ inputTokens?: number; outputTokens?: number; }` | no | Tokens the subagent consumed. |
 
 ### kind `subagent.spawn`
@@ -1580,6 +1581,7 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | `sessionId` | `string \| null` | no | The subagent's own session, once it has one. |
 | `status` | `"queued" \| "running" \| "done" \| "error"` | no | State at spawn: queued until a concurrency slot frees up. |
 | `task` | `string` | no | Task it was given. |
+| `title` | `string` | no | One-line label for the delegation, written by the delegating model in the user's language; empty when it wrote none. |
 
 ### kind `subagent.update`
 
@@ -1592,6 +1594,7 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | `sessionId` | `string \| null` | no | The subagent's own session. |
 | `status` | `"queued" \| "running" \| "done" \| "error"` | no | Lifecycle state. |
 | `text` | `string` | no | Human-readable progress text. |
+| `title` | `string` | no | One-line label for the delegation, written by the delegating model in the user's language; empty when it wrote none. |
 
 ### kind `team.task.update`
 

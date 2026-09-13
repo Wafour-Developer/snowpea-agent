@@ -95,6 +95,13 @@ export interface SubagentEntry {
   /** Agent definition it runs as, when it was given one. */
   name: string;
   task: string;
+  /**
+   * One-line label the delegating model wrote, in the user's language.
+   *
+   * Empty when it wrote none; the panel and the summary line then fall back to
+   * their own wording, which is how every delegation before this field looked.
+   */
+  title: string;
   status: SubagentStatus;
   /** Most recent thing it said or did, shown while it runs. */
   lastText: string;
@@ -405,6 +412,7 @@ function applySessionEvent(state: State, event: SessionEvent): State {
         agentId: String(payload.agentId ?? nextId("agent")),
         name: String(payload.name ?? ""),
         task: String(payload.task ?? ""),
+        title: String(payload.title ?? ""),
         status: (payload.status ?? "queued") as SubagentStatus,
         lastText: "",
         summary: "",
@@ -427,6 +435,7 @@ function applySessionEvent(state: State, event: SessionEvent): State {
         status: (payload.status ?? entry.status) as SubagentStatus,
         lastText: String(payload.lastText ?? payload.text ?? entry.lastText),
         name: String(payload.name ?? entry.name),
+        title: String(payload.title ?? entry.title),
         outputTokens: Number(payload.usage?.outputTokens ?? entry.outputTokens),
         sessionId:
           typeof payload.sessionId === "string" ? payload.sessionId : entry.sessionId,
@@ -437,6 +446,7 @@ function applySessionEvent(state: State, event: SessionEvent): State {
         ...entry,
         status: (payload.status ?? (payload.ok === false ? "error" : "done")) as SubagentStatus,
         summary: String(payload.summary ?? payload.result ?? ""),
+        title: String(payload.title ?? entry.title),
         lastText: "",
         inputTokens: Number(payload.usage?.inputTokens ?? entry.inputTokens),
         outputTokens: Number(payload.usage?.outputTokens ?? entry.outputTokens),

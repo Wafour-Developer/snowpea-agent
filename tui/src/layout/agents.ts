@@ -81,7 +81,9 @@ function subagentRow(entry: SubagentEntry, now: number): AgentRow {
     glyph: STATUS_GLYPH[status] ?? AGENT_GLYPH,
     color: STATUS_COLOR[status],
     name: entry.name || "agent",
-    task: entry.task || entry.lastText || "",
+    // The model's own one-line title beats the brief it wrote for the child:
+    // the brief is written for a machine, often in English, and is long.
+    task: entry.title || entry.task || entry.lastText || "",
     status: agentStatusText(entry, now),
     dim: entry.status === "done",
   };
