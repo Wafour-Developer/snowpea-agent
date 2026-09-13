@@ -548,13 +548,15 @@ async def provider_models_handler(
     """``provider.models`` — ask the vendor's endpoint what it actually serves."""
     vendor = (params.vendor or "").strip() or core.providers.default_vendor()
     try:
-        available = await core.providers.list_models(vendor)
+        listing = await core.providers.model_listing(vendor)
     except ProviderError as exc:
         raise RpcError(exc.code, str(exc)) from exc
     return ProviderModelsResult(
         vendor=vendor,
-        models=available,
+        models=listing.models,
         current=core.providers.model_for(vendor),
+        source=listing.source,
+        detail=listing.detail,
     )
 
 

@@ -170,7 +170,7 @@ def run(
         if name == "providers" and state.vendor and not state.api_key:
             _ask_for_key(state, interactive=interactive)
         if name == "providers" and state.vendor:
-            _ask_for_model(state, interactive=interactive, console=console)
+            _ask_for_model(state, interactive=interactive, console=console, home=paths.home)
             _configure_models(state, interactive=interactive, console=console, home=paths.home)
         if name == "search":
             _ask_for_search_key(state, interactive=interactive, console=console)
@@ -407,7 +407,11 @@ def _run_sync(coro: Any) -> Any:
 
 
 def _ask_for_model(
-    state: WizardState, *, interactive: bool, console: Console | None = None
+    state: WizardState,
+    *,
+    interactive: bool,
+    console: Console | None = None,
+    home: Path | None = None,
 ) -> None:
     """Ask the vendor which models it serves, then let the user pick one.
 
@@ -426,34 +430,48 @@ def _ask_for_model(
         preset = preset_for(state.vendor, state.variant)
     except KeyError:
         return
-    out("checking models…")
-    # A ChatGPT / Google sign-in has no ``/models`` endpoint and no API key;
-    # asking the vendor's ordinary API would only earn a 401 right after a
-    # successful login (report §6.7 A-P2-1).  The supported set is declared.
-    oauth_method = state.auth_method or str(
-        (state.provider_configs.get(state.vendor) or {}).get("auth_method") or ""
-    )
-    declared = model_discovery.oauth_models(state.vendor, oauth_method or None)
-    if declared is not None:
-        available = declared
+    block = dict(state.provider_configs.get(state.vendor) or {})
+    oauth_method = state.auth_method or str(block.get("auth_method") or "")
+    if oauth_method == "chatgpt":
+        out("listing models from your ChatGPT account…")
+    elif oauth_method in {"google_oauth", "google_adc"}:
+        # Code Assist has no catalog endpoint (checked against gemini-cli's
+        # packages/core/src/code_assist, which ships static constants), so say
+        # so rather than letting a declared list look like the vendor's answer.
+        out(
+            "a Google sign-in runs on the Code Assist backend, which publishes no "
+            "model listing — these are the models it supports"
+        )
     else:
-        try:
-            available = _run_sync(
-                model_discovery.list_models(
-                    preset,
-                    api_key=state.api_key
-                    or str((state.provider_configs.get(state.vendor) or {}).get("api_key") or "")
-                    or None,
-                    base_url=state.base_url or None,
-                    refresh=True,
-                )
+        out("checking models…")
+    try:
+        listing = _run_sync(
+            model_discovery.resolve_models(
+                state.vendor,
+                preset=preset,
+                auth_method=oauth_method or None,
+                api_key=state.api_key or str(block.get("api_key") or "") or None,
+                base_url=state.base_url or None,
+                credentials=block,
+                home=home,
+                refresh=True,
             )
-        except Exception as exc:  # noqa: BLE001 - a down server must not stop setup
-            out(f"could not list models ({exc})")
-            entered = ui.ask_text(f"model id [{state.model or 'required'}]: ")
-            if entered:
-                state.model = entered
-            return
+        )
+    except Exception as exc:  # noqa: BLE001 - a down server must not stop setup
+        out(f"could not list models ({exc})")
+        entered = ui.ask_text(f"model id [{state.model or 'required'}]: ")
+        if entered:
+            state.model = entered
+        return
+    available = listing.models
+    # Say what went wrong *and* what is being shown instead: a fallback list
+    # that arrives silently looks like the server answered.
+    if listing.error and not listing.live:
+        out(f"could not list models ({listing.error})")
+    if available:
+        out(f"{listing.detail} ({len(available)} models)")
+    else:
+        out(listing.detail)
     if not available:
         out("the server listed no models")
         entered = ui.ask_text(f"model id [{state.model or 'required'}]: ")
@@ -493,7 +511,7 @@ def _configure_models(
             break
         state.select_vendor(vendor)
         _ask_for_key(state, interactive=True)
-        _ask_for_model(state, interactive=True, console=console)
+        _ask_for_model(state, interactive=True, console=console, home=home)
         profile = state.add_current_model_profile()
         if profile:
             out(f"registered model profile {profile}")

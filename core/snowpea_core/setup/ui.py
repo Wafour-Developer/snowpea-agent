@@ -203,9 +203,7 @@ def ask(
     _emit(console, CURSOR_HIDE)
     try:
         while True:
-            painted = render(
-                screen, cursor=cursor, chosen=chosen, console=console, repaint=painted
-            )
+            painted = render(screen, cursor=cursor, chosen=chosen, console=console, repaint=painted)
             key = read_key(keys)
             item = screen.items[cursor]
             if key == "up":

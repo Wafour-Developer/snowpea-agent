@@ -1011,7 +1011,14 @@ def test_a_browser_login_uses_the_declared_model_list_instead_of_the_api(
     async def listing(preset, **_kwargs):
         raise AssertionError("the vendor API must not be asked for an OAuth account")
 
+    async def no_codex_catalog(_credentials, **_kwargs):
+        # The Codex backend is unreachable in a unit test; the curated list is
+        # the rung that must answer, and silently (the live path has its own
+        # MockTransport tests in tests/test_model_resolution.py).
+        return []
+
     monkeypatch.setattr(model_discovery, "list_models", listing)
+    monkeypatch.setattr(model_discovery, "codex_catalog", no_codex_catalog)
     monkeypatch.setattr(ui, "ask_text", lambda *a, **kw: "")
     state = WizardState.from_settings(Settings())
     state.select_vendor("openai")

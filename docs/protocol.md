@@ -776,7 +776,9 @@ Ask a vendor's endpoint which models it serves.
 | field | type | required | description |
 |---|---|---|---|
 | `current` | `string` | no | Model this vendor uses today. |
+| `detail` | `string` | no | One line naming the source, for a picker to show. |
 | `models` | `string[]` | no | Model ids the vendor's endpoint reports. |
+| `source` | `string` | no | Which rung answered: live (the vendor's endpoint), settings (providers.<vendor>.models), cache (the last good listing) or curated (this build's list, merged with models.dev). |
 | `vendor` | `string` | yes | Vendor the listing came from. |
 
 ### `session.close`

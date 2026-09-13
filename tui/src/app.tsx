@@ -1009,6 +1009,7 @@ export function App({
         defaultProfile: document.models?.default ?? null,
         agentModels: document.agents?.models ?? null,
         discovered: modelsResult?.models ?? null,
+        discoveredSource: modelsResult?.source ?? null,
         current: state.model ?? modelsResult?.current ?? null,
         vendor: state.provider ?? modelsResult?.vendor ?? null,
       });
