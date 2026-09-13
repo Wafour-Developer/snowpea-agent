@@ -88,6 +88,9 @@ Server capabilities advertised in the `system.hello` result:
 | [`provider.list`](#providerlist) | client → server | List chat providers and whether they are configured. |
 | [`provider.loginWeb`](#providerloginweb) | client → server | Start a browser-based login flow for a provider. |
 | [`provider.models`](#providermodels) | client → server | Ask a vendor's endpoint which models it serves. |
+| [`question.list`](#questionlist) | client → server | List questions the agent is still waiting on. |
+| [`question.request`](#questionrequest) | server → client | Ask the client to put a question to the human. |
+| [`question.respond`](#questionrespond) | client → server | Answer a pending question and unblock the turn. |
 | [`session.close`](#sessionclose) | client → server | Close a session and release its resources. |
 | [`session.compact`](#sessioncompact) | client → server | Summarise the conversation so far and replace the history with it. |
 | [`session.create`](#sessioncreate) | client → server | Open a session rooted at a working directory. |
@@ -816,6 +819,72 @@ Ask a vendor's endpoint which models it serves.
 | `source` | `string` | no | Which rung answered: live (the vendor's endpoint), settings (providers.<vendor>.models), cache (the last good listing) or curated (this build's list, merged with models.dev). |
 | `vendor` | `string` | yes | Vendor the listing came from. |
 
+### `question.list`
+
+*Direction:* client → server
+
+List questions the agent is still waiting on.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `sessionId` | `string \| null` | no | Scope the listing to one session; omit for the global set. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `requests` | `({ allowOther?: boolean; header?: string; index?: number; multi?: boolean; options?: ({ description?: string; label: string; preview?: string; })[]; question: string; requestId: string; sessionId: string; timeoutSec?: number; total?: number; })[]` | no | Questions still waiting for an answer. |
+
+### `question.request`
+
+*Direction:* server → client
+
+Ask the client to put a question to the human.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `allowOther` | `boolean` | no | Offer a free-text '기타 / Other' row alongside the options. |
+| `header` | `string` | no | Short chip above the question, e.g. "Auth method" (<=12 chars). |
+| `index` | `number` | no | Position of this question in the batch, from 1. |
+| `multi` | `boolean` | no | More than one option may be picked. |
+| `options` | `({ description?: string; label: string; preview?: string; })[]` | no | Closed set of answers; empty means free text. |
+| `question` | `string` | yes | The question, including why the answer matters. |
+| `requestId` | `string` | yes | Id to answer with question.respond. |
+| `sessionId` | `string` | yes | Session whose turn is blocked. |
+| `timeoutSec` | `number` | no | Seconds before the question gives up. |
+| `total` | `number` | no | How many questions the tool call asks in all. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `selected` | `string[]` | no | Labels the human picked. |
+| `text` | `string \| null` | no | Free text, when there was any. |
+
+### `question.respond`
+
+*Direction:* client → server
+
+Answer a pending question and unblock the turn.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `requestId` | `string` | yes | Question being answered. |
+| `selected` | `string[]` | no | Labels the human picked, in the order offered. |
+| `text` | `string \| null` | no | Free text, for 'Other' or no options. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ok` | `boolean` | no | True when the call succeeded. |
+
 ### `session.close`
 
 *Direction:* client → server
@@ -1430,6 +1499,19 @@ List the tools registered for a session.
 | `vendor` | `string` | yes | Vendor being logged into. |
 | `verificationUri` | `string \| null` | no | URL to open to approve the login. |
 | `verificationUriComplete` | `string \| null` | no | verificationUri with the code already embedded, when known. |
+
+### `question.pending`
+
+| field | type | required | description |
+|---|---|---|---|
+| `request` | `{ allowOther?: boolean; header?: string; index?: number; multi?: boolean; options?: ({ description?: string; label: string; preview?: string; })[]; question: string; requestId: string; sessionId: string; timeoutSec?: number; total?: number; }` | yes | The question now in the shared queue. |
+
+### `question.resolved`
+
+| field | type | required | description |
+|---|---|---|---|
+| `by` | `string` | yes | Surface or user that answered. |
+| `requestId` | `string` | yes | Question that was resolved. |
 
 ### `session.event`
 

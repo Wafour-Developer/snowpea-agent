@@ -13,6 +13,8 @@ import type {
   LspStatusResult,
   ApprovalRequestResult,
   Client,
+  QuestionRequestParams as SdkQuestionRequestParams,
+  QuestionRequestResult,
   CommandListResult,
   SessionEventPayload,
   SessionSetModeParams,
@@ -33,6 +35,12 @@ export type ApprovalResponse = ApprovalRequestResult;
 export type ApprovalDecision = ApprovalRequestResult["decision"];
 /** `scope` is optional on the wire; the TUI always sends one. */
 export type ApprovalScope = NonNullable<ApprovalRequestResult["scope"]>;
+
+/** Server→client `question.request` — the `ask_user` tool's picker. */
+export type QuestionRequestParams = SdkQuestionRequestParams;
+export type QuestionResponse = QuestionRequestResult;
+/** One row of the picker. */
+export type QuestionOption = NonNullable<SdkQuestionRequestParams["options"]>[number];
 
 export type Mode = SessionSetModeParams["mode"];
 

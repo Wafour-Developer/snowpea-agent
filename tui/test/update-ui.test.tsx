@@ -9,6 +9,7 @@ function client() {
     getStatus: () => "connected",
     setListeners: vi.fn(),
     onApprovalRequest: vi.fn(),
+    onQuestionRequest: () => undefined,
     listApprovals: async () => ({ requests: [] }),
     call: async () => ({ commands: [], tools: [], agents: [] }),
     checkUpdate: vi.fn(async (_force?: boolean) => ({ available: true, current: "0.1.2", latest: "0.1.3" })),

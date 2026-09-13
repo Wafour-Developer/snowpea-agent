@@ -2,7 +2,7 @@
 name: deep-interview
 description: Socratic interview that scores ambiguity and refuses to hand off until the spec is clear.
 argument-hint: "<a vague idea, in one line>"
-allowed-tools: [read_file, list_dir, glob, grep, git_status, git_diff, memory_write, memory_search]
+allowed-tools: [read_file, list_dir, glob, grep, git_status, git_diff, memory_write, memory_search, ask_user, queue_command]
 ---
 
 # Deep interview
@@ -16,6 +16,60 @@ read-only on purpose: if you find yourself wanting to edit a file, the interview
 is not finished.
 
 The idea to interview about is: **$ARGUMENTS**
+
+## Language
+
+Interview in the language the user writes in. Decide from **$ARGUMENTS** and the
+first message, then stay there for the whole interview, the score line, the
+spec and the hand-off. Do not switch because a tool result or this file is in
+English, and never mix scripts inside one sentence.
+
+Write natively in that language; do not translate the English in this file.
+The wording below is instruction to you, not text to show. A question that
+reads like a translated form ("누가 알아채는가를 알고 싶습니다") is a sign you
+copied the English shape; say what you mean the way a careful colleague would.
+
+When the language is Korean:
+
+- 존댓말(합니다체)로, 짧은 문장으로 씁니다. 한 질문에 한 가지만 묻습니다.
+- 차원 이름은 이렇게 부릅니다: 결과(Outcome)·범위(Scope)·제약(Constraints)·검증(Verification)·기존 코드(Prior art).
+  점수 줄은 `모호함 0.42 — 가장 약한 곳: 검증 (0.8)` 형식입니다.
+- 질문의 이유는 한두 문장이면 됩니다. 영어의 "Why this is an assumption and not a
+  preference" 단락을 그대로 옮기지 말고, 답에 따라 무엇이 달라지는지만 말합니다.
+- 선택지를 줄 때는 (a)(b)(c) 대신 번호와 한 줄 설명을 씁니다. 각 선택지는 "…하는 경우"
+  처럼 상황으로 씁니다.
+- 스펙의 제목은 `## 결과`, `## 범위`(포함 / 제외), `## 제약`, `## 완료 조건`, `## 검증`,
+  `## 남은 질문`, `## 모호함` 으로 씁니다. 다음 단계 추천 한 줄도 한국어로 씁니다.
+- 예시 (첫 질문): "일주일 뒤에 '됐다'고 느끼는 순간이 언제인지가 먼저입니다. 1) 내
+  브라우저에서 블록을 놓아 보는 것으로 충분한 경우 2) 친구가 링크로 들어와 같은 세계에서
+  같이 움직이는 경우 3) 내가 없어도 다른 사람들이 만든 것이 남아 있는 세계인 경우.
+  어느 쪽에 가깝습니까? 1)이면 서버가 필요 없고, 2)는 서버와 동시 편집 규칙이, 3)은
+  저장이 핵심이 되어서, 이게 정해지기 전에는 그래픽이나 기술 스택을 묻지 않겠습니다."
+
+## Asking
+
+A question with a closed set of answers goes through `ask_user`, not through
+"(a) … (b) … (c) …" typed into the transcript. The client draws the options as
+a list the user moves through with the arrow keys, so the user answers by
+pressing Enter instead of by typing back the right letter. This supersedes the
+"번호와 한 줄 설명" advice above wherever the answers really are a closed set:
+the numbers are still there, but they are rows, not prose.
+
+- **2–5 options**, each with a label of a few words and a one-line description
+  saying what choosing it costs or buys. Put the one you would recommend first
+  and mark its label "(추천)" / "(recommended)".
+- **The "why this matters" sentence goes in the `question` text**, not in a
+  separate paragraph before the call. The user reads the question and the
+  options together; anything you say outside them is lost.
+- **`multiSelect` only when several answers can be true at once.**
+- **A free-text row is added for you.** Do not add "기타" as an option.
+- **Free-form questions stay plain text.** "일주일 뒤에 무엇이 되어 있으면
+  성공입니까?" has no closed set; asking it with a picker invents one.
+- **One question per turn still holds.** A picker is a question, not an escape
+  from the rule; ask several at once only when they are genuinely independent,
+  and then through one `ask_user` call's `questions[]`.
+- **Read the answer.** A declined or timed-out question is not agreement. Say
+  what you will assume, and that you assumed it.
 
 ## The five dimensions
 
@@ -103,17 +157,58 @@ Then call `memory_write` once with a two or three sentence summary of the
 decisions that were reached, tagged `spec` and with the project's name, so a
 later session starts where this one ended.
 
+## Closing the open questions
+
+When the interview stops — the score reached 0.2, the user asked to stop, or the
+ten-round floor hit — look at what would go in "Open questions". Every one of
+them that has a closed set of answers gets asked through `ask_user` before the
+spec is finalised, one at a time, with the consequence of each choice as its
+description:
+
+> 렌더링 레이어를 무엇으로 할까요? 여기서 고른 것이 이후 작업량을 정합니다.
+> 1. WebGL 래퍼(three.js) (추천) — 빠른 시작, 엔진 통제력 낮음
+> 2. Raw WebGL2 — 공수 큼, 완전한 통제
+> 3. 지금은 미결로 둡니다 — 프로토타입 뒤에 다시 정합니다
+
+Always offer that third kind of row: **"지금은 미결로 둡니다 / leave open"**. An
+interview that will not let the user defer a decision is a form that has to be
+filled in, not a conversation.
+
+Update the spec with whatever was chosen. Only what the user actually left open
+stays in "Open questions".
+
 ## Handing off
 
-Finish by telling the user, in one line, which of these is the right next step
-and why:
+The hand-off is a picker, not a sentence. Call `ask_user` with the question
+"다음 단계는 어떻게 할까요?" (or its equivalent in the user's language) and
+these options, in this order:
 
-- `/ralplan <the spec's title>` when the approach is still contested.
-- `/ralph <the spec's title>` when the work is clear and wants driving to done.
-- `/ultrawork <the spec's title>` when it splits into independent pieces.
+1. **The precondition, when the recommendation has one.** If the right next
+   step only makes sense after something is checked, that check is the first
+   option: "먼저 단계 0만 실행 (npm run gpu-check) — 통과하면 다시 묻습니다".
+   Choosing it queues only that check with `queue_command` when it is a slash
+   command; when it is a shell command, print it on its own line for the user
+   to run — the interview never runs shell itself.
+2. `/ralplan <the spec's title>` — when the approach is still contested.
+3. `/ralph <the spec's title>` — when the work is clear and wants driving to done.
+4. `/ultrawork <the spec's title>` — when it splits into independent pieces.
+5. "여기서 멈춤 — 스펙만 남깁니다 / stop here".
 
-Do not run any of them yourself. The interview ends with a recommendation, not
-with an execution.
+Put the recommended one first among the commands and mark it "(추천)" /
+"(recommended)", with the one-line reason as its description. The free-text row
+is always there, so the user can type a command or an instruction of their own
+instead of picking.
+
+Then act on the answer, and only on the answer:
+
+- A command they picked: `queue_command` it. It does not run inline — it starts
+  as its own turn the moment this one ends — so say what you queued and stop.
+- Free text starting with `/`: `queue_command` it the same way.
+- Any other free text: treat it as a new instruction and keep going in this turn.
+- "여기서 멈춤", a decline, or a timeout: stop, and leave the spec as the result.
+
+Never queue a command the user did not choose. The interview ends with their
+decision, not with yours.
 
 ## Differences from OMC
 
@@ -138,7 +233,8 @@ The method is the same; these things are not:
   gate has nothing to protect.
 - **No `--autoresearch` lane.** OMC's interview can hand off into its stateful
   `autoresearch` skill. snowpea's equivalent handoffs are the three commands
-  listed above, and the skill only ever recommends them.
+  listed above, offered as an `ask_user` picker and queued with `queue_command`
+  only once the user has picked one.
 - **The spec stays in the conversation.** OMC writes
   `.omc/specs/deep-interview-{slug}.md` and marks it `pending approval`. Writing
   files is outside this skill's `allowed-tools`, which is what keeps the

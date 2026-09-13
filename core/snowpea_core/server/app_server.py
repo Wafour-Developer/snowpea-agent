@@ -85,6 +85,7 @@ from snowpea_core.server.transport_http import (
 from snowpea_core.server.transport_ws import hello_handler
 from snowpea_core.server.update_handlers import register_update_handlers
 from snowpea_core.session.manager import EventHub, SessionManager
+from snowpea_core.session.questions import QuestionQueue
 from snowpea_core.tools.registry import ToolRegistry
 
 log = logging.getLogger("snowpea.server")
@@ -124,6 +125,8 @@ class Core:
     commands: CommandRegistry = field(default_factory=CommandRegistry)
     providers: ProviderRegistry = field(default_factory=ProviderRegistry)
     approvals: ApprovalQueue = field(default_factory=ApprovalQueue)
+    #: Questions the ``ask_user`` tool is waiting on (see session/questions.py).
+    questions: QuestionQueue = field(default_factory=QuestionQueue)
     allowlist: Allowlist = field(default_factory=Allowlist)
     policy: PermissionPolicy = field(default_factory=PermissionPolicy)
     hub: EventHub = field(default_factory=EventHub)

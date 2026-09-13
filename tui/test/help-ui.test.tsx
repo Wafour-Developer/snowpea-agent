@@ -8,6 +8,7 @@ async function setup(fullscreen = false) {
   const commands = Array.from({ length: 40 }, (_, i) => ({ name: `command${i}`, summary: `Description ${i}` }));
   const rpc = {
     getStatus: () => "connected", setListeners: vi.fn(), onApprovalRequest: vi.fn(),
+    onQuestionRequest: () => undefined,
     listApprovals: async () => ({ requests: [] }),
     checkUpdate: async () => ({ available: false }),
     call: vi.fn(async (method: string) => method === "command.run" ? { turnId: "help" } : { commands, tools: [], agents: [] }),

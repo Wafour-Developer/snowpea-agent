@@ -49,6 +49,8 @@ from snowpea_core.server.protocol import (
     ProviderListResult,
     ProviderModelsParams,
     ProviderModelsResult,
+    QuestionListResult,
+    QuestionRespondParams,
     SessionCompactParams,
     SessionCompactResult,
     SessionCreateParams,
@@ -118,6 +120,8 @@ HANDLED_METHODS: tuple[str, ...] = (
     "tool.list",
     "approval.list",
     "approval.respond",
+    "question.list",
+    "question.respond",
     "provider.list",
     "provider.models",
     "backend.set",
@@ -143,6 +147,7 @@ def wire_core(core: Core) -> Core:
     core.sessions.definition_model_for = functools.partial(_definition_model, core)
     core.hub.bind(core.store, core.sessions)
     core.approvals.bind(core.settings, core.paths, core.hub)
+    core.questions.bind(core.settings, core.hub)
     core.providers.bind(core.settings, core.paths)
     # /model and the lazy model auto-pick persist through the registry; the
     # hook keeps that write from looking like an outside edit next turn.
@@ -537,6 +542,30 @@ async def approval_respond_handler(
     return Ok(ok=True)
 
 
+# ---------------------------------------------------------------------------
+# question.*  (the ``ask_user`` tool)
+# ---------------------------------------------------------------------------
+
+
+async def question_list_handler(
+    _conn: RpcConnection, params: OptionalSessionParams, core: Core
+) -> QuestionListResult:
+    return QuestionListResult(requests=core.questions.list(params.sessionId))
+
+
+async def question_respond_handler(
+    conn: RpcConnection, params: QuestionRespondParams, core: Core
+) -> Ok:
+    """Answer a question from any surface; a question carries no authority."""
+    await core.questions.respond(
+        params.requestId,
+        list(params.selected),
+        params.text,
+        by=conn.surface_id,
+    )
+    return Ok(ok=True)
+
+
 async def backend_set_handler(_conn: RpcConnection, params: BackendSetParams, core: Core) -> Ok:
     """``backend.set`` — swap where a session's tools run, closing the old backend."""
     session = _session(core, params.sessionId)
@@ -645,6 +674,8 @@ def register_session_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
     dispatcher.register("tool.list", tool_list_handler)
     dispatcher.register("approval.list", approval_list_handler)
     dispatcher.register("approval.respond", approval_respond_handler)
+    dispatcher.register("question.list", question_list_handler)
+    dispatcher.register("question.respond", question_respond_handler)
     dispatcher.register("provider.list", provider_list_handler)
     dispatcher.register("provider.models", provider_models_handler)
     dispatcher.register("backend.set", backend_set_handler)

@@ -165,6 +165,7 @@ export function approvalQueueRows(requestCount: number, focused = false): number
 export function bottomRows({
   paletteCommands = 0,
   approvalArgs = null,
+  questionRows = 0,
   queueRequests = 0,
   queueFocused = false,
   errorVisible = false,
@@ -176,6 +177,8 @@ export function bottomRows({
   paletteCommands?: number;
   /** Number of argument lines on the interactive prompt, or null when absent. */
   approvalArgs?: number | null;
+  /** Rows the `ask_user` picker occupies; it replaces the input while it is up. */
+  questionRows?: number;
   queueRequests?: number;
   queueFocused?: boolean;
   errorVisible?: boolean;
@@ -188,8 +191,14 @@ export function bottomRows({
   /** The `$agent` chip above the input. */
   delegationVisible?: boolean;
 } = {}): number {
+  // A question takes the input's place, the same way an approval does, and
+  // wins when both are somehow pending: it is drawn first.
   const input =
-    approvalArgs === null ? 1 + paletteRows(paletteCommands) : approvalPromptRows(approvalArgs);
+    questionRows > 0
+      ? questionRows
+      : approvalArgs === null
+        ? 1 + paletteRows(paletteCommands)
+        : approvalPromptRows(approvalArgs);
   return (
     input +
     approvalQueueRows(queueRequests, queueFocused) +
