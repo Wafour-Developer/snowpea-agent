@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import functools
 import logging
+import re
 import shutil
 from collections.abc import Sequence
 from pathlib import Path
@@ -92,6 +93,14 @@ _ATTACHMENT_CODES: dict[str, str] = {
     "attachment_too_large": errors.INVALID_PARAMS,
     "internal": errors.INTERNAL,
 }
+
+#: ``$reviewer look at this diff`` — the short way to hand one prompt to an
+#: agent (contract §9, CORE-us020).  Mirrors ``tui/src/state/delegation.ts``'s
+#: ``DelegationHint`` regex so the shorthand a client highlights while it is
+#: typed is exactly the shorthand the daemon rewrites once it is sent: the
+#: name needs a space after it to count, so a bare ``$foo`` with nothing typed
+#: yet does not misfire.
+_DELEGATE_PREFIX = re.compile(r"^\$([A-Za-z0-9][\w.-]*)(?:\s+([\s\S]*))?$")
 
 #: Methods this module implements; the rest stay ``not_implemented`` at M1.
 HANDLED_METHODS: tuple[str, ...] = (
@@ -343,6 +352,14 @@ async def session_prompt_handler(
         # A slash command is not a model turn; nothing would consume the bytes.
         pending.clear(session.id)
         return TurnResult(turnId=core.commands.start(core, session, name, args, conn))
+    delegate_match = _DELEGATE_PREFIX.match(text) if text else None
+    if delegate_match is not None and delegate_match.group(2) is not None:
+        # Same rewrite as ``/delegate <agent> <task>`` (CORE-us020): the daemon
+        # parses the prefix, not any one client, so the TUI, the SDK and a
+        # scheduled job all get the same reply-with-outcome behaviour.
+        pending.clear(session.id)
+        args = f"{delegate_match.group(1)} {delegate_match.group(2)}"
+        return TurnResult(turnId=core.commands.start(core, session, "delegate", args, conn))
     unattended = session.origin_conn is None
     return TurnResult(turnId=agent_loop.start_turn(core, session, text, unattended=unattended))
 

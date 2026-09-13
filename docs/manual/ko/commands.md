@@ -24,6 +24,8 @@ snowpea commands list --json
 | `/allow <regex> [--global]` | 반복되는 질문을 조용한 허용으로 승격 |
 | `/allowlist [remove <id>]` | allowlist를 보거나 정리 |
 | `/backend [local\|docker\|ssh] [json]` | 툴이 실행되는 곳을 보거나 바꿈 |
+| `/delegate <에이전트> <task>` | 태스크 하나를 지정한 에이전트에게 위임 — 평범한 턴 안에서 `delegate_task`를 직접 호출하고, 기다린 뒤 결과를 답으로 알려줌 |
+| `$<에이전트> <task>` | `/delegate <에이전트> <task>`의 축약형. 데몬이 이 접두사를 직접 해석하므로 터미널 UI뿐 아니라 어떤 클라이언트에서도 동일하게 동작 |
 
 ### 터미널 UI
 
@@ -33,7 +35,6 @@ snowpea commands list --json
 |---|---|
 | `/resume` | 이 디렉터리에서 마지막으로 쓰던 세션을 다시 열고 재생 |
 | `/model` | 목록에서 모델·프로필을 고름. `/model <ref>` 는 이 세션에 고정(저장되어 재시작 후에도 유지), `/model inherit` 은 고정 해제, `/model default <id>` 는 `models.default` 설정 |
-| `$<에이전트> <프롬프트>` | 프롬프트 하나를 그 에이전트에게 넘김 |
 | `/attach <경로>` | 다음 프롬프트에 파일을 첨부 |
 | `/voice` | 음성 입력을 켬. 이후 `Ctrl+Space` 로 녹음 |
 | `/rec` | 녹음 시작·중지, `Ctrl+Space` 와 같음 |
