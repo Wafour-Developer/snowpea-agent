@@ -171,6 +171,62 @@ def test_wizard_provider_prompt_runs_browser_login(
     assert state.notes == ["signed in"]
 
 
+def test_wizard_browser_login_403_reprompts_instead_of_crashing(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A device-authorization 403 must never end the wizard with a traceback:
+    it prints ``login failed: ...`` plus the 403 hint, then re-asks the
+    authentication choice — this test picks "1" (API key) on the second ask
+    and confirms the wizard keeps going normally."""
+    from snowpea_core.providers import auth_web
+    from snowpea_core.server.errors import RpcError
+
+    async def failing_login(vendor: str):
+        raise RpcError(
+            "internal",
+            f"{vendor}: device authorization failed (HTTP 403): access_denied",
+            data={"vendor": vendor, "status": 403, "body": "access_denied"},
+        )
+
+    answers = iter(["2", "1", "sk-fallback-key"])
+    monkeypatch.setattr(ui, "ask_text", lambda *a, **kw: next(answers))
+    monkeypatch.setattr(auth_web, "login", failing_login)
+    state = WizardState.from_settings(Settings())
+    state.select_vendor("openai")
+
+    wizard._ask_for_key(state, interactive=True)  # noqa: SLF001
+
+    out = capsys.readouterr().out
+    assert "login failed:" in out
+    assert "access_denied" in out or "403" in out
+    assert "hint:" in out
+    assert "option 3" in out
+    # The wizard recovered and accepted the fallback API key.
+    assert state.api_key == "sk-fallback-key"
+
+
+def test_wizard_browser_login_ctrl_c_leaves_vendor_unconfigured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ctrl+C during a browser login must not crash the wizard — it should
+    leave the vendor unconfigured and let the rest of setup continue."""
+    from snowpea_core.providers import auth_web
+
+    async def interrupted_login(vendor: str):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(ui, "ask_text", lambda *a, **kw: "2")
+    monkeypatch.setattr(auth_web, "login", interrupted_login)
+    state = WizardState.from_settings(Settings())
+    state.select_vendor("openai")
+
+    wizard._ask_for_key(state, interactive=True)  # noqa: SLF001
+
+    assert "openai" not in state.provider_configs
+    assert state.api_key is None
+    assert any("cancelled" in note for note in state.notes)
+
+
 # ---------------------------------------------------------------------------
 # screens (pure build/apply)
 # ---------------------------------------------------------------------------

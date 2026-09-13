@@ -85,7 +85,7 @@ async def test_login_web_returns_user_code_immediately_and_finishes_in_backgroun
 
     def handler(request: httpx.Request) -> httpx.Response:
         nonlocal polls
-        if request.url.path.endswith("/device/code"):
+        if request.url.path.endswith("/usercode"):
             return httpx.Response(
                 200,
                 json={
@@ -136,7 +136,7 @@ async def test_login_web_reports_failure_phase_and_does_not_persist(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path.endswith("/device/code"):
+        if request.url.path.endswith("/usercode"):
             return httpx.Response(
                 200,
                 json={
@@ -229,6 +229,153 @@ async def test_login_web_unsupported_vendor_unchanged(
 # ---------------------------------------------------------------------------
 # oauth pkce (openrouter)
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# CORE-login-robust: enriched errors, retry-once, transport mapping, headers
+# ---------------------------------------------------------------------------
+
+
+async def test_device_authorization_403_message_includes_body_detail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A non-2xx device-authorization response must not surface as a bare
+    'HTTP 403' — the vendor's JSON error detail belongs in the message so the
+    wizard (and anyone reading logs) can tell what actually happened."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            403, json={"error": "access_denied", "error_description": "blocked by policy"}
+        )
+
+    monkeypatch.setattr(
+        auth_web.httpx,
+        "AsyncClient",
+        lambda *a, **kw: _RealAsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    monkeypatch.setattr(auth_web.asyncio, "sleep", _no_sleep)
+
+    with pytest.raises(RpcError) as excinfo:
+        await auth_web.device_code_start("openai")
+
+    assert "403" in excinfo.value.message
+    assert "blocked by policy" in excinfo.value.message or "access_denied" in excinfo.value.message
+    assert excinfo.value.data["status"] == 403
+    assert excinfo.value.data["vendor"] == "openai"
+
+
+async def test_device_authorization_retries_once_on_403_then_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return httpx.Response(403, json={"error": "access_denied"})
+        return httpx.Response(
+            200,
+            json={
+                "device_code": "dev-123",
+                "user_code": "WXYZ-1234",
+                "verification_uri": "https://auth.openai.com/activate",
+                "interval": 0,
+                "expires_in": 600,
+            },
+        )
+
+    monkeypatch.setattr(
+        auth_web.httpx,
+        "AsyncClient",
+        lambda *a, **kw: _RealAsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    slept: list[float] = []
+
+    async def recording_sleep(seconds: float) -> None:
+        slept.append(seconds)
+
+    monkeypatch.setattr(auth_web.asyncio, "sleep", recording_sleep)
+
+    started = await auth_web.device_code_start("openai", sleep=recording_sleep)
+
+    assert attempts == 2
+    assert slept == [1.0]
+    assert started.user_code == "WXYZ-1234"
+
+
+async def test_device_authorization_does_not_retry_more_than_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        return httpx.Response(403, json={"error": "access_denied"})
+
+    monkeypatch.setattr(
+        auth_web.httpx,
+        "AsyncClient",
+        lambda *a, **kw: _RealAsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    monkeypatch.setattr(auth_web.asyncio, "sleep", _no_sleep)
+
+    with pytest.raises(RpcError):
+        await auth_web.device_code_start("openai")
+
+    assert attempts == 2  # one retry, not unbounded
+
+
+async def test_device_authorization_headers_present(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "device_code": "dev-123",
+                "user_code": "WXYZ-1234",
+                "verification_uri": "https://auth.openai.com/activate",
+                "interval": 0,
+                "expires_in": 600,
+            },
+        )
+
+    monkeypatch.setattr(
+        auth_web.httpx,
+        "AsyncClient",
+        lambda *a, **kw: _RealAsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    monkeypatch.setattr(auth_web.asyncio, "sleep", _no_sleep)
+
+    await auth_web.device_code_start("openai")
+
+    assert seen, "the mock transport was never called"
+    assert seen[0].headers["user-agent"].startswith("snowpea-agent/")
+    assert seen[0].headers["accept"] == "application/json"
+
+
+async def test_transport_error_maps_to_readable_rpc_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused", request=request)
+
+    monkeypatch.setattr(
+        auth_web.httpx,
+        "AsyncClient",
+        lambda *a, **kw: _RealAsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    monkeypatch.setattr(auth_web.asyncio, "sleep", _no_sleep)
+
+    with pytest.raises(RpcError) as excinfo:
+        await auth_web.device_code_start("openai")
+
+    assert excinfo.value.code == "internal"
+    assert "openai" in excinfo.value.message
+    assert "connection refused" in excinfo.value.message
 
 
 async def test_login_web_pkce_returns_verification_uri_immediately(

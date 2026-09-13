@@ -99,6 +99,8 @@ snowpea provider login openrouter    # OAuth PKCE: a local callback receives the
 
 `snowpea setup --login openai` is an alias of the same thing. Any other vendor answers with `login_unsupported` and tells you the `--vendor`/`--key` command to run instead:
 
+**Troubleshooting:** a device-code login can fail with `device authorization failed (HTTP 403)` from some networks/accounts even though the same request works elsewhere — the wizard prints the vendor's own error text and re-asks the authentication choice instead of exiting, so pick "1=API key" or "3=OAuth token" to continue.
+
 ```bash
 snowpea provider login deepseek
 ```
