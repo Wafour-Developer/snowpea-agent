@@ -611,6 +611,13 @@ async def _drive(
             await plugin_hooks.stop(core, session)
             return "complete"
 
+        # No ``message.done`` here, tempting as it is.  The prose *is* finished
+        # once the model reaches for a tool, but ``message.done`` is also what
+        # the chat gateways forward to Telegram and friends, so one per tool
+        # round would start sending a model's intermediate muttering to people's
+        # phones.  A surface that needs to know the prose has settled can see it
+        # for itself: a tool call after a message means that message will not
+        # grow again (see ``tool.call`` in the TUI's store).
         session.history.append(
             ChatMessage(role="assistant", content=assistant_text, tool_calls=list(calls))
         )
@@ -742,7 +749,10 @@ async def _deny_call(core: Core, session: Session, call: ToolCall, reason: str) 
     """
     message = f"Denied: {reason}. Choose a different action; do not retry the same call."
     if session.mode == "plan":
-        message += " In plan mode, finish by describing what you would do instead."
+        message += (
+            " In plan mode, finish the plan and call set_mode(\"accept\") so the user can"
+            " choose to start implementing; never ask them in prose to switch modes."
+        )
     await _fail_call(core, session, call, message)
 
 

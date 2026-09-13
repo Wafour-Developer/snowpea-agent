@@ -189,3 +189,43 @@ describe("the height bound on what is held back", () => {
     expect(settledCount(state, 0, 20)).toBe(state.timeline.length);
   });
 });
+
+describe("prose that stops for a tool call", () => {
+  it("settles the message, so the cards behind it can reach the scrollback", () => {
+    // The daemon sends no `message.done` before its tool calls — that event is
+    // forwarded to the chat gateways — so the store infers it instead: a
+    // message the model stopped writing will not grow again.
+    const state = apply(
+      ask(initialState, "build it"),
+      event(1, "message.delta", { text: "I will start with the parser.\n" }),
+      event(2, "tool.call", { callId: "c1", name: "write_file", args: {} }),
+      event(3, "tool.result", { callId: "c1", ok: true }),
+      event(4, "message.done", { role: "assistant", text: "done" }),
+    );
+
+    const prose = state.messages.find((m) => m.text.startsWith("I will start"));
+    expect(prose?.streaming).toBe(false);
+    // User message, prose, tool card, final answer: all settled, all released.
+    expect(settledCount(state, 0, 80)).toBe(state.timeline.length);
+  });
+
+  it("no longer pins a whole turn's cards behind one open message", () => {
+    // Without the inference this released only the user message: an unsettled
+    // entry may not be jumped over, so every card behind it stayed live and the
+    // region grew for the length of the turn.
+    let state = ask(initialState, "build it");
+    for (let i = 0; i < 6; i += 1) {
+      state = apply(
+        state,
+        event(i * 4 + 1, "message.delta", { text: `step ${i}\n` }),
+        event(i * 4 + 2, "tool.call", { callId: `c${i}`, name: "write_file", args: {} }),
+        event(i * 4 + 3, "tool.result", { callId: `c${i}`, ok: true }),
+        event(i * 4 + 4, "diff", { path: `f${i}.ts`, patch: "+x" }),
+      );
+    }
+    expect(state.messages.filter((m) => m.streaming)).toHaveLength(0);
+    // Only the trailing run is still held, not the whole turn.
+    const held = state.timeline.length - settledCount(state, 0, 20);
+    expect(held).toBeLessThan(4);
+  });
+});

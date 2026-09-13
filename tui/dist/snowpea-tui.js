@@ -34075,8 +34075,11 @@ function applySessionEvent(state, event) {
         state: "running",
         startedAt: Number(payload.at ?? Date.now())
       };
+      const last = base.messages[base.messages.length - 1];
+      const messages = last && last.streaming && last.role === "assistant" ? base.messages.slice(0, -1).concat({ ...last, streaming: false }) : base.messages;
       return {
         ...base,
+        messages,
         toolCalls: [...base.toolCalls, entry],
         timeline: pushTimeline(base, { kind: "tool", id: entry.callId })
       };
@@ -34958,11 +34961,27 @@ function useClock(active, tickMs = CLOCK_TICK_MS, now = Date.now) {
 // src/state/coalesce.ts
 var CHILD_FLUSH_MS = 66;
 var LIVE_FLUSH_MS = 250;
+var TEXT_FLUSH_MS = 66;
+function windowFor(kind) {
+  if (kind === "message.delta") return TEXT_FLUSH_MS;
+  if (kind === "message.reasoning" || kind === "usage") return LIVE_FLUSH_MS;
+  return 0;
+}
 function count(event, field) {
   const value = event.payload?.[field];
   return typeof value === "number" ? value : Number(value ?? 0) || 0;
 }
 function mergeLive(kind, older, newer) {
+  if (kind === "message.delta") {
+    const text = (event) => {
+      const value = event.payload?.text;
+      return typeof value === "string" ? value : "";
+    };
+    return {
+      ...newer,
+      payload: { ...newer.payload, text: text(older) + text(newer) }
+    };
+  }
   if (kind === "message.reasoning") return newer;
   if (kind === "usage") {
     return {
@@ -34976,26 +34995,29 @@ function mergeLive(kind, older, newer) {
   }
   return null;
 }
-function createLiveEventThrottle(deliver, { intervalMs = LIVE_FLUSH_MS, setTimer = setTimeout, clearTimer = clearTimeout } = {}) {
+function createLiveEventThrottle(deliver, { setTimer = setTimeout, clearTimer = clearTimeout } = {}) {
   const pending = /* @__PURE__ */ new Map();
   let timer = null;
+  let armedMs = 0;
   const drain = () => {
     for (const event of pending.values()) deliver(event);
     pending.clear();
   };
-  const arm = () => {
+  const arm = (ms) => {
+    armedMs = ms;
     timer = setTimer(() => {
       timer = null;
       if (pending.size === 0) return;
+      const next = Math.min(...[...pending.keys()].map(windowFor));
       drain();
-      arm();
-    }, intervalMs);
+      arm(next);
+    }, ms);
   };
   return {
     push(event) {
       const kind = String(event.kind ?? "");
-      const batched = mergeLive(kind, event, event) !== null;
-      if (!batched) {
+      const ms = windowFor(kind);
+      if (ms === 0) {
         drain();
         deliver(event);
         return;
@@ -35007,10 +35029,15 @@ function createLiveEventThrottle(deliver, { intervalMs = LIVE_FLUSH_MS, setTimer
       }
       if (timer === null) {
         deliver(event);
-        arm();
+        arm(ms);
         return;
       }
       pending.set(kind, event);
+      if (ms < armedMs) {
+        clearTimer(timer);
+        timer = null;
+        arm(ms);
+      }
     },
     flush() {
       drain();
@@ -37344,9 +37371,20 @@ function Chat({
 
 // src/components/MessageStream.tsx
 var import_jsx_runtime7 = __toESM(require_jsx_runtime(), 1);
-function MessageView({ message, width = 80 }) {
-  const lines = messageLines(message, width).flatMap((line) => wrapLine(line, width, "  "));
+function aboveMarker(hidden) {
+  return `\u2026 ${hidden} ${hidden === 1 ? "line" : "lines"} above`;
+}
+function MessageView({
+  message,
+  width = 80,
+  maxRows
+}) {
+  const all = messageLines(message, width).flatMap((line) => wrapLine(line, width, "  "));
+  const cap = maxRows === void 0 ? all.length : Math.max(1, Math.floor(maxRows));
+  const hidden = all.length > cap ? all.length - (cap - 1) : 0;
+  const lines = hidden > 0 ? all.slice(hidden) : all;
   return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(Box_default, { flexDirection: "column", marginBottom: 1, children: [
+    hidden > 0 ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { dimColor: true, children: `  ${aboveMarker(hidden)}` }) : null,
     lines.map((line) => /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { children: line.segments.map((segment, index) => /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
       Text,
       {
@@ -38237,6 +38275,8 @@ var LSP_POLL_MS = 3e4;
 var AGENT_TRANSCRIPT_ROWS = 12;
 var AGENT_TRANSCRIPT_CHROME_ROWS = 4;
 var MIN_AGENT_TRANSCRIPT_ROWS = 3;
+var MIN_LIVE_MESSAGE_ROWS = 4;
+var INLINE_CHROME_SLACK = 4;
 function agentTranscriptRows({
   fullscreen,
   usable,
@@ -38252,11 +38292,12 @@ function TimelineEntry({
   state,
   item,
   expandedId,
-  width
+  width,
+  maxMessageRows
 }) {
   if (item.kind === "message") {
     const message = state.messages.find((m) => m.id === item.id);
-    return message ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(MessageView, { message, width }) : null;
+    return message ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(MessageView, { message, width, maxRows: maxMessageRows }) : null;
   }
   if (item.kind === "tool") {
     const call = state.toolCalls.find((c) => c.callId === item.id);
@@ -38792,7 +38833,7 @@ function App2({
   });
   const liveRegionRows = fullscreen ? Number.POSITIVE_INFINITY : Math.max(
     1,
-    usableRows(terminal.rows) - layout.statusRows - layout.bottomRows
+    usableRows(terminal.rows) - layout.statusRows - layout.bottomRows - INLINE_CHROME_SLACK
   );
   const agentWindowRowsRef = (0, import_react40.useRef)(agentWindowRows);
   agentWindowRowsRef.current = agentWindowRows;
@@ -38800,7 +38841,8 @@ function App2({
     () => sliceViewport(agentLines, agentWindowRows, agentScroll),
     [agentLines, agentWindowRows, agentScroll]
   );
-  const released = settledCount(state, staticCursorRef.current, liveRegionRows);
+  const holdRows = state.messages.some((message) => message.streaming) ? Math.max(1, liveRegionRows - MIN_LIVE_MESSAGE_ROWS) : liveRegionRows;
+  const released = settledCount(state, staticCursorRef.current, holdRows);
   if (released > staticCursorRef.current) {
     staticBlocksRef.current = staticBlocksRef.current.concat(
       releaseEntries(state, state.timeline.slice(staticCursorRef.current, released))
@@ -39512,6 +39554,10 @@ function App2({
     );
   }
   const live = state.timeline.slice(staticCursor);
+  const liveMessageRows = Math.max(
+    MIN_LIVE_MESSAGE_ROWS,
+    liveRegionRows - live.reduce((rows, item) => item.kind === "message" ? rows : rows + entryRows(state, item), 0)
+  );
   return /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)(Box_default, { flexDirection: "column", children: [
     /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Static, { items: staticItems, children: (entry) => /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(
       Box_default,
@@ -39561,7 +39607,8 @@ function App2({
           state,
           item,
           expandedId,
-          width: contentWidth
+          width: contentWidth,
+          maxMessageRows: liveMessageRows
         },
         `${item.kind}-${item.id}`
       )),

@@ -63,6 +63,23 @@ export interface BufferOptions {
  */
 export const LIVE_FLUSH_MS = 250;
 
+/**
+ * The window this session's own text is batched into: 15 Hz.
+ *
+ * Faster than the counters, because this is the answer being written and a
+ * person watches it arrive — but still a bound. A plan streams for minutes as
+ * one message, and a repaint per token is both the flicker and, once the
+ * message is taller than the terminal, a full-screen clear per token.
+ */
+export const TEXT_FLUSH_MS = 66;
+
+/** How long a kind may wait, or 0 when it is never batched. */
+function windowFor(kind: string): number {
+  if (kind === "message.delta") return TEXT_FLUSH_MS;
+  if (kind === "message.reasoning" || kind === "usage") return LIVE_FLUSH_MS;
+  return 0;
+}
+
 export interface LiveEventThrottle<E extends CoalescableEvent> {
   /** Take one main-session event; it is delivered now or when the window ends. */
   push(event: E): void;
@@ -82,11 +99,23 @@ function count(event: CoalescableEvent, field: string): number {
  * How two events of the same kind combine, or null when this kind is not
  * batched at all.
  *
+ * `message.delta` is appended to the answer as it arrives, so a batch is the
+ * concatenation — the same text in the same order, in one repaint.
  * `message.reasoning` carries the running total, so the newest one says
  * everything the ones before it did. `usage` carries an increment, so the
  * batch has to add them up or tokens go missing from the counters.
  */
 function mergeLive<E extends CoalescableEvent>(kind: string, older: E, newer: E): E | null {
+  if (kind === "message.delta") {
+    const text = (event: CoalescableEvent): string => {
+      const value = (event.payload as { text?: unknown } | undefined)?.text;
+      return typeof value === "string" ? value : "";
+    };
+    return {
+      ...newer,
+      payload: { ...(newer.payload as object | undefined), text: text(older) + text(newer) },
+    } as E;
+  }
   if (kind === "message.reasoning") return newer;
   if (kind === "usage") {
     return {
@@ -102,39 +131,48 @@ function mergeLive<E extends CoalescableEvent>(kind: string, older: E, newer: E)
 }
 
 /**
- * Rate-limit the main session's counter events without touching its text.
+ * Rate-limit this session's repaints without changing what it says.
  *
- * `message.delta` deliberately does not go through this: the answer is what
- * the user is reading, and it must appear as it is written.
+ * Each batched kind has its own window — text is let through more often than a
+ * counter — and one timer serves them all: when it fires everything pending
+ * goes out together, because a repaint the text has already paid for carries
+ * the counters for free. Anything not batched drains the rest first, so a
+ * `message.done` can never overtake the deltas it completes.
  */
 export function createLiveEventThrottle<E extends CoalescableEvent>(
   deliver: (event: E) => void,
-  { intervalMs = LIVE_FLUSH_MS, setTimer = setTimeout, clearTimer = clearTimeout }: BufferOptions = {},
+  { setTimer = setTimeout, clearTimer = clearTimeout }: BufferOptions = {},
 ): LiveEventThrottle<E> {
   const pending = new Map<string, E>();
   let timer: unknown = null;
+  /** The window the armed timer is running, so a shorter one can pre-empt it. */
+  let armedMs = 0;
 
   const drain = (): void => {
     for (const event of pending.values()) deliver(event);
     pending.clear();
   };
 
-  const arm = (): void => {
+  const arm = (ms: number): void => {
+    armedMs = ms;
     timer = setTimer(() => {
       timer = null;
       if (pending.size === 0) return;
+      const next = Math.min(...[...pending.keys()].map(windowFor));
       drain();
-      arm();
-    }, intervalMs);
+      // Still streaming: keep the window closed rather than letting the next
+      // token through on the leading edge and doubling the frame rate.
+      arm(next);
+    }, ms);
   };
 
   return {
     push(event: E): void {
       const kind = String(event.kind ?? "");
-      const batched = mergeLive(kind, event, event) !== null;
-      if (!batched) {
-        // Order before rate: a message or a tool call comes after the counters
-        // that led up to it.
+      const ms = windowFor(kind);
+      if (ms === 0) {
+        // Order before rate: a finished message or a tool call comes after the
+        // text and the counters that led up to it.
         drain();
         deliver(event);
         return;
@@ -145,12 +183,18 @@ export function createLiveEventThrottle<E extends CoalescableEvent>(
         return;
       }
       if (timer === null) {
-        // Leading edge: the first "Thinking…" must appear at once.
+        // Leading edge: the first token, and the first "Thinking…", at once.
         deliver(event);
-        arm();
+        arm(ms);
         return;
       }
       pending.set(kind, event);
+      // A kind with a shorter window must not wait out a longer one.
+      if (ms < armedMs) {
+        clearTimer(timer);
+        timer = null;
+        arm(ms);
+      }
     },
     flush(): void {
       drain();
