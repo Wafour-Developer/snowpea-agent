@@ -51,6 +51,26 @@ async def test_git_install_detects_new_commit_without_a_version_bump(tmp_path, m
     assert answer["cached"] is False
 
 
+async def test_git_update_prompt_uses_the_new_release_version(tmp_path, monkeypatch):
+    monkeypatch.setattr(updates, "__version__", "0.1.2")
+    provenance(monkeypatch)
+    scripted(
+        monkeypatch,
+        {
+            f"{updates.COMMITS_URL}/main": FakeResponse(200, {"sha": NEW}),
+            f"https://api.github.com/repos/{updates.REPO}/compare/{OLD}...{NEW}": FakeResponse(
+                200, {"status": "ahead"}
+            ),
+            updates.TAGS_URL: FakeResponse(200, [{"name": "v0.1.4"}]),
+        },
+    )
+
+    answer = await updates.check_update(Paths.create(tmp_path), Settings())
+
+    assert answer["current"] == f"0.1.2+{OLD[:8]}"
+    assert answer["latest"] == f"0.1.4+{NEW[:8]}"
+
+
 @pytest.mark.parametrize("status", ["behind", "diverged"])
 async def test_never_offers_a_non_descendant_commit(tmp_path, monkeypatch, status):
     provenance(monkeypatch)
