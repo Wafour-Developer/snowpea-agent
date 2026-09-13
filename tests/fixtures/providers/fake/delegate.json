@@ -1,0 +1,31 @@
+{
+  "steps": [
+    {
+      "match": "delegate this to the 'executor' agent",
+      "repeat": true,
+      "tool_calls": [
+        {
+          "name": "delegate_task",
+          "arguments": {
+            "agent": "executor",
+            "task": "do the thing"
+          }
+        }
+      ],
+      "text": "handing off to executor"
+    },
+    {
+      "after_tool": "delegate_task",
+      "repeat": true,
+      "text": "executor reported back: task complete"
+    },
+    {
+      "match": "do the thing",
+      "repeat": true,
+      "text": "child executor finished doing the thing"
+    }
+  ],
+  "default": {
+    "text": "fake default reply"
+  }
+}

@@ -162,6 +162,7 @@ def register_builtin_commands(registry: CommandRegistry) -> CommandRegistry:
         agent_cmd,
         backend_cmd,
         deepinit,
+        delegate_cmd,
         mode_cmd,
         model_cmd,
         ralph,
@@ -179,6 +180,7 @@ def register_builtin_commands(registry: CommandRegistry) -> CommandRegistry:
         *backend_cmd.COMMANDS,
         *schedule_cmd.COMMANDS,
         *agent_cmd.COMMANDS,
+        *delegate_cmd.COMMANDS,
         *skill_cmd.COMMANDS,
         # M7 workflows (contract §4): loops and fan-out live in Python.
         *ralph.COMMANDS,

@@ -24,6 +24,8 @@ That prints the live registry, including commands contributed by installed plugi
 | `/allow <regex> [--global]` | promote a repeated prompt to a silent allow |
 | `/allowlist [remove <id>]` | show or prune the allowlist |
 | `/backend [local\|docker\|ssh] [json]` | show or change where tools execute |
+| `/delegate <agent> <task>` | delegate one task to a named agent, inside a normal turn: the turn calls `delegate_task` for you, waits, and answers with the outcome |
+| `$<agent> <task>` | shorthand for `/delegate <agent> <task>`; the daemon parses the prefix, so it behaves the same from any client, not only the terminal UI |
 
 ### Terminal UI
 
@@ -33,7 +35,6 @@ These are answered by the terminal UI itself rather than by the core, so they do
 |---|---|
 | `/resume` | reopen the session this directory was last in, and replay it |
 | `/model` | pick a model or profile from a list; `/model <ref>` pins this session (persisted, survives a restart); `/model inherit` clears the pin; `/model default <id>` sets `models.default` |
-| `$<agent> <prompt>` | hand one prompt to a named agent |
 | `/attach <path>` | attach a file to the next prompt |
 | `/voice` | arm voice input; `Ctrl+Space` then records |
 | `/rec` | start or stop recording, same as `Ctrl+Space` |
