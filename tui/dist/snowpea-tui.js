@@ -34960,6 +34960,7 @@ function createChildEventBuffer(deliver, { intervalMs = CHILD_FLUSH_MS, setTimer
       const entry = pending.get(sessionId);
       if (entry) {
         entry.text += text;
+        entry.event = event;
         return;
       }
       if (timer === null) {

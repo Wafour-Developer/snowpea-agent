@@ -92,6 +92,15 @@ describe("the child event batcher", () => {
     expect(texts()).toHaveLength(2);
   });
 
+  it("carries the newest seq, so the store's lastSeq never goes backwards", () => {
+    const { timer, buffer, delivered } = harness();
+    buffer.push("child", delta("a", 10)); // leading edge
+    buffer.push("child", delta("b", 11));
+    buffer.push("child", delta("c", 12));
+    timer.tick();
+    expect(delivered.map((d) => d.event.seq)).toEqual([10, 12]);
+  });
+
   it("flushes the pending text before anything that is not a delta", () => {
     const { buffer, delivered } = harness();
     buffer.push("child", delta("hello ", 1)); // leading edge
