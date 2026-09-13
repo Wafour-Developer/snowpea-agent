@@ -8,6 +8,11 @@
 import { describe, expect, it } from "vitest";
 
 import { createChildEventBuffer, type CoalescableEvent } from "../src/state/coalesce.js";
+import {
+  AGENT_TRANSCRIPT_ROWS,
+  MIN_AGENT_TRANSCRIPT_ROWS,
+  agentTranscriptRows,
+} from "../src/app.js";
 
 /** A timer the test fires by hand. */
 function manualTimer() {
@@ -141,5 +146,36 @@ describe("the child event batcher", () => {
     buffer.push("child", delta("b", 2));
     buffer.dispose();
     expect(texts()).toEqual(["a", "b"]);
+  });
+});
+
+/**
+ * The other half of the fix: how tall the open agent's window is allowed to be.
+ * Inline, it is whatever the status block and the input leave over, because a
+ * live region as tall as the terminal makes Ink clear the whole screen before
+ * every frame.
+ */
+describe("the agent transcript's height", () => {
+  it("takes what the inline layout leaves over, and never more than the cap", () => {
+    // A roomy terminal: the cap wins.
+    expect(
+      agentTranscriptRows({ fullscreen: false, usable: 60, statusRows: 10, bottomRows: 4 }),
+    ).toBe(AGENT_TRANSCRIPT_ROWS);
+    // An ordinary 24-row window with a panel and a HUD: the room wins.
+    expect(
+      agentTranscriptRows({ fullscreen: false, usable: 23, statusRows: 9, bottomRows: 3 }),
+    ).toBe(7);
+  });
+
+  it("never collapses below a readable window, however cramped", () => {
+    expect(
+      agentTranscriptRows({ fullscreen: false, usable: 10, statusRows: 9, bottomRows: 6 }),
+    ).toBe(MIN_AGENT_TRANSCRIPT_ROWS);
+  });
+
+  it("leaves the full-screen layout on its constant", () => {
+    expect(
+      agentTranscriptRows({ fullscreen: true, usable: 12, statusRows: 9, bottomRows: 6 }),
+    ).toBe(AGENT_TRANSCRIPT_ROWS);
   });
 });
