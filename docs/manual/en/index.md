@@ -2,7 +2,7 @@
 
 snowpea is an open-source, multi-vendor coding agent that runs on your own machine. A Python core runs as a local daemon and owns everything stateful — sessions, tools, permissions, memory, schedules, messenger bindings. Clients attach to it over a documented WebSocket JSON-RPC protocol: an Ink terminal UI today, an Electron IDE in v0.2, and whatever you build on the TypeScript SDK.
 
-Other languages: [한국어](../ko/index.md) · [日本語](../ja/install.md) · [简体中文](../zh-CN/install.md) · [Español](../es/install.md) · [all pages](../README.md)
+Other languages: [한국어](../ko/index.md) · [日本語](../ja/index.md) · [简体中文](../zh-CN/index.md) · [Español](../es/index.md) · [all pages](../README.md)
 
 ## Where to start
 

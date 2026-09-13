@@ -19,17 +19,41 @@ class Retrieval:                        # memory/retrieval.py
 
 ## 2. Scheduler (`scheduler/`)
 ```python
-class Job(BaseModel): id, spec: str, kind: Literal["cron","once","interval"], next_run: datetime, task: str, mode: Mode, channel: str|None, agent: str|None, enabled: bool, last_run: datetime|None, last_status: Literal["ok","error","denied_by_timeout"]|None, created_at
+class Job(BaseModel): id, spec: str, kind: Literal["cron","once","interval"], cron: str|None,
+    interval_sec: int|None, next_run: datetime|None, task: str, mode: Mode,
+    channel: str|None, origin_session_id: str|None, agent: str|None, workdir: str|None,
+    enabled: bool, state: Literal["scheduled","running","cancelled"],
+    last_run: datetime|None, last_status: Literal["ok","error","denied_by_timeout"]|None, created_at
 class Scheduler:
     async def start(self)/stop(self)        # asyncio task inside the daemon; tick every 15s; catch-up on start for missed `once` jobs (run if < 1h late, else mark missed)
     async def schedule(self, spec, task, *, mode, channel, agent=None) -> Job     # spec: cron "0 9 * * *" | "in 60s" | "every 10m" | NL via nl_parse (ko/en: "매일 09:00", "every day at 9am", "10분 뒤")
     def list(self); async def cancel(self, job_id); async def run_now(self, job_id)
 ```
 - Storage: `jobs` table in state.db. Double-fire guard: occurrence key `(job_id, scheduled_ts)` unique in `job_runs` table (Hermes `cron/occurrences.py` idea; vendor if used).
-- Execution: creates a session (`workdir` = job.workdir or home, `mode` = job.mode, `originSurface="scheduler"`, `unattended=True`) and runs `session.prompt(task)`; the final assistant text is delivered to `channel` via the gateway router (`telegram:<chat_id>` | `discord:<channel_id>` | `slack:<channel>` | `log`), and `job.event{jobId, kind: started|finished|failed|denied}` notifications are emitted.
+- Execution: creates a session (`workdir` = job.workdir or home, `mode` = job.mode, `originSurface="scheduler"`, `unattended=True`) and runs `session.prompt(task)`; `job.event{jobId, kind: started|finished|failed|denied}` notifications are emitted. Delivery of the final assistant text is §2.1.
 - Registering a job with `mode="auto"` requires an approval in the registering (interactive) session (send-tag) — `schedule_create` tool has permission `send`.
 - RPC `job.schedule/list/cancel/runNow`; tool `schedule_create/list/cancel`; command `/schedule "<spec>" "<task>" [--channel X] [--mode M]`; CLI `snowpea job schedule --in 60s --task "…" --channel telegram:<id>` / `snowpea job list`.
-- Lifecycle: `Lifecycle` counters `jobs` = enabled jobs; keepalive rule per plan §2.6; `snowpea daemon status` prints `will exit in Ns` or `will not exit: <reasons>`.
+- Lifecycle: `Lifecycle` counters `jobs` = enabled jobs; keepalive rule per plan §2.6; `snowpea daemon status` prints `will exit in Ns` or `will not exit: <reasons>`, and (v0.1.x) one `messengers` line built from `gateway.list`, naming each platform as `listening` or `stopped`, wrapped in `contextlib.suppress(RpcCallError)` so an older daemon still reports everything else (`cli/commands.py`, `_messenger_line`).
+
+### 2.1 Reminder delivery (`scheduler/scheduler.py`, `Scheduler.deliver`)
+
+Added in v0.1.x. A scheduled job now reports back **into the session that created it**, not only to an external channel. `Job.origin_session_id` records that session (`scheduler/jobs.py`), is projected onto the wire as `JobInfo.originSessionId` (`server/protocol.py`), and is added to an existing `jobs` table by an online migration at store open — `PRAGMA table_info(jobs)` then `ALTER TABLE jobs ADD COLUMN origin_session_id TEXT` when the column is missing (`JobStore.__init__`). Existing rows are all channel-only jobs, so `NULL` is exactly right and no data moves.
+
+`Scheduler.deliver(job, text)` MUST:
+
+1. Try the originating session first (`_deliver_to_session`). The reminder is emitted as an ordinary `message.done` **session event**, so it is persisted, replayed on resume and rendered by every surface with no new event kind. Its text is prefixed:
+
+   ```text
+   ⏰ Scheduled reminder (<job.id>)
+
+   <text>
+   ```
+
+2. If the session is not live, restore it through `SessionManager.restore()` (M1 §17-4), deliver, and **close it again** — a reminder must not leave a session open that the user had finished with. If the session cannot be restored at all (deleted, or the store has no row), log a warning naming both ids and fall through.
+3. Then, and independently, deliver to `job.channel` through the gateway router when one is configured. **An explicit channel is additive, not a replacement**: a job with both an origin session and `channel: telegram:<id>` reaches both.
+4. Append to `$SNOWPEA_HOME/logs/jobs.log` when the session delivery failed, or when an explicit channel was requested but the gateway path did not carry it (no router bound, or `deliver` raised). A gateway delivery that succeeds returns without writing the log line.
+
+A dead gateway is a warning and a log-file fallback, never a failed job.
 
 ## 3. Gateway (`gateway/`)
 ```python
@@ -49,6 +73,18 @@ class GatewayRouter:                    # gateway/router.py
 - Inbound routing: binding → target session (created lazily per (binding, channel_id), `originSurface="gateway:<platform>:<channel_id>"`, unattended=True) → `session.prompt`; assistant `message.done` → `send`. Session list shows these sessions (`origin` field).
 - Credentials: `credentials_ref` = key into `$SNOWPEA_HOME/credentials.json` (0600) or env var name; never logged.
 - Lifecycle counter `gateway_bindings`.
+
+### 3.1 Settings-driven bindings and `gateway.sync` (v0.1.x)
+
+`Binding.source` distinguishes `"manual"` (`gateway.bind`) from `"settings"` (`GatewayRouter.sync_from_settings`), and is added to an existing table by an in-place `ALTER TABLE gateway_bindings ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'` (`gateway/router.py`, `_migrate`). **Only `source="settings"` bindings are added or removed by a sync**; a hand-made binding is never touched.
+
+- `desired_gateways(settings)` keeps every `settings.gateway.<platform>` that is both `enabled` and carries a `token`. An **enabled platform with no token is a warning, not an error** — a half-finished wizard run is logged and skipped so the daemon still starts.
+- The token is stored in `credentials.json` under the ref `<platform>`, so the auto binding's `credentials_ref` *is* the platform name.
+- The auto binding is a **catch-all**: `channel_id` is `None`, so any chat that messages the bot gets its own lazily-created session, and `target` is `{"new_session": {workdir, mode}}`.
+- Approvals stay fail-closed: a catch-all binding whose `allowed_user_id` is unset can approve nothing, which is why the wizard asks for the approver right after the token (M3 §5).
+- `settings.set` triggers a sync that **can never fail the write**: the settings write has already succeeded, so a failure is logged and the next daemon start syncs again (`server/settings_handlers.py`).
+- `GatewaySyncResult` reports `added` / `removed` / `kept` **by platform**, not by binding id.
+- `snowpea setup` calls `gateway.sync` only when a daemon is already running (`cli/commands.py`); otherwise the next daemon start does it.
 
 ## 4. Unattended approvals (`permissions/approval_queue.py`, extends M1)
 - `unattended=True` requests (scheduler/gateway sessions): broadcast `approval.request` as a **notification** (`approval.pending`) to all subscribed connections (TUI shows it in ApprovalQueue) AND to the bound channel via `GatewayRouter.deliver` with buttons `allow`/`deny` (`callback_data = "apr:<requestId>:allow|deny"`). Any authenticated surface or the bound channel user may respond; first response wins; others receive `approval.resolved{requestId, decision, by}`. Timeout `approvals.timeoutSec` (default 300) → deny, `job.last_status = denied_by_timeout` when it was a job.

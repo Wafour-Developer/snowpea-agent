@@ -38,12 +38,24 @@ sh install.sh --dry-run
 Si prefieres no canalizar un script directamente a un shell, o si el instalador de una línea falló en algún paso que quieres hacer tú mismo:
 
 ```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh     # uv, si falta
+curl -LsSf https://astral.sh/uv/install.sh | sh     # uv, if missing
 uv tool install snowpea-agent
 snowpea --version
 ```
 
 Node 20+ debe estar en `PATH` para la interfaz de terminal. Las ejecuciones sin interfaz (`snowpea -c`) y todos los `snowpea <subcommand>` funcionan sin Node; solo la TUI lo necesita.
+
+## Anular el origen de la instalación
+
+El instalador acepta una anulación del origen, que es lo que usan CI y las instalaciones sin conexión:
+
+```bash
+sh install.sh --from-checkout
+SNOWPEA_WHEEL_URL=./snowpea_agent-0.1.0-py3-none-any.whl sh install.sh
+SNOWPEA_INSTALL_SOURCE=git+https://github.com/Wafour-Developer/snowpea-agent sh install.sh
+```
+
+`SNOWPEA_BIN_DIR` cambia dónde acaba el ejecutable `snowpea`, y `--from-checkout` instala el checkout en el que vive el propio script.
 
 ## Desde un checkout
 
@@ -60,13 +72,44 @@ uv run snowpea --version
 
 ## Actualizar
 
+snowpea comprueba si hay una versión más nueva una vez al día, en segundo plano, y cachea la respuesta en `$SNOWPEA_HOME/update-check.json`. Nunca se instala nada sin que tú lo digas.
+
+**En la interfaz de terminal.** Cuando hay una actualización esperando, aparece un banner en la parte superior de la pantalla:
+
+```text
+⬆ Update available v0.1.2 (current v0.1.1) — press U or type /update
+```
+
+Pulsa `U` (o escribe `/update`) y responde `y`. La actualización corre en segundo plano, el banner informa del progreso, y al terminar snowpea se reinicia solo en la versión nueva. Un turno en marcha nunca se interrumpe.
+
+**Desde la línea de comandos.**
+
+```bash
+snowpea update --check
+snowpea update
+```
+
+`--check` informa de la versión actual y de la más reciente y no instala nada. Sin él, `snowpea update` ejecuta la actualización, detiene el daemon, y te dice que vuelvas a arrancar `snowpea`. `snowpea --version` también menciona una actualización pendiente, usando solo la respuesta cacheada, así que nunca espera a la red.
+
+La actualización escribe su salida en `$SNOWPEA_HOME/logs/update.log`. Ejecuta `uv tool install --force --reinstall`; si `uv` no está en el `PATH`, se usa en su lugar el método que el instalador registró en `$SNOWPEA_HOME/install.json`, y si no se sabe nada, snowpea imprime el comando a ejecutar a mano en lugar de adivinar.
+
+Dos ajustes controlan esto en `$SNOWPEA_HOME/settings.json`:
+
+```json
+{ "updates": { "check": true, "channel": "auto" } }
+```
+
+`check: false` apaga la comprobación diaria en segundo plano, dejando `/update` y `snowpea update` funcionando bajo demanda. `channel` es `auto` (PyPI cuando el paquete está publicado ahí, y los tags de git del repositorio en caso contrario), `pypi`, o `git`.
+
+Para actualizar a mano en su lugar:
+
 ```bash
 uv tool upgrade snowpea-agent
 snowpea daemon stop
 snowpea --version
 ```
 
-Detén el daemon después de actualizar. Un daemon en ejecución mantiene el código antiguo en memoria, y el siguiente cliente que se conecte negociaría con una versión de protocolo que ya no coincide con la instalada.
+Detén el daemon después de actualizar a mano. Un daemon en ejecución mantiene el código antiguo en memoria, y el siguiente cliente que se conecte negociaría con una versión de protocolo que ya no coincide con la instalada.
 
 ## Desinstalar
 
@@ -105,4 +148,4 @@ snowpea daemon start
 
 ## Siguiente
 
-[Setup](../en/setup.md) — elige un proveedor y deja una clave configurada.
+[Setup](setup.md) — elige un proveedor y deja una clave configurada.

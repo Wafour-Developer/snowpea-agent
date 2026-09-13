@@ -24,7 +24,7 @@
 
 ---
 
-snowpea is a coding agent that runs on your own machine and answers to whichever model you pay for. A Python core runs as a local daemon that owns sessions, tools, permissions, memory, schedules and messenger bindings; an Ink terminal UI attaches to it over a documented WebSocket JSON-RPC protocol; and a TypeScript SDK opens that same protocol to anything else you want to build. Eleven LLM vendors, local/Docker/SSH execution, long-term memory, a cron scheduler and Telegram/Discord/Slack gateways sit behind one command: `snowpea`. Because the agent keeps running after you close the terminal, it is a coding agent during the day and a personal assistant the rest of the time.
+snowpea is a coding agent that runs on your own machine and answers to whichever model you pay for. A Python core runs as a local daemon that owns sessions, tools, permissions, memory, schedules and messenger bindings; an Ink terminal UI attaches to it over a documented WebSocket JSON-RPC protocol; and a TypeScript SDK opens that same protocol to anything else you want to build. Eleven LLM vendors, local/Docker/SSH execution, long-term memory, a cron scheduler, voice in and out, and Telegram/Discord/Slack gateways sit behind one command: `snowpea`. Because the agent keeps running after you close the terminal, it is a coding agent during the day and a personal assistant the rest of the time.
 
 <table>
 <tr><td><b>Bring your own model</b></td><td>Eleven vendors behind one interface — Anthropic, OpenAI, OpenRouter, Gemini, xAI, GLM, MiniMax, Kimi, DeepSeek, Qwen, and any OpenAI-compatible endpoint you host yourself. Switch per session, no code changes.</td></tr>
@@ -240,7 +240,7 @@ The manual is also available in [Korean](docs/manual/ko/index.md), and its insta
 
 ## Roadmap
 
-- **v0.1 — this repository.** Core daemon, protocol, TUI, SDK, eleven vendors, tools, memory, scheduler, gateway, plugins, subagents and team mode, installers for three platforms.
+- **v0.1 — this repository.** Core daemon, protocol, TUI, SDK, eleven vendors, tools, memory, scheduler, gateway, plugins, subagents, project teams and team mode, attachments and voice I/O, context tracking and compaction, model profiles, in-app updates, installers for three platforms.
 - **v0.2 — desktop IDE.** An Electron app on the same SDK, with per-file diff approval, a subagent tree, worktree-parallel sessions and a skill browser. It starts only after the protocol passes its v1.0 freeze gate: three consecutive releases with no change to the generated schema.
 - **v0.3 — site and registry.** snowpea.ai for the landing page and manual, plus a skill registry with upload, ratings and curation wired into `snowpea skill search`. The install URL moves from GitHub raw to snowpea.ai at that point.
 
@@ -255,13 +255,13 @@ uv run pytest -q
 
 Read [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) ([한국어](docs/CONTRIBUTING.ko.md)) before your first pull request — it covers the generated-protocol check, the vendored-code integrity check, and where new vendors, tools, commands and search providers plug in.
 
-## Known limitations (v0.1)
+## Known limitations (v0.1.7)
 
 - **MCP over SSE** is parsed but not implemented; stdio MCP servers work. (`tools/mcp_client.py`)
 - **OpenAI device-code login** authenticates a ChatGPT/Codex subscription. Direct OpenAI API billing remains a separate API-key path.
 - **Marketplace search endpoints** for agentskills.io and hermes-hub are documented guesses; Claude Code marketplaces (`marketplace.json` repos) work.
 - **Messenger delivery, scheduled delivery and approval timeouts** are verified with a fake adapter; live Telegram/Discord/Slack runs need your own credentials (`tests/e2e/v01_smoke.sh` steps 10–11).
-- Protocol is `0.1.0`; the v1.0 freeze gate applies before the v0.2 IDE.
+- Protocol is `1.4.0`; the v1.0 freeze gate (three consecutive releases with no generated-schema change) applies before the v0.2 IDE.
 
 ## License and credits
 

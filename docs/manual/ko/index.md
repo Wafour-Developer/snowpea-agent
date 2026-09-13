@@ -2,7 +2,7 @@
 
 snowpea는 내 컴퓨터에서 도는 오픈소스 멀티벤더 코딩 에이전트입니다. Python 코어가 로컬 데몬으로 상주하면서 세션·툴·권한·메모리·스케줄·메신저 바인딩 등 상태를 가진 것은 전부 소유합니다. 클라이언트는 문서화된 WebSocket JSON-RPC 프로토콜로 그 데몬에 붙습니다 — 지금은 Ink 터미널 UI, v0.2에는 Electron IDE, 그리고 TypeScript SDK 위에 직접 만드는 무엇이든.
 
-다른 언어: [English](../en/index.md) · [日本語](../ja/install.md) · [简体中文](../zh-CN/install.md) · [Español](../es/install.md) · [전체 목록](../README.md)
+다른 언어: [English](../en/index.md) · [日本語](../ja/index.md) · [简体中文](../zh-CN/index.md) · [Español](../es/index.md) · [전체 목록](../README.md)
 
 ## 시작하는 곳
 

@@ -12,7 +12,7 @@
 
 ## 1. `server/protocol.py` — SSOT
 ```python
-PROTOCOL_VERSION = "0.1.0"          # semver; M8에서 1.0.0
+PROTOCOL_VERSION = "1.4.0"          # semver; 기능이 늘 때마다 minor. v1.0 freeze gate는 별도
 SERVER_VERSION = snowpea_core.__version__
 
 class RpcMethod(BaseModel):          # 메서드 레지스트리 항목 (스키마 덤프용)
@@ -31,7 +31,8 @@ EVENTS: dict[str, type[BaseModel]]   # 알림 페이로드 스키마
 | system.shutdown | – | ok: bool |
 | session.create | workdir, mode?: Mode, provider?, model?, agent?, maxConcurrent?, originSurface?: str | sessionId |
 | session.resume | sessionId, afterSeq?: int | sessionId, events: list[SessionEvent] |
-| session.list | – | sessions: list[SessionSummary] |
+| session.list | includeClosed?: bool=false, workdir?: str | sessions: list[SessionSummary] |
+| session.deleteSaved | sessionId?, workdir?, all?: bool=false | deleted: int |
 | session.close | sessionId | ok |
 | session.prompt | sessionId, text, attachments?: list[Attachment] | turnId |
 | session.interrupt | sessionId | ok |
@@ -46,11 +47,15 @@ EVENTS: dict[str, type[BaseModel]]   # 알림 페이로드 스키마
 | backend.set | sessionId, kind: "local"\|"docker"\|"ssh", config: dict | ok |
 | agent.*, team.*, job.*, gateway.*, memory.*, skill.* | 플랜 §3.5 그대로 (M1은 스키마만 정의, 구현은 `error{code:"not_implemented"}`) | |
 
+`PROTOCOL_VERSION`은 현재 `1.4.0`이다 (`server/protocol.py`의 `PROTOCOL_VERSION`). 위 코드 블록이 M1 시점에 적어 둔 `"0.1.0"`과 M8의 `1.0.0` 계획은 모두 폐기되었다 — 프로토콜은 추가 변경마다 minor를 올려 왔고(1.0.0 → 1.1.0 update → 1.2.0 context/models/login → 1.3.0 `config` 권한 태그 → 1.4.0 `turn.queued`/`turn.dequeued`), v1.0 freeze gate는 v0.2 IDE 이전에 별도로 잡는다.
+
+`SessionSummary`는 계약 이후 세 필드가 추가되었다(모두 가산적): `contextUsed`, `contextWindow` (CORE-context), `lastPrompt: str|None` — 그 세션에 마지막으로 저장된 **user** 메시지의 텍스트 (`server/protocol.py`의 `SessionSummary`). `session.list` 결과는 `createdAt` **내림차순**으로 정렬된다 (`server/session_handlers.py`의 `session_list_handler`). (v0.1.x에서 추가)
+
 서버→클라이언트 요청: `approval.request(requestId, sessionId, tool, args, risk, timeoutSec, scopeHint) -> {decision, scope}`.
 
 알림: `session.event(sessionId, seq, kind, payload, ts)`; `approval.resolved(requestId, decision, by)`; `job.event`; `gateway.event`.
 
-`session.event.kind` ∈ `message.delta{text}` · `message.done{text, role}` · `tool.call{callId, name, args}` · `tool.result{callId, name, ok, output, error?}` · `diff{path, patch}` · `subagent.spawn/update/done{agentId, ...}` · `team.task.update` · `mode.changed{mode}` · `usage{inputTokens, outputTokens}` · `error{code, message}` · `turn.done{turnId, reason: "complete"|"interrupted"|"error"|"denied"|"timeout"}`.
+`session.event.kind` ∈ `message.delta{text}` · `message.done{text, role}` · `tool.call{callId, name, args}` · `tool.result{callId, name, ok, output, error?}` · `diff{path, patch}` · `subagent.spawn/update/done{agentId, ...}` · `team.task.update` · `mode.changed{mode}` · `backend.changed{kind}` · `usage{inputTokens, outputTokens}` · `context{used, window, estimated, …}` · `compaction{…}` · `audio.spoken{…}` · `turn.queued{turnId, position, queued}` · `turn.dequeued{turnId, reason: "started"|"dropped", queued}` · `error{code, message}` · `turn.done{turnId, reason: "complete"|"interrupted"|"error"|"denied"|"timeout"}`. 뒤의 여섯 종류(`context`·`compaction`·`audio.spoken`·`turn.queued`·`turn.dequeued`·`backend.changed`)는 v0.1.x에서 추가되었다. 현재 목록의 정본은 `server/protocol.py`의 `SESSION_EVENT_MODELS`다.
 
 에러 코드(문자열, JSON-RPC `error.data.code`): `unauthorized`, `protocol_incompatible`, `not_found`, `invalid_params`, `mode_denied`, `approval_denied`, `approval_timeout`, `tool_inactive`, `not_implemented`, `login_unsupported`, `internal`.
 
@@ -84,14 +89,19 @@ async def run_daemon(port: int = 0, home: Path | None = None) -> None
 ```python
 Mode = Literal["plan","accept","auto"]
 class Session: id, workdir, mode, provider, model, origin_surface, created_at, history: History, seq: int
+              # v0.1.x에서 추가된 필드 (session/session.py): team, team_agents, queued_turns,
+              # turn_task, current_turn, context_used, context_estimated, context_window,
+              # backend, allowed_tools, is_subagent, prompt_role, system_prompt, memory_namespace
 class SessionManager:
     async def create(...)->Session; get(id); list(); async close(id)
+    async def restore(id, *, origin_conn=None) -> Session|None   # v0.1.x: store에서 되살림 (§17-3)
+    async def close_all(*, timeout=5.0) -> None                  # Daemon.stop이 호출
     def next_seq(session)->int
 class EventHub:
     async def emit(session_id, kind, payload)      # seq 부여 → store 저장 → 구독 연결에 notify
     def subscribe(conn, session_id|None)
 ```
-이벤트는 `store`에 append 되어 `session.resume(afterSeq)`가 재전송한다.
+이벤트는 `store`에 append 되어 `session.resume(afterSeq)`가 재전송한다. 히스토리도 매 턴 `finish_turn()`에서 `store.replace_messages()`로 증분 저장되므로, 데몬을 재시작한 뒤에도 `session.resume`이 대화를 복원한다(`agent/loop.py`의 `finish_turn`). (v0.1.x에서 추가)
 
 ## 5. Providers (`providers/base.py`)
 ```python
@@ -128,12 +138,13 @@ M1 툴: `read_file`, `write_file`, `edit_file`(old/new 문자열 치환, diff �
 class PermissionPolicy:
     def decide(self, mode: Mode, tag: PermissionTag, tool: Tool, args: dict, session) -> Literal["allow","deny","ask"]
 ```
-| mode \ tag | read | write | exec | network | send |
-|---|---|---|---|---|---|
-| plan | allow | deny | deny | allow | deny |
-| accept | allow | allow | ask | ask | ask |
-| auto | allow | allow | allow | allow | allow |
-allowlist(M4)는 `ask`→`allow`로 승격만 한다.
+| mode \ tag | read | write | exec | network | send | config |
+|---|---|---|---|---|---|---|
+| plan | allow | deny | deny | allow | deny | deny |
+| accept | allow | allow | ask | ask | ask | ask |
+| auto | allow | allow | allow | allow | allow | **ask** |
+
+`config`는 CORE-search-fix가 더한 여섯 번째 태그다(이 변경이 `PROTOCOL_VERSION`을 1.3.0으로 올렸다). auto 모드에서도 `ask`인 것이 의도된 부분이다: 감시자가 없는 에이전트가 `settings.json`을 고쳐 쓰는 것이 고치려던 실패이므로, "아무도 안 본다"는 건너뛸 이유가 아니라 물어볼 이유다. 태그는 호출마다 `Tool.permission_for` → `tools/config_guard.py`가 해석한다: 해석된 경로가 `$SNOWPEA_HOME` 아래이거나 프로젝트의 `.snowpea/settings.json`·`.snowpea/credentials.json`이면 `config`, 아니면 `write`다(`.snowpea/worktrees/` 같은 작업 상태는 `write`로 남는다). allowlist(M4)는 `ask`→`allow`로 **승격만** 하되 `UNPROMOTABLE` 태그(=`config`)는 건너뛰며(`permissions/policy.py`), 승인 scope 캐시도 `cacheable=False`로 비활성이다(`agent/loop.py`가 `cacheable=tag not in UNPROMOTABLE`로 넘긴다). (v0.1.x에서 추가)
 ```python
 class ApprovalQueue:
     async def request(self, session, tool, args, *, risk: str, unattended: bool) -> Decision   # 대기(타임아웃 → deny)
@@ -145,12 +156,16 @@ class ApprovalQueue:
 ```
 turn = prompt → messages(history+system) → provider.stream
   text_delta → session.event message.delta
-  tool_call  → policy.decide → deny: event error{mode_denied} + turn.done{denied}
+  tool_call  → policy.decide → deny: event error{mode_denied} + 거부 사유를 실패한 tool.result로 append → 루프 계속
                              → ask: approvals.request → deny: 같은 처리
                              → allow: event tool.call → tool.run → event tool.result (+diff) → 메시지에 tool 결과 추가 → 다시 provider.stream
-  done(no tool calls) → message.done → usage → turn.done{complete}
+  done(no tool calls) → message.done → (auto-speak 시 audio.spoken) → context → turn.done{complete}
 ```
-최대 반복 `agent.max_tool_rounds`(기본 50). `session.interrupt` → `turn.done{interrupted}`.
+최대 반복 `agent.max_tool_rounds`(기본 50). **거부 한 번이 턴을 끝내지 않는다**(v0.1.x에서 변경): 거부는 tool 결과로 모델에 돌아가 모델이 이름·인자를 고칠 수 있고, 한 턴에 `MAX_DENIALS_PER_TURN = 3`(`agent/loop.py`) 번째 거부에서야 `turn.done{denied}`로 끝난다. `mode_denied`/`approval_denied` error 이벤트는 그대로이므로 어떤 surface도 새로 배울 것이 없다.
+
+모든 턴 종료는 `agent/loop.py`의 `finish_turn()` 하나를 거친다. 순서는 **history 영속화 → `context` 이벤트 → `turn.done`** 이며, `Core.stopping` 중에는 앞의 둘을 건너뛴다(CORE-session-race). `turn.done`은 여전히 terminal이다.
+
+`session.interrupt`는 진행 중인 턴을 취소하고(`turn.done{interrupted}`), 그 턴이 끝나면 뒤에 쌓여 있던 큐도 비운다(§17-4).
 
 ## 9. Commands (`commands/registry.py`)
 ```python
@@ -259,3 +274,29 @@ class CommandRegistry: register(cmd); list(session=None); parse(text) -> (name, 
 11. **히스토리 압축은 자리만.** `History.compact()`는 `max_messages`(기본 200)를 넘으면 오래된 메시지를 버리되 tool 결과가 그 호출과 떨어지지 않게만 한다. 요약 압축은 메모리 작업과 함께 온다.
 12. **`session.resume`의 원본 승계.** 원본 연결이 없거나 닫혔으면 resume 한 연결이 `origin_conn`·`originSurface`를 넘겨받는다. 재접속한 TUI가 승인 프롬프트를 다시 받을 수 있게 하기 위함이다.
 13. **테스트 픽스처 추가.** `tests/fixtures/providers/fake/session.json` (write/edit/shell 시나리오). `basic.json`은 US-006이 쓰고 있어 건드리지 않았다.
+
+## 17. Post-v0.1.1 amendments (session listing, deletion, restore, prompt queueing, teams)
+
+계약 §1·§4를 HEAD(v0.1.7) 기준으로 맞추는 절. 여기 적힌 것이 구현이다.
+
+1. **`session.list`는 파라미터를 받는다.** `SessionListParams{includeClosed: bool=false, workdir: str|None}` (`server/protocol.py`). `includeClosed=false`(기본)는 살아 있는 세션만, `true`는 `store.list_sessions(include_closed=True)`의 영속 행을 live 행에 병합한다(같은 id는 live가 이긴다). `workdir`이 주어지면 그 디렉터리에 뿌리내린 행만 남긴다. `EmptyParams`를 보내던 구버전 클라이언트는 두 필드가 모두 기본값이라 영향이 없다. (`server/session_handlers.py`의 `session_list_handler`)
+
+2. **`SessionSummary.lastPrompt`.** store가 있으면 모든 행에 대해 `store.messages(sessionId)`를 뒤에서부터 훑어 마지막 `role == "user"` 메시지의 텍스트를 채운다. store가 없으면 `None`이다. 정렬은 `createdAt` 내림차순.
+
+3. **`session.deleteSaved` (신규 RPC).** `SessionDeleteParams{sessionId?, workdir?, all: bool=false}` → `SessionDeleteResult{deleted: int}` (`server/protocol.py`; `METHODS`와 `IMPLEMENTED_METHODS` 양쪽에 등록). 핸들러는 먼저 `core.sessions.list()`의 live id 집합을 빼므로 **살아 있는 세션은 절대 지우지 않는다**(`session_handlers.py`의 `session_delete_saved_handler`). 셋 중 아무것도 주지 않으면 아무것도 지우지 않는다. `Store.delete_sessions`는 `messages`·`events`·`sessions` 세 테이블의 행을 한 트랜잭션으로 지운다(`session/store.py`). 삭제된 세션이 디스크에 갖고 있던 바이트(`<SNOWPEA_HOME>/attachments/<id>/`, `<SNOWPEA_HOME>/audio/<id>/`)도 `_purge_session_files`가 best-effort로 함께 지운다 — 파일 삭제 실패는 경고 로그일 뿐 RPC를 실패시키지 않는다.
+
+   `deleted`는 실제로 지워진 `sessions` 행 수다 (`session/store.py`의 `delete_sessions`가 `DELETE` 커서의 `rowcount`를 돌려준다). 삭제는 DB 행에서 끝나지 않는다: `session_delete_saved_handler`가 `<home>/attachments/<id>/`와 `<home>/audio/<id>/`도 함께 지운다 (best-effort — 파일이 안 지워져도 RPC는 실패하지 않는다). (CORE-fixes-v017 R4/R6)
+
+4. **`session.resume`의 의미가 넓어졌다.** 계약 §4는 살아 있는 세션의 이벤트 재전송만 정했다. 이제 데몬을 재시작해 메모리에서 사라진 세션도 `SessionManager.restore()`가 store에서 되살린다(`session/manager.py`): `sessions` 행에서 workdir·mode·provider·model을 읽고, `store.messages()`로 `History`를 재구성하고, workdir의 활성 팀을 다시 계산하고, `store.reopen_session()`으로 `closed_at`을 지운다. 이것이 가능한 이유는 `finish_turn()`이 매 턴 `store.replace_messages()`로 히스토리를 증분 영속화하기 때문이다. 원본 연결 승계(§16-12)는 그대로다.
+
+5. **프롬프트 큐잉.** 턴이 도는 중에 온 `session.prompt`는 거부되지도, 동시에 실행되지도 않는다. `start_turn`은 항상 `QueuedTurn{turn_id, text, unattended, attachments}`를 만들고, `session.turn_task`가 아직 살아 있으면 `Session.queued_turns`(`session/session.py`, **메모리 전용**)에 넣고 `turn.queued{turnId, position, queued}` 이벤트를 낸 뒤 `turnId`만 돌려준다(`agent/loop.py`의 `start_turn`). 하나의 `_drain_turns` 태스크가 FIFO로 소비하며, 큐에서 꺼낼 때마다 `turn.dequeued{turnId, reason:"started", queued}`를 낸다. 첨부는 큐에 넣는 시점에 동기적으로 `pending.take()` 되므로 뒤 프롬프트의 이미지가 앞 턴으로 새지 않는다.
+
+6. **인터럽트는 큐까지 비운다.** `session.interrupt`는 `session.interrupt`를 set 하고 **그 자리에서** `flush_queued_turns()`를 돌려 대기 중이던 프롬프트를 전부 버린다(`server/session_handlers.py`의 `session_interrupt_handler`). 비우기는 첫 `await` 전에 동기적으로 일어나므로, Stop을 누른 그 순간 큐에 있던 것만 버려지고 그 직후에 새로 친 프롬프트는 살아남아 그대로 실행된다(`_drain_turns`는 턴이 끝난 뒤 큐를 다시 비우지 않는다). 버려진 프롬프트마다 `turn.dequeued{reason:"dropped"}`와 `turn.done{interrupted}`가 나가므로, 그 `turnId`를 기다리던 클라이언트가 영영 매달리지 않는다(`agent/loop.py`의 `flush_queued_turns`).
+
+   **알려진 한계.** `queued_turns`는 영속화되지 않는다. 데몬이 재시작되면 대기 중이던 프롬프트는 사라지고, 클라이언트는 이미 받은 `turnId`에 대한 `turn.done`을 받지 못한다.
+
+7. **`Session.team` / `Session.team_agents`.** `session.create`와 `SessionManager.restore`가 `agent/team_config.active_team(settings, workdir)`으로 채운다. 둘이 채워져 있고 세션이 subagent가 아니면 시스템 프롬프트에 팀 제한 규칙이 덧붙는다(`agent/agent.py`):
+
+   > `Active delegation team: <name>. Delegate only to these agents: <a, b, c>. Every delegate_task call must include one of those names in its agent field.`
+
+   규칙은 조언이 아니라 강제다 — 실제 거부는 M6/M7 계약 §3.1을 볼 것.

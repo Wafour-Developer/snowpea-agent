@@ -41,7 +41,7 @@ The result carries `protocolVersion`, `serverVersion` and a `capabilities` list,
 | Area | Methods |
 |---|---|
 | system | `system.hello`, `system.info`, `system.health`, `system.shutdown` |
-| session | `session.create`, `session.list`, `session.resume`, `session.close`, `session.prompt`, `session.interrupt`, `session.setMode` |
+| session | `session.create`, `session.list`, `session.resume`, `session.close`, `session.prompt`, `session.interrupt`, `session.compact`, `session.deleteSaved`, `session.setMode` |
 | commands and tools | `command.list`, `command.run`, `tool.list` |
 | approvals | `approval.list`, `approval.respond`, and `permission.allowlist.add` / `list` / `remove` |
 | providers | `provider.list`, `provider.configure`, `provider.loginWeb` |

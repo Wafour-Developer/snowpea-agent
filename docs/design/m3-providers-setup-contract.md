@@ -11,7 +11,8 @@ class VendorPreset:
     adapter: Literal["anthropic_native","gemini_native","openai_compat"]
     base_url: str | None         # openai_compat only; local → user supplied (default http://localhost:11434/v1)
     default_model: str
-    auth_methods: tuple[str, ...]        # ("api_key",) | ("api_key","device_code") | ("api_key","oauth_pkce")
+    auth_methods: tuple[str, ...]        # ("api_key",) | ("api_key","device_code","oauth_token")
+                                         # | ("api_key","oauth_pkce") | ("api_key","google_adc","oauth_token")
     env_keys: tuple[str, ...]            # e.g. ("OPENAI_API_KEY",)
     supports_parallel_tools: bool = True
     tool_call_style: Literal["openai","anthropic","gemini"] = "openai"
@@ -19,19 +20,33 @@ class VendorPreset:
     extra_headers: dict[str, str] = field(default_factory=dict)
 PRESETS: dict[str, VendorPreset]   # exactly 11 ids above; "local" covers vLLM/Ollama/LM Studio via base_url sub-presets local-vllm/local-ollama/local-lmstudio (same id "local", `variant`)
 ```
-Exactly `openai` has `device_code`, exactly `openrouter` has `oauth_pkce`. `provider.list` returns `[{vendor, label, authMethods, configured, defaultModel, models?}]` for all 11.
+Auth methods per preset (`providers/presets.py`): `openai` = `("api_key","device_code","oauth_token")`, `gemini` = `("api_key","google_adc","oauth_token")`, `openrouter` = `("api_key","oauth_pkce")`; every other vendor is `("api_key",)`. `gemini`'s two OAuth methods and `openai`'s `oauth_token` were added in v0.1.x — the original "exactly `openai` has `device_code`, exactly `openrouter` has `oauth_pkce`" no longer holds. `provider.list` returns `[{vendor, label, authMethods, configured, defaultModel, models?}]` for all 11.
 
 ## 2. Adapters
 - `providers/openai_compat.py` — `/v1/chat/completions` streaming (`stream: true`, `tools`, `tool_choice: auto`), handles both accumulated tool-call deltas (index-based) and whole-object tool calls; usage from `stream_options.include_usage` when supported else final chunk. All quirks go through `providers/normalize.py` (single point) using preset flags.
 - `providers/gemini_native.py` — `generateContent` streaming (`streamGenerateContent?alt=sse`), function declarations, functionCall/functionResponse parts.
 - `providers/anthropic_native.py` — already M1.
-- `providers/registry.py.get(vendor, model)` resolves: `SNOWPEA_PROVIDER` (`fake:<script>` or `<vendor>[:model]`) → session/provider arg → `settings.providers.default` → first configured vendor. Credentials from `settings.providers[vendor].api_key` or `env_keys`.
+- `providers/registry.py.get(vendor, model)` resolves: `SNOWPEA_PROVIDER` (`fake:<script>` or `<vendor>[:model]`) → session/provider arg → `settings.providers.default` → first configured vendor. Credentials from `settings.providers[vendor].api_key` or `env_keys`; for `openai` a stored `oauth_token` is used as the bearer credential when no API key is set, and `gemini` passes `auth_method`/`oauth_token` straight to `gemini_native`.
+- The **model profile layer sits above this** (v0.1.x, §6): `SessionManager.create` calls `config/model_routing.route_for()` — `agents.models[agent]` → the agent definition's `model:` → `models.default` — and hands the resolved `(provider, model)` to `ProviderRegistry.get()`. `route_for` returning `ModelRoute(None, None)` means "no multi-model settings apply", and the registry's own resolution above is then used unchanged.
 
 ## 3. Web token login (`providers/auth_web.py`)
-- `openai` device code: POST device authorization endpoint, print `user_code` + `verification_uri`, poll token endpoint until granted/expired; store `settings.providers.openai.token` (+refresh if given). Endpoints/config constants in one dict so they can be corrected without code changes.
-- `openrouter` OAuth PKCE: generate verifier/challenge, open `https://openrouter.ai/auth?callback_url=http://localhost:<port>/callback&code_challenge=...&code_challenge_method=S256`, local aiohttp callback server receives `code`, POST `https://openrouter.ai/api/v1/auth/keys` {code, code_verifier, code_challenge_method} → `key` saved as api_key.
-- Any other vendor → `RpcError("login_unsupported", "...use API key: snowpea setup --vendor <v> --key ...")`.
-- RPC `provider.loginWeb(vendor, method)`; CLI `snowpea setup --login <vendor>`.
+
+Each flow is split into a `*_start` (talk to the vendor / open the callback server, return the code and URL) and a `*_finish` (poll or wait, exchange for a token), joined by a `LoginStart` dataclass whose `finish()` resumes to a `LoginResult` (CORE-login-progress, added in v0.1.x).
+
+- **`openai` device code** — POST the device authorization endpoint, surface `user_code` + `verification_uri`, poll the token endpoint until granted/expired; store under `settings.providers.openai`. Endpoints live in one `ENDPOINTS` dict so they can be corrected without code changes. This authenticates a **ChatGPT/Codex subscription**; direct OpenAI API billing remains a separate API-key path.
+- **`openrouter` OAuth PKCE** — verifier/challenge, `https://openrouter.ai/auth?callback_url=http://localhost:<port>/callback&code_challenge=…&code_challenge_method=S256`, local aiohttp callback receives `code`, POST `https://openrouter.ai/api/v1/auth/keys` → `key` saved as `api_key`.
+- **`gemini` Google ADC** — `google_adc_start` shells `gcloud auth application-default login`. It MUST fail with a named prerequisite when `shutil.which("gcloud")` is empty ("gemini OAuth login needs the Google Cloud CLI (`gcloud`); install it or configure a Gemini API key") rather than a generic error. On success it persists `{"auth_method": "google_adc"}` — no token is copied into `settings.json`; `gemini_native` shells `gcloud` per request for a fresh access token and sends it as `Authorization: Bearer …`.
+- **`gemini` / `openai` remote token** — for a headless or remote machine with no browser and no `gcloud`, an access token obtained elsewhere is stored as `settings.providers.<vendor>.oauth_token` with `auth_method: "oauth_token"` and sent as a bearer credential (`providers/gemini_native.py`; `providers/registry.py`). `ProviderRegistry.is_configured` counts a vendor with `auth_method` in `("google_adc","oauth_token")`, or a non-empty `oauth_token`, as configured even with no API key.
+- Any other vendor → `RpcError("login_unsupported", "…use API key: snowpea setup --vendor <v> --key …")`.
+
+RPC `provider.loginWeb(vendor, method)` answers `status: "await_user"` with `userCode` / `verificationUri` / `verificationUriComplete` / `expiresInSec` **as soon as the code or URL is known**, and runs the rest as a connection-tracked background task reporting `provider.loginProgress` (phases `started|await_user|polling|done|failed`, broadcast like `system.updateProgress`). A failed background login is reported as `loginProgress{phase:"failed"}` and a log line — the RPC response is already gone, so nothing is attached to it, and nothing is persisted on that path.
+
+`provider.configure` accepts exactly these keys and silently drops the rest (`server/app_server.py`, `provider_configure_handler`): `api_key`, `base_url`, `model`, `models`, `variant`, `token`, `oauth_token`, `refresh_token`, `auth_method`. An empty result after filtering is `invalid_params`.
+
+CLI:
+- `snowpea setup --login <vendor>` (unchanged; an alias for the command below).
+- `snowpea provider login <vendor>` → `provider.loginWeb`, 900s timeout (`cli/commands.py`, `provider_login`).
+- `snowpea provider login <vendor> --token [TOKEN]` stores an OAuth access token directly via `provider.configure`; **`openai` and `gemini` only**, every other vendor exits `EXIT_USAGE` with "does not expose an OAuth access-token login; use its API key". A bare `--token` prompts with `getpass`; an empty answer is a usage error.
 
 ## 4. Replay & fixtures (`providers/replay.py`, `tests/fixtures/providers/`)
 - Fixture file: `tests/fixtures/providers/<vendor>/<case>.json` = `{"vendor","model","synthetic":bool,"exchanges":[{"request":{...scrubbed...},"response_stream":[<raw SSE/JSON chunks>]}]}`.
@@ -43,4 +58,42 @@ Exactly `openai` has `device_code`, exactly `openrouter` has `oauth_pkce`. `prov
 - `setup/catalog.py`: `CatalogItem(id, label, tier: free|paid|subscription, key: "no key"|"key optional"|"key required"|"self-hosted", default: bool, description)`, catalogs for `search` (from `tools/search_providers` registry order), `browser`, `tools` (categories with default on/off: file/terminal/git/web/browser/delegate/schedule/memory/skills/todo/session-search/clarify/cron on; media(image/video/tts) on-but-inactive; vision, computer-use, x-search off), `gateway` (telegram/discord/slack, all off).
 - `setup/screens/*.py`: each screen = pure function `(state, catalog) -> Screen(title, items, selected, multi: bool, help)` plus `apply(state, choice)`; rendering via `rich` prompts (single-select list with ↑↓/Enter, multi-select with Space, `Skip — keep defaults` always last). Non-interactive path: every screen has a CLI flag (`--vendor/--key/--model`, `--search-provider`, `--browser-provider`, `--tools a,b,-c`, `--gateway telegram --token ...`).
 - `setup/wizard.py`: `quick` (vendor screen only + defaults), `full` (all screens in order providers → search → browser → **audio** → tools → gateway → done; the Audio section — speech-to-text and text-to-speech backends, voice, read-aloud — was added by CORE-multimodal and deliberately carries no circled numeral, so the ①–⑥ the other screens print did not have to be renumbered), `blank` (write default settings, nothing asked). `setup/detect.py` finds env keys, existing `~/.hermes` / Claude Code config for import hints, node/uv presence.
-- Output: `$SNOWPEA_HOME/settings.json` with `providers`, `search.provider`, `browser.provider`, `tools.enabled_categories`, `gateway`. Ordering assertion (AC-02b): search list order = free·no-key first, then free·key/self-hosted, then paid; first item marked `★`.
+
+  **Authentication prompt (`setup/wizard.py`, `_ask_for_key`).** When the picked vendor's preset lists more than one auth method the wizard asks `authentication [1=API key, 2=browser login, 3=OAuth token (remote/headless)] (Enter=1):`. Option 3 appears only when `"oauth_token"` is in the preset's `auth_methods`. `2` runs `auth_web.login(vendor)` synchronously and, on success, merges the returned credentials into the vendor block while clearing any stale `api_key`/`oauth_token`; a failure prints the vendor's reason (with a hint on HTTP 403) and re-prompts instead of ending the wizard, and a cancellation is a `state.notes` line. `3` prompts for the token with `secret=True` and sets `auth_method = "oauth_token"`. Anything else falls through to the API-key prompt, so Enter still means "key" as before, and a vendor with one auth method is asked nothing new. (v0.1.x에서 추가)
+
+  **Gateway follow-ups (CORE-gateway-autostart).** `setup/screens/gateway.py` stays a pure build/apply pair with no I/O; `wizard._ask_for_gateway` asks for the token and then the approver's account id (`settings.gateway.<platform>.allowed_user_id`) the way `_ask_for_key` follows the providers screen. Blank is allowed and is reported in the summary as `telegram (no approver)` with a note that chat approvals stay blocked — a read-only messenger is a legitimate setup. `--gateway/--token/--user-id` and the non-interactive path are unaffected.
+- Output: `$SNOWPEA_HOME/settings.json` with `providers`, `search.provider`, `browser.provider`, `tools.enabled_categories`, `gateway`, and (v0.1.x) `audio`, `models` (§6), `agents.teams` / `agents.default_team` (`config/settings.py`). Ordering assertion (AC-02b): search list order = free·no-key first, then free·key/self-hosted, then paid; first item marked `★`.
+
+## 6. Model profiles and per-agent routing (`config/model_routing.py`)
+
+Added in v0.1.x. `settings.json` carries two related blocks (`config/settings.py`):
+
+```jsonc
+{
+  "models": {
+    "default": "sonnet",                                   // profile id used by new sessions
+    "profiles": {                                          // ModelProfile{provider, model}
+      "sonnet": {"provider": "anthropic", "model": "claude-sonnet-4-5"},
+      "cheap":  {"provider": "openai",    "model": "gpt-5-mini"}
+    }
+  },
+  "agents": {
+    "models": {"executor": "cheap", "architect": "sonnet"} // agent name -> profile id
+  }
+}
+```
+
+`route_for(settings, *, provider, model, agent, definition_model) -> ModelRoute{provider, model}` resolves in strict precedence order, first non-empty wins:
+
+1. explicit `provider` / `model` arguments (already-resolved caller intent — `session.create`, `/model`, an RPC arg);
+2. `settings.agents.models[agent]`;
+3. `definition_model` — the `model:` field of the agent's `.md` definition;
+4. `settings.models.default`.
+
+Returning `ModelRoute(None, None)` is meaningful: it means "no multi-model settings apply", and the caller MUST keep the old `ProviderRegistry` default or parent inheritance rather than substituting anything. The only caller in core is `SessionManager.create`.
+
+A reference is resolved by `resolve_reference`: a known profile id wins; `"inherit"` and the empty string resolve to nothing; `vendor:model` is accepted as the legacy spelling; a bare unknown word is read as a bare vendor name.
+
+The settings validator MUST reject unknown profile references — both `models.default` and every value in `agents.models` — so a typo is a load-time error rather than a silent fall-through to a different model (`Settings` model validator, `config/settings.py`).
+
+`/model` lists the configured vendor's models and accepts either a name or a **row number** (`/model 2`); it always persists to `settings.providers.<vendor>.model`, so there is no `--save` flag (`commands/model_cmd.py`). `provider.models(vendor?)` asks one vendor's endpoint what it actually serves, defaulting to `ProviderRegistry.default_vendor()`. The `local` preset's `default_model` is a placeholder: an `openai_compat` adapter built with a placeholder and no `model_resolver` MUST raise `model_not_configured` rather than calling the server (`providers/openai_compat.py`, `providers/registry.py`), and a listing made only of placeholders counts as no listing.

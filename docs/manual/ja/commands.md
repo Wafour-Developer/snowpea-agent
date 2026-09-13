@@ -48,6 +48,8 @@ snowpea commands list --json
 | `/ultrawork <task>` | split into independent parts, run them on concurrent subagents, merge the reports |
 | `/deepinit [path]` | walk the repository and write hierarchical `AGENTS.md` files |
 | `/team <n> <task>` | n workers, one git worktree each, branches merged as tasks finish |
+| `/team create <name> <agent...>` | create a project team from existing agents and activate it |
+| `/team use <name>` / `/team list` | switch the active project team or list teams |
 | `/deep-interview <idea>` | Socratic interview that scores ambiguity and refuses to hand off until the spec holds |
 | `/deep-research <topic>` | multi-source web research fanned out over subagents, answered with citations |
 | `/ralplan <task>` | consensus planning — planner, architect and critic argue before any code is written |
@@ -83,7 +85,48 @@ snowpea agents --json
 snowpea daemon status --json
 ```
 
-`tools list` と `commands list` はそれぞれ1回の RPC メソッド呼び出しだけで終了します。セッションを作らず、モデルも呼び出さないため、インストール直後や CI での動作確認として最適です。
+`tools list` と `commands list` はそれぞれ1回の RPC メソッド呼び出しだけで終了します。セッションを作らず、モデルも呼び出さないため、インストール直後や CI での動作確認として最適です。`tools list` は、裏にプロバイダーを持つツールについてはそのプロバイダーも表示するので、`web_search` には実際に答えることになる検索プロバイダーが出ます。
+
+### Context
+
+```bash
+snowpea session context --json
+snowpea session compact s-abc123 "keep the API design decisions"
+```
+
+`session context` は、生きているセッションごとに1行を表示します。使用トークン数、モデルのコンテキストウィンドウ、そしてその比率です。デーモンが判定できないウィンドウは、推測ではなく `?` と表示されます。ホスト型のベンダーはすべて静的な表に載っており、ローカルの vLLM や Ollama のサーバーには一度だけ尋ねてキャッシュし、`settings.json` の `providers.<vendor>.context_window` はその両方を上書きします。
+
+圧縮は、長いセッションをそのウィンドウの中に収め続けます。`/compact` はここまでのすべてを1つの「Session summary」システムメッセージにまとめ、直近のいくつかのメッセージはそのまま残して、そこから続けます。`session compact` はシェルからの同じものです。ターンがウィンドウの `context.autoCompactPercent`（デフォルト85）を超えそうになると、ターンとターンのあいだで自動的にも行われます。ツールのループの途中では決して起きません。`context.autoCompact` を `false` にすれば、`/compact` だけに任せられます。
+
+### Sessions
+
+```bash
+snowpea session list
+snowpea session list --include-closed --workdir ~/src/api --json
+snowpea session delete s-abc123
+snowpea session clear --all
+```
+
+`session list` は生きているセッションを表示し、`--include-closed` を付けると保存されたものも表示します — ID、モード、作成時刻、作業ディレクトリ、そしてそれぞれが最後に見たプロンプトです。`session delete` と `session clear` は、保存されたセッションを、その添付と音声のファイルごと削除します。生きているセッションが削除されることはないので、先に閉じてください。`session list` から ID を選び、`snowpea -c "…" --resume <id>` で続けられます。
+
+### Model profiles
+
+```bash
+snowpea model profiles --json
+snowpea model default fast
+snowpea model assign executor deep
+```
+
+`model profiles` は `models.profiles` をデフォルトの印つきで表示し、あわせて `agents.models` のエージェントごとの割り当ても表示します。`model assign` はエージェント1つをプロファイルに振り向けます。存在しないプロファイル ID はデーモンが拒否します。
+
+### Search
+
+```bash
+snowpea search test "snowpea agent github"
+snowpea search test "snowpea agent github" --json
+```
+
+`search test` は設定済みのプロバイダーで実際のクエリを1回実行し、どのプロバイダーが答えたかと、飛ばされた各プロバイダーが脱落した理由 — キーがない、インスタンスの URL が設定されていない、HTTP エラー — を表示します。デーモンは不要で、`$SNOWPEA_HOME/settings.json` を直接読みます。終了コードは、どれかのプロバイダーが答えたときは 0、どれも答えられなかったときは 2 です。
 
 ### Daemon
 
@@ -116,8 +159,8 @@ snowpea skill remove my-plugin
 ### Jobs
 
 ```bash
-snowpea job schedule --at "0 9 * * *" --task "昨日のコミットを要約して" --channel telegram:123456
-snowpea job schedule --in 10m --task "ビルドを確認して" --mode plan
+snowpea job schedule --at "0 9 * * *" --task "summarize yesterday's commits" --channel telegram:123456
+snowpea job schedule --in 10m --task "check the build" --mode plan
 snowpea job list --json
 snowpea job run <job-id>
 snowpea job cancel <job-id>
@@ -137,12 +180,16 @@ snowpea gateway unbind <binding-id>
 
 ```bash
 snowpea team status
+snowpea team list
+snowpea team create delivery architect executor verifier
+snowpea team use delivery
+snowpea team delete delivery
 snowpea service install
 snowpea service status
 snowpea service uninstall
 ```
 
-`team status` は実行中のチームについて、各タスクの状態とリトライ回数を報告します。`service` はデーモンをログイン時に起動するよう登録します — Linux では systemd user unit、macOS では launchd agent、Windows ではスケジュールされたタスクです。デフォルトでは無効になっており、誰もターミナルにログインしなくてもスケジュールやゲートウェイを再起動後も生き残らせたい場合にのみ必要です。
+`team status` は実行中のチームについて、各タスクの状態とリトライ回数を報告します。`team list`、`create`、`use`、`delete` のほうは、再利用できるエージェントの名簿を管理します。`/team create` が `<workdir>/.snowpea/settings.json` に書き込むのと同じプロジェクトのチームで、グローバルのものと一緒に、有効なチームに印を付けて一覧されます。`team delete` が消せるのはプロジェクトのチームだけです。`service` はデーモンをログイン時に起動するよう登録します — Linux では systemd user unit、macOS では launchd agent、Windows ではスケジュールされたタスクです。デフォルトでは無効になっており、誰もターミナルにログインしなくてもスケジュールやゲートウェイを再起動後も生き残らせたい場合にのみ必要です。
 
 ### Global options
 
@@ -156,6 +203,7 @@ snowpea service uninstall
 | `--cwd DIR` | working directory of the session |
 | `--timeout SEC` | abort the turn after SEC seconds |
 | `--provider VENDOR` | vendor for this session |
+| `--resume SESSION_ID` | continue a saved session instead of opening a new one |
 | `--approve-none` | deny every approval instead of prompting |
 
 ## Running a slash command headlessly
@@ -171,4 +219,4 @@ CLI 自身はこれを解析しません。テキストをそのままコアに�
 
 ## Next
 
-[Plugins](../en/plugins.md) — adding commands of your own.
+[Plugins](plugins.md) — adding commands of your own.

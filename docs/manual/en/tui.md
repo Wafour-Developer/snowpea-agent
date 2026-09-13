@@ -24,9 +24,39 @@ Last session: 26m ago · "add the worktree parallel session story to the IDE pla
 Press R or type /resume to continue it
 ```
 
-The last-session block appears when the daemon still has a session open for this directory — a second terminal, a headless run, a session a crash left behind. `R` on an empty input, or `/resume`, replays it into this window. When the daemon has no such session, the block is not shown, because an offer that cannot be taken is worse than no offer.
+The last-session block appears when the daemon still has a session open for this directory — a second terminal, a headless run, a session a crash left behind. `R` on an empty input replays it into this window; `/resume` opens the picker over every saved session instead. When the daemon has no such session, the block is not shown, because an offer that cannot be taken is worse than no offer.
 
 The banner is printed once. It scrolls away like any other output and never comes back.
+
+## Saved sessions
+
+The offer on the launch screen is only the newest one. Everything this machine has ever run is still on disk, and `/sessions` opens the picker over it:
+
+```text
+╭──────────────────────────────────────────────────────────────────────╮
+│ ❯  01J9F2… · 2026-03-14 09:41 · fix the flaky worktree test          │
+│    01J9DR… · 2026-03-13 18:02 · add the scheduler reminder story     │
+│    01J9C7… · 2026-03-13 11:26 · (no prompt)                          │
+│    Cancel                                                            │
+│ ↑↓ move · Enter resume · Esc cancel                                  │
+╰──────────────────────────────────────────────────────────────────────╯
+```
+
+The listing includes closed sessions, not just the ones the daemon still holds open, and each row carries the last prompt that session saw, so a row is identifiable without remembering an id. Rows are newest first, scoped to this directory, and the session you are already in is not offered to you.
+
+| What you type | What it does |
+|---|---|
+| `/sessions` | open the picker |
+| `/resume` | the same picker |
+| `/resume <sessionId>` | reopen that session directly, no picker |
+| `R` on an empty input | skip the picker and take the newest session in this directory |
+| `/session delete <id>` | delete one saved session |
+| `/session clear` | delete the saved sessions for this directory |
+| `/session clear --all` | delete every saved session on this machine |
+
+Resuming replays the session's history into this window and continues it — the working directory, mode, provider, model and team come back with it, whether or not the daemon still had it open.
+
+Deleting takes the messages, the events and the session row together, and with them the attachments and speech files that session owned, because a thread deleted for what was pasted into it should not leave the paste behind. A live session is never deleted: close it first, and until then `clear` steps over it. Resuming, on the other hand, needs an idle turn — `/resume` and `/sessions` refuse while something is running, because swapping the transcript under a live turn would tear it in half.
 
 ## The layout
 
@@ -39,15 +69,15 @@ The UI draws inline, the way `git log` does, not as a full-screen application. F
 
  ✢ Pondering… (12s · ↓ 3.7k tokens)       ← the live region starts here
  > the next thing you type
+ ⏵⏵ auto mode on · 1 shell · ← 2 agents
  snowpea v0.1.2 | ~/project | Model: anthropic/claude-sonnet-4-5 | Mode: ACCEPT | ctx 34% (68k/200k)
  [!!] context 85% — /compact to free space
- ⏵⏵ auto mode on · 1 shell · ← 2 agents
  ● main
  ✳ executor         Implement story IDE-004               running · 27s · ↓ 159.1k tokens
  ◯ 4 idle agents
 ```
 
-Top to bottom, the bottom panel is: the status line, the context warning when there is one, the summary row, then the agent rows. The input sits above them, with the working indicator above that. Nothing below the input is redrawn unless it changed.
+Top to bottom, the bottom panel is: the mode summary row, the status line, the context warning when there is one, then the agent rows. The mode comes first on purpose — it is the line that decides what the next turn is allowed to do, so it sits closest to what you are typing. The input sits above them, with the working indicator above that. Nothing below the input is redrawn unless it changed.
 
 ## While it is working
 
@@ -76,6 +106,17 @@ A call that failed keeps its own card, with its output, because that is the one 
 
 `Shift+Tab` cycles accept → auto → plan → accept. The mode is in the status line and in the summary row, and [Modes](modes.md) explains what each one permits. `Ctrl+P` toggles plan mode on and off without cycling.
 
+There is also a picker, for when you want a mode rather than the next one. `↓` past the newest history entry moves onto the summary row; `Enter` there opens it:
+
+```text
+⏵⏵ auto mode on · 1 shell · ← 2 agents · Enter to choose mode
+❯  accept mode
+   auto mode
+   plan mode
+```
+
+It starts on the mode you are in, `Enter` takes the highlighted one and `Esc` leaves the mode alone. Either way the mode summary row is drawn above the status line, not below it.
+
 ## Approvals
 
 When the daemon asks, it asks with a menu. `↑`/`↓` move, `Enter` takes the highlighted row, `Esc` refuses:
@@ -93,6 +134,14 @@ When the daemon asks, it asks with a menu. `↑`/`↓` move, `Enter` takes the h
 │    No   (n)                                          │
 │ ↑↓ move · Enter confirm · Esc cancel                 │
 ╰──────────────────────────────────────────────────────╯
+```
+
+When the daemon has something to warn you about — a command that reaches outside the working directory, a risk the arguments alone do not show — the request carries a `note`, and it is rendered in red above the arguments in both the TUI and the headless CLI:
+
+```text
+shell risk=high timeout=300s
+  ⚠ this deletes a directory outside the working tree
+  command: rm -rf ../build
 ```
 
 The cursor starts on `Yes`, so `Enter` means yes. `y`, `a`, `p` and `n` still work directly. While the prompt is up it owns the keyboard: nothing you type reaches the draft behind it, and `Shift+Tab` does not change mode.
@@ -142,14 +191,21 @@ It is dim until 70%, amber from there, red from 85%, and past 80% a row appears 
 
 `↑` walks back through your earlier prompts and `↓` walks forward to what you were writing. The history is per machine, not per session: it lives in `$SNOWPEA_HOME/tui-history.jsonl`, keeps the last 500 entries, and does not record the same prompt twice in a row.
 
-`↓` past the newest entry does something else: it moves the cursor out of the input and into the rows below it. First the summary row, where `Enter` lists what is running:
+`↓` past the newest entry does something else: it moves the cursor out of the input and into the rows below it. First the summary row, where `Enter` opens the mode picker:
 
 ```text
-⏵⏵ auto mode on · 1 shell · ← 2 agents · Enter to list them
-    ◦ Ran shell: npm -w tui test · 12s
+⏵⏵ auto mode on · 1 shell · ← 2 agents · Enter to choose mode
 ```
 
 Then the agent rows, one at a time. `Esc` or `↑` walks back up to the input.
+
+### Sending while it is working
+
+You do not have to wait for a turn to finish. A prompt sent while one is running is accepted and queued rather than refused, and the queue drains first in, first out — one turn at a time against one history, so two provider loops never run over the same conversation. Attachments are captured when you press `Enter`, so a chip queued now is still the file you meant by the time its turn starts. The queue is in memory only; it does not survive a daemon restart.
+
+`Esc` drops the queue along with the running turn. Interrupting means stop what I asked for, and that has to include the follow-ups still waiting, or Stop would be followed by the queue running anyway. Every dropped prompt is reported to clients as `turn.dequeued` with reason `dropped`, followed by its own `turn.done`, so nothing waiting on that turn id is left hanging.
+
+Clients also see `turn.queued` when a prompt goes in and `turn.dequeued` with reason `started` when one comes out. The terminal UI does not yet draw a queue indicator (pending) — until it does, a queued prompt simply waits in silence until its turn begins.
 
 ### Looking inside an agent
 
