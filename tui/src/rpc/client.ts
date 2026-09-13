@@ -15,6 +15,8 @@ import {
   type ApprovalResponse,
   type ConnectFn,
   type Mode,
+  type QuestionRequestParams,
+  type QuestionResponse,
   type SdkClient,
   type SessionEvent,
   type UpdateCheck,
@@ -38,6 +40,11 @@ export type ApprovalHandler = (
   request: ApprovalRequestParams,
 ) => Promise<ApprovalResponse>;
 
+/** Answers the server→client `question.request` the `ask_user` tool raises. */
+export type QuestionHandler = (
+  request: QuestionRequestParams,
+) => Promise<QuestionResponse>;
+
 export interface TuiClientOptions {
   port: number;
   token: string;
@@ -59,6 +66,8 @@ export interface TuiClientListeners {
   onApprovalResolved?: (params: { requestId: string; decision: string; by?: string }) => void;
   /** An unattended request joined the shared queue; re-read `approval.list`. */
   onApprovalPending?: (params: { request: ApprovalRequestParams }) => void;
+  /** A question was answered elsewhere, or gave up; stop showing it. */
+  onQuestionResolved?: (params: { requestId: string; by?: string }) => void;
   /** A skill reload or plugin install changed the command table (M6 §1). */
   onCommandsChanged?: () => void;
   /** The upgrade started by `system.update` moved on (CORE-update). */
@@ -116,6 +125,7 @@ export class TuiClient {
     client.on("approval.resolved", (params: any) => this.listeners.onApprovalResolved?.(params));
     client.on("commands.changed", () => this.listeners.onCommandsChanged?.());
     client.on("approval.pending", (params: any) => this.listeners.onApprovalPending?.(params));
+    client.on("question.resolved", (params: any) => this.listeners.onQuestionResolved?.(params));
     client.on("system.updateProgress", (params: any) => this.listeners.onUpdateProgress?.(params));
     client.on("settings.changed", (params: any) => this.listeners.onSettingsChanged?.(params ?? {}));
     // The SDK owns reconnect and replays each tracked session with
@@ -132,6 +142,11 @@ export class TuiClient {
   /** Bind the interactive server→client approval prompt. */
   onApprovalRequest(handler: ApprovalHandler): void {
     this.require().onRequest("approval.request", handler);
+  }
+
+  /** Bind the `ask_user` picker; the daemon blocks on the answer. */
+  onQuestionRequest(handler: QuestionHandler): void {
+    this.require().onRequest("question.request", handler);
   }
 
   /**
@@ -216,6 +231,10 @@ export class TuiClient {
     scope: ApprovalResponse["scope"],
   ): Promise<unknown> {
     return this.call("approval.respond", { requestId, decision, scope });
+  }
+
+  respondQuestion(requestId: string, selected: string[], text: string | null): Promise<unknown> {
+    return this.call("question.respond", { requestId, selected, text });
   }
 
   /** `system.checkUpdate`; the daemon caches the answer for 24h. */

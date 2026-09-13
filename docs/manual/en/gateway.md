@@ -70,6 +70,21 @@ Approvals you raise by typing in the TUI stay on that surface and never enter th
 
 Everything decided is appended to `$SNOWPEA_HOME/logs/approvals.jsonl` with the request id, tool, decision, who decided, scope, and whether it was unattended.
 
+## Questions from the agent
+
+The `ask_user` tool is the agent asking *you* something, and a bound chat gets it as a message with one button per option:
+
+```text
+❓ Renderer
+What should the renderer be? This decides how much engine control you keep.
+1. three.js (recommended) — fast start, little control over the engine
+2. Raw WebGL2 — more work, complete control
+(reply with the number, or type your own answer)
+[1. three.js (recommended)] [2. Raw WebGL2] [✏️ 기타 / Other]
+```
+
+Unlike an approval, anyone in the conversation may answer: a question grants no permission, so there is nothing for a stranger to abuse. Press a button, or type the number — `2`, or `1,3` when the question takes several answers. Anything that is not a number is taken as a free-text answer, which is also what the "Other" button asks you for. A batch of questions arrives one at a time. After `questions.timeoutSec` (600 seconds by default) the agent is told nobody answered.
+
 ## Named agents
 
 A named agent survives daemon restarts with its own session, its own memory namespace, its own channels and its own jobs. Two named agents cannot read each other's memories, which is what makes it reasonable to give one a work channel and another a personal one.

@@ -557,6 +557,74 @@ class ApprovalAnswer(Payload):
     scope: ApprovalScope = Field(default="once", description="How long the decision applies.")
 
 
+# --------------------------------------------------------------------------
+# question.*  (the ``ask_user`` tool)
+# --------------------------------------------------------------------------
+
+
+class QuestionOption(Payload):
+    """One answer the agent offers; a surface draws it as a row to pick."""
+
+    label: str = Field(description="What the row says, and what comes back in selected[].")
+    description: str = Field(default="", description="One dim line under the label.")
+    preview: str = Field(
+        default="",
+        description="Monospace block beside the list, for an option easier shown than told.",
+    )
+
+
+class QuestionRequest(Payload):
+    """A question from the agent waiting on a human answer.
+
+    The shape mirrors ``ApprovalRequest`` on purpose: same id field, same
+    timeout field, same server->client call and the same pending/resolved
+    notifications, so a client that already renders approvals has nothing new
+    to learn about the transport.
+    """
+
+    requestId: str = Field(description="Id to answer with question.respond.")
+    sessionId: str = Field(description="Session whose turn is blocked.")
+    header: str = Field(
+        default="", description="Short chip above the question, e.g. \"Auth method\" (<=12 chars)."
+    )
+    question: str = Field(description="The question, including why the answer matters.")
+    options: list[QuestionOption] = Field(
+        default_factory=list, description="Closed set of answers; empty means free text."
+    )
+    multi: bool = Field(default=False, description="More than one option may be picked.")
+    allowOther: bool = Field(
+        default=True, description="Offer a free-text '기타 / Other' row alongside the options."
+    )
+    timeoutSec: int = Field(default=600, description="Seconds before the question gives up.")
+    index: int = Field(default=1, description="Position of this question in the batch, from 1.")
+    total: int = Field(default=1, description="How many questions the tool call asks in all.")
+
+
+class QuestionListResult(Payload):
+    requests: list[QuestionRequest] = Field(
+        default_factory=list, description="Questions still waiting for an answer."
+    )
+
+
+class QuestionRespondParams(Payload):
+    requestId: str = Field(description="Question being answered.")
+    selected: list[str] = Field(
+        default_factory=list, description="Labels the human picked, in the order offered."
+    )
+    text: str | None = Field(default=None, description="Free text, for 'Other' or no options.")
+
+
+class QuestionAnswer(Payload):
+    """Result of the server-initiated ``question.request``.
+
+    Both fields empty means the human declined: Esc in the TUI, or a client
+    that has no way to ask.
+    """
+
+    selected: list[str] = Field(default_factory=list, description="Labels the human picked.")
+    text: str | None = Field(default=None, description="Free text, when there was any.")
+
+
 class AllowlistAddParams(Payload):
     pattern: str = Field(description="Glob or command prefix promoted from ask to allow.")
     scope: AllowlistScope = Field(default="project", description="Where the pattern is stored.")
@@ -1524,6 +1592,19 @@ class ApprovalPendingNotification(Payload):
     request: ApprovalRequest = Field(description="The request now in the shared queue.")
 
 
+class QuestionResolvedNotification(Payload):
+    """A question was answered elsewhere; stop showing it."""
+
+    requestId: str = Field(description="Question that was resolved.")
+    by: str = Field(description="Surface or user that answered.")
+
+
+class QuestionPendingNotification(Payload):
+    """A question is waiting; any authenticated surface may see it coming."""
+
+    request: QuestionRequest = Field(description="The question now in the shared queue.")
+
+
 class CommandsChangedNotification(Payload):
     """The slash-command table changed; re-read it (``skill.reload``, install)."""
 
@@ -1846,6 +1927,18 @@ METHODS: dict[str, RpcMethod] = {
             "Answer a pending approval and unblock the turn.",
         ),
         _m(
+            "question.list",
+            OptionalSessionParams,
+            QuestionListResult,
+            "List questions the agent is still waiting on.",
+        ),
+        _m(
+            "question.respond",
+            QuestionRespondParams,
+            Ok,
+            "Answer a pending question and unblock the turn.",
+        ),
+        _m(
             "permission.allowlist.add",
             AllowlistAddParams,
             AllowlistAddResult,
@@ -1972,6 +2065,13 @@ METHODS: dict[str, RpcMethod] = {
             "Ask the client to approve a tool call.",
             "s2c",
         ),
+        _m(
+            "question.request",
+            QuestionRequest,
+            QuestionAnswer,
+            "Ask the client to put a question to the human.",
+            "s2c",
+        ),
     )
 }
 
@@ -1979,6 +2079,8 @@ EVENTS: dict[str, type[BaseModel]] = {
     "session.event": SessionEventNotification,
     "approval.pending": ApprovalPendingNotification,
     "approval.resolved": ApprovalResolvedNotification,
+    "question.pending": QuestionPendingNotification,
+    "question.resolved": QuestionResolvedNotification,
     "job.event": JobEventNotification,
     "gateway.event": GatewayEventNotification,
     "commands.changed": CommandsChangedNotification,
@@ -2036,6 +2138,8 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "tool.list",
         "approval.list",
         "approval.respond",
+        "question.list",
+        "question.respond",
         "provider.list",
         "provider.models",
         "provider.configure",

@@ -759,6 +759,101 @@ export interface ProviderModelsResult {
   vendor: string;
 }
 
+/** `question.list` params. List questions the agent is still waiting on. */
+export interface QuestionListParams {
+  /** Scope the listing to one session; omit for the global set. */
+  sessionId?: string | null;
+}
+
+/** `question.list` result. */
+export interface QuestionListResult {
+  /** Questions still waiting for an answer. */
+  requests?: ({
+    /** Offer a free-text '기타 / Other' row alongside the options. */
+    allowOther?: boolean;
+    /** Short chip above the question, e.g. "Auth method" (<=12 chars). */
+    header?: string;
+    /** Position of this question in the batch, from 1. */
+    index?: number;
+    /** More than one option may be picked. */
+    multi?: boolean;
+    /** Closed set of answers; empty means free text. */
+    options?: ({
+      /** One dim line under the label. */
+      description?: string;
+      /** What the row says, and what comes back in selected[]. */
+      label: string;
+      /** Monospace block beside the list, for an option easier shown than told. */
+      preview?: string;
+    })[];
+    /** The question, including why the answer matters. */
+    question: string;
+    /** Id to answer with question.respond. */
+    requestId: string;
+    /** Session whose turn is blocked. */
+    sessionId: string;
+    /** Seconds before the question gives up. */
+    timeoutSec?: number;
+    /** How many questions the tool call asks in all. */
+    total?: number;
+  })[];
+}
+
+/** `question.request` params. Ask the client to put a question to the human. */
+export interface QuestionRequestParams {
+  /** Offer a free-text '기타 / Other' row alongside the options. */
+  allowOther?: boolean;
+  /** Short chip above the question, e.g. "Auth method" (<=12 chars). */
+  header?: string;
+  /** Position of this question in the batch, from 1. */
+  index?: number;
+  /** More than one option may be picked. */
+  multi?: boolean;
+  /** Closed set of answers; empty means free text. */
+  options?: ({
+    /** One dim line under the label. */
+    description?: string;
+    /** What the row says, and what comes back in selected[]. */
+    label: string;
+    /** Monospace block beside the list, for an option easier shown than told. */
+    preview?: string;
+  })[];
+  /** The question, including why the answer matters. */
+  question: string;
+  /** Id to answer with question.respond. */
+  requestId: string;
+  /** Session whose turn is blocked. */
+  sessionId: string;
+  /** Seconds before the question gives up. */
+  timeoutSec?: number;
+  /** How many questions the tool call asks in all. */
+  total?: number;
+}
+
+/** `question.request` result. */
+export interface QuestionRequestResult {
+  /** Labels the human picked. */
+  selected?: string[];
+  /** Free text, when there was any. */
+  text?: string | null;
+}
+
+/** `question.respond` params. Answer a pending question and unblock the turn. */
+export interface QuestionRespondParams {
+  /** Question being answered. */
+  requestId: string;
+  /** Labels the human picked, in the order offered. */
+  selected?: string[];
+  /** Free text, for 'Other' or no options. */
+  text?: string | null;
+}
+
+/** `question.respond` result. */
+export interface QuestionRespondResult {
+  /** True when the call succeeded. */
+  ok?: boolean;
+}
+
 /** `session.close` params. Close a session and release its resources. */
 export interface SessionCloseParams {
   /** Target session. */
@@ -1506,6 +1601,48 @@ export interface ProviderLoginProgressPayload {
   verificationUriComplete?: string | null;
 }
 
+/** `question.pending` notification payload. */
+export interface QuestionPendingPayload {
+  /** The question now in the shared queue. */
+  request: {
+    /** Offer a free-text '기타 / Other' row alongside the options. */
+    allowOther?: boolean;
+    /** Short chip above the question, e.g. "Auth method" (<=12 chars). */
+    header?: string;
+    /** Position of this question in the batch, from 1. */
+    index?: number;
+    /** More than one option may be picked. */
+    multi?: boolean;
+    /** Closed set of answers; empty means free text. */
+    options?: ({
+      /** One dim line under the label. */
+      description?: string;
+      /** What the row says, and what comes back in selected[]. */
+      label: string;
+      /** Monospace block beside the list, for an option easier shown than told. */
+      preview?: string;
+    })[];
+    /** The question, including why the answer matters. */
+    question: string;
+    /** Id to answer with question.respond. */
+    requestId: string;
+    /** Session whose turn is blocked. */
+    sessionId: string;
+    /** Seconds before the question gives up. */
+    timeoutSec?: number;
+    /** How many questions the tool call asks in all. */
+    total?: number;
+  };
+}
+
+/** `question.resolved` notification payload. */
+export interface QuestionResolvedPayload {
+  /** Surface or user that answered. */
+  by: string;
+  /** Question that was resolved. */
+  requestId: string;
+}
+
 /** `session.event` notification payload. */
 export interface SessionEventPayload {
   /** Event kind; see sessionEventKinds for the payload schema. */
@@ -1889,6 +2026,9 @@ export interface MethodMap {
   "provider.list": { params: ProviderListParams; result: ProviderListResult };
   "provider.loginWeb": { params: ProviderLoginWebParams; result: ProviderLoginWebResult };
   "provider.models": { params: ProviderModelsParams; result: ProviderModelsResult };
+  "question.list": { params: QuestionListParams; result: QuestionListResult };
+  "question.request": { params: QuestionRequestParams; result: QuestionRequestResult };
+  "question.respond": { params: QuestionRespondParams; result: QuestionRespondResult };
   "session.close": { params: SessionCloseParams; result: SessionCloseResult };
   "session.compact": { params: SessionCompactParams; result: SessionCompactResult };
   "session.create": { params: SessionCreateParams; result: SessionCreateResult };
@@ -1960,6 +2100,8 @@ export type ClientMethod =
   | "provider.list"
   | "provider.loginWeb"
   | "provider.models"
+  | "question.list"
+  | "question.respond"
   | "session.close"
   | "session.compact"
   | "session.create"
@@ -1991,7 +2133,8 @@ export type ClientMethod =
   | "tool.list";
 /** Methods the server calls on the client (bidirectional JSON-RPC). */
 export type ServerMethod =
-  | "approval.request";
+  | "approval.request"
+  | "question.request";
 
 /** Every server→client notification, with its payload type. */
 export interface EventMap {
@@ -2001,6 +2144,8 @@ export interface EventMap {
   "gateway.event": GatewayEventPayload;
   "job.event": JobEventPayload;
   "provider.loginProgress": ProviderLoginProgressPayload;
+  "question.pending": QuestionPendingPayload;
+  "question.resolved": QuestionResolvedPayload;
   "session.event": SessionEventPayload;
   "settings.changed": SettingsChangedPayload;
   "system.updateProgress": SystemUpdateProgressPayload;
@@ -2014,6 +2159,8 @@ export const EVENT_NAMES: readonly EventName[] = [
   "gateway.event",
   "job.event",
   "provider.loginProgress",
+  "question.pending",
+  "question.resolved",
   "session.event",
   "settings.changed",
   "system.updateProgress",

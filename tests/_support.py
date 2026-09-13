@@ -143,6 +143,7 @@ class RpcClient:
         timeout: float = DEFAULT_TIMEOUT,
         approval_mode: str = "allow",
         approval_scope: str = "once",
+        question_answer: dict[str, Any] | None = None,
     ) -> None:
         self._ws = ws
         self._next_id = 0
@@ -155,6 +156,11 @@ class RpcClient:
         #: "allow", "deny" or "ignore" (never answer, so the daemon times out).
         self.approval_mode = approval_mode
         self.approval_scope = approval_scope
+        #: Server->client ``question.request`` params this client was sent.
+        self.questions: list[dict[str, Any]] = []
+        #: What to answer them with; ``None`` never answers, so the daemon
+        #: times the question out the way an absent human would.
+        self.question_answer = question_answer
 
     def start(self) -> None:
         self._reader = asyncio.ensure_future(self._read())
@@ -183,6 +189,14 @@ class RpcClient:
                 self.events.append(frame["params"])
 
     async def _server_request(self, frame: dict[str, Any]) -> None:
+        if frame.get("method") == "question.request":
+            self.questions.append(frame["params"])
+            if self.question_answer is None:
+                return
+            await self._ws.send_json(
+                {"jsonrpc": "2.0", "id": frame["id"], "result": self.question_answer}
+            )
+            return
         if frame.get("method") != "approval.request":
             return
         self.approval_requests.append(frame["params"])
@@ -281,11 +295,16 @@ async def connect(
     timeout: float = DEFAULT_TIMEOUT,
     approval_mode: str = "allow",
     approval_scope: str = "once",
+    question_answer: dict[str, Any] | None = None,
 ) -> RpcClient:
     """Open ``/ws``, complete ``system.hello`` and return the ready client."""
     ws = await http.ws_connect(f"http://127.0.0.1:{daemon.port}/ws")
     client = RpcClient(
-        ws, timeout=timeout, approval_mode=approval_mode, approval_scope=approval_scope
+        ws,
+        timeout=timeout,
+        approval_mode=approval_mode,
+        approval_scope=approval_scope,
+        question_answer=question_answer,
     )
     client.start()
     await client.ok(

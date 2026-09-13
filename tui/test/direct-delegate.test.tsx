@@ -24,6 +24,7 @@ function open() {
     getStatus: () => "connected",
     setListeners: vi.fn(),
     onApprovalRequest: vi.fn(),
+    onQuestionRequest: () => undefined,
     listApprovals: async () => ({ requests: [] }),
     checkUpdate: async () => ({ available: false }),
     prompt: vi.fn(async () => ({ turnId: "t-1" })),

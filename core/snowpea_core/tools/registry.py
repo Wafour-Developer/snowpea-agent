@@ -169,6 +169,7 @@ def register_builtin_tools(registry: ToolRegistry) -> ToolRegistry:
     """
     from snowpea_core.lsp import tools as lsp_tools
     from snowpea_core.tools import (
+        ask_user,
         audio_tools,
         browser,
         delegate,
@@ -186,6 +187,7 @@ def register_builtin_tools(registry: ToolRegistry) -> ToolRegistry:
 
     for tool in (
         *fs.TOOLS,
+        *ask_user.TOOLS,
         *glob.TOOLS,
         *grep.TOOLS,
         *shell.TOOLS,

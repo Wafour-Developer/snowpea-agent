@@ -35,6 +35,7 @@ function fakeClient(audio: Record<string, unknown> | null = null) {
       listeners = given;
     },
     onApprovalRequest: () => undefined,
+    onQuestionRequest: () => undefined,
     listApprovals: async () => ({ requests: [] }),
     checkUpdate: async () => ({ available: false, current: "0.1.2", latest: "0.1.2" }),
     call: async (method: string, params: any) => {

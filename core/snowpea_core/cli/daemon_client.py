@@ -190,6 +190,8 @@ async def ensure_daemon(home: Path | str | None = None) -> DaemonInfo:
 # ---------------------------------------------------------------------------
 
 ApprovalHandler = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
+#: Answers a server->client ``question.request``; headless declines every one.
+QuestionHandler = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
 
 
 class DaemonClient:
@@ -201,10 +203,12 @@ class DaemonClient:
         *,
         client_version: str = f"snowpea-cli {__version__}",
         approval_handler: ApprovalHandler | None = None,
+        question_handler: QuestionHandler | None = None,
     ) -> None:
         self.info = info
         self.client_version = client_version
         self.approval_handler = approval_handler
+        self.question_handler = question_handler
         self.server_version = ""
         self.capabilities: list[str] = []
         self._session: aiohttp.ClientSession | None = None
@@ -369,9 +373,24 @@ class DaemonClient:
         task.add_done_callback(self._tasks.discard)
 
     async def _answer_server_request(self, frame: dict[str, Any]) -> None:
-        """Answer a s2c request; only ``approval.request`` is understood in M1."""
+        """Answer a s2c request: ``approval.request``, and ``question.request``.
+
+        A headless run has no picker to draw, so a question is declined at
+        once — an empty answer, which the tool reports as declined — rather
+        than left to burn its ten-minute timeout with nobody watching.
+        """
         method = str(frame.get("method"))
         params = frame.get("params") or {}
+        if method == "question.request":
+            if self.question_handler is not None:
+                try:
+                    reply: dict[str, Any] = await self.question_handler(params)
+                except Exception:
+                    reply = {"selected": [], "text": None}
+            else:
+                reply = {"selected": [], "text": None}
+            await self._respond(frame["id"], result=reply)
+            return
         if method == "approval.request" and self.approval_handler is not None:
             try:
                 answer: dict[str, Any] = await self.approval_handler(params)

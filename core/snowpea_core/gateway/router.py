@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Any
 from snowpea_core.config.credentials import CredentialError, CredentialStore
 from snowpea_core.config.paths import utc_now
 from snowpea_core.gateway.base import (
+    QUESTION_OTHER,
     Button,
     GatewayError,
     InboundMessage,
@@ -37,6 +38,9 @@ from snowpea_core.gateway.base import (
     approval_buttons,
     approval_text,
     parse_approval_callback,
+    parse_question_callback,
+    question_buttons,
+    question_text,
 )
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -79,7 +83,6 @@ CREATE TABLE IF NOT EXISTS gateway_bindings (
     created_at      TEXT NOT NULL
 );
 """
-
 
 
 @dataclass
@@ -208,6 +211,10 @@ class GatewayConnection:
         self.surface_id = f"gateway:{binding.platform}:{channel_id}"
         #: Approval requests this conversation was asked about.
         self.asked: set[str] = set()
+        #: The ``ask_user`` question this chat is looking at, if any.  Only one
+        #: at a time: the tool asks a batch in sequence, and a chat with two
+        #: open questions has no way to say which number answers which.
+        self.question: dict[str, Any] | None = None
 
     async def notify(self, method: str, params: dict[str, Any]) -> None:
         if self.closed:
@@ -218,6 +225,10 @@ class GatewayConnection:
             await self._approval_pending(params)
         elif method == "approval.resolved":
             await self._approval_resolved(params)
+        elif method == "question.pending":
+            await self._question_pending(params)
+        elif method == "question.resolved":
+            await self._question_resolved(params)
 
     async def _session_event(self, params: dict[str, Any]) -> None:
         if params.get("sessionId") != self.session_id or params.get("kind") != "message.done":
@@ -255,6 +266,32 @@ class GatewayConnection:
             self.channel_id,
             f"approval {request_id}: {params.get('decision')} (by {params.get('by')})",
         )
+
+    async def _question_pending(self, params: dict[str, Any]) -> None:
+        """Post an ``ask_user`` question with one button per option."""
+        request = params.get("request") or {}
+        if request.get("sessionId") != self.session_id:
+            return
+        request_id = str(request.get("requestId", ""))
+        if not request_id:
+            return
+        self.question = dict(request)
+        await self.router.send(
+            self.binding,
+            self.channel_id,
+            question_text(request),
+            buttons=question_buttons(
+                request_id,
+                list(request.get("options") or []),
+                bool(request.get("allowOther", True)),
+            ),
+        )
+
+    async def _question_resolved(self, params: dict[str, Any]) -> None:
+        request_id = str(params.get("requestId", ""))
+        if not self.question or self.question.get("requestId") != request_id:
+            return
+        self.question = None
 
 
 class GatewayRouter:
@@ -535,7 +572,17 @@ class GatewayRouter:
         if callback is not None:
             await self._handle_approval(binding, message, *callback)
             return
+        question = parse_question_callback(message.callback_data)
+        if question is not None:
+            await self._handle_question_button(binding, message, *question)
+            return
         if not message.text.strip():
+            return
+        # A chat with an open question reads the next typed line as its answer
+        # — "2", "1,3", or whatever the user wants to say — rather than as a
+        # new prompt.  Without this the button is the only way to answer, and
+        # a platform that drops the keyboard leaves the turn stuck.
+        if await self._answer_open_question(binding, message):
             return
         await self._handle_prompt(binding, message)
 
@@ -576,6 +623,79 @@ class GatewayRouter:
             await self.core.approvals.respond(request_id, decision, "once", by=by)
         except Exception as exc:  # noqa: BLE001 - already answered or gone
             log.info("approval %s from %s was not applied: %s", request_id, by, exc)
+
+    def _open_question(self, binding: Binding, channel_id: str) -> dict[str, Any] | None:
+        """The question this conversation is looking at, if there is one."""
+        conn = self._conns.get((binding.id, channel_id))
+        return conn.question if conn is not None else None
+
+    async def _handle_question_button(
+        self, binding: Binding, message: InboundMessage, request_id: str, choice: str
+    ) -> None:
+        """Answer an ``ask_user`` question from a button press.
+
+        Unlike an approval this needs no approver check: a question grants no
+        permission, so anyone in the conversation the agent is talking to may
+        answer it.  "Other" is the exception — it has no label to send, so it
+        asks the user to type instead.
+        """
+        adapter = self._adapters.get(binding.id)
+        question = self._open_question(binding, message.channel_id) or {}
+        options = list(question.get("options") or [])
+        if choice == QUESTION_OTHER:
+            if adapter is not None and message.callback_id:
+                with contextlib.suppress(AttributeError, Exception):
+                    await adapter.acknowledge(message.callback_id, "other")  # type: ignore[attr-defined]
+            await self.send(
+                binding, message.channel_id, "답을 적어 주세요 / type your answer as a reply."
+            )
+            return
+        position = int(choice)
+        if not 1 <= position <= len(options):
+            return
+        label = str(options[position - 1].get("label", ""))
+        if adapter is not None and message.callback_id:
+            with contextlib.suppress(AttributeError, Exception):
+                await adapter.acknowledge(message.callback_id, label)  # type: ignore[attr-defined]
+        await self._respond_question(binding, message, request_id, [label], None)
+
+    async def _answer_open_question(self, binding: Binding, message: InboundMessage) -> bool:
+        """Read a typed reply as the answer to the open question; True if it was one."""
+        question = self._open_question(binding, message.channel_id)
+        if not question:
+            return False
+        request_id = str(question.get("requestId", ""))
+        options = list(question.get("options") or [])
+        text = message.text.strip()
+        picked = _picked_labels(text, options, bool(question.get("multi")))
+        if picked:
+            await self._respond_question(binding, message, request_id, picked, None)
+            return True
+        if options and not question.get("allowOther", True):
+            await self.send(
+                binding,
+                message.channel_id,
+                f"번호로 답해 주세요 (1-{len(options)}) / reply with a number.",
+            )
+            return True
+        await self._respond_question(binding, message, request_id, [], text)
+        return True
+
+    async def _respond_question(
+        self,
+        binding: Binding,
+        message: InboundMessage,
+        request_id: str,
+        selected: list[str],
+        text: str | None,
+    ) -> None:
+        if self.core is None:
+            return
+        by = f"gateway:{binding.platform}:{message.user_id}"
+        try:
+            await self.core.questions.respond(request_id, selected, text, by=by)
+        except Exception as exc:  # noqa: BLE001 - already answered or gone
+            log.info("question %s from %s was not applied: %s", request_id, by, exc)
 
     async def _handle_prompt(self, binding: Binding, message: InboundMessage) -> None:
         if self.core is None:
@@ -675,6 +795,33 @@ def build_adapter(platform: str, tokens: dict[str, Any]) -> PlatformAdapter:
         app_token = tokens.get("app_token")
         return SlackAdapter(token, app_token=str(app_token) if app_token else None)
     raise GatewayError(f"unknown gateway platform: {platform}")
+
+
+def _picked_labels(text: str, options: list[dict[str, Any]], multi: bool) -> list[str]:
+    """Labels a typed reply names: "2", "1,3", or the label spelled out.
+
+    Returns nothing when the reply is not a choice, which is what makes it free
+    text instead.  A multi-select reply may name several; a single-select one
+    takes the first, because "1,3" to a question that wanted one answer is a
+    misunderstanding better resolved by taking the first than by guessing.
+    """
+    if not options:
+        return []
+    labels = [str(option.get("label", "")) for option in options]
+    lowered = {label.lower(): label for label in labels if label}
+    tokens = [token.strip() for token in text.replace(" ", ",").split(",") if token.strip()]
+    picked: list[str] = []
+    for token in tokens:
+        if token.isdigit() and 1 <= int(token) <= len(labels):
+            picked.append(labels[int(token) - 1])
+        elif token.lower() in lowered:
+            picked.append(lowered[token.lower()])
+        else:
+            return []
+    if not multi:
+        picked = picked[:1]
+    # Keep the order the options were offered in, and drop duplicates.
+    return [label for label in labels if label in picked]
 
 
 __all__ = [

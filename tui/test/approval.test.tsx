@@ -25,6 +25,7 @@ function fakeClient() {
     onApprovalRequest: (handler: any) => {
       onApproval = handler;
     },
+    onQuestionRequest: () => undefined,
     listApprovals: async () => ({ requests: [] }),
     checkUpdate: async () => ({ available: false, current: "0.1.2", latest: "0.1.2" }),
     call: async () => ({ commands: [] }),
