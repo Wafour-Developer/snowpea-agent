@@ -24,7 +24,7 @@ from snowpea_core.config.paths import Paths
 from snowpea_core.config.settings import Settings
 from snowpea_core.setup import ui
 from snowpea_core.setup.detect import detect as detect_runtime
-from snowpea_core.setup.screens import Screen
+from snowpea_core.setup.screens import SKIP, Screen, ScreenItem
 from snowpea_core.setup.screens import audio as audio_screen
 from snowpea_core.setup.screens import browser as browser_screen
 from snowpea_core.setup.screens import done as done_screen
@@ -484,6 +484,15 @@ def _ask_for_model(
         out(f"  {index}. {name}")
     if len(available) > len(shown):
         out(f"  … and {len(available) - len(shown)} more")
+    menu = _menu_pick(
+        "model",
+        [(name, name, ()) for name in shown],
+        default_id=shown[default_idx - 1],
+        console=console,
+    )
+    if menu is not None:
+        state.model = menu
+        return
     picked = ui.ask_text(f"model (Enter={default_idx}: {shown[default_idx - 1]}): ")
     if not picked:
         state.model = shown[default_idx - 1]
@@ -491,6 +500,55 @@ def _ask_for_model(
         state.model = shown[int(picked) - 1]
     else:
         state.model = picked
+
+
+def _menu_pick(
+    title: str,
+    options: Sequence[tuple[str, str, tuple[str, ...]]],
+    *,
+    default_id: str | None = None,
+    finish: str | None = None,
+    help_text: str = "↑↓ to move, Enter to choose.",
+    console: Console | None = None,
+) -> str | None:
+    """Offer ``options`` as an arrow-key menu; ``None`` when the terminal is not a TTY.
+
+    ``options`` are ``(id, label, tags)`` rows. With ``finish`` a trailing
+    row ends the menu and returns ``None`` too, so callers fall through to
+    their text prompt (scripted runs, tests) or treat ``None`` as "done".
+    """
+    if not ui.is_interactive() or not options:
+        return None
+    items = [
+        ScreenItem(id=oid, label=label, tags=tuple(tags), selected=False, default=oid == default_id)
+        for oid, label, tags in options
+    ]
+    if finish:
+        items.append(ScreenItem(id=SKIP, label=finish, tags=(), selected=False, default=False))
+    screen = Screen(title=title, items=tuple(items), multi=False, help=help_text)
+    choice = ui.ask(screen, console=console, interactive=True)
+    if not isinstance(choice, str) or choice == SKIP:
+        return None
+    if finish and choice == screen.default_choice and default_id is None:
+        return None
+    return choice
+
+
+def _agent_tags(state: WizardState, name: str) -> tuple[str, ...]:
+    """The profile an agent is pinned to, as a menu tag."""
+    current = state.agent_models.get(name)
+    return (f"uses {current}",) if current else ()
+
+
+def _vendor_options(state: WizardState) -> list[tuple[str, str, tuple[str, ...]]]:
+    """Every vendor as a menu row, tagged like the provider screen."""
+    from snowpea_core.setup.catalog import vendor_catalog
+
+    rows: list[tuple[str, str, tuple[str, ...]]] = []
+    for item in vendor_catalog(state.as_settings()):
+        tags = tuple(item.tags) + (("active", ui.CONFIGURED) if item.active else ())
+        rows.append((item.id, item.label, tags))
+    return rows
 
 
 def _configure_models(
@@ -505,10 +563,26 @@ def _configure_models(
     if not interactive:
         return
     out = console.print if console is not None else print
+    from snowpea_core.providers.presets import PRESETS
+
     while True:
-        vendor = ui.ask_text("add another model — provider id (Enter to finish): ").strip()
-        if not vendor:
-            break
+        options = _vendor_options(state)
+        if ui.is_interactive():
+            vendor = _menu_pick(
+                "add another model", options, finish="Done — no more models", console=console
+            )
+            if vendor is None:
+                break
+        else:
+            typed = ui.ask_text("add another model — provider id (Enter to finish): ").strip()
+            if not typed:
+                break
+            if typed.isdigit() and 1 <= int(typed) <= len(options):
+                typed = options[int(typed) - 1][0]
+            if typed not in PRESETS:
+                out(f"unknown provider id: {typed} (one of {', '.join(sorted(PRESETS))})")
+                continue
+            vendor = typed
         state.select_vendor(vendor)
         _ask_for_key(state, interactive=True)
         _ask_for_model(state, interactive=True, console=console, home=home)
@@ -523,8 +597,15 @@ def _configure_models(
         marker = " (current default)" if profile == state.default_model else ""
         out(f"  {index}. {profile}{marker}")
     default_idx = profiles.index(state.default_model) + 1 if state.default_model in profiles else 1
-    prompt = f"default model (Enter={default_idx}: {profiles[default_idx - 1]}): "
-    picked = ui.ask_text(prompt).strip()
+    menu = _menu_pick(
+        "default model",
+        [(name, name, ()) for name in profiles],
+        default_id=profiles[default_idx - 1],
+        console=console,
+    )
+    picked = menu if menu is not None else ui.ask_text(
+        f"default model (Enter={default_idx}: {profiles[default_idx - 1]}): "
+    ).strip()
     if picked.isdigit() and 1 <= int(picked) <= len(profiles):
         state.set_default_model(profiles[int(picked) - 1])
     elif picked in state.model_profiles:
@@ -539,12 +620,29 @@ def _configure_models(
     if names:
         out("agents: " + ", ".join(names))
     while True:
-        agent = ui.ask_text("assign model to agent (Enter to finish): ").strip()
-        if not agent:
-            break
+        if ui.is_interactive() and names:
+            agent = _menu_pick(
+                "assign model to agent",
+                [(name, name, _agent_tags(state, name)) for name in names],
+                finish="Done — keep the rest on the default",
+                console=console,
+            )
+            if agent is None:
+                break
+        else:
+            agent = ui.ask_text("assign model to agent (Enter to finish): ").strip()
+            if not agent:
+                break
         current = state.agent_models.get(agent)
         hint = f"; Enter uses default{f' (currently {current})' if current else ''}"
-        choice = ui.ask_text(f"profile for {agent} [1-{len(profiles)}{hint}]: ").strip()
+        choice = _menu_pick(
+            f"profile for {agent}",
+            [("", "default (inherit)", ())] + [(name, name, ()) for name in profiles],
+            default_id=current or "",
+            console=console,
+        )
+        if choice is None:
+            choice = ui.ask_text(f"profile for {agent} [1-{len(profiles)}{hint}]: ").strip()
         if not choice:
             state.assign_agent_model(agent, None)
         elif choice.isdigit() and 1 <= int(choice) <= len(profiles):
