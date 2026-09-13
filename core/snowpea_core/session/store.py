@@ -154,16 +154,16 @@ class Store:
                 if self._closed:
                     raise StoreClosed("session store is closed")
                 marks = ",".join("?" for _ in ids)
-                before = self._conn.total_changes
                 self._conn.execute(f"DELETE FROM messages WHERE session_id IN ({marks})", ids)
                 self._conn.execute(f"DELETE FROM events WHERE session_id IN ({marks})", ids)
-                self._conn.execute(f"DELETE FROM sessions WHERE id IN ({marks})", ids)
-                deleted = self._conn.total_changes - before
+                cursor = self._conn.execute(f"DELETE FROM sessions WHERE id IN ({marks})", ids)
+                # Rows actually removed, not ids asked for: an id that was
+                # never stored must not be counted (CORE-fixes-v017 R6).
+                deleted = max(cursor.rowcount, 0)
                 self._conn.commit()
                 return deleted
 
-        await asyncio.to_thread(delete)
-        return len(ids)
+        return await asyncio.to_thread(delete)
 
     # -- events --------------------------------------------------------
     async def append_event(

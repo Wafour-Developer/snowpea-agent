@@ -63,7 +63,7 @@ async def test_prompts_submitted_during_a_turn_are_delivered_fifo(
 
     monkeypatch.setattr(agent_loop, "run_turn", fake_run_turn)
     session = Session(id="s-busy", workdir=tmp_path)
-    core = object()
+    core = _RecordingCore()
 
     first = agent_loop.start_turn(core, session, "first")  # type: ignore[arg-type]
     await entered.wait()
@@ -74,11 +74,39 @@ async def test_prompts_submitted_during_a_turn_are_delivered_fifo(
     release.set()
     assert session.turn_task is not None
     await session.turn_task
+    await asyncio.sleep(0)  # let the queued-event tasks run
 
     assert calls == [(first, "first"), (second, "second"), (third, "third")]
     assert peak_active == 1
     assert session.current_turn is None
     assert session.queued_turns == []
+
+    # Every queued prompt is announced and then retired (CORE-fixes-v017 R5).
+    assert [
+        (kind, payload["turnId"], payload.get("position"), payload.get("reason"))
+        for kind, payload in core.hub.events
+        if kind.startswith("turn.")
+    ] == [
+        ("turn.queued", second, 1, None),
+        ("turn.queued", third, 2, None),
+        ("turn.dequeued", second, None, "started"),
+        ("turn.dequeued", third, None, "started"),
+    ]
+
+
+class _RecordingHub:
+    """The slice of ``core.hub`` the turn queue touches."""
+
+    def __init__(self) -> None:
+        self.events: list[tuple[str, dict[str, Any]]] = []
+
+    async def emit_event(self, _session_id: str, event: tuple[str, dict[str, Any]]) -> None:
+        self.events.append(event)
+
+
+class _RecordingCore:
+    def __init__(self) -> None:
+        self.hub = _RecordingHub()
 
 
 @pytest_asyncio.fixture
@@ -384,6 +412,60 @@ async def test_delete_saved_sessions_keeps_the_live_session(
     await client.stop()
 
 
+async def test_deleting_a_saved_session_removes_its_files(
+    daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path
+) -> None:
+    """CORE-fixes-v017 R4: the bytes a deleted session owned go with it.
+
+    Inline attachments are written under ``<home>/attachments/<session>/`` and
+    speech under ``<home>/audio/<session>/``; neither was ever cleaned up, so
+    deleting a thread left the images pasted into it on disk indefinitely.
+    """
+    import base64
+
+    workdir = tmp_path / "project"
+    workdir.mkdir()
+    client = await connect(http, daemon)
+    session_id = await start_session(client, workdir)
+    await client.ok(
+        "session.prompt",
+        {
+            "sessionId": session_id,
+            "text": "look at this",
+            "attachments": [
+                {
+                    "kind": "image",
+                    "name": "shot.png",
+                    "mimeType": "image/png",
+                    "data": base64.b64encode(b"\x89PNG\r\n\x1a\nfake").decode(),
+                }
+            ],
+        },
+    )
+    attachments = daemon.paths.attachments_dir / session_id
+    assert attachments.is_dir() and any(attachments.iterdir())
+    audio = daemon.paths.audio_dir / session_id
+    audio.mkdir(parents=True, exist_ok=True)
+    (audio / "reply.mp3").write_bytes(b"id3")
+
+    assert (await client.ok("session.close", {"sessionId": session_id}))["ok"] is True
+    deleted = await client.ok("session.deleteSaved", {"sessionId": session_id})
+    assert deleted["deleted"] == 1
+    assert not attachments.exists()
+    assert not audio.exists()
+    await client.stop()
+
+
+async def test_deleting_an_unknown_session_reports_zero(
+    daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path
+) -> None:
+    """CORE-fixes-v017 R6: ``deleted`` is a measurement, not the request size."""
+    client = await connect(http, daemon)
+    result = await client.ok("session.deleteSaved", {"sessionId": "s-does-not-exist"})
+    assert result["deleted"] == 0
+    await client.stop()
+
+
 # ---------------------------------------------------------------------------
 # (f) slash commands
 # ---------------------------------------------------------------------------
@@ -447,7 +529,7 @@ async def test_command_and_tool_and_provider_listings(
         for provider in providers
         if set(provider["authMethods"]) - {"api_key"}
     ]
-    assert web_login == ["openai", "openrouter"]
+    assert web_login == ["openai", "openrouter", "gemini"]
 
     run = await client.ok(
         "command.run", {"sessionId": session_id, "name": "tools", "args": ""}
@@ -550,6 +632,63 @@ async def test_interrupt_ends_the_turn(
     assert (await client.ok("session.interrupt", {"sessionId": session_id}))["ok"] is True
     reason = await client.wait_turn(turn_id, timeout=TIMEOUT)
     assert reason in {"interrupted", "denied"}
+
+    await client.stop()
+
+
+async def test_interrupt_flushes_the_prompt_queue(
+    daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path
+) -> None:
+    """CORE-fixes-v017 R3: Stop must stop the follow-ups too.
+
+    The queue used to drain anyway: a user who queued two prompts and then hit
+    Stop watched both run. Each dropped prompt is now announced, and no third
+    turn ever starts.
+    """
+    workdir = tmp_path / "project"
+    workdir.mkdir()
+    client = await connect(http, daemon)
+    client.approval_mode = "ignore"
+    session_id = await start_session(client, workdir)
+
+    running = await prompt(client, session_id, "please run ls")
+    while not client.approval_requests:
+        await asyncio.sleep(0.02)
+    queued_a = await prompt(client, session_id, "queued one")
+    queued_b = await prompt(client, session_id, "queued two")
+    await client.wait(
+        lambda e: e["kind"] == "turn.queued" and e["payload"]["turnId"] == queued_b,
+        timeout=TIMEOUT,
+    )
+    positions = [
+        (event["payload"]["turnId"], event["payload"]["position"])
+        for event in client.of_kind("turn.queued")
+    ]
+    assert positions == [(queued_a, 1), (queued_b, 2)]
+
+    assert (await client.ok("session.interrupt", {"sessionId": session_id}))["ok"] is True
+    assert await client.wait_turn(running, timeout=TIMEOUT) in {"interrupted", "denied"}
+    assert await client.wait_turn(queued_a, timeout=TIMEOUT) == "interrupted"
+    assert await client.wait_turn(queued_b, timeout=TIMEOUT) == "interrupted"
+
+    dropped = [
+        event["payload"]["turnId"]
+        for event in client.of_kind("turn.dequeued")
+        if event["payload"]["reason"] == "dropped"
+    ]
+    assert dropped == [queued_a, queued_b]
+    assert [
+        event["payload"]["turnId"]
+        for event in client.of_kind("turn.dequeued")
+        if event["payload"]["reason"] == "started"
+    ] == []
+
+    session = daemon.core.sessions.get(session_id)
+    assert session is not None
+    assert session.queued_turns == []
+    # Nothing started after the interrupt: only the running turn saw the model.
+    await asyncio.sleep(0.2)
+    assert len(client.of_kind("turn.done")) == 3
 
     await client.stop()
 

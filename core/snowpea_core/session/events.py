@@ -22,7 +22,9 @@ from snowpea_core.server.protocol import (
     ModeChanged,
     ToolCallEvent,
     ToolResultEvent,
+    TurnDequeued,
     TurnDone,
+    TurnQueued,
     UsageEvent,
 )
 
@@ -118,6 +120,16 @@ def audio_spoken(
     )
 
 
+def turn_queued(turn_id: str, position: int, queued: int) -> Event:
+    """A prompt was accepted but parked behind the running turn."""
+    return _pack(TurnQueued(turnId=turn_id, position=position, queued=queued))
+
+
+def turn_dequeued(turn_id: str, reason: str = "started", queued: int = 0) -> Event:
+    """A queued prompt started running (``started``) or was flushed (``dropped``)."""
+    return _pack(TurnDequeued(turnId=turn_id, reason=reason, queued=queued))  # type: ignore[arg-type]
+
+
 def turn_done(turn_id: str, reason: str = "complete") -> Event:
     return _pack(TurnDone(turnId=turn_id, reason=reason))  # type: ignore[arg-type]
 
@@ -144,7 +156,9 @@ __all__ = [
     "mode_changed",
     "tool_call",
     "tool_result",
+    "turn_dequeued",
     "turn_done",
+    "turn_queued",
     "usage",
     "validate",
 ]

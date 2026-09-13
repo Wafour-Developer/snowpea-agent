@@ -426,6 +426,9 @@ async def test_update_runs_the_command_and_emits_progress(
     monkeypatch.setattr(
         update_mod, "update_command", lambda paths, source: [str(script), source]
     )
+    # The fake installer does not replace the executable on PATH, so the real
+    # reader would report whatever ``snowpea`` this machine has installed.
+    monkeypatch.setattr(update_mod, "installed_cli_version", lambda: NEWER)
 
     async with aiohttp.ClientSession() as http:
         client = await connect(http, daemon)

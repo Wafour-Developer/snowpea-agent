@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -200,3 +202,66 @@ async def test_setup_catalog_returns_vendors_and_search_with_ddgs_first(daemon: 
                     }
         finally:
             await client.stop()
+
+
+async def test_settings_get_never_returns_a_token_in_clear(daemon: Daemon) -> None:
+    """CORE-fixes-v017 R1: every token-shaped credential is masked on the wire.
+
+    ``oauth_token`` arrived with the web-login work and was in neither masking
+    set, so the TUI settings view, the IDE and any debug dump received a live
+    OAuth access token in plaintext.
+    """
+    secrets = {
+        "api_key": "sk-secret-api-key",
+        "oauth_token": "oauth-secret-token",
+        "refresh_token": "refresh-secret-token",
+        "access_token": "access-secret-token",
+        "id_token": "id-secret-token",
+        "token": "bare-secret-token",
+    }
+    async with aiohttp.ClientSession() as http:
+        client = await connect(http, daemon)
+        try:
+            written = await client.ok(
+                "settings.set",
+                {"scope": "global", "patch": {"providers": {"openai": {**secrets}}}},
+            )
+            read = await client.ok("settings.get", {"scope": "global"})
+            for payload in (written["settings"], read["settings"]):
+                masked = payload["providers"]["openai"]
+                for key in secrets:
+                    assert masked[key] == "***", f"{key} leaked"
+            # Masking is presentation only: the file still holds the real values.
+            on_disk = json.loads(daemon.paths.settings_json.read_text(encoding="utf-8"))
+            assert on_disk["providers"]["openai"]["oauth_token"] == secrets["oauth_token"]
+        finally:
+            await client.stop()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX file modes only")
+async def test_settings_json_is_written_owner_only(daemon: Daemon) -> None:
+    """CORE-fixes-v017 R2: settings.json holds api keys and OAuth tokens."""
+    async with aiohttp.ClientSession() as http:
+        client = await connect(http, daemon)
+        try:
+            await client.ok(
+                "settings.set",
+                {"scope": "global", "patch": {"providers": {"openai": {"api_key": "sk-x"}}}},
+            )
+        finally:
+            await client.stop()
+    mode = stat.S_IMODE(daemon.paths.settings_json.stat().st_mode)
+    assert mode == 0o600, oct(mode)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX file modes only")
+async def test_saving_tightens_an_already_world_readable_settings_file(tmp_path: Path) -> None:
+    """An install that predates the fix is tightened on the next write."""
+    from snowpea_core.config.paths import Paths
+    from snowpea_core.config.settings import Settings
+
+    paths = Paths.create(tmp_path / "home")
+    paths.settings_json.write_text("{}\n", encoding="utf-8")
+    os.chmod(paths.settings_json, 0o644)
+    Settings().save(paths)
+    assert stat.S_IMODE(paths.settings_json.stat().st_mode) == 0o600

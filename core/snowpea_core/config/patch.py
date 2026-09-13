@@ -13,7 +13,20 @@ from typing import Any
 
 #: Field names masked in every settings payload that leaves the daemon.
 SECRET_KEYS: frozenset[str] = frozenset(
-    {"api_key", "apiKey", "token", "refresh_token", "password"}
+    {
+        "api_key",
+        "apiKey",
+        "token",
+        "refresh_token",
+        "refreshToken",
+        "access_token",
+        "accessToken",
+        "id_token",
+        "idToken",
+        "oauth_token",
+        "oauthToken",
+        "password",
+    }
 )
 MASK = "***"
 

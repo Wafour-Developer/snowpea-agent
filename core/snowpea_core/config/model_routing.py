@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 from snowpea_core.config.settings import Settings
+from snowpea_core.providers.presets import PRESETS
+
+log = logging.getLogger("snowpea.config.model_routing")
 
 
 @dataclass(frozen=True)
@@ -57,8 +61,18 @@ def resolve_reference(settings: Settings, reference: str | None) -> ModelRoute:
     if ":" in text:
         provider, _, model = text.partition(":")
         return ModelRoute(provider.strip() or None, model.strip() or None)
-    # Legacy agent definitions used a bare vendor name.
-    return ModelRoute(text, None)
+    # Legacy agent definitions used a bare vendor name.  Only a real vendor is
+    # accepted: a typo used to be taken at face value and silently routed the
+    # agent to a non-existent provider with ``model=None`` instead of falling
+    # through to the configured default (CORE-fixes-v017 R12).
+    if text in PRESETS:
+        return ModelRoute(text, None)
+    log.warning(
+        "ignoring unknown model reference %r: it is neither a profile id, "
+        "a 'vendor:model' pair, nor a known vendor",
+        text,
+    )
+    return ModelRoute()
 
 
 __all__ = ["ModelRoute", "resolve_reference", "route_for"]

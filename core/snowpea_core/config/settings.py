@@ -8,12 +8,28 @@ contract does.
 from __future__ import annotations
 
 import json
+import logging
+import os
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from snowpea_core.config.paths import Paths
-from snowpea_core.config.project import AllowlistEntry
+from snowpea_core.config.project import AllowlistEntry, normalise_teams
+
+log = logging.getLogger("snowpea.settings")
+
+#: Owner read/write only; ``settings.json`` holds provider credentials.
+FILE_MODE = 0o600
+
+
+def _chmod_quietly(path: Path) -> None:
+    """Best-effort ``chmod 0600``; a filesystem without modes must not break saving."""
+    try:
+        os.chmod(path, FILE_MODE)
+    except OSError:  # pragma: no cover - Windows/exotic filesystems
+        log.debug("could not chmod %s to %o", path, FILE_MODE)
 
 #: Regexes (ko/en) that mark a user message as something to remember by
 #: itself (M5 contract §1).  They live here rather than in ``memory`` so the
@@ -47,6 +63,8 @@ class AgentsSettings(_Model):
     #: bounded to the built-in roles instead of every custom definition.
     teams: dict[str, list[str]] = Field(default_factory=dict)
     default_team: str | None = None
+
+    _normalise_teams = field_validator("teams", mode="before")(normalise_teams)
 
 
 class ModelProfile(_Model):
@@ -297,16 +315,28 @@ class Settings(_Model):
         return self
 
     def save(self, paths: Paths) -> None:
-        """Write ``settings.json`` atomically."""
+        """Write ``settings.json`` atomically, owner-readable only.
+
+        The document holds ``providers.<vendor>.api_key`` and, since the web
+        login work, ``oauth_token`` as well, so it is written with the same
+        ``0600`` that :mod:`snowpea_core.config.credentials` and the daemon
+        auth token already use (CORE-fixes-v017 R2).  The mode is applied to
+        the temp file *before* the rename so the secret is never visible at
+        the final path under a wider umask, and re-applied afterwards so an
+        existing world-readable file is tightened too.
+        """
         paths.ensure()
         target = paths.settings_json
         tmp = target.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(self.model_dump(mode="json"), indent=2) + "\n", encoding="utf-8")
+        _chmod_quietly(tmp)
         tmp.replace(target)
+        _chmod_quietly(target)
 
 
 __all__ = [
     "DEFAULT_REMEMBER_PATTERNS",
+    "FILE_MODE",
     "DEFAULT_AGENT_TEAM",
     "AgentSettings",
     "AgentsSettings",

@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.3.0"
+PROTOCOL_VERSION = "1.4.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -37,6 +37,8 @@ ApprovalScope = Literal["once", "session", "project", "always"]
 AllowlistScope = Literal["session", "project", "always"]
 BackendKind = Literal["local", "docker", "ssh"]
 TurnReason = Literal["complete", "interrupted", "error", "denied", "timeout"]
+#: Why a queued prompt left the queue: it started running, or it was dropped.
+QueuedTurnReason = Literal["started", "dropped"]
 TaskState = Literal["pending", "running", "done", "failed"]
 #: States a team task walks through (M7 contract §5).  A superset of
 #: :data:`TaskState`, so nothing that already emitted a task state breaks.
@@ -664,7 +666,8 @@ class AgentInfo(Payload):
         default="definition",
         description=(
             "definition = an agents/<name>.md file, subagent = a running child, "
-            "named = a persistent named instance."
+            "named = a persistent named instance, team = the active project team "
+            "(a label only - it is not spawnable)."
         ),
     )
     path: str | None = Field(default=None, description="Definition file, when there is one.")
@@ -1314,6 +1317,36 @@ class AudioSpoken(Payload):
     voice: str | None = Field(default=None, description="Voice that was used.")
 
 
+class TurnQueued(Payload):
+    """A prompt arrived while a turn was running and was put in the FIFO.
+
+    Surfaces use it to confirm the prompt was accepted and to show how many
+    are waiting; ``turn.dequeued`` closes the pair (CORE-fixes-v017 R5).
+    """
+
+    kind: Literal["turn.queued"] = "turn.queued"
+    turnId: str = Field(description="Turn id assigned to the queued prompt.")
+    position: int = Field(
+        description="1-based place in the queue behind the running turn."
+    )
+    queued: int = Field(description="Prompts waiting in the queue after this one was added.")
+
+
+class TurnDequeued(Payload):
+    """A queued prompt left the queue - it started, or it was dropped.
+
+    ``reason="dropped"`` is emitted for every prompt flushed by
+    ``session.interrupt``, so a surface can clear its queue indicator.
+    """
+
+    kind: Literal["turn.dequeued"] = "turn.dequeued"
+    turnId: str = Field(description="Turn id that left the queue.")
+    reason: QueuedTurnReason = Field(
+        default="started", description="started = it is now running, dropped = it was discarded."
+    )
+    queued: int = Field(default=0, description="Prompts still waiting after this one left.")
+
+
 class TurnDone(Payload):
     """A turn ended, for any reason."""
 
@@ -1339,6 +1372,8 @@ SessionEventPayload = Annotated[
     | CompactionEvent
     | ErrorEvent
     | AudioSpoken
+    | TurnQueued
+    | TurnDequeued
     | TurnDone,
     Field(discriminator="kind"),
 ]
@@ -1361,6 +1396,8 @@ SESSION_EVENT_MODELS: dict[str, type[BaseModel]] = {
     "compaction": CompactionEvent,
     "error": ErrorEvent,
     "audio.spoken": AudioSpoken,
+    "turn.queued": TurnQueued,
+    "turn.dequeued": TurnDequeued,
     "turn.done": TurnDone,
 }
 

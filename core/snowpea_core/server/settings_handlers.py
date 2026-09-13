@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import ValidationError
 
 from snowpea_core.config import hot_reload
+from snowpea_core.config.patch import MASK, SECRET_KEYS, mask_secrets
 from snowpea_core.config.project import ProjectSettings
 from snowpea_core.config.settings import Settings
 from snowpea_core.server import errors
@@ -51,24 +52,13 @@ HANDLED_METHODS: tuple[str, ...] = (
 )
 
 #: Field names masked in every ``settings.get`` / ``settings.set`` response.
-_SECRET_KEYS = {"api_key", "token", "refresh_token", "password"}
-_MASK = "***"
-
-
-def _mask_secrets(value: Any) -> Any:
-    """Recursively replace secret-named fields with ``"***"`` for the wire.
-
-    Never mutates ``value``; used only on the response, so the persisted file
-    keeps the real credentials.
-    """
-    if isinstance(value, dict):
-        return {
-            key: (_MASK if key in _SECRET_KEYS and val is not None else _mask_secrets(val))
-            for key, val in value.items()
-        }
-    if isinstance(value, list):
-        return [_mask_secrets(item) for item in value]
-    return value
+#:
+#: Shared with the ``settings_get`` / ``settings_set`` tools via
+#: :mod:`snowpea_core.config.patch` so the two masking paths cannot drift
+#: (CORE-fixes-v017 R1: ``oauth_token`` was masked by neither).
+_SECRET_KEYS = SECRET_KEYS
+_MASK = MASK
+_mask_secrets = mask_secrets
 
 
 def _deep_merge(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:

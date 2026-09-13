@@ -30,6 +30,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from importlib import metadata
@@ -94,11 +95,19 @@ def _is_sha(text: str | None) -> bool:
 
 
 def _same_revision(left: str | None, right: str | None) -> bool:
-    """True when two full/short git SHAs name the same revision."""
+    """True when two git SHAs are certainly the same revision.
+
+    Only a full 40-character match counts.  Prefix matching used to be enough,
+    but a 7-character abbreviation — GitHub's own default — can collide, and a
+    false match skipped the ancestry ``compare`` call entirely, reporting a
+    genuinely newer commit as "already on this" (CORE-fixes-v017 R7).  Being
+    unsure is cheap: the caller just runs the comparison, which answers
+    ``identical`` for a revision that really is the same.
+    """
     if not (_is_sha(left) and _is_sha(right)):
         return False
     a, b = str(left).strip().lower(), str(right).strip().lower()
-    return a.startswith(b) or b.startswith(a)
+    return len(a) == len(b) == 40 and a == b
 
 
 def _clean_git_url(url: str) -> str:
@@ -362,7 +371,15 @@ async def _check_git_branch(paths: Paths, install: GitInstall, force: bool) -> d
         )
     key = f"git:{install.branch}:{revision}:{__version__}"
     cached = None if force else read_cache(paths)
-    if cached and cached.get("installKey") == key and not cached.get("error"):
+    # A *negative* answer is safe to cache: nothing will be installed from it.
+    # A positive one is not — a force-push inside the 24h window would have it
+    # offering a commit whose ancestry was never re-checked (R8).
+    if (
+        cached
+        and cached.get("installKey") == key
+        and not cached.get("error")
+        and not cached.get("available")
+    ):
         return {**cached, "cached": True}
     try:
         async with _new_client() as client:
@@ -628,8 +645,14 @@ async def watch_update(
     process: subprocess.Popen[bytes],
     latest: str,
     tracking_source: str | None = None,
+    version_reader: Callable[[], str | None] | None = None,
 ) -> None:
-    """Wait for the upgrade to finish, then announce ``done`` or ``failed``."""
+    """Wait for the upgrade to finish, then announce ``done`` or ``failed``.
+
+    ``version_reader`` exists so callers — tests above all — can say what the
+    freshly installed executable reports without shelling out to whatever
+    ``snowpea`` happens to be on the host's PATH (CORE-fixes-v017 F2).
+    """
     code = await wait_for_exit(process)
     if code is None:
         await notify_progress(
@@ -647,7 +670,8 @@ async def watch_update(
             except OSError:
                 log.warning("could not persist update tracking source", exc_info=True)
         core.restart_required = True
-        installed = installed_cli_version() or latest.lstrip("v")
+        read_version = version_reader or installed_cli_version
+        installed = read_version() or latest.lstrip("v")
         await notify_progress(core, "done", f"updated to v{installed}")
     else:
         await notify_progress(

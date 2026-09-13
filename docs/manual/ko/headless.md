@@ -18,6 +18,7 @@ snowpea -c "summarize today's diff" --json --cwd ~/src/api --timeout 300
 | `--cwd DIR` | 세션의 작업 디렉터리 |
 | `--timeout SEC` | SEC초가 지나면 세션을 인터럽트하고 닫음 |
 | `--provider VENDOR` | 이번 실행에 쓸 벤더 |
+| `--resume SESSION_ID` | 새 세션을 열지 않고 저장된 세션을 이어서 진행 |
 | `--approve-none` | 묻는 대신 모든 승인을 거부 |
 | `--home DIR` | `SNOWPEA_HOME` 오버라이드 |
 
@@ -31,6 +32,49 @@ snowpea -c "summarize today's diff" --json --cwd ~/src/api --timeout 300
 snowpea -c "/ralph add a failing test then make it pass" --mode auto
 snowpea -c "/deepinit"
 ```
+
+## 저장된 세션 이어가기
+
+`-c`는 보통 새 세션을 엽니다. `--resume`은 이미 있는 세션을 이어갑니다. TUI의 `/resume`에 해당하는 헤드리스 쪽 기능으로, 저장된 대화 기록을 다시 불러온 뒤 그 뒤에 프롬프트를 덧붙입니다.
+
+```bash
+snowpea session list --include-closed
+snowpea -c "and now write the tests" --resume s-4f2c9a1b7e30
+```
+
+`--resume`과 함께 준 `--mode`·`--provider`는 무시됩니다. 저장된 세션이 자기 값을 그대로 유지합니다. `--resume`만 단독으로 주면 아무 일도 하지 않습니다. TUI 안에서는 `/resume`으로 세션을 골라 주세요.
+
+## 저장된 세션 관리
+
+세션은 닫힌 뒤에도 `$SNOWPEA_HOME/state.db`에 남고, 첨부와 음성은 각각 `$SNOWPEA_HOME/attachments/<id>/`와 `$SNOWPEA_HOME/audio/<id>/`에 남습니다. 저장된 세션을 지우면 이 파일들도 함께 사라집니다.
+
+```bash
+snowpea session list                                  # 살아 있는 세션
+snowpea session list --include-closed --json          # 저장된 세션까지
+snowpea session list --include-closed --workdir ~/src/api
+snowpea session delete s-4f2c9a1b7e30                 # 저장된 세션 하나
+snowpea session clear --workdir ~/src/api             # 한 프로젝트의 저장 세션 전부
+snowpea session clear --all                           # 모든 디렉터리의 저장 세션 전부
+```
+
+살아 있는 세션은 절대 지워지지 않습니다. 먼저 닫아 주세요. 각 줄에는 세션 id, 모드, 생성 시각, 작업 디렉터리, 마지막 프롬프트가 나옵니다.
+
+## 팀과 모델 프로필
+
+프로젝트 팀과 에이전트별 모델 라우팅은 설정값이므로 UI 없이도 다룰 수 있습니다.
+
+```bash
+snowpea team list                                     # 전역 + 프로젝트 팀, `*`가 활성 팀
+snowpea team create delivery architect executor verifier
+snowpea team use delivery
+snowpea team delete delivery
+
+snowpea model profiles --json                         # 프로필, 기본값, 에이전트별 지정
+snowpea model default fast                            # models.default
+snowpea model assign executor deep                    # agents.models.executor
+```
+
+`snowpea team create`는 `/team create`가 쓰는 것과 같은 `<workdir>/.snowpea/settings.json`에 기록하고, 찾을 수 없는 에이전트 이름은 거부합니다. `snowpea team delete`는 프로젝트 팀만 지웁니다. 전역 팀은 `$SNOWPEA_HOME/settings.json`에서 고쳐 주세요. `snowpea model assign`은 없는 프로필 id를 주면 데몬이 거부합니다.
 
 ## 종료 코드
 

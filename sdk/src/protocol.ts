@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.3.0";
+export const PROTOCOL_VERSION = "1.4.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -106,7 +106,7 @@ export interface AgentListResult {
     description?: string;
     /** For kind='named': ids of the scheduled jobs that run as this agent. */
     jobs?: string[];
-    /** definition = an agents/<name>.md file, subagent = a running child, named = a persistent named instance. */
+    /** definition = an agents/<name>.md file, subagent = a running child, named = a persistent named instance, team = the active project team (a label only - it is not spawnable). */
     kind?: string;
     /** Agent name used by agent.spawn. */
     name: string;
@@ -1664,12 +1664,34 @@ export interface ToolResultEventPayload {
   output?: string;
 }
 
+/** Payload of `session.event` with kind `turn.dequeued`. */
+export interface TurnDequeuedEventPayload {
+  kind?: "turn.dequeued";
+  /** Prompts still waiting after this one left. */
+  queued?: number;
+  /** started = it is now running, dropped = it was discarded. */
+  reason?: "started" | "dropped";
+  /** Turn id that left the queue. */
+  turnId: string;
+}
+
 /** Payload of `session.event` with kind `turn.done`. */
 export interface TurnDoneEventPayload {
   kind?: "turn.done";
   /** Why the turn ended. */
   reason?: "complete" | "interrupted" | "error" | "denied" | "timeout";
   /** Turn that ended. */
+  turnId: string;
+}
+
+/** Payload of `session.event` with kind `turn.queued`. */
+export interface TurnQueuedEventPayload {
+  kind?: "turn.queued";
+  /** 1-based place in the queue behind the running turn. */
+  position: number;
+  /** Prompts waiting in the queue after this one was added. */
+  queued: number;
+  /** Turn id assigned to the queued prompt. */
   turnId: string;
 }
 
@@ -1699,7 +1721,9 @@ export interface SessionEventKindMap {
   "team.task.update": TeamTaskUpdateEventPayload;
   "tool.call": ToolCallEventPayload;
   "tool.result": ToolResultEventPayload;
+  "turn.dequeued": TurnDequeuedEventPayload;
   "turn.done": TurnDoneEventPayload;
+  "turn.queued": TurnQueuedEventPayload;
   "usage": UsageEventPayload;
 }
 
@@ -1720,7 +1744,9 @@ export const SESSION_EVENT_KINDS: readonly SessionEventKind[] = [
   "team.task.update",
   "tool.call",
   "tool.result",
+  "turn.dequeued",
   "turn.done",
+  "turn.queued",
   "usage",
 ];
 

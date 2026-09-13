@@ -43,7 +43,12 @@ async def test_git_install_detects_new_commit_without_a_version_bump(tmp_path, m
     assert answer["latest"].endswith(NEW[:8])
     assert answer["source"] == f"git+{updates.REPO_URL}@{NEW}"
     assert answer["trackingSource"] == f"git+{updates.REPO_URL}@main"
-    assert (await updates.check_update(paths, Settings()))["cached"] is True
+    # A positive answer is re-verified rather than served from the 24h cache:
+    # a force-push inside the window would otherwise keep offering a commit
+    # whose ancestry was never re-checked (CORE-fixes-v017 R8).
+    again = await updates.check_update(paths, Settings())
+    assert again["available"] is True
+    assert again["cached"] is False
     # After installation the previous available answer must not survive.
     provenance(monkeypatch, revision=NEW, ref="main")
     answer = await updates.check_update(paths, Settings())
@@ -140,3 +145,29 @@ async def test_git_check_internal_metadata_stays_out_of_rpc(tmp_path, monkeypatc
     result = await check_update_handler(None, CheckUpdateParams(force=True), core)
     assert result.available is False
     assert "installKey" not in result.model_dump()
+
+
+async def test_a_negative_git_answer_is_cached(tmp_path, monkeypatch):
+    """The cheap half of R8: nothing is installed from "no update", so cache it."""
+    paths = Paths.create(tmp_path)
+    provenance(monkeypatch, ref="main")
+    scripted(
+        monkeypatch,
+        {
+            f"{updates.COMMITS_URL}/main": FakeResponse(200, {"sha": NEW}),
+            f"https://api.github.com/repos/{updates.REPO}/compare/{OLD}...{NEW}": FakeResponse(
+                200, {"status": "identical"}
+            ),
+        },
+    )
+    first = await updates.check_update(paths, Settings())
+    assert first["available"] is False
+    assert (await updates.check_update(paths, Settings()))["cached"] is True
+
+
+async def test_a_short_sha_prefix_is_not_treated_as_the_same_revision():
+    """R7: a 7-char abbreviation can collide, so it never skips the compare."""
+    assert updates._same_revision(OLD, OLD) is True
+    assert updates._same_revision(OLD[:7], OLD) is False
+    assert updates._same_revision(OLD, OLD[:7]) is False
+    assert updates._same_revision(OLD, NEW) is False

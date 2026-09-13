@@ -1,7 +1,7 @@
 from snowpea_core.config.paths import Paths
 from snowpea_core.config.settings import Settings
-from snowpea_core.setup.state import WizardState
 from snowpea_core.setup import wizard
+from snowpea_core.setup.state import WizardState
 
 
 def test_state_keeps_multiple_models_and_agent_assignments(tmp_path):
