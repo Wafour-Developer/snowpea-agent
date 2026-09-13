@@ -1107,7 +1107,7 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `skills` | `({ id?: string; installSpec?: string; installed?: boolean; kind?: "skill" \| "agent" \| "command" \| "plugin"; name: string; source?: string; summary?: string; })[]` | no | Installed skills. |
+| `skills` | `({ downloads?: number; id?: string; installSpec?: string; installed?: boolean; kind?: "skill" \| "agent" \| "command" \| "plugin"; name: string; rating?: number; source?: string; summary?: string; })[]` | no | Installed skills. |
 
 ### `skill.reload`
 
@@ -1159,7 +1159,7 @@ Search available skills.
 
 | field | type | required | description |
 |---|---|---|---|
-| `skills` | `({ id?: string; installSpec?: string; installed?: boolean; kind?: "skill" \| "agent" \| "command" \| "plugin"; name: string; source?: string; summary?: string; })[]` | no | Matching skills. |
+| `skills` | `({ downloads?: number; id?: string; installSpec?: string; installed?: boolean; kind?: "skill" \| "agent" \| "command" \| "plugin"; name: string; rating?: number; source?: string; summary?: string; })[]` | no | Matching skills. |
 | `unavailable` | `string[]` | no | Sources that could not be reached, as '<source>: <reason>'. Empty skills with a non-empty list means offline, not no match. |
 
 ### `system.checkUpdate`

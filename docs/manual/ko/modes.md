@@ -4,9 +4,9 @@
 
 | 태그 | 툴 |
 |---|---|
-| `read` | `read_file`, `list_dir`, `glob`, `grep`, `git_status`, `git_diff`, `git_log`, `process_list`, `memory_search`, `transcribe_audio` |
+| `read` | `read_file`, `list_dir`, `glob`, `grep`, `git_status`, `git_diff`, `git_log`, `process_list`, `memory_search`, `transcribe_audio`, `skill_search`, `skill_list` |
 | `write` | `write_file`, `edit_file`, `git_commit`, `memory_write` |
-| `exec` | `shell`, `process_kill`, `delegate_task` |
+| `exec` | `shell`, `process_kill`, `delegate_task`, `skill_install`, `skill_remove` |
 | `network` | `web_search`, `web_extract`, `browser_*`, 미디어 툴, `text_to_speech`, 기본적으로 MCP 서버 |
 | `send` | `schedule_create`, `schedule_list`, `schedule_cancel` |
 

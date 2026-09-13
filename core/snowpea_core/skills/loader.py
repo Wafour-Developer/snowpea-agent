@@ -427,6 +427,8 @@ class SkillLoader:
                 source=hit.source,
                 installSpec=hit.install_spec,
                 installed=hit.name in installed,
+                rating=hit.rating,
+                downloads=hit.downloads,
             )
             for hit in report.hits
         ]
