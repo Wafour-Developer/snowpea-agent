@@ -340,6 +340,7 @@ export function App({
   const [openAgent, setOpenAgent] = useState<{ sessionId: string; name: string } | null>(null);
   /** Saved sessions offered after a bare `/resume`. */
   const [resumeChoices, setResumeChoices] = useState<SessionRecord[] | null>(null);
+  const [modePicker, setModePicker] = useState(false);
   /** Lines the open agent's transcript is scrolled back from its newest line. */
   const [agentScroll, setAgentScroll] = useState(0);
   /** Prompts from previous runs, read once at start. */
@@ -1014,7 +1015,7 @@ export function App({
         .map((row: any) => ({
           sessionId: String(row.sessionId),
           workdir: String(row.workdir),
-          firstPrompt: "",
+          firstPrompt: typeof row.lastPrompt === "string" ? row.lastPrompt : "",
           at: Date.parse(String(row.createdAt)) || 0,
         }));
       if (choices.length === 0) {
@@ -1256,7 +1257,7 @@ export function App({
       return;
     }
 
-    if (resumeChoices) return;
+    if (resumeChoices || modePicker) return;
 
     // Esc first stops a reply that is being read out; only then does it mean
     // whatever else Esc means here.
@@ -1304,7 +1305,7 @@ export function App({
         return;
       }
       if (key.return) {
-        if (focus.zone === "footer") setShellsOpen((open) => !open);
+        if (focus.zone === "footer") setModePicker(true);
         else if (focus.zone === "agent") openAgentRow(focus.index);
         return;
       }
@@ -1440,13 +1441,29 @@ export function App({
 
       {state.pendingApproval ? (
         <ApprovalPrompt request={state.pendingApproval} onDecide={decideApproval} />
+      ) : modePicker ? (
+        <ConfirmMenu<Mode | null>
+          options={(["accept", "auto", "plan"] as Mode[]).map((value) => ({ label: `${value} mode`, value }))}
+          initialIndex={Math.max(0, (["accept", "auto", "plan"] as Mode[]).indexOf(state.mode))}
+          escapeValue={null}
+          onChoose={(value) => {
+            setModePicker(false);
+            setFocus(INPUT_FOCUS);
+            if (value) changeMode(value);
+          }}
+        />
       ) : resumeChoices ? (
         <ConfirmMenu<string | null>
           options={[
             ...resumeChoices.map((entry) => ({
-              label: `${entry.sessionId} · ${new Date(entry.at).toLocaleString()}`,
+              label: `${entry.sessionId} · ${new Date(entry.at).toLocaleString()} · ${
+                entry.firstPrompt
+                  ? entry.firstPrompt.length > 48
+                    ? `${entry.firstPrompt.slice(0, 47)}…`
+                    : entry.firstPrompt
+                  : "(no prompt)"
+              }`,
               value: entry.sessionId,
-              hint: entry.workdir,
             })),
             { label: "Cancel", value: null },
           ]}
@@ -1507,7 +1524,7 @@ export function App({
         inverse={focus.zone === "footer"}
         wrap="truncate-end"
       >
-        {`${summary.text}${focus.zone === "footer" ? " · Enter to list them" : ""}`}
+        {`${summary.text}${focus.zone === "footer" ? " · Enter to choose mode" : ""}`}
       </Text>
       {shellsOpen ? <ShellList calls={state.toolCalls} now={now} width={contentWidth} /> : null}
       <SectionRule width={contentWidth} />

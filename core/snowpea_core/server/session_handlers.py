@@ -66,6 +66,7 @@ from snowpea_core.server.protocol import (
 )
 from snowpea_core.server.rpc import RpcConnection, RpcDispatcher
 from snowpea_core.session import events
+from snowpea_core.session.history import message_from_json, message_text
 from snowpea_core.session.store import Store
 from snowpea_core.skills.loader import SkillLoader
 from snowpea_core.tools import audio_tools, browser_providers, mcp_client, web
@@ -234,6 +235,18 @@ async def session_list_handler(
         rows = list(by_id.values())
     if params.workdir:
         rows = [row for row in rows if row.workdir == params.workdir]
+    if core.store is not None:
+        enriched = []
+        for row in rows:
+            messages = await core.store.messages(row.sessionId)
+            latest = next((item for item in reversed(messages) if item["role"] == "user"), None)
+            prompt = (
+                message_text(message_from_json("user", latest["content"]))
+                if latest is not None
+                else None
+            )
+            enriched.append(row.model_copy(update={"lastPrompt": prompt}))
+        rows = enriched
     return SessionListResult(sessions=sorted(rows, key=lambda row: row.createdAt, reverse=True))
 
 

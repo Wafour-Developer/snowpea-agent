@@ -805,6 +805,8 @@ export interface SessionListResult {
     provider?: string | null;
     /** Sequence number of the latest event. */
     seq?: number;
+    /** Latest saved user input. */
+    lastPrompt?: string | null;
     /** Session id. */
     sessionId: string;
     /** Absolute working directory. */

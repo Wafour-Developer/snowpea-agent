@@ -147,6 +147,13 @@ export function Chat({
       }
 
       if (key.return) {
+        if (showPalette && !value.includes(" ")) {
+          const completion = completions[selected];
+          if (completion && value !== `/${completion.name}`) {
+            update(`/${completion.name} `);
+            return;
+          }
+        }
         const text = value.trim();
         if (text.length === 0) return;
         setHistory((h) => [...h, text]);
