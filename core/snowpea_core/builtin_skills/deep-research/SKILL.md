@@ -15,6 +15,15 @@ actually read, with a citation on every claim. The question is:
 A research answer without URLs is a guess with formatting. If you cannot find a
 source for a claim, say the claim is unsourced or drop it.
 
+## Language
+
+Answer in the language the user asked in, decided from the question itself, and
+stay there for the whole report. Write natively; do not translate the English in
+this file, and never mix scripts inside one sentence. Technical terms that are
+normally left in English (library names, protocol names, metrics such as p95)
+stay in English inside the sentence. Quotes from sources keep their original
+language, followed by a one-line gloss when the report's language differs.
+
 ## Method
 
 ### 1. Check what is already known
