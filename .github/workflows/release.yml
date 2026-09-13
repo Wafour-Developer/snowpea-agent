@@ -50,11 +50,12 @@ jobs:
         run: npm ci
 
       # The wheel carries this file as package data; without it the build fails.
-      - name: build the TUI bundle
-        run: npm -w tui run build
-
+      # The TUI bundles @snowpea/sdk from sdk/dist, so the SDK comes first.
       - name: build the SDK
         run: npm -w sdk run build
+
+      - name: build the TUI bundle
+        run: npm -w tui run build
 
       - name: uv build
         run: uv build

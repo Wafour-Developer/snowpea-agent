@@ -110,6 +110,8 @@ jobs:
         run: npm ci
       # install.sh installs the Python package; the TUI bundle has to exist
       # first, because the build hook refuses to make a wheel without it.
+      - name: build the SDK
+        run: npm -w sdk run build
       - name: build the TUI bundle
         run: npm -w tui run build
       - name: git identity for the fixture repo
@@ -133,6 +135,8 @@ jobs:
           enable-cache: true
       - name: npm ci
         run: npm ci
+      - name: build the SDK
+        run: npm -w sdk run build
       - name: build the TUI bundle
         run: npm -w tui run build
       - name: git identity for the fixture repo
@@ -156,6 +160,8 @@ jobs:
           enable-cache: true
       - name: npm ci
         run: npm ci
+      - name: build the SDK
+        run: npm -w sdk run build
       - name: build the TUI bundle
         run: npm -w tui run build
       - name: git identity for the fixture repo

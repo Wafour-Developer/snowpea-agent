@@ -11,6 +11,7 @@
     "dist"
   ],
   "scripts": {
+    "prebuild": "npm --prefix ../sdk run build",
     "build": "node esbuild.config.mjs",
     "dev": "tsx src/index.tsx",
     "typecheck": "tsc -p tsconfig.json --noEmit",
