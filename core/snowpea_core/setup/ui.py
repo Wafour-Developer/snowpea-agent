@@ -24,6 +24,26 @@ from snowpea_core.setup.screens import SKIP, Screen, ScreenItem
 
 STAR = "★"
 
+#: Terminal control codes used by the in-place repaint.  ``ask`` hides the
+#: cursor for as long as a menu is open and always puts it back, including on
+#: Ctrl+C, so a wizard that is interrupted never leaves an invisible cursor.
+CURSOR_HIDE = "\x1b[?25l"
+CURSOR_SHOW = "\x1b[?25h"
+CURSOR_UP = "\x1b[{n}A"
+CLEAR_LINE = "\x1b[2K"
+
+
+def _emit(console: Console, code: str) -> None:
+    """Write a raw control code to the console's stream, if it has one."""
+    stream = getattr(console, "file", None)
+    if stream is None:
+        return
+    try:
+        stream.write(code)
+        stream.flush()
+    except (OSError, ValueError):  # pragma: no cover - closed/odd stream
+        pass
+
 
 def is_interactive(stream: IO[str] | None = None) -> bool:
     """True only when we can actually read keystrokes from a terminal."""
@@ -56,28 +76,59 @@ def render_item(item: ScreenItem, *, multi: bool, selected: bool, cursor: bool) 
     if item.default:
         line.append(f" {STAR}", style="yellow")
     for tag in item.tags:
-        style = "dim" if tag != "active" else "green"
+        style = {"active": "green", "default": "yellow"}.get(tag, "dim")
         line.append(f"  [{tag}]", style=style)
     return line
 
 
-def render(screen: Screen, *, cursor: int, chosen: set[str], console: Console) -> None:
-    """Draw the whole screen, replacing whatever was there before."""
-    console.clear()
-    console.print(Text(screen.title, style="bold"))
+def screen_lines(screen: Screen, *, cursor: int, chosen: set[str]) -> list[Text]:
+    """Every row the screen occupies, one :class:`Text` per terminal line.
+
+    The count is what makes the in-place repaint possible: a screen always
+    takes the same number of lines, so moving the cursor up by ``len(...)``
+    lands exactly on the title again.
+    """
+    lines = [Text(screen.title, style="bold")]
     if screen.help:
-        console.print(Text(screen.help, style="dim"))
-    console.print()
-    for index, item in enumerate(screen.items):
-        console.print(
-            render_item(
-                item,
-                multi=screen.multi,
-                selected=item.id in chosen,
-                cursor=index == cursor,
-            )
+        lines.extend(Text(line, style="dim") for line in screen.help.split("\n"))
+    lines.append(Text(""))
+    lines.extend(
+        render_item(
+            item,
+            multi=screen.multi,
+            selected=item.id in chosen,
+            cursor=index == cursor,
         )
-    console.print()
+        for index, item in enumerate(screen.items)
+    )
+    lines.append(Text(""))
+    return lines
+
+
+def render(
+    screen: Screen,
+    *,
+    cursor: int,
+    chosen: set[str],
+    console: Console,
+    repaint: int = 0,
+) -> int:
+    """Draw the screen and return how many lines it took.
+
+    ``repaint`` is the line count of the previous draw: the cursor is moved
+    back up that many lines and every row is rewritten in place (each one
+    erased first with ``\x1b[2K``).  The screen is **never** cleared — doing
+    that on each keypress is what made every list in the wizard flicker while
+    the user held ↑ or ↓.
+    """
+    lines = screen_lines(screen, cursor=cursor, chosen=chosen)
+    if repaint > 0:
+        _emit(console, CURSOR_UP.format(n=repaint))
+    for line in lines:
+        if repaint > 0:
+            _emit(console, CLEAR_LINE)
+        console.print(line, no_wrap=True, overflow="ellipsis", crop=True)
+    return len(lines)
 
 
 def render_lines(screen: Screen) -> list[str]:
@@ -148,24 +199,31 @@ def ask(
             cursor = index
             break
 
-    while True:
-        render(screen, cursor=cursor, chosen=chosen, console=console)
-        key = read_key(keys)
-        item = screen.items[cursor]
-        if key == "up":
-            cursor = (cursor - 1) % len(screen.items)
-        elif key == "down":
-            cursor = (cursor + 1) % len(screen.items)
-        elif key == "quit":
-            return screen.default_choice
-        elif key == "space" and screen.multi and item.id != SKIP:
-            chosen.symmetric_difference_update({item.id})
-        elif key == "enter":
-            if item.id == SKIP:
+    painted = 0
+    _emit(console, CURSOR_HIDE)
+    try:
+        while True:
+            painted = render(
+                screen, cursor=cursor, chosen=chosen, console=console, repaint=painted
+            )
+            key = read_key(keys)
+            item = screen.items[cursor]
+            if key == "up":
+                cursor = (cursor - 1) % len(screen.items)
+            elif key == "down":
+                cursor = (cursor + 1) % len(screen.items)
+            elif key == "quit":
                 return screen.default_choice
-            if screen.multi:
-                return chosen
-            return item.id
+            elif key == "space" and screen.multi and item.id != SKIP:
+                chosen.symmetric_difference_update({item.id})
+            elif key == "enter":
+                if item.id == SKIP:
+                    return screen.default_choice
+                if screen.multi:
+                    return chosen
+                return item.id
+    finally:
+        _emit(console, CURSOR_SHOW)
 
 
 def ask_text(prompt: str, *, interactive: bool | None = None, secret: bool = False) -> str:
@@ -229,6 +287,10 @@ def _read_masked(prompt: str) -> str:
 
 
 __all__ = [
+    "CLEAR_LINE",
+    "CURSOR_HIDE",
+    "CURSOR_SHOW",
+    "CURSOR_UP",
     "STAR",
     "ask",
     "ask_text",
@@ -237,4 +299,5 @@ __all__ = [
     "render",
     "render_item",
     "render_lines",
+    "screen_lines",
 ]

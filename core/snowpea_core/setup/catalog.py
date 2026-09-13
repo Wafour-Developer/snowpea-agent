@@ -53,11 +53,11 @@ class CatalogItem:
     def tags(self) -> tuple[str, ...]:
         """``("free · no key", "active")`` — what the screen prints."""
         tags = [f"{self.tier} · {self.key}"]
-        if self.active:
-            tags.append("active")
-        else:
-            tags.append("inactive")
+        # ``default`` comes before the active/inactive state so it survives the
+        # ellipsis on a narrow terminal: which vendor a session will actually
+        # use is the more useful of the two.
         tags.extend(self.extra_tags)
+        tags.append("active" if self.active else "inactive")
         return tuple(tags)
 
     def rank(self) -> int:
