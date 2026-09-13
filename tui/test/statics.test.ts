@@ -229,3 +229,81 @@ describe("prose that stops for a tool call", () => {
     expect(held).toBeLessThan(4);
   });
 });
+
+describe("a prompt queued while the answer is streaming", () => {
+  it("keeps the in-flight message in one piece", () => {
+    // The prompt must not be spliced into the timeline mid-message: the deltas
+    // after it would start a second entry, leaving the answer in two halves
+    // with the user's line between them and neither half ever closing.
+    const streamed = apply(
+      ask(initialState, "write a plan"),
+      event(1, "message.delta", { text: "1. first step\n2. second step\n" }),
+    );
+    const queued = reducer(streamed, { type: "user/message", text: "ok" });
+    const after = apply(queued, event(2, "message.delta", { text: "3. third step\n" }));
+
+    const assistant = after.messages.filter((m) => m.role === "assistant");
+    expect(assistant).toHaveLength(1);
+    expect(assistant[0].text).toBe("1. first step\n2. second step\n3. third step\n");
+    // The prompt is waiting, not in the transcript and not an entry on screen.
+    expect(after.deferredPrompts.map((m) => m.text)).toEqual(["ok"]);
+    expect(after.timeline).toHaveLength(2);
+  });
+
+  it("lands the prompt after the message it interrupted, once", () => {
+    const streamed = apply(
+      ask(initialState, "write a plan"),
+      event(1, "message.delta", { text: "1. first step\n" }),
+    );
+    const queued = reducer(streamed, { type: "user/message", text: "ok" });
+    const done = apply(
+      apply(queued, event(2, "message.delta", { text: "2. second step\n" })),
+      event(3, "message.done", { role: "assistant", text: "1. first step\n2. second step\n" }),
+    );
+
+    const shape = done.timeline.map((item) => {
+      const message = done.messages.find((m) => m.id === item.id);
+      return `${message?.role}:${message?.text.split("\n")[0]}`;
+    });
+    expect(shape).toEqual(["user:write a plan", "assistant:1. first step", "user:ok"]);
+    // The prefix exists exactly once.
+    expect(done.messages.filter((m) => m.text.startsWith("1. first step"))).toHaveLength(1);
+    expect(done.deferredPrompts).toHaveLength(0);
+    // All settled, so all of it reaches the scrollback.
+    expect(settledCount(done, 0, 80)).toBe(done.timeline.length);
+  });
+
+  it("lands it before the tool card when the model stops to call a tool", () => {
+    const streamed = apply(
+      ask(initialState, "build it"),
+      event(1, "message.delta", { text: "starting now\n" }),
+    );
+    const queued = reducer(streamed, { type: "user/message", text: "also add tests" });
+    const after = apply(
+      queued,
+      event(2, "tool.call", { callId: "c1", name: "write_file", args: {} }),
+    );
+
+    const kinds = after.timeline.map((item) =>
+      item.kind === "tool" ? "tool" : after.messages.find((m) => m.id === item.id)?.role,
+    );
+    expect(kinds).toEqual(["user", "assistant", "user", "tool"]);
+    expect(after.deferredPrompts).toHaveLength(0);
+  });
+
+  it("never strands a prompt when the turn ends without a final message", () => {
+    const streamed = apply(
+      ask(initialState, "write a plan"),
+      event(1, "message.delta", { text: "half an answer" }),
+    );
+    const queued = reducer(streamed, { type: "user/message", text: "ok" });
+    const interrupted = apply(
+      queued,
+      event(2, "turn.done", { turnId: "t-1", reason: "interrupted" }),
+    );
+
+    expect(interrupted.deferredPrompts).toHaveLength(0);
+    expect(interrupted.messages[interrupted.messages.length - 1].text).toBe("ok");
+    expect(interrupted.messages.filter((m) => m.streaming)).toHaveLength(0);
+  });
+});

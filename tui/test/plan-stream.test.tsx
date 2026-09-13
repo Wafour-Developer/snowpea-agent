@@ -15,7 +15,7 @@ import { describe, expect, it } from "vitest";
 
 import { App } from "../src/app.js";
 import type { SessionEvent } from "../src/rpc/sdk.js";
-import { fakeStdin, fakeStdout, sleep } from "./tty.js";
+import { countOf, fakeStdin, fakeStdout, sleep, type } from "./tty.js";
 
 const CLEAR_TERMINAL = "[2J";
 
@@ -282,6 +282,78 @@ describe("a long plan streaming into the live region", () => {
     expect(result.clears).toBe(0);
     // Ink clears on `>=`, so the region has to come out strictly under `rows`.
     expect(maxHeight).toBeLessThan(35);
+  }, 40000);
+
+  it("survives a prompt queued halfway through the stream", async () => {
+    // The case the tmux harness caught last: queuing while text is actively
+    // streaming used to split the message around the new user entry, put two
+    // capped halves in the live region, take the frame back to the terminal's
+    // height, and commit the prefix to the scrollback twice with a stale
+    // "… n lines above" line between them.
+    const client = fakeClient();
+    const stdin = fakeStdin();
+    const stdout = fakeStdout(120, 35);
+    const instance = render(
+      <App client={client as any} sessionId="sess-1" mode="plan" workdir="/tmp/project" />,
+      { stdin, stdout: stdout.stream, exitOnCtrlC: false, patchConsole: false },
+    );
+    await sleep(150);
+    stdin.write("write a long plan");
+    await sleep(80);
+    stdin.write("\r");
+    await sleep(150);
+    stdout.chunks.length = 0;
+
+    const t0 = Date.now();
+    for (const [index, line] of PLAN_LINES.slice(0, 200).entries()) {
+      client.emit(ev("message.delta", { text: `${line}\n` }));
+      // Halfway through, type and send a prompt: it is queued, not started.
+      if (index === 100) {
+        await type(stdin, "ok", 10);
+        stdin.write("\r");
+        await sleep(60);
+        client.emit(ev("turn.queued", { turnId: "t2", text: "ok", position: 1 }));
+      }
+      await sleep(4);
+    }
+    await sleep(150);
+    const elapsed = Date.now() - t0;
+
+    const result = stats(stdout.chunks, elapsed);
+    const heights = stdout.chunks
+      .filter((c) => !c.includes(CLEAR_TERMINAL))
+      .map((c) => (c.match(/\[1A/g) ?? []).length + 1);
+    const maxHeight = Math.max(0, ...heights);
+    console.log("MID-QUEUE " + JSON.stringify({ elapsed, ...result, maxHeight }));
+
+    expect(result.clears).toBe(0);
+    expect(maxHeight).toBeLessThan(35);
+
+    // Finish the message: the whole thing goes to the scrollback, once, and the
+    // queued prompt takes its place after it. Only the bytes from here on are
+    // the scrollback — the marker belongs in the live frames before it.
+    stdout.chunks.length = 0;
+    const whole = PLAN_LINES.slice(0, 200).join("\n");
+    client.emit(ev("message.done", { role: "assistant", text: whole }));
+    client.emit(ev("turn.done", { turnId: "t", reason: "complete" }));
+    await sleep(300);
+
+    const seen = stdout.text();
+    instance.unmount();
+    stdin.end();
+
+    // No window snapshot was committed: the scrollback gets the message, not a
+    // picture of the window that was showing part of it.
+    expect(seen).not.toContain("lines above");
+    // Every line exactly once, in order.
+    let at = -1;
+    for (const line of PLAN_LINES.slice(0, 200)) {
+      const next = seen.indexOf(line, at + 1);
+      expect(next, `"${line}" missing after the queue`).toBeGreaterThan(at);
+      at = next;
+    }
+    // The prefix is not duplicated: the first plan line appears once.
+    expect(countOf(seen, "1. step number 1\n")).toBeLessThanOrEqual(1);
   }, 40000);
 
   it("puts the whole plan in the scrollback once it is done", async () => {
