@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from snowpea_core.agent.agent import AgentConfig, build_messages
@@ -43,6 +44,16 @@ log = logging.getLogger("snowpea.agent")
 
 #: Refusals tolerated in one turn before it ends with reason ``"denied"``.
 MAX_DENIALS_PER_TURN = 3
+
+
+@dataclass(frozen=True)
+class QueuedTurn:
+    """Everything one prompt needs after it has left the RPC handler."""
+
+    turn_id: str
+    text: str
+    unattended: bool
+    attachments: list[Any]
 
 
 def new_turn_id() -> str:
@@ -91,15 +102,48 @@ def agent_config(core: Core) -> AgentConfig:
 
 
 def start_turn(core: Core, session: Session, text: str, *, unattended: bool = False) -> str:
-    """Schedule a turn in the background and return its id immediately."""
+    """Schedule a turn, or queue it behind the session's active turn.
+
+    A user can keep typing while tools or subagents are running.  Those
+    follow-ups must not start overlapping provider loops against the same
+    history.  Capture attachments synchronously, enqueue the complete prompt,
+    and let one task drain the session FIFO.
+    """
     turn_id = new_turn_id()
-    session.interrupt.clear()
-    session.current_turn = turn_id
-    task = asyncio.ensure_future(
-        run_turn(core, session, text, turn_id=turn_id, unattended=unattended)
+    queued = QueuedTurn(
+        turn_id=turn_id,
+        text=text,
+        unattended=unattended,
+        attachments=pending.take(session.id),
     )
-    session.turn_task = task
+    task = session.turn_task
+    if task is not None and not task.done():
+        session.queued_turns.append(queued)
+        return turn_id
+    session.turn_task = asyncio.ensure_future(_drain_turns(core, session, queued))
     return turn_id
+
+
+async def _drain_turns(core: Core, session: Session, first: QueuedTurn) -> None:
+    """Run ``first`` and every follow-up received during it, in FIFO order."""
+    queued = first
+    try:
+        while True:
+            session.interrupt.clear()
+            session.current_turn = queued.turn_id
+            await run_turn(
+                core,
+                session,
+                queued.text,
+                turn_id=queued.turn_id,
+                unattended=queued.unattended,
+                attachments=queued.attachments,
+            )
+            if not session.queued_turns:
+                break
+            queued = session.queued_turns.pop(0)
+    finally:
+        session.current_turn = None
 
 
 async def run_turn(
@@ -109,13 +153,14 @@ async def run_turn(
     *,
     turn_id: str | None = None,
     unattended: bool = False,
+    attachments: list[Any] | None = None,
 ) -> str:
     """Run one full turn; returns its turn id once ``turn.done`` was emitted."""
     turn_id = turn_id or new_turn_id()
     session.current_turn = turn_id
     hub = core.hub
     try:
-        reason = await _drive(core, session, text, turn_id, unattended)
+        reason = await _drive(core, session, text, turn_id, unattended, attachments)
     except asyncio.CancelledError:
         # A shutdown in progress (``Daemon.stop`` -> ``SessionManager.close_all``,
         # CORE-session-race) cancels every in-flight turn task; by the time that
@@ -137,7 +182,10 @@ async def run_turn(
         reason = "error"
         await finish_turn(core, session, turn_id, reason)
     finally:
-        session.current_turn = None
+        # The queue runner owns the transition between adjacent turns.  A
+        # direct ``run_turn`` caller still gets the traditional cleanup.
+        if session.turn_task is not asyncio.current_task():
+            session.current_turn = None
     return turn_id
 
 
@@ -188,7 +236,14 @@ async def speak_reply(core: Core, session: Session, text: str) -> None:
         log.info("autoSpeak failed: %s", exc)
 
 
-async def _drive(core: Core, session: Session, text: str, turn_id: str, unattended: bool) -> str:
+async def _drive(
+    core: Core,
+    session: Session,
+    text: str,
+    turn_id: str,
+    unattended: bool,
+    attachments: list[Any] | None = None,
+) -> str:
     """The loop proper; emits ``turn.done`` itself and returns its reason."""
     hub = core.hub
     config = agent_config(core)
@@ -204,7 +259,7 @@ async def _drive(core: Core, session: Session, text: str, turn_id: str, unattend
     # Whatever ``session.prompt`` validated and stored for this turn; taking it
     # here (rather than passing it down) keeps an interrupted turn from leaking
     # its images into the next one (CORE-multimodal).
-    attachments = pending.take(session.id)
+    attachments = pending.take(session.id) if attachments is None else attachments
     if text or attachments:
         session.history.append(
             ChatMessage(

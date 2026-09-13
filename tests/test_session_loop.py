@@ -20,14 +20,65 @@ import pytest
 import pytest_asyncio
 from _support import RpcClient, connect, fake_provider, make_daemon
 
+from snowpea_core.agent import loop as agent_loop
 from snowpea_core.config.paths import Paths
 from snowpea_core.server.app_server import Daemon
+from snowpea_core.session.session import Session
 from snowpea_core.session.store import Store
 
 pytestmark = pytest.mark.asyncio
 
 FIXTURE = Path(__file__).parent / "fixtures" / "providers" / "fake" / "session.json"
 TIMEOUT = 10.0
+
+
+async def test_prompts_submitted_during_a_turn_are_delivered_fifo(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Busy input is a follow-up, never a concurrent turn on one history."""
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    calls: list[tuple[str, str]] = []
+    active = 0
+    peak_active = 0
+
+    async def fake_run_turn(
+        _core: Any,
+        session: Session,
+        text: str,
+        *,
+        turn_id: str | None = None,
+        unattended: bool = False,
+        attachments: list[Any] | None = None,
+    ) -> str:
+        nonlocal active, peak_active
+        active += 1
+        peak_active = max(peak_active, active)
+        calls.append((str(turn_id), text))
+        if len(calls) == 1:
+            entered.set()
+            await release.wait()
+        active -= 1
+        return str(turn_id)
+
+    monkeypatch.setattr(agent_loop, "run_turn", fake_run_turn)
+    session = Session(id="s-busy", workdir=tmp_path)
+    core = object()
+
+    first = agent_loop.start_turn(core, session, "first")  # type: ignore[arg-type]
+    await entered.wait()
+    second = agent_loop.start_turn(core, session, "second")  # type: ignore[arg-type]
+    third = agent_loop.start_turn(core, session, "third")  # type: ignore[arg-type]
+    assert session.current_turn == first
+
+    release.set()
+    assert session.turn_task is not None
+    await session.turn_task
+
+    assert calls == [(first, "first"), (second, "second"), (third, "third")]
+    assert peak_active == 1
+    assert session.current_turn is None
+    assert session.queued_turns == []
 
 
 @pytest_asyncio.fixture

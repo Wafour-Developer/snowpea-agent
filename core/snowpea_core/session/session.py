@@ -60,6 +60,9 @@ class Session:
     interrupt: asyncio.Event = field(default_factory=asyncio.Event)
     turn_task: asyncio.Task[Any] | None = None
     current_turn: str | None = None
+    #: Prompts submitted while a turn is running.  They are drained FIFO by
+    #: the same task so two turns never mutate one history concurrently.
+    queued_turns: list[Any] = field(default_factory=list)
     #: Tokens the current prompt occupies, provider-reported when
     #: :attr:`context_estimated` is False (CORE-context).
     context_used: int = 0
