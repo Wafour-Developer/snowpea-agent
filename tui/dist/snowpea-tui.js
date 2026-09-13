@@ -35899,7 +35899,7 @@ function recordingLabel(startedAt, now) {
 }
 
 // src/version.ts
-var TUI_VERSION = "0.1.16";
+var TUI_VERSION = "0.1.17";
 
 // src/layout/text-width.ts
 var segmenter2 = new Intl.Segmenter(void 0, { granularity: "grapheme" });
