@@ -93,7 +93,7 @@ static table. Only the once-per-turn `context` emission awaits the async one.
 - **AC-33.** An unrecognised model MUST resolve to `None` and render as an honest unknown, never to a
   default. A wrong window silently truncates or silently never compacts. The CLI renders `?`
   (`cli/render.py::format_context`, `cli/commands.py::format_context_line`); the TUI renders
-  `ctx 12.3k used` (M12 §2). `STATIC_WINDOWS` carries 37 entries across nine vendors (anthropic,
+  `ctx 12.3k used` (M12 §2). `STATIC_WINDOWS` carries 41 entries across nine vendors (anthropic,
   openai, gemini, xai, zhipu, minimax, moonshot, deepseek, qwen); matching is exact-first then
   longest-prefix, case-insensitive, after stripping an OpenRouter `vendor/` prefix and any `:`/`@`
   suffix.

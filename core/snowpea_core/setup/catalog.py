@@ -46,6 +46,8 @@ class CatalogItem:
     description: str = ""
     #: ``False`` for things listed but not usable yet (media tools, for one).
     active: bool = True
+    #: Extra tags appended after ``[active]``/``[inactive]``, e.g. ``default``.
+    extra_tags: tuple[str, ...] = ()
 
     @property
     def tags(self) -> tuple[str, ...]:
@@ -55,6 +57,7 @@ class CatalogItem:
             tags.append("active")
         else:
             tags.append("inactive")
+        tags.extend(self.extra_tags)
         return tuple(tags)
 
     def rank(self) -> int:
@@ -103,6 +106,7 @@ def _with_default(items: Sequence[CatalogItem], default_id: str) -> list[Catalog
             default=item.id == default_id,
             description=item.description,
             active=item.active,
+            extra_tags=item.extra_tags,
         )
         for item in items
     ]
@@ -326,6 +330,7 @@ def vendor_catalog(settings: Any = None) -> list[CatalogItem]:
     from snowpea_core.providers.registry import ProviderRegistry
 
     registry = ProviderRegistry(settings) if settings is not None else ProviderRegistry()
+    default_vendor = registry.default_vendor() if settings is not None else None
     items: list[CatalogItem] = []
     for vendor, preset in PRESETS.items():
         logins = [m for m in preset.auth_methods if m != "api_key"]
@@ -346,6 +351,7 @@ def vendor_catalog(settings: Any = None) -> list[CatalogItem]:
                 # showing it as ``[active]`` is what left users staring at a
                 # vendor that 401s on every prompt (report §6.5).
                 active=registry.auth_status(vendor) == "active",
+                extra_tags=("default",) if vendor == default_vendor else (),
             )
         )
     return items

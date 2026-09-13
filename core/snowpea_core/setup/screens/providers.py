@@ -13,8 +13,15 @@ HELP = "↑↓ to move, Enter to choose. A key is asked for after the list."
 
 
 def build(state: WizardState, catalog: Sequence[CatalogItem] | None = None) -> Screen:
-    """List the eleven vendors, marking the configured ones ``[active]``."""
-    items = list(catalog) if catalog is not None else vendor_catalog()
+    """List the eleven vendors, marking the configured ones ``[active]``.
+
+    The catalog is built from :meth:`WizardState.as_settings` — the answers this
+    run already holds — so a provider that is set up (a key, a live OAuth
+    session, or, for the keyless local server, a saved ``base_url``) reads
+    ``[active]``, and the one that ``models.default`` resolves to reads
+    ``[default]``.
+    """
+    items = list(catalog) if catalog is not None else vendor_catalog(state.as_settings())
     rows = [
         ScreenItem(
             id=item.id,

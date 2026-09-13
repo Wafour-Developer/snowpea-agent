@@ -126,7 +126,7 @@ def build_system_prompt(
     """
     environment, context_files = environment_blocks(session)
     persona = getattr(session, "system_prompt", None) or ""
-    if session.team_agents and not session.is_subagent:
+    if session.team_agents:
         team_rule = (
             f"Active delegation team: {session.team}. Delegate only to these agents: "
             + ", ".join(session.team_agents)

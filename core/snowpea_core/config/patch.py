@@ -76,6 +76,30 @@ def deep_merge(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
     return merged
 
 
+def reject_masked_secrets(patch: dict[str, Any], *, path: str = "") -> None:
+    """Raise ``ValueError`` if ``patch`` writes the mask placeholder as a secret.
+
+    ``settings.get`` / ``provider.configure``-adjacent reads mask every field
+    in :data:`SECRET_KEYS` with :data:`MASK`.  A client that does a naive
+    read-modify-write of that response (change one field, send the whole
+    document back) would otherwise persist the literal ``"***"`` as the real
+    ``api_key`` / ``refresh_token`` / etc., destroying the credential.  Callers
+    run this over an incoming patch *before* merging it onto the current
+    document and turn the ``ValueError`` into whatever error type their
+    transport uses.
+    """
+    for key, value in patch.items():
+        current_path = f"{path}.{key}" if path else key
+        if key in SECRET_KEYS:
+            if value == MASK:
+                raise ValueError(
+                    f"refusing to store the masked placeholder for {current_path}"
+                )
+            continue
+        if isinstance(value, dict):
+            reject_masked_secrets(value, path=current_path)
+
+
 def nest(key: str, value: Any) -> dict[str, Any]:
     """``"search.provider", "exa"`` -> ``{"search": {"provider": "exa"}}``."""
     parts = [part for part in key.split(".") if part]
@@ -123,4 +147,5 @@ __all__ = [
     "mask_secrets",
     "nest",
     "pluck",
+    "reject_masked_secrets",
 ]

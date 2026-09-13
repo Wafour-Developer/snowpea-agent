@@ -83,7 +83,7 @@ resumed session unanswerable.
 
 **AC-28.** `supports_vision(vendor, model)` is an **allowlist**, and an unknown model is assumed
 text-only: `True` for `vendor in VISION_VENDORS = {"anthropic", "gemini"}`, and for any other vendor
-whose model name contains one of the 38 `VISION_HINTS` substrings (`gpt-4o`, `gpt-5`, `o3`, `claude`,
+whose model name contains one of the 36 `VISION_HINTS` substrings (`gpt-4o`, `gpt-5`, `o3`, `claude`,
 `gemini`, `grok-*-vision`, `pixtral`, `llava`, `qwen*-vl`, `glm-4v`, `internvl`, `-vl`, …). Anything
 else gets the text fallback: `[image attached: shot.png]` followed by `NO_VISION_NOTE` —
 `(this model cannot see images; ask the user to describe it, or read the file from disk with a

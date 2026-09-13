@@ -46,6 +46,10 @@ class VendorPreset:
     extra_headers: dict[str, str] = field(default_factory=dict)
     #: Set on the ``local-*`` sub-presets only (vllm | ollama | lmstudio).
     variant: str | None = None
+    #: ``False`` for vendors that authenticate with nothing at all — a
+    #: self-hosted OpenAI-compatible server is configured by its ``base_url``,
+    #: not by a key, and must count as set up once one is saved.
+    key_required: bool = True
 
     @property
     def vendor(self) -> str:
@@ -86,6 +90,7 @@ def _preset(
     stream_delta_shape: WireShape = "openai",
     extra_headers: dict[str, str] | None = None,
     variant: str | None = None,
+    key_required: bool = True,
 ) -> VendorPreset:
     return VendorPreset(
         id=vendor_id,
@@ -101,6 +106,7 @@ def _preset(
         stream_delta_shape=stream_delta_shape,
         extra_headers=dict(extra_headers or {}),
         variant=variant,
+        key_required=key_required,
     )
 
 
@@ -210,6 +216,7 @@ PRESETS: dict[str, VendorPreset] = {
             env_keys=("SNOWPEA_LOCAL_API_KEY",),
             models=(),
             supports_parallel_tools=False,
+            key_required=False,
         ),
     )
 }
@@ -223,6 +230,7 @@ LOCAL_VARIANTS: dict[str, VendorPreset] = {
         "local-model",
         env_keys=("SNOWPEA_LOCAL_API_KEY",),
         supports_parallel_tools=False,
+        key_required=False,
         variant="vllm",
     ),
     "ollama": _preset(
@@ -232,6 +240,7 @@ LOCAL_VARIANTS: dict[str, VendorPreset] = {
         "local-model",
         env_keys=("SNOWPEA_LOCAL_API_KEY",),
         supports_parallel_tools=False,
+        key_required=False,
         variant="ollama",
     ),
     "lmstudio": _preset(
@@ -241,6 +250,7 @@ LOCAL_VARIANTS: dict[str, VendorPreset] = {
         "local-model",
         env_keys=("SNOWPEA_LOCAL_API_KEY",),
         supports_parallel_tools=False,
+        key_required=False,
         variant="lmstudio",
     ),
 }

@@ -23,6 +23,7 @@ from snowpea_core import update as update_mod
 from snowpea_core.agent.named import NamedAgentRegistry
 from snowpea_core.commands.registry import CommandRegistry
 from snowpea_core.config import hot_reload
+from snowpea_core.config.patch import reject_masked_secrets
 from snowpea_core.config.paths import Paths
 from snowpea_core.config.settings import Settings
 from snowpea_core.gateway.router import GatewayRouter
@@ -438,6 +439,15 @@ async def provider_configure_handler(
             "project_id",
         )
     }
+    # A client that reads back a masked credential (e.g. from ``settings.get``
+    # or a UI that echoes the vendor's current config) and sends it straight
+    # into ``provider.configure`` must not be able to persist the literal
+    # "***" mask as the real api_key / refresh_token / etc.
+    try:
+        reject_masked_secrets(config)
+    except ValueError as exc:
+        raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
+
     if config and all(value is None for value in config.values()):
         # A patch of nothing but ``None`` is a deliberate "forget this vendor",
         # not the empty call the guard below refuses.
