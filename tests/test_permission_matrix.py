@@ -43,7 +43,7 @@ TOOL_FOR_TAG: dict[str, tuple[str, str]] = {
 EXPECTED: dict[tuple[str, str], str] = {
     ("plan", "read"): "allow",
     ("plan", "write"): "deny",
-    ("plan", "exec"): "deny",
+    ("plan", "exec"): "ask",
     ("plan", "network"): "allow",
     ("plan", "send"): "deny",
     ("accept", "read"): "allow",
@@ -239,15 +239,38 @@ async def test_allowlist_does_not_cover_other_commands(
     await client.stop()
 
 
+async def test_plan_mode_asks_before_a_command_and_honours_the_allowlist(
+    daemon: Daemon, http: aiohttp.ClientSession, workdir: Path
+) -> None:
+    """``plan`` asks for a command instead of refusing it, so a planner can
+    check a version or run the tests; an allowlisted command runs unasked."""
+    client = await connect(http, daemon)
+    client.approval_mode = "allow"
+    session_id = await open_session(client, workdir, "plan")
+
+    first = await prompt(client, session_id, "use shell")
+    assert await client.wait_turn(first) == "complete"
+    assert len(client.approval_requests) == 1
+    assert client.of_kind("error") == []
+
+    await client.ok("permission.allowlist.add", {"pattern": "^ls( .*)?$", "scope": "project"})
+    second = await prompt(client, session_id, "use shell")
+    assert await client.wait_turn(second) == "complete"
+    assert len(client.approval_requests) == 1, "the allowlisted command must not ask"
+    assert [item["payload"]["ok"] for item in client.of_kind("tool.result")] == [True, True]
+
+    await client.stop()
+
+
 async def test_allowlist_never_promotes_a_denial(
     daemon: Daemon, http: aiohttp.ClientSession, workdir: Path
 ) -> None:
-    """``plan`` denies exec outright; an allowlist entry may not override it."""
+    """``plan`` still refuses a write; nothing in the allowlist can lift that."""
     client = await connect(http, daemon)
     session_id = await open_session(client, workdir, "plan")
-    await client.ok("permission.allowlist.add", {"pattern": "^ls( .*)?$", "scope": "project"})
+    await client.ok("permission.allowlist.add", {"pattern": ".*", "scope": "project"})
 
-    turn_id = await prompt(client, session_id, "use shell")
+    turn_id = await prompt(client, session_id, "use write_file")
     assert await client.wait_turn(turn_id) == "complete"
     assert [e["payload"]["code"] for e in client.of_kind("error")] == ["mode_denied"]
     assert [item["payload"]["ok"] for item in client.of_kind("tool.result")] == [False]

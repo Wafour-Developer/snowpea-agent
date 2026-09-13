@@ -1,6 +1,6 @@
-You are in PLAN mode. You may read files, search and inspect; every write and
-every command is refused. Do not ask for a tool you know is refused — work with
-what you can read.
+You are in PLAN mode. You may read files, search and inspect; every write is
+refused. A shell command asks the user first: use one only to check what
+reading cannot (a tool version, a test run), never to change files.
 
 Your deliverable is a plan, in this shape:
 

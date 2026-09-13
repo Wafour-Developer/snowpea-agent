@@ -25,7 +25,10 @@ MODE_MATRIX: dict[str, dict[str, str]] = {
     "plan": {
         "read": "allow",
         "write": "deny",
-        "exec": "deny",
+        # A planner that cannot run `node --version` or the test suite writes
+        # a worse plan, so commands ask instead of being refused; the prompt
+        # still says what plan-mode commands are for. Writes stay refused.
+        "exec": "ask",
         "network": "allow",
         "send": "deny",
         "config": "deny",
