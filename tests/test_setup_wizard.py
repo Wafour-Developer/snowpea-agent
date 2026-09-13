@@ -1063,3 +1063,13 @@ def test_configured_vendors_render_as_filled_circles() -> None:
     assert "(○)" in ui.render_item(plain, multi=False, selected=False, cursor=False).plain
     rendered = ui.render_item(configured, multi=False, selected=False, cursor=False).plain
     assert "[configured]" not in rendered
+
+
+def test_vendor_menu_rows_carry_each_tag_once() -> None:
+    state = WizardState.from_settings(Settings())
+    state.select_vendor("local")
+    state.base_url = "http://localhost:11434/v1"
+    state.model = "llama"
+    rows = {vendor: tags for vendor, _label, tags in wizard._vendor_options(state)}  # noqa: SLF001
+    assert rows["local"].count("active") == 1
+    assert ui.CONFIGURED in rows["local"]
