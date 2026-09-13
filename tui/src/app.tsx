@@ -65,6 +65,7 @@ import { createAudioClient, describeAudioError, type AudioClient } from "./rpc/a
 import { INHERIT_REF, modelOptions, modelSource, type ModelOption } from "./state/models.js";
 import { lspTable, readLspStatus } from "./state/lsp.js";
 import { delegationHint, delegationLabel } from "./state/delegation.js";
+import { agentCandidates } from "./state/agent-completion.js";
 import type { LocalAudio } from "./util/audio-tools.js";
 import {
   addAttachments,
@@ -347,6 +348,8 @@ export function App({
    * simply omits the tag rather than guessing "global".
    */
   const [sessionModelSource, setSessionModelSource] = useState<string | null>(null);
+  /** `agents.models`: which model profile each agent is assigned. */
+  const [agentModels, setAgentModels] = useState<Record<string, string>>({});
   /** Options for the `/model` picker, or null while it is closed. */
   const [modelPicker, setModelPicker] = useState<ModelOption[] | null>(null);
   /** What the daemon can do with audio; the prop is the starting point. */
@@ -556,6 +559,17 @@ export function App({
       });
 
     refreshLsp();
+
+    // Which model each agent is assigned, for the completion list's tag.
+    void client
+      .call("settings.get", { scope: "global" })
+      .then((result) => {
+        const assigned = ((result?.settings as any)?.agents?.models ?? {}) as Record<string, string>;
+        setAgentModels(assigned);
+      })
+      .catch(() => {
+        /* advisory: the rows simply carry no model tag. */
+      });
 
     // How many tools this session has; the HUD shows the count.
     void client
@@ -953,6 +967,12 @@ export function App({
         verbOffset: state.messages.length,
       });
   const indicatorText = workingText === null ? null : `${workingText}${queuedSuffix}`;
+
+  /** Everything `/delegate` and `$` can complete to. */
+  const completableAgents = useMemo(
+    () => agentCandidates({ known: knownAgents, teamTasks: state.teamTasks, models: agentModels }),
+    [knownAgents, state.teamTasks, agentModels],
+  );
 
   // `$agent …` in the draft: say who it is about to go to.
   const delegation = useMemo(
@@ -1733,6 +1753,7 @@ export function App({
           append={append}
           onAppended={() => setAppend(null)}
           completions={completions}
+          agents={completableAgents}
           onChange={(next) => {
             setDraft(next);
             if (next.length > 0 && state.errors.length > 0) dispatch({ type: "errors/clear" });
