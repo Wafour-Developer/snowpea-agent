@@ -56,19 +56,19 @@ it("$agent task goes to the daemon as a prompt, so the main agent answers", asyn
   }
 });
 
-it("/delegate reaches the daemon's command table", async () => {
-  const { call, client, stdin, app } = open();
+it("/delegate goes to the daemon as a prompt too, and shows in the transcript", async () => {
+  const { call, client, stdin, stdout, app } = open();
   try {
     await sleep(150);
     await type(stdin, "/delegate executor fix tests", 8);
     stdin.write("\r");
-    await sleep(150);
+    await sleep(200);
 
-    const ran = call.mock.calls.filter(([method]) => method === "command.run");
-    expect(ran).toHaveLength(1);
-    expect(ran[0][1]).toMatchObject({ name: "delegate", args: "executor fix tests" });
-    expect(client.prompt).not.toHaveBeenCalled();
+    expect(client.prompt).toHaveBeenCalledWith("s1", "/delegate executor fix tests");
     expect(call).not.toHaveBeenCalledWith("agent.spawn", expect.anything());
+    expect(call.mock.calls.filter(([method]) => method === "command.run")).toHaveLength(0);
+    // The line is in the conversation, not swallowed by a command path.
+    expect(stdout.text()).toContain("/delegate executor fix tests");
   } finally {
     app.unmount();
   }
