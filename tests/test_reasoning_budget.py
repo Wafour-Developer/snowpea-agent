@@ -183,6 +183,43 @@ async def test_reasoning_is_published_and_never_stored(daemon: Daemon, tmp_path:
     assert recorder.texts().strip() == "LGTM"
 
 
+async def test_a_long_think_is_published_in_windows_not_per_fragment(
+    daemon: Daemon, tmp_path: Path
+) -> None:
+    """Fragments inside one window become one event, and nothing is lost.
+
+    The provider streams thinking eight characters at a time, and every event
+    published is a repaint in every attached surface.  A minutes-long think
+    therefore has to reach the wire as a handful of events carrying the same
+    text and the same running total, not as one event per fragment — that rate
+    is what made the TUI flicker through a long turn.
+    """
+    core = daemon.core
+    assert core is not None
+    thought = "so then I considered the alternative and rejected it. " * 12
+    session = await _session(
+        core,
+        tmp_path,
+        {
+            "steps": [{"match": "plan", "reasoning": thought, "text": "done"}],
+            "default": {"text": ""},
+        },
+    )
+    recorder = _watch(core, session)
+
+    await run_turn(core, session, "plan this")
+
+    published = recorder.of_kind("message.reasoning")
+    fragments = -(-len(thought) // 8)  # what the fake provider streams
+    assert fragments > 50, "the fixture is too short to say anything about the rate"
+    # Nothing dropped, nothing reordered, and the total is still the total.
+    assert "".join(str(e["payload"]["text"]) for e in published) == thought
+    assert published[-1]["payload"]["chars"] == len(thought)
+    # Every fragment lands inside one window here, so this is the floor: the
+    # leading fragment, then one flush.
+    assert len(published) <= 5, f"{len(published)} events for {fragments} fragments"
+
+
 async def test_a_budget_spent_on_thinking_is_retried_without_it(
     daemon: Daemon, tmp_path: Path
 ) -> None:

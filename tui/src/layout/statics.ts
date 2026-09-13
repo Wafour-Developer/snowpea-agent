@@ -16,10 +16,49 @@
  *     run reaches the scrollback as one summary line, which can only be written
  *     once the run is known to be over.
  *
+ * That second rule is bounded by height. What is held stays on screen and is
+ * repainted on every frame, so a long turn's worth of edits must not accumulate
+ * there: `liveRows` caps the hold at what the layout has room for.
+ *
  * Pure, so `test/statics.test.ts` can check the cursor without a terminal.
  */
 
 import type { State, TimelineItem } from "../state/store.js";
+import { diffLines, toolCallLines } from "./transcript.js";
+
+/**
+ * Rows a held-back entry is assumed to cost when it cannot be measured.
+ *
+ * Only reached for a tool call or diff the state no longer knows about, which
+ * is a race rather than a normal path; one row is the smallest honest guess.
+ */
+const UNKNOWN_ENTRY_ROWS = 1;
+
+/**
+ * Rows a card spends on chrome the flat `…Lines` helpers do not produce.
+ *
+ * The inline layout draws components, not lines: a card carries a margin row
+ * and may fold its tail behind a "… n more" line. Counting two rather than
+ * measuring the components keeps this module off the components' internals,
+ * and erring high is the safe direction — it releases an entry to the
+ * scrollback a little early, where the worst case is a summary line split in
+ * two, while erring low brings back the full-screen clear this bound exists to
+ * prevent.
+ */
+const ENTRY_CHROME_ROWS = 2;
+
+/** Rows this entry occupies in the live region, unexpanded and rounded up. */
+export function entryRows(state: State, item: TimelineItem): number {
+  if (item.kind === "tool") {
+    const call = state.toolCalls.find((c) => c.callId === item.id);
+    return call ? toolCallLines(call, false).length + ENTRY_CHROME_ROWS : UNKNOWN_ENTRY_ROWS;
+  }
+  if (item.kind === "diff") {
+    const diff = state.diffs.find((d) => d.id === item.id);
+    return diff ? diffLines(diff).length + ENTRY_CHROME_ROWS : UNKNOWN_ENTRY_ROWS;
+  }
+  return UNKNOWN_ENTRY_ROWS;
+}
 
 /** True once this entry will never change again. */
 export function isSettled(state: State, item: TimelineItem): boolean {
@@ -41,7 +80,11 @@ export function isSettled(state: State, item: TimelineItem): boolean {
  * Never goes backwards: `cursor` is what was already released, and entries that
  * left the live region cannot come back.
  */
-export function settledCount(state: State, cursor = 0): number {
+export function settledCount(
+  state: State,
+  cursor = 0,
+  liveRows = Number.POSITIVE_INFINITY,
+): number {
   const total = state.timeline.length;
   const start = Math.max(0, Math.min(Math.floor(cursor), total));
   let count = start;
@@ -57,10 +100,24 @@ export function settledCount(state: State, cursor = 0): number {
   //
   // Either way, a non-tool, non-diff entry after them, or the end of the turn,
   // proves there is nothing more to come.
+  //
+  // Both reasons are about the newest part of the run, so the hold is bounded
+  // by what there is room for. An implementing turn can finish thirty edits
+  // before it says anything, and holding all of them keeps thirty cards —
+  // diffs included — in the live region for minutes. Ink redraws that region
+  // on every frame, and once it is as tall as the terminal it clears the
+  // screen and rewrites the whole scrollback before each one, which is what a
+  // long turn looked like to the user: continuous flicker. `liveRows` is what
+  // the inline layout has left for the live region; entries past it are
+  // released early, at the cost of an extra summary line and a diagnostics
+  // badge on an edit that has already scrolled away.
   if (state.turnActive) {
+    let rows = 0;
     while (count > start) {
-      const kind = state.timeline[count - 1].kind;
-      if (kind !== "tool" && kind !== "diff") break;
+      const item = state.timeline[count - 1];
+      if (item.kind !== "tool" && item.kind !== "diff") break;
+      rows += entryRows(state, item);
+      if (rows > liveRows) break;
       count -= 1;
     }
   }

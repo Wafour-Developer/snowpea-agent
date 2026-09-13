@@ -52,7 +52,11 @@ import { useTerminalSize } from "./hooks/useTerminalSize.js";
 import { useDaemonInfo } from "./hooks/useDaemonInfo.js";
 import { useElapsed } from "./hooks/useElapsed.js";
 import { useClock } from "./hooks/useClock.js";
-import { createChildEventBuffer, type ChildEventBuffer } from "./state/coalesce.js";
+import {
+  createChildEventBuffer,
+  createLiveEventThrottle,
+  type ChildEventBuffer,
+} from "./state/coalesce.js";
 import { useSpinner } from "./hooks/useSpinner.js";
 import { useKnownAgents } from "./hooks/useKnownAgents.js";
 import { clampFocus, focusDown, focusUp, isInput, INPUT_FOCUS, type Focus } from "./state/focus.js";
@@ -555,6 +559,13 @@ export function App({
     );
     childEventsRef.current = childEvents;
 
+    // The same argument for this session's counters: a long thinking block
+    // emits one `message.reasoning` per delta and the provider reports usage
+    // as it goes, and all either of them moves is a number.
+    const liveEvents = createLiveEventThrottle<SessionEvent>((event) =>
+      dispatch({ type: "session/event", event }),
+    );
+
     client.setListeners({
       // A delegate's events arrive on its own session; they belong to that
       // agent's transcript, never appended to this one.
@@ -574,7 +585,7 @@ export function App({
           childEvents.push(event.sessionId, event);
           return;
         }
-        dispatch({ type: "session/event", event });
+        liveEvents.push(event);
       },
       onStatus: (status) => dispatch({ type: "status", status }),
       // An unattended turn raised a request the daemon broadcast to every
@@ -665,6 +676,7 @@ export function App({
 
     return () => {
       childEvents.dispose();
+      liveEvents.dispose();
       if (childEventsRef.current === childEvents) childEventsRef.current = null;
     };
   }, [
@@ -940,50 +952,10 @@ export function App({
     [hudSegments, contentWidth],
   );
 
-  // --- what has reached the scrollback --------------------------------------
-  // Appended during render, not from an effect: an effect would draw the
-  // just-finished entry once in the live region and move it to `<Static>` on
-  // the next pass, writing it to the terminal twice. Every step below is
-  // monotonic, so running it again for the same state changes nothing.
-  const released = settledCount(state, staticCursorRef.current);
-  if (released > staticCursorRef.current) {
-    staticBlocksRef.current = staticBlocksRef.current.concat(
-      releaseEntries(state, state.timeline.slice(staticCursorRef.current, released)),
-    );
-    staticCursorRef.current = released;
-  }
-
-  // A turn beginning or ending is also scrollback bookkeeping: the indicator
-  // measures from the start, and the end leaves one line behind.
+  // The turn's own clock, read once per render. The scrollback bookkeeping
+  // below measures the turn from it; it is deliberately not the 1 Hz `clock`,
+  // which exists to keep displays from rebuilding on every frame.
   const now = Date.now();
-  if (state.turnActive && !turnActiveRef.current) {
-    turnRef.current = {
-      startedAt: now,
-      inputTokens: state.usage.inputTokens,
-      outputTokens: state.usage.outputTokens,
-      errors: state.errors.length,
-    };
-  }
-  if (!state.turnActive && turnActiveRef.current && turnRef.current) {
-    const turn = turnRef.current;
-    turnCountRef.current += 1;
-    staticBlocksRef.current = staticBlocksRef.current.concat({
-      key: `turn-${turnCountRef.current}`,
-      kind: "note",
-      ok: state.errors.length === turn.errors,
-      text: turnSummaryLine({
-        ok: state.errors.length === turn.errors,
-        elapsedMs: now - turn.startedAt,
-        inputTokens: state.usage.inputTokens - turn.inputTokens,
-        outputTokens: state.usage.outputTokens - turn.outputTokens,
-      }),
-    });
-    turnRef.current = null;
-  }
-  turnActiveRef.current = state.turnActive;
-
-  const staticCursor = staticCursorRef.current;
-  const staticItems = staticBlocksRef.current;
 
   // --- who is working for this session ---------------------------------------
   // Everything on screen that counts time shows whole seconds, so it reads one
@@ -1101,6 +1073,16 @@ export function App({
     statusRows: layout.statusRows,
     bottomRows: layout.bottomRows,
   });
+  // Rows the inline live region may occupy before Ink starts clearing the
+  // screen on every frame. Full-screen draws a fixed window into the alternate
+  // buffer and never takes that branch, so nothing is bounded there.
+  const liveRegionRows = fullscreen
+    ? Number.POSITIVE_INFINITY
+    : Math.max(
+      1,
+      usableRows(terminal.rows) - layout.statusRows - layout.bottomRows,
+    );
+
   // The key handler reads the height through a ref: PgUp must move by whatever
   // is on screen now, without rebinding `useInput` on every resize.
   const agentWindowRowsRef = useRef(agentWindowRows);
@@ -1109,6 +1091,55 @@ export function App({
     () => sliceViewport(agentLines, agentWindowRows, agentScroll),
     [agentLines, agentWindowRows, agentScroll],
   );
+
+  // --- what has reached the scrollback --------------------------------------
+  // Appended during render, not from an effect: an effect would draw the
+  // just-finished entry once in the live region and move it to `<Static>` on
+  // the next pass, writing it to the terminal twice. Every step below is
+  // monotonic, so running it again for the same state changes nothing.
+  //
+  // It runs after the layout because the release is bounded by height: what is
+  // still live is repainted on every frame, so a long turn's finished edits
+  // have to reach the scrollback as they complete rather than piling up on
+  // screen until the turn ends.
+  const released = settledCount(state, staticCursorRef.current, liveRegionRows);
+  if (released > staticCursorRef.current) {
+    staticBlocksRef.current = staticBlocksRef.current.concat(
+      releaseEntries(state, state.timeline.slice(staticCursorRef.current, released)),
+    );
+    staticCursorRef.current = released;
+  }
+
+  // A turn beginning or ending is also scrollback bookkeeping: the indicator
+  // measures from the start, and the end leaves one line behind.
+  if (state.turnActive && !turnActiveRef.current) {
+    turnRef.current = {
+      startedAt: now,
+      inputTokens: state.usage.inputTokens,
+      outputTokens: state.usage.outputTokens,
+      errors: state.errors.length,
+    };
+  }
+  if (!state.turnActive && turnActiveRef.current && turnRef.current) {
+    const turn = turnRef.current;
+    turnCountRef.current += 1;
+    staticBlocksRef.current = staticBlocksRef.current.concat({
+      key: `turn-${turnCountRef.current}`,
+      kind: "note",
+      ok: state.errors.length === turn.errors,
+      text: turnSummaryLine({
+        ok: state.errors.length === turn.errors,
+        elapsedMs: now - turn.startedAt,
+        inputTokens: state.usage.inputTokens - turn.inputTokens,
+        outputTokens: state.usage.outputTokens - turn.outputTokens,
+      }),
+    });
+    turnRef.current = null;
+  }
+  turnActiveRef.current = state.turnActive;
+
+  const staticCursor = staticCursorRef.current;
+  const staticItems = staticBlocksRef.current;
 
   const lines = useMemo(
     () => (fullscreen ? transcriptLines(state, contentWidth, { expandedCall: expandedId }) : []),
