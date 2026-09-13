@@ -1031,3 +1031,35 @@ def test_a_browser_login_uses_the_declared_model_list_instead_of_the_api(
     out = capsys.readouterr().out
     assert "could not list models" not in out
     assert state.model == CODEX_MODELS[0]
+
+
+def test_add_another_model_accepts_a_row_number_and_rejects_unknown_ids(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Typing ``1`` at the provider-id prompt used to raise ``KeyError: '1'``
+    (live report, 2026-09-13); a number now means the row, and a typo is
+    reported and re-asked rather than crashing the wizard."""
+    monkeypatch.setattr(ui, "is_interactive", lambda *a, **kw: False)
+    # bogus id → re-ask; Enter ends the loop; Enter keeps the default model;
+    # Enter finishes the agent assignments.
+    answers = iter(["bogus", "", "", ""])
+    monkeypatch.setattr(ui, "ask_text", lambda *a, **kw: next(answers, ""))
+    state = WizardState.from_settings(Settings())
+    state.select_vendor("anthropic")
+    state.api_key = "k"
+    state.model = "claude"
+
+    wizard._configure_models(state, interactive=True, console=None, home=Path("/tmp"))  # noqa: SLF001
+
+    assert "unknown provider id: bogus" in capsys.readouterr().out
+
+
+def test_configured_vendors_render_as_filled_circles() -> None:
+    from snowpea_core.setup.screens import ScreenItem
+
+    configured = ScreenItem("openai", "OpenAI", ("paid", "active", ui.CONFIGURED), False, False)
+    plain = ScreenItem("xai", "xAI", ("paid",), False, False)
+    assert "(●)" in ui.render_item(configured, multi=False, selected=False, cursor=False).plain
+    assert "(○)" in ui.render_item(plain, multi=False, selected=False, cursor=False).plain
+    rendered = ui.render_item(configured, multi=False, selected=False, cursor=False).plain
+    assert "[configured]" not in rendered

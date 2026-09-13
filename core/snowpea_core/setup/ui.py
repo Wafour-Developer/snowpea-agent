@@ -61,6 +61,10 @@ def is_interactive(stream: IO[str] | None = None) -> bool:
 # ---------------------------------------------------------------------------
 
 
+#: Hidden tag a screen adds to rows that are already set up; drawn as ``(●)``.
+CONFIGURED = "configured"
+
+
 def render_item(item: ScreenItem, *, multi: bool, selected: bool, cursor: bool) -> Text:
     """One row, as rich markup."""
     if item.id == SKIP or item.id.startswith("action:"):
@@ -68,7 +72,10 @@ def render_item(item: ScreenItem, *, multi: bool, selected: bool, cursor: bool) 
     elif multi:
         marker = "[✓]" if selected else "[ ]"
     else:
-        marker = "(●)" if selected else "(○)"
+        # A configured vendor reads as filled even before it is chosen: the
+        # user asked for "active" rows to show ● so the state is visible at a
+        # glance; the cursor ❯ still marks the row Enter will pick.
+        marker = "(●)" if selected or CONFIGURED in item.tags else "(○)"
     line = Text()
     line.append("❯ " if cursor else "  ", style="bold cyan" if cursor else "")
     line.append(marker + " ")
@@ -76,6 +83,8 @@ def render_item(item: ScreenItem, *, multi: bool, selected: bool, cursor: bool) 
     if item.default:
         line.append(f" {STAR}", style="yellow")
     for tag in item.tags:
+        if tag == CONFIGURED:
+            continue  # drawn as the filled circle, not as a bracket tag
         style = {"active": "green", "default": "yellow"}.get(tag, "dim")
         line.append(f"  [{tag}]", style=style)
     return line

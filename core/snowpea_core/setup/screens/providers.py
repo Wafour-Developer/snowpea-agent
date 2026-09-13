@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from snowpea_core.setup import ui
 from snowpea_core.setup.catalog import CatalogItem, vendor_auth_tags, vendor_catalog
 from snowpea_core.setup.screens import Screen, ScreenItem, skip_item
 from snowpea_core.setup.state import SKIP, WizardState
@@ -26,7 +27,7 @@ def build(state: WizardState, catalog: Sequence[CatalogItem] | None = None) -> S
         ScreenItem(
             id=item.id,
             label=item.label,
-            tags=item.tags + vendor_auth_tags(item.id),
+            tags=item.tags + vendor_auth_tags(item.id) + ((ui.CONFIGURED,) if item.active else ()),
             selected=item.id == state.vendor,
             default=item.default,
             active=item.active,
