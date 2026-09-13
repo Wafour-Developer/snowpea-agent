@@ -1229,17 +1229,11 @@ export function App({
   const submit = useCallback(
     (text: string) => {
       if (resumingRef.current || update.phase === "running" || update.phase === "done") return;
-      // `$executor fix the tests` is the compact, explicit delegation form.
-      // The daemon validates both the name and membership of the active team.
-      const directDelegate = /^\$([A-Za-z0-9._-]+)\s+([\s\S]+)$/.exec(text.trim());
-      if (directDelegate) {
-        void client.call("agent.spawn", {
-          sessionId,
-          name: directDelegate[1],
-          task: directDelegate[2].trim(),
-        }).catch((error: unknown) => dispatch({ type: "error", message: String(error) }));
-        return;
-      }
+      // `$executor fix the tests` goes through the prompt like anything else.
+      // Spawning the agent from here instead would run the delegate and stop:
+      // nothing would carry its report back into the conversation, and the main
+      // agent would never answer. The daemon rewrites the prefix and runs the
+      // whole turn — delegate, result, reply.
       // `/update` is a core builtin (headless and IDE run it as a command), but
       // in the TUI it checks freshly before opening the confirmation banner.
       if (/^\/update\s*$/.test(text.trim())) {

@@ -38406,15 +38406,6 @@ function App2({
   const submit = (0, import_react37.useCallback)(
     (text) => {
       if (resumingRef.current || update.phase === "running" || update.phase === "done") return;
-      const directDelegate = /^\$([A-Za-z0-9._-]+)\s+([\s\S]+)$/.exec(text.trim());
-      if (directDelegate) {
-        void client.call("agent.spawn", {
-          sessionId,
-          name: directDelegate[1],
-          task: directDelegate[2].trim()
-        }).catch((error) => dispatch({ type: "error", message: String(error) }));
-        return;
-      }
       if (/^\/update\s*$/.test(text.trim())) {
         void client.checkUpdate(true).then((check) => {
           setUpdate((current) => fromCheck(current, check));
