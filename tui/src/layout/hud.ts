@@ -95,6 +95,8 @@ export interface HudInput {
   sessionId?: string | null;
   provider: string | null;
   model: string | null;
+  /** Where that model came from: pin, profile, project, global. */
+  modelSource?: string | null;
   mode: Mode;
   usage: { inputTokens: number; outputTokens: number };
   /** Context-window usage; the segment is hidden until the daemon reports it. */
@@ -160,7 +162,9 @@ export function buildHudSegments(input: HudInput): HudSegment[] {
   const model = [input.provider, input.model].filter(Boolean).join("/");
   segments.push({
     key: "model",
-    text: `Model: ${model || "default"}`,
+    // The source matters when two places could have set it: a session pin and
+    // a project default look identical until one of them is named.
+    text: `Model: ${model || "default"}${input.modelSource ? ` (${input.modelSource})` : ""}`,
     dimColor: true,
     priority: 3,
   });

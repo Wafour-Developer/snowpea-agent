@@ -119,6 +119,21 @@ export interface Usage {
   outputTokens: number;
 }
 
+/**
+ * A prompt the daemon took but has not started yet.
+ *
+ * Sending while a turn is running queues the prompt rather than refusing it,
+ * and the daemon says so with `turn.queued`. The text is not in that event —
+ * this surface is the one that knows what it sent — so it is attached when
+ * `session.prompt` answers with the same turn id.
+ */
+export interface QueuedPrompt {
+  turnId: string;
+  text: string;
+  /** 1-based place behind the running turn. */
+  position: number;
+}
+
 /** Ordered render list; each item points at one of the collections below. */
 export type TimelineItem =
   | { kind: "message"; id: string }
@@ -152,6 +167,16 @@ export interface State {
   compactions: CompactionEntry[];
   /** Tools the session has available, from `tool.list`. */
   toolCount: number | null;
+  /** Prompts accepted but not started, oldest first. */
+  queued: QueuedPrompt[];
+  /**
+   * Text of prompts by turn id, until their turn finishes.
+   *
+   * `session.prompt` answers with the turn id and the `turn.queued` event can
+   * arrive either side of that answer, so the text is parked here and picked up
+   * by whichever of the two comes second.
+   */
+  promptTexts: Record<string, string>;
   /**
    * Transcripts of the child sessions delegates run in, keyed by session id.
    *
@@ -184,6 +209,8 @@ export const initialState: State = {
   context: null,
   compactions: [],
   toolCount: null,
+  queued: [],
+  promptTexts: {},
   children: {},
   lastSeq: 0,
   turnActive: false,
@@ -196,6 +223,8 @@ export type Action =
   | { type: "mode"; mode: Mode }
   | { type: "commands"; commands: CommandInfo[] }
   | { type: "tools"; count: number }
+  /** `session.prompt` answered: this turn id is the text we just sent. */
+  | { type: "prompt/turn"; turnId: string; text: string }
   | {
       type: "user/message";
       text: string;
@@ -469,9 +498,32 @@ function applySessionEvent(state: State, event: SessionEvent): State {
         errors: [...base.errors, `${payload.code ?? "error"}: ${payload.message ?? ""}`],
       };
 
+    case "turn.queued": {
+      const turnId = String(payload.turnId ?? "");
+      if (turnId.length === 0) return base;
+      const position = Number(payload.position ?? base.queued.length + 1);
+      const index = base.queued.findIndex((entry) => entry.turnId === turnId);
+      if (index !== -1) {
+        const queued = base.queued.slice();
+        queued[index] = { ...queued[index], position };
+        return { ...base, queued };
+      }
+      // The prompt call may already have said what this turn is.
+      const text = base.promptTexts[turnId] ?? "";
+      return { ...base, queued: [...base.queued, { turnId, text, position }] };
+    }
+
+    case "turn.dequeued": {
+      const turnId = String(payload.turnId ?? "");
+      return { ...base, queued: base.queued.filter((entry) => entry.turnId !== turnId) };
+    }
+
     case "turn.done": {
+      const finished = String(payload.turnId ?? "");
+      const promptTexts = { ...base.promptTexts };
+      if (finished) delete promptTexts[finished];
       const messages = base.messages.map((m) => (m.streaming ? { ...m, streaming: false } : m));
-      return { ...base, messages, turnActive: false };
+      return { ...base, messages, promptTexts, turnActive: false };
     }
 
     default:
@@ -505,6 +557,15 @@ export function reducer(state: State, action: Action): State {
 
     case "tools":
       return { ...state, toolCount: action.count };
+
+    case "prompt/turn": {
+      const promptTexts = { ...state.promptTexts, [action.turnId]: action.text };
+      const index = state.queued.findIndex((entry) => entry.turnId === action.turnId);
+      if (index === -1) return { ...state, promptTexts };
+      const queued = state.queued.slice();
+      queued[index] = { ...queued[index], text: action.text };
+      return { ...state, queued, promptTexts };
+    }
 
     case "errors/clear":
       return state.errors.length === 0 ? state : { ...state, errors: [] };

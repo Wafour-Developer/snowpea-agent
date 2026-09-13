@@ -43,7 +43,7 @@ import {
   type TimelineItem,
   type ToolCallEntry,
 } from "./state/store.js";
-import { derivePhase, turnSummaryLine, workingLine } from "./state/working.js";
+import { derivePhase, queuedLabel, turnSummaryLine, workingLine } from "./state/working.js";
 import { cycleMode } from "./state/mode.js";
 import { useTerminalSize } from "./hooks/useTerminalSize.js";
 import { useDaemonInfo } from "./hooks/useDaemonInfo.js";
@@ -62,6 +62,8 @@ import {
   type SpeechHandle,
 } from "./state/audio-runtime.js";
 import { createAudioClient, describeAudioError, type AudioClient } from "./rpc/audio.js";
+import { modelOptions, modelSource, type ModelOption } from "./state/models.js";
+import { delegationHint, delegationLabel } from "./state/delegation.js";
 import type { LocalAudio } from "./util/audio-tools.js";
 import {
   addAttachments,
@@ -112,6 +114,8 @@ import { ConfirmMenu, type ConfirmOption } from "./components/ConfirmMenu.js";
 import { StatusHud } from "./components/StatusHud.js";
 import { AgentPanel } from "./components/AgentPanel.js";
 import { AttachmentChips } from "./components/AttachmentChips.js";
+import { ModelPicker } from "./components/ModelPicker.js";
+import { QueuedPrompts } from "./components/QueuedPrompts.js";
 import { AgentTranscript } from "./components/AgentTranscript.js";
 import { SectionRule } from "./components/SectionRule.js";
 import { LaunchBanner } from "./components/LaunchBanner.js";
@@ -325,6 +329,16 @@ export function App({
   const [insert, setInsert] = useState<string | null>(null);
   /** Keystroke that moves focus back from a status/agent row into the draft. */
   const [append, setAppend] = useState<string | null>(null);
+  /**
+   * Where the session's model came from, when the daemon says.
+   *
+   * `session.list` does not carry a source tag yet; `modelSource` reads one if
+   * a later daemon adds it and answers null until then, which is why the HUD
+   * simply omits the tag rather than guessing "global".
+   */
+  const [sessionModelSource, setSessionModelSource] = useState<string | null>(null);
+  /** Options for the `/model` picker, or null while it is closed. */
+  const [modelPicker, setModelPicker] = useState<ModelOption[] | null>(null);
   /** What the daemon can do with audio; the prop is the starting point. */
   const [capabilities, setCapabilities] = useState<AudioCapabilities>(audio);
   /** The recording in flight, and the reply being spoken. */
@@ -391,6 +405,9 @@ export function App({
    */
   const [scrollOffset, setScrollOffset] = useState(0);
   const modeToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Dropped queue entries, counted so one notice covers the whole flush. */
+  const droppedRef = useRef(0);
+  const droppedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const registryRef = useRef<SlashRegistry>(new SlashRegistry(client, sessionId));
   /** Update banner state; see state/update.ts. */
   const [update, setUpdate] = useState<UpdateState>(initialUpdateState);
@@ -453,10 +470,24 @@ export function App({
     client.setListeners({
       // A delegate's events arrive on its own session; they belong to that
       // agent's transcript, never appended to this one.
-      onSessionEvent: (event) =>
-        event.sessionId && event.sessionId !== activeSessionRef.current
-          ? dispatch({ type: "child/event", sessionId: event.sessionId, event })
-          : dispatch({ type: "session/event", event }),
+      onSessionEvent: (event) => {
+        // Interrupting drops whatever was waiting; the daemon says so one event
+        // at a time, and one line about all of them is what a person wants.
+        if (event.kind === "turn.dequeued" && (event.payload as any)?.reason === "dropped") {
+          droppedRef.current += 1;
+          if (droppedTimer.current) clearTimeout(droppedTimer.current);
+          droppedTimer.current = setTimeout(() => {
+            const count = droppedRef.current;
+            droppedRef.current = 0;
+            if (count > 0) showToast(`${count} queued prompt${count === 1 ? "" : "s"} dropped`);
+          }, 120);
+        }
+        if (event.sessionId && event.sessionId !== activeSessionRef.current) {
+          dispatch({ type: "child/event", sessionId: event.sessionId, event });
+          return;
+        }
+        dispatch({ type: "session/event", event });
+      },
       onStatus: (status) => dispatch({ type: "status", status }),
       // An unattended turn raised a request the daemon broadcast to every
       // surface; the queue is re-read rather than trusted from the payload.
@@ -482,6 +513,18 @@ export function App({
         // Another surface may have answered one of ours, or freed a slot that
         // lets a queued turn raise its own request; re-read the backlog.
         refreshApprovals();
+
+    // Where the model came from, when the daemon reports it.
+    void client
+      .call("session.list", {})
+      .then((result) => {
+        const sessions = Array.isArray(result?.sessions) ? result.sessions : [];
+        const mine = sessions.find((entry: any) => entry?.sessionId === sessionId);
+        setSessionModelSource(modelSource(mine));
+      })
+      .catch(() => {
+        /* advisory: the HUD just leaves the tag off. */
+      });
 
     // How many tools this session has; the HUD shows the count.
     void client
@@ -706,6 +749,7 @@ export function App({
         sessionId: state.sessionId,
         provider: state.provider,
         model: state.model,
+        modelSource: sessionModelSource,
         mode: state.mode,
         usage: state.usage,
         context: state.context,
@@ -729,6 +773,7 @@ export function App({
       state.sessionId,
       state.provider,
       state.model,
+      sessionModelSource,
       state.mode,
       state.usage,
       state.context,
@@ -840,6 +885,7 @@ export function App({
     voice.recording || (phase.kind !== "idle" && phase.kind !== "approval"),
   );
   const turn = turnRef.current;
+  const queuedSuffix = state.queued.length > 0 ? ` · ${queuedLabel(state.queued.length)}` : "";
   const workingText = voice.recording
     ? recordingLabel(voice.startedAt, now)
     : voice.speaking
@@ -852,6 +898,13 @@ export function App({
         frame: spinnerFrame,
         verbOffset: state.messages.length,
       });
+  const indicatorText = workingText === null ? null : `${workingText}${queuedSuffix}`;
+
+  // `$agent …` in the draft: say who it is about to go to.
+  const delegation = useMemo(
+    () => delegationHint(draft, knownAgents.map((agent) => agent.name)),
+    [draft, knownAgents],
+  );
 
   const layout = computeLayout({
     // One row short of the terminal on purpose; see `RESERVED_FRAME_ROW`.
@@ -876,6 +929,8 @@ export function App({
       queueFocused,
       errorVisible: state.errors.length > 0,
       workingVisible: workingText !== null,
+      delegationVisible: delegation !== null,
+      queuedRows: Math.min(state.queued.length, 4),
       noticeVisible: Boolean(modeToast && modeToast.length > TOAST_INLINE_MAX),
     }),
   });
@@ -924,6 +979,35 @@ export function App({
     },
     [probe, showToast],
   );
+
+  /**
+   * `/model` with no argument: ask the daemon what there is and offer a list.
+   *
+   * Both sources are advisory — an older daemon, a vendor endpoint that refuses
+   * to list — so a failure still opens the picker with whatever came back,
+   * including the model already in use.
+   */
+  const openModelPicker = useCallback(() => {
+    const settings = client
+      .call("settings.get", { scope: "global" })
+      .catch(() => ({ settings: {} }));
+    const discovered = client
+      .call("provider.models", state.provider ? { vendor: state.provider } : {})
+      .catch(() => ({ models: [], current: null }));
+
+    void Promise.all([settings, discovered]).then(([settingsResult, modelsResult]) => {
+      const document = (settingsResult?.settings ?? {}) as Record<string, any>;
+      const options = modelOptions({
+        profiles: document.models?.profiles ?? null,
+        defaultProfile: document.models?.default ?? null,
+        agentModels: document.agents?.models ?? null,
+        discovered: modelsResult?.models ?? null,
+        current: state.model ?? modelsResult?.current ?? null,
+        vendor: state.provider ?? modelsResult?.vendor ?? null,
+      });
+      setModelPicker(options);
+    });
+  }, [client, state.provider, state.model]);
 
   /** Ctrl+V with an image on the clipboard. */
   const takeClipboard = useCallback(() => {
@@ -1096,6 +1180,12 @@ export function App({
         );
         return;
       }
+      // `/model` with an argument is the daemon's command; bare `/model` is a
+      // list to pick from, which is this surface's job.
+      if (/^\/model\s*$/.test(text.trim())) {
+        openModelPicker();
+        return;
+      }
       // So are the ones that only move this surface's own switches.
       const attach = /^\/attach\s+(.+)$/.exec(text.trim());
       if (attach) {
@@ -1168,10 +1258,18 @@ export function App({
               size: attachment.size,
             })),
           );
-      void run.catch((error: unknown) => {
-        setRunningCommand(null);
-        dispatch({ type: "error", message: String(error) });
-      });
+      void run
+        .then((result) => {
+          // `turn.queued` carries only a turn id; this is the side that knows
+          // which prompt that id belongs to, so the queue can show its text.
+          const turnId = (result as { turnId?: string } | null)?.turnId;
+          if (turnId) dispatch({ type: "prompt/turn", turnId, text });
+          return result;
+        })
+        .catch((error: unknown) => {
+          setRunningCommand(null);
+          dispatch({ type: "error", message: String(error) });
+        });
     },
     [
       client,
@@ -1191,6 +1289,7 @@ export function App({
       localAudio,
       recordingPath,
       audioOffered,
+      openModelPicker,
       showToast,
       takePaste,
       toggleRecording,
@@ -1253,7 +1352,7 @@ export function App({
     }
     // A prompt on screen owns every other key: mode cycling, Ctrl+O and the
     // rest would otherwise fire underneath the question being asked.
-    if (state.pendingApproval || update.phase === "confirm") {
+    if (state.pendingApproval || update.phase === "confirm" || modelPicker) {
       return;
     }
 
@@ -1414,7 +1513,15 @@ export function App({
   /** Input block: the working line, the error row, the backlog, and the input. */
   const bottomNode = (
     <>
-      <WorkingIndicator line={workingText} />
+      <WorkingIndicator line={indicatorText} />
+
+      {delegation ? (
+        <Text color={delegation.known ? "magenta" : "yellow"} wrap="truncate-end">
+          {`[${delegationLabel(delegation)}]`}
+        </Text>
+      ) : null}
+
+      <QueuedPrompts queued={state.queued} width={contentWidth} />
 
       <AttachmentChips attachments={attachments} width={contentWidth} />
 
@@ -1422,6 +1529,19 @@ export function App({
         <Text color="cyan" wrap="truncate-end">
           {modeToast}
         </Text>
+      ) : null}
+
+      {modelPicker ? (
+        <ModelPicker
+          options={modelPicker}
+          width={contentWidth}
+          isActive={state.pendingApproval === null}
+          onCancel={() => setModelPicker(null)}
+          onChoose={(option) => {
+            setModelPicker(null);
+            submit(`/model ${option.ref}`);
+          }}
+        />
       ) : null}
 
       {update.phase === "confirm" ? (
