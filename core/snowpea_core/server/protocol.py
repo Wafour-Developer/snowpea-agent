@@ -1622,6 +1622,39 @@ class LspStatusResult(Payload):
     )
 
 
+class LspCatalogEntry(Payload):
+    """One registered language server, whether or not it has ever started."""
+
+    id: str = Field(description="Server id, e.g. 'pyright' or 'gopls'.")
+    languageIds: list[str] = Field(
+        default_factory=list,
+        description="LSP language ids this server's extensions map to.",
+    )
+    extensions: list[str] = Field(
+        default_factory=list,
+        description="Extensions or whole filenames this server claims.",
+    )
+    installable: bool = Field(
+        description="True when lsp.autoInstall could obtain it (npm/pip/go); "
+        "False means it must already be on PATH."
+    )
+    installHint: str | None = Field(
+        default=None, description="A command that installs it manually, e.g. 'pip install ty'."
+    )
+    disabled: bool = Field(
+        description="True when settings (lsp.disabled, a default-off id, or an "
+        "explicit lsp.servers override) keep this server from starting."
+    )
+
+
+class LspCatalogResult(Payload):
+    """``lsp.catalog`` — every registered server, for settings UIs (M13 §4)."""
+
+    servers: list[LspCatalogEntry] = Field(
+        default_factory=list, description="One row per registered server id."
+    )
+
+
 # --------------------------------------------------------------------------
 # registries
 # --------------------------------------------------------------------------
@@ -1676,6 +1709,12 @@ METHODS: dict[str, RpcMethod] = {
             Empty,
             LspStatusResult,
             "Report every language server the daemon has started and its state.",
+        ),
+        _m(
+            "lsp.catalog",
+            Empty,
+            LspCatalogResult,
+            "List every registered language server, regardless of whether it has started.",
         ),
         _m(
             "system.checkUpdate",
@@ -2027,6 +2066,7 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "settings.set",
         "setup.catalog",
         "lsp.status",
+        "lsp.catalog",
     }
 )
 
