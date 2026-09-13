@@ -125,7 +125,9 @@ duplicate them in one message.
 different approach. `agent/loop.py::_deny_call` → `_fail_call` emits
 `events.tool_result(callId, name, ok=False, ...)` and appends a `role="tool"` history message reading
 `Denied: {reason}. Choose a different action; do not retry the same call.`, with
-` In plan mode, finish by describing what you would do instead.` appended in plan mode.
+` In plan mode, finish the plan and call set_mode("accept") so the user can choose to start
+implementing; never ask them in prose to switch modes.` appended in plan mode, so a model that
+tried to edit is routed into the mode picker rather than into a request the user has to act on.
 
 `MAX_DENIALS_PER_TURN = 3` (`agent/loop.py:46`) bounds a model that only ever re-sends the refused
 call; the round loop counts denials and the third ends the turn via

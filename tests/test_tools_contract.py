@@ -70,6 +70,8 @@ CATALOG: dict[str, tuple[str, str]] = {
     # command it queues is chosen by that human, never by the model alone.
     "ask_user": ("interaction", "read"),
     "queue_command": ("interaction", "read"),
+    # set_mode only *asks* to change the mode; the switch is the user's answer.
+    "set_mode": ("interaction", "read"),
     "schedule_create": ("schedule", "send"),
     "schedule_list": ("schedule", "send"),
     "schedule_cancel": ("schedule", "send"),

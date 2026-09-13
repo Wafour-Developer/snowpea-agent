@@ -1,0 +1,18 @@
+{
+  "steps": [
+    {
+      "match": "계획을 마무리",
+      "text": "계획 끝",
+      "repeat": true,
+      "tool_calls": [{"name": "set_mode", "arguments": {"mode": "accept"}}]
+    },
+    {
+      "after_tool": "set_mode",
+      "text": "구현 시작",
+      "repeat": true,
+      "tool_calls": [{"name": "write_file", "arguments": {"path": "out.txt", "content": "x\n"}}]
+    },
+    {"after_tool": "write_file", "text": "완료", "repeat": true}
+  ],
+  "default": {"text": "fake default reply"}
+}

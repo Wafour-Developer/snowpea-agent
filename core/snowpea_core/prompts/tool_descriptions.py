@@ -112,6 +112,16 @@ ASK_USER = (
     "question is not agreement."
 )
 
+SET_MODE = (
+    "Ask the user to leave plan mode, and switch to what they pick. Call it the moment a "
+    "plan is finished with mode=\"accept\" (or \"auto\" when nothing needs watching) instead "
+    "of writing \"exit plan mode to start\" into your reply: the client draws a picker with "
+    "the mode you asked for first, and the user answers with one keypress. If they choose a "
+    "new mode it takes effect immediately, so keep going in the same turn and start "
+    "implementing the plan. If they stay in plan mode, or answer nothing, leave the plan as "
+    "your reply and change nothing. Never ask the user in prose to switch modes themselves."
+)
+
 QUEUE_COMMAND = (
     "Queue a slash command the user has just chosen, e.g. \"/ralph fix the flaky test\". "
     "It does not run inline: it starts as its own turn the moment this one ends, with its "
@@ -148,6 +158,7 @@ __all__ = [
     "LSP_WORKSPACE_SYMBOLS",
     "QUEUE_COMMAND",
     "READ_FILE",
+    "SET_MODE",
     "SHELL",
     "WRITE_FILE",
 ]
