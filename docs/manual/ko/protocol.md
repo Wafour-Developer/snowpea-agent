@@ -41,7 +41,7 @@ HTTP 엔드포인트는 프로브, 설치 스크립트, 디버깅을 위한 읽�
 | 영역 | 메서드 |
 |---|---|
 | system | `system.hello`, `system.info`, `system.health`, `system.shutdown` |
-| session | `session.create`, `session.list`, `session.resume`, `session.close`, `session.prompt`, `session.interrupt`, `session.setMode` |
+| session | `session.create`, `session.list`, `session.resume`, `session.close`, `session.prompt`, `session.interrupt`, `session.compact`, `session.deleteSaved`, `session.setMode` |
 | commands and tools | `command.list`, `command.run`, `tool.list` |
 | approvals | `approval.list`, `approval.respond`, `permission.allowlist.add` / `list` / `remove` |
 | providers | `provider.list`, `provider.configure`, `provider.loginWeb` |

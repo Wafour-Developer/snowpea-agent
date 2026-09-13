@@ -4,3 +4,6 @@ Contract docs (`docs/design/m*-contract.md`) are shared and were losing sections
 appended concurrently. From now on each story records its deviations in its own file here:
 `docs/design/deviations/US-0NN.md` (create, never edit another story's file). The lead folds the
 important ones back into the contract docs at milestone commits.
+
+Stories that are not numbered user stories use `CORE-<topic>.md` instead of `US-0NN.md` — the
+same one-file-per-story rule, named after the area of the core the work touched.

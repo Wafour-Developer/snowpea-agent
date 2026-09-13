@@ -53,6 +53,22 @@ The scheduler ticks every 15 seconds. When a job is due it creates a session in 
 
 Two things are worth knowing. First, an occurrence key of job id plus scheduled time is unique, so a job cannot fire twice for the same slot even if the daemon restarts mid-tick. Second, on start-up the scheduler catches up one-shot jobs it missed while the daemon was down, if they are less than an hour late; older ones are marked missed rather than run.
 
+## Reminders come back to the session that asked
+
+A job remembers where it came from. Whichever session registered it — a `/schedule` typed into a TUI session, or the `schedule` tool used inside a turn — is stamped on the job as `originSessionId`, and `job list --json` shows it. When the job fires, its answer is emitted into that session as a `message.done` event whose text is prefixed:
+
+```text
+⏰ Scheduled reminder (job_7f21c0)
+
+Yesterday's commits: 14 across three repositories…
+```
+
+So the reminder lands in the thread you asked from, and it is persisted there like any other message: open that session later and the reminder is in its history.
+
+The session does not have to still be open. A closed session is restored purely to take the delivery and is closed again immediately afterwards, so a firing job never leaves a session running behind your back. A live session is left alone.
+
+An explicit `--channel` is additive rather than a replacement. The originating session gets the reminder either way, and the channel gets the same text as well. When there is no origin session — a job registered before this existed, or one whose session has been deleted — and the channel could not be delivered, the text falls back to the jobs log at `$SNOWPEA_HOME/logs/jobs.log`.
+
 ## Channels
 
 | Channel | Goes to |

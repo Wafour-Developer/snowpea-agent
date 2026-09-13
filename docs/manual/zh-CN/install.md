@@ -45,6 +45,18 @@ snowpea --version
 
 终端 UI 需要 Node 20+ 在 `PATH` 中。无界面运行（`snowpea -c`）以及每个 `snowpea <subcommand>` 都不依赖 Node；只有 TUI 需要它。
 
+## 安装来源覆盖
+
+安装脚本接受一个来源覆盖，CI 和离线安装用的就是它：
+
+```bash
+sh install.sh --from-checkout
+SNOWPEA_WHEEL_URL=./snowpea_agent-0.1.0-py3-none-any.whl sh install.sh
+SNOWPEA_INSTALL_SOURCE=git+https://github.com/Wafour-Developer/snowpea-agent sh install.sh
+```
+
+`SNOWPEA_BIN_DIR` 改变 `snowpea` 可执行文件最终落到哪里，而 `--from-checkout` 安装的是脚本自己所在的那份 checkout。
+
 ## 从源码检出安装
 
 ```bash
@@ -60,13 +72,44 @@ uv run snowpea --version
 
 ## 升级
 
+snowpea 每天在后台检查一次是否有更新的发行版，并把答案缓存在 `$SNOWPEA_HOME/update-check.json` 中。没有你点头，什么都不会被安装。
+
+**在终端 UI 里。** 有更新在等着时，屏幕顶部会出现一条横幅：
+
+```text
+⬆ Update available v0.1.2 (current v0.1.1) — press U or type /update
+```
+
+按 `U`（或者输入 `/update`）并回答 `y`。升级在后台进行，横幅报告进度，完成后 snowpea 会以新版本自行重启。正在进行的回合绝不会被打断。
+
+**从命令行。**
+
+```bash
+snowpea update --check
+snowpea update
+```
+
+`--check` 报告当前版本和最新版本，不安装任何东西。不加它时，`snowpea update` 会执行升级、停止守护进程，并告诉你再次启动 `snowpea`。`snowpea --version` 也会提到有待处理的更新，但只用缓存里的答案，所以它绝不会等网络。
+
+升级会把输出写进 `$SNOWPEA_HOME/logs/update.log`。它执行的是 `uv tool install --force --reinstall`；如果 `uv` 不在 `PATH` 上，则改用安装脚本记录在 `$SNOWPEA_HOME/install.json` 里的方式；如果什么都不知道，snowpea 会打印出需要你手工执行的命令，而不是瞎猜。
+
+在 `$SNOWPEA_HOME/settings.json` 中有两个设置控制这件事：
+
+```json
+{ "updates": { "check": true, "channel": "auto" } }
+```
+
+`check: false` 关掉每天的后台检查，`/update` 和 `snowpea update` 仍可按需使用。`channel` 可以是 `auto`（包发布在 PyPI 上时用 PyPI，否则用仓库的 git tag）、`pypi` 或 `git`。
+
+如果想手工升级：
+
 ```bash
 uv tool upgrade snowpea-agent
 snowpea daemon stop
 snowpea --version
 ```
 
-升级后要停止守护进程。正在运行的守护进程会把旧代码留在内存里，而下一个连接进来的客户端会按照一个已经与已安装版本不匹配的协议版本进行协商。
+手工升级后要停止守护进程。正在运行的守护进程会把旧代码留在内存里，而下一个连接进来的客户端会按照一个已经与已安装版本不匹配的协议版本进行协商。
 
 ## 卸载
 
@@ -105,4 +148,4 @@ snowpea daemon start
 
 ## 下一步
 
-[Setup](../en/setup.md) —— 选择一个供应商并配好密钥。
+[Setup](setup.md) —— 选择一个供应商并配好密钥。

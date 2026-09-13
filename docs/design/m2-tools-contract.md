@@ -20,6 +20,9 @@ class ExecutionBackend(Protocol):
 - `backend.set(sessionId, kind, config)` RPC swaps `session.backend`; `ToolContext.backend` is that object. `/backend <kind> [json]` command (commands/backend_cmd.py). Every tool in `tools/fs.py`, `tools/shell.py`, `tools/git.py`, `tools/grep.py`, `tools/glob.py` MUST go through `ctx.backend` (never `open()`/`subprocess` directly) so AC-18 holds.
 
 ## 2. Tool catalog (names are the API; categories drive setup toggles)
+
+The `permission` column is the **declared** tag — what `tool.list` reports and what a hook or a surface may rely on. A tool may additionally implement `Tool.permission_for(args, session, core)` to re-tag an individual call (added in v0.1.x); a per-call tag may only be *at least as strict* as the declared one for the call it is given, so a failing `permission_for` can never widen a tool. `write_file`/`edit_file` re-tag to `config` via `tools/config_guard.py` (M1 §7) and the audio tools resolve `read` vs `network` from the configured backend.
+
 | category | tools | permission |
 |---|---|---|
 | file | read_file, write_file, edit_file, list_dir, glob, grep | read / write |
@@ -33,6 +36,14 @@ class ExecutionBackend(Protocol):
 | media | image_generate, video_generate, music_generate, text_to_speech | network |
 | mcp | `mcp__<server>__<tool>` (dynamic) | per server config, default network |
 
+The `delegate`, `schedule` and `memory` rows are no longer stubs (M5/M7 shipped). Two audio tools joined the catalog (CORE-multimodal, see `docs/design/m10-multimodal-audio-contract.md`):
+
+| category | tools | permission |
+|---|---|---|
+| audio | transcribe_audio, text_to_speech | declared `read` / `network`, **re-tagged per call** |
+
+`text_to_speech` is no longer studio-only: `tools/audio_tools.py` owns that name with the same schema, adds an optional `play`, and runs the whole backend chain. `tools/media.py` keeps the mapping `text_to_speech → generate_speech` in its `FORWARDS` table (that is how the audio code reaches studio) but registers no speech tool of its own. Both audio tools are `inactive` with a reason until a backend exists, mirroring the media tools, and both implement `permission_for`: `network` when the resolved backend is hosted (`openai`, `studio`), `read` when it is local. `text_to_speech` is *declared* `network` — the stricter of its two possibilities — so a failing hook can never widen it.
+
 Stubs (M5/M7 tools) are registered with `state="inactive"` and return `error{code:"not_implemented"}`; media tools are `inactive` until credentials exist and then flip to `active` (no restart) — `ToolRegistry.set_state(name, state)` + a `tool.state.changed` session event is NOT required; `tool.list` reflects current state.
 
 ## 3. Web search providers (`tools/search_providers/`)
@@ -45,7 +56,18 @@ class SearchProvider(Protocol):
     async def search(self, query: str, *, limit: int) -> list[SearchHit]   # SearchHit(title, url, snippet)
     async def extract(self, url: str) -> str | None    # optional; None → fallback to httpx+readability-lite
 ```
-Registry order (also the setup screen order): `ddgs`(★ default, no key) → `brave_free`(key) → `exa_free`(no key) → `keenable_free`(no key) → `parallel_free`(no key) → `tavily`(key optional) → `searxng`(self-hosted, `SEARXNG_URL`) → `firecrawl_selfhost`(self-hosted) → `exa`(paid) → `keenable`(paid) → `parallel`(paid) → `firecrawl`(paid) → `xai_grok`(paid). Only `ddgs`, `brave_free`, `tavily`, `searxng` need real HTTP implementations in M2; the others may be thin HTTP clients with the documented endpoint and must degrade with a clear `error{code:"search_provider_unavailable"}` — but every id MUST exist in the registry with correct tags. `web_search` uses `settings.search.provider` then falls back down the free chain on failure (log which). `web_extract` fetches with SSRF guard (block private/link-local; vendored `tools/url_safety.py` from Hermes) and truncates to `settings.tools.max_output_chars` (default 20k).
+Registry order (also the setup screen order, `PROVIDER_ORDER` in `tools/search_providers/__init__.py`): `ddgs`(★ default, no key) → `brave_free`(key) → `exa_free`(no key) → `keenable_free`(key) → `parallel_free`(key) → `tavily`(key) → `searxng`(self-hosted, `SEARXNG_URL`) → `firecrawl_selfhost`(self-hosted) → `exa`(paid) → `keenable`(paid) → `parallel`(paid) → `firecrawl`(paid, key optional) → `xai_grok`(paid).
+
+**Every catalog id MUST have a real client** (changed in v0.1.x, CORE-search-fix). The placeholder `ThinProvider` is retired from the catalog — it stays in `tools/search_providers/providers.py` so a plugin can register an honest refusal — and `tests/test_search_providers.py::test_every_catalog_id_has_a_real_client` pins that. The M2 text that allowed "thin HTTP clients with the documented endpoint" for all but four ids is **withdrawn**: it is what let `exa_free` answer from `ddgs` while claiming to be Exa.
+
+Tags are what the live endpoints actually do, verified keyless:
+- `exa_free` is **no key** and is the one `*_free` id that really is keyless — it drives Exa's official anonymous hosted MCP at `https://mcp.exa.ai/mcp` (`ExaMcpProvider`), not `api.exa.ai`. Paid `exa` keeps the keyed REST endpoint.
+- `keenable_free`, `parallel_free` and `tavily` are free *tiers*, not keyless endpoints; all three answer `401` without a key, so they are tagged **key required** and `available()` is False without one.
+- `firecrawl` (cloud) is **key optional**: its `/v1/search` answers keyless queries with real results.
+
+`FREE_CHAIN` is the **fallback** chain, ordered by what a user is likely to have configured (`tools/search_providers/__init__.py`): `ddgs` → `exa_free` → `searxng` → `brave_free` → `tavily` → `firecrawl_selfhost` → `firecrawl`. Every entry is still gated by `available()`. `web_search` uses `settings.search.provider` and then walks that chain. A fallback MUST be reported in three places (`tools/web.py`): `ToolResult.meta{provider, fallback_from, reason}`; a `[search via ddgs — fallback from exa_free: …]` prefix on the text handed to the model; and one non-fatal `error{code:"search_provider_unavailable"}` session event **per session** (not per turn). `tool.list` carries `ToolInfo.provider`, written as `exa_free → ddgs` when the configured id cannot run. The M2 wording "log which" is no longer sufficient.
+
+`web_extract` fetches with SSRF guard (block private/link-local; vendored `tools/url_safety.py` from Hermes) and truncates to `settings.tools.max_output_chars` (default 20k).
 
 ## 4. Browser providers (`tools/browser_providers/`)
 Ids: `local_chromium`(★ default, free, playwright headless chromium — add `playwright` dependency; install-on-first-use message if browsers missing), `camoufox`(free local), `browser_use_local`(free local), `browserbase`(paid), `firecrawl_cloud`(paid). Same meta dataclass. Only `local_chromium` needs a working implementation in M2 (navigate/click/type/scroll/snapshot via Playwright, one browser per session, closed on session close); others register with tags and return `error{code:"browser_provider_unavailable"}`.

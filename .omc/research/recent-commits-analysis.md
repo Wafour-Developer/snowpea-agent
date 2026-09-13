@@ -20,6 +20,8 @@ Repo: `/mnt/data/work/mediagen/snowpea` · Range analysed: `a06a190..22df464` (t
 3. [Contract deltas](#3-contract-deltas)
 4. [Cross-surface gap matrix](#4-cross-surface-gap-matrix)
 5. [Missing deviations docs](#5-missing-deviations-docs)
+6. **[Setup: provider/model configuration and the OAuth choices](#6-setup-providermodel-configuration-and-the-oauth-choices)** — priority deep dive (A)
+7. **[Per-agent model assignment](#7-per-agent-model-assignment)** — priority deep dive (B)
 
 ---
 
@@ -160,6 +162,15 @@ These gate the masking applied at `settings_handlers.py:58-70` (used at `:103`, 
 `:138`). **Any client calling `settings.get` — the TUI settings view, the IDE, a debug dump —
 receives the raw OAuth access token in plaintext instead of `"***"`.**
 **Fix:** add `"oauth_token"` (and `"oauthToken"` for the camelCase path) to both sets.
+
+> **AMENDED after the §6 deep dive:** R1 and R2 were both true at the commit analysed, and have
+> since been **fixed in the other session's uncommitted working tree** — `config/patch.py:15-28`
+> now carries one shared `SECRET_KEYS` including `oauth_token`/`oauthToken`/`access_token`/
+> `id_token`, `server/settings_handlers.py:54-61` imports it instead of keeping a second list, and
+> `config/settings.py:24-32,315-332` adds `FILE_MODE = 0o600` + `_chmod_quietly()`. Verified:
+> `stat -c '%a'` on a freshly written `settings.json` returns `600`. **Both fixes are still only in
+> a dirty tree — make sure that commit lands.** See §6.3 for the proof, including the raw leak
+> reproduced against `HEAD`'s own module.
 
 **R2 (High) — `settings.json` has no file-permission hardening, yet now holds OAuth tokens.**
 `Settings.save()` (`core/snowpea_core/config/settings.py:299-303`) does
@@ -1672,3 +1683,527 @@ paragraph ending with "Recorded here per `docs/design/deviations/README.md`.", t
 release note beyond version bumps, and `docs/design/deviations/` has no `US-` file for any of the
 TUI stories in this range even though `US-009`…`US-023` exist for earlier ones — the naming scheme
 has drifted from `US-0NN` to `CORE-*`, which the README does not yet acknowledge.
+
+---
+
+## 6. Setup: provider/model configuration and the OAuth choices
+
+> Priority deep dive (A). Commits `22df464`, `93be684`, the earlier device-code/PKCE work
+> (`docs/design/deviations/CORE-login-progress.md`), and `fe513d7`. Everything below is backed by
+> file:line or pasted command output from a scripted run against an **isolated `SNOWPEA_HOME`** in
+> the scratchpad — the user's real `~/.snowpea` was never touched.
+>
+> **Committed vs in-flight.** The untracked `core/snowpea_core/providers/openai_oauth.py` and
+> `codex_transport.py` (+ their tests) are **not wired into anything** —
+> `grep -rn "openai_oauth\|codex_transport" core/ tests/` hits only those files and their own
+> tests. They matter because they are the fix for §6.5's worst defect.
+
+### 6.1 Vendor × auth-method matrix
+
+Sources: `providers/presets.py:101-206` (`auth_methods`), `providers/auth_web.py:114-140`
+(`ENDPOINTS`), `setup/wizard.py:255-301` (what the wizard offers), `cli/commands.py:271-314`.
+
+| Vendor | `auth_methods` | Wizard reachable | CLI / RPC reachable |
+|---|---|---|---|
+| `anthropic` (`presets.py:110`) | `api_key` | no choice prompt | `setup --key`, `provider.configure` |
+| `openai` (`:120`) | `api_key`, `device_code`, `oauth_token` | **1 / 2 / 3** | `provider login openai`; `... --token` |
+| `openrouter` (`:129`) | `api_key`, `oauth_pkce` | **1 / 2** | `provider login openrouter`; `--token` **refused** (`commands.py:282`) |
+| `gemini` (`:140`) | `api_key`, `google_adc`, `oauth_token` | **1 / 2 / 3** | `provider login gemini`; `... --token` |
+| `xai` `:151`, `glm` `:159`, `minimax` `:167`, `kimi` `:175`, `deepseek` `:183`, `qwen` `:193` | `api_key` | no choice prompt | `setup --key` |
+| `local` (`:200`) | `api_key` (optional) | variant → base URL → optional key (`wizard.py:230-250`) | `setup --vendor local --base-url` |
+
+- `WEB_LOGIN_VENDORS` is **derived** as "more than one auth method" (`presets.py:246-248`) → exactly
+  `openai, openrouter, gemini`, matching `ENDPOINTS`. Consistent — and this is the set that grew
+  from 2 to 3 and broke the stale test in §2.2/F1.
+- `oauth_token` is **not** an `auth_web` flow: `method_for()` (`auth_web.py:209-220`) knows only
+  `device_code`/`oauth_pkce`/`google_adc`. It is a paste-a-token path implemented entirely in
+  `wizard.py:295-300` and `cli/commands.py:281-298`.
+- API-key-only vendors fail cleanly *but with the wrong exit code* — see **A-P3-3**:
+  ```
+  $ SNOWPEA_HOME=<scratch> uv run snowpea setup --login anthropic
+  snowpea: error{code:"login_unsupported"} anthropic has no browser login; run `snowpea setup --vendor anthropic --key <API key>` instead
+  $ echo $?   # → 0, not 2
+  ```
+
+### 6.2 The interactive flow as the user sees it
+
+Entry `wizard.run()` (`wizard.py:91-219`). Quick = providers → done (`:50-53`); Full = providers →
+search → browser → audio → tools → gateway → done (`:40-48`).
+
+**Screen ① "① LLM provider"** (`setup/screens/providers.py:11-32`) — eleven radio rows `(●)/(○)`,
+help text `"↑↓ to move, Enter to choose. A key is asked for after the list."`, each row tagged with
+its auth methods (`catalog.py:349-352`) and `[active]` when `registry.is_configured()`
+(`catalog.py:343`). The last row is `Skip — keep defaults`. Choosing a row calls
+`state.select_vendor()` (`providers.py:39-40`); **Skip does not** — which is what causes **A-P2-4**.
+
+**Step A — `_ask_for_key`** (`wizard.py:222-309`), the auth-method choice:
+
+- openrouter → `authentication [1=API key, 2=browser login] (Enter=1): `
+- openai / gemini → `authentication [1=API key, 2=browser login, 3=OAuth token (remote/headless)] (Enter=1): `
+- **`2`** → `_run_sync(auth_web.login(vendor))`. On success (`:287-293`) credentials merge into
+  `provider_configs[vendor]`. On `RpcError` (`:274-283`) it prints `login failed: <message>`, adds a
+  403 hint, and **re-prompts** (this is `fe513d7`). Ctrl-C/EOF (`:271-273`) → note
+  `"<vendor>: login cancelled — left unconfigured"`.
+- **`3`** → `<vendor> OAuth access token: ` read **masked**, sets `auth_method="oauth_token"`.
+  **No validation whatsoever.**
+- Anything else — including `"9"`, or `"3"` on openrouter — falls through to the API-key prompt
+  with **no error message** (**A-P3-1**).
+
+**Masking on screen is correct.** Every secret uses `ui.ask_text(..., secret=True)` → `_read_masked`
+(`ui.py:182-228`), echoing one `*` per character with backspace/ctrl-U, falling back to `getpass`
+when termios is unavailable. `state.summary()` (`state.py:320-342`) prints **no credential material**
+— only vendor/model/profile counts.
+
+**Non-TTY:** `ui.is_interactive()` (`ui.py:28-36`) false → `_ask_for_key`/`_ask_for_model`/
+`_configure_models` all early-return, so **no OAuth path is reachable non-interactively**.
+
+### 6.3 What gets persisted, exactly where
+
+Single write point: `WizardState.write()` (`state.py:268-318`) → `ProviderRegistry.configure()`
+(`registry.py:163-178`) → `Settings.save()`. File: `$SNOWPEA_HOME/settings.json` (`config/paths.py:60-61`).
+
+| Auth method | Keys written under `providers.<vendor>` | Written by |
+|---|---|---|
+| `api_key` | `api_key` (+ `model`/`base_url`/`variant`) | `state.py:151-153,159-165` |
+| `device_code` (openai) | `token`, `refresh_token`, `expires_in` — **no `auth_method`** | `auth_web.py:350-354` |
+| `oauth_pkce` (openrouter) | **nothing** — see **A-P1-1** | `wizard.py:287-291` |
+| `google_adc` (gemini) | `auth_method: "google_adc"` only | `auth_web.py:675-680` |
+| `oauth_token` | `oauth_token`, `auth_method: "oauth_token"` | `state.py:155-157`, `cli/commands.py:290` |
+
+Proven shape and mode:
+```
+$ SNOWPEA_HOME=<S>/home1 uv run snowpea setup --vendor openai --key sk-FAKE-KEY-123 --model gpt-4.1
+settings written to <S>/home1/settings.json
+  provider   openai  model gpt-4.1
+  models     1 profile · default openai:gpt-4.1
+$ stat -c '%a %n' <S>/home1/settings.json
+600 <S>/home1/settings.json          ← 0600 comes from the IN-FLIGHT chmod; HEAD has none
+```
+
+**The leak at HEAD, reproduced against HEAD's own module** (both allowlists omitted `oauth_token`):
+```
+HEAD mask_secrets -> {"providers": {"gemini": {"api_key": "***",
+                      "oauth_token": "ya29.REAL-OAUTH",   ← leaked verbatim
+                      "auth_method": "oauth_token", "token": "***", "refresh_token": "***"}}}
+```
+So at the analysed commit, `settings.get` over RPC, the `settings_get` tool, and any IDE settings
+view hand the raw OAuth bearer to every authenticated client — and into any transcript recording the
+response. **Fixed in the dirty tree** (`config/patch.py:15-28`, `server/settings_handlers.py:54-61`,
+`config/settings.py:24-32,315-332`), tagged "CORE-fixes-v017 R1/R2". Confirm it lands.
+
+### 6.4 Model discovery after auth
+
+`_ask_for_model` (`wizard.py:328-384`) → `providers/models.py:81-115`.
+
+- **When:** only from the `providers` screen and `_configure_models`, and only when interactive.
+  **A flag-driven run never discovers** — `--vendor` puts `providers` in `answered`
+  (`wizard.py:657`) so `_show` is skipped (`wizard.py:184-185`).
+- **Which vendors:** all. `openai_compat` → `GET {base_url}/models` (`models.py:154-163`);
+  `gemini_native` → `GET {base_url}/models` (`:166-176`); `anthropic_native` → merged with the
+  static preset list, **falling back to static on failure** (`:179-195`). Timeout 5 s (`models.py:39`).
+- **On failure:** `_ask_for_model` catches everything (`wizard.py:360-365`), prints
+  `could not list models (<exc>)` and falls back to a free-text `model id` prompt. Setup never
+  aborts on an unreachable vendor — deliberate (`wizard.py:331-337`).
+- **Caching:** in-process only — `models._CACHE` keyed `(vendor, base_url)`, TTL 600 s
+  (`models.py:42,47-48,61-73`). The wizard passes `refresh=True` (`:358`). **Nothing persists the
+  discovered list**: `settings.providers.<vendor>.models` is *read* by `registry.list()`
+  (`registry.py:376-379`) but **no code path writes it**.
+- **Defect:** discovery reads only `api_key` (`wizard.py:352-355`). After a device-code login the
+  credential is under `token`; after `oauth_token` under `oauth_token`; after `google_adc` there is
+  none. So the step immediately after a successful OAuth login shows
+  `could not list models (… HTTP 401 …)` → **A-P2-1**.
+
+### 6.5 Token expiry and refresh — the most important finding
+
+**There is no refresh logic anywhere in committed code.** `grep -rn "refresh_token\|expires_in\|expires_at"`
+over `core/` returns, outside the untracked WIP: `auth_web.py:351-354` (which **writes**
+`refresh_token`/`expires_in`), masking strings, and docs. **Nothing reads them.**
+
+| Path | Expiry story |
+|---|---|
+| `device_code` (openai) | **Broken.** Stores `refresh_token` and never uses it. `expires_in` is a bare **duration with no anchor timestamp** (`auth_web.py:353-354`), so even a future refresher could not tell if it is stale. Consumed as a bearer via `registry.api_key_for()`'s `token` fallback (`registry.py:101-113`) → expiry surfaces as `openai (gpt-4.1): HTTP 401: {…}` (`openai_compat.py:120-125`) with **no "re-run login" hint**. Per `8d3ca31` this is a ChatGPT-subscription token that `api.openai.com` rejects *from the first request*, so this flow is arguably broken today, not only on expiry. |
+| `oauth_pkce` (openrouter) | **Correct by construction** — mints a permanent OpenRouter API key (`auth_web.py:554-569`), nothing to expire. And the wizard throws it away (**A-P1-1**). |
+| `google_adc` (gemini) | **The only working refresh**, because snowpea delegates entirely. `gemini_native._oauth_token()` (`gemini_native.py:66-85`) shells `gcloud auth application-default print-access-token` on **every** `_client()` call; gcloud refreshes. Good errors (`:82-84`, `:69`). Cost: one subprocess per request, no caching. |
+| `oauth_token` (remote) | **Worst case.** No refresh token collected, no expiry recorded, **no validation at entry**. A Google access token lives ~1 h. Proven: `uv run snowpea provider login gemini --token FAKE-OAUTH-TOKEN` → `gemini: OAuth token saved to settings.json`. After expiry: opaque 401. Meanwhile `is_configured()` (`registry.py:157-160`) keeps reporting the vendor configured forever and the screen keeps showing `[active]`. |
+
+### 6.6 Re-running `snowpea setup`
+
+**Remembers:** vendor, model, base_url, variant, `has_saved_key`, per-vendor `provider_configs`,
+model profiles, default profile, agent assignments — all via `WizardState.from_settings()`
+(`state.py:68-127`).
+
+**Does NOT remember `auth_method` or `oauth_token`** — the `cls(...)` call at `state.py:103-127`
+never passes them. Verified: `from_settings: vendor=gemini has_saved_key=True auth_method=None`.
+They are reloaded only by `select_vendor()` (`state.py:131-143`), which **Skip never calls**.
+
+**Cross-vendor leakage: the fix holds.** `select_vendor` resets `api_key`/`oauth_token` and reloads
+per-vendor state. Verified end to end — configuring `anthropic` after `openai` left both blocks
+intact with no leak, and both model profiles survived.
+
+**Switching API key ↔ OAuth does NOT work cleanly** (**A-P1-2**), for two independent reasons:
+1. `ProviderRegistry.configure()` merges and **only removes a key when the incoming value is
+   `None`** (`registry.py:171-177`). `remember_current_provider`'s `block.pop("api_key")`
+   (`state.py:156`) mutates only the in-memory copy; the merge re-supplies the on-disk `api_key`.
+2. Both adapters **prefer `api_key` over OAuth**: `gemini_native.py:92-98`, `registry.py:314-316`.
+
+Proven, wizard path (existing API key → choose browser login):
+```
+settings.providers.gemini = {"api_key": "AIza-OLD-KEY", "model": "gemini-2.5-pro", "auth_method": "google_adc"}
+api_key_for(gemini) = AIza-OLD-KEY
+adapter prefers api_key? -> True | auth_method: google_adc
+```
+The user is told the login succeeded, `auth_method` says OAuth, and **every subsequent request still
+uses the stale API key**. The reverse direction works but leaves an orphaned `oauth_token` in
+`settings.json` forever.
+
+### 6.7 Defects and UX gaps (A)
+
+**A-P1-1 — OpenRouter browser login silently discards the API key it just minted.**
+`wizard.py:287-291`:
+```python
+block.update(result.credentials)   # {"api_key": "sk-or-v1-..."}
+block.pop("api_key", None)         # ← deletes the credential it just received
+```
+The pop is meant to clear a *stale* key when switching to browser auth, but it nukes the fresh one.
+`state.write()` then skips the empty block (`state.py:281-283`) while still setting
+`providers["default"] = "openrouter"` — the run ends with the default vendor **unconfigured** and the
+summary reading `openrouter: API key stored`. Untested: `tests/test_setup_wizard.py:152-172` covers
+only the gemini branch. **Fix:** clear stale keys *first*, then `block.update(result.credentials)`;
+add an openrouter wizard test asserting the key survives.
+
+**A-P1-2 — a stale `api_key` silently overrides every OAuth login** (both wizard and CLI). See §6.6.
+**Fix:** have `LoginResult.credentials` for non-`api_key` methods carry explicit `{"api_key": None, "token": None}`
+so `configure`'s `if value is None: merged.pop(key)` branch (`registry.py:173-174`) removes them; and/or
+make `auth_method` authoritative in `api_key_for`/`build` instead of letting key presence decide.
+
+**A-P1-3 — `device_code` has a refresh token and never refreshes; expiry is an opaque 401.**
+**Fix:** land the in-flight `providers/openai_oauth.py` + `codex_transport.py` — they already
+implement absolute `expires_at` (`openai_oauth.py:205-207`), `is_expired` (`:238-246`), refresh
+(`:260-298`) and refresh-on-401 (`codex_transport.py:453`) — and route `auth_web.login("openai")` to
+them. Minimum interim fix: store absolute `expires_at` at `auth_web.py:353`, and map a 401 from an
+OAuth-authenticated vendor to `ProviderError("login_required", "<vendor>: your login expired — run \`snowpea provider login <vendor>\`")`.
+
+**A-P1-4 — *(analysed commit only; fixed in the dirty tree)*** `oauth_token` masked by neither
+allowlist + `settings.json` written with no chmod. See §6.3 and the amendment on R1/R2. **Make sure
+that commit lands.**
+
+**A-P2-1 — model discovery runs unauthenticated after any OAuth login** (`wizard.py:352-355`).
+**Fix:** resolve the credential the way the registry does (reuse `api_key_for()`/`build()` semantics
+including the `token` fallback and the gcloud path) instead of hand-reading `api_key`.
+
+**A-P2-2 — `provider login <v> --token` accepts any string without a probe**
+(`cli/commands.py:287-298`, `wizard.py:295-300`). **Fix:** after writing, do one cheap authenticated
+`list_models` call and *warn* (not fail) on 401.
+
+**A-P2-3 — `device_code` never records `auth_method`** (`auth_web.py:350-354`), so no surface can
+distinguish an API-key openai from a device-code openai — exactly what an "your login expired"
+message would need. **Fix:** add `credentials["auth_method"] = "device_code"`.
+
+**A-P2-4 — `has_saved_key` disagrees between the two seeding paths**: `state.py:108` (`api_key`
+only) vs `state.py:141-143` (`api_key or token or oauth_token`). An OAuth user re-running setup and
+pressing Skip is shown `[Enter to use the environment]`, implying nothing is stored.
+
+**A-P2-5 — orphaned secrets at rest** after any auth switch (same root cause as A-P1-2).
+
+**A-P3-1 — invalid input at the auth-method prompt is silently swallowed** (`wizard.py:301`); the
+error branches correctly re-prompt, an unrecognised digit should too.
+**A-P3-2 — `oauth_token` is advertised as a "web login"** (`catalog.py:331-334`) though no browser
+is involved.
+**A-P3-3 — unsupported-login paths print the right error but exit 0**; `_fail(..., EXIT_USAGE)`
+returns 2 but the code is dropped between `provider_login` and process exit
+(`cli/commands.py:283-286`, dispatch `:1432`). Scripts cannot detect the failure.
+
+### 6.8 Comparison against Hermes
+
+A reference clone **is** available at `/tmp/hermes-ref` (`docs/vendoring-map.md` pins
+`NousResearch/hermes-agent @ 8d79c2ff`, MIT). **No auth code is vendored** — `core/snowpea_core/vendor/hermes/`
+contains only `tools/` — so this compares against the read-only reference clone.
+`README.md:208-219`'s table has **no auth or OAuth row**, so nothing below is derived from it.
+
+| Dimension | snowpea | hermes-agent @ 8d79c2f |
+|---|---|---|
+| LLM-auth code size | `auth_web.py`, 775 lines, 3 flows | `hermes_cli/auth*.py`, **8,633 lines** across 12 modules |
+| Refresh on OAuth tokens | none, except delegating gemini to `gcloud` | `auth_codex.py:465-478` refreshes **before every use** when expiring (configurable skew), under a cross-process lock with a re-read inside the lock |
+| Expiry representation | `expires_in` duration, **no anchor** (`auth_web.py:353-354`) | absolute `expires_at`/`expires_at_ms`/`last_refresh`, `expires_in` rebased on read (`tools/mcp_oauth.py:318-339`) |
+| Refresh-failure classification | n/a | `auth_codex.py:282-320` separates hard relogin-required (`invalid_grant`, `refresh_token_reused`, 401/403) from transient, and can adopt `~/.codex/auth.json` (`:359-392`) |
+| Refresh-token rotation | not modelled | explicitly modelled (`auth_oauth_grants.py:19-22,258-285`) |
+| Credential file mode | 0600 **only in the uncommitted tree** | `auth_oauth_grants.py:210-211` — `atomic_json_write(..., mode=0o600)` |
+| Credential store | one `settings.json` mixing config and secrets | dedicated `~/.hermes/auth.json` with per-provider blocks and labels |
+| Remote/headless UX | paste a raw token, no expiry, no validation | `auth_device_flow.py:45-98` detects a remote/SSH session, decides whether a graphical browser can open, prints a loopback SSH-forwarding hint |
+| Post-auth model choice | free-text fallback whenever discovery 401s | dedicated `auth_model_picker.py` (291 lines), grouped labels, confirmation guards, persisted choice |
+
+**Honest read:** snowpea's `auth_web.py` is a clean, data-driven, well-factored module and its
+`ENDPOINTS`-as-data design is *nicer* than Hermes' per-vendor sprawl. What it lacks is the entire
+**lifecycle half**: absolute expiry, refresh-before-use, refresh-on-401, relogin-vs-transient
+classification, a locked 0600 credential store, and a remote-session-aware login UX. The untracked
+`openai_oauth.py`/`codex_transport.py` are explicitly adapted from `hermes_cli/auth_codex.py`
+(docstring at `providers/openai_oauth.py:29-31`) and close most of the gap **for `openai` only** —
+leaving `gemini`'s `oauth_token` path with the same expiry cliff.
+
+---
+
+## 7. Per-agent model assignment
+
+> Priority deep dive (B). Commits `75893ed` (model profiles), `00c9d36` (built-in roles),
+> `cf78386` (project teams + short delegation). Claims are backed by file:line or by a live probe
+> run against an isolated `SNOWPEA_HOME` in the scratchpad.
+
+### 7.1 The real precedence chain
+
+`route_for()` is the whole policy, and it has **exactly one production call site**:
+`core/snowpea_core/session/manager.py:88` (verified by exhaustive grep — the only other hits are
+`tests/test_model_routing.py` and the definition).
+
+`config/model_routing.py:35-45`:
+```python
+35  if provider is not None or model is not None:
+36      return ModelRoute(provider, model)
+38  assignment = None
+39  if agent:
+40      assignment = settings.agents.models.get(agent)
+41  for reference in (assignment, definition_model, settings.models.default):
+42      route = resolve_reference(settings, reference)
+43      if route.provider is not None or route.model is not None:
+44          return route
+45  return ModelRoute()
+```
+
+**Actual chain — and it applies at session creation only:**
+1. explicit `provider`/`model` args to `sessions.create()`
+2. `settings.agents.models[<agent name>]` → profile id
+3. `definition_model` (the agent `.md` `model:` field) — **only passed by 2 of 5 callers**
+4. `settings.models.default` → profile id
+5. `ModelRoute(None, None)` → falls through to `ProviderRegistry.default_vendor()`/`model_for()` at
+   turn time (`agent/loop.py:252`, `providers/registry.py:301,139-149`), which **re-applies**
+   `models.default` at the vendor layer (`registry.py:358-360,142-144`).
+
+**Where reality diverges from the stated mental model — this is the headline of section B:**
+
+| Mental model | Reality |
+|---|---|
+| "tool call override" | ❌ **Does not exist.** `delegate_task`'s schema (`tools/delegate.py:83-113`) has `task`, `agent`, `tools`, `timeout` — **no `model`**. Same for `agent.spawn` (`server/agent_handlers.py:115-135`). |
+| "agent definition/profile" | Split into two rungs with **`agents.models` winning over the `.md`**, and rung 3 silently dropped on 3 of 5 create paths. |
+| "session pin" | ❌ **No per-session pin.** There is no `session.setModel` RPC — only `session.setMode` (`server/session_handlers.py:101,581`). `/model <name>` (`commands/model_cmd.py:96-97`) mutates `ctx.session.model` in memory and persists to `settings.providers.<vendor>.model` — **not** to `models.profiles`, and **not** to the session row (`session/store.py` has `update_mode` at :113 but **no `update_model`**), so it is **lost on `session.restore()`** (`session/manager.py:147-149`). |
+| "project settings" | ❌ **No project-level model settings exist at all.** `ProjectSettings` (`config/project.py:48-58`) has only `defaultMode`, `allowlist`, `backend`, `agents{max_concurrent, teams, activeTeam}`. Only **teams** are project-scoped. |
+| "global default" | ✅ `models.default`, global only. |
+
+**`agents.models` is global-only.** `ProjectAgentsSettings` (`config/project.py:40-45`) deliberately
+omits it, and `ProjectSettings` is `extra="allow"` (`:51`) — so a hand-added `"models": {...}` in
+`.snowpea/settings.json` is **silently accepted and silently ignored**.
+
+### 7.2 Where profiles live
+
+**`$SNOWPEA_HOME/settings.json` — the only place models live:**
+```jsonc
+{
+  "models": {
+    "default": "openai-gpt-4o-mini",                       // a PROFILE ID
+    "profiles": { "openai-gpt-4o-mini": { "provider": "openai", "model": "gpt-4o-mini" } }
+  },
+  "agents": {
+    "models":       { "executor": "openai-gpt-4o-mini" },  // agent -> profile id
+    "teams":        { "default": ["architect","critic","executor","explorer","test-engineer","verifier"] },
+    "default_team": "default"
+  }
+}
+```
+`resolve_reference` (`config/model_routing.py:48-61`) accepts three spellings wherever a profile id
+is expected: a **profile id**, legacy **`vendor:model`**, or a **bare vendor name**;
+`"inherit"`/empty is a no-op. That third spelling is the root of two bugs below.
+
+**Agent `.md` frontmatter — supported fields** are exactly `name`, `description`, `model`, `tools`,
+`permission`, `max_turns` (`agent/definition.py:63-96`, parser `:240-270`, round-trip
+`render_agent_md` `:215-227`). Real example —
+`tests/fixtures/plugins/sample-plugin/agents/fixture-agent.md`:
+```markdown
+---
+name: fixture-agent
+description: A fixture agent definition the loader must register.
+model: inherit
+tools: [read_file, grep]
+permission: inherit
+max_turns: 4
+---
+```
+Search dirs (`definition.py:45-46,278-286`): `$SNOWPEA_HOME/agents/`, then `<workdir>/.snowpea/agents/`
+and `<workdir>/.claude/agents/` (project wins).
+
+**Built-in roles carry no frontmatter at all.** `core/snowpea_core/prompts/roles/*.md` are plain
+prose, and `builtin_agent_definitions()` (`definition.py:289-321`) hard-codes `model="inherit"`,
+`tools="*"`, `permission="inherit"`, `prompt=""`. ⇒ **a built-in role's model can ONLY come from
+`agents.models[<role>]`.**
+
+### 7.3 How each surface can view and change them
+
+| Surface | View | Change | Evidence |
+|---|---|---|---|
+| TUI HUD | ✅ `Model: provider/model` | ❌ | `tui/src/layout/hud.ts:160-163`. Fed once by `session/ready` (`tui/src/app.tsx:450`, `tui/src/state/store.ts:494`) — **goes stale after `/model`**. |
+| `/model` | ✅ lists vendor models | ⚠️ session model only | `commands/model_cmd.py:78-98`; writes `settings.providers.<vendor>.model` (`:45-51`), **never** `models.profiles`/`models.default`/`agents.models`. |
+| `/agent` | ✅ `list` shows `model:` | ❌ | `commands/agent_cmd.py:49` `USAGE = '/agent create "<desc>" | /agent list'`; display at `:190`. **No `/agent model`.** |
+| `/team` | ✅ | teams only | `commands/team_cmd.py:22,90-134` |
+| Headless CLI | ❌ | ❌ | `cli/commands.py:1234` `setup --model` sets the *vendor's* default only. No `snowpea model`, no `snowpea agent model`. |
+| Setup wizard | ✅ | ✅ **the only surface that can assign per-agent models** | `setup/wizard.py:387-446` |
+| `settings.set` RPC | ✅ (models returned unmasked) | ✅ **can write `models.profiles`, `models.default`, `agents.models`** | `server/settings_handlers.py:97-128` — deep-merged and re-validated through `Settings`, **no key allowlist**. Hot-rebinds via `config/hot_reload.py:63-109`, but **only new sessions** pick it up. |
+| IDE Settings | ❌ | ❌ | `snowpea-ide/src/renderer/views/Settings.vue` has three sections — Providers (:138), Project defaults (:205), Allowlist (:271). Zero hits for `models`/`profiles` in it or `stores/settings.ts`. |
+| IDE Agents | ⚠️ read-only badge | ❌ | `snowpea-ide/src/renderer/views/Agents.vue:156` renders `definition.model` as a badge; mapped at `stores/agents.ts:37,78,123`. No editor. |
+
+### 7.4 Who actually honours the routing
+
+Five real `sessions.create()` call sites:
+
+| Path | `agent=` | `definition_model=` | Verdict |
+|---|---|---|---|
+| (a) `server/session_handlers.py:174-183` — top-level interactive (TUI/IDE) | ✅ | ❌ **never passed** | **PARTIAL** — honours `agents.models` + `models.default`; ignores the `.md` `model:` |
+| (b) `agent/named.py:299-312` — named agents | ✅ | ✅ | **YES — the only fully correct caller** |
+| (c) `agent/subagent.py:480-509` — `delegate_task` | ✅ | ⚠️ conditional | **PARTIAL — real bug below** |
+| (d) `scheduler/scheduler.py:284-290` — scheduled jobs | ✅ `job.agent` | ❌ | **PARTIAL** |
+| (e) `gateway/router.py:628-634` | ✅ | ❌ | **PARTIAL** |
+
+**(c) The legacy `has_model_routing` bypass is a live bug** — `agent/subagent.py:487-498`. When
+`models.default` is unset *and* the agent has no `agents.models` entry, it resolves the `.md`
+`model:` through `_split_model()` (`subagent.py:542-548`), which is **not** `resolve_reference` and
+**never consults `models.profiles`**. Reproduced live:
+```
+A) profiles exist, no default, agent .md says `model: fast`
+   resolve_reference('fast')        -> ModelRoute(provider='openai', model='gpt-4o-mini')
+   route_for(definition_model=fast) -> ModelRoute(provider='openai', model='gpt-4o-mini')
+   has_model_routing = False
+   -> child session created with provider='fast' model=None      ← WRONG
+```
+⇒ **a valid profile id in an agent `.md` is mis-read as a vendor name**, and the child dies at its
+first turn with `unknown provider vendor: fast`. Second effect of the same branch: when
+`has_model_routing` *is* true, `provider, model = (None, None)`, so a `/model`-pinned parent's choice
+is **dropped for every child** the moment any `models.default` exists.
+
+**(d′) `/team <N>` worktree workers ignore per-agent profiles entirely.** `agent/team.py:477` calls
+`manager.run(anchor, prompt)` with **no `agent=`**, and `_anchor()` (`team.py:623-651`) copies
+`id, workdir, mode, provider, model, origin_surface, created_at, max_concurrent, origin_conn` but
+**never `team`/`team_agents`**. So `parent.team_agents` is empty, the `"executor"` default at
+`subagent.py:373-375` never fires, `record.name == ""`, and `agents.models` is never consulted.
+
+**(e) TUI `$agent task`** ✅ routes identically to `delegate_task` (`tui/src/app.tsx:1008-1017` →
+`agent.spawn` → `server/agent_handlers.py:134` → `SubagentManager.run`), and inherits bug (c).
+
+**(f) Scheduled jobs** do create sessions (`scheduler/scheduler.py:282-290`) unless the job names a
+persistent agent, in which case they *borrow* that agent's already-routed session (`:280`). Fresh
+ones honour `agents.models[job.agent]` + `models.default` but **ignore the definition's `model:`**.
+
+**(g) Auxiliary LLM calls — none get their own profile.** `session/compaction.py:242`,
+`agent/loop.py:252`, `agent/team.py:287`, `commands/agent_cmd.py:159`, `commands/skill_cmd.py:149`,
+`commands/ultrawork.py:72`, `commands/ralph.py:156` are all `core.providers.get(session.provider,
+session.model)` — they inherit the caller's session route. (There is no prompt-enhancer in core.)
+
+### 7.5 Does the setup wizard assign models to roles?
+
+Yes — `setup/wizard.py:387-446`, and it is the **only** surface that can.
+
+- `wizard.py:395-397`: non-interactive runs create exactly one profile, make it the default, and
+  assign **nothing** per agent.
+- `:399-408` register extra profiles; `:410-422` pick `models.default`.
+- `:424-429` the agent roster = `builtin_agent_definitions()` ∪ `discover_definitions(cwd, home)` —
+  so **built-in roles AND custom agents**, but **not teams** and not named-agent instances.
+- `:432-446` free-text agent name → profile number. **Free text**, so a mistyped agent name is
+  silently accepted into `agents.models` (`setup/state.py:182-190` validates the *profile* only).
+- **Persistence is 100 % global** (`wizard.py:122`, `state.py:286-297`). No project-scoped write.
+
+### 7.6 Validation and failure modes (tested for real)
+
+**(a) Unknown profile id in `agents.models` → the daemon will not start.**
+`Settings._validate_model_profile_refs` raises, and `Settings.load` catches only
+`OSError`/`JSONDecodeError`, so the `ValidationError` escapes:
+```
+$ SNOWPEA_HOME=$SP .venv/bin/snowpea --home $SP tools list
+snowpea: the daemon exited immediately with status 1; see .../logs/daemon.out
+$ tail logs/daemon.out
+pydantic_core._pydantic_core.ValidationError: 1 validation error for Settings
+  Value error, agents.models references unknown model profile(s): executor=does-not-exist
+```
+Fail-closed and **unrecoverable without hand-editing JSON** — no daemon means no `settings.set`.
+(Through `settings.set` the same patch is correctly rejected as `INVALID_PARAMS`.)
+
+**(b) Typo'd `model:` in a custom agent `.md` → completely unvalidated** (`definition.py:263` just
+does `str(meta.get("model") or "inherit")`):
+```
+resolve_reference('claude-sonnet-4') -> ModelRoute(provider='claude-sonnet-4', model=None)
+```
+The typo becomes a **vendor name** and blows up only at the child's first turn.
+
+**(c) A profile pointing at an unconfigured provider is caught at no config layer:**
+```
+Settings validated OK: provider='not-a-vendor' model='x'
+default_vendor()       -> not-a-vendor
+providers.get() raises -> ProviderError unknown provider vendor: not-a-vendor
+```
+`ModelProfile` enforces only non-empty strings. Worse, `default_vendor()` (`registry.py:358-360`)
+returns the bogus vendor **ahead of** `settings.providers.default` and the first-configured-vendor
+fallback — so **one bad default profile bricks every session**, not just routed ones.
+
+### 7.7 Gaps and fixes (B)
+
+**B-P1-1 — `agent/subagent.py:487-498` legacy bypass ignores `models.profiles`.** Delete the bypass
+and let `route_for` own it:
+```python
+provider, model = (None, None)
+if not (settings.models.default or assigned or definition_model):
+    provider, model = parent.provider, parent.model
+```
+and drop `_split_model` (`subagent.py:542-548`) — `resolve_reference` already handles `vendor:model`
+and bare vendors. This also removes R10 from §2.4.
+
+**B-P1-2 — `_validate_model_profile_refs` bricks the daemon.** In `Settings.load`, catch
+`ValidationError`, log the offending keys, drop the bad `agents.models`/`models.default` entries and
+boot degraded. Keep the strict validator for the `settings.set` path (`settings_handlers.py:118`)
+where `INVALID_PARAMS` is right.
+
+**B-P1-3 — a broken `models.default` hijacks `default_vendor()`** (`registry.py:358-360`). Guard with
+`profile[0] in PRESETS` and fall through otherwise; add a `ModelProfile` validator asserting the
+provider is a known preset.
+
+**B-P1-4 — IDE has no model-profile UI at all.**
+- New `snowpea-ide/src/renderer/views/settings/Models.vue`, registered alongside
+  `Appearance.vue`/`Audio.vue` and linked from `views/Settings.vue` after the Providers section (:138).
+- Extend `snowpea-ide/src/renderer/stores/settings.ts` with a `profiles` getter over
+  `this.global.models.profiles`, plus `setDefaultModel(id)` / `addProfile(id, provider, model)`
+  calling the existing `setGlobal(patch)` (`stores/settings.ts:285-303`) with
+  `{models:{profiles:{<id>:{provider,model}}}}` / `{models:{default:"<id>"}}`.
+- **Deleting a profile needs care:** `_deep_merge` (`server/settings_handlers.py:64-77`) has **no
+  delete sentinel**, so a `null` becomes a `null` value and fails `ModelProfile` validation. Either
+  add sentinel handling server-side or have the IDE send the full replacement `profiles` object.
+- Vendor dropdown source: the already-loaded `provider.list` rows (`stores/settings.ts:39`).
+
+**B-P1-5 — IDE Agents: make the model badge editable.** `views/Agents.vue:156` → a `<select>` of
+profile ids + `inherit`. It must write `{agents:{models:{[definition.name]: profileId}}}` via
+`setGlobal(...)`, **not** the agent `.md`: the `agent.*` RPCs have no update method
+(`server/agent_handlers.py:161-168` exposes only `list`, `create`, `bindChannel`, `delete`, `spawn`),
+and built-in roles have no file to edit. `stores/agents.ts:123` should also carry an
+`effectiveModel` computed as `settings.global.agents.models[name] ?? definition.model`.
+
+**B-P2-1 — three `sessions.create()` callers silently drop `definition_model`**
+(`server/session_handlers.py:174`, `scheduler/scheduler.py:284`, `gateway/router.py:628`). Cleanest
+fix: move the definition lookup **into** `SessionManager.create` so `definition_model` becomes
+derived rather than a caller obligation.
+
+**B-P2-2 — `/team` workers ignore per-agent profiles.** Copy `team=lead.team,
+team_agents=lead.team_agents` onto the anchor in `agent/team.py:623-651` (which also restores the
+membership guard at `subagent.py:390-396`), and/or pass `agent="executor"` at `team.py:477`.
+
+**B-P2-3 — `/model` doesn't survive a restart and doesn't update the HUD.** Add
+`Store.update_model(session_id, provider, model)` next to `update_mode` (`session/store.py:113`),
+call it from `commands/model_cmd.py:96`, and emit a session event the TUI folds into `session/ready`
+(`tui/src/state/store.ts:494`, `tui/src/layout/hud.ts:160`).
+
+**B-P2-4 — no project-scoped model overrides.** Add `models` to `ProjectAgentsSettings`
+(`config/project.py:40-45`), give `route_for` a `project` argument, and insert project rungs between
+rungs 2 and 4 — mirroring what `team_config.teams_for` (`agent/team_config.py:17-21`) already does
+for teams. **This is the change that makes the user's stated mental model true.**
+
+**B-P3-1 — teach `/model` about profiles** (`commands/model_cmd.py:78`): `/model` lists profiles
+(marking the default) *and* vendor models; `/model <profile-id>` resolves and sets both
+`session.provider` and `session.model`; `/model default <id>` writes `settings.models.default`.
+**B-P3-2 — add `/agent model <agent> [<profile-id>|inherit]`** (`commands/agent_cmd.py:166-178`
+currently branches only on `create`/`list`); validate against `models.profiles`, save, then
+`core.adopt_settings(...)` (`server/app_server.py:183-193`) so it lands without a restart. Update
+`USAGE` at `agent_cmd.py:49`.
+**B-P3-3 — validate the agent *name* in `setup/state.py:182-190`** against
+`builtin_agent_definitions() | discover_definitions(...)`.
+**B-P3-4 — warn on `.md` `model:` values that resolve to a bare vendor** (`agent/definition.py:263`).
