@@ -2103,12 +2103,14 @@ export function App({
   );
 
   const decideApproval = useCallback(
-    (decision: ApprovalDecision, scope: ApprovalScope) => {
+    (decision: ApprovalDecision, scope: ApprovalScope, reason?: string) => {
       const resolve = approvalResolver.current;
       const requestId = state.pendingApproval?.requestId;
       approvalResolver.current = null;
       if (requestId) dispatch({ type: "approval/resolved", requestId });
-      resolve?.({ decision, scope });
+      // `reason` is only ever set by "No, and tell it why"; the daemon quotes
+      // it back to the model as the tool's refusal (M15b §1).
+      resolve?.(reason ? { decision, scope, reason } : { decision, scope });
     },
     [state.pendingApproval],
   );
@@ -2125,10 +2127,10 @@ export function App({
   );
 
   const respondQueued = useCallback(
-    (requestId: string, decision: ApprovalDecision, scope: ApprovalScope) => {
+    (requestId: string, decision: ApprovalDecision, scope: ApprovalScope, reason?: string) => {
       dispatch({ type: "approval/resolved", requestId });
       void client
-        .respondApproval(requestId, decision, scope)
+        .respondApproval(requestId, decision, scope, reason)
         .catch((error: unknown) => dispatch({ type: "error", message: String(error) }));
     },
     [client],

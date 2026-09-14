@@ -34,6 +34,7 @@ from snowpea_core.server import errors
 from snowpea_core.session import compaction, events
 from snowpea_core.session.history import message_to_json
 from snowpea_core.skills import hooks as plugin_hooks
+from snowpea_core.tools import output_spill
 from snowpea_core.tools.registry import (
     ProgressEmitter,
     Tool,
@@ -891,7 +892,12 @@ async def _run_one_call(
                 session.id,
                 events.error(code, f"{tool.name} was not approved ({decision.by})"),
             )
-            await _deny_call(core, session, call, f"the user declined {tool.name}")
+            refusal = f"the user declined {tool.name}"
+            if decision.reason:
+                # The refusal the human typed is the whole point of "deny with
+                # a reason": the model must read it, not guess at it.
+                refusal = f"{refusal}: {decision.reason}"
+            await _deny_call(core, session, call, refusal)
             return "denied"
 
     await hub.emit_event(session.id, events.tool_call(call.id, call.name, call.arguments))
@@ -915,6 +921,7 @@ async def _run_one_call(
         log.exception("tool %s raised", tool.name)
         result = ToolResult(ok=False, error=f"{type(exc).__name__}: {exc}")
     await plugin_hooks.post_tool_use(core, session, call.name, dict(call.arguments))
+    result = _spill_long_result(core, call.name, result)
     # Next to the LSP ``Diagnostics`` block (tools/fs.py ``_with_diagnostics``):
     # a call that touches a directory with its own AGENTS.md gets that file
     # once, and a call that *writes* one drops the cached prompt that no longer
@@ -945,6 +952,28 @@ async def _run_one_call(
         )
     )
     return None
+
+
+def _spill_long_result(core: Core, name: str, result: ToolResult) -> ToolResult:
+    """Head/tail trim a scanning tool's output past ``tools.maxResultLines``.
+
+    The full text is written to ``$SNOWPEA_HOME/cache/tool-output`` and the
+    result carries a ``read_file`` pointer to it (M15 §A4), so nothing is lost
+    and the conversation stops paying for the middle on every later turn.
+    """
+    if not result.ok or name not in output_spill.SPILLED_TOOLS or not result.output:
+        return result
+    budget = output_spill.max_result_lines(core)
+    if result.output.count("\n") < budget:
+        return result
+    head = max(1, budget * 3 // 4)
+    spilled = output_spill.spill(
+        result.output, head_lines=head, tail_lines=budget - head, kind=name
+    )
+    if not spilled.trimmed:
+        return result
+    result.output = spilled.text
+    return result
 
 
 async def _deny_call(core: Core, session: Session, call: ToolCall, reason: str) -> None:

@@ -65,8 +65,39 @@ def is_interactive(stream: IO[str] | None = None) -> bool:
 CONFIGURED = "configured"
 
 
-def render_item(item: ScreenItem, *, multi: bool, selected: bool, cursor: bool) -> Text:
-    """One row, as rich markup."""
+def choice_hint(*, multi: bool) -> str:
+    """The one-line footer, naming exactly the keys this screen takes.
+
+    It is the same sentence the TUI's :file:`ChoiceList` prints (M15b §2), so
+    a person who learned the wizard can drive the TUI and the other way round.
+    """
+    return " · ".join(
+        part
+        for part in (
+            "↑↓ move",
+            "Space toggle" if multi else None,
+            "Enter confirm",
+            "1-9 toggle" if multi else "1-9 pick",
+            "Esc cancel",
+        )
+        if part
+    )
+
+
+def render_item(
+    item: ScreenItem,
+    *,
+    multi: bool,
+    selected: bool,
+    cursor: bool,
+    number: int | None = None,
+) -> Text:
+    """One row, as rich markup.
+
+    ``number`` prefixes the row with ``N.`` so the digit keys are visible
+    rather than folklore; rows past the ninth get the same indent and no
+    number, because ``1-9`` is what the key map promises.
+    """
     if item.id == SKIP or item.id.startswith("action:"):
         marker = "   "
     elif multi:
@@ -78,6 +109,8 @@ def render_item(item: ScreenItem, *, multi: bool, selected: bool, cursor: bool) 
         marker = "(●)" if selected or CONFIGURED in item.tags else "(○)"
     line = Text()
     line.append("❯ " if cursor else "  ", style="bold cyan" if cursor else "")
+    if number is not None:
+        line.append(f"{number}. " if 1 <= number <= 9 else "   ", style="dim")
     line.append(marker + " ")
     line.append(item.label, style="bold" if cursor else "")
     if item.default:
@@ -107,9 +140,11 @@ def screen_lines(screen: Screen, *, cursor: int, chosen: set[str]) -> list[Text]
             multi=screen.multi,
             selected=item.id in chosen,
             cursor=index == cursor,
+            number=index + 1,
         )
         for index, item in enumerate(screen.items)
     )
+    lines.append(Text(choice_hint(multi=screen.multi), style="dim"))
     lines.append(Text(""))
     return lines
 
@@ -178,6 +213,11 @@ def read_key(stream: IO[str] | None = None) -> str:
     return char
 
 
+def _digit(key: str) -> int | None:
+    """``"3"`` -> row 2; anything else -> ``None``."""
+    return int(key) - 1 if len(key) == 1 and key in "123456789" else None
+
+
 # ---------------------------------------------------------------------------
 # the prompt loop
 # ---------------------------------------------------------------------------
@@ -215,14 +255,29 @@ def ask(
             painted = render(screen, cursor=cursor, chosen=chosen, console=console, repaint=painted)
             key = read_key(keys)
             item = screen.items[cursor]
+            row = _digit(key)
             if key == "up":
                 cursor = (cursor - 1) % len(screen.items)
             elif key == "down":
                 cursor = (cursor + 1) % len(screen.items)
-            elif key == "quit":
+            elif key in ("left", "right"):
+                # Accepted and ignored: a wizard screen has no tab strip to
+                # walk, and swallowing them beats leaving a stray ``[C`` in
+                # the terminal (M15b §4).
+                continue
+            elif key in ("quit", "escape"):
+                # Esc and q both decline; declining is the screen's default,
+                # never a silent "yes to everything".
                 return screen.default_choice
             elif key == "space" and screen.multi and item.id != SKIP:
                 chosen.symmetric_difference_update({item.id})
+            elif row is not None and row < len(screen.items):
+                # 1-9 jumps to the row, and ticks it in a multi-select; it
+                # never submits, exactly as the TUI's digits behave.
+                cursor = row
+                target = screen.items[row]
+                if screen.multi and target.id != SKIP:
+                    chosen.symmetric_difference_update({target.id})
             elif key == "enter":
                 if item.id == SKIP:
                     return screen.default_choice
@@ -301,6 +356,7 @@ __all__ = [
     "STAR",
     "ask",
     "ask_text",
+    "choice_hint",
     "is_interactive",
     "read_key",
     "render",

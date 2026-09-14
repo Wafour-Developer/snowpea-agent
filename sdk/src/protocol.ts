@@ -212,6 +212,8 @@ export interface ApprovalRequestParams {
 export interface ApprovalRequestResult {
   /** The human's decision. */
   decision: "allow" | "deny";
+  /** Why the human refused; quoted back to the model as the tool's refusal so the next turn can answer it (M15b §1). */
+  reason?: string;
   /** How long the decision applies. */
   scope?: "once" | "session" | "project" | "always";
 }
@@ -220,6 +222,8 @@ export interface ApprovalRequestResult {
 export interface ApprovalRespondParams {
   /** allow runs the tool, deny ends the turn. */
   decision: "allow" | "deny";
+  /** Why the human refused; quoted back to the model as the tool's refusal so the next turn can answer it (M15b §1). */
+  reason?: string;
   /** Request being answered. */
   requestId: string;
   /** How long the decision applies. */

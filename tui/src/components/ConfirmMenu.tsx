@@ -7,12 +7,18 @@
  * to stop, so Enter always takes the highlighted row and the row is always
  * visible.
  *
+ * It is now a thin shell over {@link ChoiceList} and {@link useChoiceKeys}, so
+ * it moves, numbers and cancels exactly like every other picker (M15b §2).
+ *
  * While it is up it owns the keyboard. The caller disables the chat line, and
  * the shortcut letters are matched here so they cannot leak into the draft.
  */
 
 import React, { useState } from "react";
-import { Box, Text, useInput } from "ink";
+import { Box } from "ink";
+
+import { choiceHint, useChoiceKeys } from "../hooks/useChoiceKeys.js";
+import { ChoiceList, type ChoiceOption } from "./ChoiceList.js";
 
 export interface ConfirmOption<T> {
   /** What the row says. */
@@ -53,58 +59,48 @@ export function ConfirmMenu<T>({
     Math.min(Math.max(0, initialIndex), Math.max(0, options.length - 1)),
   );
 
-  useInput(
-    (input, key) => {
-      if (options.length === 0) return;
-      if (key.upArrow) {
-        setIndex((i) => (i + options.length - 1) % options.length);
-        return;
-      }
-      if (key.downArrow || key.tab) {
-        setIndex((i) => (i + 1) % options.length);
-        return;
-      }
-      if (key.return) {
-        onChoose(options[index].value);
-        return;
-      }
-      if (key.escape && escapeValue !== undefined) {
-        onChoose(escapeValue);
-        return;
-      }
-      const typed = input.toLowerCase();
-      const match = options.find((option) => option.shortcut?.toLowerCase() === typed);
-      if (match) onChoose(match.value);
-      // Anything else is swallowed: a prompt that is up owns the keyboard, and
-      // a stray character must never reach the chat draft behind it.
+  const shortcuts: Record<string, () => void> = {};
+  for (const option of options) {
+    if (option.shortcut) shortcuts[option.shortcut.toLowerCase()] = () => onChoose(option.value);
+  }
+
+  useChoiceKeys({
+    count: options.length,
+    index,
+    onIndex: setIndex,
+    onEnter: (at) => {
+      if (options.length > 0) onChoose(options[at].value);
     },
-    { isActive },
-  );
+    onCancel: () => {
+      if (escapeValue !== undefined) onChoose(escapeValue);
+    },
+    // Tab has always stepped down this menu; keeping it costs nothing and
+    // people who learned it would notice its absence.
+    onTab: () => {
+      if (options.length > 0) setIndex((i) => (i + 1) % options.length);
+    },
+    onDigit: setIndex,
+    shortcuts,
+    // The shortcut letters own the alphabet here, so j/k would be ambiguous.
+    vim: false,
+    isActive,
+  });
+
+  const rows: ChoiceOption[] = options.map((option) => ({
+    label: option.label,
+    description: option.hint,
+    shortcut: option.shortcut,
+    danger: option.danger,
+  }));
 
   return (
     <Box flexDirection="column">
-      {options.map((option, at) => {
-        const selected = at === index;
-        return (
-          <Box key={option.label} flexDirection="column">
-            <Box>
-              <Text color={selected ? (option.danger ? "red" : "green") : undefined} bold={selected}>
-                {selected ? "❯ " : "  "}
-              </Text>
-              <Text
-                inverse={selected}
-                color={option.danger ? "red" : selected ? "green" : undefined}
-                dimColor={!selected && !option.danger}
-              >
-                {` ${option.label} `}
-              </Text>
-              {option.shortcut ? <Text dimColor>{`  (${option.shortcut})`}</Text> : null}
-            </Box>
-            {option.hint ? <Text dimColor>{`     ${option.hint}`}</Text> : null}
-          </Box>
-        );
-      })}
-      <Text dimColor>↑↓ move · Enter confirm · Esc cancel</Text>
+      <ChoiceList
+        options={rows}
+        selectedIndex={index}
+        color="green"
+        hint={choiceHint({ enter: "confirm" })}
+      />
     </Box>
   );
 }

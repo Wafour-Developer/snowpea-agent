@@ -279,6 +279,64 @@ describe("/mcp configure", () => {
   });
 });
 
+describe("the shared choice keys reach the mcp lists", () => {
+  it("toggles a checklist row with its number, and says so in the hint", async () => {
+    const client = fakeClient({ "mcp.update": { ok: true } }, [NOTES]);
+    const { stdin, instance, frame } = await open(client);
+
+    await type(stdin, "/mcp configure notes", 8);
+    stdin.write("\r");
+    await sleep(200);
+    stdin.write("\r");
+    await sleep(350);
+    expect(frame()).toContain("Space toggle");
+    expect(frame()).toContain("1-9 toggle");
+
+    stdin.write("1"); // untick "search" without moving to it first
+    await sleep(150);
+    stdin.write("\r");
+    await sleep(300);
+    instance.unmount();
+
+    const [update] = client.of("mcp.update");
+    expect(update.params.patch).toEqual({ toolsInclude: ["write"] });
+  });
+
+  it("picks a transport row by number in the add form", async () => {
+    const client = fakeClient({
+      "mcp.test": { ok: true, state: "ready", tools: [{ name: "search" }] },
+      "mcp.add": { ok: true, path: "/work/.mcp.json" },
+    });
+    const { stdin, instance, frame } = await open(client);
+
+    await type(stdin, "/mcp add ", 12);
+    stdin.write("\r");
+    await sleep(250);
+    await type(stdin, "remote", 10);
+    stdin.write("\r");
+    await sleep(200);
+    expect(frame()).toContain("1-9 pick");
+
+    stdin.write("2"); // URL, the second transport
+    await sleep(150);
+    stdin.write("\r");
+    await sleep(200);
+    await type(stdin, "https://example.internal/mcp", 4);
+    stdin.write("\r");
+    await sleep(200);
+    stdin.write("\r"); // no headers
+    await sleep(200);
+    stdin.write("\r"); // project scope, then the probe runs
+    await sleep(400);
+    stdin.write("\r"); // Enable all
+    await sleep(300);
+    instance.unmount();
+
+    const [add] = client.of("mcp.add");
+    expect(add.params.url).toBe("https://example.internal/mcp");
+  });
+});
+
 describe("the mcp HUD segment", () => {
   it("counts the ready servers once the daemon answers", async () => {
     const { stdout, instance } = await open(fakeClient({}, [NOTES, REMOTE]));

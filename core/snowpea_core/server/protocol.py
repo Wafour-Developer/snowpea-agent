@@ -605,6 +605,13 @@ class ApprovalRespondParams(Payload):
     requestId: str = Field(description="Request being answered.")
     decision: Decision = Field(description="allow runs the tool, deny ends the turn.")
     scope: ApprovalScope = Field(default="once", description="How long the decision applies.")
+    reason: str = Field(
+        default="",
+        description=(
+            "Why the human refused; quoted back to the model as the tool's refusal "
+            "so the next turn can answer it (M15b \u00a71)."
+        ),
+    )
 
 
 class ApprovalAnswer(Payload):
@@ -612,6 +619,13 @@ class ApprovalAnswer(Payload):
 
     decision: Decision = Field(description="The human's decision.")
     scope: ApprovalScope = Field(default="once", description="How long the decision applies.")
+    reason: str = Field(
+        default="",
+        description=(
+            "Why the human refused; quoted back to the model as the tool's refusal "
+            "so the next turn can answer it (M15b \u00a71)."
+        ),
+    )
 
 
 # --------------------------------------------------------------------------

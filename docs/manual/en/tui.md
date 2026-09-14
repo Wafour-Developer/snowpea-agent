@@ -133,6 +133,24 @@ It starts on the mode you are in, `Enter` takes the highlighted one and `Esc` le
 
 The rows are your model profiles first — `models.profiles`, with `models.default` and `agents.models` saying which is the default and which agent uses which — then whatever the vendor's endpoint reports, then the model in use if nothing else named it. `Enter` runs `/model <ref>` for the row you are on. The status line's `Model:` segment names the model in use, and adds where it came from when the daemon says.
 
+## Choosing
+
+Every list the TUI puts in front of you — approvals, the agent's questions, `/model`, the MCP catalog, the tool checklist, the little menus inside `/skill create` and `/mcp add` — is the same widget with the same keys. Learn it once (M15b §2):
+
+| key | single-select | multi-select | a batch of questions |
+|---|---|---|---|
+| `↑` `↓` (or `j` `k`) | move | move | move inside the active question |
+| `Space` | — | tick the row | tick the row |
+| `Enter` | pick and submit | confirm the set | pick; on the last tab, submit everything |
+| `1`–`9` | jump to row N, never submits | tick row N | same |
+| `←` `→`, `Tab` / `Shift+Tab` | — | — | previous / next question |
+| `Esc` | decline or cancel | decline or cancel | decline the whole batch |
+| `Other…` + `Enter` | opens a text line; `Enter` keeps it, `Esc` leaves it | same | same |
+
+The cursor starts on the first row, which is the recommended one. A footer hint is always visible and names exactly the keys that are live on that list. While a list is up it owns the keyboard: nothing you type reaches the draft behind it.
+
+The same map drives `snowpea setup`, so the wizard and the TUI never disagree about what `Space` does.
+
 ## Approvals
 
 When the daemon asks, it asks with a menu. `↑`/`↓` move, `Enter` takes the highlighted row, `Esc` refuses:
@@ -148,7 +166,9 @@ When the daemon asks, it asks with a menu. `↑`/`↓` move, `Enter` takes the h
 │    Yes for this project   (p)                        │
 │      adds an allowlist rule the daemon keeps         │
 │    No   (n)                                          │
-│ ↑↓ move · Enter confirm · Esc cancel                 │
+│    No, and tell it why   (r)                         │
+│      the model reads what you type as the refusal    │
+│ ↑↓ move · Enter confirm · 1-9 pick · Esc cancel      │
 ╰──────────────────────────────────────────────────────╯
 ```
 
@@ -161,6 +181,8 @@ shell risk=high timeout=300s
 ```
 
 The cursor starts on `Yes`, so `Enter` means yes. `y`, `a`, `p` and `n` still work directly. While the prompt is up it owns the keyboard: nothing you type reaches the draft behind it, and `Shift+Tab` does not change mode.
+
+The last row refuses **and says why**. It opens a one-line field; `Enter` denies with what you typed and the agent is handed that sentence as the tool's refusal, so its next turn has to answer it instead of retrying the same call in a slightly different shape. `Esc` in the field goes back to the choices; `Esc` on the menu is still a plain refusal.
 
 Approvals raised by a turn with nobody watching — a scheduled job, a Telegram message — queue instead. `Ctrl+R` hands the keyboard to that queue; `/approvals` lists it.
 

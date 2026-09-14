@@ -8,9 +8,11 @@
  */
 
 import React, { useState } from "react";
-import { Box, Text, useInput } from "ink";
+import { Box, Text } from "ink";
 
+import { choiceHint, useChoiceKeys } from "../hooks/useChoiceKeys.js";
 import type { ModelOption } from "../state/models.js";
+import { ChoiceList } from "./ChoiceList.js";
 
 /** Rows shown at once; the list scrolls inside this. */
 export const MODEL_PICKER_ROWS = 8;
@@ -35,34 +37,19 @@ export function ModelPicker({
     return current === -1 ? 0 : current;
   });
 
-  useInput(
-    (input, key) => {
-      if (key.escape) {
-        onCancel();
-        return;
-      }
-      if (options.length === 0) return;
-      if (key.upArrow) {
-        setIndex((i) => (i + options.length - 1) % options.length);
-        return;
-      }
-      if (key.downArrow || key.tab) {
-        setIndex((i) => (i + 1) % options.length);
-        return;
-      }
-      if (key.return) onChoose(options[index]);
-      // Everything else is swallowed: the picker owns the keyboard while it is
-      // up, the way the approval prompt does.
+  useChoiceKeys({
+    count: options.length,
+    index,
+    onIndex: setIndex,
+    onEnter: (row) => {
+      if (options.length > 0) onChoose(options[row]);
     },
-    { isActive },
-  );
-
-  // Keep the cursor inside the window without scrolling short lists.
-  const start = Math.max(
-    0,
-    Math.min(index - MODEL_PICKER_ROWS + 2, options.length - MODEL_PICKER_ROWS),
-  );
-  const shown = options.slice(start, start + MODEL_PICKER_ROWS);
+    onCancel,
+    onTab: () => {
+      if (options.length > 0) setIndex((i) => (i + 1) % options.length);
+    },
+    isActive,
+  });
 
   return (
     <Box flexDirection="column" width={width} borderStyle="round" borderColor="cyan" paddingX={1}>
@@ -70,23 +57,26 @@ export function ModelPicker({
         Model
       </Text>
       {options.length === 0 ? (
-        <Text dimColor>no profiles configured and the vendor listed nothing</Text>
+        <>
+          <Text dimColor>no profiles configured and the vendor listed nothing</Text>
+          <Text dimColor>{choiceHint({ enter: "pick", digits: false })}</Text>
+        </>
       ) : (
-        shown.map((option) => {
-          const selected = options[index] === option;
-          return (
-            <Box key={`${option.origin}-${option.ref}`}>
-              <Text color={selected ? "green" : undefined}>{selected ? "❯ " : "  "}</Text>
-              <Text inverse={selected} bold={option.current}>
-                {option.label}
-              </Text>
-              <Text dimColor>{option.detail ? `  ${option.detail}` : ""}</Text>
-              {option.current ? <Text color="green">{"  ← in use"}</Text> : null}
-            </Box>
-          );
-        })
+        <ChoiceList
+          options={options.map((option) => ({
+            label: option.label,
+            description: option.detail,
+            badge: option.current ? "← in use" : undefined,
+            badgeColor: "green",
+            bold: option.current,
+          }))}
+          selectedIndex={index}
+          color="green"
+          windowSize={MODEL_PICKER_ROWS}
+          descriptionMode="inline"
+          hint={choiceHint({ enter: "pick" })}
+        />
       )}
-      <Text dimColor>↑↓ move · Enter pick · Esc cancel</Text>
     </Box>
   );
 }

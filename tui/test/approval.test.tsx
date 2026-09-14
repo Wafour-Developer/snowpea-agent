@@ -97,10 +97,53 @@ describe("approval prompt", () => {
     expect(decided).toEqual({ decision: "deny", scope: "once" });
   });
 
-  it("wraps around with Up, so Enter on the first row reaches No", async () => {
+  it("wraps around with Up, so Enter near the top reaches No", async () => {
     const { stdin, instance, answer } = await openPrompt();
-    stdin.write("\u001B[A");
-    await sleep(40);
+    // Up wraps onto the last row, "No, and tell it why"; one more lands on No.
+    for (let i = 0; i < 2; i += 1) {
+      stdin.write("\u001B[A");
+      await sleep(40);
+    }
+    stdin.write("\r");
+    const decided = await answer;
+    instance.unmount();
+    expect(decided).toEqual({ decision: "deny", scope: "once" });
+  });
+
+  it("offers a fifth row that refuses and says why", async () => {
+    const { stdin, stdout, instance, answer } = await openPrompt();
+    expect(stdout.text()).toContain("No, and tell it why");
+    stdin.write("r");
+    await sleep(80);
+    expect(stdout.text()).toContain("Why are you refusing?");
+    await type(stdin, "that deletes the build I need");
+    stdin.write("\r");
+    const decided = await answer;
+    instance.unmount();
+    expect(decided).toEqual({
+      decision: "deny",
+      scope: "once",
+      reason: "that deletes the build I need",
+    });
+  });
+
+  it("Esc in the reason field goes back to the choices, not out of the prompt", async () => {
+    const { stdin, stdout, instance, answer } = await openPrompt();
+    stdin.write("r");
+    await sleep(80);
+    stdin.write("\u001B");
+    await sleep(80);
+    expect(stdout.text()).toContain("Yes for this project");
+    stdin.write("y");
+    const decided = await answer;
+    instance.unmount();
+    expect(decided).toEqual({ decision: "allow", scope: "once" });
+  });
+
+  it("jumps to a row with a number key and confirms it with Enter", async () => {
+    const { stdin, instance, answer } = await openPrompt();
+    stdin.write("4");
+    await sleep(60);
     stdin.write("\r");
     const decided = await answer;
     instance.unmount();

@@ -274,6 +274,7 @@ Ask the client to approve a tool call.
 | field | type | required | description |
 |---|---|---|---|
 | `decision` | `"allow" \| "deny"` | yes | The human's decision. |
+| `reason` | `string` | no | Why the human refused; quoted back to the model as the tool's refusal so the next turn can answer it (M15b §1). |
 | `scope` | `"once" \| "session" \| "project" \| "always"` | no | How long the decision applies. |
 
 ### `approval.respond`
@@ -287,6 +288,7 @@ Answer a pending approval and unblock the turn.
 | field | type | required | description |
 |---|---|---|---|
 | `decision` | `"allow" \| "deny"` | yes | allow runs the tool, deny ends the turn. |
+| `reason` | `string` | no | Why the human refused; quoted back to the model as the tool's refusal so the next turn can answer it (M15b §1). |
 | `requestId` | `string` | yes | Request being answered. |
 | `scope` | `"once" \| "session" \| "project" \| "always"` | no | How long the decision applies. |
 
