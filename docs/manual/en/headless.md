@@ -33,6 +33,13 @@ snowpea -c "/ralph add a failing test then make it pass" --mode auto
 snowpea -c "/deepinit"
 ```
 
+`snowpea init [--force]` is a shortcut for exactly that: it starts a session in `--cwd` (or the current directory) and runs `/init` as one headless turn, so `snowpea init` and `snowpea -c "/init"` do the same thing.
+
+```bash
+snowpea init
+snowpea init --force
+```
+
 ## Continuing a saved session
 
 `-c` normally opens a fresh session. `--resume` continues one you already have, which is the headless half of the TUI's `/resume`: the saved history is reloaded and the prompt is appended to it.

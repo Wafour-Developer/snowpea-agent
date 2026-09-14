@@ -163,6 +163,7 @@ def register_builtin_commands(registry: CommandRegistry) -> CommandRegistry:
         backend_cmd,
         deepinit,
         delegate_cmd,
+        init_cmd,
         mode_cmd,
         model_cmd,
         ralph,
@@ -186,6 +187,7 @@ def register_builtin_commands(registry: CommandRegistry) -> CommandRegistry:
         *ralph.COMMANDS,
         *ultrawork.COMMANDS,
         *deepinit.COMMANDS,
+        *init_cmd.COMMANDS,
         *team_cmd.COMMANDS,
     ):
         registry.register(command)

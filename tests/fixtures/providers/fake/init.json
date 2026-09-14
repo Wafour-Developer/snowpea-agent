@@ -1,0 +1,54 @@
+{
+  "steps": [
+    {
+      "match": "there is no agents.md at the project root yet",
+      "repeat": true,
+      "tool_calls": [
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "AGENTS.md",
+            "content": "# Project\n\nA fresh AGENTS.md written by the fake model.\n"
+          }
+        }
+      ],
+      "text": "writing a fresh AGENTS.md"
+    },
+    {
+      "match": "merge your findings into",
+      "repeat": true,
+      "tool_calls": [
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "AGENTS.md",
+            "content": "# Project\n\noriginal content\n\nmerged notes from the fake model\n"
+          }
+        }
+      ],
+      "text": "merging into the existing AGENTS.md"
+    },
+    {
+      "match": "--force was given",
+      "repeat": true,
+      "tool_calls": [
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "AGENTS.md",
+            "content": "# Project\n\nrewritten from scratch because --force was given\n"
+          }
+        }
+      ],
+      "text": "rewriting AGENTS.md from scratch"
+    },
+    {
+      "after_tool": "write_file",
+      "repeat": true,
+      "text": "AGENTS.md written.\nSettings noted.\ndone."
+    }
+  ],
+  "default": {
+    "text": "AGENTS.md written.\nSettings noted.\ndone."
+  }
+}
