@@ -11,6 +11,12 @@
       "delaySec": 0.2,
       "tool_calls": [
         {
+          "name": "read_file",
+          "arguments": {
+            "path": "module_a.py"
+          }
+        },
+        {
           "name": "write_file",
           "arguments": {
             "path": "module_a.py",
@@ -25,6 +31,12 @@
       "repeat": true,
       "delaySec": 0.2,
       "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "module_b.py"
+          }
+        },
         {
           "name": "write_file",
           "arguments": {
@@ -41,6 +53,12 @@
       "delaySec": 0.2,
       "tool_calls": [
         {
+          "name": "read_file",
+          "arguments": {
+            "path": "module_c.py"
+          }
+        },
+        {
           "name": "write_file",
           "arguments": {
             "path": "module_c.py",
@@ -56,5 +74,7 @@
       "text": "I wrote the docstring the task asked for."
     }
   ],
-  "default": {"text": "fake default reply"}
+  "default": {
+    "text": "fake default reply"
+  }
 }

@@ -204,6 +204,18 @@ snowpea mcp catalog
 
 그래서 프로젝트 스킬은 같은 이름의 플러그인 스킬을 덮어쓰고, 플러그인은 내장을 덮어씁니다. 로더는 각각이 어디서 왔는지 기록하고, `skill list`가 그것을 보여줍니다.
 
+`SKILL.md` 하나만 든 디렉터리는 번들이 아니라 스킬 **하나**입니다. 그런 소스를 설치하면 `plugins/`가 아니라 `$SNOWPEA_HOME/skills/<name>/`에 들어갑니다. 이미 `plugins/` 아래에 있는 맨 스킬도 그대로 동작합니다 — 스킬로 등록되고, 로그가 원래 있어야 할 자리를 알려줍니다.
+
+## 언제 적재되는가
+
+적재는 세 시점에 일어나므로, `/command`를 쓰려고 재시작할 일은 없습니다.
+
+- **데몬 시작 시.** 내장, `$SNOWPEA_HOME/{skills,agents,commands}`, 설치된 모든 플러그인, 그리고 데몬이 아직 기억하는 모든 세션의 프로젝트 디렉터리 — 닫힌 세션까지 포함해, 실제로 존재하는 디렉터리 최대 50개. `$SNOWPEA_HOME/.mcp.json`에 선언된 서버도 여기서 시작하므로, 세션을 열기 전에 이미 그 툴이 `tool.list`에 있습니다.
+- **`session.create`와 `session.resume` 시.** 첫 턴 전에 그 세션의 작업 디렉터리(`<workdir>/.claude`, `<workdir>/.snowpea`)를 다시 훑습니다. 새로 받은 체크아웃의 스킬이 곧바로 쓰이는 이유입니다. 프로젝트 자체의 `.mcp.json` 서버도 같은 시점에 시작합니다.
+- **설치·삭제·`/skill create` 뒤.** 그 자리에서 전체 재적재.
+
+각 시점마다 `commands.changed`를 방송하므로 TUI 팔레트와 데스크톱 앱이 재시작 없이 갱신됩니다. `skill.list`·`command.list`·`tool.list`가 즉시 반영합니다.
+
 ## 다음
 
 [스케줄러](scheduler.md) — 자리를 비운 동안 작업을 돌리기.

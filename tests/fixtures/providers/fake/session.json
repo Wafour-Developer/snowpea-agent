@@ -12,6 +12,7 @@
       "match": "edit the greeting",
       "text": "editing",
       "tool_calls": [
+        {"name": "read_file", "arguments": {"path": "greeting.txt"}},
         {"name": "edit_file", "arguments": {"path": "greeting.txt", "old": "hello", "new": "bonjour"}}
       ]
     },

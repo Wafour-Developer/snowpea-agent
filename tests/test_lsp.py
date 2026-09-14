@@ -259,6 +259,9 @@ def test_registry_registers_lsp_tools_with_the_builtins() -> None:
 async def test_ac43_edit_file_appends_a_diagnostics_block(ctx: ToolContext) -> None:
     target = Path(ctx.session.workdir) / "a.fake"
     target.write_text("def alpha\nok\n")
+    # The read-before-write guard (M15 §A3) refuses an edit to a file this
+    # session has not read; the diagnostics block is what this test is about.
+    await run(ctx, "read_file", path="a.fake")
     result = await run(ctx, "edit_file", path="a.fake", old="ok", new="ERROR broken thing")
     try:
         assert result.ok, result.error

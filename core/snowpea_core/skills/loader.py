@@ -43,6 +43,9 @@ SOURCE_PROJECT = "project"
 #: Project-local bundles, read in this order (``.snowpea`` wins).
 PROJECT_DIRS: tuple[str, ...] = (".claude", ".snowpea")
 
+#: Ceiling on the project directories one scan walks (M15 §B5a).
+MAX_SCANNED_WORKDIRS = 50
+
 #: Placeholders a plugin may use in ``.mcp.json`` and in hook commands.
 ROOT_VARS: tuple[str, ...] = ("CLAUDE_PLUGIN_ROOT", "SNOWPEA_PLUGIN_ROOT")
 
@@ -144,12 +147,36 @@ class SkillLoader:
         return self.home / "plugins"
 
     def workdirs(self) -> list[Path]:
-        """Project directories to scan: every open session, then the daemon's."""
+        """Project directories to scan (M15 §B5a).
+
+        Every live session's workdir first, then the workdirs of sessions the
+        store still remembers — closed ones included — so a daemon that has
+        just started already knows the skills of every project the user has
+        worked in, rather than discovering them the first time a session opens
+        there.  Capped at :data:`MAX_SCANNED_WORKDIRS` and filtered to
+        directories that still exist, because a scan walks each one.
+        """
         seen: list[Path] = []
+
+        def add(raw: str | Path) -> None:
+            path = Path(raw)
+            if path in seen or len(seen) >= MAX_SCANNED_WORKDIRS:
+                return
+            seen.append(path)
+
         for row in self.core.sessions.list():
-            path = Path(row.workdir)
-            if path not in seen:
-                seen.append(path)
+            add(row.workdir)
+        store = getattr(self.core, "store", None)
+        if store is not None and hasattr(store, "session_workdirs"):
+            try:
+                stored = store.session_workdirs(limit=MAX_SCANNED_WORKDIRS)
+            except Exception:  # noqa: BLE001 - a bad store must not stop the scan
+                log.debug("could not list stored session workdirs", exc_info=True)
+            else:
+                for raw in stored:
+                    path = Path(raw)
+                    if path.is_dir():
+                        add(path)
         if not seen:
             seen.append(Path.cwd())
         return seen
@@ -212,6 +239,19 @@ class SkillLoader:
         """Read ``skills/``, ``agents/``, ``commands/``, hooks and ``.mcp.json``."""
         if not root.is_dir():
             return
+        # A bundle that *is* one skill: ``<root>/SKILL.md`` with no skills/
+        # directory around it.  ``~/.snowpea/plugins/flux/SKILL.md`` is shaped
+        # this way and used to load as nothing at all (M15 §B5c).
+        if (root / "SKILL.md").is_file():
+            self._add_skill_dir(root, source)
+            if plugin:
+                log.info(
+                    "plugin %s is a bare skill directory (only SKILL.md); it is registered "
+                    "as a skill — install it under %s/skills/%s to keep it out of plugins/",
+                    plugin,
+                    self.home,
+                    root.name,
+                )
         skills_dir = root / "skills"
         if skills_dir.is_dir():
             for entry in sorted(skills_dir.iterdir()):
@@ -298,6 +338,32 @@ class SkillLoader:
                 report.plugins,
                 report.hooks,
             )
+            return report
+
+    async def reload_workdir(self, workdir: Path | str) -> ReloadReport:
+        """Register one project's skills, commands and agents, now (M15 §B5b).
+
+        ``session.create`` and ``session.restore`` call this before the first
+        turn, so a project whose ``.snowpea/skills`` the daemon has never seen
+        still has its ``/commands`` in the palette on the very first prompt.
+        Incremental: it scans only ``<workdir>/.claude`` and
+        ``<workdir>/.snowpea`` and adds to what is already loaded, rather than
+        re-walking every root.
+        """
+        root = Path(workdir)
+        async with self._lock:
+            before = len(self.skills), len(self.agents)
+            for name in PROJECT_DIRS:
+                self._scan_bundle(root / name, SOURCE_PROJECT)
+            self._apply_commands()
+            report = ReloadReport(
+                skills=len(self.skills) - before[0],
+                agents=len(self.agents) - before[1],
+                commands=sum(1 for s in self.skills.values() if s.doc.user_invocable),
+                plugins=len(self.plugins),
+                hooks=self.hooks.count(),
+            )
+            await self._announce()
             return report
 
     def load_sync(self) -> ReloadReport:
@@ -451,13 +517,17 @@ class SkillLoader:
         return target
 
     async def remove(self, name: str) -> bool:
-        """Delete an installed plugin directory and reload."""
-        target = self.plugins_dir / name
-        if not target.is_dir():
-            return False
-        shutil.rmtree(target)
-        await self.reload()
-        return True
+        """Delete an installed plugin or global skill directory and reload.
+
+        ``skills/`` is checked too: a bare skill installs there rather than
+        into ``plugins/`` (M15 §B5d), and it must still be removable.
+        """
+        for target in (self.plugins_dir / name, self.home / "skills" / name):
+            if target.is_dir():
+                shutil.rmtree(target)
+                await self.reload()
+                return True
+        return False
 
 
 def instruction(doc: SkillDoc, args: str) -> str:
@@ -486,6 +556,7 @@ def expand_tree(value: Any, root: Path) -> Any:
 
 
 __all__ = [
+    "MAX_SCANNED_WORKDIRS",
     "PROJECT_DIRS",
     "PYTHON_VAR",
     "ROOT_VARS",

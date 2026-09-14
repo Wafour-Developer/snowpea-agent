@@ -28,7 +28,7 @@ GOLDEN_DIR = Path(__file__).parent / "golden" / "prompts"
 #: and its job is unchanged: the library cannot grow unbounded. Raised from
 #: 2200 for CORE-skill-create's one-sentence addition to base.md's "Skills
 #: and plugins" paragraph (/skill create); still headroom, not a reset.
-TIER_BUDGET_TOKENS = {"stable": 2225, "context": 800, "volatile": 600}
+TIER_BUDGET_TOKENS = {"stable": 2900, "context": 800, "volatile": 600}
 
 MODES = ("plan", "accept", "auto")
 VENDOR_CLASSES = ("anthropic", "openai-family", "small-local")

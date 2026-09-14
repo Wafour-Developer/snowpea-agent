@@ -366,6 +366,15 @@ snowpea tools list --json
 
 `web_extract` refuses private, loopback and link-local addresses, and truncates fetched pages to `tools.max_output_chars` (20000 by default).
 
+Two more `tools` settings shape how the agent works with files and long output:
+
+| setting | default | what it does |
+|---|---|---|
+| `tools.readBeforeWrite` | `true` | `edit_file` and `write_file` refuse a file this session has not read in full, or that a sibling subagent wrote after the read. The refusal is a `stale_file` error naming the reason. Creating a new file is always allowed. Set it to `false` to drop the guard. |
+| `tools.maxResultLines` | `400` | Past this many lines, a `shell`, `grep`, `glob` or `list_dir` result keeps a head and a tail; the middle goes to `$SNOWPEA_HOME/cache/tool-output/` and the result carries a `read_file` pointer with the offset and limit that would read it back. |
+
+`read_file` takes an optional `offset` (first line, 1-based) and `limit` (line count). A windowed read does not satisfy `readBeforeWrite`: the whole file has to be read before it is written.
+
 ## Browser providers
 
 `local_chromium` is the default and runs a headless Chromium through Playwright on your own machine. The first run may ask you to download the browser binary. The other ids — `camoufox`, `browser_use_local`, `browserbase`, `firecrawl_cloud` — are registered so you can see and select them, and answer with `browser_provider_unavailable` until they are configured.
@@ -422,7 +431,7 @@ Changes are picked up immediately. Writing or editing any of these files, at any
 
 ## What ends up on disk
 
-`$SNOWPEA_HOME/settings.json` holds `providers`, `search.provider`, `browser.provider`, `tools.enabled_categories`, `gateway`, `agents.max_concurrent` (3), `team.max_conflict_retries` (2), `approvals.timeoutSec` (300), `agent.max_tokens` (16384), `agent.thinking` (`auto`), `memory.enabled` (true), `memory.askScope` (true), `memory.digestEntries` (30) and `memory.digestChars` (6000). Per-project overrides for mode, allowlist and backend live in `<project>/.snowpea/settings.json` and win over the global file. Secrets are never written into `settings.json`, and never logged.
+`$SNOWPEA_HOME/settings.json` holds `providers`, `search.provider`, `browser.provider`, `tools.enabled_categories`, `tools.readBeforeWrite` (true), `tools.maxResultLines` (400), `gateway`, `agents.max_concurrent` (3), `team.max_conflict_retries` (2), `approvals.timeoutSec` (300), `agent.max_tokens` (16384), `agent.thinking` (`auto`), `memory.enabled` (true), `memory.askScope` (true), `memory.digestEntries` (30) and `memory.digestChars` (6000). Per-project overrides for mode, allowlist and backend live in `<project>/.snowpea/settings.json` and win over the global file. Secrets are never written into `settings.json`, and never logged.
 
 ## Next
 

@@ -12,6 +12,7 @@ import logging
 from typing import Any
 
 from snowpea_core.prompts import tool_descriptions as descriptions
+from snowpea_core.tools import file_state
 from snowpea_core.tools.config_guard import permission_for_write
 from snowpea_core.tools.registry import Tool, ToolContext, ToolResult
 from snowpea_core.vendor.hermes.tools.binary_extensions import (
@@ -66,6 +67,29 @@ async def _with_diagnostics(ctx: ToolContext, result: ToolResult) -> ToolResult:
     return result
 
 
+def _positive_int(args: dict[str, Any], key: str) -> int | None:
+    """``args[key]`` as a positive int, or ``None`` when absent or unusable."""
+    raw = args.get(key)
+    if raw is None or raw == "":
+        return None
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
+def _window(content: str, offset: int | None, limit: int | None) -> tuple[str, bool]:
+    """``(text, complete)`` for an optional 1-based line window."""
+    if offset is None and limit is None:
+        return content, True
+    lines = content.splitlines(keepends=True)
+    start = (offset or 1) - 1
+    end = len(lines) if limit is None else start + limit
+    window = lines[start:end]
+    return "".join(window), start == 0 and end >= len(lines)
+
+
 async def read_file(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     path = str(args.get("path", "")).strip()
     if not path:
@@ -84,8 +108,16 @@ async def read_file(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         return ToolResult(ok=False, error=f"no such file: {path}")
     except OSError as exc:
         return ToolResult(ok=False, error=f"{type(exc).__name__}: {exc}")
+    content, complete = _window(
+        content, _positive_int(args, "offset"), _positive_int(args, "limit")
+    )
     if len(content) > MAX_READ_CHARS:
         content = content[:MAX_READ_CHARS] + "\n… [truncated]"
+        complete = False
+    # The read-before-write guard is only as good as what it saw: a windowed or
+    # truncated read is recorded as partial, so a later write is refused until
+    # the whole file has been read (M15 §A3).
+    file_state.note_read(ctx.core, ctx.session, path, content, complete=complete)
     return ToolResult(ok=True, output=content, path=path)
 
 
@@ -94,11 +126,16 @@ async def write_file(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     if not path:
         return ToolResult(ok=False, error="path is required")
     content = str(args.get("content", ""))
-    before = await _read_existing(ctx, path) or ""
+    existing = await _read_existing(ctx, path)
+    before = existing or ""
+    stale = file_state.check_stale(ctx.core, ctx.session, path, exists=existing is not None)
+    if stale is not None:
+        return ToolResult(ok=False, error=f"{file_state.STALE_CODE}: {stale}")
     try:
         await ctx.backend.write_file(path, content)
     except OSError as exc:
         return ToolResult(ok=False, error=f"{type(exc).__name__}: {exc}")
+    file_state.note_write(ctx.core, ctx.session, path, content)
     return await _with_diagnostics(
         ctx,
         ToolResult(
@@ -122,6 +159,9 @@ async def edit_file(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     before = await _read_existing(ctx, path)
     if before is None:
         return ToolResult(ok=False, error=f"no such file: {path}")
+    stale = file_state.check_stale(ctx.core, ctx.session, path, exists=True)
+    if stale is not None:
+        return ToolResult(ok=False, error=f"{file_state.STALE_CODE}: {stale}")
     occurrences = before.count(old)
     replace_all = bool(args.get("replaceAll", False))
     if occurrences == 0:
@@ -146,6 +186,7 @@ async def edit_file(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         await ctx.backend.write_file(path, after)
     except OSError as exc:
         return ToolResult(ok=False, error=f"{type(exc).__name__}: {exc}")
+    file_state.note_write(ctx.core, ctx.session, path, after)
     replaced = occurrences if replace_all and occurrences else 1
     return await _with_diagnostics(
         ctx,
@@ -195,7 +236,17 @@ TOOLS: tuple[Tool, ...] = (
         description=descriptions.READ_FILE,
         input_schema={
             "type": "object",
-            "properties": {"path": {"type": "string", "description": "File to read."}},
+            "properties": {
+                "path": {"type": "string", "description": "File to read."},
+                "offset": {
+                    "type": "integer",
+                    "description": "First line to return (1-based). Omit to start at the top.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "How many lines to return. Omit to read to the end.",
+                },
+            },
             "required": ["path"],
         },
         permission="read",

@@ -646,6 +646,15 @@ class Daemon:
         # having to call ``gateway.bind`` by hand (CORE-gateway-autostart).
         await core.gateway.sync_from_settings(core.settings)
         await core.skills.reload()
+        # Global ``$SNOWPEA_HOME/.mcp.json`` servers start at boot, so their
+        # tools are in ``tool.list`` before anyone opens a session; a project's
+        # own ``.mcp.json`` still starts at ``session.create`` (M15 §B5e).
+        from snowpea_core.tools import mcp_client
+
+        try:
+            await mcp_client.sync_tools(core, None)
+        except Exception:  # noqa: BLE001 - one bad server must not stop the daemon
+            log.warning("could not start global MCP servers", exc_info=True)
         core.lifecycle.start()
         await start_scheduler(core)
         # Lazy and non-blocking: the answer is cached for 24h, so a daemon that

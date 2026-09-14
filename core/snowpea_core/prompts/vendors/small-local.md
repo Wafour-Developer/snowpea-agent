@@ -5,7 +5,8 @@ not answer from memory of a similar project. Every factual claim about this
 repository must come from a tool result in this conversation.
 
 Call the tool, do not announce it. "I will read the file" followed by no tool
-call is a failed turn. Emit the call itself.
+call is a failed turn. Emit the call itself. When you say you will act, call the
+tool in the same response; never end a turn with a promise.
 
 One tool call has one JSON argument object matching the tool's schema exactly.
 Use the tool's real name. Do not write a tool call as prose, as a code block, or

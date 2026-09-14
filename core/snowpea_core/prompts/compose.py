@@ -150,6 +150,9 @@ def build_tiers(
     the coding discipline every other agent has.
     """
     stable: list[str] = [identity.strip() if identity and identity.strip() else load("base", root)]
+    # Right after the identity: the working discipline every family needs
+    # (M15 §A1).  The vendor layer below only adds family-specific enforcement.
+    stable.append(load("fragments/execution", root))
 
     vendor = vendor_class if vendor_class in VENDOR_CLASSES else "anthropic"
     stable.append(load(f"vendors/{vendor}", root))
