@@ -17,6 +17,83 @@ class Retrieval:                        # memory/retrieval.py
 - Agent loop (`agent/loop.py`): before each turn, inject `Retrieval.context_block` into the system prompt when `settings.memory.enabled` (default true); after `turn.done{complete}` run a lightweight "memory nudge": if the user message contains explicit remember-style phrases (configurable regex list, ko/en) write it automatically.
 - Persistence survives daemon restart (it is SQLite). AC-07 test: session A "내 배포 대상은 duho 서버다" → memory_write → session B asks → answer contains `duho` and `[mem:<id>]`.
 
+### 1b. Scopes: project, global, agent (v0.1.x)
+
+Memory has three scopes, told apart by the namespace string alone, so nothing about the existing rows moves:
+
+| Scope | Namespace | Who recalls it |
+| --- | --- | --- |
+| global | `default` | every session |
+| project | `project:<realpath of the project root>` | sessions whose workdir is inside that root |
+| agent | `agent:<name>` | that named agent (M7 §6), unchanged |
+
+`memory/scopes.py` owns every derivation and touches no database. **The project root is the git root of the session's workdir when there is one, else the workdir itself**, so `repo/` and `repo/core/` share one project memory and a sibling checkout does not. It is `None` — "this session is not in a project", everything is global — when the workdir does not exist, or *is* the user's home directory or `$SNOWPEA_HOME`.
+
+`Session.project_namespace` is derived once in `__post_init__`, which is the one seam both `SessionManager.create` and `SessionManager.restore` pass through. `MemoryEntry.scope` / `.project` are derived on read from `namespace`, never stored, so a row written before this section labels itself correctly.
+
+**Recall** (`Retrieval.context_block`, `memory_search`) searches project + global + the agent namespace when the session has one, as **one** bm25 query rather than one per namespace, so a project fact and a global one are ranked against each other. Order is relevance, never scope. Each hit is rendered `<memory id=… tags=…>[project] text</memory>`, and the block header names the project root so the model knows what `[project]` refers to and that the label is not part of the fact.
+
+**`memory_write` gains `scope: "project" | "global"` (optional).** When the model passes one, it is honoured. When it does not, the tool puts the choice to the human through the questions queue (`ask_user`'s queue, so every surface including the TUI already renders it):
+
+- header `Where to keep it`, question `Save this memory for this project only (<name>) or for every project?`
+- options `Project (<name>)` / `Global (every project)` / `Cancel`, single-select, free text disabled
+- **Cancel, a decline, or a timeout writes nothing**, and the tool result says so: silence is not consent to a global write.
+
+The question is skipped, and the memory filed under the **project**, when the session is unattended or a subagent (nobody can answer), or when `settings.memory.askScope` is false. It is skipped, and the memory filed **globally**, when the session has no project root. A named agent's session keeps writing to its own `agent:` namespace unless a scope is passed explicitly.
+
+`prompts/tool_descriptions.MEMORY_WRITE` tells the model the rule: pass `scope` only when the user said which they meant ("프로젝트에 기억해", "remember globally"); otherwise omit it and let the daemon ask.
+
+The auto-remember nudge is unchanged — it still writes globally — but its duplicate check now spans every scope the session recalls from, so a fact `memory_write` already filed under the project does not reappear as a global copy.
+
+**The standing digest.** Query-based recall answers "what is relevant to *this* message", which is the wrong question on the first turn of a session: there is no message yet, and the user expects the agent to already know the project it just opened. So every memory block now opens with a digest (`memory/digest.py`), present from the first turn of every session — new, resumed, subagent or scheduled — because it is built in `Retrieval.context_block`, which `context_for_turn` calls on every turn and which no longer short-circuits on an empty prompt:
+
+```text
+<header: treat these as facts, cite [mem:<id>]>
+
+## Project memory (<name>)
+- [2026-09-14] 빌드는 uv run #build [mem:m-…]
+… and 12 more — memory_search finds the rest
+
+## About the user
+- deploy_target: duho 서버 [mem:m-…]
+
+## Global memory
+- [2026-09-10] 짧은 답을 선호한다 [mem:m-…]
+
+## Relevant to this message
+<memory id="m-…" tags="…">[project] …</memory>
+```
+
+- **Project memory** — the newest `memory.digestEntries` (30) project-scope memories, newest first, trimmed to `memory.digestChars` (6000) characters. The `… and K more` line counts every memory in the namespace that is not shown, whether the entry limit or the character budget left it out.
+- **About the user** — every `profile:<key>` fact in the global namespace, as `- key: value`; profile facts are then excluded from the global list so nothing appears twice.
+- **Global memory** — the newest 10 global memories that are not profile facts.
+- Empty sections are omitted; a digest with no sections is `""`, and a block with neither digest nor hits is `""`.
+
+Digest lines carry `[mem:<id>]` like the `<memory>` elements do: the block's one instruction to cite applies to everything in it, and a fact the model cannot name is a fact it cannot attribute.
+
+The query-based hits follow under `## Relevant to this message`, **deduplicated against the digest** — a hit already listed above is dropped rather than printed twice, so the slot goes to something new.
+
+The digest is cached per project namespace on `Retrieval`, keyed on `MemoryStore.revision`, which every write and delete bumps. A memory written during a turn is therefore in the next turn's digest, and nothing else rebuilds.
+
+**Human-readable mirror.** SQLite stays the source of truth; every write is also appended as one line to a markdown file a person can read:
+
+- project → `<project root>/.snowpea/memory.md`
+- global → `$SNOWPEA_HOME/memory.md`
+- agent → no mirror
+
+One `- [YYYY-MM-DD] text #tag` line per memory. A delete rewrites the whole file from the store rather than cutting a line out of it, because the file is a projection. Every mirror failure is logged and swallowed: a read-only checkout must still be able to remember. Users may git-ignore `.snowpea/memory.md`.
+
+**Command, RPC and CLI.** `/memory [list|search <q>|forget <id>] [--project|--global|--all]` (scope defaults to `--all`, which is exactly what recall sees) answers in plain text. Protocol 1.5.0 gains two additive methods:
+
+```
+memory.list   {scope?, sessionId?, project?, query?, limit?} -> {entries: [{id, text, tags, scope, project, createdAt}]}
+memory.delete {id}                                           -> {ok}
+```
+
+`scope` is `"project" | "global" | "agent" | "all"` (default `all`). A project scope needs a project root: `sessionId` supplies one, and `project` (a path) supplies one for a caller with no session — which is how `snowpea memory list --project` works from a checkout. `MemoryHit` also gained `scope` / `project`.
+
+CLI: `snowpea memory list|search <query>|forget <id>` with `--project` / `--global` / `--scope <s>` / `--limit` / `--json`.
+
 ## 2. Scheduler (`scheduler/`)
 ```python
 class Job(BaseModel): id, spec: str, kind: Literal["cron","once","interval"], cron: str|None,

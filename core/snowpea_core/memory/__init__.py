@@ -20,8 +20,16 @@ from snowpea_core.memory.retrieval import (
     DEFAULT_REMEMBER_PATTERNS,
     Retrieval,
     namespace_of,
+    namespaces_for,
+    project_namespace_of,
     remember_candidate,
     render_block,
+)
+from snowpea_core.memory.scopes import (
+    GLOBAL_NAMESPACE,
+    project_namespace,
+    project_root,
+    scope_of,
 )
 from snowpea_core.memory.store import MemoryClosed, MemoryEntry, MemoryStore
 from snowpea_core.memory.tools import register_memory_tools
@@ -67,7 +75,7 @@ class MemoryServices:
         return cls(
             store=store,
             profile=UserProfile(store),
-            retrieval=Retrieval(store, top_k=config.top_k),
+            retrieval=Retrieval(store, top_k=config.top_k, settings=config),
             settings=config,
         )
 
@@ -108,8 +116,10 @@ async def context_for_turn(core: Core, session: Session, text: str) -> str:
     daemon shutdown that lands mid-lookup cancels it cleanly instead of racing
     :meth:`MemoryServices.close` (CORE-memory-race).
     """
-    if not enabled(core) or not text.strip():
+    if not enabled(core):
         return ""
+    # An empty prompt still gets the digest: what the session already knows
+    # does not depend on what was just typed (M5 §1b).
     memory = services(core)
     task = memory._track(memory.retrieval.context_block(session, text))
     try:
@@ -141,7 +151,9 @@ async def nudge_after_turn(core: Core, session: Session, text: str) -> MemoryEnt
     if fact is None:
         return None
     namespace = namespace_of(session)
-    task = memory._track(_write_nudge(memory, fact, namespace, session.id))
+    task = memory._track(
+        _write_nudge(memory, fact, namespace, session.id, namespaces_for(session))
+    )
     try:
         return await task
     except (MemoryClosed, asyncio.CancelledError):
@@ -154,9 +166,19 @@ async def nudge_after_turn(core: Core, session: Session, text: str) -> MemoryEnt
 
 
 async def _write_nudge(
-    memory: MemoryServices, fact: str, namespace: str, session_id: str
+    memory: MemoryServices,
+    fact: str,
+    namespace: str,
+    session_id: str,
+    seen_in: list[str] | None = None,
 ) -> MemoryEntry | None:
-    if await memory.store.exists(fact, namespace=namespace):
+    """Write the nudged fact, unless some scope already holds it verbatim.
+
+    The dedupe spans every scope the session recalls from, not just the one
+    being written to: a fact the model already filed under the project through
+    ``memory_write`` must not reappear as a global copy (M5 §1b).
+    """
+    if await memory.store.exists_any(fact, namespaces=seen_in or [namespace]):
         return None
     return await memory.store.write(
         fact, tags=["auto"], namespace=namespace, source_session=session_id
@@ -176,13 +198,19 @@ __all__: list[str] = [
     "MemoryClosed",
     "MemoryEntry",
     "MemoryServices",
+    "GLOBAL_NAMESPACE",
     "MemoryStore",
     "Retrieval",
     "UserProfile",
     "context_for_turn",
     "enabled",
     "namespace_of",
+    "namespaces_for",
     "nudge_after_turn",
+    "project_namespace",
+    "project_namespace_of",
+    "project_root",
+    "scope_of",
     "profile_tag",
     "register_memory_tools",
     "remember_candidate",

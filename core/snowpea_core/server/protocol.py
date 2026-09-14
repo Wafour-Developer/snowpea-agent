@@ -1152,6 +1152,10 @@ class GatewayUnbindParams(Payload):
 # --------------------------------------------------------------------------
 
 
+#: Where a memory is kept (M5 §1b).  ``"all"`` is only valid as a filter.
+MemoryScope = Literal["project", "global", "agent", "all"]
+
+
 class MemorySearchParams(Payload):
     query: str = Field(description="Free-text query.")
     limit: int = Field(default=10, description="Maximum number of hits.")
@@ -1168,6 +1172,10 @@ class MemoryHit(Payload):
     text: str = Field(description="Stored text.")
     tags: list[str] = Field(default_factory=list, description="Tags attached at write time.")
     score: float = Field(default=0.0, description="Relevance score; higher is closer.")
+    scope: MemoryScope = Field(default="global", description="Scope the hit came from.")
+    project: str = Field(
+        default="", description="Project root for a project memory; empty otherwise."
+    )
 
 
 class MemorySearchResult(Payload):
@@ -1184,6 +1192,55 @@ class MemoryWriteParams(Payload):
 
 class MemoryWriteResult(Payload):
     id: str = Field(description="Id of the stored memory.")
+
+
+class MemoryListParams(Payload):
+    """Filter for ``memory.list`` (M5 §1b).  Everything is optional."""
+
+    scope: MemoryScope | None = Field(
+        default=None,
+        description=(
+            'Which scopes to list: "project", "global", "agent" or "all" (default).'
+        ),
+    )
+    sessionId: str | None = Field(
+        default=None,
+        description="Session whose project and agent scopes to resolve; omit for global only.",
+    )
+    project: str | None = Field(
+        default=None,
+        description=(
+            "Project root to use instead of a session's, so a CLI in a checkout can list "
+            "that project's memories without opening a session."
+        ),
+    )
+    query: str | None = Field(
+        default=None, description="Free-text filter; omit to list newest first."
+    )
+    limit: int = Field(default=100, description="Maximum number of entries.")
+
+
+class MemoryEntryInfo(Payload):
+    """One stored memory, with the scope it is kept in."""
+
+    id: str = Field(description="Memory id.")
+    text: str = Field(description="Stored text.")
+    tags: list[str] = Field(default_factory=list, description="Tags attached at write time.")
+    scope: MemoryScope = Field(default="global", description="Scope this memory is kept in.")
+    project: str = Field(
+        default="", description="Project root for a project memory; empty otherwise."
+    )
+    createdAt: str = Field(default="", description="When it was written (ISO-8601, UTC).")
+
+
+class MemoryListResult(Payload):
+    entries: list[MemoryEntryInfo] = Field(
+        default_factory=list, description="Matching memories, newest or best first."
+    )
+
+
+class MemoryDeleteParams(Payload):
+    id: str = Field(description="Memory id to forget.")
 
 
 class SkillSearchParams(Payload):
@@ -2643,6 +2700,13 @@ METHODS: dict[str, RpcMethod] = {
             "Recall stored memories matching a query.",
         ),
         _m("memory.write", MemoryWriteParams, MemoryWriteResult, "Store a memory with tags."),
+        _m(
+            "memory.list",
+            MemoryListParams,
+            MemoryListResult,
+            "List stored memories by scope, newest first.",
+        ),
+        _m("memory.delete", MemoryDeleteParams, Ok, "Forget one stored memory."),
         _m("skill.search", SkillSearchParams, SkillSearchResult, "Search available skills."),
         _m(
             "skill.install", SkillInstallParams, Ok, "Install a skill from a path, URL or registry."
@@ -2767,6 +2831,8 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "backend.set",
         "memory.search",
         "memory.write",
+        "memory.list",
+        "memory.delete",
         "gateway.bind",
         "gateway.list",
         "gateway.unbind",

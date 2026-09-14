@@ -30,7 +30,10 @@ from snowpea_core.providers.base import ChatMessage, StreamEvent, ToolSpec, Usag
 from snowpea_core.server.app_server import Daemon
 from snowpea_core.server.protocol import PROTOCOL_VERSION
 
-MEMORY_ID = re.compile(r'<memory id="(m-[0-9a-f]+)"')
+# A memory can reach the prompt two ways now (M5 §1b): as a ``<memory>``
+# element from query-based recall, or as a ``- … [mem:<id>]`` line in the
+# standing digest.  The provider below answers from whichever it finds.
+MEMORY_ID = re.compile(r'(?:<memory id="|\[mem:)(m-[0-9a-f]+)')
 
 FACT = "기억해: 내 배포 대상은 duho 서버다"
 QUESTION = "내 배포 대상이 뭐였지?"
@@ -65,8 +68,8 @@ class RecordingProvider:
         found = MEMORY_ID.findall(system)
         if found:
             memory_id = found[0]
-            body = system.split(f'id="{memory_id}"', 1)[1].split(">", 1)[1].split("<", 1)[0]
-            reply = f"{body} [mem:{memory_id}]"
+            line = next(line for line in system.splitlines() if memory_id in line)
+            reply = f"{line} [mem:{memory_id}]"
         for index in range(0, len(reply), 8):
             yield StreamEvent(kind="text_delta", text=reply[index : index + 8])
         yield StreamEvent(kind="usage", usage=Usage(input_tokens=1, output_tokens=1))

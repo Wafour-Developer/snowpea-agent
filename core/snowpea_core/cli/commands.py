@@ -1259,6 +1259,68 @@ async def job_run(job_id: str, home: Path | str | None = None) -> int:
 
 
 # ---------------------------------------------------------------------------
+# memory.* (M5 contract §1b)
+# ---------------------------------------------------------------------------
+
+
+def format_memory_line(entry: dict[str, Any]) -> str:
+    """One line per memory for ``snowpea memory list``."""
+    scope = str(entry.get("scope") or "global")
+    created = str(entry.get("createdAt") or "")[:10]
+    stamp = f" {created}" if created else ""
+    tags = entry.get("tags") or []
+    suffix = "  #" + " #".join(str(tag) for tag in tags) if tags else ""
+    text = " ".join(str(entry.get("text") or "").split())
+    return f"{entry.get('id')}  [{scope}]{stamp}  {text}{suffix}"
+
+
+async def memory_list(
+    home: Path | str | None = None,
+    *,
+    scope: str = "all",
+    query: str | None = None,
+    workdir: str | None = None,
+    limit: int = 100,
+    as_json: bool = False,
+) -> int:
+    """``snowpea memory list|search`` → ``memory.list``."""
+    params: dict[str, Any] = {"scope": scope, "limit": limit}
+    params["project"] = workdir or str(Path.cwd())
+    if query:
+        params["query"] = query
+    try:
+        result = await _call(home, "memory.list", params)
+    except DaemonError as exc:
+        return _fail(str(exc), EXIT_NO_DAEMON)
+    except RpcCallError as exc:
+        return _fail(f"memory.list failed ({exc.code}): {exc.message}", EXIT_USAGE)
+    entries = [item for item in (result.get("entries") or []) if isinstance(item, dict)]
+    if as_json:
+        _print_json(entries)
+        return EXIT_OK
+    if not entries:
+        print("nothing is remembered in this scope yet")
+        return EXIT_OK
+    for entry in entries:
+        print(format_memory_line(entry))
+    return EXIT_OK
+
+
+async def memory_forget(memory_id: str, home: Path | str | None = None) -> int:
+    """``snowpea memory forget <id>`` → ``memory.delete``."""
+    if not memory_id:
+        return _fail("usage: snowpea memory forget <id>", EXIT_USAGE)
+    try:
+        await _call(home, "memory.delete", {"id": memory_id})
+    except DaemonError as exc:
+        return _fail(str(exc), EXIT_NO_DAEMON)
+    except RpcCallError as exc:
+        return _fail(f"memory.delete failed ({exc.code}): {exc.message}", EXIT_USAGE)
+    print(f"forgot {memory_id}")
+    return EXIT_OK
+
+
+# ---------------------------------------------------------------------------
 # skill.* (M6 contract §1)
 # ---------------------------------------------------------------------------
 
@@ -2401,6 +2463,42 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
     job_run_parser = job_sub.add_parser("run", help="fire a job now, in the daemon")
     job_run_parser.add_argument("job_id", help="job id from `job list`")
 
+    memory_parser = sub.add_parser("memory", help="inspect and prune long-term memory")
+    memory_sub = memory_parser.add_subparsers(dest="action", metavar="<action>")
+    for name, help_text in (
+        ("list", "list stored memories, newest first"),
+        ("search", "search stored memories"),
+    ):
+        memory_action = memory_sub.add_parser(name, help=help_text)
+        if name == "search":
+            memory_action.add_argument("query", nargs="?", default="", help="what to look for")
+        memory_action.add_argument(
+            "--scope",
+            default="all",
+            choices=["project", "global", "agent", "all"],
+            help="which scope to read (default: all)",
+        )
+        memory_action.add_argument(
+            "--project",
+            dest="memory_project",
+            action="store_const",
+            const="project",
+            help="shorthand for --scope project",
+        )
+        memory_action.add_argument(
+            "--global",
+            dest="memory_global",
+            action="store_const",
+            const="global",
+            help="shorthand for --scope global",
+        )
+        memory_action.add_argument("--limit", type=int, default=100, help="maximum rows")
+        memory_action.add_argument(
+            "--json", dest="sub_json", action="store_true", help="emit JSON"
+        )
+    memory_forget_parser = memory_sub.add_parser("forget", help="delete one memory by id")
+    memory_forget_parser.add_argument("memory_id", help="memory id from `memory list`")
+
     service = sub.add_parser("service", help="run the daemon as a login service")
     service_sub = service.add_subparsers(dest="action", metavar="<action>")
     service_sub.add_parser("install", help="register the daemon with systemd/launchd/schtasks")
@@ -2665,6 +2763,28 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
             return await job_run(str(getattr(args, "job_id", "") or ""), home)
         return _fail(
             'usage: snowpea job schedule --in 60s --task "…" | list | cancel <id> | run <id>',
+            EXIT_USAGE,
+        )
+    if subcommand == "memory":
+        if action == "forget":
+            return await memory_forget(str(getattr(args, "memory_id", "") or ""), home)
+        if action in {"list", "search"}:
+            scope = (
+                getattr(args, "memory_project", None)
+                or getattr(args, "memory_global", None)
+                or str(getattr(args, "scope", "all") or "all")
+            )
+            return await memory_list(
+                home,
+                scope=scope,
+                query=str(getattr(args, "query", "") or "") or None,
+                workdir=getattr(args, "cwd", None),
+                limit=int(getattr(args, "limit", 100) or 100),
+                as_json=as_json,
+            )
+        return _fail(
+            "usage: snowpea memory list | search <query> | forget <id>"
+            " [--project|--global|--scope S]",
             EXIT_USAGE,
         )
     if subcommand == "skill":

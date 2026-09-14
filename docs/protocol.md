@@ -87,6 +87,8 @@ Server capabilities advertised in the `system.hello` result:
 | [`mcp.remove`](#mcpremove) | client → server | Delete an MCP server entry and stop the server. |
 | [`mcp.test`](#mcptest) | client → server | Probe a saved MCP server or an unsaved draft and report its tools. |
 | [`mcp.update`](#mcpupdate) | client → server | Merge a patch into an existing MCP server entry. |
+| [`memory.delete`](#memorydelete) | client → server | Forget one stored memory. |
+| [`memory.list`](#memorylist) | client → server | List stored memories by scope, newest first. |
 | [`memory.search`](#memorysearch) | client → server | Recall stored memories matching a query. |
 | [`memory.write`](#memorywrite) | client → server | Store a memory with tags. |
 | [`permission.allowlist.add`](#permissionallowlistadd) | client → server | Promote a pattern from ask to allow. |
@@ -833,6 +835,46 @@ Merge a patch into an existing MCP server entry.
 |---|---|---|---|
 | `ok` | `boolean` | no | True when the call succeeded. |
 
+### `memory.delete`
+
+*Direction:* client → server
+
+Forget one stored memory.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `id` | `string` | yes | Memory id to forget. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ok` | `boolean` | no | True when the call succeeded. |
+
+### `memory.list`
+
+*Direction:* client → server
+
+List stored memories by scope, newest first.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `limit` | `number` | no | Maximum number of entries. |
+| `project` | `string \| null` | no | Project root to use instead of a session's, so a CLI in a checkout can list that project's memories without opening a session. |
+| `query` | `string \| null` | no | Free-text filter; omit to list newest first. |
+| `scope` | `"project" \| "global" \| "agent" \| "all" \| null` | no | Which scopes to list: "project", "global", "agent" or "all" (default). |
+| `sessionId` | `string \| null` | no | Session whose project and agent scopes to resolve; omit for global only. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `entries` | `({ createdAt?: string; id: string; project?: string; scope?: "project" \| "global" \| "agent" \| "all"; tags?: string[]; text: string; })[]` | no | Matching memories, newest or best first. |
+
 ### `memory.search`
 
 *Direction:* client → server
@@ -851,7 +893,7 @@ Recall stored memories matching a query.
 
 | field | type | required | description |
 |---|---|---|---|
-| `hits` | `({ id: string; score?: number; tags?: string[]; text: string; })[]` | no | Matches, best first. |
+| `hits` | `({ id: string; project?: string; scope?: "project" \| "global" \| "agent" \| "all"; score?: number; tags?: string[]; text: string; })[]` | no | Matches, best first. |
 
 ### `memory.write`
 
