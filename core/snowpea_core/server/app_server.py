@@ -626,6 +626,18 @@ class Daemon:
         self._runner = runner
         core.port = _resolve_port(runner, self._requested_port)
         self._write_daemon_json()
+        # Before anything reads the event log: a daemon that was killed
+        # mid-turn left ``turn.started`` with no ``turn.done``, and every
+        # client that replays that history would show a turn running forever
+        # (CORE-dangling-turns).
+        if core.store is not None:
+            try:
+                repaired = await core.store.repair_dangling_turns()
+            except Exception:  # noqa: BLE001 - a bad row must not stop the daemon
+                log.warning("could not repair unfinished turns", exc_info=True)
+            else:
+                if repaired:
+                    log.info("closed %d turn(s) a previous run left open", len(repaired))
         # Before the gateway: a binding that targets a named agent's session
         # needs that session to exist again (M7 contract §6).
         await core.named_agents.restore()
@@ -692,6 +704,13 @@ class Daemon:
             # before we start tearing down the services it depends on
             # (CORE-memory-race).
             self.core.stopping = True
+            # Close every turn still in flight while the hub and the store are
+            # both still up.  ``close_all`` below cancels the turn tasks, and a
+            # turn cancelled during shutdown skips its own final write
+            # (CORE-session-race) — without this the thread would replay as
+            # permanently running (CORE-dangling-turns).
+            with contextlib.suppress(Exception):
+                await self.core.sessions.finish_open_turns()
             # Cancel and close every live session's turn *before* the session
             # store, memory and gateway are torn down below: a turn task left
             # running past that point can still land its final ``turn.done``

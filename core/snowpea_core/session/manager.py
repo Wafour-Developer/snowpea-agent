@@ -174,6 +174,14 @@ class SessionManager:
         row = await self.store.session(session_id)
         if row is None:
             return None
+        # A thread whose daemon was killed mid-turn has a ``turn.started`` with
+        # no ``turn.done``, so every replay of it ends on a turn that never
+        # finishes.  The startup scan fixes the rows that existed then; this
+        # covers one restored afterwards (CORE-dangling-turns).
+        try:
+            await self.store.repair_dangling_turns(session_id)
+        except StoreClosed:  # pragma: no cover - shutdown race
+            log.debug("skipping the turn repair for %s: session store is closed", session_id)
         workdir = Path(str(row["workdir"])).expanduser()
         selected_team = active_team(self.settings, workdir)
         stored_messages = await self.store.messages(session_id)
@@ -289,6 +297,44 @@ class SessionManager:
                 )
         log.info("session %s closed", session_id)
         return True
+
+    async def finish_open_turns(self, reason: str = "interrupted") -> tuple[str, ...]:
+        """Close every turn still in flight, before the store is torn down.
+
+        ``Daemon.stop`` cancels the turn tasks, and a turn cancelled during
+        shutdown deliberately skips its own final write so it cannot race the
+        closing store (CORE-session-race in :func:`agent.loop.run_turn`).  The
+        cost was a thread that replays forever as "still thinking": the event
+        log kept ``turn.started`` with nothing after it.  Emitting here, while
+        the hub and the store are both still up, is what closes it — exactly
+        once, because the turn id is claimed off the session first
+        (CORE-dangling-turns).
+
+        Returns the turn ids it closed.  (A tuple, not a list: this class has a
+        method called ``list``, which shadows the builtin in an annotation.)
+        """
+        if self.hub is None:
+            return ()
+        finished: list[str] = []
+        for session in list(self._sessions.values()):
+            turn_id = session.current_turn
+            if not turn_id:
+                continue
+            session.current_turn = None
+            try:
+                await self.hub.emit_event(
+                    session.id, event_builders.turn_done(turn_id, reason, synthetic=True)
+                )
+            except StoreClosed:  # pragma: no cover - the store went first
+                log.debug("could not close turn %s: session store is closed", turn_id)
+                continue
+            except Exception:  # noqa: BLE001 - shutdown must finish regardless
+                log.debug("could not close turn %s", turn_id, exc_info=True)
+                continue
+            finished.append(turn_id)
+        if finished:
+            log.info("closed %d turn(s) still in flight at shutdown", len(finished))
+        return tuple(finished)
 
     async def close_all(self, *, timeout: float = 5.0) -> None:
         """Cancel and close every live session (CORE-session-race).

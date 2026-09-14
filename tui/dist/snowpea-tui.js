@@ -35628,6 +35628,13 @@ function clampFocus(focus, agentRows) {
 var MAX_HISTORY = 500;
 var HISTORY_FILE = "tui-history.jsonl";
 var SESSIONS_FILE = "tui-sessions.json";
+function sessionKindPrefix(kind, parentSessionId) {
+  const parent = parentSessionId ? ` ${parentSessionId.slice(0, 8)}` : "";
+  if (kind === "scheduled") return `\u23F0${parent} `;
+  if (kind === "subagent") return `\u21B3${parent} `;
+  if (kind === "agent") return "\u25C6 ";
+  return "";
+}
 function stateDir(env3, home) {
   return env3.SNOWPEA_HOME && env3.SNOWPEA_HOME.length > 0 ? env3.SNOWPEA_HOME : `${home}/.snowpea`;
 }
@@ -40170,7 +40177,9 @@ function App2({
         sessionId: String(row.sessionId),
         workdir: String(row.workdir),
         firstPrompt: typeof row.lastPrompt === "string" ? row.lastPrompt : "",
-        at: Date.parse(String(row.createdAt)) || 0
+        at: Date.parse(String(row.createdAt)) || 0,
+        kind: typeof row.kind === "string" ? row.kind : "chat",
+        parentSessionId: typeof row.parentSessionId === "string" ? row.parentSessionId : void 0
       }));
       if (choices.length === 0) {
         showToast("no saved sessions for this directory");
@@ -40818,7 +40827,7 @@ function App2({
       {
         options: [
           ...resumeChoices.map((entry) => ({
-            label: `${entry.sessionId} \xB7 ${new Date(entry.at).toLocaleString()} \xB7 ${entry.firstPrompt ? entry.firstPrompt.length > 48 ? `${entry.firstPrompt.slice(0, 47)}\u2026` : entry.firstPrompt : "(no prompt)"}`,
+            label: `${sessionKindPrefix(entry.kind, entry.parentSessionId)}${entry.sessionId} \xB7 ${new Date(entry.at).toLocaleString()} \xB7 ${entry.firstPrompt ? entry.firstPrompt.length > 48 ? `${entry.firstPrompt.slice(0, 47)}\u2026` : entry.firstPrompt : "(no prompt)"}`,
             value: entry.sessionId
           })),
           { label: "Cancel", value: null }

@@ -1278,6 +1278,8 @@ export interface SessionListResult {
     parentSessionId?: string | null;
     /** Chat provider vendor in use. */
     provider?: string | null;
+    /** True while the daemon has a turn in flight for this session. Always false for a stored row, which by definition has no live turn — a client should trust this rather than infer a running turn from a replay that ends on turn.started (CORE-dangling-turns). */
+    running?: boolean;
     /** Sequence number of the latest event. */
     seq?: number;
     /** Session id. */
@@ -2447,6 +2449,8 @@ export interface TurnDoneEventPayload {
   kind?: "turn.done";
   /** Why the turn ended. budget = the tool-round budget ran out; the turn reported what it had done before ending. */
   reason?: "complete" | "interrupted" | "error" | "denied" | "timeout" | "budget";
+  /** True when the daemon wrote this event itself to close a turn a crash left open, rather than the turn reporting its own end (CORE-dangling-turns). The turn produced no further output after the events already stored. */
+  synthetic?: boolean;
   /** Turn that ended. */
   turnId: string;
 }

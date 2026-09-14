@@ -131,6 +131,7 @@ class Session:
             parentSessionId=self.parent_session_id,
             jobId=self.job_id,
             agent=self.agent,
+            running=self.current_turn is not None,
         )
 
 
