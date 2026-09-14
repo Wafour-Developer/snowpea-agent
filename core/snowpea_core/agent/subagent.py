@@ -35,6 +35,7 @@ from snowpea_core.config.settings import THINKING_CHOICES
 from snowpea_core.prompts.loader import PromptNotFound, load
 from snowpea_core.server.protocol import AgentInfo
 from snowpea_core.session import events
+from snowpea_core.tools.registry import ProgressEmitter
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.server.app_server import Core
@@ -147,6 +148,10 @@ class SubagentRecord:
     #: the precedence chain (CORE-model-assignment).
     provider_override: str | None = None
     model_override: str | None = None
+    #: Where this child's progress is republished as ``tool.progress`` on the
+    #: delegating tool call; set by ``delegate_task`` when a surface is
+    #: listening, ``None`` otherwise (IDE-PROGRESS D2).
+    progress: ProgressEmitter | None = field(default=None, repr=False, compare=False)
 
     @property
     def ok(self) -> bool:
@@ -302,6 +307,12 @@ class SubagentManager:
         )
 
     async def emit_update(self, record: SubagentRecord, *, last_text: str = "") -> None:
+        # A delegation is a tool call that can run for minutes; the child's own
+        # last line is the only progress it has (IDE-PROGRESS D2).  Advisory,
+        # like every ``tool.progress``: the delegation's ``tool.result`` still
+        # carries the answer.
+        if record.progress is not None and last_text:
+            await record.progress.emit("stdout", last_text)
         await self._emit(
             record.parent_session_id,
             (
@@ -406,6 +417,7 @@ class SubagentManager:
         record: SubagentRecord | None = None,
         model: str | None = None,
         title: str = "",
+        progress: ProgressEmitter | None = None,
     ) -> SubagentResult:
         """Delegate ``task`` to a child session and return its final answer.
 
@@ -417,6 +429,8 @@ class SubagentManager:
         brief = (task or "").strip()
         if record is None:
             record = self.new_record(parent, task, agent, title)
+        if progress is not None:
+            record.progress = progress
         if model:
             route = resolve_reference(
                 self.core.settings,

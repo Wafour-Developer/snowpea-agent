@@ -32,6 +32,7 @@ from snowpea_core.session import compaction, events
 from snowpea_core.session.history import message_to_json
 from snowpea_core.skills import hooks as plugin_hooks
 from snowpea_core.tools.registry import (
+    ProgressEmitter,
     Tool,
     ToolContext,
     ToolResult,
@@ -426,6 +427,7 @@ async def flush_queued_turns(core: Core, session: Session) -> list[str]:
 async def _drain_turns(core: Core, session: Session, first: QueuedTurn) -> None:
     """Run ``first`` and every follow-up received during it, in FIFO order."""
     queued = first
+    waited = False
     try:
         while True:
             session.interrupt.clear()
@@ -437,6 +439,7 @@ async def _drain_turns(core: Core, session: Session, first: QueuedTurn) -> None:
                 turn_id=queued.turn_id,
                 unattended=queued.unattended,
                 attachments=queued.attachments,
+                queued=waited,
             )
             # The queue is *not* re-flushed here.  ``session.interrupt`` already
             # emptied it synchronously, at the instant Stop was pressed; a
@@ -445,6 +448,7 @@ async def _drain_turns(core: Core, session: Session, first: QueuedTurn) -> None:
             if not session.queued_turns:
                 break
             queued = session.queued_turns.pop(0)
+            waited = True
             await core.hub.emit_event(
                 session.id,
                 events.turn_dequeued(queued.turn_id, "started", len(session.queued_turns)),
@@ -461,11 +465,16 @@ async def run_turn(
     turn_id: str | None = None,
     unattended: bool = False,
     attachments: list[Any] | None = None,
+    queued: bool = False,
 ) -> str:
     """Run one full turn; returns its turn id once ``turn.done`` was emitted."""
     turn_id = turn_id or new_turn_id()
     session.current_turn = turn_id
     hub = core.hub
+    # The turn is running *now* — after whatever wait it did in the FIFO, and
+    # before anything it produces.  Without this a surface has to start its
+    # clock on the first delta it happens to overhear (IDE-PROGRESS D1).
+    await hub.emit_event(session.id, events.turn_started(turn_id, text or None, queued=queued))
     try:
         reason = await _drive(core, session, text, turn_id, unattended, attachments)
     except asyncio.CancelledError:
@@ -766,7 +775,13 @@ async def _run_one_call(
     if blocked is not None:
         await _fail_call(core, session, call, f"{plugin_hooks.BLOCKED_PREFIX}: {blocked}")
         return None
-    ctx = ToolContext(session=session, core=core, backend=backend)
+    ctx = ToolContext(
+        session=session,
+        core=core,
+        backend=backend,
+        call_id=call.id,
+        progress=ProgressEmitter(core, session.id, call.id, call.name),
+    )
     try:
         result = await tool.run(ctx, dict(call.arguments))
     except asyncio.CancelledError:

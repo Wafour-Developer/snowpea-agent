@@ -50,6 +50,7 @@ async def test_prompts_submitted_during_a_turn_are_delivered_fifo(
         turn_id: str | None = None,
         unattended: bool = False,
         attachments: list[Any] | None = None,
+        queued: bool = False,
     ) -> str:
         nonlocal active, peak_active
         active += 1

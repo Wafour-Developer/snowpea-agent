@@ -9,6 +9,7 @@ whole tool surface at once (AC-18).
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import PurePath, PurePosixPath
 from typing import Protocol, runtime_checkable
@@ -42,6 +43,32 @@ class ExecResult:
 
 #: Contract §1 spells this ``RunResult``; the M1 name stays the canonical one.
 RunResult = ExecResult
+
+#: Called with ``("stdout" | "stderr", text)`` for each coalesced fragment a
+#: still-running command has produced (IDE-PROGRESS D2).
+ChunkSink = Callable[[str, str], Awaitable[None]]
+
+
+@runtime_checkable
+class StreamingBackend(Protocol):
+    """A backend that can report a command's output while it still runs.
+
+    Optional on purpose: only :class:`~snowpea_core.exec.local.LocalBackend`
+    implements it today, and the ``shell`` tool falls back to :meth:`run` for
+    the docker and ssh backends, which hand back the output in one piece.  The
+    return value is the same :class:`ExecResult` ``run`` produces, so the
+    captured output — not the chunks — stays authoritative.
+    """
+
+    async def run_stream(
+        self,
+        command: str,
+        *,
+        cwd: str | None = None,
+        timeout: float = DEFAULT_TIMEOUT,
+        env: dict[str, str] | None = None,
+        on_chunk: ChunkSink | None = None,
+    ) -> ExecResult: ...
 
 
 @runtime_checkable
@@ -100,9 +127,11 @@ def remote_resolve(cwd: PurePath, path: str | PurePath) -> PurePosixPath:
 __all__ = [
     "DEFAULT_TIMEOUT",
     "MAX_OUTPUT",
+    "ChunkSink",
     "ExecResult",
     "ExecutionBackend",
     "RunResult",
+    "StreamingBackend",
     "remote_resolve",
     "truncate_output",
 ]

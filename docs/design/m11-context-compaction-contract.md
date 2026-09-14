@@ -19,6 +19,7 @@ These additions shipped under `PROTOCOL_VERSION` 1.2.0; the constant reads **`"1
 |---|---|
 | `session.event.kind: "context"` | `{used, window, percent, estimated, model, provider}` |
 | `session.event.kind: "compaction"` | `{before, after, summaryChars, auto, kept}` |
+| `session.event.kind: "compaction.started"` | `{reason: "manual"\|"auto", before}` (additive, `1.5.0`) |
 | method `session.compact` | `{sessionId, instructions?}` → `{before, after, summaryChars}` |
 | `SessionSummary.contextUsed`, `.contextWindow` | for a surface that connects mid-session |
 
@@ -30,11 +31,23 @@ These additions shipped under `PROTOCOL_VERSION` 1.2.0; the constant reads **`"1
  "estimated": true,    // true while 'used' is a local chars/4 estimate
  "model": "claude-sonnet-4-5", "provider": "anthropic"}
 
+{"kind": "compaction.started",
+ "reason": "auto",     // "manual" for /compact and session.compact
+ "before": 48210}      // estimated tokens the history holds right now
+
 {"kind": "compaction",
  "before": 48210, "after": 2140, "summaryChars": 1832,
  "auto": true,         // false for /compact and session.compact
  "kept": 4}            // messages kept verbatim after the summary
 ```
+
+**AC-34c (additive, IDE-PROGRESS D3).** `compact_session` emits `compaction.started` **before** it
+summarises and `compaction` after it finished, so a surface can say *Compacting…* while it happens
+rather than inferring it from the command it happened to issue — and can notice an automatic
+compaction the user never asked for. The pair is only emitted when compaction actually runs: a
+history too short to summarise returns `compacted: false` and emits neither. `compaction` remains
+the completion and the transcript divider; a client that ignores `compaction.started` behaves
+exactly as before.
 
 **AC-32.** A `context` event MUST precede `turn.done` on every path the agent loop owns, and one
 MUST follow every compaction. Ordering is the whole point and was got wrong once: `turn.done` is what

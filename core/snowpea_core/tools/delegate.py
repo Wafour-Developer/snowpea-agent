@@ -121,6 +121,9 @@ async def delegate_task(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         tools=_tool_list(args.get("tools")),
         timeout=_timeout(args.get("timeout")),
         model=str(args.get("model", "") or "").strip() or None,
+        # A delegation can run for minutes with nothing to show; the child's
+        # own progress is republished on this call (IDE-PROGRESS D2).
+        progress=ctx.progress,
     )
     if not result.ok:
         return ToolResult(

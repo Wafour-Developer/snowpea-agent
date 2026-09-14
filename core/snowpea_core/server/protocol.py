@@ -1365,6 +1365,33 @@ class ToolResultEvent(Payload):
     error: str | None = Field(default=None, description="Failure detail when ok is false.")
 
 
+class ToolProgress(Payload):
+    """Output a still-running tool has produced so far (IDE-PROGRESS D2).
+
+    Advisory and additive: the chunks let a surface tail a long command, but
+    ``tool.result`` remains the authoritative record of what the tool
+    returned.  A surface that ignores this kind loses nothing but the tail.
+    Chunks are coalesced (at most ~4 KB each, flushed a few times a second)
+    and the stream is capped; the cap is announced by one final progress with
+    ``truncated`` set and no ``chunk``.
+    """
+
+    kind: Literal["tool.progress"] = "tool.progress"
+    callId: str = Field(description="Id of the tool.call this output belongs to.")
+    name: str = Field(description="Tool that is running.")
+    stream: Literal["stdout", "stderr"] = Field(
+        default="stdout", description="Which stream the chunk came from."
+    )
+    chunk: str = Field(default="", description="Raw output fragment, in order.")
+    seq: int = Field(
+        default=0, description="0-based index of this progress within the call."
+    )
+    truncated: bool = Field(
+        default=False,
+        description="True on the final progress when the byte cap stopped the tail.",
+    )
+
+
 class DiffEvent(Payload):
     """A file was edited."""
 
@@ -1522,6 +1549,22 @@ class CompactionEvent(Payload):
     kept: int = Field(default=0, description="Messages kept verbatim after the summary.")
 
 
+class CompactionStarted(Payload):
+    """Compaction is about to run (IDE-PROGRESS D3).
+
+    ``compaction`` is published after the fact, as a transcript divider, which
+    left a surface unable to say *Compacting…* while it happened — and unable
+    to notice an automatic compaction at all.  This announces the work;
+    ``compaction`` still reports the outcome.
+    """
+
+    kind: Literal["compaction.started"] = "compaction.started"
+    reason: Literal["manual", "auto"] = Field(
+        default="manual", description="auto = the auto-compaction threshold triggered it."
+    )
+    before: int = Field(default=0, description="Estimated tokens the history holds now.")
+
+
 class ErrorEvent(Payload):
     """Something went wrong inside a turn."""
 
@@ -1557,6 +1600,25 @@ class ModelChanged(Payload):
     kind: Literal["model.changed"] = "model.changed"
     provider: str | None = Field(default=None, description="Vendor now in effect.")
     model: str | None = Field(default=None, description="Model id now in effect.")
+
+
+class TurnStarted(Payload):
+    """A turn actually began running (IDE-PROGRESS D1).
+
+    Emitted once per turn at the moment the loop takes it up — after any wait
+    in the prompt queue and before the first ``message.delta`` — so a surface
+    can start its clock from when the turn truly began rather than from when
+    it first overheard one.  ``queued`` is true when the turn had waited.
+    """
+
+    kind: Literal["turn.started"] = "turn.started"
+    turnId: str = Field(description="Turn that is now running.")
+    prompt: str | None = Field(
+        default=None, description="The prompt that opened it; null when there is none."
+    )
+    queued: bool = Field(
+        default=False, description="True when this turn waited in the prompt queue first."
+    )
 
 
 class TurnQueued(Payload):
@@ -1618,6 +1680,7 @@ SessionEventPayload = Annotated[
     | MessageDone
     | ToolCallEvent
     | ToolResultEvent
+    | ToolProgress
     | DiffEvent
     | SubagentSpawn
     | SubagentUpdate
@@ -1629,8 +1692,10 @@ SessionEventPayload = Annotated[
     | UsageEvent
     | ContextEvent
     | CompactionEvent
+    | CompactionStarted
     | ErrorEvent
     | AudioSpoken
+    | TurnStarted
     | TurnQueued
     | TurnDequeued
     | TurnDone
@@ -1646,6 +1711,7 @@ SESSION_EVENT_MODELS: dict[str, type[BaseModel]] = {
     "message.done": MessageDone,
     "tool.call": ToolCallEvent,
     "tool.result": ToolResultEvent,
+    "tool.progress": ToolProgress,
     "diff": DiffEvent,
     "subagent.spawn": SubagentSpawn,
     "subagent.update": SubagentUpdate,
@@ -1657,8 +1723,10 @@ SESSION_EVENT_MODELS: dict[str, type[BaseModel]] = {
     "usage": UsageEvent,
     "context": ContextEvent,
     "compaction": CompactionEvent,
+    "compaction.started": CompactionStarted,
     "error": ErrorEvent,
     "audio.spoken": AudioSpoken,
+    "turn.started": TurnStarted,
     "turn.queued": TurnQueued,
     "turn.dequeued": TurnDequeued,
     "turn.done": TurnDone,

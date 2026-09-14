@@ -309,6 +309,11 @@ async def compact_session(
     if not head:
         return CompactionResult(before=before, after=before, kept=len(tail))
 
+    # Summarising takes a provider round-trip.  ``compaction`` reports the
+    # outcome, which is too late to say "Compacting…" — and left an automatic
+    # compaction invisible until its divider landed (IDE-PROGRESS D3).
+    await core.hub.emit_event(session.id, events.compaction_started(before, auto=auto))
+
     try:
         text = await summarise(core, session, head, instructions)
     except ProviderError as exc:
