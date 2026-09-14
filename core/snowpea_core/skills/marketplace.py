@@ -418,13 +418,54 @@ async def resolve_marketplace_entry(spec: str, home: Path | str) -> str | None:
     return None
 
 
+def is_bare_skill(root: Path) -> bool:
+    """True when ``root`` is one skill rather than a plugin bundle (M15 §B5d).
+
+    A bare skill has ``SKILL.md`` at its top level and none of the bundle
+    directories a plugin uses.  ``~/.snowpea/plugins/flux`` is shaped this way,
+    which is why it never loaded before M15.
+    """
+    if not (root / "SKILL.md").is_file():
+        return False
+    if read_plugin_json(root):
+        return False
+    return not any((root / name).is_dir() for name in ("skills", "agents", "commands", "hooks"))
+
+
+def _relocate_bare_skill(target: Path, home: Path | str) -> Path:
+    """Move a freshly installed bare skill out of ``plugins/`` into ``skills/``.
+
+    A one-skill directory is not a plugin: keeping it under ``plugins/`` is
+    what made it invisible to the loader's ``skills/<name>/SKILL.md`` scan.
+    """
+    if not target.is_dir() or not is_bare_skill(target):
+        return target
+    destination = Path(home).expanduser() / "skills" / target.name
+    if destination.resolve() == target.resolve():
+        return target
+    if destination.exists():
+        shutil.rmtree(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(target), str(destination))
+    log.info("installed %s as a skill in %s (not a plugin bundle)", target.name, destination)
+    return destination
+
+
 async def install(source: str, plugins_dir: Path, home: Path | str) -> Path:
     """Put the plugin named by ``source`` under ``plugins_dir``; return its path.
 
     Accepts a local path, a git URL, ``<marketplace>/<plugin>``, a shortcut, or
     any registry-issued install spec (``registry:<id>``, ``clawhub:<id>``,
     ``github:<owner>/<repo>[@plugin]``, ...).
+
+    A source that is a bare skill (a root ``SKILL.md`` and no bundle
+    directories) lands in ``$SNOWPEA_HOME/skills/<name>/`` instead, which is
+    where the loader looks for one skill (M15 §B5d).
     """
+    return _relocate_bare_skill(await _install_bundle(source, plugins_dir, home), home)
+
+
+async def _install_bundle(source: str, plugins_dir: Path, home: Path | str) -> Path:
     spec = source.strip()
     if not spec:
         raise InstallError("skill.install needs a source")
@@ -731,6 +772,7 @@ __all__ = [
     "SkillHit",
     "SourceResult",
     "install",
+    "is_bare_skill",
     "is_git_url",
     "load_marketplaces",
     "plugin_name_from",

@@ -198,6 +198,14 @@ class ToolsSettings(_Model):
     """Limits shared by every tool that returns fetched or scanned text."""
 
     max_output_chars: int = 20_000
+    #: Lines of ``shell`` / ``grep`` / ``glob`` / ``list_dir`` output kept in
+    #: context before the middle is spilled to a file the agent can read back
+    #: (M15 §A4).
+    maxResultLines: int = 400
+    #: False disables the read-before-write guard (M15 §A3): ``edit_file`` and
+    #: ``write_file`` stop refusing a write to a file this session has not read
+    #: in full.  The prompt rule stays either way.
+    readBeforeWrite: bool = True
     #: Tool categories the setup wizard turned on (M3 contract §5).  Empty
     #: means "nothing was chosen yet", which every reader treats as the
     #: catalog defaults in ``setup/catalog.py``.

@@ -407,8 +407,12 @@ async def test_install_registry_spec_extracts_and_strips_wrapper(
     )
     monkeypatch.setattr(registry_client, "CLIENT", _FakeDownloadClient(payload))
     plugins_dir = tmp_path / "plugins"
-    target = await install("registry:ralplan", plugins_dir, tmp_path / "home")
-    assert target == plugins_dir / "ralplan"
+    home = tmp_path / "home"
+    target = await install("registry:ralplan", plugins_dir, home)
+    # A root SKILL.md with no bundle directories is one skill, so it lands in
+    # the global skills root rather than in plugins/ (M15 §B5d).
+    assert target == home / "skills" / "ralplan"
+    assert not (plugins_dir / "ralplan").exists()
     assert (target / "SKILL.md").read_text(encoding="utf-8").startswith("---")
     assert (target / "references" / "style.md").exists()
 
@@ -540,8 +544,9 @@ async def test_install_clawhub_spec_downloads_via_registry(
     payload = _zip_bytes({"driver/SKILL.md": "---\nname: driver\n---\nbody"})
     monkeypatch.setattr(registry_client, "CLIENT", _FakeDownloadClient(payload))
     plugins_dir = tmp_path / "plugins"
-    target = await install("clawhub:@cua/driver", plugins_dir, tmp_path / "home")
-    assert target == plugins_dir / "driver"
+    home = tmp_path / "home"
+    target = await install("clawhub:@cua/driver", plugins_dir, home)
+    assert target == home / "skills" / "driver"
     assert (target / "SKILL.md").exists()
 
 
@@ -568,9 +573,10 @@ async def test_install_github_spec_never_asks_the_registry(
 
     monkeypatch.setattr(marketplace, "_clone", fake_clone)
     plugins_dir = tmp_path / "plugins"
-    target = await install("github:owner/repo", plugins_dir, tmp_path / "home")
+    home = tmp_path / "home"
+    target = await install("github:owner/repo", plugins_dir, home)
     assert cloned["url"] == "https://github.com/owner/repo.git"
-    assert target == plugins_dir / "repo"
+    assert target == home / "skills" / "repo"
 
 
 async def test_install_github_spec_with_plugin_installs_only_that_subdir(
@@ -622,11 +628,12 @@ async def test_install_github_spec_with_plugin_installs_only_that_subdir(
     target = await install(
         "github:anthropics/claude-code@frontend-design", plugins_dir, home
     )
-    assert target == plugins_dir / "frontend-design"
+    assert target == home / "skills" / "frontend-design"
     assert (target / "SKILL.md").read_text(encoding="utf-8") == "---\nname: frontend-design\n---\n"
     # Only the resolved subdir is installed — not the whole monorepo.
     assert not (target / "other-plugin").exists()
-    assert list(plugins_dir.iterdir()) == [target]
+    assert list((home / "skills").iterdir()) == [target]
+    assert not plugins_dir.exists() or list(plugins_dir.iterdir()) == []
 
 
 async def test_install_from_registry_404_falls_back_to_github_clone(

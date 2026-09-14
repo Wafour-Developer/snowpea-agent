@@ -70,7 +70,11 @@ def agents_status(agents_path: Path, force: bool) -> str:
         )
     existing = agents_path.read_text(encoding="utf-8", errors="replace")
     if len(existing) > MAX_EXISTING_CHARS:
-        existing = existing[:MAX_EXISTING_CHARS] + "\n...(truncated)"
+        return (
+            "AGENTS.md already exists at the project root and is too long to quote "
+            "here — read_file it first, then merge your findings into it rather "
+            "than discarding anything a human wrote by hand."
+        )
     return (
         "AGENTS.md already exists at the project root — merge your findings into "
         "it rather than discarding anything a human wrote by hand. Its current "
@@ -109,6 +113,7 @@ async def cmd_init(ctx: CommandContext, args: str) -> None:
     plan = ctx.session.mode == "plan"
 
     settings_note = ensure_project_settings(root, plan=plan)
+    _note_agents_md_was_shown(ctx, root / AGENTS_FILE, force=force)
     brief = workflow_brief(
         "init",
         reply_language=_reply_language(ctx),
@@ -124,6 +129,33 @@ async def cmd_init(ctx: CommandContext, args: str) -> None:
         brief,
         turn_id=ctx.turn_id,
         unattended=ctx.session.origin_conn is None,
+    )
+
+
+def _note_agents_md_was_shown(ctx: CommandContext, agents_path: Path, *, force: bool) -> None:
+    """Satisfy the read-before-write guard for the file this brief folds in.
+
+    ``/init`` hands the model the current ``AGENTS.md`` verbatim precisely so it
+    does not have to spend a tool call reading it, and ``--force`` is an
+    explicit instruction to discard it. Either way the content is in context,
+    so recording the read here keeps the guard (M15 §A3) from refusing the
+    write the command exists to make. A file too large to fold in is recorded
+    as a partial read, and the model is told to read it itself.
+    """
+    from snowpea_core.tools import file_state
+
+    if not agents_path.is_file():
+        return
+    try:
+        existing = agents_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return
+    file_state.note_read(
+        ctx.core,
+        ctx.session,
+        str(agents_path),
+        existing,
+        complete=force or len(existing) <= MAX_EXISTING_CHARS,
     )
 
 

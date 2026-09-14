@@ -206,6 +206,18 @@ Roots are scanned in this order, and later wins on a name clash:
 
 So a project skill overrides a plugin skill of the same name, and a plugin overrides a built-in. The loader records where each one came from, and `skill list` shows it.
 
+A directory holding nothing but a `SKILL.md` **is** one skill, not a bundle. Installing one puts it in `$SNOWPEA_HOME/skills/<name>/` rather than `plugins/`. A bare skill that already sits under `plugins/` keeps working — it is registered as a skill and the log says where it belongs.
+
+## When things are loaded
+
+Loading happens at three moments, so a `/command` is never one restart away:
+
+- **At daemon start.** The built-ins, `$SNOWPEA_HOME/{skills,agents,commands}`, every installed plugin, and the project directories of every session the daemon still remembers — closed sessions included, up to 50 existing directories. Servers declared in `$SNOWPEA_HOME/.mcp.json` are started here too, so their tools are in `tool.list` before any session opens.
+- **At `session.create` and `session.resume`.** The session's own workdir is scanned again (`<workdir>/.claude` and `<workdir>/.snowpea`) before the first turn, which is what makes a brand-new checkout's skills available immediately. The project's own `.mcp.json` servers start at the same moment.
+- **After an install, a removal or `/skill create`.** A full reload in place.
+
+Each of those broadcasts `commands.changed`, so the TUI palette and the desktop app update without a restart. `skill.list`, `command.list` and `tool.list` reflect the change as soon as it lands.
+
 ## Next
 
 [Scheduler](scheduler.md) — running work while you are away.

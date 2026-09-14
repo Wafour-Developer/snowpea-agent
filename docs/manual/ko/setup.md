@@ -346,6 +346,15 @@ snowpea tools list --json
 
 `web_extract`는 사설망·루프백·link-local 주소를 거부하고, 가져온 페이지를 `tools.max_output_chars`(기본 20000)까지 잘라냅니다.
 
+파일 작업과 긴 출력에 관여하는 `tools` 설정이 둘 더 있습니다.
+
+| 설정 | 기본값 | 하는 일 |
+|---|---|---|
+| `tools.readBeforeWrite` | `true` | 이번 세션에서 전체를 읽지 않은 파일, 또는 읽은 뒤 형제 서브에이전트가 쓴 파일에 대해 `edit_file`·`write_file`이 거부합니다. 거부는 이유를 담은 `stale_file` 오류입니다. 새 파일 생성은 언제나 허용됩니다. `false`로 두면 가드가 꺼집니다. |
+| `tools.maxResultLines` | `400` | 이 줄 수를 넘으면 `shell`·`grep`·`glob`·`list_dir` 결과는 앞뒤만 남기고, 가운데는 `$SNOWPEA_HOME/cache/tool-output/`으로 빠집니다. 결과에는 그것을 다시 읽을 offset·limit이 적힌 `read_file` 포인터가 남습니다. |
+
+`read_file`은 `offset`(1부터 세는 시작 줄)과 `limit`(줄 수)을 선택적으로 받습니다. 일부만 읽은 것은 `readBeforeWrite`를 만족시키지 않습니다 — 쓰기 전에 파일 전체를 읽어야 합니다.
+
 ## 브라우저 제공자
 
 `local_chromium`이 기본값이며, 내 컴퓨터에서 Playwright로 headless Chromium을 돌립니다. 처음 실행할 때 브라우저 바이너리를 내려받으라고 물을 수 있습니다. 나머지 id들 — `camoufox`, `browser_use_local`, `browserbase`, `firecrawl_cloud` — 는 목록에서 보고 선택할 수 있도록 등록만 되어 있고, 설정되기 전까지는 `browser_provider_unavailable`로 답합니다.
@@ -400,7 +409,7 @@ Nested instructions not loaded (read_file when you work there): src/AGENTS.md, t
 
 ## 디스크에 남는 것
 
-`$SNOWPEA_HOME/settings.json`에는 `providers`, `search.provider`, `browser.provider`, `tools.enabled_categories`, `gateway`, `agents.max_concurrent`(3), `team.max_conflict_retries`(2), `approvals.timeoutSec`(300), `agent.max_tokens`(16384), `agent.thinking`(`auto`), `memory.enabled`(true), `memory.askScope`(true), `memory.digestEntries`(30), `memory.digestChars`(6000)가 담깁니다. 모드·allowlist·백엔드에 대한 프로젝트별 오버라이드는 `<project>/.snowpea/settings.json`에 있고 전역 파일보다 우선합니다. 비밀값은 `settings.json`에 절대 쓰이지 않고, 로그에도 남지 않습니다.
+`$SNOWPEA_HOME/settings.json`에는 `providers`, `search.provider`, `browser.provider`, `tools.enabled_categories`, `tools.readBeforeWrite`(true), `tools.maxResultLines`(400), `gateway`, `agents.max_concurrent`(3), `team.max_conflict_retries`(2), `approvals.timeoutSec`(300), `agent.max_tokens`(16384), `agent.thinking`(`auto`), `memory.enabled`(true), `memory.askScope`(true), `memory.digestEntries`(30), `memory.digestChars`(6000)가 담깁니다. 모드·allowlist·백엔드에 대한 프로젝트별 오버라이드는 `<project>/.snowpea/settings.json`에 있고 전역 파일보다 우선합니다. 비밀값은 `settings.json`에 절대 쓰이지 않고, 로그에도 남지 않습니다.
 
 ## 다음
 

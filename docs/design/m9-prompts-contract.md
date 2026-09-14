@@ -43,7 +43,7 @@ fields `stable`, `context`, `volatile`; `PromptTiers.text()` joins them in that 
 
 | tier | contents | budget (tokens) |
 |---|---|---|
-| stable | `base.md` (or an explicit `identity`), the vendor layer, `config_rule.md`, `search_honesty.md`, the mode file, for a subagent `roles/_preamble.md` + the role file, the persona, and the reply-language rule | **2200** |
+| stable | `base.md` (or an explicit `identity`), `fragments/execution.md`, the vendor layer, `config_rule.md`, `search_honesty.md`, the mode file, for a subagent `roles/_preamble.md` + the role file, the persona, and the reply-language rule | **2900** |
 | context | environment block, `AGENTS.md`-style context files, tool listing (only when tools are present) | 800 |
 | volatile | memory recall block, context-pressure note (above `CONTEXT_PRESSURE_THRESHOLD = 0.75`) | 600 |
 
@@ -51,12 +51,12 @@ The reply-language rule sits in **stable**, not volatile: the module docstring d
 "changes only when the mode, model, role or reply language changes", and a language override is
 exactly that kind of per-session constant.
 
-**AC-22.** The tier budgets MUST be enforced by test. `TIER_BUDGET_TOKENS = {"stable": 2200,
+**AC-22.** The tier budgets MUST be enforced by test. `TIER_BUDGET_TOKENS = {"stable": 2900,
 "context": 800, "volatile": 600}` is a **test-file constant** (`tests/test_prompts_compose.py:29`),
 not production code. `test_stable_tier_stays_under_budget` is parametrized over the three modes ×
 the three vendor classes × `ROLES = (None, "executor")`; the context and volatile budgets are
 single unparametrized cases. The budget's job is not to be tight; it is to make unnoticed growth of
-the library impossible. (The "measured worst case ≈2068 tokens" figure is recorded in
+the library impossible. (The "measured worst case ≈2747 tokens" figure, after the M15 working-discipline fragment, is recorded in
 `deviations/CORE-prompts.md` as prose — no constant or assertion carries it.)
 
 Rules the composition MUST obey:

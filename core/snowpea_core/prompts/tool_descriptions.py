@@ -13,8 +13,11 @@ from __future__ import annotations
 
 READ_FILE = (
     "Read a UTF-8 text file relative to the session working directory. Use this "
-    "rather than cat, head or tail in shell. Long files are truncated; the result "
-    "says so when it happens."
+    "rather than cat, head or tail in shell. Optional offset (1-based first line) "
+    "and limit (line count) read a window instead of the whole file. Long files "
+    "are truncated; the result says so when it happens. A windowed or truncated "
+    "read does not satisfy the read-before-write rule: read the whole file before "
+    "you write it."
 )
 
 WRITE_FILE = (

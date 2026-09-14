@@ -10,8 +10,17 @@
       "repeat": true,
       "tool_calls": [
         {
+          "name": "read_file",
+          "arguments": {
+            "path": "shared.txt"
+          }
+        },
+        {
           "name": "write_file",
-          "arguments": {"path": "shared.txt", "content": "banner written by the first worker\n"}
+          "arguments": {
+            "path": "shared.txt",
+            "content": "banner written by the first worker\n"
+          }
         }
       ],
       "text": "setting the banner"
@@ -22,8 +31,17 @@
       "delaySec": 0.6,
       "tool_calls": [
         {
+          "name": "read_file",
+          "arguments": {
+            "path": "shared.txt"
+          }
+        },
+        {
           "name": "write_file",
-          "arguments": {"path": "shared.txt", "content": "banner written by the second worker\n"}
+          "arguments": {
+            "path": "shared.txt",
+            "content": "banner written by the second worker\n"
+          }
         }
       ],
       "text": "setting the banner my way, on the very same line"
@@ -34,5 +52,7 @@
       "text": "I rewrote the shared banner."
     }
   ],
-  "default": {"text": "fake default reply"}
+  "default": {
+    "text": "fake default reply"
+  }
 }
