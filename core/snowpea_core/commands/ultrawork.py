@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 from snowpea_core.agent.definition import complete_text, parse_generated_json
@@ -47,15 +48,44 @@ ULTRAWORK_ARGS_SCHEMA = {
 }
 
 
-def subtasks_from_payload(data: dict[str, Any], fallback: str) -> list[tuple[str, str, str]]:
-    """``(id, title, brief)`` triples from the splitter's JSON."""
+@dataclass
+class Subtask:
+    """One slice of an ``/ultrawork`` run and the files it claims."""
+
+    id: str
+    title: str
+    brief: str
+    files: tuple[str, ...] = ()
+    #: Ids merged into this one because they claimed the same files.
+    merged: tuple[str, ...] = ()
+
+
+def _files(entry: dict[str, Any]) -> tuple[str, ...]:
+    """The ``files`` list of one splitter entry, normalised for comparison."""
+    raw = entry.get("files")
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, (list, tuple)):
+        return ()
+    seen: dict[str, None] = {}
+    for item in raw:
+        text = str(item).strip().lstrip("./")
+        if text:
+            seen.setdefault(text, None)
+    return tuple(seen)
+
+
+def subtasks_from_payload(data: dict[str, Any], fallback: str) -> list[Subtask]:
+    """:class:`Subtask` entries from the splitter's JSON."""
     raw = data.get("subtasks")
     if not isinstance(raw, list):
         raw = []
-    out: list[tuple[str, str, str]] = []
+    out: list[Subtask] = []
     for index, entry in enumerate(raw[:MAX_SUBTASKS], start=1):
         if isinstance(entry, str):
-            out.append((f"T{index}", entry.strip(), entry.strip()))
+            text = entry.strip()
+            if text:
+                out.append(Subtask(f"T{index}", text, text))
             continue
         if not isinstance(entry, dict):
             continue
@@ -63,11 +93,56 @@ def subtasks_from_payload(data: dict[str, Any], fallback: str) -> list[tuple[str
         brief = str(entry.get("task") or entry.get("title") or "").strip()
         if not brief:
             continue
-        out.append((str(entry.get("id") or f"T{index}"), title or brief, brief))
-    return out or [("T1", fallback, fallback)]
+        out.append(
+            Subtask(str(entry.get("id") or f"T{index}"), title or brief, brief, _files(entry))
+        )
+    return out or [Subtask("T1", fallback, fallback)]
 
 
-async def split(ctx: CommandContext, task: str) -> list[tuple[str, str, str]]:
+def merge_overlapping(subtasks: list[Subtask]) -> list[Subtask]:
+    """Fold subtasks that claim the same file into one brief (M15 §C4).
+
+    Two agents editing one file without a worktree each is how a fan-out ends
+    with half of one change and half of the other; the split is a plan, not a
+    promise, so it is validated here rather than trusted.  Subtasks that share
+    no file are left exactly as the model wrote them.
+    """
+    owner: dict[str, int] = {}
+    groups: list[Subtask] = []
+    for task in subtasks:
+        target = next(
+            (owner[name] for name in task.files if name in owner),
+            None,
+        )
+        if target is None:
+            owner.update({name: len(groups) for name in task.files})
+            groups.append(task)
+            continue
+        head = groups[target]
+        shared = sorted(name for name in task.files if owner.get(name) == target)
+        groups[target] = Subtask(
+            id=head.id,
+            title=head.title,
+            brief=(
+                f"{head.brief}\n\n"
+                "These two pieces of work were merged because they change the same "
+                f"file(s) ({', '.join(shared)}); do both, in one pass, yourself:\n\n"
+                f"{task.brief}"
+            ),
+            files=tuple(dict.fromkeys((*head.files, *task.files))),
+            merged=(*head.merged, task.id),
+        )
+        owner.update({name: target for name in task.files})
+        log.info(
+            "ultrawork merged %s into %s: both claim %s",
+            task.id,
+            head.id,
+            ", ".join(shared) or "the same files",
+        )
+    return groups
+
+
+async def split(ctx: CommandContext, task: str) -> list[Subtask]:
     """Ask the provider how to cut ``task`` up; one subtask is a valid answer."""
     provider = ctx.core.providers.get(ctx.session.provider, ctx.session.model)
     messages = [
@@ -82,10 +157,11 @@ async def split(ctx: CommandContext, task: str) -> list[tuple[str, str, str]]:
     ]
     try:
         text = await complete_text(provider, messages)
-        return subtasks_from_payload(parse_generated_json(text), task)
+        parsed = subtasks_from_payload(parse_generated_json(text), task)
     except Exception as exc:  # noqa: BLE001 - an unsplittable task is still a task
         log.info("ultrawork could not split the task (%s); running it whole", exc)
-        return [("T1", task, task)]
+        return [Subtask("T1", task, task)]
+    return merge_overlapping(parsed)
 
 
 async def cmd_ultrawork(ctx: CommandContext, args: str) -> None:
@@ -100,29 +176,39 @@ async def cmd_ultrawork(ctx: CommandContext, args: str) -> None:
         "\n".join(
             [
                 f"ultrawork: {len(subtasks)} subtasks, running in parallel.",
-                *(f"  {sid} {title}" for sid, title, _ in subtasks),
+                *(f"  {part.id} {part.title}" for part in subtasks),
             ]
         )
     )
 
+    merged = [part for part in subtasks if part.merged]
+    if merged:
+        await ctx.say(
+            "\n".join(
+                f"  {part.id} absorbed {', '.join(part.merged)}: they claim the same files."
+                for part in merged
+            )
+        )
+
     manager = get_manager(ctx.core)
     results = await asyncio.gather(
-        *(manager.run(ctx.session, brief) for _, _, brief in subtasks),
+        *(manager.run(ctx.session, part.brief, title=part.title) for part in subtasks),
         return_exceptions=True,
     )
 
     lines: list[str] = [f"ultrawork: merged {len(subtasks)} subtask reports."]
     failures = 0
-    for (sid, title, _), result in zip(subtasks, results, strict=True):
+    for part, result in zip(subtasks, results, strict=True):
+        heading = f"{part.id} {part.title}"
         if isinstance(result, BaseException):
             failures += 1
-            lines.append(f"\n### {sid} {title} — failed\n{result}")
+            lines.append(f"\n### {heading} — failed\n{result}")
             continue
         if not result.ok:
             failures += 1
-            lines.append(f"\n### {sid} {title} — failed\n{result.error or 'no reason given'}")
+            lines.append(f"\n### {heading} — failed\n{result.error or 'no reason given'}")
             continue
-        lines.append(f"\n### {sid} {title}\n{result.summary or '(no report)'}")
+        lines.append(f"\n### {heading}\n{result.summary or '(no report)'}")
     if failures:
         lines.append(f"\n{failures} of {len(subtasks)} subtasks did not finish cleanly.")
     await ctx.say("\n".join(lines))
@@ -142,7 +228,9 @@ __all__ = [
     "COMMANDS",
     "MAX_SUBTASKS",
     "USAGE",
+    "Subtask",
     "cmd_ultrawork",
+    "merge_overlapping",
     "split",
     "subtasks_from_payload",
 ]

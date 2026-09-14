@@ -182,6 +182,7 @@ def register_builtin_commands(registry: CommandRegistry) -> CommandRegistry:
         mode_cmd,
         model_cmd,
         ralph,
+        review_cmd,
         schedule_cmd,
         skill_cmd,
         team_cmd,
@@ -202,6 +203,7 @@ def register_builtin_commands(registry: CommandRegistry) -> CommandRegistry:
         *skill_cmd.COMMANDS,
         # M7 workflows (contract §4): loops and fan-out live in Python.
         *ralph.COMMANDS,
+        *review_cmd.COMMANDS,
         *ultrawork.COMMANDS,
         *deepinit.COMMANDS,
         *init_cmd.COMMANDS,

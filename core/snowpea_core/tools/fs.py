@@ -130,7 +130,7 @@ async def write_file(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     before = existing or ""
     stale = file_state.check_stale(ctx.core, ctx.session, path, exists=existing is not None)
     if stale is not None:
-        return ToolResult(ok=False, error=f"{file_state.STALE_CODE}: {stale}")
+        return ToolResult(ok=False, error=file_state.refusal(stale))
     try:
         await ctx.backend.write_file(path, content)
     except OSError as exc:
@@ -161,7 +161,7 @@ async def edit_file(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         return ToolResult(ok=False, error=f"no such file: {path}")
     stale = file_state.check_stale(ctx.core, ctx.session, path, exists=True)
     if stale is not None:
-        return ToolResult(ok=False, error=f"{file_state.STALE_CODE}: {stale}")
+        return ToolResult(ok=False, error=file_state.refusal(stale))
     occurrences = before.count(old)
     replace_all = bool(args.get("replaceAll", False))
     if occurrences == 0:

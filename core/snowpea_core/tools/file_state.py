@@ -34,6 +34,11 @@ log = logging.getLogger("snowpea.tools.file_state")
 #: Error code every refusal carries, so a surface can recognise it.
 STALE_CODE = "stale_file"
 
+#: Error code for the sibling half of the rule (M15 §C3): the writer is not
+#: just "another session", it is a child the same parent is still running, and
+#: the answer is to report rather than to re-read and race it.
+OWNED_CODE = "file_owned_by_sibling"
+
 #: Paths remembered per session before the oldest are dropped.
 MAX_PATHS_PER_SESSION = 4096
 
@@ -139,6 +144,12 @@ class FileStateRegistry:
             )
         return None
 
+    def writer_of(self, group: str, path: str) -> WriteRecord | None:
+        """The last session to write ``path`` in this group, if any."""
+        with self._lock:
+            state = self._groups.get(group)
+            return state.writers.get(path) if state else None
+
     # -- housekeeping --------------------------------------------------
     def forget_session(self, group: str, session_id: str) -> None:
         with self._lock:
@@ -204,17 +215,67 @@ def note_write(core: Any, session: Session, path: str, content: str) -> None:
     )
 
 
+def refusal(reason: str) -> str:
+    """The tool error a refusal becomes: coded once, never twice.
+
+    :func:`check_stale` already codes a sibling conflict; everything else is a
+    plain read-before-write refusal and gets :data:`STALE_CODE` here.
+    """
+    text = (reason or "").strip()
+    return text if text.startswith(f"{OWNED_CODE}:") else f"{STALE_CODE}: {text}"
+
+
+def sibling_label(core: Any, group: str, session_id: str) -> str | None:
+    """How to name the running sibling child that owns a file, or ``None``.
+
+    Only a child that is *still running* under the same parent counts: once it
+    has reported, its files are the parent's to change again.  The manager is
+    read off ``Core`` rather than created, so a daemon that has never delegated
+    anything pays nothing here.
+    """
+    from snowpea_core.agent import subagent
+
+    manager = getattr(core, subagent.CORE_ATTR, None)
+    if manager is None or not session_id:
+        return None
+    for record in manager.records():
+        if record.session_id != session_id:
+            continue
+        if record.parent_session_id != group or record.status != subagent.RUNNING:
+            return None
+        return record.title or record.name or record.agent_id
+    return None
+
+
 def check_stale(core: Any, session: Session, path: str, *, exists: bool) -> str | None:
-    """``None`` when the write may proceed, else the ``stale_file`` reason."""
+    """``None`` when the write may proceed, else the reason it is refused.
+
+    A plain staleness refusal carries :data:`STALE_CODE`; when the writer is a
+    sibling subagent the same parent is still running, the reason is prefixed
+    with :data:`OWNED_CODE` and names that child, because the fix is different:
+    the caller has to report the collision instead of re-reading and writing
+    over work that is still being done (M15 §C3).
+    """
     if not enabled(core):
         return None
-    return REGISTRY.check(
-        group_for(session), str(session.id), resolve(session, path), exists=exists
-    )
+    group = group_for(session)
+    key = resolve(session, path)
+    reason = REGISTRY.check(group, str(session.id), key, exists=exists)
+    if reason is None:
+        return None
+    writer = REGISTRY.writer_of(group, key)
+    if writer is not None and writer.session_id != str(session.id):
+        label = sibling_label(core, group, writer.session_id)
+        if label:
+            return (
+                f"{OWNED_CODE}: {path} was changed by {label}; report instead of editing"
+            )
+    return reason
 
 
 __all__ = [
     "MAX_PATHS_PER_SESSION",
+    "OWNED_CODE",
     "REGISTRY",
     "STALE_CODE",
     "FileStateRegistry",
@@ -226,5 +287,7 @@ __all__ = [
     "group_for",
     "note_read",
     "note_write",
+    "refusal",
     "resolve",
+    "sibling_label",
 ]

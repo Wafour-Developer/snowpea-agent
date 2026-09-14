@@ -64,8 +64,12 @@ STATE_DIR = Path(".snowpea") / "ralph"
 PRD_NAME = "prd.json"
 PROGRESS_NAME = "progress.md"
 
-#: Agent definition asked to sign the work off, when the project defines one.
+#: Agent definition asked to sign the work off.  A project that ships its own
+#: ``architect`` keeps it; otherwise the built-in read-only ``reviewer`` runs
+#: the pass, because a review by an agent that can also edit is not a review
+#: (M15 §C5).
 REVIEWER_AGENT = "architect"
+FALLBACK_REVIEWER = "reviewer"
 
 #: The word the reviewer has to say.
 APPROVAL_WORD = "APPROVE"
@@ -272,10 +276,26 @@ async def verify_story(ctx: CommandContext, story: Story) -> tuple[bool, str]:
     return True, "all verification commands exited zero"
 
 
+def reviewer_agent(manager: Any, session: Any) -> str | None:
+    """The definition ``/ralph`` signs off with, or ``None`` for no definition.
+
+    A project (or global) ``architect`` is what the loop has always used and
+    still wins; when the only ``architect`` in scope is the built-in role, the
+    built-in ``reviewer`` runs instead — same evidence discipline, no write
+    tools.
+    """
+    architect = manager.definition(session, REVIEWER_AGENT)
+    if architect is not None and architect.source != "builtin":
+        return REVIEWER_AGENT
+    if manager.definition(session, FALLBACK_REVIEWER) is not None:
+        return FALLBACK_REVIEWER
+    return REVIEWER_AGENT if architect is not None else None
+
+
 async def review(ctx: CommandContext, task: str, stories: list[Story]) -> tuple[bool, str]:
     """Ask a reviewer subagent to sign the work off."""
     manager = get_manager(ctx.core)
-    reviewer = REVIEWER_AGENT if manager.definition(ctx.session, REVIEWER_AGENT) else None
+    reviewer = reviewer_agent(manager, ctx.session)
     summary = "\n".join(f"- {story.id} {story.title}: {story.note}" for story in stories)
     brief = workflow_brief(
         "ralph-review",
@@ -389,6 +409,8 @@ COMMANDS: tuple[Command, ...] = (
 __all__ = [
     "APPROVAL_WORD",
     "COMMANDS",
+    "FALLBACK_REVIEWER",
+    "REVIEWER_AGENT",
     "MAX_STORIES",
     "PRD_NAME",
     "PROGRESS_NAME",
@@ -400,6 +422,7 @@ __all__ = [
     "cmd_ralph",
     "ready_stories",
     "review",
+    "reviewer_agent",
     "state_dir",
     "stories_from_payload",
     "story_task",
