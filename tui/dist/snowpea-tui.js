@@ -34367,6 +34367,7 @@ function toolLabel(call) {
 }
 function derivePhase(state, { runningCommand = null } = {}) {
   if (state.pendingApproval || state.approvalQueue.length > 0) return { kind: "approval" };
+  if (state.compacting) return { kind: "compacting", reason: state.compacting.reason };
   if (!state.turnActive) return { kind: "idle" };
   const running = state.toolCalls.filter((call) => call.state === "running");
   const last = running[running.length - 1];
@@ -34387,9 +34388,10 @@ function formatDuration(ms) {
 function formatStats({
   elapsedMs,
   inputTokens = 0,
-  outputTokens = 0
+  outputTokens = 0,
+  waited = false
 }) {
-  const parts = [formatDuration(elapsedMs)];
+  const parts = waited ? ["started after waiting", formatDuration(elapsedMs)] : [formatDuration(elapsedMs)];
   if (inputTokens > 0) parts.push(`\u2191 ${formatTokens(inputTokens)}`);
   parts.push(`\u2193 ${formatTokens(outputTokens)} tokens`);
   return `(${parts.join(" \xB7 ")})`;
@@ -34400,6 +34402,9 @@ function workingLine(input) {
   if (phase.kind === "approval") return `${PAUSED_GLYPH} Waiting for approval`;
   const spinner = SPINNER_FRAMES[Math.abs(input.frame ?? 0) % SPINNER_FRAMES.length];
   const stats = formatStats(input);
+  if (phase.kind === "compacting") {
+    return `${spinner} ${phase.reason === "auto" ? "Compacting (auto)" : "Compacting"}\u2026`;
+  }
   if (phase.kind === "tool") return `${spinner} ${phase.label}\u2026 ${stats}`;
   if (phase.kind === "subagents") {
     const plural = phase.running === 1 ? "agent" : "agents";
@@ -34435,6 +34440,7 @@ function turnSummaryLine({
 }
 
 // src/state/store.ts
+var PROGRESS_TAIL = 8;
 var initialState = {
   sessionId: null,
   status: "connecting",
@@ -34465,6 +34471,9 @@ var initialState = {
   children: {},
   lastSeq: 0,
   turnActive: false,
+  turnStartedAt: null,
+  turnWaited: false,
+  compacting: null,
   reasoningChars: 0,
   errors: []
 };
@@ -34731,6 +34740,7 @@ function applySessionEvent(state, event, options = {}) {
       };
       return {
         ...base,
+        compacting: null,
         compactions: [...base.compactions, entry],
         timeline: pushTimeline(base, { kind: "compaction", id: entry.id })
       };
@@ -34774,6 +34784,52 @@ function applySessionEvent(state, event, options = {}) {
       }
       return { ...base, diagnostics: { ...base.diagnostics, [path]: entry } };
     }
+    // The turn is running now, which is when its clock starts. A turn that sat
+    // in the queue says so: the elapsed time on screen would otherwise look
+    // like the model taking its time.
+    case "turn.started": {
+      const turnId = String(payload.turnId ?? "");
+      const waited = typeof payload.queued === "boolean" ? payload.queued : base.queued.some((entry) => entry.turnId === turnId);
+      const stamped = Date.parse(typeof event.ts === "string" ? event.ts : "");
+      const text = typeof payload.prompt === "string" ? payload.prompt : "";
+      return {
+        ...base,
+        turnActive: true,
+        turnStartedAt: Number.isFinite(stamped) ? stamped : Date.now(),
+        turnWaited: waited,
+        promptTexts: text.length > 0 && turnId.length > 0 ? { ...base.promptTexts, [turnId]: text } : base.promptTexts,
+        queued: base.queued.filter((entry) => entry.turnId !== turnId)
+      };
+    }
+    // Output from a tool while it is still running.
+    case "tool.progress": {
+      const callId = String(payload.callId ?? "");
+      const index = base.toolCalls.findIndex((call2) => call2.callId === callId);
+      if (index === -1) return base;
+      const stream = payload.stream === "stderr" ? "stderr" : "stdout";
+      const chunk = String(payload.chunk ?? "");
+      const arriving = chunk.split("\n").filter((line) => line.length > 0);
+      if (arriving.length === 0 && payload.truncated !== true) return base;
+      const call = base.toolCalls[index];
+      const progress2 = [...call.progress ?? [], ...arriving.map((text) => ({ text, stream }))];
+      const toolCalls = base.toolCalls.slice();
+      toolCalls[index] = {
+        ...call,
+        progress: progress2.slice(-PROGRESS_TAIL),
+        progressTruncated: call.progressTruncated || payload.truncated === true
+      };
+      return { ...base, toolCalls };
+    }
+    // Compaction takes a moment and a turn cannot run during it; saying so
+    // beats a screen that looks stuck.
+    case "compaction.started":
+      return {
+        ...base,
+        compacting: {
+          reason: String(payload.reason ?? "auto"),
+          before: Number(payload.before ?? 0)
+        }
+      };
     case "turn.queued": {
       const turnId = String(payload.turnId ?? "");
       if (turnId.length === 0) return base;
@@ -34796,7 +34852,13 @@ function applySessionEvent(state, event, options = {}) {
       const promptTexts = { ...base.promptTexts };
       if (finished) delete promptTexts[finished];
       const messages = base.messages.map((m) => m.streaming ? { ...m, streaming: false } : m);
-      const settled = { ...flushDeferred({ ...base, messages }), promptTexts, turnActive: false };
+      const settled = {
+        ...flushDeferred({ ...base, messages }),
+        promptTexts,
+        turnActive: false,
+        turnStartedAt: null,
+        turnWaited: false
+      };
       if (!options.replay) return settled;
       const started = Date.parse(options.turnStartedAt ?? "");
       const ended = Date.parse(typeof event.ts === "string" ? event.ts : "");
@@ -37521,6 +37583,7 @@ function ToolCall({
   const lines = body.length > 0 ? body.split("\n") : [];
   const shown = expanded ? lines.slice(0, maxOutputLines) : [];
   const hidden = lines.length - shown.length;
+  const tail = call.state === "running" ? call.progress ?? [] : [];
   return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(Box_default, { flexDirection: "column", marginBottom: 1, children: [
     /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(Text, { children: [
       /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(Text, { color: meta.color, children: [
@@ -37538,6 +37601,19 @@ function ToolCall({
         " lines)"
       ] }) : null
     ] }),
+    tail.map((line, index) => /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(
+      Text,
+      {
+        dimColor: line.stream === "stdout",
+        color: line.stream === "stderr" ? "yellow" : void 0,
+        children: [
+          "  ",
+          line.text
+        ]
+      },
+      `${call.callId}-p${index}`
+    )),
+    tail.length > 0 && call.progressTruncated ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { dimColor: true, children: "  \u2026 truncated" }) : null,
     shown.map((line, index) => {
       const severity = diagnosticLineColor(line);
       return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(
@@ -38947,14 +39023,16 @@ function App2({
     voice.recording || phase.kind !== "idle" && phase.kind !== "approval"
   );
   const turn = turnRef.current;
+  const turnStartedAt = state.turnStartedAt ?? turn?.startedAt ?? null;
   const queuedSuffix = state.queued.length > 0 ? ` \xB7 ${queuedLabel(state.queued.length)}` : "";
   const workingText = voice.recording ? recordingLabel(voice.startedAt, clock) : voice.speaking ? SPEAKING_LABEL : workingLine({
     phase,
-    elapsedMs: turn ? clock - turn.startedAt : 0,
+    elapsedMs: turnStartedAt === null ? 0 : clock - turnStartedAt,
     inputTokens: turn ? state.usage.inputTokens - turn.inputTokens : 0,
     outputTokens: turn ? state.usage.outputTokens - turn.outputTokens : 0,
     frame: spinnerFrame,
-    verbOffset: state.messages.length
+    verbOffset: state.messages.length,
+    waited: state.turnWaited
   });
   const indicatorText = workingText === null ? null : `${workingText}${queuedSuffix}`;
   const completableAgents = (0, import_react40.useMemo)(
@@ -39017,11 +39095,14 @@ function App2({
   }
   if (state.turnActive && !turnActiveRef.current) {
     turnRef.current = {
-      startedAt: now,
+      startedAt: state.turnStartedAt ?? now,
       inputTokens: state.usage.inputTokens,
       outputTokens: state.usage.outputTokens,
       errors: state.errors.length
     };
+  }
+  if (state.turnActive && turnRef.current && state.turnStartedAt !== null) {
+    turnRef.current.startedAt = state.turnStartedAt;
   }
   if (!state.turnActive && turnActiveRef.current && turnRef.current) {
     const turn2 = turnRef.current;
