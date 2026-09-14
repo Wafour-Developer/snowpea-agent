@@ -1133,7 +1133,9 @@ _No params (send `{}`)._
 | `browser` | `({ active?: boolean; default?: boolean; description?: string; id: string; key: string; label: string; tags?: string[]; tier: string; })[]` | no | Browser-control providers. |
 | `gateway` | `({ active?: boolean; default?: boolean; description?: string; id: string; key: string; label: string; tags?: string[]; tier: string; })[]` | no | Chat gateways (telegram, discord, slack), all off. |
 | `search` | `({ active?: boolean; default?: boolean; description?: string; id: string; key: string; label: string; tags?: string[]; tier: string; })[]` | no | Web-search providers, ddgs first. |
+| `stt` | `({ active?: boolean; default?: boolean; description?: string; id: string; key: string; label: string; tags?: string[]; tier: string; })[]` | no | Speech-to-text choices; active reflects what is usable on this machine. |
 | `tools` | `({ active?: boolean; default?: boolean; description?: string; id: string; key: string; label: string; tags?: string[]; tier: string; })[]` | no | Tool categories and their default on/off state. |
+| `tts` | `({ active?: boolean; default?: boolean; description?: string; id: string; key: string; label: string; tags?: string[]; tier: string; })[]` | no | Text-to-speech choices; active reflects what is usable on this machine. |
 | `vendors` | `({ active?: boolean; default?: boolean; description?: string; id: string; key: string; label: string; tags?: string[]; tier: string; })[]` | no | LLM vendors. |
 
 ### `skill.install`

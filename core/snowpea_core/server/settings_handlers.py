@@ -15,11 +15,13 @@ from typing import TYPE_CHECKING
 
 from pydantic import ValidationError
 
+from snowpea_core.audio import capabilities as audio_capabilities
 from snowpea_core.config import hot_reload
 from snowpea_core.config.patch import deep_merge, mask_secrets, reject_masked_secrets
 from snowpea_core.config.project import ProjectSettings
 from snowpea_core.config.settings import Settings
 from snowpea_core.server import errors
+from snowpea_core.server.audio_handlers import audio_config, speech_caller
 from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import (
     Empty,
@@ -35,7 +37,9 @@ from snowpea_core.setup.catalog import (
     browser_catalog,
     gateway_catalog,
     search_catalog,
+    stt_catalog,
     tools_catalog,
+    tts_catalog,
     vendor_catalog,
 )
 
@@ -153,12 +157,17 @@ async def setup_catalog_handler(
     _conn: RpcConnection, _params: Empty, core: Core
 ) -> SetupCatalogResult:
     """``setup.catalog`` — the same catalogs the CLI setup wizard renders."""
+    # Detection has to match the CLI's audio screen exactly (CORE-setup-catalog-audio),
+    # so this reuses ``audio.capabilities`` rather than re-deriving PATH/key checks.
+    report = audio_capabilities(audio_config(core), caller=speech_caller(core))
     return SetupCatalogResult(
         vendors=[_to_wire(item) for item in vendor_catalog(core.settings)],
         search=[_to_wire(item) for item in search_catalog()],
         browser=[_to_wire(item) for item in browser_catalog()],
         tools=[_to_wire(item) for item in tools_catalog()],
         gateway=[_to_wire(item) for item in gateway_catalog()],
+        stt=[_to_wire(item) for item in stt_catalog(report["sttProviders"])],
+        tts=[_to_wire(item) for item in tts_catalog(report["ttsProviders"])],
     )
 
 

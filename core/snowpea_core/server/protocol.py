@@ -1269,6 +1269,14 @@ class SetupCatalogResult(Payload):
     gateway: list[SetupCatalogItem] = Field(
         default_factory=list, description="Chat gateways (telegram, discord, slack), all off."
     )
+    stt: list[SetupCatalogItem] = Field(
+        default_factory=list,
+        description="Speech-to-text choices; active reflects what is usable on this machine.",
+    )
+    tts: list[SetupCatalogItem] = Field(
+        default_factory=list,
+        description="Text-to-speech choices; active reflects what is usable on this machine.",
+    )
 
 
 # --------------------------------------------------------------------------
