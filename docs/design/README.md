@@ -18,6 +18,7 @@ generated, and [`../protocol.md`](../protocol.md) wins wherever a contract disag
 | [m11-context-compaction-contract.md](m11-context-compaction-contract.md) | Context-window tracking, compaction, store lifetime and shutdown ordering (ships CORE-context, CORE-memory-race, CORE-session-race) | AC-32 … AC-36 |
 | [m12-tui-contract.md](m12-tui-contract.md) | Terminal UI surface: layout, HUD, panels, slash registry, resume picker, exit codes | AC-37 … AC-42 |
 | [m13-lsp-contract.md](m13-lsp-contract.md) | LSP integration (v0.2): language-server registry ported from opencode, diagnostics after edits, lsp_* tools, lsp.status | AC-43 … AC-47 |
+| [m14-mcp-management.md](m14-mcp-management.md) | MCP server management: mcp.list/add/remove/update/test/reload RPCs + mcp.changed event, `/mcp` command, `snowpea mcp`, TUI form, desktop Settings → MCP servers | AC-48 … AC-52 |
 
 **M4 has no standalone contract file.** Its subject — the plan/accept/auto permission matrix, the
 allowlist promotion rules and the approval queue — lives in
