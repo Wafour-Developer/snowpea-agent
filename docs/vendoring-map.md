@@ -198,6 +198,7 @@ the table further down only when the file is copied in.
 <!-- BEGIN GENERATED: entries -->
 | upstream path | upstream commit | file sha256 | destination | patch path | reason |
 |---|---|---|---|---|---|
+| hermes_cli/mcp_security.py | 8d79c2ff57bb | `05b4dd0c04125671502a006c64700b627cd8af98f3cf8ab7f4635052396c034b` | core/snowpea_core/vendor/hermes/mcp/mcp_security.py | — | Security shapes an MCP server entry must not have: IOC substrings, a shell interpreter with network egress, and writes to OS persistence surfaces (M14 mcp.add). |
 | tools/ansi_strip.py | 8d79c2ff57bb | `71f339d1be720c24f407565b4a90cb55164dead2e860cf438258104fd96c1922` | core/snowpea_core/vendor/hermes/tools/ansi_strip.py | — | Strip ANSI escapes from backend shell output before it reaches the transcript. |
 | tools/binary_extensions.py | 8d79c2ff57bb | `9dc721f746754753ea71ba898360325bc0eae13ab501dad4381ecb09c9e6cb79` | core/snowpea_core/vendor/hermes/tools/binary_extensions.py | — | Binary-file extension table so read_file never pulls a blob into context. |
 | tools/fuzzy_match.py | 8d79c2ff57bb | `151d7de4ec9af37cf79e6d7885f4ae5ff309194acfc316e2b75d1a3362eb253f` | core/snowpea_core/vendor/hermes/tools/fuzzy_match.py | — | Whitespace-tolerant find-and-replace fallback for edit_file when the exact match fails. |

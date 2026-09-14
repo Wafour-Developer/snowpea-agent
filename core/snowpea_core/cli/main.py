@@ -417,10 +417,35 @@ async def _consume(
 # ---------------------------------------------------------------------------
 
 
+def split_passthrough(argv: Sequence[str]) -> tuple[list[str], list[str]]:
+    """Take the child argv after a bare ``--`` out of an ``mcp`` command line.
+
+    ``snowpea mcp add notes --global -- python -m server`` cannot be parsed by
+    argparse as written: a trailing ``nargs="*"`` positional stops collecting
+    once an optional flag has been seen, and the ``--`` then reads as an
+    unrecognised argument.  Splitting first keeps the documented
+    ``-- <command> [args…]`` form working wherever the flags sit, and the tail
+    is never parsed — it is the child's argv verbatim.
+    """
+    items = list(argv)
+    if not items or items[0] != "mcp" or "--" not in items:
+        return items, []
+    index = items.index("--")
+    return items[:index], items[index + 1 :]
+
+
+def parse_argv(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    """Parse ``snowpea``'s arguments, honouring the ``mcp`` ``--`` passthrough."""
+    head, tail = split_passthrough(list(sys.argv[1:] if argv is None else argv))
+    args = build_parser().parse_args(head)
+    if tail:
+        args.rest = tail
+    return args
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """``snowpea`` console script."""
-    parser = build_parser()
-    args = parser.parse_args(list(sys.argv[1:] if argv is None else argv))
+    args = parse_argv(argv)
 
     if args.version:
         # Cache-only: `--version` never waits on the network.

@@ -1,5 +1,13 @@
 [
   {
+    "upstream_path": "hermes_cli/mcp_security.py",
+    "upstream_commit": "8d79c2ff57bba4b07e5b37ed90387b16541aef53",
+    "sha256": "05b4dd0c04125671502a006c64700b627cd8af98f3cf8ab7f4635052396c034b",
+    "destination": "core/snowpea_core/vendor/hermes/mcp/mcp_security.py",
+    "patch": null,
+    "reason": "Security shapes an MCP server entry must not have: IOC substrings, a shell interpreter with network egress, and writes to OS persistence surfaces (M14 mcp.add)."
+  },
+  {
     "upstream_path": "tools/ansi_strip.py",
     "upstream_commit": "8d79c2ff57bba4b07e5b37ed90387b16541aef53",
     "sha256": "71f339d1be720c24f407565b4a90cb55164dead2e860cf438258104fd96c1922",
