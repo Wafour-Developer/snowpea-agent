@@ -213,8 +213,15 @@ def lsp_diagnostics(path: str, *, count: int, errors: int, warnings: int) -> Eve
     return _pack(LspDiagnostics(path=path, count=count, errors=errors, warnings=warnings))
 
 
-def turn_done(turn_id: str, reason: str = "complete") -> Event:
-    return _pack(TurnDone(turnId=turn_id, reason=reason))  # type: ignore[arg-type]
+def turn_done(turn_id: str, reason: str = "complete", *, synthetic: bool = False) -> Event:
+    """A turn ended.
+
+    ``synthetic`` marks an event the daemon wrote on the turn's behalf to close
+    one a crash or a restart left open (CORE-dangling-turns).
+    """
+    return _pack(
+        TurnDone(turnId=turn_id, reason=reason, synthetic=synthetic)  # type: ignore[arg-type]
+    )
 
 
 def job_done(job_id: str, session_id: str | None, status: str = "ok", text: str = "") -> Event:

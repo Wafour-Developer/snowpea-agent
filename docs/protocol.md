@@ -1186,7 +1186,7 @@ List live or saved sessions.
 
 | field | type | required | description |
 |---|---|---|---|
-| `sessions` | `({ agent?: string \| null; contextUsed?: number; contextWindow?: number \| null; createdAt: string; jobId?: string \| null; kind?: "chat" \| "scheduled" \| "subagent" \| "agent"; lastPrompt?: string \| null; mode: "plan" \| "accept" \| "auto"; model?: string \| null; originSurface?: string \| null; parentSessionId?: string \| null; provider?: string \| null; seq?: number; sessionId: string; workdir: string; })[]` | no | Every live session. |
+| `sessions` | `({ agent?: string \| null; contextUsed?: number; contextWindow?: number \| null; createdAt: string; jobId?: string \| null; kind?: "chat" \| "scheduled" \| "subagent" \| "agent"; lastPrompt?: string \| null; mode: "plan" \| "accept" \| "auto"; model?: string \| null; originSurface?: string \| null; parentSessionId?: string \| null; provider?: string \| null; running?: boolean; seq?: number; sessionId: string; workdir: string; })[]` | no | Every live session. |
 
 ### `session.prompt`
 
@@ -2049,6 +2049,7 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 |---|---|---|---|
 | `kind` | `"turn.done"` | no |  |
 | `reason` | `"complete" \| "interrupted" \| "error" \| "denied" \| "timeout" \| "budget"` | no | Why the turn ended. budget = the tool-round budget ran out; the turn reported what it had done before ending. |
+| `synthetic` | `boolean` | no | True when the daemon wrote this event itself to close a turn a crash left open, rather than the turn reporting its own end (CORE-dangling-turns). The turn produced no further output after the events already stored. |
 | `turnId` | `string` | yes | Turn that ended. |
 
 ### kind `turn.queued`

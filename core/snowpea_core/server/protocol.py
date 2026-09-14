@@ -318,6 +318,15 @@ class SessionSummary(Payload):
     agent: str | None = Field(
         default=None, description="Named agent the session belongs to, when it has one."
     )
+    running: bool = Field(
+        default=False,
+        description=(
+            "True while the daemon has a turn in flight for this session. Always false "
+            "for a stored row, which by definition has no live turn — a client should "
+            "trust this rather than infer a running turn from a replay that ends on "
+            "turn.started (CORE-dangling-turns)."
+        ),
+    )
 
 
 class SessionCompactParams(Payload):
@@ -1789,6 +1798,14 @@ class TurnDone(Payload):
         description=(
             "Why the turn ended. budget = the tool-round budget ran out; the turn "
             "reported what it had done before ending."
+        ),
+    )
+    synthetic: bool = Field(
+        default=False,
+        description=(
+            "True when the daemon wrote this event itself to close a turn a crash "
+            "left open, rather than the turn reporting its own end (CORE-dangling-turns). "
+            "The turn produced no further output after the events already stored."
         ),
     )
 

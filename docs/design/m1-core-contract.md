@@ -172,6 +172,8 @@ turn = prompt → messages(history+system) → provider.stream
 
 모든 턴 종료는 `agent/loop.py`의 `finish_turn()` 하나를 거친다. 순서는 **history 영속화 → `context` 이벤트 → `turn.done`** 이며, `Core.stopping` 중에는 앞의 둘을 건너뛴다(CORE-session-race). `turn.done`은 여전히 terminal이다.
 
+**턴은 데몬이 죽어도 반드시 닫힌다**(v0.2, CORE-dangling-turns). 위의 "`Core.stopping` 중에는 건너뛴다"는 규칙 때문에, 턴이 도는 중에 데몬이 멈추면 이벤트 로그에 `turn.started`만 남고 `turn.done`이 없었다 — 히스토리를 리플레이하는 모든 surface(`session.resume`, IDE hydrate)가 영원히 "생각 중"인 턴을 그렸다. 이제 두 지점에서 닫는다. (1) **정상 종료**: `Daemon.stop`이 `core.stopping = True` 직후, 아직 store와 hub가 살아 있을 때 `SessionManager.finish_open_turns()`로 진행 중인 턴마다 `turn.done{reason:"interrupted", synthetic:true}`를 내보내고 영속화한다. 턴 id를 세션에서 먼저 걷어내므로 뒤이은 취소 경로와 겹쳐 두 번 쓰이지 않는다. (2) **크래시·`kill -9`**: 데몬이 뜰 때 `Store.repair_dangling_turns()`가 `turn.started`/`turn.done`을 **turnId로 짝지어** 짝 없는 턴마다 같은 synthetic 이벤트를 다음 seq로 덧붙인다(마지막 마커만 보지 않는 이유는 §17-4의 버려진 프롬프트가 실행 중인 턴보다 뒤에 `turn.done`을 쓰기 때문이다). 스캔 이후에 생긴 행은 `SessionManager.restore`가 그 세션 하나만 다시 수선한다. 두 경로 모두 멱등이다. `TurnDone`에는 `synthetic: bool = false`가 추가됐고(가산적, 프로토콜 `1.5.0` 유지), `SessionSummary`에는 `running: bool`이 붙어 **지금 정말 턴이 도는지**를 데몬이 직접 말한다 — 저장된 행은 항상 `false`이므로 클라이언트가 리플레이의 마지막 이벤트로 추측할 필요가 없다.
+
 `session.interrupt`는 진행 중인 턴을 취소하고(`turn.done{interrupted}`), 그 턴이 끝나면 뒤에 쌓여 있던 큐도 비운다(§17-4).
 
 ## 9. Commands (`commands/registry.py`)

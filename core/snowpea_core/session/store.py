@@ -251,6 +251,98 @@ class Store:
             for row in rows
         ]
 
+    #: Event kinds that open and close a turn.  Only these are read back when
+    #: looking for a turn a crash left open (CORE-dangling-turns).
+    TURN_MARKERS = ("turn.started", "turn.done")
+
+    def _open_turns(self, session_id: str | None) -> dict[str, list[str]]:
+        """Turn ids that were started and never finished, per session.
+
+        A crash or a ``kill -9`` leaves ``turn.started`` in the log with no
+        ``turn.done`` after it, so every client that replays the history sees a
+        turn that runs forever.  Matching is by turn id rather than by "what
+        was the last marker": ``flush_queued_turns`` writes ``turn.done`` for
+        dropped prompts *while* the real turn is still running, so the last
+        marker in the log is not always the running turn's.
+
+        Called with :attr:`_lock` held.
+        """
+        sql = (
+            "SELECT session_id, seq, kind, payload_json FROM events"
+            " WHERE kind IN (?, ?)"
+        )
+        params: tuple[Any, ...] = self.TURN_MARKERS
+        if session_id is not None:
+            sql += " AND session_id = ?"
+            params = (*params, session_id)
+        sql += " ORDER BY session_id, seq"
+        open_turns: dict[str, list[str]] = {}
+        for row in self._conn.execute(sql, params):
+            try:
+                payload = json.loads(row["payload_json"])
+            except (TypeError, ValueError):  # pragma: no cover - a corrupt row
+                continue
+            turn_id = str(payload.get("turnId") or "")
+            if not turn_id:
+                continue
+            pending = open_turns.setdefault(str(row["session_id"]), [])
+            if row["kind"] == "turn.started":
+                if turn_id not in pending:
+                    pending.append(turn_id)
+            elif turn_id in pending:
+                pending.remove(turn_id)
+        return {key: value for key, value in open_turns.items() if value}
+
+    def _repair(self, session_id: str | None, ts: str) -> list[dict[str, Any]]:
+        """Append a synthetic ``turn.done`` for every turn left open."""
+        written: list[dict[str, Any]] = []
+        with self._lock:
+            if self._closed:
+                raise StoreClosed("session store is closed")
+            for sid, turn_ids in self._open_turns(session_id).items():
+                row = self._conn.execute(
+                    "SELECT MAX(seq) AS m FROM events WHERE session_id = ?", (sid,)
+                ).fetchone()
+                seq = int(row["m"] or 0)
+                for turn_id in turn_ids:
+                    seq += 1
+                    payload = {
+                        "turnId": turn_id,
+                        "reason": "interrupted",
+                        "synthetic": True,
+                    }
+                    self._conn.execute(
+                        "INSERT OR REPLACE INTO events"
+                        " (session_id, seq, kind, payload_json, ts) VALUES (?, ?, ?, ?, ?)",
+                        (sid, seq, "turn.done", json.dumps(payload), ts),
+                    )
+                    written.append(
+                        {
+                            "sessionId": sid,
+                            "seq": seq,
+                            "kind": "turn.done",
+                            "payload": payload,
+                            "ts": ts,
+                        }
+                    )
+            self._conn.commit()
+        return written
+
+    async def repair_dangling_turns(
+        self, session_id: str | None = None, *, ts: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Close turns a crash left open; returns the events it wrote.
+
+        Called once when the daemon starts (so every stored thread is
+        consistent before any client connects) and again for one session in
+        :meth:`SessionManager.restore`, for a thread whose row was written
+        after that scan.  Idempotent: a repaired turn has a ``turn.done`` and
+        is no longer open (CORE-dangling-turns).
+        """
+        from snowpea_core.config.paths import utc_now
+
+        return await asyncio.to_thread(self._repair, session_id, ts or utc_now())
+
     async def max_seq(self, session_id: str) -> int:
         rows = await asyncio.to_thread(
             self._query, "SELECT MAX(seq) AS m FROM events WHERE session_id = ?", (session_id,)
