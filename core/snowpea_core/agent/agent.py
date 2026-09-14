@@ -45,7 +45,17 @@ SEARCH_HONESTY_HINT = load("search_honesty")
 #: a subprocess where none belongs.
 ENVIRONMENT_TTL_SEC = 30.0
 
-_ENV_CACHE: dict[str, tuple[float, str, str]] = {}
+@dataclass(frozen=True)
+class _EnvCacheEntry:
+    """One session's rendered blocks, and which instruction files they quote."""
+
+    expires: float
+    environment: str
+    context_files: str
+    loaded: frozenset[str]
+
+
+_ENV_CACHE: dict[str, _EnvCacheEntry] = {}
 
 
 @dataclass
@@ -73,25 +83,55 @@ def invalidate_environment(session: Session | None = None) -> None:
     _ENV_CACHE.pop(f"{session.id}:{session.workdir}", None)
 
 
-def environment_blocks(session: Session) -> tuple[str, str]:
-    """``(environment block, project context files block)`` for ``session``."""
+def context_file_settings(core: Core | None) -> tuple[int | None, bool]:
+    """``(agent.contextFileMaxChars, agent.ignoreContextFiles)`` from settings."""
+    if core is None:
+        return None, False
+    try:
+        agent_settings = core.settings.agent
+    except AttributeError:  # pragma: no cover - a partially built Core in a test
+        return None, False
+    configured = getattr(agent_settings, "contextFileMaxChars", None)
+    override = int(configured) if configured else None
+    return override, bool(getattr(agent_settings, "ignoreContextFiles", False))
+
+
+def environment_blocks(session: Session, core: Core | None = None) -> tuple[str, str]:
+    """``(environment block, project context files block)`` for ``session``.
+
+    Also records on the session which instruction files the prompt already
+    quotes, so the on-demand attachment in :mod:`agent.context_files` fires
+    only for the ones the budget could not fit (CORE-context-files).
+    """
     key = f"{session.id}:{session.workdir}"
     cached = _ENV_CACHE.get(key)
-    if cached is not None and cached[0] > time.monotonic():
-        return cached[1], cached[2]
+    if cached is not None and cached.expires > time.monotonic():
+        session.loaded_context_files = set(cached.loaded)
+        return cached.environment, cached.context_files
     backend = getattr(getattr(session, "backend", None), "kind", "local")
     model = None
     if session.provider or session.model:
         model = f"{session.provider or '?'}:{session.model or '?'}"
+    override, ignore = context_file_settings(core)
     env = prompt_env.collect(
-        session.workdir, model=model, mode=session.mode, backend=str(backend or "local")
+        session.workdir,
+        model=model,
+        mode=session.mode,
+        backend=str(backend or "local"),
+        read_context=not ignore,
+        context_window=session.context_window,
+        context_file_chars=override,
     )
-    blocks = (
-        prompt_env.build_environment_block(env),
-        prompt_env.context_files_block(env.context_files),
+    project = env.project_context
+    entry = _EnvCacheEntry(
+        expires=time.monotonic() + ENVIRONMENT_TTL_SEC,
+        environment=prompt_env.build_environment_block(env),
+        context_files=prompt_env.context_files_block(project),
+        loaded=frozenset(item.name for item in project.files),
     )
-    _ENV_CACHE[key] = (time.monotonic() + ENVIRONMENT_TTL_SEC, blocks[0], blocks[1])
-    return blocks
+    _ENV_CACHE[key] = entry
+    session.loaded_context_files = set(entry.loaded)
+    return entry.environment, entry.context_files
 
 
 def context_fill(session: Session) -> float | None:
@@ -129,7 +169,7 @@ def build_system_prompt(
     contract §1); it is empty whenever memory is off or nothing matched, and it
     sits in the volatile tier so that the prefix in front of it stays cacheable.
     """
-    environment, context_files = environment_blocks(session)
+    environment, context_files = environment_blocks(session, core)
     persona = getattr(session, "system_prompt", None) or ""
     if session.team_agents:
         team_rule = (
@@ -180,6 +220,7 @@ __all__ = [
     "AgentConfig",
     "build_messages",
     "build_system_prompt",
+    "context_file_settings",
     "context_fill",
     "environment_blocks",
     "invalidate_environment",

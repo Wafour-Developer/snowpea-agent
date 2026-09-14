@@ -59,6 +59,13 @@ class Session:
     #: Long-term memory namespace (M5 contract §1): ``"default"`` for
     #: interactive sessions, ``"agent:<name>"`` for named agents.
     memory_namespace: str = "default"
+    #: Project memory namespace (M5 contract §1b): ``"project:<realpath>"`` of
+    #: the workdir's git root, or of the workdir itself when it is not a
+    #: checkout.  ``""`` when the session is not in a project at all (its
+    #: workdir is the user's home, or ``$SNOWPEA_HOME``), in which case there
+    #: is nothing to scope a memory to and everything is global.  Derived once
+    #: in :meth:`__post_init__`, so create and restore both get it.
+    project_namespace: str = ""
     #: Language tag detected from the user's own words, cached so a turn that
     #: delegates four times detects once.  Refreshed by
     #: ``tools.delegate.detected_language`` whenever a newer user message is in
@@ -78,6 +85,21 @@ class Session:
     #: The connection that created (or last resumed) the session; interactive
     #: ``approval.request`` calls go only here (contract §7).
     origin_conn: Any = None
+    #: Turn ids already closed out of band — ``SessionManager.finish_open_turns``
+    #: writes ``turn.done`` for the turn in flight at shutdown, and then
+    #: ``close_all`` sets :attr:`interrupt`, which would otherwise make the
+    #: turn's own interrupt path report the same turn done a second time
+    #: (CORE-dangling-turns).  ``finish_turn`` skips an id listed here.
+    finished_turns: set[str] = field(default_factory=set)
+    #: Nested instruction files (relative POSIX paths) already shown to the
+    #: model in this session, so ``src/AGENTS.md`` is attached to the first
+    #: tool result that touches ``src/`` and not to every one after it
+    #: (CORE-context-files).
+    seen_context_files: set[str] = field(default_factory=set)
+    #: Instruction files already quoted in the system prompt — the discovery
+    #: chain and whatever nested files fitted the budget.  The on-demand
+    #: attachment fires only for the ones that did *not* fit.
+    loaded_context_files: set[str] = field(default_factory=set)
     #: Tool names a skill command restricts the current turn to
     #: (``allowed-tools`` in its front matter); ``None`` means every tool.
     allowed_tools: set[str] | None = None
@@ -103,6 +125,17 @@ class Session:
     def __post_init__(self) -> None:
         if self.backend is None:  # type: ignore[unreachable]
             self.backend = LocalBackend(self.workdir)  # type: ignore[unreachable]
+        if not self.project_namespace:
+            from snowpea_core.memory.scopes import project_namespace
+
+            self.project_namespace = project_namespace(self.workdir)
+
+    @property
+    def project_root(self) -> str:
+        """The project root this session's memories belong to, or ``""``."""
+        from snowpea_core.memory.scopes import project_of
+
+        return project_of(self.project_namespace)
 
     async def set_backend(self, backend: ExecutionBackend) -> None:
         """Replace the backend, closing whatever it was using before."""

@@ -395,9 +395,34 @@ The interactive screen asks for both: the bot token, then your own account id on
 
 The token is stored in `$SNOWPEA_HOME/credentials.json` (mode `0600`), and the messenger starts listening with the daemon — no binding step needed. Binding a bot to a *particular* agent, session or chat is still a separate step, covered in [Gateway](gateway.md).
 
+## Project instruction files
+
+A project tells the agent its own rules in a file the agent reads before every turn. Discovery follows the same order Hermes uses, and **the first type that matches wins** — a repository that carries two conventions does not pay for both:
+
+1. `.snowpea/instructions.md` or `SNOWPEA.md`, nearest first, walking up to the git root.
+2. The `AGENTS.md` chain, from the git root down to the session's directory. Each directory contributes the first of `AGENTS.override.md`, `AGENTS.md`, `agents.md` — the `.override.` name is meant to be gitignored, so you can keep personal instructions beside the committed ones. Identical content further down the chain is loaded once.
+3. `CLAUDE.md` or `claude.md`, in the session's directory.
+4. `.cursorrules` plus `.cursor/rules/*.mdc`, in the session's directory.
+
+Without a `.git` ancestor the chain is the session's own directory alone. A file left in `/tmp` or in your home directory never gains prompt authority.
+
+Sizes. One file reaches the prompt up to `clamp(context window × 4 × 0.06, 20 000, 500 000)` characters, which is 20 000 on a small local model and far more on a large one, and the merged block is capped by the same number. A file that is cut keeps its head and its tail with a marker between them naming the file to `read_file`, and the block says in words that it was cut. Pin the cap with `agent.contextFileMaxChars`, or skip project files entirely with `agent.ignoreContextFiles`.
+
+Nested files. `/deepinit` writes an `AGENTS.md` per package directory, and a session sits at the repository root for its whole life, so the chain alone would never reach them. They are loaded up front as their own sections while the budget allows — a brand-new thread in the project already carries the whole hierarchy, as do a resumed session and a subagent in the same directory. The search goes four levels deep, takes at most 40 files, and never walks `.git`, `node_modules`, `.venv`, `dist`, `build`, `__pycache__` or any hidden directory.
+
+Whatever does not fit is named instead:
+
+```text
+Nested instructions not loaded (read_file when you work there): src/AGENTS.md, test/AGENTS.md
+```
+
+and the nearest one is attached to the first tool result that touches its directory — reading, writing or editing a file there, listing it, globbing or grepping it, or a shell command that starts by changing into it. Once per session, and only for a file the prompt does not already quote.
+
+Changes are picked up immediately. Writing or editing any of these files, at any depth, drops the cached prompt, as does finishing `/init`, `/deepinit` or `/skill create` — so the turn right after one of them already sees what it wrote.
+
 ## What ends up on disk
 
-`$SNOWPEA_HOME/settings.json` holds `providers`, `search.provider`, `browser.provider`, `tools.enabled_categories`, `gateway`, `agents.max_concurrent` (3), `team.max_conflict_retries` (2), `approvals.timeoutSec` (300), `agent.max_tokens` (16384), `agent.thinking` (`auto`) and `memory.enabled` (true). Per-project overrides for mode, allowlist and backend live in `<project>/.snowpea/settings.json` and win over the global file. Secrets are never written into `settings.json`, and never logged.
+`$SNOWPEA_HOME/settings.json` holds `providers`, `search.provider`, `browser.provider`, `tools.enabled_categories`, `gateway`, `agents.max_concurrent` (3), `team.max_conflict_retries` (2), `approvals.timeoutSec` (300), `agent.max_tokens` (16384), `agent.thinking` (`auto`), `memory.enabled` (true), `memory.askScope` (true), `memory.digestEntries` (30) and `memory.digestChars` (6000). Per-project overrides for mode, allowlist and backend live in `<project>/.snowpea/settings.json` and win over the global file. Secrets are never written into `settings.json`, and never logged.
 
 ## Next
 

@@ -321,6 +321,7 @@ class SessionManager:
             if not turn_id:
                 continue
             session.current_turn = None
+            session.finished_turns.add(turn_id)
             try:
                 await self.hub.emit_event(
                     session.id, event_builders.turn_done(turn_id, reason, synthetic=True)

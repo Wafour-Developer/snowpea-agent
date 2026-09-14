@@ -163,6 +163,15 @@ class AgentSettings(_Model):
     #: is the whole output.  ``settings.providers.<vendor>.thinking`` overrides
     #: it per vendor, and an agent definition's ``thinking:`` outranks both.
     thinking: str = "auto"
+    #: Characters of one project instruction file (AGENTS.md, CLAUDE.md,
+    #: .snowpea/instructions.md, .cursorrules) that reach the prompt, and the
+    #: ceiling on the merged block.  ``None`` derives it from the session's
+    #: context window, clamped to [20_000, 500_000] (CORE-context-files).
+    contextFileMaxChars: int | None = None
+    #: Skip project instruction files entirely, the way Hermes'
+    #: ``--ignore-rules`` does — for a session that must run on snowpea's own
+    #: defaults, or to reproduce a problem without the project's prose.
+    ignoreContextFiles: bool = False
 
 
 class DaemonSettings(_Model):
@@ -262,6 +271,15 @@ class MemorySettings(_Model):
     auto_remember_patterns: list[str] = Field(
         default_factory=lambda: list(DEFAULT_REMEMBER_PATTERNS)
     )
+    #: True lets ``memory_write`` ask the human whether a note belongs to this
+    #: project or to every project when the model did not say (M5 §1b).
+    #: False skips the question and files it under the project.
+    askScope: bool = True
+    #: Project memories listed in the standing digest every turn starts with.
+    digestEntries: int = 30
+    #: Character budget for that digest's project section; the rest is counted
+    #: in a "… and K more" line rather than dropped silently.
+    digestChars: int = 6000
 
 
 class SchedulerSettings(_Model):

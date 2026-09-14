@@ -18,12 +18,15 @@ from dataclasses import dataclass, field
 from time import monotonic
 from typing import TYPE_CHECKING, Any
 
+from snowpea_core.agent import agent as agent_mod
+from snowpea_core.agent import context_files
 from snowpea_core.agent.agent import AgentConfig, build_messages
 from snowpea_core.attachments import pending
 from snowpea_core.config.settings import THINKING_CHOICES
 from snowpea_core.exec.local import LocalBackend
 from snowpea_core.memory import context_for_turn, nudge_after_turn
 from snowpea_core.permissions.policy import UNPROMOTABLE, PermissionPolicy
+from snowpea_core.prompts import environment as prompt_env
 from snowpea_core.providers import content as content_parts
 from snowpea_core.providers import context_windows
 from snowpea_core.providers.base import ChatMessage, ProviderError, ToolCall
@@ -116,6 +119,11 @@ async def finish_turn(core: Core, session: Session, turn_id: str, reason: str) -
     shutdown has begun, for the same reason the final write is skipped in
     :func:`run_turn` (CORE-session-race).
     """
+    if turn_id in session.finished_turns:
+        # Already closed by ``SessionManager.finish_open_turns`` at shutdown;
+        # the interrupt it then sets must not make this turn report itself done
+        # a second time (CORE-dangling-turns).
+        return reason
     if not getattr(core, "stopping", False):
         store = getattr(core, "store", None)
         if store is not None:
@@ -907,6 +915,20 @@ async def _run_one_call(
         log.exception("tool %s raised", tool.name)
         result = ToolResult(ok=False, error=f"{type(exc).__name__}: {exc}")
     await plugin_hooks.post_tool_use(core, session, call.name, dict(call.arguments))
+    # Next to the LSP ``Diagnostics`` block (tools/fs.py ``_with_diagnostics``):
+    # a call that touches a directory with its own AGENTS.md gets that file
+    # once, and a call that *writes* one drops the cached prompt that no longer
+    # matches the tree (CORE-context-files).
+    override, ignore_context = agent_mod.context_file_settings(core)
+    context_files.note_write(session, call.name, dict(call.arguments))
+    if not ignore_context:
+        result = context_files.attach_nested(
+            session,
+            call.name,
+            dict(call.arguments),
+            result,
+            limit=prompt_env.context_file_max_chars(session.context_window, override),
+        )
 
     await hub.emit_event(
         session.id,

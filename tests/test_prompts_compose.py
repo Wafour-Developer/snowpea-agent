@@ -98,7 +98,6 @@ def fixed_environment() -> environment.Environment:
         model=env.model,
         mode=env.mode,
         git=env.git,
-        context_files=[],
     )
 
 
@@ -394,18 +393,18 @@ def test_a_remote_backend_suppresses_host_facts() -> None:
 
 
 def test_context_files_are_read_and_capped(tmp_path: Path) -> None:
+    """The first type that matches wins, and it is capped (CORE-context-files)."""
     (tmp_path / "AGENTS.md").write_text("rules", encoding="utf-8")
     (tmp_path / ".snowpea").mkdir()
     (tmp_path / ".snowpea" / "instructions.md").write_text("x" * 50, encoding="utf-8")
-    files = environment.read_context_files(tmp_path, limit=10)
-    assert [item.name for item in files] == ["AGENTS.md", ".snowpea/instructions.md"]
-    assert files[0].truncated is False
-    assert files[1].truncated is True
-    assert len(files[1].text) == 10
+    project = environment.build_project_context(tmp_path, max_chars=10)
+    # ``.snowpea/instructions.md`` outranks AGENTS.md, and only it is loaded.
+    assert [item.name for item in project.files] == [".snowpea/instructions.md"]
+    assert project.files[0].truncated is True
 
-    block = environment.context_files_block(files)
-    assert '<context file="AGENTS.md">' in block
-    assert "[truncated]" in block
+    block = environment.context_files_block(project)
+    assert '<context file=".snowpea/instructions.md">' in block
+    assert "truncated" in block
     assert environment.context_files_block([]) == ""
 
 
