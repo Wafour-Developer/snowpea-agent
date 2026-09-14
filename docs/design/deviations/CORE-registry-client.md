@@ -168,3 +168,63 @@ federated API instead.
     with a distinct `sourceLabel` (`ClawHub`, `Claude marketplaces`) the way a
     real federated response would, instead of through per-adapter endpoints
     that no longer exist.
+
+## Second follow-up — a live bug: `github:` specs never worked (fixed)
+
+The desktop app's Skills screen reported `skill.install` failing on
+`github:anthropics/claude-code@frontend-design` — a spec the registry's own
+federated search (§9-11 above) returns for a mirrored Claude-marketplace item —
+with `no skill named 'github:anthropics/claude-code@frontend-design' on
+https://registry.snowpea.ai/v1`. Root cause: point 12 above had `github:`
+specs going through `_install_from_registry` like every other external
+scheme, percent-encoding the *installSpec* as the registry's *id*. But a
+Claude-marketplace item's registry id is `claude-marketplaces:<something>`,
+not its `github:` installSpec — those are two different strings for the same
+item, so the download lookup always 404d. Second bug found alongside it: the
+git-clone fallback only triggered on a 501 (`RegistryNotFetchable`), not a
+plain 404, so even a spec that *did* have a fallback available never reached
+it.
+
+16. **`install()` now routes `github:<owner>/<repo>[@plugin]` straight to
+    `_install_github_spec`, checked before the generic
+    `_has_external_scheme` branch (and so before any registry lookup at
+    all).** The registry is never asked about a `github:` spec any more —
+    correctness, not just a fallback: the id mismatch above means it would
+    always fail anyway. `_install_from_registry` (still used for
+    `registry:`/`clawhub:`) keeps a `_fallback_install` call as a safety net
+    in case a `github:` spec ever reaches it some other way, but that call
+    now triggers on **any** `RegistryError` — 404 included, not only
+    `RegistryNotFetchable` (501) — since either status means "the registry
+    could not serve a zip for this," and the client-side fallback answers the
+    same question either way.
+
+17. **`@plugin` now actually resolves and installs a subdirectory,** instead
+    of being silently dropped the way the pre-existing `<git-url>#<subdir>`
+    form always has (a known simplification, left alone here — this fix is
+    scoped to the new `github:` spec path only). `_install_github_spec` calls
+    `_github_plugin_subdir(repo_spec, plugin, home)`, which checks a locally
+    registered marketplace pointed at the same repo first
+    (`load_marketplaces(home)`, matching on `entry["repo"]`), then falls back
+    to fetching the repo's own manifest directly off
+    `raw.githubusercontent.com` (`.claude-plugin/marketplace.json` then
+    `marketplace.json`, `main` then `master`) via `_find_plugin_source`. Once
+    a `source` subdirectory is found (or not — `None` means "install the
+    whole repo," never "install nothing"), `_clone_subdir` clones to a
+    `tempfile.TemporaryDirectory` and `shutil.copytree`s only that
+    subdirectory to the target, with the same path-escape guard as the zip
+    extractor (no `..`, no absolute path, resolved-path containment check)
+    since the subdirectory string still comes from a manifest a client does
+    not fully control.
+
+18. **The combined-failure message names both attempts.** When
+    `_install_from_registry`'s fallback itself fails (e.g. the repo does not
+    exist), the raised `InstallError` reads
+    `"<spec>: registry: <registry reason>; git clone: <clone reason>"` rather
+    than swallowing one of the two causes.
+
+19. **No wire-contract change.** `SkillHit`/`SkillInfo` already carried both
+    `id` (the registry's own id) and `installSpec` (what `skill.install`
+    accepts) per hit — nothing new to plumb through the RPC surface. A client
+    that already has the full search result in hand (the desktop app, the
+    TUI) can choose `registry:<id>` directly for a locally published item
+    instead of `installSpec` if it prefers; the manuals now say so.
