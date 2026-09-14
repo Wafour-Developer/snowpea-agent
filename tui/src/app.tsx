@@ -1058,6 +1058,9 @@ export function App({
     voice.recording || (phase.kind !== "idle" && phase.kind !== "approval"),
   );
   const turn = turnRef.current;
+  // The daemon stamps the moment the turn actually began; the local stamp is
+  // the fallback for a daemon that does not send `turn.started`.
+  const turnStartedAt = state.turnStartedAt ?? turn?.startedAt ?? null;
   const queuedSuffix = state.queued.length > 0 ? ` · ${queuedLabel(state.queued.length)}` : "";
   const workingText = voice.recording
     ? recordingLabel(voice.startedAt, clock)
@@ -1065,11 +1068,12 @@ export function App({
       ? SPEAKING_LABEL
       : workingLine({
         phase,
-        elapsedMs: turn ? clock - turn.startedAt : 0,
+        elapsedMs: turnStartedAt === null ? 0 : clock - turnStartedAt,
         inputTokens: turn ? state.usage.inputTokens - turn.inputTokens : 0,
         outputTokens: turn ? state.usage.outputTokens - turn.outputTokens : 0,
         frame: spinnerFrame,
         verbOffset: state.messages.length,
+        waited: state.turnWaited,
       });
   const indicatorText = workingText === null ? null : `${workingText}${queuedSuffix}`;
 
@@ -1187,11 +1191,16 @@ export function App({
   // measures from the start, and the end leaves one line behind.
   if (state.turnActive && !turnActiveRef.current) {
     turnRef.current = {
-      startedAt: now,
+      startedAt: state.turnStartedAt ?? now,
       inputTokens: state.usage.inputTokens,
       outputTokens: state.usage.outputTokens,
       errors: state.errors.length,
     };
+  }
+  // `turn.started` can land after whatever first marked the turn active; when
+  // it does, the daemon's stamp wins over the local one.
+  if (state.turnActive && turnRef.current && state.turnStartedAt !== null) {
+    turnRef.current.startedAt = state.turnStartedAt;
   }
   if (!state.turnActive && turnActiveRef.current && turnRef.current) {
     const turn = turnRef.current;

@@ -36,7 +36,9 @@ export type WorkingPhase =
   /** The model is thinking. */
   | { kind: "thinking" }
   /** The model is thinking *out loud*, and the daemon is counting it. */
-  | { kind: "reasoning"; chars: number };
+  | { kind: "reasoning"; chars: number }
+  /** The history is being compacted; nothing else can run until it is done. */
+  | { kind: "compacting"; reason: string };
 
 /** First argument that looks like what the tool is working on. */
 function firstArg(args: Record<string, unknown>, keys: string[]): string | null {
@@ -103,6 +105,9 @@ export function derivePhase(
   { runningCommand = null }: { runningCommand?: string | null } = {},
 ): WorkingPhase {
   if (state.pendingApproval || state.approvalQueue.length > 0) return { kind: "approval" };
+  // Compaction holds up everything, and it can also run between turns, so it
+  // is asked about before the turn itself.
+  if (state.compacting) return { kind: "compacting", reason: state.compacting.reason };
   if (!state.turnActive) return { kind: "idle" };
 
   const running = state.toolCalls.filter((call) => call.state === "running");
@@ -133,12 +138,15 @@ export function formatStats({
   elapsedMs,
   inputTokens = 0,
   outputTokens = 0,
+  waited = false,
 }: {
   elapsedMs: number;
   inputTokens?: number;
   outputTokens?: number;
+  waited?: boolean;
 }): string {
-  const parts = [formatDuration(elapsedMs)];
+  // A turn that sat in the queue would otherwise look like a slow model.
+  const parts = waited ? ["started after waiting", formatDuration(elapsedMs)] : [formatDuration(elapsedMs)];
   if (inputTokens > 0) parts.push(`↑ ${formatTokens(inputTokens)}`);
   parts.push(`↓ ${formatTokens(outputTokens)} tokens`);
   return `(${parts.join(" · ")})`;
@@ -154,6 +162,8 @@ export interface WorkingLineInput {
   frame?: number;
   /** Moves the verb list's starting point so turns do not all open alike. */
   verbOffset?: number;
+  /** The turn spent time in the queue before it started. */
+  waited?: boolean;
 }
 
 /** The whole line, or null when there is nothing to say. */
@@ -165,6 +175,11 @@ export function workingLine(input: WorkingLineInput): string | null {
   const spinner = SPINNER_FRAMES[Math.abs(input.frame ?? 0) % SPINNER_FRAMES.length];
   const stats = formatStats(input);
 
+  if (phase.kind === "compacting") {
+    // Compaction can run between turns, when the turn clock says nothing, so
+    // this phase carries no stats.
+    return `${spinner} ${phase.reason === "auto" ? "Compacting (auto)" : "Compacting"}…`;
+  }
   if (phase.kind === "tool") return `${spinner} ${phase.label}… ${stats}`;
   if (phase.kind === "subagents") {
     const plural = phase.running === 1 ? "agent" : "agents";

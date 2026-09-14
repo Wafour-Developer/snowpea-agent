@@ -36,6 +36,9 @@ export function ToolCall({
   const lines = body.length > 0 ? body.split("\n") : [];
   const shown = expanded ? lines.slice(0, maxOutputLines) : [];
   const hidden = lines.length - shown.length;
+  // While the call is in flight the daemon streams its output; the tail says
+  // the thing is alive and what it is chewing on. The final result replaces it.
+  const tail = call.state === "running" ? (call.progress ?? []) : [];
 
   return (
     <Box flexDirection="column" marginBottom={1}>
@@ -45,6 +48,17 @@ export function ToolCall({
         <Text dimColor> {summarizeArgs(call.args)}</Text>
         {!expanded && lines.length > 0 ? <Text dimColor> ({lines.length} lines)</Text> : null}
       </Text>
+      {tail.map((line, index) => (
+        <Text
+          key={`${call.callId}-p${index}`}
+          dimColor={line.stream === "stdout"}
+          color={line.stream === "stderr" ? "yellow" : undefined}
+        >
+          {"  "}
+          {line.text}
+        </Text>
+      ))}
+      {tail.length > 0 && call.progressTruncated ? <Text dimColor>{"  … truncated"}</Text> : null}
       {shown.map((line, index) => {
         // A Diagnostics block from a language server is the part of a tool
         // result worth reading in colour: its severities are the news.

@@ -36,6 +36,16 @@ export interface Message {
 
 export type ToolCallState = "running" | "ok" | "error";
 
+/** One line of a running tool's output. */
+export interface ProgressLine {
+  text: string;
+  /** stderr is drawn apart from stdout; a delegate's text counts as stdout. */
+  stream: "stdout" | "stderr";
+}
+
+/** Lines of live output kept per call. */
+export const PROGRESS_TAIL = 8;
+
 export interface ToolCallEntry {
   callId: string;
   name: string;
@@ -45,6 +55,16 @@ export interface ToolCallEntry {
   error?: string;
   /** Wall-clock start, so a long-running call can say how long it has been. */
   startedAt?: number;
+  /**
+   * Live output while the call runs, newest last.
+   *
+   * The daemon streams `tool.progress` for the shell and for a delegate; this
+   * is the tail of it, kept short because it is a glimpse of a running job, not
+   * a log. The final `tool.result` replaces it.
+   */
+  progress?: ProgressLine[];
+  /** True once the daemon said it stopped sending output for this call. */
+  progressTruncated?: boolean;
 }
 
 export interface DiffEntry {
@@ -241,6 +261,18 @@ export interface State {
   lastSeq: number;
   turnActive: boolean;
   /**
+   * When the running turn actually began.
+   *
+   * `turn.started` says so; until the daemon sends it the surface stamps the
+   * moment the prompt was accepted, which is the same thing for a turn that
+   * did not wait.
+   */
+  turnStartedAt: number | null;
+  /** True when the running turn sat in the queue before it began. */
+  turnWaited: boolean;
+  /** Set while a compaction is running; cleared by the `compaction` event. */
+  compacting: { reason: string; before: number } | null;
+  /**
    * Characters of hidden reasoning the model has streamed in this turn.
    *
    * Reasoning never joins the transcript — it is not the answer, and it counts
@@ -281,6 +313,9 @@ export const initialState: State = {
   children: {},
   lastSeq: 0,
   turnActive: false,
+  turnStartedAt: null,
+  turnWaited: false,
+  compacting: null,
   reasoningChars: 0,
   errors: [],
 };
@@ -703,6 +738,7 @@ function applySessionEvent(
     }
 
     case "compaction": {
+      // Whatever started it has finished; the divider says what it did.
       const entry: CompactionEntry = {
         id: nextId("compaction"),
         before: Number(payload.before ?? payload.from ?? 0),
@@ -710,6 +746,7 @@ function applySessionEvent(
       };
       return {
         ...base,
+        compacting: null,
         compactions: [...base.compactions, entry],
         timeline: pushTimeline(base, { kind: "compaction", id: entry.id }),
       };
@@ -758,6 +795,64 @@ function applySessionEvent(
       return { ...base, diagnostics: { ...base.diagnostics, [path]: entry } };
     }
 
+    // The turn is running now, which is when its clock starts. A turn that sat
+    // in the queue says so: the elapsed time on screen would otherwise look
+    // like the model taking its time.
+    case "turn.started": {
+      const turnId = String(payload.turnId ?? "");
+      // The daemon says whether the turn was queued; a `turn.dequeued` may have
+      // already emptied the local queue, so its own flag is asked first.
+      const waited =
+        typeof payload.queued === "boolean"
+          ? payload.queued
+          : base.queued.some((entry) => entry.turnId === turnId);
+      // Replay has no live clock; the event's own timestamp is the only one.
+      const stamped = Date.parse(typeof event.ts === "string" ? event.ts : "");
+      const text = typeof payload.prompt === "string" ? payload.prompt : "";
+      return {
+        ...base,
+        turnActive: true,
+        turnStartedAt: Number.isFinite(stamped) ? stamped : Date.now(),
+        turnWaited: waited,
+        promptTexts:
+          text.length > 0 && turnId.length > 0
+            ? { ...base.promptTexts, [turnId]: text }
+            : base.promptTexts,
+        queued: base.queued.filter((entry) => entry.turnId !== turnId),
+      };
+    }
+
+    // Output from a tool while it is still running.
+    case "tool.progress": {
+      const callId = String(payload.callId ?? "");
+      const index = base.toolCalls.findIndex((call) => call.callId === callId);
+      if (index === -1) return base;
+      const stream: ProgressLine["stream"] = payload.stream === "stderr" ? "stderr" : "stdout";
+      const chunk = String(payload.chunk ?? "");
+      const arriving = chunk.split("\n").filter((line) => line.length > 0);
+      if (arriving.length === 0 && payload.truncated !== true) return base;
+      const call = base.toolCalls[index];
+      const progress = [...(call.progress ?? []), ...arriving.map((text) => ({ text, stream }))];
+      const toolCalls = base.toolCalls.slice();
+      toolCalls[index] = {
+        ...call,
+        progress: progress.slice(-PROGRESS_TAIL),
+        progressTruncated: call.progressTruncated || payload.truncated === true,
+      };
+      return { ...base, toolCalls };
+    }
+
+    // Compaction takes a moment and a turn cannot run during it; saying so
+    // beats a screen that looks stuck.
+    case "compaction.started":
+      return {
+        ...base,
+        compacting: {
+          reason: String(payload.reason ?? "auto"),
+          before: Number(payload.before ?? 0),
+        },
+      };
+
     case "turn.queued": {
       const turnId = String(payload.turnId ?? "");
       if (turnId.length === 0) return base;
@@ -785,7 +880,13 @@ function applySessionEvent(
       const messages = base.messages.map((m) => (m.streaming ? { ...m, streaming: false } : m));
       // Nothing may be left stranded by a turn that ended without a final
       // message — an interrupt, or an error.
-      const settled = { ...flushDeferred({ ...base, messages }), promptTexts, turnActive: false };
+      const settled = {
+        ...flushDeferred({ ...base, messages }),
+        promptTexts,
+        turnActive: false,
+        turnStartedAt: null,
+        turnWaited: false,
+      };
       if (!options.replay) return settled;
       // A live turn's summary is written by `app.tsx`, which watched it run. A
       // replayed one has to be rebuilt, and the event timestamps are the only
