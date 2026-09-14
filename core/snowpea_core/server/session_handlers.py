@@ -14,7 +14,7 @@ import re
 import shutil
 from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from snowpea_core.agent import loop as agent_loop
 from snowpea_core.attachments import pending
@@ -26,6 +26,8 @@ from snowpea_core.exec.factory import build_backend
 from snowpea_core.lsp import wire_lsp
 from snowpea_core.memory import services as memory_services
 from snowpea_core.memory import wire_memory
+from snowpea_core.memory.retrieval import agent_namespace_of, project_namespace_of
+from snowpea_core.memory.scopes import GLOBAL_NAMESPACE, project_namespace
 from snowpea_core.providers.base import ProviderError
 from snowpea_core.scheduler import wire_scheduler
 from snowpea_core.server import errors
@@ -38,7 +40,12 @@ from snowpea_core.server.protocol import (
     CommandListResult,
     CommandRunParams,
     Empty,
+    MemoryDeleteParams,
+    MemoryEntryInfo,
     MemoryHit,
+    MemoryListParams,
+    MemoryListResult,
+    MemoryScope,
     MemorySearchParams,
     MemorySearchResult,
     MemoryWriteParams,
@@ -127,6 +134,8 @@ HANDLED_METHODS: tuple[str, ...] = (
     "backend.set",
     "memory.search",
     "memory.write",
+    "memory.list",
+    "memory.delete",
 )
 
 
@@ -643,10 +652,85 @@ async def memory_search_handler(
     )
     return MemorySearchResult(
         hits=[
-            MemoryHit(id=entry.id, text=entry.text, tags=entry.tags, score=entry.score)
+            MemoryHit(
+                id=entry.id,
+                text=entry.text,
+                tags=entry.tags,
+                score=entry.score,
+                scope=cast(MemoryScope, entry.scope),
+                project=entry.project,
+            )
             for entry in entries
         ]
     )
+
+
+def _scope_namespaces(core: Core, params: MemoryListParams) -> list[str]:
+    """The namespaces ``memory.list`` should read, from its scope filter (§1b).
+
+    A project scope needs a project root, which comes either from a session id
+    or from an explicit ``project`` path — a CLI running in a checkout has the
+    second and not the first.
+    """
+    scope = params.scope or "all"
+    project = ""
+    agent = ""
+    if params.project:
+        project = project_namespace(params.project)
+    session = core.sessions.get(params.sessionId) if params.sessionId else None
+    if session is not None:
+        project = project or project_namespace_of(session)
+        agent = agent_namespace_of(session)
+    if scope == "project":
+        return [project] if project else []
+    if scope == "global":
+        return [GLOBAL_NAMESPACE]
+    if scope == "agent":
+        return [agent] if agent else []
+    return [name for name in (project, GLOBAL_NAMESPACE, agent) if name]
+
+
+async def memory_list_handler(
+    _conn: RpcConnection, params: MemoryListParams, core: Core
+) -> MemoryListResult:
+    """``memory.list`` — what is remembered, filtered by scope (M5 §1b)."""
+    namespaces = _scope_namespaces(core, params)
+    if not namespaces:
+        return MemoryListResult(entries=[])
+    store = memory_services(core).store
+    limit = max(1, params.limit)
+    query = (params.query or "").strip()
+    entries = (
+        await store.search_many(query, namespaces=namespaces, limit=limit)
+        if query
+        else await store.list_many(namespaces=namespaces, limit=limit)
+    )
+    return MemoryListResult(
+        entries=[
+            MemoryEntryInfo(
+                id=entry.id,
+                text=entry.text,
+                tags=entry.tags,
+                scope=cast(MemoryScope, entry.scope),
+                project=entry.project,
+                createdAt=entry.created_at,
+            )
+            for entry in entries
+        ]
+    )
+
+
+async def memory_delete_handler(
+    _conn: RpcConnection, params: MemoryDeleteParams, core: Core
+) -> Ok:
+    """``memory.delete`` — forget one memory by id."""
+    memory_id = params.id.strip()
+    if not memory_id:
+        raise RpcError(errors.INVALID_PARAMS, "memory.delete needs an id")
+    removed = await memory_services(core).store.delete(memory_id)
+    if not removed:
+        raise RpcError(errors.NOT_FOUND, f"no memory with id {memory_id}")
+    return Ok(ok=True)
 
 
 async def memory_write_handler(
@@ -657,7 +741,7 @@ async def memory_write_handler(
     if not text:
         raise RpcError(errors.INVALID_PARAMS, "memory.write needs a non-empty text")
     entry = await memory_services(core).store.write(
-        text, tags=params.tags, namespace=params.namespace or "default"
+        text, tags=params.tags, namespace=params.namespace or GLOBAL_NAMESPACE
     )
     return MemoryWriteResult(id=entry.id)
 
@@ -686,6 +770,8 @@ def register_session_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
     dispatcher.register("backend.set", backend_set_handler)
     dispatcher.register("memory.search", memory_search_handler)
     dispatcher.register("memory.write", memory_write_handler)
+    dispatcher.register("memory.list", memory_list_handler)
+    dispatcher.register("memory.delete", memory_delete_handler)
     return dispatcher
 
 

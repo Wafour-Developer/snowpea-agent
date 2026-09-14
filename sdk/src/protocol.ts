@@ -890,6 +890,51 @@ export interface McpUpdateResult {
   ok?: boolean;
 }
 
+/** `memory.delete` params. Forget one stored memory. */
+export interface MemoryDeleteParams {
+  /** Memory id to forget. */
+  id: string;
+}
+
+/** `memory.delete` result. */
+export interface MemoryDeleteResult {
+  /** True when the call succeeded. */
+  ok?: boolean;
+}
+
+/** `memory.list` params. List stored memories by scope, newest first. */
+export interface MemoryListParams {
+  /** Maximum number of entries. */
+  limit?: number;
+  /** Project root to use instead of a session's, so a CLI in a checkout can list that project's memories without opening a session. */
+  project?: string | null;
+  /** Free-text filter; omit to list newest first. */
+  query?: string | null;
+  /** Which scopes to list: "project", "global", "agent" or "all" (default). */
+  scope?: "project" | "global" | "agent" | "all" | null;
+  /** Session whose project and agent scopes to resolve; omit for global only. */
+  sessionId?: string | null;
+}
+
+/** `memory.list` result. */
+export interface MemoryListResult {
+  /** Matching memories, newest or best first. */
+  entries?: ({
+    /** When it was written (ISO-8601, UTC). */
+    createdAt?: string;
+    /** Memory id. */
+    id: string;
+    /** Project root for a project memory; empty otherwise. */
+    project?: string;
+    /** Scope this memory is kept in. */
+    scope?: "project" | "global" | "agent" | "all";
+    /** Tags attached at write time. */
+    tags?: string[];
+    /** Stored text. */
+    text: string;
+  })[];
+}
+
 /** `memory.search` params. Recall stored memories matching a query. */
 export interface MemorySearchParams {
   /** Maximum number of hits. */
@@ -906,6 +951,10 @@ export interface MemorySearchResult {
   hits?: ({
     /** Memory id. */
     id: string;
+    /** Project root for a project memory; empty otherwise. */
+    project?: string;
+    /** Scope the hit came from. */
+    scope?: "project" | "global" | "agent" | "all";
     /** Relevance score; higher is closer. */
     score?: number;
     /** Tags attached at write time. */
@@ -2589,6 +2638,8 @@ export interface MethodMap {
   "mcp.remove": { params: McpRemoveParams; result: McpRemoveResult };
   "mcp.test": { params: McpTestParams; result: McpTestResult };
   "mcp.update": { params: McpUpdateParams; result: McpUpdateResult };
+  "memory.delete": { params: MemoryDeleteParams; result: MemoryDeleteResult };
+  "memory.list": { params: MemoryListParams; result: MemoryListResult };
   "memory.search": { params: MemorySearchParams; result: MemorySearchResult };
   "memory.write": { params: MemoryWriteParams; result: MemoryWriteResult };
   "permission.allowlist.add": { params: PermissionAllowlistAddParams; result: PermissionAllowlistAddResult };
@@ -2673,6 +2724,8 @@ export type ClientMethod =
   | "mcp.remove"
   | "mcp.test"
   | "mcp.update"
+  | "memory.delete"
+  | "memory.list"
   | "memory.search"
   | "memory.write"
   | "permission.allowlist.add"

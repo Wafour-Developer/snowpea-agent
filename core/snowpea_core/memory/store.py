@@ -24,6 +24,8 @@ from pathlib import Path
 from typing import Any
 
 from snowpea_core.config.paths import Paths, utc_now
+from snowpea_core.memory import mirror
+from snowpea_core.memory.scopes import project_of, scope_of
 
 log = logging.getLogger("snowpea.memory")
 
@@ -45,6 +47,22 @@ CREATE INDEX IF NOT EXISTS memories_namespace ON memories (namespace, created_at
 
 
 
+#: Aliases so annotations below still mean the builtins even though
+#: :class:`MemoryStore` defines a method called ``list``.
+Namespaces = list[str] | tuple[str, ...]
+MemoryEntries = list["MemoryEntry"]
+
+
+def _unique(namespaces: Namespaces) -> tuple[str, ...]:
+    """The namespaces, deduplicated, empties dropped, order preserved."""
+    seen: list[str] = []
+    for namespace in namespaces:
+        name = (namespace or "").strip()
+        if name and name not in seen:
+            seen.append(name)
+    return tuple(seen)
+
+
 class MemoryClosed(RuntimeError):
     """A :class:`MemoryStore` operation was attempted after :meth:`MemoryStore.close`.
 
@@ -60,7 +78,12 @@ def new_memory_id() -> str:
 
 @dataclass
 class MemoryEntry:
-    """One stored memory; ``score`` is only set by :meth:`MemoryStore.search`."""
+    """One stored memory; ``score`` is only set by :meth:`MemoryStore.search`.
+
+    :attr:`scope` and :attr:`project` are *derived*, never stored: the
+    namespace already says which of the three scopes a row is in (M5 §1b), so
+    a row written before scopes existed labels itself correctly on read.
+    """
 
     id: str
     text: str
@@ -68,6 +91,14 @@ class MemoryEntry:
     namespace: str = "default"
     created_at: str = ""
     score: float = 0.0
+    #: ``"project"`` | ``"global"`` | ``"agent"``, from :attr:`namespace`.
+    scope: str = "global"
+    #: Project root this memory belongs to; ``""`` outside the project scope.
+    project: str = ""
+
+    def __post_init__(self) -> None:
+        self.scope = scope_of(self.namespace)
+        self.project = project_of(self.namespace)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -77,6 +108,8 @@ class MemoryEntry:
             "namespace": self.namespace,
             "createdAt": self.created_at,
             "score": self.score,
+            "scope": self.scope,
+            "project": self.project,
         }
 
 
@@ -112,11 +145,17 @@ def match_expression(query: str) -> str:
 class MemoryStore:
     """Async facade over the ``memories`` tables."""
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, *, mirror_files: bool = True) -> None:
         self.path = path
+        #: False turns the human-readable ``memory.md`` mirror off entirely.
+        self.mirror = mirror_files
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
         self._closed = False
+        #: Bumped by every write and delete.  A cache keyed on it — the memory
+        #: digest (M5 §1b) — is invalidated the moment the store changes,
+        #: without the writer having to know who is caching what.
+        self.revision = 0
         self._conn = sqlite3.connect(str(path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         #: ``"trigram"`` normally; ``"unicode61"`` on an SQLite too old for it,
@@ -129,10 +168,10 @@ class MemoryStore:
             self._conn.commit()
 
     @classmethod
-    def open(cls, paths: Paths) -> MemoryStore:
+    def open(cls, paths: Paths, *, mirror_files: bool = True) -> MemoryStore:
         """Open (creating if needed) the memory tables under ``$SNOWPEA_HOME``."""
         paths.ensure()
-        return cls(paths.state_db)
+        return cls(paths.state_db, mirror_files=mirror_files)
 
     def _create_index(self) -> str:
         """Create ``memories_fts``, falling back when trigram is unavailable."""
@@ -153,6 +192,11 @@ class MemoryStore:
                 continue
             return tokenizer
         raise sqlite3.OperationalError("sqlite was built without fts5; memory needs it")
+
+    @property
+    def home(self) -> Path:
+        """``$SNOWPEA_HOME`` — where the global mirror file lives."""
+        return self.path.parent
 
     # -- plumbing ------------------------------------------------------
     def _query(self, sql: str, params: tuple[Any, ...] = ()) -> list[sqlite3.Row]:
@@ -194,6 +238,7 @@ class MemoryStore:
                 (cursor.lastrowid, entry.text),
             )
             self._conn.commit()
+            self.revision += 1
 
     async def write(
         self,
@@ -213,7 +258,27 @@ class MemoryStore:
         )
         await asyncio.to_thread(self._write, entry, source_session)
         log.info("memory %s stored in %s (%d chars)", entry.id, entry.namespace, len(entry.text))
+        await self.mirror_append(entry)
         return entry
+
+    async def mirror_append(self, entry: MemoryEntry) -> None:
+        """Append ``entry`` to the human-readable mirror; never raises (§1b)."""
+        if not self.mirror:
+            return
+        try:
+            await asyncio.to_thread(mirror.append, entry.namespace, self.home, entry)
+        except Exception:  # noqa: BLE001 - a mirror is a convenience, not the truth
+            log.warning("memory mirror append failed for %s", entry.id, exc_info=True)
+
+    async def mirror_rewrite(self, namespace: str) -> None:
+        """Rebuild one namespace's mirror from the store; never raises (§1b)."""
+        if not self.mirror or mirror.mirror_path(namespace, self.home) is None:
+            return
+        try:
+            entries = await self.list_many(namespaces=[namespace], limit=100000, ascending=True)
+            await asyncio.to_thread(mirror.rewrite, namespace, self.home, entries)
+        except Exception:  # noqa: BLE001 - a mirror is a convenience, not the truth
+            log.warning("memory mirror rewrite failed for %s", namespace, exc_info=True)
 
     def _delete(self, memory_id: str) -> bool:
         with self._lock:
@@ -230,14 +295,24 @@ class MemoryStore:
             )
             self._conn.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
             self._conn.commit()
+            self.revision += 1
             return True
 
     async def delete(self, memory_id: str) -> bool:
-        """Remove one memory; ``False`` when the id was unknown."""
-        return await asyncio.to_thread(self._delete, memory_id)
+        """Remove one memory; ``False`` when the id was unknown.
+
+        A delete rewrites the whole mirror file rather than cutting a line out
+        of it: the file is a projection of the store (M5 §1b).
+        """
+        doomed = await self.get(memory_id)
+        removed = await asyncio.to_thread(self._delete, memory_id)
+        if removed and doomed is not None:
+            await self.mirror_rewrite(doomed.namespace)
+        return removed
 
     # -- reads ---------------------------------------------------------
-    def _search(self, query: str, namespace: str, limit: int) -> list[sqlite3.Row]:
+    def _search(self, query: str, namespaces: tuple[str, ...], limit: int) -> list[sqlite3.Row]:
+        slots = ", ".join("?" for _ in namespaces)
         expression = match_expression(query)
         if expression:
             try:
@@ -245,9 +320,9 @@ class MemoryStore:
                     self._query(
                         "SELECT m.*, bm25(memories_fts) AS score FROM memories_fts"
                         " JOIN memories m ON m.rowid = memories_fts.rowid"
-                        " WHERE memories_fts MATCH ? AND m.namespace = ?"
+                        f" WHERE memories_fts MATCH ? AND m.namespace IN ({slots})"
                         " ORDER BY score LIMIT ?",
-                        (expression, namespace, limit),
+                        (expression, *namespaces, limit),
                     )
                 )
             except sqlite3.OperationalError as exc:  # pragma: no cover - malformed query
@@ -259,17 +334,30 @@ class MemoryStore:
             return []
         return self._query(
             "SELECT *, 0.0 AS score FROM memories"
-            " WHERE namespace = ? AND text LIKE ? ORDER BY created_at DESC LIMIT ?",
-            (namespace, f"%{needle}%", limit),
+            f" WHERE namespace IN ({slots}) AND text LIKE ?"
+            " ORDER BY created_at DESC LIMIT ?",
+            (*namespaces, f"%{needle}%", limit),
         )
 
     async def search(
         self, query: str, *, namespace: str = "default", limit: int = 8
     ) -> list[MemoryEntry]:
         """Best ``limit`` matches for ``query`` inside ``namespace``, best first."""
-        if not query.strip():
+        return await self.search_many(query, namespaces=[namespace or "default"], limit=limit)
+
+    async def search_many(
+        self, query: str, *, namespaces: list[str] | tuple[str, ...], limit: int = 8
+    ) -> list[MemoryEntry]:
+        """Best ``limit`` matches across several namespaces at once, best first.
+
+        One query, not one per namespace, so bm25 ranks a project memory and a
+        global one against each other instead of interleaving two separate
+        rankings (M5 §1b).  Order is relevance, never scope.
+        """
+        wanted = _unique(namespaces)
+        if not query.strip() or not wanted:
             return []
-        rows = await asyncio.to_thread(self._search, query, namespace or "default", max(1, limit))
+        rows = await asyncio.to_thread(self._search, query, wanted, max(1, limit))
         return [self._row_to_entry(row, float(row["score"])) for row in rows]
 
     async def get(self, memory_id: str) -> MemoryEntry | None:
@@ -296,19 +384,63 @@ class MemoryStore:
         return await self._tagged(f'%"{prefix}%', namespace)
 
     async def list(self, *, namespace: str = "default", limit: int = 100) -> list[MemoryEntry]:
+        return await self.list_many(namespaces=[namespace or "default"], limit=limit)
+
+    async def list_many(
+        self,
+        *,
+        namespaces: Namespaces,
+        limit: int = 100,
+        ascending: bool = False,
+    ) -> MemoryEntries:
+        """Memories in ``namespaces``, newest first (oldest first when asked)."""
+        wanted = _unique(namespaces)
+        if not wanted:
+            return []
+        slots = ", ".join("?" for _ in wanted)
+        order = "ASC" if ascending else "DESC"
         rows = await asyncio.to_thread(
             self._query,
-            "SELECT * FROM memories WHERE namespace = ? ORDER BY created_at DESC LIMIT ?",
-            (namespace or "default", max(1, limit)),
+            f"SELECT * FROM memories WHERE namespace IN ({slots})"
+            f" ORDER BY created_at {order} LIMIT ?",
+            (*wanted, max(1, limit)),
         )
         return [self._row_to_entry(row) for row in rows]
 
-    async def exists(self, text: str, *, namespace: str = "default") -> bool:
-        """True when this exact text is already remembered in the namespace."""
+    async def count(self, *, namespaces: Namespaces) -> int:
+        """How many memories the namespaces hold in total."""
+        wanted = _unique(namespaces)
+        if not wanted:
+            return 0
+        slots = ", ".join("?" for _ in wanted)
         rows = await asyncio.to_thread(
             self._query,
-            "SELECT 1 FROM memories WHERE namespace = ? AND text = ? LIMIT 1",
-            (namespace or "default", text.strip()),
+            f"SELECT COUNT(*) AS n FROM memories WHERE namespace IN ({slots})",
+            wanted,
+        )
+        return int(rows[0]["n"]) if rows else 0
+
+    async def exists(self, text: str, *, namespace: str = "default") -> bool:
+        """True when this exact text is already remembered in the namespace."""
+        return await self.exists_any(text, namespaces=[namespace or "default"])
+
+    async def exists_any(
+        self, text: str, *, namespaces: Namespaces
+    ) -> bool:
+        """True when this exact text is already remembered in *any* namespace given.
+
+        The auto-remember nudge asks across every scope the session can see, so
+        a fact the scope-aware ``memory_write`` already filed under the project
+        is not written a second time globally (M5 §1b).
+        """
+        wanted = _unique(namespaces)
+        if not wanted:
+            return False
+        slots = ", ".join("?" for _ in wanted)
+        rows = await asyncio.to_thread(
+            self._query,
+            f"SELECT 1 FROM memories WHERE namespace IN ({slots}) AND text = ? LIMIT 1",
+            (*wanted, text.strip()),
         )
         return bool(rows)
 
@@ -324,8 +456,10 @@ __all__ = [
     "MAX_QUERY_TRIGRAMS",
     "SCHEMA",
     "MemoryClosed",
+    "MemoryEntries",
     "MemoryEntry",
     "MemoryStore",
+    "Namespaces",
     "match_expression",
     "new_memory_id",
     "trigrams",

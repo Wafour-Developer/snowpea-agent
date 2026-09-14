@@ -116,6 +116,27 @@ ASK_USER = (
     "or timed-out question is not agreement."
 )
 
+MEMORY_WRITE = (
+    "Store one fact the user will want you to know in a later session — a preference, a "
+    "deploy target, a convention they had to explain once. Memories are kept in one of two "
+    "scopes: \"project\" (only sessions opened in this repository recall it) and \"global\" "
+    "(every project recalls it). Pass scope ONLY when the user said which they meant "
+    "(\"프로젝트에 기억해\", \"이 레포에만\", \"remember globally\", \"for all my projects\"). "
+    "When they just said \"기억해\" / \"remember this\", leave scope out: the daemon asks them "
+    "where to keep it and writes what they choose. The tool result says what happened — a "
+    "cancelled or unanswered question writes nothing, so do not claim you remembered it. "
+    "One fact per call, in the user's own words, and tag it (e.g. profile:deploy_target) so "
+    "it can be found again."
+)
+
+MEMORY_SEARCH = (
+    "Search everything you have been asked to remember and return the matching notes, best "
+    "first. Each hit is labelled [project] (this repository), [global] (everywhere) or "
+    "[agent] (this agent's own memory); the label is not part of the fact. Use it when the "
+    "user refers to something they told you before and the recall block at the top of the "
+    "prompt does not already have it. Cite a memory you rely on as [mem:<id>]."
+)
+
 SET_MODE = (
     "Ask the user to leave plan mode, and switch to what they pick. Call it the moment a "
     "plan is finished with mode=\"accept\" (or \"auto\" when nothing needs watching) instead "
@@ -160,6 +181,8 @@ __all__ = [
     "LSP_RENAME",
     "LSP_SYMBOLS",
     "LSP_WORKSPACE_SYMBOLS",
+    "MEMORY_SEARCH",
+    "MEMORY_WRITE",
     "QUEUE_COMMAND",
     "READ_FILE",
     "SET_MODE",
