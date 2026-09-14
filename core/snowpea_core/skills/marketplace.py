@@ -104,6 +104,8 @@ class SourceResult:
     hits: list[SkillHit] = field(default_factory=list)
     #: ``"<source>: <reason>"`` for every source that could not be reached.
     unavailable: list[str] = field(default_factory=list)
+    #: ``(label, reason)`` for hubs the registry has switched off on purpose.
+    not_included: list[tuple[str, str]] = field(default_factory=list)
 
 
 @dataclass
@@ -113,6 +115,7 @@ class SearchReport:
 
     hits: list[SkillHit] = field(default_factory=list)
     unavailable: list[str] = field(default_factory=list)
+    not_included: list[tuple[str, str]] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -291,6 +294,7 @@ async def search(query: str, home: Path | str) -> SearchReport:
     for result in results:
         report.hits.extend(result.hits)
         report.unavailable.extend(result.unavailable)
+        report.not_included.extend(result.not_included)
     return report
 
 
@@ -318,13 +322,19 @@ async def _hosted(query: str) -> SourceResult:
         _hit(item, str(item.get("sourceLabel") or item.get("source") or SOURCE_REGISTRY))
         for item in items
     ]
-    unavailable = [
-        f"{hub.get('label') or hub.get('id') or SOURCE_REGISTRY}: "
-        f"{hub.get('reason') or 'unavailable'}"
-        for hub in hub_failures
-        if isinstance(hub, dict)
-    ]
-    return SourceResult(hits=hits, unavailable=unavailable)
+    unavailable: list[str] = []
+    not_included: list[tuple[str, str]] = []
+    for hub in hub_failures:
+        if not isinstance(hub, dict):
+            continue
+        label = str(hub.get("label") or hub.get("id") or SOURCE_REGISTRY)
+        reason = str(hub.get("reason") or "unavailable")
+        if hub.get("disabled"):
+            # Switched off on the registry on purpose — not an outage.
+            not_included.append((label, reason))
+        else:
+            unavailable.append(f"{label}: {reason}")
+    return SourceResult(hits=hits, unavailable=unavailable, not_included=not_included)
 
 
 # ---------------------------------------------------------------------------

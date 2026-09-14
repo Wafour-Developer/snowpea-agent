@@ -484,6 +484,29 @@ async def test_search_reports_per_hub_unavailable(monkeypatch: pytest.MonkeyPatc
 
     report = await marketplace.search("x", "/tmp")
     assert any("Hermes Hub" in line and "does not resolve" in line for line in report.unavailable)
+    assert report.not_included == []
+
+
+async def test_search_splits_disabled_hubs_from_outages(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _Client:
+        async def search_with_sources(
+            self, query: str
+        ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+            return [], [
+                {"id": "hermes", "label": "Hermes Hub", "reason": "off", "disabled": True},
+                {"id": "clawhub", "label": "ClawHub", "reason": "timed out"},
+            ]
+
+    monkeypatch.setattr(registry_client, "CLIENT", _Client())
+
+    async def empty(*_args: Any, **_kwargs: Any) -> marketplace.SourceResult:
+        return marketplace.SourceResult()
+
+    monkeypatch.setattr(marketplace, "search_claude_marketplaces", empty)
+
+    report = await marketplace.search("x", "/tmp")
+    assert report.unavailable == ["ClawHub: timed out"]
+    assert report.not_included == [("Hermes Hub", "off")]
 
 
 async def test_search_whole_registry_down_reports_generic_unavailable(
