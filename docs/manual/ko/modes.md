@@ -6,17 +6,18 @@
 |---|---|
 | `read` | `read_file`, `list_dir`, `glob`, `grep`, `git_status`, `git_diff`, `git_log`, `process_list`, `memory_search`, `transcribe_audio`, `skill_search`, `skill_list`, `ask_user`, `set_mode` |
 | `write` | `write_file`, `edit_file`, `git_commit`, `memory_write` |
-| `exec` | `shell`, `process_kill`, `delegate_task`, `skill_install`, `skill_remove` |
+| `exec` | `shell`, `process_kill`, `skill_install`, `skill_remove` |
+| `delegate` | `delegate_task` — 자식은 세션의 모드를 물려받으므로 위임 자체는 부모보다 더 할 수 없고, 승인은 자식의 개별 호출에서 묻습니다 |
 | `network` | `web_search`, `web_extract`, `browser_*`, 미디어 툴, `text_to_speech`, 기본적으로 MCP 서버 |
 | `send` | `schedule_create`, `schedule_list`, `schedule_cancel` |
 
 ## 매트릭스
 
-| 모드 | 읽기 | 쓰기 | 실행 | 네트워크 | 발송 |
-|---|---|---|---|---|---|
-| **plan** | 허용 | 거부 | 질문 | 허용 | 거부 |
-| **accept** (기본) | 허용 | 허용 | 질문 | 질문 | 질문 |
-| **auto** | 허용 | 허용 | 허용 | 허용 | 허용 |
+| 모드 | 읽기 | 쓰기 | 실행 | 네트워크 | 발송 | 위임 |
+|---|---|---|---|---|---|---|
+| **plan** | 허용 | 거부 | 질문 | 허용 | 거부 | 허용 |
+| **accept** (기본) | 허용 | 허용 | 질문 | 질문 | 질문 | 허용 |
+| **auto** | 허용 | 허용 | 허용 | 허용 | 허용 | 허용 |
 
 **plan**은 생각하는 용도입니다. 에이전트는 저장소를 읽고 웹을 검색할 수 있지만, 아무것도 바꿀 수 없습니다. 셸 명령은 먼저 물어보므로, 도구 버전 확인이나 테스트 실행은 승인 뒤에 할 수 있고 파일은 고칠 수 없습니다. 거부된 호출은 `mode_denied` 코드를 담은 `error` 이벤트를 내며 그 턴을 끝내고, 헤드리스 실행이라면 종료 코드 `4`로 끝납니다.
 
