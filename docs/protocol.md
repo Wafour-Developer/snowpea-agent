@@ -104,11 +104,14 @@ Server capabilities advertised in the `system.hello` result:
 | [`settings.get`](#settingsget) | client → server | Read global or project settings, with secrets masked. |
 | [`settings.set`](#settingsset) | client → server | Deep-merge a patch into global or project settings and persist it. |
 | [`setup.catalog`](#setupcatalog) | client → server | The setup wizard's vendor, search, browser, tools and gateway catalogs. |
+| [`skill.create`](#skillcreate) | client → server | Write a new SKILL.md, generated from a brief or supplied verbatim. |
 | [`skill.install`](#skillinstall) | client → server | Install a skill from a path, URL or registry. |
 | [`skill.list`](#skilllist) | client → server | List installed skills. |
+| [`skill.read`](#skillread) | client → server | Read a skill's SKILL.md. |
 | [`skill.reload`](#skillreload) | client → server | Reload skills from disk without restarting. |
 | [`skill.remove`](#skillremove) | client → server | Delete an installed skill or plugin. |
 | [`skill.search`](#skillsearch) | client → server | Search available skills. |
+| [`skill.write`](#skillwrite) | client → server | Save a skill's SKILL.md verbatim. |
 | [`system.checkUpdate`](#systemcheckupdate) | client → server | Report whether a newer snowpea release exists; cached for 24h. |
 | [`system.health`](#systemhealth) | client → server | Liveness probe; answers as long as the daemon serves requests. |
 | [`system.hello`](#systemhello) | client → server | Authenticate a connection and agree on the protocol version. |
@@ -1138,6 +1141,31 @@ _No params (send `{}`)._
 | `tts` | `({ active?: boolean; default?: boolean; description?: string; id: string; key: string; label: string; tags?: string[]; tier: string; })[]` | no | Text-to-speech choices; active reflects what is usable on this machine. |
 | `vendors` | `({ active?: boolean; default?: boolean; description?: string; id: string; key: string; label: string; tags?: string[]; tier: string; })[]` | no | LLM vendors. |
 
+### `skill.create`
+
+*Direction:* client → server
+
+Write a new SKILL.md, generated from a brief or supplied verbatim.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `content` | `string \| null` | no | A complete SKILL.md body. When given, it is validated and written directly — no model turn runs. |
+| `description` | `string \| null` | no | Natural-language brief. Used only when 'content' is omitted: the daemon starts the same generating turn '/skill create' runs and answers with a turnId rather than waiting for it. |
+| `force` | `boolean` | no | Overwrite an existing SKILL.md at the target. |
+| `name` | `string` | yes | Skill name; also its directory and the future /<name>. |
+| `scope` | `"project" \| "global"` | no | Where to write the skill. |
+| `workdir` | `string` | yes | Project directory the skill is written under (or read a session from). |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `name` | `string \| null` | no | Skill name, once known. |
+| `path` | `string \| null` | no | Where the SKILL.md was written. |
+| `turnId` | `string \| null` | no | Set instead of name/path when generation was started as a turn. |
+
 ### `skill.install`
 
 *Direction:* client → server
@@ -1171,6 +1199,27 @@ _No params (send `{}`)._
 | field | type | required | description |
 |---|---|---|---|
 | `skills` | `({ downloads?: number; id?: string; installSpec?: string; installed?: boolean; kind?: "skill" \| "agent" \| "command" \| "plugin"; name: string; rating?: number; source?: string; summary?: string; })[]` | no | Installed skills. |
+
+### `skill.read`
+
+*Direction:* client → server
+
+Read a skill's SKILL.md.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `name` | `string` | yes | Skill to read. |
+| `workdir` | `string` | yes | Project directory to resolve a project-scoped skill in. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `content` | `string` | yes | Its full text. |
+| `path` | `string` | yes | Where the SKILL.md was found. |
+| `scope` | `"project" \| "global"` | yes | 'project' or 'global', wherever it was found. |
 
 ### `skill.reload`
 
@@ -1224,6 +1273,27 @@ Search available skills.
 |---|---|---|---|
 | `skills` | `({ downloads?: number; id?: string; installSpec?: string; installed?: boolean; kind?: "skill" \| "agent" \| "command" \| "plugin"; name: string; rating?: number; source?: string; summary?: string; })[]` | no | Matching skills. |
 | `unavailable` | `string[]` | no | Sources that could not be reached, as '<source>: <reason>'. Empty skills with a non-empty list means offline, not no match. |
+
+### `skill.write`
+
+*Direction:* client → server
+
+Save a skill's SKILL.md verbatim.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `content` | `string` | yes | Full SKILL.md text to save. |
+| `name` | `string` | yes | Skill to write. |
+| `scope` | `"project" \| "global"` | no | Where to write the skill. |
+| `workdir` | `string` | yes | Project directory, when scope is 'project'. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ok` | `boolean` | no | True when the call succeeded. |
 
 ### `system.checkUpdate`
 
@@ -1756,7 +1826,7 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | field | type | required | description |
 |---|---|---|---|
 | `kind` | `"turn.done"` | no |  |
-| `reason` | `"complete" \| "interrupted" \| "error" \| "denied" \| "timeout"` | no | Why the turn ended. |
+| `reason` | `"complete" \| "interrupted" \| "error" \| "denied" \| "timeout" \| "budget"` | no | Why the turn ended. budget = the tool-round budget ran out; the turn reported what it had done before ending. |
 | `turnId` | `string` | yes | Turn that ended. |
 
 ### kind `turn.queued`

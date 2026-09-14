@@ -25,8 +25,10 @@ GOLDEN_DIR = Path(__file__).parent / "golden" / "prompts"
 #: also carries the vendor layer, the config and search rules, the mode and a
 #: role, so 1200 is not reachable with the text the report itself specifies.
 #: The ceiling is set where the intended library actually fits, with headroom,
-#: and its job is unchanged: the library cannot grow unbounded.
-TIER_BUDGET_TOKENS = {"stable": 2200, "context": 800, "volatile": 600}
+#: and its job is unchanged: the library cannot grow unbounded. Raised from
+#: 2200 for CORE-skill-create's one-sentence addition to base.md's "Skills
+#: and plugins" paragraph (/skill create); still headroom, not a reset.
+TIER_BUDGET_TOKENS = {"stable": 2225, "context": 800, "volatile": 600}
 
 MODES = ("plan", "accept", "auto")
 VENDOR_CLASSES = ("anthropic", "openai-family", "small-local")
@@ -464,7 +466,7 @@ def test_every_workflow_prompt_renders_with_no_placeholders_left() -> None:
     names = sorted(
         path.stem for path in (loader.PACKAGE_DIR / "workflows").glob("*.md")
     )
-    assert len(names) == 11  # ten workflow briefs plus init.md
+    assert len(names) == 12  # ten workflow briefs, init.md, plus skill-generate.md
     for name in names:
         text = compose.workflow_brief(
             name,

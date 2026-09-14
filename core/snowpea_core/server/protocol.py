@@ -40,7 +40,10 @@ BackendKind = Literal["local", "docker", "ssh"]
 LspServerState = Literal["starting", "ready", "broken", "stopped"]
 #: State of a vendor's stored credential (CORE-codex-login).
 AuthStatus = Literal["unconfigured", "active", "expired"]
-TurnReason = Literal["complete", "interrupted", "error", "denied", "timeout"]
+#: ``budget`` (CORE-subagent-budget) is additive: the turn used its whole
+#: tool-round budget, wrote a report and ended.  A surface that does not know
+#: it must treat it as an ordinary end of turn.
+TurnReason = Literal["complete", "interrupted", "error", "denied", "timeout", "budget"]
 #: Why a queued prompt left the queue: it started running, or it was dropped.
 QueuedTurnReason = Literal["started", "dropped"]
 TaskState = Literal["pending", "running", "done", "failed"]
@@ -57,6 +60,7 @@ TeamTaskState = Literal[
     "failed",
 ]
 SkillKind = Literal["skill", "agent", "command", "plugin"]
+SkillScope = Literal["project", "global"]
 #: ``"global"`` is ``$SNOWPEA_HOME/settings.json``; ``"project"`` is
 #: ``<workdir>/.snowpea/settings.json`` (settings.get / settings.set, M8).
 SettingsScope = Literal["global", "project"]
@@ -1182,6 +1186,59 @@ class SkillRemoveParams(Payload):
     name: str = Field(description="Installed plugin or skill to delete.")
 
 
+class SkillCreateParams(Payload):
+    """``skill.create`` — write a new ``SKILL.md``, generated or supplied verbatim."""
+
+    name: str = Field(description="Skill name; also its directory and the future /<name>.")
+    description: str | None = Field(
+        default=None,
+        description=(
+            "Natural-language brief. Used only when 'content' is omitted: the daemon "
+            "starts the same generating turn '/skill create' runs and answers with a "
+            "turnId rather than waiting for it."
+        ),
+    )
+    content: str | None = Field(
+        default=None,
+        description=(
+            "A complete SKILL.md body. When given, it is validated and written "
+            "directly — no model turn runs."
+        ),
+    )
+    scope: SkillScope = Field(default="project", description="Where to write the skill.")
+    workdir: str = Field(
+        description="Project directory the skill is written under (or read a session from)."
+    )
+    force: bool = Field(default=False, description="Overwrite an existing SKILL.md at the target.")
+
+
+class SkillCreateResult(Payload):
+    name: str | None = Field(default=None, description="Skill name, once known.")
+    path: str | None = Field(default=None, description="Where the SKILL.md was written.")
+    turnId: str | None = Field(
+        default=None,
+        description="Set instead of name/path when generation was started as a turn.",
+    )
+
+
+class SkillReadParams(Payload):
+    name: str = Field(description="Skill to read.")
+    workdir: str = Field(description="Project directory to resolve a project-scoped skill in.")
+
+
+class SkillReadResult(Payload):
+    path: str = Field(description="Where the SKILL.md was found.")
+    content: str = Field(description="Its full text.")
+    scope: SkillScope = Field(description="'project' or 'global', wherever it was found.")
+
+
+class SkillWriteParams(Payload):
+    name: str = Field(description="Skill to write.")
+    content: str = Field(description="Full SKILL.md text to save.")
+    workdir: str = Field(description="Project directory, when scope is 'project'.")
+    scope: SkillScope = Field(default="project", description="Where to write the skill.")
+
+
 # --------------------------------------------------------------------------
 # settings.* / setup.*
 # --------------------------------------------------------------------------
@@ -1656,7 +1713,13 @@ class TurnDone(Payload):
 
     kind: Literal["turn.done"] = "turn.done"
     turnId: str = Field(description="Turn that ended.")
-    reason: TurnReason = Field(default="complete", description="Why the turn ended.")
+    reason: TurnReason = Field(
+        default="complete",
+        description=(
+            "Why the turn ended. budget = the tool-round budget ran out; the turn "
+            "reported what it had done before ending."
+        ),
+    )
 
 
 class LspDiagnostics(Payload):
@@ -2215,6 +2278,14 @@ METHODS: dict[str, RpcMethod] = {
         _m("skill.reload", Empty, Ok, "Reload skills from disk without restarting."),
         _m("skill.remove", SkillRemoveParams, Ok, "Delete an installed skill or plugin."),
         _m(
+            "skill.create",
+            SkillCreateParams,
+            SkillCreateResult,
+            "Write a new SKILL.md, generated from a brief or supplied verbatim.",
+        ),
+        _m("skill.read", SkillReadParams, SkillReadResult, "Read a skill's SKILL.md."),
+        _m("skill.write", SkillWriteParams, Ok, "Save a skill's SKILL.md verbatim."),
+        _m(
             "settings.get",
             SettingsGetParams,
             SettingsResult,
@@ -2340,6 +2411,9 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "skill.install",
         "skill.reload",
         "skill.remove",
+        "skill.create",
+        "skill.read",
+        "skill.write",
         "settings.get",
         "settings.set",
         "setup.catalog",

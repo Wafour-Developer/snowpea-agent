@@ -18,6 +18,7 @@ else.
 from __future__ import annotations
 
 import logging
+import shlex
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -33,6 +34,13 @@ from snowpea_core.prompts.loader import load
 from snowpea_core.providers.base import ChatMessage
 from snowpea_core.server import errors
 from snowpea_core.session import events
+from snowpea_core.skills.generate import (
+    SkillCreateError,
+    generate_skill_document,
+    skill_root,
+    write_skill_document,
+)
+from snowpea_core.skills.publish import PublishError
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.server.app_server import Core
@@ -45,8 +53,9 @@ SKILL_ARGS_SCHEMA = {
     "properties": {
         "action": {
             "type": "string",
-            "enum": ["learn", "publish", "sources"],
+            "enum": ["create", "learn", "publish", "sources"],
             "description": (
+                "'create <name> \"<brief>\" [--global]' generates a SKILL.md from a brief; "
                 "'learn [name]' writes a SKILL.md from this session; "
                 "'publish <dir>' uploads it to the registry; "
                 "'sources' lists the hubs the registry federates."
@@ -56,7 +65,10 @@ SKILL_ARGS_SCHEMA = {
     },
 }
 
-USAGE = "Usage: /skill learn [name] | /skill publish <dir> | /skill sources"
+USAGE = (
+    'Usage: /skill create <name> "<what it should do>" [--global] [--force] | '
+    "/skill learn [name] | /skill publish <dir> | /skill sources"
+)
 
 #: How many of the most recent messages are summarised.
 MAX_TRANSCRIPT_MESSAGES = 60
@@ -170,6 +182,66 @@ async def learn_skill(core: Core, session: Session, requested_name: str) -> Path
     return path
 
 
+def parse_create_args(args: str) -> tuple[str, str, bool, bool]:
+    """``'<name> "<brief>" [--global] [--force]'`` -> ``(name, brief, global_, force)``."""
+    try:
+        tokens = shlex.split(args)
+    except ValueError:
+        tokens = args.split()
+    global_ = False
+    force = False
+    positional: list[str] = []
+    for token in tokens:
+        if token == "--global":
+            global_ = True
+        elif token == "--force":
+            force = True
+        else:
+            positional.append(token)
+    name = positional[0] if positional else ""
+    description = " ".join(positional[1:]).strip()
+    return name, description, global_, force
+
+
+def _home_dir(core: Core) -> Path:
+    paths = getattr(core, "paths", None)
+    return Path(paths.home) if paths is not None else Path.home() / ".snowpea"
+
+
+async def create_skill(ctx: CommandContext, args: str) -> None:
+    """``/skill create <name> "<brief>" [--global] [--force]``."""
+    raw_name, description, global_, force = parse_create_args(args)
+    if not raw_name or not description:
+        await ctx.say(USAGE)
+        return
+    try:
+        name = validate_name(raw_name)
+    except DefinitionError as exc:
+        await ctx.say(f"Could not create the skill: {exc}")
+        return
+    directory = skill_root(
+        name, workdir=ctx.session.workdir, home=_home_dir(ctx.core), global_=global_
+    )
+    path = directory / "SKILL.md"
+    scope = "global" if global_ else "project"
+    if ctx.session.mode == "plan":
+        status = "would overwrite" if path.is_file() else "would create"
+        await ctx.say(f"Plan mode: {status} {scope} skill '{name}' at {path}; nothing is written.")
+        return
+    if path.is_file() and not force:
+        await ctx.say(f"'{path}' already exists; pass --force to overwrite it.")
+        return
+    provider = ctx.core.providers.get(ctx.session.provider, ctx.session.model)
+    try:
+        document = await generate_skill_document(provider, name, description)
+        write_skill_document(directory, document, requested_name=name, force=force)
+    except (PublishError, SkillCreateError) as exc:
+        await ctx.say(f"Could not create the skill: {exc}")
+        return
+    await reload_loader(ctx.core)
+    await ctx.say(f"Created skill '{name}' at {path}. Run it with /{name}.")
+
+
 async def publish_skill(ctx: CommandContext, directory: str) -> None:
     """``/skill publish <dir>`` — the same zip-and-upload path as the CLI."""
     from snowpea_core.skills import publish as publish_mod
@@ -238,11 +310,14 @@ async def sources_skill(ctx: CommandContext) -> None:
 
 
 async def cmd_skill(ctx: CommandContext, args: str) -> None:
-    """``/skill learn [name]``, ``/skill publish <dir>`` or ``/skill sources``."""
+    """``/skill create``, ``/skill learn``, ``/skill publish`` or ``/skill sources``."""
     action, _, rest = args.strip().partition(" ")
     action = action.lower()
     if not action:
         await ctx.say(USAGE)
+        return
+    if action == "create":
+        await create_skill(ctx, rest)
         return
     if action == "publish":
         directory = strip_quotes(rest)
@@ -256,8 +331,8 @@ async def cmd_skill(ctx: CommandContext, args: str) -> None:
         return
     if action != "learn":
         await ctx.say(
-            f"/skill only handles 'learn', 'publish' and 'sources' here; use the snowpea CLI "
-            f"for search/install/list/rate.\n{USAGE}"
+            "/skill only handles 'create', 'learn', 'publish' and 'sources' here; "
+            f"use the snowpea CLI for search/install/list/rate.\n{USAGE}"
         )
         return
     requested = strip_quotes(rest)
@@ -286,8 +361,10 @@ __all__ = [
     "SKILL_ARGS_SCHEMA",
     "USAGE",
     "cmd_skill",
+    "create_skill",
     "learn_messages",
     "learn_skill",
+    "parse_create_args",
     "publish_skill",
     "render_skill_md",
     "sources_skill",

@@ -66,6 +66,7 @@ These are answered by the terminal UI itself rather than by the core, so they do
 |---|---|
 | `/agent create "<description>"` | write an agent definition into `<project>/.snowpea/agents/<name>.md` |
 | `/agent list` | list agent definitions |
+| `/skill create <name> "<what it should do>" [--global] [--force]` | generate a SKILL.md from a brief and write it into `<project>/.snowpea/skills/<name>/` (or `$SNOWPEA_HOME/skills/<name>/` with `--global`); refuses to overwrite an existing one without `--force` |
 | `/skill learn [name]` | turn the session you just finished into `<project>/.snowpea/skills/<name>/SKILL.md` |
 
 A generated agent is a `delegate_task` target immediately, no reload needed.
