@@ -27,6 +27,7 @@ from snowpea_core.server.protocol import (
     SkillScope,
     SkillSearchParams,
     SkillSearchResult,
+    SkillSourceNotIncluded,
     SkillWriteParams,
 )
 from snowpea_core.server.rpc import RpcConnection, RpcDispatcher
@@ -74,8 +75,13 @@ async def skill_search_handler(
     _conn: RpcConnection, params: SkillSearchParams, core: Core
 ) -> SkillSearchResult:
     """``skill.search`` — the three marketplaces, each hit labelled by source."""
-    skills, unavailable = await _loader(core).search(params.query)
-    return SkillSearchResult(skills=skills, unavailable=unavailable)
+    loader = _loader(core)
+    skills, unavailable = await loader.search(params.query)
+    not_included = [
+        SkillSourceNotIncluded(label=label, reason=reason)
+        for label, reason in getattr(loader, "last_not_included", [])
+    ]
+    return SkillSearchResult(skills=skills, unavailable=unavailable, notIncluded=not_included)
 
 
 async def skill_install_handler(_conn: RpcConnection, params: SkillInstallParams, core: Core) -> Ok:

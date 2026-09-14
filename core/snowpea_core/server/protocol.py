@@ -1163,6 +1163,11 @@ class SkillInfo(Payload):
     )
 
 
+class SkillSourceNotIncluded(Payload):
+    label: str = Field(description="Human name of the hub, e.g. 'Hermes Hub'.")
+    reason: str = Field(default="", description="Why it is switched off on the registry.")
+
+
 class SkillSearchResult(Payload):
     skills: list[SkillInfo] = Field(default_factory=list, description="Matching skills.")
     unavailable: list[str] = Field(
@@ -1170,6 +1175,13 @@ class SkillSearchResult(Payload):
         description=(
             "Sources that could not be reached, as '<source>: <reason>'. "
             "Empty skills with a non-empty list means offline, not no match."
+        ),
+    )
+    notIncluded: list[SkillSourceNotIncluded] = Field(
+        default_factory=list,
+        description=(
+            "Hubs the registry has deliberately switched off (not failures). "
+            "Clients should mention them quietly, never as an outage."
         ),
     )
 

@@ -1273,6 +1273,7 @@ Search available skills.
 
 | field | type | required | description |
 |---|---|---|---|
+| `notIncluded` | `({ label: string; reason?: string; })[]` | no | Hubs the registry has deliberately switched off (not failures). Clients should mention them quietly, never as an outage. |
 | `skills` | `({ downloads?: number; id?: string; installSpec?: string; installed?: boolean; kind?: "skill" \| "agent" \| "command" \| "plugin"; name: string; rating?: number; source?: string; summary?: string; })[]` | no | Matching skills. |
 | `unavailable` | `string[]` | no | Sources that could not be reached, as '<source>: <reason>'. Empty skills with a non-empty list means offline, not no match. |
 

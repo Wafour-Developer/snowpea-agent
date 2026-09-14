@@ -1353,6 +1353,13 @@ export interface SkillSearchParams {
 
 /** `skill.search` result. */
 export interface SkillSearchResult {
+  /** Hubs the registry has deliberately switched off (not failures). Clients should mention them quietly, never as an outage. */
+  notIncluded?: ({
+    /** Human name of the hub, e.g. 'Hermes Hub'. */
+    label: string;
+    /** Why it is switched off on the registry. */
+    reason?: string;
+  })[];
   /** Matching skills. */
   skills?: ({
     /** Download count, when the source publishes one; 0 means unknown. */

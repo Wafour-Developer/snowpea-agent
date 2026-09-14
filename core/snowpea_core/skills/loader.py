@@ -127,6 +127,9 @@ class SkillLoader:
         self.mcp_servers: dict[str, dict[str, Any]] = {}
         self._registered: set[str] = set()
         self._lock = asyncio.Lock()
+        #: ``(label, reason)`` hubs the registry switched off during the last
+        #: :meth:`search` — surfaced by ``skill.search`` as ``notIncluded``.
+        self.last_not_included: list[tuple[str, str]] = []
 
     # -- paths ---------------------------------------------------------
     @property
@@ -432,6 +435,7 @@ class SkillLoader:
             )
             for hit in report.hits
         ]
+        self.last_not_included = list(report.not_included)
         return hits, list(report.unavailable)
 
     async def install(self, source: str) -> Path:
