@@ -228,12 +228,12 @@ async def test_skill_create_rpc_with_content_writes_directly_no_model_turn(
     await client.stop()
 
 
-async def test_skill_create_rpc_with_description_starts_a_turn(
+async def test_skill_create_rpc_with_description_and_no_session_creates_a_headless_one(
     daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path
 ) -> None:
     workdir = project(tmp_path)
     client = await connect(http, daemon, timeout=TIMEOUT)
-    await start_session(client, workdir)
+    existing_session_id = await start_session(client, workdir)
 
     result = await client.ok(
         "skill.create",
@@ -244,10 +244,64 @@ async def test_skill_create_rpc_with_description_starts_a_turn(
         },
     )
     assert "turnId" in result and result["turnId"]
+    assert "sessionId" in result and result["sessionId"]
+    # A fresh, headless session was created for the draft turn, not the
+    # caller's own open one.
+    assert result["sessionId"] != existing_session_id
     assert await client.wait_turn(str(result["turnId"]), TIMEOUT) == "complete"
 
     path = workdir / ".snowpea" / "skills" / "changelog-notes" / "SKILL.md"
     assert path.is_file()
+
+    await client.stop()
+
+
+async def test_skill_create_rpc_with_description_and_session_id_runs_on_that_session(
+    daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path
+) -> None:
+    workdir = project(tmp_path)
+    client = await connect(http, daemon, timeout=TIMEOUT)
+    session_id = await start_session(client, workdir)
+
+    result = await client.ok(
+        "skill.create",
+        {
+            "name": "changelog-notes",
+            "description": "a changelog summariser that writes one-line release notes",
+            "workdir": str(workdir),
+            "sessionId": session_id,
+        },
+    )
+    assert result["sessionId"] == session_id
+    assert await client.wait_turn(str(result["turnId"]), TIMEOUT) == "complete"
+
+    path = workdir / ".snowpea" / "skills" / "changelog-notes" / "SKILL.md"
+    assert path.is_file()
+    assert "Created skill 'changelog-notes'" in last_message(client)
+
+    await client.stop()
+
+
+async def test_skill_create_rpc_rejects_a_session_id_from_a_different_workdir(
+    daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path
+) -> None:
+    workdir = project(tmp_path)
+    other_workdir = tmp_path / "other-project"
+    other_workdir.mkdir()
+    client = await connect(http, daemon, timeout=TIMEOUT)
+    other_session_id = await start_session(client, other_workdir)
+
+    frame = await client.call(
+        "skill.create",
+        {
+            "name": "changelog-notes",
+            "description": "a changelog summariser that writes one-line release notes",
+            "workdir": str(workdir),
+            "sessionId": other_session_id,
+        },
+    )
+    assert frame["error"]["data"]["code"] == "invalid_params"
+    assert "workdir" in frame["error"]["message"]
 
     await client.stop()
 

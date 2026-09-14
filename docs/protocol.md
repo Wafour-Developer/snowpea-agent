@@ -1156,7 +1156,8 @@ Write a new SKILL.md, generated from a brief or supplied verbatim.
 | `force` | `boolean` | no | Overwrite an existing SKILL.md at the target. |
 | `name` | `string` | yes | Skill name; also its directory and the future /<name>. |
 | `scope` | `"project" \| "global"` | no | Where to write the skill. |
-| `workdir` | `string` | yes | Project directory the skill is written under (or read a session from). |
+| `sessionId` | `string \| null` | no | Draft mode only ('content' omitted): run the generating turn on this existing session instead of creating a headless one. Must be rooted at 'workdir'; invalid_params otherwise. Ignored when 'content' is given. |
+| `workdir` | `string` | yes | Project directory the skill is written under (or read/create a session from). |
 
 **Result**
 
@@ -1164,6 +1165,7 @@ Write a new SKILL.md, generated from a brief or supplied verbatim.
 |---|---|---|---|
 | `name` | `string \| null` | no | Skill name, once known. |
 | `path` | `string \| null` | no | Where the SKILL.md was written. |
+| `sessionId` | `string \| null` | no | Set alongside turnId: the session the turn ran on — the caller's own 'sessionId', or a new headless one created for 'workdir'. |
 | `turnId` | `string \| null` | no | Set instead of name/path when generation was started as a turn. |
 
 ### `skill.install`

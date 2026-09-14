@@ -41,7 +41,6 @@ from snowpea_core.skills.publish import PublishError
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.server.app_server import Core
-    from snowpea_core.session.session import Session
     from snowpea_core.skills.loader import SkillLoader
 
 log = logging.getLogger("snowpea.server.skill")
@@ -102,29 +101,6 @@ async def skill_remove_handler(_conn: RpcConnection, params: SkillRemoveParams, 
     return Ok(ok=True)
 
 
-def _session_for(core: Core, conn: RpcConnection, workdir: str | None) -> Session | None:
-    """The session ``workdir`` (or the caller's own, or the only one open) means.
-
-    ``skill.create``'s generating path needs an open session to run its turn
-    on, the same requirement ``agent.create`` has; ``workdir`` narrows the
-    pick when the caller names one, which ``agent.create`` never needed to do.
-    """
-    sessions = [
-        session
-        for session in (core.sessions.get(row.sessionId) for row in core.sessions.list())
-        if session is not None
-    ]
-    if workdir:
-        target = Path(workdir).expanduser().resolve()
-        matches = [s for s in sessions if Path(s.workdir).expanduser().resolve() == target]
-        if matches:
-            return matches[-1]
-    mine = [session for session in sessions if session.origin_conn is conn]
-    if mine:
-        return mine[-1]
-    return sessions[0] if len(sessions) == 1 else None
-
-
 def _resolve_skill_path(name: str, workdir: str, home: Path) -> tuple[Path, SkillScope] | None:
     """First existing ``SKILL.md`` for ``name``: project dirs, then global."""
     root = Path(workdir)
@@ -165,17 +141,34 @@ async def skill_create_handler(
     description = (params.description or "").strip()
     if not description:
         raise RpcError(errors.INVALID_PARAMS, "skill.create needs 'content' or 'description'")
-    session = _session_for(core, conn, params.workdir)
-    if session is None:
-        raise RpcError(
-            errors.INVALID_PARAMS,
-            "skill.create needs an open session to locate the project directory",
-        )
+
+    turn_conn: RpcConnection | None
+    if params.sessionId:
+        session = core.sessions.get(params.sessionId)
+        if session is None:
+            raise RpcError(errors.INVALID_PARAMS, f"no such session: {params.sessionId!r}")
+        target = Path(params.workdir).expanduser().resolve()
+        if Path(session.workdir).expanduser().resolve() != target:
+            raise RpcError(
+                errors.INVALID_PARAMS,
+                f"sessionId {params.sessionId!r} is not rooted at workdir {params.workdir!r}",
+            )
+        turn_conn = conn
+    else:
+        # Draft mode with no session: a headless one, the way a scheduled job
+        # gets one, so the generating turn has somewhere to run and report.
+        session = await core.sessions.create(params.workdir, origin_surface="skill")
+        turn_conn = None
+    # The caller gets the sessionId back either way; subscribe it to that
+    # session's events so it actually sees the turn it just started
+    # (subscribe() is a no-op when it is already on this session).
+    core.hub.subscribe(conn, session.id)
+
     args = f'{name} "{description}"' + (" --global" if global_ else "")
     if params.force:
         args += " --force"
-    turn_id = core.commands.start(core, session, "skill", f"create {args}", conn)
-    return SkillCreateResult(turnId=turn_id)
+    turn_id = core.commands.start(core, session, "skill", f"create {args}", turn_conn)
+    return SkillCreateResult(turnId=turn_id, sessionId=session.id)
 
 
 async def skill_read_handler(

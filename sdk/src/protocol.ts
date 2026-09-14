@@ -1248,7 +1248,9 @@ export interface SkillCreateParams {
   name: string;
   /** Where to write the skill. */
   scope?: "project" | "global";
-  /** Project directory the skill is written under (or read a session from). */
+  /** Draft mode only ('content' omitted): run the generating turn on this existing session instead of creating a headless one. Must be rooted at 'workdir'; invalid_params otherwise. Ignored when 'content' is given. */
+  sessionId?: string | null;
+  /** Project directory the skill is written under (or read/create a session from). */
   workdir: string;
 }
 
@@ -1258,6 +1260,8 @@ export interface SkillCreateResult {
   name?: string | null;
   /** Where the SKILL.md was written. */
   path?: string | null;
+  /** Set alongside turnId: the session the turn ran on — the caller's own 'sessionId', or a new headless one created for 'workdir'. */
+  sessionId?: string | null;
   /** Set instead of name/path when generation was started as a turn. */
   turnId?: string | null;
 }
