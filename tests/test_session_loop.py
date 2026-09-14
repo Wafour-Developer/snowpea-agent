@@ -335,6 +335,65 @@ async def test_resume_returns_events_after_seq(
     await client.stop()
 
 
+async def test_the_prompt_is_published_once_and_replayed_with_the_answer(
+    daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path
+) -> None:
+    """A resumed transcript needs the questions, not only the answers.
+
+    The prompt has always reached the history; it now also reaches the event
+    log, which is what ``session.resume`` replays.
+    """
+    workdir = tmp_path / "project"
+    workdir.mkdir()
+    client = await connect(http, daemon)
+    session_id = await start_session(client, workdir, mode="auto")
+
+    first = await prompt(client, session_id, "first question")
+    assert await client.wait_turn(first) == "complete"
+    second = await prompt(client, session_id, "second question")
+    assert await client.wait_turn(second) == "complete"
+
+    # Once per prompt: the continuation nudge the loop appends to itself is not
+    # a prompt and must not show up as one.
+    assert [event["payload"]["text"] for event in client.of_kind("message.user")] == [
+        "first question",
+        "second question",
+    ]
+    assert all(
+        event["payload"]["attachments"] == []
+        for event in client.of_kind("message.user")
+    )
+
+    replayed = await client.ok("session.resume", {"sessionId": session_id})
+    ordered = [
+        (event["kind"], event["payload"].get("text"))
+        for event in replayed["events"]
+        if event["kind"] in {"message.user", "message.done"}
+    ]
+    assert ordered == [
+        ("message.user", "first question"),
+        ("message.done", "nothing to do"),
+        ("message.user", "second question"),
+        ("message.done", "nothing to do"),
+    ]
+
+    await client.stop()
+
+
+async def test_a_slash_command_publishes_no_prompt_event(
+    daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path
+) -> None:
+    """``/help`` is not a turn: nothing joins the history, so nothing is said."""
+    workdir = tmp_path / "project"
+    workdir.mkdir()
+    client = await connect(http, daemon)
+    session_id = await start_session(client, workdir, mode="auto")
+    turn_id = await prompt(client, session_id, "/help")
+    assert await client.wait_turn(turn_id) == "complete"
+    assert client.of_kind("message.user") == []
+    await client.stop()
+
+
 async def test_resume_restores_a_persisted_session_after_daemon_restart(
     http: aiohttp.ClientSession, tmp_path: Path
 ) -> None:

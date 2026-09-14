@@ -1802,6 +1802,20 @@ export interface MessageReasoningEventPayload {
   text?: string;
 }
 
+/** Payload of `session.event` with kind `message.user`. */
+export interface MessageUserEventPayload {
+  /** Files sent along with the prompt. */
+  attachments?: ({
+    /** Attachment flavour. */
+    kind?: "file" | "image" | "text";
+    /** Display name shown under the prompt. */
+    name?: string;
+  })[];
+  kind?: "message.user";
+  /** Prompt text as the model received it. */
+  text: string;
+}
+
 /** Payload of `session.event` with kind `mode.changed`. */
 export interface ModeChangedEventPayload {
   kind?: "mode.changed";
@@ -1977,6 +1991,7 @@ export interface SessionEventKindMap {
   "message.delta": MessageDeltaEventPayload;
   "message.done": MessageDoneEventPayload;
   "message.reasoning": MessageReasoningEventPayload;
+  "message.user": MessageUserEventPayload;
   "mode.changed": ModeChangedEventPayload;
   "model.changed": ModelChangedEventPayload;
   "subagent.done": SubagentDoneEventPayload;
@@ -2003,6 +2018,7 @@ export const SESSION_EVENT_KINDS: readonly SessionEventKind[] = [
   "message.delta",
   "message.done",
   "message.reasoning",
+  "message.user",
   "mode.changed",
   "model.changed",
   "subagent.done",

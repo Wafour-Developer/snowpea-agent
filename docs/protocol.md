@@ -1625,6 +1625,14 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | `kind` | `"message.reasoning"` | no |  |
 | `text` | `string` | no | Reasoning fragment; not part of the answer. |
 
+### kind `message.user`
+
+| field | type | required | description |
+|---|---|---|---|
+| `attachments` | `({ kind?: "file" \| "image" \| "text"; name?: string; })[]` | no | Files sent along with the prompt. |
+| `kind` | `"message.user"` | no |  |
+| `text` | `string` | yes | Prompt text as the model received it. |
+
 ### kind `mode.changed`
 
 | field | type | required | description |

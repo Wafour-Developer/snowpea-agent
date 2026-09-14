@@ -33951,463 +33951,6 @@ function bannerText(state) {
   }
 }
 
-// src/state/store.ts
-var initialState = {
-  sessionId: null,
-  status: "connecting",
-  mode: "accept",
-  provider: null,
-  model: null,
-  modelSource: null,
-  messages: [],
-  toolCalls: [],
-  diffs: [],
-  timeline: [],
-  pendingApproval: null,
-  approvalQueue: [],
-  pendingQuestion: null,
-  commands: [],
-  subagents: [],
-  teamTasks: [],
-  usage: { inputTokens: 0, outputTokens: 0 },
-  context: null,
-  compactions: [],
-  toolCount: null,
-  queued: [],
-  deferredPrompts: [],
-  promptTexts: {},
-  lsp: [],
-  diagnostics: {},
-  children: {},
-  lastSeq: 0,
-  turnActive: false,
-  reasoningChars: 0,
-  errors: []
-};
-var counter = 0;
-function nextId(prefix) {
-  counter += 1;
-  return `${prefix}-${counter}`;
-}
-function isCreation(patch) {
-  if (/^---\s+\/dev\/null/m.test(patch)) return true;
-  const lines = patch.split("\n").filter((line) => line.length > 0);
-  if (lines.length === 0) return false;
-  const body = lines.filter((line) => !/^(\+\+\+|---|@@|diff |index )/.test(line));
-  if (body.length === 0) return false;
-  return body.every((line) => line.startsWith("+"));
-}
-function pushTimeline(state, item) {
-  return [...state.timeline, item];
-}
-function appendDelta(state, text) {
-  const last = state.messages[state.messages.length - 1];
-  if (last && last.role === "assistant" && last.streaming) {
-    const messages = state.messages.slice(0, -1).concat({ ...last, text: last.text + text });
-    return { ...state, messages };
-  }
-  const message = { id: nextId("msg"), role: "assistant", text, streaming: true };
-  return {
-    ...state,
-    messages: [...state.messages, message],
-    timeline: pushTimeline(state, { kind: "message", id: message.id })
-  };
-}
-function outputLimitNote(truncated, continuations) {
-  if (truncated) return "response hit the output limit and is incomplete";
-  if (continuations > 0) return "response hit the output limit; continued";
-  return null;
-}
-function withLimitNote(state, payload) {
-  const note = outputLimitNote(
-    Boolean(payload.truncated),
-    Number(payload.continuations ?? 0)
-  );
-  if (!note) return state;
-  const message = { id: nextId("msg"), role: "system", text: note, streaming: false };
-  return {
-    ...state,
-    messages: [...state.messages, message],
-    timeline: pushTimeline(state, { kind: "message", id: message.id })
-  };
-}
-function finishMessage(state, payload) {
-  const text = typeof payload.text === "string" ? payload.text : void 0;
-  const role = typeof payload.role === "string" ? payload.role : "assistant";
-  const last = state.messages[state.messages.length - 1];
-  if (last && last.streaming && last.role === role) {
-    const messages = state.messages.slice(0, -1).concat({ ...last, text: text ?? last.text, streaming: false });
-    return withLimitNote({ ...state, messages }, payload);
-  }
-  if (text === void 0) return state;
-  const message = { id: nextId("msg"), role, text, streaming: false };
-  return withLimitNote(
-    {
-      ...state,
-      messages: [...state.messages, message],
-      timeline: pushTimeline(state, { kind: "message", id: message.id })
-    },
-    payload
-  );
-}
-function flushDeferred(state) {
-  if (state.deferredPrompts.length === 0) return state;
-  let next = { ...state, deferredPrompts: [] };
-  for (const message of state.deferredPrompts) {
-    next = {
-      ...next,
-      messages: [...next.messages, message],
-      timeline: pushTimeline(next, { kind: "message", id: message.id })
-    };
-  }
-  return next;
-}
-function patchSubagent(state, agentId, patch) {
-  const index = state.subagents.findIndex((entry) => entry.agentId === agentId);
-  if (index === -1) return state;
-  const subagents = state.subagents.slice();
-  subagents[index] = patch(subagents[index]);
-  return { ...state, subagents };
-}
-function applySessionEvent(state, event) {
-  const payload = event.payload ?? {};
-  if (typeof event.seq === "number" && state.lastSeq > 0 && event.seq <= state.lastSeq) {
-    return state;
-  }
-  const base = typeof event.seq === "number" && event.seq > state.lastSeq ? { ...state, lastSeq: event.seq } : state;
-  switch (event.kind) {
-    case "message.delta":
-      return appendDelta(base, String(payload.text ?? ""));
-    // Thinking, not an answer: counted for the working line, never appended.
-    case "message.reasoning":
-      return { ...base, reasoningChars: Number(payload.chars ?? base.reasoningChars) };
-    case "message.done":
-      return flushDeferred(finishMessage(base, payload));
-    case "tool.call": {
-      const entry = {
-        callId: String(payload.callId ?? nextId("call")),
-        name: String(payload.name ?? "unknown"),
-        args: payload.args ?? {},
-        state: "running",
-        startedAt: Number(payload.at ?? Date.now())
-      };
-      const last = base.messages[base.messages.length - 1];
-      const messages = last && last.streaming && last.role === "assistant" ? base.messages.slice(0, -1).concat({ ...last, streaming: false }) : base.messages;
-      const settled = flushDeferred({ ...base, messages });
-      return {
-        ...settled,
-        toolCalls: [...settled.toolCalls, entry],
-        timeline: pushTimeline(settled, { kind: "tool", id: entry.callId })
-      };
-    }
-    case "tool.result": {
-      const callId = String(payload.callId ?? "");
-      const ok = payload.ok !== false;
-      const idx = base.toolCalls.findIndex((c) => c.callId === callId);
-      const patch = {
-        state: ok ? "ok" : "error",
-        output: typeof payload.output === "string" ? payload.output : void 0,
-        error: typeof payload.error === "string" ? payload.error : void 0
-      };
-      if (idx === -1) {
-        const entry = {
-          callId: callId || nextId("call"),
-          name: String(payload.name ?? "unknown"),
-          args: {},
-          ...patch
-        };
-        return {
-          ...base,
-          toolCalls: [...base.toolCalls, entry],
-          timeline: pushTimeline(base, { kind: "tool", id: entry.callId })
-        };
-      }
-      const toolCalls = base.toolCalls.slice();
-      toolCalls[idx] = { ...toolCalls[idx], ...patch };
-      return { ...base, toolCalls };
-    }
-    case "diff": {
-      const patch = String(payload.patch ?? "");
-      const entry = {
-        id: nextId("diff"),
-        path: String(payload.path ?? ""),
-        patch,
-        created: payload.created === true || isCreation(patch)
-      };
-      return {
-        ...base,
-        diffs: [...base.diffs, entry],
-        timeline: pushTimeline(base, { kind: "diff", id: entry.id })
-      };
-    }
-    case "subagent.spawn": {
-      const entry = {
-        agentId: String(payload.agentId ?? nextId("agent")),
-        name: String(payload.name ?? ""),
-        task: String(payload.task ?? ""),
-        title: String(payload.title ?? ""),
-        status: payload.status ?? "queued",
-        lastText: "",
-        summary: "",
-        sessionId: typeof payload.sessionId === "string" ? payload.sessionId : null,
-        inputTokens: 0,
-        outputTokens: 0,
-        // Stamped here because the event carries no clock of its own; the panel
-        // needs a start to count from. `at` lets tests pin it.
-        startedAt: Number(payload.at ?? Date.now()),
-        endedAt: null
-      };
-      if (base.subagents.some((s) => s.agentId === entry.agentId)) return base;
-      return { ...base, subagents: [...base.subagents, entry] };
-    }
-    case "subagent.update":
-      return patchSubagent(base, String(payload.agentId ?? ""), (entry) => ({
-        ...entry,
-        status: payload.status ?? entry.status,
-        lastText: String(payload.lastText ?? payload.text ?? entry.lastText),
-        name: String(payload.name ?? entry.name),
-        title: String(payload.title ?? entry.title),
-        outputTokens: Number(payload.usage?.outputTokens ?? entry.outputTokens),
-        sessionId: typeof payload.sessionId === "string" ? payload.sessionId : entry.sessionId
-      }));
-    case "subagent.done":
-      return patchSubagent(base, String(payload.agentId ?? ""), (entry) => ({
-        ...entry,
-        status: payload.status ?? (payload.ok === false ? "error" : "done"),
-        summary: String(payload.summary ?? payload.result ?? ""),
-        title: String(payload.title ?? entry.title),
-        lastText: "",
-        inputTokens: Number(payload.usage?.inputTokens ?? entry.inputTokens),
-        outputTokens: Number(payload.usage?.outputTokens ?? entry.outputTokens),
-        endedAt: Number(payload.at ?? Date.now())
-      }));
-    // The daemon re-routed the session: a pin, a profile change, or a project
-    // default that just took effect. It is the authority, so the HUD follows it
-    // rather than what this surface last asked for.
-    case "model.changed": {
-      const model = "model" in payload ? payload.model ?? null : base.model;
-      const provider = "provider" in payload ? payload.provider ?? null : base.provider;
-      const source = typeof payload.source === "string" && payload.source.length > 0 ? payload.source : "model" in payload && payload.model === null ? null : base.modelSource;
-      return { ...base, model, provider, modelSource: source };
-    }
-    case "mode.changed":
-      return { ...base, mode: payload.mode ?? base.mode };
-    case "usage":
-      return {
-        ...base,
-        usage: {
-          inputTokens: base.usage.inputTokens + Number(payload.inputTokens ?? 0),
-          outputTokens: base.usage.outputTokens + Number(payload.outputTokens ?? 0)
-        }
-      };
-    // The daemon reports context usage after every turn and after a compaction.
-    // Older daemons never send it, which is why the HUD hides the segment until
-    // the first one arrives.
-    // The daemon names these `used`/`window`; `usedTokens`/`windowTokens` are
-    // accepted too so a differently-shaped emitter still lights the segment up.
-    case "context": {
-      const used = Number(payload.used ?? payload.usedTokens ?? 0);
-      const rawWindow = payload.window ?? payload.windowTokens ?? null;
-      const window2 = rawWindow === null || rawWindow === void 0 ? null : Number(rawWindow);
-      const percent = payload.percent === null || payload.percent === void 0 ? window2 && window2 > 0 ? used / window2 * 100 : null : Number(payload.percent);
-      return {
-        ...base,
-        context: { used, window: window2, percent, estimated: payload.estimated === true }
-      };
-    }
-    case "compaction": {
-      const entry = {
-        id: nextId("compaction"),
-        before: Number(payload.before ?? payload.from ?? 0),
-        after: Number(payload.after ?? payload.to ?? 0)
-      };
-      return {
-        ...base,
-        compactions: [...base.compactions, entry],
-        timeline: pushTimeline(base, { kind: "compaction", id: entry.id })
-      };
-    }
-    case "team.task.update": {
-      const taskId = String(payload.taskId ?? "");
-      if (taskId.length === 0) return base;
-      const entry = {
-        taskId,
-        teamId: String(payload.teamId ?? ""),
-        status: payload.status ?? "pending",
-        assignee: typeof payload.assignee === "string" ? payload.assignee : null
-      };
-      const index = base.teamTasks.findIndex((task) => task.taskId === taskId);
-      if (index === -1) return { ...base, teamTasks: [...base.teamTasks, entry] };
-      const teamTasks = base.teamTasks.slice();
-      teamTasks[index] = entry;
-      return { ...base, teamTasks };
-    }
-    case "error":
-      return {
-        ...base,
-        errors: [...base.errors, `${payload.code ?? "error"}: ${payload.message ?? ""}`]
-      };
-    // A language server published for a file this session touched. Only the
-    // counts arrive: the text of every diagnostic is already in the tool result
-    // the model saw.
-    case "lsp.diagnostics": {
-      const path = String(payload.path ?? "");
-      if (path.length === 0) return base;
-      const entry = {
-        count: Number(payload.count ?? 0),
-        errors: Number(payload.errors ?? 0),
-        warnings: Number(payload.warnings ?? 0)
-      };
-      if (entry.count <= 0) {
-        if (!(path in base.diagnostics)) return base;
-        const diagnostics = { ...base.diagnostics };
-        delete diagnostics[path];
-        return { ...base, diagnostics };
-      }
-      return { ...base, diagnostics: { ...base.diagnostics, [path]: entry } };
-    }
-    case "turn.queued": {
-      const turnId = String(payload.turnId ?? "");
-      if (turnId.length === 0) return base;
-      const position = Number(payload.position ?? base.queued.length + 1);
-      const index = base.queued.findIndex((entry) => entry.turnId === turnId);
-      if (index !== -1) {
-        const queued = base.queued.slice();
-        queued[index] = { ...queued[index], position };
-        return { ...base, queued };
-      }
-      const text = base.promptTexts[turnId] ?? "";
-      return { ...base, queued: [...base.queued, { turnId, text, position }] };
-    }
-    case "turn.dequeued": {
-      const turnId = String(payload.turnId ?? "");
-      return { ...base, queued: base.queued.filter((entry) => entry.turnId !== turnId) };
-    }
-    case "turn.done": {
-      const finished = String(payload.turnId ?? "");
-      const promptTexts = { ...base.promptTexts };
-      if (finished) delete promptTexts[finished];
-      const messages = base.messages.map((m) => m.streaming ? { ...m, streaming: false } : m);
-      return { ...flushDeferred({ ...base, messages }), promptTexts, turnActive: false };
-    }
-    default:
-      return base;
-  }
-}
-function reducer(state, action) {
-  switch (action.type) {
-    case "session/reset":
-      return { ...initialState, status: state.status, sessionId: action.sessionId };
-    case "session/ready":
-      return {
-        ...state,
-        sessionId: action.sessionId,
-        mode: action.mode,
-        provider: action.provider ?? state.provider,
-        model: action.model ?? state.model
-      };
-    case "status":
-      return { ...state, status: action.status };
-    case "mode":
-      return { ...state, mode: action.mode };
-    case "commands":
-      return { ...state, commands: action.commands };
-    case "tools":
-      return { ...state, toolCount: action.count };
-    case "lsp/status":
-      return { ...state, lsp: action.servers };
-    case "note": {
-      const message = {
-        id: nextId("msg"),
-        role: "system",
-        text: action.text,
-        streaming: false
-      };
-      return {
-        ...state,
-        messages: [...state.messages, message],
-        timeline: pushTimeline(state, { kind: "message", id: message.id })
-      };
-    }
-    case "prompt/turn": {
-      const promptTexts = { ...state.promptTexts, [action.turnId]: action.text };
-      const index = state.queued.findIndex((entry) => entry.turnId === action.turnId);
-      if (index === -1) return { ...state, promptTexts };
-      const queued = state.queued.slice();
-      queued[index] = { ...queued[index], text: action.text };
-      return { ...state, queued, promptTexts };
-    }
-    case "errors/clear":
-      return state.errors.length === 0 ? state : { ...state, errors: [] };
-    case "user/message": {
-      const message = {
-        id: nextId("msg"),
-        role: "user",
-        text: action.text,
-        streaming: false,
-        attachments: action.attachments?.length ? action.attachments : void 0
-      };
-      if (state.messages.some((m) => m.streaming)) {
-        return {
-          ...state,
-          deferredPrompts: [...state.deferredPrompts, message],
-          reasoningChars: 0
-        };
-      }
-      return {
-        ...state,
-        messages: [...state.messages, message],
-        timeline: pushTimeline(state, { kind: "message", id: message.id }),
-        turnActive: true,
-        reasoningChars: 0
-      };
-    }
-    case "session/event":
-      return applySessionEvent(state, action.event);
-    case "session/replay":
-      return action.events.reduce(applySessionEvent, state);
-    case "child/replay": {
-      const current2 = state.children[action.sessionId] ?? initialState;
-      const next = action.events.reduce(applySessionEvent, current2);
-      if (next === current2) return state;
-      return { ...state, children: { ...state.children, [action.sessionId]: next } };
-    }
-    case "child/event": {
-      const current2 = state.children[action.sessionId] ?? initialState;
-      const next = applySessionEvent(current2, action.event);
-      if (next === current2) return state;
-      return { ...state, children: { ...state.children, [action.sessionId]: next } };
-    }
-    case "approval/request":
-      return { ...state, pendingApproval: { ...action.request, source: "interactive" } };
-    case "approval/list": {
-      const pendingId = state.pendingApproval?.requestId;
-      return {
-        ...state,
-        approvalQueue: action.requests.filter((r) => r.requestId !== pendingId).map((r) => ({ ...r, source: "queue" }))
-      };
-    }
-    case "approval/resolved":
-      return {
-        ...state,
-        pendingApproval: state.pendingApproval?.requestId === action.requestId ? null : state.pendingApproval,
-        approvalQueue: state.approvalQueue.filter((r) => r.requestId !== action.requestId)
-      };
-    case "question/request":
-      return { ...state, pendingQuestion: action.request };
-    case "question/resolved":
-      return {
-        ...state,
-        pendingQuestion: state.pendingQuestion?.requestId === action.requestId ? null : state.pendingQuestion
-      };
-    case "error":
-      return { ...state, errors: [...state.errors, action.message] };
-    default:
-      return state;
-  }
-}
-var APPROVAL_SCOPES = ["once", "session", "project", "always"];
-
 // src/layout/bottom.ts
 var CONTEXT_WARN_PERCENT = 70;
 var CONTEXT_ALERT_PERCENT = 80;
@@ -34872,6 +34415,12 @@ function workingLine(input) {
 function queuedLabel(count2) {
   return `\u23F3 ${count2} queued`;
 }
+function replayTurnSummaryLine(ok, elapsedMs) {
+  const head = ok ? "\u2713 Done" : "\u2717 Stopped";
+  if (elapsedMs === null || !Number.isFinite(elapsedMs) || elapsedMs < 0) return head;
+  const span = formatDuration(elapsedMs);
+  return ok ? `\u2713 Done in ${span}` : `\u2717 Stopped after ${span}`;
+}
 function turnSummaryLine({
   ok,
   elapsedMs,
@@ -34884,6 +34433,519 @@ function turnSummaryLine({
   parts.push(`\u2193 ${formatTokens(outputTokens)} tokens`);
   return parts.join(" \xB7 ");
 }
+
+// src/state/store.ts
+var initialState = {
+  sessionId: null,
+  status: "connecting",
+  mode: "accept",
+  provider: null,
+  model: null,
+  modelSource: null,
+  messages: [],
+  toolCalls: [],
+  diffs: [],
+  timeline: [],
+  pendingApproval: null,
+  approvalQueue: [],
+  pendingQuestion: null,
+  commands: [],
+  subagents: [],
+  teamTasks: [],
+  usage: { inputTokens: 0, outputTokens: 0 },
+  context: null,
+  compactions: [],
+  toolCount: null,
+  queued: [],
+  deferredPrompts: [],
+  pendingEchoes: [],
+  promptTexts: {},
+  lsp: [],
+  diagnostics: {},
+  children: {},
+  lastSeq: 0,
+  turnActive: false,
+  reasoningChars: 0,
+  errors: []
+};
+var counter = 0;
+function nextId(prefix) {
+  counter += 1;
+  return `${prefix}-${counter}`;
+}
+function isCreation(patch) {
+  if (/^---\s+\/dev\/null/m.test(patch)) return true;
+  const lines = patch.split("\n").filter((line) => line.length > 0);
+  if (lines.length === 0) return false;
+  const body = lines.filter((line) => !/^(\+\+\+|---|@@|diff |index )/.test(line));
+  if (body.length === 0) return false;
+  return body.every((line) => line.startsWith("+"));
+}
+function pushTimeline(state, item) {
+  return [...state.timeline, item];
+}
+function appendDelta(state, text) {
+  const last = state.messages[state.messages.length - 1];
+  if (last && last.role === "assistant" && last.streaming) {
+    const messages = state.messages.slice(0, -1).concat({ ...last, text: last.text + text });
+    return { ...state, messages };
+  }
+  const message = { id: nextId("msg"), role: "assistant", text, streaming: true };
+  return {
+    ...state,
+    messages: [...state.messages, message],
+    timeline: pushTimeline(state, { kind: "message", id: message.id })
+  };
+}
+function outputLimitNote(truncated, continuations) {
+  if (truncated) return "response hit the output limit and is incomplete";
+  if (continuations > 0) return "response hit the output limit; continued";
+  return null;
+}
+function withLimitNote(state, payload) {
+  const note = outputLimitNote(
+    Boolean(payload.truncated),
+    Number(payload.continuations ?? 0)
+  );
+  if (!note) return state;
+  const message = { id: nextId("msg"), role: "system", text: note, streaming: false };
+  return {
+    ...state,
+    messages: [...state.messages, message],
+    timeline: pushTimeline(state, { kind: "message", id: message.id })
+  };
+}
+function finishMessage(state, payload) {
+  const text = typeof payload.text === "string" ? payload.text : void 0;
+  const role = typeof payload.role === "string" ? payload.role : "assistant";
+  const last = state.messages[state.messages.length - 1];
+  if (last && last.streaming && last.role === role) {
+    const messages = state.messages.slice(0, -1).concat({ ...last, text: text ?? last.text, streaming: false });
+    return withLimitNote({ ...state, messages }, payload);
+  }
+  if (text === void 0) return state;
+  const message = { id: nextId("msg"), role, text, streaming: false };
+  return withLimitNote(
+    {
+      ...state,
+      messages: [...state.messages, message],
+      timeline: pushTimeline(state, { kind: "message", id: message.id })
+    },
+    payload
+  );
+}
+function flushDeferred(state) {
+  if (state.deferredPrompts.length === 0) return state;
+  let next = { ...state, deferredPrompts: [] };
+  for (const message of state.deferredPrompts) {
+    next = {
+      ...next,
+      messages: [...next.messages, message],
+      timeline: pushTimeline(next, { kind: "message", id: message.id })
+    };
+  }
+  return next;
+}
+function patchSubagent(state, agentId, patch) {
+  const index = state.subagents.findIndex((entry) => entry.agentId === agentId);
+  if (index === -1) return state;
+  const subagents = state.subagents.slice();
+  subagents[index] = patch(subagents[index]);
+  return { ...state, subagents };
+}
+function applySessionEvent(state, event, options = {}) {
+  const payload = event.payload ?? {};
+  if (typeof event.seq === "number" && state.lastSeq > 0 && event.seq <= state.lastSeq) {
+    return state;
+  }
+  const base = typeof event.seq === "number" && event.seq > state.lastSeq ? { ...state, lastSeq: event.seq } : state;
+  switch (event.kind) {
+    // The prompt that opened the turn. Live, this surface drew it already; on a
+    // replay it is the only record of what was asked.
+    case "message.user": {
+      const text = String(payload.text ?? "");
+      const echo = base.pendingEchoes.indexOf(text);
+      if (echo !== -1) {
+        const pendingEchoes = base.pendingEchoes.slice();
+        pendingEchoes.splice(echo, 1);
+        return { ...base, pendingEchoes };
+      }
+      const files = Array.isArray(payload.attachments) ? payload.attachments.map((entry) => ({ name: String(entry?.name ?? "") })).filter((entry) => entry.name.length > 0) : [];
+      const message = {
+        id: nextId("msg"),
+        role: "user",
+        text,
+        streaming: false,
+        attachments: files.length > 0 ? files : void 0
+      };
+      return {
+        ...base,
+        messages: [...base.messages, message],
+        timeline: pushTimeline(base, { kind: "message", id: message.id })
+      };
+    }
+    case "message.delta":
+      return appendDelta(base, String(payload.text ?? ""));
+    // Thinking, not an answer: counted for the working line, never appended.
+    case "message.reasoning":
+      return { ...base, reasoningChars: Number(payload.chars ?? base.reasoningChars) };
+    case "message.done":
+      return flushDeferred(finishMessage(base, payload));
+    case "tool.call": {
+      const entry = {
+        callId: String(payload.callId ?? nextId("call")),
+        name: String(payload.name ?? "unknown"),
+        args: payload.args ?? {},
+        state: "running",
+        startedAt: Number(payload.at ?? Date.now())
+      };
+      const last = base.messages[base.messages.length - 1];
+      const messages = last && last.streaming && last.role === "assistant" ? base.messages.slice(0, -1).concat({ ...last, streaming: false }) : base.messages;
+      const settled = flushDeferred({ ...base, messages });
+      return {
+        ...settled,
+        toolCalls: [...settled.toolCalls, entry],
+        timeline: pushTimeline(settled, { kind: "tool", id: entry.callId })
+      };
+    }
+    case "tool.result": {
+      const callId = String(payload.callId ?? "");
+      const ok = payload.ok !== false;
+      const idx = base.toolCalls.findIndex((c) => c.callId === callId);
+      const patch = {
+        state: ok ? "ok" : "error",
+        output: typeof payload.output === "string" ? payload.output : void 0,
+        error: typeof payload.error === "string" ? payload.error : void 0
+      };
+      if (idx === -1) {
+        const entry = {
+          callId: callId || nextId("call"),
+          name: String(payload.name ?? "unknown"),
+          args: {},
+          ...patch
+        };
+        return {
+          ...base,
+          toolCalls: [...base.toolCalls, entry],
+          timeline: pushTimeline(base, { kind: "tool", id: entry.callId })
+        };
+      }
+      const toolCalls = base.toolCalls.slice();
+      toolCalls[idx] = { ...toolCalls[idx], ...patch };
+      return { ...base, toolCalls };
+    }
+    case "diff": {
+      const patch = String(payload.patch ?? "");
+      const entry = {
+        id: nextId("diff"),
+        path: String(payload.path ?? ""),
+        patch,
+        created: payload.created === true || isCreation(patch)
+      };
+      return {
+        ...base,
+        diffs: [...base.diffs, entry],
+        timeline: pushTimeline(base, { kind: "diff", id: entry.id })
+      };
+    }
+    case "subagent.spawn": {
+      const entry = {
+        agentId: String(payload.agentId ?? nextId("agent")),
+        name: String(payload.name ?? ""),
+        task: String(payload.task ?? ""),
+        title: String(payload.title ?? ""),
+        status: payload.status ?? "queued",
+        lastText: "",
+        summary: "",
+        sessionId: typeof payload.sessionId === "string" ? payload.sessionId : null,
+        inputTokens: 0,
+        outputTokens: 0,
+        // Stamped here because the event carries no clock of its own; the panel
+        // needs a start to count from. `at` lets tests pin it.
+        startedAt: Number(payload.at ?? Date.now()),
+        endedAt: null
+      };
+      if (base.subagents.some((s) => s.agentId === entry.agentId)) return base;
+      return { ...base, subagents: [...base.subagents, entry] };
+    }
+    case "subagent.update":
+      return patchSubagent(base, String(payload.agentId ?? ""), (entry) => ({
+        ...entry,
+        status: payload.status ?? entry.status,
+        lastText: String(payload.lastText ?? payload.text ?? entry.lastText),
+        name: String(payload.name ?? entry.name),
+        title: String(payload.title ?? entry.title),
+        outputTokens: Number(payload.usage?.outputTokens ?? entry.outputTokens),
+        sessionId: typeof payload.sessionId === "string" ? payload.sessionId : entry.sessionId
+      }));
+    case "subagent.done":
+      return patchSubagent(base, String(payload.agentId ?? ""), (entry) => ({
+        ...entry,
+        status: payload.status ?? (payload.ok === false ? "error" : "done"),
+        summary: String(payload.summary ?? payload.result ?? ""),
+        title: String(payload.title ?? entry.title),
+        lastText: "",
+        inputTokens: Number(payload.usage?.inputTokens ?? entry.inputTokens),
+        outputTokens: Number(payload.usage?.outputTokens ?? entry.outputTokens),
+        endedAt: Number(payload.at ?? Date.now())
+      }));
+    // The daemon re-routed the session: a pin, a profile change, or a project
+    // default that just took effect. It is the authority, so the HUD follows it
+    // rather than what this surface last asked for.
+    case "model.changed": {
+      const model = "model" in payload ? payload.model ?? null : base.model;
+      const provider = "provider" in payload ? payload.provider ?? null : base.provider;
+      const source = typeof payload.source === "string" && payload.source.length > 0 ? payload.source : "model" in payload && payload.model === null ? null : base.modelSource;
+      return { ...base, model, provider, modelSource: source };
+    }
+    case "mode.changed":
+      return { ...base, mode: payload.mode ?? base.mode };
+    case "usage":
+      return {
+        ...base,
+        usage: {
+          inputTokens: base.usage.inputTokens + Number(payload.inputTokens ?? 0),
+          outputTokens: base.usage.outputTokens + Number(payload.outputTokens ?? 0)
+        }
+      };
+    // The daemon reports context usage after every turn and after a compaction.
+    // Older daemons never send it, which is why the HUD hides the segment until
+    // the first one arrives.
+    // The daemon names these `used`/`window`; `usedTokens`/`windowTokens` are
+    // accepted too so a differently-shaped emitter still lights the segment up.
+    case "context": {
+      const used = Number(payload.used ?? payload.usedTokens ?? 0);
+      const rawWindow = payload.window ?? payload.windowTokens ?? null;
+      const window2 = rawWindow === null || rawWindow === void 0 ? null : Number(rawWindow);
+      const percent = payload.percent === null || payload.percent === void 0 ? window2 && window2 > 0 ? used / window2 * 100 : null : Number(payload.percent);
+      return {
+        ...base,
+        context: { used, window: window2, percent, estimated: payload.estimated === true }
+      };
+    }
+    case "compaction": {
+      const entry = {
+        id: nextId("compaction"),
+        before: Number(payload.before ?? payload.from ?? 0),
+        after: Number(payload.after ?? payload.to ?? 0)
+      };
+      return {
+        ...base,
+        compactions: [...base.compactions, entry],
+        timeline: pushTimeline(base, { kind: "compaction", id: entry.id })
+      };
+    }
+    case "team.task.update": {
+      const taskId = String(payload.taskId ?? "");
+      if (taskId.length === 0) return base;
+      const entry = {
+        taskId,
+        teamId: String(payload.teamId ?? ""),
+        status: payload.status ?? "pending",
+        assignee: typeof payload.assignee === "string" ? payload.assignee : null
+      };
+      const index = base.teamTasks.findIndex((task) => task.taskId === taskId);
+      if (index === -1) return { ...base, teamTasks: [...base.teamTasks, entry] };
+      const teamTasks = base.teamTasks.slice();
+      teamTasks[index] = entry;
+      return { ...base, teamTasks };
+    }
+    case "error":
+      return {
+        ...base,
+        errors: [...base.errors, `${payload.code ?? "error"}: ${payload.message ?? ""}`]
+      };
+    // A language server published for a file this session touched. Only the
+    // counts arrive: the text of every diagnostic is already in the tool result
+    // the model saw.
+    case "lsp.diagnostics": {
+      const path = String(payload.path ?? "");
+      if (path.length === 0) return base;
+      const entry = {
+        count: Number(payload.count ?? 0),
+        errors: Number(payload.errors ?? 0),
+        warnings: Number(payload.warnings ?? 0)
+      };
+      if (entry.count <= 0) {
+        if (!(path in base.diagnostics)) return base;
+        const diagnostics = { ...base.diagnostics };
+        delete diagnostics[path];
+        return { ...base, diagnostics };
+      }
+      return { ...base, diagnostics: { ...base.diagnostics, [path]: entry } };
+    }
+    case "turn.queued": {
+      const turnId = String(payload.turnId ?? "");
+      if (turnId.length === 0) return base;
+      const position = Number(payload.position ?? base.queued.length + 1);
+      const index = base.queued.findIndex((entry) => entry.turnId === turnId);
+      if (index !== -1) {
+        const queued = base.queued.slice();
+        queued[index] = { ...queued[index], position };
+        return { ...base, queued };
+      }
+      const text = base.promptTexts[turnId] ?? "";
+      return { ...base, queued: [...base.queued, { turnId, text, position }] };
+    }
+    case "turn.dequeued": {
+      const turnId = String(payload.turnId ?? "");
+      return { ...base, queued: base.queued.filter((entry) => entry.turnId !== turnId) };
+    }
+    case "turn.done": {
+      const finished = String(payload.turnId ?? "");
+      const promptTexts = { ...base.promptTexts };
+      if (finished) delete promptTexts[finished];
+      const messages = base.messages.map((m) => m.streaming ? { ...m, streaming: false } : m);
+      const settled = { ...flushDeferred({ ...base, messages }), promptTexts, turnActive: false };
+      if (!options.replay) return settled;
+      const started = Date.parse(options.turnStartedAt ?? "");
+      const ended = Date.parse(typeof event.ts === "string" ? event.ts : "");
+      const elapsed = Number.isFinite(started) && Number.isFinite(ended) ? ended - started : null;
+      const note = {
+        id: nextId("msg"),
+        role: "note",
+        text: replayTurnSummaryLine(
+          String(payload.reason ?? "complete") === "complete",
+          elapsed
+        ),
+        streaming: false
+      };
+      return {
+        ...settled,
+        messages: [...settled.messages, note],
+        timeline: pushTimeline(settled, { kind: "message", id: note.id })
+      };
+    }
+    default:
+      return base;
+  }
+}
+function replayEvents(state, events) {
+  let turnStartedAt = null;
+  let next = state;
+  for (const event of events) {
+    if (turnStartedAt === null && typeof event.ts === "string") turnStartedAt = event.ts;
+    next = applySessionEvent(next, event, { replay: true, turnStartedAt });
+    if (event.kind === "turn.done") turnStartedAt = null;
+  }
+  return next;
+}
+function reducer(state, action) {
+  switch (action.type) {
+    case "session/reset":
+      return { ...initialState, status: state.status, sessionId: action.sessionId };
+    case "session/ready":
+      return {
+        ...state,
+        sessionId: action.sessionId,
+        mode: action.mode,
+        provider: action.provider ?? state.provider,
+        model: action.model ?? state.model
+      };
+    case "status":
+      return { ...state, status: action.status };
+    case "mode":
+      return { ...state, mode: action.mode };
+    case "commands":
+      return { ...state, commands: action.commands };
+    case "tools":
+      return { ...state, toolCount: action.count };
+    case "lsp/status":
+      return { ...state, lsp: action.servers };
+    case "note": {
+      const message = {
+        id: nextId("msg"),
+        role: "system",
+        text: action.text,
+        streaming: false
+      };
+      return {
+        ...state,
+        messages: [...state.messages, message],
+        timeline: pushTimeline(state, { kind: "message", id: message.id })
+      };
+    }
+    case "prompt/turn": {
+      const promptTexts = { ...state.promptTexts, [action.turnId]: action.text };
+      const index = state.queued.findIndex((entry) => entry.turnId === action.turnId);
+      if (index === -1) return { ...state, promptTexts };
+      const queued = state.queued.slice();
+      queued[index] = { ...queued[index], text: action.text };
+      return { ...state, queued, promptTexts };
+    }
+    case "errors/clear":
+      return state.errors.length === 0 ? state : { ...state, errors: [] };
+    case "user/message": {
+      const message = {
+        id: nextId("msg"),
+        role: "user",
+        text: action.text,
+        streaming: false,
+        attachments: action.attachments?.length ? action.attachments : void 0
+      };
+      const pendingEchoes = action.expectEvent === false ? state.pendingEchoes : [...state.pendingEchoes, action.text];
+      if (state.messages.some((m) => m.streaming)) {
+        return {
+          ...state,
+          pendingEchoes,
+          deferredPrompts: [...state.deferredPrompts, message],
+          reasoningChars: 0
+        };
+      }
+      return {
+        ...state,
+        pendingEchoes,
+        messages: [...state.messages, message],
+        timeline: pushTimeline(state, { kind: "message", id: message.id }),
+        turnActive: true,
+        reasoningChars: 0
+      };
+    }
+    case "session/event":
+      return applySessionEvent(state, action.event);
+    case "session/replay":
+      return replayEvents(state, action.events);
+    case "child/replay": {
+      const current2 = state.children[action.sessionId] ?? initialState;
+      const next = replayEvents(current2, action.events);
+      if (next === current2) return state;
+      return { ...state, children: { ...state.children, [action.sessionId]: next } };
+    }
+    case "child/event": {
+      const current2 = state.children[action.sessionId] ?? initialState;
+      const next = applySessionEvent(current2, action.event);
+      if (next === current2) return state;
+      return { ...state, children: { ...state.children, [action.sessionId]: next } };
+    }
+    case "approval/request":
+      return { ...state, pendingApproval: { ...action.request, source: "interactive" } };
+    case "approval/list": {
+      const pendingId = state.pendingApproval?.requestId;
+      return {
+        ...state,
+        approvalQueue: action.requests.filter((r) => r.requestId !== pendingId).map((r) => ({ ...r, source: "queue" }))
+      };
+    }
+    case "approval/resolved":
+      return {
+        ...state,
+        pendingApproval: state.pendingApproval?.requestId === action.requestId ? null : state.pendingApproval,
+        approvalQueue: state.approvalQueue.filter((r) => r.requestId !== action.requestId)
+      };
+    case "question/request":
+      return { ...state, pendingQuestion: action.request };
+    case "question/resolved":
+      return {
+        ...state,
+        pendingQuestion: state.pendingQuestion?.requestId === action.requestId ? null : state.pendingQuestion
+      };
+    case "error":
+      return { ...state, errors: [...state.errors, action.message] };
+    default:
+      return state;
+  }
+}
+var APPROVAL_SCOPES = ["once", "session", "project", "always"];
 
 // src/state/mode.ts
 var MODE_CYCLE_ORDER = ["accept", "auto", "plan"];
@@ -35927,7 +35989,10 @@ var DIFF_LINES = 40;
 var ROLE_MARK = {
   user: { text: "\u203A ", color: "green", bold: true },
   assistant: { text: "\u25C6 ", color: "blue", bold: true },
-  system: { text: "! ", color: "yellow", bold: true }
+  system: { text: "! ", color: "yellow", bold: true },
+  // An aside from the surface itself, e.g. a replayed turn's `✓ Done` line: no
+  // speaker, so no marker and no attention-seeking colour.
+  note: { text: "", dimColor: true }
 };
 var TOOL_MARK = {
   running: { text: "\u25CC ", color: "yellow" },
@@ -39141,7 +39206,7 @@ function App2({
     (text) => {
       if (resumingRef.current || update.phase === "running" || update.phase === "done") return;
       if (/^\/delegate(\s|$)/.test(text.trim())) {
-        dispatch({ type: "user/message", text, attachments: [] });
+        dispatch({ type: "user/message", text, attachments: [], expectEvent: false });
         history?.add(text, workdir);
         void client.prompt(sessionId, text).then((result) => {
           const turnId = result?.turnId;
@@ -39245,7 +39310,12 @@ function App2({
         return;
       }
       const sent = attachments.map(({ name, mime, size }) => ({ name, mime, size }));
-      dispatch({ type: "user/message", text, attachments: sent });
+      dispatch({
+        type: "user/message",
+        text,
+        attachments: sent,
+        expectEvent: !text.startsWith("/")
+      });
       setAttachments([]);
       history?.add(text, workdir);
       if (state.messages.every((message) => message.role !== "user")) {

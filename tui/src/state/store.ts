@@ -15,8 +15,14 @@ import type {
 } from "../rpc/sdk.js";
 import type { ConnectionStatus } from "../rpc/client.js";
 import type { FileDiagnostics, LspServer } from "./lsp.js";
+import { replayTurnSummaryLine } from "./working.js";
 
-export type MessageRole = "user" | "assistant" | "system";
+/**
+ * `note` is this surface talking, not the conversation: the `✓ Done` line a
+ * replayed turn leaves behind, drawn without a speaker's marker so it reads as
+ * the same aside a live turn leaves in the scrollback.
+ */
+export type MessageRole = "user" | "assistant" | "system" | "note";
 
 export interface Message {
   id: string;
@@ -25,7 +31,7 @@ export interface Message {
   /** True while `message.delta` chunks are still being appended. */
   streaming: boolean;
   /** Files sent with the prompt, shown under it in the transcript. */
-  attachments?: { name: string; mime: string; size: number }[];
+  attachments?: { name: string; mime?: string; size?: number }[];
 }
 
 export type ToolCallState = "running" | "ok" | "error";
@@ -200,6 +206,18 @@ export interface State {
    * whole time, and joins the transcript after the message it interrupted.
    */
   deferredPrompts: Message[];
+  /**
+   * Prompts this surface drew itself, each waiting for its `message.user`.
+   *
+   * The daemon publishes the prompt when it joins the history, which is what
+   * lets a resumed session show the user's own words. A live session has
+   * already drawn that line — the moment Enter was pressed, rather than when
+   * the turn reached the model — so the event would be the same prompt twice.
+   * The local entry is kept (it is what makes typing feel immediate, and it is
+   * what a queued prompt has instead of an event for the minutes it waits) and
+   * its event is swallowed here.
+   */
+  pendingEchoes: string[];
   /** Language servers the daemon has running, from `lsp.status`. */
   lsp: LspServer[];
   /** Diagnostics counts per file, from `lsp.diagnostics` events. */
@@ -256,6 +274,7 @@ export const initialState: State = {
   toolCount: null,
   queued: [],
   deferredPrompts: [],
+  pendingEchoes: [],
   promptTexts: {},
   lsp: [],
   diagnostics: {},
@@ -280,7 +299,15 @@ export type Action =
   | {
       type: "user/message";
       text: string;
-      attachments?: { name: string; mime: string; size: number }[];
+      attachments?: { name: string; mime?: string; size?: number }[];
+      /**
+       * False when the text will not come back as a `message.user` event.
+       *
+       * A slash command is not a model turn: the daemon runs it instead of
+       * appending it to the history, so nothing is published and there is no
+       * echo to wait for.
+       */
+      expectEvent?: boolean;
     }
   | { type: "session/reset"; sessionId: string }
   | { type: "session/event"; event: SessionEvent }
@@ -433,7 +460,24 @@ function patchSubagent(
   return { ...state, subagents };
 }
 
-function applySessionEvent(state: State, event: SessionEvent): State {
+/**
+ * How a replayed event differs from a live one.
+ *
+ * Only two things: a live turn's `✓ Done` line is written by the surface as it
+ * watches the turn end, so a replay has to rebuild it here, and the only clock
+ * it has is the timestamps on the events themselves.
+ */
+interface ApplyOptions {
+  replay?: boolean;
+  /** Timestamp of the first event of the turn being replayed. */
+  turnStartedAt?: string | null;
+}
+
+function applySessionEvent(
+  state: State,
+  event: SessionEvent,
+  options: ApplyOptions = {},
+): State {
   const payload = (event.payload ?? {}) as Record<string, any>;
   // An event this session has already accounted for is dropped rather than
   // applied twice. The daemon may re-send the tail it just replayed — a resume
@@ -448,6 +492,35 @@ function applySessionEvent(state: State, event: SessionEvent): State {
       : state;
 
   switch (event.kind) {
+    // The prompt that opened the turn. Live, this surface drew it already; on a
+    // replay it is the only record of what was asked.
+    case "message.user": {
+      const text = String(payload.text ?? "");
+      const echo = base.pendingEchoes.indexOf(text);
+      if (echo !== -1) {
+        const pendingEchoes = base.pendingEchoes.slice();
+        pendingEchoes.splice(echo, 1);
+        return { ...base, pendingEchoes };
+      }
+      const files = Array.isArray(payload.attachments)
+        ? payload.attachments
+          .map((entry: any) => ({ name: String(entry?.name ?? "") }))
+          .filter((entry: { name: string }) => entry.name.length > 0)
+        : [];
+      const message: Message = {
+        id: nextId("msg"),
+        role: "user",
+        text,
+        streaming: false,
+        attachments: files.length > 0 ? files : undefined,
+      };
+      return {
+        ...base,
+        messages: [...base.messages, message],
+        timeline: pushTimeline(base, { kind: "message", id: message.id }),
+      };
+    }
+
     case "message.delta":
       return appendDelta(base, String(payload.text ?? ""));
 
@@ -712,13 +785,55 @@ function applySessionEvent(state: State, event: SessionEvent): State {
       const messages = base.messages.map((m) => (m.streaming ? { ...m, streaming: false } : m));
       // Nothing may be left stranded by a turn that ended without a final
       // message — an interrupt, or an error.
-      return { ...flushDeferred({ ...base, messages }), promptTexts, turnActive: false };
+      const settled = { ...flushDeferred({ ...base, messages }), promptTexts, turnActive: false };
+      if (!options.replay) return settled;
+      // A live turn's summary is written by `app.tsx`, which watched it run. A
+      // replayed one has to be rebuilt, and the event timestamps are the only
+      // clock there is.
+      const started = Date.parse(options.turnStartedAt ?? "");
+      const ended = Date.parse(typeof event.ts === "string" ? event.ts : "");
+      const elapsed =
+        Number.isFinite(started) && Number.isFinite(ended) ? ended - started : null;
+      const note: Message = {
+        id: nextId("msg"),
+        role: "note",
+        text: replayTurnSummaryLine(
+          String(payload.reason ?? "complete") === "complete",
+          elapsed,
+        ),
+        streaming: false,
+      };
+      return {
+        ...settled,
+        messages: [...settled.messages, note],
+        timeline: pushTimeline(settled, { kind: "message", id: note.id }),
+      };
     }
 
     default:
       // team.task.update and future kinds are accepted silently.
       return base;
   }
+}
+
+/**
+ * Fold a whole `session.resume` backlog in one pass.
+ *
+ * A turn's wall-clock span is the gap between its first event and its
+ * `turn.done`; the first event of a turn is whatever follows the previous one's
+ * `turn.done`, which is the prompt itself for anything recorded since
+ * `message.user` existed and the first token of the answer for a log older
+ * than that.
+ */
+function replayEvents(state: State, events: SessionEvent[]): State {
+  let turnStartedAt: string | null = null;
+  let next = state;
+  for (const event of events) {
+    if (turnStartedAt === null && typeof event.ts === "string") turnStartedAt = event.ts;
+    next = applySessionEvent(next, event, { replay: true, turnStartedAt });
+    if (event.kind === "turn.done") turnStartedAt = null;
+  }
+  return next;
 }
 
 export function reducer(state: State, action: Action): State {
@@ -784,17 +899,25 @@ export function reducer(state: State, action: Action): State {
         streaming: false,
         attachments: action.attachments?.length ? action.attachments : undefined,
       };
+      // The daemon will publish this same prompt as `message.user` when the
+      // turn reaches the model; that copy is for a resume, and is dropped here.
+      const pendingEchoes =
+        action.expectEvent === false
+          ? state.pendingEchoes
+          : [...state.pendingEchoes, action.text];
       // Mid-answer, this prompt waits: see `deferredPrompts`. The queued list
       // under the input is what shows it in the meantime.
       if (state.messages.some((m) => m.streaming)) {
         return {
           ...state,
+          pendingEchoes,
           deferredPrompts: [...state.deferredPrompts, message],
           reasoningChars: 0,
         };
       }
       return {
         ...state,
+        pendingEchoes,
         messages: [...state.messages, message],
         timeline: pushTimeline(state, { kind: "message", id: message.id }),
         turnActive: true,
@@ -806,11 +929,11 @@ export function reducer(state: State, action: Action): State {
       return applySessionEvent(state, action.event);
 
     case "session/replay":
-      return action.events.reduce(applySessionEvent, state);
+      return replayEvents(state, action.events);
 
     case "child/replay": {
       const current = state.children[action.sessionId] ?? initialState;
-      const next = action.events.reduce(applySessionEvent, current);
+      const next = replayEvents(current, action.events);
       if (next === current) return state;
       return { ...state, children: { ...state.children, [action.sessionId]: next } };
     }

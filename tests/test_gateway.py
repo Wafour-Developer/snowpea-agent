@@ -25,6 +25,7 @@ from snowpea_core.gateway.base import (
 )
 from snowpea_core.gateway.discord import DiscordAdapter, action_row, parse_event
 from snowpea_core.gateway.fake import FakeAdapter
+from snowpea_core.gateway.router import Binding, GatewayConnection
 from snowpea_core.gateway.slack import SlackAdapter, parse_envelope
 from snowpea_core.gateway.telegram import TelegramAdapter, inline_keyboard, parse_update
 from snowpea_core.server.app_server import Daemon
@@ -233,6 +234,36 @@ async def test_credentials_file_is_private_and_resolves_refs(tmp_path: Path) -> 
 # ---------------------------------------------------------------------------
 # (d) callback encoding
 # ---------------------------------------------------------------------------
+
+
+async def test_only_the_answer_is_forwarded_to_the_chat() -> None:
+    """``message.user`` is for a resumed transcript, never for the channel.
+
+    The person in the chat wrote the prompt themselves; forwarding the event
+    would post every message they sent straight back at them.
+    """
+    sent: list[str] = []
+
+    class _Router:
+        async def send(
+            self, _binding: Any, _channel: str, text: str, buttons: Any = None
+        ) -> str:
+            sent.append(text)
+            return "m1"
+
+    binding = Binding(id="gw-1", platform="fake", credentials_ref="f", channel_id="c1")
+    conn = GatewayConnection(_Router(), binding, "c1")  # type: ignore[arg-type]
+    conn.session_id = "s-1"
+
+    def event(kind: str, **payload: Any) -> dict[str, Any]:
+        return {"sessionId": "s-1", "seq": 1, "kind": kind, "payload": payload}
+
+    await conn.notify("session.event", event("message.user", text="무엇을 하고 있어?"))
+    assert sent == []
+    await conn.notify("session.event", event("message.delta", text="half"))
+    assert sent == []
+    await conn.notify("session.event", event("message.done", text="the answer"))
+    assert sent == ["the answer"]
 
 
 def test_approval_callback_round_trips() -> None:

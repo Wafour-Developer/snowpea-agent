@@ -575,6 +575,11 @@ async def _drive(
             )
         )
         session.history.compact()
+        # The prompt is published as well as stored: ``session.resume`` replays
+        # the event log, so a transcript rebuilt without this shows every answer
+        # and none of the questions.  Once per prompt, and never for the
+        # continuation nudge the loop appends to itself further down.
+        await hub.emit_event(session.id, events.message_user(text, attachments))
 
     # Recall once per turn, on the user's own words (M5 contract §1).
     memory_block = await context_for_turn(core, session, text)

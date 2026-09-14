@@ -331,5 +331,24 @@ def test_missing_tui_bundle_is_a_usage_error(home: Path) -> None:
     assert "SNOWPEA_TUI_ENTRY" in result.stderr
 
 
+def test_plain_output_ignores_the_prompt_event() -> None:
+    """``-c`` prints the model's side, not the prompt the caller just typed.
+
+    ``message.user`` exists so ``session.resume`` can rebuild a transcript; a
+    one-shot run already has the prompt on its own command line.
+    """
+    import io
+
+    from snowpea_core.cli.render import PlainRenderer
+
+    out, err = io.StringIO(), io.StringIO()
+    renderer = PlainRenderer(out=out, err=err)
+    renderer.event({"kind": "message.user", "payload": {"text": "say hello"}})
+    assert out.getvalue() == ""
+    renderer.event({"kind": "message.delta", "payload": {"text": "hello"}})
+    assert out.getvalue() == "hello"
+    assert err.getvalue() == ""
+
+
 if __name__ == "__main__":  # pragma: no cover - convenience
     raise SystemExit(pytest.main([__file__, "-q", *sys.argv[1:]]))

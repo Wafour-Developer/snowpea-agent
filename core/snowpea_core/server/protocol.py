@@ -1276,6 +1276,31 @@ class SetupCatalogResult(Payload):
 # --------------------------------------------------------------------------
 
 
+class UserAttachment(Payload):
+    """A file that came with a prompt, as the transcript names it."""
+
+    kind: Literal["file", "image", "text"] = Field(
+        default="file", description="Attachment flavour."
+    )
+    name: str = Field(default="", description="Display name shown under the prompt.")
+
+
+class MessageUser(Payload):
+    """The prompt that opened a turn, at the moment it joined the history.
+
+    The history has always held it, but ``session.resume`` replays the event
+    log — so without this event a resumed transcript shows the answers and none
+    of the questions.  Chat gateways forward ``message.done`` and deliberately
+    ignore this kind: the person in the chat wrote the prompt themselves.
+    """
+
+    kind: Literal["message.user"] = "message.user"
+    text: str = Field(description="Prompt text as the model received it.")
+    attachments: list[UserAttachment] = Field(
+        default_factory=list, description="Files sent along with the prompt."
+    )
+
+
 class MessageDelta(Payload):
     """Streaming assistant text."""
 
@@ -1579,7 +1604,8 @@ class LspDiagnostics(Payload):
 
 
 SessionEventPayload = Annotated[
-    MessageDelta
+    MessageUser
+    | MessageDelta
     | MessageReasoning
     | MessageDone
     | ToolCallEvent
@@ -1606,6 +1632,7 @@ SessionEventPayload = Annotated[
 
 #: ``session.event`` payload model per ``kind`` (contract §1).
 SESSION_EVENT_MODELS: dict[str, type[BaseModel]] = {
+    "message.user": MessageUser,
     "message.delta": MessageDelta,
     "message.reasoning": MessageReasoning,
     "message.done": MessageDone,

@@ -234,6 +234,9 @@ class GatewayConnection:
             await self._question_resolved(params)
 
     async def _session_event(self, params: dict[str, Any]) -> None:
+        # Only the finished assistant message goes back to the chat.  Notably
+        # not ``message.user``: the prompt exists so a resumed transcript can
+        # show it, and echoing it would send the person their own words back.
         if params.get("sessionId") != self.session_id or params.get("kind") != "message.done":
             return
         text = str((params.get("payload") or {}).get("text") or "").strip()
