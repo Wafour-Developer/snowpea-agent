@@ -1236,6 +1236,32 @@ export interface SetupCatalogResult {
   })[];
 }
 
+/** `skill.create` params. Write a new SKILL.md, generated from a brief or supplied verbatim. */
+export interface SkillCreateParams {
+  /** A complete SKILL.md body. When given, it is validated and written directly — no model turn runs. */
+  content?: string | null;
+  /** Natural-language brief. Used only when 'content' is omitted: the daemon starts the same generating turn '/skill create' runs and answers with a turnId rather than waiting for it. */
+  description?: string | null;
+  /** Overwrite an existing SKILL.md at the target. */
+  force?: boolean;
+  /** Skill name; also its directory and the future /<name>. */
+  name: string;
+  /** Where to write the skill. */
+  scope?: "project" | "global";
+  /** Project directory the skill is written under (or read a session from). */
+  workdir: string;
+}
+
+/** `skill.create` result. */
+export interface SkillCreateResult {
+  /** Skill name, once known. */
+  name?: string | null;
+  /** Where the SKILL.md was written. */
+  path?: string | null;
+  /** Set instead of name/path when generation was started as a turn. */
+  turnId?: string | null;
+}
+
 /** `skill.install` params. Install a skill from a path, URL or registry. */
 export interface SkillInstallParams {
   /** Path, URL or registry name to install from. */
@@ -1274,6 +1300,24 @@ export interface SkillListResult {
     /** What the skill does. */
     summary?: string;
   })[];
+}
+
+/** `skill.read` params. Read a skill's SKILL.md. */
+export interface SkillReadParams {
+  /** Skill to read. */
+  name: string;
+  /** Project directory to resolve a project-scoped skill in. */
+  workdir: string;
+}
+
+/** `skill.read` result. */
+export interface SkillReadResult {
+  /** Its full text. */
+  content: string;
+  /** Where the SKILL.md was found. */
+  path: string;
+  /** 'project' or 'global', wherever it was found. */
+  scope: "project" | "global";
 }
 
 /** `skill.reload` params. Reload skills from disk without restarting. */
@@ -1328,6 +1372,24 @@ export interface SkillSearchResult {
   })[];
   /** Sources that could not be reached, as '<source>: <reason>'. Empty skills with a non-empty list means offline, not no match. */
   unavailable?: string[];
+}
+
+/** `skill.write` params. Save a skill's SKILL.md verbatim. */
+export interface SkillWriteParams {
+  /** Full SKILL.md text to save. */
+  content: string;
+  /** Skill to write. */
+  name: string;
+  /** Where to write the skill. */
+  scope?: "project" | "global";
+  /** Project directory, when scope is 'project'. */
+  workdir: string;
+}
+
+/** `skill.write` result. */
+export interface SkillWriteResult {
+  /** True when the call succeeded. */
+  ok?: boolean;
 }
 
 /** `system.checkUpdate` params. Report whether a newer snowpea release exists; cached for 24h. */
@@ -2017,8 +2079,8 @@ export interface TurnDequeuedEventPayload {
 /** Payload of `session.event` with kind `turn.done`. */
 export interface TurnDoneEventPayload {
   kind?: "turn.done";
-  /** Why the turn ended. */
-  reason?: "complete" | "interrupted" | "error" | "denied" | "timeout";
+  /** Why the turn ended. budget = the tool-round budget ran out; the turn reported what it had done before ending. */
+  reason?: "complete" | "interrupted" | "error" | "denied" | "timeout" | "budget";
   /** Turn that ended. */
   turnId: string;
 }
@@ -2171,11 +2233,14 @@ export interface MethodMap {
   "settings.get": { params: SettingsGetParams; result: SettingsGetResult };
   "settings.set": { params: SettingsSetParams; result: SettingsSetResult };
   "setup.catalog": { params: SetupCatalogParams; result: SetupCatalogResult };
+  "skill.create": { params: SkillCreateParams; result: SkillCreateResult };
   "skill.install": { params: SkillInstallParams; result: SkillInstallResult };
   "skill.list": { params: SkillListParams; result: SkillListResult };
+  "skill.read": { params: SkillReadParams; result: SkillReadResult };
   "skill.reload": { params: SkillReloadParams; result: SkillReloadResult };
   "skill.remove": { params: SkillRemoveParams; result: SkillRemoveResult };
   "skill.search": { params: SkillSearchParams; result: SkillSearchResult };
+  "skill.write": { params: SkillWriteParams; result: SkillWriteResult };
   "system.checkUpdate": { params: SystemCheckUpdateParams; result: SystemCheckUpdateResult };
   "system.health": { params: SystemHealthParams; result: SystemHealthResult };
   "system.hello": { params: SystemHelloParams; result: SystemHelloResult };
@@ -2244,11 +2309,14 @@ export type ClientMethod =
   | "settings.get"
   | "settings.set"
   | "setup.catalog"
+  | "skill.create"
   | "skill.install"
   | "skill.list"
+  | "skill.read"
   | "skill.reload"
   | "skill.remove"
   | "skill.search"
+  | "skill.write"
   | "system.checkUpdate"
   | "system.health"
   | "system.hello"

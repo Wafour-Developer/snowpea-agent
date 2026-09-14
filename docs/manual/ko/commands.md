@@ -66,6 +66,7 @@ snowpea commands list --json
 |---|---|
 | `/agent create "<description>"` | `<project>/.snowpea/agents/<name>.md`에 에이전트 정의를 작성 |
 | `/agent list` | 에이전트 정의를 나열 |
+| `/skill create <name> "<할 일>" [--global] [--force]` | 브리프로부터 SKILL.md를 생성해 `<project>/.snowpea/skills/<name>/`에 작성 (`--global`이면 `$SNOWPEA_HOME/skills/<name>/`); 이미 있으면 `--force` 없이는 덮어쓰지 않음 |
 | `/skill learn [name]` | 방금 끝낸 세션을 `<project>/.snowpea/skills/<name>/SKILL.md`로 바꿈 |
 
 생성된 에이전트는 재적재 없이 곧바로 `delegate_task` 대상이 됩니다.

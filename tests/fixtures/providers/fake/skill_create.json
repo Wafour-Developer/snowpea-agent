@@ -1,0 +1,15 @@
+{
+  "steps": [
+    {
+      "match": "changelog summariser",
+      "repeat": true,
+      "text": "---\nname: changelog-notes\ndescription: Summarise a changelog into release notes, one line per entry.\nversion: 0.1.0\n---\n\n# Changelog notes\n\n## When to use this\nUse this when the user wants release notes built from a changelog.\n\n## Procedure\n1. Read the changelog.\n2. Group entries by area.\n3. Write one line per entry.\n\n## Inputs\n- The changelog file path.\n\n## Checks\n- The output has one line per changelog entry.\n"
+    },
+    {
+      "match": "too short",
+      "repeat": true,
+      "text": "---\nname: bad-one\ndescription: short\n---\n\n## Procedure\n1. Nope.\n"
+    }
+  ],
+  "default": {"text": "fake default reply"}
+}
