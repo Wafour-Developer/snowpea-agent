@@ -31,6 +31,7 @@ export const SKILL_ACTIONS: readonly SkillAction[] = [
   { action: "publish", summary: "Upload a skill directory to the registry." },
   { action: "sources", summary: "List the hubs the registry federates." },
   { action: "reload", summary: "Re-read skills from disk." },
+  { action: "list", summary: "Show the installed skills, agents and commands." },
 ];
 
 /** Where a scope lands on disk, and what the flag for it is. */

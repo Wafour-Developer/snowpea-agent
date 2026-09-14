@@ -68,8 +68,28 @@ snowpea commands list --json
 | `/agent list` | 에이전트 정의를 나열 |
 | `/skill create <name> "<할 일>" [--global] [--force]` | 브리프로부터 SKILL.md를 생성해 `<project>/.snowpea/skills/<name>/`에 작성 (`--global`이면 `$SNOWPEA_HOME/skills/<name>/`); 이미 있으면 `--force` 없이는 덮어쓰지 않음 |
 | `/skill learn [name]` | 방금 끝낸 세션을 `<project>/.snowpea/skills/<name>/SKILL.md`로 바꿈 |
+| `/skill reload` | `SKILL.md`를 손으로 고친 뒤 스킬·에이전트·명령·플러그인 MCP 서버를 다시 읽음(설치나 `/skill create`는 스스로 재적재) |
+| `/skill list` | 설치된 것을 종류·출처별로 표시 |
 
 생성된 에이전트는 재적재 없이 곧바로 `delegate_task` 대상이 됩니다.
+
+### MCP 서버
+
+| 명령 | 하는 일 |
+|---|---|
+| `/mcp` 또는 `/mcp list` | 설정된 서버 표: 이름·스코프·전송·상태·툴 수 |
+| `/mcp get <name>` | 서버 하나를 툴까지 전부; `env`와 `headers`는 키 이름만 보임 |
+| `/mcp add <name> -- <command> [args…]` | stdio 서버를 `<project>/.mcp.json`에 추가 (`--global`이면 `$SNOWPEA_HOME/.mcp.json`) |
+| `/mcp add <name> --url <https://…>` | 원격 서버를 추가; 자격 증명은 `--header K=V` |
+| `/mcp add-json <name> '<json>'` | `.mcp.json` 항목을 그대로 추가 |
+| `/mcp test <name>` | 띄워서 툴 목록을 받아보고, 실패하면 그 에러를 보고 |
+| `/mcp configure <name> [tool…]` | 이 툴들만 등록; 이름이 없으면 전부 |
+| `/mcp enable\|disable <name>` | 항목은 두되 더는 띄우지 않기, 그리고 되돌리기 |
+| `/mcp remove <name>` | 항목을 지우고 서버를 멈춤 |
+| `/mcp reload [name]` | 서버 하나를, 또는 모든 선언을 다시 읽어 재시작 |
+| `/mcp catalog` | `--preset`이 받는 큐레이션 목록 |
+
+`--env K=V`와 `--header K=V`는 여러 번 쓸 수 있습니다. 서버가 `tools/list`에 한 번 답하기 전에는 아무것도 쓰지 않고(`--no-test`로 건너뜀), 명령줄은 언제나 argv이지 셸 문자열이 아니며, 추가·삭제·수정은 데몬 재시작 없이 반영됩니다. 플러그인이나 설정의 `mcp.servers`가 선언한 서버는 목록에는 나오지만 읽기 전용입니다.
 
 ### 스케줄링
 
@@ -173,6 +193,24 @@ snowpea skill install oh-my-claudecode
 snowpea skill install ./my-plugin
 snowpea skill remove my-plugin
 ```
+
+### MCP 서버
+
+```bash
+snowpea mcp list
+snowpea mcp add notes -- python -m my_notes_server
+snowpea mcp add remote --url https://example.internal/mcp --header Authorization=Bearer-xxx
+snowpea mcp add github --preset github --env GITHUB_PERSONAL_ACCESS_TOKEN=ghp_xxx
+snowpea mcp get notes --json
+snowpea mcp test notes
+snowpea mcp configure notes search fetch
+snowpea mcp disable notes
+snowpea mcp remove notes
+snowpea mcp reload
+snowpea mcp catalog
+```
+
+`--scope global`은 프로젝트 파일 대신 `$SNOWPEA_HOME/.mcp.json`에 씁니다. 모든 서브커맨드가 `--json`을 받습니다. 파일 형식은 [플러그인](plugins.md#mcp-서버)을 보세요.
 
 ### 잡
 

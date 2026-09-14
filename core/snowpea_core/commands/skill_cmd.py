@@ -53,12 +53,14 @@ SKILL_ARGS_SCHEMA = {
     "properties": {
         "action": {
             "type": "string",
-            "enum": ["create", "learn", "publish", "sources"],
+            "enum": ["create", "learn", "publish", "sources", "reload", "list"],
             "description": (
                 "'create <name> \"<brief>\" [--global]' generates a SKILL.md from a brief; "
                 "'learn [name]' writes a SKILL.md from this session; "
                 "'publish <dir>' uploads it to the registry; "
-                "'sources' lists the hubs the registry federates."
+                "'sources' lists the hubs the registry federates; "
+                "'reload' re-scans skills, agents, commands and plugin MCP servers after "
+                "a SKILL.md was edited by hand; 'list' shows what is installed."
             ),
         },
         "name": {"type": "string", "description": "Name for the new skill (optional)."},
@@ -67,7 +69,7 @@ SKILL_ARGS_SCHEMA = {
 
 USAGE = (
     'Usage: /skill create <name> "<what it should do>" [--global] [--force] | '
-    "/skill learn [name] | /skill publish <dir> | /skill sources"
+    "/skill learn [name] | /skill publish <dir> | /skill sources | /skill reload | /skill list"
 )
 
 #: How many of the most recent messages are summarised.
@@ -309,8 +311,42 @@ async def sources_skill(ctx: CommandContext) -> None:
     await ctx.say("\n".join(lines))
 
 
+async def reload_skills(ctx: CommandContext) -> None:
+    """``/skill reload`` — re-scan after a hand edit, without reinstalling anything."""
+    loader = getattr(ctx.core, "skills", None)
+    reload_fn = getattr(loader, "reload", None) if loader is not None else None
+    if not callable(reload_fn):
+        await ctx.say("The skill loader is not wired; nothing to reload.")
+        return
+    try:
+        report = await reload_fn()
+    except Exception as exc:  # noqa: BLE001 - a broken SKILL.md must not fail the command
+        await ctx.say(f"Reload failed: {exc}")
+        return
+    await ctx.say(
+        "Reloaded: "
+        f"{report.skills} skills, {report.agents} agents, {report.commands} commands, "
+        f"{report.plugins} plugins, {report.hooks} hooks."
+    )
+
+
+async def list_skills(ctx: CommandContext) -> None:
+    """``/skill list`` — installed skills, agents and commands by source."""
+    loader = getattr(ctx.core, "skills", None)
+    list_fn = getattr(loader, "list", None) if loader is not None else None
+    if not callable(list_fn):
+        await ctx.say("The skill loader is not wired; nothing installed.")
+        return
+    rows = list_fn()
+    if not rows:
+        await ctx.say("No skills installed. Try /skill create <name> \"<brief>\".")
+        return
+    lines = [f"- /{row.name} ({row.kind}, {row.source})" for row in rows]
+    await ctx.say("\n".join(lines))
+
+
 async def cmd_skill(ctx: CommandContext, args: str) -> None:
-    """``/skill create``, ``/skill learn``, ``/skill publish`` or ``/skill sources``."""
+    """``/skill create|learn|publish|sources|reload|list``."""
     action, _, rest = args.strip().partition(" ")
     action = action.lower()
     if not action:
@@ -329,10 +365,16 @@ async def cmd_skill(ctx: CommandContext, args: str) -> None:
     if action == "sources":
         await sources_skill(ctx)
         return
+    if action == "reload":
+        await reload_skills(ctx)
+        return
+    if action == "list":
+        await list_skills(ctx)
+        return
     if action != "learn":
         await ctx.say(
-            "/skill only handles 'create', 'learn', 'publish' and 'sources' here; "
-            f"use the snowpea CLI for search/install/list/rate.\n{USAGE}"
+            "/skill only handles 'create', 'learn', 'publish', 'sources', 'reload' and 'list' "
+            f"here; use the snowpea CLI for search/install/rate.\n{USAGE}"
         )
         return
     requested = strip_quotes(rest)
