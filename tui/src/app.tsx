@@ -131,6 +131,16 @@ import { StatusHud } from "./components/StatusHud.js";
 import { AgentPanel } from "./components/AgentPanel.js";
 import { AttachmentChips } from "./components/AttachmentChips.js";
 import { ModelPicker } from "./components/ModelPicker.js";
+import { SkillCreateForm } from "./components/SkillCreateForm.js";
+import {
+  createdSkillName,
+  isBareSkillCreate,
+  parseSkillEdit,
+  skillCreateCommand,
+  skillSubCommands,
+} from "./state/skill-completion.js";
+import { SKILL_HINT_TEXT, shouldSuggestSkill } from "./state/skill-hint.js";
+import type { EditorRunner } from "./util/editor.js";
 import { QueuedPrompts } from "./components/QueuedPrompts.js";
 import { AgentTranscript } from "./components/AgentTranscript.js";
 import { SectionRule } from "./components/SectionRule.js";
@@ -290,6 +300,8 @@ export interface AppProps {
   localAudio?: LocalAudio | null;
   /** Where a local recording is written. */
   recordingPath?: string;
+  /** Runs `$EDITOR` for `/skill edit`; absent in tests and in a pipe. */
+  editor?: EditorRunner;
 }
 
 /** One transcript entry — a message, a tool call, a diff or a compaction. */
@@ -415,6 +427,7 @@ export function App({
   audio = noAudio,
   localAudio = null,
   recordingPath,
+  editor,
 }: AppProps): React.ReactElement {
   const { exit } = useApp();
   const [sessionId, setSessionId] = useState(initialSessionId);
@@ -422,7 +435,7 @@ export function App({
   const resumingRef = useRef(false);
   const [state, dispatch] = useReducer(reducer, initialState);
   const [showHelp, setShowHelp] = useState(false);
-  const { stdin } = useStdin();
+  const { stdin, setRawMode } = useStdin();
   const [draft, setDraft] = useState("");
   /** Id of the transcript entry Ctrl+O opened: a tool call or a diff. */
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -451,6 +464,19 @@ export function App({
   const [agentModels, setAgentModels] = useState<Record<string, string>>({});
   /** Options for the `/model` picker, or null while it is closed. */
   const [modelPicker, setModelPicker] = useState<ModelOption[] | null>(null);
+  /** `/skill create` with no arguments: the three questions are up. */
+  const [skillForm, setSkillForm] = useState(false);
+  /** The skill the daemon just wrote, offered as "run /<name>". */
+  const [skillChip, setSkillChip] = useState<string | null>(null);
+  /** The "turn this into a skill" nudge, once per session. */
+  const [skillHint, setSkillHint] = useState(false);
+  const skillHintSpent = useRef(false);
+  /** What the turn in flight had spent before it started, for that nudge. */
+  const hintTurnRef = useRef<{ startedAt: number; tools: number; errors: number } | null>(null);
+  /** The newest reply already read for a "Run it with /x". */
+  const skillReplyRef = useRef<string | null>(null);
+  /** True while `$EDITOR` owns the terminal and the TUI draws nothing. */
+  const [suspended, setSuspended] = useState(false);
   /** What the daemon can do with audio; the prop is the starting point. */
   const [capabilities, setCapabilities] = useState<AudioCapabilities>(audio);
   /** The recording in flight, and the reply being spoken. */
@@ -929,10 +955,15 @@ export function App({
     [client, sessionId, showToast],
   );
 
-  const completions = useMemo(
-    () => (draft.startsWith("/") ? registryRef.current.complete(draft) : []),
-    [draft, state.commands],
-  );
+  const completions = useMemo(() => {
+    if (!draft.startsWith("/")) return [];
+    // `/skill` is one command with five jobs, and only its name reaches the
+    // command table; the jobs are offered here so they can be completed too.
+    const skills = state.commands.some((command) => command.name === "skill")
+      ? skillSubCommands(draft)
+      : [];
+    return [...skills, ...registryRef.current.complete(draft)];
+  }, [draft, state.commands]);
 
   // --- full-screen geometry -------------------------------------------------
   // Everything below is inert while `fullscreen` is false: the inline layout
@@ -1270,6 +1301,54 @@ export function App({
   );
 
   /**
+   * `/skill edit <name>`: hand the terminal to `$EDITOR`, then reload.
+   *
+   * The daemon says where the file is (`skill.read`); the editing happens here,
+   * because this is the side with a terminal. While the editor is up the TUI
+   * draws nothing and reads nothing — the two of them cannot share a screen.
+   */
+  const editSkill = useCallback(
+    (name: string) => {
+      if (!editor) {
+        showToast("no editor available in this terminal");
+        return;
+      }
+      void (async () => {
+        let path: string | null = null;
+        try {
+          const result = await client.call("skill.read", { name });
+          path = typeof result?.path === "string" ? result.path : null;
+        } catch (error: unknown) {
+          dispatch({ type: "note", text: `could not open ${name}: ${String(error)}` });
+          return;
+        }
+        if (!path) {
+          dispatch({ type: "note", text: `the daemon did not say where ${name} is kept` });
+          return;
+        }
+        setSuspended(true);
+        setRawMode?.(false);
+        const code = await editor.run(path);
+        setRawMode?.(true);
+        setSuspended(false);
+        if (code !== 0) {
+          showToast(`${editor.command()} exited with ${code}`);
+          return;
+        }
+        try {
+          await client.call("skill.reload", {});
+          const commands = await registryRef.current.refresh();
+          dispatch({ type: "commands", commands });
+          showToast(`reloaded ${name}`);
+        } catch (error: unknown) {
+          dispatch({ type: "note", text: `skill.reload failed: ${String(error)}` });
+        }
+      })();
+    },
+    [client, editor, setRawMode, showToast],
+  );
+
+  /**
    * `/model` with no argument: ask the daemon what there is and offer a list.
    *
    * Both sources are advisory — an older daemon, a vendor endpoint that refuses
@@ -1444,6 +1523,10 @@ export function App({
   const submit = useCallback(
     (text: string) => {
       if (resumingRef.current || update.phase === "running" || update.phase === "done") return;
+      // Both nudges are about the turn that just ended; the next prompt buries
+      // them.
+      setSkillChip(null);
+      setSkillHint(false);
       // `/delegate` and `$agent` take the same road: the text goes to the
       // daemon as a prompt and its own parser starts the turn. `command.run`
       // would reach the same `commands.start`, but one road means one thing to
@@ -1535,6 +1618,20 @@ export function App({
           .catch((error: unknown) =>
             dispatch({ type: "note", text: `lsp.status failed: ${String(error)}` }),
           );
+        return;
+      }
+      // `/skill create` on its own opens the form rather than failing on a
+      // missing argument; `/skill create <name> "…"` is the daemon's command
+      // and goes straight through.
+      if (isBareSkillCreate(text)) {
+        setSkillForm(true);
+        return;
+      }
+      // `/skill edit` is this surface's: the daemon has no editor, and this one
+      // has a terminal to lend.
+      const edit = parseSkillEdit(text);
+      if (edit) {
+        editSkill(edit);
         return;
       }
       // `/model` with an argument is the daemon's command; bare `/model` is a
@@ -1652,11 +1749,93 @@ export function App({
       recordingPath,
       audioOffered,
       openModelPicker,
+      editSkill,
       showToast,
       takePaste,
       toggleRecording,
     ],
   );
+
+  /**
+   * The form's answer: the command line the user did not have to remember.
+   *
+   * It goes through `session.prompt`, not `command.run`: creating a skill is a
+   * turn the agent takes — it drafts the SKILL.md and writes it — and the
+   * transcript should show it as one.
+   */
+  const createSkill = useCallback(
+    (form: { name: string; description: string; scope: "project" | "global" }) => {
+      setSkillForm(false);
+      const text = skillCreateCommand(form);
+      dispatch({ type: "user/message", text, attachments: [], expectEvent: false });
+      history?.add(text, workdir);
+      setRunningCommand("/skill create");
+      void client
+        .prompt(sessionId, text)
+        .then((result) => {
+          const turnId = (result as { turnId?: string } | null)?.turnId;
+          if (turnId) dispatch({ type: "prompt/turn", turnId, text });
+          return result;
+        })
+        .catch((error: unknown) => {
+          setRunningCommand(null);
+          dispatch({ type: "error", message: String(error) });
+        });
+    },
+    [client, history, sessionId, workdir],
+  );
+
+  /**
+   * A reply that ends with "Run it with /x" means the table has a new command.
+   *
+   * The chip is the same sentence in three words, kept next to the input where
+   * the next thing typed will be.
+   */
+  useEffect(() => {
+    const last = [...state.messages]
+      .reverse()
+      .find((message) => message.role === "assistant" && !message.streaming);
+    if (!last || skillReplyRef.current === last.id) return;
+    const name = createdSkillName(last.text);
+    if (!name) return;
+    skillReplyRef.current = last.id;
+    setSkillChip(name);
+    void registryRef.current
+      .refresh()
+      .then((commands) => dispatch({ type: "commands", commands }))
+      .catch(() => undefined);
+  }, [state.messages]);
+
+  /**
+   * A long turn full of tool calls is the kind of work worth keeping.
+   *
+   * Measured when the turn ends, offered once, and gone for good once waved
+   * away — see `state/skill-hint.ts` for the thresholds.
+   */
+  useEffect(() => {
+    if (state.turnActive) {
+      hintTurnRef.current = {
+        startedAt: Date.now(),
+        tools: state.toolCalls.length,
+        errors: state.errors.length,
+      };
+      return;
+    }
+    const turn = hintTurnRef.current;
+    hintTurnRef.current = null;
+    if (!turn) return;
+    const suggest = shouldSuggestSkill({
+      toolCalls: state.toolCalls.length - turn.tools,
+      elapsedMs: Date.now() - turn.startedAt,
+      ok: state.errors.length === turn.errors,
+      shown: skillHintSpent.current,
+      dismissed: skillHintSpent.current,
+    });
+    if (!suggest) return;
+    skillHintSpent.current = true;
+    setSkillHint(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.turnActive]);
 
   /** Answer the y/n banner prompt: start the upgrade, or put the banner away. */
   const answerUpdate = useCallback(
@@ -1894,6 +2073,14 @@ export function App({
         </Text>
       ) : null}
 
+      {skillChip ? (
+        <Text color="green" wrap="truncate-end">{`[run /${skillChip}]`}</Text>
+      ) : null}
+
+      {skillHint ? (
+        <Text dimColor wrap="truncate-end">{`${SKILL_HINT_TEXT} · Esc dismisses`}</Text>
+      ) : null}
+
       <QueuedPrompts queued={state.queued} width={contentWidth} />
 
       <AttachmentChips attachments={attachments} width={contentWidth} />
@@ -1902,6 +2089,15 @@ export function App({
         <Text color="cyan" wrap="truncate-end">
           {modeToast}
         </Text>
+      ) : null}
+
+      {skillForm ? (
+        <SkillCreateForm
+          width={contentWidth}
+          isActive={state.pendingApproval === null && state.pendingQuestion === null}
+          onCancel={() => setSkillForm(false)}
+          onSubmit={createSkill}
+        />
       ) : null}
 
       {modelPicker ? (
@@ -2004,8 +2200,16 @@ export function App({
             setDraft(next);
             if (next.length > 0 && state.errors.length > 0) dispatch({ type: "errors/clear" });
           }}
-          onInterrupt={() => void client.interrupt(sessionId).catch(() => undefined)}
-          disabled={showHelp || update.phase === "confirm" || update.phase === "running" || update.phase === "done" || approvalActive || queueFocused || !isInput(focus) || openAgent !== null}
+          onInterrupt={() => {
+            // Esc with nothing running is how the nudge is waved away; with a
+            // turn in flight it still means "stop".
+            if (skillHint && !state.turnActive) {
+              setSkillHint(false);
+              return;
+            }
+            void client.interrupt(sessionId).catch(() => undefined);
+          }}
+          disabled={skillForm || showHelp || update.phase === "confirm" || update.phase === "running" || update.phase === "done" || approvalActive || queueFocused || !isInput(focus) || openAgent !== null}
         />
       )}
     </>
@@ -2060,6 +2264,11 @@ export function App({
       runningSubagents={state.subagents.filter((agent) => agent.status === "running").length}
     />
   ) : null;
+
+  // While `$EDITOR` has the terminal the TUI draws nothing at all: two
+  // full-screen programs cannot share one screen, and Ink would repaint over
+  // the editor on its next frame.
+  if (suspended) return <Box />;
 
   if (fullscreen) {
     return (

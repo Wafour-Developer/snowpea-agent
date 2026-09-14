@@ -203,10 +203,15 @@ export function Chat({
       }
 
       if (key.return) {
-        if (showPalette && !value.includes(" ")) {
+        // Enter completes while the command itself is still being typed —
+        // including a sub-action like `/skill create`, whose name has a space
+        // in it. Once the draft has gone past the name it is an argument, and
+        // Enter means run.
+        if (showPalette) {
           const completion = completions[selected];
-          if (completion && value !== `/${completion.name}`) {
-            update(`/${completion.name} `);
+          const full = completion ? `/${completion.name}` : "";
+          if (completion && full !== value.trimEnd() && full.startsWith(value.trimEnd())) {
+            update(`${full} `);
             return;
           }
         }
