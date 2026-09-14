@@ -45,6 +45,11 @@ SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 PROJECT_DIRS: tuple[str, ...] = (".snowpea/agents", ".claude/agents")
 HOME_DIR = "agents"
 
+#: Built-in definitions shipped with the package (M15 §C4).  Unlike the role
+#: files, these carry frontmatter — a tool allowlist above all — so ``explore``
+#: and ``reviewer`` are genuinely read-only rather than read-only by request.
+BUILTIN_DIR = Path(__file__).resolve().parent / "definitions"
+
 #: Default value of ``tools`` — every registered tool.
 ALL_TOOLS = "*"
 
@@ -321,20 +326,18 @@ def builtin_agent_definitions() -> list[AgentDefinition]:
     These synthetic definitions make those package roles visible through
     ``/agent list`` / ``agent.list`` without writing files into a user's project.
     """
+    found: dict[str, AgentDefinition] = {}
     roles_dir = Path(__file__).resolve().parent.parent / "prompts" / "roles"
-    if not roles_dir.is_dir():
-        return []
-    definitions: list[AgentDefinition] = []
-    for path in sorted(roles_dir.glob("*.md")):
-        if path.name.startswith("_"):
-            continue
-        try:
-            name = validate_name(path.stem)
-            text = path.read_text(encoding="utf-8")
-        except (DefinitionError, OSError):
-            continue
-        definitions.append(
-            AgentDefinition(
+    if roles_dir.is_dir():
+        for path in sorted(roles_dir.glob("*.md")):
+            if path.name.startswith("_"):
+                continue
+            try:
+                name = validate_name(path.stem)
+                text = path.read_text(encoding="utf-8")
+            except (DefinitionError, OSError):
+                continue
+            found[name] = AgentDefinition(
                 name=name,
                 description=_role_description(text, name),
                 model="inherit",
@@ -344,8 +347,14 @@ def builtin_agent_definitions() -> list[AgentDefinition]:
                 path=path,
                 source="builtin",
             )
-        )
-    return definitions
+    if BUILTIN_DIR.is_dir():
+        for path in sorted(BUILTIN_DIR.glob("*.md")):
+            try:
+                defn = parse_agent_md(path, source="builtin")
+            except DefinitionError:  # pragma: no cover - a broken shipped file
+                continue
+            found[defn.name] = defn
+    return sorted(found.values(), key=lambda entry: entry.name)
 
 
 def _role_description(text: str, name: str) -> str:
@@ -524,6 +533,7 @@ async def generate_definition(provider: Any, description: str) -> AgentDefinitio
 
 __all__ = [
     "ALL_TOOLS",
+    "BUILTIN_DIR",
     "AgentDefinition",
     "DefinitionError",
     "GENERATOR_SYSTEM",

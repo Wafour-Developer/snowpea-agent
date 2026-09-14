@@ -48,6 +48,7 @@ These are answered by the terminal UI itself rather than by the core, so they do
 |---|---|
 | `/ralph <task>` | PRD loop: stories with acceptance criteria, implement, verify, review until APPROVE |
 | `/ultrawork <task>` | split into independent parts, run them on concurrent subagents, merge the reports |
+| `/review [what]` | review the uncommitted diff with a read-only `reviewer` agent and report the verdict |
 | `/init [--force]` | fast, rough `AGENTS.md` for the project root, in one turn; merges into an existing file unless `--force` |
 | `/deepinit [path]` | walk the repository and write hierarchical `AGENTS.md` files |
 | `/team <n> <task>` | n workers, one git worktree each, branches merged as tasks finish |

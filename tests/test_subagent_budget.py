@@ -94,7 +94,7 @@ async def test_a_child_out_of_rounds_reports_and_the_parent_is_told(
     assert f"roundsUsed: {TINY}" in report
     assert "still unwritten" in report
     assert "read_file" in report
-    assert "do not simply" in report
+    assert "delegate only what is left" in report
 
 
 async def test_the_child_is_told_its_budget(daemon: Daemon, workdir: Path) -> None:

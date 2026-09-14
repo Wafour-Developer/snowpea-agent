@@ -75,6 +75,16 @@ POLL_SEC = 0.02
 #: How much of a conflict diff is kept on the task row.
 MAX_HUNK_CHARS = 4000
 
+#: Definition the optional post-merge review runs as (M15 §C5); a project file
+#: of the same name overrides the built-in read-only one.
+REVIEW_AGENT = "reviewer"
+
+#: How much of a merged diff the reviewer is handed inline.
+MAX_REVIEW_DIFF_CHARS = 24000
+
+#: The verdict that sends a task back to its author, once.
+REQUEST_CHANGES = "REQUEST_CHANGES"
+
 PLAN_SYSTEM = load("workflows/team-plan")
 
 
@@ -217,6 +227,11 @@ class TeamRun:
     done_counter: int = 0
     runner: asyncio.Task[None] | None = None
     state: str = "running"
+    #: Task ids already reviewed, so ``team.review`` costs one pass per task
+    #: however often a task is re-queued.
+    reviewed: set[str] = field(default_factory=set)
+    #: Findings waiting to be handed back to the worker that wrote the task.
+    review_findings: dict[str, str] = field(default_factory=dict)
 
     def worktree(self, n: int) -> Worktree | None:
         for entry in self.worktrees:
@@ -241,6 +256,10 @@ class TeamManager:
 
     def max_conflict_retries(self) -> int:
         return max(0, int(self.core.settings.team.max_conflict_retries))
+
+    def review_enabled(self) -> bool:
+        """``team.review`` — off unless the user turned it on."""
+        return bool(getattr(self.core.settings.team, "review", False))
 
     # -- entry point ---------------------------------------------------
     async def start(self, session: Session, n: int, task: str) -> str:
@@ -571,6 +590,23 @@ class TeamManager:
         message = f"Merge {branch} for team task {row.id}: {row.title}"
         result = await git(run.repo, "merge", "--no-ff", "-m", message, branch)
         if result.ok:
+            findings = await self._review_merge(run, row)
+            if findings:
+                run.review_findings[row.id] = findings
+                await self._transition(
+                    run,
+                    row,
+                    team_store.QUEUED,
+                    agent_n=row.agent_n,
+                    note="the reviewer requested changes; re-queued to the same agent",
+                )
+                await self.store.post(
+                    run.id,
+                    "lead",
+                    f"{row.id}: review requested changes; back to agent {row.agent_n}",
+                    task_id=row.id,
+                )
+                return
             await self._transition(run, row, team_store.MERGED, note="merged with --no-ff")
             await self.store.post(
                 run.id, "lead", f"merged {row.id} from {branch}", task_id=row.id
@@ -613,6 +649,68 @@ class TeamManager:
             f"{row.id} conflicted; re-queued to agent {row.agent_n} (retry {row.retries})",
             task_id=row.id,
         )
+
+    async def _review_merge(self, run: TeamRun, row: TaskRow) -> str:
+        """The reviewer's findings when it wants changes, else ``""``.
+
+        Runs once per task and only when ``team.review`` is on.  The merge has
+        already landed: a re-queue sends the *same* worker back into its own
+        worktree to fix what was found, which is cheaper and less surprising
+        than reverting a commit the rest of the board may already build on.
+        """
+        if not self.review_enabled() or row.id in run.reviewed:
+            return ""
+        run.reviewed.add(row.id)
+        diff = await git(run.repo, "diff", "HEAD~1", "HEAD")
+        text = diff.stdout.strip()
+        if not text:
+            return ""
+        manager = get_manager(self.core)
+        anchor = self._review_anchor(run)
+        brief = workflow_brief(
+            "team-review",
+            reply_language=reply_language(self.core),
+            REPO=run.repo,
+            TASK_ID=row.id,
+            TASK_TITLE=row.title,
+            DIFF=text[:MAX_REVIEW_DIFF_CHARS],
+        )
+        agent = REVIEW_AGENT if manager.definition(anchor, REVIEW_AGENT) else None
+        result = await manager.run(
+            anchor, brief, agent=agent, title=f"Review {row.id}: {row.title}"
+        )
+        verdict = (result.summary or "").strip()
+        if not result.ok or REQUEST_CHANGES not in verdict.upper():
+            return ""
+        return verdict
+
+    def _review_anchor(self, run: TeamRun) -> Session:
+        """A stand-in parent at the repository root, outside the team roster.
+
+        The reviewer reads the merged tree, not a worktree, and it is not one
+        of the workers — carrying the lead's ``team_agents`` here would have
+        the membership guard refuse it by name.
+        """
+        lead = run.session
+        anchor = Session(
+            id=lead.id,
+            workdir=run.repo,
+            mode=lead.mode,
+            provider=lead.provider,
+            model=lead.model,
+            origin_surface=lead.origin_surface,
+            created_at=lead.created_at,
+            max_concurrent=max(1, run.workers),
+            origin_conn=lead.origin_conn,
+        )
+        anchor.unattended = lead.unattended
+        anchor.memory_namespace = lead.memory_namespace
+        backend = getattr(lead, "backend", None)
+        if backend is None or getattr(backend, "kind", "local") == "local":
+            anchor.backend = LocalBackend(run.repo)
+        else:  # pragma: no cover - docker / ssh share the parent's backend
+            anchor.backend = SharedBackend(backend)  # type: ignore[assignment]
+        return anchor
 
     async def _conflict_hunks(self, run: TeamRun) -> str:
         """The conflicted diff, captured before ``git merge --abort`` erases it."""
@@ -683,6 +781,9 @@ class TeamManager:
         ]
         if row.conflict_hunks:
             parts.append(workflow_brief("team-conflict", HUNKS=row.conflict_hunks))
+        findings = run.review_findings.pop(row.id, "")
+        if findings:
+            parts.append(workflow_brief("team-review-fix", FINDINGS=findings))
         return "\n\n".join(parts)
 
     # -- status ---------------------------------------------------------
@@ -778,7 +879,10 @@ __all__ = [
     "MAX_TASKS",
     "MAX_WORKERS",
     "MIN_WORKERS",
+    "MAX_REVIEW_DIFF_CHARS",
     "PLAN_SYSTEM",
+    "REQUEST_CHANGES",
+    "REVIEW_AGENT",
     "WORKTREE_DIR",
     "GitResult",
     "PlannedTask",

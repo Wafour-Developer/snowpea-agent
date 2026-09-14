@@ -101,8 +101,29 @@ BUDGET_LINE = (
 )
 
 
+#: Characters of the normalised task text a fingerprint is taken over.  Two
+#: briefs that agree on their first paragraphs are the same delegation however
+#: they end (M15 §C2).
+FINGERPRINT_CHARS = 400
+
+#: Error a second, identical delegation gets while the first is still running.
+DUPLICATE_CODE = "duplicate_task"
+
+
 def new_agent_id() -> str:
     return f"a-{uuid.uuid4().hex[:12]}"
+
+
+def fingerprint(agent: str | None, task: str) -> str:
+    """The key two delegations are the same under: agent name + normalised task.
+
+    Whitespace is collapsed and case dropped so a re-issued brief that differs
+    only in wrapping still matches, and only the first
+    :data:`FINGERPRINT_CHARS` characters count: the head of a brief is what
+    says which job it is.
+    """
+    text = " ".join((task or "").split()).lower()[:FINGERPRINT_CHARS]
+    return f"{(agent or '').strip().lower()}\x00{text}"
 
 
 # ---------------------------------------------------------------------------
@@ -176,6 +197,8 @@ class SubagentRecord:
     #: the precedence chain (CORE-model-assignment).
     provider_override: str | None = None
     model_override: str | None = None
+    #: Key this delegation is deduplicated under while it runs (M15 §C2).
+    task_fingerprint: str = ""
     #: Where this child's progress is republished as ``tool.progress`` on the
     #: delegating tool call; set by ``delegate_task`` when a surface is
     #: listening, ``None`` otherwise (IDE-PROGRESS D2).
@@ -408,15 +431,38 @@ class SubagentManager:
         self, parent: Session, task: str, agent: str | None, title: str = ""
     ) -> SubagentRecord:
         """Register a queued record; its id is what ``agent.spawn`` answers."""
+        brief = (task or "").strip()
         record = SubagentRecord(
             agent_id=new_agent_id(),
             name=agent or "",
-            task=(task or "").strip(),
+            task=brief,
             parent_session_id=parent.id,
             title=(title or "").strip(),
+            task_fingerprint=fingerprint(agent, brief),
         )
         self._remember(record)
         return record
+
+    def duplicate_of(self, record: SubagentRecord) -> SubagentRecord | None:
+        """A sibling already running this very task, or ``None``.
+
+        One task, one agent: while a child is working, a second delegation of
+        the same brief under the same parent is refused rather than spawned,
+        because two children editing the same files is how a parent gets two
+        half-finished versions of one change (M15 §C2).
+        """
+        if not record.task_fingerprint:
+            return None
+        for other in self.records():
+            if other.agent_id == record.agent_id:
+                continue
+            if other.parent_session_id != record.parent_session_id:
+                continue
+            if other.status not in (QUEUED, RUNNING):
+                continue
+            if other.task_fingerprint == record.task_fingerprint:
+                return other
+        return None
 
     def spawn(
         self,
@@ -428,6 +474,7 @@ class SubagentManager:
         timeout: float | None = None,
         model: str | None = None,
         title: str = "",
+        force: bool = False,
     ) -> tuple[str, asyncio.Task[SubagentResult]]:
         """Start a subagent in the background; returns its id and its task.
 
@@ -445,6 +492,7 @@ class SubagentManager:
                 record=record,
                 model=model,
                 title=title,
+                force=force,
             )
         )
         return record.agent_id, runner
@@ -461,6 +509,7 @@ class SubagentManager:
         model: str | None = None,
         title: str = "",
         progress: ProgressEmitter | None = None,
+        force: bool = False,
     ) -> SubagentResult:
         """Delegate ``task`` to a child session and return its final answer.
 
@@ -472,8 +521,19 @@ class SubagentManager:
         brief = (task or "").strip()
         if record is None:
             record = self.new_record(parent, task, agent, title)
+        if not record.task_fingerprint:
+            record.task_fingerprint = fingerprint(agent, brief)
         if progress is not None:
             record.progress = progress
+        if not force:
+            running = self.duplicate_of(record)
+            if running is not None:
+                await self.emit_spawn(record)
+                return await self._refuse(
+                    record,
+                    f"{DUPLICATE_CODE}: {running.agent_id} is already working on this; "
+                    "wait for its report or change the task",
+                )
         if model:
             route = resolve_reference(
                 self.core.settings,
@@ -729,6 +789,8 @@ def get_manager(core: Core) -> SubagentManager:
 
 __all__ = [
     "BUDGET",
+    "DUPLICATE_CODE",
+    "FINGERPRINT_CHARS",
     "BUDGET_LINE",
     "COMPLETE",
     "DONE",
@@ -742,6 +804,7 @@ __all__ = [
     "SubagentManager",
     "SubagentRecord",
     "SubagentResult",
+    "fingerprint",
     "get_manager",
     "new_agent_id",
 ]

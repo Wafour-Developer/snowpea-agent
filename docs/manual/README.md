@@ -16,6 +16,7 @@ Start at [English](en/index.md) or [한국어](ko/index.md).
 | Commands | every slash command and CLI subcommand | [en](en/commands.md) | [ko](ko/commands.md) | [ja](ja/commands.md) | [zh-CN](zh-CN/commands.md) | [es](es/commands.md) |
 | Attachments and voice | images and files in a prompt, speech to text, text to speech, the audio tools | [en](en/voice.md) | [ko](ko/voice.md) | [ja](ja/voice.md) | [zh-CN](zh-CN/voice.md) | [es](es/voice.md) |
 | Plugins | Claude Code plugin format, SKILL.md, hooks, MCP servers (`/mcp`, `snowpea mcp`), marketplaces | [en](en/plugins.md) | [ko](ko/plugins.md) | [ja](ja/plugins.md) | [zh-CN](zh-CN/plugins.md) | [es](es/plugins.md) |
+| Agents and delegation | one task one agent, the built-in `explore` and `reviewer` agents, `/review`, team review | [en](en/agents.md) | [ko](ko/agents.md) | — | — | — |
 | Language servers | diagnostics after every edit, the seven `lsp_*` tools, per-server settings | [en](en/lsp.md) | [ko](ko/lsp.md) | — | — | — |
 | Scheduler | cron and natural-language jobs, delivery channels, unattended modes | [en](en/scheduler.md) | [ko](ko/scheduler.md) | [ja](ja/scheduler.md) | [zh-CN](zh-CN/scheduler.md) | [es](es/scheduler.md) |
 | Gateway | Telegram, Discord, Slack, named agents, unattended approvals | [en](en/gateway.md) | [ko](ko/gateway.md) | [ja](ja/gateway.md) | [zh-CN](zh-CN/gateway.md) | [es](es/gateway.md) |

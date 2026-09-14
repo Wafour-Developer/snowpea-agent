@@ -15,10 +15,11 @@ from typing import TYPE_CHECKING, Any
 
 from snowpea_core.agent.agent import reply_language
 from snowpea_core.agent.definition import builtin_agent_definitions
-from snowpea_core.agent.subagent import BUDGET, SubagentResult, get_manager
+from snowpea_core.agent.subagent import BUDGET, COMPLETE, SubagentResult, get_manager
 from snowpea_core.prompts import tool_descriptions as descriptions
 from snowpea_core.prompts.compose import language_name
 from snowpea_core.session.history import message_text
+from snowpea_core.tools.output_spill import spill
 from snowpea_core.tools.registry import Tool, ToolContext, ToolResult
 from snowpea_core.util.lang import DEFAULT_LANGUAGE, detect_language
 
@@ -103,6 +104,47 @@ def language_line(tag: str) -> str:
     return f"Answer in {language_name(tag)} ({tag}). Keep code, paths and commands as they are."
 
 
+#: Lines of a child's report kept inline before the rest is spilled to disk
+#: (M15 §C5).  A report is meant to be a dozen lines; one that runs to hundreds
+#: is a transcript, and pasting it into the parent is exactly the context flood
+#: delegation exists to avoid.
+REPORT_HEAD_LINES = 120
+REPORT_TAIL_LINES = 40
+
+#: One line of "what to do with this", keyed on why the child stopped.  The
+#: parent reads the reason before the report, so the instruction belongs next
+#: to it rather than in the tool description it read three turns ago.
+NEXT_STEPS: dict[str, str] = {
+    COMPLETE: (
+        "Next: check anything with an external effect yourself — this is the child's "
+        "own account of what it did — then answer the user in your own words."
+    ),
+    BUDGET: (
+        "This task is unfinished: the child used its whole tool-round budget. Next: "
+        "take what is done from the report and delegate only what is left, with a "
+        "narrower brief. Do not re-send this task."
+    ),
+    "timeout": (
+        "The child ran out of time, so the report is partial. Next: work out from the "
+        "last calls below how far it got, and either finish that part here or delegate "
+        "a smaller slice."
+    ),
+    "error": (
+        "The child failed. Next: read the error, fix what caused it (a missing path, a "
+        "bad agent name, a tool it was not given) and try once — do not re-delegate the "
+        "same brief unchanged."
+    ),
+    "interrupted": (
+        "The child was interrupted, so nothing here is final. Next: say so plainly, and "
+        "do not report its partial work as done."
+    ),
+    "denied": (
+        "The child was denied a permission it needed. Next: tell the user what was "
+        "blocked and what you need from them; do not retry it silently."
+    ),
+}
+
+
 #: Reasons whose report the parent has to read as partial: the child stopped
 #: for a reason of its own, not because the work was finished.
 PARTIAL_REASONS = frozenset({BUDGET, "timeout", "error", "interrupted", "denied"})
@@ -119,8 +161,10 @@ def render_report(result: SubagentResult) -> str:
     """The text the parent model reads: the header, the report, the last calls.
 
     The header is three plain lines rather than JSON so a small model reads it
-    as surely as a frontier one, and the report follows unchanged, because that
-    is what the parent is going to relay.
+    as surely as a frontier one.  A long report is head/tail trimmed through
+    the shared spill helper, with a ``read_file`` pointer to the whole thing on
+    disk, and one "next step" line closes it so the parent knows what this
+    reason asks of it.
     """
     head = [
         f"status: {result.status}",
@@ -128,18 +172,22 @@ def render_report(result: SubagentResult) -> str:
         f"roundsUsed: {result.rounds_used}",
     ]
     summary = (result.summary or "").strip()
+    if summary:
+        summary = spill(
+            summary,
+            head_lines=REPORT_HEAD_LINES,
+            tail_lines=REPORT_TAIL_LINES,
+            kind="report",
+        ).text
     parts = ["\n".join(head), summary or NO_REPORT]
     if result.error and result.error not in (result.summary or ""):
         parts.append(f"error: {result.error}")
     if result.last_calls and (not summary or result.reason in PARTIAL_REASONS):
         calls = "\n".join(f"- {call}" for call in result.last_calls)
         parts.append(f"The last tool calls it made:\n{calls}")
-    if result.reason == BUDGET:
-        parts.append(
-            "This task is unfinished: the child used its whole tool-round budget. "
-            "Use the report above and decide what still needs doing — do not simply "
-            "delegate the same task again."
-        )
+    hint = NEXT_STEPS.get(result.reason)
+    if hint:
+        parts.append(hint)
     return "\n\n".join(parts)
 
 
@@ -161,6 +209,7 @@ async def delegate_task(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         tools=_tool_list(args.get("tools")),
         timeout=_timeout(args.get("timeout")),
         model=str(args.get("model", "") or "").strip() or None,
+        force=bool(args.get("force", False)),
         # A delegation can run for minutes with nothing to show; the child's
         # own progress is republished on this call (IDE-PROGRESS D2).
         progress=ctx.progress,
@@ -211,6 +260,14 @@ TOOLS: tuple[Tool, ...] = (
                     "items": {"type": "string"},
                     "description": "Restrict the sub-agent to these tool names.",
                 },
+                "force": {
+                    "type": "boolean",
+                    "description": (
+                        "Run this even though an identical task is already in flight. "
+                        "Only for a deliberate best-of-N comparison; the default refuses "
+                        "a duplicate so two children never own the same work."
+                    ),
+                },
                 "timeout": {
                     "type": "number",
                     "description": "Seconds to wait before giving up on the sub-agent.",
@@ -234,6 +291,9 @@ TOOLS: tuple[Tool, ...] = (
 
 __all__ = [
     "BUILTIN_AGENT_HINT",
+    "NEXT_STEPS",
+    "REPORT_HEAD_LINES",
+    "REPORT_TAIL_LINES",
     "BUILTIN_AGENT_NAMES",
     "MAX_TIMEOUT",
     "NO_REPORT",
