@@ -522,14 +522,19 @@ async def test_install_clawhub_spec_downloads_via_registry(
     assert (target / "SKILL.md").exists()
 
 
-async def test_install_github_spec_falls_back_to_clone_on_501(
+async def test_install_github_spec_never_asks_the_registry(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    class _NotFetchableClient:
-        async def download(self, identifier: str, *, version: str | None = None) -> Any:
-            raise registry_client.RegistryNotFetchable("no archive for this hub")
+    """A ``github:`` spec bypasses the registry entirely (a Claude-marketplace
+    item's registry id is not its ``github:`` installSpec, so a registry
+    lookup for it always 404s — the bug behind the desktop Skills screen
+    failure installing ``github:anthropics/claude-code@frontend-design``)."""
 
-    monkeypatch.setattr(registry_client, "CLIENT", _NotFetchableClient())
+    class _ExplodingClient:
+        async def download(self, identifier: str, *, version: str | None = None) -> Any:
+            raise AssertionError(f"the registry must not be asked for {identifier!r}")
+
+    monkeypatch.setattr(registry_client, "CLIENT", _ExplodingClient())
 
     cloned: dict[str, Any] = {}
 
@@ -540,12 +545,93 @@ async def test_install_github_spec_falls_back_to_clone_on_501(
 
     monkeypatch.setattr(marketplace, "_clone", fake_clone)
     plugins_dir = tmp_path / "plugins"
-    target = await install("github:owner/repo@plugin", plugins_dir, tmp_path / "home")
+    target = await install("github:owner/repo", plugins_dir, tmp_path / "home")
     assert cloned["url"] == "https://github.com/owner/repo.git"
-    # The whole repo is cloned (a plugin subdir hint is not extracted, same
-    # simplification as the existing git-url "#subdir" form), so the target
-    # directory is named after the repo, not the plugin.
     assert target == plugins_dir / "repo"
+
+
+async def test_install_github_spec_with_plugin_installs_only_that_subdir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``@plugin`` installs just that plugin's directory out of the monorepo,
+    resolved from a locally registered marketplace pointed at the same repo —
+    this is the exact case from the bug report:
+    ``github:anthropics/claude-code@frontend-design``.
+    """
+
+    async def fake_clone(url: str, target: Path) -> None:
+        (target / "frontend-design").mkdir(parents=True, exist_ok=True)
+        (target / "frontend-design" / "SKILL.md").write_text(
+            "---\nname: frontend-design\n---\n", encoding="utf-8"
+        )
+        (target / "other-plugin").mkdir(parents=True, exist_ok=True)
+        (target / "other-plugin" / "SKILL.md").write_text(
+            "---\nname: other-plugin\n---\n", encoding="utf-8"
+        )
+
+    monkeypatch.setattr(marketplace, "_clone", fake_clone)
+
+    home = tmp_path / "home"
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "plugins": [
+                    {"name": "frontend-design", "source": "frontend-design"},
+                    {"name": "other-plugin", "source": "other-plugin"},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    marketplace.save_marketplaces(
+        home,
+        [
+            {
+                "name": "claude-code",
+                "url": str(manifest),
+                "repo": "https://github.com/anthropics/claude-code",
+            }
+        ],
+    )
+
+    plugins_dir = tmp_path / "plugins"
+    target = await install(
+        "github:anthropics/claude-code@frontend-design", plugins_dir, home
+    )
+    assert target == plugins_dir / "frontend-design"
+    assert (target / "SKILL.md").read_text(encoding="utf-8") == "---\nname: frontend-design\n---\n"
+    # Only the resolved subdir is installed — not the whole monorepo.
+    assert not (target / "other-plugin").exists()
+    assert list(plugins_dir.iterdir()) == [target]
+
+
+async def test_install_from_registry_404_falls_back_to_github_clone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A plain 404 (not just 501) is treated the same as "not fetchable" —
+    this is the ``_install_from_registry`` safety net, exercised directly
+    since ``install()`` no longer routes ``github:`` specs through it."""
+
+    class _NotFoundClient:
+        async def download(self, identifier: str, *, version: str | None = None) -> Any:
+            raise registry_client.RegistryError(
+                f"no skill named {identifier!r} on https://registry.snowpea.ai/v1"
+            )
+
+    monkeypatch.setattr(registry_client, "CLIENT", _NotFoundClient())
+
+    async def fake_clone(url: str, target: Path) -> None:
+        target.mkdir(parents=True, exist_ok=True)
+        (target / "SKILL.md").write_text("---\nname: repo\n---\n", encoding="utf-8")
+
+    monkeypatch.setattr(marketplace, "_clone", fake_clone)
+    plugins_dir = tmp_path / "plugins"
+    target = await marketplace._install_from_registry(
+        "github:owner/repo", plugins_dir, tmp_path / "home"
+    )
+    assert target == plugins_dir / "repo"
+    assert (target / "SKILL.md").exists()
 
 
 async def test_install_clawhub_spec_501_with_no_fallback_raises(
@@ -558,6 +644,22 @@ async def test_install_clawhub_spec_501_with_no_fallback_raises(
     monkeypatch.setattr(registry_client, "CLIENT", _NotFetchableClient())
     plugins_dir = tmp_path / "plugins"
     with pytest.raises(marketplace.InstallError, match="no archive"):
+        await install("clawhub:@cua/driver", plugins_dir, tmp_path / "home")
+
+
+async def test_install_clawhub_spec_404_message_names_what_was_tried(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``clawhub:``/``registry:`` specs have no git fallback, so the error is
+    the registry's own reason — not a generic "not found"."""
+
+    class _NotFoundClient:
+        async def download(self, identifier: str, *, version: str | None = None) -> Any:
+            raise registry_client.RegistryError(f"no skill named {identifier!r} on example")
+
+    monkeypatch.setattr(registry_client, "CLIENT", _NotFoundClient())
+    plugins_dir = tmp_path / "plugins"
+    with pytest.raises(marketplace.InstallError, match="no skill named"):
         await install("clawhub:@cua/driver", plugins_dir, tmp_path / "home")
 
 

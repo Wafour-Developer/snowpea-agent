@@ -16,6 +16,20 @@ my-plugin/
 
 `plugin.json` 대신 `.claude-plugin/plugin.json`도 받아들입니다. 마켓플레이스 저장소는 루트에 `plugins: [{name, source}]`를 나열하는 `marketplace.json`을 둡니다.
 
+## 스킬 만들기
+
+```bash
+/skill create <name> "<할 일>"
+/skill create pdf-merge "pdftk로 PDF를 합치되, 합치기 전에 각 파일이 유효한지 먼저 확인" --global
+/skill create notes "세션을 릴리즈 노트로 요약" --force
+```
+
+한 번의 provider 턴이 완전한 `SKILL.md`를 씁니다 — frontmatter(`name`, `description`, `version`)에 "When to use this" / "Procedure" / "Inputs" / "Checks" 본문까지, `/skill learn`이나 직접 설치한 플러그인이 쓰는 것과 같은 agentskills.io / Claude Code 형식입니다 — 그리고 아무것도 쓰기 전에 데몬이 frontmatter를 스스로 검증합니다(`/skill publish`가 돌리는 것과 같은 검사). 결과는 `<project>/.snowpea/skills/<name>/SKILL.md`에 놓이고, `--global`을 주면 대신 `$SNOWPEA_HOME/skills/<name>/SKILL.md`에 써서 모든 프로젝트에서 쓸 수 있게 합니다. 대상에 이미 `SKILL.md`가 있으면 `--force` 없이는 그대로 두고 손대지 않습니다. plan 모드는 무엇을 만들거나 덮어쓸지만 보고하고 아무것도 쓰지 않습니다. 파일이 놓이는 즉시 레지스트리가 재적재되므로 `/<name>`이 바로 동작합니다 — 설치와 마찬가지로 재시작이 필요 없습니다.
+
+`/skill learn [name]`은 또 다른 생성기입니다: 브리프 대신 방금 끝낸 세션을 같은 레이아웃의 `SKILL.md`로 요약합니다.
+
+데스크톱 앱의 편집기는 `skill.create`(직접 쓴 문서를 저장하려면 `content`를, 같은 생성 턴을 돌려 `turnId`를 받으려면 `description`을 넘김), `skill.read`, `skill.write`를 씁니다 — 폼 기반 스킬 편집기를 위한 같은 경로의 RPC 버전입니다.
+
 ## 설치
 
 ```bash
@@ -63,7 +77,7 @@ snowpea skill publish ./my-skill                 # 압축 + 검증 + 업로드
 snowpea skill rate ralplan 5 --comment "좋아요"   # 1-5점, 호출자당 하나
 ```
 
-`skill install`은 검색 결과가 내놓는 어떤 설치 스펙이든 받아들입니다 — 로컬에 배포된 스킬이면 `registry:<id>`, 연합된 허브의 스펙이면 `clawhub:<id>`나 `github:<owner>/<repo>[@plugin]` 같은 형태이며, 모두 레지스트리 자체의 다운로드 프록시로 풀립니다. `github:` 스펙은 그 허브에 내려받을 아카이브가 없어 레지스트리가 처리하지 못할 때(501) 순수 `git clone`으로 대체됩니다. 다른 연합 스펙은 이런 대체 수단이 없어 레지스트리가 알려준 이유가 그대로 나타납니다.
+`skill install`은 검색 결과가 내놓는 어떤 설치 스펙이든 받아들입니다. `registry:<id>`(로컬에 배포된 스킬)와 `clawhub:<id>`는 레지스트리 자체의 다운로드 프록시로 풀립니다. `github:<owner>/<repo>[@plugin]`(레지스트리가 미러링하는 Claude Code 마켓플레이스 항목에 대해 돌려주는 형태)은 대신 곧바로 `git clone`됩니다 — 이 스펙은 레지스트리 id와 같은 문자열이 아니라서, 레지스트리에 다운로드를 요청하면 항상 404가 나기 때문입니다. `@plugin`이 없으면 저장소 전체를 클론하고, 있으면 그 플러그인의 디렉터리만 설치합니다 — 같은 저장소를 가리키는 로컬에 등록된 마켓플레이스에서, 그마저 없으면 GitHub의 저장소 자체 `marketplace.json`에서 그 위치를 찾습니다. 결과의 `id`(`skill search --json`에 표시됨)를 그대로 쓸 수도 있습니다 — 로컬에 배포된 사본을 id로 바로 설치하려면 `skill install registry:<id>`.
 
 `publish`는 `<dir>/SKILL.md`를 읽어 프런트매터를 로컬에서 먼저 검사합니다
 (`name`은 `^[a-z0-9][a-z0-9._-]{1,63}$`를 만족해야 하고, `description`은

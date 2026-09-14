@@ -16,6 +16,20 @@ my-plugin/
 
 `.claude-plugin/plugin.json` is accepted in place of `plugin.json`. A marketplace repository adds a `marketplace.json` at its root listing `plugins: [{name, source}]`.
 
+## Creating a skill
+
+```bash
+/skill create <name> "<what it should do>"
+/skill create pdf-merge "merge PDF files with pdftk, checking each one is valid first" --global
+/skill create notes "summarise a session into release notes" --force
+```
+
+One provider turn writes a complete `SKILL.md` — frontmatter (`name`, `description`, `version`) plus a "When to use this" / "Procedure" / "Inputs" / "Checks" body, in the same agentskills.io / Claude Code format `/skill learn` and a hand-installed plugin both use — and the daemon validates the frontmatter itself (the same check `/skill publish` runs) before writing anything. It lands at `<project>/.snowpea/skills/<name>/SKILL.md`; add `--global` to write `$SNOWPEA_HOME/skills/<name>/SKILL.md` instead, so it is available to every project. An existing `SKILL.md` at the target is left alone unless `--force` is given. Plan mode reports what it would create or overwrite and writes nothing. The registry reloads once the file lands, so `/<name>` works immediately — no restart, same as an install.
+
+`/skill learn [name]` is the other generator: instead of a brief, it summarises the session you just finished into a `SKILL.md` under the same layout.
+
+The desktop app's editor uses `skill.create` (with `content` to save a hand-written document directly, or `description` to run the same generating turn and hand back a `turnId`), `skill.read` and `skill.write` — the RPC equivalents of the same paths, for a form-based skill editor.
+
 ## Installing
 
 ```bash
@@ -64,7 +78,7 @@ snowpea skill publish ./my-skill                 # zip + validate + upload
 snowpea skill rate ralplan 5 --comment "great"   # 1-5 stars, one per caller
 ```
 
-`skill install` accepts any install spec a search hit hands back — `registry:<id>` for a locally published skill, or a federated spec like `clawhub:<id>` or `github:<owner>/<repo>[@plugin]` — resolving it through the registry's own download proxy. A `github:` spec falls back to a plain `git clone` when the registry cannot serve an archive for it (its hub carries no downloadable body); other federated specs have no such fallback and surface the registry's reason instead.
+`skill install` accepts any install spec a search hit hands back. `registry:<id>` (a locally published skill) and `clawhub:<id>` resolve through the registry's own download proxy. `github:<owner>/<repo>[@plugin]` (what the registry hands back for a mirrored Claude Code marketplace item) is cloned directly with `git clone` instead — its registry id is not the same string as this spec, so asking the registry to download it would always 404. With no `@plugin` the whole repo is cloned; with one, only that plugin's directory is installed, resolved from a locally registered marketplace pointed at the same repo or, failing that, straight from the repo's own `marketplace.json` on GitHub. A hit's `id` (shown by `skill search --json`) is also always available if you would rather install a locally-published copy by id directly: `skill install registry:<id>`.
 
 `publish` reads `<dir>/SKILL.md`, checks its frontmatter locally (`name` must
 match `^[a-z0-9][a-z0-9._-]{1,63}$`, `description` must be 8-500 characters —

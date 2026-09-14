@@ -26,10 +26,12 @@ contributes nothing and never fails the search as a whole.
 
 ``skill.install(source)`` accepts a local path, a git URL,
 ``<marketplace>/<plugin>``, the ``oh-my-claudecode`` shortcut, or any
-registry-issued install spec (``registry:<id>``, ``clawhub:<id>``,
-``github:<owner>/<repo>[@plugin]``, ...) — the last group resolved through the
-registry's own generic download proxy, with a ``git clone`` fallback for
-``github:`` specs the registry cannot serve (501).
+registry-issued install spec: ``registry:<id>`` and ``clawhub:<id>`` resolve
+through the registry's generic download proxy; ``github:<owner>/<repo>[@plugin]``
+goes straight to ``git clone`` and is never asked of the registry at all — a
+Claude-marketplace item's registry ``id`` (e.g. ``claude-marketplaces:...``) is
+not the same string as its ``github:`` installSpec, so a registry lookup for
+the latter always 404s.
 """
 
 from __future__ import annotations
@@ -38,6 +40,7 @@ import asyncio
 import json
 import logging
 import shutil
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -435,8 +438,11 @@ async def install(source: str, plugins_dir: Path, home: Path | str) -> Path:
         await _clone(url, target)
         return target
 
+    if spec.startswith("github:"):
+        return await _install_github_spec(spec, plugins_dir, home)
+
     if _has_external_scheme(spec):
-        return await _install_from_registry(spec, plugins_dir)
+        return await _install_from_registry(spec, plugins_dir, home)
 
     if "/" in spec:
         resolved = await resolve_marketplace_entry(spec, home)
@@ -474,11 +480,18 @@ def _has_external_scheme(spec: str) -> bool:
 MAX_EXTRACTED_BYTES = 100 * 1024 * 1024
 
 
-async def _install_from_registry(spec: str, plugins_dir: Path) -> Path:
-    """Any registry install spec — ``registry:<id>``, ``clawhub:<id>``,
-    ``github:<owner>/<repo>[@plugin]``, ... — via the registry's generic
-    download proxy, falling back to ``git clone`` for a ``github:`` spec the
-    registry answers 501 (cannot fetch) for.
+async def _install_from_registry(spec: str, plugins_dir: Path, home: Path | str) -> Path:
+    """``registry:<id>`` or ``clawhub:<id>`` — via the registry's generic
+    download proxy.
+
+    ``github:`` specs never reach here in the normal ``install()`` flow (see
+    ``_install_github_spec``, called first): a Claude-marketplace item's
+    registry ``id`` (``claude-marketplaces:...``) is not the same string as
+    its ``github:`` installSpec, so asking the registry to download the
+    installSpec 404s every time. The ``_fallback_install`` call below stays
+    as a safety net in case a ``github:`` spec reaches here some other way —
+    a 404 is treated exactly like a 501 (``RegistryNotFetchable`` is a
+    ``RegistryError``), since either way the registry could not serve a zip.
     """
     from snowpea_core.skills import registry_client
 
@@ -490,13 +503,16 @@ async def _install_from_registry(spec: str, plugins_dir: Path) -> Path:
         client = registry_client.HttpRegistryClient(registry_client.resolve_url())
     try:
         downloaded = await client.download(spec)  # type: ignore[union-attr]
-    except registry_client.RegistryNotFetchable as exc:
-        fallback = await _fallback_install(spec, plugins_dir)
+    except registry_client.RegistryError as registry_exc:
+        try:
+            fallback = await _fallback_install(spec, plugins_dir, home)
+        except Exception as clone_exc:  # noqa: BLE001 - reported alongside the registry failure
+            raise InstallError(
+                f"{spec}: registry: {registry_exc}; git clone: {clone_exc}"
+            ) from clone_exc
         if fallback is not None:
             return fallback
-        raise InstallError(f"{spec}: {exc}") from exc
-    except registry_client.RegistryError as exc:
-        raise InstallError(f"{spec}: {exc}") from exc
+        raise InstallError(f"{spec}: {registry_exc}") from registry_exc
     except Exception as exc:  # noqa: BLE001 - network/timeout errors, reported the same way
         raise InstallError(f"{spec}: {exc}") from exc
 
@@ -513,20 +529,108 @@ async def _install_from_registry(spec: str, plugins_dir: Path) -> Path:
     return target
 
 
-async def _fallback_install(spec: str, plugins_dir: Path) -> Path | None:
-    """``github:<owner>/<repo>[@plugin]`` clones the repo directly when the
-    registry cannot serve a zip for it (501). Any other scheme has no
-    client-side fallback, so ``None`` tells the caller to surface the 501.
-    """
+async def _fallback_install(spec: str, plugins_dir: Path, home: Path | str) -> Path | None:
+    """A ``github:`` spec has a client-side fallback (git clone); anything
+    else has none, so ``None`` tells the caller to surface the registry's
+    reason as-is."""
     if not spec.startswith("github:"):
         return None
-    repo_spec = spec[len("github:") :].partition("@")[0]
+    return await _install_github_spec(spec, plugins_dir, home)
+
+
+#: Where a monorepo marketplace's own manifest usually lives, checked in order.
+GITHUB_MARKETPLACE_PATHS: tuple[str, ...] = (
+    ".claude-plugin/marketplace.json",
+    "marketplace.json",
+)
+
+
+async def _install_github_spec(spec: str, plugins_dir: Path, home: Path | str) -> Path:
+    """``github:<owner>/<repo>[@plugin]`` — cloned directly, never through the
+    registry (see the note on :func:`_install_from_registry`).
+
+    With no ``@plugin`` the whole repo is cloned, named after the repo (the
+    same simplification a plain git URL already makes). With ``@plugin``,
+    only that plugin's directory is installed — its subdirectory is resolved
+    from a locally registered marketplace pointed at the same repo, or
+    failing that, straight from the repo's own ``marketplace.json`` /
+    ``.claude-plugin/marketplace.json`` on GitHub.
+    """
+    rest = spec[len("github:") :]
+    repo_spec, _, plugin = rest.partition("@")
+    repo_spec = repo_spec.strip()
     if not repo_spec:
-        return None
+        raise InstallError(f"{spec}: expected github:<owner>/<repo>[@plugin]")
     url = f"https://github.com/{repo_spec}.git"
-    target = plugins_dir / plugin_name_from(repo_spec)
-    await _clone(url, target)
+
+    if not plugin:
+        target = plugins_dir / plugin_name_from(repo_spec)
+        await _clone(url, target)
+        return target
+
+    subdir = await _github_plugin_subdir(repo_spec, plugin, home)
+    target = plugins_dir / plugin
+    await _clone_subdir(url, subdir, target)
     return target
+
+
+async def _github_plugin_subdir(repo_spec: str, plugin: str, home: Path | str) -> str | None:
+    """``plugin``'s subdirectory inside ``repo_spec``'s marketplace.json, or
+    ``None`` when no entry names it (install the whole repo instead)."""
+    repo_url = f"https://github.com/{repo_spec}"
+    for entry in load_marketplaces(home):
+        if str(entry.get("repo", "")).rstrip("/") != repo_url:
+            continue
+        subdir = await _find_plugin_source(entry.get("url", ""), plugin)
+        if subdir is not None:
+            return subdir
+    for branch in ("main", "master"):
+        for path in GITHUB_MARKETPLACE_PATHS:
+            manifest_url = f"https://raw.githubusercontent.com/{repo_spec}/{branch}/{path}"
+            subdir = await _find_plugin_source(manifest_url, plugin)
+            if subdir is not None:
+                return subdir
+    return None
+
+
+async def _find_plugin_source(manifest_url: str, plugin: str) -> str | None:
+    """``plugin``'s ``source`` field in the ``marketplace.json`` at
+    ``manifest_url``, or ``None`` when the manifest is unreachable or has no
+    such entry — either way, the caller tries the next candidate."""
+    if not manifest_url:
+        return None
+    try:
+        payload = await FETCHER.get_json(manifest_url)
+    except Exception:  # noqa: BLE001 - an unreachable manifest just means "try the next one"
+        return None
+    for item in _items(payload):
+        if str(item.get("name") or "") == plugin:
+            return str(item.get("source") or "").strip() or None
+    return None
+
+
+async def _clone_subdir(url: str, subdir: str | None, target: Path) -> None:
+    """Clone ``url`` and install only ``subdir`` at ``target``; the whole repo
+    when ``subdir`` is falsy — "no marketplace.json named it" still has to
+    install *something* rather than nothing."""
+    if not subdir:
+        await _clone(url, target)
+        return
+    with tempfile.TemporaryDirectory(prefix="snowpea-clone-") as tmp:
+        checkout = (Path(tmp) / "repo").resolve()
+        await _clone(url, checkout)
+        cleaned = subdir.strip("/").replace("\\", "/")
+        if not cleaned or "\x00" in cleaned or any(part == ".." for part in cleaned.split("/")):
+            raise InstallError(f"{url}#{subdir}: unsafe subdirectory")
+        source_dir = (checkout / cleaned).resolve()
+        if source_dir != checkout and checkout not in source_dir.parents:
+            raise InstallError(f"{url}#{subdir}: unsafe subdirectory")
+        if not source_dir.is_dir():
+            raise InstallError(f"{url}#{subdir}: no such directory in the repo")
+        if target.exists():
+            shutil.rmtree(target)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(source_dir, target)
 
 
 def _name_from_spec(spec: str) -> str:
