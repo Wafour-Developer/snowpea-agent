@@ -22,6 +22,10 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.server.app_server import Core
     from snowpea_core.session.session import Session
 
+#: Commands that write a project instruction file, so the cached environment
+#: block is stale the moment they finish (CORE-context-files).
+CONTEXT_WRITING_COMMANDS: frozenset[str] = frozenset({"init", "deepinit", "skill"})
+
 log = logging.getLogger("snowpea.commands")
 
 
@@ -148,6 +152,14 @@ class CommandRegistry:
             return turn_id
         finally:
             session.current_turn = None
+            # ``/init``, ``/deepinit`` and ``/skill create`` all leave a new
+            # instruction file on disk.  Without this the very next turn still
+            # runs on the environment block cached before the command
+            # (CORE-context-files).
+            if name in CONTEXT_WRITING_COMMANDS:
+                from snowpea_core.agent.agent import invalidate_environment
+
+                invalidate_environment()
         if not ctx.handled_turn:
             await core.hub.emit_event(session.id, events.turn_done(turn_id, "complete"))
         return turn_id
@@ -166,6 +178,7 @@ def register_builtin_commands(registry: CommandRegistry) -> CommandRegistry:
         delegate_cmd,
         init_cmd,
         mcp_cmd,
+        memory_cmd,
         mode_cmd,
         model_cmd,
         ralph,
@@ -179,6 +192,7 @@ def register_builtin_commands(registry: CommandRegistry) -> CommandRegistry:
     for command in (
         *COMMANDS,
         *mcp_cmd.COMMANDS,
+        *memory_cmd.COMMANDS,
         *mode_cmd.COMMANDS,
         *model_cmd.COMMANDS,
         *backend_cmd.COMMANDS,

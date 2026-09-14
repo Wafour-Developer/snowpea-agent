@@ -373,9 +373,34 @@ snowpea setup --gateway telegram --token 123456:ABC-your-bot-token
 
 이 명령은 토큰을 `$SNOWPEA_HOME/credentials.json`(권한 `0600`)에 저장할 뿐, 그 이상은 하지 않습니다 — 봇을 에이전트나 세션에 바인딩하는 것은 별도 단계이며 [게이트웨이](gateway.md)에서 다룹니다.
 
+## 프로젝트 지시 파일
+
+프로젝트는 자기 규칙을 파일로 알려주고, 에이전트는 매 턴 그것을 읽습니다. 탐색 순서는 Hermes와 같고 **먼저 발견된 한 종류만** 읽습니다 — 두 가지 관례를 함께 쓰는 저장소가 값을 두 번 치르지 않게 하기 위함입니다.
+
+1. `.snowpea/instructions.md` 또는 `SNOWPEA.md` — 가까운 것부터, git 루트까지 거슬러 올라가며.
+2. `AGENTS.md` 체인 — git 루트에서 세션 디렉터리까지 내려오며, 디렉터리마다 `AGENTS.override.md`·`AGENTS.md`·`agents.md` 중 첫 번째. `.override.` 이름은 gitignore 하라고 있는 것으로, 커밋된 파일을 건드리지 않고 개인 지시를 옆에 둘 수 있습니다. 아래쪽에서 내용이 같으면 한 번만 읽습니다.
+3. 세션 디렉터리의 `CLAUDE.md` 또는 `claude.md`.
+4. 세션 디렉터리의 `.cursorrules`와 `.cursor/rules/*.mdc`.
+
+`.git` 조상이 없으면 체인은 세션 디렉터리 하나뿐입니다. `/tmp`나 홈 디렉터리에 놓인 파일이 프롬프트 권위를 얻는 일은 없습니다.
+
+크기. 파일 하나가 프롬프트에 들어가는 양은 `clamp(컨텍스트 윈도우 × 4 × 0.06, 20 000, 500 000)`자이며 — 작은 로컬 모델에서는 20 000자, 큰 모델에서는 훨씬 많습니다 — 합쳐진 블록도 같은 값으로 제한됩니다. 잘린 파일은 앞부분과 뒷부분을 남기고 그 사이에 어떤 파일을 `read_file` 하면 되는지 알려주는 표시가 들어가며, 블록 끝에 잘렸다는 사실이 문장으로도 적힙니다. `agent.contextFileMaxChars`로 값을 고정하거나 `agent.ignoreContextFiles`로 전부 끌 수 있습니다.
+
+중첩 파일. `/deepinit`은 디렉터리마다 `AGENTS.md`를 쓰는데 세션은 평생 저장소 루트에 앉아 있으므로 체인만으로는 그 파일들에 닿지 않습니다. 그래서 예산이 허락하는 만큼 미리 각자의 섹션으로 실립니다 — 그 프로젝트에서 새로 연 대화도, 이어받은 세션도, 같은 디렉터리의 서브에이전트도 처음부터 계층 전체를 가지고 있습니다. 탐색은 4단계까지, 최대 40개이며 `.git`·`node_modules`·`.venv`·`dist`·`build`·`__pycache__`와 숨김 디렉터리는 지나갑니다.
+
+들어가지 못한 것은 이름만 알려줍니다.
+
+```text
+Nested instructions not loaded (read_file when you work there): src/AGENTS.md, test/AGENTS.md
+```
+
+그리고 그 디렉터리를 실제로 건드리는 첫 툴 결과에 가장 가까운 파일이 덧붙습니다 — 그 안의 파일을 읽거나 쓰거나 고칠 때, 목록을 볼 때, glob·grep할 때, 셸 명령이 `cd`로 들어갈 때입니다. 세션당 한 번이고, 이미 프롬프트에 인용된 파일에는 붙지 않습니다.
+
+변경은 즉시 반영됩니다. 깊이에 상관없이 이 파일들을 쓰거나 고치면 캐시된 프롬프트가 버려지고, `/init`·`/deepinit`·`/skill create`가 끝날 때도 마찬가지입니다 — 바로 다음 턴이 방금 쓴 내용을 봅니다.
+
 ## 디스크에 남는 것
 
-`$SNOWPEA_HOME/settings.json`에는 `providers`, `search.provider`, `browser.provider`, `tools.enabled_categories`, `gateway`, `agents.max_concurrent`(3), `team.max_conflict_retries`(2), `approvals.timeoutSec`(300), `agent.max_tokens`(16384), `agent.thinking`(`auto`), `memory.enabled`(true)가 담깁니다. 모드·allowlist·백엔드에 대한 프로젝트별 오버라이드는 `<project>/.snowpea/settings.json`에 있고 전역 파일보다 우선합니다. 비밀값은 `settings.json`에 절대 쓰이지 않고, 로그에도 남지 않습니다.
+`$SNOWPEA_HOME/settings.json`에는 `providers`, `search.provider`, `browser.provider`, `tools.enabled_categories`, `gateway`, `agents.max_concurrent`(3), `team.max_conflict_retries`(2), `approvals.timeoutSec`(300), `agent.max_tokens`(16384), `agent.thinking`(`auto`), `memory.enabled`(true), `memory.askScope`(true), `memory.digestEntries`(30), `memory.digestChars`(6000)가 담깁니다. 모드·allowlist·백엔드에 대한 프로젝트별 오버라이드는 `<project>/.snowpea/settings.json`에 있고 전역 파일보다 우선합니다. 비밀값은 `settings.json`에 절대 쓰이지 않고, 로그에도 남지 않습니다.
 
 ## 다음
 

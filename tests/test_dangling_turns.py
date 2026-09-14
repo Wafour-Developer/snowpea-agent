@@ -91,8 +91,12 @@ async def test_stopping_mid_turn_writes_exactly_one_interrupted_turn_done(
     assert done[0]["payload"]["turnId"] == turn_id
     assert done[0]["payload"]["reason"] == "interrupted"
     assert done[0]["payload"]["synthetic"] is True
-    # The log ends idle: nothing follows the close.
-    assert events[-1]["kind"] == "turn.done"
+    # The log ends idle: the turn is closed and nothing reopens it.  Not
+    # "turn.done is the very last event" — the cancelled turn task can still
+    # land the `message.user` it was about to write before it is torn down,
+    # and an event after a terminal one is the client's cue to ignore it.
+    kinds = [event["kind"] for event in events]
+    assert "turn.started" not in kinds[kinds.index("turn.done") :][1:]
 
 
 async def test_a_restart_after_a_stop_mid_turn_adds_nothing(
