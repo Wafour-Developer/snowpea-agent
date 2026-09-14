@@ -430,6 +430,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     home: str | None = args.home
 
     try:
+        if args.subcommand == "init":
+            # Reuses the headless path `-c` uses: a session in --cwd (or the
+            # current directory), one turn, deterministic exit codes. The
+            # subcommand is just `/init [--force]` typed for you.
+            args.prompt = "/init" + (" --force" if getattr(args, "force", False) else "")
+            return asyncio.run(run_headless(args, home))
         if args.subcommand:
             return asyncio.run(cli_commands.dispatch(args, home))
         if args.prompt is not None:

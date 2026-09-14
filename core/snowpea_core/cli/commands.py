@@ -2066,6 +2066,13 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
     agents_parser = sub.add_parser("agents", help="list agent definitions and running subagents")
     agents_parser.add_argument("--json", dest="sub_json", action="store_true", help="emit JSON")
 
+    init_parser = sub.add_parser(
+        "init", help="write a fast, rough AGENTS.md for the project in --cwd (or the cwd)"
+    )
+    init_parser.add_argument(
+        "--force", action="store_true", help="rewrite AGENTS.md from scratch instead of merging"
+    )
+
     team = sub.add_parser("team", help="inspect a parallel worktree team run")
     team_sub = team.add_subparsers(dest="action", metavar="<action>")
     team_status_parser = team_sub.add_parser("status", help="show a team's task board")

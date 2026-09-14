@@ -47,6 +47,7 @@ These are answered by the terminal UI itself rather than by the core, so they do
 |---|---|
 | `/ralph <task>` | PRD loop: stories with acceptance criteria, implement, verify, review until APPROVE |
 | `/ultrawork <task>` | split into independent parts, run them on concurrent subagents, merge the reports |
+| `/init [--force]` | fast, rough `AGENTS.md` for the project root, in one turn; merges into an existing file unless `--force` |
 | `/deepinit [path]` | walk the repository and write hierarchical `AGENTS.md` files |
 | `/team <n> <task>` | n workers, one git worktree each, branches merged as tasks finish |
 | `/team create <name> <agent...>` | create a project team from existing agents and activate it |
@@ -56,6 +57,8 @@ These are answered by the terminal UI itself rather than by the core, so they do
 | `/ralplan <task>` | consensus planning — planner, architect and critic argue before any code is written |
 
 `/ralph` keeps its state in `<project>/.snowpea/ralph/` as `prd.json` and `progress.md`, so you can read what it thinks it is doing, and it stops at `ralph.max_iterations` (10) if it cannot converge. `/ultrawork` and `/deepinit` fan out under `agents.max_concurrent` (3 by default). The last three are `SKILL.md` files under `core/snowpea_core/builtin_skills/`, loaded by the same loader your own skills use — read them, copy them, change them.
+
+`/init` is `/deepinit`'s fast sibling: one main-agent turn, no subagents, at most a handful of tool calls, in the spirit of Claude Code's own `/init`. It also creates `<project>/.snowpea/settings.json` with `defaultMode: "accept"` when the project has no settings file yet — but never touches one that already exists. In plan mode it only reports what it would write.
 
 ### Generators
 
@@ -87,6 +90,15 @@ snowpea daemon status --json
 ```
 
 `tools list` and `commands list` call one RPC method each and exit. They create no session and call no model, which makes them the right smoke test after an install or in CI. `tools list` also prints the backing provider for the tools that have one, so `web_search` shows the search provider that would actually answer.
+
+### Project init
+
+```bash
+snowpea init
+snowpea init --force
+```
+
+Starts a session in the current directory (or wherever you run it from) and runs `/init` — see [Work](#work) above — as one headless turn, the same path `snowpea -c` uses. See [Headless](headless.md) for the exit codes.
 
 ### Context
 
@@ -218,6 +230,7 @@ Because the registry lives in the core, a slash command is a valid headless prom
 ```bash
 snowpea -c "/ralph add a failing test then make it pass" --mode auto
 snowpea -c "/deepinit" --json
+snowpea -c "/init --force" --json
 ```
 
 The CLI does not parse it. It hands the text to the core, which dispatches it exactly as the TUI would.

@@ -47,6 +47,7 @@ snowpea commands list --json
 |---|---|
 | `/ralph <task>` | PRD 루프: 수용 기준이 붙은 스토리를 쓰고, 구현하고, 검증하고, APPROVE가 나올 때까지 리뷰 |
 | `/ultrawork <task>` | 독립적인 조각으로 쪼개 동시 서브에이전트에 돌리고 보고서를 합침 |
+| `/init [--force]` | 프로젝트 루트에 빠르고 거친 `AGENTS.md`를 한 턴에 작성; 기존 파일이 있으면 `--force` 없이는 병합 |
 | `/deepinit [path]` | 저장소를 훑어 계층적 `AGENTS.md` 파일을 작성 |
 | `/team <n> <task>` | 작업자 n명에게 각각 git worktree를 주고 태스크가 끝나는 대로 브랜치를 병합 |
 | `/team create <name> <agent...>` | 기존 에이전트로 프로젝트 팀을 만들고 즉시 활성화 |
@@ -56,6 +57,8 @@ snowpea commands list --json
 | `/ralplan <task>` | 합의 기반 계획 — 코드를 쓰기 전에 planner, architect, critic이 논쟁 |
 
 `/ralph`는 자신의 상태를 `<project>/.snowpea/ralph/`에 `prd.json`과 `progress.md`로 남기므로 지금 무엇을 하고 있다고 생각하는지 읽을 수 있고, 수렴하지 못하면 `ralph.max_iterations`(10)에서 멈춥니다. `/ultrawork`와 `/deepinit`은 `agents.max_concurrent`(기본 3) 안에서 흩어집니다. 마지막 세 개는 `core/snowpea_core/builtin_skills/` 아래의 `SKILL.md` 파일이고, 여러분의 스킬을 읽는 것과 같은 로더로 읽힙니다 — 읽고, 복사하고, 고치세요.
+
+`/init`은 `/deepinit`의 빠른 버전입니다: 서브에이전트 없이 메인 에이전트 턴 하나, 도구 호출도 몇 번 정도로 — Claude Code 자체의 `/init`과 같은 정신입니다. 프로젝트에 설정 파일이 아직 없으면 `<project>/.snowpea/settings.json`을 `defaultMode: "accept"`로 만들지만, 이미 있으면 손대지 않습니다. plan 모드에서는 무엇을 쓸지 보고만 합니다.
 
 ### 생성기
 
@@ -87,6 +90,15 @@ snowpea daemon status --json
 ```
 
 `tools list`와 `commands list`는 각각 RPC 메서드 하나를 호출하고 끝납니다. 세션을 만들지도 모델을 부르지도 않으므로, 설치 직후나 CI에서 쓰기 좋은 스모크 테스트입니다. `tools list`는 뒷단 제공자가 있는 도구에는 그 제공자도 함께 출력하므로, `web_search`에서는 실제로 응답할 검색 제공자를 볼 수 있습니다.
+
+### 프로젝트 초기화
+
+```bash
+snowpea init
+snowpea init --force
+```
+
+현재 디렉터리(또는 실행한 위치)에 세션을 열고 `/init`을 — 위 [작업](#작업) 참고 — `snowpea -c`와 같은 경로로 한 번의 헤드리스 턴으로 돌립니다. 종료 코드는 [헤드리스](headless.md)를 참고하세요.
 
 ### 컨텍스트
 
@@ -218,6 +230,7 @@ snowpea service uninstall
 ```bash
 snowpea -c "/ralph add a failing test then make it pass" --mode auto
 snowpea -c "/deepinit" --json
+snowpea -c "/init --force" --json
 ```
 
 CLI는 이를 파싱하지 않습니다. 텍스트를 그대로 코어에 넘기고, 코어는 TUI가 하는 것과 똑같이 처리합니다.

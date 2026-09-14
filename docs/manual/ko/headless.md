@@ -33,6 +33,13 @@ snowpea -c "/ralph add a failing test then make it pass" --mode auto
 snowpea -c "/deepinit"
 ```
 
+`snowpea init [--force]`는 바로 이것의 지름길입니다: `--cwd`(또는 현재 디렉터리)에 세션을 열고 `/init`을 한 번의 헤드리스 턴으로 돌립니다. 즉 `snowpea init`과 `snowpea -c "/init"`은 같은 일을 합니다.
+
+```bash
+snowpea init
+snowpea init --force
+```
+
 ## 저장된 세션 이어가기
 
 `-c`는 보통 새 세션을 엽니다. `--resume`은 이미 있는 세션을 이어갑니다. TUI의 `/resume`에 해당하는 헤드리스 쪽 기능으로, 저장된 대화 기록을 다시 불러온 뒤 그 뒤에 프롬프트를 덧붙입니다.
