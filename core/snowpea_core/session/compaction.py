@@ -21,7 +21,7 @@ to would leave the model answering a call it can no longer see.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 from snowpea_core.agent.agent import build_messages
@@ -46,6 +46,102 @@ SUMMARY_MAX_TOKENS = 2048
 SUMMARY_HEADING = "Session summary"
 
 SUMMARY_SYSTEM_PROMPT = load("workflows/compaction")
+
+#: The one canonical prune signal.  Emit sites and presence checks share it, so
+#: a re-injection can never fire on a marker that actually survived (M15 §B3,
+#: ported from hermes ``context_compressor.SKILL_PRUNED_MARKER_PREFIX``).
+SKILL_PRUNED_PREFIX = "[SKILL_PRUNED:"
+
+#: A skill body under this many characters is cheap enough to summarise
+#: normally; only the big ones are worth replacing with a pointer.
+SKILL_VIEW_PRUNE_MIN_CHARS = 5000
+
+#: Turns whose ``skill_view`` results survive a compaction intact when settings
+#: say nothing — a skill loaded moments ago is what the model is acting on.
+DEFAULT_PROTECT_RECENT_VIEWS = 2
+
+
+def skill_pruned_marker(name: str) -> str:
+    """What replaces a pruned ``skill_view`` body, verbatim everywhere."""
+    return (
+        f"{SKILL_PRUNED_PREFIX} content lost in compaction; "
+        f'reload with skill_view(name="{name}")]'
+    )
+
+
+def _protect_recent_views(core: Core) -> int:
+    skills = getattr(core.settings, "skills", None)
+    value = getattr(skills, "protectRecentViews", DEFAULT_PROTECT_RECENT_VIEWS)
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return DEFAULT_PROTECT_RECENT_VIEWS
+
+
+def turn_start_index(messages: list[ChatMessage], turns: int) -> int:
+    """Index at which the last ``turns`` turns begin; ``len`` when there are none.
+
+    A turn starts at a user message, so counting user messages back from the
+    end is the cheapest honest answer — history carries no turn ids.
+    """
+    if turns <= 0:
+        return len(messages)
+    seen = 0
+    for index in range(len(messages) - 1, -1, -1):
+        if messages[index].role == "user":
+            seen += 1
+            if seen >= turns:
+                return index
+    return 0
+
+
+def _skill_names_by_call(messages: list[ChatMessage]) -> dict[str, str]:
+    """``tool_call_id -> skill name`` for every ``skill_view`` call in ``messages``."""
+    found: dict[str, str] = {}
+    for message in messages:
+        for call in message.tool_calls or []:
+            if call.name != "skill_view":
+                continue
+            name = str((call.arguments or {}).get("name") or "").strip()
+            if name:
+                found[call.id] = name
+    return found
+
+
+def prune_skill_views(
+    messages: list[ChatMessage], protect_from: int
+) -> tuple[list[ChatMessage], list[str]]:
+    """Replace big ``skill_view`` bodies with the prune marker (M15 §B3).
+
+    Returns the rewritten messages and the marker text for each skill pruned,
+    in order.  A summariser that paraphrases a marker away has it re-appended
+    by the caller: a skill the model believes is loaded but is not is worse
+    than a summary with a pointer it did not write.
+    """
+    names = _skill_names_by_call(messages)
+    out = list(messages)
+    markers: list[str] = []
+    for index, message in enumerate(out):
+        if index >= protect_from or message.role != "tool":
+            continue
+        name = names.get(message.tool_call_id or "")
+        if not name or not isinstance(message.content, str):
+            continue
+        if len(message.content) < SKILL_VIEW_PRUNE_MIN_CHARS:
+            continue
+        marker = skill_pruned_marker(name)
+        out[index] = replace(message, content=marker)
+        if marker not in markers:
+            markers.append(marker)
+    return out, markers
+
+
+def reinject_markers(summary: str, markers: list[str]) -> str:
+    """Append any prune marker the summariser dropped, so none is lost."""
+    missing = [marker for marker in markers if marker not in summary]
+    if not missing:
+        return summary
+    return "\n".join([summary, "", "Skills pruned from this context:", *missing])
 
 
 @dataclass
@@ -308,6 +404,10 @@ async def compact_session(
     head, tail = messages[:boundary], messages[boundary:]
     if not head:
         return CompactionResult(before=before, after=before, kept=len(tail))
+    # A skill_view body the model is still acting on stays whole; an older one
+    # becomes a pointer, so the model knows to reload rather than believing it
+    # still has instructions it cannot see (M15 §B3).
+    head, markers = prune_skill_views(head, turn_start_index(messages, _protect_recent_views(core)))
 
     # Summarising takes a provider round-trip.  ``compaction`` reports the
     # outcome, which is too late to say "Compacting…" — and left an automatic
@@ -324,6 +424,7 @@ async def compact_session(
         text = ""
     if not text:
         text = fallback_summary(head)
+    text = reinject_markers(text, markers)
 
     replacement = [summary_message(text), *tail]
     session.history.replace(replacement)
@@ -400,6 +501,9 @@ def format_tokens(count: int) -> str:
 
 __all__ = [
     "DEFAULT_KEEP_LAST",
+    "DEFAULT_PROTECT_RECENT_VIEWS",
+    "SKILL_PRUNED_PREFIX",
+    "SKILL_VIEW_PRUNE_MIN_CHARS",
     "SUMMARY_HEADING",
     "SUMMARY_SYSTEM_PROMPT",
     "CompactionResult",
@@ -411,6 +515,8 @@ __all__ = [
     "maybe_auto_compact",
     "measure",
     "prompt_messages",
+    "prune_skill_views",
+    "reinject_markers",
     "record_provider_usage",
     "render_conversation",
     "resolved_identity",
@@ -420,5 +526,7 @@ __all__ = [
     "state_for",
     "summarise",
     "summary_message",
+    "skill_pruned_marker",
+    "turn_start_index",
     "window_for",
 ]

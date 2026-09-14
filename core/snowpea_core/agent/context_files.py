@@ -16,6 +16,7 @@ environment block, so the next turn sees what was just written.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -113,10 +114,14 @@ def nearest_context_file(workdir: Path | str, path: str) -> Path | None:
         for name in NESTED_NAMES:
             found = directory / name
             try:
-                if found.is_file():
-                    return found
-            except OSError:  # pragma: no cover
+                if not found.is_file():
+                    continue
+                # A symlink that leaves the workdir is not this project's
+                # instruction file, whatever it is named (M15 §D4).
+                found.resolve().relative_to(root)
+            except (OSError, ValueError):
                 continue
+            return found
         if directory.parent == directory:
             return None
         directory = directory.parent
@@ -158,6 +163,16 @@ def attach_nested(
         return result
     if not text.strip():
         return result
+    # Two paths with the same bytes are one instruction file: a symlinked
+    # AGENTS.md, or a copy pasted into a sibling package.  Showing it twice
+    # spends the window on text the model has already read (M15 §D4).
+    digest = hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()
+    hashes = getattr(session, "context_file_hashes", None)
+    if hashes is not None:
+        if digest in hashes:
+            session.seen_context_files.add(relative)
+            return result
+        hashes.add(digest)
     session.seen_context_files.add(relative)
     clipped, _warning = prompt_env.truncate_context_content(
         text.strip(), relative, limit, read_path=relative

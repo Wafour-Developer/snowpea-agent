@@ -126,7 +126,11 @@ class Tool:
 
     def spec(self) -> ToolSpec:
         return ToolSpec(
-            name=self.name, description=self.description, input_schema=self.input_schema
+            name=self.name,
+            description=self.description,
+            input_schema=self.input_schema,
+            source=self.source,
+            permission=self.permission,
         )
 
 

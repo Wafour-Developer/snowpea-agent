@@ -211,6 +211,10 @@ class McpServer:
         #: not publish state transitions under a name nobody configured.
         self.announce = announce
         self.tools: list[dict[str, Any]] = []
+        #: Request families the server advertised on ``initialize``, e.g.
+        #: ``{"resources", "prompts"}``.  The helper tools below are registered
+        #: only for what is in here (M15 §E).
+        self.capabilities: set[str] = set()
         #: What a client sees in ``mcp.list``; :meth:`_set_state` publishes it.
         self.state: McpState = "stopped"
         #: Why the last start failed, kept so ``mcp.list`` can explain a dot.
@@ -309,7 +313,7 @@ class McpServer:
 
         try:
             async with self._streams() as (read, write), ClientSession(read, write) as session:
-                await session.initialize()
+                self.capabilities = _capabilities_of(await session.initialize())
                 listing = await session.list_tools()
                 self.tools = [
                     {
@@ -342,6 +346,15 @@ class McpServer:
         result = await asyncio.wait_for(session.call_tool(tool, args), timeout)
         return render_content(result)
 
+    async def session_call(self, method: str, *args: Any, **kwargs: Any) -> Any:
+        """One ``ClientSession`` method, with the server started if it is not."""
+        await self.start()
+        session = self._session
+        if session is None:
+            raise McpError(f"{self.config.name}: the server is not running")
+        timeout = self.config.tool_timeout_sec or CALL_TIMEOUT
+        return await asyncio.wait_for(getattr(session, method)(*args, **kwargs), timeout)
+
     async def _abort(self) -> None:
         task = self._task
         self._task = None
@@ -364,6 +377,63 @@ class McpServer:
                 task.cancel()
         self._session = None
         self._set_state("stopped")
+
+
+#: Helper tool -> the ``initialize`` capability that must be advertised for it
+#: to be registered.  Without the gate a tools-only server got all four, every
+#: call came back JSON-RPC ``-32601``, and the model concluded the server was
+#: broken while its real tools worked (hermes ``_UTILITY_CAPABILITY_ATTRS``).
+UTILITY_CAPABILITY: dict[str, str] = {
+    "list_resources": "resources",
+    "read_resource": "resources",
+    "list_prompts": "prompts",
+    "get_prompt": "prompts",
+}
+
+#: ``handler -> (description, schema)`` for the four helper tools.
+UTILITY_SCHEMAS: dict[str, tuple[str, dict[str, Any]]] = {
+    "list_resources": (
+        "List the resources MCP server {server} exposes, with their URIs.",
+        {"type": "object", "properties": {}},
+    ),
+    "read_resource": (
+        "Read one resource from MCP server {server} by its URI, as listed by "
+        "mcp__{server}__list_resources.",
+        {
+            "type": "object",
+            "properties": {"uri": {"type": "string", "description": "URI of the resource."}},
+            "required": ["uri"],
+        },
+    ),
+    "list_prompts": (
+        "List the prompt templates MCP server {server} offers.",
+        {"type": "object", "properties": {}},
+    ),
+    "get_prompt": (
+        "Fetch one prompt template from MCP server {server} by name, filled in "
+        "with the arguments it declares.",
+        {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Prompt name, from list_prompts."},
+                "arguments": {
+                    "type": "object",
+                    "description": "Arguments the prompt declares.",
+                    "additionalProperties": True,
+                },
+            },
+            "required": ["name"],
+        },
+    ),
+}
+
+
+def _capabilities_of(result: Any) -> set[str]:
+    """The request families an ``initialize`` result advertised."""
+    caps = getattr(result, "capabilities", None)
+    if caps is None:
+        return set()
+    return {name for name in ("resources", "prompts") if getattr(caps, name, None) is not None}
 
 
 def _schema_of(tool: Any) -> dict[str, Any]:
@@ -504,6 +574,66 @@ def _make_runner(server_name: str, tool: str) -> Any:
     return run
 
 
+def _make_utility_runner(server_name: str, handler: str) -> Any:
+    async def run(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
+        server = MANAGER.get(server_name)
+        if server is None:
+            return ToolResult(ok=False, error=f"mcp server {server_name} is no longer configured")
+        try:
+            if handler == "read_resource":
+                raw = await server.session_call("read_resource", str(args.get("uri") or ""))
+            elif handler == "get_prompt":
+                raw = await server.session_call(
+                    "get_prompt", str(args.get("name") or ""), args.get("arguments") or {}
+                )
+            else:
+                raw = await server.session_call(handler)
+        except McpError as exc:
+            return ToolResult(ok=False, error=str(exc))
+        except TimeoutError:
+            return ToolResult(ok=False, error=f"{server_name}.{handler} timed out")
+        except Exception as exc:  # noqa: BLE001 - a server can raise anything
+            return ToolResult(ok=False, error=f"{type(exc).__name__}: {exc}")
+        return ToolResult(ok=True, output=render_listing(raw))
+
+    return run
+
+
+def render_listing(result: Any) -> str:
+    """Readable text for a resource/prompt result, whatever shape it has."""
+    for attribute in ("contents", "resources", "prompts", "messages"):
+        items = getattr(result, attribute, None)
+        if items:
+            return "\n".join(_render_item(item) for item in items)
+    text = getattr(result, "text", None) or getattr(result, "description", None)
+    return str(text) if text else str(result)
+
+
+def _render_item(item: Any) -> str:
+    text = getattr(item, "text", None)
+    if text:
+        return str(text)
+    name = getattr(item, "name", None) or getattr(item, "uri", None) or ""
+    description = getattr(item, "description", None) or ""
+    content = getattr(item, "content", None)
+    if content is not None and not description:
+        description = str(getattr(content, "text", None) or content)
+    return f"- {name}: {description}".rstrip(": ") if name else str(item)
+
+
+def warn_on_injection(server: str, tool: str, description: str) -> list[str]:
+    """Log anything in a server-supplied description that reads as an order.
+
+    Advisory by contract: the tool is registered either way (M15 §E).
+    """
+    from snowpea_core.tools import mcp_security
+
+    found = mcp_security.description_findings(description, label=f"{server}.{tool}")
+    for issue in found:
+        log.warning("mcp description check: %s", issue)
+    return found
+
+
 async def sync_tools(core: Core, workdir: Path | str | None = None) -> list[str]:
     """Discover servers, start them and (re)register their tools.
 
@@ -558,14 +688,33 @@ async def register_config(core: Core, config: McpServerConfig) -> list[str]:
     registered: list[str] = []
     for spec in server.visible_tools():
         name = tool_name(config.name, str(spec["name"]))
+        description = str(spec.get("description") or f"{config.name}: {spec['name']}")
+        warn_on_injection(config.name, str(spec["name"]), description)
         core.tools.register(
             Tool(
                 name=name,
                 category="mcp",
-                description=str(spec.get("description") or f"{config.name}: {spec['name']}"),
+                description=description,
                 input_schema=dict(spec.get("input_schema") or {"type": "object"}),
                 permission=permission,
                 run=_make_runner(config.name, str(spec["name"])),
+                source=f"mcp:{config.name}",
+            )
+        )
+        registered.append(name)
+    for handler, capability in UTILITY_CAPABILITY.items():
+        if capability not in server.capabilities or not config.keeps_tool(handler):
+            continue
+        template, schema = UTILITY_SCHEMAS[handler]
+        name = tool_name(config.name, handler)
+        core.tools.register(
+            Tool(
+                name=name,
+                category="mcp",
+                description=template.format(server=config.name),
+                input_schema=dict(schema),
+                permission=permission,
+                run=_make_utility_runner(config.name, handler),
                 source=f"mcp:{config.name}",
             )
         )
@@ -582,11 +731,15 @@ __all__ = [
     "McpManager",
     "McpServer",
     "McpServerConfig",
+    "UTILITY_CAPABILITY",
+    "UTILITY_SCHEMAS",
     "discover",
     "drop_tools",
     "permission_for",
     "register_config",
     "render_content",
+    "render_listing",
     "sync_tools",
+    "warn_on_injection",
     "tool_name",
 ]

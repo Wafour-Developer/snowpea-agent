@@ -11,6 +11,7 @@ downstream had to change when the text moved.
 
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -24,6 +25,8 @@ from snowpea_core.providers.base import ChatMessage, ToolSpec
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.server.app_server import Core
     from snowpea_core.session.session import Session
+
+log = logging.getLogger("snowpea.agent.prompt")
 
 #: The mode files, loaded once.  Still a ``dict[str, str]`` keyed on the mode.
 MODE_GUIDANCE: dict[str, str] = {name: load(f"modes/{name}") for name in ("plan", "accept", "auto")}
@@ -146,6 +149,46 @@ def context_fill(session: Session) -> float | None:
     return session.context_used / window
 
 
+def skill_groups(core: Core | None) -> list[tuple[str, list[tuple[str, str]]]]:
+    """Grouped skills for the prompt index, or ``[]`` when it is switched off.
+
+    ``skills.indexInPrompt`` turns the whole block off; the loader caches the
+    grouping and drops it on every reload, so building this per turn costs a
+    dictionary lookup rather than a filesystem walk (M15 §B1).
+    """
+    loader = getattr(core, "skills", None) if core is not None else None
+    if loader is None:
+        return []
+    try:
+        settings = core.settings.skills  # type: ignore[union-attr]
+        if not getattr(settings, "indexInPrompt", True):
+            return []
+        return loader.index_groups()
+    except Exception:  # noqa: BLE001 - a broken loader must not cost the prompt
+        log.debug("could not build the skills index", exc_info=True)
+        return []
+
+
+def skill_index_max(core: Core | None) -> int:
+    """``skills.indexMaxEntries``, floored at 1."""
+    if core is None:
+        return compose.DEFAULT_SKILL_INDEX_MAX
+    try:
+        return max(1, int(core.settings.skills.indexMaxEntries))
+    except (AttributeError, TypeError, ValueError):  # pragma: no cover - partial Core
+        return compose.DEFAULT_SKILL_INDEX_MAX
+
+
+def memory_enabled(core: Core | None) -> bool:
+    """``memory.enabled``; the guidance fragment is pointless when it is off."""
+    if core is None:
+        return True
+    try:
+        return bool(core.settings.memory.enabled)
+    except AttributeError:  # pragma: no cover - a partially built Core in a test
+        return True
+
+
 def reply_language(core: Core | None) -> str:
     """``agent.replyLanguage``; ``"auto"`` when there are no settings to hand."""
     if core is None:
@@ -184,6 +227,9 @@ def build_system_prompt(
         role=getattr(session, "prompt_role", None),
         subagent=bool(getattr(session, "is_subagent", False)),
         tools=tools,
+        skill_groups=skill_groups(core),
+        skill_index_max=skill_index_max(core),
+        memory_guidance=memory_enabled(core),
         memory_block=memory_block,
         environment=environment,
         context_files=context_files,
@@ -224,6 +270,9 @@ __all__ = [
     "context_fill",
     "environment_blocks",
     "invalidate_environment",
+    "memory_enabled",
     "reply_language",
+    "skill_groups",
+    "skill_index_max",
     "tool_lines",
 ]

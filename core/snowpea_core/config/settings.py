@@ -128,6 +128,10 @@ class ModelsSettings(_Model):
 
 class TeamSettings(_Model):
     max_conflict_retries: int = 2
+    #: Run a read-only ``reviewer`` child over each task's merge before it is
+    #: accepted (M15 §C5).  Off by default: a review is a model turn the user
+    #: did not ask for, and review is opt-in everywhere in snowpea.
+    review: bool = False
 
 
 class RalphSettings(_Model):
@@ -370,9 +374,17 @@ class SkillRegistrySettings(_Model):
 
 
 class SkillsSettings(_Model):
-    """Skill discovery/publishing configuration (M6-M7 §1)."""
+    """Skill discovery/publishing configuration (M6-M7 §1, M15 §B)."""
 
     registry: SkillRegistrySettings = Field(default_factory=SkillRegistrySettings)
+    #: List every installed skill in the system prompt, so the model can see
+    #: what exists without calling a tool first (M15 §B1).
+    indexInPrompt: bool = True
+    #: Ceiling on the index; the rest is summarised as "… and K more".
+    indexMaxEntries: int = 60
+    #: ``skill_view`` results loaded within this many turns survive a
+    #: compaction intact instead of being replaced by a prune marker.
+    protectRecentViews: int = 2
 
 
 class Settings(_Model):

@@ -193,6 +193,37 @@ snowpea mcp catalog
 
 추가·삭제·수정은 즉시 반영됩니다. 옛 프로세스는 멈추고, 그 툴은 레지스트리에서 빠지며, 새 항목은 데몬 재시작 없이 잡힙니다.
 
+## 스킬 색인과 `skill_view`
+
+설치된 모든 스킬은 에이전트의 시스템 프롬프트에 한 줄씩, 출처별로 묶여서 실립니다.
+
+```
+## Skills
+…
+<available_skills>
+[project]
+- review: How code review is done in this repo
+[global]
+- deploy: Ship the current branch
+[plugin:pdfkit]
+- pdf-split: Split a pdf
+[builtin]
+- init: Set a project up from nothing
+</available_skills>
+```
+
+에이전트는 답하기 전에 이 목록을 훑고, 조금이라도 관련 있는 스킬은 `skill_view`로 불러오라는 지시를 받습니다. `skill_view`는 그 스킬의 `SKILL.md` 본문과 함께 있는 파일 목록을 돌려줍니다. 스킬은 *이 일을 여기서 어떻게 하는가*이므로, 작업이 끝난 뒤 참고하는 문서가 아니라 시작하기 전에 읽어야 하는 문서라는 뜻입니다. 사용자가 직접 `/review`를 치는 방식은 그대로입니다. `skill_view`는 같은 문서를 에이전트가 스스로 가져가는 경로일 뿐입니다.
+
+바뀌지 않은 같은 스킬을 다시 보면 그 사실을 알리는 한 줄만 돌아옵니다. 본문이 이미 대화에 있기 때문입니다. 압축(compaction)이 긴 본문을 버려야 했다면 그 자리에 `[SKILL_PRUNED: content lost in compaction; reload with skill_view(name="review")]`가 남습니다. 가지고 있다고 믿는 지시가 실제로는 없다는 것을 에이전트에게 알리는 표시입니다. 최근 몇 턴 안에 불러온 본문은 압축 대상이 아닙니다.
+
+색인의 설명은 60자에서 잘리므로, `description:`은 그 안에서 한 문장으로 읽히게 쓰세요. `settings.json`의 `skills` 아래 설정 세 개가 이 블록을 제어합니다.
+
+| 설정 | 기본값 | 하는 일 |
+| --- | --- | --- |
+| `indexInPrompt` | `true` | 프롬프트에 스킬 목록을 넣을지 |
+| `indexMaxEntries` | `60` | "… and K more"로 접기 전까지 몇 개를 나열할지 |
+| `protectRecentViews` | `2` | 압축이 건드리지 않는 `skill_view` 결과의 턴 수 |
+
 ## 어디서 찾고, 누가 이기는가
 
 루트는 다음 순서로 훑고, 이름이 겹치면 나중 것이 이깁니다.

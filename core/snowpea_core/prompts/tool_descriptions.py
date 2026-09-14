@@ -57,17 +57,27 @@ GLOB = (
 )
 
 DELEGATE_TASK = (
-    "Hand a self-contained task to a subagent and return its report. Call it several "
-    "times in one turn to run them in parallel. The child sees nothing of this "
-    "conversation, so put everything it needs in the task; the brief itself may be "
-    "English for precision, and the output language is appended for you. Pass title "
-    "as a one-line description of the delegation in the user's language — it is what "
-    "the user sees while it runs. Its reply is a self-report, not a verified fact: "
-    "for anything with an external effect, verify the result yourself before telling "
-    "the user it worked. Relay what it found in your own words; never paste its "
-    "report. The result starts with status / reason / roundsUsed: reason 'budget' "
-    "or 'timeout' means the child stopped early, so the report is partial — read it, "
-    "take what is done, and delegate only what is left, never the same task again."
+    "Hand a self-contained task to a subagent and return its report. The child sees "
+    "nothing of this conversation, so put everything it needs in the task; say whether "
+    "it must write code or only research, and how to verify the result. Pass title as a "
+    "one-line description in the user's language — it is what the user sees while it "
+    "runs.\n"
+    "USE FOR: reasoning-heavy subtasks, work that would flood this context with "
+    "intermediate output, and independent parallel workstreams. NOT FOR: a single tool "
+    "call, mechanical steps you can do yourself, or anything needing the user's answer — "
+    "a subagent cannot ask questions.\n"
+    "One task, one agent. After delegating, do not do that work here as well, and do not "
+    "give the same task to a second agent while the first is running. Call it several "
+    "times in one turn only for subtasks that own disjoint files or areas; sequence "
+    "dependent steps (implement, then review, then fix) instead of sending identical "
+    "briefs in parallel. Never poll or wait for a child in a loop: the result comes back "
+    "as this call's result.\n"
+    "Its reply is a self-report, not a verified fact: for anything with an external "
+    "effect, make it return a handle (path, URL, id) and check that yourself before "
+    "telling the user it worked. Relay what it found in your own words; never paste its "
+    "report. The result starts with status / reason / roundsUsed: reason 'budget' or "
+    "'timeout' means the child stopped early, so the report is partial — take what is "
+    "done and delegate only what is left, never the same task again."
 )
 
 LSP_DIAGNOSTICS = (
@@ -117,6 +127,16 @@ ASK_USER = (
     "change their mind in before confirming, and you get every answer at once. The tool "
     "blocks, so ask only what you cannot work out yourself, and read the result: a declined "
     "or timed-out question is not agreement."
+)
+
+SKILL_VIEW = (
+    "Read one installed skill: its SKILL.md body plus the names of the reference, "
+    "template and script files that ship with it. Call it the moment a skill in the "
+    "index looks relevant — before you plan the work, not after — and follow what it "
+    "says; the skill is how this kind of task is done here. Read a listed sibling file "
+    "with read_file when the body points you at it. Viewing the same unchanged skill "
+    "twice returns a one-line stub, because the body is already in this conversation; "
+    "a body replaced by a [SKILL_PRUNED] marker is not, and must be viewed again."
 )
 
 MEMORY_WRITE = (

@@ -355,6 +355,14 @@ snowpea tools list --json
 
 `read_file`은 `offset`(1부터 세는 시작 줄)과 `limit`(줄 수)을 선택적으로 받습니다. 일부만 읽은 것은 `readBeforeWrite`를 만족시키지 않습니다 — 쓰기 전에 파일 전체를 읽어야 합니다.
 
+에이전트가 매 턴 읽는 스킬 색인은 `skills` 설정 세 개가 좌우합니다([플러그인과 스킬](plugins.md) 참고).
+
+| 설정 | 기본값 | 하는 일 |
+|---|---|---|
+| `skills.indexInPrompt` | `true` | 설치된 모든 스킬을 출처별로 묶어 시스템 프롬프트에 싣습니다. 에이전트가 먼저 툴을 불러 탐색하지 않고도 `skill_view`로 바로 불러올 수 있습니다. `false`로 두면 목록에 컨텍스트를 쓰지 않습니다. |
+| `skills.indexMaxEntries` | `60` | 색인이 이름을 나열하다 "… and K more — skill_list shows all"로 접는 개수. |
+| `skills.protectRecentViews` | `2` | 압축이 그대로 두는 `skill_view` 결과의 턴 수. 그보다 오래된 5000자 이상 본문은 다시 불러오라는 `[SKILL_PRUNED: …]` 표시로 바뀝니다. |
+
 ## 브라우저 제공자
 
 `local_chromium`이 기본값이며, 내 컴퓨터에서 Playwright로 headless Chromium을 돌립니다. 처음 실행할 때 브라우저 바이너리를 내려받으라고 물을 수 있습니다. 나머지 id들 — `camoufox`, `browser_use_local`, `browserbase`, `firecrawl_cloud` — 는 목록에서 보고 선택할 수 있도록 등록만 되어 있고, 설정되기 전까지는 `browser_provider_unavailable`로 답합니다.
@@ -409,7 +417,7 @@ Nested instructions not loaded (read_file when you work there): src/AGENTS.md, t
 
 ## 디스크에 남는 것
 
-`$SNOWPEA_HOME/settings.json`에는 `providers`, `search.provider`, `browser.provider`, `tools.enabled_categories`, `tools.readBeforeWrite`(true), `tools.maxResultLines`(400), `gateway`, `agents.max_concurrent`(3), `team.max_conflict_retries`(2), `approvals.timeoutSec`(300), `agent.max_tokens`(16384), `agent.thinking`(`auto`), `memory.enabled`(true), `memory.askScope`(true), `memory.digestEntries`(30), `memory.digestChars`(6000)가 담깁니다. 모드·allowlist·백엔드에 대한 프로젝트별 오버라이드는 `<project>/.snowpea/settings.json`에 있고 전역 파일보다 우선합니다. 비밀값은 `settings.json`에 절대 쓰이지 않고, 로그에도 남지 않습니다.
+`$SNOWPEA_HOME/settings.json`에는 `providers`, `search.provider`, `browser.provider`, `tools.enabled_categories`, `tools.readBeforeWrite`(true), `tools.maxResultLines`(400), `gateway`, `agents.max_concurrent`(3), `team.max_conflict_retries`(2), `approvals.timeoutSec`(300), `agent.max_tokens`(16384), `agent.thinking`(`auto`), `memory.enabled`(true), `memory.askScope`(true), `memory.digestEntries`(30), `memory.digestChars`(6000), `skills.indexInPrompt`(true), `skills.indexMaxEntries`(60), `skills.protectRecentViews`(2)가 담깁니다. 모드·allowlist·백엔드에 대한 프로젝트별 오버라이드는 `<project>/.snowpea/settings.json`에 있고 전역 파일보다 우선합니다. 비밀값은 `settings.json`에 절대 쓰이지 않고, 로그에도 남지 않습니다.
 
 ## 다음
 

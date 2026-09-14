@@ -39,6 +39,59 @@ LOCAL_PREFIXES: tuple[str, ...] = (
 )
 
 
+#: Phrases that only appear in a tool description when someone is addressing
+#: the model rather than describing a tool (M15 §E).  A server's descriptions
+#: are read as prompt text on every turn, so a match is worth a log line — but
+#: never a block: the phrases are ordinary English and a legitimate server that
+#: documents prompt handling would otherwise stop working.
+INJECTION_MARKERS: tuple[str, ...] = (
+    "ignore previous",
+    "ignore all previous",
+    "ignore the above",
+    "disregard previous",
+    "system prompt",
+    "</system>",
+    "<|im_start|>",
+    "you are now",
+)
+
+#: Characters with no business in a description: bidi overrides, zero-width
+#: joiners and the tag block, all of which hide text from a human reviewer.
+_HIDDEN_RANGES: tuple[tuple[int, int], ...] = (
+    (0x200B, 0x200F),
+    (0x202A, 0x202E),
+    (0x2066, 0x2069),
+    (0xE0000, 0xE007F),
+)
+
+
+def description_findings(text: str, label: str = "tool") -> list[str]:
+    """Injection markers in a server-supplied description; advisory only.
+
+    Never blocks: the caller logs what this returns and registers the tool
+    anyway.  A server that really is hostile is a server the user chose to
+    install, and silently dropping its tools would look like a broken server
+    rather than a warning.
+    """
+    body = str(text or "")
+    lowered = body.lower()
+    found = [
+        f"{label}: description contains {marker!r}, which reads as an instruction to the model"
+        for marker in INJECTION_MARKERS
+        if marker in lowered
+    ]
+    hidden = sorted(
+        {
+            f"U+{ord(char):04X}"
+            for char in body
+            if any(low <= ord(char) <= high for low, high in _HIDDEN_RANGES)
+        }
+    )
+    if hidden:
+        found.append(f"{label}: description contains hidden characters ({', '.join(hidden)})")
+    return found
+
+
 def _basename(command: str) -> str:
     return os.path.basename(command.replace("\\", "/")).lower()
 
@@ -63,4 +116,11 @@ def findings(entry: dict[str, Any], name: str = "server") -> list[str]:
     return found
 
 
-__all__ = ["LOCAL_PREFIXES", "SHELL_INTERPRETERS", "findings", "validate_mcp_server_entry"]
+__all__ = [
+    "INJECTION_MARKERS",
+    "LOCAL_PREFIXES",
+    "SHELL_INTERPRETERS",
+    "description_findings",
+    "findings",
+    "validate_mcp_server_entry",
+]

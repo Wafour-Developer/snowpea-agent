@@ -49,6 +49,11 @@ PROJECT_HEADING = "## Project memory ({name})"
 PROFILE_HEADING = "## About the user"
 GLOBAL_HEADING = "## Global memory"
 MORE = "… and {count} more — memory_search finds the rest"
+#: Appended to the preamble so the model can see how full the project scope is
+#: and consolidate before the budget starts dropping entries (M15 §D3).  The
+#: two ceilings are ``memory.digestEntries`` and ``memory.digestChars``, which
+#: govern the project section only — so that is what the numbers count.
+USAGE = "Project memory in use: {entries}/{max_entries} entries · {chars}/{max_chars} chars."
 
 
 @dataclass
@@ -106,6 +111,8 @@ async def build(
     sections: list[str] = []
     seen: set[str] = set()
 
+    used_entries = 0
+    used_chars = 0
     if project_namespace:
         limit = max(1, entries)
         newest = await store.list_many(namespaces=[project_namespace], limit=limit)
@@ -113,6 +120,8 @@ async def build(
             total = await store.count(namespaces=[project_namespace])
             lines, missing = _trim(newest, max(1, chars), max(0, total - len(newest)))
             seen.update(entry.id for entry in newest[: len(lines)])
+            used_entries = len(lines)
+            used_chars = sum(len(line) + 1 for line in lines)
             body = [PROJECT_HEADING.format(name=project_name(project_namespace)), *lines]
             if missing > 0:
                 body.append(MORE.format(count=missing))
@@ -141,7 +150,18 @@ async def build(
 
     if not sections:
         return Digest()
-    return Digest(text="\n\n".join([PREAMBLE, *sections]), ids=seen)
+    header = "\n".join(
+        [
+            PREAMBLE,
+            USAGE.format(
+                entries=used_entries,
+                max_entries=max(1, entries),
+                chars=used_chars,
+                max_chars=max(1, chars),
+            ),
+        ]
+    )
+    return Digest(text="\n\n".join([header, *sections]), ids=seen)
 
 
 __all__ = [
@@ -151,6 +171,7 @@ __all__ = [
     "PREAMBLE",
     "PROFILE_HEADING",
     "PROJECT_HEADING",
+    "USAGE",
     "Digest",
     "build",
     "render_line",
