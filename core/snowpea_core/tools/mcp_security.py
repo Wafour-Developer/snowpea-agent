@@ -1,0 +1,66 @@
+"""Shape checks an MCP entry must pass before it is saved (M14 §1b).
+
+An MCP server is an arbitrary child process that the model can then call, so
+adding one is closer to installing a plugin than to setting a preference.  The
+substance of the check is hermes-agent's ``validate_mcp_server_entry``, vendored
+verbatim at ``vendor/hermes/mcp/mcp_security.py`` (MIT, see ``NOTICE`` and
+``docs/vendoring-map.md``): a known indicator of compromise anywhere in
+command, args or env values; a shell interpreter whose inline script reaches
+the network; a shell interpreter writing an OS persistence surface.
+
+:func:`findings` adds the two things that check cannot see because hermes has
+no remote-server concept — a plain-http endpoint, and a shell interpreter used
+as the server command at all — and returns everything as advisory text.
+``mcp.add`` refuses an entry that produces any finding; ``force`` accepts them.
+
+No finding ever includes an ``env`` or ``header`` value: the vendored check is
+given the entry (it scans env values for IOCs) but only its own message text is
+returned, and these messages name keys, never values.
+"""
+
+from __future__ import annotations
+
+import os
+from typing import Any
+
+from snowpea_core.vendor.hermes.mcp.mcp_security import (
+    _SHELL_INTERPRETERS as SHELL_INTERPRETERS,
+)
+from snowpea_core.vendor.hermes.mcp.mcp_security import (
+    validate_mcp_server_entry,
+)
+
+#: Endpoints where plain http is a local loopback rather than the open network.
+LOCAL_PREFIXES: tuple[str, ...] = (
+    "http://localhost",
+    "http://127.0.0.1",
+    "http://[::1]",
+    "http://0.0.0.0",
+)
+
+
+def _basename(command: str) -> str:
+    return os.path.basename(command.replace("\\", "/")).lower()
+
+
+def findings(entry: dict[str, Any], name: str = "server") -> list[str]:
+    """Everything questionable about ``entry``; empty means it looks ordinary."""
+    found = [str(issue) for issue in validate_mcp_server_entry(name, entry)]
+
+    command = str(entry.get("command") or "")
+    if command and _basename(command) in SHELL_INTERPRETERS and not found:
+        # The vendored check only objects to a shell interpreter that also
+        # reaches the network or writes a persistence surface.  A server whose
+        # command *is* a shell is still not a server: its argv is a program.
+        found.append(
+            f"'{_basename(command)}' is a shell interpreter, not a server binary; "
+            "declare the real executable and its arguments instead"
+        )
+
+    url = str(entry.get("url") or "")
+    if url.startswith("http://") and not url.startswith(LOCAL_PREFIXES):
+        found.append("the url is plain http, so its headers travel in clear text")
+    return found
+
+
+__all__ = ["LOCAL_PREFIXES", "SHELL_INTERPRETERS", "findings", "validate_mcp_server_entry"]

@@ -171,6 +171,30 @@ snowpea tools list --json
 
 Permission defaults to `network` per server and can be overridden in settings under `mcp.permissions`.
 
+### Adding one without editing JSON
+
+`/mcp` does the same thing from inside a session, and `snowpea mcp` from a shell. Both write the same `.mcp.json`, so a file you hand-edited and one snowpea wrote are the same file.
+
+```bash
+snowpea mcp list
+snowpea mcp add notes -- python -m my_notes_server
+snowpea mcp add remote --url https://example.internal/mcp --header Authorization=Bearer-xxx
+snowpea mcp add github --preset github --env GITHUB_PERSONAL_ACCESS_TOKEN=ghp_xxx
+snowpea mcp test notes
+snowpea mcp get notes
+snowpea mcp disable notes
+snowpea mcp remove notes
+snowpea mcp catalog
+```
+
+Everything after a bare `--` is the command and its arguments, argv style; snowpea never builds a shell string out of it, and it refuses an entry that tries to (a `bash -c …` server needs `--force`). The same check also refuses the shapes a real MCP server never has: a shell script that fetches and runs code, one that writes to `~/.ssh/authorized_keys`, PAM, sudoers, cron or a shell rc file, and known indicators of compromise anywhere in the command, arguments or environment. `--scope global` writes `$SNOWPEA_HOME/.mcp.json` instead of the project's file, `--preset` starts from a curated catalog entry (`snowpea mcp catalog`), and `--no-test` saves without probing first. By default nothing is written until the server has answered `tools/list` once, so a typo in the command fails before it reaches the file.
+
+Inside a session the same verbs are `/mcp`, `/mcp add <name> -- <command> [args…]`, `/mcp test <name>`, `/mcp enable|disable <name>`, `/mcp configure <name> [tool…]`, `/mcp reload [name]` and `/mcp catalog`. In the terminal UI, typing `/mcp add` with no arguments walks a form instead. The desktop app has the same surface under **Settings → MCP servers**, where a state dot per row updates live.
+
+Secrets are never echoed back: `env` and `headers` stay in the file you chose, and every listing shows only their key names (`TOKEN=•••`). Servers declared by a plugin or by `mcp.servers` in settings are listed too, but they are read-only here — remove the plugin, or edit the settings file, instead.
+
+Adding, removing or updating a server takes effect immediately: the old process is stopped, its tools leave the registry, and the new entry is picked up without restarting the daemon.
+
 ## Where things are found, and who wins
 
 Roots are scanned in this order, and later wins on a name clash:

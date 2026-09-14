@@ -23,6 +23,14 @@ LOGIN_UNSUPPORTED = "login_unsupported"
 #: sign in again.  Distinct from ``invalid_params`` so a surface can offer the
 #: login instead of blaming the request (CORE-codex-login).
 AUTH_EXPIRED = "auth_expired"
+#: MCP server management (M14 §3).  ``mcp_invalid`` names the offending field,
+#: ``mcp_unsafe`` carries the security findings ``force`` would override.
+MCP_EXISTS = "mcp_exists"
+MCP_NOT_FOUND = "mcp_not_found"
+MCP_READ_ONLY = "mcp_read_only"
+MCP_INVALID = "mcp_invalid"
+MCP_START_FAILED = "mcp_start_failed"
+MCP_UNSAFE = "mcp_unsafe"
 INTERNAL = "internal"
 
 ERROR_CODES: tuple[str, ...] = (
@@ -37,6 +45,12 @@ ERROR_CODES: tuple[str, ...] = (
     NOT_IMPLEMENTED,
     LOGIN_UNSUPPORTED,
     AUTH_EXPIRED,
+    MCP_EXISTS,
+    MCP_NOT_FOUND,
+    MCP_READ_ONLY,
+    MCP_INVALID,
+    MCP_START_FAILED,
+    MCP_UNSAFE,
     INTERNAL,
 )
 
@@ -51,6 +65,8 @@ SERVER_ERROR = -32000
 _JSONRPC_CODE: dict[str, int] = {
     NOT_FOUND: METHOD_NOT_FOUND,
     INVALID_PARAMS: INVALID_PARAMS_JSONRPC,
+    MCP_INVALID: INVALID_PARAMS_JSONRPC,
+    MCP_NOT_FOUND: METHOD_NOT_FOUND,
     INTERNAL: INTERNAL_ERROR,
 }
 
@@ -87,6 +103,12 @@ __all__ = [
     "METHOD_NOT_FOUND",
     "PARSE_ERROR",
     "LOGIN_UNSUPPORTED",
+    "MCP_EXISTS",
+    "MCP_INVALID",
+    "MCP_NOT_FOUND",
+    "MCP_READ_ONLY",
+    "MCP_START_FAILED",
+    "MCP_UNSAFE",
     "MODE_DENIED",
     "NOT_FOUND",
     "NOT_IMPLEMENTED",

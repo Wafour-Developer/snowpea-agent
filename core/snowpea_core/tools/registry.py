@@ -109,12 +109,17 @@ class Tool:
     permission_for: Callable[[dict[str, Any], Any, Any], PermissionTag] | None = None
 
     def info(self) -> ToolInfo:
+        # ``mcp:<server>`` is the source an MCP tool is registered with, so the
+        # server name a client groups by is derivable here rather than being
+        # parsed out of the tool name by every surface (M14 §3).
+        server = self.source[4:] if self.source.startswith("mcp:") else ""
         return ToolInfo(
             name=self.name,
             category=self.category,
             permissionTag=self.permission,
             state=self.state,
             source=self.source,
+            server=server,
             description=self.description,
             reason=self.reason,
         )

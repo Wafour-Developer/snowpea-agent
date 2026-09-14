@@ -10,6 +10,7 @@
 
 import { contextSegment } from "./bottom.js";
 import { lspColor, lspLabel, type LspServer } from "../state/lsp.js";
+import { mcpColor, mcpLabel, type McpServerRow } from "../state/mcp.js";
 import type { ConnectionStatus } from "../rpc/client.js";
 import type { ContextUsage } from "../state/store.js";
 import type { Mode } from "../rpc/sdk.js";
@@ -108,6 +109,8 @@ export interface HudInput {
   speaking?: boolean;
   /** Language servers, for the `lsp N` segment. */
   lsp?: readonly LspServer[];
+  /** MCP servers, for the `mcp 2/3` segment; hidden when none are configured. */
+  mcp?: readonly McpServerRow[];
   /** Milliseconds since this TUI attached to its session. */
   sessionMs: number;
   daemonPid?: number | null;
@@ -202,6 +205,19 @@ export function buildHudSegments(input: HudInput): HudSegment[] {
       text: lsp,
       color: lspColor(input.lsp ?? []),
       dimColor: lspColor(input.lsp ?? []) === undefined,
+      priority: 6,
+    });
+  }
+
+  // MCP servers, when any are configured: how many of them answered, out of
+  // how many were declared. Hidden entirely on a project that uses none.
+  const mcp = mcpLabel(input.mcp ?? []);
+  if (mcp) {
+    segments.push({
+      key: "mcp",
+      text: mcp,
+      color: mcpColor(input.mcp ?? []),
+      dimColor: mcpColor(input.mcp ?? []) === undefined,
       priority: 6,
     });
   }

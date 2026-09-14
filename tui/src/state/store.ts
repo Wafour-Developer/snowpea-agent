@@ -18,6 +18,7 @@ import type {
 } from "../rpc/sdk.js";
 import type { ConnectionStatus } from "../rpc/client.js";
 import type { FileDiagnostics, LspServer } from "./lsp.js";
+import { applyMcpChange, type McpServerRow } from "./mcp.js";
 import { replayTurnSummaryLine } from "./working.js";
 
 /**
@@ -243,6 +244,8 @@ export interface State {
   pendingEchoes: string[];
   /** Language servers the daemon has running, from `lsp.status`. */
   lsp: LspServer[];
+  /** MCP servers the daemon has configured, from `mcp.list` (M14 §5). */
+  mcp: McpServerRow[];
   /** Diagnostics counts per file, from `lsp.diagnostics` events. */
   diagnostics: Record<string, FileDiagnostics>;
   /**
@@ -312,6 +315,7 @@ export const initialState: State = {
   pendingEchoes: [],
   promptTexts: {},
   lsp: [],
+  mcp: [],
   diagnostics: {},
   children: {},
   lastSeq: 0,
@@ -330,6 +334,9 @@ export type Action =
   | { type: "commands"; commands: CommandInfo[] }
   | { type: "tools"; count: number }
   | { type: "lsp/status"; servers: LspServer[] }
+  | { type: "mcp/list"; servers: McpServerRow[] }
+  /** One `mcp.changed` notification, applied without waiting for `mcp.list`. */
+  | { type: "mcp/changed"; payload: unknown }
   /** A line this surface wrote itself, e.g. the `/lsp` table. */
   | { type: "note"; text: string }
   /** `session.prompt` answered: this turn id is the text we just sent. */
@@ -970,6 +977,12 @@ export function reducer(state: State, action: Action): State {
 
     case "lsp/status":
       return { ...state, lsp: action.servers };
+
+    case "mcp/list":
+      return { ...state, mcp: action.servers };
+
+    case "mcp/changed":
+      return { ...state, mcp: applyMcpChange(state.mcp, action.payload) };
 
     case "note": {
       const message: Message = {

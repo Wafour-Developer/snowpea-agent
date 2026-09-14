@@ -68,6 +68,20 @@ Estos los responde la propia interfaz de terminal, no el core, así que no apare
 
 Un agente generado es un objetivo válido de `delegate_task` de inmediato, sin necesidad de recargar.
 
+### MCP servers
+
+| Command | What it does |
+|---|---|
+| `/mcp` or `/mcp list` | table of every configured server: name, scope, transport, state, tool count |
+| `/mcp get <name>` | one server in full, with its tools; `env` and `headers` show key names only |
+| `/mcp add <name> -- <command> [args…]` | add a stdio server to `<project>/.mcp.json` (`--global` writes `$SNOWPEA_HOME/.mcp.json`) |
+| `/mcp add <name> --url <https://…>` | add a remote server; `--header K=V` for its credentials |
+| `/mcp test <name>` | start it, list its tools, report the spawn error if it fails |
+| `/mcp enable\|disable <name>` | keep the entry but stop starting it, and back again |
+| `/mcp remove <name>` | delete the entry and stop the server |
+| `/mcp reload [name]` | restart one server, or re-read every declaration |
+| `/mcp catalog` | the curated presets `--preset` accepts |
+
 ### Programación
 
 | Comando | Qué hace |

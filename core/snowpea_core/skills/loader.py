@@ -125,6 +125,9 @@ class SkillLoader:
         self.hooks = HookRegistry()
         #: Servers merged out of plugin ``.mcp.json`` files, by server name.
         self.mcp_servers: dict[str, dict[str, Any]] = {}
+        #: Which plugin each of those came from, so ``mcp.list`` can say
+        #: "from plugin X" on a row it refuses to edit (M14 §2).
+        self.mcp_server_plugins: dict[str, str] = {}
         self._registered: set[str] = set()
         self._lock = asyncio.Lock()
         #: ``(label, reason)`` hubs the registry switched off during the last
@@ -159,6 +162,7 @@ class SkillLoader:
         self.plugins = []
         self.hooks = HookRegistry()
         self.mcp_servers = {}
+        self.mcp_server_plugins = {}
 
         self._scan_builtins()
         self._scan_bundle(self.home, SOURCE_GLOBAL)
@@ -228,7 +232,7 @@ class SkillLoader:
             if candidate.is_file():
                 self.hooks.load_file(candidate, plugin=plugin or source, root=root)
         if plugin:
-            self._read_mcp(root / ".mcp.json", root)
+            self._read_mcp(root / ".mcp.json", root, plugin)
 
     def _add_skill_dir(self, entry: Path, source: str) -> None:
         if not entry.is_dir():
@@ -261,7 +265,7 @@ class SkillLoader:
         self.agents.append(agent)
         return agent
 
-    def _read_mcp(self, path: Path, root: Path) -> None:
+    def _read_mcp(self, path: Path, root: Path, plugin: str = "") -> None:
         """Merge a plugin's ``.mcp.json`` servers, expanding the root variables."""
         import json
 
@@ -275,6 +279,8 @@ class SkillLoader:
         for name, entry in servers.items():
             if isinstance(entry, dict):
                 self.mcp_servers[str(name)] = expand_tree(entry, root)
+                if plugin:
+                    self.mcp_server_plugins[str(name)] = plugin
 
     # -- applying ------------------------------------------------------
     async def reload(self) -> ReloadReport:

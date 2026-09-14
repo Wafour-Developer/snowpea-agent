@@ -83,7 +83,7 @@ snowpea commands list --json
 | `/mcp add <name> --url <https://…>` | 원격 서버를 추가; 자격 증명은 `--header K=V` |
 | `/mcp add-json <name> '<json>'` | `.mcp.json` 항목을 그대로 추가 |
 | `/mcp test <name>` | 띄워서 툴 목록을 받아보고, 실패하면 그 에러를 보고 |
-| `/mcp configure <name> [tool…]` | 이 툴들만 등록; 이름이 없으면 전부 |
+| `/mcp configure <name> [--tools a,b] [tool…]` | 이 툴들만 등록; 이름이 없으면 전부 |
 | `/mcp enable\|disable <name>` | 항목은 두되 더는 띄우지 않기, 그리고 되돌리기 |
 | `/mcp remove <name>` | 항목을 지우고 서버를 멈춤 |
 | `/mcp reload [name]` | 서버 하나를, 또는 모든 선언을 다시 읽어 재시작 |
@@ -203,14 +203,14 @@ snowpea mcp add remote --url https://example.internal/mcp --header Authorization
 snowpea mcp add github --preset github --env GITHUB_PERSONAL_ACCESS_TOKEN=ghp_xxx
 snowpea mcp get notes --json
 snowpea mcp test notes
-snowpea mcp configure notes search fetch
+snowpea mcp configure notes --tools search,fetch
 snowpea mcp disable notes
 snowpea mcp remove notes
 snowpea mcp reload
 snowpea mcp catalog
 ```
 
-`--scope global`은 프로젝트 파일 대신 `$SNOWPEA_HOME/.mcp.json`에 씁니다. 모든 서브커맨드가 `--json`을 받습니다. 파일 형식은 [플러그인](plugins.md#mcp-서버)을 보세요.
+`--scope global`(줄여서 `--global`)은 프로젝트 파일 대신 `$SNOWPEA_HOME/.mcp.json`에 씁니다. 바로 그 `--` 뒤는 자식 프로세스의 argv 그대로이고 파싱되지 않으므로, 플래그는 `--` 앞뒤 어디에 와도 됩니다. 모든 서브커맨드가 `--json`을 받습니다. 파일 형식은 [플러그인](plugins.md#mcp-서버)을 보세요.
 
 ### 잡
 

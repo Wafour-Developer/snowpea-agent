@@ -83,7 +83,7 @@ A generated agent is a `delegate_task` target immediately, no reload needed.
 | `/mcp add <name> --url <https://…>` | add a remote server; `--header K=V` for its credentials |
 | `/mcp add-json <name> '<json>'` | add a raw `.mcp.json` entry, verbatim |
 | `/mcp test <name>` | start it, list its tools, report the spawn error if it fails |
-| `/mcp configure <name> [tool…]` | register only these tools of the server; no names means all of them |
+| `/mcp configure <name> [--tools a,b] [tool…]` | register only these tools of the server; no names means all of them |
 | `/mcp enable\|disable <name>` | keep the entry but stop starting it, and back again |
 | `/mcp remove <name>` | delete the entry and stop the server |
 | `/mcp reload [name]` | restart one server, or re-read every declaration |
@@ -203,14 +203,14 @@ snowpea mcp add remote --url https://example.internal/mcp --header Authorization
 snowpea mcp add github --preset github --env GITHUB_PERSONAL_ACCESS_TOKEN=ghp_xxx
 snowpea mcp get notes --json
 snowpea mcp test notes
-snowpea mcp configure notes search fetch
+snowpea mcp configure notes --tools search,fetch
 snowpea mcp disable notes
 snowpea mcp remove notes
 snowpea mcp reload
 snowpea mcp catalog
 ```
 
-`--scope global` writes `$SNOWPEA_HOME/.mcp.json` instead of the project's file. Every subcommand takes `--json`. See [plugins](plugins.md#mcp-servers) for the file format.
+`--scope global` (or just `--global`) writes `$SNOWPEA_HOME/.mcp.json` instead of the project's file. Everything after a bare `--` is the child's argv and is never parsed, so flags may sit on either side of it. Every subcommand takes `--json`. See [plugins](plugins.md#mcp-servers) for the file format.
 
 ### Jobs
 

@@ -140,6 +140,25 @@ import {
   skillSubCommands,
 } from "./state/skill-completion.js";
 import { SKILL_HINT_TEXT, shouldSuggestSkill } from "./state/skill-hint.js";
+import { McpAddForm, type McpSubmission } from "./components/McpAddForm.js";
+import { McpCatalogPicker } from "./components/McpCatalogPicker.js";
+import { ToolChecklist } from "./components/ToolChecklist.js";
+import {
+  draftFromCatalog,
+  emptyDraft,
+  isBareMcpAdd,
+  isBareMcpCatalog,
+  mcpSubCommands,
+  parseMcpConfigure,
+  readMcpCatalog,
+  readMcpList,
+  readMcpProbe,
+  type McpCatalogEntry,
+  type McpDraft,
+  type McpProbe,
+  type McpServerRow,
+  type McpTool,
+} from "./state/mcp.js";
 import type { EditorRunner } from "./util/editor.js";
 import { QueuedPrompts } from "./components/QueuedPrompts.js";
 import { AgentTranscript } from "./components/AgentTranscript.js";
@@ -466,6 +485,16 @@ export function App({
   const [modelPicker, setModelPicker] = useState<ModelOption[] | null>(null);
   /** `/skill create` with no arguments: the three questions are up. */
   const [skillForm, setSkillForm] = useState(false);
+  /** `/mcp add` with no arguments: the draft the form is collecting, or null. */
+  const [mcpForm, setMcpForm] = useState<McpDraft | null>(null);
+  /** `/mcp catalog`: the presets, as a list to pick from. */
+  const [mcpCatalog, setMcpCatalog] = useState<McpCatalogEntry[] | null>(null);
+  /** `/mcp configure <name>`: which of one server's tools to register. */
+  const [mcpConfigure, setMcpConfigure] = useState<
+    { name: string; scope: "project" | "global"; tools: McpTool[]; selected: string[] } | null
+  >(null);
+  /** Servers already reported broken, so one failure is said once. */
+  const mcpErrorsRef = useRef<Set<string>>(new Set());
   /** The skill the daemon just wrote, offered as "run /<name>". */
   const [skillChip, setSkillChip] = useState<string | null>(null);
   /** The "turn this into a skill" nudge, once per session. */
@@ -613,6 +642,23 @@ export function App({
       });
   }, [client]);
 
+  /**
+   * Which MCP servers are configured, and how many of them answered.
+   *
+   * Read once on connect for the HUD's `mcp 2/3`, and again whenever an
+   * `mcp.changed` says something moved — the event carries the state, but only
+   * the list carries the tools a picker needs.
+   */
+  const refreshMcp = useCallback(() => {
+    void client
+      .call("mcp.list", { sessionId, workdir })
+      .then((result) => dispatch({ type: "mcp/list", servers: readMcpList(result) }))
+      .catch(() => {
+        // A daemon without M14; the segment simply stays hidden.
+        dispatch({ type: "mcp/list", servers: [] });
+      });
+  }, [client, sessionId, workdir]);
+
   const refreshApprovals = useCallback(() => {
     void client
       .listApprovals(sessionId)
@@ -678,6 +724,26 @@ export function App({
       },
       // Installing a backend or naming a voice is a setting; re-ask.
       onSettingsChanged: () => refreshCapabilities(),
+      // An MCP server moved: the HUD follows the payload at once, and the full
+      // list is re-read for the tools it carries. A server that broke is said
+      // once — a flapping server must not fill the transcript with the same
+      // line, so the name is remembered until it recovers.
+      onMcpChanged: (params) => {
+        dispatch({ type: "mcp/changed", payload: params });
+        const name = params?.name ?? "";
+        if (params?.state === "error") {
+          if (name && !mcpErrorsRef.current.has(name)) {
+            mcpErrorsRef.current.add(name);
+            dispatch({
+              type: "note",
+              text: `mcp: ${name} is not running — ${params.error ?? "no reason given"}`,
+            });
+          }
+        } else if (name) {
+          mcpErrorsRef.current.delete(name);
+        }
+        refreshMcp();
+      },
       onUpdateProgress: ({ phase, message }) =>
         setUpdate((current) => {
           const next = (phase ?? "started") as "started" | "done" | "failed";
@@ -704,6 +770,7 @@ export function App({
       });
 
     refreshLsp();
+    refreshMcp();
 
     // Which model each agent is assigned, for the completion list's tag.
     void client
@@ -764,6 +831,7 @@ export function App({
     refreshApprovals,
     refreshCapabilities,
     refreshLsp,
+    refreshMcp,
   ]);
 
   // One fresh, non-blocking check per launch, independent of session/mode changes.
@@ -962,8 +1030,13 @@ export function App({
     const skills = state.commands.some((command) => command.name === "skill")
       ? skillSubCommands(draft)
       : [];
-    return [...skills, ...registryRef.current.complete(draft)];
-  }, [draft, state.commands]);
+    // `/mcp` likewise: the daemon knows the command, this surface knows the
+    // sub-actions, the server names and the catalog ids they take.
+    const mcp = state.commands.some((command) => command.name === "mcp")
+      ? mcpSubCommands(draft, state.mcp, mcpCatalog ?? [])
+      : [];
+    return [...skills, ...mcp, ...registryRef.current.complete(draft)];
+  }, [draft, state.commands, state.mcp, mcpCatalog]);
 
   // --- full-screen geometry -------------------------------------------------
   // Everything below is inert while `fullscreen` is false: the inline layout
@@ -992,6 +1065,7 @@ export function App({
         context: state.context,
         toolCount: state.toolCount,
         lsp: state.lsp,
+        mcp: state.mcp,
         speaking: voice.tts,
         sessionMs: sessionElapsedMs,
         daemonPid: daemon.pid,
@@ -1018,6 +1092,7 @@ export function App({
       state.context,
       state.toolCount,
       state.lsp,
+      state.mcp,
       voice.tts,
       sessionElapsedMs,
       daemon.pid,
@@ -1520,6 +1595,144 @@ export function App({
     );
   }, [client, workdir, showToast]);
 
+  /**
+   * `mcp.test` on a draft the form is still collecting.
+   *
+   * Never throws: a broken server is the ordinary case here, and the form draws
+   * the failure as a screen with a way forward rather than an error line.
+   */
+  const testMcpDraft = useCallback(
+    (params: Record<string, unknown>): Promise<McpProbe> =>
+      client
+        .call("mcp.test", { ...params, sessionId, workdir })
+        .then((result) => readMcpProbe(result))
+        .catch((error: unknown) => ({ ok: false, tools: [], error: String(error) })),
+    [client, sessionId, workdir],
+  );
+
+  /**
+   * Write the entry the form collected.
+   *
+   * The probe has already run, so `test: false` goes with it: probing twice
+   * would start the server a second time and double the wait for no new
+   * information.
+   */
+  const addMcpServer = useCallback(
+    (submission: McpSubmission) => {
+      setMcpForm(null);
+      const params: Record<string, unknown> = {
+        ...submission.params,
+        sessionId,
+        workdir,
+        test: false,
+      };
+      if (submission.toolsInclude) params.toolsInclude = submission.toolsInclude;
+      if (submission.force) params.force = true;
+      const name = String(params.name ?? "");
+      void client
+        .call("mcp.add", params)
+        .then((result) => {
+          const path = typeof result?.path === "string" ? result.path : "";
+          dispatch({ type: "note", text: `mcp: added ${name}${path ? ` → ${path}` : ""}` });
+          mcpErrorsRef.current.delete(name);
+          refreshMcp();
+        })
+        .catch((error: unknown) =>
+          dispatch({ type: "note", text: `mcp: could not add ${name} — ${String(error)}` }),
+        );
+    },
+    [client, refreshMcp, sessionId, workdir],
+  );
+
+  /** `/mcp catalog`: the presets, as a list rather than a wall of ids. */
+  const openMcpCatalog = useCallback(() => {
+    void client
+      .call("mcp.catalog", {})
+      .then((result) => {
+        const entries = readMcpCatalog(result);
+        if (entries.length === 0) {
+          dispatch({ type: "note", text: "mcp: this daemon ships no presets" });
+          return;
+        }
+        setMcpCatalog(entries);
+      })
+      .catch((error: unknown) =>
+        dispatch({ type: "note", text: `mcp.catalog failed: ${String(error)}` }),
+      );
+  }, [client]);
+
+  /**
+   * `/mcp configure <name>`: the server's tools, as a checklist.
+   *
+   * The list is re-read rather than taken from the store, because the tools are
+   * only known once the server is ready and the store may predate that.
+   */
+  const openMcpConfigure = useCallback(
+    (name: string) => {
+      void client
+        .call("mcp.list", { sessionId, workdir })
+        .then((result) => {
+          const servers = readMcpList(result);
+          dispatch({ type: "mcp/list", servers });
+          const row = servers.find((server: McpServerRow) => server.name === name);
+          if (!row) {
+            dispatch({ type: "note", text: `mcp: no server named ${name}` });
+            return;
+          }
+          if (row.scope !== "project" && row.scope !== "global") {
+            dispatch({
+              type: "note",
+              text: `mcp: ${name} comes from ${row.plugin ? `plugin ${row.plugin}` : row.scope} and is read-only here`,
+            });
+            return;
+          }
+          if (row.tools.length === 0) {
+            dispatch({
+              type: "note",
+              text: `mcp: ${name} has listed no tools yet — /mcp test ${name} starts it`,
+            });
+            return;
+          }
+          setMcpConfigure({
+            name,
+            scope: row.scope,
+            tools: row.tools,
+            selected: row.toolsInclude,
+          });
+        })
+        .catch((error: unknown) =>
+          dispatch({ type: "note", text: `mcp.list failed: ${String(error)}` }),
+        );
+    },
+    [client, sessionId, workdir],
+  );
+
+  /** The checklist's answer, as the `tools.include` list the daemon stores. */
+  const saveMcpTools = useCallback(
+    (name: string, scope: "project" | "global", names: string[]) => {
+      setMcpConfigure(null);
+      void client
+        .call("mcp.update", {
+          name,
+          scope,
+          sessionId,
+          workdir,
+          patch: { toolsInclude: names },
+        })
+        .then(() => {
+          dispatch({
+            type: "note",
+            text: `mcp: ${name} now registers ${names.length} tool${names.length === 1 ? "" : "s"}`,
+          });
+          refreshMcp();
+        })
+        .catch((error: unknown) =>
+          dispatch({ type: "note", text: `mcp: could not update ${name} — ${String(error)}` }),
+        );
+    },
+    [client, refreshMcp, sessionId, workdir],
+  );
+
   const submit = useCallback(
     (text: string) => {
       if (resumingRef.current || update.phase === "running" || update.phase === "done") return;
@@ -1632,6 +1845,25 @@ export function App({
       const edit = parseSkillEdit(text);
       if (edit) {
         editSkill(edit);
+        return;
+      }
+      // `/mcp add` on its own opens the form rather than failing on a missing
+      // argument, the way `/skill create` does; `/mcp add <name> -- cmd` is the
+      // daemon's command and goes straight through.
+      if (isBareMcpAdd(text)) {
+        setMcpForm(emptyDraft());
+        return;
+      }
+      // `/mcp catalog` is a list to pick from here, and picking fills the form.
+      if (isBareMcpCatalog(text)) {
+        openMcpCatalog();
+        return;
+      }
+      // `/mcp configure <name>` with no tool names is a checklist; naming them
+      // on the line is the daemon's own command.
+      const configure = parseMcpConfigure(text);
+      if (configure) {
+        openMcpConfigure(configure);
         return;
       }
       // `/model` with an argument is the daemon's command; bare `/model` is a
@@ -1750,6 +1982,8 @@ export function App({
       audioOffered,
       openModelPicker,
       editSkill,
+      openMcpCatalog,
+      openMcpConfigure,
       showToast,
       takePaste,
       toggleRecording,
@@ -2100,6 +2334,42 @@ export function App({
         />
       ) : null}
 
+      {mcpForm ? (
+        <McpAddForm
+          width={contentWidth}
+          initial={mcpForm}
+          isActive={state.pendingApproval === null && state.pendingQuestion === null}
+          onTest={testMcpDraft}
+          onCancel={() => setMcpForm(null)}
+          onSubmit={addMcpServer}
+        />
+      ) : null}
+
+      {mcpCatalog ? (
+        <McpCatalogPicker
+          width={contentWidth}
+          entries={mcpCatalog}
+          isActive={state.pendingApproval === null && state.pendingQuestion === null}
+          onCancel={() => setMcpCatalog(null)}
+          onChoose={(entry) => {
+            setMcpCatalog(null);
+            setMcpForm(draftFromCatalog(entry));
+          }}
+        />
+      ) : null}
+
+      {mcpConfigure ? (
+        <ToolChecklist
+          width={contentWidth}
+          title={`${mcpConfigure.name} — tools to register`}
+          tools={mcpConfigure.tools}
+          initial={mcpConfigure.selected}
+          isActive={state.pendingApproval === null && state.pendingQuestion === null}
+          onCancel={() => setMcpConfigure(null)}
+          onSubmit={(names) => saveMcpTools(mcpConfigure.name, mcpConfigure.scope, names)}
+        />
+      ) : null}
+
       {modelPicker ? (
         <ModelPicker
           options={modelPicker}
@@ -2209,7 +2479,7 @@ export function App({
             }
             void client.interrupt(sessionId).catch(() => undefined);
           }}
-          disabled={skillForm || showHelp || update.phase === "confirm" || update.phase === "running" || update.phase === "done" || approvalActive || queueFocused || !isInput(focus) || openAgent !== null}
+          disabled={skillForm || mcpForm !== null || mcpCatalog !== null || mcpConfigure !== null || showHelp || update.phase === "confirm" || update.phase === "running" || update.phase === "done" || approvalActive || queueFocused || !isInput(focus) || openAgent !== null}
         />
       )}
     </>

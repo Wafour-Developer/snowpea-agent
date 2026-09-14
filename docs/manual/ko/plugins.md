@@ -169,6 +169,30 @@ snowpea tools list --json
 
 권한은 서버마다 기본값이 `network`이고, 설정의 `mcp.permissions` 아래에서 덮어쓸 수 있습니다.
 
+### JSON을 직접 고치지 않고 추가하기
+
+세션 안에서는 `/mcp`, 셸에서는 `snowpea mcp`가 같은 일을 합니다. 둘 다 같은 `.mcp.json`에 쓰므로, 손으로 고친 파일과 snowpea가 쓴 파일은 같은 파일입니다.
+
+```bash
+snowpea mcp list
+snowpea mcp add notes -- python -m my_notes_server
+snowpea mcp add remote --url https://example.internal/mcp --header Authorization=Bearer-xxx
+snowpea mcp add github --preset github --env GITHUB_PERSONAL_ACCESS_TOKEN=ghp_xxx
+snowpea mcp test notes
+snowpea mcp get notes
+snowpea mcp disable notes
+snowpea mcp remove notes
+snowpea mcp catalog
+```
+
+`--` 뒤는 전부 명령과 그 인자이고 argv 그대로 넘어갑니다. snowpea는 그것으로 셸 문자열을 만들지 않으며, 그렇게 하려는 항목(`bash -c …` 같은 서버)은 `--force` 없이는 거부합니다. 같은 검사가 진짜 MCP 서버라면 가질 리 없는 모양도 막습니다 — 코드를 받아서 실행하는 셸 스크립트, `~/.ssh/authorized_keys`·PAM·sudoers·cron·셸 rc 파일에 쓰는 것, 그리고 명령·인자·환경변수 어디에든 들어 있는 알려진 침해 지표(IOC)입니다. `--scope global`은 프로젝트 파일 대신 `$SNOWPEA_HOME/.mcp.json`에 쓰고, `--preset`은 큐레이션된 카탈로그 항목(`snowpea mcp catalog`)에서 시작하며, `--no-test`는 먼저 찔러보지 않고 저장합니다. 기본값은 서버가 `tools/list`에 한 번 답한 뒤에야 파일에 쓰는 것이라, 명령 오타는 파일에 닿기 전에 걸립니다.
+
+세션 안에서는 같은 동사가 `/mcp`, `/mcp add <name> -- <command> [args…]`, `/mcp test <name>`, `/mcp enable|disable <name>`, `/mcp configure <name> [tool…]`, `/mcp reload [name]`, `/mcp catalog`입니다. 터미널 UI에서 인자 없이 `/mcp add`만 치면 폼이 대신 뜹니다. 데스크톱 앱에는 같은 화면이 **설정 → MCP 서버**에 있고, 줄마다 상태 점이 실시간으로 갱신됩니다.
+
+비밀값은 되돌려주지 않습니다. `env`와 `headers`는 사용자가 고른 파일 안에 남고, 목록에는 키 이름만 나옵니다(`TOKEN=•••`). 플러그인이나 설정의 `mcp.servers`가 선언한 서버도 목록에는 나오지만 여기서는 읽기 전용입니다 — 플러그인을 지우거나 설정 파일을 고치세요.
+
+추가·삭제·수정은 즉시 반영됩니다. 옛 프로세스는 멈추고, 그 툴은 레지스트리에서 빠지며, 새 항목은 데몬 재시작 없이 잡힙니다.
+
 ## 어디서 찾고, 누가 이기는가
 
 루트는 다음 순서로 훑고, 이름이 겹치면 나중 것이 이깁니다.
