@@ -28,7 +28,7 @@ my-plugin/
 
 `/skill learn [name]`은 또 다른 생성기입니다: 브리프 대신 방금 끝낸 세션을 같은 레이아웃의 `SKILL.md`로 요약합니다.
 
-데스크톱 앱의 편집기는 `skill.create`(직접 쓴 문서를 저장하려면 `content`를, 같은 생성 턴을 돌려 `turnId`를 받으려면 `description`을 넘김), `skill.read`, `skill.write`를 씁니다 — 폼 기반 스킬 편집기를 위한 같은 경로의 RPC 버전입니다.
+데스크톱 앱의 편집기는 `skill.create`(직접 쓴 문서를 저장하려면 `content`를, 같은 생성 턴을 돌리려면 `description`을 넘김 — 기존 `sessionId`를 함께 주면 같은 `workdir`에 뿌리내린 그 세션에서 돌리고, 주지 않으면 데몬이 headless 세션을 새로 엽니다; 어느 쪽이든 `{turnId, sessionId}`를 돌려줍니다), `skill.read`, `skill.write`를 씁니다 — 폼 기반 스킬 편집기를 위한 같은 경로의 RPC 버전입니다.
 
 ## 설치
 

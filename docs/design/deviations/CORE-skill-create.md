@@ -42,16 +42,23 @@ convention (`docs/design/deviations/README.md`).
 4. **`skill.create`'s two RPC paths are one function, split on `content`.** `content` given
    means the caller already has the document (a hand-written skill, or an editor's save-as):
    `skill_create_handler` validates and writes it directly, synchronously, no session or turn
-   needed. `description` given means generation is wanted, and that takes a completion's worth
-   of time — so rather than reimplementing `create_skill`'s logic over RPC, the handler builds
-   the identical `/skill create <name> "<description>" [--global] [--force]` text and calls
+   needed, answering `{name, path}`. `description` given (draft mode) means generation is
+   wanted, and that takes a completion's worth of time — so rather than reimplementing
+   `create_skill`'s logic over RPC, the handler builds the identical
+   `/skill create <name> "<description>" [--global] [--force]` text and calls
    `core.commands.start(core, session, "skill", ..., conn)`, the same scheduling
    `session.prompt` uses for every slash command (`commands/registry.py`): a turn id comes back
    immediately, the command runs in the background, and `message.done`/`turn.done` on the
-   session answer it. This is the one RPC path that needs an open session (picked by `workdir`
-   first, then the connection's own, then the sole open one — `agent.create`'s
-   `_session_for` idiom, extended with the `workdir` hint since `skill.create` is given one and
-   `agent.create` never was); the `content` path needs none.
+   session answer it, giving `{turnId, sessionId}`. Which session the turn runs on is explicit,
+   not guessed: an optional `sessionId` reuses an existing one (rejected as `invalid_params` if
+   it is not rooted at the given `workdir` — a caller cannot point the daemon at a session that
+   would write somewhere it did not ask for), and when `sessionId` is omitted the handler opens
+   a fresh headless session for `workdir` itself (`core.sessions.create(..., origin_surface=
+   "skill")`, unattended — no `origin_conn`, the same shape a scheduled job's session gets) so
+   draft mode never depends on the caller already having one open. Either way the caller's own
+   connection is subscribed to that session (`core.hub.subscribe`, a no-op if already
+   subscribed) so it actually sees the turn it just started; the `content` path touches no
+   session at all.
 
 5. **`skill.read`/`skill.write` are new, small, and deliberately not `skill.get`/`skill.set`.**
    They exist for the desktop editor's form, resolving a name to whichever `SKILL.md` the
@@ -72,7 +79,9 @@ convention (`docs/design/deviations/README.md`).
   itself malformed is caught by `validate_frontmatter` immediately afterward and reported as
   "could not create the skill", not silently patched.
 - Tests (`tests/test_skill_create.py`) exercise the plumbing — the write, the overwrite
-  refusal, `--global`, plan mode, bad generated frontmatter, both `skill.create` RPC branches,
+  refusal, `--global`, plan mode, bad generated frontmatter, both `skill.create` RPC branches
+  (content and draft, draft with and without an explicit `sessionId`, and the
+  different-workdir `sessionId` rejection),
   and `skill.read`/`skill.write` — against the deterministic scripted fake provider; they do
   not and cannot assert that a real model writes a *good* procedure, which is exactly the
   judgment left to the model rather than to code.

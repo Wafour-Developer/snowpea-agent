@@ -28,7 +28,7 @@ One provider turn writes a complete `SKILL.md` — frontmatter (`name`, `descrip
 
 `/skill learn [name]` is the other generator: instead of a brief, it summarises the session you just finished into a `SKILL.md` under the same layout.
 
-The desktop app's editor uses `skill.create` (with `content` to save a hand-written document directly, or `description` to run the same generating turn and hand back a `turnId`), `skill.read` and `skill.write` — the RPC equivalents of the same paths, for a form-based skill editor.
+The desktop app's editor uses `skill.create` (with `content` to save a hand-written document directly, or `description` to run the same generating turn — pass an existing `sessionId` to run it there, rooted at the same `workdir`, or leave it out and the daemon opens a headless one for you; either way it hands back `{turnId, sessionId}`), `skill.read` and `skill.write` — the RPC equivalents of the same paths, for a form-based skill editor.
 
 ## Installing
 
