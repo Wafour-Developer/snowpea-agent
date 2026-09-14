@@ -135,7 +135,10 @@ describe("session resume", () => {
     );
     try {
       await sleep(150);
-      stdin.write(command);
+      // A bare command name is typed with its accepting space: Enter on a
+      // bare `/resume` accepts the completion instead of running it.
+      const typed = command.includes(" ") ? command : `${command} `;
+      stdin.write(typed);
       await sleep(60);
       stdin.write("\r");
       if (command === "/resume" || command === "/sessions") {
@@ -146,7 +149,7 @@ describe("session resume", () => {
       }
       await sleep(200);
       expect(stdout.text()).toContain("CHILD-ONLY-ANSWER");
-      stdin.write(command);
+      stdin.write(typed);
       await sleep(60);
       stdin.write("\r");
       await sleep(100);
