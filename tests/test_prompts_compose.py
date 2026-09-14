@@ -464,7 +464,7 @@ def test_every_workflow_prompt_renders_with_no_placeholders_left() -> None:
     names = sorted(
         path.stem for path in (loader.PACKAGE_DIR / "workflows").glob("*.md")
     )
-    assert len(names) == 10
+    assert len(names) == 11  # ten workflow briefs plus init.md
     for name in names:
         text = compose.workflow_brief(
             name,
@@ -485,6 +485,9 @@ def test_every_workflow_prompt_renders_with_no_placeholders_left() -> None:
             WORKTREE_PATH="/tmp/wt",
             BRANCH="team/1",
             HUNKS="",
+            AGENTS_PATH="/tmp/AGENTS.md",
+            AGENTS_STATUS="absent",
+            SETTINGS_NOTE="",
         )
         assert "${" not in text, name
         assert text.strip(), name

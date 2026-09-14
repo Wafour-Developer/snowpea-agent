@@ -15,6 +15,7 @@ from snowpea_core.server.protocol import (
     AudioSpoken,
     BackendChanged,
     CompactionEvent,
+    CompactionStarted,
     ContextEvent,
     DiffEvent,
     ErrorEvent,
@@ -26,10 +27,12 @@ from snowpea_core.server.protocol import (
     ModeChanged,
     ModelChanged,
     ToolCallEvent,
+    ToolProgress,
     ToolResultEvent,
     TurnDequeued,
     TurnDone,
     TurnQueued,
+    TurnStarted,
     UsageEvent,
 )
 
@@ -86,6 +89,31 @@ def tool_result(
     return _pack(ToolResultEvent(callId=call_id, name=name, ok=ok, output=output, error=error))
 
 
+def tool_progress(
+    call_id: str,
+    name: str,
+    *,
+    stream: str = "stdout",
+    chunk: str = "",
+    seq: int = 0,
+    truncated: bool = False,
+) -> Event:
+    """Output a still-running tool has produced so far (IDE-PROGRESS D2).
+
+    Advisory: ``tool.result`` stays the authoritative record of the call.
+    """
+    return _pack(
+        ToolProgress(  # type: ignore[arg-type]
+            callId=call_id,
+            name=name,
+            stream=stream,
+            chunk=chunk,
+            seq=seq,
+            truncated=truncated,
+        )
+    )
+
+
 def diff(path: str, patch: str) -> Event:
     return _pack(DiffEvent(path=path, patch=patch))
 
@@ -140,6 +168,13 @@ def compaction(
     )
 
 
+def compaction_started(before: int, *, auto: bool = False) -> Event:
+    """Compaction is about to run; ``compaction`` reports how it went."""
+    return _pack(
+        CompactionStarted(reason="auto" if auto else "manual", before=before)  # type: ignore[arg-type]
+    )
+
+
 def error(code: str, message: str) -> Event:
     return _pack(ErrorEvent(code=code, message=message))
 
@@ -154,6 +189,11 @@ def audio_spoken(
     return _pack(
         AudioSpoken(path=path, mime=mime, provider=provider, played=played, voice=voice)
     )
+
+
+def turn_started(turn_id: str, prompt: str | None = None, *, queued: bool = False) -> Event:
+    """A turn began running, after any wait in the prompt queue."""
+    return _pack(TurnStarted(turnId=turn_id, prompt=prompt, queued=queued))
 
 
 def turn_queued(turn_id: str, position: int, queued: int) -> Event:
@@ -189,6 +229,7 @@ __all__ = [
     "Event",
     "backend_changed",
     "compaction",
+    "compaction_started",
     "context",
     "diff",
     "error",
@@ -199,10 +240,12 @@ __all__ = [
     "mode_changed",
     "model_changed",
     "tool_call",
+    "tool_progress",
     "tool_result",
     "turn_dequeued",
     "turn_done",
     "turn_queued",
+    "turn_started",
     "usage",
     "validate",
 ]

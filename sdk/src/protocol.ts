@@ -1763,6 +1763,15 @@ export interface CompactionEventPayload {
   summaryChars?: number;
 }
 
+/** Payload of `session.event` with kind `compaction.started`. */
+export interface CompactionStartedEventPayload {
+  /** Estimated tokens the history holds now. */
+  before?: number;
+  kind?: "compaction.started";
+  /** auto = the auto-compaction threshold triggered it. */
+  reason?: "manual" | "auto";
+}
+
 /** Payload of `session.event` with kind `context`. */
 export interface ContextEventPayload {
   /** True while 'used' is a local estimate; false once the provider reported it. */
@@ -1962,6 +1971,23 @@ export interface ToolCallEventPayload {
   name: string;
 }
 
+/** Payload of `session.event` with kind `tool.progress`. */
+export interface ToolProgressEventPayload {
+  /** Id of the tool.call this output belongs to. */
+  callId: string;
+  /** Raw output fragment, in order. */
+  chunk?: string;
+  kind?: "tool.progress";
+  /** Tool that is running. */
+  name: string;
+  /** 0-based index of this progress within the call. */
+  seq?: number;
+  /** Which stream the chunk came from. */
+  stream?: "stdout" | "stderr";
+  /** True on the final progress when the byte cap stopped the tail. */
+  truncated?: boolean;
+}
+
 /** Payload of `session.event` with kind `tool.result`. */
 export interface ToolResultEventPayload {
   /** Id of the matching tool.call. */
@@ -2008,6 +2034,17 @@ export interface TurnQueuedEventPayload {
   turnId: string;
 }
 
+/** Payload of `session.event` with kind `turn.started`. */
+export interface TurnStartedEventPayload {
+  kind?: "turn.started";
+  /** The prompt that opened it; null when there is none. */
+  prompt?: string | null;
+  /** True when this turn waited in the prompt queue first. */
+  queued?: boolean;
+  /** Turn that is now running. */
+  turnId: string;
+}
+
 /** Payload of `session.event` with kind `usage`. */
 export interface UsageEventPayload {
   /** Prompt tokens consumed. */
@@ -2022,6 +2059,7 @@ export interface SessionEventKindMap {
   "audio.spoken": AudioSpokenEventPayload;
   "backend.changed": BackendChangedEventPayload;
   "compaction": CompactionEventPayload;
+  "compaction.started": CompactionStartedEventPayload;
   "context": ContextEventPayload;
   "diff": DiffEventPayload;
   "error": ErrorEventPayload;
@@ -2037,10 +2075,12 @@ export interface SessionEventKindMap {
   "subagent.update": SubagentUpdateEventPayload;
   "team.task.update": TeamTaskUpdateEventPayload;
   "tool.call": ToolCallEventPayload;
+  "tool.progress": ToolProgressEventPayload;
   "tool.result": ToolResultEventPayload;
   "turn.dequeued": TurnDequeuedEventPayload;
   "turn.done": TurnDoneEventPayload;
   "turn.queued": TurnQueuedEventPayload;
+  "turn.started": TurnStartedEventPayload;
   "usage": UsageEventPayload;
 }
 
@@ -2049,6 +2089,7 @@ export const SESSION_EVENT_KINDS: readonly SessionEventKind[] = [
   "audio.spoken",
   "backend.changed",
   "compaction",
+  "compaction.started",
   "context",
   "diff",
   "error",
@@ -2064,10 +2105,12 @@ export const SESSION_EVENT_KINDS: readonly SessionEventKind[] = [
   "subagent.update",
   "team.task.update",
   "tool.call",
+  "tool.progress",
   "tool.result",
   "turn.dequeued",
   "turn.done",
   "turn.queued",
+  "turn.started",
   "usage",
 ];
 

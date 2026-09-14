@@ -7,6 +7,7 @@ to the provider and for the :class:`Tool` to run when the model calls one.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -19,6 +20,41 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.server.app_server import Core
     from snowpea_core.session.session import Session
 
+log = logging.getLogger(__name__)
+
+
+class ProgressEmitter:
+    """Publishes ``tool.progress`` for one in-flight call (IDE-PROGRESS D2).
+
+    Owns the ``seq`` counter so every chunk of one call is ordered, and
+    swallows emit failures: a surface that went away must never fail the tool
+    whose output it was watching.  ``tool.result`` remains authoritative.
+    """
+
+    def __init__(self, core: Core, session_id: str, call_id: str, name: str) -> None:
+        self._core = core
+        self._session_id = session_id
+        self._call_id = call_id
+        self._name = name
+        self._seq = 0
+
+    async def emit(self, stream: str, chunk: str, *, truncated: bool = False) -> None:
+        from snowpea_core.session import events
+
+        seq, self._seq = self._seq, self._seq + 1
+        event = events.tool_progress(
+            self._call_id,
+            self._name,
+            stream=stream if stream in ("stdout", "stderr") else "stdout",
+            chunk=chunk,
+            seq=seq,
+            truncated=truncated,
+        )
+        try:
+            await self._core.hub.emit_event(self._session_id, event)
+        except Exception:  # noqa: BLE001 - a dead listener must not fail the tool
+            log.debug("could not emit tool.progress for %s", self._call_id, exc_info=True)
+
 
 @dataclass
 class ToolContext:
@@ -27,6 +63,12 @@ class ToolContext:
     session: Session
     core: Core
     backend: ExecutionBackend
+    #: Id of the ``tool.call`` being served, when the loop is running one.
+    #: Empty for a tool invoked outside the loop (tests, internal callers).
+    call_id: str = ""
+    #: Sink for ``tool.progress``; ``None`` when nothing is listening, which
+    #: is the signal to skip the streaming path entirely.
+    progress: ProgressEmitter | None = None
 
 
 @dataclass
@@ -211,6 +253,7 @@ def register_builtin_tools(registry: ToolRegistry) -> ToolRegistry:
 
 
 __all__ = [
+    "ProgressEmitter",
     "Tool",
     "ToolContext",
     "ToolRegistry",

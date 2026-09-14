@@ -1564,6 +1564,14 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | `kind` | `"compaction"` | no |  |
 | `summaryChars` | `number` | no | Length of the summary in characters. |
 
+### kind `compaction.started`
+
+| field | type | required | description |
+|---|---|---|---|
+| `before` | `number` | no | Estimated tokens the history holds now. |
+| `kind` | `"compaction.started"` | no |  |
+| `reason` | `"manual" \| "auto"` | no | auto = the auto-compaction threshold triggered it. |
+
 ### kind `context`
 
 | field | type | required | description |
@@ -1711,6 +1719,18 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | `kind` | `"tool.call"` | no |  |
 | `name` | `string` | yes | Tool being called. |
 
+### kind `tool.progress`
+
+| field | type | required | description |
+|---|---|---|---|
+| `callId` | `string` | yes | Id of the tool.call this output belongs to. |
+| `chunk` | `string` | no | Raw output fragment, in order. |
+| `kind` | `"tool.progress"` | no |  |
+| `name` | `string` | yes | Tool that is running. |
+| `seq` | `number` | no | 0-based index of this progress within the call. |
+| `stream` | `"stdout" \| "stderr"` | no | Which stream the chunk came from. |
+| `truncated` | `boolean` | no | True on the final progress when the byte cap stopped the tail. |
+
 ### kind `tool.result`
 
 | field | type | required | description |
@@ -1747,6 +1767,15 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | `position` | `number` | yes | 1-based place in the queue behind the running turn. |
 | `queued` | `number` | yes | Prompts waiting in the queue after this one was added. |
 | `turnId` | `string` | yes | Turn id assigned to the queued prompt. |
+
+### kind `turn.started`
+
+| field | type | required | description |
+|---|---|---|---|
+| `kind` | `"turn.started"` | no |  |
+| `prompt` | `string \| null` | no | The prompt that opened it; null when there is none. |
+| `queued` | `boolean` | no | True when this turn waited in the prompt queue first. |
+| `turnId` | `string` | yes | Turn that is now running. |
 
 ### kind `usage`
 

@@ -1,0 +1,19 @@
+{
+  "steps": [
+    {
+      "match": "run the slow command",
+      "text": "running it",
+      "tool_calls": [
+        {
+          "name": "shell",
+          "arguments": {
+            "command": "python3 -c \"import sys, time\nfor i in range(6):\n    print('line %d' % i)\n    sys.stdout.flush()\n    time.sleep(0.08)\n\""
+          }
+        }
+      ]
+    },
+    {"after_tool": "shell", "text": "the command finished", "repeat": true},
+    {"match": "the follow-up", "text": "follow-up answered"}
+  ],
+  "default": {"text": "nothing to do"}
+}

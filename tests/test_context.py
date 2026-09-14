@@ -599,7 +599,13 @@ async def test_auto_compaction_fires_at_the_threshold(
         # between the compaction and the turn.done that precedes it.
         kinds = client.kinds()
         index = kinds.index("compaction")
-        assert kinds[index - 1] in ("context", "turn.done")
+        # The announcement (IDE-PROGRESS D3) sits immediately before the
+        # completion, and the turn boundary immediately before that.
+        assert kinds[index - 1] == "compaction.started"
+        assert kinds[index - 2] in ("context", "turn.done", "turn.started")
+        started = client.of_kind("compaction.started")
+        assert started and started[0]["payload"]["reason"] == "auto"
+        assert started[0]["payload"]["before"] == events[0]["payload"]["before"]
     finally:
         await client.stop()
 
