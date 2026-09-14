@@ -18,6 +18,12 @@ export type ErrorCode =
   | "internal"
   | "invalid_params"
   | "login_unsupported"
+  | "mcp_exists"
+  | "mcp_invalid"
+  | "mcp_not_found"
+  | "mcp_read_only"
+  | "mcp_start_failed"
+  | "mcp_unsafe"
   | "mode_denied"
   | "not_found"
   | "not_implemented"
@@ -31,6 +37,12 @@ export const ERROR_CODES: readonly ErrorCode[] = [
   "internal",
   "invalid_params",
   "login_unsupported",
+  "mcp_exists",
+  "mcp_invalid",
+  "mcp_not_found",
+  "mcp_read_only",
+  "mcp_start_failed",
+  "mcp_unsafe",
   "mode_denied",
   "not_found",
   "not_implemented",
@@ -587,6 +599,295 @@ export interface LspStatusResult {
     /** starting, ready, broken or stopped. */
     state: "starting" | "ready" | "broken" | "stopped";
   })[];
+}
+
+/** `mcp.add` params. Write an MCP server into the project or global .mcp.json and start it. */
+export interface McpAddParams {
+  /** Arguments, argv style; never a shell string. */
+  args?: string[] | null;
+  /** Executable for a stdio server. */
+  command?: string | null;
+  /** Working directory for a stdio server. */
+  cwd?: string | null;
+  /** Keep the entry but never start the server. */
+  disabled?: boolean | null;
+  /** Environment for the child process. */
+  env?: Record<string, string> | null;
+  /** Overwrite an existing entry and accept the security findings. */
+  force?: boolean;
+  /** HTTP headers sent with every request. */
+  headers?: Record<string, string> | null;
+  /** Server name; ^[a-zA-Z0-9_-]{1,64}$. */
+  name: string;
+  /** Permission tag for the server's tools; stored in settings. */
+  permission?: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate" | null;
+  /** Catalog id copied before the explicit fields are applied. */
+  preset?: string | null;
+  /** Which file to write. */
+  scope?: "project" | "global";
+  /** Session whose workdir to use. */
+  sessionId?: string | null;
+  /** Probe the server before saving; nothing is written if it fails. */
+  test?: boolean;
+  /** Startup cap, in seconds. */
+  timeoutSec?: number | null;
+  /** Per-call cap, in seconds. */
+  toolTimeoutSec?: number | null;
+  /** Never register these tools of the server. */
+  toolsExclude?: string[] | null;
+  /** Register only these tools of the server. */
+  toolsInclude?: string[] | null;
+  /** Force a transport instead of inferring it. */
+  type?: "stdio" | "http" | "sse" | null;
+  /** Endpoint for an http or sse server. */
+  url?: string | null;
+  /** Project directory for scope=project. */
+  workdir?: string | null;
+}
+
+/** `mcp.add` result. */
+export interface McpAddResult {
+  /** Why the server did not start. */
+  error?: string | null;
+  /** True when the entry was written. */
+  ok?: boolean;
+  /** File the entry was written to. */
+  path: string;
+  /** State of the server after the write. */
+  state?: "stopped" | "starting" | "ready" | "error";
+  /** Tools the probe found, so a client can offer a picker. */
+  tools?: ({
+    /** One-line description from the server. */
+    description?: string;
+    /** Tool name as the server reports it, without the mcp__ prefix. */
+    name: string;
+  })[];
+  /** Security findings that --force accepted. */
+  warnings?: string[];
+}
+
+/** `mcp.catalog` params. The curated MCP servers a client can offer as presets. */
+export type McpCatalogParams = Record<string, unknown>;
+
+/** `mcp.catalog` result. */
+export interface McpCatalogResult {
+  /** Curated servers, in display order. */
+  entries?: ({
+    /** What the server does. */
+    description?: string;
+    /** The .mcp.json entry this preset writes. */
+    entry?: Record<string, unknown>;
+    /** Where the server is documented. */
+    homepage?: string;
+    /** Catalog id, e.g. 'github'. */
+    id: string;
+    /** Human name. */
+    label: string;
+    /** Environment variables the user must supply. */
+    needs?: string[];
+    /** stdio, http or sse. */
+    transport: "stdio" | "http" | "sse";
+  })[];
+}
+
+/** `mcp.list` params. List every configured MCP server with its scope, state and tools. */
+export interface McpListParams {
+  /** Session whose workdir to read. */
+  sessionId?: string | null;
+  /** Project directory; defaults to the session's, then the daemon's. */
+  workdir?: string | null;
+}
+
+/** `mcp.list` result. */
+export interface McpListResult {
+  /** One row per configured server, project entries winning. */
+  servers?: ({
+    /** Arguments, argv style. */
+    args?: string[];
+    /** Executable, for a stdio server. */
+    command?: string | null;
+    /** Working directory for a stdio server. */
+    cwd?: string | null;
+    /** True when the entry is kept but never started. */
+    disabled?: boolean;
+    /** Names of the environment variables set for the server; never their values. */
+    envKeys?: string[];
+    /** Why the last start failed. */
+    error?: string | null;
+    /** Names of the HTTP headers sent to the server; never their values. */
+    headerKeys?: string[];
+    /** Server name; the key under mcpServers. */
+    name: string;
+    /** Permission tag every tool of this server is judged by. */
+    permission?: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate";
+    /** Plugin that brings a plugin-scoped entry. */
+    plugin?: string | null;
+    /** project, global, plugin or settings. */
+    scope: "project" | "global" | "plugin" | "settings";
+    /** stopped, starting, ready or error. */
+    state?: "stopped" | "starting" | "ready" | "error";
+    /** Startup cap override, in seconds. */
+    timeoutSec?: number | null;
+    /** Tools the server contributed after filtering. */
+    toolCount?: number;
+    /** Per-call cap override, in seconds. */
+    toolTimeoutSec?: number | null;
+    /** The tools themselves; filled once the server is ready. */
+    tools?: ({
+      /** One-line description from the server. */
+      description?: string;
+      /** Tool name as the server reports it, without the mcp__ prefix. */
+      name: string;
+    })[];
+    /** These tools are never registered. */
+    toolsExclude?: string[];
+    /** Only these tools are registered, when set. */
+    toolsInclude?: string[];
+    /** stdio, http or sse. */
+    transport: "stdio" | "http" | "sse";
+    /** Endpoint, for an http or sse server. */
+    url?: string | null;
+  })[];
+}
+
+/** `mcp.reload` params. Restart one MCP server, or every configured one. */
+export interface McpReloadParams {
+  /** Server to restart; all of them when absent. */
+  name?: string | null;
+  /** Session whose workdir to use. */
+  sessionId?: string | null;
+  /** Project directory to rediscover from. */
+  workdir?: string | null;
+}
+
+/** `mcp.reload` result. */
+export interface McpReloadResult {
+  /** True when the reload ran. */
+  ok?: boolean;
+  /** Servers that were restarted. */
+  servers?: string[];
+}
+
+/** `mcp.remove` params. Delete an MCP server entry and stop the server. */
+export interface McpRemoveParams {
+  /** Server name. */
+  name: string;
+  /** Which file to rewrite. */
+  scope?: "project" | "global";
+  /** Session whose workdir to use. */
+  sessionId?: string | null;
+  /** Project directory for scope=project. */
+  workdir?: string | null;
+}
+
+/** `mcp.remove` result. */
+export interface McpRemoveResult {
+  /** True when the call succeeded. */
+  ok?: boolean;
+}
+
+/** `mcp.test` params. Probe a saved MCP server or an unsaved draft and report its tools. */
+export interface McpTestParams {
+  /** Arguments, argv style; never a shell string. */
+  args?: string[] | null;
+  /** Executable for a stdio server. */
+  command?: string | null;
+  /** Working directory for a stdio server. */
+  cwd?: string | null;
+  /** Keep the entry but never start the server. */
+  disabled?: boolean | null;
+  /** Environment for the child process. */
+  env?: Record<string, string> | null;
+  /** HTTP headers sent with every request. */
+  headers?: Record<string, string> | null;
+  /** Saved server to probe. */
+  name?: string | null;
+  /** Permission tag for the server's tools; stored in settings. */
+  permission?: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate" | null;
+  /** Scope of the saved server. */
+  scope?: "project" | "global" | "plugin" | "settings" | null;
+  /** Session whose workdir to use. */
+  sessionId?: string | null;
+  /** Startup cap, in seconds. */
+  timeoutSec?: number | null;
+  /** Per-call cap, in seconds. */
+  toolTimeoutSec?: number | null;
+  /** Never register these tools of the server. */
+  toolsExclude?: string[] | null;
+  /** Register only these tools of the server. */
+  toolsInclude?: string[] | null;
+  /** Force a transport instead of inferring it. */
+  type?: "stdio" | "http" | "sse" | null;
+  /** Endpoint for an http or sse server. */
+  url?: string | null;
+  /** Project directory for scope=project. */
+  workdir?: string | null;
+}
+
+/** `mcp.test` result. */
+export interface McpTestResult {
+  /** How long the probe took. */
+  elapsedMs?: number;
+  /** Spawn or protocol error, verbatim. */
+  error?: string | null;
+  /** True when the server answered tools/list. */
+  ok: boolean;
+  /** ready when the probe succeeded, error otherwise. */
+  state: "stopped" | "starting" | "ready" | "error";
+  /** What the server exposes. */
+  tools?: ({
+    /** One-line description from the server. */
+    description?: string;
+    /** Tool name as the server reports it, without the mcp__ prefix. */
+    name: string;
+  })[];
+}
+
+/** `mcp.update` params. Merge a patch into an existing MCP server entry. */
+export interface McpUpdateParams {
+  /** Server name. */
+  name: string;
+  /** Keys to change; anything absent is kept. */
+  patch?: {
+    /** Arguments, argv style; never a shell string. */
+    args?: string[] | null;
+    /** Executable for a stdio server. */
+    command?: string | null;
+    /** Working directory for a stdio server. */
+    cwd?: string | null;
+    /** Keep the entry but never start the server. */
+    disabled?: boolean | null;
+    /** Environment for the child process. */
+    env?: Record<string, string> | null;
+    /** HTTP headers sent with every request. */
+    headers?: Record<string, string> | null;
+    /** Permission tag for the server's tools; stored in settings. */
+    permission?: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate" | null;
+    /** Startup cap, in seconds. */
+    timeoutSec?: number | null;
+    /** Per-call cap, in seconds. */
+    toolTimeoutSec?: number | null;
+    /** Never register these tools of the server. */
+    toolsExclude?: string[] | null;
+    /** Register only these tools of the server. */
+    toolsInclude?: string[] | null;
+    /** Force a transport instead of inferring it. */
+    type?: "stdio" | "http" | "sse" | null;
+    /** Endpoint for an http or sse server. */
+    url?: string | null;
+  };
+  /** Which file to rewrite. */
+  scope?: "project" | "global";
+  /** Session whose workdir to use. */
+  sessionId?: string | null;
+  /** Project directory for scope=project. */
+  workdir?: string | null;
+}
+
+/** `mcp.update` result. */
+export interface McpUpdateResult {
+  /** True when the call succeeded. */
+  ok?: boolean;
 }
 
 /** `memory.search` params. Recall stored memories matching a query. */
@@ -1618,11 +1919,13 @@ export interface ToolListResult {
     /** Tool name as the model calls it. */
     name: string;
     /** Permission class checked against the mode. */
-    permissionTag: "read" | "write" | "exec" | "network" | "send" | "config";
+    permissionTag: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate";
     /** Backing provider for tools that have one, e.g. the web-search provider id; reads "configured → answering" when the configured one cannot run. */
     provider?: string;
     /** Why an inactive tool is inactive, e.g. "lsp.enabled is false". */
     reason?: string;
+    /** MCP server this tool came from; empty for everything else (M14 §3). */
+    server?: string;
     /** builtin, skill, plugin or MCP server name. */
     source?: string;
     /** Inactive tools are hidden from the model. */
@@ -1702,6 +2005,22 @@ export interface JobEventPayload {
   kind: "started" | "finished" | "failed" | "denied";
   /** Kind-specific body. */
   payload?: Record<string, unknown>;
+}
+
+/** `mcp.changed` notification payload. */
+export interface McpChangedPayload {
+  /** Why the server is in the error state. */
+  error?: string | null;
+  /** Server name. */
+  name: string;
+  /** True when the entry itself is gone. */
+  removed?: boolean;
+  /** Scope the server is declared in. */
+  scope?: "project" | "global" | "plugin" | "settings";
+  /** stopped, starting, ready or error. */
+  state: "stopped" | "starting" | "ready" | "error";
+  /** Tools the server currently contributes. */
+  toolCount?: number;
 }
 
 /** `provider.loginProgress` notification payload. */
@@ -2219,6 +2538,13 @@ export interface MethodMap {
   "job.schedule": { params: JobScheduleParams; result: JobScheduleResult };
   "lsp.catalog": { params: LspCatalogParams; result: LspCatalogResult };
   "lsp.status": { params: LspStatusParams; result: LspStatusResult };
+  "mcp.add": { params: McpAddParams; result: McpAddResult };
+  "mcp.catalog": { params: McpCatalogParams; result: McpCatalogResult };
+  "mcp.list": { params: McpListParams; result: McpListResult };
+  "mcp.reload": { params: McpReloadParams; result: McpReloadResult };
+  "mcp.remove": { params: McpRemoveParams; result: McpRemoveResult };
+  "mcp.test": { params: McpTestParams; result: McpTestResult };
+  "mcp.update": { params: McpUpdateParams; result: McpUpdateResult };
   "memory.search": { params: MemorySearchParams; result: MemorySearchResult };
   "memory.write": { params: MemoryWriteParams; result: MemoryWriteResult };
   "permission.allowlist.add": { params: PermissionAllowlistAddParams; result: PermissionAllowlistAddResult };
@@ -2296,6 +2622,13 @@ export type ClientMethod =
   | "job.schedule"
   | "lsp.catalog"
   | "lsp.status"
+  | "mcp.add"
+  | "mcp.catalog"
+  | "mcp.list"
+  | "mcp.reload"
+  | "mcp.remove"
+  | "mcp.test"
+  | "mcp.update"
   | "memory.search"
   | "memory.write"
   | "permission.allowlist.add"
@@ -2351,6 +2684,7 @@ export interface EventMap {
   "commands.changed": CommandsChangedPayload;
   "gateway.event": GatewayEventPayload;
   "job.event": JobEventPayload;
+  "mcp.changed": McpChangedPayload;
   "provider.loginProgress": ProviderLoginProgressPayload;
   "question.pending": QuestionPendingPayload;
   "question.resolved": QuestionResolvedPayload;
@@ -2366,6 +2700,7 @@ export const EVENT_NAMES: readonly EventName[] = [
   "commands.changed",
   "gateway.event",
   "job.event",
+  "mcp.changed",
   "provider.loginProgress",
   "question.pending",
   "question.resolved",

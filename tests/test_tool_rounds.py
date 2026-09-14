@@ -1,4 +1,4 @@
-"""The tool-round budget is a checkpoint that asks, not a wall that stops."""
+"""The tool-round budget: a checkpoint that reports, then asks (CORE-subagent-budget)."""
 
 from __future__ import annotations
 
@@ -56,6 +56,11 @@ async def test_continue_lets_the_turn_run_past_the_budget(
     assert [q["questions"][0]["header"] for q in client.questions] == ["도구 호출 한도"]
     assert sorted(p.name for p in workdir.glob("*.txt")) == ["a.txt", "b.txt", "c.txt"]
     assert client.of_kind("error") == []
+    # The report is written *before* the question, so the person deciding can
+    # see what the turn has done so far; the turn then finishes normally.
+    said = [e["payload"]["text"] for e in client.of_kind("message.done")]
+    assert said[0] == "a.txt와 b.txt를 썼습니다. c.txt가 남았습니다."
+    assert said[-1] == "다 썼습니다"
     await client.stop()
 
 
@@ -68,10 +73,13 @@ async def test_stop_ends_the_turn_at_the_budget(
     session_id = await open_session(client, workdir, "auto")
 
     turn_id = await prompt(client, session_id, "파일 세 번 써줘")
-    assert await client.wait_turn(turn_id) == "error"
+    # The budget is its own reason now: the turn ended having said something,
+    # so it is not an error and the surface has a report to show.
+    assert await client.wait_turn(turn_id) == "budget"
     assert len(client.questions) == 1
     assert sorted(p.name for p in workdir.glob("*.txt")) == ["a.txt", "b.txt"]
-    assert [e["payload"]["message"] for e in client.of_kind("error")] == [
-        "stopped after 2 tool rounds"
+    assert client.of_kind("error") == []
+    assert [e["payload"]["text"] for e in client.of_kind("message.done")] == [
+        "a.txt와 b.txt를 썼습니다. c.txt가 남았습니다."
     ]
     await client.stop()

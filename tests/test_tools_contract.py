@@ -65,7 +65,7 @@ CATALOG: dict[str, tuple[str, str]] = {
     "browser_type": ("browser", "network"),
     "browser_scroll": ("browser", "network"),
     "browser_snapshot": ("browser", "network"),
-    "delegate_task": ("delegate", "exec"),
+    "delegate_task": ("delegate", "delegate"),
     # ask_user blocks on a human and changes nothing, so it is read-class; the
     # command it queues is chosen by that human, never by the model alone.
     "ask_user": ("interaction", "read"),

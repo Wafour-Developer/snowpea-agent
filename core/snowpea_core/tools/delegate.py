@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from snowpea_core.agent.agent import reply_language
 from snowpea_core.agent.definition import builtin_agent_definitions
-from snowpea_core.agent.subagent import get_manager
+from snowpea_core.agent.subagent import BUDGET, SubagentResult, get_manager
 from snowpea_core.prompts import tool_descriptions as descriptions
 from snowpea_core.prompts.compose import language_name
 from snowpea_core.session.history import message_text
@@ -103,6 +103,46 @@ def language_line(tag: str) -> str:
     return f"Answer in {language_name(tag)} ({tag}). Keep code, paths and commands as they are."
 
 
+#: Reasons whose report the parent has to read as partial: the child stopped
+#: for a reason of its own, not because the work was finished.
+PARTIAL_REASONS = frozenset({BUDGET, "timeout", "error", "interrupted", "denied"})
+
+#: What is said when the child never wrote a final answer — it was cut off
+#: between tool calls.  A delegation never comes back as an empty string, and
+#: never as the prose the child happened to write before its last tool call:
+#: an empty (or misleading) tool result is what made the parent re-delegate
+#: the same task three times (CORE-subagent-budget).
+NO_REPORT = "(the sub-agent ended without a final report; see the steps below)"
+
+
+def render_report(result: SubagentResult) -> str:
+    """The text the parent model reads: the header, the report, the last calls.
+
+    The header is three plain lines rather than JSON so a small model reads it
+    as surely as a frontier one, and the report follows unchanged, because that
+    is what the parent is going to relay.
+    """
+    head = [
+        f"status: {result.status}",
+        f"reason: {result.reason}",
+        f"roundsUsed: {result.rounds_used}",
+    ]
+    summary = (result.summary or "").strip()
+    parts = ["\n".join(head), summary or NO_REPORT]
+    if result.error and result.error not in (result.summary or ""):
+        parts.append(f"error: {result.error}")
+    if result.last_calls and (not summary or result.reason in PARTIAL_REASONS):
+        calls = "\n".join(f"- {call}" for call in result.last_calls)
+        parts.append(f"The last tool calls it made:\n{calls}")
+    if result.reason == BUDGET:
+        parts.append(
+            "This task is unfinished: the child used its whole tool-round budget. "
+            "Use the report above and decide what still needs doing — do not simply "
+            "delegate the same task again."
+        )
+    return "\n\n".join(parts)
+
+
 async def delegate_task(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     """Run one subagent and report what it answered."""
     task = str(args.get("task", "") or "").strip()
@@ -125,13 +165,14 @@ async def delegate_task(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         # own progress is republished on this call (IDE-PROGRESS D2).
         progress=ctx.progress,
     )
-    if not result.ok:
+    report = render_report(result)
+    if not result.ok and result.reason != BUDGET:
         return ToolResult(
             ok=False,
-            output=result.summary,
+            output=report,
             error=result.error or "the subagent did not finish",
         )
-    return ToolResult(ok=True, output=result.summary or "(the subagent returned no text)")
+    return ToolResult(ok=True, output=report)
 
 
 TOOLS: tuple[Tool, ...] = (
@@ -185,7 +226,7 @@ TOOLS: tuple[Tool, ...] = (
             },
             "required": ["task"],
         },
-        permission="exec",
+        permission="delegate",
         run=delegate_task,
     ),
 )
@@ -195,10 +236,13 @@ __all__ = [
     "BUILTIN_AGENT_HINT",
     "BUILTIN_AGENT_NAMES",
     "MAX_TIMEOUT",
+    "NO_REPORT",
+    "PARTIAL_REASONS",
     "TOOLS",
     "delegate_task",
     "delegation_language",
     "detected_language",
     "language_line",
     "last_user_text",
+    "render_report",
 ]

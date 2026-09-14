@@ -57,6 +57,31 @@ MAX_CONTINUATIONS = 2
 #: What the model is told when its answer was cut off mid-sentence.
 CONTINUE_INSTRUCTION = "Continue exactly where you stopped, without repeating."
 
+#: Tool rounds a delegated child gets when nothing was configured for it.  A
+#: worker reads far more than it writes, and the parent only ever sees its
+#: final report, so a child's floor is higher than the session default
+#: (CORE-subagent-budget).
+SUBAGENT_TOOL_ROUNDS = 80
+
+#: What the model is asked for when the round budget runs out.  The call that
+#: carries it is made with **no tools**, so the only thing it can produce is
+#: the report (CORE-subagent-budget).
+BUDGET_INSTRUCTION = (
+    "You have used the tool budget for this turn: no further tool calls are possible. "
+    "Stop and report, in plain prose: what you did, what you found, what remains, "
+    "and which files you changed. Do not promise further work in this turn."
+)
+
+#: What is fed back after the person chose to keep going at the checkpoint, so
+#: the model resumes the work instead of answering its own report.
+BUDGET_CONTINUE_INSTRUCTION = (
+    "You have another {n} tool rounds. Continue the work from where you stopped."
+)
+
+#: Used as the report when the model answered the budget prompt with nothing.
+#: A delegation must never come back empty (CORE-subagent-budget).
+BUDGET_EMPTY_REPORT = "Stopped after {n} tool rounds without writing a report."
+
 #: Shortest gap between two ``message.reasoning`` events, in seconds.
 #:
 #: Reasoning arrives a fragment at a time and carries a running character
@@ -117,6 +142,41 @@ def backend_for(core: Core, session: Session) -> Any:
     return session.backend or LocalBackend(session.workdir)
 
 
+def tool_rounds_for(core: Core, session: Session | None = None) -> int:
+    """How many tool rounds one turn of ``session`` may make.
+
+    Highest rung first (CORE-subagent-budget):
+
+    1. the agent definition's ``tool_rounds:`` (carried on the session);
+    2. ``agents.toolRounds[<agent name>]`` when the setting is a mapping;
+    3. ``agents.toolRounds`` as a number, or its ``"default"`` key;
+    4. ``agent.max_tool_rounds``, floored at :data:`SUBAGENT_TOOL_ROUNDS` for a
+       delegated child, which reads far more than the session it came from.
+    """
+    settings = core.settings
+    base = max(1, int(settings.agent.max_tool_rounds))
+    if session is not None and session.is_subagent:
+        base = max(base, SUBAGENT_TOOL_ROUNDS)
+    configured: Any = getattr(settings.agents, "toolRounds", None)
+    if isinstance(configured, dict):
+        name = (getattr(session, "agent", None) or "") if session else ""
+        for key in (name, "default", "*"):
+            if key and key in configured:
+                configured = configured[key]
+                break
+        else:
+            configured = None
+    override = getattr(session, "tool_rounds", None) if session else None
+    for candidate in (override, configured):
+        try:
+            rounds = int(candidate)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            continue
+        if rounds >= 1:
+            return rounds
+    return base
+
+
 def agent_config(core: Core, session: Session | None = None) -> AgentConfig:
     """Tool rounds, output budget and the thinking switch for one turn.
 
@@ -146,7 +206,7 @@ def agent_config(core: Core, session: Session | None = None) -> AgentConfig:
     if thinking not in ("on", "off"):
         thinking = "off" if session is not None and session.is_subagent else "on"
     return AgentConfig(
-        max_tool_rounds=max(1, settings.agent.max_tool_rounds),
+        max_tool_rounds=tool_rounds_for(core, session),
         max_tokens=max(1, int(max_tokens)),
         thinking=thinking,
     )
@@ -595,22 +655,35 @@ async def _drive(
     denials = 0
 
     rounds_left = config.max_tool_rounds
+    session.rounds_used = 0
     while True:
         if rounds_left <= 0:
             # The budget is a checkpoint, not a wall: a long implementing turn
-            # legitimately makes hundreds of calls. Ask the person watching
-            # whether to go on; an unattended turn has nobody to ask and stops.
-            if unattended or not await _ask_to_continue(core, session, config):
-                await hub.emit_event(
-                    session.id,
-                    events.error(
-                        errors.INTERNAL, f"stopped after {config.max_tool_rounds} tool rounds"
-                    ),
+            # legitimately makes hundreds of calls.  Whatever happens next, the
+            # turn first writes a report — it used to end on an ``error`` event
+            # with no ``message.done`` at all, which left a delegating parent
+            # holding an empty summary (CORE-subagent-budget).
+            await _budget_report(core, session, provider, config, memory_block)
+            if session.interrupt.is_set():
+                # Stop pressed while the report was being written: the report
+                # was still published, but nobody is waiting for a question.
+                await finish_turn(core, session, turn_id, "interrupted")
+                return "interrupted"
+            # Only a session someone is watching gets the choice; a delegated
+            # or scheduled turn has nobody to ask and ends on its report.
+            asks = not unattended and not session.is_subagent
+            if not asks or not await _ask_to_continue(core, session, config):
+                await finish_turn(core, session, turn_id, "budget")
+                return "budget"
+            session.history.append(
+                ChatMessage(
+                    role="user",
+                    content=BUDGET_CONTINUE_INSTRUCTION.format(n=config.max_tool_rounds),
                 )
-                await finish_turn(core, session, turn_id, "error")
-                return "error"
+            )
             rounds_left = config.max_tool_rounds
         rounds_left -= 1
+        session.rounds_used += 1
         if session.interrupt.is_set():
             await finish_turn(core, session, turn_id, "interrupted")
             return "interrupted"
@@ -665,6 +738,50 @@ async def _drive(
             if outcome is not None:
                 return outcome
         session.history.compact()
+
+
+async def _budget_report(
+    core: Core,
+    session: Session,
+    provider: Any,
+    config: AgentConfig,
+    memory_block: str,
+) -> str:
+    """One last model call, with no tools, so the turn always says something.
+
+    Running out of rounds used to end the turn on an ``error`` event alone: no
+    ``message.done``, so a delegating parent got an empty summary and a person
+    watching got a red line instead of an account of the work
+    (CORE-subagent-budget).  The instruction is a *local* message, the way the
+    output-limit continuation is: only the report itself joins the history, so
+    the turn's last user message stays the one the user actually wrote — the
+    checkpoint question and the reply language are both read off it.
+
+    Never raises: a provider that fails here still leaves a written report.
+    """
+    text = ""
+    truncated = False
+    continuations = 0
+    try:
+        messages = [
+            *build_messages(session, [], memory_block, core=core),
+            ChatMessage(role="user", content=BUDGET_INSTRUCTION),
+        ]
+        attempt = await _model_turn(core, session, provider, messages, [], config)
+        text = attempt.text.strip()
+        truncated = attempt.truncated
+        continuations = attempt.continuations
+    except Exception:  # noqa: BLE001 - the report is a courtesy, never a failure
+        log.exception("the tool-budget report failed for %s", session.id)
+    if not text:
+        text = BUDGET_EMPTY_REPORT.format(n=config.max_tool_rounds)
+    session.history.append(ChatMessage(role="assistant", content=text))
+    await core.hub.emit_event(
+        session.id,
+        events.message_done(text, truncated=truncated, continuations=continuations),
+    )
+    await speak_reply(core, session, text)
+    return text
 
 
 #: The continue / stop rows of the tool-round checkpoint, per reply language.
@@ -842,4 +959,5 @@ __all__ = [
     "run_turn",
     "speak_reply",
     "start_turn",
+    "tool_rounds_for",
 ]

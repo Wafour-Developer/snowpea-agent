@@ -43,6 +43,7 @@ Server capabilities advertised in the `system.hello` result:
 - `audio`
 - `commands`
 - `lsp`
+- `mcp`
 - `sessions`
 - `settings`
 - `setup`
@@ -79,6 +80,13 @@ Server capabilities advertised in the `system.hello` result:
 | [`job.schedule`](#jobschedule) | client → server | Schedule a prompt to run unattended. |
 | [`lsp.catalog`](#lspcatalog) | client → server | List every registered language server, regardless of whether it has started. |
 | [`lsp.status`](#lspstatus) | client → server | Report every language server the daemon has started and its state. |
+| [`mcp.add`](#mcpadd) | client → server | Write an MCP server into the project or global .mcp.json and start it. |
+| [`mcp.catalog`](#mcpcatalog) | client → server | The curated MCP servers a client can offer as presets. |
+| [`mcp.list`](#mcplist) | client → server | List every configured MCP server with its scope, state and tools. |
+| [`mcp.reload`](#mcpreload) | client → server | Restart one MCP server, or every configured one. |
+| [`mcp.remove`](#mcpremove) | client → server | Delete an MCP server entry and stop the server. |
+| [`mcp.test`](#mcptest) | client → server | Probe a saved MCP server or an unsaved draft and report its tools. |
+| [`mcp.update`](#mcpupdate) | client → server | Merge a patch into an existing MCP server entry. |
 | [`memory.search`](#memorysearch) | client → server | Recall stored memories matching a query. |
 | [`memory.write`](#memorywrite) | client → server | Store a memory with tags. |
 | [`permission.allowlist.add`](#permissionallowlistadd) | client → server | Promote a pattern from ask to allow. |
@@ -645,6 +653,185 @@ _No params (send `{}`)._
 | field | type | required | description |
 |---|---|---|---|
 | `servers` | `({ id: string; languageId?: string; pid?: number \| null; root: string; state: "starting" \| "ready" \| "broken" \| "stopped"; })[]` | no | One row per (server, root) pair. |
+
+### `mcp.add`
+
+*Direction:* client → server
+
+Write an MCP server into the project or global .mcp.json and start it.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `args` | `string[] \| null` | no | Arguments, argv style; never a shell string. |
+| `command` | `string \| null` | no | Executable for a stdio server. |
+| `cwd` | `string \| null` | no | Working directory for a stdio server. |
+| `disabled` | `boolean \| null` | no | Keep the entry but never start the server. |
+| `env` | `Record<string, string> \| null` | no | Environment for the child process. |
+| `force` | `boolean` | no | Overwrite an existing entry and accept the security findings. |
+| `headers` | `Record<string, string> \| null` | no | HTTP headers sent with every request. |
+| `name` | `string` | yes | Server name; ^[a-zA-Z0-9_-]{1,64}$. |
+| `permission` | `"read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| null` | no | Permission tag for the server's tools; stored in settings. |
+| `preset` | `string \| null` | no | Catalog id copied before the explicit fields are applied. |
+| `scope` | `"project" \| "global"` | no | Which file to write. |
+| `sessionId` | `string \| null` | no | Session whose workdir to use. |
+| `test` | `boolean` | no | Probe the server before saving; nothing is written if it fails. |
+| `timeoutSec` | `number \| null` | no | Startup cap, in seconds. |
+| `toolTimeoutSec` | `number \| null` | no | Per-call cap, in seconds. |
+| `toolsExclude` | `string[] \| null` | no | Never register these tools of the server. |
+| `toolsInclude` | `string[] \| null` | no | Register only these tools of the server. |
+| `type` | `"stdio" \| "http" \| "sse" \| null` | no | Force a transport instead of inferring it. |
+| `url` | `string \| null` | no | Endpoint for an http or sse server. |
+| `workdir` | `string \| null` | no | Project directory for scope=project. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `error` | `string \| null` | no | Why the server did not start. |
+| `ok` | `boolean` | no | True when the entry was written. |
+| `path` | `string` | yes | File the entry was written to. |
+| `state` | `"stopped" \| "starting" \| "ready" \| "error"` | no | State of the server after the write. |
+| `tools` | `({ description?: string; name: string; })[]` | no | Tools the probe found, so a client can offer a picker. |
+| `warnings` | `string[]` | no | Security findings that --force accepted. |
+
+### `mcp.catalog`
+
+*Direction:* client → server
+
+The curated MCP servers a client can offer as presets.
+
+**Params**
+
+_No params (send `{}`)._
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `entries` | `({ description?: string; entry?: Record<string, unknown>; homepage?: string; id: string; label: string; needs?: string[]; transport: "stdio" \| "http" \| "sse"; })[]` | no | Curated servers, in display order. |
+
+### `mcp.list`
+
+*Direction:* client → server
+
+List every configured MCP server with its scope, state and tools.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `sessionId` | `string \| null` | no | Session whose workdir to read. |
+| `workdir` | `string \| null` | no | Project directory; defaults to the session's, then the daemon's. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `servers` | `({ args?: string[]; command?: string \| null; cwd?: string \| null; disabled?: boolean; envKeys?: string[]; error?: string \| null; headerKeys?: string[]; name: string; permission?: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate"; plugin?: string \| null; scope: "project" \| "global" \| "plugin" \| "settings"; state?: "stopped" \| "starting" \| "ready" \| "error"; timeoutSec?: number \| null; toolCount?: number; toolTimeoutSec?: number \| null; tools?: ({ description?: string; name: string; })[]; toolsExclude?: string[]; toolsInclude?: string[]; transport: "stdio" \| "http" \| "sse"; url?: string \| null; })[]` | no | One row per configured server, project entries winning. |
+
+### `mcp.reload`
+
+*Direction:* client → server
+
+Restart one MCP server, or every configured one.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `name` | `string \| null` | no | Server to restart; all of them when absent. |
+| `sessionId` | `string \| null` | no | Session whose workdir to use. |
+| `workdir` | `string \| null` | no | Project directory to rediscover from. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ok` | `boolean` | no | True when the reload ran. |
+| `servers` | `string[]` | no | Servers that were restarted. |
+
+### `mcp.remove`
+
+*Direction:* client → server
+
+Delete an MCP server entry and stop the server.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `name` | `string` | yes | Server name. |
+| `scope` | `"project" \| "global"` | no | Which file to rewrite. |
+| `sessionId` | `string \| null` | no | Session whose workdir to use. |
+| `workdir` | `string \| null` | no | Project directory for scope=project. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ok` | `boolean` | no | True when the call succeeded. |
+
+### `mcp.test`
+
+*Direction:* client → server
+
+Probe a saved MCP server or an unsaved draft and report its tools.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `args` | `string[] \| null` | no | Arguments, argv style; never a shell string. |
+| `command` | `string \| null` | no | Executable for a stdio server. |
+| `cwd` | `string \| null` | no | Working directory for a stdio server. |
+| `disabled` | `boolean \| null` | no | Keep the entry but never start the server. |
+| `env` | `Record<string, string> \| null` | no | Environment for the child process. |
+| `headers` | `Record<string, string> \| null` | no | HTTP headers sent with every request. |
+| `name` | `string \| null` | no | Saved server to probe. |
+| `permission` | `"read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| null` | no | Permission tag for the server's tools; stored in settings. |
+| `scope` | `"project" \| "global" \| "plugin" \| "settings" \| null` | no | Scope of the saved server. |
+| `sessionId` | `string \| null` | no | Session whose workdir to use. |
+| `timeoutSec` | `number \| null` | no | Startup cap, in seconds. |
+| `toolTimeoutSec` | `number \| null` | no | Per-call cap, in seconds. |
+| `toolsExclude` | `string[] \| null` | no | Never register these tools of the server. |
+| `toolsInclude` | `string[] \| null` | no | Register only these tools of the server. |
+| `type` | `"stdio" \| "http" \| "sse" \| null` | no | Force a transport instead of inferring it. |
+| `url` | `string \| null` | no | Endpoint for an http or sse server. |
+| `workdir` | `string \| null` | no | Project directory for scope=project. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `elapsedMs` | `number` | no | How long the probe took. |
+| `error` | `string \| null` | no | Spawn or protocol error, verbatim. |
+| `ok` | `boolean` | yes | True when the server answered tools/list. |
+| `state` | `"stopped" \| "starting" \| "ready" \| "error"` | yes | ready when the probe succeeded, error otherwise. |
+| `tools` | `({ description?: string; name: string; })[]` | no | What the server exposes. |
+
+### `mcp.update`
+
+*Direction:* client → server
+
+Merge a patch into an existing MCP server entry.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `name` | `string` | yes | Server name. |
+| `patch` | `{ args?: string[] \| null; command?: string \| null; cwd?: string \| null; disabled?: boolean \| null; env?: Record<string, string> \| null; headers?: Record<string, string> \| null; permission?: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| null; timeoutSec?: number \| null; toolTimeoutSec?: number \| null; toolsExclude?: string[] \| null; toolsInclude?: string[] \| null; type?: "stdio" \| "http" \| "sse" \| null; url?: string \| null; }` | no | Keys to change; anything absent is kept. |
+| `scope` | `"project" \| "global"` | no | Which file to rewrite. |
+| `sessionId` | `string \| null` | no | Session whose workdir to use. |
+| `workdir` | `string \| null` | no | Project directory for scope=project. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ok` | `boolean` | no | True when the call succeeded. |
 
 ### `memory.search`
 
@@ -1513,7 +1700,7 @@ List the tools registered for a session.
 
 | field | type | required | description |
 |---|---|---|---|
-| `tools` | `({ category: string; description?: string; name: string; permissionTag: "read" \| "write" \| "exec" \| "network" \| "send" \| "config"; provider?: string; reason?: string; source?: string; state?: "active" \| "inactive"; })[]` | no | Registered tools. |
+| `tools` | `({ category: string; description?: string; name: string; permissionTag: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate"; provider?: string; reason?: string; server?: string; source?: string; state?: "active" \| "inactive"; })[]` | no | Registered tools. |
 
 ## Notifications
 
@@ -1553,6 +1740,17 @@ List the tools registered for a session.
 | `jobId` | `string` | yes | Job the event belongs to. |
 | `kind` | `"started" \| "finished" \| "failed" \| "denied"` | yes | Where the run got to. |
 | `payload` | `Record<string, unknown>` | no | Kind-specific body. |
+
+### `mcp.changed`
+
+| field | type | required | description |
+|---|---|---|---|
+| `error` | `string \| null` | no | Why the server is in the error state. |
+| `name` | `string` | yes | Server name. |
+| `removed` | `boolean` | no | True when the entry itself is gone. |
+| `scope` | `"project" \| "global" \| "plugin" \| "settings"` | no | Scope the server is declared in. |
+| `state` | `"stopped" \| "starting" \| "ready" \| "error"` | yes | stopped, starting, ready or error. |
+| `toolCount` | `number` | no | Tools the server currently contributes. |
 
 ### `provider.loginProgress`
 
@@ -1870,6 +2068,12 @@ Returned as the string `error.data.code` of a JSON-RPC error response.
 | `internal` | Unexpected server-side failure. |
 | `invalid_params` | Params failed schema validation. |
 | `login_unsupported` | The vendor does not support the requested login method. |
+| `mcp_exists` |  |
+| `mcp_invalid` |  |
+| `mcp_not_found` |  |
+| `mcp_read_only` |  |
+| `mcp_start_failed` |  |
+| `mcp_unsafe` |  |
 | `mode_denied` | The session mode forbids this tool or action. |
 | `not_found` | No such session, request, job, or agent. |
 | `not_implemented` | Defined in the schema but not implemented in this milestone. |

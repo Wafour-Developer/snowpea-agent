@@ -24,6 +24,7 @@ the whole tree.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import uuid
 from dataclasses import dataclass, field
@@ -78,6 +79,26 @@ TRUNCATED_MARK = "[truncated at max_tokens after {count} continuations]"
 
 #: Attribute the manager is cached under on :class:`Core`.
 CORE_ATTR = "_subagents"
+
+#: Tool calls kept from the end of a child's run.  A parent deciding what to do
+#: with a child that ran out of budget (or time) needs to see where it was, not
+#: a transcript (CORE-subagent-budget).
+LAST_CALLS = 3
+
+#: Characters of one remembered call's arguments.
+CALL_ARG_CHARS = 120
+
+#: Why the child's turn ended, as reported to the caller.  Mirrors
+#: ``turn.done.reason`` with ``"complete"`` as the default.
+COMPLETE = "complete"
+BUDGET = "budget"
+TIMEOUT = "timeout"
+
+#: Appended to every brief so the child knows what it has to spend.
+BUDGET_LINE = (
+    "You have {n} tool rounds for this task. Leave enough of them to write your "
+    "report: if you run out, the report is written for you and the work stops."
+)
 
 
 def new_agent_id() -> str:
@@ -139,6 +160,13 @@ class SubagentRecord:
     error: str | None = None
     input_tokens: int = 0
     output_tokens: int = 0
+    #: Why the child's turn ended: ``complete`` | ``budget`` | ``error`` |
+    #: ``timeout`` | ``interrupted`` | ``denied`` (CORE-subagent-budget).
+    reason: str = ""
+    #: Tool rounds the child's turn used, as the loop counted them.
+    rounds_used: int = 0
+    #: The last :data:`LAST_CALLS` tool calls the child made, newest last.
+    last_calls: list[str] = field(default_factory=list)
     #: True when the child's last answer still ended at the output limit.
     truncated: bool = False
     #: How many times that answer was resumed before it was given up on.
@@ -185,6 +213,11 @@ class SubagentResult:
     error: str | None = None
     session_id: str | None = None
     usage: dict[str, int] = field(default_factory=dict)
+    #: ``complete`` | ``budget`` | ``error`` | ``timeout`` | ``interrupted``.
+    reason: str = COMPLETE
+    #: Tool rounds the child used, and the last few calls it made.
+    rounds_used: int = 0
+    last_calls: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -225,7 +258,17 @@ class _ChildWatcher:
             record.summary = text
             await self._manager.emit_update(record, last_text=text)
             return
+        if kind == "turn.done":
+            record.reason = str(payload.get("reason") or COMPLETE)
+            return
         if kind == "tool.call":
+            # Whatever the child said before reaching for a tool was not its
+            # answer — the turn went on after it.  Anything kept from an
+            # earlier ``message.done`` is dropped here, so the summary can
+            # only ever be text that nothing followed (CORE-subagent-budget).
+            record.summary = ""
+            record.last_calls.append(_call_summary(payload))
+            del record.last_calls[:-LAST_CALLS]
             await self._manager.emit_update(
                 record, last_text=f"calling {payload.get('name') or 'a tool'}"
             )
@@ -443,16 +486,10 @@ class SubagentManager:
                     f"unknown model {model!r}: not a profile id, a 'vendor:model' pair "
                     "or a known vendor"
                 )
+                record.reason = ERROR
                 await self.emit_spawn(record)
                 await self.emit_done(record)
-                return SubagentResult(
-                    agent_id=record.agent_id,
-                    ok=False,
-                    summary="",
-                    status=ERROR,
-                    error=record.error,
-                    usage=record.usage(),
-                )
+                return self._result(record)
             record.provider_override, record.model_override = route.provider, route.model
         if parent.team_agents and not agent:
             agent = "executor" if "executor" in parent.team_agents else parent.team_agents[0]
@@ -461,15 +498,9 @@ class SubagentManager:
         if not brief:
             record.status = ERROR
             record.error = "delegate_task needs a non-empty task"
+            record.reason = ERROR
             await self.emit_done(record)
-            return SubagentResult(
-                agent_id=record.agent_id,
-                ok=False,
-                summary="",
-                status=ERROR,
-                error=record.error,
-                usage=record.usage(),
-            )
+            return self._result(record)
 
         if parent.team_agents:
             if agent not in parent.team_agents:
@@ -491,16 +522,23 @@ class SubagentManager:
             except asyncio.CancelledError:
                 record.status = ERROR
                 record.error = "cancelled"
+                record.reason = "interrupted"
                 await self.emit_done(record)
                 raise
             except Exception as exc:  # noqa: BLE001 - a broken child is a failed task
                 log.exception("subagent %s failed", record.agent_id)
                 record.status = ERROR
                 record.error = f"{type(exc).__name__}: {exc}"
+                record.reason = ERROR
 
         if record.status == RUNNING:
             record.status = DONE
         await self.emit_done(record)
+        return self._result(record)
+
+    def _result(self, record: SubagentRecord) -> SubagentResult:
+        """One place that turns a record into what the caller reads."""
+        reason = record.reason or (COMPLETE if record.ok else ERROR)
         return SubagentResult(
             agent_id=record.agent_id,
             ok=record.ok,
@@ -509,21 +547,17 @@ class SubagentManager:
             error=record.error,
             session_id=record.session_id,
             usage=record.usage(),
+            reason=reason,
+            rounds_used=record.rounds_used,
+            last_calls=list(record.last_calls),
         )
 
     async def _refuse(self, record: SubagentRecord, message: str) -> SubagentResult:
         record.status = ERROR
         record.error = message
+        record.reason = ERROR
         await self.emit_done(record)
-        return SubagentResult(
-            agent_id=record.agent_id,
-            ok=False,
-            summary="",
-            status=ERROR,
-            error=message,
-            session_id=record.session_id,
-            usage=record.usage(),
-        )
+        return self._result(record)
 
     async def _execute(
         self,
@@ -543,11 +577,18 @@ class SubagentManager:
         self.core.hub.subscribe(watcher, child.id)
         try:
             self._apply_definition(child, defn, tools)
-            coro = agent_loop.run_turn(self.core, child, task, unattended=child.unattended)
+            # The child is told its own budget, because it is the one that has
+            # to spend it: a worker that knows it has N rounds reads what it
+            # needs and reports, instead of being cut off mid-survey
+            # (CORE-subagent-budget).
+            rounds = agent_loop.tool_rounds_for(self.core, child)
+            brief = f"{task}\n\n{BUDGET_LINE.format(n=rounds)}"
+            coro = agent_loop.run_turn(self.core, child, brief, unattended=child.unattended)
             if timeout and timeout > 0:
                 await asyncio.wait_for(coro, timeout=timeout)
             else:
                 await coro
+            record.rounds_used = int(getattr(child, "rounds_used", 0) or 0)
             if not record.summary:
                 record.summary = _last_assistant_text(child)
             if record.truncated:
@@ -558,6 +599,8 @@ class SubagentManager:
         except TimeoutError:
             child.interrupt.set()
             record.status = ERROR
+            record.reason = TIMEOUT
+            record.rounds_used = int(getattr(child, "rounds_used", 0) or 0)
             record.error = f"the subagent did not finish within {timeout:g}s"
         finally:
             self.core.hub.unsubscribe(watcher)
@@ -620,6 +663,10 @@ class SubagentManager:
         allowed: set[str] | None = None
         if defn is not None:
             child.prompt_role = role_file(defn.name)
+            # ``tool_rounds:`` in the definition outranks ``agents.toolRounds``
+            # for this child only (CORE-subagent-budget).
+            if defn.tool_rounds:
+                child.tool_rounds = defn.tool_rounds
             # A delegated turn does not think by default — its report is the
             # whole output — unless the definition asks for it by name.
             if defn.thinking in THINKING_CHOICES:
@@ -635,10 +682,38 @@ class SubagentManager:
         child.allowed_tools = allowed
 
 
+def _call_summary(payload: dict[str, Any]) -> str:
+    """``"read_file {\"path\": \"x\"}"`` — one short line per remembered call."""
+    name = str(payload.get("name") or "a tool")
+    args = payload.get("args") or payload.get("arguments") or {}
+    try:
+        rendered = json.dumps(args, ensure_ascii=False, sort_keys=True)
+    except (TypeError, ValueError):
+        rendered = str(args)
+    if len(rendered) > CALL_ARG_CHARS:
+        rendered = rendered[:CALL_ARG_CHARS] + "…"
+    return f"{name} {rendered}".strip()
+
+
 def _last_assistant_text(session: Session) -> str:
+    """The child's final answer, or ``""`` when it never wrote one.
+
+    An assistant message that carries ``tool_calls`` is the prose the model
+    wrote *on its way* to a tool — "let me check the tests first" — and the
+    turn continued after it.  Returning that as the delegation's summary is
+    what made a parent read "That grep swept node_modules…" as a report
+    (CORE-subagent-budget).  The scan therefore stops at the first assistant
+    message from the end: if it reached for a tool, there is no final answer
+    and the caller must say so rather than quote the muttering.
+    """
     for message in reversed(session.history.snapshot()):
-        if message.role == "assistant" and isinstance(message.content, str) and message.content:
+        if message.role != "assistant":
+            continue
+        if getattr(message, "tool_calls", None):
+            return ""
+        if isinstance(message.content, str) and message.content.strip():
             return message.content
+        return ""
     return ""
 
 
@@ -652,8 +727,12 @@ def get_manager(core: Core) -> SubagentManager:
 
 
 __all__ = [
+    "BUDGET",
+    "BUDGET_LINE",
+    "COMPLETE",
     "DONE",
     "ERROR",
+    "TIMEOUT",
     "QUEUED",
     "RUNNING",
     "SUBAGENT_KIND",
