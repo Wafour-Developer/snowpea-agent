@@ -26,7 +26,10 @@ CREATE TABLE IF NOT EXISTS sessions (
     model          TEXT,
     origin_surface TEXT,
     created_at     TEXT NOT NULL,
-    closed_at      TEXT
+    closed_at      TEXT,
+    parent_session_id TEXT,
+    kind           TEXT NOT NULL DEFAULT 'chat',
+    job_id         TEXT
 );
 CREATE TABLE IF NOT EXISTS events (
     session_id   TEXT NOT NULL,
@@ -45,6 +48,16 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 CREATE INDEX IF NOT EXISTS events_session_seq ON events (session_id, seq);
 """
+
+#: Columns added to ``sessions`` after the first release.  Applied on every
+#: open with ``ALTER TABLE ... ADD COLUMN`` when they are missing, so a state.db
+#: written by an older build keeps working and its rows read back as ordinary
+#: chat threads (CORE-session-kind).
+SESSION_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("parent_session_id", "TEXT"),
+    ("kind", "TEXT NOT NULL DEFAULT 'chat'"),
+    ("job_id", "TEXT"),
+)
 
 
 class StoreClosed(RuntimeError):
@@ -69,7 +82,21 @@ class Store:
         self._conn.row_factory = sqlite3.Row
         with self._lock:
             self._conn.executescript(SCHEMA)
+            self._migrate()
             self._conn.commit()
+
+    def _migrate(self) -> None:
+        """Add columns a newer build needs to an older ``sessions`` table.
+
+        Idempotent: existing columns are skipped, so opening a fresh database
+        (where ``SCHEMA`` already declares them) does nothing.  Called with
+        :attr:`_lock` held.
+        """
+        existing = {str(row["name"]) for row in self._conn.execute("PRAGMA table_info(sessions)")}
+        for name, decl in SESSION_COLUMNS:
+            if name in existing:
+                continue
+            self._conn.execute(f"ALTER TABLE sessions ADD COLUMN {name} {decl}")
 
     @classmethod
     def open(cls, paths: Paths) -> Store:
@@ -101,13 +128,28 @@ class Store:
         model: str | None,
         origin_surface: str | None,
         created_at: str,
+        parent_session_id: str | None = None,
+        kind: str = "chat",
+        job_id: str | None = None,
     ) -> None:
         await asyncio.to_thread(
             self._execute,
             "INSERT OR REPLACE INTO sessions"
-            " (id, workdir, mode, provider, model, origin_surface, created_at, closed_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, NULL)",
-            (session_id, workdir, mode, provider, model, origin_surface, created_at),
+            " (id, workdir, mode, provider, model, origin_surface, created_at, closed_at,"
+            "  parent_session_id, kind, job_id)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)",
+            (
+                session_id,
+                workdir,
+                mode,
+                provider,
+                model,
+                origin_surface,
+                created_at,
+                parent_session_id,
+                kind or "chat",
+                job_id,
+            ),
         )
 
     async def update_model(
@@ -262,4 +304,4 @@ class Store:
             self._conn.close()
 
 
-__all__ = ["SCHEMA", "Store", "StoreClosed"]
+__all__ = ["SCHEMA", "SESSION_COLUMNS", "Store", "StoreClosed"]

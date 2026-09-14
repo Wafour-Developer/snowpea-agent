@@ -31,7 +31,7 @@ EVENTS: dict[str, type[BaseModel]]   # 알림 페이로드 스키마
 | system.shutdown | – | ok: bool |
 | session.create | workdir, mode?: Mode, provider?, model?, agent?, maxConcurrent?, originSurface?: str | sessionId |
 | session.resume | sessionId, afterSeq?: int | sessionId, events: list[SessionEvent] |
-| session.list | includeClosed?: bool=false, workdir?: str | sessions: list[SessionSummary] |
+| session.list | includeClosed?: bool=false, workdir?: str, kinds?: list[str] | sessions: list[SessionSummary] |
 | session.deleteSaved | sessionId?, workdir?, all?: bool=false | deleted: int |
 | session.close | sessionId | ok |
 | session.prompt | sessionId, text, attachments?: list[Attachment] | turnId |
@@ -49,6 +49,8 @@ EVENTS: dict[str, type[BaseModel]]   # 알림 페이로드 스키마
 | agent.*, team.*, job.*, gateway.*, memory.*, skill.* | 플랜 §3.5 그대로 (M1은 스키마만 정의, 구현은 `error{code:"not_implemented"}`) | |
 
 `PROTOCOL_VERSION`은 현재 `1.4.0`이다 (`server/protocol.py`의 `PROTOCOL_VERSION`). 위 코드 블록이 M1 시점에 적어 둔 `"0.1.0"`과 M8의 `1.0.0` 계획은 모두 폐기되었다 — 프로토콜은 추가 변경마다 minor를 올려 왔고(1.0.0 → 1.1.0 update → 1.2.0 context/models/login → 1.3.0 `config` 권한 태그 → 1.4.0 `turn.queued`/`turn.dequeued`/`model.changed`와 `session.setModel`), v1.0 freeze gate는 v0.2 IDE 이전에 별도로 잡는다.
+
+`SessionSummary`에는 v0.2에서 네 필드가 더 붙었다(가산적, 프로토콜 `1.5.0` 유지 — CORE-session-kind): `kind: "chat"|"scheduled"|"subagent"|"agent"` (기본 `"chat"`), `parentSessionId: str|None`, `jobId: str|None`, `agent: str|None`. 스케줄러가 만든 무인 세션(`origin_surface="scheduler"`)이 `session.list`에서 사용자의 스레드와 구분되지 않던 문제를 고친다 — 예약 실행은 `kind="scheduled"`에 `parentSessionId = job.originSessionId`, `jobId = job.id`를, 스폰된 자식은 `kind="subagent"`에 부모 세션 id를, 상주 named agent는 `kind="agent"`를 갖는다. 세 값은 `sessions` 테이블의 `parent_session_id`/`kind`/`job_id` 컬럼에 저장되며, 예전 `state.db`는 열릴 때 `ALTER TABLE … ADD COLUMN`으로 멱등하게 이관되고 기존 행은 `chat`/NULL로 읽힌다 (`session/store.py`). `session.list`는 `kinds?: list[str]` 필터를 받는다(생략하면 전부). 예약 실행이 끝나면 그 작업을 만든 **원래 세션**(살아 있을 때)에 `job.done` / `job.failed` `session.event`가 추가로 전달되어 `{jobId, sessionId, status, text}`로 "예약 실행이 끝났다 — s-xxxx 열기"를 그릴 수 있다; 모든 클라이언트가 받는 `job.event` 알림은 그대로다.
 
 `SessionSummary`는 계약 이후 세 필드가 추가되었다(모두 가산적): `contextUsed`, `contextWindow` (CORE-context), `lastPrompt: str|None` — 그 세션에 마지막으로 저장된 **user** 메시지의 텍스트 (`server/protocol.py`의 `SessionSummary`). `session.list` 결과는 `createdAt` **내림차순**으로 정렬된다 (`server/session_handlers.py`의 `session_list_handler`). (v0.1.x에서 추가)
 

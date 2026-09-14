@@ -1244,6 +1244,8 @@ export interface SessionInterruptResult {
 export interface SessionListParams {
   /** Include persisted closed sessions. */
   includeClosed?: boolean;
+  /** Only sessions of these kinds; omit for every kind. A surface that shows human threads asks for ["chat"] (CORE-session-kind). */
+  kinds?: string[] | null;
   /** Only sessions rooted here. */
   workdir?: string | null;
 }
@@ -1252,12 +1254,18 @@ export interface SessionListParams {
 export interface SessionListResult {
   /** Every live session. */
   sessions?: ({
+    /** Named agent the session belongs to, when it has one. */
+    agent?: string | null;
     /** Tokens the session's current prompt occupies (CORE-context). */
     contextUsed?: number;
     /** Context window of the session's model; null when unknown. */
     contextWindow?: number | null;
     /** UTC ISO-8601 creation timestamp. */
     createdAt: string;
+    /** Scheduled job this run belongs to; null for other kinds. */
+    jobId?: string | null;
+    /** What opened the session: a human (chat), a scheduled job, a spawned subagent, or a persistent named agent (CORE-session-kind). */
+    kind?: "chat" | "scheduled" | "subagent" | "agent";
     /** Latest saved user input. */
     lastPrompt?: string | null;
     /** Current permission mode. */
@@ -1266,6 +1274,8 @@ export interface SessionListResult {
     model?: string | null;
     /** Surface that owns approvals. */
     originSurface?: string | null;
+    /** Session that caused this one: the thread that scheduled the job, or the parent that spawned the subagent. */
+    parentSessionId?: string | null;
     /** Chat provider vendor in use. */
     provider?: string | null;
     /** Sequence number of the latest event. */
@@ -2199,6 +2209,32 @@ export interface ErrorEventPayload {
   message: string;
 }
 
+/** Payload of `session.event` with kind `job.done`. */
+export interface JobDoneEventPayload {
+  /** Job that ran. */
+  jobId: string;
+  kind?: "job.done";
+  /** Session the run used. */
+  sessionId?: string | null;
+  /** Job status as the scheduler recorded it. */
+  status?: string;
+  /** What the run reported. */
+  text?: string;
+}
+
+/** Payload of `session.event` with kind `job.failed`. */
+export interface JobFailedEventPayload {
+  /** Job that ran. */
+  jobId: string;
+  kind?: "job.failed";
+  /** Session the run used. */
+  sessionId?: string | null;
+  /** Job status as the scheduler recorded it. */
+  status?: string;
+  /** What the run reported, or the error. */
+  text?: string;
+}
+
 /** Payload of `session.event` with kind `lsp.diagnostics`. */
 export interface LspDiagnosticsEventPayload {
   /** Diagnostics of every severity. */
@@ -2455,6 +2491,8 @@ export interface SessionEventKindMap {
   "context": ContextEventPayload;
   "diff": DiffEventPayload;
   "error": ErrorEventPayload;
+  "job.done": JobDoneEventPayload;
+  "job.failed": JobFailedEventPayload;
   "lsp.diagnostics": LspDiagnosticsEventPayload;
   "message.delta": MessageDeltaEventPayload;
   "message.done": MessageDoneEventPayload;
@@ -2485,6 +2523,8 @@ export const SESSION_EVENT_KINDS: readonly SessionEventKind[] = [
   "context",
   "diff",
   "error",
+  "job.done",
+  "job.failed",
   "lsp.diagnostics",
   "message.delta",
   "message.done",

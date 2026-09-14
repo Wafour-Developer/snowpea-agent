@@ -1179,13 +1179,14 @@ List live or saved sessions.
 | field | type | required | description |
 |---|---|---|---|
 | `includeClosed` | `boolean` | no | Include persisted closed sessions. |
+| `kinds` | `string[] \| null` | no | Only sessions of these kinds; omit for every kind. A surface that shows human threads asks for ["chat"] (CORE-session-kind). |
 | `workdir` | `string \| null` | no | Only sessions rooted here. |
 
 **Result**
 
 | field | type | required | description |
 |---|---|---|---|
-| `sessions` | `({ contextUsed?: number; contextWindow?: number \| null; createdAt: string; lastPrompt?: string \| null; mode: "plan" \| "accept" \| "auto"; model?: string \| null; originSurface?: string \| null; provider?: string \| null; seq?: number; sessionId: string; workdir: string; })[]` | no | Every live session. |
+| `sessions` | `({ agent?: string \| null; contextUsed?: number; contextWindow?: number \| null; createdAt: string; jobId?: string \| null; kind?: "chat" \| "scheduled" \| "subagent" \| "agent"; lastPrompt?: string \| null; mode: "plan" \| "accept" \| "auto"; model?: string \| null; originSurface?: string \| null; parentSessionId?: string \| null; provider?: string \| null; seq?: number; sessionId: string; workdir: string; })[]` | no | Every live session. |
 
 ### `session.prompt`
 
@@ -1870,6 +1871,26 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | `code` | `string` | yes | One of the protocol error codes. |
 | `kind` | `"error"` | no |  |
 | `message` | `string` | yes | Human-readable detail. |
+
+### kind `job.done`
+
+| field | type | required | description |
+|---|---|---|---|
+| `jobId` | `string` | yes | Job that ran. |
+| `kind` | `"job.done"` | no |  |
+| `sessionId` | `string \| null` | no | Session the run used. |
+| `status` | `string` | no | Job status as the scheduler recorded it. |
+| `text` | `string` | no | What the run reported. |
+
+### kind `job.failed`
+
+| field | type | required | description |
+|---|---|---|---|
+| `jobId` | `string` | yes | Job that ran. |
+| `kind` | `"job.failed"` | no |  |
+| `sessionId` | `string \| null` | no | Session the run used. |
+| `status` | `string` | no | Job status as the scheduler recorded it. |
+| `text` | `string` | no | What the run reported, or the error. |
 
 ### kind `lsp.diagnostics`
 

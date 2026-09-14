@@ -641,8 +641,9 @@ class SubagentManager:
             origin_surface=parent.origin_surface,
             origin_conn=parent.origin_conn,
             session_pin=ModelRoute(parent.provider, parent.model),
+            parent_session_id=parent.id,
+            kind="subagent",
         )
-        child.parent_session_id = parent.id
         child.unattended = parent.unattended
         child.memory_namespace = parent.memory_namespace
         child.backend = SharedBackend(parent.backend)  # type: ignore[assignment]

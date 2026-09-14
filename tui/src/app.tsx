@@ -60,7 +60,7 @@ import {
 import { useSpinner } from "./hooks/useSpinner.js";
 import { useKnownAgents } from "./hooks/useKnownAgents.js";
 import { clampFocus, focusDown, focusUp, isInput, INPUT_FOCUS, type Focus } from "./state/focus.js";
-import { offerSession } from "./state/history.js";
+import { offerSession, sessionKindPrefix } from "./state/history.js";
 import {
   beginRecording,
   endRecording,
@@ -1584,6 +1584,9 @@ export function App({
           workdir: String(row.workdir),
           firstPrompt: typeof row.lastPrompt === "string" ? row.lastPrompt : "",
           at: Date.parse(String(row.createdAt)) || 0,
+          kind: typeof row.kind === "string" ? row.kind : "chat",
+          parentSessionId:
+            typeof row.parentSessionId === "string" ? row.parentSessionId : undefined,
         }));
       if (choices.length === 0) {
         showToast("no saved sessions for this directory");
@@ -2425,7 +2428,9 @@ export function App({
         <ConfirmMenu<string | null>
           options={[
             ...resumeChoices.map((entry) => ({
-              label: `${entry.sessionId} · ${new Date(entry.at).toLocaleString()} · ${
+              label: `${sessionKindPrefix(entry.kind, entry.parentSessionId)}${
+                entry.sessionId
+              } · ${new Date(entry.at).toLocaleString()} · ${
                 entry.firstPrompt
                   ? entry.firstPrompt.length > 48
                     ? `${entry.firstPrompt.slice(0, 47)}…`

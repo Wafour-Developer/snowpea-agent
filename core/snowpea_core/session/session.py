@@ -9,7 +9,7 @@ from typing import Any
 
 from snowpea_core.exec.backend import ExecutionBackend
 from snowpea_core.exec.local import LocalBackend
-from snowpea_core.server.protocol import Mode, SessionSummary
+from snowpea_core.server.protocol import Mode, SessionKind, SessionSummary
 from snowpea_core.session.history import History
 
 
@@ -29,6 +29,12 @@ class Session:
     #: Set on a child session created by ``delegate_task`` / ``agent.spawn``
     #: (M7 contract §3); ``None`` for a session a human opened.
     parent_session_id: str | None = None
+    #: What opened this session (CORE-session-kind): ``"chat"`` for a thread a
+    #: human started, ``"scheduled"`` for a job run, ``"subagent"`` for a
+    #: spawned child, ``"agent"`` for a persistent named agent's own session.
+    kind: SessionKind = "chat"
+    #: Scheduled job this session was opened to run; ``None`` otherwise.
+    job_id: str | None = None
     #: An ``AgentDefinition``'s own prompt, composed after the role file so a
     #: subagent speaks with its definition's voice (M7 §3) *and* keeps the
     #: coding discipline every other agent has (CORE-prompts).
@@ -121,6 +127,10 @@ class Session:
             seq=self.seq,
             contextUsed=self.context_used,
             contextWindow=self.context_window,
+            kind=self.kind,
+            parentSessionId=self.parent_session_id,
+            jobId=self.job_id,
+            agent=self.agent,
         )
 
 

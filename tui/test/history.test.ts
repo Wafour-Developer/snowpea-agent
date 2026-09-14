@@ -13,6 +13,7 @@ import {
   parseHistory,
   parseSessions,
   relativeTime,
+  sessionKindPrefix,
   stateDir,
   type FileStore,
 } from "../src/state/history.js";
@@ -165,5 +166,22 @@ describe("previewPrompt", () => {
     const long = previewPrompt("x".repeat(200));
     expect(long).toHaveLength(60);
     expect(long.endsWith("…")).toBe(true);
+  });
+});
+
+describe("session kind prefixes", () => {
+  it("leaves a human's own thread unmarked", () => {
+    expect(sessionKindPrefix(undefined)).toBe("");
+    expect(sessionKindPrefix("chat", "s-850623ab")).toBe("");
+  });
+
+  it("marks a scheduled run with its parent thread", () => {
+    expect(sessionKindPrefix("scheduled", "s-850623abcdef")).toBe("⏰ s-850623 ");
+    expect(sessionKindPrefix("scheduled")).toBe("⏰ ");
+  });
+
+  it("marks subagents and named agents", () => {
+    expect(sessionKindPrefix("subagent", "s-850623abcdef")).toBe("↳ s-850623 ");
+    expect(sessionKindPrefix("agent", "s-850623abcdef")).toBe("◆ ");
   });
 });
