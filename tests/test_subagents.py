@@ -426,7 +426,7 @@ async def test_delegate_task_is_active_and_returns_the_child_report(
     assert core is not None
     tool = core.tools.get("delegate_task")
     assert tool is not None and tool.state == "active"
-    assert tool.permission == "exec"
+    assert tool.permission == "delegate"
 
     session = await open_session(core, workdir)
     recorder = Recorder()

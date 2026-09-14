@@ -62,7 +62,9 @@ DELEGATE_TASK = (
     "the user sees while it runs. Its reply is a self-report, not a verified fact: "
     "for anything with an external effect, verify the result yourself before telling "
     "the user it worked. Relay what it found in your own words; never paste its "
-    "report."
+    "report. The result starts with status / reason / roundsUsed: reason 'budget' "
+    "or 'timeout' means the child stopped early, so the report is partial — read it, "
+    "take what is done, and delegate only what is left, never the same task again."
 )
 
 LSP_DIAGNOSTICS = (

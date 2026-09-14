@@ -70,6 +70,10 @@ class AgentDefinition:
     tools: list[str] | str = ALL_TOOLS
     permission: str = "inherit"
     max_turns: int | None = None
+    #: Tool rounds one delegated turn of this agent may make before it has to
+    #: stop and report (CORE-subagent-budget).  ``None`` inherits
+    #: ``agents.toolRounds`` and then the subagent default.
+    tool_rounds: int | None = None
     #: ``"on"`` | ``"off"`` | ``"inherit"``.  A reviewer that genuinely wants
     #: hidden reasoning says ``thinking: on``; everything else inherits, which
     #: for a delegated turn means off (CORE-reasoning-budget).
@@ -94,6 +98,7 @@ class AgentDefinition:
             "tools": self.tools,
             "permission": self.permission,
             "max_turns": self.max_turns,
+            "tool_rounds": self.tool_rounds,
             "thinking": self.thinking,
             "prompt": self.prompt,
             "source": self.source,
@@ -133,6 +138,17 @@ def validate_name(name: str) -> str:
 # ---------------------------------------------------------------------------
 # frontmatter
 # ---------------------------------------------------------------------------
+
+
+def _positive_int(value: Any) -> int | None:
+    """A frontmatter number that has to be at least 1, or ``None``."""
+    if value in (None, ""):
+        return None
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number >= 1 else None
 
 
 def _unquote(value: str) -> str:
@@ -228,6 +244,8 @@ def render_agent_md(defn: AgentDefinition) -> str:
     ]
     if defn.max_turns is not None:
         fields.append(("max_turns", defn.max_turns))
+    if defn.tool_rounds is not None:
+        fields.append(("tool_rounds", defn.tool_rounds))
     if defn.thinking != "inherit":
         fields.append(("thinking", defn.thinking))
     head = "\n".join(f"{key}: {_render_value(value)}" for key, value in fields)
@@ -271,6 +289,7 @@ def parse_agent_text(
         tools=tools,
         permission=str(meta.get("permission") or "inherit"),
         max_turns=max_turns,
+        tool_rounds=_positive_int(meta.get("tool_rounds")),
         thinking=str(meta.get("thinking") or "inherit"),
         prompt=body,
         path=path,
@@ -489,6 +508,7 @@ def definition_from_payload(data: dict[str, Any], description: str) -> AgentDefi
         tools=tools,
         permission=str(data.get("permission") or "inherit").strip() or "inherit",
         max_turns=max_turns,
+        tool_rounds=_positive_int(data.get("tool_rounds")),
         prompt=prompt,
     )
 

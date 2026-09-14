@@ -43,6 +43,13 @@ class Session:
     #: definition's ``thinking:``.  ``None`` falls back to the vendor block and
     #: then ``agent.thinking`` (CORE-reasoning-budget).
     thinking: str | None = None
+    #: Tool-round budget for this session only — an agent definition's
+    #: ``tool_rounds:``.  ``None`` falls back to ``agents.toolRounds`` and then
+    #: to the default for the session's kind (CORE-subagent-budget).
+    tool_rounds: int | None = None
+    #: Tool rounds the current (or last) turn has used.  Reset at the top of
+    #: every turn; read by ``subagent.py`` to report ``roundsUsed``.
+    rounds_used: int = 0
     #: Long-term memory namespace (M5 contract §1): ``"default"`` for
     #: interactive sessions, ``"agent:<name>"`` for named agents.
     memory_namespace: str = "default"

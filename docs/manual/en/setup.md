@@ -262,8 +262,29 @@ budget on thinking and answers nothing.
 
 `agent.max_tool_rounds` (200) is how many tool calls one turn may make before
 the agent checks in with a picker — continue for another budget, or stop here.
-It is a checkpoint for a long implementing turn, not a limit on the work; a
-headless (`-c`) turn has nobody to ask and stops at the budget.
+It is a checkpoint for a long implementing turn, not a limit on the work.
+
+Whatever happens next, **the turn writes a report first**: one more call to the
+model with the tools switched off, asking what it did, what it found, what
+remains and which files it changed. You always get that account, and a turn
+that ends at the budget ends with `turn.done{reason:"budget"}` rather than an
+error. A headless (`-c`) turn and a delegated child have nobody to ask, so they
+report and stop; a session you are watching is asked after the report.
+
+`agents.toolRounds` sets the budget for delegated children — either a number
+for all of them or, like `agents.models`, a mapping keyed by agent name with
+`default` as the catch-all:
+
+```json
+{
+  "agents": { "toolRounds": { "default": 80, "explorer": 150 } }
+}
+```
+
+An agent definition's own `tool_rounds:` frontmatter outranks both. With
+nothing configured, a child gets `agent.max_tool_rounds` but never fewer than
+80: a worker reads far more than the session that delegated to it, and all you
+see of it is its final report.
 
 `agent.max_tokens` (16384) is what one call to the model may produce, and a
 vendor block overrides it for that vendor. Either way it is clamped to what
@@ -362,7 +383,7 @@ snowpea setup --tools media,-browser
 snowpea tools list
 ```
 
-Categories are `file`, `terminal`, `git`, `web`, `browser`, `delegate`, `schedule`, `memory`, `media`, and `mcp` for anything a `.mcp.json` server contributed. Media tools (`image_generate`, `video_generate`, `music_generate`, `text_to_speech`) are always registered but stay `inactive` until credentials exist; they flip to `active` without a restart once configured, and calling one before that returns `tool_inactive` with a hint.
+Categories are `file`, `terminal`, `git`, `web`, `browser`, `delegate`, `schedule`, `memory`, `media`, and `mcp` for anything a `.mcp.json` server contributed. Adding, testing and removing those `.mcp.json` servers is `/mcp` and `snowpea mcp`, covered in [MCP servers](plugins.md#mcp-servers). Media tools (`image_generate`, `video_generate`, `music_generate`, `text_to_speech`) are always registered but stay `inactive` until credentials exist; they flip to `active` without a restart once configured, and calling one before that returns `tool_inactive` with a hint.
 
 ## Gateway
 

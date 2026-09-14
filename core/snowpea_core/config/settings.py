@@ -105,6 +105,12 @@ class AgentsSettings(_Model):
     max_concurrent: int = 3
     #: Per-agent model profile assignment, e.g. {"executor": "openai-fast"}.
     models: dict[str, str] = Field(default_factory=dict)
+    #: Tool rounds one delegated turn may make before it has to stop and
+    #: report (CORE-subagent-budget).  Either a number for every agent or, like
+    #: :attr:`models`, a mapping of agent name -> number with ``"default"`` as
+    #: the catch-all key.  Unset falls back to ``agent.max_tool_rounds``,
+    #: floored at ``loop.SUBAGENT_TOOL_ROUNDS`` for a child session.
+    toolRounds: int | dict[str, int] | None = None
     #: Reusable global teams. The starter team keeps automatic delegation
     #: bounded to the built-in roles instead of every custom definition.
     teams: dict[str, list[str]] = Field(default_factory=dict)

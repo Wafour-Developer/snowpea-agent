@@ -27,7 +27,7 @@ Mode = Literal["plan", "accept", "auto"]
 #: ``config`` marks a call that changes snowpea's own settings, credentials or
 #: state.  It is never a silent ``allow``: plan denies it, accept and auto both
 #: ask, and the allowlist may not promote it (CORE-search-fix).
-PermissionTag = Literal["read", "write", "exec", "network", "send", "config"]
+PermissionTag = Literal["read", "write", "exec", "network", "send", "config", "delegate"]
 ToolState = Literal["active", "inactive"]
 #: ``builtin``, ``global``, ``project``, ``skill`` or ``plugin:<plugin name>``;
 #: a free string because a plugin names itself (M6 contract §1).
@@ -38,6 +38,16 @@ AllowlistScope = Literal["session", "project", "always"]
 BackendKind = Literal["local", "docker", "ssh"]
 #: What a language server is doing right now (M13 contract §4).
 LspServerState = Literal["starting", "ready", "broken", "stopped"]
+#: Where an MCP server is declared (M14 contract §2).  ``plugin`` and
+#: ``settings`` are read-only: the management API refuses to rewrite them.
+McpScope = Literal["project", "global", "plugin", "settings"]
+#: Scopes ``mcp.add``/``mcp.remove``/``mcp.update`` may write.
+McpWritableScope = Literal["project", "global"]
+#: How the daemon talks to an MCP server; inferred from ``command``/``url``
+#: when the entry does not say.
+McpTransport = Literal["stdio", "http", "sse"]
+#: What an MCP server is doing right now (M14 contract §3).
+McpState = Literal["stopped", "starting", "ready", "error"]
 #: State of a vendor's stored credential (CORE-codex-login).
 AuthStatus = Literal["unconfigured", "active", "expired"]
 #: ``budget`` (CORE-subagent-budget) is additive: the turn used its whole
@@ -501,6 +511,10 @@ class ToolInfo(Payload):
         default="active", description="Inactive tools are hidden from the model."
     )
     source: str = Field(default="builtin", description="builtin, skill, plugin or MCP server name.")
+    server: str = Field(
+        default="",
+        description="MCP server this tool came from; empty for everything else (M14 §3).",
+    )
     description: str = Field(default="", description="Text shown to the model.")
     provider: str = Field(
         default="",
@@ -2001,6 +2015,230 @@ class LspCatalogResult(Payload):
 
 
 # --------------------------------------------------------------------------
+# mcp.*  (M14 contract §3)
+# --------------------------------------------------------------------------
+
+
+class McpToolInfo(Payload):
+    """One tool an MCP server exposes."""
+
+    name: str = Field(description="Tool name as the server reports it, without the mcp__ prefix.")
+    description: str = Field(default="", description="One-line description from the server.")
+
+
+class McpServerInfo(Payload):
+    """One configured MCP server, from whichever scope declares it."""
+
+    name: str = Field(description="Server name; the key under mcpServers.")
+    scope: McpScope = Field(description="project, global, plugin or settings.")
+    transport: McpTransport = Field(description="stdio, http or sse.")
+    command: str | None = Field(default=None, description="Executable, for a stdio server.")
+    args: list[str] = Field(default_factory=list, description="Arguments, argv style.")
+    url: str | None = Field(default=None, description="Endpoint, for an http or sse server.")
+    envKeys: list[str] = Field(
+        default_factory=list,
+        description="Names of the environment variables set for the server; never their values.",
+    )
+    headerKeys: list[str] = Field(
+        default_factory=list,
+        description="Names of the HTTP headers sent to the server; never their values.",
+    )
+    cwd: str | None = Field(default=None, description="Working directory for a stdio server.")
+    permission: PermissionTag = Field(
+        default="network", description="Permission tag every tool of this server is judged by."
+    )
+    disabled: bool = Field(
+        default=False, description="True when the entry is kept but never started."
+    )
+    state: McpState = Field(default="stopped", description="stopped, starting, ready or error.")
+    error: str | None = Field(default=None, description="Why the last start failed.")
+    toolCount: int = Field(default=0, description="Tools the server contributed after filtering.")
+    tools: list[McpToolInfo] = Field(
+        default_factory=list, description="The tools themselves; filled once the server is ready."
+    )
+    plugin: str | None = Field(
+        default=None, description="Plugin that brings a plugin-scoped entry."
+    )
+    timeoutSec: float | None = Field(default=None, description="Startup cap override, in seconds.")
+    toolTimeoutSec: float | None = Field(
+        default=None, description="Per-call cap override, in seconds."
+    )
+    toolsInclude: list[str] = Field(
+        default_factory=list, description="Only these tools are registered, when set."
+    )
+    toolsExclude: list[str] = Field(
+        default_factory=list, description="These tools are never registered."
+    )
+
+
+class McpListParams(Payload):
+    """``mcp.list`` — the workdir decides which project file is read."""
+
+    sessionId: str | None = Field(default=None, description="Session whose workdir to read.")
+    workdir: str | None = Field(
+        default=None, description="Project directory; defaults to the session's, then the daemon's."
+    )
+
+
+class McpListResult(Payload):
+    servers: list[McpServerInfo] = Field(
+        default_factory=list, description="One row per configured server, project entries winning."
+    )
+
+
+class McpEntryFields(Payload):
+    """The entry keys ``mcp.add`` and ``mcp.update`` share (M14 §1b)."""
+
+    type: McpTransport | None = Field(
+        default=None, description="Force a transport instead of inferring it."
+    )
+    command: str | None = Field(default=None, description="Executable for a stdio server.")
+    args: list[str] | None = Field(
+        default=None, description="Arguments, argv style; never a shell string."
+    )
+    env: dict[str, str] | None = Field(
+        default=None, description="Environment for the child process."
+    )
+    url: str | None = Field(default=None, description="Endpoint for an http or sse server.")
+    headers: dict[str, str] | None = Field(
+        default=None, description="HTTP headers sent with every request."
+    )
+    cwd: str | None = Field(default=None, description="Working directory for a stdio server.")
+    disabled: bool | None = Field(
+        default=None, description="Keep the entry but never start the server."
+    )
+    timeoutSec: float | None = Field(default=None, description="Startup cap, in seconds.")
+    toolTimeoutSec: float | None = Field(default=None, description="Per-call cap, in seconds.")
+    toolsInclude: list[str] | None = Field(
+        default=None, description="Register only these tools of the server."
+    )
+    toolsExclude: list[str] | None = Field(
+        default=None, description="Never register these tools of the server."
+    )
+    permission: PermissionTag | None = Field(
+        default=None, description="Permission tag for the server's tools; stored in settings."
+    )
+
+
+class McpAddParams(McpEntryFields):
+    """``mcp.add`` — write one entry into a project or global ``.mcp.json``."""
+
+    name: str = Field(description="Server name; ^[a-zA-Z0-9_-]{1,64}$.")
+    scope: McpWritableScope = Field(default="project", description="Which file to write.")
+    workdir: str | None = Field(default=None, description="Project directory for scope=project.")
+    sessionId: str | None = Field(default=None, description="Session whose workdir to use.")
+    preset: str | None = Field(
+        default=None, description="Catalog id copied before the explicit fields are applied."
+    )
+    test: bool = Field(
+        default=True, description="Probe the server before saving; nothing is written if it fails."
+    )
+    force: bool = Field(
+        default=False,
+        description="Overwrite an existing entry and accept the security findings.",
+    )
+
+
+class McpAddResult(Payload):
+    ok: bool = Field(default=True, description="True when the entry was written.")
+    path: str = Field(description="File the entry was written to.")
+    state: McpState = Field(default="stopped", description="State of the server after the write.")
+    tools: list[McpToolInfo] = Field(
+        default_factory=list, description="Tools the probe found, so a client can offer a picker."
+    )
+    warnings: list[str] = Field(
+        default_factory=list, description="Security findings that --force accepted."
+    )
+    error: str | None = Field(default=None, description="Why the server did not start.")
+
+
+class McpRemoveParams(Payload):
+    """``mcp.remove`` — drop one entry and stop the server."""
+
+    name: str = Field(description="Server name.")
+    scope: McpWritableScope = Field(default="project", description="Which file to rewrite.")
+    workdir: str | None = Field(default=None, description="Project directory for scope=project.")
+    sessionId: str | None = Field(default=None, description="Session whose workdir to use.")
+
+
+class McpUpdateParams(Payload):
+    """``mcp.update`` — merge a patch into an existing entry."""
+
+    name: str = Field(description="Server name.")
+    scope: McpWritableScope = Field(default="project", description="Which file to rewrite.")
+    workdir: str | None = Field(default=None, description="Project directory for scope=project.")
+    sessionId: str | None = Field(default=None, description="Session whose workdir to use.")
+    patch: McpEntryFields = Field(
+        default_factory=McpEntryFields, description="Keys to change; anything absent is kept."
+    )
+
+
+class McpTestParams(McpEntryFields):
+    """``mcp.test`` — probe a saved server or an unsaved draft."""
+
+    name: str | None = Field(default=None, description="Saved server to probe.")
+    scope: McpScope | None = Field(default=None, description="Scope of the saved server.")
+    workdir: str | None = Field(default=None, description="Project directory for scope=project.")
+    sessionId: str | None = Field(default=None, description="Session whose workdir to use.")
+
+
+class McpTestResult(Payload):
+    ok: bool = Field(description="True when the server answered tools/list.")
+    state: McpState = Field(description="ready when the probe succeeded, error otherwise.")
+    tools: list[McpToolInfo] = Field(default_factory=list, description="What the server exposes.")
+    error: str | None = Field(default=None, description="Spawn or protocol error, verbatim.")
+    elapsedMs: int = Field(default=0, description="How long the probe took.")
+
+
+class McpReloadParams(Payload):
+    """``mcp.reload`` — restart one server, or every configured one."""
+
+    name: str | None = Field(
+        default=None, description="Server to restart; all of them when absent."
+    )
+    workdir: str | None = Field(default=None, description="Project directory to rediscover from.")
+    sessionId: str | None = Field(default=None, description="Session whose workdir to use.")
+
+
+class McpReloadResult(Payload):
+    ok: bool = Field(default=True, description="True when the reload ran.")
+    servers: list[str] = Field(default_factory=list, description="Servers that were restarted.")
+
+
+class McpCatalogEntry(Payload):
+    """One curated server a client can offer as a starting point (M14 §3)."""
+
+    id: str = Field(description="Catalog id, e.g. 'github'.")
+    label: str = Field(description="Human name.")
+    description: str = Field(default="", description="What the server does.")
+    transport: McpTransport = Field(description="stdio, http or sse.")
+    entry: dict[str, Any] = Field(
+        default_factory=dict, description="The .mcp.json entry this preset writes."
+    )
+    needs: list[str] = Field(
+        default_factory=list, description="Environment variables the user must supply."
+    )
+    homepage: str = Field(default="", description="Where the server is documented.")
+
+
+class McpCatalogResult(Payload):
+    entries: list[McpCatalogEntry] = Field(
+        default_factory=list, description="Curated servers, in display order."
+    )
+
+
+class McpChangedNotification(Payload):
+    """``mcp.changed`` — one server moved, or was added, updated or removed."""
+
+    name: str = Field(description="Server name.")
+    scope: McpScope = Field(default="project", description="Scope the server is declared in.")
+    state: McpState = Field(description="stopped, starting, ready or error.")
+    toolCount: int = Field(default=0, description="Tools the server currently contributes.")
+    error: str | None = Field(default=None, description="Why the server is in the error state.")
+    removed: bool = Field(default=False, description="True when the entry itself is gone.")
+
+
+# --------------------------------------------------------------------------
 # registries
 # --------------------------------------------------------------------------
 
@@ -2060,6 +2298,38 @@ METHODS: dict[str, RpcMethod] = {
             Empty,
             LspCatalogResult,
             "List every registered language server, regardless of whether it has started.",
+        ),
+        _m(
+            "mcp.list",
+            McpListParams,
+            McpListResult,
+            "List every configured MCP server with its scope, state and tools.",
+        ),
+        _m(
+            "mcp.add",
+            McpAddParams,
+            McpAddResult,
+            "Write an MCP server into the project or global .mcp.json and start it.",
+        ),
+        _m("mcp.remove", McpRemoveParams, Ok, "Delete an MCP server entry and stop the server."),
+        _m("mcp.update", McpUpdateParams, Ok, "Merge a patch into an existing MCP server entry."),
+        _m(
+            "mcp.test",
+            McpTestParams,
+            McpTestResult,
+            "Probe a saved MCP server or an unsaved draft and report its tools.",
+        ),
+        _m(
+            "mcp.reload",
+            McpReloadParams,
+            McpReloadResult,
+            "Restart one MCP server, or every configured one.",
+        ),
+        _m(
+            "mcp.catalog",
+            Empty,
+            McpCatalogResult,
+            "The curated MCP servers a client can offer as presets.",
         ),
         _m(
             "system.checkUpdate",
@@ -2359,11 +2629,13 @@ EVENTS: dict[str, type[BaseModel]] = {
     "system.updateProgress": UpdateProgressNotification,
     "provider.loginProgress": ProviderLoginProgressNotification,
     "settings.changed": SettingsChangedNotification,
+    "mcp.changed": McpChangedNotification,
 }
 
 CAPABILITIES: list[str] = [
     "audio",
     "lsp",
+    "mcp",
     "sessions",
     "approvals",
     "commands",
@@ -2446,6 +2718,13 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "setup.catalog",
         "lsp.status",
         "lsp.catalog",
+        "mcp.list",
+        "mcp.add",
+        "mcp.remove",
+        "mcp.update",
+        "mcp.test",
+        "mcp.reload",
+        "mcp.catalog",
     }
 )
 

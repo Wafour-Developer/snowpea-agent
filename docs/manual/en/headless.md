@@ -116,7 +116,7 @@ With `--json`, each received `session.event` is written as one JSON object per l
 {"kind":"result","exitCode":0,"sessionId":"…","usage":{"inputTokens":4120,"outputTokens":380}}
 ```
 
-Event kinds are `message.delta`, `message.done`, `tool.call`, `tool.result`, `diff`, `subagent.spawn`, `subagent.update`, `subagent.done`, `team.task.update`, `mode.changed`, `usage`, `error` and `turn.done`. The `turn.done` reason is one of `complete`, `interrupted`, `error`, `denied` or `timeout`. The full payload schema is in [docs/protocol.md](../../protocol.md).
+Event kinds are `message.delta`, `message.done`, `tool.call`, `tool.result`, `diff`, `subagent.spawn`, `subagent.update`, `subagent.done`, `team.task.update`, `mode.changed`, `usage`, `error` and `turn.done`. The `turn.done` reason is one of `complete`, `interrupted`, `error`, `denied`, `timeout` or `budget` (the turn used its whole tool-round budget, reported what it had done, and stopped; it exits 1, like `error`). The full payload schema is in [docs/protocol.md](../../protocol.md).
 
 ```bash
 snowpea -c "list the modules" --json | jq -r 'select(.kind=="message.delta") | .payload.text' | tr -d '\n'

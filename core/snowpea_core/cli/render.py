@@ -14,6 +14,9 @@ from typing import Any, TextIO
 #: ``turn.done.reason`` → process exit code (contract §10, plan §3.6).
 TURN_REASON_EXIT: dict[str, int] = {
     "complete": 0,
+    # The turn reported, but it did not finish the work it was given: the
+    # exit code it had before the report existed is kept (CORE-subagent-budget).
+    "budget": 1,
     "error": 1,
     "denied": 4,
     "interrupted": 5,

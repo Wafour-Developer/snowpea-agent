@@ -229,7 +229,29 @@ snowpea setup --vendor local --base-url http://localhost:11434/v1 --model qwen3:
 `agent.max_tool_rounds`(기본 200)는 한 턴이 물어보지 않고 만들 수 있는 도구
 호출 횟수입니다. 한도에 닿으면 에이전트가 선택창을 띄워 "계속"(같은 횟수만큼
 더) 또는 "여기서 멈춤"을 묻습니다. 긴 구현 턴을 위한 체크포인트이지 작업량
-제한이 아니며, 물어볼 사람이 없는 헤드리스(`-c`) 턴은 한도에서 멈춥니다.
+제한이 아닙니다.
+
+무엇을 고르든 **턴은 먼저 보고를 씁니다**: 도구를 끈 채 모델을 한 번 더 불러
+무엇을 했고, 무엇을 찾았고, 무엇이 남았고, 어떤 파일을 고쳤는지 적게 합니다.
+그래서 한도에서 끝나는 턴도 조용히 사라지지 않고 보고를 남긴 뒤
+`turn.done{reason:"budget"}`으로 끝납니다(에러가 아닙니다). 물어볼 사람이 없는
+헤드리스(`-c`) 턴과 위임된 자식은 보고하고 멈추며, 보고 있는 세션에서는 보고
+다음에 질문이 뜹니다.
+
+`agents.toolRounds`는 위임된 자식의 예산입니다. 숫자 하나로 전부에 적용하거나,
+`agents.models`처럼 에이전트 이름을 키로 하는 매핑(`default`가 기본값)으로 줄 수
+있습니다.
+
+```json
+{
+  "agents": { "toolRounds": { "default": 80, "explorer": 150 } }
+}
+```
+
+에이전트 정의의 `tool_rounds:` 프론트매터가 둘보다 우선합니다. 아무것도 설정하지
+않으면 자식은 `agent.max_tool_rounds`를 쓰되 80회 밑으로는 내려가지 않습니다 —
+자식은 위임한 세션보다 훨씬 많이 읽고, 밖에서 보이는 것은 마지막 보고뿐이기
+때문입니다.
 
 ### 출력 한도와 thinking
 
@@ -341,7 +363,7 @@ snowpea setup --tools media,-browser
 snowpea tools list
 ```
 
-카테고리는 `file`, `terminal`, `git`, `web`, `browser`, `delegate`, `schedule`, `memory`, `media`이고, `.mcp.json` 서버가 제공하는 것은 무엇이든 `mcp`에 들어갑니다. 미디어 툴(`image_generate`, `video_generate`, `music_generate`, `text_to_speech`)은 항상 등록되어 있지만 자격 증명이 없으면 `inactive` 상태로 남습니다. 설정이 끝나면 재시작 없이 `active`로 바뀌고, 그 전에 호출하면 힌트와 함께 `tool_inactive`가 돌아옵니다.
+카테고리는 `file`, `terminal`, `git`, `web`, `browser`, `delegate`, `schedule`, `memory`, `media`이고, `.mcp.json` 서버가 제공하는 것은 무엇이든 `mcp`에 들어갑니다. 그 `.mcp.json` 서버를 추가·테스트·삭제하는 것은 `/mcp`와 `snowpea mcp`이며, [MCP 서버](plugins.md#mcp-서버)에서 다룹니다. 미디어 툴(`image_generate`, `video_generate`, `music_generate`, `text_to_speech`)은 항상 등록되어 있지만 자격 증명이 없으면 `inactive` 상태로 남습니다. 설정이 끝나면 재시작 없이 `active`로 바뀌고, 그 전에 호출하면 힌트와 함께 `tool_inactive`가 돌아옵니다.
 
 ## 게이트웨이
 

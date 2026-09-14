@@ -1,0 +1,22 @@
+{
+  "steps": [
+    {
+      "match": "used the tool budget",
+      "repeat": true,
+      "text": "I read a.txt three times and found nothing; the fix in b.txt is still unwritten."
+    },
+    {
+      "match": "endless child",
+      "repeat": true,
+      "text": "reading",
+      "tool_calls": [{"name": "read_file", "arguments": {"path": "a.txt"}}]
+    },
+    {
+      "after_tool": "read_file",
+      "repeat": true,
+      "text": "reading again",
+      "tool_calls": [{"name": "read_file", "arguments": {"path": "a.txt"}}]
+    }
+  ],
+  "default": {"text": "fake default reply"}
+}

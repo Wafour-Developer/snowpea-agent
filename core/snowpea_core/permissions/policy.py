@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Literal
 
 Mode = Literal["plan", "accept", "auto"]
-PermissionTag = Literal["read", "write", "exec", "network", "send", "config"]
+PermissionTag = Literal["read", "write", "exec", "network", "send", "config", "delegate"]
 Verdict = Literal["allow", "deny", "ask"]
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -32,6 +32,9 @@ MODE_MATRIX: dict[str, dict[str, str]] = {
         "network": "allow",
         "send": "deny",
         "config": "deny",
+        # A child inherits the session's mode, so delegating cannot do more
+        # than the parent may; the child's own calls are what get asked.
+        "delegate": "allow",
     },
     "accept": {
         "read": "allow",
@@ -40,6 +43,7 @@ MODE_MATRIX: dict[str, dict[str, str]] = {
         "network": "ask",
         "send": "ask",
         "config": "ask",
+        "delegate": "allow",
     },
     "auto": {
         "read": "allow",
@@ -48,6 +52,7 @@ MODE_MATRIX: dict[str, dict[str, str]] = {
         "network": "allow",
         "send": "allow",
         "config": "ask",
+        "delegate": "allow",
     },
 }
 
@@ -62,6 +67,7 @@ RISK_BY_TAG: dict[str, str] = {
     "send": "high",
     "exec": "high",
     "config": "high",
+    "delegate": "low",
 }
 
 #: Extra sentence shown with the approval prompt for a tag that needs one.
