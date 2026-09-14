@@ -6,17 +6,18 @@ Every tool carries one permission tag. The mode decides what happens to each tag
 |---|---|
 | `read` | `read_file`, `list_dir`, `glob`, `grep`, `git_status`, `git_diff`, `git_log`, `process_list`, `memory_search`, `transcribe_audio`, `skill_search`, `skill_list`, `ask_user`, `set_mode` |
 | `write` | `write_file`, `edit_file`, `git_commit`, `memory_write` |
-| `exec` | `shell`, `process_kill`, `delegate_task`, `skill_install`, `skill_remove` |
+| `exec` | `shell`, `process_kill`, `skill_install`, `skill_remove` |
+| `delegate` | `delegate_task` — the child inherits the session's mode, so delegating can never do more than the parent may; the child's own calls are what get asked |
 | `network` | `web_search`, `web_extract`, `browser_*`, media tools, `text_to_speech`, MCP servers by default |
 | `send` | `schedule_create`, `schedule_list`, `schedule_cancel` |
 
 ## The matrix
 
-| mode | read | write | exec | network | send |
-|---|---|---|---|---|---|
-| **plan** | allow | deny | ask | allow | deny |
-| **accept** (default) | allow | allow | ask | ask | ask |
-| **auto** | allow | allow | allow | allow | allow |
+| mode | read | write | exec | network | send | delegate |
+|---|---|---|---|---|---|---|
+| **plan** | allow | deny | ask | allow | deny | allow |
+| **accept** (default) | allow | allow | ask | ask | ask | allow |
+| **auto** | allow | allow | allow | allow | allow | allow |
 
 **plan** is for thinking. The agent can read your repository and search the web, and cannot change anything; a shell command asks you first, so a planner can check a tool version or run the tests without being able to edit. A denied call produces an `error` event with code `mode_denied` and ends the turn; headless runs exit `4`.
 
