@@ -1372,7 +1372,7 @@ var require_react_development = __commonJS({
           }
           return dispatcher.useContext(Context);
         }
-        function useState15(initialState2) {
+        function useState16(initialState2) {
           var dispatcher = resolveDispatcher();
           return dispatcher.useState(initialState2);
         }
@@ -2175,7 +2175,7 @@ var require_react_development = __commonJS({
         exports.useMemo = useMemo5;
         exports.useReducer = useReducer2;
         exports.useRef = useRef5;
-        exports.useState = useState15;
+        exports.useState = useState16;
         exports.useSyncExternalStore = useSyncExternalStore;
         exports.useTransition = useTransition;
         exports.version = ReactVersion;
@@ -7867,9 +7867,9 @@ var require_react_reconciler_development = __commonJS({
       module.exports = function $$$reconciler($$$hostConfig) {
         var exports2 = {};
         "use strict";
-        var React23 = require_react();
+        var React24 = require_react();
         var Scheduler = require_scheduler();
-        var ReactSharedInternals = React23.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED;
+        var ReactSharedInternals = React24.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED;
         var suppressWarning = false;
         function setSuppressWarning(newSuppressWarning) {
           {
@@ -7933,7 +7933,7 @@ var require_react_reconciler_development = __commonJS({
         var HostPortal = 4;
         var HostComponent = 5;
         var HostText = 6;
-        var Fragment5 = 7;
+        var Fragment6 = 7;
         var Mode = 8;
         var ContextConsumer = 9;
         var ContextProvider = 10;
@@ -8073,7 +8073,7 @@ var require_react_reconciler_development = __commonJS({
               return "DehydratedFragment";
             case ForwardRef:
               return getWrappedName$1(type, type.render, "ForwardRef");
-            case Fragment5:
+            case Fragment6:
               return "Fragment";
             case HostComponent:
               return type;
@@ -11207,7 +11207,7 @@ var require_react_reconciler_development = __commonJS({
             }
           }
           function updateFragment2(returnFiber, current3, fragment, lanes, key) {
-            if (current3 === null || current3.tag !== Fragment5) {
+            if (current3 === null || current3.tag !== Fragment6) {
               var created = createFiberFromFragment(fragment, returnFiber.mode, lanes, key);
               created.return = returnFiber;
               return created;
@@ -11610,7 +11610,7 @@ var require_react_reconciler_development = __commonJS({
               if (child.key === key) {
                 var elementType = element.type;
                 if (elementType === REACT_FRAGMENT_TYPE) {
-                  if (child.tag === Fragment5) {
+                  if (child.tag === Fragment6) {
                     deleteRemainingChildren(returnFiber, child.sibling);
                     var existing = useFiber(child, element.props.children);
                     existing.return = returnFiber;
@@ -17101,7 +17101,7 @@ var require_react_reconciler_development = __commonJS({
               var _resolvedProps2 = workInProgress2.elementType === type ? _unresolvedProps2 : resolveDefaultProps(type, _unresolvedProps2);
               return updateForwardRef(current3, workInProgress2, type, _resolvedProps2, renderLanes2);
             }
-            case Fragment5:
+            case Fragment6:
               return updateFragment(current3, workInProgress2, renderLanes2);
             case Mode:
               return updateMode(current3, workInProgress2, renderLanes2);
@@ -17538,7 +17538,7 @@ var require_react_reconciler_development = __commonJS({
             case SimpleMemoComponent:
             case FunctionComponent:
             case ForwardRef:
-            case Fragment5:
+            case Fragment6:
             case Mode:
             case Profiler:
             case ContextConsumer:
@@ -22306,7 +22306,7 @@ var require_react_reconciler_development = __commonJS({
           return fiber;
         }
         function createFiberFromFragment(elements, mode, lanes, key) {
-          var fiber = createFiber(Fragment5, elements, key, mode);
+          var fiber = createFiber(Fragment6, elements, key, mode);
           fiber.lanes = lanes;
           return fiber;
         }
@@ -27290,7 +27290,7 @@ var require_react_jsx_runtime_development = __commonJS({
     if (process.env.NODE_ENV !== "production") {
       (function() {
         "use strict";
-        var React23 = require_react();
+        var React24 = require_react();
         var REACT_ELEMENT_TYPE = Symbol.for("react.element");
         var REACT_PORTAL_TYPE = Symbol.for("react.portal");
         var REACT_FRAGMENT_TYPE = Symbol.for("react.fragment");
@@ -27316,7 +27316,7 @@ var require_react_jsx_runtime_development = __commonJS({
           }
           return null;
         }
-        var ReactSharedInternals = React23.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED;
+        var ReactSharedInternals = React24.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED;
         function error(format) {
           {
             {
@@ -28166,11 +28166,11 @@ var require_react_jsx_runtime_development = __commonJS({
             return jsxWithValidation(type, props, key, false);
           }
         }
-        var jsx29 = jsxWithValidationDynamic;
-        var jsxs24 = jsxWithValidationStatic;
+        var jsx30 = jsxWithValidationDynamic;
+        var jsxs25 = jsxWithValidationStatic;
         exports.Fragment = REACT_FRAGMENT_TYPE;
-        exports.jsx = jsx29;
-        exports.jsxs = jsxs24;
+        exports.jsx = jsx30;
+        exports.jsxs = jsxs25;
       })();
     }
   }
@@ -33822,13 +33822,13 @@ var import_react20 = __toESM(require_react(), 1);
 var import_react21 = __toESM(require_react(), 1);
 
 // src/index.tsx
-import { spawn, spawnSync } from "node:child_process";
+import { spawn as spawn2, spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync as readFileSync2, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename as basename2, isAbsolute, join, resolve } from "node:path";
 
 // src/app.tsx
-var import_react40 = __toESM(require_react(), 1);
+var import_react41 = __toESM(require_react(), 1);
 
 // src/slash/registry.ts
 var SURFACE_COMMANDS = [
@@ -37457,10 +37457,11 @@ function Chat({
         return;
       }
       if (key.return) {
-        if (showPalette && !value.includes(" ")) {
+        if (showPalette) {
           const completion = completions[selected];
-          if (completion && value !== `/${completion.name}`) {
-            update(`/${completion.name} `);
+          const full = completion ? `/${completion.name}` : "";
+          if (completion && full !== value.trimEnd() && full.startsWith(value.trimEnd())) {
+            update(`${full} `);
             return;
           }
         }
@@ -38260,8 +38261,163 @@ function ModelPicker({
   ] });
 }
 
-// src/components/QueuedPrompts.tsx
+// src/components/SkillCreateForm.tsx
+var import_react37 = __toESM(require_react(), 1);
+
+// src/state/skill-completion.ts
+var SKILL_ACTIONS = [
+  { action: "create", summary: "Write a new skill from a name and a description." },
+  { action: "learn", summary: "Turn what this session just did into a skill." },
+  { action: "edit", summary: "Open a skill's SKILL.md in $EDITOR." },
+  { action: "publish", summary: "Upload a skill directory to the registry." },
+  { action: "sources", summary: "List the hubs the registry federates." },
+  { action: "reload", summary: "Re-read skills from disk." }
+];
+function skillSubCommands(draft) {
+  const match = /^\/skill(?:\s+([^\s]*))?$/.exec(draft);
+  if (!match) return [];
+  const typed = match[1] ?? "";
+  return SKILL_ACTIONS.filter((entry) => entry.action.startsWith(typed)).map((entry) => ({
+    name: `skill ${entry.action}`,
+    summary: entry.summary,
+    source: "core"
+  }));
+}
+function isBareSkillCreate(text) {
+  return /^\/skill\s+create\s*$/.test(text.trim());
+}
+function parseSkillEdit(text) {
+  const match = /^\/skill\s+edit\s+(\S+)\s*$/.exec(text.trim());
+  return match ? match[1] : null;
+}
+function skillCreateCommand({
+  name,
+  description,
+  scope
+}) {
+  const quoted = description.trim().replace(/"/g, "");
+  const parts = [`/skill create ${name.trim()}`, `"${quoted}"`];
+  if (scope === "global") parts.push("--global");
+  return parts.join(" ");
+}
+function createdSkillName(text) {
+  const runIt = /Run it with \/([A-Za-z0-9][\w.-]*)/.exec(text);
+  const named = /(?:Created|Learned) skill ['"`]?([A-Za-z0-9][\w.-]*)/.exec(text);
+  const found = runIt?.[1] ?? named?.[1];
+  if (!found) return null;
+  const trimmed = found.replace(/[.\-]+$/, "");
+  return trimmed.length > 0 ? trimmed : null;
+}
+function isValidSkillName(name) {
+  return /^[A-Za-z0-9][\w.-]*$/.test(name.trim());
+}
+
+// src/components/SkillCreateForm.tsx
 var import_jsx_runtime18 = __toESM(require_jsx_runtime(), 1);
+var SCOPES = [
+  { value: "project", label: "this project", hint: ".snowpea/skills \u2014 travels with the repo" },
+  { value: "global", label: "everywhere", hint: "your home \u2014 available in every project" }
+];
+function SkillCreateForm({
+  onSubmit,
+  onCancel,
+  isActive = true,
+  width
+}) {
+  const [step, setStep] = (0, import_react37.useState)("name");
+  const [name, setName] = (0, import_react37.useState)("");
+  const [description, setDescription] = (0, import_react37.useState)("");
+  const [scope, setScope] = (0, import_react37.useState)(0);
+  const [error, setError] = (0, import_react37.useState)(null);
+  const typed = step === "name" ? name : description;
+  const setTyped = step === "name" ? setName : setDescription;
+  use_input_default(
+    (input, key) => {
+      if (key.escape) {
+        onCancel();
+        return;
+      }
+      if (step === "scope") {
+        if (key.upArrow || key.downArrow || key.tab) {
+          setScope((index) => (index + (key.upArrow ? SCOPES.length - 1 : 1)) % SCOPES.length);
+          return;
+        }
+        if (key.return) {
+          onSubmit({ name: name.trim(), description: description.trim(), scope: SCOPES[scope].value });
+        }
+        return;
+      }
+      if (key.return) {
+        const value = typed.trim();
+        if (step === "name") {
+          if (!isValidSkillName(value)) {
+            setError("a skill name is a command name: letters, digits, - _ .");
+            return;
+          }
+          setError(null);
+          setStep("description");
+          return;
+        }
+        if (value.length === 0) {
+          setError("say what the skill does; the agent writes it from this");
+          return;
+        }
+        setError(null);
+        setStep("scope");
+        return;
+      }
+      if (key.backspace || key.delete) {
+        setError(null);
+        setTyped(typed.slice(0, -1));
+        return;
+      }
+      if (key.tab || key.upArrow || key.downArrow || key.leftArrow || key.rightArrow) return;
+      if (key.ctrl || key.meta || input.length === 0) return;
+      setError(null);
+      setTyped(typed + input);
+    },
+    { isActive }
+  );
+  return /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)(Box_default, { flexDirection: "column", width, borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Text, { bold: true, color: "cyan", children: "New skill" }),
+    /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)(Text, { dimColor: step !== "name", children: [
+      "  name         ",
+      step === "name" ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Text, { children: name }) : /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Text, { color: "green", children: name }),
+      step === "name" ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Text, { inverse: true, children: " " }) : null
+    ] }),
+    step === "name" ? null : /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)(Text, { dimColor: step !== "description", children: [
+      "  description  ",
+      step === "description" ? /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)(import_jsx_runtime18.Fragment, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Text, { children: description }),
+        /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Text, { inverse: true, children: " " })
+      ] }) : /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Text, { color: "green", children: description })
+    ] }),
+    step === "scope" ? SCOPES.map((entry, index) => /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)(Text, { inverse: index === scope, children: [
+      `  ${entry.label.padEnd(13)}`,
+      /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Text, { dimColor: true, children: entry.hint })
+    ] }, entry.value)) : null,
+    error ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Text, { color: "red", children: `  ${error}` }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Text, { dimColor: true, children: step === "scope" ? "\u2191/\u2193 choose \xB7 Enter create \xB7 Esc cancel" : "Enter next \xB7 Esc cancel" })
+  ] });
+}
+
+// src/state/skill-hint.ts
+var SKILL_HINT_TOOL_CALLS = 6;
+var SKILL_HINT_MS = 3e4;
+var SKILL_HINT_TEXT = "Turn this into a skill: /skill learn <name>";
+function shouldSuggestSkill({
+  toolCalls,
+  elapsedMs,
+  ok,
+  shown,
+  dismissed
+}) {
+  if (shown || dismissed || !ok) return false;
+  return toolCalls >= SKILL_HINT_TOOL_CALLS && elapsedMs >= SKILL_HINT_MS;
+}
+
+// src/components/QueuedPrompts.tsx
+var import_jsx_runtime19 = __toESM(require_jsx_runtime(), 1);
 var MAX_QUEUED_ROWS = 3;
 function QueuedPrompts({
   queued,
@@ -38270,15 +38426,15 @@ function QueuedPrompts({
   if (queued.length === 0) return null;
   const shown = queued.slice(0, MAX_QUEUED_ROWS);
   const hidden = queued.length - shown.length;
-  return /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)(Box_default, { flexDirection: "column", width, flexShrink: 0, children: [
-    shown.map((entry, index) => /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `   ${index + 1}. ${clip(entry.text || "(queued prompt)", Math.max(10, width - 8))}` }, entry.turnId)),
-    hidden > 0 ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Text, { dimColor: true, children: `   \u2026 ${hidden} more queued` }) : null
+  return /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Box_default, { flexDirection: "column", width, flexShrink: 0, children: [
+    shown.map((entry, index) => /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `   ${index + 1}. ${clip(entry.text || "(queued prompt)", Math.max(10, width - 8))}` }, entry.turnId)),
+    hidden > 0 ? /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { dimColor: true, children: `   \u2026 ${hidden} more queued` }) : null
   ] });
 }
 
 // src/components/AgentTranscript.tsx
-var import_react37 = __toESM(require_react(), 1);
-var import_jsx_runtime19 = __toESM(require_jsx_runtime(), 1);
+var import_react38 = __toESM(require_react(), 1);
+var import_jsx_runtime20 = __toESM(require_jsx_runtime(), 1);
 function AgentTranscriptInner({
   name,
   task,
@@ -38289,7 +38445,7 @@ function AgentTranscriptInner({
   scrollIndicator: scrollIndicator2 = null,
   empty = false
 }) {
-  return /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(
+  return /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(
     Box_default,
     {
       flexDirection: "column",
@@ -38299,23 +38455,23 @@ function AgentTranscriptInner({
       paddingX: 1,
       flexShrink: 0,
       children: [
-        /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Box_default, { justifyContent: "space-between", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Text, { wrap: "truncate-end", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { bold: true, color: "cyan", children: `\u25EF ${name}` }),
-            /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { dimColor: true, children: task ? ` \xB7 ${task}` : "" })
+        /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Box_default, { justifyContent: "space-between", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Text, { wrap: "truncate-end", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { bold: true, color: "cyan", children: `\u25EF ${name}` }),
+            /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { dimColor: true, children: task ? ` \xB7 ${task}` : "" })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { dimColor: true, children: scrollIndicator2 ? `${scrollIndicator2} \xB7 ${status}` : status })
+          /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { dimColor: true, children: scrollIndicator2 ? `${scrollIndicator2} \xB7 ${status}` : status })
         ] }),
-        empty ? /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Box_default, { height, children: /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { dimColor: true, children: "waiting for the agent's first output\u2026" }) }) : /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(TranscriptView, { lines, height }),
-        /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { dimColor: true, children: "\u2191\u2193 PgUp/PgDn scroll \xB7 Esc back to the main transcript" })
+        empty ? /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Box_default, { height, children: /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { dimColor: true, children: "waiting for the agent's first output\u2026" }) }) : /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(TranscriptView, { lines, height }),
+        /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { dimColor: true, children: "\u2191\u2193 PgUp/PgDn scroll \xB7 Esc back to the main transcript" })
       ]
     }
   );
 }
-var AgentTranscript = import_react37.default.memo(AgentTranscriptInner);
+var AgentTranscript = import_react38.default.memo(AgentTranscriptInner);
 
 // src/components/SectionRule.tsx
-var import_jsx_runtime20 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime21 = __toESM(require_jsx_runtime(), 1);
 function SectionRule({
   width,
   color,
@@ -38323,11 +38479,11 @@ function SectionRule({
 }) {
   const suffix = label ? ` ${label}` : "";
   const rule = `${"\u2500".repeat(Math.max(1, width - suffix.length))}${suffix}`.slice(0, Math.max(1, width));
-  return /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Box_default, { width, flexShrink: 0, overflow: "hidden", children: /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { color, dimColor: !color, wrap: "truncate-end", children: rule }) });
+  return /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Box_default, { width, flexShrink: 0, overflow: "hidden", children: /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { color, dimColor: !color, wrap: "truncate-end", children: rule }) });
 }
 
 // src/components/LaunchBanner.tsx
-var import_jsx_runtime21 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime22 = __toESM(require_jsx_runtime(), 1);
 var PROMPT_PREVIEW = 60;
 var TIPS = [
   "/help lists every command the daemon offers",
@@ -38358,27 +38514,27 @@ function LaunchBanner({
   const paint = paintProp ?? colorMode(process.env, Boolean(process.stdout?.isTTY));
   const description = "Open-source multi-vendor coding agent and personal AI assistant";
   const meta = [`v${version}`, target, workdir, mode.toUpperCase()].filter(Boolean).join(" \xB7 ");
-  return /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)(Box_default, { flexDirection: "column", width, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Logo, { terminalRows, version, width, big: true, mode: paint }),
-    /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { dimColor: true, children: "\u2500".repeat(Math.max(0, width)) }),
-    /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)(Box_default, { flexDirection: "column", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { wrap: "truncate-end", children: centre(description, width) }),
-      /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: centre(meta, width) })
+  return /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)(Box_default, { flexDirection: "column", width, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Logo, { terminalRows, version, width, big: true, mode: paint }),
+    /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { dimColor: true, children: "\u2500".repeat(Math.max(0, width)) }),
+    /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)(Box_default, { flexDirection: "column", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { wrap: "truncate-end", children: centre(description, width) }),
+      /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: centre(meta, width) })
     ] }),
-    lastSession ? /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)(Box_default, { marginTop: 1, flexDirection: "column", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)(Text, { wrap: "truncate-end", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { color: "cyan", children: "Last session: " }),
-        /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { dimColor: true, children: `${relativeTime(lastSession.at, now)} \xB7 ` }),
-        /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { children: lastSession.firstPrompt ? `"${previewPrompt(lastSession.firstPrompt)}"` : lastSession.sessionId.slice(0, 8) })
+    lastSession ? /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)(Box_default, { marginTop: 1, flexDirection: "column", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)(Text, { wrap: "truncate-end", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { color: "cyan", children: "Last session: " }),
+        /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { dimColor: true, children: `${relativeTime(lastSession.at, now)} \xB7 ` }),
+        /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { children: lastSession.firstPrompt ? `"${previewPrompt(lastSession.firstPrompt)}"` : lastSession.sessionId.slice(0, 8) })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { dimColor: true, children: "Press R or type /resume to continue it" })
+      /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { dimColor: true, children: "Press R or type /resume to continue it" })
     ] }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Box_default, { marginTop: 1, marginBottom: 1, flexDirection: "column", children: TIPS.map((tip) => /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `  \xB7 ${tip}` }, tip)) })
+    /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Box_default, { marginTop: 1, marginBottom: 1, flexDirection: "column", children: TIPS.map((tip) => /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `  \xB7 ${tip}` }, tip)) })
   ] });
 }
 
 // src/components/ShellList.tsx
-var import_jsx_runtime22 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime23 = __toESM(require_jsx_runtime(), 1);
 function runningCalls(calls) {
   const running = calls.filter((call) => call.state === "running");
   return [
@@ -38392,37 +38548,37 @@ function ShellList({
   width
 }) {
   const running = runningCalls(calls);
-  return /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Box_default, { flexDirection: "column", width, children: running.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { dimColor: true, children: "    nothing running" }) : running.map((call) => /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)(Text, { dimColor: true, wrap: "truncate-end", children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Box_default, { flexDirection: "column", width, children: running.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { dimColor: true, children: "    nothing running" }) : running.map((call) => /* @__PURE__ */ (0, import_jsx_runtime23.jsxs)(Text, { dimColor: true, wrap: "truncate-end", children: [
     `    \u25E6 ${summarizeCalls([call])}`,
     call.startedAt ? ` \xB7 ${formatDuration(now - call.startedAt)}` : ""
   ] }, call.callId)) });
 }
 
 // src/components/ToolSummary.tsx
-var import_jsx_runtime23 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime24 = __toESM(require_jsx_runtime(), 1);
 var SUMMARY_GLYPH = "\u23FA";
 function ToolSummary({ calls }) {
   if (calls.length === 0) return null;
   const lines = hiddenLines(calls);
-  return /* @__PURE__ */ (0, import_jsx_runtime23.jsxs)(Box_default, { marginBottom: 1, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { color: "green", children: `${SUMMARY_GLYPH} ` }),
-    /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { children: summarizeCalls(calls) }),
-    lines > 0 ? /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { dimColor: true, children: ` (${lines} lines)` }) : null
+  return /* @__PURE__ */ (0, import_jsx_runtime24.jsxs)(Box_default, { marginBottom: 1, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(Text, { color: "green", children: `${SUMMARY_GLYPH} ` }),
+    /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(Text, { children: summarizeCalls(calls) }),
+    lines > 0 ? /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(Text, { dimColor: true, children: ` (${lines} lines)` }) : null
   ] });
 }
 
 // src/components/WorkingIndicator.tsx
-var import_react38 = __toESM(require_react(), 1);
-var import_jsx_runtime24 = __toESM(require_jsx_runtime(), 1);
-function WorkingIndicatorInner({ line }) {
-  if (!line) return null;
-  return /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(Box_default, { flexShrink: 0, children: /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: line }) });
-}
-var WorkingIndicator = import_react38.default.memo(WorkingIndicatorInner);
-
-// src/components/HelpPanel.tsx
 var import_react39 = __toESM(require_react(), 1);
 var import_jsx_runtime25 = __toESM(require_jsx_runtime(), 1);
+function WorkingIndicatorInner({ line }) {
+  if (!line) return null;
+  return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(Box_default, { flexShrink: 0, children: /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: line }) });
+}
+var WorkingIndicator = import_react39.default.memo(WorkingIndicatorInner);
+
+// src/components/HelpPanel.tsx
+var import_react40 = __toESM(require_react(), 1);
+var import_jsx_runtime26 = __toESM(require_jsx_runtime(), 1);
 var WORKFLOW_COMMANDS = [
   "ralph",
   "ralplan",
@@ -38454,7 +38610,7 @@ var KEYS = [
   "Approval menus: \u2191\u2193 select, Enter confirm, y/a/p/n answer, Esc refuse"
 ];
 function HelpPanel({ commands, runningSubagents = 0, width = 80, height = 20, isActive = true }) {
-  const [offset, setOffset] = (0, import_react39.useState)(0);
+  const [offset, setOffset] = (0, import_react40.useState)(0);
   const inner = Math.max(1, width - 4);
   const rows = Math.max(1, height - 3);
   const lines = [];
@@ -38483,15 +38639,15 @@ function HelpPanel({ commands, runningSubagents = 0, width = 80, height = 20, is
     const step = key.pageDown ? rows : key.pageUp ? -rows : key.downArrow ? 1 : key.upArrow ? -1 : 0;
     if (step) setOffset((current2) => Math.min(maxOffset, Math.max(0, current2 + step)));
   }, { isActive });
-  if (height < 4) return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(Text, { wrap: "truncate-end", children: "Esc / F1 close help" });
-  return /* @__PURE__ */ (0, import_jsx_runtime25.jsxs)(Box_default, { flexDirection: "column", width, height, borderStyle: "round", borderColor: "cyan", paddingX: 1, overflow: "hidden", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(TranscriptView, { lines: lines.slice(start, start + rows), height: rows }),
-    /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(Text, { color: "cyan", wrap: "truncate-end", children: `Esc / F1 / q / Enter close \xB7 \u2191\u2193 scroll \xB7 ${start + 1}-${Math.min(start + rows, lines.length)}/${lines.length}` })
+  if (height < 4) return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Text, { wrap: "truncate-end", children: "Esc / F1 close help" });
+  return /* @__PURE__ */ (0, import_jsx_runtime26.jsxs)(Box_default, { flexDirection: "column", width, height, borderStyle: "round", borderColor: "cyan", paddingX: 1, overflow: "hidden", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(TranscriptView, { lines: lines.slice(start, start + rows), height: rows }),
+    /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Text, { color: "cyan", wrap: "truncate-end", children: `Esc / F1 / q / Enter close \xB7 \u2191\u2193 scroll \xB7 ${start + 1}-${Math.min(start + rows, lines.length)}/${lines.length}` })
   ] });
 }
 
 // src/components/UpdateBanner.tsx
-var import_jsx_runtime26 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime27 = __toESM(require_jsx_runtime(), 1);
 var PHASE_COLOR = {
   available: "cyan",
   confirm: "yellow",
@@ -38502,11 +38658,11 @@ var PHASE_COLOR = {
 function UpdateBanner({ update }) {
   const text = bannerText(update);
   if (text === null) return null;
-  return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Text, { color: PHASE_COLOR[update.phase] ?? "cyan", children: text }) });
+  return /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Text, { color: PHASE_COLOR[update.phase] ?? "cyan", children: text }) });
 }
 
 // src/app.tsx
-var import_jsx_runtime27 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime28 = __toESM(require_jsx_runtime(), 1);
 var UPDATE_OPTIONS = [
   { label: "Update and restart", value: true, shortcut: "y" },
   { label: "Not now", value: false, shortcut: "n", danger: true }
@@ -38541,18 +38697,18 @@ function TimelineEntry({
 }) {
   if (item.kind === "message") {
     const message = state.messages.find((m) => m.id === item.id);
-    return message ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(MessageView, { message, width, maxRows: maxMessageRows }) : null;
+    return message ? /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(MessageView, { message, width, maxRows: maxMessageRows }) : null;
   }
   if (item.kind === "tool") {
     const call = state.toolCalls.find((c) => c.callId === item.id);
-    return call ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(ToolCall, { call, expanded: expandedId === item.id }) : null;
+    return call ? /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(ToolCall, { call, expanded: expandedId === item.id }) : null;
   }
   if (item.kind === "compaction") {
     const entry = state.compactions.find((c) => c.id === item.id);
-    return entry ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Text, { dimColor: true, children: compactionDivider(entry.before, entry.after, width) }) }) : null;
+    return entry ? /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(Text, { dimColor: true, children: compactionDivider(entry.before, entry.after, width) }) }) : null;
   }
   const diff2 = state.diffs.find((d) => d.id === item.id);
-  return diff2 ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(
+  return diff2 ? /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(
     DiffView,
     {
       diff: diff2,
@@ -38612,69 +38768,77 @@ function App2({
   captureClipboard,
   audio = noAudio,
   localAudio = null,
-  recordingPath
+  recordingPath,
+  editor
 }) {
   const { exit } = use_app_default();
-  const [sessionId, setSessionId] = (0, import_react40.useState)(initialSessionId);
-  const activeSessionRef = (0, import_react40.useRef)(initialSessionId);
-  const resumingRef = (0, import_react40.useRef)(false);
-  const [state, dispatch] = (0, import_react40.useReducer)(reducer, initialState);
-  const [showHelp, setShowHelp] = (0, import_react40.useState)(false);
-  const { stdin } = use_stdin_default();
-  const [draft, setDraft] = (0, import_react40.useState)("");
-  const [expandedId, setExpandedId] = (0, import_react40.useState)(null);
-  const [queueFocused, setQueueFocused] = (0, import_react40.useState)(false);
-  const [agentsExpanded, setAgentsExpanded] = (0, import_react40.useState)(false);
-  const [agentRosterVersion, setAgentRosterVersion] = (0, import_react40.useState)(0);
-  const [attachments, setAttachments] = (0, import_react40.useState)([]);
-  const [voice, setVoice] = (0, import_react40.useState)(initialVoice);
-  const [insert, setInsert] = (0, import_react40.useState)(null);
-  const [append, setAppend] = (0, import_react40.useState)(null);
-  const [sessionModelSource, setSessionModelSource] = (0, import_react40.useState)(null);
-  const [agentModels, setAgentModels] = (0, import_react40.useState)({});
-  const [modelPicker, setModelPicker] = (0, import_react40.useState)(null);
-  const [capabilities, setCapabilities] = (0, import_react40.useState)(audio);
-  const recordingRef = (0, import_react40.useRef)(null);
-  const speechRef = (0, import_react40.useRef)(null);
-  const spokenRef = (0, import_react40.useRef)(/* @__PURE__ */ new Set());
-  const [focus, setFocus] = (0, import_react40.useState)(INPUT_FOCUS);
-  const [shellsOpen, setShellsOpen] = (0, import_react40.useState)(false);
-  const [openAgent, setOpenAgent] = (0, import_react40.useState)(null);
-  const [resumeChoices, setResumeChoices] = (0, import_react40.useState)(null);
-  const [modePicker, setModePicker] = (0, import_react40.useState)(false);
-  const [agentScroll, setAgentScroll] = (0, import_react40.useState)(0);
-  const [pastPrompts] = (0, import_react40.useState)(() => {
+  const [sessionId, setSessionId] = (0, import_react41.useState)(initialSessionId);
+  const activeSessionRef = (0, import_react41.useRef)(initialSessionId);
+  const resumingRef = (0, import_react41.useRef)(false);
+  const [state, dispatch] = (0, import_react41.useReducer)(reducer, initialState);
+  const [showHelp, setShowHelp] = (0, import_react41.useState)(false);
+  const { stdin, setRawMode } = use_stdin_default();
+  const [draft, setDraft] = (0, import_react41.useState)("");
+  const [expandedId, setExpandedId] = (0, import_react41.useState)(null);
+  const [queueFocused, setQueueFocused] = (0, import_react41.useState)(false);
+  const [agentsExpanded, setAgentsExpanded] = (0, import_react41.useState)(false);
+  const [agentRosterVersion, setAgentRosterVersion] = (0, import_react41.useState)(0);
+  const [attachments, setAttachments] = (0, import_react41.useState)([]);
+  const [voice, setVoice] = (0, import_react41.useState)(initialVoice);
+  const [insert, setInsert] = (0, import_react41.useState)(null);
+  const [append, setAppend] = (0, import_react41.useState)(null);
+  const [sessionModelSource, setSessionModelSource] = (0, import_react41.useState)(null);
+  const [agentModels, setAgentModels] = (0, import_react41.useState)({});
+  const [modelPicker, setModelPicker] = (0, import_react41.useState)(null);
+  const [skillForm, setSkillForm] = (0, import_react41.useState)(false);
+  const [skillChip, setSkillChip] = (0, import_react41.useState)(null);
+  const [skillHint, setSkillHint] = (0, import_react41.useState)(false);
+  const skillHintSpent = (0, import_react41.useRef)(false);
+  const hintTurnRef = (0, import_react41.useRef)(null);
+  const skillReplyRef = (0, import_react41.useRef)(null);
+  const [suspended, setSuspended] = (0, import_react41.useState)(false);
+  const [capabilities, setCapabilities] = (0, import_react41.useState)(audio);
+  const recordingRef = (0, import_react41.useRef)(null);
+  const speechRef = (0, import_react41.useRef)(null);
+  const spokenRef = (0, import_react41.useRef)(/* @__PURE__ */ new Set());
+  const [focus, setFocus] = (0, import_react41.useState)(INPUT_FOCUS);
+  const [shellsOpen, setShellsOpen] = (0, import_react41.useState)(false);
+  const [openAgent, setOpenAgent] = (0, import_react41.useState)(null);
+  const [resumeChoices, setResumeChoices] = (0, import_react41.useState)(null);
+  const [modePicker, setModePicker] = (0, import_react41.useState)(false);
+  const [agentScroll, setAgentScroll] = (0, import_react41.useState)(0);
+  const [pastPrompts] = (0, import_react41.useState)(() => {
     history?.load();
     return history?.prompts() ?? [];
   });
-  const [lastSession] = (0, import_react40.useState)(() => {
+  const [lastSession] = (0, import_react41.useState)(() => {
     sessions?.load();
     return offerSession(sessions?.last(workdir) ?? null, priorSession2);
   });
-  const [modeHintVisible, setModeHintVisible] = (0, import_react40.useState)(true);
-  const [modeToast, setModeToast] = (0, import_react40.useState)(null);
-  const [runningCommand, setRunningCommand] = (0, import_react40.useState)(null);
-  const staticCursorRef = (0, import_react40.useRef)(0);
-  const staticBlocksRef = (0, import_react40.useRef)([{ key: "launch", kind: "launch" }]);
-  const turnRef = (0, import_react40.useRef)(null);
-  const turnActiveRef = (0, import_react40.useRef)(false);
-  const turnCountRef = (0, import_react40.useRef)(0);
-  const [scrollOffset, setScrollOffset] = (0, import_react40.useState)(0);
-  const modeToastTimer = (0, import_react40.useRef)(null);
-  const droppedRef = (0, import_react40.useRef)(0);
-  const droppedTimer = (0, import_react40.useRef)(null);
-  const childEventsRef = (0, import_react40.useRef)(null);
-  const registryRef = (0, import_react40.useRef)(new SlashRegistry(client, sessionId));
-  const [update, setUpdate] = (0, import_react40.useState)(initialUpdateState);
-  const [updateAvailable, setUpdateAvailable] = (0, import_react40.useState)(false);
-  const approvalResolver = (0, import_react40.useRef)(null);
-  const questionResolver = (0, import_react40.useRef)(null);
-  const audioClient = (0, import_react40.useMemo)(() => createAudioClient(client), [client]);
-  const audioOffered = (0, import_react40.useCallback)(
+  const [modeHintVisible, setModeHintVisible] = (0, import_react41.useState)(true);
+  const [modeToast, setModeToast] = (0, import_react41.useState)(null);
+  const [runningCommand, setRunningCommand] = (0, import_react41.useState)(null);
+  const staticCursorRef = (0, import_react41.useRef)(0);
+  const staticBlocksRef = (0, import_react41.useRef)([{ key: "launch", kind: "launch" }]);
+  const turnRef = (0, import_react41.useRef)(null);
+  const turnActiveRef = (0, import_react41.useRef)(false);
+  const turnCountRef = (0, import_react41.useRef)(0);
+  const [scrollOffset, setScrollOffset] = (0, import_react41.useState)(0);
+  const modeToastTimer = (0, import_react41.useRef)(null);
+  const droppedRef = (0, import_react41.useRef)(0);
+  const droppedTimer = (0, import_react41.useRef)(null);
+  const childEventsRef = (0, import_react41.useRef)(null);
+  const registryRef = (0, import_react41.useRef)(new SlashRegistry(client, sessionId));
+  const [update, setUpdate] = (0, import_react41.useState)(initialUpdateState);
+  const [updateAvailable, setUpdateAvailable] = (0, import_react41.useState)(false);
+  const approvalResolver = (0, import_react41.useRef)(null);
+  const questionResolver = (0, import_react41.useRef)(null);
+  const audioClient = (0, import_react41.useMemo)(() => createAudioClient(client), [client]);
+  const audioOffered = (0, import_react41.useCallback)(
     () => client.serverCapabilities?.().includes("audio") ?? true,
     [client]
   );
-  const refreshCapabilities = (0, import_react40.useCallback)(() => {
+  const refreshCapabilities = (0, import_react41.useCallback)(() => {
     if (!audioOffered()) {
       setCapabilities(noAudio);
       return;
@@ -38683,19 +38847,19 @@ function App2({
       setCapabilities(noAudio);
     });
   }, [audioClient, audioOffered]);
-  (0, import_react40.useEffect)(() => {
+  (0, import_react41.useEffect)(() => {
     refreshCapabilities();
   }, [refreshCapabilities]);
-  const refreshLsp = (0, import_react40.useCallback)(() => {
+  const refreshLsp = (0, import_react41.useCallback)(() => {
     void client.call("lsp.status", {}).then((result) => dispatch({ type: "lsp/status", servers: readLspStatus(result) })).catch(() => {
       dispatch({ type: "lsp/status", servers: [] });
     });
   }, [client]);
-  const refreshApprovals = (0, import_react40.useCallback)(() => {
+  const refreshApprovals = (0, import_react41.useCallback)(() => {
     void client.listApprovals(sessionId).then((result) => dispatch({ type: "approval/list", requests: result.requests ?? [] })).catch(() => {
     });
   }, [client, sessionId]);
-  (0, import_react40.useEffect)(() => {
+  (0, import_react41.useEffect)(() => {
     dispatch({ type: "session/ready", sessionId, mode, provider, model });
     dispatch({ type: "status", status: client.getStatus() });
     const childEvents = createChildEventBuffer(
@@ -38790,7 +38954,7 @@ function App2({
     refreshCapabilities,
     refreshLsp
   ]);
-  (0, import_react40.useEffect)(() => {
+  (0, import_react41.useEffect)(() => {
     let cancelled = false;
     void client.checkUpdate(true).then((check) => {
       if (cancelled) return;
@@ -38802,7 +38966,7 @@ function App2({
       cancelled = true;
     };
   }, [client]);
-  (0, import_react40.useEffect)(() => {
+  (0, import_react41.useEffect)(() => {
     const onData = (data) => {
       if (state.pendingQuestion || state.pendingApproval) return;
       if (update.phase === "confirm" || update.phase === "running") return;
@@ -38816,7 +38980,7 @@ function App2({
       stdin.off("data", onData);
     };
   }, [stdin, state.pendingApproval, state.pendingQuestion, update.phase]);
-  (0, import_react40.useEffect)(() => {
+  (0, import_react41.useEffect)(() => {
     if (update.phase !== "done") return;
     let cancelled = false;
     const timer = setTimeout(() => {
@@ -38834,13 +38998,13 @@ function App2({
       clearTimeout(timer);
     };
   }, [update.phase, client, onRestart, exit]);
-  (0, import_react40.useEffect)(() => {
+  (0, import_react41.useEffect)(() => {
     if (state.approvalQueue.length === 0) return;
     const timer = setInterval(refreshApprovals, APPROVAL_POLL_MS);
     return () => clearInterval(timer);
   }, [state.approvalQueue.length, refreshApprovals]);
   const lastMessage = state.messages[state.messages.length - 1];
-  (0, import_react40.useEffect)(() => {
+  (0, import_react41.useEffect)(() => {
     if (!voice.tts || !lastMessage) return;
     if (lastMessage.role !== "assistant" || lastMessage.streaming) return;
     if (spokenRef.current.has(lastMessage.id)) return;
@@ -38852,38 +39016,38 @@ function App2({
     });
   }, [voice.tts, lastMessage?.id, lastMessage?.streaming]);
   const compactionCount = state.compactions.length;
-  (0, import_react40.useEffect)(() => {
+  (0, import_react41.useEffect)(() => {
     const latest = state.compactions[compactionCount - 1];
     if (!latest) return;
     showToast(`compacted: ${formatTokens(latest.before)} \u2192 ${formatTokens(latest.after)}`);
   }, [compactionCount]);
-  (0, import_react40.useEffect)(() => {
+  (0, import_react41.useEffect)(() => {
     const timer = setInterval(refreshLsp, LSP_POLL_MS);
     return () => clearInterval(timer);
   }, [refreshLsp]);
   const diagnosticsVersion = Object.keys(state.diagnostics).length;
-  (0, import_react40.useEffect)(() => {
+  (0, import_react41.useEffect)(() => {
     if (diagnosticsVersion > 0) refreshLsp();
   }, [diagnosticsVersion, refreshLsp]);
-  (0, import_react40.useEffect)(() => {
+  (0, import_react41.useEffect)(() => {
     if (!state.turnActive) setRunningCommand(null);
   }, [state.turnActive]);
-  (0, import_react40.useEffect)(() => {
+  (0, import_react41.useEffect)(() => {
     if (state.approvalQueue.length === 0 && queueFocused) setQueueFocused(false);
   }, [state.approvalQueue.length, queueFocused]);
-  (0, import_react40.useEffect)(() => {
+  (0, import_react41.useEffect)(() => {
     const timer = setTimeout(() => setModeHintVisible(false), 6e3);
     return () => clearTimeout(timer);
   }, []);
-  (0, import_react40.useEffect)(() => () => {
+  (0, import_react41.useEffect)(() => () => {
     if (modeToastTimer.current) clearTimeout(modeToastTimer.current);
   }, []);
-  const showToast = (0, import_react40.useCallback)((text) => {
+  const showToast = (0, import_react41.useCallback)((text) => {
     setModeToast(text);
     if (modeToastTimer.current) clearTimeout(modeToastTimer.current);
     modeToastTimer.current = setTimeout(() => setModeToast(null), 2500);
   }, []);
-  const resumeSession = (0, import_react40.useCallback)(
+  const resumeSession = (0, import_react41.useCallback)(
     (target, into) => {
       if (into === "main") {
         if (resumingRef.current || state.turnActive) return;
@@ -38918,7 +39082,7 @@ function App2({
     },
     [client, state.turnActive, sessions, workdir]
   );
-  const changeMode = (0, import_react40.useCallback)(
+  const changeMode = (0, import_react41.useCallback)(
     (next) => {
       setModeHintVisible(false);
       dispatch({ type: "mode", mode: next });
@@ -38927,16 +39091,17 @@ function App2({
     },
     [client, sessionId, showToast]
   );
-  const completions = (0, import_react40.useMemo)(
-    () => draft.startsWith("/") ? registryRef.current.complete(draft) : [],
-    [draft, state.commands]
-  );
+  const completions = (0, import_react41.useMemo)(() => {
+    if (!draft.startsWith("/")) return [];
+    const skills = state.commands.some((command) => command.name === "skill") ? skillSubCommands(draft) : [];
+    return [...skills, ...registryRef.current.complete(draft)];
+  }, [draft, state.commands]);
   const terminal = useTerminalSize();
   const contentWidth = Math.max(1, terminal.columns - 2);
   const daemon = useDaemonInfo(client);
   const sessionElapsedMs = useElapsed();
   const version = update.current || TUI_VERSION;
-  const hudSegments = (0, import_react40.useMemo)(
+  const hudSegments = (0, import_react41.useMemo)(
     () => buildHudSegments({
       status: state.status,
       version,
@@ -38988,7 +39153,7 @@ function App2({
       modeHintVisible
     ]
   );
-  const hudRows = (0, import_react40.useMemo)(
+  const hudRows = (0, import_react41.useMemo)(
     () => layoutHud(hudSegments, contentWidth),
     [hudSegments, contentWidth]
   );
@@ -38996,7 +39161,7 @@ function App2({
   const clock = useClock(state.turnActive || voice.recording);
   const knownAgents = useKnownAgents(client, void 0, agentRosterVersion);
   const activeTeam = knownAgents.find((agent) => agent.kind === "team")?.name;
-  const agentRows = (0, import_react40.useMemo)(
+  const agentRows = (0, import_react41.useMemo)(
     () => buildAgentRows({
       state,
       known: knownAgents.filter((agent) => agent.kind !== "team"),
@@ -39012,11 +39177,11 @@ function App2({
     [state.subagents, state.teamTasks, knownAgents, activeTeam, agentsExpanded, clock]
   );
   const agentRowCount = agentRows.length;
-  (0, import_react40.useEffect)(() => {
+  (0, import_react41.useEffect)(() => {
     setFocus((current2) => clampFocus(current2, agentRowCount));
   }, [agentRowCount]);
   const openAgentEntry = openAgent ? state.subagents.find((agent) => agent.sessionId === openAgent.sessionId) : void 0;
-  const agentLines = (0, import_react40.useMemo)(
+  const agentLines = (0, import_react41.useMemo)(
     () => openAgent && state.children[openAgent.sessionId] ? transcriptLines(state.children[openAgent.sessionId], contentWidth - 4) : [],
     [openAgent, state.children, contentWidth]
   );
@@ -39037,11 +39202,11 @@ function App2({
     waited: state.turnWaited
   });
   const indicatorText = workingText === null ? null : `${workingText}${queuedSuffix}`;
-  const completableAgents = (0, import_react40.useMemo)(
+  const completableAgents = (0, import_react41.useMemo)(
     () => agentCandidates({ known: knownAgents, teamTasks: state.teamTasks, models: agentModels }),
     [knownAgents, state.teamTasks, agentModels]
   );
-  const delegation = (0, import_react40.useMemo)(
+  const delegation = (0, import_react41.useMemo)(
     () => delegationHint(draft, knownAgents.map((agent) => agent.name)),
     [draft, knownAgents]
   );
@@ -39081,9 +39246,9 @@ function App2({
     1,
     usableRows(terminal.rows) - layout.statusRows - layout.bottomRows - HOLD_CHROME_SLACK
   );
-  const agentWindowRowsRef = (0, import_react40.useRef)(agentWindowRows);
+  const agentWindowRowsRef = (0, import_react41.useRef)(agentWindowRows);
   agentWindowRowsRef.current = agentWindowRows;
-  const agentViewport = (0, import_react40.useMemo)(
+  const agentViewport = (0, import_react41.useMemo)(
     () => sliceViewport(agentLines, agentWindowRows, agentScroll),
     [agentLines, agentWindowRows, agentScroll]
   );
@@ -39125,28 +39290,28 @@ function App2({
   turnActiveRef.current = state.turnActive;
   const staticCursor = staticCursorRef.current;
   const staticItems = staticBlocksRef.current;
-  const lines = (0, import_react40.useMemo)(
+  const lines = (0, import_react41.useMemo)(
     () => fullscreen ? transcriptLines(state, contentWidth, { expandedCall: expandedId }) : [],
     [fullscreen, state, contentWidth, expandedId]
   );
-  const viewport = (0, import_react40.useMemo)(
+  const viewport = (0, import_react41.useMemo)(
     () => sliceViewport(lines, layout.transcriptRows, scrollOffset),
     [lines, layout.transcriptRows, scrollOffset]
   );
-  const previousLineCount = (0, import_react40.useRef)(0);
-  (0, import_react40.useEffect)(() => {
+  const previousLineCount = (0, import_react41.useRef)(0);
+  (0, import_react41.useEffect)(() => {
     const grown = lines.length - previousLineCount.current;
     previousLineCount.current = lines.length;
     if (grown > 0) setScrollOffset((offset) => offset > 0 ? offset + grown : 0);
   }, [lines.length]);
-  (0, import_react40.useEffect)(() => {
+  (0, import_react41.useEffect)(() => {
     setScrollOffset((offset) => clampScroll(offset, lines.length, layout.transcriptRows));
   }, [layout.transcriptRows, lines.length]);
-  const scrollBy = (0, import_react40.useCallback)(
+  const scrollBy = (0, import_react41.useCallback)(
     (delta) => setScrollOffset((offset) => clampScroll(offset + delta, lines.length, layout.transcriptRows)),
     [lines.length, layout.transcriptRows]
   );
-  const takePaste = (0, import_react40.useCallback)(
+  const takePaste = (0, import_react41.useCallback)(
     (text) => {
       if (!probe) return false;
       const { attachments: found, rejected } = scanAttachments(text, probe);
@@ -39157,7 +39322,47 @@ function App2({
     },
     [probe, showToast]
   );
-  const openModelPicker = (0, import_react40.useCallback)(() => {
+  const editSkill = (0, import_react41.useCallback)(
+    (name) => {
+      if (!editor) {
+        showToast("no editor available in this terminal");
+        return;
+      }
+      void (async () => {
+        let path = null;
+        try {
+          const result = await client.call("skill.read", { name });
+          path = typeof result?.path === "string" ? result.path : null;
+        } catch (error) {
+          dispatch({ type: "note", text: `could not open ${name}: ${String(error)}` });
+          return;
+        }
+        if (!path) {
+          dispatch({ type: "note", text: `the daemon did not say where ${name} is kept` });
+          return;
+        }
+        setSuspended(true);
+        setRawMode?.(false);
+        const code = await editor.run(path);
+        setRawMode?.(true);
+        setSuspended(false);
+        if (code !== 0) {
+          showToast(`${editor.command()} exited with ${code}`);
+          return;
+        }
+        try {
+          await client.call("skill.reload", {});
+          const commands = await registryRef.current.refresh();
+          dispatch({ type: "commands", commands });
+          showToast(`reloaded ${name}`);
+        } catch (error) {
+          dispatch({ type: "note", text: `skill.reload failed: ${String(error)}` });
+        }
+      })();
+    },
+    [client, editor, setRawMode, showToast]
+  );
+  const openModelPicker = (0, import_react41.useCallback)(() => {
     const settings = client.call("settings.get", { scope: "global" }).catch(() => ({ settings: {} }));
     const projectSettings = client.call("settings.get", { scope: "project", workdir }).catch(() => ({ settings: {} }));
     const discovered = client.call("provider.models", state.provider ? { vendor: state.provider } : {}).catch(() => ({ models: [], current: null }));
@@ -39179,7 +39384,7 @@ function App2({
       }
     );
   }, [client, workdir, state.provider, state.model]);
-  const chooseModel = (0, import_react40.useCallback)(
+  const chooseModel = (0, import_react41.useCallback)(
     (ref) => {
       void client.call("session.setModel", { sessionId, model: ref === INHERIT_REF ? null : ref }).then((result) => {
         const model2 = result?.model ? String(result.model) : null;
@@ -39197,7 +39402,7 @@ function App2({
     },
     [client, sessionId, showToast]
   );
-  const takeClipboard = (0, import_react40.useCallback)(() => {
+  const takeClipboard = (0, import_react41.useCallback)(() => {
     if (!captureClipboard || !probe) {
       showToast("no clipboard tool available");
       return;
@@ -39214,7 +39419,7 @@ function App2({
     }
     setAttachments((current2) => addAttachments(current2, found));
   }, [captureClipboard, probe, showToast]);
-  const runtime = (0, import_react40.useMemo)(
+  const runtime = (0, import_react41.useMemo)(
     () => ({
       audio: audioClient,
       local: localAudio,
@@ -39225,7 +39430,7 @@ function App2({
     }),
     [audioClient, localAudio, capabilities, sessionId, recordingPath, showToast]
   );
-  const toggleRecording = (0, import_react40.useCallback)(() => {
+  const toggleRecording = (0, import_react41.useCallback)(() => {
     if (recordingRef.current) {
       const handle = recordingRef.current;
       recordingRef.current = null;
@@ -39256,18 +39461,18 @@ function App2({
     setVoice(outcome.state);
     showToast(outcome.message);
   }, [runtime, voice, capabilities, localAudio, recordingPath, showToast]);
-  const silence = (0, import_react40.useCallback)(() => {
+  const silence = (0, import_react41.useCallback)(() => {
     if (!speechRef.current) return;
     stopSpeaking(runtime, speechRef.current);
     speechRef.current = null;
     setVoice((current2) => ({ ...current2, speaking: false }));
   }, [runtime]);
-  const resumeMemory = (0, import_react40.useCallback)(() => {
+  const resumeMemory = (0, import_react41.useCallback)(() => {
     if (!lastSession) return;
     showToast(`resuming ${lastSession.sessionId.slice(0, 8)}`);
     resumeSession(lastSession.sessionId, "main");
   }, [lastSession, resumeSession, showToast]);
-  const openResumePicker = (0, import_react40.useCallback)(() => {
+  const openResumePicker = (0, import_react41.useCallback)(() => {
     showToast("loading saved sessions");
     void client.call("session.list", { includeClosed: true, workdir }).then((result) => {
       const choices = (Array.isArray(result?.sessions) ? result.sessions : []).filter((row) => row.sessionId !== activeSessionRef.current).map((row) => ({
@@ -39285,9 +39490,11 @@ function App2({
       (error) => dispatch({ type: "error", message: `could not list saved sessions: ${String(error)}` })
     );
   }, [client, workdir, showToast]);
-  const submit = (0, import_react40.useCallback)(
+  const submit = (0, import_react41.useCallback)(
     (text) => {
       if (resumingRef.current || update.phase === "running" || update.phase === "done") return;
+      setSkillChip(null);
+      setSkillHint(false);
       if (/^\/delegate(\s|$)/.test(text.trim())) {
         dispatch({ type: "user/message", text, attachments: [], expectEvent: false });
         history?.add(text, workdir);
@@ -39352,6 +39559,15 @@ function App2({
         }).catch(
           (error) => dispatch({ type: "note", text: `lsp.status failed: ${String(error)}` })
         );
+        return;
+      }
+      if (isBareSkillCreate(text)) {
+        setSkillForm(true);
+        return;
+      }
+      const edit = parseSkillEdit(text);
+      if (edit) {
+        editSkill(edit);
         return;
       }
       if (/^\/model\s*$/.test(text.trim())) {
@@ -39456,12 +39672,63 @@ function App2({
       recordingPath,
       audioOffered,
       openModelPicker,
+      editSkill,
       showToast,
       takePaste,
       toggleRecording
     ]
   );
-  const answerUpdate = (0, import_react40.useCallback)(
+  const createSkill = (0, import_react41.useCallback)(
+    (form) => {
+      setSkillForm(false);
+      const text = skillCreateCommand(form);
+      dispatch({ type: "user/message", text, attachments: [], expectEvent: false });
+      history?.add(text, workdir);
+      setRunningCommand("/skill create");
+      void client.prompt(sessionId, text).then((result) => {
+        const turnId = result?.turnId;
+        if (turnId) dispatch({ type: "prompt/turn", turnId, text });
+        return result;
+      }).catch((error) => {
+        setRunningCommand(null);
+        dispatch({ type: "error", message: String(error) });
+      });
+    },
+    [client, history, sessionId, workdir]
+  );
+  (0, import_react41.useEffect)(() => {
+    const last = [...state.messages].reverse().find((message) => message.role === "assistant" && !message.streaming);
+    if (!last || skillReplyRef.current === last.id) return;
+    const name = createdSkillName(last.text);
+    if (!name) return;
+    skillReplyRef.current = last.id;
+    setSkillChip(name);
+    void registryRef.current.refresh().then((commands) => dispatch({ type: "commands", commands })).catch(() => void 0);
+  }, [state.messages]);
+  (0, import_react41.useEffect)(() => {
+    if (state.turnActive) {
+      hintTurnRef.current = {
+        startedAt: Date.now(),
+        tools: state.toolCalls.length,
+        errors: state.errors.length
+      };
+      return;
+    }
+    const turn2 = hintTurnRef.current;
+    hintTurnRef.current = null;
+    if (!turn2) return;
+    const suggest = shouldSuggestSkill({
+      toolCalls: state.toolCalls.length - turn2.tools,
+      elapsedMs: Date.now() - turn2.startedAt,
+      ok: state.errors.length === turn2.errors,
+      shown: skillHintSpent.current,
+      dismissed: skillHintSpent.current
+    });
+    if (!suggest) return;
+    skillHintSpent.current = true;
+    setSkillHint(true);
+  }, [state.turnActive]);
+  const answerUpdate = (0, import_react41.useCallback)(
     (accepted) => {
       if (!accepted) {
         setUpdate(cancel);
@@ -39484,7 +39751,7 @@ function App2({
     },
     [client, state.turnActive]
   );
-  const decideApproval = (0, import_react40.useCallback)(
+  const decideApproval = (0, import_react41.useCallback)(
     (decision, scope) => {
       const resolve2 = approvalResolver.current;
       const requestId = state.pendingApproval?.requestId;
@@ -39494,7 +39761,7 @@ function App2({
     },
     [state.pendingApproval]
   );
-  const answerQuestion = (0, import_react40.useCallback)(
+  const answerQuestion = (0, import_react41.useCallback)(
     (answers) => {
       const resolve2 = questionResolver.current;
       const requestId = state.pendingQuestion?.requestId;
@@ -39504,7 +39771,7 @@ function App2({
     },
     [state.pendingQuestion]
   );
-  const respondQueued = (0, import_react40.useCallback)(
+  const respondQueued = (0, import_react41.useCallback)(
     (requestId, decision, scope) => {
       dispatch({ type: "approval/resolved", requestId });
       void client.respondApproval(requestId, decision, scope).catch((error) => dispatch({ type: "error", message: String(error) }));
@@ -39617,7 +39884,7 @@ function App2({
       changeMode(state.mode === "plan" ? "accept" : "plan");
     }
   });
-  const openAgentRow = (0, import_react40.useCallback)(
+  const openAgentRow = (0, import_react41.useCallback)(
     (index) => {
       const row = agentRows[index];
       if (!row) return;
@@ -39641,18 +39908,29 @@ function App2({
     },
     [agentRows, state.subagents, state.children, resumeSession, showToast]
   );
-  const closeAgent = (0, import_react40.useCallback)(() => {
+  const closeAgent = (0, import_react41.useCallback)(() => {
     setOpenAgent(null);
     setFocus(INPUT_FOCUS);
   }, []);
   const approvalActive = state.pendingApproval !== null;
-  const bottomNode = /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)(import_jsx_runtime27.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(WorkingIndicator, { line: indicatorText }),
-    delegation ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Text, { color: delegation.known ? "magenta" : "yellow", wrap: "truncate-end", children: `[${delegationLabel(delegation)}]` }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(QueuedPrompts, { queued: state.queued, width: contentWidth }),
-    /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(AttachmentChips, { attachments, width: contentWidth }),
-    modeToast && modeToast.length > TOAST_INLINE_MAX ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Text, { color: "cyan", wrap: "truncate-end", children: modeToast }) : null,
-    modelPicker ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(
+  const bottomNode = /* @__PURE__ */ (0, import_jsx_runtime28.jsxs)(import_jsx_runtime28.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(WorkingIndicator, { line: indicatorText }),
+    delegation ? /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(Text, { color: delegation.known ? "magenta" : "yellow", wrap: "truncate-end", children: `[${delegationLabel(delegation)}]` }) : null,
+    skillChip ? /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(Text, { color: "green", wrap: "truncate-end", children: `[run /${skillChip}]` }) : null,
+    skillHint ? /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `${SKILL_HINT_TEXT} \xB7 Esc dismisses` }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(QueuedPrompts, { queued: state.queued, width: contentWidth }),
+    /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(AttachmentChips, { attachments, width: contentWidth }),
+    modeToast && modeToast.length > TOAST_INLINE_MAX ? /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(Text, { color: "cyan", wrap: "truncate-end", children: modeToast }) : null,
+    skillForm ? /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(
+      SkillCreateForm,
+      {
+        width: contentWidth,
+        isActive: state.pendingApproval === null && state.pendingQuestion === null,
+        onCancel: () => setSkillForm(false),
+        onSubmit: createSkill
+      }
+    ) : null,
+    modelPicker ? /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(
       ModelPicker,
       {
         options: modelPicker,
@@ -39665,7 +39943,7 @@ function App2({
         }
       }
     ) : null,
-    update.phase === "confirm" ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(
+    update.phase === "confirm" ? /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(
       ConfirmMenu,
       {
         options: UPDATE_OPTIONS,
@@ -39675,8 +39953,8 @@ function App2({
         isActive: state.pendingApproval === null && state.pendingQuestion === null
       }
     ) : null,
-    state.errors.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Text, { color: "red", wrap: "truncate-end", children: state.errors[state.errors.length - 1] }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(
+    state.errors.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(Text, { color: "red", wrap: "truncate-end", children: state.errors[state.errors.length - 1] }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(
       ApprovalQueue,
       {
         requests: state.approvalQueue,
@@ -39685,7 +39963,7 @@ function App2({
         onBlur: () => setQueueFocused(false)
       }
     ),
-    state.pendingQuestion ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(QuestionPrompt, { request: state.pendingQuestion, onAnswer: answerQuestion }) : state.pendingApproval ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(ApprovalPrompt, { request: state.pendingApproval, onDecide: decideApproval }) : modePicker ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(
+    state.pendingQuestion ? /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(QuestionPrompt, { request: state.pendingQuestion, onAnswer: answerQuestion }) : state.pendingApproval ? /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(ApprovalPrompt, { request: state.pendingApproval, onDecide: decideApproval }) : modePicker ? /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(
       ConfirmMenu,
       {
         options: ["accept", "auto", "plan"].map((value) => ({ label: `${value} mode`, value })),
@@ -39697,7 +39975,7 @@ function App2({
           if (value) changeMode(value);
         }
       }
-    ) : resumeChoices ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(
+    ) : resumeChoices ? /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(
       ConfirmMenu,
       {
         options: [
@@ -39713,7 +39991,7 @@ function App2({
           if (target) resumeSession(target, "main");
         }
       }
-    ) : /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(
+    ) : /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(
       Chat,
       {
         onSubmit: submit,
@@ -39740,8 +40018,14 @@ function App2({
           setDraft(next);
           if (next.length > 0 && state.errors.length > 0) dispatch({ type: "errors/clear" });
         },
-        onInterrupt: () => void client.interrupt(sessionId).catch(() => void 0),
-        disabled: showHelp || update.phase === "confirm" || update.phase === "running" || update.phase === "done" || approvalActive || queueFocused || !isInput(focus) || openAgent !== null
+        onInterrupt: () => {
+          if (skillHint && !state.turnActive) {
+            setSkillHint(false);
+            return;
+          }
+          void client.interrupt(sessionId).catch(() => void 0);
+        },
+        disabled: skillForm || showHelp || update.phase === "confirm" || update.phase === "running" || update.phase === "done" || approvalActive || queueFocused || !isInput(focus) || openAgent !== null
       }
     )
   ] });
@@ -39753,9 +40037,9 @@ function App2({
     ).length,
     agents: state.subagents.filter((agent) => agent.status === "running").length
   });
-  const statusNode = /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)(import_jsx_runtime27.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(SectionRule, { width: contentWidth, color: "green" }),
-    /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(
+  const statusNode = /* @__PURE__ */ (0, import_jsx_runtime28.jsxs)(import_jsx_runtime28.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(SectionRule, { width: contentWidth, color: "green" }),
+    /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(
       Text,
       {
         color: summary.color,
@@ -39765,12 +40049,12 @@ function App2({
         children: `${summary.text}${focus.zone === "footer" ? " \xB7 Enter to choose mode" : ""}`
       }
     ),
-    shellsOpen ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(ShellList, { calls: state.toolCalls, now: clock, width: contentWidth }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(SectionRule, { width: contentWidth }),
-    /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(StatusHud, { rows: hudRows, width: contentWidth }),
-    warning ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Text, { color: warning.color, bold: warning.bold, wrap: "truncate-end", children: warning.text }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(SectionRule, { width: contentWidth, label: activeTeam ? `Team: ${activeTeam}` : void 0 }),
-    /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(
+    shellsOpen ? /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(ShellList, { calls: state.toolCalls, now: clock, width: contentWidth }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(SectionRule, { width: contentWidth }),
+    /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(StatusHud, { rows: hudRows, width: contentWidth }),
+    warning ? /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(Text, { color: warning.color, bold: warning.bold, wrap: "truncate-end", children: warning.text }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(SectionRule, { width: contentWidth, label: activeTeam ? `Team: ${activeTeam}` : void 0 }),
+    /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(
       AgentPanel,
       {
         rows: agentRows,
@@ -39779,7 +40063,7 @@ function App2({
       }
     )
   ] });
-  const helpNode = showHelp ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(
+  const helpNode = showHelp ? /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(
     HelpPanel,
     {
       commands: state.commands,
@@ -39789,8 +40073,9 @@ function App2({
       runningSubagents: state.subagents.filter((agent) => agent.status === "running").length
     }
   ) : null;
+  if (suspended) return /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(Box_default, {});
   if (fullscreen) {
-    return /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(
+    return /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(
       FullscreenLayout,
       {
         rows: layout.rows,
@@ -39818,13 +40103,13 @@ function App2({
       )) / liveMessages
     )
   );
-  return /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)(Box_default, { flexDirection: "column", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Static, { items: staticItems, children: (entry) => /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime28.jsxs)(Box_default, { flexDirection: "column", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(Static, { items: staticItems, children: (entry) => /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(
       Box_default,
       {
         flexDirection: "column",
         paddingX: entry.kind === "launch" ? 0 : 1,
-        children: entry.kind === "launch" ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(
+        children: entry.kind === "launch" ? /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(
           LaunchBanner,
           {
             width: terminal.columns,
@@ -39836,7 +40121,7 @@ function App2({
             model: state.model,
             lastSession
           }
-        ) : entry.kind === "tools" ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(ToolSummary, { calls: entry.calls }) : entry.kind === "note" ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Text, { color: entry.ok ? "green" : "red", dimColor: true, children: entry.text }) }) : /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(
+        ) : entry.kind === "tools" ? /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(ToolSummary, { calls: entry.calls }) : entry.kind === "note" ? /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(Text, { color: entry.ok ? "green" : "red", dimColor: true, children: entry.text }) }) : /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(
           TimelineEntry,
           {
             state,
@@ -39848,8 +40133,8 @@ function App2({
       },
       entry.key
     ) }),
-    /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)(Box_default, { flexDirection: "column", paddingX: 1, children: [
-      showHelp ? null : openAgent ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime28.jsxs)(Box_default, { flexDirection: "column", paddingX: 1, children: [
+      showHelp ? null : openAgent ? /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(
         AgentTranscript,
         {
           name: openAgent.name,
@@ -39861,7 +40146,7 @@ function App2({
           scrollIndicator: scrollIndicator(agentViewport),
           empty: agentLines.length === 0
         }
-      ) : live.map((item) => /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(
+      ) : live.map((item) => /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(
         TimelineEntry,
         {
           state,
@@ -39872,7 +40157,7 @@ function App2({
         },
         `${item.kind}-${item.id}`
       )),
-      /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(UpdateBanner, { update }),
+      /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(UpdateBanner, { update }),
       helpNode,
       bottomNode,
       statusNode
@@ -39979,6 +40264,25 @@ function createLocalAudio(spawner2, platform2) {
   return {
     record: (path) => firstWorking(RECORDERS, spawner2, platform2, path),
     play: (path) => firstWorking(PLAYERS, spawner2, platform2, path)
+  };
+}
+
+// src/util/editor.ts
+import { spawn } from "node:child_process";
+function editorCommand(env3 = process.env) {
+  const chosen = (env3.VISUAL ?? env3.EDITOR ?? "").trim();
+  return chosen.length > 0 ? chosen : "vi";
+}
+function createEditorRunner(env3 = process.env) {
+  const spelled = editorCommand(env3);
+  const [command, ...args] = spelled.split(/\s+/).filter((part) => part.length > 0);
+  return {
+    command: () => spelled,
+    run: (path) => new Promise((resolve2) => {
+      const child = spawn(command, [...args, path], { stdio: "inherit" });
+      child.on("error", () => resolve2(-1));
+      child.on("exit", (code) => resolve2(code ?? 0));
+    })
   };
 }
 
@@ -40711,7 +41015,7 @@ var TuiClient = class {
 };
 
 // src/index.tsx
-var import_jsx_runtime28 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime29 = __toESM(require_jsx_runtime(), 1);
 var CLIENT_VERSION = TUI_VERSION;
 var MODES = ["plan", "accept", "auto"];
 var BOOLEAN_FLAGS = /* @__PURE__ */ new Set(["fullscreen", "no-fullscreen", "inline"]);
@@ -40818,7 +41122,7 @@ var commandRunner = {
 var spawner = {
   start(command, args) {
     try {
-      const child = spawn(command, args, { stdio: "ignore", detached: false });
+      const child = spawn2(command, args, { stdio: "ignore", detached: false });
       let failed = false;
       child.on("error", () => {
         failed = true;
@@ -40903,7 +41207,7 @@ async function main(argv = process.argv.slice(2)) {
   const recordingPath = join(dir, "tmp", `recording-${Date.now()}.wav`);
   let restart = false;
   const instance = render_default(
-    /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(
       App2,
       {
         client,
@@ -40917,6 +41221,7 @@ async function main(argv = process.argv.slice(2)) {
         probe,
         captureClipboard,
         localAudio,
+        editor: createEditorRunner(),
         recordingPath,
         onRestart: () => {
           restart = true;

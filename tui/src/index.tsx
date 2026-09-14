@@ -21,6 +21,7 @@ import { basename, isAbsolute, join, resolve } from "node:path";
 import { App } from "./app.js";
 import { captureClipboardImage, type CommandRunner } from "./util/clipboard.js";
 import { createLocalAudio, type LocalProcess, type Spawner } from "./util/audio-tools.js";
+import { createEditorRunner } from "./util/editor.js";
 import type { FileProbe } from "./state/attachments.js";
 import {
   SessionMemory,
@@ -334,6 +335,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       probe={probe}
       captureClipboard={captureClipboard}
       localAudio={localAudio}
+      editor={createEditorRunner()}
       recordingPath={recordingPath}
       onRestart={() => {
         restart = true;
