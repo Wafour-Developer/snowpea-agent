@@ -264,7 +264,9 @@ async def test_setup_catalog_returns_vendors_and_search_with_ddgs_first(daemon: 
             assert result["browser"]
             assert result["tools"]
             assert result["gateway"]
-            for section in ("vendors", "search", "browser", "tools", "gateway"):
+            assert result["stt"]
+            assert result["tts"]
+            for section in ("vendors", "search", "browser", "tools", "gateway", "stt", "tts"):
                 for item in result[section]:
                     assert set(item) >= {
                         "id",
@@ -278,6 +280,57 @@ async def test_setup_catalog_returns_vendors_and_search_with_ddgs_first(daemon: 
                     }
         finally:
             await client.stop()
+
+
+async def test_setup_catalog_audio_default_rows_are_always_active(daemon: Daemon) -> None:
+    """``auto`` and ``off`` never depend on what happens to be installed here."""
+    async with aiohttp.ClientSession() as http:
+        client = await connect(http, daemon)
+        try:
+            result = await client.ok("setup.catalog")
+            stt = {item["id"]: item["active"] for item in result["stt"]}
+            tts = {item["id"]: item["active"] for item in result["tts"]}
+            assert stt["auto"] is True and stt["off"] is True
+            assert tts["auto"] is True and tts["off"] is True
+            assert next(item for item in result["stt"] if item["id"] == "auto")["default"]
+            assert next(item for item in result["tts"] if item["id"] == "auto")["default"]
+        finally:
+            await client.stop()
+
+
+async def test_setup_catalog_audio_detection_matches_the_cli_screen(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A backend on ``PATH`` shows ``active: true``, the way ``snowpea setup`` sees it.
+
+    This reuses ``audio.capabilities``'s own detection (CORE-setup-catalog-audio),
+    so pinning ``PATH`` to a directory holding only a fake ``piper`` script is
+    enough to prove the RPC does not re-derive its own PATH check.
+    """
+    import stat as stat_mod
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    script = bin_dir / "piper"
+    script.write_text("#!/bin/sh\nexit 0\n")
+    script.chmod(script.stat().st_mode | stat_mod.S_IXUSR | stat_mod.S_IXGRP | stat_mod.S_IXOTH)
+    monkeypatch.setenv("PATH", str(bin_dir))
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    home = tmp_path / "home"
+    instance = await make_daemon(home)
+    try:
+        async with aiohttp.ClientSession() as http:
+            client = await connect(http, instance)
+            try:
+                result = await client.ok("setup.catalog")
+                tts = {item["id"]: item["active"] for item in result["tts"]}
+                assert tts["piper"] is True
+                assert tts["edge-tts"] is False
+            finally:
+                await client.stop()
+    finally:
+        await instance.stop()
 
 
 async def test_settings_get_never_returns_a_token_in_clear(daemon: Daemon) -> None:

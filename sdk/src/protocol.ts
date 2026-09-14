@@ -1158,8 +1158,46 @@ export interface SetupCatalogResult {
     /** "free", "paid" or "subscription". */
     tier: string;
   })[];
+  /** Speech-to-text choices; active reflects what is usable on this machine. */
+  stt?: ({
+    /** False for items listed but not usable yet. */
+    active?: boolean;
+    /** Whether this is the screen's default pick. */
+    default?: boolean;
+    /** One-line description. */
+    description?: string;
+    /** Stable id, e.g. a vendor or provider name. */
+    id: string;
+    /** "no key", "key optional", "key required" or "self-hosted". */
+    key: string;
+    /** Display label. */
+    label: string;
+    /** Display tags, e.g. ('free · no key', 'active'). */
+    tags?: string[];
+    /** "free", "paid" or "subscription". */
+    tier: string;
+  })[];
   /** Tool categories and their default on/off state. */
   tools?: ({
+    /** False for items listed but not usable yet. */
+    active?: boolean;
+    /** Whether this is the screen's default pick. */
+    default?: boolean;
+    /** One-line description. */
+    description?: string;
+    /** Stable id, e.g. a vendor or provider name. */
+    id: string;
+    /** "no key", "key optional", "key required" or "self-hosted". */
+    key: string;
+    /** Display label. */
+    label: string;
+    /** Display tags, e.g. ('free · no key', 'active'). */
+    tags?: string[];
+    /** "free", "paid" or "subscription". */
+    tier: string;
+  })[];
+  /** Text-to-speech choices; active reflects what is usable on this machine. */
+  tts?: ({
     /** False for items listed but not usable yet. */
     active?: boolean;
     /** Whether this is the screen's default pick. */
