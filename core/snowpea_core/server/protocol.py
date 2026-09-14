@@ -24,6 +24,11 @@ PROTOCOL_VERSION = "1.5.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
+#: What kind of thread a session is (CORE-session-kind).  ``chat`` is a thread
+#: a human opened; ``scheduled`` is one a job fired; ``subagent`` is a child a
+#: parent agent spawned; ``agent`` is a persistent named agent's own session.
+#: A surface that does not know the field sees every session as before.
+SessionKind = Literal["chat", "scheduled", "subagent", "agent"]
 #: ``config`` marks a call that changes snowpea's own settings, credentials or
 #: state.  It is never a silent ``allow``: plan denies it, accept and auto both
 #: ask, and the allowlist may not promote it (CORE-search-fix).
@@ -295,6 +300,24 @@ class SessionSummary(Payload):
         default=None, description="Context window of the session's model; null when unknown."
     )
     lastPrompt: str | None = Field(default=None, description="Latest saved user input.")
+    kind: SessionKind = Field(
+        default="chat",
+        description=(
+            "What opened the session: a human (chat), a scheduled job, a spawned "
+            "subagent, or a persistent named agent (CORE-session-kind)."
+        ),
+    )
+    parentSessionId: str | None = Field(
+        default=None,
+        description="Session that caused this one: the thread that scheduled the job, "
+        "or the parent that spawned the subagent.",
+    )
+    jobId: str | None = Field(
+        default=None, description="Scheduled job this run belongs to; null for other kinds."
+    )
+    agent: str | None = Field(
+        default=None, description="Named agent the session belongs to, when it has one."
+    )
 
 
 class SessionCompactParams(Payload):
@@ -320,6 +343,13 @@ class SessionListResult(Payload):
 class SessionListParams(Payload):
     includeClosed: bool = Field(default=False, description="Include persisted closed sessions.")
     workdir: str | None = Field(default=None, description="Only sessions rooted here.")
+    kinds: list[str] | None = Field(
+        default=None,
+        description=(
+            "Only sessions of these kinds; omit for every kind. A surface that shows "
+            "human threads asks for [\"chat\"] (CORE-session-kind)."
+        ),
+    )
 
 
 class SessionDeleteParams(Payload):
@@ -1777,6 +1807,31 @@ class LspDiagnostics(Payload):
     warnings: int = Field(default=0, description="How many of them are warnings.")
 
 
+class JobDone(Payload):
+    """A scheduled job this session created finished successfully.
+
+    Sent to the *originating* thread (``job.originSessionId``), not to the
+    unattended session the run itself used, so the thread that asked for the
+    job can offer "open s-xxxx" (CORE-session-kind).
+    """
+
+    kind: Literal["job.done"] = "job.done"
+    jobId: str = Field(description="Job that ran.")
+    sessionId: str | None = Field(default=None, description="Session the run used.")
+    status: str = Field(default="ok", description="Job status as the scheduler recorded it.")
+    text: str = Field(default="", description="What the run reported.")
+
+
+class JobFailed(Payload):
+    """A scheduled job this session created ended without a usable answer."""
+
+    kind: Literal["job.failed"] = "job.failed"
+    jobId: str = Field(description="Job that ran.")
+    sessionId: str | None = Field(default=None, description="Session the run used.")
+    status: str = Field(default="error", description="Job status as the scheduler recorded it.")
+    text: str = Field(default="", description="What the run reported, or the error.")
+
+
 SessionEventPayload = Annotated[
     MessageUser
     | MessageDelta
@@ -1803,7 +1858,9 @@ SessionEventPayload = Annotated[
     | TurnQueued
     | TurnDequeued
     | TurnDone
-    | LspDiagnostics,
+    | LspDiagnostics
+    | JobDone
+    | JobFailed,
     Field(discriminator="kind"),
 ]
 
@@ -1835,6 +1892,8 @@ SESSION_EVENT_MODELS: dict[str, type[BaseModel]] = {
     "turn.dequeued": TurnDequeued,
     "turn.done": TurnDone,
     "lsp.diagnostics": LspDiagnostics,
+    "job.done": JobDone,
+    "job.failed": JobFailed,
 }
 
 SESSION_EVENT_KINDS: tuple[str, ...] = tuple(SESSION_EVENT_MODELS)

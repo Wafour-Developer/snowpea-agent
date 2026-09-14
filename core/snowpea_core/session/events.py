@@ -19,6 +19,8 @@ from snowpea_core.server.protocol import (
     ContextEvent,
     DiffEvent,
     ErrorEvent,
+    JobDone,
+    JobFailed,
     LspDiagnostics,
     MessageDelta,
     MessageDone,
@@ -215,6 +217,18 @@ def turn_done(turn_id: str, reason: str = "complete") -> Event:
     return _pack(TurnDone(turnId=turn_id, reason=reason))  # type: ignore[arg-type]
 
 
+def job_done(job_id: str, session_id: str | None, status: str = "ok", text: str = "") -> Event:
+    """A scheduled job the *originating* thread created finished (CORE-session-kind)."""
+    return _pack(JobDone(jobId=job_id, sessionId=session_id, status=status, text=text))
+
+
+def job_failed(
+    job_id: str, session_id: str | None, status: str = "error", text: str = ""
+) -> Event:
+    """A scheduled job the originating thread created ended without an answer."""
+    return _pack(JobFailed(jobId=job_id, sessionId=session_id, status=status, text=text))
+
+
 def validate(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
     """Round-trip ``payload`` through the model registered for ``kind``."""
     model = SESSION_EVENT_MODELS.get(kind)
@@ -233,6 +247,8 @@ __all__ = [
     "context",
     "diff",
     "error",
+    "job_done",
+    "job_failed",
     "message_delta",
     "message_done",
     "message_reasoning",

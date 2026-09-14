@@ -35,6 +35,27 @@ export interface SessionRecord {
   firstPrompt: string;
   /** Epoch milliseconds of the last activity. */
   at: number;
+  /** What opened the session, as `session.list` reports it; absent means chat. */
+  kind?: string;
+  /** The thread that scheduled the job, or the parent that spawned the child. */
+  parentSessionId?: string;
+}
+
+/**
+ * The marker the `/sessions` picker puts in front of a row that is not a
+ * human's own thread: a scheduled run, a spawned subagent, or a persistent
+ * named agent. A chat row keeps its bare session id, so the common case reads
+ * exactly as it did before.
+ */
+export function sessionKindPrefix(
+  kind: string | undefined,
+  parentSessionId?: string,
+): string {
+  const parent = parentSessionId ? ` ${parentSessionId.slice(0, 8)}` : "";
+  if (kind === "scheduled") return `⏰${parent} `;
+  if (kind === "subagent") return `↳${parent} `;
+  if (kind === "agent") return "◆ ";
+  return "";
 }
 
 /** The file operations this module needs; `node:fs` satisfies it. */

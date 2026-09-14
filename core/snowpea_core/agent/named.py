@@ -309,6 +309,7 @@ class NamedAgentRegistry:
             origin_surface=namespace_for(name),
             origin_conn=None,
             session_id=session_id,
+            kind="agent",
         )
         session.unattended = True
         session.memory_namespace = namespace_for(name)

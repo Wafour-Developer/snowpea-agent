@@ -266,10 +266,16 @@ async def session_list_handler(
                 originSurface=stored.get("origin_surface"),
                 createdAt=str(stored["created_at"]),
                 seq=await core.store.max_seq(session_id),
+                kind=stored.get("kind") or "chat",
+                parentSessionId=stored.get("parent_session_id"),
+                jobId=stored.get("job_id"),
             )
         rows = list(by_id.values())
     if params.workdir:
         rows = [row for row in rows if row.workdir == params.workdir]
+    if params.kinds is not None:
+        wanted = set(params.kinds)
+        rows = [row for row in rows if row.kind in wanted]
     if core.store is not None:
         enriched = []
         for row in rows:

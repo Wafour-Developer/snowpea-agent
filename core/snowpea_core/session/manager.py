@@ -6,7 +6,7 @@ import asyncio
 import logging
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from snowpea_core.agent.team_config import active_team
 from snowpea_core.config.model_routing import (
@@ -18,7 +18,7 @@ from snowpea_core.config.model_routing import (
 from snowpea_core.config.paths import utc_now
 from snowpea_core.config.project import ProjectSettings
 from snowpea_core.config.settings import Settings
-from snowpea_core.server.protocol import Mode, SessionEvent, SessionSummary
+from snowpea_core.server.protocol import Mode, SessionEvent, SessionKind, SessionSummary
 from snowpea_core.session import events as event_builders
 from snowpea_core.session.history import History, message_from_json
 from snowpea_core.session.session import Session
@@ -89,12 +89,19 @@ class SessionManager:
         origin_conn: Any = None,
         session_id: str | None = None,
         session_pin: ModelRoute | None = None,
+        parent_session_id: str | None = None,
+        kind: SessionKind = "chat",
+        job_id: str | None = None,
     ) -> Session:
         """Register a new session and persist its row.
 
         ``session_id`` re-opens a session under an id that already exists on
         disk, which is how a named agent comes back after a restart with the
         same id its gateway bindings and job history refer to (M7 §6).
+
+        ``kind``, ``parent_session_id`` and ``job_id`` say what opened the
+        session so ``session.list`` can tell a human's thread from a scheduled
+        run or a spawned child, and link the two (CORE-session-kind).
         """
         resolved_dir = Path(workdir).expanduser()
         selected_team = active_team(self.settings, resolved_dir)
@@ -122,6 +129,9 @@ class SessionManager:
             created_at=utc_now(),
             max_concurrent=self.max_concurrent(resolved_dir, max_concurrent),
             origin_conn=origin_conn,
+            parent_session_id=parent_session_id,
+            kind=kind,
+            job_id=job_id,
         )
         self._sessions[session.id] = session
         if self.store is not None:
@@ -133,6 +143,9 @@ class SessionManager:
                 session.model,
                 session.origin_surface,
                 session.created_at,
+                parent_session_id=session.parent_session_id,
+                kind=session.kind,
+                job_id=session.job_id,
             )
         log.info("session %s created (%s, mode=%s)", session.id, session.workdir, session.mode)
         return session
@@ -180,6 +193,9 @@ class SessionManager:
             team_agents=selected_team.agents if selected_team else (),
             origin_surface=row.get("origin_surface"),
             created_at=str(row["created_at"]),
+            parent_session_id=row.get("parent_session_id"),
+            kind=cast(SessionKind, row.get("kind") or "chat"),
+            job_id=row.get("job_id"),
             max_concurrent=self.max_concurrent(workdir),
             history=history,
             seq=await self.store.max_seq(session_id),

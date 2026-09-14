@@ -268,6 +268,31 @@ class Scheduler:
         await self._advance(job, scheduled_ts, status=status, advance=advance)
         kind = FINISH_KINDS[status]
         await self._emit(job.id, kind, {"status": status, "sessionId": session_id, "text": text})
+        await self._notify_origin_session(job, status, session_id, text)
+
+    async def _notify_origin_session(
+        self, job: Job, status: JobStatus, session_id: str | None, text: str
+    ) -> None:
+        """Tell the thread that scheduled the job that its run has finished.
+
+        ``job.event`` is a plain notification every client sees; this is the
+        per-session counterpart, so the originating thread can render "the
+        scheduled run finished — open <sessionId>" in place (CORE-session-kind).
+        Only a *live* origin session is notified: restoring one just to append
+        an event would resurrect a thread nobody is watching.
+        """
+        origin_id = job.origin_session_id
+        if not origin_id or origin_id == session_id:
+            return
+        if self.core.sessions.get(origin_id) is None:
+            return
+        from snowpea_core.session import events
+
+        builder = events.job_done if status == "ok" else events.job_failed
+        with contextlib.suppress(Exception):
+            await self.core.hub.emit_event(
+                origin_id, builder(job.id, session_id, status, text.strip())
+            )
 
     async def _execute(self, job: Job) -> tuple[JobStatus, str, str | None]:
         """Open the unattended session, run the task, return what it said."""
@@ -287,6 +312,9 @@ class Scheduler:
                 agent=job.agent,
                 origin_surface="scheduler",
                 origin_conn=None,
+                parent_session_id=job.origin_session_id,
+                kind="scheduled",
+                job_id=job.id,
             )
         # The contract calls these sessions unattended; the flag is what the
         # gateway and approval code read when they need to know (contract §2).
