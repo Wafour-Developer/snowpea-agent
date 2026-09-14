@@ -203,16 +203,21 @@ export function Chat({
       }
 
       if (key.return) {
-        // Enter completes while the command itself is still being typed —
-        // including a sub-action like `/skill create`, whose name has a space
-        // in it. Once the draft has gone past the name it is an argument, and
-        // Enter means run.
+        // Enter accepts the highlighted completion while the draft is still a
+        // name — including a sub-action like `/skill create`, whose name has
+        // a space in it, and including the exact name with no trailing space,
+        // which becomes `/name ` so arguments can follow. Only a draft that
+        // has been accepted (`/name `) or carries arguments runs on Enter.
         if (showPalette) {
           const completion = completions[selected];
           const full = completion ? `/${completion.name}` : "";
-          if (completion && full !== value.trimEnd() && full.startsWith(value.trimEnd())) {
-            update(`${full} `);
-            return;
+          const trimmed = value.trimEnd();
+          if (completion && full.startsWith(trimmed)) {
+            const accepted = full === trimmed && value.length > trimmed.length;
+            if (!accepted) {
+              update(`${full} `);
+              return;
+            }
           }
         }
         const text = value.trim();
