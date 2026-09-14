@@ -190,6 +190,21 @@ export function queuedLabel(count: number): string {
   return `⏳ ${count} queued`;
 }
 
+/**
+ * The `✓ Done` line for a turn rebuilt from the event log.
+ *
+ * A live turn is timed by the surface itself and can report the tokens it
+ * spent; a replayed one has only the timestamps the daemon stamped on its
+ * events, and an older log may not even have those — so the duration is
+ * dropped rather than invented, and tokens are left to the HUD.
+ */
+export function replayTurnSummaryLine(ok: boolean, elapsedMs: number | null): string {
+  const head = ok ? "✓ Done" : "✗ Stopped";
+  if (elapsedMs === null || !Number.isFinite(elapsedMs) || elapsedMs < 0) return head;
+  const span = formatDuration(elapsedMs);
+  return ok ? `✓ Done in ${span}` : `✗ Stopped after ${span}`;
+}
+
 /** The line pushed to the scrollback once the turn is over. */
 export function turnSummaryLine({
   ok,

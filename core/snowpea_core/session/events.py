@@ -7,6 +7,7 @@ back a ``(kind, payload_dict)`` pair ready for :meth:`EventHub.emit`.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 from snowpea_core.server.protocol import (
@@ -21,6 +22,7 @@ from snowpea_core.server.protocol import (
     MessageDelta,
     MessageDone,
     MessageReasoning,
+    MessageUser,
     ModeChanged,
     ModelChanged,
     ToolCallEvent,
@@ -38,6 +40,21 @@ def _pack(model: Any) -> Event:
     data = model.model_dump(mode="json")
     kind = data.pop("kind")
     return kind, data
+
+
+def message_user(text: str, attachments: Sequence[Any] | None = None) -> Event:
+    """The prompt that opened this turn, as it entered the history.
+
+    Emitted once per prompt, where the user message is appended — so a
+    ``session.resume`` replays the question alongside the answer it produced.
+    Each attachment contributes only its flavour and display name; the bytes
+    live in the attachment store, not in the event log.
+    """
+    files = [
+        {"kind": getattr(item, "kind", "file") or "file", "name": getattr(item, "name", "") or ""}
+        for item in (attachments or [])
+    ]
+    return _pack(MessageUser(text=text, attachments=files))  # type: ignore[arg-type]
 
 
 def message_delta(text: str) -> Event:
@@ -178,6 +195,7 @@ __all__ = [
     "message_delta",
     "message_done",
     "message_reasoning",
+    "message_user",
     "mode_changed",
     "model_changed",
     "tool_call",

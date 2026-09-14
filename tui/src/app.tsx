@@ -1440,7 +1440,9 @@ export function App({
       // would reach the same `commands.start`, but one road means one thing to
       // check when a delegation does not answer.
       if (/^\/delegate(\s|$)/.test(text.trim())) {
-        dispatch({ type: "user/message", text, attachments: [] });
+        // The daemon turns this back into the `/delegate` command, so the
+        // prompt never joins the history and no `message.user` follows it.
+        dispatch({ type: "user/message", text, attachments: [], expectEvent: false });
         history?.add(text, workdir);
         void client
           .prompt(sessionId, text)
@@ -1568,7 +1570,12 @@ export function App({
         return;
       }
       const sent = attachments.map(({ name, mime, size }) => ({ name, mime, size }));
-      dispatch({ type: "user/message", text, attachments: sent });
+      dispatch({
+        type: "user/message",
+        text,
+        attachments: sent,
+        expectEvent: !text.startsWith("/"),
+      });
       setAttachments([]);
       // Remember it for the next run: ↑ reaches it, and the launch screen
       // offers the session it belongs to.

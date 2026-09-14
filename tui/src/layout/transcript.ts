@@ -38,6 +38,9 @@ const ROLE_MARK: Record<Message["role"], Segment> = {
   user: { text: "› ", color: "green", bold: true },
   assistant: { text: "◆ ", color: "blue", bold: true },
   system: { text: "! ", color: "yellow", bold: true },
+  // An aside from the surface itself, e.g. a replayed turn's `✓ Done` line: no
+  // speaker, so no marker and no attention-seeking colour.
+  note: { text: "", dimColor: true },
 };
 
 const TOOL_MARK: Record<ToolCallEntry["state"], Segment> = {
