@@ -52,12 +52,18 @@ percentage tells the user nothing they can act on.
 
 ## 3. Panels
 
+Every list in the table below — and every other picker in `tui/src/` — is one primitive,
+`tui/src/components/ChoiceList.tsx`, with the key map in `tui/src/hooks/useChoiceKeys.ts`. The
+keyboard table, the footer hint and the "Other…" row are **binding in
+[`m15-choice-ux.md`](m15-choice-ux.md) (M15b)**, not here; this document keeps only what is specific
+to a panel.
+
 | component | opened by | contract |
 |---|---|---|
 | `HelpPanel` | `F1`, `/help` | §4 |
 | `AgentPanel` / `AgentTranscript` | `Ctrl+A` | subagents under the current session row, idle agents collapsed past `MAX_IDLE_ROWS`; `Enter` opens a delegate's conversation, `Esc` comes back |
-| `ApprovalQueue` | always visible when non-empty; `Ctrl+R` focuses it | advisory; a failure MUST NOT block the session |
-| `ApprovalPrompt` | server `approval.request` | `y`/`n` + scope resolves the promise; origin surface only |
+| `ApprovalQueue` | always visible when non-empty; `Ctrl+R` focuses it | advisory; a failure MUST NOT block the session; `Ctrl+R` also leaves it |
+| `ApprovalPrompt` | server `approval.request` | `y`/`n` + scope resolves the promise; origin surface only; the fifth row denies **with a reason**, sent as `approval.respond.reason` (M15b §1) |
 | `DiffView` / `ToolCall` / `ToolSummary` | `Ctrl+O` expands the newest | — |
 | `UpdateBanner` | `system.checkUpdate` says available, or `U` on empty input, or `/update` | y/n confirm; refuses while a turn is active |
 | `AttachmentChips` | paste / drag / clipboard image / `/attach` | one chip per pending attachment |

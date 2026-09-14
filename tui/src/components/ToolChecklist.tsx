@@ -8,9 +8,11 @@
  */
 
 import React, { useState } from "react";
-import { Box, Text, useInput } from "ink";
+import { Box, Text } from "ink";
 
+import { choiceHint, useChoiceKeys } from "../hooks/useChoiceKeys.js";
 import type { McpTool } from "../state/mcp.js";
+import { ChoiceList } from "./ChoiceList.js";
 
 /** Rows shown at once; the list scrolls inside this. */
 export const CHECKLIST_ROWS = 8;
@@ -40,46 +42,43 @@ export function ToolChecklist({
     () => new Set(initial && initial.length > 0 ? initial : tools.map((tool) => tool.name)),
   );
 
-  useInput(
-    (input, key) => {
-      if (key.escape) {
-        onCancel();
-        return;
-      }
-      if (key.return) {
-        onSubmit(tools.map((tool) => tool.name).filter((name) => picked.has(name)));
-        return;
-      }
-      if (tools.length === 0) return;
-      if (key.upArrow) {
-        setIndex((i) => (i + tools.length - 1) % tools.length);
-        return;
-      }
-      if (key.downArrow || key.tab) {
-        setIndex((i) => (i + 1) % tools.length);
-        return;
-      }
-      if (input === " ") {
-        const name = tools[index].name;
-        setPicked((current) => {
-          const next = new Set(current);
-          if (next.has(name)) next.delete(name);
-          else next.add(name);
-          return next;
-        });
-        return;
-      }
-      if (input === "a") {
-        setPicked(new Set(tools.map((tool) => tool.name)));
-        return;
-      }
-      if (input === "n") setPicked(new Set());
-    },
-    { isActive },
-  );
+  const toggle = (row: number): void => {
+    const tool = tools[row];
+    if (!tool) return;
+    setPicked((current) => {
+      const next = new Set(current);
+      if (next.has(tool.name)) next.delete(tool.name);
+      else next.add(tool.name);
+      return next;
+    });
+  };
 
-  const start = Math.max(0, Math.min(index - CHECKLIST_ROWS + 2, tools.length - CHECKLIST_ROWS));
-  const shown = tools.slice(start, start + CHECKLIST_ROWS);
+  useChoiceKeys({
+    count: tools.length,
+    index,
+    onIndex: setIndex,
+    multi: true,
+    onToggle: toggle,
+    onEnter: () => onSubmit(tools.map((tool) => tool.name).filter((name) => picked.has(name))),
+    onCancel,
+    onTab: () => {
+      if (tools.length > 0) setIndex((i) => (i + 1) % tools.length);
+    },
+    // `a` and `n` are the two bulk answers this list has always had, so they
+    // win over the vim motions rather than sharing the alphabet with them.
+    shortcuts: {
+      a: () => setPicked(new Set(tools.map((tool) => tool.name))),
+      n: () => setPicked(new Set()),
+    },
+    vim: false,
+    isActive,
+  });
+
+  const hint = choiceHint({
+    multi: true,
+    enter: "save",
+    extra: ["a all", "n none"],
+  });
 
   return (
     <Box flexDirection="column" width={width} borderStyle="round" borderColor="cyan" paddingX={1}>
@@ -87,23 +86,28 @@ export function ToolChecklist({
         {title}
       </Text>
       {tools.length === 0 ? (
-        <Text dimColor>this server reported no tools</Text>
+        <>
+          <Text dimColor>this server reported no tools</Text>
+          <Text dimColor>{`0/0 chosen · ${hint}`}</Text>
+        </>
       ) : (
-        shown.map((tool) => {
-          const active = tools[index] === tool;
-          return (
-            <Text key={tool.name} wrap="truncate-end">
-              <Text color={active ? "green" : undefined}>{active ? "❯ " : "  "}</Text>
-              <Text color={picked.has(tool.name) ? "green" : undefined}>
-                {picked.has(tool.name) ? "[x] " : "[ ] "}
-              </Text>
-              <Text inverse={active}>{tool.name}</Text>
-              <Text dimColor>{tool.description ? `  ${tool.description}` : ""}</Text>
-            </Text>
-          );
-        })
+        <ChoiceList
+          options={tools.map((tool) => ({ label: tool.name, description: tool.description }))}
+          selectedIndex={index}
+          checked={
+            new Set(
+              tools
+                .map((tool, at) => (picked.has(tool.name) ? at : -1))
+                .filter((at) => at >= 0),
+            )
+          }
+          multi
+          color="green"
+          windowSize={CHECKLIST_ROWS}
+          descriptionMode="inline"
+          hint={`${picked.size}/${tools.length} chosen · ${hint}`}
+        />
       )}
-      <Text dimColor>{`${picked.size}/${tools.length} chosen · Space toggle · a all · n none · Enter save · Esc cancel`}</Text>
     </Box>
   );
 }

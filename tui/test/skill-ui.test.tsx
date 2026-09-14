@@ -144,6 +144,28 @@ describe("the /skill create form", () => {
     expect(client.prompts).toEqual(['/skill create deploy "ship it" --global']);
   });
 
+  it("takes --global from the digit key too, like every other list", async () => {
+    const client = fakeClient();
+    const { stdin, instance, frame } = await open(client);
+    await type(stdin, "/skill create ", 12);
+    stdin.write("\r");
+    await sleep(250);
+    await type(stdin, "deploy", 12);
+    stdin.write("\r");
+    await sleep(150);
+    await type(stdin, "ship it", 12);
+    stdin.write("\r");
+    await sleep(150);
+    expect(frame()).toContain("1-9 pick");
+    stdin.write("2");
+    await sleep(120);
+    stdin.write("\r");
+    await sleep(250);
+    instance.unmount();
+
+    expect(client.prompts).toEqual(['/skill create deploy "ship it" --global']);
+  });
+
   it("refuses a name that is not a command name", async () => {
     const client = fakeClient();
     const { stdin, instance, frame } = await open(client);

@@ -194,6 +194,24 @@ async def _refresh_settings(core: Core) -> None:
         log.warning("could not reload settings.json", exc_info=True)
 
 
+async def _load_project_skills(core: Core, workdir: Path) -> None:
+    """Register this project's skills, commands and agents before the first turn.
+
+    The daemon scans every workdir it knows at boot, but a project it has never
+    opened a session in — a new checkout, or one the IDE just added — is not in
+    that list, so its ``/commands`` would only appear after the next full
+    reload.  One incremental scan here closes that gap (M15 §B5b).
+    """
+    skills = getattr(core, "skills", None)
+    reload_workdir = getattr(skills, "reload_workdir", None)
+    if reload_workdir is None:
+        return
+    try:
+        await reload_workdir(workdir)
+    except Exception:  # noqa: BLE001 - a bad skill file must not fail session.create
+        log.warning("could not load project skills from %s", workdir, exc_info=True)
+
+
 def _session(core: Core, session_id: str) -> Session:
     session = core.sessions.get(session_id)
     if session is None:
@@ -227,6 +245,7 @@ async def session_create_handler(
     )
     core.hub.subscribe(conn, session.id)
     _count_sessions(core)
+    await _load_project_skills(core, session.workdir)
     await mcp_client.sync_tools(core, session.workdir)
     return SessionCreateResult(sessionId=session.id)
 
@@ -240,6 +259,7 @@ async def session_resume_handler(
         session = await core.sessions.restore(params.sessionId, origin_conn=conn)
     if session is None:
         raise RpcError(errors.NOT_FOUND, f"no such session: {params.sessionId}")
+    await _load_project_skills(core, session.workdir)
     core.hub.subscribe(conn, session.id)
     if session.origin_conn is None or getattr(session.origin_conn, "closed", False):
         session.origin_conn = conn
@@ -553,6 +573,7 @@ async def approval_respond_handler(
         params.scope,
         by=conn.surface_id,
         conn=conn,
+        reason=params.reason,
     )
     return Ok(ok=True)
 

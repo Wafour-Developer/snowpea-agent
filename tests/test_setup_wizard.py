@@ -422,6 +422,92 @@ def test_ask_restores_the_cursor_when_the_screen_raises(
     assert stream.getvalue().endswith(ui.CURSOR_SHOW)
 
 
+# ---------------------------------------------------------------------------
+# the shared choice key map (M15b §2, AC-M15b-4)
+# ---------------------------------------------------------------------------
+
+
+def _console() -> Any:
+    from rich.console import Console
+
+    return Console(file=io.StringIO(), width=100, force_terminal=False)
+
+
+def _pick(monkeypatch: pytest.MonkeyPatch, screen: Screen, *keys: str) -> Any:
+    stream = iter(keys)
+    monkeypatch.setattr(ui, "read_key", lambda stream_=None: next(stream))
+    return ui.ask(screen, console=_console(), interactive=True)
+
+
+def _three(multi: bool = False) -> Screen:
+    return Screen(
+        title="t",
+        items=(
+            ScreenItem("a", "A", (), False, True),
+            ScreenItem("b", "B", (), False, False),
+            ScreenItem("c", "C", (), False, False),
+        ),
+        multi=multi,
+    )
+
+
+def test_hint_names_exactly_the_keys_the_screen_takes() -> None:
+    assert ui.choice_hint(multi=False) == (
+        "↑↓ move · Enter confirm · 1-9 pick · Esc cancel"
+    )
+    assert ui.choice_hint(multi=True) == (
+        "↑↓ move · Space toggle · Enter confirm · 1-9 toggle · Esc cancel"
+    )
+
+
+def test_every_screen_prints_the_hint() -> None:
+    state = WizardState.from_settings(Settings())
+    body = "\n".join(ui.render_lines(search_screen.build(state)))
+    assert ui.choice_hint(multi=False) in body
+    multi = "\n".join(ui.render_lines(tools_screen.build(state)))
+    assert ui.choice_hint(multi=True) in multi
+
+
+def test_rows_are_numbered_so_the_digit_keys_are_visible() -> None:
+    state = WizardState.from_settings(Settings())
+    body = "\n".join(ui.render_lines(search_screen.build(state)))
+    assert "1. " in body and "2. " in body
+
+
+def test_a_digit_jumps_to_that_row_without_submitting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert _pick(monkeypatch, _three(), "3", "enter") == "c"
+
+
+def test_a_digit_toggles_in_a_multi_select_and_enter_submits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert _pick(monkeypatch, _three(multi=True), "2", "3", "enter") == {"b", "c"}
+
+
+def test_a_digit_past_the_last_row_is_ignored(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert _pick(monkeypatch, _three(), "9", "enter") == "a"
+
+
+def test_space_toggles_only_in_a_multi_select(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert _pick(monkeypatch, _three(multi=True), "space", "enter") == {"a"}
+    # Single-select: Space is swallowed, so Enter still takes the cursor row.
+    assert _pick(monkeypatch, _three(), "space", "down", "enter") == "b"
+
+
+def test_escape_declines_to_the_screen_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    screen = _three()
+    assert _pick(monkeypatch, screen, "down", "escape") == screen.default_choice
+    assert _pick(monkeypatch, screen, "down", "quit") == screen.default_choice
+
+
+def test_left_and_right_are_accepted_and_change_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert _pick(monkeypatch, _three(), "right", "left", "down", "enter") == "b"
+
+
 def test_screen_height_is_stable_across_cursor_moves() -> None:
     state = WizardState.from_settings(Settings())
     screen = tools_screen.build(state)

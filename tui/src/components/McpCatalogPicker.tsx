@@ -7,9 +7,11 @@
  */
 
 import React, { useState } from "react";
-import { Box, Text, useInput } from "ink";
+import { Box, Text } from "ink";
 
+import { choiceHint, useChoiceKeys } from "../hooks/useChoiceKeys.js";
 import type { McpCatalogEntry } from "../state/mcp.js";
+import { ChoiceList } from "./ChoiceList.js";
 
 /** Rows shown at once; the list scrolls inside this. */
 export const CATALOG_ROWS = 8;
@@ -31,28 +33,19 @@ export function McpCatalogPicker({
 }: McpCatalogPickerProps): React.ReactElement {
   const [index, setIndex] = useState(0);
 
-  useInput(
-    (_input, key) => {
-      if (key.escape) {
-        onCancel();
-        return;
-      }
-      if (entries.length === 0) return;
-      if (key.upArrow) {
-        setIndex((i) => (i + entries.length - 1) % entries.length);
-        return;
-      }
-      if (key.downArrow || key.tab) {
-        setIndex((i) => (i + 1) % entries.length);
-        return;
-      }
-      if (key.return) onChoose(entries[index]);
+  useChoiceKeys({
+    count: entries.length,
+    index,
+    onIndex: setIndex,
+    onEnter: (row) => {
+      if (entries.length > 0) onChoose(entries[row]);
     },
-    { isActive },
-  );
-
-  const start = Math.max(0, Math.min(index - CATALOG_ROWS + 2, entries.length - CATALOG_ROWS));
-  const shown = entries.slice(start, start + CATALOG_ROWS);
+    onCancel,
+    onTab: () => {
+      if (entries.length > 0) setIndex((i) => (i + 1) % entries.length);
+    },
+    isActive,
+  });
 
   return (
     <Box flexDirection="column" width={width} borderStyle="round" borderColor="cyan" paddingX={1}>
@@ -60,21 +53,23 @@ export function McpCatalogPicker({
         MCP catalog
       </Text>
       {entries.length === 0 ? (
-        <Text dimColor>this daemon ships no presets</Text>
+        <>
+          <Text dimColor>this daemon ships no presets</Text>
+          <Text dimColor>{choiceHint({ enter: "fills the add form", digits: false })}</Text>
+        </>
       ) : (
-        shown.map((entry) => {
-          const active = entries[index] === entry;
-          const needs = entry.needs.length > 0 ? `  needs ${entry.needs.join(", ")}` : "";
-          return (
-            <Text key={entry.id} wrap="truncate-end">
-              <Text color={active ? "green" : undefined}>{active ? "❯ " : "  "}</Text>
-              <Text inverse={active}>{entry.label}</Text>
-              <Text dimColor>{`  ${entry.description}${needs}`}</Text>
-            </Text>
-          );
-        })
+        <ChoiceList
+          options={entries.map((entry) => ({
+            label: entry.label,
+            description: `${entry.description}${entry.needs.length > 0 ? `  needs ${entry.needs.join(", ")}` : ""}`,
+          }))}
+          selectedIndex={index}
+          color="green"
+          windowSize={CATALOG_ROWS}
+          descriptionMode="inline"
+          hint={choiceHint({ enter: "fills the add form" })}
+        />
       )}
-      <Text dimColor>↑↓ move · Enter fills the add form · Esc cancel</Text>
     </Box>
   );
 }

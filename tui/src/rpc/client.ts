@@ -268,8 +268,9 @@ export class TuiClient {
     requestId: string,
     decision: ApprovalResponse["decision"],
     scope: ApprovalResponse["scope"],
+    reason?: string,
   ): Promise<unknown> {
-    return this.call("approval.respond", { requestId, decision, scope });
+    return this.call("approval.respond", { requestId, decision, scope, reason });
   }
 
   respondQuestion(

@@ -71,6 +71,8 @@ class Decision:
     scope: str = "once"
     by: str = "unknown"
     code: str | None = None
+    #: Free text the human typed when refusing; the model is told exactly this.
+    reason: str = ""
 
     @property
     def allowed(self) -> bool:
@@ -285,6 +287,7 @@ class ApprovalQueue:
                 decision="allow" if answer.get("decision") == "allow" else "deny",
                 scope=str(answer.get("scope", "once")),
                 by="origin",
+                reason=str(answer.get("reason") or ""),
             )
         except TimeoutError:
             decision = Decision("deny", "once", "timeout", errors.APPROVAL_TIMEOUT)
@@ -304,6 +307,7 @@ class ApprovalQueue:
         scope: str = "once",
         by: str = "client",
         conn: Any = None,
+        reason: str = "",
     ) -> None:
         """Resolve a pending request (``approval.respond``)."""
         entry = self._pending.get(request_id)
@@ -322,6 +326,7 @@ class ApprovalQueue:
                 decision="allow" if decision == "allow" else "deny",
                 scope=scope,
                 by=by,
+                reason=reason,
             )
         )
 

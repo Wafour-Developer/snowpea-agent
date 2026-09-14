@@ -10,7 +10,9 @@
 import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
 
+import { choiceHint, useChoiceKeys } from "../hooks/useChoiceKeys.js";
 import { isValidSkillName, type SkillScope } from "../state/skill-completion.js";
+import { ChoiceList } from "./ChoiceList.js";
 
 /** Which question is on screen. */
 export type SkillFormStep = "name" | "description" | "scope";
@@ -42,21 +44,23 @@ export function SkillCreateForm({
   const typed = step === "name" ? name : description;
   const setTyped = step === "name" ? setName : setDescription;
 
+  // The list step is a ChoiceList like every other picker; the text steps keep
+  // their own handler, because there a digit is a character, not a jump.
+  useChoiceKeys({
+    count: SCOPES.length,
+    index: scope,
+    onIndex: setScope,
+    onEnter: (row) =>
+      onSubmit({ name: name.trim(), description: description.trim(), scope: SCOPES[row].value }),
+    onCancel,
+    onTab: () => setScope((index) => (index + 1) % SCOPES.length),
+    isActive: isActive && step === "scope",
+  });
+
   useInput(
     (input, key) => {
       if (key.escape) {
         onCancel();
-        return;
-      }
-
-      if (step === "scope") {
-        if (key.upArrow || key.downArrow || key.tab) {
-          setScope((index) => (index + (key.upArrow ? SCOPES.length - 1 : 1)) % SCOPES.length);
-          return;
-        }
-        if (key.return) {
-          onSubmit({ name: name.trim(), description: description.trim(), scope: SCOPES[scope].value });
-        }
         return;
       }
 
@@ -93,7 +97,7 @@ export function SkillCreateForm({
       setError(null);
       setTyped(typed + input);
     },
-    { isActive },
+    { isActive: isActive && step !== "scope" },
   );
 
   return (
@@ -122,19 +126,21 @@ export function SkillCreateForm({
         </Text>
       )}
 
-      {step === "scope"
-        ? SCOPES.map((entry, index) => (
-            <Text key={entry.value} inverse={index === scope}>
-              {`  ${entry.label.padEnd(13)}`}
-              <Text dimColor>{entry.hint}</Text>
-            </Text>
-          ))
-        : null}
+      {step === "scope" ? (
+        <ChoiceList
+          options={SCOPES.map((entry) => ({ label: entry.label, description: entry.hint }))}
+          selectedIndex={scope}
+          descriptionMode="inline"
+          hint={null}
+        />
+      ) : null}
 
       {error ? <Text color="red">{`  ${error}`}</Text> : null}
 
       <Text dimColor>
-        {step === "scope" ? "↑/↓ choose · Enter create · Esc cancel" : "Enter next · Esc cancel"}
+        {step === "scope"
+          ? choiceHint({ enter: "create" })
+          : "Enter next · Esc cancel"}
       </Text>
     </Box>
   );

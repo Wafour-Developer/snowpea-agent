@@ -278,6 +278,29 @@ describe("question picker with several questions", () => {
     ]);
   });
 
+  it("marks the tabs ✓ answered, ▸ active and · pending", async () => {
+    const { stdin, stdout, instance, answer } = await openPicker(TWO);
+    expect(stdout.text()).toContain("▸ 렌더러");
+    expect(stdout.text()).toContain("· 저장");
+    await press(stdin, ENTER, ENTER);
+    expect(stdout.text()).toContain("✓ 렌더러");
+    await press(stdin, ESC);
+    await answer;
+    instance.unmount();
+  });
+
+  it("reviews every answer on the last tab and names the gaps", async () => {
+    const { stdin, stdout, instance, answer } = await openPicker(TWO);
+    // Straight to the last tab without answering the first one.
+    await press(stdin, RIGHT);
+    const review = stdout.text();
+    expect(review).toContain("(not answered)");
+    expect(review).toContain("확인 / Confirm");
+    await press(stdin, ESC);
+    await answer;
+    instance.unmount();
+  });
+
   it("Esc on any tab declines the whole batch", async () => {
     const { stdin, instance, answer } = await openPicker(TWO);
     await press(stdin, RIGHT, ESC);

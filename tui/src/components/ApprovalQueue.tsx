@@ -6,16 +6,18 @@
  * read-only until it is focused (Ctrl+R in the app), which keeps its single-key
  * actions from stealing characters from the chat line.
  *
- * Focused keys: ↑/↓ pick a request, ←/→ pick the scope, `a` allows, `d` (or
- * Esc) denies, Ctrl+R leaves. A `project` or `always` scope also stores an
- * allowlist pattern on the daemon, so the same command stops asking.
+ * Focused keys: ↑/↓ pick a request, 1-9 jump to one, ←/→ pick the scope, `a`
+ * allows, `d` denies, Esc or Ctrl+R leaves. A `project` or `always` scope also
+ * stores an allowlist pattern on the daemon, so the same command stops asking.
  */
 
 import React, { useEffect, useState } from "react";
-import { Box, Text, useInput } from "ink";
+import { Box, Text } from "ink";
 
+import { useChoiceKeys } from "../hooks/useChoiceKeys.js";
 import type { ApprovalDecision, ApprovalScope } from "../rpc/sdk.js";
 import { APPROVAL_SCOPES, type ApprovalEntry } from "../state/store.js";
+import { ChoiceList } from "./ChoiceList.js";
 
 export type ApprovalQueueRespond = (
   requestId: string,
@@ -52,35 +54,27 @@ export function ApprovalQueue({
 
   const current = requests[Math.min(selected, Math.max(requests.length - 1, 0))];
 
-  useInput(
-    (input, key) => {
-      if (requests.length === 0) return;
-      if (key.upArrow) {
-        setSelected((i) => (i + requests.length - 1) % requests.length);
-        return;
-      }
-      if (key.downArrow) {
-        setSelected((i) => (i + 1) % requests.length);
-        return;
-      }
-      if (key.leftArrow) {
-        setScopeIndex((i) => (i + APPROVAL_SCOPES.length - 1) % APPROVAL_SCOPES.length);
-        return;
-      }
-      if (key.rightArrow || key.tab) {
-        setScopeIndex((i) => (i + 1) % APPROVAL_SCOPES.length);
-        return;
-      }
-      const decision: ApprovalDecision | null =
-        input.toLowerCase() === "a" ? "allow" : input.toLowerCase() === "d" ? "deny" : null;
-      if (decision && current) {
-        onRespond?.(current.requestId, decision, APPROVAL_SCOPES[scopeIndex]);
-        return;
-      }
-      if (key.escape) onBlur?.();
+  const answer = (decision: ApprovalDecision): void => {
+    if (current) onRespond?.(current.requestId, decision, APPROVAL_SCOPES[scopeIndex]);
+  };
+
+  useChoiceKeys({
+    count: requests.length,
+    index: Math.min(selected, Math.max(requests.length - 1, 0)),
+    onIndex: setSelected,
+    onLeft: () => setScopeIndex((i) => (i + APPROVAL_SCOPES.length - 1) % APPROVAL_SCOPES.length),
+    onRight: () => setScopeIndex((i) => (i + 1) % APPROVAL_SCOPES.length),
+    onTab: () => setScopeIndex((i) => (i + 1) % APPROVAL_SCOPES.length),
+    onCancel: () => onBlur?.(),
+    // Enter is the safe half of the pair: it allows nothing on its own, and
+    // `a`/`d` stay the two answers this backlog has always taken.
+    shortcuts: {
+      a: () => answer("allow"),
+      d: () => answer("deny"),
     },
-    { isActive: isActive && requests.length > 0 },
-  );
+    vim: false,
+    isActive: isActive && requests.length > 0,
+  });
 
   if (requests.length === 0) return null;
 
@@ -94,16 +88,14 @@ export function ApprovalQueue({
       <Text bold dimColor={!isActive} color={isActive ? "yellow" : undefined}>
         Unattended approvals ({requests.length})
       </Text>
-      {requests.map((request) => {
-        const picked = isActive && request.requestId === current?.requestId;
-        return (
-          <Text key={request.requestId} dimColor={!picked} inverse={picked}>
-            {picked ? "> " : "  "}
-            {request.tool} · risk={request.risk ?? "unknown"} · {request.requestId.slice(0, 8)} ·{" "}
-            {summarise(request)}
-          </Text>
-        );
-      })}
+      <ChoiceList
+        options={requests.map((request) => ({
+          label: `${request.tool} · risk=${request.risk ?? "unknown"} · ${request.requestId.slice(0, 8)} · ${summarise(request)}`,
+        }))}
+        selectedIndex={isActive ? Math.min(selected, requests.length - 1) : -1}
+        color="yellow"
+        hint={null}
+      />
       {isActive ? (
         <>
           <Box marginTop={1}>
@@ -119,10 +111,12 @@ export function ApprovalQueue({
               </Text>
             ))}
           </Box>
-          <Text dimColor>[a] allow [d] deny ↑/↓ pick ←/→ scope · Ctrl+A leave</Text>
+          <Text dimColor>
+            {"↑↓ move · 1-9 pick · ←→ scope · a allow · d deny · Esc or Ctrl+R leave"}
+          </Text>
         </>
       ) : (
-        <Text dimColor>Ctrl+A to answer them here.</Text>
+        <Text dimColor>Ctrl+R to answer them here.</Text>
       )}
     </Box>
   );

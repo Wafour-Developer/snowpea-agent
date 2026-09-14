@@ -157,6 +157,22 @@ describe("the model picker", () => {
     expect(pinned?.params).toEqual({ sessionId: "sess-1", model: "deep" });
   });
 
+  it("pins the row a number key jumps to", async () => {
+    const { client, stdin, stdout, instance } = await open(answers);
+    await type(stdin, "/model", 15);
+    stdin.write("\r");
+    await sleep(300);
+    expect(stdout.text()).toContain("1-9 pick");
+    stdin.write("2");
+    await sleep(120);
+    stdin.write("\r");
+    await sleep(250);
+    instance.unmount();
+
+    const pinned = client.calls.find((call) => call.method === "session.setModel");
+    expect(pinned?.params).toEqual({ sessionId: "sess-1", model: "deep" });
+  });
+
   it("clears the pin from the inherit row", async () => {
     const { client, stdin, instance } = await open(answers);
     await type(stdin, "/model", 15);

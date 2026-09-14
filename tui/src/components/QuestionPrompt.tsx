@@ -28,7 +28,9 @@
 import React, { useMemo, useState } from "react";
 import { Box, Text, useInput } from "ink";
 
+import { useChoiceKeys } from "../hooks/useChoiceKeys.js";
 import type { QuestionEntry } from "../state/store.js";
+import { ChoiceList } from "./ChoiceList.js";
 
 /** One question's answer, as `question.respond` carries it. */
 export interface QuestionAnswerItem {
@@ -40,6 +42,8 @@ export interface QuestionAnswerItem {
 export const OTHER_LABEL = "기타 / Other…";
 /** The row that actually sends. */
 export const CONFIRM_LABEL = "확인 / Confirm";
+/** What the review lists for a question nobody answered. */
+export const NOT_ANSWERED = "(not answered)";
 
 export interface QuestionPromptProps {
   request: QuestionEntry;
@@ -128,84 +132,71 @@ export function QuestionPrompt({
     onAnswer(answers);
   };
 
+  // The typing field owns the keyboard while it is open; everything else goes
+  // through the one key map every picker in the TUI shares (M15b §2).
   useInput(
     (input, key) => {
-      if (typing) {
-        if (key.return) {
-          const text = draft.trim();
-          patch({ selected: answer.selected, text: text.length > 0 ? text : null });
-          setTyping(false);
-          setDraft("");
-          setCursor(confirmRow);
-          return;
-        }
-        if (key.escape) {
-          setTyping(false);
-          setDraft("");
-          return;
-        }
-        if (key.backspace || key.delete) {
-          setDraft((value) => value.slice(0, -1));
-          return;
-        }
-        if (input && !key.ctrl && !key.meta) setDraft((value) => value + input);
-        return;
-      }
-
-      if (key.escape) {
-        // Esc is a real answer: "I am not choosing." The daemon reports an
-        // empty answer set as declined rather than letting the turn guess.
-        onAnswer([]);
-        return;
-      }
-      if (questions.length > 1 && (key.leftArrow || (key.tab && key.shift))) {
-        goto(at - 1);
-        return;
-      }
-      if (questions.length > 1 && (key.rightArrow || key.tab)) {
-        goto(at + 1);
-        return;
-      }
-      if (key.upArrow || input === "k") {
-        setCursor((index) => (index + rows - 1) % rows);
-        return;
-      }
-      if (key.downArrow || input === "j") {
-        setCursor((index) => (index + 1) % rows);
-        return;
-      }
-      if (input === " " && multi && cursor < options.length) {
-        pick(cursor);
-        return;
-      }
+      if (!typing) return;
       if (key.return) {
-        if (cursor === confirmRow) {
-          confirm();
-          return;
-        }
-        if (cursor === otherRow || options.length === 0) {
-          setTyping(true);
-          return;
-        }
-        pick(cursor);
+        const text = draft.trim();
+        patch({ selected: answer.selected, text: text.length > 0 ? text : null });
+        setTyping(false);
+        setDraft("");
+        setCursor(confirmRow);
         return;
       }
-      // 1–9 marks that row without sending: jumping to an option is not the
-      // same as agreeing to submit, and only the Confirm row submits.
-      if (/^[1-9]$/.test(input)) {
-        const index = Number(input) - 1;
-        if (index < options.length) {
-          setCursor(index);
-          pick(index);
-        }
+      if (key.escape) {
+        setTyping(false);
+        setDraft("");
         return;
       }
-      // Anything else is swallowed; a prompt that is up owns the keyboard.
+      if (key.backspace || key.delete) {
+        setDraft((value) => value.slice(0, -1));
+        return;
+      }
+      if (input && !key.ctrl && !key.meta) setDraft((value) => value + input);
     },
-    { isActive },
+    { isActive: isActive && typing },
   );
 
-  const preview = options[cursor]?.preview ?? "";
+  useChoiceKeys({
+    count: rows,
+    index: cursor,
+    onIndex: setCursor,
+    multi,
+    onToggle: (row) => {
+      if (row < options.length) pick(row);
+    },
+    onEnter: (row) => {
+      if (row === confirmRow) {
+        confirm();
+        return;
+      }
+      if (row === otherRow || options.length === 0) {
+        setTyping(true);
+        return;
+      }
+      pick(row);
+    },
+    onCancel: () => {
+      // Esc is a real answer: "I am not choosing." The daemon reports an
+      // empty answer set as declined rather than letting the turn guess.
+      onAnswer([]);
+    },
+    // 1-9 marks that row without sending: jumping to an option is not the
+    // same as agreeing to submit, and only the Confirm row submits.
+    onDigit: (row) => {
+      setCursor(row);
+      pick(row);
+    },
+    digitLimit: options.length,
+    onLeft: questions.length > 1 ? () => goto(at - 1) : undefined,
+    onRight: questions.length > 1 ? () => goto(at + 1) : undefined,
+    onTab: questions.length > 1 ? () => goto(at + 1) : undefined,
+    onShiftTab: questions.length > 1 ? () => goto(at - 1) : undefined,
+    isActive: isActive && !typing,
+  });
+
   const confirmText = last ? CONFIRM_LABEL : "다음 질문 / Next question";
   const hint = [
     multi ? "Space 선택" : null,
@@ -224,7 +215,8 @@ export function QuestionPrompt({
         <Box>
           {questions.map((question, index) => {
             const here = index === at;
-            const tick = answeredAt(index) ? "✓ " : "";
+            // ✓ answered · ▸ active · · pending (M15b §2).
+            const tick = answeredAt(index) ? "✓ " : here ? "▸ " : "· ";
             return (
               <Text
                 key={`${request.requestId}-t${index}`}
@@ -244,56 +236,29 @@ export function QuestionPrompt({
         </Text>
       )}
       <Text wrap="wrap">{current?.question ?? ""}</Text>
-      <Box flexDirection="row" marginTop={1}>
-        <Box flexDirection="column" flexGrow={1}>
-          {options.map((option, index) => {
-            const here = index === cursor;
-            const held = answer.selected.includes(option.label);
-            const mark = multi ? (held ? "[x] " : "[ ] ") : held ? "● " : "○ ";
-            return (
-              <Box key={`${request.requestId}-o${index}`} flexDirection="column">
-                <Box>
-                  <Text color={here ? "cyan" : undefined} bold={here}>
-                    {here ? "❯ " : "  "}
-                  </Text>
-                  <Text inverse={here} color={here ? "cyan" : undefined} dimColor={!here && !held}>
-                    {` ${index + 1}. ${mark}${option.label} `}
-                  </Text>
-                </Box>
-                {option.description ? <Text dimColor>{`      ${option.description}`}</Text> : null}
-              </Box>
-            );
-          })}
-          {allowOther ? (
-            <Box>
-              <Text color={cursor === otherRow ? "cyan" : undefined} bold={cursor === otherRow}>
-                {cursor === otherRow ? "❯ " : "  "}
-              </Text>
-              <Text
-                inverse={cursor === otherRow}
-                color={cursor === otherRow ? "cyan" : undefined}
-                dimColor={cursor !== otherRow && !answer.text}
-              >
-                {` ${answer.text ? `● ${answer.text}` : OTHER_LABEL} `}
-              </Text>
-            </Box>
-          ) : null}
-        </Box>
-        {preview ? (
-          <Box
-            flexDirection="column"
-            marginLeft={2}
-            borderStyle="single"
-            borderColor="gray"
-            paddingX={1}
-          >
-            {preview.split("\n").map((line, index) => (
-              <Text key={`${request.requestId}-p${index}`} dimColor wrap="truncate-end">
-                {line}
-              </Text>
-            ))}
-          </Box>
-        ) : null}
+      <Box marginTop={1} flexDirection="column">
+        <ChoiceList
+          options={options.map((option) => ({
+            label: option.label,
+            description: option.description,
+            preview: option.preview,
+          }))}
+          selectedIndex={cursor}
+          checked={
+            new Set(
+              options
+                .map((option, index) => (answer.selected.includes(option.label) ? index : -1))
+                .filter((index) => index >= 0),
+            )
+          }
+          multi={multi}
+          radio={!multi}
+          numbered
+          allowOther={allowOther}
+          otherLabel={OTHER_LABEL}
+          otherText={answer.text}
+          hint={null}
+        />
       </Box>
       {typing ? (
         <Box marginTop={1}>
@@ -304,8 +269,28 @@ export function QuestionPrompt({
         </Box>
       ) : (
         <>
+          {/* The last tab is the review: every answer, with the gaps named, so
+              the batch is never sent by someone who forgot a question. */}
+          {questions.length > 1 && last ? (
+            <Box marginTop={1} flexDirection="column">
+              {questions.map((question, index) => {
+                const entry = answers[index] ?? blank();
+                const said = entry.selected.length > 0 ? entry.selected.join(", ") : (entry.text ?? "");
+                return (
+                  <Box key={`${request.requestId}-r${index}`}>
+                    <Text dimColor>{`  ${question.header || `Q${index + 1}`}: `}</Text>
+                    {said ? (
+                      <Text color="green">{said}</Text>
+                    ) : (
+                      <Text color="yellow">{NOT_ANSWERED}</Text>
+                    )}
+                  </Box>
+                );
+              })}
+            </Box>
+          ) : null}
           {/* The bottom row is the only thing that sends, and it looks like it. */}
-          <Box marginTop={1}>
+          <Box marginTop={questions.length > 1 && last ? 0 : 1}>
             <Text color={cursor === confirmRow ? "cyan" : undefined} bold={cursor === confirmRow}>
               {cursor === confirmRow ? "❯ " : "  "}
             </Text>

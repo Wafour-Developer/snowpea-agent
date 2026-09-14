@@ -16,6 +16,8 @@
 import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
 
+import { choiceHint, useChoiceKeys } from "../hooks/useChoiceKeys.js";
+
 import {
   draftParams,
   isUnsafeError,
@@ -28,6 +30,7 @@ import {
   type McpProbe,
   type McpWritableScope,
 } from "../state/mcp.js";
+import { ChoiceList } from "./ChoiceList.js";
 import { ToolChecklist } from "./ToolChecklist.js";
 
 /** Which question is on screen. */
@@ -168,6 +171,44 @@ export function McpAddForm({
     }
   };
 
+  /** Every step whose body is a list, so one key map can drive them all. */
+  const listRows: { label: string; hint?: string }[] =
+    menu.length > 0
+      ? menu
+      : step === "transport"
+        ? [...TRANSPORTS]
+        : step === "scope"
+          ? [...SCOPES]
+          : [];
+  const onList = listRows.length > 0 && step !== "testing";
+
+  const pickList = (row: number): void => {
+    if (menu.length > 0) {
+      pickMenu(menu[row].key);
+      return;
+    }
+    if (step === "transport") {
+      const transport = TRANSPORTS[row].value;
+      setDraft((current) => ({ ...current, transport }));
+      go(transport === "url" ? "url" : "command", transport === "url" ? draft.url : draft.commandLine);
+      return;
+    }
+    const scope = SCOPES[row].value;
+    const next = { ...draft, scope };
+    setDraft(next);
+    runProbe(next);
+  };
+
+  useChoiceKeys({
+    count: listRows.length,
+    index: choice,
+    onIndex: setChoice,
+    onEnter: pickList,
+    onCancel,
+    onTab: () => setChoice((i) => (i + 1) % Math.max(listRows.length, 1)),
+    isActive: isActive && onList,
+  });
+
   useInput(
     (input, key) => {
       if (key.escape) {
@@ -175,35 +216,6 @@ export function McpAddForm({
         return;
       }
       if (step === "testing") return;
-
-      if (menu.length > 0) {
-        if (key.upArrow || key.downArrow || key.tab) {
-          setChoice((i) => (i + (key.upArrow ? menu.length - 1 : 1)) % menu.length);
-          return;
-        }
-        if (key.return) pickMenu(menu[choice].key);
-        return;
-      }
-
-      if (step === "transport" || step === "scope") {
-        const rows = step === "transport" ? TRANSPORTS : SCOPES;
-        if (key.upArrow || key.downArrow || key.tab) {
-          setChoice((i) => (i + (key.upArrow ? rows.length - 1 : 1)) % rows.length);
-          return;
-        }
-        if (!key.return) return;
-        if (step === "transport") {
-          const transport = TRANSPORTS[choice].value;
-          setDraft((current) => ({ ...current, transport }));
-          go(transport === "url" ? "url" : "command", transport === "url" ? draft.url : draft.commandLine);
-          return;
-        }
-        const scope = SCOPES[choice].value;
-        const next = { ...draft, scope };
-        setDraft(next);
-        runProbe(next);
-        return;
-      }
 
       if (key.return) {
         const value = typed.trim();
@@ -270,7 +282,7 @@ export function McpAddForm({
       setError(null);
       setTyped(typed + input);
     },
-    { isActive: isActive && step !== "tools" },
+    { isActive: isActive && step !== "tools" && !onList },
   );
 
   if (step === "tools") {
@@ -310,12 +322,12 @@ export function McpAddForm({
       {field("name", step === "name" ? <Text>{typed}</Text> : done(draft.name), step === "name")}
 
       {step === "transport" ? (
-        TRANSPORTS.map((entry, index) => (
-          <Text key={entry.value} inverse={index === choice} wrap="truncate-end">
-            {`  ${entry.label.padEnd(11)}`}
-            <Text dimColor>{entry.hint}</Text>
-          </Text>
-        ))
+        <ChoiceList
+          options={TRANSPORTS.map((entry) => ({ label: entry.label, description: entry.hint }))}
+          selectedIndex={choice}
+          descriptionMode="inline"
+          hint={null}
+        />
       ) : step === "name" ? null : (
         field("transport", done(isUrl ? "URL" : "Command"), false)
       )}
@@ -341,14 +353,14 @@ export function McpAddForm({
 
       {step === "vars" ? field(varLabel, <Text>{typed}</Text>, true) : null}
 
-      {step === "scope"
-        ? SCOPES.map((entry, index) => (
-            <Text key={entry.value} inverse={index === choice} wrap="truncate-end">
-              {`  ${entry.label.padEnd(11)}`}
-              <Text dimColor>{entry.hint}</Text>
-            </Text>
-          ))
-        : null}
+      {step === "scope" ? (
+        <ChoiceList
+          options={SCOPES.map((entry) => ({ label: entry.label, description: entry.hint }))}
+          selectedIndex={choice}
+          descriptionMode="inline"
+          hint={null}
+        />
+      ) : null}
 
       {step === "testing" ? <Text color="yellow">{`  testing ${draft.name}…`}</Text> : null}
 
@@ -366,20 +378,22 @@ export function McpAddForm({
         </Text>
       ) : null}
 
-      {menu.map((entry, index) => (
-        <Text key={entry.key} inverse={index === choice} wrap="truncate-end">
-          {`  ${entry.label.padEnd(26)}`}
-          <Text dimColor>{entry.hint ?? ""}</Text>
-        </Text>
-      ))}
+      {menu.length > 0 ? (
+        <ChoiceList
+          options={menu.map((entry) => ({ label: entry.label, description: entry.hint }))}
+          selectedIndex={choice}
+          descriptionMode="inline"
+          hint={null}
+        />
+      ) : null}
 
       {error ? <Text color="red">{`  ${error}`}</Text> : null}
 
       <Text dimColor>
         {step === "testing"
           ? "probing the server · Esc cancel"
-          : menu.length > 0 || step === "transport" || step === "scope"
-            ? "↑/↓ choose · Enter pick · Esc cancel"
+          : onList
+            ? choiceHint({ enter: "pick" })
             : step === "vars"
               ? `Enter adds one ${varLabel} · empty Enter continues · Esc cancel`
               : "Enter next · Esc cancel"}
