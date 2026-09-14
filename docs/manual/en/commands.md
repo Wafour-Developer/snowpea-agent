@@ -68,8 +68,28 @@ These are answered by the terminal UI itself rather than by the core, so they do
 | `/agent list` | list agent definitions |
 | `/skill create <name> "<what it should do>" [--global] [--force]` | generate a SKILL.md from a brief and write it into `<project>/.snowpea/skills/<name>/` (or `$SNOWPEA_HOME/skills/<name>/` with `--global`); refuses to overwrite an existing one without `--force` |
 | `/skill learn [name]` | turn the session you just finished into `<project>/.snowpea/skills/<name>/SKILL.md` |
+| `/skill reload` | re-scan skills, agents, commands and plugin MCP servers after editing a `SKILL.md` by hand (an install or `/skill create` reloads on its own) |
+| `/skill list` | what is installed, by kind and source |
 
 A generated agent is a `delegate_task` target immediately, no reload needed.
+
+### MCP servers
+
+| Command | What it does |
+|---|---|
+| `/mcp` or `/mcp list` | table of every configured server: name, scope, transport, state, tool count |
+| `/mcp get <name>` | one server in full, with its tools; `env` and `headers` show key names only |
+| `/mcp add <name> -- <command> [args…]` | add a stdio server to `<project>/.mcp.json` (`--global` writes `$SNOWPEA_HOME/.mcp.json`) |
+| `/mcp add <name> --url <https://…>` | add a remote server; `--header K=V` for its credentials |
+| `/mcp add-json <name> '<json>'` | add a raw `.mcp.json` entry, verbatim |
+| `/mcp test <name>` | start it, list its tools, report the spawn error if it fails |
+| `/mcp configure <name> [tool…]` | register only these tools of the server; no names means all of them |
+| `/mcp enable\|disable <name>` | keep the entry but stop starting it, and back again |
+| `/mcp remove <name>` | delete the entry and stop the server |
+| `/mcp reload [name]` | restart one server, or re-read every declaration |
+| `/mcp catalog` | the curated presets `--preset` accepts |
+
+`--env K=V` and `--header K=V` may repeat. Nothing is written until the server has answered `tools/list` once (`--no-test` skips that), the command line is always argv and never a shell string, and add, remove and update all take effect without restarting the daemon. Servers a plugin or `mcp.servers` in settings declares are listed but read-only.
 
 ### Scheduling
 
@@ -173,6 +193,24 @@ snowpea skill install oh-my-claudecode
 snowpea skill install ./my-plugin
 snowpea skill remove my-plugin
 ```
+
+### MCP servers
+
+```bash
+snowpea mcp list
+snowpea mcp add notes -- python -m my_notes_server
+snowpea mcp add remote --url https://example.internal/mcp --header Authorization=Bearer-xxx
+snowpea mcp add github --preset github --env GITHUB_PERSONAL_ACCESS_TOKEN=ghp_xxx
+snowpea mcp get notes --json
+snowpea mcp test notes
+snowpea mcp configure notes search fetch
+snowpea mcp disable notes
+snowpea mcp remove notes
+snowpea mcp reload
+snowpea mcp catalog
+```
+
+`--scope global` writes `$SNOWPEA_HOME/.mcp.json` instead of the project's file. Every subcommand takes `--json`. See [plugins](plugins.md#mcp-servers) for the file format.
 
 ### Jobs
 
