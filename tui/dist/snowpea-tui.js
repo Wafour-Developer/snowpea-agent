@@ -34788,10 +34788,11 @@ function applySessionEvent(state, event, options = {}) {
     // in the queue says so: the elapsed time on screen would otherwise look
     // like the model taking its time.
     case "turn.started": {
-      const turnId = String(payload.turnId ?? "");
-      const waited = typeof payload.queued === "boolean" ? payload.queued : base.queued.some((entry) => entry.turnId === turnId);
+      const started = payload;
+      const turnId = started.turnId ?? "";
+      const waited = typeof started.queued === "boolean" ? started.queued : base.queued.some((entry) => entry.turnId === turnId);
       const stamped = Date.parse(typeof event.ts === "string" ? event.ts : "");
-      const text = typeof payload.prompt === "string" ? payload.prompt : "";
+      const text = started.prompt ?? "";
       return {
         ...base,
         turnActive: true,
@@ -34803,33 +34804,34 @@ function applySessionEvent(state, event, options = {}) {
     }
     // Output from a tool while it is still running.
     case "tool.progress": {
-      const callId = String(payload.callId ?? "");
-      const index = base.toolCalls.findIndex((call2) => call2.callId === callId);
+      const progressed = payload;
+      const index = base.toolCalls.findIndex((call2) => call2.callId === progressed.callId);
       if (index === -1) return base;
-      const stream = payload.stream === "stderr" ? "stderr" : "stdout";
-      const chunk = String(payload.chunk ?? "");
-      const arriving = chunk.split("\n").filter((line) => line.length > 0);
-      if (arriving.length === 0 && payload.truncated !== true) return base;
+      const stream = progressed.stream === "stderr" ? "stderr" : "stdout";
+      const arriving = (progressed.chunk ?? "").split("\n").filter((line) => line.length > 0);
+      if (arriving.length === 0 && progressed.truncated !== true) return base;
       const call = base.toolCalls[index];
       const progress2 = [...call.progress ?? [], ...arriving.map((text) => ({ text, stream }))];
       const toolCalls = base.toolCalls.slice();
       toolCalls[index] = {
         ...call,
         progress: progress2.slice(-PROGRESS_TAIL),
-        progressTruncated: call.progressTruncated || payload.truncated === true
+        progressTruncated: call.progressTruncated || progressed.truncated === true
       };
       return { ...base, toolCalls };
     }
     // Compaction takes a moment and a turn cannot run during it; saying so
     // beats a screen that looks stuck.
-    case "compaction.started":
+    case "compaction.started": {
+      const compaction = payload;
       return {
         ...base,
         compacting: {
-          reason: String(payload.reason ?? "auto"),
-          before: Number(payload.before ?? 0)
+          reason: compaction.reason ?? "auto",
+          before: compaction.before ?? 0
         }
       };
+    }
     case "turn.queued": {
       const turnId = String(payload.turnId ?? "");
       if (turnId.length === 0) return base;

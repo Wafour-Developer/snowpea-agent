@@ -9,9 +9,12 @@ import type {
   ApprovalRequestParams,
   ApprovalScope,
   CommandInfo,
+  CompactionStarted,
   Mode,
   QuestionRequestParams,
   SessionEvent,
+  ToolProgress,
+  TurnStarted,
 } from "../rpc/sdk.js";
 import type { ConnectionStatus } from "../rpc/client.js";
 import type { FileDiagnostics, LspServer } from "./lsp.js";
@@ -271,7 +274,7 @@ export interface State {
   /** True when the running turn sat in the queue before it began. */
   turnWaited: boolean;
   /** Set while a compaction is running; cleared by the `compaction` event. */
-  compacting: { reason: string; before: number } | null;
+  compacting: { reason: NonNullable<CompactionStarted["reason"]>; before: number } | null;
   /**
    * Characters of hidden reasoning the model has streamed in this turn.
    *
@@ -799,16 +802,17 @@ function applySessionEvent(
     // in the queue says so: the elapsed time on screen would otherwise look
     // like the model taking its time.
     case "turn.started": {
-      const turnId = String(payload.turnId ?? "");
+      const started = payload as TurnStarted;
+      const turnId = started.turnId ?? "";
       // The daemon says whether the turn was queued; a `turn.dequeued` may have
       // already emptied the local queue, so its own flag is asked first.
       const waited =
-        typeof payload.queued === "boolean"
-          ? payload.queued
+        typeof started.queued === "boolean"
+          ? started.queued
           : base.queued.some((entry) => entry.turnId === turnId);
       // Replay has no live clock; the event's own timestamp is the only one.
       const stamped = Date.parse(typeof event.ts === "string" ? event.ts : "");
-      const text = typeof payload.prompt === "string" ? payload.prompt : "";
+      const text = started.prompt ?? "";
       return {
         ...base,
         turnActive: true,
@@ -824,34 +828,35 @@ function applySessionEvent(
 
     // Output from a tool while it is still running.
     case "tool.progress": {
-      const callId = String(payload.callId ?? "");
-      const index = base.toolCalls.findIndex((call) => call.callId === callId);
+      const progressed = payload as ToolProgress;
+      const index = base.toolCalls.findIndex((call) => call.callId === progressed.callId);
       if (index === -1) return base;
-      const stream: ProgressLine["stream"] = payload.stream === "stderr" ? "stderr" : "stdout";
-      const chunk = String(payload.chunk ?? "");
-      const arriving = chunk.split("\n").filter((line) => line.length > 0);
-      if (arriving.length === 0 && payload.truncated !== true) return base;
+      const stream: ProgressLine["stream"] = progressed.stream === "stderr" ? "stderr" : "stdout";
+      const arriving = (progressed.chunk ?? "").split("\n").filter((line) => line.length > 0);
+      if (arriving.length === 0 && progressed.truncated !== true) return base;
       const call = base.toolCalls[index];
       const progress = [...(call.progress ?? []), ...arriving.map((text) => ({ text, stream }))];
       const toolCalls = base.toolCalls.slice();
       toolCalls[index] = {
         ...call,
         progress: progress.slice(-PROGRESS_TAIL),
-        progressTruncated: call.progressTruncated || payload.truncated === true,
+        progressTruncated: call.progressTruncated || progressed.truncated === true,
       };
       return { ...base, toolCalls };
     }
 
     // Compaction takes a moment and a turn cannot run during it; saying so
     // beats a screen that looks stuck.
-    case "compaction.started":
+    case "compaction.started": {
+      const compaction = payload as CompactionStarted;
       return {
         ...base,
         compacting: {
-          reason: String(payload.reason ?? "auto"),
-          before: Number(payload.before ?? 0),
+          reason: compaction.reason ?? "auto",
+          before: compaction.before ?? 0,
         },
       };
+    }
 
     case "turn.queued": {
       const turnId = String(payload.turnId ?? "");

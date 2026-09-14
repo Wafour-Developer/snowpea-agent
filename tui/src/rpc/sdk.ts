@@ -9,6 +9,9 @@
 
 import type {
   ApprovalRequestParams as SdkApprovalRequestParams,
+  CompactionStartedEventPayload,
+  ToolProgressEventPayload,
+  TurnStartedEventPayload,
   LspDiagnosticsEventPayload,
   LspStatusResult,
   ApprovalRequestResult,
@@ -73,3 +76,10 @@ export type LspStatus = LspStatusResult;
 export type LspServerStatus = NonNullable<LspStatusResult["servers"]>[number];
 /** `lsp.diagnostics` notification payload. */
 export type LspDiagnostics = LspDiagnosticsEventPayload;
+
+/** `turn.started` — the moment a turn's clock starts. */
+export type TurnStarted = TurnStartedEventPayload;
+/** `tool.progress` — a fragment of a running tool's output. */
+export type ToolProgress = ToolProgressEventPayload;
+/** `compaction.started` — compaction is under way. */
+export type CompactionStarted = CompactionStartedEventPayload;
