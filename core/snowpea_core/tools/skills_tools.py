@@ -1,4 +1,4 @@
-"""``skill_search``, ``skill_list``, ``skill_install`` and ``skill_remove``.
+"""``skill_search``, ``skill_view``, ``skill_list``, ``skill_install``, ``skill_remove``.
 
 Finding and installing a skill used to be a CLI-only errand: the user left the
 session, ran ``snowpea skill search``, read the output, ran ``snowpea skill
@@ -23,10 +23,12 @@ defeat the point of asking for one.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from pathlib import Path
 from typing import Any
 
+from snowpea_core.prompts.tool_descriptions import SKILL_VIEW
 from snowpea_core.skills.marketplace import InstallError
 from snowpea_core.tools.registry import Tool, ToolContext, ToolResult
 
@@ -35,6 +37,16 @@ log = logging.getLogger("snowpea.tools.skills")
 #: How many search hits the model is shown; more than this is noise it has to
 #: summarise anyway, and the user picks from a list they can read.
 MAX_HITS = 20
+
+#: Sibling files listed under a skill body before the list itself is elided.
+MAX_SKILL_FILES = 40
+
+#: What a repeat view of an unchanged skill returns instead of the body.
+UNCHANGED_STUB = (
+    "{name}: unchanged since your last view in this session — the body is already "
+    "above in this conversation. Scroll back to it; do not view it again unless a "
+    "[SKILL_PRUNED] marker has replaced it."
+)
 
 
 class LoaderMissing(RuntimeError):
@@ -172,7 +184,90 @@ async def skill_list(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             f"- {agent.name} [{agent.source}] — {agent.description or 'no description'}"
             for agent in sorted(loader.agents, key=lambda item: item.name)
         )
+    lines.append("Read any skill in full with skill_view(name); run one as a command with /name.")
     return ToolResult(ok=True, output="\n".join(lines), meta={"plugins": len(loader.plugins)})
+
+
+def _skill_files(root: Path, limit: int = MAX_SKILL_FILES) -> list[str]:
+    """Sibling files that ship with a skill, as paths relative to its directory.
+
+    ``SKILL.md`` itself is left out — it *is* the body — and so is anything
+    under a dot directory, which is packaging rather than content.
+    """
+    found: list[str] = []
+    try:
+        for path in sorted(root.rglob("*")):
+            if not path.is_file() or path.name == "SKILL.md":
+                continue
+            relative = path.relative_to(root)
+            if any(part.startswith(".") for part in relative.parts):
+                continue
+            found.append(relative.as_posix())
+            if len(found) >= limit:
+                break
+    except OSError:  # pragma: no cover - an unreadable skill directory
+        return found
+    return found
+
+
+async def skill_view(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
+    """The SKILL.md body of one installed skill, plus what ships beside it."""
+    name = str(args.get("name") or "").strip().lstrip("/")
+    if not name:
+        return ToolResult(ok=False, error="name is required: an installed skill, from skill_list")
+    try:
+        loader = _loader(ctx)
+    except LoaderMissing as exc:
+        return ToolResult(ok=False, error=str(exc))
+
+    skill = loader.skills.get(name)
+    if skill is None:
+        lowered = name.lower()
+        skill = next(
+            (item for key, item in loader.skills.items() if key.lower() == lowered), None
+        )
+    if skill is None:
+        known = ", ".join(sorted(loader.skills)[:MAX_HITS]) or "none"
+        return ToolResult(ok=False, error=f"no skill named {name!r} (installed: {known})")
+
+    doc = skill.doc
+    text = (doc.body or "").strip()
+    if not text and doc.path is not None:
+        try:
+            text = doc.path.read_text(encoding="utf-8").strip()
+        except OSError as exc:
+            return ToolResult(ok=False, error=f"{skill.name}: could not read SKILL.md ({exc})")
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+    views = getattr(ctx.session, "skill_views", None)
+    if isinstance(views, dict) and views.get(skill.name) == digest:
+        return ToolResult(
+            ok=True,
+            output=UNCHANGED_STUB.format(name=skill.name),
+            meta={"name": skill.name, "unchanged": True},
+        )
+
+    files = _skill_files(doc.path.parent) if doc.path is not None else []
+    header = f"# skill: {skill.name} [{skill.source}]"
+    lines = [header]
+    if doc.description:
+        lines.append(doc.description)
+    lines.append("")
+    lines.append(text)
+    if files:
+        lines.append("")
+        lines.append("Files that ship with this skill (read one with read_file):")
+        base = doc.path.parent if doc.path is not None else Path()
+        lines.extend(f"- {(base / item).as_posix()}" for item in files)
+    if isinstance(views, dict):
+        views[skill.name] = digest
+    log.info("skill_view %s (%d chars)", skill.name, len(text))
+    return ToolResult(
+        ok=True,
+        output="\n".join(lines),
+        path=str(doc.path) if doc.path is not None else None,
+        meta={"name": skill.name, "source": skill.source, "files": files},
+    )
 
 
 async def skill_install(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
@@ -279,6 +374,23 @@ TOOLS: tuple[Tool, ...] = (
         run=skill_list,
     ),
     Tool(
+        name="skill_view",
+        category="skills",
+        description=SKILL_VIEW,
+        input_schema={
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Installed skill name, as it appears in the skills index.",
+                }
+            },
+            "required": ["name"],
+        },
+        permission="read",
+        run=skill_view,
+    ),
+    Tool(
         name="skill_install",
         category="skills",
         description=(
@@ -317,10 +429,13 @@ TOOLS: tuple[Tool, ...] = (
 
 __all__ = [
     "MAX_HITS",
+    "MAX_SKILL_FILES",
+    "UNCHANGED_STUB",
     "TOOLS",
     "LoaderMissing",
     "skill_install",
     "skill_list",
     "skill_remove",
     "skill_search",
+    "skill_view",
 ]

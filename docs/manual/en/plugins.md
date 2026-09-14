@@ -195,6 +195,37 @@ Secrets are never echoed back: `env` and `headers` stay in the file you chose, a
 
 Adding, removing or updating a server takes effect immediately: the old process is stopped, its tools leave the registry, and the new entry is picked up without restarting the daemon.
 
+## The skills index and `skill_view`
+
+Every installed skill is listed in the agent's system prompt, one line per skill, grouped by where it came from:
+
+```
+## Skills
+…
+<available_skills>
+[project]
+- review: How code review is done in this repo
+[global]
+- deploy: Ship the current branch
+[plugin:pdfkit]
+- pdf-split: Split a pdf
+[builtin]
+- init: Set a project up from nothing
+</available_skills>
+```
+
+The agent is told to scan that list before it replies and to load anything even partially relevant with `skill_view`, which returns the skill's `SKILL.md` body plus the names of the files that ship beside it. The point is that a skill is *how the task is done here*, so it has to be read before the work starts, not consulted afterwards. Running `/review` yourself is unchanged; `skill_view` is the same document reaching the agent on its own initiative.
+
+Viewing the same unchanged skill twice returns a single line saying so, because the body is already in the conversation. A long body that a compaction had to drop is replaced by `[SKILL_PRUNED: content lost in compaction; reload with skill_view(name="review")]`, which is what tells the agent it no longer has instructions it thinks it has. Views from the last couple of turns are never pruned.
+
+Descriptions are clipped at 60 characters in the index, so write a `description:` that reads as a whole sentence in that space. Three settings control the block, all under `skills` in `settings.json`:
+
+| setting | default | what it does |
+| --- | --- | --- |
+| `indexInPrompt` | `true` | list skills in the prompt at all |
+| `indexMaxEntries` | `60` | how many to list before "… and K more" |
+| `protectRecentViews` | `2` | turns of `skill_view` results a compaction leaves whole |
+
 ## Where things are found, and who wins
 
 Roots are scanned in this order, and later wins on a name clash:

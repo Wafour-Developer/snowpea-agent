@@ -50,6 +50,21 @@ CONTEXT_PRESSURE_THRESHOLD = 0.75
 #: Default mode when a session carries something unrecognised.
 DEFAULT_MODE = "accept"
 
+#: Permission tag shown next to an MCP server whose tools carry none.
+DEFAULT_MCP_PERMISSION = "network"
+
+#: Printed once, before the first MCP heading, so the headings are readable.
+MCP_GROUP_NOTE = (
+    "The tools below come from MCP servers the user configured. The tag after a "
+    "server's name is the permission every one of its tools carries."
+)
+
+#: Skills listed in the prompt index before it elides (M15 §B1).
+DEFAULT_SKILL_INDEX_MAX = 60
+
+#: What the index says when it could not list everything.
+SKILL_INDEX_MORE = "… and {count} more — skill_list shows all"
+
 #: What a workflow brief prepends in place of the full rule set, which the
 #: child already carries in its own system prompt.
 BRIEF_RULES = (
@@ -103,8 +118,64 @@ def reply_language_rule(language: str) -> str:
 
 
 def tool_lines(tools: Sequence[ToolSpec]) -> str:
-    """One ``- name: description`` line per tool, in the order given."""
-    return "\n".join(f"- {tool.name}: {tool.description}" for tool in tools)
+    """The tool list: built-ins first, then one heading per MCP server (M15 §E).
+
+    An MCP tool's name already carries its server (``mcp__<server>__<tool>``),
+    but a flat list of forty prefixed names reads as noise.  Grouping them under
+    ``MCP server <name> (<permission tag>)`` tells the model in one line where a
+    tool comes from and what approving it costs, and keeps the built-ins — the
+    tools it should reach for first — at the top.
+    """
+    builtin: list[str] = []
+    servers: dict[str, list[str]] = {}
+    tags: dict[str, str] = {}
+    for tool in tools:
+        server = str(getattr(tool, "source", "") or "")
+        server = server[4:] if server.startswith("mcp:") else ""
+        line = f"- {tool.name}: {tool.description}"
+        if not server:
+            builtin.append(line)
+            continue
+        servers.setdefault(server, []).append(line)
+        tags.setdefault(server, str(getattr(tool, "permission", "") or DEFAULT_MCP_PERMISSION))
+    out = list(builtin)
+    for index, (server, lines) in enumerate(servers.items()):
+        out.append("")
+        if index == 0:
+            out.append(MCP_GROUP_NOTE)
+        out.append(f"MCP server {server} ({tags[server]})")
+        out.extend(lines)
+    return "\n".join(out)
+
+
+def skills_index(
+    groups: Sequence[tuple[str, Sequence[tuple[str, str]]]],
+    max_entries: int = DEFAULT_SKILL_INDEX_MAX,
+    root: Path | None = None,
+) -> str:
+    """The rendered ``## Skills`` block, or ``""`` when nothing is installed.
+
+    ``groups`` is what ``SkillLoader.index_groups()`` returns: a bracketed
+    origin label and its ``(name, description)`` rows.  Past ``max_entries``
+    the list stops and says how many it did not show, so a machine with two
+    hundred skills does not spend the context window on a catalogue.
+    """
+    lines: list[str] = []
+    shown = 0
+    total = sum(len(rows) for _, rows in groups)
+    for label, rows in groups:
+        if shown >= max_entries:
+            break
+        room = max_entries - shown
+        lines.append(label)
+        for name, description in list(rows)[:room]:
+            lines.append(f"- {name}: {description}" if description else f"- {name}")
+        shown += min(room, len(rows))
+    if not lines:
+        return ""
+    if total > shown:
+        lines.append(SKILL_INDEX_MORE.format(count=total - shown))
+    return render("fragments/skills", root, SKILL_LINES="\n".join(lines))
 
 
 @dataclass(frozen=True)
@@ -133,6 +204,9 @@ def build_tiers(
     role: str | None = None,
     subagent: bool = False,
     tools: Sequence[ToolSpec] | None = None,
+    skill_groups: Sequence[tuple[str, Sequence[tuple[str, str]]]] | None = None,
+    skill_index_max: int = DEFAULT_SKILL_INDEX_MAX,
+    memory_guidance: bool = True,
     memory_block: str = "",
     environment: str = "",
     context_files: str = "",
@@ -158,6 +232,8 @@ def build_tiers(
     stable.append(load(f"vendors/{vendor}", root))
     stable.append(load("config_rule", root))
     stable.append(load("search_honesty", root))
+    if memory_guidance:
+        stable.append(load("fragments/memory-guidance", root))
     picked = mode if mode in ("plan", "accept", "auto") else DEFAULT_MODE
     stable.append(load(f"modes/{picked}", root))
     if subagent or role:
@@ -168,6 +244,11 @@ def build_tiers(
     stable.append(reply_language_rule(reply_language))
 
     context: list[str] = [environment, context_files]
+    # The skills index sits *before* the tool list and after the project
+    # context: both are rebuilt together, and the model should know what a
+    # skill covers before it starts picking tools (M15 §B1).
+    if skill_groups:
+        context.append(skills_index(skill_groups, skill_index_max, root))
     if tools:
         context.append(render("fragments/tools", root, TOOL_LINES=tool_lines(tools)))
 
@@ -212,6 +293,10 @@ def workflow_brief(
 __all__ = [
     "BRIEF_RULES",
     "CONTEXT_PRESSURE_THRESHOLD",
+    "DEFAULT_MCP_PERMISSION",
+    "DEFAULT_SKILL_INDEX_MAX",
+    "MCP_GROUP_NOTE",
+    "SKILL_INDEX_MORE",
     "VENDOR_CLASSES",
     "VENDOR_CLASS_BY_PROVIDER",
     "PromptTiers",
@@ -219,6 +304,7 @@ __all__ = [
     "build_tiers",
     "language_name",
     "reply_language_rule",
+    "skills_index",
     "tool_lines",
     "vendor_class_for",
     "workflow_brief",

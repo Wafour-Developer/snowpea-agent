@@ -27,8 +27,10 @@ GOLDEN_DIR = Path(__file__).parent / "golden" / "prompts"
 #: The ceiling is set where the intended library actually fits, with headroom,
 #: and its job is unchanged: the library cannot grow unbounded. Raised from
 #: 2200 for CORE-skill-create's one-sentence addition to base.md's "Skills
-#: and plugins" paragraph (/skill create); still headroom, not a reset.
-TIER_BUDGET_TOKENS = {"stable": 2900, "context": 800, "volatile": 600}
+#: and plugins" paragraph (/skill create); raised again from 2900 for M15 §D2's
+#: memory-guidance fragment, which is twelve lines the stable tier did not
+#: carry before.  Still headroom, not a reset.
+TIER_BUDGET_TOKENS = {"stable": 3100, "context": 800, "volatile": 600}
 
 MODES = ("plan", "accept", "auto")
 VENDOR_CLASSES = ("anthropic", "openai-family", "small-local")
@@ -449,6 +451,8 @@ def test_json_workflows_carry_the_gap_11_rules() -> None:
 
     split = compose.workflow_brief("ultrawork-split", MAX_SUBTASKS=8)
     assert "Two subtasks that edit the same file are not independent." in split
+    assert "disjoint set of files" in split
+    assert "merged back into one before they run" in split
 
     plan = compose.workflow_brief("team-plan")
     assert "Two tasks that edit the same file are not independent." in plan
@@ -465,7 +469,7 @@ def test_every_workflow_prompt_renders_with_no_placeholders_left() -> None:
     names = sorted(
         path.stem for path in (loader.PACKAGE_DIR / "workflows").glob("*.md")
     )
-    assert len(names) == 12  # ten workflow briefs, init.md, plus skill-generate.md
+    assert len(names) == 15  # the workflow briefs, init.md, skill-generate.md, the review trio
     for name in names:
         text = compose.workflow_brief(
             name,
@@ -489,6 +493,12 @@ def test_every_workflow_prompt_renders_with_no_placeholders_left() -> None:
             AGENTS_PATH="/tmp/AGENTS.md",
             AGENTS_STATUS="absent",
             SETTINGS_NOTE="",
+            WORKDIR="/tmp/project",
+            REPO="/tmp/project",
+            FOCUS="",
+            FILES="- a.py",
+            DIFF="@@ -1 +1 @@",
+            FINDINGS="- a.py:1 — nothing reads it",
         )
         assert "${" not in text, name
         assert text.strip(), name

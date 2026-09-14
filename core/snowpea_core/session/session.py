@@ -100,6 +100,13 @@ class Session:
     #: chain and whatever nested files fitted the budget.  The on-demand
     #: attachment fires only for the ones that did *not* fit.
     loaded_context_files: set[str] = field(default_factory=set)
+    #: Content hashes of the instruction files already attached, so a symlink
+    #: or a copy of a file under another path is not shown twice (M15 §D4).
+    context_file_hashes: set[str] = field(default_factory=set)
+    #: ``skill name -> hash of the body last served by skill_view``.  A repeat
+    #: view of an unchanged skill returns a one-line stub rather than the body
+    #: again (M15 §B2).
+    skill_views: dict[str, str] = field(default_factory=dict)
     #: Tool names a skill command restricts the current turn to
     #: (``allowed-tools`` in its front matter); ``None`` means every tool.
     allowed_tools: set[str] | None = None

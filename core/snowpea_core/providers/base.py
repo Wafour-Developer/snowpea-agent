@@ -16,6 +16,13 @@ class ToolSpec:
     name: str
     description: str
     input_schema: dict[str, Any]
+    #: Where the tool came from — ``builtin``, ``mcp:<server>``, ``lsp``.  No
+    #: provider sends it; the prompt composer groups the tool list by it
+    #: (M15 §E), which is why it lives on the spec rather than being re-derived
+    #: from the tool name by every caller.
+    source: str = "builtin"
+    #: The tool's permission tag, shown once per MCP server heading.
+    permission: str = ""
 
 
 @dataclass

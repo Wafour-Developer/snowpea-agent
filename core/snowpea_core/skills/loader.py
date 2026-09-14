@@ -59,6 +59,16 @@ PYTHON_VAR = "SNOWPEA_PYTHON"
 SkillInfos = list[SkillInfo]
 Strings = list[str]
 
+#: One index group: its bracketed label and its ``(name, description)`` rows.
+IndexGroups = list[tuple[str, list[tuple[str, str]]]]
+
+#: How much of a description the skills index shows before it elides (M15 §B1).
+INDEX_DESCRIPTION_CHARS = 60
+
+#: Group order in the index: the most specific origin first, so a project skill
+#: is the first thing the model reads.
+INDEX_GROUP_ORDER: tuple[str, ...] = (SOURCE_PROJECT, SOURCE_GLOBAL)
+
 
 @dataclass
 class LoadedSkill:
@@ -112,6 +122,12 @@ class ReloadReport:
     mcp_tools: list[str] = field(default_factory=list)
 
 
+def _clip(text: str, limit: int) -> str:
+    """``text`` on one line, elided with ``…`` once it passes ``limit``."""
+    flat = " ".join(str(text or "").split())
+    return flat if len(flat) <= limit else flat[: max(1, limit - 1)].rstrip() + "…"
+
+
 def builtin_root() -> Path:
     """``core/snowpea_core/builtin_skills``; may not exist in a trimmed install."""
     return Path(__file__).resolve().parent.parent / "builtin_skills"
@@ -136,6 +152,8 @@ class SkillLoader:
         #: ``(label, reason)`` hubs the registry switched off during the last
         #: :meth:`search` — surfaced by ``skill.search`` as ``notIncluded``.
         self.last_not_included: list[tuple[str, str]] = []
+        #: Cached :meth:`index_groups` result, dropped by every scan (M15 §B1).
+        self._index_groups: IndexGroups | None = None
 
     # -- paths ---------------------------------------------------------
     @property
@@ -190,6 +208,7 @@ class SkillLoader:
         self.hooks = HookRegistry()
         self.mcp_servers = {}
         self.mcp_server_plugins = {}
+        self._index_groups = None
 
         self._scan_builtins()
         self._scan_bundle(self.home, SOURCE_GLOBAL)
@@ -355,6 +374,7 @@ class SkillLoader:
             before = len(self.skills), len(self.agents)
             for name in PROJECT_DIRS:
                 self._scan_bundle(root / name, SOURCE_PROJECT)
+            self._index_groups = None
             self._apply_commands()
             report = ReloadReport(
                 skills=len(self.skills) - before[0],
@@ -449,6 +469,35 @@ class SkillLoader:
             log.debug("could not announce commands.changed", exc_info=True)
 
     # -- queries -------------------------------------------------------
+    def index_groups(self) -> IndexGroups:
+        """Visible skills for the prompt index, grouped by origin (M15 §B1).
+
+        ``[project]`` first, then ``[global]``, then each ``[plugin:<name>]``
+        alphabetically, then ``[builtin]`` — the order a reader would guess.
+        Only ``kind == "skill"`` entries are listed: a ``commands/*.md`` file is
+        a slash command the user runs, not something ``skill_view`` explains.
+        Cached until the next scan, because the index is rebuilt into the
+        context tier of every prompt.
+        """
+        if self._index_groups is not None:
+            return self._index_groups
+        buckets: dict[str, list[tuple[str, str]]] = {}
+        for skill in self.skills.values():
+            if skill.kind != "skill" or not skill.doc.user_invocable:
+                continue
+            buckets.setdefault(skill.source, []).append(
+                (skill.name, _clip(skill.description, INDEX_DESCRIPTION_CHARS))
+            )
+        plugins = sorted(name for name in buckets if name.startswith("plugin:"))
+        order = [*INDEX_GROUP_ORDER, *plugins, SOURCE_BUILTIN]
+        groups: IndexGroups = [
+            (f"[{source}]", sorted(buckets[source]))
+            for source in order
+            if buckets.get(source)
+        ]
+        self._index_groups = groups
+        return groups
+
     def list(self) -> SkillInfos:
         """Everything loaded, as protocol ``SkillInfo`` (``skill.list``)."""
         out: SkillInfos = []
@@ -556,6 +605,8 @@ def expand_tree(value: Any, root: Path) -> Any:
 
 
 __all__ = [
+    "INDEX_DESCRIPTION_CHARS",
+    "INDEX_GROUP_ORDER",
     "MAX_SCANNED_WORKDIRS",
     "PROJECT_DIRS",
     "PYTHON_VAR",
@@ -563,6 +614,7 @@ __all__ = [
     "SOURCE_BUILTIN",
     "SOURCE_GLOBAL",
     "SOURCE_PROJECT",
+    "IndexGroups",
     "LoadedAgent",
     "LoadedPlugin",
     "LoadedSkill",
