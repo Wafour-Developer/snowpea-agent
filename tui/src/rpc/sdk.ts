@@ -14,6 +14,7 @@ import type {
   TurnStartedEventPayload,
   LspDiagnosticsEventPayload,
   LspStatusResult,
+  McpChangedPayload as SdkMcpChangedPayload,
   ApprovalRequestResult,
   Client,
   QuestionRequestParams as SdkQuestionRequestParams,
@@ -76,6 +77,9 @@ export type LspStatus = LspStatusResult;
 export type LspServerStatus = NonNullable<LspStatusResult["servers"]>[number];
 /** `lsp.diagnostics` notification payload. */
 export type LspDiagnostics = LspDiagnosticsEventPayload;
+
+/** `mcp.changed` notification payload (M14 §3). */
+export type McpChangedPayload = SdkMcpChangedPayload;
 
 /** `turn.started` — the moment a turn's clock starts. */
 export type TurnStarted = TurnStartedEventPayload;

@@ -44,6 +44,7 @@ from snowpea_core.server.gateway_handlers import register_gateway_handlers
 from snowpea_core.server.job_handlers import register_job_handlers
 from snowpea_core.server.lifecycle import Lifecycle
 from snowpea_core.server.lsp_handlers import register_lsp_handlers
+from snowpea_core.server.mcp_handlers import register_mcp_handlers
 from snowpea_core.server.protocol import (
     METHODS as PROTOCOL_METHODS,
 )
@@ -545,6 +546,7 @@ def build_dispatcher(core: Core) -> RpcDispatcher:
     register_team_handlers(dispatcher)
     register_settings_handlers(dispatcher)
     register_lsp_handlers(dispatcher)
+    register_mcp_handlers(dispatcher)
     register_update_handlers(dispatcher)
     dispatcher.register("provider.configure", provider_configure_handler)
     dispatcher.register("provider.loginWeb", provider_login_web_handler)

@@ -1352,6 +1352,244 @@ async def skill_command(
 
 
 # ---------------------------------------------------------------------------
+# mcp.* (M14 contract §4)
+# ---------------------------------------------------------------------------
+
+
+def _kv(values: list[str] | None, flag: str) -> dict[str, str]:
+    """``--env K=V`` repeated -> a dict; a value is never echoed back."""
+    out: dict[str, str] = {}
+    for item in values or []:
+        key, sep, value = item.partition("=")
+        if not sep or not key.strip():
+            raise ValueError(f"{flag} takes K=V, not {item!r}")
+        out[key.strip()] = value
+    return out
+
+
+def mcp_entry_params(args: argparse.Namespace) -> dict[str, Any]:
+    """The entry keys shared by ``mcp add`` and ``mcp test``, from the parsed args."""
+    rest = [str(item) for item in (getattr(args, "rest", None) or [])]
+    command = getattr(args, "command", None)
+    argv = [str(item) for item in (getattr(args, "args", None) or [])]
+    if rest and not command:
+        command, argv = rest[0], rest[1:] + argv
+    params: dict[str, Any] = {}
+    if command:
+        params["command"] = command
+        if argv:
+            params["args"] = argv
+    for flag, key in (
+        ("url", "url"),
+        ("cwd", "cwd"),
+        ("preset", "preset"),
+        ("permission", "permission"),
+        ("type", "type"),
+    ):
+        value = getattr(args, flag, None)
+        if value:
+            params[key] = value
+    env = _kv(getattr(args, "env", None), "--env")
+    headers = _kv(getattr(args, "header", None), "--header")
+    if env:
+        params["env"] = env
+    if headers:
+        params["headers"] = headers
+    if getattr(args, "timeout", None):
+        params["timeoutSec"] = float(args.timeout)
+    if getattr(args, "tool_timeout", None):
+        params["toolTimeoutSec"] = float(args.tool_timeout)
+    return params
+
+
+def format_mcp_row(server: dict[str, Any], width: int) -> str:
+    """One ``snowpea mcp list`` line."""
+    name = str(server.get("name", ""))
+    scope = str(server.get("scope", ""))
+    transport = str(server.get("transport", ""))
+    state = "disabled" if server.get("disabled") else str(server.get("state", ""))
+    count = server.get("toolCount", 0)
+    return f"{name:<{width}}  {scope:<8} {transport:<6} {state:<8} {count} tools".rstrip()
+
+
+def _print_mcp_detail(server: dict[str, Any]) -> None:
+    print(f"{server.get('name')} ({server.get('scope')}, {server.get('transport')})")
+    if server.get("plugin"):
+        print(f"  from plugin: {server['plugin']}")
+    if server.get("command"):
+        argv = " ".join(str(item) for item in server.get("args") or [])
+        print(f"  command: {server['command']} {argv}".rstrip())
+    if server.get("url"):
+        print(f"  url: {server['url']}")
+    for label, key in (("env", "envKeys"), ("headers", "headerKeys")):
+        keys = server.get(key) or []
+        if keys:
+            print(f"  {label}: " + ", ".join(f"{name}=***" for name in keys))
+    print(f"  permission: {server.get('permission')}")
+    print(f"  state: {'disabled' if server.get('disabled') else server.get('state')}")
+    if server.get("error"):
+        print(f"  error: {server['error']}")
+    for tool in server.get("tools") or []:
+        print(f"    {tool.get('name')} — {tool.get('description', '')}".rstrip(" —"))
+
+
+async def mcp_command(
+    action: str,
+    args: argparse.Namespace,
+    home: Path | str | None = None,
+    *,
+    as_json: bool = False,
+) -> int:
+    """``snowpea mcp list|get|add|add-json|remove|test|configure|reload|catalog``."""
+    workdir = str(Path.cwd())
+    name = str(getattr(args, "name", "") or "")
+    scope = "global" if getattr(args, "scope_global", False) else str(
+        getattr(args, "scope", "project") or "project"
+    )
+    method: str
+    params: dict[str, Any]
+    try:
+        if action in ("list", "get"):
+            method, params = "mcp.list", {"workdir": workdir}
+        elif action == "add":
+            params = {
+                "name": name,
+                "scope": scope,
+                "workdir": workdir,
+                "force": bool(getattr(args, "force", False)),
+                "test": not bool(getattr(args, "no_test", False)),
+                **mcp_entry_params(args),
+            }
+            method = "mcp.add"
+        elif action == "add-json":
+            entry = json.loads(str(getattr(args, "entry", "") or ""))
+            if not isinstance(entry, dict):
+                return _fail("snowpea mcp add-json needs a JSON object", EXIT_USAGE)
+            raw_tools = entry.get("tools")
+            tools: dict[str, Any] = raw_tools if isinstance(raw_tools, dict) else {}
+            params = {
+                "name": name,
+                "scope": scope,
+                "workdir": workdir,
+                "force": bool(getattr(args, "force", False)),
+                "test": not bool(getattr(args, "no_test", False)),
+            }
+            for key in ("type", "command", "args", "env", "url", "headers", "cwd", "disabled"):
+                if key in entry:
+                    params[key] = entry[key]
+            if tools.get("include"):
+                params["toolsInclude"] = list(tools["include"])
+            if tools.get("exclude"):
+                params["toolsExclude"] = list(tools["exclude"])
+            method = "mcp.add"
+        elif action == "remove":
+            method, params = "mcp.remove", {"name": name, "scope": scope, "workdir": workdir}
+        elif action == "test":
+            params = {"workdir": workdir, **mcp_entry_params(args)}
+            # ``snowpea mcp test -- python server.py`` probes a draft; argparse
+            # hands the first word to ``name``, so a draft wins over the name.
+            if name and not (params.get("command") or params.get("url")):
+                params["name"] = name
+            method = "mcp.test"
+        elif action == "configure":
+            keep = [str(item) for item in (getattr(args, "tools", None) or [])]
+            for item in str(getattr(args, "tools_csv", "") or "").split(","):
+                if item.strip():
+                    keep.append(item.strip())
+            method = "mcp.update"
+            params = {
+                "name": name,
+                "scope": scope,
+                "workdir": workdir,
+                "patch": {"toolsInclude": keep},
+            }
+        elif action in ("enable", "disable"):
+            method = "mcp.update"
+            params = {
+                "name": name,
+                "scope": scope,
+                "workdir": workdir,
+                "patch": {"disabled": action == "disable"},
+            }
+        elif action == "reload":
+            method, params = "mcp.reload", {"workdir": workdir}
+            if name:
+                params["name"] = name
+        elif action == "catalog":
+            method, params = "mcp.catalog", {}
+        else:
+            return _fail(
+                "usage: snowpea mcp list|get <name>|add <name> -- <command>|add-json <name> "
+                "'<json>'|remove <name>|test <name>|configure <name>|enable <name>|"
+                "disable <name>|reload [name]|catalog",
+                EXIT_USAGE,
+            )
+    except (ValueError, json.JSONDecodeError) as exc:
+        return _fail(f"snowpea mcp {action}: {exc}", EXIT_USAGE)
+
+    try:
+        result = await _call(home, method, params)
+    except DaemonError as exc:
+        return _fail(str(exc), EXIT_NO_DAEMON)
+    except RpcCallError as exc:
+        return _fail(f"{method} failed ({exc.code}): {exc.message}", EXIT_USAGE)
+
+    if action == "get":
+        servers = [row for row in (result.get("servers") or []) if row.get("name") == name]
+        if not servers:
+            return _fail(f"no MCP server called {name}", EXIT_USAGE)
+        if as_json:
+            _print_json(servers[0])
+        else:
+            _print_mcp_detail(servers[0])
+        return EXIT_OK
+    if as_json:
+        _print_json(result)
+        return EXIT_OK
+
+    if action == "list":
+        servers = list(result.get("servers") or [])
+        if not servers:
+            print("no MCP servers configured")
+            return EXIT_OK
+        width = max(len(str(row.get("name", ""))) for row in servers)
+        for row in servers:
+            print(format_mcp_row(row, width))
+        return EXIT_OK
+    if action == "catalog":
+        entries = list(result.get("entries") or [])
+        width = max((len(str(row.get("id", ""))) for row in entries), default=0)
+        for row in entries:
+            needs = row.get("needs") or []
+            suffix = f" (needs {', '.join(str(n) for n in needs)})" if needs else ""
+            print(f"{str(row.get('id', '')):<{width}}  {row.get('description', '')}{suffix}")
+        return EXIT_OK
+    if action == "test":
+        if result.get("ok"):
+            found = list(result.get("tools") or [])
+            print(f"ok — {len(found)} tools in {result.get('elapsedMs', 0)} ms")
+            for tool in found:
+                print(f"  {tool.get('name')} — {tool.get('description', '')}".rstrip(" —"))
+            return EXIT_OK
+        return _fail(f"failed: {result.get('error')}", EXIT_USAGE)
+    if action in ("add", "add-json"):
+        found = list(result.get("tools") or [])
+        listing = ", ".join(str(tool.get("name", "")) for tool in found)
+        suffix = f": {listing}" if listing else ""
+        print(f"Connected — {len(found)} tools{suffix} … saved to {result.get('path')}")
+        for warning in result.get("warnings") or []:
+            print(f"warning: {warning}", file=sys.stderr)
+        return EXIT_OK
+    if action == "reload":
+        servers = list(result.get("servers") or [])
+        names = ", ".join(str(item) for item in servers)
+        print(f"reloaded {names}" if servers else "nothing to reload")
+        return EXIT_OK
+    print(f"{action}d {name}" if action != "configure" else f"configured {name}")
+    return EXIT_OK
+
+
+# ---------------------------------------------------------------------------
 # skill publish / skill rate — talk to the hosted registry directly, no daemon
 # ---------------------------------------------------------------------------
 
@@ -1998,6 +2236,118 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
     skill_sources.add_argument("--registry", default=None, help="registry base URL override")
     skill_sources.add_argument("--json", dest="sub_json", action="store_true", help="emit JSON")
 
+    mcp = sub.add_parser("mcp", help="add, inspect and test MCP servers")
+    mcp_sub = mcp.add_subparsers(dest="action", metavar="<action>")
+
+    def _mcp_scope(target: argparse.ArgumentParser) -> None:
+        target.add_argument(
+            "--scope",
+            choices=("project", "global"),
+            default="project",
+            help="which .mcp.json to write: the project's (default) or $SNOWPEA_HOME's",
+        )
+        target.add_argument(
+            "--global",
+            dest="scope_global",
+            action="store_true",
+            help="shorthand for --scope global",
+        )
+
+    def _mcp_entry(target: argparse.ArgumentParser) -> None:
+        target.add_argument("--command", default=None, help="executable for a stdio server")
+        target.add_argument("--args", nargs="*", default=None, help="arguments for --command")
+        target.add_argument("--url", default=None, help="endpoint for an http or sse server")
+        target.add_argument(
+            "--type", choices=("stdio", "http", "sse"), default=None, help="force a transport"
+        )
+        target.add_argument(
+            "--env", action="append", default=None, metavar="K=V", help="environment variable"
+        )
+        target.add_argument(
+            "--header", action="append", default=None, metavar="K=V", help="HTTP header"
+        )
+        target.add_argument("--cwd", default=None, help="working directory for a stdio server")
+        target.add_argument("--timeout", default=None, help="startup cap in seconds")
+        target.add_argument("--tool-timeout", default=None, help="per-call cap in seconds")
+
+    mcp_list = mcp_sub.add_parser("list", help="list every configured MCP server")
+    mcp_list.add_argument("--json", dest="sub_json", action="store_true", help="emit JSON")
+
+    mcp_get = mcp_sub.add_parser("get", help="show one server, with its tools")
+    mcp_get.add_argument("name")
+    mcp_get.add_argument("--json", dest="sub_json", action="store_true", help="emit JSON")
+
+    mcp_add = mcp_sub.add_parser("add", help="write a server into .mcp.json and start it")
+    mcp_add.add_argument("name")
+    mcp_add.add_argument(
+        "rest", nargs="*", help="the command and its arguments, after a bare --"
+    )
+    _mcp_scope(mcp_add)
+    _mcp_entry(mcp_add)
+    mcp_add.add_argument("--preset", default=None, help="catalog id to start from")
+    mcp_add.add_argument("--permission", default=None, help="permission tag for the server's tools")
+    mcp_add.add_argument("--force", action="store_true", help="replace an entry, accept warnings")
+    mcp_add.add_argument(
+        "--no-test", dest="no_test", action="store_true", help="save without probing first"
+    )
+    mcp_add.add_argument("--json", dest="sub_json", action="store_true", help="emit JSON")
+
+    mcp_add_json = mcp_sub.add_parser("add-json", help="write a raw .mcp.json entry")
+    mcp_add_json.add_argument("name")
+    mcp_add_json.add_argument("entry", help="the entry as a JSON object")
+    _mcp_scope(mcp_add_json)
+    mcp_add_json.add_argument("--force", action="store_true", help="replace an existing entry")
+    mcp_add_json.add_argument(
+        "--no-test", dest="no_test", action="store_true", help="save without probing first"
+    )
+    mcp_add_json.add_argument("--json", dest="sub_json", action="store_true", help="emit JSON")
+
+    mcp_remove = mcp_sub.add_parser("remove", help="delete an entry and stop the server")
+    mcp_remove.add_argument("name")
+    _mcp_scope(mcp_remove)
+    mcp_remove.add_argument("--json", dest="sub_json", action="store_true", help="emit JSON")
+
+    mcp_test = mcp_sub.add_parser("test", help="probe a saved server or an unsaved draft")
+    mcp_test.add_argument(
+        "name",
+        nargs="?",
+        default="",
+        help="a saved server; omit it to probe a draft given after -- or with --command/--url",
+    )
+    _mcp_entry(mcp_test)
+    mcp_test.add_argument("--json", dest="sub_json", action="store_true", help="emit JSON")
+
+    mcp_configure = mcp_sub.add_parser("configure", help="choose which tools a server registers")
+    mcp_configure.add_argument("name")
+    mcp_configure.add_argument("tools", nargs="*", help="tool names to keep; none means all")
+    mcp_configure.add_argument(
+        "--tools",
+        dest="tools_csv",
+        default=None,
+        metavar="a,b",
+        help="comma-separated tool names to keep",
+    )
+    _mcp_scope(mcp_configure)
+    mcp_configure.add_argument("--json", dest="sub_json", action="store_true", help="emit JSON")
+
+    for verb, help_text in (
+        ("enable", "start a disabled server again"),
+        ("disable", "keep the entry but never start it"),
+    ):
+        action_parser = mcp_sub.add_parser(verb, help=help_text)
+        action_parser.add_argument("name")
+        _mcp_scope(action_parser)
+        action_parser.add_argument(
+            "--json", dest="sub_json", action="store_true", help="emit JSON"
+        )
+
+    mcp_reload = mcp_sub.add_parser("reload", help="restart one server, or all of them")
+    mcp_reload.add_argument("name", nargs="?", default="")
+    mcp_reload.add_argument("--json", dest="sub_json", action="store_true", help="emit JSON")
+
+    mcp_catalog = mcp_sub.add_parser("catalog", help="list the curated MCP server presets")
+    mcp_catalog.add_argument("--json", dest="sub_json", action="store_true", help="emit JSON")
+
     daemon = sub.add_parser("daemon", help="control the core daemon")
     daemon_sub = daemon.add_subparsers(dest="action", metavar="<action>")
     status_parser = daemon_sub.add_parser("status", help="show the running daemon")
@@ -2353,6 +2703,8 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
             as_json=as_json,
             source=getattr(args, "source", None) if action == "search" else None,
         )
+    if subcommand == "mcp":
+        return await mcp_command(str(action or ""), args, home, as_json=as_json)
     if subcommand == "daemon":
         if action == "status":
             return await daemon_status(home, as_json=as_json)
@@ -2386,6 +2738,9 @@ __all__ = [
     "job_list",
     "job_run",
     "job_schedule",
+    "mcp_command",
+    "mcp_entry_params",
+    "format_mcp_row",
     "parse_target",
     "placeholder",
     "provider_list",

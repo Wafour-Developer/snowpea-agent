@@ -366,6 +366,18 @@ Stopping transcribes and puts the text in the draft rather than sending it, beca
 voice input needs speech-to-text: no transcription backend: install the whisper CLI, set an OpenAI API key, or …
 ```
 
+## MCP servers
+
+`/mcp` manages the MCP servers this session can call. `/mcp` or `/mcp list` prints the table; typing `/mcp ` offers the sub-actions, and the ones that take a server name complete it from the servers already configured.
+
+`/mcp add` with nothing after it opens a form instead of asking you to remember the syntax: a name, then **Command** or **URL**, then the command line (split into arguments the way a shell would, but never run through one) or the endpoint, then any `KEY=value` variables — headers for a URL server — and finally whether the entry goes in this project's `.mcp.json` or your global one. Values you type are shown back as `KEY=•••`; the file keeps them, the screen never repeats them.
+
+The draft is then probed with `mcp.test` before anything is written. On success the form says `Connected — N tools: …` and offers **Enable all**, **Select tools** (a checklist, saved as `tools.include`) or **Cancel**. On failure it shows the error and offers **Retry**, **Save anyway** — which writes the entry without a working probe, and asks a second time when the failure was a safety finding — or **Cancel**. Esc cancels at any step and writes nothing.
+
+`/mcp catalog` lists the curated presets; picking one opens the same form filled in with its command and the variables it needs. `/mcp configure <name>` with no tool names opens the checklist for a server that is already saved.
+
+The HUD shows `mcp 2/3` — servers ready out of servers configured — and hides the segment when none are configured. A server that stops working is reported once in the transcript rather than on every retry.
+
 ## Full screen
 
 `--fullscreen` switches to an alternate-buffer layout: the transcript is a window the UI scrolls itself with `PgUp`/`PgDn` and `Ctrl+U`/`Ctrl+D`, and nothing is left in your scrollback when you quit.
@@ -429,5 +441,7 @@ The input, connection/model status, mode summary, and agent list at the bottom a
 The first `snowpea setup` creates a `default` team from the built-in roles. `/team create delivery architect executor verifier` creates a project team from existing agents, activates it immediately, and rejects unknown names. Manage it with `/team list`, `/team use <name>`, and `/team delete <name>`. With a team active, the footer shows its name and members only, and automatic delegation is confined to that roster.
 
 Type `$executor fix the tests` (or `/delegate executor fix the tests`) to delegate directly without a long command. Both run an ordinary turn: the daemon parses the prefix itself, so this behaves the same from any client, and the turn calls `delegate_task`, waits for the child, and answers with what it reported — not silence once the child finishes. Unknown or out-of-team names fail instead of silently becoming a generic agent. Internal delegation that omits a name deterministically uses `executor` when present, otherwise the first team member.
+
+A child always comes back with something to read. Its brief says how many tool rounds it has (see [tool rounds](setup.md#output-budget-and-thinking)), and if it spends them all it is asked — with its tools switched off — to report what it did, what it found and what remains before its turn ends. What the delegating agent receives is that report under three lines of `status:` / `reason:` / `roundsUsed:`, plus the last few tool calls the child made when it stopped early. A delegation that ran out of budget says so instead of coming back empty, so the work carries on from where the child left it rather than starting again.
 
 `delegate_task` takes an optional `title`: one line, in your language, saying what this delegation is. It is what the agent panel and the scrollback show while the child runs — `요약 표시 방식 조사` rather than `Ran delegate_task`. Without it the row falls back to the verb and the agent's name. The output language is appended to the brief automatically; see [reply language](setup.md#reply-language).

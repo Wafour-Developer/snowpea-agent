@@ -68,6 +68,20 @@ snowpea commands list --json
 
 生成出来的 agent 会立即成为一个可用的 `delegate_task` 目标，无需重新加载。
 
+### MCP servers
+
+| Command | What it does |
+|---|---|
+| `/mcp` or `/mcp list` | table of every configured server: name, scope, transport, state, tool count |
+| `/mcp get <name>` | one server in full, with its tools; `env` and `headers` show key names only |
+| `/mcp add <name> -- <command> [args…]` | add a stdio server to `<project>/.mcp.json` (`--global` writes `$SNOWPEA_HOME/.mcp.json`) |
+| `/mcp add <name> --url <https://…>` | add a remote server; `--header K=V` for its credentials |
+| `/mcp test <name>` | start it, list its tools, report the spawn error if it fails |
+| `/mcp enable\|disable <name>` | keep the entry but stop starting it, and back again |
+| `/mcp remove <name>` | delete the entry and stop the server |
+| `/mcp reload [name]` | restart one server, or re-read every declaration |
+| `/mcp catalog` | the curated presets `--preset` accepts |
+
 ### 调度
 
 | Command | What it does |

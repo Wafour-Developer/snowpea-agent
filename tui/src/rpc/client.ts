@@ -15,6 +15,7 @@ import {
   type ApprovalRequestParams,
   type ApprovalResponse,
   type ConnectFn,
+  type McpChangedPayload,
   type Mode,
   type QuestionRequestParams,
   type QuestionResponse,
@@ -75,6 +76,8 @@ export interface TuiClientListeners {
   onUpdateProgress?: (params: UpdateProgress) => void;
   /** A setting changed on the daemon; capabilities may have moved with it. */
   onSettingsChanged?: (params: { keys?: string[] }) => void;
+  /** An MCP server was added, removed, or changed state (M14 §3). */
+  onMcpChanged?: (params: McpChangedPayload) => void;
 }
 
 export class TuiClient {
@@ -130,6 +133,7 @@ export class TuiClient {
     client.on("approval.pending", (params: any) => this.listeners.onApprovalPending?.(params));
     client.on("question.resolved", (params: any) => this.listeners.onQuestionResolved?.(params));
     client.on("system.updateProgress", (params: any) => this.listeners.onUpdateProgress?.(params));
+    client.on("mcp.changed", (params) => this.listeners.onMcpChanged?.(params));
     client.on("settings.changed", (params: any) => {
       void this.loadUiLanguage();
       this.listeners.onSettingsChanged?.(params ?? {});

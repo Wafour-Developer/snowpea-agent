@@ -17,11 +17,13 @@ import asyncio
 import contextlib
 import json
 import logging
+import sys
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from snowpea_core.server.protocol import PermissionTag
+from snowpea_core.server.protocol import McpState, PermissionTag
 from snowpea_core.tools.registry import Tool, ToolContext, ToolResult
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -36,10 +38,41 @@ CONFIG_NAME = ".mcp.json"
 DEFAULT_PERMISSION: PermissionTag = "network"
 START_TIMEOUT = 30.0
 CALL_TIMEOUT = 300.0
+#: Keys ``.mcp.json`` entries may carry (M14 §1b); anything else is preserved
+#: verbatim when an entry is rewritten but ignored by the client.
+ENTRY_KEYS: tuple[str, ...] = (
+    "type",
+    "command",
+    "args",
+    "env",
+    "url",
+    "headers",
+    "cwd",
+    "disabled",
+    "timeoutSec",
+    "toolTimeoutSec",
+    "tools",
+)
 
 
 class McpError(RuntimeError):
     """A server could not be started, or a call to it failed."""
+
+
+def _str_map(value: Any) -> dict[str, str]:
+    return {str(k): str(v) for k, v in value.items()} if isinstance(value, dict) else {}
+
+
+def _str_list(value: Any) -> list[str]:
+    return [str(item) for item in value] if isinstance(value, list) else []
+
+
+def _seconds(value: Any) -> float | None:
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        return None
+    return seconds if seconds > 0 else None
 
 
 @dataclass
@@ -52,10 +85,63 @@ class McpServerConfig:
     env: dict[str, str] = field(default_factory=dict)
     url: str | None = None
     cwd: str | None = None
+    #: ``Authorization``-style headers for a ``url`` server (M14 §2).
+    headers: dict[str, str] = field(default_factory=dict)
+    #: Kept in the file but never started (M14 §3, ``mcp.update``).
+    disabled: bool = False
+    #: Explicit ``stdio``/``http``/``sse``; inferred from command/url when absent.
+    kind: str | None = None
+    #: Startup and ``tools/list`` cap, then per-call cap; ``None`` = the default.
+    timeout_sec: float | None = None
+    tool_timeout_sec: float | None = None
+    #: Tool allow/deny lists applied when the server's tools are registered.
+    tools_include: list[str] = field(default_factory=list)
+    tools_exclude: list[str] = field(default_factory=list)
 
     @property
     def transport(self) -> str:
-        return "stdio" if self.command else "sse"
+        """``stdio``, ``http`` or ``sse`` — what :class:`McpServer` will speak."""
+        if self.kind in ("stdio", "http", "sse"):
+            return self.kind
+        return "stdio" if self.command else "http"
+
+    def keeps_tool(self, tool: str) -> bool:
+        """Whether ``tool`` survives this server's include/exclude lists."""
+        if self.tools_include and tool not in self.tools_include:
+            return False
+        return tool not in self.tools_exclude
+
+    def to_entry(self) -> dict[str, Any]:
+        """The ``.mcp.json`` entry this config came from (or would be written as)."""
+        entry: dict[str, Any] = {}
+        if self.kind:
+            entry["type"] = self.kind
+        if self.command:
+            entry["command"] = self.command
+        if self.args:
+            entry["args"] = list(self.args)
+        if self.env:
+            entry["env"] = dict(self.env)
+        if self.url:
+            entry["url"] = self.url
+        if self.headers:
+            entry["headers"] = dict(self.headers)
+        if self.cwd:
+            entry["cwd"] = self.cwd
+        if self.disabled:
+            entry["disabled"] = True
+        if self.timeout_sec:
+            entry["timeoutSec"] = self.timeout_sec
+        if self.tool_timeout_sec:
+            entry["toolTimeoutSec"] = self.tool_timeout_sec
+        tools: dict[str, Any] = {}
+        if self.tools_include:
+            tools["include"] = list(self.tools_include)
+        if self.tools_exclude:
+            tools["exclude"] = list(self.tools_exclude)
+        if tools:
+            entry["tools"] = tools
+        return entry
 
     @classmethod
     def parse(cls, name: str, raw: dict[str, Any]) -> McpServerConfig | None:
@@ -63,15 +149,23 @@ class McpServerConfig:
         url = raw.get("url")
         if not command and not url:
             return None
-        args = raw.get("args") or []
-        env = raw.get("env") or {}
+        kind = raw.get("type")
+        raw_tools = raw.get("tools")
+        tools: dict[str, Any] = raw_tools if isinstance(raw_tools, dict) else {}
         return cls(
             name=name,
             command=str(command) if command else None,
-            args=[str(a) for a in args] if isinstance(args, list) else [],
-            env={str(k): str(v) for k, v in env.items()} if isinstance(env, dict) else {},
+            args=_str_list(raw.get("args")),
+            env=_str_map(raw.get("env")),
             url=str(url) if url else None,
             cwd=str(raw["cwd"]) if raw.get("cwd") else None,
+            headers=_str_map(raw.get("headers")),
+            disabled=bool(raw.get("disabled")),
+            kind=str(kind) if kind in ("stdio", "http", "sse") else None,
+            timeout_sec=_seconds(raw.get("timeoutSec")),
+            tool_timeout_sec=_seconds(raw.get("toolTimeoutSec")),
+            tools_include=_str_list(tools.get("include")),
+            tools_exclude=_str_list(tools.get("exclude")),
         )
 
 
@@ -111,9 +205,16 @@ def discover(home: Path | str | None, workdir: Path | str | None) -> dict[str, M
 class McpServer:
     """A started MCP server plus its tool list."""
 
-    def __init__(self, config: McpServerConfig) -> None:
+    def __init__(self, config: McpServerConfig, *, announce: bool = True) -> None:
         self.config = config
+        #: ``mcp.test`` probes a draft with a throwaway server; a draft must
+        #: not publish state transitions under a name nobody configured.
+        self.announce = announce
         self.tools: list[dict[str, Any]] = []
+        #: What a client sees in ``mcp.list``; :meth:`_set_state` publishes it.
+        self.state: McpState = "stopped"
+        #: Why the last start failed, kept so ``mcp.list`` can explain a dot.
+        self.error: str | None = None
         self._session: Any = None
         self._task: asyncio.Task[None] | None = None
         self._stop = asyncio.Event()
@@ -124,46 +225,90 @@ class McpServer:
     def running(self) -> bool:
         return self._session is not None
 
+    @property
+    def start_timeout(self) -> float:
+        return self.config.timeout_sec or START_TIMEOUT
+
+    def visible_tools(self) -> list[dict[str, Any]]:
+        """The tools this server exposes after its include/exclude lists."""
+        return [tool for tool in self.tools if self.config.keeps_tool(str(tool.get("name", "")))]
+
+    def _set_state(self, state: McpState, error: str | None = None) -> None:
+        """Record a transition and tell whoever is listening (M14 §3)."""
+        self.state = state
+        self.error = error
+        if self.announce:
+            MANAGER.announce(self)
+
     async def start(self) -> None:
         async with self._lock:
             if self.running:
                 return
-            if self.config.transport != "stdio":
-                raise McpError(
-                    f"{self.config.name}: the SSE transport is not implemented yet; "
-                    "declare the server with a command instead"
-                )
+            if self.config.disabled:
+                raise McpError(f"{self.config.name}: the server is disabled")
             self._stop = asyncio.Event()
             self._ready = asyncio.get_running_loop().create_future()
+            self._set_state("starting")
             self._task = asyncio.create_task(self._supervise(), name=f"mcp:{self.config.name}")
             try:
-                await asyncio.wait_for(asyncio.shield(self._ready), START_TIMEOUT)
+                await asyncio.wait_for(asyncio.shield(self._ready), self.start_timeout)
             except TimeoutError as exc:
                 await self._abort()
-                raise McpError(
-                    f"{self.config.name}: did not start within {START_TIMEOUT:g}s"
-                ) from exc
+                message = f"{self.config.name}: did not start within {self.start_timeout:g}s"
+                self._set_state("error", message)
+                raise McpError(message) from exc
+            except McpError as exc:
+                self._set_state("error", str(exc))
+                raise
+            self._set_state("ready")
+
+    @contextlib.asynccontextmanager
+    async def _streams(self) -> Any:
+        """The transport's ``(read, write)`` pair for this server's config."""
+        if self.config.transport == "stdio":
+            from mcp import StdioServerParameters
+            from mcp.client.stdio import stdio_client
+
+            params = StdioServerParameters(
+                command=self.config.command or "",
+                args=list(self.config.args),
+                env=dict(self.config.env) or None,
+                cwd=self.config.cwd,
+            )
+            # ``errlog`` defaults to whatever ``sys.stderr`` was at import
+            # time; binding it per call keeps a server's stderr going to the
+            # stream that is live now rather than one closed since.
+            async with stdio_client(params, errlog=sys.stderr) as streams:
+                yield streams[0], streams[1]
+            return
+        url = self.config.url or ""
+        headers = dict(self.config.headers) or None
+        if self.config.transport == "sse":
+            from mcp.client.sse import sse_client
+
+            async with sse_client(url, headers=headers) as streams:
+                yield streams[0], streams[1]
+            return
+        from mcp.client.streamable_http import streamable_http_client
+        from mcp.shared._httpx_utils import create_mcp_http_client
+
+        async with create_mcp_http_client(headers=headers) as http_client:
+            async with streamable_http_client(url, http_client=http_client) as streams:
+                yield streams[0], streams[1]
 
     async def _supervise(self) -> None:
-        """Hold the stdio session open until :meth:`close` sets the event."""
+        """Hold the session open until :meth:`close` sets the event."""
         ready = self._ready
         assert ready is not None
         try:
-            from mcp import ClientSession, StdioServerParameters
-            from mcp.client.stdio import stdio_client
+            from mcp import ClientSession
         except ImportError as exc:  # pragma: no cover - mcp is a hard dependency
             if not ready.done():
                 ready.set_exception(McpError(f"the mcp package is not installed: {exc}"))
             return
 
-        params = StdioServerParameters(
-            command=self.config.command or "",
-            args=list(self.config.args),
-            env=dict(self.config.env) or None,
-            cwd=self.config.cwd,
-        )
         try:
-            async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
+            async with self._streams() as (read, write), ClientSession(read, write) as session:
                 await session.initialize()
                 listing = await session.list_tools()
                 self.tools = [
@@ -193,7 +338,8 @@ class McpServer:
         session = self._session
         if session is None:
             raise McpError(f"{self.config.name}: the server is not running")
-        result = await asyncio.wait_for(session.call_tool(tool, args), CALL_TIMEOUT)
+        timeout = self.config.tool_timeout_sec or CALL_TIMEOUT
+        result = await asyncio.wait_for(session.call_tool(tool, args), timeout)
         return render_content(result)
 
     async def _abort(self) -> None:
@@ -217,6 +363,7 @@ class McpServer:
             except (TimeoutError, asyncio.CancelledError, Exception):  # noqa: BLE001
                 task.cancel()
         self._session = None
+        self._set_state("stopped")
 
 
 def _schema_of(tool: Any) -> dict[str, Any]:
@@ -262,11 +409,33 @@ def render_content(result: Any) -> str:
 # ---------------------------------------------------------------------------
 
 
+#: What :meth:`McpManager.announce` hands a listener on every state transition.
+StateListener = Callable[["McpServer"], Coroutine[Any, Any, None]]
+
+
 class McpManager:
     """Every MCP server this daemon knows about, started lazily and cached."""
 
     def __init__(self) -> None:
         self._servers: dict[str, McpServer] = {}
+        #: Called on every state transition; the daemon registers the
+        #: ``mcp.changed`` broadcaster here (M14 §3).
+        self.listeners: list[StateListener] = []
+        #: Live notification tasks, held so the loop cannot collect them.
+        self._tasks: set[asyncio.Task[None]] = set()
+
+    def announce(self, server: McpServer) -> None:
+        """Fan a state transition out to the listeners, never blocking."""
+        if not self.listeners:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:  # pragma: no cover - no loop in a sync test
+            return
+        for listener in list(self.listeners):
+            task: asyncio.Task[None] = loop.create_task(listener(server))
+            self._tasks.add(task)
+            task.add_done_callback(self._tasks.discard)
 
     def register(self, config: McpServerConfig) -> McpServer:
         existing = self._servers.get(config.name)
@@ -286,6 +455,14 @@ class McpManager:
     def names(self) -> list[str]:
         return list(self._servers)
 
+    async def remove(self, name: str) -> bool:
+        """Stop one server and forget it; ``False`` when it was not running."""
+        server = self._servers.pop(name, None)
+        if server is None:
+            return False
+        await server.close()
+        return True
+
     async def close_all(self) -> None:
         for server in list(self._servers.values()):
             await server.close()
@@ -300,7 +477,7 @@ def tool_name(server: str, tool: str) -> str:
     return f"{TOOL_PREFIX}{server}__{tool}"
 
 
-def _permission_for(core: Core, server: str) -> PermissionTag:
+def permission_for(core: Core, server: str) -> PermissionTag:
     table = getattr(getattr(core.settings, "mcp", None), "permissions", None) or {}
     value = table.get(server) if isinstance(table, dict) else None
     allowed: tuple[PermissionTag, ...] = ("read", "write", "exec", "network", "send")
@@ -352,6 +529,15 @@ async def sync_tools(core: Core, workdir: Path | str | None = None) -> list[str]
     return registered
 
 
+def drop_tools(core: Core, name: str) -> list[str]:
+    """Unregister every tool a server contributed; returns their names."""
+    source = f"mcp:{name}"
+    dropped = [info.name for info in core.tools.list() if info.source == source]
+    for tool in dropped:
+        core.tools.unregister(tool)
+    return dropped
+
+
 async def register_config(core: Core, config: McpServerConfig) -> list[str]:
     """Start one server and register its tools; returns the tool names.
 
@@ -360,15 +546,17 @@ async def register_config(core: Core, config: McpServerConfig) -> list[str]:
     registering tools of its own.  A server that will not start is logged and
     contributes nothing.
     """
+    if config.disabled:
+        return []
     server = MANAGER.register(config)
     try:
         await server.start()
     except McpError as exc:
         log.info("skipping mcp server %s: %s", config.name, exc)
         return []
-    permission = _permission_for(core, config.name)
+    permission = permission_for(core, config.name)
     registered: list[str] = []
-    for spec in server.tools:
+    for spec in server.visible_tools():
         name = tool_name(config.name, str(spec["name"]))
         core.tools.register(
             Tool(
@@ -387,6 +575,7 @@ async def register_config(core: Core, config: McpServerConfig) -> list[str]:
 
 __all__ = [
     "CONFIG_NAME",
+    "ENTRY_KEYS",
     "MANAGER",
     "TOOL_PREFIX",
     "McpError",
@@ -394,6 +583,8 @@ __all__ = [
     "McpServer",
     "McpServerConfig",
     "discover",
+    "drop_tools",
+    "permission_for",
     "register_config",
     "render_content",
     "sync_tools",
