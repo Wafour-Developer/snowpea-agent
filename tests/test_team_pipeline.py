@@ -210,6 +210,72 @@ def test_a_handoff_is_trimmed_to_twenty_lines() -> None:
     assert handoff("implement", "   ") == ""
 
 
+def test_extract_handoff_fenced_and_fallback() -> None:
+    fenced = (
+        "Some preamble text\n"
+        "```handoff\n"
+        "Decided: keep existing architecture\n"
+        "Files touched: core/loop.py\n"
+        "Findings: all good\n"
+        "Remaining: nothing\n"
+        "Risks: none\n"
+        "```\n"
+        "Some trailing text\n"
+    )
+    extracted = team_pipeline.extract_handoff(fenced)
+    assert "Decided: keep existing architecture" in extracted
+    assert "Files touched: core/loop.py" in extracted
+    assert "Some preamble text" not in extracted
+    assert "Some trailing text" not in extracted
+
+    # Fallback to first 20 non-empty lines
+    plain = "\n".join(f"line {n}" for n in range(50))
+    fallback = team_pipeline.extract_handoff(plain, limit=20)
+    lines = fallback.splitlines()
+    assert len(lines) == 20
+    assert lines[0] == "line 0"
+    assert lines[-1] == "line 19"
+
+
+def test_spill_diff_caps_and_spills(tmp_path: Path) -> None:
+    short_diff = "diff --git a/foo.py b/foo.py\n+hello"
+    assert team_pipeline.spill_diff(short_diff, home=tmp_path, cap=100) == short_diff
+
+    # Long diff over cap
+    long_diff = "diff --git a/foo.py b/foo.py\n" + "\n".join(f"+line {n}" for n in range(500))
+    spilled = team_pipeline.spill_diff(long_diff, home=tmp_path, cap=200)
+    assert len(spilled) < len(long_diff)
+    assert "[… " in spilled
+    assert "lines omitted — read_file(" in spilled
+
+
+def test_stage_table_and_handoff_paths_in_report() -> None:
+    plan = team_pipeline.stage_assignments(["executor", "test-engineer"])
+    run = team_pipeline.PipelineRun(task="test task", plan=plan, id="tr-12345678")
+    run.handoff_paths["explore"] = "/path/to/.snowpea/handoffs/tr-12345678/explore.md"
+    run.stages.append(
+        team_pipeline.StageResult(
+            stage="explore",
+            agent="explorer",
+            ok=True,
+            text="all good",
+            rounds=3,
+            budget=8,
+            input_tokens=100,
+            output_tokens=50,
+        )
+    )
+    table = team_pipeline._format_stage_table(run.stages)
+    assert "| Stage | Agent | Rounds/Budget | Input Tokens | Output Tokens |" in table
+    assert "| explore | explorer | 3/8 | 100 | 50 |" in table
+
+    tp = team_pipeline.TeamPipeline.__new__(team_pipeline.TeamPipeline)
+    rep = tp.report(run)
+    assert "Stage hand-offs:" in rep
+    assert "- explore: /path/to/.snowpea/handoffs/tr-12345678/explore.md" in rep
+    assert "| explore | explorer | 3/8 | 100 | 50 |" in rep
+
+
 def test_the_verdict_is_read_from_the_reviewer_s_own_answer() -> None:
     assert team_pipeline._verdict("VERDICT: APPROVE\nnothing to raise") == "APPROVE"
     assert team_pipeline._verdict("VERDICT: REQUEST_CHANGES\n…") == "REQUEST_CHANGES"
@@ -377,6 +443,10 @@ async def test_the_pipeline_plans_implements_tests_and_reviews(
     assert "verify stage skipped: no verifier on the roster" in report
     assert "Nothing was left unfinished." in report
     assert "T1" in report and "T2" in report
+    assert "Stage hand-offs:" in report
+    assert "Stage telemetry:" in report
+    handoff_files = list((project / ".snowpea" / "handoffs").glob("*/*.md"))
+    assert handoff_files
 
 
 async def test_every_stage_is_a_subagent_the_surface_can_render(

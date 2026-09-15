@@ -150,11 +150,91 @@ async def test_a_child_gets_more_rounds_than_the_session_default(
 async def test_tool_rounds_survives_a_definition_round_trip() -> None:
     defn = parse_agent_text("---\nname: reader\ntool_rounds: 9\n---\nYou read things.")
     assert defn.tool_rounds == 9
+    assert defn.max_tool_rounds == 9
     assert parse_agent_text(render_agent_md(defn)).tool_rounds == 9
     # A definition that says nothing inherits, and writes nothing back.
     plain = parse_agent_text("---\nname: plain\n---\nYou do things.")
     assert plain.tool_rounds is None
+    assert plain.max_tool_rounds is None
     assert "tool_rounds" not in render_agent_md(plain)
+
+
+async def test_max_tool_rounds_definition_round_trip() -> None:
+    defn = parse_agent_text("---\nname: reader\nmax_tool_rounds: 9\n---\nYou read things.")
+    assert defn.max_tool_rounds == 9
+    assert defn.tool_rounds == 9
+    rendered = render_agent_md(defn)
+    assert "max_tool_rounds: 9" in rendered
+    round_tripped = parse_agent_text(rendered)
+    assert round_tripped.max_tool_rounds == 9
+    assert round_tripped.tool_rounds == 9
+
+
+async def test_role_defaults_for_subagents(daemon: Daemon, workdir: Path) -> None:
+    core = daemon.core
+    assert core is not None
+    core.settings.agents.toolRounds = None
+    core.settings.agents.maxToolRounds = None
+    core.settings.agents.maxToolRoundsBy = {}
+
+    session = await core.sessions.create(workdir, mode="auto")
+    session.is_subagent = True
+
+    for role, expected in [
+        ("explore", 8),
+        ("explorer", 8),
+        ("reviewer", 12),
+        ("critic", 12),
+        ("test-engineer", 15),
+        ("verifier", 10),
+        ("architect", 10),
+        ("executor", 32),
+        ("unknown-role", 32),
+    ]:
+        session.agent = role
+        assert tool_rounds_for(core, session) == expected
+
+
+async def test_max_tool_rounds_settings_precedence(daemon: Daemon, workdir: Path) -> None:
+    core = daemon.core
+    assert core is not None
+    core.settings.agents.toolRounds = None
+    session = await core.sessions.create(workdir, mode="auto")
+    session.is_subagent = True
+    session.agent = "explore"
+
+    # Default role budget
+    assert tool_rounds_for(core, session) == 8
+
+    # agents.maxToolRounds overrides role default
+    core.settings.agents.maxToolRounds = 14
+    assert tool_rounds_for(core, session) == 14
+
+    # Definition max_tool_rounds overrides global setting
+    session.max_tool_rounds = 5
+    assert tool_rounds_for(core, session) == 5
+
+    # agents.maxToolRoundsBy overrides definition
+    core.settings.agents.maxToolRoundsBy = {"explore": 6}
+    assert tool_rounds_for(core, session) == 6
+
+
+async def test_subagent_with_max_tool_rounds_stops_at_budget(daemon: Daemon, workdir: Path) -> None:
+    core = daemon.core
+    assert core is not None
+    parent = await core.sessions.create(workdir, mode="auto")
+    everything = Recorder()
+    core.hub.subscribe(everything, None)
+
+    manager = get_manager(core)
+    core.settings.agents.toolRounds = None
+    core.settings.agents.maxToolRoundsBy = {"explore": 3}
+
+    result = await manager.run(parent, "endless child that never stops reading", agent="explore")
+    assert result.reason == "budget"
+    assert result.rounds_used == 3
+    assert result.budget == 3
+
 
 
 async def test_a_report_is_never_empty() -> None:

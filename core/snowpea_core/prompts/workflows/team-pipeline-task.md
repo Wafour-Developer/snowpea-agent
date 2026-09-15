@@ -13,7 +13,11 @@ ${HANDOFF}
 
 Change only what this task needs, in the project at ${WORKDIR}. Do not run git; nothing is committed for you and nothing needs to be. Other agents own the rest of the repository, so do not edit files outside your list — if the task cannot be done inside them, say so instead.
 
-When you are done, answer with at most 20 lines in this shape:
+When you are done, answer with at most 20 lines inside a ```handoff ... ``` block:
+```handoff
 Decided: <what you chose and why, one or two lines>
-Files: <the files you actually changed>
+Files touched: <the files you actually changed>
+Findings: <what you discovered during implementation>
 Remaining: <what you did not do, or "nothing">
+Risks: <any risks or follow-up concerns>
+```

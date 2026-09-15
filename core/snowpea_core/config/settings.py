@@ -116,6 +116,10 @@ class AgentsSettings(_Model):
     #: the catch-all key.  Unset falls back to ``agent.max_tool_rounds``,
     #: floored at ``loop.SUBAGENT_TOOL_ROUNDS`` for a child session.
     toolRounds: int | dict[str, int] | None = None
+    #: Global ceiling on tool rounds for subagents.
+    maxToolRounds: int | None = None
+    #: Per-agent tool-round ceilings, e.g. {"explore": 8, "reviewer": 12}.
+    maxToolRoundsBy: dict[str, int] = Field(default_factory=dict)
     #: Reusable global teams. The starter team keeps automatic delegation
     #: bounded to the built-in roles instead of every custom definition.
     teams: dict[str, list[str]] = Field(default_factory=dict)

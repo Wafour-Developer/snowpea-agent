@@ -71,8 +71,20 @@ CONTINUE_INSTRUCTION = "Continue exactly where you stopped, without repeating."
 #: Tool rounds a delegated child gets when nothing was configured for it.  A
 #: worker reads far more than it writes, and the parent only ever sees its
 #: final report, so a child's floor is higher than the session default
-#: (CORE-subagent-budget).
-SUBAGENT_TOOL_ROUNDS = 80
+#: (CORE-subagent-budget). Capped at 32 per Claude Code's harness.
+SUBAGENT_TOOL_ROUNDS = 32
+
+#: Default tool-round budgets per role when not configured in definition or settings.
+DEFAULT_TOOL_ROUNDS: dict[str, int] = {
+    "explore": 8,
+    "explorer": 8,
+    "reviewer": 12,
+    "critic": 12,
+    "test-engineer": 15,
+    "verifier": 10,
+    "architect": 10,
+    "executor": 32,
+}
 
 #: What the model is asked for when the round budget runs out.  The call that
 #: carries it is made with **no tools**, so the only thing it can produce is
@@ -162,35 +174,89 @@ def backend_for(core: Core, session: Session) -> Any:
 def tool_rounds_for(core: Core, session: Session | None = None) -> int:
     """How many tool rounds one turn of ``session`` may make.
 
-    Highest rung first (CORE-subagent-budget):
+    Highest rung first:
 
-    1. the agent definition's ``tool_rounds:`` (carried on the session);
-    2. ``agents.toolRounds[<agent name>]`` when the setting is a mapping;
-    3. ``agents.toolRounds`` as a number, or its ``"default"`` key;
-    4. ``agent.max_tool_rounds``, floored at :data:`SUBAGENT_TOOL_ROUNDS` for a
-       delegated child, which reads far more than the session it came from.
+    1. the agent definition's ``max_tool_rounds`` / ``tool_rounds:`` (carried on the session);
+    2. ``agents.maxToolRoundsBy[<agent name>]``;
+    3. ``agents.toolRounds[<agent name>]`` when the setting is a mapping;
+    4. ``agents.maxToolRounds`` as a number;
+    5. ``agents.toolRounds`` as a number, or its ``"default"`` / ``"*"`` key;
+    6. Role defaults when absent (explore/explorer 8, reviewer/critic 12,
+       test-engineer 15, verifier 10, architect 10, executor 32);
+    7. :data:`SUBAGENT_TOOL_ROUNDS` (32) for a delegated child, or
+       ``agent.max_tool_rounds`` for a human session.
     """
     settings = core.settings
+    name = (
+        (getattr(session, "agent", None) or getattr(session, "prompt_role", None) or "")
+        if session
+        else ""
+    )
+    agents_settings = getattr(settings, "agents", None)
+
+    # 1. agents.maxToolRoundsBy: {name: int}
+    by_map = getattr(agents_settings, "maxToolRoundsBy", None) if agents_settings else None
+    if isinstance(by_map, dict):
+        for key in (name, "default", "*"):
+            if key and key in by_map:
+                try:
+                    r = int(by_map[key])
+                    if r >= 1:
+                        return r
+                except (TypeError, ValueError):
+                    pass
+
+    # 2. Frontmatter override on session
+    override = getattr(session, "max_tool_rounds", None) if session else None
+    if override is None and session:
+        override = getattr(session, "tool_rounds", None)
+    if override is not None:
+        try:
+            r = int(override)
+            if r >= 1:
+                return r
+        except (TypeError, ValueError):
+            pass
+
+    # 3. agents.maxToolRounds (global int)
+    global_max = getattr(agents_settings, "maxToolRounds", None) if agents_settings else None
+    if global_max is not None:
+        try:
+            r = int(global_max)
+            if r >= 1:
+                return r
+        except (TypeError, ValueError):
+            pass
+
+    # 4. legacy agents.toolRounds (mapping)
+    legacy = getattr(agents_settings, "toolRounds", None) if agents_settings else None
+    if isinstance(legacy, dict):
+        for key in (name, "default", "*"):
+            if key and key in legacy:
+                try:
+                    r = int(legacy[key])
+                    if r >= 1:
+                        return r
+                except (TypeError, ValueError):
+                    pass
+
+    # 4b. legacy agents.toolRounds (int)
+    if legacy is not None and not isinstance(legacy, dict):
+        try:
+            r = int(legacy)
+            if r >= 1:
+                return r
+        except (TypeError, ValueError):
+            pass
+
+    # 3. Role defaults
+    if name and name in DEFAULT_TOOL_ROUNDS:
+        return DEFAULT_TOOL_ROUNDS[name]
+
+    # 4. Fallback
     base = max(1, int(settings.agent.max_tool_rounds))
     if session is not None and session.is_subagent:
-        base = max(base, SUBAGENT_TOOL_ROUNDS)
-    configured: Any = getattr(settings.agents, "toolRounds", None)
-    if isinstance(configured, dict):
-        name = (getattr(session, "agent", None) or "") if session else ""
-        for key in (name, "default", "*"):
-            if key and key in configured:
-                configured = configured[key]
-                break
-        else:
-            configured = None
-    override = getattr(session, "tool_rounds", None) if session else None
-    for candidate in (override, configured):
-        try:
-            rounds = int(candidate)  # type: ignore[arg-type]
-        except (TypeError, ValueError):
-            continue
-        if rounds >= 1:
-            return rounds
+        return SUBAGENT_TOOL_ROUNDS
     return base
 
 
@@ -782,6 +848,16 @@ async def _drive(
     session.ack_spoken = False
     while True:
         if rounds_left <= 0:
+            if session.is_subagent:
+                # Hermes-style grace call: one tools-free model call to summarise what
+                # it has and what remains.
+                await _budget_report(core, session, provider, config, memory_block, probe_text="")
+                if session.interrupt.is_set():
+                    await finish_turn(core, session, turn_id, "interrupted")
+                    return "interrupted"
+                await finish_turn(core, session, turn_id, "budget")
+                return "budget"
+
             # The budget is a checkpoint, not a wall: a long implementing turn
             # legitimately makes hundreds of calls.  Whatever happens next, the
             # turn first writes a report — it used to end on an ``error`` event

@@ -9,7 +9,11 @@ ${FILES}
 The findings:
 ${FINDINGS}
 
-When you are done, answer with at most 20 lines in this shape:
+When you are done, answer with at most 20 lines inside a ```handoff ... ``` block:
+```handoff
 Decided: <what you changed to answer each finding>
-Files: <the files you actually changed>
+Files touched: <the files you actually changed>
+Findings: <what was addressed>
 Remaining: <any finding you did not fix, and why, or "nothing">
+Risks: <residual risks or side effects>
+```
