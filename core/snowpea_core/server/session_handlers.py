@@ -282,6 +282,17 @@ async def session_resume_handler(
 async def session_list_handler(
     _conn: RpcConnection, params: SessionListParams, core: Core
 ) -> SessionListResult:
+    return SessionListResult(sessions=await collect_sessions(core, params))
+
+
+async def collect_sessions(core: Core, params: SessionListParams) -> list[SessionSummary]:
+    """The rows ``session.list`` answers with, newest first.
+
+    Split out of the handler so a surface that is not an RPC caller can ask the
+    same question and get exactly the same summaries — the gateway's
+    ``/sessions`` list is built from this rather than from a second query that
+    would drift (CORE-gateway-chat).
+    """
     live = core.sessions.list()
     if not params.includeClosed or core.store is None:
         rows = live
@@ -322,7 +333,7 @@ async def session_list_handler(
             )
             enriched.append(row.model_copy(update={"lastPrompt": prompt}))
         rows = enriched
-    return SessionListResult(sessions=sorted(rows, key=lambda row: row.createdAt, reverse=True))
+    return sorted(rows, key=lambda row: row.createdAt, reverse=True)
 
 
 async def session_delete_saved_handler(
@@ -464,10 +475,20 @@ async def session_interrupt_handler(
     then interrupted used to watch all three run anyway (CORE-fixes-v017 R3).
     Each dropped prompt is announced as ``turn.dequeued`` + ``turn.done``.
     """
-    session = _session(core, params.sessionId)
+    await interrupt_session(core, _session(core, params.sessionId))
+    return Ok(ok=True)
+
+
+async def interrupt_session(core: Core, session: Session) -> bool:
+    """Stop ``session``'s running turn and its queue; True if one was running.
+
+    The body of ``session.interrupt``, callable without an RPC connection so
+    the gateway's ``/stop`` is the same Stop as the TUI's (CORE-gateway-chat).
+    """
+    running = session.current_turn is not None or bool(session.queued_turns)
     session.interrupt.set()
     await agent_loop.flush_queued_turns(core, session)
-    return Ok(ok=True)
+    return running
 
 
 async def session_compact_handler(

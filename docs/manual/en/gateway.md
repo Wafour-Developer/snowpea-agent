@@ -56,6 +56,40 @@ Send the bot a message and you are in a session. Slash commands work exactly as 
 
 Sessions created by a gateway show up in `session.list` with their origin, so a TUI attached to the same daemon can see what the chat is doing.
 
+## Chat commands
+
+A terminal answers "which conversation am I in, what else is open, put me in another one" with its own window. A chat has no window, so seven commands answer it instead. They are handled by the gateway itself, before the command registry, and they never reach the model.
+
+| Command | What it does |
+|---|---|
+| `/sessions` | The ten most recent conversations, `★` on the one this chat is in. Each row is also a button; a bare number right after the list picks that row. |
+| `/resume <n \| id \| prefix>` | Point this chat at another session. A closed one is reopened. |
+| `/new [path \| project \| n]` | Start a session: in a path you type, in a project from `/projects`, or — with no argument — in the binding's own workdir. |
+| `/projects` | Known projects: the IDE's `ide.projects` list merged with the workdirs of recent sessions, pinned first. Each row starts a session there. |
+| `/status` | Session id, workdir, mode, model, effort, whether a turn is running, what is queued, context used. |
+| `/stop` | Interrupt the running turn and drop whatever was queued behind it. The same Stop the TUI has. |
+| `/help` | These, plus the session commands worth typing on a phone. |
+
+Telegram publishes them as its `/` menu when the bot starts, so they are offered rather than memorised.
+
+`/resume`, `/new`, `/stop` and the row buttons are accepted only from the bound `--user`, for the same reason approvals are: they choose what the next message will run and where. `/sessions`, `/projects`, `/status` and `/help` are open to anyone in the conversation.
+
+Which session a chat is in survives a daemon restart. The choice is one line in `$SNOWPEA_HOME/gateway-chats.json`; delete the file and every chat falls back to its binding's own target.
+
+## Typing and progress
+
+While a turn runs the chat shows the platform's "typing…" hint, refreshed every few seconds and paused whenever an approval or a question is waiting on you — the agent is not working while you decide. On the turn's first tool call one message goes out (`⏳ shell npm test`), and every later tool call *edits* that same message rather than sending another. At the end it settles on `✓ 4 tool calls · 1m 12s`, or `✗` when the turn failed or was stopped.
+
+A platform that cannot edit a message gets no progress message at all, because without editing the feature is a stream of chat spam. Slack shows no typing hint either: bot tokens cannot send one.
+
+Two settings turn them off:
+
+```json
+{ "gateway": { "typing": false, "progress": false } }
+```
+
+Both default to `true`. They sit beside the per-platform blocks in `settings.gateway` and are switches, not messengers.
+
 ## Unattended approvals
 
 An approval raised by a gateway or scheduler session is unattended, and behaves differently from one you triggered by typing:

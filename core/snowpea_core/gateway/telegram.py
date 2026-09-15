@@ -19,6 +19,7 @@ from typing import Any
 import httpx
 
 from snowpea_core.gateway.base import Button, GatewayError, InboundMessage, OnMessage
+from snowpea_core.gateway.chat import MENU_COMMANDS
 
 log = logging.getLogger("snowpea.gateway.telegram")
 
@@ -27,6 +28,8 @@ API_BASE = "https://api.telegram.org"
 POLL_TIMEOUT_SEC = 25
 #: Seconds to wait before retrying after a transport failure.
 RETRY_DELAY_SEC = 3.0
+#: Bot API limit on one ``setMyCommands`` description.
+MENU_DESCRIPTION_CHARS = 256
 
 
 def parse_update(update: dict[str, Any]) -> InboundMessage | None:
@@ -137,7 +140,23 @@ class TelegramAdapter:
     # -- PlatformAdapter -----------------------------------------------
     async def start(self, on_message: OnMessage) -> None:
         self._stopping = False
+        await self.register_commands()
         self._task = asyncio.ensure_future(self._poll(on_message))
+
+    async def register_commands(self) -> None:
+        """Publish the chat command menu, so Telegram's ``/`` list is real.
+
+        Never fatal: a bot whose menu could not be set still works, and a
+        person who types the command out gets the same behaviour.
+        """
+        commands = [
+            {"command": name, "description": description[:MENU_DESCRIPTION_CHARS]}
+            for name, description in MENU_COMMANDS
+        ]
+        try:
+            await self._api("setMyCommands", {"commands": commands})
+        except GatewayError as exc:
+            log.warning("could not publish the telegram command menu: %s", exc)
 
     async def send(self, channel_id: str, text: str, *, buttons: list[Button] | None = None) -> str:
         payload: dict[str, Any] = {"chat_id": channel_id, "text": text}
@@ -158,6 +177,19 @@ class TelegramAdapter:
             self._client = None
 
     # -- extras the router uses ----------------------------------------
+    async def typing(self, channel_id: str) -> None:
+        """Show "…is typing" for about five seconds (the router re-sends it)."""
+        with contextlib.suppress(GatewayError):
+            await self._api("sendChatAction", {"chat_id": channel_id, "action": "typing"})
+
+    async def edit(self, channel_id: str, message_id: str, text: str) -> None:
+        """Rewrite one of our own messages, which is how progress stays to one."""
+        with contextlib.suppress(GatewayError):
+            await self._api(
+                "editMessageText",
+                {"chat_id": channel_id, "message_id": message_id, "text": text},
+            )
+
     async def acknowledge(self, callback_id: str, text: str = "") -> None:
         """Clear the spinner on a pressed inline button."""
         payload: dict[str, Any] = {"callback_query_id": callback_id}
@@ -201,6 +233,7 @@ class TelegramAdapter:
 
 __all__ = [
     "API_BASE",
+    "MENU_DESCRIPTION_CHARS",
     "POLL_TIMEOUT_SEC",
     "RETRY_DELAY_SEC",
     "TelegramAdapter",

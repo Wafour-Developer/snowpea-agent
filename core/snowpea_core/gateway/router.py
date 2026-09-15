@@ -5,6 +5,12 @@ agent, an existing session, or a fresh session per conversation.  Inbound text
 becomes ``session.prompt`` on the session for that ``(binding, channel_id)``
 pair; the assistant's ``message.done`` goes back out through the adapter.
 
+Which session a conversation is in is not fixed: ``/sessions``, ``/resume`` and
+``/new`` move a chat between them, and the choice is remembered across daemon
+restarts in ``$SNOWPEA_HOME/gateway-chats.json`` (see
+:mod:`snowpea_core.gateway.chat`).  While a turn runs the chat shows a typing
+hint and one edited-in-place progress line (:mod:`snowpea_core.gateway.activity`).
+
 Approvals raised by those sessions are unattended, so they are broadcast to
 every authenticated client *and* pushed to the bound conversation with
 allow/deny buttons.  The router listens on the daemon's own event hub for that
@@ -29,6 +35,7 @@ from typing import TYPE_CHECKING, Any
 
 from snowpea_core.config.credentials import CredentialError, CredentialStore
 from snowpea_core.config.paths import utc_now
+from snowpea_core.gateway.activity import TurnActivity
 from snowpea_core.gateway.base import (
     QUESTION_OTHER,
     Button,
@@ -42,6 +49,7 @@ from snowpea_core.gateway.base import (
     question_buttons,
     question_text,
 )
+from snowpea_core.gateway.chat import CHAT_KINDS, CHATS_FILE, ChatCommands, ChatSessionMemory
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.server.app_server import Core
@@ -56,6 +64,12 @@ WELCOME_TEXT = (
     "Approvals and questions arrive here as buttons."
 )
 UNKNOWN_COMMAND_TEXT = "Unknown command /{name} — send /help for the list, or just type a message."
+
+#: Keys of ``settings.gateway`` that are switches rather than platform blocks:
+#: ``{"gateway": {"telegram": {...}, "typing": false}}``.  Both default to on.
+#: :func:`desired_gateways` already skips any value that is not a dict, so a
+#: flag can never be mistaken for a messenger to bind.
+GATEWAY_FLAGS: frozenset[str] = frozenset({"typing", "progress"})
 
 #: Channel string that means "just write it to the daemon log" (contract §2).
 LOG_CHANNEL = "log"
@@ -227,6 +241,8 @@ class GatewayConnection:
         #: Index of the question now posted, and the answers collected so far.
         self.question_at: int = 0
         self.question_answers: list[dict[str, Any]] = []
+        #: Typing hint and progress line for whatever turn is running.
+        self.activity = TurnActivity(self)
 
     async def notify(self, method: str, params: dict[str, Any]) -> None:
         if self.closed:
@@ -243,12 +259,29 @@ class GatewayConnection:
             await self._question_resolved(params)
 
     async def _session_event(self, params: dict[str, Any]) -> None:
-        # Only the finished assistant message goes back to the chat.  Notably
-        # not ``message.user``: the prompt exists so a resumed transcript can
-        # show it, and echoing it would send the person their own words back.
-        if params.get("sessionId") != self.session_id or params.get("kind") != "message.done":
+        # Only the finished assistant message goes back to the chat as a
+        # message.  Notably not ``message.user``: the prompt exists so a
+        # resumed transcript can show it, and echoing it would send the person
+        # their own words back.  The turn and tool events are not messages at
+        # all — they drive the typing hint and the one progress line.
+        if params.get("sessionId") != self.session_id:
             return
-        text = str((params.get("payload") or {}).get("text") or "").strip()
+        kind = params.get("kind")
+        payload = params.get("payload") or {}
+        if kind == "turn.started":
+            await self.activity.turn_started()
+            return
+        if kind == "tool.call":
+            await self.activity.tool_call(
+                str(payload.get("name") or "?"), dict(payload.get("args") or {})
+            )
+            return
+        if kind == "turn.done":
+            await self.activity.turn_done(str(payload.get("reason") or "complete"))
+            return
+        if kind != "message.done":
+            return
+        text = str(payload.get("text") or "").strip()
         if text:
             await self.router.send(self.binding, self.channel_id, text)
 
@@ -260,6 +293,9 @@ class GatewayConnection:
         if not request_id:
             return
         self.asked.add(request_id)
+        # Nothing is being worked on while the person decides, so the typing
+        # hint would be claiming otherwise.
+        self.activity.pause()
         await self.router.send(
             self.binding,
             self.channel_id,
@@ -276,6 +312,8 @@ class GatewayConnection:
         if request_id not in self.asked:
             return
         self.asked.discard(request_id)
+        if not self.asked and self.question is None:
+            self.activity.resume()
         await self.router.send(
             self.binding,
             self.channel_id,
@@ -293,6 +331,7 @@ class GatewayConnection:
         self.question = dict(request)
         self.question_at = 0
         self.question_answers = []
+        self.activity.pause()
         await self.post_question()
 
     async def post_question(self) -> None:
@@ -328,6 +367,8 @@ class GatewayConnection:
         self.question = None
         self.question_at = 0
         self.question_answers = []
+        if not self.asked:
+            self.activity.resume()
 
 
 class GatewayRouter:
@@ -342,6 +383,11 @@ class GatewayRouter:
         self._conns: dict[tuple[str, str], GatewayConnection] = {}
         self._store: BindingStore | None = None
         self._credentials: CredentialStore | None = None
+        #: Which session each chat is in, across restarts.  Repointed at the
+        #: real home by :meth:`bind_core`.
+        self.chats = ChatSessionMemory(Path(CHATS_FILE))
+        #: ``/sessions``, ``/resume``, ``/new``, … (see ``gateway/chat.py``).
+        self.chat = ChatCommands(self)
 
     # -- wiring --------------------------------------------------------
     def bind_core(self, core: Core) -> None:
@@ -349,6 +395,7 @@ class GatewayRouter:
         self.core = core
         self._store = BindingStore(core.paths.state_db)
         self._credentials = CredentialStore(core.paths)
+        self.chats = ChatSessionMemory(core.paths.home / CHATS_FILE)
 
     def _build_adapter(self, platform: str, credentials_ref: str) -> PlatformAdapter:
         """Resolve the credential and construct the adapter for ``platform``."""
@@ -415,6 +462,17 @@ class GatewayRouter:
     def adapter(self, binding_id: str) -> PlatformAdapter | None:
         return self._adapters.get(binding_id)
 
+    def connection(self, binding_id: str, channel_id: str) -> GatewayConnection | None:
+        """The pseudo-connection serving one conversation, if it has one yet."""
+        return self._conns.get((binding_id, channel_id))
+
+    def gateway_flag(self, name: str, default: bool = True) -> bool:
+        """``settings.gateway.<name>`` as a switch (see :data:`GATEWAY_FLAGS`)."""
+        if self.core is None:
+            return default
+        value = (getattr(self.core.settings, "gateway", None) or {}).get(name)
+        return default if not isinstance(value, bool) else value
+
     async def unbind(self, binding_id: str) -> bool:
         """Stop the adapter, drop the binding and forget its sessions."""
         binding = self._bindings.pop(binding_id, None)
@@ -425,6 +483,7 @@ class GatewayRouter:
         for key in [key for key in self._conns if key[0] == binding_id]:
             conn = self._conns.pop(key)
             conn.closed = True
+            await conn.activity.cancel()
             if self.core is not None:
                 self.core.hub.unsubscribe(conn)
         if self._store is not None:
@@ -541,6 +600,7 @@ class GatewayRouter:
                 await adapter.stop()
         for conn in self._conns.values():
             conn.closed = True
+            await conn.activity.cancel()
         self._conns.clear()
         if self._store is not None:
             with contextlib.suppress(Exception):
@@ -612,7 +672,14 @@ class GatewayRouter:
         if question is not None:
             await self._handle_question_button(binding, message, *question)
             return
+        if await self.chat.handle_callback(binding, message):
+            return
         if not message.text.strip():
+            return
+        # The chat commands come before the registry so ``/new`` and ``/help``
+        # mean "this conversation" rather than a command inside whatever
+        # session it happens to be attached to.
+        if await self.chat.handle(binding, message):
             return
         # A chat with an open question reads the next typed line as its answer
         # — "2", "1,3", or whatever the user wants to say — rather than as a
@@ -620,6 +687,11 @@ class GatewayRouter:
         # a platform that drops the keyboard leaves the turn stuck.
         if await self._answer_open_question(binding, message):
             return
+        # A bare number right after ``/sessions`` or ``/projects`` picks that
+        # row, the same way it answers an open question.
+        if await self.chat.pick(binding, message):
+            return
+        self.chat.clear_pick(binding, message.channel_id)
         await self._handle_prompt(binding, message)
 
     async def _handle_approval(
@@ -792,11 +864,59 @@ class GatewayRouter:
             if session is not None:
                 return session, conn
         conn = GatewayConnection(self, binding, channel_id)
-        session = await self._create_session(binding, channel_id)
+        session = await self._remembered_session(binding, channel_id)
+        if session is None:
+            session = await self._create_session(binding, channel_id)
         conn.session_id = session.id
         self._conns[key] = conn
         self.core.hub.subscribe(conn, session.id)
+        self.chats.remember(binding.id, channel_id, session.id)
         return session, conn
+
+    async def _remembered_session(self, binding: Binding, channel_id: str) -> Any:
+        """The session this chat last chose, if it is still usable.
+
+        Reopening it is what makes ``/resume`` survive a daemon restart.  A
+        session that has since been deleted, or that turned out to be a
+        subagent's, is forgotten and the binding's own target is used instead.
+        """
+        assert self.core is not None
+        session_id = self.chats.get(binding.id, channel_id)
+        if not session_id:
+            return None
+        session = self.core.sessions.get(session_id)
+        if session is None:
+            session = await self.core.sessions.restore(session_id)
+        if session is None or session.kind not in CHAT_KINDS:
+            self.chats.forget(binding.id, channel_id)
+            return None
+        agent = binding.target.get("agent")
+        if agent:
+            # A restored session does not know it belongs to a named agent, and
+            # a chat bound to one must never read the default memory namespace.
+            session.memory_namespace = f"agent:{agent}"
+        return session
+
+    async def switch_session(self, binding: Binding, channel_id: str, session: Any) -> Any:
+        """Point one conversation at ``session`` and remember the choice.
+
+        The old subscription goes first: a chat that stayed subscribed to its
+        previous session would keep receiving that session's replies, which is
+        exactly the confusion ``/resume`` exists to avoid.
+        """
+        assert self.core is not None
+        key = (binding.id, channel_id)
+        conn = self._conns.get(key)
+        if conn is None:
+            conn = GatewayConnection(self, binding, channel_id)
+            self._conns[key] = conn
+        elif conn.session_id != session.id:
+            self.core.hub.unsubscribe(conn)
+            await conn.activity.cancel()
+        conn.session_id = session.id
+        self.core.hub.subscribe(conn, session.id)
+        self.chats.remember(binding.id, channel_id, session.id)
+        return conn
 
     async def _create_session(self, binding: Binding, channel_id: str) -> Any:
         assert self.core is not None
@@ -895,6 +1015,7 @@ def _picked_labels(text: str, options: list[dict[str, Any]], multi: bool) -> lis
 
 __all__ = [
     "FAKE_GATEWAY_ENV",
+    "GATEWAY_FLAGS",
     "SOURCE_MANUAL",
     "SOURCE_SETTINGS",
     "Buttons",
