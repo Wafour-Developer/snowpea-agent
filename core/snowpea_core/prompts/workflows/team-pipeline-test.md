@@ -8,7 +8,21 @@ ${FILES}
 
 ${HANDOFF}
 
+The change, as a diff:
+```diff
+${DIFF}
+```
+
 Run the project's own checks over that change, and write the tests it is missing when there is a natural place for them. Use the commands this project already uses; do not invent a test runner it does not have.
+
+Include a ```handoff ... ``` block (10-20 lines) in your answer:
+```handoff
+Decided: <what tests were run and added>
+Files touched: <test files added or modified>
+Findings: <test output and evidence>
+Remaining: <untested areas or "nothing">
+Risks: <flakiness or missing coverage>
+```
 
 End your report with exactly one of these verdict lines, and do not include the other:
 TESTS: PASS

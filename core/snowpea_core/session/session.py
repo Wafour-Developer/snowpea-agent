@@ -155,6 +155,14 @@ class Session:
 
         return project_of(self.project_namespace)
 
+    @property
+    def max_tool_rounds(self) -> int | None:
+        return self.tool_rounds
+
+    @max_tool_rounds.setter
+    def max_tool_rounds(self, value: int | None) -> None:
+        self.tool_rounds = value
+
     async def set_backend(self, backend: ExecutionBackend) -> None:
         """Replace the backend, closing whatever it was using before."""
         previous = self.backend

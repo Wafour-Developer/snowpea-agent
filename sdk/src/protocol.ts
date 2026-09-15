@@ -2594,6 +2594,8 @@ export interface ModelChangedEventPayload {
 export interface SubagentDoneEventPayload {
   /** Subagent that finished. */
   agentId: string;
+  /** Tool-round budget cap. */
+  budget?: number;
   kind?: "subagent.done";
   /** Named agent that ran, when there was one. */
   name?: string;
@@ -2601,6 +2603,8 @@ export interface SubagentDoneEventPayload {
   ok?: boolean;
   /** Final report. */
   result?: string;
+  /** Tool rounds used by the subagent. */
+  rounds?: number;
   /** The subagent's own session. */
   sessionId?: string | null;
   /** Terminal state: done or error. */

@@ -141,6 +141,49 @@ test·verify·review 단계는 각각 명시적인 한 줄로 답합니다 — `
 
 `maxTasks`는 계획의 태스크 수 상한입니다. `review`와 `test`는 로스터에 담당자가 있으면 켜집니다. 담당자가 있어도 끄려면 `false`로 두세요.
 
+### 단계별 핸드오프와 감사 추적
+
+파이프라인의 각 단계는 10~20줄 분량의 구조화된 핸드오프 블록(````handoff ... ````)을 남깁니다:
+- `Decided`: 해당 단계에서 결정한 사항
+- `Files touched`: 수정하거나 검사한 파일
+- `Findings`: `path:line` 근거가 포함된 구체적 발견 사항
+- `Remaining`: 남은 작업 또는 "nothing"
+- `Risks`: 잠재적 위험이나 주의사항
+
+펜스가 없으면 앞 20줄을 유지합니다. 핸드오프는 디스크에 저장되어 감사 추적으로 남습니다:
+
+```text
+<workdir>/.snowpea/handoffs/<team-run-id>/<stage>.md
+```
+
+다음 단계의 브리프는 이전 단계들의 모든 핸드오프를 원문 그대로 전달받으며, 최대 20,000자로 제한된 `git diff --stat` 및 `git diff`를 함께 받습니다(초과 시 캐시 파일로 스필되어 포인터로 안내). 실행이 끝나면 요약 보고서에 모든 핸드오프 파일 경로와 단계별 라운드/예산/토큰 사용량 표가 출력됩니다.
+
+## 툴 라운드 예산과 Grace Call
+
+토큰 과다 소모를 방지하기 위해 서브에이전트와 파이프라인 단계는 역할별 툴 라운드 예산을 기준으로 동작합니다.
+
+| 역할 / 에이전트 | 기본 툴 라운드 |
+|---|---|
+| `explore`, `explorer` | 8 |
+| `reviewer`, `critic` | 12 |
+| `test-engineer` | 15 |
+| `verifier` | 10 |
+| `architect` | 10 |
+| `executor` 및 기타 서브에이전트 | 32 |
+
+### 라운드 예산 설정 우선순위
+
+예산은 다음 우선순위에 따라 결정됩니다:
+1. `agents.maxToolRoundsBy.<role>` (예: `{ "agents": { "maxToolRoundsBy": { "explore": 10 } } }`)
+2. `settings.json`의 `agents.maxToolRounds` 전역 스칼라 설정
+3. 에이전트 정의 프론트매터의 `max_tool_rounds`
+4. 위의 내장 역할 기본값
+5. 32라운드 기본 폴백
+
+### 예산 소진 시 무도구 Grace Call
+
+Hermes Agent 모델에 따라, 서브에이전트가 툴 라운드를 모두 소진(`rounds_left <= 0`)하더라도 갑자기 종료되지 않습니다. 에이전트 루프는 툴이 제공되지 않는 1회의 마지막 "grace" 모델 호출(`_budget_report`)을 수행하여, 모델이 작업 내용, 발견 사항, 남은 작업을 요약하도록 유도합니다. 이 결과는 `budget` 사유와 `done` 상태로 안전하게 반환됩니다.
+
 
 ## 보고서는 무엇이고 무엇이 아닌가
 

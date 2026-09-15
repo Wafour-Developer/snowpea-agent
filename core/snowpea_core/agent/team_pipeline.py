@@ -31,6 +31,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import uuid
 from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -44,6 +45,7 @@ from snowpea_core.agent.team_config import active_team, default_roster, teams_wi
 from snowpea_core.prompts.compose import workflow_brief
 from snowpea_core.prompts.loader import load
 from snowpea_core.providers.base import ChatMessage
+from snowpea_core.tools import output_spill
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.server.app_server import Core
@@ -81,7 +83,7 @@ REQUIRED_STAGES: frozenset[str] = frozenset({IMPLEMENT})
 MAX_TASKS = 8
 
 #: How much of the change the reviewer is handed inline.
-MAX_REVIEW_DIFF_CHARS = 24000
+MAX_REVIEW_DIFF_CHARS = 20000
 
 #: Lines kept from one stage's report when it becomes the next stage's handoff.
 HANDOFF_LINES = 20
@@ -429,6 +431,22 @@ def waves(tasks: Sequence[PipelineTask], limit: int) -> list[list[PipelineTask]]
 # ---------------------------------------------------------------------------
 
 
+_HANDOFF_FENCE = re.compile(r"```(?:handoff|HANDOFF)\s*\n(.*?)```", re.DOTALL)
+
+
+def extract_handoff(text: str, *, limit: int = HANDOFF_LINES) -> str:
+    """Extract a ```handoff ... ``` block, falling back to the first 20 lines."""
+    if not text:
+        return ""
+    m = _HANDOFF_FENCE.search(text)
+    if m:
+        content = m.group(1).strip()
+        if content:
+            return content
+    lines = [line for line in text.strip().splitlines() if line.strip()]
+    return "\n".join(lines[:limit]).strip()
+
+
 def handoff(stage: str, text: str, *, limit: int = HANDOFF_LINES) -> str:
     """One stage's report, trimmed to what the next stage has to know.
 
@@ -436,13 +454,55 @@ def handoff(stage: str, text: str, *, limit: int = HANDOFF_LINES) -> str:
     it forward verbatim rather than re-summarising it, so nothing is invented
     between stages.
     """
-    body = "\n".join(line for line in (text or "").strip().splitlines() if line.strip())
-    if not body:
+    extracted = extract_handoff(text, limit=limit)
+    if not extracted:
         return ""
-    lines = body.splitlines()
-    if len(lines) > limit:
-        lines = [*lines[:limit], f"… ({len(body.splitlines()) - limit} more lines)"]
-    return f"What {stage} handed over:\n" + "\n".join(lines)
+    return f"What {stage} handed over:\n" + extracted
+
+
+def spill_diff(text: str, home: Path | str | None = None, cap: int = MAX_REVIEW_DIFF_CHARS) -> str:
+    """Cap diff at 20,000 characters, spilling with a pointer if longer."""
+    if len(text) <= cap:
+        return text
+    directory = output_spill.spill_dir(home)
+    target = directory / f"diff-{uuid.uuid4().hex[:12]}.txt"
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+        output_spill._sweep(directory)
+    except OSError as exc:
+        log.debug("could not spill diff: %s", exc)
+        return text[:cap]
+
+    lines = text.splitlines(keepends=True)
+    head: list[str] = []
+    chars = 0
+    reserved = 200
+    for line in lines:
+        if chars + len(line) > cap - reserved:
+            break
+        head.append(line)
+        chars += len(line)
+    omitted = len(lines) - len(head)
+    pointer = f"\n[… {omitted} lines omitted — read_file(\"{target}\")]"
+    return "".join(head).rstrip() + pointer
+
+
+def _format_stage_table(stages: Sequence[StageResult]) -> str:
+    """Per-stage telemetry table: stage, agent, rounds/budget, input/output tokens."""
+    if not stages:
+        return ""
+    lines = [
+        "Stage telemetry:",
+        "| Stage | Agent | Rounds/Budget | Input Tokens | Output Tokens |",
+        "|---|---|---|---|---|",
+    ]
+    for s in stages:
+        rb = f"{s.rounds}/{s.budget}"
+        lines.append(
+            f"| {s.stage} | {s.agent} | {rb} | {s.input_tokens} | {s.output_tokens} |"
+        )
+    return "\n".join(lines)
 
 
 def _bullets(items: Iterable[str]) -> str:
@@ -463,6 +523,10 @@ class StageResult:
     agent: str
     ok: bool
     text: str = ""
+    rounds: int = 0
+    budget: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
 
 
 @dataclass
@@ -471,6 +535,7 @@ class PipelineRun:
 
     task: str
     plan: StagePlan
+    id: str = field(default_factory=lambda: f"tr-{uuid.uuid4().hex[:8]}")
     tasks: list[PipelineTask] = field(default_factory=list)
     stages: list[StageResult] = field(default_factory=list)
     review_rounds: int = 0
@@ -479,6 +544,8 @@ class PipelineRun:
     verification: str = ""
     unfinished: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    handoff_notes: dict[str, str] = field(default_factory=dict)
+    handoff_paths: dict[str, str] = field(default_factory=dict)
 
     def changed_files(self) -> list[str]:
         seen: dict[str, None] = {}
@@ -586,8 +653,10 @@ class TeamPipeline:
             title=EXPLORE,
         )
         text = _text(result)
-        run.stages.append(StageResult(EXPLORE, agent, result.ok, text))
-        return handoff(EXPLORE, text) if result.ok else ""
+        self._record_stage(run, EXPLORE, agent, result, text)
+        if result.ok:
+            self._record_handoff(run, EXPLORE, text)
+        return text if result.ok else ""
 
     async def _plan(self, run: PipelineRun, findings: str) -> None:
         system = load(PLAN_SYSTEM_NAME).replace("${MAX_TASKS}", str(self.max_tasks()))
@@ -595,8 +664,9 @@ class TeamPipeline:
             f"Plan this task for the project at {self.session.workdir}. "
             f"Reply with the JSON object only.\n\nTask: {run.task}"
         )
-        if findings:
-            instruction = f"{instruction}\n\n{findings}"
+        handoffs = self._all_prior_handoffs(run)
+        if handoffs:
+            instruction = f"{instruction}\n\n{handoffs}"
         agent = run.plan.owner(PLAN)
         if agent is None:
             # No planner on the roster: the lead plans for itself, one plain
@@ -610,12 +680,15 @@ class TeamPipeline:
                 ],
             )
             ok = True
+            run.stages.append(StageResult(PLAN, "lead", True, text, rounds=1, budget=1))
         else:
             result = await self._delegate(
                 agent, f"{system}\n\n{instruction}", title=PLAN
             )
             text, ok = _text(result), result.ok
-        run.stages.append(StageResult(PLAN, agent or "lead", ok, text))
+            self._record_stage(run, PLAN, agent, result, text)
+        if ok:
+            self._record_handoff(run, PLAN, text)
         if not ok:
             raise PipelineError(f"the plan stage failed: {text[:200] or 'no reason given'}")
         try:
@@ -628,19 +701,22 @@ class TeamPipeline:
 
     async def _implement(self, run: PipelineRun, findings: str) -> None:
         agent = run.plan.owners[IMPLEMENT]
-        previous = findings
         for batch in waves(run.tasks, self.manager.limit_for(self.session)):
-            results = await asyncio.gather(
-                *(self._implement_one(run, agent, task, previous) for task in batch)
+            await asyncio.gather(
+                *(self._implement_one(run, agent, task) for task in batch)
             )
-            previous = handoff(
-                IMPLEMENT,
-                "\n".join(f"{task.id}: {text}" for task, text in zip(batch, results, strict=True)),
-            )
+        combined_impl = "\n\n".join(
+            f"Task {t.id} ({t.title}):\n{extract_handoff(t.report)}"
+            for t in run.tasks
+            if t.report
+        )
+        if combined_impl:
+            self._record_handoff(run, IMPLEMENT, combined_impl)
 
     async def _implement_one(
-        self, run: PipelineRun, agent: str, task: PipelineTask, previous: str
+        self, run: PipelineRun, agent: str, task: PipelineTask
     ) -> str:
+        handoffs = self._all_prior_handoffs(run)
         result = await self._delegate(
             agent,
             workflow_brief(
@@ -651,7 +727,7 @@ class TeamPipeline:
                 TASK_TITLE=task.title,
                 TASK_BRIEF=task.brief,
                 FILES=_bullets(task.files),
-                HANDOFF=previous,
+                HANDOFF=handoffs,
                 WORKDIR=self.session.workdir,
             ),
             title=f"{IMPLEMENT}: {task.title}",
@@ -660,15 +736,16 @@ class TeamPipeline:
         task.ok = result.ok
         if not result.ok:
             run.unfinished.append(f"{task.id} {task.title}: {result.error or 'the agent failed'}")
-        run.stages.append(
-            StageResult(f"{IMPLEMENT} {task.id}", agent, result.ok, task.report)
-        )
+        self._record_stage(run, f"{IMPLEMENT} {task.id}", agent, result, task.report)
+        self._record_handoff(run, f"{IMPLEMENT}-{task.id}", task.report)
         return task.report
 
     async def _test(self, run: PipelineRun) -> None:
         agent = run.plan.owner(TEST)
         if not self._switch("test", TEST, run.plan) or agent is None:
             return
+        handoffs = self._all_prior_handoffs(run)
+        diff = await self._diff(run)
         result = await self._delegate(
             agent,
             workflow_brief(
@@ -676,13 +753,16 @@ class TeamPipeline:
                 reply_language=self.language,
                 TASK=run.task,
                 FILES=_bullets(run.changed_files()),
-                HANDOFF=handoff(IMPLEMENT, "\n".join(t.report for t in run.tasks)),
+                HANDOFF=handoffs,
+                DIFF=diff or "(no diff was available)",
+                WORKDIR=self.session.workdir,
             ),
             title=TEST,
         )
         text = _text(result)
         run.tests = _test_verdict(result, text)
-        run.stages.append(StageResult(TEST, agent, result.ok, text))
+        self._record_stage(run, TEST, agent, result, text)
+        self._record_handoff(run, TEST, text)
         if run.tests == TESTS_FAIL:
             run.unfinished.append("the test stage reported FAIL")
         elif run.tests == NEEDS_MORE_EVIDENCE:
@@ -695,6 +775,8 @@ class TeamPipeline:
         if not self._switch("verify", VERIFY, run.plan) or agent is None:
             run.notes.append("verify stage skipped: no verifier on the roster")
             return
+        handoffs = self._all_prior_handoffs(run)
+        diff = await self._diff(run)
         result = await self._delegate(
             agent,
             workflow_brief(
@@ -703,14 +785,16 @@ class TeamPipeline:
                 TASK=run.task,
                 TESTS=run.tests or "not run",
                 FILES=_bullets(run.changed_files()),
-                HANDOFF=handoff(TEST, _stage_text(run, TEST)),
+                HANDOFF=handoffs,
+                DIFF=diff or "(no diff was available)",
                 WORKDIR=self.session.workdir,
             ),
             title=VERIFY,
         )
         text = _text(result)
         run.verification = _verify_verdict(result, text)
-        run.stages.append(StageResult(VERIFY, agent, result.ok, text))
+        self._record_stage(run, VERIFY, agent, result, text)
+        self._record_handoff(run, VERIFY, text)
         if run.verification == VERIFY_FAIL:
             run.unfinished.append("the verify stage reported FAIL")
         elif run.verification == NEEDS_MORE_EVIDENCE:
@@ -725,6 +809,7 @@ class TeamPipeline:
         while run.review_rounds < MAX_REVIEW_ROUNDS:
             run.review_rounds += 1
             diff = await self._diff(run)
+            handoffs = self._all_prior_handoffs(run)
             result = await self._delegate(
                 agent,
                 workflow_brief(
@@ -733,12 +818,15 @@ class TeamPipeline:
                     TASK=run.task,
                     ROUND_NOTE=("" if run.review_rounds == 1 else SECOND_LOOK),
                     DIFF=diff or "(no diff was available; judge the files themselves)",
+                    HANDOFF=handoffs,
                     WORKDIR=self.session.workdir,
                 ),
                 title=REVIEW if run.review_rounds == 1 else f"{REVIEW} ({run.review_rounds})",
             )
             text = _text(result)
-            run.stages.append(StageResult(REVIEW, agent, result.ok, text))
+            stage_name = REVIEW if run.review_rounds == 1 else f"{REVIEW} ({run.review_rounds})"
+            self._record_stage(run, stage_name, agent, result, text)
+            self._record_handoff(run, REVIEW, text)
             run.verdict = _review_verdict(result, text)
             if run.verdict != REQUEST_CHANGES:
                 if run.verdict != APPROVE:
@@ -771,11 +859,58 @@ class TeamPipeline:
             ),
             title=FIX,
         )
-        run.stages.append(StageResult(FIX, agent, result.ok, _text(result)))
+        text = _text(result)
+        self._record_stage(run, FIX, agent, result, text)
+        self._record_handoff(run, FIX, text)
         if not result.ok:
             run.unfinished.append(f"the fix pass on {task.id} failed")
 
     # -- helpers -------------------------------------------------------
+    def _record_stage(
+        self,
+        run: PipelineRun,
+        stage: str,
+        agent: str,
+        result: SubagentResult,
+        text: str,
+    ) -> StageResult:
+        usage = result.usage or {}
+        in_tok = usage.get("inputTokens", 0)
+        out_tok = usage.get("outputTokens", 0)
+        sr = StageResult(
+            stage=stage,
+            agent=agent,
+            ok=result.ok,
+            text=text,
+            rounds=result.rounds_used,
+            budget=result.budget,
+            input_tokens=in_tok,
+            output_tokens=out_tok,
+        )
+        run.stages.append(sr)
+        return sr
+
+    def _record_handoff(self, run: PipelineRun, stage: str, text: str) -> str:
+        extracted = extract_handoff(text)
+        if not extracted:
+            return ""
+        run.handoff_notes[stage] = extracted
+        try:
+            path = Path(self.session.workdir) / ".snowpea" / "handoffs" / run.id / f"{stage}.md"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(extracted + "\n", encoding="utf-8")
+            run.handoff_paths[stage] = str(path)
+        except OSError as exc:
+            log.debug("could not write handoff file: %s", exc)
+        return extracted
+
+    def _all_prior_handoffs(self, run: PipelineRun) -> str:
+        blocks = []
+        for stage, note in run.handoff_notes.items():
+            if note:
+                blocks.append(f"What {stage} handed over:\n{note}")
+        return "\n\n".join(blocks)
+
     def _anchor(self, plan: StagePlan) -> Session:
         """A stand-in parent carrying this run's roster.
 
@@ -816,17 +951,27 @@ class TeamPipeline:
         return await self.manager.run(self.anchor, brief, agent=agent, title=title)
 
     async def _diff(self, run: PipelineRun) -> str:
-        """The working-tree diff of the changed files, or ``""`` outside git."""
+        """The working-tree diff (stat and patch) of changed files, or ``""`` outside git."""
         files = run.changed_files()
-        args = ["diff", "--", *files] if files else ["diff"]
-        result = await git(self.session.workdir, *args)
-        if not result.ok:
+        stat_args = ["diff", "--stat", "--", *files] if files else ["diff", "--stat"]
+        patch_args = ["diff", "--", *files] if files else ["diff"]
+        stat_res = await git(self.session.workdir, *stat_args)
+        patch_res = await git(self.session.workdir, *patch_args)
+        stat_text = stat_res.stdout.strip() if stat_res.ok else ""
+        patch_text = patch_res.stdout.strip() if patch_res.ok else ""
+        if not patch_text and files:
+            stat_res = await git(self.session.workdir, "diff", "--stat", "HEAD", "--", *files)
+            patch_res = await git(self.session.workdir, "diff", "HEAD", "--", *files)
+            stat_text = stat_res.stdout.strip() if stat_res.ok else ""
+            patch_text = patch_res.stdout.strip() if patch_res.ok else ""
+        if stat_text and patch_text:
+            combined = f"{stat_text}\n\n{patch_text}"
+        else:
+            combined = stat_text or patch_text
+        if not combined:
             return ""
-        text = result.stdout.strip()
-        if not text and files:
-            result = await git(self.session.workdir, "diff", "HEAD", "--", *files)
-            text = result.stdout.strip() if result.ok else ""
-        return text[:MAX_REVIEW_DIFF_CHARS]
+        home = getattr(getattr(self.core, "paths", None), "home", None)
+        return spill_diff(combined, home=home, cap=MAX_REVIEW_DIFF_CHARS)
 
     # -- the answer ----------------------------------------------------
     def report(self, run: PipelineRun) -> str:
@@ -865,6 +1010,12 @@ class TeamPipeline:
             parts.append("Left unfinished:\n" + _bullets(unfinished))
         else:
             parts.append("Nothing was left unfinished.")
+        if run.handoff_paths:
+            lines = [f"- {stage}: {path}" for stage, path in run.handoff_paths.items()]
+            parts.append("Stage hand-offs:\n" + "\n".join(lines))
+        table = _format_stage_table(run.stages)
+        if table:
+            parts.append(table)
         return "\n\n".join(parts)
 
 

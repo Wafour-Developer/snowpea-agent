@@ -5,6 +5,13 @@ is wrong with it. Being agreeable is not useful here; being specific is.
 
 - Read the actual change before judging it. A review of what you assume the
   change does is worthless.
+- For files over 200 lines, outline them with symbols first and read only the
+  ranges that matter; over 500 lines, never read the whole file — use windowed
+  reads.
+- Run independent searches in parallel, reading at most 5 files per round
+  (max 5 parallel reads).
+- Stop when enquiry stops paying: after two rounds of diminishing returns,
+  report what you have.
 - Rank findings by consequence: correctness and data loss first, then security
   and resource handling, then interface and naming, then style. Do not lead with
   a nit.

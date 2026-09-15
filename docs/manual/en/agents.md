@@ -141,6 +141,49 @@ Three settings shape it:
 
 `maxTasks` caps the plan. `review` and `test` are on whenever your roster has somebody for that stage; set either to `false` to turn the stage off anyway.
 
+### Stage hand-offs and audit trail
+
+Between pipeline stages, agents pass a concise 10–20 line structured hand-off block (````handoff ... ````) containing:
+- `Decided`: key decisions made during the stage
+- `Files touched`: files edited or checked
+- `Findings`: concrete findings with `path:line` references
+- `Remaining`: unfinished tasks or "nothing"
+- `Risks`: potential risks or caveats
+
+If no fence is present, the first 20 lines are kept. Hand-offs are stored on disk under:
+
+```text
+<workdir>/.snowpea/handoffs/<team-run-id>/<stage>.md
+```
+
+Each subsequent stage receives all prior hand-offs verbatim, plus `git diff --stat` and `git diff` capped at 20,000 characters (spilled to a cache file with a reader pointer if larger). At the end of the run, the summary lists all hand-off file paths and prints a telemetry table with per-stage rounds, budgets, and token usage.
+
+## Tool round budgets and grace call
+
+To prevent runaway token spend, subagents and pipeline stages operate with role-specific tool round budgets.
+
+| Role / Agent | Default tool rounds |
+|---|---|
+| `explore`, `explorer` | 8 |
+| `reviewer`, `critic` | 12 |
+| `test-engineer` | 15 |
+| `verifier` | 10 |
+| `architect` | 10 |
+| `executor` & other subagents | 32 |
+
+### Configuring round budgets
+
+Budgets are resolved in precedence order:
+1. `agents.maxToolRoundsBy.<role>` (e.g. `{ "agents": { "maxToolRoundsBy": { "explore": 10 } } }`)
+2. `agents.maxToolRounds` global scalar in `settings.json`
+3. `max_tool_rounds` in the agent definition frontmatter
+4. Role defaults shown above
+5. Fallback of 32 rounds
+
+### Toolless grace call on budget exhaustion
+
+Modeled on Hermes Agent, when a subagent exhausts its tool rounds (`rounds_left <= 0`), the run is not aborted abruptly. The loop invokes one final toolless "grace" call (`_budget_report`), giving the model a final turn with no tools to summarize what was done, what was learned, and what remains unfinished. The result is returned with reason `budget` and status `done`.
+
 ## What a report is and is not
 
 A child's report is a self-report. It says what the child believes it did, which is not the same as what happened. For anything with an effect outside the session — a file written, something uploaded, a service called — ask for a handle in the brief (a path, a URL, an id) and check it yourself before telling anyone it worked.

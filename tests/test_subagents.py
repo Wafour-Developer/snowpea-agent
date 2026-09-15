@@ -185,6 +185,8 @@ async def test_parent_sees_spawn_update_done_in_order(daemon: Daemon, workdir: P
     assert "child finished" in done["summary"]
     assert done["usage"]["outputTokens"] >= 0
     assert done["sessionId"] == result.session_id
+    assert "rounds" in done and isinstance(done["rounds"], int)
+    assert "budget" in done and isinstance(done["budget"], int)
 
 
 async def test_child_events_flow_on_the_child_session(daemon: Daemon, workdir: Path) -> None:

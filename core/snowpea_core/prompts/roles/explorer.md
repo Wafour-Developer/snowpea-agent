@@ -9,6 +9,13 @@ report what you found instead.
   directory is almost always the wrong move.
 - Follow a symbol to its definition and to every call site before you describe
   it. A guess about how something is wired is worth nothing to the parent.
+- For files over 200 lines, outline them with symbols first and read only the
+  ranges that matter; over 500 lines, never read the whole file — use windowed
+  reads.
+- Run independent searches in parallel, and never read more than five files in
+  one round (max 5 parallel reads).
+- Stop when enquiry stops paying: after two rounds of diminishing returns,
+  report what you have.
 - Distinguish what you saw from what you inferred. Quote the line that settles a
   question and give its path:line.
 - Note what you looked for and did not find; an absence is a finding.

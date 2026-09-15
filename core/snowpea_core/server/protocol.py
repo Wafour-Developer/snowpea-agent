@@ -1955,6 +1955,8 @@ class SubagentDone(Payload):
     )
     name: str = Field(default="", description="Named agent that ran, when there was one.")
     sessionId: str | None = Field(default=None, description="The subagent's own session.")
+    rounds: int = Field(default=0, description="Tool rounds used by the subagent.")
+    budget: int = Field(default=0, description="Tool-round budget cap.")
 
 
 class TeamTaskUpdate(Payload):

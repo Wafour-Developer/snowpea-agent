@@ -2118,10 +2118,12 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | field | type | required | description |
 |---|---|---|---|
 | `agentId` | `string` | yes | Subagent that finished. |
+| `budget` | `number` | no | Tool-round budget cap. |
 | `kind` | `"subagent.done"` | no |  |
 | `name` | `string` | no | Named agent that ran, when there was one. |
 | `ok` | `boolean` | no | False when it failed. |
 | `result` | `string` | no | Final report. |
+| `rounds` | `number` | no | Tool rounds used by the subagent. |
 | `sessionId` | `string \| null` | no | The subagent's own session. |
 | `status` | `"queued" \| "running" \| "done" \| "error"` | no | Terminal state: done or error. |
 | `summary` | `string` | no | The subagent's final answer. |

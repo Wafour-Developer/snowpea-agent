@@ -85,6 +85,8 @@ class AgentDefinition:
     #: stop and report (CORE-subagent-budget).  ``None`` inherits
     #: ``agents.toolRounds`` and then the subagent default.
     tool_rounds: int | None = None
+    #: Alias / frontmatter key for tool-round budget.
+    max_tool_rounds: int | None = None
     #: ``"on"`` | ``"off"`` | ``"inherit"``.  A reviewer that genuinely wants
     #: hidden reasoning says ``thinking: on``; everything else inherits, which
     #: for a delegated turn means off (CORE-reasoning-budget).
@@ -95,6 +97,13 @@ class AgentDefinition:
     #: ``builtin`` | ``global`` | ``project`` | ``claude-global`` |
     #: ``claude-project`` | ``plugin:<name>``.
     source: str = "project"
+    _source_key: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.max_tool_rounds is not None and self.tool_rounds is None:
+            self.tool_rounds = self.max_tool_rounds
+        elif self.tool_rounds is not None and self.max_tool_rounds is None:
+            self.max_tool_rounds = self.tool_rounds
 
     def tool_list(self) -> list[str] | None:
         """``None`` when the definition allows every tool."""
@@ -111,6 +120,7 @@ class AgentDefinition:
             "permission": self.permission,
             "max_turns": self.max_turns,
             "tool_rounds": self.tool_rounds,
+            "max_tool_rounds": self.max_tool_rounds,
             "thinking": self.thinking,
             "prompt": self.prompt,
             "source": self.source,
@@ -256,8 +266,10 @@ def render_agent_md(defn: AgentDefinition) -> str:
     ]
     if defn.max_turns is not None:
         fields.append(("max_turns", defn.max_turns))
-    if defn.tool_rounds is not None:
-        fields.append(("tool_rounds", defn.tool_rounds))
+    rounds_val = defn.max_tool_rounds if defn.max_tool_rounds is not None else defn.tool_rounds
+    if rounds_val is not None:
+        key = getattr(defn, "_source_key", None) or "max_tool_rounds"
+        fields.append((key, rounds_val))
     if defn.thinking != "inherit":
         fields.append(("thinking", defn.thinking))
     head = "\n".join(f"{key}: {_render_value(value)}" for key, value in fields)
@@ -294,6 +306,16 @@ def parse_agent_text(
         max_turns = int(max_turns_raw) if max_turns_raw not in (None, "") else None
     except (TypeError, ValueError):
         max_turns = None
+    raw_max_rounds = meta.get("max_tool_rounds")
+    raw_tool_rounds = meta.get("tool_rounds")
+    source_key = (
+        "tool_rounds"
+        if raw_tool_rounds is not None
+        else ("max_tool_rounds" if raw_max_rounds is not None else None)
+    )
+    parsed_rounds = _positive_int(
+        raw_max_rounds if raw_max_rounds is not None else raw_tool_rounds
+    )
     return AgentDefinition(
         name=validate_name(raw_name),
         description=str(meta.get("description") or ""),
@@ -301,11 +323,13 @@ def parse_agent_text(
         tools=tools,
         permission=str(meta.get("permission") or "inherit"),
         max_turns=max_turns,
-        tool_rounds=_positive_int(meta.get("tool_rounds")),
+        tool_rounds=parsed_rounds,
+        max_tool_rounds=parsed_rounds,
         thinking=str(meta.get("thinking") or "inherit"),
         prompt=body,
         path=path,
         source=source,
+        _source_key=source_key,
     )
 
 
@@ -349,15 +373,25 @@ def builtin_agent_definitions() -> list[AgentDefinition]:
                 text = path.read_text(encoding="utf-8")
             except (DefinitionError, OSError):
                 continue
+            meta, body = split_frontmatter(text)
+            rounds = _positive_int(meta.get("max_tool_rounds") or meta.get("tool_rounds"))
+            source_key = (
+                "tool_rounds"
+                if "tool_rounds" in meta
+                else ("max_tool_rounds" if "max_tool_rounds" in meta else None)
+            )
             found[name] = AgentDefinition(
                 name=name,
-                description=_role_description(text, name),
+                description=_role_description(body if meta else text, name),
                 model="inherit",
                 tools=ALL_TOOLS,
                 permission="inherit",
+                tool_rounds=rounds,
+                max_tool_rounds=rounds,
                 prompt="",
                 path=path,
                 source="builtin",
+                _source_key=source_key,
             )
     if BUILTIN_DIR.is_dir():
         for path in sorted(BUILTIN_DIR.glob("*.md")):

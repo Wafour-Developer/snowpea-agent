@@ -186,6 +186,8 @@ class SubagentRecord:
     reason: str = ""
     #: Tool rounds the child's turn used, as the loop counted them.
     rounds_used: int = 0
+    #: The round budget cap resolved for this turn.
+    budget: int = 0
     #: The last :data:`LAST_CALLS` tool calls the child made, newest last.
     last_calls: list[str] = field(default_factory=list)
     #: True when the child's last answer still ended at the output limit.
@@ -240,6 +242,7 @@ class SubagentResult:
     reason: str = COMPLETE
     #: Tool rounds the child used, and the last few calls it made.
     rounds_used: int = 0
+    budget: int = 0
     last_calls: list[str] = field(default_factory=list)
 
 
@@ -415,6 +418,8 @@ class SubagentManager:
                     "usage": record.usage(),
                     "name": record.name,
                     "sessionId": record.session_id,
+                    "rounds": record.rounds_used,
+                    "budget": record.budget,
                 },
             ),
         )
@@ -625,6 +630,7 @@ class SubagentManager:
             usage=record.usage(),
             reason=reason,
             rounds_used=record.rounds_used,
+            budget=record.budget,
             last_calls=list(record.last_calls),
         )
 
@@ -658,6 +664,7 @@ class SubagentManager:
             # needs and reports, instead of being cut off mid-survey
             # (CORE-subagent-budget).
             rounds = agent_loop.tool_rounds_for(self.core, child)
+            record.budget = rounds
             brief = f"{task}\n\n{BUDGET_LINE.format(n=rounds)}"
             coro = agent_loop.run_turn(self.core, child, brief, unattended=child.unattended)
             if timeout and timeout > 0:
@@ -740,10 +747,12 @@ class SubagentManager:
         allowed: set[str] | None = None
         if defn is not None:
             child.prompt_role = role_file(defn.name)
-            # ``tool_rounds:`` in the definition outranks ``agents.toolRounds``
-            # for this child only (CORE-subagent-budget).
-            if defn.tool_rounds:
-                child.tool_rounds = defn.tool_rounds
+            # ``max_tool_rounds:`` / ``tool_rounds:`` in the definition outranks
+            # ``agents.toolRounds`` for this child only (CORE-subagent-budget).
+            rounds_val = defn.max_tool_rounds or defn.tool_rounds
+            if rounds_val:
+                child.tool_rounds = rounds_val
+                child.max_tool_rounds = rounds_val
             # A delegated turn does not think by default — its report is the
             # whole output — unless the definition asks for it by name.
             if defn.thinking in THINKING_CHOICES:
