@@ -13,6 +13,7 @@ scriptable — that is the AC-02b "all Skip" path.
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -33,6 +34,8 @@ from snowpea_core.setup.screens import providers as providers_screen
 from snowpea_core.setup.screens import search as search_screen
 from snowpea_core.setup.screens import tools as tools_screen
 from snowpea_core.setup.state import WizardState, profile_id
+
+log = logging.getLogger("snowpea.setup.wizard")
 
 Mode = Literal["quick", "full", "blank"]
 
@@ -713,12 +716,35 @@ def _ask_yes_no(question: str, *, default: bool) -> bool:
     return answer.startswith("y")
 
 
-def _vendor_options(state: WizardState) -> list[tuple[str, str, tuple[str, ...]]]:
-    """Every vendor as a menu row, tagged like the provider screen."""
+def _vendor_defaults(state: WizardState, home: Path | None = None) -> dict[str, Any]:
+    """Each vendor's live default model, or ``{}`` when nothing answered in time.
+
+    An empty answer is not a failure: :func:`vendor_catalog` falls back to the
+    models.dev catalog already on disk, so the screen still shows a current
+    default — just not one confirmed against the account this second.
+    """
+    from snowpea_core.setup.catalog import vendor_default_models
+
+    try:
+        return _run_sync(vendor_default_models(state.as_settings(), home=home))
+    except Exception as exc:  # noqa: BLE001 - a default never blocks setup
+        log.debug("could not resolve the vendors' default models: %s", exc)
+        return {}
+
+
+def _vendor_options(
+    state: WizardState, home: Path | None = None
+) -> list[tuple[str, str, tuple[str, ...]]]:
+    """Every vendor as a menu row, tagged like the provider screen.
+
+    The row carries ``default: <model> (from models.dev)`` so the model a
+    vendor would actually start with is visible before it is picked
+    (CORE-default-models).
+    """
     from snowpea_core.setup.catalog import vendor_catalog
 
     rows: list[tuple[str, str, tuple[str, ...]]] = []
-    for item in vendor_catalog(state.as_settings()):
+    for item in vendor_catalog(state.as_settings(), _vendor_defaults(state, home)):
         # ``item.tags`` already carries ``active``/``default`` from the catalog;
         # only the hidden filled-circle marker is added here.
         tags = tuple(item.tags) + ((ui.CONFIGURED,) if item.active else ())
@@ -741,7 +767,7 @@ def _configure_models(
     from snowpea_core.providers.presets import PRESETS
 
     while True:
-        options = _vendor_options(state)
+        options = _vendor_options(state, home)
         if ui.is_interactive():
             vendor = _menu_pick(
                 "add another model", options, finish="Done — no more models", console=console

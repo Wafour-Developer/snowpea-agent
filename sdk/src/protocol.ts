@@ -1545,6 +1545,10 @@ export interface SetupCatalogResult {
     active?: boolean;
     /** Whether this is the screen's default pick. */
     default?: boolean;
+    /** Model this vendor row would start a session with, resolved from the account's own catalog or models.dev rather than read off the build's preset. Only the vendor list sets it; empty elsewhere and on a self-hosted server, whose model is whatever was loaded into it. */
+    defaultModel?: string;
+    /** Where defaultModel came from: 'from your account', 'from models.dev' or 'built-in default'. Shown beside the id so a fallback never passes for the account's own answer. */
+    defaultModelSource?: string;
     /** One-line description. */
     description?: string;
     /** Stable id, e.g. a vendor or provider name. */
@@ -1570,6 +1574,10 @@ export interface SetupCatalogResult {
     active?: boolean;
     /** Whether this is the screen's default pick. */
     default?: boolean;
+    /** Model this vendor row would start a session with, resolved from the account's own catalog or models.dev rather than read off the build's preset. Only the vendor list sets it; empty elsewhere and on a self-hosted server, whose model is whatever was loaded into it. */
+    defaultModel?: string;
+    /** Where defaultModel came from: 'from your account', 'from models.dev' or 'built-in default'. Shown beside the id so a fallback never passes for the account's own answer. */
+    defaultModelSource?: string;
     /** One-line description. */
     description?: string;
     /** Stable id, e.g. a vendor or provider name. */
@@ -1595,6 +1603,10 @@ export interface SetupCatalogResult {
     active?: boolean;
     /** Whether this is the screen's default pick. */
     default?: boolean;
+    /** Model this vendor row would start a session with, resolved from the account's own catalog or models.dev rather than read off the build's preset. Only the vendor list sets it; empty elsewhere and on a self-hosted server, whose model is whatever was loaded into it. */
+    defaultModel?: string;
+    /** Where defaultModel came from: 'from your account', 'from models.dev' or 'built-in default'. Shown beside the id so a fallback never passes for the account's own answer. */
+    defaultModelSource?: string;
     /** One-line description. */
     description?: string;
     /** Stable id, e.g. a vendor or provider name. */
@@ -1620,6 +1632,10 @@ export interface SetupCatalogResult {
     active?: boolean;
     /** Whether this is the screen's default pick. */
     default?: boolean;
+    /** Model this vendor row would start a session with, resolved from the account's own catalog or models.dev rather than read off the build's preset. Only the vendor list sets it; empty elsewhere and on a self-hosted server, whose model is whatever was loaded into it. */
+    defaultModel?: string;
+    /** Where defaultModel came from: 'from your account', 'from models.dev' or 'built-in default'. Shown beside the id so a fallback never passes for the account's own answer. */
+    defaultModelSource?: string;
     /** One-line description. */
     description?: string;
     /** Stable id, e.g. a vendor or provider name. */
@@ -1645,6 +1661,10 @@ export interface SetupCatalogResult {
     active?: boolean;
     /** Whether this is the screen's default pick. */
     default?: boolean;
+    /** Model this vendor row would start a session with, resolved from the account's own catalog or models.dev rather than read off the build's preset. Only the vendor list sets it; empty elsewhere and on a self-hosted server, whose model is whatever was loaded into it. */
+    defaultModel?: string;
+    /** Where defaultModel came from: 'from your account', 'from models.dev' or 'built-in default'. Shown beside the id so a fallback never passes for the account's own answer. */
+    defaultModelSource?: string;
     /** One-line description. */
     description?: string;
     /** Stable id, e.g. a vendor or provider name. */
@@ -1670,6 +1690,10 @@ export interface SetupCatalogResult {
     active?: boolean;
     /** Whether this is the screen's default pick. */
     default?: boolean;
+    /** Model this vendor row would start a session with, resolved from the account's own catalog or models.dev rather than read off the build's preset. Only the vendor list sets it; empty elsewhere and on a self-hosted server, whose model is whatever was loaded into it. */
+    defaultModel?: string;
+    /** Where defaultModel came from: 'from your account', 'from models.dev' or 'built-in default'. Shown beside the id so a fallback never passes for the account's own answer. */
+    defaultModelSource?: string;
     /** One-line description. */
     description?: string;
     /** Stable id, e.g. a vendor or provider name. */
@@ -1695,6 +1719,10 @@ export interface SetupCatalogResult {
     active?: boolean;
     /** Whether this is the screen's default pick. */
     default?: boolean;
+    /** Model this vendor row would start a session with, resolved from the account's own catalog or models.dev rather than read off the build's preset. Only the vendor list sets it; empty elsewhere and on a self-hosted server, whose model is whatever was loaded into it. */
+    defaultModel?: string;
+    /** Where defaultModel came from: 'from your account', 'from models.dev' or 'built-in default'. Shown beside the id so a fallback never passes for the account's own answer. */
+    defaultModelSource?: string;
     /** One-line description. */
     description?: string;
     /** Stable id, e.g. a vendor or provider name. */

@@ -159,7 +159,7 @@ async def test_anthropic_lists_live_from_v1_models(tmp_path: Path) -> None:
     assert listing.source == model_discovery.SOURCE_LIVE
     # The preset's own models stay behind the live ones rather than vanishing.
     assert listing.models[0] == "claude-9-sonnet"
-    assert "claude-sonnet-4-5" in listing.models
+    assert "claude-sonnet-5" in listing.models
 
 
 async def test_a_local_server_without_v1_models_falls_back_to_ollama_tags(
@@ -505,7 +505,7 @@ def test_an_unknown_codex_id_is_routed_as_chosen() -> None:
     never heard of it — the picker and the router disagreeing about the same
     account.  Only ids that belong to the *API-key* endpoint may be dropped.
     """
-    assert model_discovery.rejected_for_oauth("openai", "chatgpt", "gpt-4.1") is True
+    assert model_discovery.rejected_for_oauth("openai", "chatgpt", "gpt-6-astra") is True
     assert model_discovery.rejected_for_oauth("openai", "chatgpt", "gpt-5.6-sol") is False
     assert model_discovery.rejected_for_oauth("openai", "chatgpt", CODEX_MODELS[0]) is False
     assert model_discovery.rejected_for_oauth("openai", "chatgpt", "") is True

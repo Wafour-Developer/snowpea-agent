@@ -46,9 +46,15 @@ K = 1024
 #: default, because that is what an ordinary request gets.
 STATIC_WINDOWS: dict[str, int] = {
     # -- Anthropic ---------------------------------------------------------
-    # Every generally available claude-* model is 200k by default.
+    # Every generally available claude-* model is 200k by default; the Claude 5
+    # family ships a 1M window as standard (models.dev, 2026-09).
     "claude-": 200 * 1000,
+    "claude-sonnet-5": 1_000_000,
+    "claude-opus-5": 1_000_000,
+    "claude-fable-5": 1_000_000,
     # -- OpenAI ------------------------------------------------------------
+    "gpt-6": 1_050_000,
+    "gpt-5.6": 1_050_000,
     "gpt-5": 400 * 1000,
     "gpt-4.1": 1_047_576,
     "gpt-4o": 128 * 1000,
@@ -66,29 +72,36 @@ STATIC_WINDOWS: dict[str, int] = {
     "gemini-2.5-flash": 1_048_576,
     "gemini-": 1_048_576,
     # -- xAI ---------------------------------------------------------------
+    "grok-4.6": 500 * 1000,
+    "grok-4.5": 500 * 1000,
     "grok-4": 256 * 1000,
     "grok-3": 131072,
     "grok-2": 131072,
     "grok-": 131072,
     # -- Zhipu GLM ---------------------------------------------------------
+    "glm-5": 1_000_000,
     "glm-4.6": 200 * 1000,
     "glm-4.5": 128 * 1000,
     "glm-4": 128 * 1000,
     # -- MiniMax -----------------------------------------------------------
+    "minimax-m3": 1_048_576,
     "minimax-m2": 204800,
     "minimax-text": 1_000_000,
     "abab": 245760,
     # -- Moonshot Kimi -----------------------------------------------------
+    "kimi-k3": 1_048_576,
     "kimi-k2": 256 * 1000,
     "kimi-": 128 * 1000,
     "moonshot-v1-128k": 128 * 1000,
     "moonshot-v1-32k": 32 * 1000,
     "moonshot-v1-8k": 8 * 1000,
     # -- DeepSeek ----------------------------------------------------------
+    "deepseek-v4": 1_000_000,
     "deepseek-chat": 128 * 1000,
     "deepseek-reasoner": 128 * 1000,
     "deepseek-": 128 * 1000,
     # -- Qwen --------------------------------------------------------------
+    "qwen3.8": 1_000_000,
     "qwen3-max": 262144,
     "qwen3-coder": 262144,
     "qwen3": 131072,

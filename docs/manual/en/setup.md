@@ -51,6 +51,10 @@ To pin a list yourself — an account with early access to a model nothing adver
 
 `models` applies to any account; `oauth_models` applies only when that provider is signed in with OAuth, so one block can pin the Codex catalog without also pinning what an API key would see. Both are read on the next listing — no restart. Set `SNOWPEA_MODELS_DEV=0` to keep the curated rung off the network entirely.
 
+## Where a vendor's default model comes from
+
+Each vendor row in `snowpea setup` shows the model that vendor would start a session with, as `default: glm-5.3 (from models.dev)`. That id is resolved when the screen is drawn, not frozen into the build, so a release you installed months ago still offers what the vendor ships today. Three rungs, highest first: the **account's own listing**, when this machine holds a credential for that vendor; the newest chat-capable model the public [models.dev](https://models.dev) catalog lists for it, preferring a family's flagship over a cheaper sibling of the same generation and skipping preview and deprecated ids; and last the string built into this release. The row always says which rung answered, so a fallback never passes for your account's own answer. Live discovery is capped at two seconds and runs for every vendor at once, so a vendor that hangs is skipped rather than waited on, and `SNOWPEA_MODELS_DEV=0` keeps the middle rung off the network as it does everywhere else. The same three fields reach the IDE as `defaultModel` and `defaultModelSource` on `setup.catalog`.
+
 ## Multiple models and agent assignments
 
 Run `snowpea setup providers` to register multiple models, choose a default, and assign registered models to built-in or custom agents. Multiple models from the same provider are supported. Clear an assignment to return an agent to the default.
