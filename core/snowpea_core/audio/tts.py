@@ -751,16 +751,15 @@ class SupertonicTTS:
 # resolution
 # ---------------------------------------------------------------------------
 
-#: The order ``"auto"`` tries backends in.
+#: The order the wizard **recommends** engines in, and the order the media
+#: tool's own fallback walks.  It is no longer what ``audio.speak`` resolves
+#: through: a direction of voice is either pinned to one engine or off.
 #:
-#: ``studio`` used to be **first** here and is now **last**.  It needs a
-#: configured MCP server before it can say a word, so leading with it meant
-#: "Automatic" resolved to a backend most machines did not have.  It stays in
-#: the chain because the ``text_to_speech`` media tool resolves through this
-#: same function and forwarding to studio is what that tool *is*; it is simply
-#: no longer what anyone gets by default, and it is no longer offered as a
-#: voice choice in the setup catalog.
-AUTO_ORDER: tuple[str, ...] = (
+#: ``studio`` is last.  It needs a configured MCP server before it can say a
+#: word, and it is not offered as a voice choice at all; it stays here because
+#: ``text_to_speech`` (the media tool) still forwards to it, and forwarding is
+#: what that tool *is*.
+RECOMMENDED_ORDER: tuple[str, ...] = (
     "supertonic",
     "edge-tts",
     "piper",
@@ -773,7 +772,7 @@ AUTO_ORDER: tuple[str, ...] = (
 )
 
 #: Every backend name, for settings validation and the setup wizard.
-PROVIDER_NAMES: tuple[str, ...] = AUTO_ORDER
+PROVIDER_NAMES: tuple[str, ...] = RECOMMENDED_ORDER
 
 #: The local backends, in the order the wizard should report them.
 LOCAL_PROVIDERS: tuple[str, ...] = (
@@ -828,7 +827,9 @@ def resolve_provider(
     language: str | None = None,
 ) -> TTSProvider | None:
     """The backend to speak with, or ``None`` when none is usable."""
-    names = AUTO_ORDER if name in {"auto", ""} else (name,)
+    # One name, always: the caller pins an engine or asks for nothing.  The
+    # media tool, which does want a chain, walks RECOMMENDED_ORDER itself.
+    names = (name,) if name else ()
     for candidate in names:
         try:
             provider = build_provider(
@@ -849,6 +850,43 @@ def resolve_provider(
     return None
 
 
+def resolve_any(
+    *,
+    caller: SpeechCaller | None = None,
+    studio_configured: bool = False,
+    api_key: str | None = None,
+    command: str | None = None,
+    language: str | None = None,
+    client_factory: Any = None,
+) -> TTSProvider | None:
+    """The first usable backend in :data:`RECOMMENDED_ORDER`, or ``None``.
+
+    This is for the ``text_to_speech`` **media tool**, which the model calls on
+    purpose and which should use whatever this machine has — including a
+    configured studio server, which forwarding to is what that tool is.
+
+    Voice *output* does not come through here.  A user who turned speech on
+    pinned an engine, and if it is missing the honest answer is that it is
+    missing, not a different voice they never chose.
+    """
+    for candidate in RECOMMENDED_ORDER:
+        try:
+            provider = build_provider(
+                candidate,
+                caller=caller,
+                studio_configured=studio_configured,
+                api_key=api_key,
+                command=command,
+                language=language,
+                client_factory=client_factory,
+            )
+        except AudioError:
+            continue
+        if provider.available():
+            return provider
+    return None
+
+
 def available_providers(
     *,
     caller: SpeechCaller | None = None,
@@ -859,7 +897,7 @@ def available_providers(
 ) -> list[str]:
     """Every backend that would work here, in preference order."""
     found: list[str] = []
-    for candidate in AUTO_ORDER:
+    for candidate in RECOMMENDED_ORDER:
         provider = build_provider(
             candidate,
             caller=caller,
@@ -894,13 +932,13 @@ async def synthesize(
     Either hand in a resolved ``provider``, or the credentials for
     :func:`resolve_provider` to pick one.
     """
-    chosen = provider or resolve_provider(
-        "auto",
+    # No provider handed in: this is the module-level helper the media tool
+    # and the tests use, so it walks the recommendation order.  Voice output
+    # never arrives here without a resolved provider.
+    chosen = provider or resolve_any(
         caller=caller,
         studio_configured=caller is not None if studio_configured is None else studio_configured,
         api_key=api_key,
-        model=model,
-        base_url=base_url,
         command=command,
         client_factory=client_factory,
     )
@@ -916,7 +954,7 @@ async def synthesize(
 
 
 __all__ = [
-    "AUTO_ORDER",
+    "RECOMMENDED_ORDER",
     "DEFAULT_SUPERTONIC_VOICE",
     "SUPERTONIC_PACKAGE",
     "SUPERTONIC_SCRIPT",
@@ -949,6 +987,7 @@ __all__ = [
     "materialise",
     "mime_for",
     "parse_result",
+    "resolve_any",
     "resolve_provider",
     "synthesize",
 ]

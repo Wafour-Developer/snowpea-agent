@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Any
 from snowpea_core.commands.registry import Command, CommandContext
 from snowpea_core.server.protocol import QuestionItem, QuestionOption
 from snowpea_core.setup import credentials as creds
+from snowpea_core.setup.catalog import AUDIO_OFF
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.setup.credentials import CredentialPlan
@@ -180,7 +181,12 @@ async def _configure_provider_section(ctx: CommandContext, kind: str) -> list[st
 
 
 async def _configure_audio(ctx: CommandContext) -> list[str]:
-    """Pick the voice engines, offering to install the recommended ones."""
+    """Pick the voice engines, the same two states the wizard shows.
+
+    Unset means that direction of voice is off; a pinned engine is what is
+    used. Installing is a separate step from choosing, so the rows say which
+    engines are on the machine and picking one is what pins it.
+    """
     from snowpea_core.audio import capabilities
     from snowpea_core.server.audio_handlers import audio_config, speech_caller
     from snowpea_core.setup import catalog
@@ -214,13 +220,28 @@ async def _configure_audio(ctx: CommandContext) -> list[str]:
         if not chosen:
             continue
         block = _audio_block(ctx.core.settings, key)
+        if chosen == AUDIO_OFF:
+            # Off is unset: there is nothing to fall back to, and saying so
+            # plainly is the point of removing "automatic".
+            block["provider"] = None
+            lines.append(f"audio.{label}: off")
+            continue
         block["provider"] = chosen
-        lines.append(f"audio.{label}: {chosen}")
+        installed = set(report["sttProviders" if key == "stt" else "ttsProviders"])
+        note = "" if chosen in installed else f" (not installed — `snowpea audio install {chosen}`)"
+        lines.append(f"audio.{label}: {chosen}{note}")
     return lines or ["audio: unchanged"]
 
 
 def _audio_row(item: Any) -> str:
-    state = "installed" if item.active else "not installed here"
+    """One option's description, saying whether it is here and what picking it does."""
+    if item.id == AUDIO_OFF:
+        return "voice off for this direction"
+    state = "installed" if item.active else "not installed"
+    if not item.active and item.installable:
+        state = "not installed — `snowpea audio install` gets it"
+    elif not item.active and item.install_hint:
+        state = f"not installed — {item.install_hint}"
     return f"{item.description or item.label} — {state}".lstrip(" —")
 
 

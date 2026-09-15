@@ -121,7 +121,10 @@ async def test_transcribe_without_a_backend_explains_itself(
     assert not result.ok
     assert result.error is not None
     assert result.error.startswith("tool_inactive:")
-    assert "whisper" in result.error
+    # The tool's own problem is that nothing is *installed*, which is a
+    # different thing from nothing being *pinned* for voice input.
+    assert "no stt backend is installed here" in result.error
+    assert "snowpea audio install" in result.error
 
 
 async def test_transcribe_runs_the_configured_command(only_path: Path, tmp_path: Path) -> None:

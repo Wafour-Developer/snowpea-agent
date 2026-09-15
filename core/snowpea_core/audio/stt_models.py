@@ -233,6 +233,7 @@ async def download_file(
     progress: Progress | None = None,
     fetch: Any = None,
     sha256: str | None = None,
+    log: Any = None,
 ) -> bool:
     """Fetch ``url`` to ``target``, resuming a partial file when there is one.
 
@@ -268,13 +269,24 @@ async def download_file(
                     async for chunk in response.aiter_bytes():
                         handle.write(chunk)
                         written += len(chunk)
-                        if progress is not None and _tick(written, len(chunk)):
-                            await progress(_progress_line(target.name, written, total))
+                        if _tick(written, len(chunk)):
+                            line = _progress_line(target.name, written, total)
+                            # Bytes as they arrive: a 400MB download and a
+                            # checksum look identical in a log, and only one of
+                            # them takes four minutes.
+                            if log is not None:
+                                await log.bytes(written, total, target.name)
+                            elif progress is not None:
+                                await progress(line)
     except Exception as exc:  # noqa: BLE001 - a failed download is a result
         if progress is not None:
             await progress(f"{target.name}: {type(exc).__name__}: {exc}")
         return False
 
+    if log is not None:
+        from snowpea_core.audio.install import STAGE_VERIFY
+
+        await log.stage(STAGE_VERIFY, f"checking {target.name}")
     if not verify(partial, sha256, name=target.name):
         partial.unlink(missing_ok=True)
         if progress is not None:
@@ -355,6 +367,7 @@ async def ensure_model(
     progress: Progress | None = None,
     fetch: Any = None,
     keep_archive: bool = False,
+    log: Any = None,
 ) -> bool:
     """Download, verify and unpack one model; ``True`` when it is ready.
 
@@ -374,13 +387,19 @@ async def ensure_model(
         return True
 
     archive = directory / model.asset
-    if progress is not None:
+    if log is not None:
+        from snowpea_core.audio.install import STAGE_DOWNLOAD, STAGE_EXTRACT
+
+        await log.stage(STAGE_DOWNLOAD, f"downloading {model.url}")
+    elif progress is not None:
         await progress(f"downloading {model.url}")
     if not await download_file(
-        model.url, archive, progress=progress, fetch=fetch, sha256=model.sha256
+        model.url, archive, progress=progress, fetch=fetch, sha256=model.sha256, log=log
     ):
         return False
-    if progress is not None:
+    if log is not None:
+        await log.stage(STAGE_EXTRACT, f"unpacking {archive.name}")
+    elif progress is not None:
         await progress(f"unpacking {archive.name}")
     if not unpack(archive, directory):
         return False
@@ -394,7 +413,7 @@ async def ensure_model(
         if progress is not None:
             await progress(f"downloading {extra}")
         if not await download_file(
-            f"{SHERPA_RELEASE}/{extra}", target, progress=progress, fetch=fetch
+            f"{SHERPA_RELEASE}/{extra}", target, progress=progress, fetch=fetch, log=log
         ):
             # The VAD only improves long-file decoding; its absence is worth a
             # line in the log, not a failed install.

@@ -288,33 +288,58 @@ class MediaSettings(_Model):
     mcp: MediaMcpSettings = Field(default_factory=MediaMcpSettings)
 
 
+#: Value an older settings file may carry for a voice provider.  It used to
+#: mean "try every backend in order"; it now reads as **unset**, which means
+#: that direction of voice is off until the user picks an engine.  Rewritten
+#: away on the next save, so it disappears rather than lingering.
+LEGACY_AUTO = "auto"
+
+
+def _drop_auto(value: Any) -> Any:
+    """``"auto"`` -> ``None``.  There is no chain to fall back to any more."""
+    return None if isinstance(value, str) and value.strip().lower() == LEGACY_AUTO else value
+
+
 class SttSettings(_Model):
     """Speech to text (CORE-multimodal).
 
-    ``provider`` is ``"auto"`` (local whisper, then OpenAI, then a command),
-    one backend's name, or ``"off"``.  The OpenAI credentials are not repeated
-    here: the provider registry's ``openai`` key is reused.
+    ``provider`` is **unset** (voice in is off) or one engine's id.  There is
+    no ``"auto"``: a chain that silently tried five backends meant a user who
+    asked for voice and got silence had no way to tell which of them had been
+    tried, and the honest answer — "nothing is set up" — was the one the code
+    could never give.  The OpenAI credentials are not repeated here: the
+    provider registry's ``openai`` key is reused.
     """
 
-    provider: str = "auto"
+    provider: str | None = None
     #: ``command`` backend only: a template containing ``{path}``.
     command: str | None = None
     #: Backend-specific model id (``whisper-1``, ``base``, …).
     model: str | None = None
+    #: What the engine is told to expect; empty lets it detect.
+    language: str | None = None
+
+    _drop_auto_provider = field_validator("provider", mode="before")(_drop_auto)
 
 
 class TtsSettings(_Model):
     """Text to speech (CORE-multimodal)."""
 
     enabled: bool = True
-    #: ``"auto"`` (studio, then OpenAI, then a local CLI), a backend name, or ``"off"``.
-    provider: str = "auto"
+    #: **Unset** (voice out is off) or one engine's id.  See :class:`SttSettings`.
+    provider: str | None = None
     #: ``command`` backend only: a template containing ``{text}`` and ``{out}``.
     command: str | None = None
     model: str | None = None
     voice: str | None = None
     #: Speak every assistant reply without being asked.
     autoSpeak: bool = False
+    #: Also say the opening acknowledgement — the line the agent writes before
+    #: its first tool call.  A silent minute after a spoken request feels dead,
+    #: and the agent has already said what it is about to do.
+    speakAck: bool = True
+
+    _drop_auto_provider = field_validator("provider", mode="before")(_drop_auto)
 
 
 class AudioSettings(_Model):

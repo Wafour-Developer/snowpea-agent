@@ -352,7 +352,11 @@ async def test_audio_speak_uses_a_local_cli(
     script.chmod(script.stat().st_mode | stat.S_IXUSR)
     monkeypatch.setenv("PATH", str(bin_dir))
 
-    daemon = await make_daemon(tmp_path / "home")
+    # Pinned, because installed is no longer the same as chosen: nothing is
+    # tried on the user's behalf any more.
+    daemon = await make_daemon(
+        tmp_path / "home", {"audio": {"tts": {"provider": "espeak-ng"}}}
+    )
     try:
         async with aiohttp.ClientSession() as http:
             client = await connect(http, daemon)

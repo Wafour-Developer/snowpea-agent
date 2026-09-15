@@ -615,32 +615,46 @@ Categories are `file`, `terminal`, `git`, `web`, `browser`, `delegate`, `schedul
 
 Two lists, one decision: can you talk to it, and does it talk back. Both are shown whether or not the engine is installed here, because "why can't I use piper" should be answered on screen rather than by its absence.
 
-The two defaults are local and CPU-only, so voice works without an account and without a GPU.
+Voice has **two states, per direction**: nothing pinned, which means off, or one engine pinned, which is the one used. There is no "automatic" that tries several — a chain that silently tried five backends could only ever report silence, and never which of them it had tried.
+
+- **Not set** — `audio.stt.provider` / `audio.tts.provider` is absent. `audio.capabilities` reports that direction false with `no engine set — install or pick one in setup`.
+- **Pinned** — one engine id. If it is not installed, the capability is false with `engine <id> is not installed`, not a quiet switch to a different one.
+
+An older `settings.json` carrying `"auto"` reads as **unset**, so voice is off until you pick something. That is deliberate: it re-enables on purpose rather than by accident.
+
+**Installing and choosing are separate steps.** `snowpea audio install <engine>` puts an engine on the machine and changes no setting. Picking it is what pins it. The wizard says which of the two is outstanding: *Not set*, *X is installed, not selected — pick it to use it*, or *Pinned: X*.
+
+The two recommended engines are local and CPU-only, so voice works without an account and without a GPU.
 
 **Voice in** — the recommended default is **SenseVoiceSmall**.
 
-| Row | What it is | What it needs |
+| Row | What it is | What picking it does |
 |---|---|---|
-| `sherpa-onnx-sensevoice` ★ | SenseVoiceSmall, zh/en/ja/ko/yue, ~17-20x real time on CPU, comes with its own VAD so it splits long recordings itself | the `sherpa-onnx` package and a ~230MB model |
-| `sherpa-onnx-zipformer-ko` | Korean streaming Zipformer INT8, ~10-38x real time on CPU | the same package and a Korean model |
-| `sherpa-onnx-zipformer-en` | English streaming Zipformer INT8 | the same package and an English model |
-| `local-whisper` | the whisper CLI you may already have | `faster-whisper` or `whisper` on PATH |
-| `openai` | hosted transcription | the OpenAI key you already configured |
-| `command` | your own template | a command containing `{path}` |
+| `sherpa-onnx-sensevoice` ★ | SenseVoiceSmall, zh/en/ja/ko/yue, ~17-20x real time on CPU, comes with its own VAD so it splits long recordings itself | installs it (package + ~230MB model), then pin it |
+| `sherpa-onnx-zipformer-ko` | Korean streaming Zipformer INT8, ~10-38x real time on CPU | installs it, then pin it |
+| `sherpa-onnx-zipformer-en` | English streaming Zipformer INT8 | installs it, then pin it |
+| `local-whisper` | the whisper CLI you may already have | installs `faster-whisper`, then pin it |
+| `openai` | hosted transcription | asks for the key (masked), then pins it |
+| `command` | your own template | asks for the template, validates it, self-tests, pins |
 
 **Voice out** — the recommended default is **Supertonic**.
 
-| Row | What it is | What it needs |
+| Row | What it is | What picking it does |
 |---|---|---|
-| `supertonic` ★ | Supertone's on-device neural TTS, 31 languages including Korean and English, runs on CPU | the `supertonic` Python package, which fetches its own ONNX voices on first use |
-| `piper` | local neural voices | the `piper` CLI and one voice file |
-| `edge-tts` | Microsoft neural voices | the `edge-tts` CLI, and the network at speaking time |
-| `espeak-ng` | small and robotic, everywhere | the system package |
-| `say` / `powershell` | built into macOS / Windows | nothing |
-| `openai` | hosted speech | the OpenAI key you already configured |
-| `command` | your own template | a command containing `{text}` and `{out}` |
+| `supertonic` ★ | Supertone's on-device neural TTS, 31 languages including Korean and English, runs on CPU | installs it (it fetches its own ONNX voices), then pin it |
+| `piper` | local neural voices | installs it with a default voice, then pin it |
+| `edge-tts` | Microsoft neural voices | installs it, then pin it |
+| `espeak-ng` | small and robotic, everywhere | shows the platform command and offers to run it |
+| `say` / `powershell` | built into macOS / Windows | pins it; **not listed** on other platforms |
+| `openai` | hosted speech | asks for the key (masked), then pins it |
+| `command` | your own template | asks for the template, validates it, self-tests, pins |
 
-Automatic tries the local engines before the hosted ones, so audio of your room never leaves the machine when something here can handle it. With nothing installed it degrades to whatever exists rather than failing: the defaults are **install-guided, not required**.
+**Every row leads somewhere.** Picking an engine that is not installed installs it rather than setting a value that produces silence. A system package shows its own command and offers to run it. A custom command is asked for, checked for its placeholders, and self-tested for three seconds before it is pinned. An engine that could never work here — macOS `say` on Linux — is not listed at all.
+
+An install reports **stages**, not just a log: `[download 3/6] 63% ▇▇▇▇▇▁▁▁ sherpa-onnx-sensevoice.tar.bz2`, with the log tail below it.
+
+With speech on, the agent also says its **opening acknowledgement** — the line it writes before its first tool call — so a spoken request is not answered by a silent minute. Turn it off with `audio.tts.speakAck: false`.
+
 
 Speech models come from the official sherpa-onnx release assets and land under `$SNOWPEA_HOME/models/sherpa-onnx/`. Downloads resume if they are interrupted, and a model only counts as installed once it has unpacked completely, so a cancelled download never leaves an engine looking ready.
 
@@ -658,7 +672,20 @@ snowpea audio install edge-tts
 
 It runs `uv tool install` if `uv` is on PATH, then `pipx`, then `pip install --user`, printing the log as it goes. A sherpa-onnx row installs the package and then downloads its model; `supertonic` always goes in with `pip install --user`, because the engine imports it rather than running a command. Installing `piper` also downloads one default voice into `$SNOWPEA_HOME/voices/` and records it in `audio.tts.voice`, because a piper binary with no voice cannot say anything. Detection re-runs at the end, so the engine is usable immediately and nothing needs restarting.
 
-The setup wizard offers the same thing as an **Install** row next to any engine it could fetch but cannot find, and shows the list again afterwards so you pick the engine from a list where it is now active.
+The setup wizard's two voice screens are **action-first**: the rows are things to do, not settings to believe in.
+
+```text
+Recommended: SenseVoiceSmall (CPU) — Install     ← only while nothing is installed
+Install Piper…
+Choose a specific engine…
+Skip — keep defaults
+```
+
+With nothing installed, the recommended engine leads and is pre-selected, because installing it is the one move that helps. Once you have an engine the recommendation gives way to a status line that says something truer: **Automatic will use espeak-ng.**
+
+Automatic is still the setting and still the default. It is no longer a *row*, because it is not an action: with nothing installed it is a promise the machine cannot keep, and with something installed the screen can simply tell you what it will use.
+
+`Choose a specific engine…` opens a submenu that pins one on purpose — every engine, the installed ones first and the rest listed and marked, then Off, a custom command, and the one that needs an account. Esc goes back rather than abandoning the question, and the row then says what is pinned. Install rows run the install and show the screen again, so you land where you were with the engine now working.
 
 `espeak-ng`, `say` and `powershell` are system packages, and the daemon will not run a package manager as root for you. Asking for one prints the command for your platform instead:
 

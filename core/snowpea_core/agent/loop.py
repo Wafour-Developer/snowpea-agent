@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import uuid
 from dataclasses import dataclass, field
 from time import monotonic
@@ -598,7 +599,75 @@ async def run_turn(
     return turn_id
 
 
-async def speak_reply(core: Core, session: Session, text: str) -> None:
+#: The acknowledgement is spoken at most this long: it is "yes, I am on it",
+#: not a summary, and a paragraph read aloud while the work has already started
+#: is worse than silence.
+ACK_MAX_CHARS = 240
+ACK_MAX_SENTENCES = 2
+
+#: What ``audio.spoken`` calls each kind of utterance.
+UTTERANCE_REPLY = "reply"
+UTTERANCE_ACK = "ack"
+
+_SENTENCE_END = re.compile(r"(?<=[.!?。！？])\s+|(?<=[다요][.!?])\s*")
+
+
+def opening_ack(text: str) -> str:
+    """The first sentence or two of an opening line, trimmed for speaking.
+
+    The model's prose before its first tool call is already an acknowledgement
+    — "네, 알겠습니다. 파일을 읽어서 …하겠습니다" — so the useful part is the
+    front of it. Anything past two sentences is the plan, which the user will
+    see written down anyway.
+    """
+    body = " ".join((text or "").split())
+    if not body:
+        return ""
+    parts = [part for part in _SENTENCE_END.split(body) if part]
+    spoken = " ".join(parts[:ACK_MAX_SENTENCES]) if parts else body
+    if len(spoken) > ACK_MAX_CHARS:
+        spoken = spoken[:ACK_MAX_CHARS].rstrip() + "…"
+    return spoken
+
+
+async def speak_ack(core: Core, session: Session, text: str) -> None:
+    """Say the turn's opening acknowledgement, once, before the work starts.
+
+    A spoken request answered by a silent minute feels dead, and the agent has
+    already written what it is about to do. Only the **first** such line of a
+    turn is spoken: the ones between later tool calls are thinking aloud, and
+    narrating a whole turn is not what anyone asked for.
+
+    Off with ``audio.tts.speakAck``. Never in a delegated or unattended turn,
+    which has nobody in the room to hear it.
+    """
+    if session.is_subagent or getattr(session, "unattended", False):
+        return
+    if getattr(session, "ack_spoken", False):
+        return
+    session.ack_spoken = True  # type: ignore[attr-defined]
+    from snowpea_core.server.audio_handlers import audio_config
+
+    try:
+        if not bool(_tts_setting(core, "speakAck", True)):
+            return
+        if not audio_config(core).auto_speak:
+            return
+    except Exception:  # noqa: BLE001 - reading a setting must not fail a turn
+        return
+    await speak_reply(core, session, opening_ack(text), utterance=UTTERANCE_ACK)
+
+
+def _tts_setting(core: Core, name: str, default: Any) -> Any:
+    """One ``audio.tts.<name>``, read the same lenient way the handlers read it."""
+    from snowpea_core.server.audio_handlers import _block, _get
+
+    return _get(_block(_block(core.settings, "audio"), "tts"), name, default)
+
+
+async def speak_reply(
+    core: Core, session: Session, text: str, *, utterance: str = UTTERANCE_REPLY
+) -> None:
     """Say the reply out loud when ``audio.tts.autoSpeak`` is on.
 
     Never raises and never blocks the turn's outcome: a missing backend, a
@@ -639,6 +708,7 @@ async def speak_reply(core: Core, session: Session, text: str) -> None:
                 provider=speech.provider,
                 played=played,
                 voice=speech.voice,
+                utterance=utterance,
             ),
         )
     except Exception as exc:  # noqa: BLE001 - speaking must never fail a turn
@@ -689,6 +759,8 @@ async def _drive(
 
     rounds_left = config.max_tool_rounds
     session.rounds_used = 0
+    # One acknowledgement per turn, not per tool round.
+    session.ack_spoken = False
     while True:
         if rounds_left <= 0:
             # The budget is a checkpoint, not a wall: a long implementing turn
@@ -775,6 +847,11 @@ async def _drive(
             await nudge_after_turn(core, session, text)
             await plugin_hooks.stop(core, session)
             return "complete"
+
+        # The opening line is spoken here, before the tools run: a spoken
+        # request answered by a silent minute feels dead, and the model has
+        # just written what it is about to do (CORE-multimodal).
+        await speak_ack(core, session, assistant_text)
 
         # No ``message.done`` here, tempting as it is.  The prose *is* finished
         # once the model reaches for a tool, but ``message.done`` is also what

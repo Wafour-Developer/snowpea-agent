@@ -282,18 +282,26 @@ async def test_setup_catalog_returns_vendors_and_search_with_ddgs_first(daemon: 
             await client.stop()
 
 
-async def test_setup_catalog_audio_default_rows_are_always_active(daemon: Daemon) -> None:
-    """``auto`` and ``off`` never depend on what happens to be installed here."""
+async def test_setup_catalog_audio_rows_are_two_states_not_three(daemon: Daemon) -> None:
+    """``off`` is always choosable; ``auto`` does not exist any more.
+
+    Voice is unset (off) or pinned to one engine. The row a surface leads with
+    is the recommended engine, which is also what ``default`` means on a voice
+    catalog now — the row to pre-select, not a provider that would run.
+    """
     async with aiohttp.ClientSession() as http:
         client = await connect(http, daemon)
         try:
             result = await client.ok("setup.catalog")
             stt = {item["id"]: item["active"] for item in result["stt"]}
             tts = {item["id"]: item["active"] for item in result["tts"]}
-            assert stt["auto"] is True and stt["off"] is True
-            assert tts["auto"] is True and tts["off"] is True
-            assert next(item for item in result["stt"] if item["id"] == "auto")["default"]
-            assert next(item for item in result["tts"] if item["id"] == "auto")["default"]
+            assert stt["off"] is True and tts["off"] is True
+            assert "auto" not in stt and "auto" not in tts
+
+            stt_default = next(item for item in result["stt"] if item["default"])
+            tts_default = next(item for item in result["tts"] if item["default"])
+            assert stt_default["recommended"] and tts_default["recommended"]
+            assert stt_default["installable"] and tts_default["installable"]
         finally:
             await client.stop()
 

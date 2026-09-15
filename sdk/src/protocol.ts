@@ -261,10 +261,18 @@ export interface AudioCapabilitiesResult {
   recorders?: string[];
   /** Transcription backend in use, or null when there is none. */
   stt?: string | null;
+  /** The engine actually in use, or null when none is pinned or it is missing. */
+  sttEffective?: string | null;
+  /** True when audio.stt.provider names an engine. False means unset, which means voice input is off: there is no fallback chain. */
+  sttPinned?: boolean;
   /** Every usable transcription backend, preferred first. */
   sttProviders?: string[];
   /** True when speech synthesis is available. */
   tts?: boolean;
+  /** The speech engine actually in use, or null. */
+  ttsEffective?: string | null;
+  /** True when audio.tts.provider names an engine. */
+  ttsPinned?: boolean;
   /** Speech backend in use. */
   ttsProvider?: string | null;
   /** Every usable speech backend, preferred first. */
@@ -2179,10 +2187,22 @@ export interface ApprovalResolvedPayload {
 
 /** `audio.install.progress` notification payload. */
 export interface AudioInstallProgressPayload {
+  /** Bytes transferred so far. */
+  bytesDone?: number | null;
+  /** Total bytes, from Content-Length when the server sends one. */
+  bytesTotal?: number | null;
   /** Engine being installed. */
   engine: string;
   /** One line of the installer's output. */
-  line: string;
+  line?: string;
+  /** 0-100 within the stage, when it can be known. */
+  percent?: number | null;
+  /** resolve | download | extract | verify | install | check. 'install' is the package manager, 'verify' is the checksum, 'check' is the detection that runs afterwards. */
+  stage?: string;
+  /** 1-based place of this stage in the sequence. */
+  step?: number;
+  /** How many stages this engine has in total. */
+  steps?: number;
 }
 
 /** `commands.changed` notification payload. */
@@ -2346,6 +2366,8 @@ export interface AudioSpokenEventPayload {
   played?: boolean;
   /** Backend that synthesised it. */
   provider?: string;
+  /** reply = the turn's answer; ack = the opening acknowledgement the agent writes before its first tool call. A surface may label or skip an ack; one that does not know the field treats everything as a reply. */
+  utterance?: string;
   /** Voice that was used. */
   voice?: string | null;
 }

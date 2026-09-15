@@ -589,32 +589,46 @@ snowpea tools list
 
 목록은 둘이지만 결정은 하나입니다. 말을 걸 수 있는가, 그리고 대답을 소리로 해주는가. 설치 여부와 상관없이 모두 보여줍니다. "왜 piper를 못 쓰지"라는 질문의 답이 화면에 없어서가 아니라 화면에 있어야 하기 때문입니다.
 
-기본값 둘은 모두 로컬·CPU 전용입니다. 계정도 GPU도 없이 음성이 동작합니다.
+음성은 방향마다 **두 가지 상태**뿐입니다. 아무것도 고정되지 않았으면 꺼진 것이고, 엔진 하나가 고정되었으면 그것만 씁니다. 여러 개를 차례로 시도하는 "자동"은 없앴습니다. 조용히 다섯 개를 시도하는 체인은 결국 침묵만 보고할 수 있었고, 그중 무엇을 시도했는지조차 알려줄 수 없었습니다.
+
+- **미설정** — `audio.stt.provider` / `audio.tts.provider`가 없는 상태. `audio.capabilities`가 그 방향을 false로 보고하며 이유는 `no engine set — install or pick one in setup`입니다.
+- **고정됨** — 엔진 id 하나. 설치되어 있지 않으면 `engine <id> is not installed`로 false를 보고합니다. 다른 엔진으로 슬쩍 바꾸지 않습니다.
+
+예전 `settings.json`에 남아 있는 `"auto"`는 **미설정**으로 읽습니다. 즉 직접 고르기 전까지 음성은 꺼져 있습니다. 의도적입니다. 실수로가 아니라 일부러 켜게 됩니다.
+
+**설치와 선택은 별개의 단계입니다.** `snowpea audio install <engine>`은 엔진을 기계에 올려놓을 뿐 설정을 바꾸지 않습니다. 고정하는 것은 고르는 행동입니다. 마법사는 둘 중 무엇이 남았는지 알려줍니다. *Not set*, *X is installed, not selected — pick it to use it*, 또는 *Pinned: X*.
+
+권장 엔진 둘은 모두 로컬·CPU 전용입니다. 계정도 GPU도 없이 음성이 동작합니다.
 
 **음성 입력** — 권장 기본값은 **SenseVoiceSmall**입니다.
 
-| 항목 | 무엇인가 | 필요한 것 |
+| 항목 | 무엇인가 | 고르면 무슨 일이 일어나나 |
 |---|---|---|
-| `sherpa-onnx-sensevoice` ★ | SenseVoiceSmall. zh/en/ja/ko/yue, CPU에서 실시간의 약 17~20배, VAD를 함께 받아 긴 녹음을 스스로 잘라냅니다 | `sherpa-onnx` 패키지와 약 230MB 모델 |
-| `sherpa-onnx-zipformer-ko` | 한국어 스트리밍 Zipformer INT8. CPU에서 실시간의 약 10~38배 | 같은 패키지와 한국어 모델 |
-| `sherpa-onnx-zipformer-en` | 영어 스트리밍 Zipformer INT8 | 같은 패키지와 영어 모델 |
-| `local-whisper` | 이미 있을 수도 있는 whisper CLI | PATH 위의 `faster-whisper` 또는 `whisper` |
-| `openai` | 호스팅 전사 | 이미 설정한 OpenAI 키 |
-| `command` | 직접 만든 템플릿 | `{path}`를 포함한 명령 |
+| `sherpa-onnx-sensevoice` ★ | SenseVoiceSmall. zh/en/ja/ko/yue, CPU에서 실시간의 약 17~20배, VAD를 함께 받아 긴 녹음을 스스로 잘라냅니다 | 설치합니다(패키지 + 약 230MB 모델). 그 다음 고르면 고정됩니다 |
+| `sherpa-onnx-zipformer-ko` | 한국어 스트리밍 Zipformer INT8. CPU에서 실시간의 약 10~38배 | 설치합니다. 그 다음 고르면 고정됩니다 |
+| `sherpa-onnx-zipformer-en` | 영어 스트리밍 Zipformer INT8 | 설치합니다. 그 다음 고르면 고정됩니다 |
+| `local-whisper` | 이미 있을 수도 있는 whisper CLI | `faster-whisper`를 설치합니다. 그 다음 고르면 고정 |
+| `openai` | 호스팅 전사 | 키를 가려진 입력으로 묻고 고정합니다 |
+| `command` | 직접 만든 템플릿 | 템플릿을 묻고 검사한 뒤 자가 테스트하고 고정합니다 |
 
 **음성 출력** — 권장 기본값은 **Supertonic**입니다.
 
-| 항목 | 무엇인가 | 필요한 것 |
+| 항목 | 무엇인가 | 고르면 무슨 일이 일어나나 |
 |---|---|---|
-| `supertonic` ★ | Supertone의 온디바이스 신경망 TTS. 한국어·영어 포함 31개 언어, CPU에서 동작 | `supertonic` 파이썬 패키지. ONNX 음성은 첫 사용 때 스스로 받아옵니다 |
-| `piper` | 로컬 신경망 음성 | `piper` CLI와 음성 파일 하나 |
-| `edge-tts` | 마이크로소프트 신경망 음성 | `edge-tts` CLI, 말할 때 네트워크 |
-| `espeak-ng` | 작고 기계적이며 어디에나 있음 | 시스템 패키지 |
-| `say` / `powershell` | macOS / Windows 기본 제공 | 없음 |
-| `openai` | 호스팅 음성 | 이미 설정한 OpenAI 키 |
-| `command` | 직접 만든 템플릿 | `{text}`와 `{out}`을 포함한 명령 |
+| `supertonic` ★ | Supertone의 온디바이스 신경망 TTS. 한국어·영어 포함 31개 언어, CPU에서 동작 | 설치합니다(ONNX 음성은 스스로 받아옴). 그 다음 고르면 고정 |
+| `piper` | 로컬 신경망 음성 | 기본 음성과 함께 설치합니다. 그 다음 고르면 고정 |
+| `edge-tts` | 마이크로소프트 신경망 음성 | 설치합니다. 그 다음 고르면 고정됩니다 |
+| `espeak-ng` | 작고 기계적이며 어디에나 있음 | 플랫폼 명령을 보여주고 실행할지 물어봅니다 |
+| `say` / `powershell` | macOS / Windows 기본 제공 | 고정합니다. 다른 플랫폼에서는 **목록에 없음** |
+| `openai` | 호스팅 음성 | 키를 가려진 입력으로 묻고 고정합니다 |
+| `command` | 직접 만든 템플릿 | 템플릿을 묻고 검사한 뒤 자가 테스트하고 고정합니다 |
 
-자동(Automatic)은 호스팅보다 로컬 엔진을 먼저 시도합니다. 이 기계에서 처리할 수 있으면 방 안의 소리가 밖으로 나가지 않습니다. 아무것도 설치되지 않았으면 실패하지 않고 있는 것으로 물러납니다. 기본값은 **설치를 안내할 뿐 강요하지 않습니다**.
+**모든 행은 어딘가로 이어집니다.** 설치되지 않은 엔진을 고르면 침묵을 부르는 값을 저장하는 대신 그 자리에서 설치합니다. 시스템 패키지는 자기 명령을 보여주고 실행할지 물어봅니다. 사용자 명령은 입력받아 자리표시자를 검사하고 3초 자가 테스트를 거친 뒤 고정합니다. 여기서 절대 동작할 수 없는 엔진 — 리눅스의 macOS `say` — 은 아예 목록에 넣지 않습니다.
+
+설치는 로그만이 아니라 **단계**를 보고합니다. `[download 3/6] 63% ▇▇▇▇▇▁▁▁ sherpa-onnx-sensevoice.tar.bz2` 아래에 로그 꼬리가 붙습니다.
+
+음성 출력이 켜져 있으면 에이전트는 **여는 응답**도 말합니다. 첫 도구 호출 전에 쓰는 그 한 줄이라서, 말로 부탁한 뒤 1분간 조용한 일이 없습니다. `audio.tts.speakAck: false`로 끕니다.
+
 
 음성 모델은 공식 sherpa-onnx 릴리스 자산에서 받아 `$SNOWPEA_HOME/models/sherpa-onnx/` 아래에 놓입니다. 중단된 다운로드는 이어받고, 완전히 풀린 뒤에야 설치된 것으로 칩니다. 취소된 다운로드가 엔진을 준비된 것처럼 보이게 하는 일은 없습니다.
 
@@ -632,7 +646,20 @@ snowpea audio install edge-tts
 
 `uv`가 PATH에 있으면 `uv tool install`, 없으면 `pipx`, 그것도 없으면 `pip install --user` 순서로 실행하며 로그를 그대로 보여줍니다. sherpa-onnx 항목은 패키지를 설치한 뒤 모델을 내려받습니다. `supertonic`은 항상 `pip install --user`로 들어갑니다. 엔진이 명령을 실행하는 게 아니라 패키지를 import 하기 때문입니다. `piper`를 설치하면 기본 음성 하나를 `$SNOWPEA_HOME/voices/`에 내려받아 `audio.tts.voice`에 기록합니다. 음성 파일이 없는 piper 바이너리는 아무 말도 못 하기 때문입니다. 끝나면 탐지를 다시 돌리므로 재시작 없이 바로 쓸 수 있습니다.
 
-설정 마법사도 같은 일을 합니다. 가져올 수 있는데 설치되지 않은 엔진 옆에 **Install** 행을 두고, 설치가 끝나면 목록을 다시 보여주므로 이제 활성 상태가 된 엔진을 그 자리에서 고르면 됩니다.
+설정 마법사의 음성 화면 둘은 **할 일 중심**입니다. 행이 설정값이 아니라 지금 할 수 있는 동작입니다.
+
+```text
+Recommended: SenseVoiceSmall (CPU) — Install     ← 아무것도 설치되지 않았을 때만
+Install Piper…
+Choose a specific engine…
+Skip — keep defaults
+```
+
+아무것도 없으면 권장 엔진이 맨 위에 오고 미리 선택되어 있습니다. 설치가 도움이 되는 유일한 동작이기 때문입니다. 엔진이 하나라도 생기면 권장 행은 사라지고, 더 정확한 문장이 그 자리를 대신합니다. **Automatic will use espeak-ng.**
+
+자동(Automatic)은 여전히 설정이고 여전히 기본값입니다. 다만 더 이상 *행*이 아닙니다. 동작이 아니기 때문입니다. 설치된 게 없으면 지킬 수 없는 약속이고, 있으면 화면이 무엇을 쓸지 그냥 알려주면 됩니다.
+
+`Choose a specific engine…`는 엔진을 직접 고정하는 하위 메뉴를 엽니다. 설치된 것부터, 나머지도 표시와 함께 모두 나열하고, 그 뒤에 Off, 사용자 명령, 계정이 필요한 것 순입니다. Esc는 질문을 포기하는 게 아니라 뒤로 가기이며, 고정한 뒤에는 그 행이 무엇이 고정됐는지 알려줍니다. Install 행은 설치를 실행하고 화면을 다시 보여주므로, 엔진이 동작하는 상태로 원래 자리에 돌아옵니다.
 
 `espeak-ng`, `say`, `powershell`은 시스템 패키지이고, 데몬은 사용자를 대신해 root로 패키지 관리자를 돌리지 않습니다. 대신 플랫폼에 맞는 명령을 알려줍니다.
 

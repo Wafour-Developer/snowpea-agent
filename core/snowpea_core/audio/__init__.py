@@ -26,8 +26,33 @@ from snowpea_core.audio.tts import Speech, SpeechCaller, TTSProvider, synthesize
 #: Directory under ``SNOWPEA_HOME`` where recordings and speech are kept.
 DIRNAME = "audio"
 
-#: The provider name that means "never, do not look for a backend".
+#: The provider name that means "never, do not look for a backend".  It is the
+#: same thing as leaving the setting unset; both are kept because ``off`` is
+#: what the wizard's own row writes and what a user expects to be able to type.
 OFF = "off"
+
+#: Values that mean "no engine is pinned".  ``"auto"`` is here for one reason:
+#: an older settings file may still carry it, and it now means *off* rather
+#: than "try everything" (``config/settings.LEGACY_AUTO``).
+UNSET: frozenset[str] = frozenset({"", OFF, "auto"})
+
+#: What a surface shows when nothing is pinned.
+NO_ENGINE_REASON = "no engine set — install or pick one in setup"
+
+#: What it shows when the pinned engine is not there.
+MISSING_ENGINE_REASON = "engine {engine} is not installed"
+
+
+def pinned(provider: str | None) -> str | None:
+    """The engine a setting pins, or ``None`` when it pins nothing.
+
+    There is no chain behind this any more.  A direction of voice is either
+    pointed at one engine or it is off, and "off" is the honest answer to a
+    machine with nothing installed — the old chain tried five backends and,
+    when none worked, could only report silence.
+    """
+    name = (provider or "").strip()
+    return None if name.lower() in UNSET else name
 
 
 @dataclass(frozen=True)
@@ -40,7 +65,7 @@ class AudioConfig:
     """
 
     # -- speech to text
-    stt_provider: str = "auto"
+    stt_provider: str | None = None
     stt_command: str | None = None
     stt_model: str | None = None
     #: ``audio.stt.language`` — what SenseVoice is told to expect, and which
@@ -48,7 +73,7 @@ class AudioConfig:
     stt_language: str | None = None
     # -- text to speech
     tts_enabled: bool = True
-    tts_provider: str = "auto"
+    tts_provider: str | None = None
     tts_command: str | None = None
     tts_model: str | None = None
     voice: str | None = None
@@ -67,19 +92,30 @@ class AudioConfig:
     home: Path | str | None = None
 
     @property
+    def stt_pinned(self) -> str | None:
+        """The transcription engine this configuration names, or ``None``."""
+        return pinned(self.stt_provider)
+
+    @property
+    def tts_pinned(self) -> str | None:
+        """The speech engine this configuration names, or ``None``."""
+        return None if not self.tts_enabled else pinned(self.tts_provider)
+
+    @property
     def stt_off(self) -> bool:
-        return self.stt_provider == OFF
+        return self.stt_pinned is None
 
     @property
     def tts_off(self) -> bool:
-        return not self.tts_enabled or self.tts_provider == OFF
+        return self.tts_pinned is None
 
     def stt(self) -> STTProvider | None:
-        """The transcription backend this configuration resolves to."""
-        if self.stt_off:
+        """The pinned transcription backend, when it is usable here."""
+        name = self.stt_pinned
+        if name is None:
             return None
         return resolve_provider(
-            self.stt_provider or "auto",
+            name,
             api_key=self.openai_api_key,
             model=self.stt_model,
             base_url=self.openai_base_url,
@@ -95,15 +131,48 @@ class AudioConfig:
         still *reported* as available (so the wizard can say so) but refuses to
         synthesise.
         """
-        if self.tts_off:
+        name = self.tts_pinned
+        if name is None:
             return None
         return tts.resolve_provider(
-            self.tts_provider or "auto",
+            name,
             caller=caller,
             studio_configured=self.studio_configured,
             api_key=self.openai_api_key,
             model=self.tts_model,
             base_url=self.openai_base_url,
+            command=self.tts_command,
+            language=self.stt_language,
+        )
+
+
+    def stt_any(self) -> STTProvider | None:
+        """Whatever transcription backend exists here, for the media tool.
+
+        ``transcribe_audio`` is a tool the model reaches for deliberately, so
+        it uses what the machine has.  Voice input goes through :meth:`stt`,
+        which only ever returns the engine the user pinned.
+        """
+        return stt.resolve_any(
+            api_key=self.openai_api_key,
+            model=self.stt_model,
+            base_url=self.openai_base_url,
+            command=self.stt_command,
+            home=self.home,
+            language=self.stt_language,
+        )
+
+    def tts_any(self, caller: SpeechCaller | None = None) -> TTSProvider | None:
+        """Whatever speech backend exists here, for the media tool.
+
+        ``text_to_speech`` is a tool the model reaches for deliberately, so it
+        uses what the machine has.  Voice output goes through :meth:`tts`,
+        which only ever returns the engine the user pinned.
+        """
+        return tts.resolve_any(
+            caller=caller,
+            studio_configured=self.studio_configured,
+            api_key=self.openai_api_key,
             command=self.tts_command,
             language=self.stt_language,
         )
@@ -131,29 +200,28 @@ def capabilities(
     cfg = config or AudioConfig()
     reasons: dict[str, str] = {}
 
+    # Two states, and the report says which: nothing pinned (voice off), or one
+    # engine pinned that either works or does not.  There is no third answer
+    # where something might be tried — that was the chain, and it is gone.
     listener = cfg.stt()
+    stt_pin = cfg.stt_pinned
     if listener is None:
-        if cfg.stt_off:
-            reasons["stt"] = "speech input is switched off (audio.stt.provider)"
-        elif cfg.stt_provider not in {"auto", ""}:
-            reasons["stt"] = f"stt provider {cfg.stt_provider!r} is not usable here"
-        else:
-            reasons["stt"] = (
-                "no transcription backend: run `snowpea audio install "
-                "sherpa-onnx-sensevoice` (CPU, recommended), install the whisper CLI, "
-                "set an OpenAI API key, or configure audio.stt.command"
-            )
+        reasons["stt"] = (
+            NO_ENGINE_REASON
+            if stt_pin is None
+            else MISSING_ENGINE_REASON.format(engine=stt_pin)
+        )
 
     speaker = cfg.tts(caller)
+    tts_pin = cfg.tts_pinned
     if speaker is None:
-        if cfg.tts_off:
+        if not cfg.tts_enabled:
             reasons["tts"] = "text to speech is switched off (audio.tts.enabled)"
-        elif cfg.tts_provider not in {"auto", ""}:
-            reasons["tts"] = f"tts provider {cfg.tts_provider!r} is not usable here"
         else:
             reasons["tts"] = (
-                "no speech backend: run `snowpea audio install supertonic` (CPU, "
-                "recommended), install edge-tts or piper, or set an OpenAI API key"
+                NO_ENGINE_REASON
+                if tts_pin is None
+                else MISSING_ENGINE_REASON.format(engine=tts_pin)
             )
 
     record_backend = find_recorder(cfg.recorder)
@@ -168,6 +236,12 @@ def capabilities(
         "stt": listener.name if listener is not None else None,
         "tts": speaker is not None,
         "ttsProvider": speaker.name if speaker is not None else None,
+        # What is actually pinned, and whether anything is: a surface can say
+        # "Not set" rather than inventing a default it would never get.
+        "sttPinned": stt_pin is not None,
+        "ttsPinned": tts_pin is not None,
+        "sttEffective": listener.name if listener is not None else None,
+        "ttsEffective": speaker.name if speaker is not None else None,
         "voice": cfg.voice,
         "record": record_backend is not None,
         "play": play_backend is not None,
@@ -186,11 +260,15 @@ def capabilities(
 
 
 def stt_providers(config: AudioConfig) -> list[str]:
-    """Every transcription backend that would work here, in preference order."""
-    if config.stt_off:
-        return []
+    """Every transcription engine installed here, in recommendation order.
+
+    This is *detection*, not resolution: it answers "what could you pick",
+    which is what the wizard needs to draw its list and what the recommendation
+    order is for.  Whether any of them is actually in use is
+    :attr:`AudioConfig.stt_pinned`'s business.
+    """
     found: list[str] = []
-    for candidate in stt.AUTO_ORDER:
+    for candidate in stt.RECOMMENDED_ORDER:
         provider = stt.build_provider(
             candidate,
             api_key=config.openai_api_key,
@@ -206,6 +284,10 @@ def stt_providers(config: AudioConfig) -> list[str]:
 
 
 __all__ = [
+    "MISSING_ENGINE_REASON",
+    "NO_ENGINE_REASON",
+    "UNSET",
+    "pinned",
     "DIRNAME",
     "OFF",
     "AudioConfig",

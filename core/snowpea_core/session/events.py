@@ -204,9 +204,17 @@ def audio_spoken(
     provider: str = "",
     played: bool = False,
     voice: str | None = None,
+    utterance: str = "reply",
 ) -> Event:
     return _pack(
-        AudioSpoken(path=path, mime=mime, provider=provider, played=played, voice=voice)
+        AudioSpoken(
+            path=path,
+            mime=mime,
+            provider=provider,
+            played=played,
+            voice=voice,
+            utterance=utterance,
+        )
     )
 
 
