@@ -6,23 +6,23 @@ the background, and once it finished nobody turned that into a reply on the
 parent session — the child's own transcript was the only place the answer
 showed up.
 
-Both paths now go through here instead, and here is a completely ordinary
-main-agent turn: the user's task becomes a turn whose text also tells the
-model to call ``delegate_task`` for the named agent, wait for the result, and
-then answer. ``agent_loop.run_turn`` drives that turn exactly like any other
-prompt — same history, same ``message.done``/``turn.done`` — so the model's
-own reply *is* the reply the user sees, with whatever the subagent reported
-folded into it. ``agent.spawn`` still exists for a client that really does
+Both paths now go through here instead.  The command calls the real
+``delegate_task`` tool directly, emits the same visible tool/subagent events a
+model-initiated delegation would, and then writes the child report back to the
+parent session.  ``agent.spawn`` still exists for a client that really does
 want fire-and-forget.
 """
 
 from __future__ import annotations
 
+import uuid
 from typing import TYPE_CHECKING
 
-from snowpea_core.agent import loop as agent_loop
 from snowpea_core.commands.agent_cmd import definitions_for
 from snowpea_core.commands.registry import Command, CommandContext
+from snowpea_core.session import events
+from snowpea_core.tools.delegate import delegate_task
+from snowpea_core.tools.registry import ProgressEmitter, ToolContext
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.server.app_server import Core
@@ -72,7 +72,7 @@ def compose_delegation(agent: str, task: str) -> str:
 
 
 async def cmd_delegate(ctx: CommandContext, args: str) -> None:
-    """``/delegate <agent> <task>``: a normal turn that delegates and reports back."""
+    """``/delegate <agent> <task>``: delegate deterministically and report back."""
     agent, _, task = args.strip().partition(" ")
     agent = agent.strip()
     task = task.strip()
@@ -84,14 +84,30 @@ async def cmd_delegate(ctx: CommandContext, args: str) -> None:
         names = ", ".join(available) if available else "(none defined for this session)"
         await ctx.say(f"delegate: unknown agent '{agent}'. Available agents: {names}")
         return
-    ctx.handled_turn = True
-    await agent_loop.run_turn(
-        ctx.core,
-        ctx.session,
-        compose_delegation(agent, task),
-        turn_id=ctx.turn_id,
-        unattended=ctx.session.origin_conn is None,
+
+    call_id = f"call-{uuid.uuid4().hex[:12]}"
+    tool_args = {"agent": agent, "task": task, "title": f"{agent} delegation"}
+    await ctx.emit(events.tool_call(call_id, "delegate_task", tool_args))
+    result = await delegate_task(
+        ToolContext(
+            session=ctx.session,
+            core=ctx.core,
+            backend=None,  # type: ignore[arg-type]  # delegate_task does not use a backend
+            call_id=call_id,
+            progress=ProgressEmitter(ctx.core, ctx.session.id, call_id, "delegate_task"),
+        ),
+        tool_args,
     )
+    await ctx.emit(
+        events.tool_result(
+            call_id,
+            "delegate_task",
+            result.ok,
+            output=result.output,
+            error=result.error,
+        )
+    )
+    await ctx.say(result.output or result.error or "delegate_task returned no report")
 
 
 COMMANDS: tuple[Command, ...] = (
