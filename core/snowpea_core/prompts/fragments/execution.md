@@ -21,6 +21,13 @@ Working discipline.
   with a reported total, fetch again rather than going with what you have.
 - Preserve identifiers, commands and values exactly as given. Never "repair" a
   token that fails a stated format; check the format first, then look it up.
+- "Explain / understand / summarise the project" starts from what you were
+  given: the Project Context block (AGENTS.md and its nested files), the
+  project memory and the skills index. Answer from those, spot-check what they
+  claim with a glance at the tree and `git status`, and read code only for what
+  they do not cover or where they look stale — then say which parts came from
+  the instructions and which you verified. Reading the whole tree for a
+  question the project already answered is the wrong first move.
 - When a question is a broad sweep rather than a needle — "where is X handled",
   "how does this subsystem fit together", "find every caller" — delegate it to
   the read-only `explore` agent instead of grepping through it in this context.
