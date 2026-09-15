@@ -16,11 +16,18 @@ setup`` without another edit.  The ordering AC (AC-02b) is enforced by
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+import asyncio
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
 
 from snowpea_core.audio import install as audio_install
+from snowpea_core.providers.default_models import (
+    DEFAULT_MODEL_TIMEOUT,
+    DefaultModel,
+    default_model_for,
+    default_model_offline,
+)
 from snowpea_core.providers.presets import PRESETS
 from snowpea_core.tools import browser_providers, search_providers
 
@@ -59,6 +66,14 @@ class CatalogItem:
     #: True for the one row a screen should lead with and pre-select.  The
     #: ``(recommended)`` suffix in the tags is what a surface renders.
     recommended: bool = False
+    #: The model this vendor row would start a session with, resolved live
+    #: rather than read off the preset (CORE-default-models).  Empty on every
+    #: catalog but the vendor one.
+    default_model: str = ""
+    #: Which rung produced :attr:`default_model` — ``live``, ``models.dev`` or
+    #: ``preset``.  Shown next to the id so a fallback never passes for the
+    #: account's own answer.
+    default_model_source: str = ""
 
     @property
     def tags(self) -> tuple[str, ...]:
@@ -66,6 +81,8 @@ class CatalogItem:
         tags = [f"{self.tier} · {self.key}"]
         if self.recommended:
             tags.append("recommended")
+        if self.default_model:
+            tags.append(f"default: {self.default_model} ({self.default_model_source})")
         # ``default`` comes before the active/inactive state so it survives the
         # ellipsis on a narrow terminal: which vendor a session will actually
         # use is the more useful of the two.
@@ -120,6 +137,8 @@ def _with_default(items: Sequence[CatalogItem], default_id: str) -> list[Catalog
             description=item.description,
             active=item.active,
             extra_tags=item.extra_tags,
+            default_model=item.default_model,
+            default_model_source=item.default_model_source,
         )
         for item in items
     ]
@@ -368,17 +387,80 @@ def gateway_catalog() -> list[CatalogItem]:
 # ---------------------------------------------------------------------------
 
 
-def vendor_catalog(settings: Any = None) -> list[CatalogItem]:
+async def vendor_default_models(
+    settings: Any = None,
+    *,
+    home: Any = None,
+    timeout: float = DEFAULT_MODEL_TIMEOUT,
+    transport: Any = None,
+) -> dict[str, DefaultModel]:
+    """``{vendor: DefaultModel}`` for every row :func:`vendor_catalog` will draw.
+
+    The vendors this machine has a credential for are asked; the rest are
+    answered from the models.dev catalog without any per-vendor I/O.  Every
+    probe runs concurrently under one :data:`DEFAULT_MODEL_TIMEOUT` budget, so
+    the screen costs about as long as the slowest *single* vendor and never
+    more (CORE-default-models).
+    """
+    from snowpea_core.config.paths import resolve_home
+    from snowpea_core.providers.registry import ProviderRegistry
+
+    registry = ProviderRegistry(settings) if settings is not None else ProviderRegistry()
+    resolved_home = home
+    if resolved_home is None:
+        resolved_home = registry.paths.home if registry.paths is not None else resolve_home()
+    vendors = [*PRESETS, *registry.custom_vendors()]
+
+    async def one(vendor: str) -> tuple[str, DefaultModel]:
+        preset = registry.preset_or_none(vendor)
+        return vendor, await default_model_for(
+            vendor,
+            preset=preset,
+            configured=registry.auth_status(vendor) == "active",
+            auth_method=registry.auth_method_for(vendor),
+            api_key=registry.api_key_for(vendor),
+            base_url=registry.base_url_for(vendor),
+            credentials=registry.vendor_config(vendor),
+            home=resolved_home,
+            timeout=timeout,
+            transport=transport,
+        )
+
+    try:
+        resolved = await asyncio.wait_for(
+            asyncio.gather(*(one(vendor) for vendor in vendors)), timeout * 2
+        )
+    except (TimeoutError, asyncio.CancelledError):
+        return {
+            vendor: default_model_offline(
+                vendor, preset=registry.preset_or_none(vendor), home=resolved_home
+            )
+            for vendor in vendors
+        }
+    return dict(resolved)
+
+
+def vendor_catalog(
+    settings: Any = None, defaults: Mapping[str, DefaultModel] | None = None
+) -> list[CatalogItem]:
     """The eleven vendors, in preset order, tagged with their login methods.
 
     ``settings`` (a :class:`~snowpea_core.config.settings.Settings`) decides the
     ``active`` flag: a vendor is active once it is configured, either by a key
     in ``settings.providers`` or by one of its environment variables.
+
+    ``defaults`` is :func:`vendor_default_models`' answer.  Without it each row
+    falls back to :func:`default_model_offline`, which reads the models.dev
+    cache already on disk and asks no one anything — a synchronous caller gets
+    a current default without a network call, and an async one can pass the
+    live answer in.
     """
+    from snowpea_core.config.paths import resolve_home
     from snowpea_core.providers.registry import ProviderRegistry
 
     registry = ProviderRegistry(settings) if settings is not None else ProviderRegistry()
     default_vendor = registry.default_vendor() if settings is not None else None
+    home = registry.paths.home if registry.paths is not None else resolve_home()
     items: list[CatalogItem] = []
     # The presets first, then the OpenAI-compatible servers the user named, so
     # the IDE's first-run wizard and the CLI screen show the same rows.
@@ -386,9 +468,14 @@ def vendor_catalog(settings: Any = None) -> list[CatalogItem]:
         preset = registry.preset_or_none(vendor)
         if preset is None:  # pragma: no cover - both sources are describable
             continue
+        chosen = (defaults or {}).get(vendor) or default_model_offline(
+            vendor, preset=preset, home=home
+        )
         logins = [m for m in preset.auth_methods if m != "api_key"]
-        description = preset.default_model
+        description = f"{chosen.model} ({chosen.detail})" if chosen.model else ""
         if preset.local_style:
+            # A self-hosted server's "default" is the placeholder until it has
+            # been asked; where it lives is the useful line here.
             description = registry.base_url_for(vendor) or preset.default_model
         if logins:
             description += "  (web login: " + ", ".join(logins) + ")"
@@ -407,6 +494,8 @@ def vendor_catalog(settings: Any = None) -> list[CatalogItem]:
                 # vendor that 401s on every prompt (report §6.5).
                 active=registry.auth_status(vendor) == "active",
                 extra_tags=("default",) if vendor == default_vendor else (),
+                default_model="" if preset.local_style else chosen.model,
+                default_model_source="" if preset.local_style else chosen.detail,
             )
         )
     return items
@@ -448,4 +537,5 @@ __all__ = [
     "tts_catalog",
     "vendor_auth_tags",
     "vendor_catalog",
+    "vendor_default_models",
 ]

@@ -643,7 +643,7 @@ def test_resolved_identity_names_what_is_actually_in_use() -> None:
 
     vendor, model = compaction.resolved_identity(CoreStub(), SessionStub())  # type: ignore[arg-type]
     assert vendor == "anthropic"
-    assert model == "claude-sonnet-4-5"
+    assert model == "claude-sonnet-5"
 
 
 def test_should_auto_compact_respects_the_settings() -> None:

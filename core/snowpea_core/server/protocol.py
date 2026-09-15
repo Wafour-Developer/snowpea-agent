@@ -1614,6 +1614,23 @@ class SetupCatalogItem(Payload):
             "nothing is configured yet. At most one row per list sets it."
         ),
     )
+    defaultModel: str = Field(
+        default="",
+        description=(
+            "Model this vendor row would start a session with, resolved from the "
+            "account's own catalog or models.dev rather than read off the build's "
+            "preset. Only the vendor list sets it; empty elsewhere and on a "
+            "self-hosted server, whose model is whatever was loaded into it."
+        ),
+    )
+    defaultModelSource: str = Field(
+        default="",
+        description=(
+            "Where defaultModel came from: 'from your account', 'from models.dev' "
+            "or 'built-in default'. Shown beside the id so a fallback never passes "
+            "for the account's own answer."
+        ),
+    )
 
 
 class SetupCatalogResult(Payload):

@@ -41,6 +41,7 @@ from snowpea_core.setup.catalog import (
     tools_catalog,
     tts_catalog,
     vendor_catalog,
+    vendor_default_models,
 )
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -153,6 +154,8 @@ def _to_wire(item: CatalogItem) -> SetupCatalogItem:
         installable=item.installable,
         installHint=item.install_hint,
         recommended=item.recommended,
+        defaultModel=item.default_model,
+        defaultModelSource=item.default_model_source,
     )
 
 
@@ -163,8 +166,12 @@ async def setup_catalog_handler(
     # Detection has to match the CLI's audio screen exactly (CORE-setup-catalog-audio),
     # so this reuses ``audio.capabilities`` rather than re-deriving PATH/key checks.
     report = audio_capabilities(audio_config(core), caller=speech_caller(core))
+    # The vendor rows carry a live default model (CORE-default-models); asking
+    # here rather than inside ``vendor_catalog`` keeps that function synchronous
+    # for the CLI wizard, which has its own budget for the same call.
+    defaults = await vendor_default_models(core.settings)
     return SetupCatalogResult(
-        vendors=[_to_wire(item) for item in vendor_catalog(core.settings)],
+        vendors=[_to_wire(item) for item in vendor_catalog(core.settings, defaults)],
         search=[_to_wire(item) for item in search_catalog()],
         browser=[_to_wire(item) for item in browser_catalog()],
         tools=[_to_wire(item) for item in tools_catalog()],

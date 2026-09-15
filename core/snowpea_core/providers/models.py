@@ -552,6 +552,25 @@ def models_dev_cached(home: Path | str | None) -> dict[str, Any]:
     return payload
 
 
+async def models_dev_document(
+    *,
+    home: Path | str | None = None,
+    timeout: float = LIST_TIMEOUT,
+    transport: Any = None,
+) -> dict[str, Any]:
+    """The whole models.dev document, fetched or served from the shared cache.
+
+    :func:`models_dev_catalog` answers "which ids", which is all the curated
+    rung needs; picking a vendor's *default* needs the metadata beside them
+    (release date, status, modalities), so this hands over the document itself.
+    Same cache, same TTL, same ``SNOWPEA_MODELS_DEV=0`` switch, and the same
+    promise: it never raises, it returns ``{}``.
+    """
+    if transport is None and not models_dev_enabled():
+        return {}
+    return await _models_dev_payload(home=home, timeout=timeout, transport=transport)
+
+
 async def _models_dev_payload(
     *, home: Path | str | None, timeout: float, transport: Any
 ) -> dict[str, Any]:
@@ -936,6 +955,7 @@ __all__ = [
     "list_models",
     "models_dev_cached",
     "models_dev_catalog",
+    "models_dev_document",
     "models_dev_enabled",
     "offline_models",
     "oauth_models",
