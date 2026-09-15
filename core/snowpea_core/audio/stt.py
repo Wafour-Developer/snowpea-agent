@@ -97,8 +97,10 @@ class OpenAISTT:
         base_url: str | None = None,
         timeout: float = DEFAULT_TIMEOUT,
         client_factory: Any = None,
+        language: str | None = None,
     ) -> None:
         self.api_key = api_key
+        self.language = _real_language(language)
         self.model = model or DEFAULT_OPENAI_MODEL
         self.base_url = (base_url or DEFAULT_OPENAI_BASE_URL).rstrip("/")
         self.timeout = timeout
@@ -129,7 +131,11 @@ class OpenAISTT:
             async with self._client() as client:
                 response = await client.post(
                     "/audio/transcriptions",
-                    data={"model": self.model},
+                    data=(
+                        {"model": self.model, "language": self.language}
+                        if self.language
+                        else {"model": self.model}
+                    ),
                     files=files,
                     headers=headers,
                 )
@@ -167,7 +173,7 @@ class LocalWhisperSTT:
     ) -> None:
         self.executable = executable or self._discover()
         self.model = model
-        self.language = language
+        self.language = _real_language(language)
         self.timeout = timeout
 
     @staticmethod
@@ -328,11 +334,15 @@ class SherpaOnnxSTT:
         from snowpea_core.audio import stt_models
 
         self.home = Path(home).expanduser() if home else None
-        self.language = (language or "").strip() or None
+        self.language = _real_language(language)
         self.timeout = timeout
         resolved = model_id
         if resolved in (None, "", "auto") and self.home is not None:
             resolved = stt_models.preferred(self.home, self.language)
+        # A Zipformer speaks one language, so asking for a language it was not
+        # trained on is asking for a different model.  Saying so beats decoding
+        # Korean with an English model and reporting nonsense.
+        self.wrong_language = _wrong_language(resolved, self.language)
         self.model_id = resolved
         self.model = stt_models.model_for(resolved) if resolved else None
         if self.model is not None:
@@ -347,9 +357,23 @@ class SherpaOnnxSTT:
         return SHERPA_OFFLINE_BIN
 
     def available(self) -> bool:
-        if self.model is None or self.home is None:
+        if self.model is None or self.home is None or self.wrong_language:
             return False
         return bool(shutil.which(self.executable)) and self.model.installed(self.home)
+
+    def missing_reason(self) -> str:
+        """Why this engine cannot run, in words that name the fix."""
+        if self.wrong_language and self.model is not None:
+            needed = _model_for_language(self.language)
+            return (
+                f"{self.model.id} does not speak {self.language}; "
+                + (f"install {needed}" if needed else "pick a language it speaks")
+            )
+        if self.model is None:
+            return "no sherpa-onnx model is installed"
+        if self.home is not None and not self.model.installed(self.home):
+            return f"{self.model.id} is not downloaded; `snowpea audio install {self.model.id}`"
+        return f"{self.executable} is not on PATH"
 
     def vad(self) -> Path | None:
         """The silero VAD that came with this model, when it has one."""
@@ -415,6 +439,42 @@ class SherpaOnnxSTT:
         if not text:
             raise AudioError("transcribe_failed", f"{self.name} produced no transcript")
         return Transcript(text=text, provider=self.name)
+
+
+def _real_language(language: str | None) -> str | None:
+    """A tag to force, or ``None`` for "let the engine detect".
+
+    ``"auto"`` is a *setting* value, not something any engine takes on its
+    command line: whisper would look for a language called "auto".
+    """
+    tag = (language or "").strip()
+    return None if not tag or tag.lower() == "auto" else tag
+
+
+#: Which single-language model serves which language.  A multilingual model is
+#: not here: it serves every language, so there is nothing to map.
+MODEL_BY_LANGUAGE: dict[str, str] = {
+    "ko": "sherpa-onnx-zipformer-ko",
+    "en": "sherpa-onnx-zipformer-en",
+}
+
+
+def _model_for_language(language: str | None) -> str | None:
+    tag = (language or "").strip().lower().partition("-")[0]
+    return MODEL_BY_LANGUAGE.get(tag)
+
+
+def _wrong_language(model_id: str | None, language: str | None) -> bool:
+    """True when a single-language model was asked for a language it lacks."""
+    from snowpea_core.audio import stt_models
+
+    tag = (language or "").strip().lower().partition("-")[0]
+    if not tag or tag == "auto" or not model_id:
+        return False
+    model = stt_models.model_for(model_id)
+    if model is None or not model.languages:
+        return False
+    return tag not in {item.lower() for item in model.languages}
 
 
 def parse_sherpa_output(out: str) -> str:
@@ -484,9 +544,9 @@ def build_provider(
 ) -> STTProvider:
     """Construct one named backend, configured but not yet checked."""
     if name == "openai":
-        return OpenAISTT(api_key, model=model, base_url=base_url)
+        return OpenAISTT(api_key, model=model, base_url=base_url, language=language)
     if name == "local-whisper":
-        return LocalWhisperSTT(model=model or DEFAULT_WHISPER_MODEL)
+        return LocalWhisperSTT(model=model or DEFAULT_WHISPER_MODEL, language=language)
     if name == "command":
         return CommandSTT(command)
     if name in SHERPA_PROVIDERS or name == "sherpa-onnx":
@@ -573,6 +633,7 @@ __all__ = [
     "SHERPA_OFFLINE_BIN",
     "SHERPA_ONLINE_BIN",
     "SHERPA_PROVIDERS",
+    "MODEL_BY_LANGUAGE",
     "SherpaOnnxSTT",
     "parse_sherpa_output",
     "DEFAULT_OPENAI_BASE_URL",

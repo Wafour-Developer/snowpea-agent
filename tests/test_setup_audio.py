@@ -202,7 +202,7 @@ def test_audio_block_is_what_gets_written() -> None:
         auto_speak=True,
     )
     assert state.audio_block() == {
-        "stt": {"provider": "command", "command": "my-stt {path}"},
+        "stt": {"provider": "command", "language": "auto", "command": "my-stt {path}"},
         "tts": {
             "enabled": True,
             "provider": "piper",
@@ -281,7 +281,8 @@ def test_picking_a_voice_asks_for_the_details(
 
     write_script(only_path, "espeak-ng")
     asked: list[str] = []
-    answers = iter(["ko-KR", "y", "n"])
+    # No voice line any more: the voice is its own screen.
+    answers = iter(["y", "n"])
 
     def fake_ask_text(prompt: str, *, interactive: Any = None, secret: bool = False) -> str:
         asked.append(prompt)
@@ -299,13 +300,18 @@ def test_picking_a_voice_asks_for_the_details(
     result = wizard.run(
         "full", home=tmp_path / "home", section="audio", interactive=True, ask=ask
     )
-    assert [prompt.split()[0] for prompt in asked] == ["voice", "read", "test"]
+    # The voice is a screen now, not a text prompt: one engine can sound like
+    # a different person per language, which a single line cannot express.
+    assert [prompt.split()[0] for prompt in asked] == ["read", "test"]
     audio = result.settings.audio
     assert audio.stt.provider == "local-whisper"
     assert audio.tts.enabled is True
     assert audio.tts.provider == "espeak-ng"
     assert audio.tts.autoSpeak is True
-    assert audio.tts.voice == "ko-KR"
+    # Nothing was picked on the voice screen, so the engine's own default
+    # stands — which is a perfectly good answer, not a gap.
+    assert audio.tts.voice is None
+    assert audio.tts.voices == {}
 
 
 def test_skipping_the_audio_screens_asks_nothing(

@@ -63,11 +63,12 @@ Server capabilities advertised in the `system.hello` result:
 | [`approval.request`](#approvalrequest) | server → client | Ask the client to approve a tool call. |
 | [`approval.respond`](#approvalrespond) | client → server | Answer a pending approval and unblock the turn. |
 | [`audio.capabilities`](#audiocapabilities) | client → server | Report what voice input and output can do on this machine. |
-| [`audio.install`](#audioinstall) | client → server | Install a local voice engine and re-run detection. |
+| [`audio.install`](#audioinstall) | client → server | Install a local voice engine (or one of its voices) and re-run detection. |
 | [`audio.record.start`](#audiorecordstart) | client → server | Start recording the microphone. |
 | [`audio.record.stop`](#audiorecordstop) | client → server | Stop the recording and return the wav it wrote. |
 | [`audio.speak`](#audiospeak) | client → server | Synthesise speech, optionally playing it on the daemon's machine. |
 | [`audio.transcribe`](#audiotranscribe) | client → server | Transcribe recorded audio to text. |
+| [`audio.voices`](#audiovoices) | client → server | List the voices one speech engine offers here. |
 | [`backend.set`](#backendset) | client → server | Choose where a session's tools execute: local, docker or ssh. |
 | [`command.list`](#commandlist) | client → server | List the slash commands available to a session. |
 | [`command.run`](#commandrun) | client → server | Run a slash command; the only execution path for them. |
@@ -323,6 +324,8 @@ _No params (send `{}`)._
 | `recorders` | `string[]` | no | Recorders found on PATH. |
 | `stt` | `string \| null` | no | Transcription backend in use, or null when there is none. |
 | `sttEffective` | `string \| null` | no | The engine actually in use, or null when none is pinned or it is missing. |
+| `sttLanguage` | `string` | no | 'auto' (the engine detects, or the reply language decides) or the BCP-47 tag audio.stt.language forces. |
+| `sttLanguageSource` | `string` | no | Which rung decided it: setting \| reply \| detect. 'detect' means the engine works it out itself and nothing had to choose. |
 | `sttPinned` | `boolean` | no | True when audio.stt.provider names an engine. False means unset, which means voice input is off: there is no fallback chain. |
 | `sttProviders` | `string[]` | no | Every usable transcription backend, preferred first. |
 | `tts` | `boolean` | no | True when speech synthesis is available. |
@@ -336,13 +339,14 @@ _No params (send `{}`)._
 
 *Direction:* client → server
 
-Install a local voice engine and re-run detection.
+Install a local voice engine (or one of its voices) and re-run detection.
 
 **Params**
 
 | field | type | required | description |
 |---|---|---|---|
 | `engine` | `string` | yes | Engine id from the setup catalog: faster-whisper (or local-whisper), piper, edge-tts. A system package (espeak-ng, say, powershell) answers ok=false with a hint instead. |
+| `voice` | `string \| null` | no | Install one of the engine's voices rather than the engine itself, e.g. piper's ko_KR-kss-medium. Same staged progress; installing a voice does not select it. |
 
 **Result**
 
@@ -352,6 +356,7 @@ Install a local voice engine and re-run detection.
 | `hint` | `string \| null` | no | What to do instead, when ok is false: the platform's own install command for a system package, or why the attempt could not run. |
 | `log` | `string` | no | Tail of the installer's combined output, newest last; may be empty. |
 | `ok` | `boolean` | yes | True when the engine is installed and now detected. |
+| `voice` | `string \| null` | no | The voice that was installed, when the request named one. |
 
 ### `audio.record.start`
 
@@ -445,6 +450,25 @@ Transcribe recorded audio to text.
 |---|---|---|---|
 | `provider` | `string` | yes | Backend that produced the transcript. |
 | `text` | `string` | yes | What the backend heard. |
+
+### `audio.voices`
+
+*Direction:* client → server
+
+List the voices one speech engine offers here.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `engine` | `string` | yes | Engine id, e.g. supertonic, piper, edge-tts. |
+| `languages` | `string[]` | no | Filter a large catalogue to these BCP-47 tags; empty uses ko and en plus the session's reply language. Ignored by engines with few voices. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `voices` | `({ gender?: string \| null; id: string; installed?: boolean; label: string; language?: string; sample?: boolean; sizeBytes?: number \| null; })[]` | no | Installed voices first, then by language and id. |
 
 ### `backend.set`
 
@@ -1839,12 +1863,13 @@ List the tools registered for a session.
 |---|---|---|---|
 | `bytesDone` | `number \| null` | no | Bytes transferred so far. |
 | `bytesTotal` | `number \| null` | no | Total bytes, from Content-Length when the server sends one. |
-| `engine` | `string` | yes | Engine being installed. |
+| `engine` | `string` | yes | Engine being installed, always the bare id. |
 | `line` | `string` | no | One line of the installer's output. |
 | `percent` | `number \| null` | no | 0-100 within the stage, when it can be known. |
 | `stage` | `string` | no | resolve \| download \| extract \| verify \| install \| check. 'install' is the package manager, 'verify' is the checksum, 'check' is the detection that runs afterwards. |
 | `step` | `number` | no | 1-based place of this stage in the sequence. |
 | `steps` | `number` | no | How many stages this engine has in total. |
+| `voice` | `string` | no | Set when a *voice* of that engine is installing, e.g. ko_KR-kss-medium; empty for the engine itself. A surface keys its progress row on the pair, so an engine install and a voice install never share a row. |
 
 ### `commands.changed`
 

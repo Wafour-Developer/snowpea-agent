@@ -460,6 +460,20 @@ class AudioCapabilitiesResult(Payload):
         default=None,
         description="The engine actually in use, or null when none is pinned or it is missing.",
     )
+    sttLanguage: str = Field(
+        default="auto",
+        description=(
+            "'auto' (the engine detects, or the reply language decides) or the BCP-47 "
+            "tag audio.stt.language forces."
+        ),
+    )
+    sttLanguageSource: str = Field(
+        default="auto",
+        description=(
+            "Which rung decided it: setting | reply | detect. 'detect' means the "
+            "engine works it out itself and nothing had to choose."
+        ),
+    )
     ttsEffective: str | None = Field(
         default=None, description="The speech engine actually in use, or null."
     )
@@ -497,8 +511,52 @@ class AudioTranscribeResult(Payload):
     provider: str = Field(description="Backend that produced the transcript.")
 
 
+class AudioVoice(Payload):
+    """One voice a speech engine can speak with."""
+
+    id: str = Field(description="Voice id, as audio.tts.voices stores it.")
+    label: str = Field(description="Display name.")
+    language: str = Field(
+        default="*",
+        description=(
+            "BCP-47 tag, or '*' for a voice that works in every language the "
+            "engine supports (Supertonic's presets are '*': one multilingual model)."
+        ),
+    )
+    gender: str | None = Field(default=None, description="male / female, when known.")
+    installed: bool = Field(
+        default=True,
+        description="False when choosing it downloads something first (piper voices).",
+    )
+    sizeBytes: int | None = Field(
+        default=None, description="Roughly what the download weighs, when it is one."
+    )
+    sample: bool = Field(
+        default=True, description="True when a preview can be synthesised here and now."
+    )
+
+
+class AudioVoicesParams(Payload):
+    """List the voices one speech engine offers."""
+
+    engine: str = Field(description="Engine id, e.g. supertonic, piper, edge-tts.")
+    languages: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Filter a large catalogue to these BCP-47 tags; empty uses ko and en "
+            "plus the session's reply language. Ignored by engines with few voices."
+        ),
+    )
+
+
+class AudioVoicesResult(Payload):
+    voices: list[AudioVoice] = Field(
+        default_factory=list, description="Installed voices first, then by language and id."
+    )
+
+
 class AudioInstallParams(Payload):
-    """Install one local voice engine on the daemon's machine."""
+    """Install one local voice engine, or one of its voices."""
 
     engine: str = Field(
         description=(
@@ -507,6 +565,14 @@ class AudioInstallParams(Payload):
             "ok=false with a hint instead."
         )
     )
+    voice: str | None = Field(
+        default=None,
+        description=(
+            "Install one of the engine's voices rather than the engine itself, e.g. "
+            "piper's ko_KR-kss-medium. Same staged progress; installing a voice "
+            "does not select it."
+        ),
+    )
 
 
 class AudioInstallResult(Payload):
@@ -514,6 +580,10 @@ class AudioInstallResult(Payload):
 
     ok: bool = Field(description="True when the engine is installed and now detected.")
     engine: str = Field(description="Engine that was attempted, after id normalisation.")
+    voice: str | None = Field(
+        default=None,
+        description="The voice that was installed, when the request named one.",
+    )
     log: str = Field(
         default="",
         description="Tail of the installer's combined output, newest last; may be empty.",
@@ -2256,7 +2326,15 @@ class AudioInstallProgressNotification(Payload):
     keeps working.
     """
 
-    engine: str = Field(description="Engine being installed.")
+    engine: str = Field(description="Engine being installed, always the bare id.")
+    voice: str = Field(
+        default="",
+        description=(
+            "Set when a *voice* of that engine is installing, e.g. ko_KR-kss-medium; "
+            "empty for the engine itself. A surface keys its progress row on the "
+            "pair, so an engine install and a voice install never share a row."
+        ),
+    )
     line: str = Field(default="", description="One line of the installer's output.")
     stage: str = Field(
         default="",
@@ -2825,7 +2903,13 @@ METHODS: dict[str, RpcMethod] = {
             "audio.install",
             AudioInstallParams,
             AudioInstallResult,
-            "Install a local voice engine and re-run detection.",
+            "Install a local voice engine (or one of its voices) and re-run detection.",
+        ),
+        _m(
+            "audio.voices",
+            AudioVoicesParams,
+            AudioVoicesResult,
+            "List the voices one speech engine offers here.",
         ),
         _m(
             "command.list",
@@ -3090,6 +3174,7 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "audio.record.start",
         "audio.record.stop",
         "audio.install",
+        "audio.voices",
         "command.list",
         "command.run",
         "tool.list",

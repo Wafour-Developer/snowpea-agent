@@ -230,7 +230,96 @@ async def _configure_audio(ctx: CommandContext) -> list[str]:
         installed = set(report["sttProviders" if key == "stt" else "ttsProviders"])
         note = "" if chosen in installed else f" (not installed — `snowpea audio install {chosen}`)"
         lines.append(f"audio.{label}: {chosen}{note}")
+        if key == "stt":
+            lines += await _ask_stt_language(ctx, chosen, block)
+        else:
+            lines += await _ask_voices(ctx, chosen, block)
     return lines or ["audio: unchanged"]
+
+
+def _tts_languages(core: Any) -> tuple[str, ...]:
+    """Korean and English, plus the configured reply language when it is another."""
+    from snowpea_core.agent.agent import reply_language
+    from snowpea_core.audio import voices as voice_catalog
+
+    tags = list(voice_catalog.DEFAULT_LANGUAGES)
+    configured = (reply_language(core) or "").strip().lower().partition("-")[0]
+    if configured and configured != "auto" and configured not in tags:
+        tags.append(configured)
+    return tuple(tags)
+
+
+async def _ask_stt_language(ctx: CommandContext, engine: str, block: _Block) -> list[str]:
+    """Which language transcription expects; for some engines it picks the model."""
+    from snowpea_core.audio import voices as voice_catalog
+    from snowpea_core.audio.stt import MODEL_BY_LANGUAGE
+
+    rows: list[tuple[str, str, bool]] = [
+        ("auto", "the engine detects it, or your reply language decides", True)
+    ]
+    for tag in (*voice_catalog.DEFAULT_LANGUAGES, "ja", "zh"):
+        needed = MODEL_BY_LANGUAGE.get(tag)
+        rows.append((tag, f"needs {needed}" if needed else "", False))
+    answers = await _ask(
+        ctx, [choice_question("Language", f"What should {engine} expect?", rows)]
+    )
+    chosen = _picked(answers[0] if answers else None)
+    if not chosen:
+        return []
+    block["language"] = chosen
+    return [f"audio.stt.language: {chosen}"]
+
+
+async def _ask_voices(ctx: CommandContext, engine: str, block: _Block) -> list[str]:
+    """One voice per language, the same mapping the wizard writes."""
+    from snowpea_core.audio import capabilities
+    from snowpea_core.audio import voices as voice_catalog
+    from snowpea_core.server.audio_handlers import audio_config, speech_caller
+
+    report = capabilities(audio_config(ctx.core), caller=speech_caller(ctx.core))
+    languages = _tts_languages(ctx.core)
+    found = await voice_catalog.voices_for(
+        engine,
+        home=ctx.core.paths.home,
+        languages=languages,
+        installed_engines=tuple(report["ttsProviders"]),
+        openai_key=bool(audio_config(ctx.core).openai_api_key),
+    )
+    if not found:
+        return []
+    grouped = voice_catalog.by_language(found)
+    table = dict(block.get("voices") or {})
+    lines: list[str] = []
+    for tag in languages:
+        options = grouped.get(tag) or grouped.get(voice_catalog.ANY) or []
+        if not options:
+            continue
+        answers = await _ask(
+            ctx,
+            [
+                choice_question(
+                    "Voice",
+                    f"Which voice for {tag}?",
+                    [
+                        (
+                            voice.id,
+                            voice.label
+                            + ("" if voice.installed else " — downloads first"),
+                            False,
+                        )
+                        for voice in options
+                    ],
+                )
+            ],
+        )
+        chosen = _picked(answers[0] if answers else None)
+        if not chosen:
+            continue
+        table[tag] = chosen
+        lines.append(f"audio.tts.voices.{tag}: {chosen}")
+    if table:
+        block["voices"] = table
+    return lines
 
 
 def _audio_row(item: Any) -> str:
@@ -245,17 +334,44 @@ def _audio_row(item: Any) -> str:
     return f"{item.description or item.label} — {state}".lstrip(" —")
 
 
-def _audio_block(settings: Any, key: str) -> dict[str, Any]:
-    """``settings.audio.<key>`` as a mutable dict, created when absent."""
+class _Block:
+    """A dict-shaped view over one settings sub-model.
+
+    ``settings.audio`` is a typed model in a fresh install and a plain dict in
+    a hand-written file, and the code that fills it in should not have to care
+    which. Writes go to the real object either way, so what is saved is what
+    was chosen.
+    """
+
+    def __init__(self, target: Any) -> None:
+        self._target = target
+
+    def __getitem__(self, key: str) -> Any:
+        return self.get(key)
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        if isinstance(self._target, dict):
+            self._target[key] = value
+        else:
+            setattr(self._target, key, value)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        if isinstance(self._target, dict):
+            return self._target.get(key, default)
+        found = getattr(self._target, key, None)
+        return default if found is None else found
+
+
+def _audio_block(settings: Any, key: str) -> _Block:
+    """``settings.audio.<key>``, writable whichever shape it has."""
     audio = getattr(settings, "audio", None)
-    if not isinstance(audio, dict):
-        audio = {} if audio is None else audio
+    if audio is None:
+        audio = {}
         settings.audio = audio  # type: ignore[attr-defined]
-    if not isinstance(audio, dict):  # pragma: no cover - a typed model later
-        block = getattr(audio, key, None)
-        return block if isinstance(block, dict) else {}
-    block = audio.setdefault(key, {})
-    return block if isinstance(block, dict) else audio.setdefault(key, {})
+    if isinstance(audio, dict):
+        section = audio.setdefault(key, {})
+        return _Block(section if isinstance(section, dict) else audio.setdefault(key, {}))
+    return _Block(getattr(audio, key, None) or {})
 
 
 async def _configure_providers(ctx: CommandContext) -> list[str]:

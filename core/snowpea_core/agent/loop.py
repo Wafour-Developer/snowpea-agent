@@ -658,6 +658,19 @@ async def speak_ack(core: Core, session: Session, text: str) -> None:
     await speak_reply(core, session, opening_ack(text), utterance=UTTERANCE_ACK)
 
 
+def _reply_language_of(core: Core, session: Session) -> str | None:
+    """What language this session is answering in, for the voice and the engine."""
+    from snowpea_core.tools.delegate import delegation_language
+    from snowpea_core.tools.registry import ToolContext
+
+    try:
+        return delegation_language(
+            ToolContext(session=session, core=core, backend=None)  # type: ignore[arg-type]
+        )
+    except Exception:  # noqa: BLE001 - a language guess never fails a turn
+        return None
+
+
 def _tts_setting(core: Core, name: str, default: Any) -> Any:
     """One ``audio.tts.<name>``, read the same lenient way the handlers read it."""
     from snowpea_core.server.audio_handlers import _block, _get
@@ -691,8 +704,14 @@ async def speak_reply(
         if provider is None:
             log.debug("autoSpeak is on but no speech backend is available")
             return
+        # The reply's own language picks the voice: one engine can sound like
+        # a different person per language, which is the point of the mapping.
+        language = _reply_language_of(core, session)
         speech = await provider.synthesize(
-            body, out_dir=audio_dir_for(core, session.id), voice=config.voice
+            body,
+            out_dir=audio_dir_for(core, session.id),
+            voice=config.voice_for(language),
+            language=language,
         )
         played = False
         try:

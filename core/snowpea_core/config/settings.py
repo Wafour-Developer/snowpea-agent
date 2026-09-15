@@ -316,8 +316,11 @@ class SttSettings(_Model):
     command: str | None = None
     #: Backend-specific model id (``whisper-1``, ``base``, …).
     model: str | None = None
-    #: What the engine is told to expect; empty lets it detect.
-    language: str | None = None
+    #: ``"auto"`` (the engine detects, or the reply language decides) or a
+    #: BCP-47 tag that forces one.  It is not only a hint: a single-language
+    #: engine like a sherpa Zipformer has *one model per language*, so this is
+    #: what picks the model.
+    language: str = "auto"
 
     _drop_auto_provider = field_validator("provider", mode="before")(_drop_auto)
 
@@ -331,7 +334,14 @@ class TtsSettings(_Model):
     #: ``command`` backend only: a template containing ``{text}`` and ``{out}``.
     command: str | None = None
     model: str | None = None
+    #: The voice for one language, kept for settings written before
+    #: :attr:`voices` existed.  It reads as ``voices["*"]``.
     voice: str | None = None
+    #: Voice per language: ``{"ko": "F2", "en": "M1", "*": "M1"}``.  A reply is
+    #: spoken with its own language's entry, then ``*``, then the engine's own
+    #: default — one engine can sound like a different person per language,
+    #: which is the whole reason this is a mapping rather than a string.
+    voices: dict[str, str] = Field(default_factory=dict)
     #: Speak every assistant reply without being asked.
     autoSpeak: bool = False
     #: Also say the opening acknowledgement — the line the agent writes before
