@@ -670,7 +670,11 @@ snowpea audio install piper
 snowpea audio install edge-tts
 ```
 
-It runs `uv tool install` if `uv` is on PATH, then `pipx`, then `pip install --user`, printing the log as it goes. A sherpa-onnx row installs the package and then downloads its model; `supertonic` always goes in with `pip install --user`, because the engine imports it rather than running a command. Installing `piper` also downloads one default voice into `$SNOWPEA_HOME/voices/` and records it in `audio.tts.voice`, because a piper binary with no voice cannot say anything. Detection re-runs at the end, so the engine is usable immediately and nothing needs restarting.
+Engines that are command line tools — `piper`, `edge-tts`, `faster-whisper` — go in with `uv tool install` if `uv` is on PATH, then `pipx`, then `pip install --user`, printing the log as it goes.
+
+`sherpa-onnx` and `supertonic` are Python libraries with no usable command line, so they go into an interpreter snowpea owns: **`$SNOWPEA_HOME/audio-runtime`**, created on first use with `uv venv` or `python -m venv`. The engines run their documented Python API in a child of that interpreter, nothing is written to your system or user site-packages, and "is it installed?" is a question about that directory rather than about PATH. Delete the directory to start over; the next install recreates it. A sherpa-onnx row installs the package and then downloads its model as well.
+
+Installing `piper` also downloads one default voice into `$SNOWPEA_HOME/voices/` and records it in `audio.tts.voice`, because a piper binary with no voice cannot say anything. Detection re-runs at the end, so the engine is usable immediately and nothing needs restarting.
 
 The setup wizard's two voice screens are **action-first**: the rows are things to do, not settings to believe in.
 

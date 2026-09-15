@@ -47,6 +47,7 @@ from typing import Any, Protocol, runtime_checkable
 
 import httpx
 
+from snowpea_core.audio import runtime
 from snowpea_core.audio.player import AudioError
 
 log = logging.getLogger("snowpea.audio.tts")
@@ -625,6 +626,9 @@ class CommandTTS(_CliTTS):
 #: generation, 31 languages including Korean and English.
 SUPERTONIC_PACKAGE = "supertonic"
 
+#: The module that distribution provides, for detection in the audio runtime.
+SUPERTONIC_MODULE = "supertonic"
+
 #: Preset voice styles the package ships, as documented upstream.  ``M1`` is
 #: the one every example uses, so it is the default here too.
 SUPERTONIC_VOICES: tuple[str, ...] = (
@@ -695,22 +699,32 @@ class SupertonicTTS:
     def __init__(
         self,
         *,
+        home: Path | str | None = None,
         python: str | None = None,
         language: str | None = None,
         timeout: float = SUPERTONIC_TIMEOUT,
     ) -> None:
-        self.python = python or sys.executable
+        self.home = Path(home).expanduser() if home else None
+        #: The interpreter the child runs.  Snowpea's audio runtime by default;
+        #: an explicit one is honoured so a test can point at anything.
+        self._python = python
+        self.python = python or (
+            str(runtime.runtime_python(self.home)) if self.home else sys.executable
+        )
         self.language = language
         self.timeout = timeout
 
     def available(self) -> bool:
-        """True when the package is importable by the interpreter we would run.
+        """True when the package is there for the interpreter we would run.
 
-        ``find_spec`` rather than an import: asking whether it is there must
-        not pay for loading onnxruntime.
+        A directory listing rather than an import or a subprocess: this is
+        asked on every capabilities call, and loading onnxruntime to answer it
+        would be paid by everyone who opens the voice screen.
         """
-        if self.python != sys.executable:  # pragma: no cover - alternate interpreter
-            return bool(shutil.which(self.python))
+        if self._python is not None:  # pragma: no cover - alternate interpreter
+            return bool(shutil.which(self.python) or Path(self.python).is_file())
+        if self.home is not None:
+            return runtime.has_module(self.home, SUPERTONIC_MODULE)
         try:
             from importlib.util import find_spec
 
@@ -728,7 +742,9 @@ class SupertonicTTS:
         stem: str | None = None,
     ) -> Speech:
         if not self.available():
-            raise AudioError("no_tts", "supertonic is not installed")
+            raise AudioError(
+                "no_tts", "supertonic is not installed in the audio runtime"
+            )
         body = _prepare(text, out_dir)
         target = out_dir / f"{_stem_for(body, stem)}{self.suffix}"
         chosen = supertonic_voice(voice, language or self.language)
@@ -790,6 +806,7 @@ def build_provider(
     base_url: str | None = None,
     command: str | None = None,
     client_factory: Any = None,
+    home: Path | str | None = None,
     language: str | None = None,
 ) -> TTSProvider:
     """Construct one named backend, configured but not yet checked."""
@@ -810,7 +827,7 @@ def build_provider(
     if name == "command":
         return CommandTTS(command)
     if name == "supertonic":
-        return SupertonicTTS(language=language)
+        return SupertonicTTS(home=home, language=language)
     raise AudioError("no_tts", f"unknown tts provider {name!r}")
 
 
@@ -824,6 +841,7 @@ def resolve_provider(
     base_url: str | None = None,
     command: str | None = None,
     client_factory: Any = None,
+    home: Path | str | None = None,
     language: str | None = None,
 ) -> TTSProvider | None:
     """The backend to speak with, or ``None`` when none is usable."""
@@ -841,6 +859,7 @@ def resolve_provider(
                 base_url=base_url,
                 command=command,
                 client_factory=client_factory,
+                home=home,
                 language=language,
             )
         except AudioError:
@@ -856,6 +875,7 @@ def resolve_any(
     studio_configured: bool = False,
     api_key: str | None = None,
     command: str | None = None,
+    home: Path | str | None = None,
     language: str | None = None,
     client_factory: Any = None,
 ) -> TTSProvider | None:
@@ -877,6 +897,7 @@ def resolve_any(
                 studio_configured=studio_configured,
                 api_key=api_key,
                 command=command,
+                home=home,
                 language=language,
                 client_factory=client_factory,
             )
@@ -893,6 +914,7 @@ def available_providers(
     studio_configured: bool = False,
     api_key: str | None = None,
     command: str | None = None,
+    home: Path | str | None = None,
     language: str | None = None,
 ) -> list[str]:
     """Every backend that would work here, in preference order."""
@@ -904,6 +926,7 @@ def available_providers(
             studio_configured=studio_configured,
             api_key=api_key,
             command=command,
+            home=home,
             language=language,
         )
         if provider.available():
@@ -922,6 +945,7 @@ async def synthesize(
     model: str | None = None,
     base_url: str | None = None,
     command: str | None = None,
+    home: Path | str | None = None,
     voice: str | None = None,
     language: str | None = None,
     stem: str | None = None,
@@ -940,6 +964,7 @@ async def synthesize(
         studio_configured=caller is not None if studio_configured is None else studio_configured,
         api_key=api_key,
         command=command,
+        home=home,
         client_factory=client_factory,
     )
     if chosen is None:
@@ -956,6 +981,7 @@ async def synthesize(
 __all__ = [
     "RECOMMENDED_ORDER",
     "DEFAULT_SUPERTONIC_VOICE",
+    "SUPERTONIC_MODULE",
     "SUPERTONIC_PACKAGE",
     "SUPERTONIC_SCRIPT",
     "SUPERTONIC_TIMEOUT",

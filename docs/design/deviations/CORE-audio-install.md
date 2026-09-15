@@ -45,9 +45,9 @@ handed over on stdin as JSON.
 
 Two consequences, both deliberate:
 
-- Supertonic is the one engine installed with `pip install --user` rather than
-  `uv tool install` (`EngineInstall.isolated = False`). A `uv tool` venv is
-  exactly where our interpreter cannot import from.
+- Supertonic is installed into snowpea's own audio runtime rather than with
+  `uv tool install` (`EngineInstall.runtime = True`). See
+  [CORE-audio-runtime](CORE-audio-runtime.md).
 - `SUPERTONIC_SCRIPT` is a module constant and is never formatted with user
   text. Nothing anyone types becomes part of a program.
 

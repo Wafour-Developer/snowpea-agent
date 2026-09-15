@@ -644,7 +644,11 @@ snowpea audio install piper
 snowpea audio install edge-tts
 ```
 
-`uv`가 PATH에 있으면 `uv tool install`, 없으면 `pipx`, 그것도 없으면 `pip install --user` 순서로 실행하며 로그를 그대로 보여줍니다. sherpa-onnx 항목은 패키지를 설치한 뒤 모델을 내려받습니다. `supertonic`은 항상 `pip install --user`로 들어갑니다. 엔진이 명령을 실행하는 게 아니라 패키지를 import 하기 때문입니다. `piper`를 설치하면 기본 음성 하나를 `$SNOWPEA_HOME/voices/`에 내려받아 `audio.tts.voice`에 기록합니다. 음성 파일이 없는 piper 바이너리는 아무 말도 못 하기 때문입니다. 끝나면 탐지를 다시 돌리므로 재시작 없이 바로 쓸 수 있습니다.
+명령줄 도구인 엔진(`piper`, `edge-tts`, `faster-whisper`)은 `uv`가 PATH에 있으면 `uv tool install`, 없으면 `pipx`, 그것도 없으면 `pip install --user` 순서로 설치하며 로그를 그대로 보여줍니다.
+
+`sherpa-onnx`와 `supertonic`은 쓸 만한 명령줄이 없는 파이썬 라이브러리입니다. 그래서 snowpea가 직접 가진 인터프리터 **`$SNOWPEA_HOME/audio-runtime`** 안으로 들어갑니다. 이 디렉터리는 처음 쓸 때 `uv venv`나 `python -m venv`로 만들어지고, 엔진은 그 인터프리터의 자식 프로세스에서 문서화된 파이썬 API를 실행합니다. 시스템이나 사용자 site-packages에는 아무것도 쓰지 않으며, "설치됐는가"는 PATH가 아니라 그 디렉터리에 대한 질문이 됩니다. 처음부터 다시 하려면 디렉터리를 지우면 되고, 다음 설치가 다시 만듭니다. sherpa-onnx 항목은 패키지를 설치한 뒤 모델까지 내려받습니다.
+
+`piper`를 설치하면 기본 음성 하나를 `$SNOWPEA_HOME/voices/`에 내려받아 `audio.tts.voice`에 기록합니다. 음성 파일이 없는 piper 바이너리는 아무 말도 못 하기 때문입니다. 끝나면 탐지를 다시 돌리므로 재시작 없이 바로 쓸 수 있습니다.
 
 설정 마법사의 음성 화면 둘은 **할 일 중심**입니다. 행이 설정값이 아니라 지금 할 수 있는 동작입니다.
 

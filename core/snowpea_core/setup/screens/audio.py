@@ -39,6 +39,7 @@ from typing import Any
 from snowpea_core.audio import AudioConfig, stt_providers
 from snowpea_core.audio import install as audio_install
 from snowpea_core.audio import tts as tts_backends
+from snowpea_core.config.paths import resolve_home
 from snowpea_core.setup.catalog import AUDIO_OFF, CatalogItem, stt_catalog, tts_catalog
 from snowpea_core.setup.screens import Screen, ScreenItem, skip_item
 from snowpea_core.setup.state import SKIP, WizardState
@@ -244,7 +245,7 @@ def _choose_screen(
     )
 
 
-def _config(state: WizardState) -> AudioConfig:
+def _config(state: WizardState, home: Path | str | None = None) -> AudioConfig:
     """What the state says, as the audio package's own config object."""
     return AudioConfig(
         stt_provider=state.stt_provider,
@@ -252,17 +253,25 @@ def _config(state: WizardState) -> AudioConfig:
         tts_provider=state.tts_provider,
         tts_command=state.tts_command,
         voice=state.tts_voice,
+        home=resolve_home(home),
     )
 
 
-def detected_stt(state: WizardState) -> list[str]:
-    """Transcription backends that would work on this machine."""
-    return stt_providers(_config(state))
+def detected_stt(state: WizardState, home: Path | str | None = None) -> list[str]:
+    """Transcription backends that would work on this machine.
+
+    ``home`` matters: the local engines are a model directory and a package in
+    ``$SNOWPEA_HOME/audio-runtime``, so detection that does not know which home
+    it is asking about reports every one of them missing.
+    """
+    return stt_providers(_config(state, home))
 
 
-def detected_tts(state: WizardState) -> list[str]:
+def detected_tts(state: WizardState, home: Path | str | None = None) -> list[str]:
     """Speech backends that would work on this machine."""
-    return tts_backends.available_providers(command=state.tts_command)
+    return tts_backends.available_providers(
+        command=state.tts_command, home=resolve_home(home)
+    )
 
 
 def build(state: WizardState, catalog: Sequence[CatalogItem] | None = None) -> Screen:

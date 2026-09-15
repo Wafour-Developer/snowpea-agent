@@ -18,10 +18,15 @@ What it will and will not do:
 * **A failure is a result, not an exception.**  Every path answers with an
   :class:`InstallResult`; the caller renders it.
 
-The installer chain for a Python package is the same one a user would try by
-hand, best first: ``uv tool install``, then ``pipx install``, then
+The installer chain for a *command line* engine is the same one a user would
+try by hand, best first: ``uv tool install``, then ``pipx install``, then
 ``python -m pip install --user``.  Whichever is on PATH first wins, and the log
 says which one ran.
+
+Engines that are a Python API rather than a command take a different route:
+they go into snowpea's own interpreter at ``$SNOWPEA_HOME/audio-runtime``
+(:mod:`snowpea_core.audio.runtime`), because there is no binary for ``PATH`` to
+find and the daemon's own venv has no pip to install into.
 """
 
 from __future__ import annotations
@@ -34,6 +39,8 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from snowpea_core.audio import runtime
 
 log = logging.getLogger("snowpea.audio.install")
 
@@ -77,9 +84,9 @@ class EngineInstall:
     package: str = ""
     #: Per-platform command the user runs themselves; empty means "we can".
     hints: dict[str, str] = field(default_factory=dict)
-    #: False when the package has to be importable by *this* interpreter, so
-    #: an isolated ``uv tool`` / ``pipx`` venv will not do.
-    isolated: bool = True
+    #: True when the engine is a Python API rather than a command, so it goes
+    #: into snowpea's audio runtime instead of onto ``PATH``.
+    runtime: bool = False
 
     @property
     def installable(self) -> bool:
@@ -103,9 +110,18 @@ MODEL_ENGINES: dict[str, str] = {
     "sherpa-onnx-zipformer-en": "sherpa-onnx-zipformer-en",
 }
 
-#: The distribution that provides the ``sherpa-onnx`` / ``sherpa-onnx-offline``
-#: CLIs and the Python package behind them.
+#: The distribution that provides the ``sherpa_onnx`` Python package.  It has
+#: no usable command line: the wheel's only script is ``sherpa-onnx-cli``,
+#: which does not import without ``click``, so the engine runs the Python API.
 SHERPA_PACKAGE = "sherpa-onnx"
+
+#: The module each runtime engine's package provides, for detection.
+RUNTIME_MODULES: dict[str, str] = {
+    "sherpa-onnx-sensevoice": "sherpa_onnx",
+    "sherpa-onnx-zipformer-ko": "sherpa_onnx",
+    "sherpa-onnx-zipformer-en": "sherpa_onnx",
+    "supertonic": "supertonic",
+}
 
 #: Every engine the voice screens can offer, keyed by id.  An engine absent
 #: from this table is not installable and has no hint — the UI shows the row
@@ -115,19 +131,18 @@ ENGINES: dict[str, EngineInstall] = {
     "faster-whisper": EngineInstall(engine="faster-whisper", package="faster-whisper"),
     # -- speech to text, sherpa-onnx: one package, three models
     "sherpa-onnx-sensevoice": EngineInstall(
-        engine="sherpa-onnx-sensevoice", package=SHERPA_PACKAGE
+        engine="sherpa-onnx-sensevoice", package=SHERPA_PACKAGE, runtime=True
     ),
     "sherpa-onnx-zipformer-ko": EngineInstall(
-        engine="sherpa-onnx-zipformer-ko", package=SHERPA_PACKAGE
+        engine="sherpa-onnx-zipformer-ko", package=SHERPA_PACKAGE, runtime=True
     ),
     "sherpa-onnx-zipformer-en": EngineInstall(
-        engine="sherpa-onnx-zipformer-en", package=SHERPA_PACKAGE
+        engine="sherpa-onnx-zipformer-en", package=SHERPA_PACKAGE, runtime=True
     ),
     # -- text to speech
-    # Supertonic must be importable by *our* interpreter rather than only on
-    # PATH, because the engine runs its documented Python API in a child of
-    # this interpreter; an isolated `uv tool` venv would hide it.
-    "supertonic": EngineInstall(engine="supertonic", package="supertonic", isolated=False),
+    # Supertonic is a Python API with no command line, so it goes into the
+    # audio runtime and the engine runs a child of that interpreter.
+    "supertonic": EngineInstall(engine="supertonic", package="supertonic", runtime=True),
     "piper": EngineInstall(engine="piper", package="piper-tts"),
     "edge-tts": EngineInstall(engine="edge-tts", package="edge-tts"),
     # -- system packages: ours to explain, not to install
@@ -217,6 +232,8 @@ STAGE_EXTRACT = "extract"
 STAGE_VERIFY = "verify"
 STAGE_INSTALL = "install"
 STAGE_CHECK = "check"
+#: Creating ``$SNOWPEA_HOME/audio-runtime``, for the engines that need it.
+STAGE_RUNTIME = "runtime"
 
 #: Which stages each kind of engine actually has, so ``steps`` is the truth
 #: rather than a constant every engine pretends to.
@@ -241,10 +258,18 @@ def stages_for(engine: str) -> tuple[str, ...]:
     """The stage sequence this engine really walks."""
     name = engine_for(engine)
     if name in MODEL_ENGINES:
-        return STAGES_WITH_MODEL
-    if name == "piper":
-        return STAGES_WITH_VOICE
-    return STAGES_PACKAGE
+        sequence = STAGES_WITH_MODEL
+    elif name == "piper":
+        sequence = STAGES_WITH_VOICE
+    else:
+        sequence = STAGES_PACKAGE
+    spec = ENGINES.get(name)
+    if spec is not None and spec.runtime:
+        # The runtime is created between resolving and installing, and a stage
+        # the user waits through is a stage the bar has to count.
+        head, *tail = sequence
+        return (head, STAGE_RUNTIME, *tail)
+    return sequence
 
 
 @dataclass
@@ -414,17 +439,16 @@ class _Log:
         return "\n".join(self.lines)
 
 
-def python_install_argv(package: str, *, isolated: bool = True) -> list[str] | None:
-    """The argv that installs ``package``, or ``None`` with nothing to run it.
+def python_install_argv(package: str) -> list[str] | None:
+    """The argv that installs a *command* ``package``, or ``None`` with nothing
+    to run it.
 
     ``uv tool install`` first because it is what this project ships with,
     ``pipx`` next, and ``pip install --user`` last — the same order a person
-    would try, and the log names which one was used.
+    would try, and the log names which one was used.  An engine that is a
+    Python API does not come through here; it goes to
+    :func:`snowpea_core.audio.runtime.runtime_install_argv`.
     """
-    if not isolated:
-        # The daemon has to be able to import it, and `uv tool` / `pipx` put it
-        # in a venv of their own where we never would.
-        return [*PIP_FALLBACK, package]
     for runner, prefix in PYTHON_INSTALLERS:
         if shutil.which(runner):
             return [*prefix, package]
@@ -589,7 +613,11 @@ async def install(
         # what we can honestly do here.
         return InstallResult(ok=False, engine=name, log="", hint=spec.hint(platform))
 
-    argv = python_install_argv(spec.package, isolated=spec.isolated)
+    argv = (
+        runtime.runtime_install_argv(home, spec.package)
+        if spec.runtime
+        else python_install_argv(spec.package)
+    )
     if argv is None:
         return InstallResult(
             ok=False,
@@ -601,6 +629,15 @@ async def install(
     collected = _Log(progress, stages, engine=name, sequence=stages_for(name))
     execute = runner or run_argv
     await collected.stage(STAGE_RESOLVE, f"$ {' '.join(argv)}")
+    if spec.runtime:
+        await collected.stage(STAGE_RUNTIME)
+        if not await runtime.ensure_runtime(home, collected, runner=execute):
+            return InstallResult(
+                ok=False,
+                engine=name,
+                log=collected.text,
+                hint=f"could not create {runtime.runtime_dir(home)}; is python venv available?",
+            )
     await collected.stage(STAGE_INSTALL)
     try:
         code = await asyncio.wait_for(execute(argv, collected), timeout=INSTALL_TIMEOUT_SEC)
@@ -657,6 +694,8 @@ __all__ = [
     "PIPER_VOICE_BASE",
     "PIP_FALLBACK",
     "PYTHON_INSTALLERS",
+    "RUNTIME_MODULES",
+    "STAGE_RUNTIME",
     "VOICES_DIRNAME",
     "EngineInstall",
     "InstallResult",

@@ -22,6 +22,7 @@ the ``transcribe_audio`` tool the agent calls.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import shlex
 import shutil
@@ -32,6 +33,7 @@ from typing import Any, Protocol, runtime_checkable
 
 import httpx
 
+from snowpea_core.audio import runtime
 from snowpea_core.audio.player import AudioError
 
 log = logging.getLogger("snowpea.audio.stt")
@@ -268,18 +270,21 @@ class CommandSTT:
         return Transcript(text=stdout.strip(), provider=self.name)
 
 
-async def _run(argv: list[str], timeout: float) -> tuple[str, str, int]:
+async def _run(
+    argv: list[str], timeout: float, stdin: bytes | None = None
+) -> tuple[str, str, int]:
     """Run a command, returning ``(stdout, stderr, returncode)``."""
     try:
         process = await asyncio.create_subprocess_exec(
             *argv,
+            stdin=asyncio.subprocess.PIPE if stdin is not None else asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
     except OSError as exc:
         raise AudioError("transcribe_failed", f"{argv[0]}: {exc}") from exc
     try:
-        out, err = await asyncio.wait_for(process.communicate(), timeout=timeout)
+        out, err = await asyncio.wait_for(process.communicate(stdin), timeout=timeout)
     except TimeoutError:
         process.kill()
         raise AudioError("transcribe_failed", f"{argv[0]} timed out") from None
@@ -296,29 +301,154 @@ async def _run(argv: list[str], timeout: float) -> tuple[str, str, int]:
 # sherpa-onnx (local neural ASR, CPU)
 # ---------------------------------------------------------------------------
 
-#: Executables ``sherpa-onnx`` installs.  The offline one decodes a whole file
-#: (SenseVoice), the online one decodes a stream (the zipformers); both accept
-#: a wav path, which is all this backend needs.
-SHERPA_OFFLINE_BIN = "sherpa-onnx-offline"
-SHERPA_ONLINE_BIN = "sherpa-onnx"
-
 #: How long a local decode may take.  Generous: the point of these models is
 #: that they run on a CPU, and a CPU decoding a long recording is not stuck.
 SHERPA_TIMEOUT = 600.0
 
+#: Threads the decoder is given.  Two is what upstream's own examples use, and
+#: it keeps a transcription from taking over a laptop.
+SHERPA_THREADS = 2
+
+#: Silence appended to a streaming decode so the last word is flushed out of
+#: the encoder instead of being left in its lookahead.
+SHERPA_TAIL_SEC = 0.5
+
+#: The module the ``sherpa-onnx`` wheel provides.  The wheel's only script is
+#: ``sherpa-onnx-cli``, which does not import without ``click``, so there is no
+#: command line to look for: the engine is present when this module is in the
+#: audio runtime.
+SHERPA_MODULE = "sherpa_onnx"
+
+#: The script the runtime interpreter runs.  It is a *constant*, never
+#: formatted: the request arrives on stdin as JSON, so no path and no setting
+#: is ever part of a program.  Verified 2026-09-15 against the installed
+#: ``sherpa_onnx`` 1.13.8 API — ``OfflineRecognizer.from_sense_voice``,
+#: ``OnlineRecognizer.from_transducer``, ``VoiceActivityDetector`` over
+#: ``VadModelConfig(silero_vad=SileroVadModelConfig(...))``.
+#:
+#: The wav is read with the standard library rather than ``sherpa_onnx.
+#: read_wave``: that helper returns a numpy array and the wheel does not depend
+#: on numpy, so on a fresh runtime it is not importable.  ``accept_waveform``
+#: takes any sequence of floats, which a stdlib ``array`` already is.
+SHERPA_SCRIPT = """
+import array, json, sys, wave
+
+import sherpa_onnx
+
+
+def read_wave(path):
+    with wave.open(path) as handle:
+        if handle.getsampwidth() != 2:
+            raise ValueError("only 16-bit PCM wav is supported")
+        channels = handle.getnchannels()
+        rate = handle.getframerate()
+        raw = handle.readframes(handle.getnframes())
+    pcm = array.array("h")
+    pcm.frombytes(raw)
+    if sys.byteorder == "big":
+        pcm.byteswap()
+    if channels > 1:
+        pcm = pcm[::channels]
+    return array.array("f", (value / 32768.0 for value in pcm)), rate
+
+
+def decode_offline(request, samples, rate):
+    recognizer = sherpa_onnx.OfflineRecognizer.from_sense_voice(
+        model=request["model"],
+        tokens=request["tokens"],
+        language=request.get("language") or "auto",
+        use_itn=True,
+        num_threads=request["threads"],
+    )
+
+    def decode(chunk):
+        stream = recognizer.create_stream()
+        stream.accept_waveform(rate, chunk)
+        recognizer.decode_stream(stream)
+        return stream.result.text.strip()
+
+    vad_model = request.get("vad")
+    if not vad_model or rate not in (8000, 16000):
+        return decode(samples)
+    config = sherpa_onnx.VadModelConfig(
+        silero_vad=sherpa_onnx.SileroVadModelConfig(model=vad_model),
+        sample_rate=rate,
+    )
+    detector = sherpa_onnx.VoiceActivityDetector(config, buffer_size_in_seconds=100)
+    window = config.silero_vad.window_size
+    said = []
+
+    def drain():
+        while not detector.empty():
+            said.append(decode(detector.front.samples))
+            detector.pop()
+
+    for start in range(0, len(samples), window):
+        chunk = samples[start:start + window]
+        if len(chunk) < window:
+            chunk = chunk + array.array("f", [0.0] * (window - len(chunk)))
+        detector.accept_waveform(chunk)
+        drain()
+    detector.flush()
+    drain()
+    return " ".join(part for part in said if part)
+
+
+def decode_online(request, samples, rate):
+    recognizer = sherpa_onnx.OnlineRecognizer.from_transducer(
+        tokens=request["tokens"],
+        encoder=request["encoder"],
+        decoder=request["decoder"],
+        joiner=request["joiner"],
+        num_threads=request["threads"],
+        decoding_method="greedy_search",
+    )
+    stream = recognizer.create_stream()
+    stream.accept_waveform(rate, samples)
+    tail = array.array("f", [0.0] * int(rate * request["tail"]))
+    stream.accept_waveform(rate, tail)
+    stream.input_finished()
+    while recognizer.is_ready(stream):
+        recognizer.decode_stream(stream)
+    return recognizer.get_result(stream).strip()
+
+
+def main():
+    request = json.load(sys.stdin)
+    samples, rate = read_wave(request["audio"])
+    if request["kind"] == "offline":
+        text = decode_offline(request, samples, rate)
+    else:
+        text = decode_online(request, samples, rate)
+    json.dump({"text": text}, sys.stdout)
+
+
+try:
+    main()
+except Exception as error:
+    sys.stderr.write("{}: {}".format(type(error).__name__, error))
+    raise SystemExit(1)
+"""
+
 
 class SherpaOnnxSTT:
-    """Transcription through the ``sherpa-onnx`` CLIs and a downloaded model.
+    """Transcription through the ``sherpa_onnx`` Python API and a model.
 
     One class covers the whole family because the difference between the models
-    is which binary decodes them and which files they are handed, and both of
-    those are rows in :mod:`snowpea_core.audio.stt_models`.  SenseVoice decodes
-    offline and detects its own language; the zipformers are streaming models
-    for one language each.
+    is which recogniser decodes them and which files they are handed, and both
+    of those are rows in :mod:`snowpea_core.audio.stt_models`.  SenseVoice
+    decodes offline and detects its own language; the zipformers are streaming
+    models for one language each.
 
-    The engine is *available* when the CLI is on PATH and the model directory
-    is stamped complete, so a half-finished download never makes voice input
-    look ready.
+    The package is a *library*, not a command, so it lives in snowpea's audio
+    runtime (:mod:`snowpea_core.audio.runtime`) and the decode runs in a child
+    of that interpreter — a child rather than an import because onnxruntime is
+    a large thing to pull into the daemon for a feature most sessions never
+    use, and because a child can be killed on a timeout.
+
+    The engine is *available* when the module is in the runtime and the model
+    directory is stamped complete, so neither a half-finished download nor a
+    missing package makes voice input look ready.
     """
 
     name = "sherpa-onnx"
@@ -350,16 +480,14 @@ class SherpaOnnxSTT:
             # capabilities report names what is running rather than a family.
             self.name = self.model.id
 
-    @property
-    def executable(self) -> str:
-        if self.model is not None and self.model.kind == "online":
-            return SHERPA_ONLINE_BIN
-        return SHERPA_OFFLINE_BIN
+    def installed(self) -> bool:
+        """True when ``sherpa_onnx`` is in this home's audio runtime."""
+        return self.home is not None and runtime.has_module(self.home, SHERPA_MODULE)
 
     def available(self) -> bool:
         if self.model is None or self.home is None or self.wrong_language:
             return False
-        return bool(shutil.which(self.executable)) and self.model.installed(self.home)
+        return self.installed() and self.model.installed(self.home)
 
     def missing_reason(self) -> str:
         """Why this engine cannot run, in words that name the fix."""
@@ -373,7 +501,10 @@ class SherpaOnnxSTT:
             return "no sherpa-onnx model is installed"
         if self.home is not None and not self.model.installed(self.home):
             return f"{self.model.id} is not downloaded; `snowpea audio install {self.model.id}`"
-        return f"{self.executable} is not on PATH"
+        return (
+            "sherpa-onnx is not installed in the audio runtime; "
+            f"`snowpea audio install {self.model.id}`"
+        )
 
     def vad(self) -> Path | None:
         """The silero VAD that came with this model, when it has one."""
@@ -384,36 +515,47 @@ class SherpaOnnxSTT:
         candidate = self.model.directory(self.home) / stt_models.SILERO_VAD
         return candidate if candidate.is_file() else None
 
-    def argv(self, audio: Path) -> list[str]:
-        """The command line that decodes ``audio``.
+    def argv(self) -> list[str]:
+        """The command line that runs the decoder: the runtime's interpreter.
 
-        Flags are the ones the sherpa-onnx CLIs document for each model family;
-        the model files come from the table rather than from guesswork, so a
+        The audio file is not on it — the request goes in on stdin, so nothing
+        a user named can become part of a program.
+        """
+        if self.home is None:  # pragma: no cover - guarded by available()
+            raise AudioError("no_stt", "sherpa-onnx has no home configured")
+        return [str(runtime.runtime_python(self.home)), "-c", SHERPA_SCRIPT]
+
+    def request(self, audio: Path) -> dict[str, Any]:
+        """The decode request for ``audio``.
+
+        The model files come from the table rather than from guesswork, so a
         model whose archive layout changes fails detection instead of running
         with a wrong path.
         """
-        if self.model is None or self.home is None:  # pragma: no cover - guarded by available()
+        if self.model is None or self.home is None:  # pragma: no cover - guarded above
             raise AudioError("no_stt", "sherpa-onnx has no model configured")
         root = self.model.root(self.home)
-        argv = [self.executable, f"--tokens={root / 'tokens.txt'}"]
+        payload: dict[str, Any] = {
+            "kind": self.model.kind,
+            "audio": str(audio),
+            "tokens": str(root / "tokens.txt"),
+            "threads": SHERPA_THREADS,
+            "tail": SHERPA_TAIL_SEC,
+        }
         if self.model.kind == "offline":
-            argv.append(f"--sense-voice-model={root / 'model.int8.onnx'}")
-            language = self.language or "auto"
-            argv.append(f"--sense-voice-language={language}")
+            payload["model"] = str(root / "model.int8.onnx")
+            payload["language"] = self.language or "auto"
             vad = self.vad()
             if vad is not None:
                 # With a VAD the decoder splits a long recording into
                 # utterances instead of trying to swallow it whole.
-                argv.append(f"--silero-vad-model={vad}")
+                payload["vad"] = str(vad)
         else:
             encoder, decoder, joiner = self._transducer(root)
-            argv += [
-                f"--encoder={encoder}",
-                f"--decoder={decoder}",
-                f"--joiner={joiner}",
-            ]
-        argv.append(str(audio))
-        return argv
+            payload["encoder"] = str(encoder)
+            payload["decoder"] = str(decoder)
+            payload["joiner"] = str(joiner)
+        return payload
 
     def _transducer(self, root: Path) -> tuple[Path, Path, Path]:
         """The encoder / decoder / joiner this streaming model unpacked to."""
@@ -431,7 +573,8 @@ class SherpaOnnxSTT:
         audio = Path(path)
         if not audio.is_file():
             raise AudioError("transcribe_failed", f"no such audio file: {audio}")
-        out, err, code = await _run(self.argv(audio), self.timeout)
+        payload = json.dumps(self.request(audio)).encode("utf-8")
+        out, err, code = await _run(self.argv(), self.timeout, payload)
         if code:
             detail = (err or out).strip()[:300]
             raise AudioError("transcribe_failed", f"{self.name} exited {code}: {detail}")
@@ -439,6 +582,36 @@ class SherpaOnnxSTT:
         if not text:
             raise AudioError("transcribe_failed", f"{self.name} produced no transcript")
         return Transcript(text=text, provider=self.name)
+
+
+def parse_sherpa_output(out: str) -> str:
+    """The transcript out of what the decoder printed.
+
+    It prints ``{"text": ...}`` and nothing else, so that is read first; the
+    fallback to a ``text:`` label keeps a hand-run decoder's own report
+    readable, because a transcript that came out of the wrong shape is still
+    better than none.
+    """
+    body = (out or "").strip()
+    if body.startswith("{"):
+        try:
+            return str(json.loads(body).get("text", "")).strip()
+        except ValueError:
+            pass
+    lines = [line.rstrip() for line in body.splitlines()]
+    for line in reversed(lines):
+        stripped = line.strip()
+        if stripped.lower().startswith("text:"):
+            return stripped.split(":", 1)[1].strip()
+        if stripped.startswith("{") and '"text"' in stripped:
+            try:
+                return str(json.loads(stripped).get("text", "")).strip()
+            except ValueError:
+                continue
+    for line in reversed(lines):
+        if line.strip() and ":" not in line:
+            return line.strip()
+    return ""
 
 
 def _real_language(language: str | None) -> str | None:
@@ -475,33 +648,6 @@ def _wrong_language(model_id: str | None, language: str | None) -> bool:
     if model is None or not model.languages:
         return False
     return tag not in {item.lower() for item in model.languages}
-
-
-def parse_sherpa_output(out: str) -> str:
-    """The transcript out of a sherpa-onnx CLI's report.
-
-    The CLIs print a block per file — the path, then timing lines, then the
-    text — and the text is what follows the last ``text:`` label.  Falling back
-    to the last non-empty line keeps this working if the report is reworded,
-    because a transcript that is one line off is better than none.
-    """
-    lines = [line.rstrip() for line in (out or "").splitlines()]
-    for line in reversed(lines):
-        stripped = line.strip()
-        lowered = stripped.lower()
-        if lowered.startswith("text:"):
-            return stripped.split(":", 1)[1].strip()
-        if lowered.startswith("{") and '"text"' in lowered:
-            import json
-
-            try:
-                return str(json.loads(stripped).get("text", "")).strip()
-            except ValueError:
-                continue
-    for line in reversed(lines):
-        if line.strip() and ":" not in line:
-            return line.strip()
-    return ""
 
 
 #: The order the wizard **recommends** engines in.  It is no longer a chain:
@@ -630,9 +776,9 @@ def resolve_any(
 __all__ = [
     "resolve_any",
     "RECOMMENDED_ORDER",
-    "SHERPA_OFFLINE_BIN",
-    "SHERPA_ONLINE_BIN",
+    "SHERPA_MODULE",
     "SHERPA_PROVIDERS",
+    "SHERPA_SCRIPT",
     "MODEL_BY_LANGUAGE",
     "SherpaOnnxSTT",
     "parse_sherpa_output",
