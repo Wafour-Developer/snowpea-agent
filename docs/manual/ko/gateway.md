@@ -33,7 +33,7 @@ snowpea gateway unbind <binding-id>
 
 **Telegram.** [@BotFather](https://t.me/BotFather)에게 `/newbot`을 보내고 토큰을 받아 둡니다. 채팅 id는 봇에게 처음 메시지를 보냈을 때 데몬 로그에 찍히는 숫자입니다. long polling 방식이라 공개 URL도 webhook도 필요 없습니다.
 
-**Discord.** 애플리케이션을 만들고 봇 유저를 추가한 뒤 message content intent를 켜고, 서버에 초대하고, 봇 토큰을 받아 둡니다. 채널 id는 채널 URL의 마지막 경로 조각입니다.
+**Discord.** 애플리케이션을 만들고 봇 유저를 추가한 뒤 message content intent를 켜고, 서버에 초대하고, 봇 토큰을 받아 둡니다. 초대할 때 `bot`과 `applications.commands` 두 스코프를 모두 주세요. 개발자 포털의 OAuth2 URL 생성기가 그 링크를 만들어 줍니다. 두 번째 스코프가 있어야 채팅 명령이 Discord의 `/` 목록에 나타납니다. 바인딩이 시작될 때 snowpea가 명령을 등록하므로 `/sessions`, `/resume`, `/new`, `/projects`, `/status`, `/stop`, `/help`, `/mode`, `/model`, `/effort`가 자유 입력 `args` 칸과 함께 목록에 뜨고, 이렇게 부른 명령의 답은 명령 자리에 그대로 돌아옵니다. 이 스코프가 없어도 깨지는 것은 없습니다. message content intent가 켜져 있으면 `/sessions`를 그냥 글로 쳐도 똑같이 동작합니다. 채널 id는 채널 URL의 마지막 경로 조각입니다.
 
 **Slack.** 앱을 만들고 `chat:write`와 워크스페이스에 필요한 이벤트를 추가한 뒤 설치하고, 봇 토큰을 받아 둡니다. 대상으로는 채널 이름이나 id를 씁니다.
 

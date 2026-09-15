@@ -80,6 +80,19 @@ both handlers take an `RpcConnection` the gateway does not have. `collect_sessio
 and `interrupt_session(core, session)` are the bodies, and the handlers are now one line each.
 No protocol change: the wire shape of both methods is untouched.
 
+## Discord's menu is an interaction, not just a list
+
+Telegram's `setMyCommands` only decorates the typing box: the command still arrives as text.
+Discord's `/` picker does not — a registered command arrives as an `INTERACTION_CREATE` that must
+be answered within three seconds or the person is told it failed. So `DiscordAdapter` does three
+things Telegram does not: it looks up its own application id (`GET /oauth2/applications/@me`) to
+`PUT` the global commands at start, it posts a deferred callback (`type: 5`) the moment a command
+interaction arrives, and it remembers that interaction token per channel for sixty seconds so the
+router's next `send` for that channel `PATCH`es `@original` instead of posting. Only the first
+piece of a split answer consumes the token; the rest post normally. Registration and deferral are
+both non-fatal — a bot invited without `applications.commands` simply has no picker, and the
+typed-text path is untouched.
+
 ## Where it lives
 
 `core/snowpea_core/gateway/{chat,activity,router,base,telegram,discord,slack,fake}.py`,

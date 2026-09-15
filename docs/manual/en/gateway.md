@@ -40,7 +40,7 @@ The three positional arguments are the platform, the credentials reference (a ke
 
 **Telegram.** Talk to [@BotFather](https://t.me/BotFather), `/newbot`, keep the token. Your chat id is the number the bot sees when you message it, visible in the daemon log on the first inbound message. Long polling is used, so no public URL and no webhook.
 
-**Discord.** Create an application, add a bot user, enable the message content intent, invite it to your server, keep the bot token. The channel id is the last path segment of a channel URL.
+**Discord.** Create an application, add a bot user, enable the message content intent, invite it to your server, keep the bot token. Invite it with both the `bot` and the `applications.commands` scopes — the OAuth2 URL generator in the developer portal builds that link — because the second scope is what lets the chat commands appear in Discord's `/` picker. Snowpea registers them when the binding starts, so `/sessions`, `/resume`, `/new`, `/projects`, `/status`, `/stop`, `/help`, `/mode`, `/model` and `/effort` are listed there with a free-text `args` field; a command answered this way replies inside the command itself. Without that scope nothing breaks: typing `/sessions` as ordinary text still works as long as the message content intent is on. The channel id is the last path segment of a channel URL.
 
 **Slack.** Create an app, add `chat:write` and the events your workspace needs, install it, keep the bot token. Use the channel name or id as the target.
 
