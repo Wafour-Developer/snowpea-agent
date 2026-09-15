@@ -34,6 +34,7 @@ from snowpea_core.setup.screens import providers as providers_screen
 from snowpea_core.setup.screens import search as search_screen
 from snowpea_core.setup.screens import tools as tools_screen
 from snowpea_core.setup.state import WizardState, profile_id
+from snowpea_core.setup.sync import run_sync as _run_sync
 
 log = logging.getLogger("snowpea.setup.wizard")
 
@@ -538,18 +539,6 @@ def _probe_token(vendor: str, token: str) -> str | None:
 
 #: Never scroll the terminal: a vLLM node can advertise dozens of aliases.
 MODEL_CHOICES_SHOWN = 20
-
-
-def _run_sync(coro: Any) -> Any:
-    """Await ``coro`` from the wizard's synchronous code, loop or no loop."""
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        return asyncio.run(coro)
-    from concurrent.futures import ThreadPoolExecutor
-
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        return pool.submit(asyncio.run, coro).result()
 
 
 def _ask_for_model(
