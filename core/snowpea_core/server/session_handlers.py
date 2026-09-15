@@ -325,6 +325,13 @@ async def session_delete_saved_handler(
 ) -> SessionDeleteResult:
     if core.store is None:
         return SessionDeleteResult()
+    # An open thread with nothing running can be deleted outright: close it
+    # first so the stored row is no longer shielded as "live".  Bulk deletes
+    # (by workdir / all) still leave live sessions alone.
+    if params.sessionId:
+        live = core.sessions.get(params.sessionId)
+        if live is not None and live.current_turn is None:
+            await core.sessions.close(params.sessionId)
     live_ids = {row.sessionId for row in core.sessions.list()}
     stored = await core.store.list_sessions(include_closed=True)
     ids = [

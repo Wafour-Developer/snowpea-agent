@@ -84,7 +84,13 @@ async def agent_list_handler(conn: RpcConnection, _params: Empty, core: Core) ->
     definitions = definitions_for(core, _workdir(core, conn))
     if session is not None and session.team_agents:
         allowed = set(session.team_agents)
-        definitions = [definition for definition in definitions if definition.name in allowed]
+        registry = getattr(core, "named_agents", None)
+        definitions = [
+            definition
+            for definition in definitions
+            if definition.name in allowed
+            or (registry is not None and registry.get(definition.name) is not None)
+        ]
     agents = [
         AgentInfo(
             name=defn.name,

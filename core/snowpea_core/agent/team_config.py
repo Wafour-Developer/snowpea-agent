@@ -22,12 +22,28 @@ def teams_for(settings: Settings, workdir: Path | str) -> dict[str, list[str]]:
 
 
 def active_team(settings: Settings, workdir: Path | str) -> ActiveTeam | None:
+    """The team a session in ``workdir`` runs under, or ``None``.
+
+    Only a team the project chose (``/team create`` / ``/team use`` write
+    ``agents.activeTeam``) restricts delegation.  The global
+    ``agents.default_team`` the setup wizard writes is a *roster* — what
+    ``/team`` starts from when no name is given — not a whitelist: reading it
+    here turned every session into a team session and hid project agents,
+    named agents and the built-in ``explore``/``reviewer`` from
+    ``delegate_task``, ``/delegate`` and ``$name`` completion (M15 C).
+    """
     project = ProjectSettings.load(workdir)
-    name = project.agents.activeTeam or settings.agents.default_team
+    name = project.agents.activeTeam
     members = teams_for(settings, workdir).get(name or "")
     if not name or not members:
         return None
     return ActiveTeam(name=name, agents=tuple(dict.fromkeys(members)))
 
 
-__all__ = ["ActiveTeam", "active_team", "teams_for"]
+def default_roster(settings: Settings, workdir: Path | str) -> list[str]:
+    """The roster ``/team`` starts from when no team is named."""
+    name = settings.agents.default_team
+    return list(teams_for(settings, workdir).get(name or "", []))
+
+
+__all__ = ["ActiveTeam", "active_team", "default_roster", "teams_for"]

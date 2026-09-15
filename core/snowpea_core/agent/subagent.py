@@ -415,6 +415,15 @@ class SubagentManager:
         )
 
     # -- definitions ---------------------------------------------------
+    def _is_named(self, name: str | None) -> bool:
+        registry = getattr(self.core, "named_agents", None)
+        if not name or registry is None:
+            return False
+        try:
+            return registry.get(name) is not None
+        except Exception:  # noqa: BLE001 - a registry that is not up yet
+            return False
+
     def definition(self, parent: Session, name: str | None) -> AgentDefinition | None:
         """Look up ``name`` among the definitions visible from the parent."""
         if not name:
@@ -563,7 +572,9 @@ class SubagentManager:
             return self._result(record)
 
         if parent.team_agents:
-            if agent not in parent.team_agents:
+            # A persistent named agent is one the user invented; a team
+            # roster never hides it.
+            if agent not in parent.team_agents and not self._is_named(agent):
                 return await self._refuse(
                     record,
                     f"agent '{agent}' is not in active team '{parent.team}'; choose one of: "

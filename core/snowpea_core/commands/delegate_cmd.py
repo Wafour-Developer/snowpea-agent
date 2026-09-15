@@ -45,7 +45,12 @@ def known_agents(core: Core, session: Session) -> list[str]:
     names = [defn.name for defn in definitions_for(core, session.workdir)]
     if session.team_agents:
         allowed = set(session.team_agents)
-        names = [name for name in names if name in allowed]
+        registry = getattr(core, "named_agents", None)
+        names = [
+            name
+            for name in names
+            if name in allowed or (registry is not None and registry.get(name) is not None)
+        ]
     return sorted(dict.fromkeys(names))
 
 
