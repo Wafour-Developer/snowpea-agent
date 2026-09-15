@@ -1404,3 +1404,29 @@ def test_the_runtime_reads_the_slot_the_wizard_writes(home: Path) -> None:
     assert browser_providers.configured("browserbase", settings) is True
     assert browser_providers.configured("firecrawl_cloud", settings) is False
     assert browser_providers.configured("local_chromium", settings) is True
+
+
+def test_ctrl_c_raises_keyboard_interrupt(monkeypatch):
+    """Raw mode swallows SIGINT, so Ctrl+C has to leave the wizard itself
+    rather than decline one screen (which on the voice screen only redraws)."""
+    import io
+
+    class _Raw(io.StringIO):
+        def fileno(self):
+            return 0
+
+    monkeypatch.setattr("termios.tcgetattr", lambda fd: None)
+    monkeypatch.setattr("termios.tcsetattr", lambda fd, when, saved: None)
+    monkeypatch.setattr("tty.setraw", lambda fd: None)
+    with pytest.raises(KeyboardInterrupt):
+        ui.read_key(_Raw("\x03"))
+    assert ui.read_key(_Raw("q")) == "quit"
+
+
+def test_ctrl_c_on_a_screen_cancels_the_run(tmp_path, monkeypatch):
+    def interrupted(screen, **_):
+        raise KeyboardInterrupt
+
+    result = wizard.run("quick", home=tmp_path, interactive=True, ask=interrupted)
+    assert result.cancelled is True
+    assert not (tmp_path / "settings.json").exists()

@@ -217,33 +217,41 @@ def run(
             _ask_for_gateway(state, interactive=interactive)
         return choice
 
-    for name, module in order:
-        if name in answered:
-            continue
-        choice = _show(name, module)
+    def _cancelled() -> SetupResult:
+        state.notes.append("cancelled — nothing written")
+        return SetupResult(
+            mode=mode,
+            state=state,
+            settings=settings,
+            settings_path=paths.settings_json,
+            screens_shown=shown,
+            screens_answered=sorted(answered),
+            cancelled=True,
+        )
+
+    try:
+        for name, module in order:
+            if name in answered:
+                continue
+            choice = _show(name, module)
         # The summary lets the user pick a row to revisit that section (Hermes-style);
         # Save writes and finishes, Cancel discards everything.
-        while (
-            interactive
-            and name == "done"
-            and isinstance(choice, str)
-            and choice.startswith("section:")
-        ):
-            target = choice.split(":", 1)[1]
-            if target in by_name:
-                _show(target, by_name[target])
-            choice = _show("done", done_screen)
-        if name == "done" and choice == done_screen.CANCEL:
-            state.notes.append("cancelled — nothing written")
-            return SetupResult(
-                mode=mode,
-                state=state,
-                settings=settings,
-                settings_path=paths.settings_json,
-                screens_shown=shown,
-                screens_answered=sorted(answered),
-                cancelled=True,
-            )
+            while (
+                interactive
+                and name == "done"
+                and isinstance(choice, str)
+                and choice.startswith("section:")
+            ):
+                target = choice.split(":", 1)[1]
+                if target in by_name:
+                    _show(target, by_name[target])
+                choice = _show("done", done_screen)
+            if name == "done" and choice == done_screen.CANCEL:
+                return _cancelled()
+    except (KeyboardInterrupt, EOFError):
+        # Ctrl+C anywhere in the flow — including the screen an Install row
+        # comes back to — discards everything, exactly like Cancel on Done.
+        return _cancelled()
 
     settings = state.write(paths, settings)
     return SetupResult(

@@ -208,7 +208,11 @@ def read_key(stream: IO[str] | None = None) -> str:
         return "enter"
     if char == " ":
         return "space"
-    if char in ("\x03", "\x04", "q"):
+    if char in ("\x03", "\x04"):
+        # Ctrl+C / Ctrl+D leave the wizard, not just this screen: raw mode
+        # swallows the terminal's own SIGINT, so the interrupt is ours to raise.
+        raise KeyboardInterrupt
+    if char == "q":
         return "quit"
     return char
 
