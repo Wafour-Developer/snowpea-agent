@@ -39,6 +39,10 @@ class FakeAdapter:
         self.platform = platform
         self.credentials_ref = credentials_ref
         self.sent: list[SentMessage] = []
+        #: Channel ids ``typing`` was called for, in order.
+        self.typing_calls: list[str] = []
+        #: ``(channel_id, message_id, text)`` of every ``edit``.
+        self.edits: list[tuple[str, str, str]] = []
         self.started = False
         self.stopped = False
         self._on_message: OnMessage | None = None
@@ -62,6 +66,16 @@ class FakeAdapter:
         )
         self._delivered.set()
         return message_id
+
+    async def typing(self, channel_id: str) -> None:
+        self.typing_calls.append(channel_id)
+
+    async def edit(self, channel_id: str, message_id: str, text: str) -> None:
+        self.edits.append((channel_id, message_id, text))
+        for message in self.sent:
+            if message.message_id == message_id:
+                message.text = text
+                break
 
     async def stop(self) -> None:
         self.stopped = True

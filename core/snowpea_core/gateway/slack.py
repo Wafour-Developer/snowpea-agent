@@ -163,6 +163,20 @@ class SlackAdapter:
             await self._session.close()
             self._session = None
 
+    async def edit(self, channel_id: str, message_id: str, text: str) -> None:
+        """``chat.update`` — Slack's way to rewrite a message we posted.
+
+        There is deliberately no ``typing``: Slack's typing indicator is a
+        Real Time Messaging feature that bot tokens cannot use at all, so the
+        router feature-detects the method away rather than pretending.
+        """
+        with contextlib.suppress(GatewayError):
+            await self._api(
+                "chat.update",
+                {"channel": channel_id, "ts": message_id, "text": text},
+                self._token,
+            )
+
     async def acknowledge(self, callback_id: str, text: str = "") -> None:
         """Socket Mode acks are sent on the socket; nothing to do over HTTP."""
         return None

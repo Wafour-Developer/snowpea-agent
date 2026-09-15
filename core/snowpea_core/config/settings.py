@@ -504,7 +504,14 @@ class Settings(_Model):
     models: ModelsSettings = Field(default_factory=ModelsSettings)
     #: Chat gateways the setup wizard enabled, ``{"telegram": {"enabled":
     #: true, "token": "..."}}``.  Absent gateways are off.
-    gateway: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    #:
+    #: Two keys of this block are switches rather than platforms —
+    #: ``typing`` and ``progress``, both default ``true``, which is why the
+    #: values are ``Any`` and not ``dict`` (CORE-gateway-chat).  They turn off
+    #: the "typing…" hint and the edited-in-place progress message a chat
+    #: shows while a turn runs.  ``desired_gateways`` skips any value that is
+    #: not a dict, so a switch is never mistaken for a messenger to bind.
+    gateway: dict[str, Any] = Field(default_factory=dict)
     #: Global allowlist patterns (contract §7); the project store lives in
     #: ``<workdir>/.snowpea/settings.json``.
     allowlist: list[AllowlistEntry] = Field(default_factory=list)

@@ -170,6 +170,23 @@ class DiscordAdapter:
             await self._session.close()
             self._session = None
 
+    async def typing(self, channel_id: str) -> None:
+        """Show the typing hint; Discord expires it after about ten seconds."""
+        with contextlib.suppress(httpx.HTTPError):
+            await self._http().post(
+                f"{self._api_base}/channels/{channel_id}/typing",
+                headers=self._headers,
+            )
+
+    async def edit(self, channel_id: str, message_id: str, text: str) -> None:
+        """Rewrite one of our own messages (the progress line)."""
+        with contextlib.suppress(httpx.HTTPError):
+            await self._http().patch(
+                f"{self._api_base}/channels/{channel_id}/messages/{message_id}",
+                json={"content": text},
+                headers=self._headers,
+            )
+
     async def acknowledge(self, callback_id: str, text: str = "") -> None:
         """Answer an interaction so the client stops showing "thinking"."""
         interaction_id, _, token = callback_id.partition(":")

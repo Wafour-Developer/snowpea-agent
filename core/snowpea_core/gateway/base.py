@@ -22,6 +22,10 @@ APPROVAL_CALLBACK_PREFIX = "apr"
 QUESTION_CALLBACK_PREFIX = "qst"
 #: The index reserved for the free-text row, so "Other" is a button too.
 QUESTION_OTHER = "other"
+#: Prefix of the ``callback_data`` a ``/sessions`` row carries.
+SESSION_CALLBACK_PREFIX = "ses"
+#: Prefix of the ``callback_data`` a ``/projects`` row carries.
+PROJECT_CALLBACK_PREFIX = "prj"
 
 
 class GatewayError(RuntimeError):
@@ -59,7 +63,17 @@ OnMessage = Callable[[InboundMessage], Awaitable[None]]
 
 @runtime_checkable
 class PlatformAdapter(Protocol):
-    """The whole surface the router needs from a platform."""
+    """The whole surface the router needs from a platform.
+
+    Two more methods are *optional*, and the router feature-detects them with
+    ``getattr`` rather than requiring them here — not every platform has them
+    (Slack bots cannot show a typing indicator at all):
+
+    ``async def typing(self, channel_id: str) -> None``
+        Show the "…is typing" hint for a few seconds.  See :class:`SupportsTyping`.
+    ``async def edit(self, channel_id: str, message_id: str, text: str) -> None``
+        Replace the text of a message this bot sent.  See :class:`SupportsEdit`.
+    """
 
     platform: str
 
@@ -71,6 +85,61 @@ class PlatformAdapter(Protocol):
 
     async def stop(self) -> None:
         """Stop receiving and release the transport."""
+
+
+@runtime_checkable
+class SupportsTyping(Protocol):
+    """An adapter that can show a transient "typing…" hint."""
+
+    async def typing(self, channel_id: str) -> None:
+        """Show the indicator once; platforms expire it after a few seconds."""
+
+
+@runtime_checkable
+class SupportsEdit(Protocol):
+    """An adapter that can rewrite a message it already sent."""
+
+    async def edit(self, channel_id: str, message_id: str, text: str) -> None:
+        """Replace the text of ``message_id`` in ``channel_id``."""
+
+
+def session_callback(session_id: str) -> str:
+    """``ses:<sessionId>`` — what a ``/sessions`` row button carries.
+
+    The id rather than the row number: the list a person is looking at can be
+    minutes old, and a number would then resume whatever has since taken that
+    position.
+    """
+    return f"{SESSION_CALLBACK_PREFIX}:{session_id}"
+
+
+def parse_session_callback(data: str | None) -> str | None:
+    """The session id in a ``/sessions`` button callback, or ``None``."""
+    if not data:
+        return None
+    prefix, _, session_id = data.partition(":")
+    if prefix != SESSION_CALLBACK_PREFIX or not session_id or ":" in session_id:
+        return None
+    return session_id
+
+
+def project_callback(index: int) -> str:
+    """``prj:<n>`` — what a ``/projects`` row button carries.
+
+    A position, not a path: a filesystem path does not fit in Telegram's 64
+    bytes of callback data, and the list is rebuilt the same way on the press.
+    """
+    return f"{PROJECT_CALLBACK_PREFIX}:{index}"
+
+
+def parse_project_callback(data: str | None) -> int | None:
+    """The 1-based row number in a ``/projects`` button callback, or ``None``."""
+    if not data:
+        return None
+    prefix, _, index = data.partition(":")
+    if prefix != PROJECT_CALLBACK_PREFIX or not index.isdigit():
+        return None
+    return int(index)
 
 
 def question_callback(request_id: str, choice: str) -> str:
@@ -186,19 +255,27 @@ def approval_text(tool: str, args: dict[str, Any], session_id: str) -> str:
 
 __all__ = [
     "APPROVAL_CALLBACK_PREFIX",
+    "PROJECT_CALLBACK_PREFIX",
     "QUESTION_CALLBACK_PREFIX",
     "QUESTION_OTHER",
+    "SESSION_CALLBACK_PREFIX",
     "Button",
     "GatewayError",
     "InboundMessage",
     "OnMessage",
     "PlatformAdapter",
+    "SupportsEdit",
+    "SupportsTyping",
     "approval_buttons",
     "approval_callback",
     "approval_text",
     "parse_approval_callback",
+    "parse_project_callback",
     "parse_question_callback",
+    "parse_session_callback",
+    "project_callback",
     "question_buttons",
     "question_callback",
     "question_text",
+    "session_callback",
 ]

@@ -449,8 +449,18 @@ class WizardState:
         settings.tools.enabled_categories = self.enabled_categories()
         if self.registry_token:
             settings.skills.registry.token = self.registry_token
+        # The wizard owns the per-platform blocks of ``settings.gateway`` and
+        # nothing else in it.  ``gateway.typing`` / ``gateway.progress`` are
+        # switches sharing the same dict (CORE-gateway-chat), so they are
+        # carried across rather than swept away by a setup run.
+        switches = {
+            key: value
+            for key, value in (settings.gateway or {}).items()
+            if not isinstance(value, dict)
+        }
         settings.gateway = {
-            gid: block for gid, block in self.gateways.items() if block.get("enabled")
+            **switches,
+            **{gid: block for gid, block in self.gateways.items() if block.get("enabled")},
         }
         # ``Settings`` allows extra keys, so the audio block round-trips through
         # settings.json before the typed model for it exists.

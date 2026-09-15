@@ -1,0 +1,18 @@
+{
+  "steps": [
+    {"match": "slowly", "delaySec": 1.0, "text": "took my time"},
+    {"match": "forever", "delaySec": 30, "text": "never seen"},
+    {
+      "match": "use tools",
+      "text": "",
+      "tool_calls": [{"name": "shell", "arguments": {"command": "echo one"}}]
+    },
+    {
+      "after_tool": "shell",
+      "text": "",
+      "tool_calls": [{"name": "shell", "arguments": {"command": "echo two"}}]
+    },
+    {"after_tool": "shell", "text": "ran both", "repeat": true}
+  ],
+  "default": {"text": "fake chat reply"}
+}
