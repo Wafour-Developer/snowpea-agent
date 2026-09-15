@@ -7,7 +7,7 @@
         {
           "name": "write_file",
           "arguments": {
-            "path": "out.txt",
+            "path": "out.py",
             "content": "x"
           }
         }

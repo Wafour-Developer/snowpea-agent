@@ -194,15 +194,17 @@ async def test_init_force_rewrites_agents_md(
 
 
 @pytest.mark.asyncio
-async def test_init_in_plan_mode_writes_nothing(
+async def test_init_in_plan_mode_writes_only_the_markdown(
     daemon: Daemon, http: aiohttp.ClientSession, workdir: Path
 ) -> None:
+    """Plan mode may write documents (m2 §9): AGENTS.md lands, the settings
+    file — configuration — does not."""
     client = await connect(http, daemon, timeout=TIMEOUT)
     try:
         session_id = await start_session(client, workdir, mode="plan")
         await prompt(client, session_id, "/init")
 
-        assert not (workdir / "AGENTS.md").exists()
+        assert (workdir / "AGENTS.md").exists()
         assert not ProjectSettings.path_for(workdir).is_file()
         assert _payloads(client, "turn.done")[-1]["reason"] == "complete"
     finally:

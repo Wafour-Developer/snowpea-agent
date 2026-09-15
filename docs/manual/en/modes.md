@@ -15,11 +15,24 @@ Every tool carries one permission tag. The mode decides what happens to each tag
 
 | mode | read | write | exec | network | send | delegate |
 |---|---|---|---|---|---|---|
-| **plan** | allow | deny | ask | allow | deny | allow |
+| **plan** | allow | deny † | ask ‡ | allow | deny | allow |
 | **accept** (default) | allow | allow | ask | ask | ask | allow |
 | **auto** | allow | allow | allow | allow | allow | allow |
 
-**plan** is for thinking. The agent can read your repository and search the web, and cannot change anything; a shell command asks you first, so a planner can check a tool version or run the tests without being able to edit. A denied call produces an `error` event with code `mode_denied` and ends the turn; headless runs exit `4`.
+† plan mode writes markdown and plan files only. ‡ plan mode runs read-only commands without asking; everything else still asks.
+
+**plan** is for thinking. The agent reads your repository and searches the web, and cannot change your code. Two things it can do, because otherwise it cannot do its job at all:
+
+- **Write the plan.** A `.md`, `.markdown` or `.txt` file, anything under `docs/` or `.snowpea/plans/`, and `$SNOWPEA_HOME/plans/`. Every other path is refused, and the refusal says `plan mode: only markdown/plan files may be written` so the agent writes the plan somewhere else instead of retrying. Settings files are never writable in plan mode, whatever they are called.
+- **Run read-only commands.** `ls`, `cat`, `grep`, `find`, `git status`/`diff`/`log`/`show`/`blame`, `npm test`, `pytest` and the like go through without a prompt. Anything that could change something — `rm`, `mv`, `git commit`, `python -c`, a redirection, a command substitution, a chain with one unsafe link — still asks, and an unrecognised program always asks.
+
+A denied call produces an `error` event with code `mode_denied` and ends the turn; headless runs exit `4`.
+
+Change what counts as writable with `modes.plan.writableGlobs`, a list of globs relative to your working directory:
+
+```json
+{ "modes": { "plan": { "writableGlobs": ["**/*.md", ".snowpea/plans/**", "docs/**"] } } }
+```
 
 **accept** is the working default, and matches Claude Code's acceptEdits: file reads and edits happen without a prompt, while shell commands, network calls and anything that sends a message ask first.
 

@@ -36,7 +36,7 @@ FAKE_SCRIPT = {
             "match": "adapt after the refusal",
             "text": "writing",
             "tool_calls": [
-                {"name": "write_file", "arguments": {"path": "out.txt", "content": "x"}}
+                {"name": "write_file", "arguments": {"path": "out.py", "content": "x"}}
             ],
         },
         {
@@ -57,7 +57,7 @@ RETRY_FAKE_SCRIPT = {
             "text": "writing",
             "repeat": True,
             "tool_calls": [
-                {"name": "write_file", "arguments": {"path": "out.txt", "content": "x"}}
+                {"name": "write_file", "arguments": {"path": "out.py", "content": "x"}}
             ],
         },
         {
@@ -65,7 +65,7 @@ RETRY_FAKE_SCRIPT = {
             "text": "writing again",
             "repeat": True,
             "tool_calls": [
-                {"name": "write_file", "arguments": {"path": "out.txt", "content": "x"}}
+                {"name": "write_file", "arguments": {"path": "out.py", "content": "x"}}
             ],
         },
     ],
@@ -128,7 +128,7 @@ async def test_plan_mode_makes_no_write_calls(
     )
     await client.wait_turn(str(turn_id["turnId"]), TIMEOUT)
 
-    assert not (workdir / "out.txt").exists()
+    assert not (workdir / "out.py").exists()
     ran = [event["payload"]["name"] for event in client.of_kind("tool.call")]
     assert "write_file" not in ran
     await client.stop()
@@ -170,7 +170,7 @@ async def test_a_model_that_only_retries_ends_the_turn(
     refused = client.of_kind("tool.result")
     assert len(refused) == loop.MAX_DENIALS_PER_TURN
     assert all(item["payload"]["ok"] is False for item in refused)
-    assert not (workdir / "out.txt").exists()
+    assert not (workdir / "out.py").exists()
     await client.stop()
 
 

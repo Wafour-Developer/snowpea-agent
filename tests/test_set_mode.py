@@ -317,7 +317,7 @@ async def test_picking_accept_lets_the_same_turn_start_writing(
     assert [event["payload"]["mode"] for event in client.of_kind("mode.changed")] == ["accept"]
     # The write that plan mode refuses ran in the same turn, with no second
     # prompt from the user and no approval request.
-    assert (workdir / "out.txt").read_text(encoding="utf-8") == "x\n"
+    assert (workdir / "out.py").read_text(encoding="utf-8") == "x = 1\n"
     assert client.of_kind("error") == []
     assert (await client.ok("session.list"))["sessions"][0]["mode"] == "accept"
 
@@ -339,7 +339,7 @@ async def test_staying_in_plan_keeps_the_write_refused(
 
     assert client.of_kind("mode.changed") == []
     assert [event["payload"]["code"] for event in client.of_kind("error")] == ["mode_denied"]
-    assert not (workdir / "out.txt").exists()
+    assert not (workdir / "out.py").exists()
     assert (await client.ok("session.list"))["sessions"][0]["mode"] == "plan"
 
     await client.stop()

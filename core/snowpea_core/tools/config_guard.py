@@ -31,6 +31,12 @@ PROJECT_DIR = ".snowpea"
 #: and a worker writing source there must not be asked for permission.
 PROJECT_FILES: frozenset[str] = frozenset({"settings.json", "credentials.json"})
 
+#: Directories under ``$SNOWPEA_HOME`` that hold *working state*, not
+#: configuration.  ``plans/`` is where a plan-mode session keeps a plan it
+#: wants across projects (M2 §9): re-tagging that ``config`` would make the one
+#: file plan mode exists to produce the one file it may never write.
+HOME_WORKING_DIRS: frozenset[str] = frozenset({"plans"})
+
 
 def _resolve(path: str, workdir: Any) -> Path | None:
     try:
@@ -65,7 +71,9 @@ def is_config_path(path: str, *, workdir: Any = None, home: Any = None) -> bool:
     except (OSError, RuntimeError, ValueError):  # pragma: no cover - unresolvable $HOME
         return False
     if _under(resolved, snowpea_home):
-        return True
+        return not any(
+            _under(resolved, snowpea_home / name) for name in HOME_WORKING_DIRS
+        )
     return resolved.parent.name == PROJECT_DIR and resolved.name in PROJECT_FILES
 
 
@@ -89,6 +97,7 @@ def permission_for_write(
 
 __all__ = [
     "CONFIG_NOTE",
+    "HOME_WORKING_DIRS",
     "PROJECT_DIR",
     "PROJECT_FILES",
     "home_of",

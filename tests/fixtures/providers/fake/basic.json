@@ -1,6 +1,18 @@
 {
   "steps": [
     {
+      "match": "run something risky",
+      "text": "running",
+      "tool_calls": [
+        {
+          "name": "shell",
+          "arguments": {
+            "command": "rm -rf build"
+          }
+        }
+      ]
+    },
+    {
       "match": "hello",
       "text": "Hi from fake"
     },

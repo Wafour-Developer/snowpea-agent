@@ -4,69 +4,201 @@
       "match": "use read_file",
       "text": "reading",
       "repeat": true,
-      "tool_calls": [{"name": "read_file", "arguments": {"path": "note.txt"}}]
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "note.txt"
+          }
+        }
+      ]
     },
-    {"after_tool": "read_file", "text": "read done", "repeat": true},
+    {
+      "after_tool": "read_file",
+      "text": "read done",
+      "repeat": true
+    },
     {
       "match": "use write_file",
       "text": "writing",
       "repeat": true,
-      "tool_calls": [{"name": "write_file", "arguments": {"path": "out.txt", "content": "x\n"}}]
+      "tool_calls": [
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "out.py",
+            "content": "x = 1\n"
+          }
+        }
+      ]
     },
-    {"after_tool": "write_file", "text": "write done", "repeat": true},
+    {
+      "after_tool": "write_file",
+      "text": "write done",
+      "repeat": true
+    },
+    {
+      "match": "use unsafe shell",
+      "text": "running something that could write",
+      "repeat": true,
+      "tool_calls": [
+        {
+          "name": "shell",
+          "arguments": {
+            "command": "python -c \"print(1)\""
+          }
+        }
+      ]
+    },
     {
       "match": "use shell",
       "text": "running",
       "repeat": true,
-      "tool_calls": [{"name": "shell", "arguments": {"command": "ls"}}]
+      "tool_calls": [
+        {
+          "name": "shell",
+          "arguments": {
+            "command": "ls"
+          }
+        }
+      ]
     },
-    {"after_tool": "shell", "text": "shell done", "repeat": true},
+    {
+      "after_tool": "shell",
+      "text": "shell done",
+      "repeat": true
+    },
     {
       "match": "use net_fetch",
       "text": "fetching",
       "repeat": true,
-      "tool_calls": [{"name": "net_fetch", "arguments": {"url": "https://example.test/"}}]
+      "tool_calls": [
+        {
+          "name": "net_fetch",
+          "arguments": {
+            "url": "https://example.test/"
+          }
+        }
+      ]
     },
-    {"after_tool": "net_fetch", "text": "fetch done", "repeat": true},
+    {
+      "after_tool": "net_fetch",
+      "text": "fetch done",
+      "repeat": true
+    },
     {
       "match": "use send_message",
       "text": "sending",
       "repeat": true,
-      "tool_calls": [{"name": "send_message", "arguments": {"text": "hello"}}]
+      "tool_calls": [
+        {
+          "name": "send_message",
+          "arguments": {
+            "text": "hello"
+          }
+        }
+      ]
     },
-    {"after_tool": "send_message", "text": "send done", "repeat": true},
+    {
+      "after_tool": "send_message",
+      "text": "send done",
+      "repeat": true
+    },
     {
       "match": "use grep_lines",
       "text": "grepping",
       "repeat": true,
-      "tool_calls": [{"name": "shell", "arguments": {"command": "grep -n x note.txt"}}]
+      "tool_calls": [
+        {
+          "name": "shell",
+          "arguments": {
+            "command": "grep -n x note.txt"
+          }
+        }
+      ]
     },
-    {"after_tool": "shell", "text": "grep done", "repeat": true},
+    {
+      "after_tool": "shell",
+      "text": "grep done",
+      "repeat": true
+    },
     {
       "match": "rewrite the settings",
       "text": "writing settings",
       "repeat": true,
       "tool_calls": [
-        {"name": "write_file", "arguments": {"path": ".snowpea/settings.json", "content": "{}\n"}}
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": ".snowpea/settings.json",
+            "content": "{}\n"
+          }
+        }
       ]
     },
-    {"after_tool": "write_file", "text": "settings write done", "repeat": true},
+    {
+      "after_tool": "write_file",
+      "text": "settings write done",
+      "repeat": true
+    },
     {
       "match": "use settings_set",
       "text": "setting",
       "repeat": true,
       "tool_calls": [
-        {"name": "settings_set", "arguments": {"key": "search.provider", "value": "ddgs"}}
+        {
+          "name": "settings_set",
+          "arguments": {
+            "key": "search.provider",
+            "value": "ddgs"
+          }
+        }
       ]
     },
-    {"after_tool": "settings_set", "text": "settings_set done", "repeat": true},
+    {
+      "after_tool": "settings_set",
+      "text": "settings_set done",
+      "repeat": true
+    },
     {
       "match": "use settings_get",
       "text": "reading settings",
       "repeat": true,
-      "tool_calls": [{"name": "settings_get", "arguments": {"key": "search.provider"}}]
+      "tool_calls": [
+        {
+          "name": "settings_get",
+          "arguments": {
+            "key": "search.provider"
+          }
+        }
+      ]
     },
-    {"after_tool": "settings_get", "text": "settings_get done", "repeat": true}
+    {
+      "after_tool": "settings_get",
+      "text": "settings_get done",
+      "repeat": true
+    },
+    {
+      "match": "write the plan",
+      "text": "writing the plan",
+      "repeat": true,
+      "tool_calls": [
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": ".snowpea/plans/x.md",
+            "content": "# plan\n"
+          }
+        }
+      ]
+    },
+    {
+      "after_tool": "write_file",
+      "text": "plan written",
+      "repeat": true
+    }
   ],
-  "default": {"text": "nothing to do"}
+  "default": {
+    "text": "nothing to do"
+  }
 }

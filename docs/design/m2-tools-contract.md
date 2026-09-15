@@ -84,3 +84,22 @@ Use `uv run python scripts/verify_vendor_integrity.py --add <upstream> <dest> --
 ## 8. Tests
 - `tests/test_tools_contract.py`: every tool name in §2 present in `tool.list`; categories/permission tags correct; media inactive → configure → active without restart; `web_search` with `ddgs` mocked (monkeypatch HTTP) returns hits; SSRF guard rejects `http://127.0.0.1/`; MCP echo fixture appears as `mcp__fixture-echo__echo` and round-trips; search provider registry order and tags.
 - `tests/test_backends.py`: local/docker/ssh hostname differ; ssh write not visible locally; docker & ssh tests `pytest.skip` when `docker` CLI unavailable or the compose fixture cannot start (never fail CI for missing infra).
+
+## 9. Plan mode's two carve-outs (`permissions/`) — v0.1.x
+
+M1 §7's mode matrix denies `write` and asks before `exec` in plan mode. Two exceptions, and **only** these two, loosen a verdict.
+
+This is the one place in snowpea where a verdict is widened, and it is deliberately **not** a hook. §2's rule stands unchanged: a per-call `Tool.permission_for` may only ever be at least as strict as the declared tag, so a hook can never widen anything and a broken one falls back to the stricter answer. These two are part of the *mode's own definition* and live in `PermissionPolicy.plan_exception` (`permissions/policy.py`), next to the matrix rows they qualify, where a reader of the table finds them.
+
+| | applies to | widens | decided by |
+|---|---|---|---|
+| **documents** | `write_file`, `edit_file`, tag `write` | `deny` → `allow` | `permissions/plan_paths.is_plan_writable` |
+| **inspection** | `shell`, tag `exec` | `ask` → `allow` | `permissions/safe_commands.is_read_only` |
+
+**Documents.** A resolved path inside the workdir matching `modes.plan.writableGlobs` (default `**/*.md`, `**/*.markdown`, `**/*.txt`, `.snowpea/plans/**`, `docs/**`), or anything under `$SNOWPEA_HOME/plans/`. The check is on the **resolved** path, so `../../src/a.py` and a symlink out of the tree are judged where they land; nothing outside the workdir qualifies except the home plans directory. An empty `writableGlobs` is treated as unset, not as "deny everything". Every other path keeps the ordinary refusal with `plan mode: only markdown/plan files may be written` appended (`agent/loop.py`), because a model that is not told a different path would work retries the same one.
+
+`config_guard` gains `HOME_WORKING_DIRS = {"plans"}`: `$SNOWPEA_HOME/plans/` is working state rather than configuration, the same carve-out `.snowpea/worktrees/` already has on the project side. Without it the one file plan mode exists to produce would be the one file it may never write. Everything else under `$SNOWPEA_HOME` stays `config`, and **`config` has no exception at all** — a settings write is re-tagged before the policy sees it and stays `deny` in plan mode.
+
+**Inspection.** `safe_commands.is_read_only` is a pure, table-driven function of the command string: `SAFE_COMMANDS` (ls, cat, head, tail, wc, grep, rg, find, pwd, echo, which, env, stat, file, du, df, tree, pytest), `SAFE_PREFIXES` (git status/diff/log/show/branch/ls-files/blame, npm/pnpm/yarn test|ls|run test) and `RUNNER_PREFIXES` (`uv run …`). It answers `False` for everything it does not recognise in full, and specifically for: any redirection or command substitution, a lone `&`, an environment assignment, a `;`/`&&`/`||`/pipe chain with one unsafe segment, `BANNED_ARGS` (`git branch -D`, `find -delete`/`-exec`), and `NEVER_SAFE` (rm, mv, cp, chmod, chown, tee, sed, touch, mkdir, curl, wget, and the interpreters — `python -c` and `node -e` run arbitrary code, and no flag check makes them safe). The asymmetry is the design: a false negative costs one approval prompt, a false positive costs a file.
+
+`prompts/modes/plan.md` says both in the model's own words. Tests: `tests/test_plan_mode_writes.py` (both classifier tables, the path classes, the policy decisions, and end-to-end plan turns that write `.snowpea/plans/x.md` and run `git status` unasked and are refused `out.py`); `tests/test_permission_matrix.py` keeps measuring the rows themselves with a command and a path the exceptions do not cover.

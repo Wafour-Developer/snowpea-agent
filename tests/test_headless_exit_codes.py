@@ -300,11 +300,24 @@ def test_approve_none_denies_and_exits_four(home: Path) -> None:
 
 
 def test_plan_mode_blocks_exec_and_exits_four(home: Path) -> None:
-    """``plan`` mode denies ``exec`` outright (policy table, contract §7)."""
+    """``plan`` asks before ``exec`` and a headless run has nobody to ask.
+
+    The command has to be one the read-only classifier does not recognise:
+    plan mode runs ``ls`` and ``git status`` without asking now (M2 §9), so
+    those would exit ``0``.
+    """
+    env = _base_env(home)
+    _wait_for_implementation(env, "-c", "say hello", label="session.prompt")
+    result = run_cli("--mode", "plan", "-c", "run something risky", env=env)
+    assert result.returncode == 4, f"stdout={result.stdout!r} stderr={result.stderr!r}"
+
+
+def test_plan_mode_runs_a_read_only_command_headless(home: Path) -> None:
+    """The other half of M2 §9: inspection needs no approval, so this exits 0."""
     env = _base_env(home)
     _wait_for_implementation(env, "-c", "say hello", label="session.prompt")
     result = run_cli("--mode", "plan", "-c", "please run ls", env=env)
-    assert result.returncode == 4, f"stdout={result.stdout!r} stderr={result.stderr!r}"
+    assert result.returncode == 0, f"stdout={result.stdout!r} stderr={result.stderr!r}"
 
 
 def test_bad_cwd_is_a_usage_error(home: Path) -> None:
