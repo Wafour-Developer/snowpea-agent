@@ -340,8 +340,13 @@ async def test_the_handler_broadcasts_every_line_and_answers_with_the_log(
     lines = [params["line"] for _, params in core.hub.sent]
     assert "resolving" in lines and "installed edge-tts" in lines
     assert all(params["engine"] == "edge-tts" for _, params in core.hub.sent)
-    # Whatever a late client missed on the wire is still in the answer.
-    assert result.log.splitlines() == lines
+    # An engine install carries no `voice`: the pair is what a surface keys a
+    # progress row on, and an engine is not one of its own voices.
+    assert all("voice" not in params for _, params in core.hub.sent)
+    # Whatever a late client missed on the wire is still in the answer. A stage
+    # that moved the bar without printing anything sends an empty line, which
+    # belongs on the wire and not in the log.
+    assert [line for line in lines if line] == result.log.splitlines()
 
 
 async def test_the_handler_normalises_the_catalog_id_it_was_given(

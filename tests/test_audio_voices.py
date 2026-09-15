@@ -382,3 +382,87 @@ async def test_audio_voices_answers_an_engine_it_has_no_list_for(tmp_path: Path)
         None, AudioVoicesParams(engine="command"), _Core(tmp_path)  # type: ignore[arg-type]
     )
     assert result.voices == []
+
+
+async def test_a_voice_install_is_labelled_with_the_engine_and_the_voice(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A surface keys its progress row on the pair, so both have to be there."""
+    from snowpea_core.server import audio_handlers
+    from snowpea_core.server.protocol import AudioInstallParams
+
+    sent: list[dict[str, Any]] = []
+
+    class Hub:
+        async def notify(self, _method: str, params: dict[str, Any], **_kw: Any) -> None:
+            sent.append(params)
+
+    class Paths:
+        home = tmp_path
+
+    class Core:
+        hub = Hub()
+        paths = Paths()
+        settings = Settings()
+
+    real = audio_install.install_voice
+
+    async def fake_install(engine: str, voice: str, **kwargs: Any) -> Any:
+        kwargs.setdefault("fetch", VoiceFetcher())
+        return await real(engine, voice, **kwargs)
+
+    monkeypatch.setattr(audio_handlers.audio_install, "install_voice", fake_install)
+
+    result = await audio_handlers.audio_install_handler(
+        None,  # type: ignore[arg-type]
+        AudioInstallParams(engine="piper", voice="ko_KR-kss-medium"),
+        Core(),  # type: ignore[arg-type]
+    )
+
+    assert result.ok is True
+    assert result.engine == "piper", "the engine id stays bare"
+    assert result.voice == "ko_KR-kss-medium"
+    assert sent, "the install reported nothing"
+    assert all(event["engine"] == "piper" for event in sent)
+    assert all(event["voice"] == "ko_KR-kss-medium" for event in sent)
+    # And the stages are still there, so the bar still moves.
+    assert {event["stage"] for event in sent} == {"resolve", "download", "check"}
+
+
+async def test_an_engine_install_carries_no_voice(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from snowpea_core.server import audio_handlers
+    from snowpea_core.server.protocol import AudioInstallParams
+
+    sent: list[dict[str, Any]] = []
+
+    class Hub:
+        async def notify(self, _method: str, params: dict[str, Any], **_kw: Any) -> None:
+            sent.append(params)
+
+    class Paths:
+        home = tmp_path
+
+    class Core:
+        hub = Hub()
+        paths = Paths()
+        settings = Settings()
+
+    real = audio_install.install
+
+    async def fake_install(engine: str, **kwargs: Any) -> Any:
+        async def runner(argv: Any, progress: Any = None) -> int:
+            return 0
+
+        kwargs.setdefault("runner", runner)
+        return await real(engine, **kwargs)
+
+    monkeypatch.setattr(audio_handlers.audio_install, "install", fake_install)
+
+    result = await audio_handlers.audio_install_handler(
+        None, AudioInstallParams(engine="edge-tts"), Core()  # type: ignore[arg-type]
+    )
+
+    assert result.ok is True and result.voice is None
+    assert sent and all("voice" not in event for event in sent)

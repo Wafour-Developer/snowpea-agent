@@ -318,20 +318,18 @@ async def audio_install_handler(
         except Exception:  # noqa: BLE001 - a dead surface must not stop the install
             log.debug("could not publish %s", INSTALL_PROGRESS, exc_info=True)
 
-    async def progress(line: str) -> None:
-        await publish({**label, "line": line})
-
     async def stages(event: Any) -> None:
+        # One notification per event, not two: the stage payload already
+        # carries the log line, so a client that only reads `line` is served
+        # by the same message a client drawing a bar reads.
         await publish({**event.to_payload(), **label})
 
     if voice:
         result = await audio_install.install_voice(
-            engine, voice, home=core.paths.home, progress=progress, stages=stages
+            engine, voice, home=core.paths.home, stages=stages
         )
     else:
-        result = await audio_install.install(
-            engine, home=core.paths.home, progress=progress, stages=stages
-        )
+        result = await audio_install.install(engine, home=core.paths.home, stages=stages)
     if result.ok:
         _after_install(core, result)
     return AudioInstallResult(**result.to_payload())
