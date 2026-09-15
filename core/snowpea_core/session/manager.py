@@ -18,6 +18,7 @@ from snowpea_core.config.model_routing import (
 from snowpea_core.config.paths import utc_now
 from snowpea_core.config.project import ProjectSettings
 from snowpea_core.config.settings import Settings
+from snowpea_core.providers import effort as effort_scale
 from snowpea_core.server.protocol import Mode, SessionEvent, SessionKind, SessionSummary
 from snowpea_core.session import events as event_builders
 from snowpea_core.session.history import History, message_from_json
@@ -92,6 +93,7 @@ class SessionManager:
         parent_session_id: str | None = None,
         kind: SessionKind = "chat",
         job_id: str | None = None,
+        effort: str | None = None,
     ) -> Session:
         """Register a new session and persist its row.
 
@@ -132,6 +134,7 @@ class SessionManager:
             parent_session_id=parent_session_id,
             kind=kind,
             job_id=job_id,
+            effort=effort_scale.normalize(effort),
         )
         self._sessions[session.id] = session
         if self.store is not None:
@@ -147,6 +150,8 @@ class SessionManager:
                 kind=session.kind,
                 job_id=session.job_id,
             )
+            if session.effort:
+                await self.store.update_effort(session.id, session.effort)
         log.info("session %s created (%s, mode=%s)", session.id, session.workdir, session.mode)
         return session
 
@@ -204,6 +209,7 @@ class SessionManager:
             parent_session_id=row.get("parent_session_id"),
             kind=cast(SessionKind, row.get("kind") or "chat"),
             job_id=row.get("job_id"),
+            effort=effort_scale.normalize(row.get("effort")),
             max_concurrent=self.max_concurrent(workdir),
             history=history,
             seq=await self.store.max_seq(session_id),
@@ -266,6 +272,26 @@ class SessionManager:
         if self.store is not None:
             await self.store.update_model(session.id, route.provider, route.model)
         return route
+
+    async def set_effort(self, session: Session, effort: str | None) -> str | None:
+        """Pin how hard ``session`` may think, or clear the pin.
+
+        Returns the pin now stored (``None`` when it was cleared).  ``None``
+        and ``"auto"`` both clear it, so the session goes back to what
+        ``agent.effortBy`` / ``agent.effort`` would give a fresh one rather
+        than to nothing.  Raises :class:`ValueError` for a tier that does not
+        exist: a pin the user asked for must not silently become something
+        else (CORE-effort).
+        """
+        text = str(effort or "").strip().lower()
+        if text and text not in (effort_scale.AUTO, *effort_scale.EFFORTS):
+            raise ValueError(
+                f"unknown effort {text!r}: one of {', '.join(effort_scale.EFFORTS)} or auto"
+            )
+        session.effort = effort_scale.normalize(text)
+        if self.store is not None:
+            await self.store.update_effort(session.id, session.effort)
+        return session.effort
 
     async def close(self, session_id: str) -> bool:
         """Close a session, cancelling any in-flight turn."""

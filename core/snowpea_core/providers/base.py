@@ -90,6 +90,12 @@ class ChatProvider(Protocol):
     #: budget on hidden reasoning.
     supports_thinking_option: bool
 
+    #: True for an adapter that takes a reasoning-effort tier
+    #: (``low|medium|high|max``) and maps it to its vendor's own field.  The
+    #: loop reads it with ``getattr``, so an adapter written before the option
+    #: existed keeps its old signature (CORE-effort).
+    supports_effort_option: bool = False
+
     def stream(
         self,
         messages: list[ChatMessage],
@@ -97,6 +103,7 @@ class ChatProvider(Protocol):
         *,
         max_tokens: int = 4096,
         thinking: str | None = None,
+        effort: str | None = None,
     ) -> AsyncIterator[StreamEvent]: ...
 
 

@@ -99,6 +99,8 @@ export interface HudInput {
   model: string | null;
   /** Where that model came from: pin, profile, project, global. */
   modelSource?: string | null;
+  /** How hard the model may think: low | medium | high | max. */
+  effort?: string | null;
   mode: Mode;
   usage: { inputTokens: number; outputTokens: number };
   /** Context-window usage; the segment is hidden until the daemon reports it. */
@@ -174,6 +176,18 @@ export function buildHudSegments(input: HudInput): HudSegment[] {
     dimColor: true,
     priority: 3,
   });
+
+  // Right beside the model, because it is a property of the model's turn and
+  // reads as one thing with it. Dropped early: it is the least surprising
+  // segment on the row, since it only ever moves when someone moves it.
+  if (input.effort) {
+    segments.push({
+      key: "effort",
+      text: `⚙ ${input.effort}`,
+      dimColor: true,
+      priority: 4,
+    });
+  }
 
   segments.push({
     key: "mode",

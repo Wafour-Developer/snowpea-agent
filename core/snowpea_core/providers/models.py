@@ -391,7 +391,9 @@ def write_cache_file(path: Path, ids: Sequence[str]) -> None:
 def override_models(config: dict[str, Any] | None, *, oauth: bool) -> list[str]:
     """``providers.<vendor>.models`` / ``.oauth_models`` from settings.json.
 
-    Both are lists of model ids.  ``oauth_models`` is consulted only for an
+    Both are lists of model ids, or maps of model id to that model's
+    capabilities (``{"qwen2.5-vl": {"vision": true}}``), in which case the keys
+    are the catalog.  ``oauth_models`` is consulted only for an
     OAuth account, so one provider block can pin the Codex catalog without
     also pinning what an API key would see.  A value of the wrong shape is
     ignored with a warning rather than crashing a picker.
@@ -402,8 +404,18 @@ def override_models(config: dict[str, Any] | None, *, oauth: bool) -> list[str]:
         raw = config.get(field)
         if raw is None:
             continue
-        if not isinstance(raw, list) or not all(isinstance(item, str) for item in raw):
-            log.warning("providers.%s must be a list of model ids; ignoring it", field)
+        if isinstance(raw, dict):
+            # The object form carries per-model capabilities
+            # (``{"qwen2.5-vl": {"vision": true}}``, CORE-vision).  Its keys
+            # are the same catalog the list form pins, so both shapes answer
+            # here and neither use has to know about the other.
+            raw = [name for name in raw if isinstance(name, str)]
+        elif not isinstance(raw, list) or not all(isinstance(item, str) for item in raw):
+            log.warning(
+                "providers.%s must be a list of model ids, or a map of them to "
+                "their capabilities; ignoring it",
+                field,
+            )
             continue
         ids = _dedupe(raw)
         if ids:
@@ -509,6 +521,35 @@ async def models_dev_catalog(
         if ids:
             return _dedupe(ids)
     return []
+
+
+def models_dev_cached(home: Path | str | None) -> dict[str, Any]:
+    """The models.dev document already on disk, or ``{}`` — never fetches.
+
+    The capability chain runs on the way into every request, where a network
+    round trip would cost far more than the fallback it prevents.  Whatever
+    :func:`models_dev_catalog` last wrote is what this sees; a cold machine
+    simply has no catalog rung.
+    """
+    if home is None:
+        return {}
+    from snowpea_core.config.paths import Paths
+
+    path = Paths(home=Path(home)).cache_dir / "models-dev.json"
+    try:
+        cached = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(cached, dict):
+        return {}
+    saved_at = cached.get("saved_at")
+    payload = cached.get("catalog")
+    if not isinstance(saved_at, int | float) or not isinstance(payload, dict):
+        return {}
+    # Deliberately generous: a stale capability is still a better guess than
+    # none, and the freshness that matters (which models exist) is enforced by
+    # the fetching path, not here.
+    return payload
 
 
 async def _models_dev_payload(
@@ -893,6 +934,7 @@ __all__ = [
     "has_live_listing",
     "is_placeholder",
     "list_models",
+    "models_dev_cached",
     "models_dev_catalog",
     "models_dev_enabled",
     "offline_models",

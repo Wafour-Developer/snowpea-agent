@@ -16,7 +16,7 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from snowpea_core.config.settings import DEFAULT_MAX_TOKENS
+from snowpea_core.config.settings import DEFAULT_EFFORT, DEFAULT_MAX_TOKENS
 from snowpea_core.prompts import compose
 from snowpea_core.prompts import environment as prompt_env
 from snowpea_core.prompts.loader import load
@@ -71,6 +71,11 @@ class AgentConfig:
     max_tokens: int = DEFAULT_MAX_TOKENS
     #: ``"on"`` or ``"off"`` — ``"auto"`` is resolved before it gets here.
     thinking: str = "on"
+    #: ``low|medium|high|max`` — how hard the model may think this turn. Each
+    #: adapter maps it to its vendor's own field (CORE-effort).
+    effort: str = DEFAULT_EFFORT
+    #: Which rule decided it: ``session``, ``model``, ``vendor`` or ``default``.
+    effort_source: str = "default"
 
 
 def tool_lines(tools: list[ToolSpec]) -> str:

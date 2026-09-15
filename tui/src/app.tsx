@@ -71,7 +71,14 @@ import {
   type SpeechHandle,
 } from "./state/audio-runtime.js";
 import { createAudioClient, describeAudioError, type AudioClient } from "./rpc/audio.js";
-import { INHERIT_REF, modelOptions, modelSource, type ModelOption } from "./state/models.js";
+import {
+  EFFORT_REF,
+  INHERIT_REF,
+  modelOptions,
+  modelSource,
+  nextEffort,
+  type ModelOption,
+} from "./state/models.js";
 import { lspTable, readLspStatus } from "./state/lsp.js";
 import { delegationHint, delegationLabel } from "./state/delegation.js";
 import { agentCandidates } from "./state/agent-completion.js";
@@ -1060,6 +1067,7 @@ export function App({
         provider: state.provider,
         model: state.model,
         modelSource: state.modelSource ?? sessionModelSource,
+        effort: state.effort,
         mode: state.mode,
         usage: state.usage,
         context: state.context,
@@ -1454,6 +1462,8 @@ export function App({
         discoveredSource: modelsResult?.source ?? null,
         current: state.model ?? modelsResult?.current ?? null,
         vendor: state.provider ?? modelsResult?.vendor ?? null,
+        effort: state.effort,
+        effortSource: state.effortSource,
       });
         setModelPicker(options);
       },
@@ -1470,6 +1480,24 @@ export function App({
    */
   const chooseModel = useCallback(
     (ref: string) => {
+      if (ref === EFFORT_REF) {
+        // The effort row cycles rather than opening a submenu of four; an
+        // older daemon has no such method, and falls back to the command.
+        const wanted = nextEffort(state.effort);
+        void client
+          .call("session.setEffort", { sessionId, effort: wanted })
+          .then((result) => {
+            showToast(`effort: ${result?.effort ?? wanted}`);
+          })
+          .catch((error: unknown) => {
+            if ((error as { code?: unknown } | null)?.code === -32601) {
+              submit(`/effort ${wanted}`);
+              return;
+            }
+            dispatch({ type: "error", message: String(error) });
+          });
+        return;
+      }
       void client
         .call("session.setModel", { sessionId, model: ref === INHERIT_REF ? null : ref })
         .then((result) => {
@@ -1489,7 +1517,7 @@ export function App({
           dispatch({ type: "error", message: String(error) });
         });
     },
-    [client, sessionId, showToast],
+    [client, sessionId, showToast, state.effort],
   );
 
   /** Ctrl+V with an image on the clipboard. */

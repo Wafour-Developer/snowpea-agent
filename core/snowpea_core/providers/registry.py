@@ -23,8 +23,11 @@ from typing import Any
 
 from snowpea_core.config.paths import Paths, resolve_home
 from snowpea_core.config.settings import THINKING_CHOICES, Settings
+from snowpea_core.providers import content as content_parts
 from snowpea_core.providers import context_windows
+from snowpea_core.providers import effort as effort_scale
 from snowpea_core.providers import models as model_discovery
+from snowpea_core.providers import vision as vision_scale
 from snowpea_core.providers.base import ChatProvider, ProviderError
 from snowpea_core.providers.fake import FakeProvider
 from snowpea_core.providers.presets import (
@@ -398,6 +401,103 @@ class ProviderRegistry:
         budget = override if override is not None else self.settings.agent.max_tokens
         return context_windows.clamp_output_tokens(self.model_for(vendor, model), int(budget))
 
+    def supports_effort(self, vendor: str) -> bool:
+        """True when ``vendor``'s API takes a reasoning-effort setting.
+
+        A local-style server is opt-in: ``providers.<name>.effort_param: true``
+        says this one accepts ``reasoning_effort``.  Most do not — vLLM passes
+        it to the template, which either ignores it or 400s depending on the
+        model — so sending it by default would break working setups.
+        """
+        preset = self.preset_or_none(vendor)
+        return bool(preset is not None and preset.supports_effort)
+
+    def effort_for(
+        self,
+        vendor: str,
+        model: str | None = None,
+        *,
+        session_effort: str | None = None,
+        override: str | None = None,
+    ) -> tuple[str, str]:
+        """``(effort, source)`` in force for ``vendor``/``model`` (CORE-effort).
+
+        The chain lives in :func:`snowpea_core.providers.effort.resolve`; this
+        is the binding that knows which model a bare vendor resolves to.
+        """
+        return effort_scale.resolve(
+            self.settings,
+            vendor,
+            self.model_for(vendor, model),
+            session_effort=session_effort,
+            override=override,
+        )
+
+    # -- vision (CORE-vision) ------------------------------------------
+    def vision_for(self, vendor: str, model: str | None = None) -> bool | None:
+        """Whether ``vendor``/``model`` may be sent images.
+
+        ``True``/``False`` are answers; ``None`` means "nobody knows yet, and
+        this is a server we may ask" — the adapter then sends the images once
+        and remembers what came back.  Only a local-style vendor ever gets
+        ``None``: a hosted catalog is knowable, and probing it would spend a
+        real request to learn something the name already implies.
+        """
+        resolved = self.model_for(vendor, model)
+        configured = vision_scale.settings_override(self.vendor_config(vendor), resolved)
+        if configured is not None:
+            return configured
+        from_catalog = self._models_dev_vision(vendor, resolved)
+        if from_catalog is not None:
+            return from_catalog
+        if content_parts.vision_from_name(vendor, resolved):
+            return True
+        if not self.is_local_style(vendor):
+            # An unrecognised hosted model degrades to the text fallback, as it
+            # always has: a 400 there costs a request and tells us nothing the
+            # vendor's own catalog would not have.
+            return False
+        learned = self._vision_memory().get(
+            vendor, self.base_url_for(vendor) or "", resolved
+        )
+        return learned
+
+    def _vision_memory(self) -> vision_scale.VisionMemory:
+        """The learned-capability store, pointed at this machine's home."""
+        home = self.paths.home if self.paths is not None else None
+        if home is not None and vision_scale.MEMORY.home != home:
+            vision_scale.MEMORY.home = home
+            vision_scale.MEMORY.clear()
+        return vision_scale.MEMORY
+
+    def remember_vision(self, vendor: str, model: str | None, vision: bool) -> None:
+        """Record what a try-once probe found, so it is asked at most once."""
+        self._vision_memory().remember(
+            vendor, self.base_url_for(vendor) or "", self.model_for(vendor, model), vision
+        )
+
+    def _models_dev_vision(self, vendor: str, model: str) -> bool | None:
+        """The public catalog's answer, from the disk cache only (no I/O)."""
+        home = self.paths.home if self.paths is not None else resolve_home()
+        catalog = model_discovery.models_dev_cached(home)
+        return vision_scale.from_models_dev(
+            catalog, model_discovery.MODELS_DEV_IDS.get(vendor, ()), model
+        )
+
+    def vision_map(self, vendor: str, models: list[str]) -> dict[str, bool]:
+        """``{model: can_see}`` for the ids a picker is about to show.
+
+        Only the models with a *known* answer appear; a missing key means "not
+        known yet", which is what a surface draws as no badge rather than as a
+        crossed-out eye.
+        """
+        known: dict[str, bool] = {}
+        for name in models:
+            answer = self.vision_for(vendor, name)
+            if answer is not None:
+                known[name] = answer
+        return known
+
     def thinking_for(self, vendor: str) -> str:
         """``"on"`` | ``"off"`` | ``"auto"`` for ``vendor``.
 
@@ -589,12 +689,18 @@ class ProviderRegistry:
 
             resolver = _resolve
 
+        def learned(can_see: bool) -> None:
+            """Persist what the try-once probe found (CORE-vision)."""
+            self.remember_vision(vendor, model, can_see)
+
         return OpenAICompatProvider(
             preset,
             api_key=api_key,
             model=resolved_model,
             base_url=base_url,
             model_resolver=resolver,
+            vision=self.vision_for(vendor, model),
+            on_vision=learned,
         )
 
     def default_vendor(self) -> str:
@@ -658,6 +764,7 @@ class ProviderRegistry:
                     authStatus=self.auth_status(vendor),
                     preset="local" if preset.local_style else vendor,
                     custom=vendor not in PRESETS,
+                    supportsEffort=preset.supports_effort,
                 )
             )
         return infos

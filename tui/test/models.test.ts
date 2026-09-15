@@ -4,11 +4,17 @@
 
 import { describe, expect, it } from "vitest";
 
-import { INHERIT_REF, modelOptions, modelSource } from "../src/state/models.js";
+import {
+  EFFORT_REF,
+  INHERIT_REF,
+  modelOptions,
+  modelSource,
+  nextEffort,
+} from "../src/state/models.js";
 
 /** The picker always ends with the row that clears the pin. */
 const withoutInherit = (options: { ref: string }[]) =>
-  options.filter((option) => option.ref !== INHERIT_REF);
+  options.filter((option) => option.ref !== INHERIT_REF && option.ref !== EFFORT_REF);
 
 const profiles = {
   fast: { provider: "anthropic", model: "claude-haiku-4-5" },
@@ -66,6 +72,20 @@ describe("modelOptions", () => {
     expect(inherit.label).toContain("clear pin");
   });
 
+  it("offers an effort row only when the daemon has said what the effort is", () => {
+    expect(modelOptions({ profiles }).some((o) => o.ref === EFFORT_REF)).toBe(false);
+    const options = modelOptions({ profiles, effort: "high", effortSource: "session" });
+    const row = options.find((option) => option.ref === EFFORT_REF);
+    expect(row).toMatchObject({ origin: "effort", current: false });
+    expect(row?.label).toBe("effort: high");
+    // The row says both why it is that tier and what pressing Enter will do.
+    expect(row?.detail).toContain("set by session");
+    expect(row?.detail).toContain("max");
+    // It sits just above the row that clears the model pin.
+    expect(options[options.length - 1].ref).toBe(INHERIT_REF);
+    expect(options[options.length - 2].ref).toBe(EFFORT_REF);
+  });
+
   it("tags a project profile, and lets it shadow the global one", () => {
     const options = modelOptions({
       profiles: { deep: { provider: "anthropic", model: "claude-sonnet-4-5" } },
@@ -102,5 +122,19 @@ describe("modelSource", () => {
     expect(modelSource({})).toBeNull();
     expect(modelSource(undefined)).toBeNull();
     expect(modelSource({ modelSource: "" })).toBeNull();
+  });
+});
+
+describe("nextEffort", () => {
+  it("steps up a tier and wraps at the top", () => {
+    expect(nextEffort("low")).toBe("medium");
+    expect(nextEffort("medium")).toBe("high");
+    expect(nextEffort("high")).toBe("max");
+    expect(nextEffort("max")).toBe("low");
+  });
+
+  it("starts at low for anything it does not recognise", () => {
+    expect(nextEffort(null)).toBe("low");
+    expect(nextEffort("hard")).toBe("low");
   });
 });

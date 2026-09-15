@@ -51,14 +51,18 @@ async def daemon(tmp_path: Path, provider_env: None) -> AsyncIterator[Daemon]:
 async def test_an_old_sessions_table_gains_the_new_columns(tmp_path: Path) -> None:
     """A state.db from before CORE-session-kind opens and reads back as chat."""
     path = tmp_path / "legacy.db"
-    legacy = SCHEMA
-    for name, _decl in SESSION_COLUMNS:
-        legacy = legacy.replace(f"    {name} TEXT,\n", "")
-    legacy = legacy.replace("    kind           TEXT NOT NULL DEFAULT 'chat',\n", "")
-    legacy = legacy.replace("    job_id         TEXT\n", "")
-    legacy = legacy.replace("    parent_session_id TEXT,\n", "")
+    # Strip every column the migration is responsible for, whatever its
+    # padding or position: hard-coding the declarations meant that adding one
+    # more migrated column silently left it in the "legacy" table, and the
+    # migration was then never exercised.
+    added = {name for name, _decl in SESSION_COLUMNS}
+    kept = [line for line in SCHEMA.splitlines() if line.strip().split(" ")[0] not in added]
+    legacy = "\n".join(kept) + "\n"
+    # The last column of a CREATE TABLE cannot keep its comma.
     legacy = legacy.replace("    closed_at      TEXT,\n", "    closed_at      TEXT\n")
-    assert "parent_session_id" not in legacy and "job_id" not in legacy
+    for name in added:
+        assert name not in legacy
+    assert "closed_at      TEXT\n);" in legacy
     connection = sqlite3.connect(path)
     connection.executescript(legacy)
     connection.execute(
@@ -71,9 +75,10 @@ async def test_an_old_sessions_table_gains_the_new_columns(tmp_path: Path) -> No
     store = Store(path)
     try:
         columns = {
-            str(row["name"]) for row in store._query("PRAGMA table_info(sessions)")  # noqa: SLF001
+            str(row["name"])
+            for row in store._query("PRAGMA table_info(sessions)")  # noqa: SLF001
         }
-        assert {"parent_session_id", "kind", "job_id"} <= columns
+        assert added <= columns
         rows = await store.list_sessions(include_closed=True)
         assert [(row["id"], row["kind"], row["parent_session_id"]) for row in rows] == [
             ("s-old", "chat", None)
@@ -123,18 +128,14 @@ async def test_created_kinds_survive_the_store_and_reach_session_list(
     assert rows[run.id]["jobId"] == "j-123"
 
     # The same three fields come back off disk, not just off the live objects.
-    stored = {
-        row["id"]: row for row in await daemon.core.store.list_sessions(include_closed=True)
-    }
+    stored = {row["id"]: row for row in await daemon.core.store.list_sessions(include_closed=True)}
     assert stored[run.id]["kind"] == "scheduled"
     assert stored[run.id]["parent_session_id"] == parent_id
     assert stored[run.id]["job_id"] == "j-123"
 
     await daemon.core.sessions.close(child.id)
     await daemon.core.sessions.close(run.id)
-    closed = await client.ok(
-        "session.list", {"workdir": str(tmp_path), "includeClosed": True}
-    )
+    closed = await client.ok("session.list", {"workdir": str(tmp_path), "includeClosed": True})
     closed_rows = {row["sessionId"]: row for row in closed["sessions"]}
     assert closed_rows[run.id]["kind"] == "scheduled"
     assert closed_rows[run.id]["parentSessionId"] == parent_id
@@ -157,9 +158,7 @@ async def test_kinds_filters_the_listing(
         workdir=tmp_path, kind="scheduled", parent_session_id=chat["sessionId"], job_id="j-9"
     )
 
-    only_chat = await client.ok(
-        "session.list", {"workdir": str(tmp_path), "kinds": ["chat"]}
-    )
+    only_chat = await client.ok("session.list", {"workdir": str(tmp_path), "kinds": ["chat"]})
     assert [row["sessionId"] for row in only_chat["sessions"]] == [chat["sessionId"]]
 
     only_scheduled = await client.ok(

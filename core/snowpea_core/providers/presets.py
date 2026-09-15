@@ -60,6 +60,11 @@ class VendorPreset:
     #: ``vendor == "local"`` tests this instead, so a server called ``hon2``
     #: gets the same keyless auth, model discovery and context-window probing.
     local_style: bool = False
+    #: True when this vendor's API takes a reasoning-effort setting at all.
+    #: The *model* still has to accept it — see
+    #: :func:`snowpea_core.providers.effort.supports_openai_effort` — but a
+    #: vendor with this False is never sent one (CORE-effort).
+    supports_effort: bool = False
 
     @property
     def vendor(self) -> str:
@@ -102,6 +107,7 @@ def _preset(
     variant: str | None = None,
     key_required: bool = True,
     local_style: bool = False,
+    supports_effort: bool = False,
 ) -> VendorPreset:
     return VendorPreset(
         id=vendor_id,
@@ -119,6 +125,7 @@ def _preset(
         variant=variant,
         key_required=key_required,
         local_style=local_style,
+        supports_effort=supports_effort,
     )
 
 
@@ -136,6 +143,7 @@ PRESETS: dict[str, VendorPreset] = {
             models=("claude-sonnet-4-5", "claude-opus-4-1", "claude-haiku-4-5"),
             tool_call_style="anthropic",
             stream_delta_shape="anthropic",
+            supports_effort=True,
         ),
         _preset(
             "openai",
@@ -147,6 +155,7 @@ PRESETS: dict[str, VendorPreset] = {
             auth_methods=("api_key", "browser_pkce", "device_code", "oauth_token"),
             env_keys=("OPENAI_API_KEY",),
             models=("gpt-4.1", "gpt-4.1-mini", "o4-mini"),
+            supports_effort=True,
         ),
         _preset(
             "openrouter",
@@ -157,6 +166,7 @@ PRESETS: dict[str, VendorPreset] = {
             env_keys=("OPENROUTER_API_KEY",),
             models=("anthropic/claude-sonnet-4.5", "openai/gpt-4.1"),
             extra_headers=_OPENROUTER_HEADERS,
+            supports_effort=True,
         ),
         _preset(
             "gemini",
@@ -169,6 +179,7 @@ PRESETS: dict[str, VendorPreset] = {
             models=("gemini-2.5-pro", "gemini-2.5-flash"),
             tool_call_style="gemini",
             stream_delta_shape="gemini",
+            supports_effort=True,
         ),
         _preset(
             "xai",
@@ -177,6 +188,7 @@ PRESETS: dict[str, VendorPreset] = {
             "grok-4",
             env_keys=("XAI_API_KEY",),
             models=("grok-4", "grok-3-mini"),
+            supports_effort=True,
         ),
         _preset(
             "glm",
@@ -375,6 +387,9 @@ def synthesize_local_preset(vendor_id: str, config: Mapping[str, Any]) -> Vendor
         supports_parallel_tools=False,
         key_required=False,
         local_style=True,
+        # A self-hosted server usually ignores ``reasoning_effort`` and
+        # sometimes rejects it outright, so it is opt-in per server.
+        supports_effort=bool(config.get("effort_param")),
         variant=variant or None,
     )
 

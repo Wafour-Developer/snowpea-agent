@@ -29,7 +29,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     closed_at      TEXT,
     parent_session_id TEXT,
     kind           TEXT NOT NULL DEFAULT 'chat',
-    job_id         TEXT
+    job_id         TEXT,
+    effort         TEXT
 );
 CREATE TABLE IF NOT EXISTS events (
     session_id   TEXT NOT NULL,
@@ -57,6 +58,7 @@ SESSION_COLUMNS: tuple[tuple[str, str], ...] = (
     ("parent_session_id", "TEXT"),
     ("kind", "TEXT NOT NULL DEFAULT 'chat'"),
     ("job_id", "TEXT"),
+    ("effort", "TEXT"),
 )
 
 
@@ -165,6 +167,19 @@ class Store:
             self._execute,
             "UPDATE sessions SET provider = ?, model = ? WHERE id = ?",
             (provider, model, session_id),
+        )
+
+    async def update_effort(self, session_id: str, effort: str | None) -> None:
+        """Persist the session's effort pin so it survives a resume.
+
+        A pin that vanished on restore would be worse than no pin at all: the
+        session would quietly go back to the configured tier while the surface
+        still showed the one the user chose (CORE-effort).
+        """
+        await asyncio.to_thread(
+            self._execute,
+            "UPDATE sessions SET effort = ? WHERE id = ?",
+            (effort, session_id),
         )
 
     async def update_mode(self, session_id: str, mode: str) -> None:

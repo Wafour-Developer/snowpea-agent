@@ -35,6 +35,8 @@ class GeminiProvider:
     vendor = "gemini"
     #: No thinking switch on this backend; the agent loop does not offer one.
     supports_thinking_option = False
+    #: Effort becomes ``thinkingConfig.thinkingBudget`` (CORE-effort).
+    supports_effort_option = True
 
     def __init__(
         self,
@@ -114,9 +116,13 @@ class GeminiProvider:
         tools: list[ToolSpec],
         *,
         max_tokens: int = 4096,
+        thinking: str | None = None,
+        effort: str | None = None,
     ) -> AsyncIterator[StreamEvent]:
         """Stream one assistant turn, normalised to :class:`StreamEvent`."""
-        body = build_gemini_request(messages, tools, max_tokens=max_tokens)
+        body = build_gemini_request(
+            messages, tools, max_tokens=max_tokens, thinking=thinking, effort=effort
+        )
         path = f"/models/{self.model}:streamGenerateContent"
         normalizer = GeminiStreamNormalizer(self.preset)
         try:

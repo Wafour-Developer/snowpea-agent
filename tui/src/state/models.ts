@@ -12,10 +12,27 @@
  */
 
 /** Where an option came from. */
-export type ModelOrigin = "profile" | "discovered" | "current" | "inherit";
+export type ModelOrigin = "profile" | "discovered" | "current" | "inherit" | "effort";
 
 /** The ref that clears a session's pin and lets the routing decide again. */
 export const INHERIT_REF = "inherit";
+
+/** The ref of the effort row; picking it cycles to the next tier. */
+export const EFFORT_REF = "__effort__";
+
+/** The tiers, weakest first — the same scale the daemon uses. */
+export const EFFORTS = ["low", "medium", "high", "max"] as const;
+
+/**
+ * The tier after `current`, wrapping at the top.
+ *
+ * A row that cycles is one keystroke; a submenu of four is three. The wrap is
+ * what makes it safe to press past the end.
+ */
+export function nextEffort(current: string | null | undefined): string {
+  const index = EFFORTS.indexOf((current ?? "") as (typeof EFFORTS)[number]);
+  return EFFORTS[(index + 1) % EFFORTS.length] ?? "medium";
+}
 
 export interface ModelOption {
   /** What `/model <ref>` is called with. */
@@ -57,6 +74,10 @@ export interface ModelPickerInput {
   current?: string | null;
   /** The vendor serving it. */
   vendor?: string | null;
+  /** How hard it may think, when the daemon has said. */
+  effort?: string | null;
+  /** Which rule set that: session | model | vendor | default. */
+  effortSource?: string | null;
 }
 
 /**
@@ -76,6 +97,8 @@ export function modelOptions({
   discoveredSource = null,
   current = null,
   vendor = null,
+  effort = null,
+  effortSource = null,
 }: ModelPickerInput): ModelOption[] {
   const options: ModelOption[] = [];
   const covered = new Set<string>();
@@ -138,6 +161,21 @@ export function modelOptions({
       detail: [vendor, "in use"].filter(Boolean).join(" · "),
       origin: "current",
       current: true,
+    });
+  }
+
+  // How hard the model thinks belongs next to which model it is: the two are
+  // one decision, and splitting them across a picker and a command is what
+  // makes an effort setting something users never find.
+  if (effort) {
+    options.push({
+      ref: EFFORT_REF,
+      label: `effort: ${effort}`,
+      detail: [effortSource ? `set by ${effortSource}` : "", `Enter → ${nextEffort(effort)}`]
+        .filter(Boolean)
+        .join(" · "),
+      origin: "effort",
+      current: false,
     });
   }
 

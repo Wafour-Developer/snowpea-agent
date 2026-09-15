@@ -28,6 +28,7 @@ from snowpea_core.memory import services as memory_services
 from snowpea_core.memory import wire_memory
 from snowpea_core.memory.retrieval import agent_namespace_of, project_namespace_of
 from snowpea_core.memory.scopes import GLOBAL_NAMESPACE, project_namespace
+from snowpea_core.providers import effort as effort_scale
 from snowpea_core.providers.base import ProviderError
 from snowpea_core.scheduler import wire_scheduler
 from snowpea_core.server import errors
@@ -71,6 +72,8 @@ from snowpea_core.server.protocol import (
     SessionPromptParams,
     SessionResumeParams,
     SessionResumeResult,
+    SessionSetEffortParams,
+    SessionSetEffortResult,
     SessionSetModelParams,
     SessionSetModelResult,
     SessionSetModeParams,
@@ -122,6 +125,7 @@ HANDLED_METHODS: tuple[str, ...] = (
     "session.compact",
     "session.setMode",
     "session.setModel",
+    "session.setEffort",
     "command.list",
     "command.run",
     "tool.list",
@@ -239,6 +243,7 @@ async def session_create_handler(
         provider=params.provider,
         model=params.model,
         agent=params.agent,
+        effort=params.effort,
         max_concurrent=params.maxConcurrent,
         origin_surface=params.originSurface or conn.surface_id,
         origin_conn=conn,
@@ -516,12 +521,61 @@ async def session_set_model_handler(
         route = await core.sessions.set_model(session, params.model)
     except ValueError as exc:
         raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
-    await core.hub.emit_event(session.id, events.model_changed(route.provider, route.model))
+    effective, source = effective_effort(core, session)
+    await core.hub.emit_event(
+        session.id, events.model_changed(route.provider, route.model, effective, source)
+    )
     return SessionSetModelResult(
         provider=route.provider,
         model=route.model,
         pinned=bool((params.model or "").strip() not in ("", "inherit")),
     )
+
+
+async def session_set_effort_handler(
+    _conn: RpcConnection, params: SessionSetEffortParams, core: Core
+) -> SessionSetEffortResult:
+    """``session.setEffort`` — the RPC half of ``/effort <tier>``.
+
+    Same code path as the command, so the TUI, the IDE and headless all pin a
+    session the same way and all see the same ``model.changed`` event
+    (CORE-effort).
+    """
+    session = _session(core, params.sessionId)
+    try:
+        pinned = await core.sessions.set_effort(session, params.effort)
+    except ValueError as exc:
+        raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
+    effective, source = effective_effort(core, session)
+    await core.hub.emit_event(
+        session.id, events.model_changed(session.provider, session.model, effective, source)
+    )
+    return SessionSetEffortResult(
+        sessionId=session.id,
+        effort=effective,  # type: ignore[arg-type]
+        effortSource=source,  # type: ignore[arg-type]
+        pinned=pinned,  # type: ignore[arg-type]
+    )
+
+
+def effective_effort(core: Core, session: Session) -> tuple[str, str]:
+    """``(effort, source)`` in force for ``session``, registry or not.
+
+    The registry is what knows which model a bare vendor resolves to, so the
+    answer goes through it whenever there is one; a core without providers
+    (a unit test) still gets the settings chain.
+    """
+    registry = getattr(core, "providers", None)
+    if registry is not None:
+        try:
+            vendor = session.provider or registry.default_vendor()
+            resolved: tuple[str, str] = registry.effort_for(
+                vendor, session.model, session_effort=session.effort
+            )
+            return resolved
+        except ProviderError:
+            log.debug("could not resolve the session's effort", exc_info=True)
+    return effort_scale.resolve(core.settings, None, None, session_effort=session.effort)
 
 
 # ---------------------------------------------------------------------------
@@ -647,6 +701,7 @@ async def provider_models_handler(
         current=core.providers.model_for(vendor),
         source=listing.source,
         detail=listing.detail,
+        vision=core.providers.vision_map(vendor, listing.models),
     )
 
 
@@ -786,6 +841,7 @@ def register_session_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
     dispatcher.register("session.compact", session_compact_handler)
     dispatcher.register("session.setMode", session_set_mode_handler)
     dispatcher.register("session.setModel", session_set_model_handler)
+    dispatcher.register("session.setEffort", session_set_effort_handler)
     dispatcher.register("command.list", command_list_handler)
     dispatcher.register("command.run", command_run_handler)
     dispatcher.register("tool.list", tool_list_handler)
