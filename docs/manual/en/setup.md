@@ -573,7 +573,7 @@ Old tool output is shrunk before the request goes out, never in the stored trans
 | `agent.pruneToolOutputs` | `true` | Tool results older than the last `agent.keepToolRounds` tool rounds are replaced, **in the outgoing request only**, by `[earlier shell output pruned — N chars; re-run the tool if you need it again]`; results inside the kept window longer than 2000 characters keep a head and a tail around `…[trimmed]…`. `skill_view` bodies are left to `skills.protectRecentViews`. Set it to `false` to send everything verbatim. |
 | `agent.keepToolRounds` | `6` | How many tool rounds reach the provider in full. |
 
-A resumed, exported or compacted session still has every byte the tools produced: the pruning is on the copy handed to the model.
+A resumed, exported or compacted session still has every byte the tools produced: the pruning is on the copy handed to the model. See [Tools and context budget](tools.md) for details on repeat guards, deferred tools, output pruning, child contexts, and context file caps.
 
 Three `skills` settings shape the skills index the agent reads on every turn (see [Plugins and skills](plugins.md)):
 

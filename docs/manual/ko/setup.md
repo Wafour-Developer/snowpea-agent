@@ -547,7 +547,7 @@ snowpea tools list --json
 | `agent.pruneToolOutputs` | `true` | 최근 `agent.keepToolRounds`번의 툴 라운드보다 오래된 결과는 **나가는 요청에서만** `[earlier shell output pruned — N chars; re-run the tool if you need it again]`로 바뀝니다. 남은 구간에서도 2000자를 넘는 결과는 `…[trimmed]…`를 사이에 두고 앞뒤만 남습니다. `skill_view` 본문은 `skills.protectRecentViews`가 맡습니다. `false`로 두면 전부 그대로 보냅니다. |
 | `agent.keepToolRounds` | `6` | 온전히 제공자에게 전달되는 툴 라운드 수. |
 
-이어 열거나 내보내거나 압축한 세션에는 툴이 만든 바이트가 모두 남아 있습니다. 잘라내기는 모델에게 건네는 사본에서만 일어납니다.
+이어 열거나 내보내거나 압축한 세션에는 툴이 만든 바이트가 모두 남아 있습니다. 잘라내기는 모델에게 건네는 사본에서만 일어납니다. 반복 방지, 지연 로딩 툴, 출력 정리, 자식 컨텍스트 및 컨텍스트 파일 상한에 대한 자세한 내용은 [툴과 컨텍스트 예산](tools.md)을 참고하세요.
 
 에이전트가 매 턴 읽는 스킬 색인은 `skills` 설정 세 개가 좌우합니다([플러그인과 스킬](plugins.md) 참고).
 
