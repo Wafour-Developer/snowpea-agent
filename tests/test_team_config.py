@@ -1,18 +1,19 @@
-from snowpea_core.agent.team_config import active_team, teams_for
+from snowpea_core.agent.team_config import active_team, default_roster, teams_for
 from snowpea_core.config.paths import Paths
 from snowpea_core.config.project import ProjectSettings
 from snowpea_core.config.settings import Settings
 from snowpea_core.setup.state import WizardState
 
 
-def test_default_team_is_available_after_first_setup(tmp_path):
+def test_default_team_is_a_roster_not_a_whitelist(tmp_path):
+    """The wizard's global default team must not turn every session into a
+    team session — that hid project, named and built-in agents from
+    delegation (M15 C)."""
     settings = Settings.model_validate({
         "agents": {"teams": {"default": ["executor", "verifier"]}, "default_team": "default"}
     })
-    team = active_team(settings, tmp_path)
-    assert team is not None
-    assert team.name == "default"
-    assert "executor" in team.agents
+    assert active_team(settings, tmp_path) is None
+    assert default_roster(settings, tmp_path) == ["executor", "verifier"]
 
 
 def test_project_team_overrides_and_becomes_active(tmp_path):

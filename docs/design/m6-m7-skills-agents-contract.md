@@ -111,7 +111,7 @@ Added in v0.1.x. A **team** is a named list of agent names that bounds what a se
 
 Resolution (`agent/team_config.py`):
 - `teams_for()` merges global then project, so **a project team wins on a name clash** — a project may redefine `default` without touching the user's global file.
-- `active_team()` reads the project's `activeTeam` first and falls back to `settings.agents.default_team`. A name with no members, or no name at all, resolves to `None` (= no team, unrestricted delegation).
+- `active_team()` reads only the project's `activeTeam` (written by `/team create` / `/team use`). The global `settings.agents.default_team` is a *roster* — what `/team` starts from when no team is named (`default_roster()`) — never a whitelist: it used to activate a team in every session and hid project, named and built-in agents from delegation (fixed 2026-09-15, M15 C). Inside an explicit team, a persistent named agent stays delegatable. No active team = unrestricted delegation.
 - Member lists are de-duplicated preserving order (`dict.fromkeys`).
 
 `Settings.load()` migrates older installations at first read: a settings document that has an `agents` block but no `teams` gets `teams["default"] = DEFAULT_AGENT_TEAM` (architect, critic, executor, explorer, test-engineer, verifier) and `default_team = "default"`. An explicitly empty team set is still representable afterwards as `default_team: null`.

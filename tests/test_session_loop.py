@@ -517,6 +517,21 @@ async def test_deleting_a_saved_session_removes_its_files(
     await client.stop()
 
 
+async def test_deleting_an_open_idle_session_closes_it_first(
+    daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path
+) -> None:
+    """An empty thread the user just opened must be deletable from the list."""
+    workdir = tmp_path / "project"
+    workdir.mkdir()
+    client = await connect(http, daemon)
+    session_id = await start_session(client, workdir)
+    deleted = await client.ok("session.deleteSaved", {"sessionId": session_id})
+    assert deleted["deleted"] == 1
+    listed = await client.ok("session.list", {"includeClosed": True, "workdir": str(workdir)})
+    assert all(row["sessionId"] != session_id for row in listed["sessions"])
+    await client.stop()
+
+
 async def test_deleting_an_unknown_session_reports_zero(
     daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path
 ) -> None:
