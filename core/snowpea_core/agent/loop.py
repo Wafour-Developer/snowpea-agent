@@ -25,10 +25,16 @@ from snowpea_core.attachments import pending
 from snowpea_core.config.settings import THINKING_CHOICES
 from snowpea_core.exec.local import LocalBackend
 from snowpea_core.memory import context_for_turn, nudge_after_turn
-from snowpea_core.permissions.policy import UNPROMOTABLE, PermissionPolicy
+from snowpea_core.permissions import plan_paths
+from snowpea_core.permissions.policy import (
+    PLAN_WRITE_TOOLS,
+    UNPROMOTABLE,
+    PermissionPolicy,
+)
 from snowpea_core.prompts import environment as prompt_env
 from snowpea_core.providers import content as content_parts
 from snowpea_core.providers import context_windows
+from snowpea_core.providers import effort as effort_scale
 from snowpea_core.providers.base import ChatMessage, ProviderError, ToolCall
 from snowpea_core.server import errors
 from snowpea_core.session import compaction, events
@@ -200,12 +206,20 @@ def agent_config(core: Core, session: Session | None = None) -> AgentConfig:
     settings = core.settings
     max_tokens = settings.agent.max_tokens
     thinking = settings.agent.thinking
+    effort, effort_source = effort_scale.resolve(
+        settings, None, None, session_effort=getattr(session, "effort", None) if session else None
+    )
     registry = getattr(core, "providers", None)
     if registry is not None:
         try:
             vendor = (session.provider if session else None) or registry.default_vendor()
             max_tokens = registry.max_tokens_for(vendor, session.model if session else None)
             thinking = registry.thinking_for(vendor)
+            effort, effort_source = registry.effort_for(
+                vendor,
+                session.model if session else None,
+                session_effort=getattr(session, "effort", None) if session else None,
+            )
         except ProviderError:
             # An unknown or unconfigured vendor is the turn's problem to
             # report, not the budget's; the global settings still apply.
@@ -219,6 +233,8 @@ def agent_config(core: Core, session: Session | None = None) -> AgentConfig:
         max_tool_rounds=tool_rounds_for(core, session),
         max_tokens=max(1, int(max_tokens)),
         thinking=thinking,
+        effort=effort,
+        effort_source=effort_source,
     )
 
 
@@ -251,6 +267,7 @@ async def _stream_once(
     *,
     max_tokens: int,
     thinking: str,
+    effort: str | None = None,
     reasoning_base: int = 0,
 ) -> _Attempt:
     """One provider call, drained into an :class:`_Attempt`."""
@@ -263,6 +280,11 @@ async def _stream_once(
     extra: dict[str, Any] = (
         {"thinking": thinking} if getattr(provider, "supports_thinking_option", False) else {}
     )
+    # Same contract for the effort tier: only an adapter that declares it is
+    # sent one, so a provider written before the option existed (or a test
+    # double) keeps its old signature (CORE-effort).
+    if effort and getattr(provider, "supports_effort_option", False):
+        extra["effort"] = effort
 
     # Thinking is streamed a fragment at a time, and every fragment published
     # is a repaint in every attached surface — for a minutes-long think, a
@@ -354,6 +376,7 @@ async def _model_turn(
         specs,
         max_tokens=config.max_tokens,
         thinking=config.thinking,
+        effort=config.effort,
     )
     if attempt.interrupted or not attempt.truncated or attempt.calls:
         return attempt
@@ -388,6 +411,9 @@ async def _model_turn(
             specs,
             max_tokens=budget,
             thinking=thinking,
+            # A turn that burned its budget on thinking is retried with *less*
+            # of it, not the same tier again.
+            effort="low" if thinking != "off" else config.effort,
             reasoning_base=attempt.reasoning_chars,
         )
         retry.reasoning_chars += attempt.reasoning_chars
@@ -420,6 +446,7 @@ async def _model_turn(
             specs,
             max_tokens=config.max_tokens,
             thinking=config.thinking,
+            effort=config.effort,
             reasoning_base=attempt.reasoning_chars,
         )
         attempt = _Attempt(
@@ -939,6 +966,10 @@ async def _run_one_call(
     verdict = policy.decide(session.mode, tag, tool, call.arguments, session)
     if verdict == "deny":
         message = f"{tool.name} ({tag}) is not allowed in {session.mode} mode"
+        if session.mode == "plan" and tool.name in PLAN_WRITE_TOOLS and tag == "write":
+            # The model has to know a *different path* would have worked, or
+            # it retries the same write and reads the same refusal (M2 §9).
+            message = f"{message}; {plan_paths.REFUSAL_NOTE}"
         await hub.emit_event(session.id, events.error(errors.MODE_DENIED, message))
         await _deny_call(core, session, call, message)
         return "denied"

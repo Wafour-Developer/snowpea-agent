@@ -20,6 +20,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from snowpea_core.providers import content as content_parts
+from snowpea_core.providers import effort as effort_scale
 from snowpea_core.providers import replay
 from snowpea_core.providers.base import (
     ChatMessage,
@@ -116,6 +117,8 @@ class AnthropicProvider:
     vendor = "anthropic"
     #: No thinking switch on this backend; the agent loop does not offer one.
     supports_thinking_option = False
+    #: Effort becomes an extended-thinking token budget (CORE-effort).
+    supports_effort_option = True
 
     def __init__(
         self,
@@ -168,6 +171,8 @@ class AnthropicProvider:
         tools: list[ToolSpec],
         *,
         max_tokens: int = DEFAULT_MAX_TOKENS,
+        thinking: str | None = None,
+        effort: str | None = None,
     ) -> AsyncIterator[StreamEvent]:
         """Stream one assistant turn."""
         client = self._ensure_client()
@@ -181,6 +186,12 @@ class AnthropicProvider:
             request["system"] = system
         if tools:
             request["tools"] = tool_specs_to_anthropic(tools)
+        # Extended thinking is a token budget, and it has to leave room for the
+        # answer: ``effort.anthropic_thinking`` clamps it and drops a budget the
+        # output limit cannot afford (CORE-effort).
+        extended = effort_scale.anthropic_thinking(effort, max_tokens, thinking=thinking)
+        if extended is not None:
+            request["thinking"] = extended
 
         blocks: dict[int, dict[str, Any]] = {}
         usage = Usage()

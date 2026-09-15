@@ -309,3 +309,82 @@ describe("question picker with several questions", () => {
     expect(result.answers).toEqual([]);
   });
 });
+
+describe("a secret answer", () => {
+  const KEY_QUESTION: QuestionRequestParams = {
+    requestId: "qu-secret",
+    sessionId: "sess-1",
+    questions: [
+      {
+        header: "Credential",
+        question: "Firecrawl Cloud API key [Enter to use $FIRECRAWL_API_KEY]",
+        options: [],
+        allowOther: true,
+        secret: true,
+      },
+    ],
+  };
+
+  it("draws dots while it is typed and never the characters", async () => {
+    const { stdin, stdout, instance, answer } = await openPicker(KEY_QUESTION);
+    await press(stdin, ENTER);
+    await press(stdin, "fc-secret-key");
+    const shown = stdout.text();
+
+    expect(shown).not.toContain("fc-secret-key");
+    expect(shown).toContain("•••••••••••••");
+    // The length survives, so a failed paste is visibly different from a good one.
+    expect(shown).toContain("hidden");
+
+    await press(stdin, ENTER, ENTER);
+    const result = await answer;
+    instance.unmount();
+    // The daemon still gets the real value; only the screen is masked.
+    expect(result.answers).toEqual([{ selected: [], text: "fc-secret-key" }]);
+  });
+
+  it("stays masked in the review tab of a batch", async () => {
+    const { stdin, stdout, instance, answer } = await openPicker({
+      requestId: "qu-secret-2",
+      sessionId: "sess-1",
+      questions: [
+        { header: "Provider", question: "Which one?", options: [{ label: "firecrawl_cloud" }],
+          allowOther: false },
+        { header: "Credential", question: "API key", options: [], allowOther: true, secret: true },
+      ],
+    });
+    // Pick the provider, switch to the key tab, type it, then land on the
+    // review row where the batch is checked before it is sent.
+    await press(stdin, ENTER);
+    await press(stdin, RIGHT);
+    await press(stdin, ENTER);
+    await press(stdin, "sk-live-1234");
+    await press(stdin, ENTER);
+
+    const shown = stdout.text();
+    expect(shown).not.toContain("sk-live-1234");
+    expect(shown).toContain("••••••••••••");
+
+    await press(stdin, ENTER);
+    const result = await answer;
+    instance.unmount();
+    expect(result.answers[1]).toEqual({ selected: [], text: "sk-live-1234" });
+  });
+
+  it("leaves a question without the flag in the clear", async () => {
+    const { stdin, stdout, instance, answer } = await openPicker({
+      requestId: "qu-plain",
+      sessionId: "sess-1",
+      questions: [
+        { header: "URL", question: "Base URL", options: [], allowOther: true },
+      ],
+    });
+    await press(stdin, ENTER);
+    await press(stdin, "https://example.test");
+    expect(stdout.text()).toContain("https://example.test");
+    await press(stdin, ENTER, ENTER);
+    const result = await answer;
+    instance.unmount();
+    expect(result.answers).toEqual([{ selected: [], text: "https://example.test" }]);
+  });
+});

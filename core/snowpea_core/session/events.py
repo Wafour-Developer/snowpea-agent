@@ -124,9 +124,26 @@ def mode_changed(mode: str) -> Event:
     return _pack(ModeChanged(mode=mode))  # type: ignore[arg-type]
 
 
-def model_changed(provider: str | None, model: str | None) -> Event:
-    """This session is now talking to ``provider``/``model``."""
-    return _pack(ModelChanged(provider=provider, model=model))
+def model_changed(
+    provider: str | None,
+    model: str | None,
+    effort: str | None = None,
+    effort_source: str | None = None,
+) -> Event:
+    """This session is now talking to ``provider``/``model``.
+
+    ``effort``/``effort_source`` ride along so a HUD showing "⚙ high" learns
+    about a pin, a vendor rule, or a model change that altered the effective
+    tier, without a second round trip (CORE-effort).
+    """
+    return _pack(
+        ModelChanged(
+            provider=provider,
+            model=model,
+            effort=effort,  # type: ignore[arg-type]
+            effortSource=effort_source,  # type: ignore[arg-type]
+        )
+    )
 
 
 def backend_changed(backend: str) -> Event:

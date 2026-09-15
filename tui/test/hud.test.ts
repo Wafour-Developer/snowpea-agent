@@ -75,6 +75,14 @@ describe("buildHudSegments", () => {
     );
   });
 
+  it("draws the effort beside the model, and nothing when it is unknown", () => {
+    expect(buildHudSegments(base).find((s) => s.key === "effort")).toBeUndefined();
+    const segments = buildHudSegments({ ...base, effort: "high" });
+    const keys = segments.map((s) => s.key);
+    expect(segments.find((s) => s.key === "effort")?.text).toBe("⚙ high");
+    expect(keys.indexOf("effort")).toBe(keys.indexOf("model") + 1);
+  });
+
   it("carries model, mode, context, session and daemon", () => {
     const segments = buildHudSegments(base);
     const byKey = Object.fromEntries(segments.map((s) => [s.key, s.text]));

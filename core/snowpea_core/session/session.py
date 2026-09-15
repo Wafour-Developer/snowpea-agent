@@ -49,6 +49,10 @@ class Session:
     #: definition's ``thinking:``.  ``None`` falls back to the vendor block and
     #: then ``agent.thinking`` (CORE-reasoning-budget).
     thinking: str | None = None
+    #: ``"low"`` | ``"medium"`` | ``"high"`` | ``"max"`` for this session only
+    #: — what ``/effort`` and ``session.setEffort`` pin.  ``None`` falls back
+    #: to ``agent.effortBy`` and then ``agent.effort`` (CORE-effort).
+    effort: str | None = None
     #: Tool-round budget for this session only — an agent definition's
     #: ``tool_rounds:``.  ``None`` falls back to ``agents.toolRounds`` and then
     #: to the default for the session's kind (CORE-subagent-budget).
@@ -167,6 +171,7 @@ class Session:
             seq=self.seq,
             contextUsed=self.context_used,
             contextWindow=self.context_window,
+            effort=self.effort,  # type: ignore[arg-type]
             kind=self.kind,
             parentSessionId=self.parent_session_id,
             jobId=self.job_id,

@@ -39,6 +39,7 @@ import httpx
 
 from snowpea_core import __version__ as _VERSION
 from snowpea_core.providers import content as content_parts
+from snowpea_core.providers import effort as effort_scale
 from snowpea_core.providers import openai_oauth
 from snowpea_core.providers.base import (
     ChatMessage,
@@ -311,6 +312,8 @@ class CodexProvider:
     vendor = "openai"
     #: No thinking switch on this backend; the agent loop does not offer one.
     supports_thinking_option = False
+    #: But it does take a per-turn effort, on its own four-value scale.
+    supports_effort_option = True
 
     def __init__(
         self,
@@ -376,7 +379,12 @@ class CodexProvider:
         return httpx.AsyncClient(**kwargs)
 
     def build_request(
-        self, messages: list[ChatMessage], tools: list[ToolSpec], *, max_tokens: int = 4096
+        self,
+        messages: list[ChatMessage],
+        tools: list[ToolSpec],
+        *,
+        max_tokens: int = 4096,
+        effort: str | None = None,
     ) -> dict[str, Any]:
         """The ``POST /responses`` body for one turn."""
         vision = content_parts.supports_vision(self.vendor, self.model)
@@ -397,7 +405,9 @@ class CodexProvider:
         # so the budget the agent loop passes is accepted and ignored here.
         del max_tokens
         if supports_reasoning(self.model):
-            body["reasoning"] = {"effort": self._effort}
+            # The unified tier wins when the turn carries one; the configured
+            # ``providers.openai.reasoning_effort`` is the fallback it replaced.
+            body["reasoning"] = {"effort": effort_scale.codex_effort(effort) or self._effort}
         return body
 
     async def _refresh(self) -> None:
@@ -458,9 +468,10 @@ class CodexProvider:
         tools: list[ToolSpec],
         *,
         max_tokens: int = 4096,
+        effort: str | None = None,
     ) -> AsyncIterator[StreamEvent]:
         """Stream one assistant turn from the Codex backend."""
-        body = self.build_request(messages, tools, max_tokens=max_tokens)
+        body = self.build_request(messages, tools, max_tokens=max_tokens, effort=effort)
         refreshed = False
         # A token that dies mid-request costs a whole turn; renew it first
         # when it is already inside the skew.

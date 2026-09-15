@@ -40,6 +40,19 @@ export interface QuestionAnswerItem {
 
 /** The free-text row, when `allowOther` is set. Not an option: it has no label. */
 export const OTHER_LABEL = "기타 / Other…";
+
+/** What a secret answer looks like anywhere it is drawn. */
+export const MASK_CHAR = "•";
+
+/**
+ * A credential, rendered. The length is kept because a user pasting a key wants
+ * to see that *something* arrived, and losing the count makes a failed paste
+ * indistinguishable from a successful one. The characters never appear — not
+ * while typing, not in the review tab, not in the transcript the session keeps.
+ */
+export function maskSecret(value: string | null | undefined): string {
+  return value ? MASK_CHAR.repeat(value.length) : "";
+}
 /** The row that actually sends. */
 export const CONFIRM_LABEL = "확인 / Confirm";
 /** What the review lists for a question nobody answered. */
@@ -82,6 +95,8 @@ export function QuestionPrompt({
   const current = questions[at];
   const options = current?.options ?? [];
   const allowOther = current?.allowOther !== false;
+  // A `secret` question's free text is a credential (protocol §questions).
+  const secret = current?.secret === true;
   const multi = current?.multi === true;
   const answer = answers[at] ?? blank();
 
@@ -256,16 +271,20 @@ export function QuestionPrompt({
           numbered
           allowOther={allowOther}
           otherLabel={OTHER_LABEL}
-          otherText={answer.text}
+          otherText={secret ? maskSecret(answer.text) : answer.text}
           hint={null}
         />
       </Box>
       {typing ? (
         <Box marginTop={1}>
           <Text color="cyan">{"› "}</Text>
-          <Text>{draft}</Text>
+          <Text>{secret ? maskSecret(draft) : draft}</Text>
           <Text inverse> </Text>
-          <Text dimColor>{"  Enter to keep · Esc to go back"}</Text>
+          <Text dimColor>
+            {secret
+              ? "  hidden · Enter to keep · Esc to go back"
+              : "  Enter to keep · Esc to go back"}
+          </Text>
         </Box>
       ) : (
         <>
@@ -275,7 +294,13 @@ export function QuestionPrompt({
             <Box marginTop={1} flexDirection="column">
               {questions.map((question, index) => {
                 const entry = answers[index] ?? blank();
-                const said = entry.selected.length > 0 ? entry.selected.join(", ") : (entry.text ?? "");
+                const plain =
+                  entry.selected.length > 0 ? entry.selected.join(", ") : (entry.text ?? "");
+                // The review tab is still the screen: a secret stays masked here.
+                const said =
+                  question.secret === true && entry.selected.length === 0
+                    ? maskSecret(entry.text)
+                    : plain;
                 return (
                   <Box key={`${request.requestId}-r${index}`}>
                     <Text dimColor>{`  ${question.header || `Q${index + 1}`}: `}</Text>

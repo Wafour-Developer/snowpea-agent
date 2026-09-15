@@ -191,6 +191,10 @@ export interface State {
   model: string | null;
   /** Where the model came from — pin, profile, project, global — when told. */
   modelSource: string | null;
+  /** How hard the model may think: low | medium | high | max. */
+  effort: string | null;
+  /** Which rule set it: session | model | vendor | default. */
+  effortSource: string | null;
   messages: Message[];
   toolCalls: ToolCallEntry[];
   diffs: DiffEntry[];
@@ -296,6 +300,8 @@ export const initialState: State = {
   provider: null,
   model: null,
   modelSource: null,
+  effort: null,
+  effortSource: null,
   messages: [],
   toolCalls: [],
   diffs: [],
@@ -711,7 +717,12 @@ function applySessionEvent(
           : "model" in payload && payload.model === null
             ? null
             : base.modelSource;
-      return { ...base, model, provider, modelSource: source };
+      // The effort rides along on the same event, so a pin or a model change
+      // that altered the effective tier repaints the HUD in one round trip.
+      const effort = "effort" in payload ? (payload.effort ?? null) : base.effort;
+      const effortSource =
+        "effortSource" in payload ? (payload.effortSource ?? null) : base.effortSource;
+      return { ...base, model, provider, modelSource: source, effort, effortSource };
     }
 
     case "mode.changed":

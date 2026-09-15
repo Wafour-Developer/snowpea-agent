@@ -93,13 +93,18 @@ class FakeProvider:
     #: The scripted provider honours ``thinking`` so a test can watch the loop
     #: retry a reasoning-starved turn with it off.
     supports_thinking_option = True
+    #: And the effort tier, so a test can watch what the loop resolved.
+    supports_effort_option = True
 
     def __init__(self, script: dict[str, Any] | None = None, model: str = "fake-1") -> None:
         self.model = model
         self._script = script or {"steps": [], "default": {"text": "fake default reply"}}
         self._used: set[int] = set()
-        #: ``(max_tokens, thinking)`` of every call, oldest first.
+        #: ``(max_tokens, thinking)`` of every call, oldest first.  The effort
+        #: tier of each call is recorded alongside, in :attr:`efforts`.
         self.calls: list[tuple[int, str | None]] = []
+        #: Effort tier of every call, oldest first (``None`` when none applied).
+        self.efforts: list[str | None] = []
 
     @classmethod
     def from_env(cls, value: str | None = None) -> FakeProvider:
@@ -140,8 +145,10 @@ class FakeProvider:
         *,
         max_tokens: int = 4096,
         thinking: str | None = None,
+        effort: str | None = None,
     ) -> AsyncIterator[StreamEvent]:
         self.calls.append((max_tokens, thinking))
+        self.efforts.append(effort)
         step = self._pick(messages, thinking)
         delay = float(step.get("delaySec") or 0.0)
         if delay > 0:

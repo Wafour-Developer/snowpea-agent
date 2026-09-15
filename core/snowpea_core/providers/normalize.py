@@ -20,6 +20,7 @@ from collections.abc import Iterator
 from typing import Any
 
 from snowpea_core.providers import content
+from snowpea_core.providers import effort as effort_scale
 from snowpea_core.providers.base import ChatMessage, StreamEvent, ToolCall, ToolSpec, Usage
 from snowpea_core.providers.presets import VendorPreset
 
@@ -151,6 +152,8 @@ def build_openai_request(
     max_tokens: int,
     include_usage: bool = True,
     thinking: str | None = None,
+    effort: str | None = None,
+    vision: bool | None = None,
 ) -> dict[str, Any]:
     """The full JSON body for a streaming ``/chat/completions`` call.
 
@@ -158,15 +161,33 @@ def build_openai_request(
     ``"off"`` puts anything on the wire: hidden reasoning counts against
     ``max_tokens``, so a reviewer turn that must produce visible text asks the
     server to skip it (CORE-reasoning-budget).
+
+    ``effort`` is one of ``low|medium|high|max`` and reaches the wire as
+    ``reasoning_effort``.  The caller decides whether the vendor *and* the
+    model accept it; this function only spells it (CORE-effort).
+
+    ``vision`` says whether image parts may go out.  ``None`` falls back to the
+    model-name guess, which is all this module can know on its own; the
+    registry's fuller chain — a configured override, the public catalog, what a
+    try-once probe learned — is passed in as a boolean (CORE-vision).
     """
     body: dict[str, Any] = {
         "model": model,
-        "messages": messages_to_openai(messages, vision=content.supports_vision(preset.id, model)),
+        "messages": messages_to_openai(
+            messages,
+            vision=(
+                vision if vision is not None else content.supports_vision(preset.id, model)
+            ),
+        ),
         "max_tokens": max_tokens,
         "stream": True,
     }
     if thinking == "off":
         body["chat_template_kwargs"] = dict(THINKING_OFF_TEMPLATE_KWARGS)
+    elif effort:
+        wire = effort_scale.openai_reasoning_effort(effort)
+        if wire:
+            body["reasoning_effort"] = wire
     if include_usage:
         body["stream_options"] = {"include_usage": True}
     if tools:
@@ -248,12 +269,25 @@ def build_gemini_request(
     tools: list[ToolSpec],
     *,
     max_tokens: int,
+    thinking: str | None = None,
+    effort: str | None = None,
 ) -> dict[str, Any]:
-    """The full JSON body for ``streamGenerateContent?alt=sse``."""
+    """The full JSON body for ``streamGenerateContent?alt=sse``.
+
+    Gemini takes a *budget* rather than a word, so the effort tier becomes
+    ``thinkingConfig.thinkingBudget``; ``thinking="off"`` asks for ``0``,
+    which is how this API is told not to think at all (CORE-effort).
+    """
     system, contents = messages_to_gemini(messages)
+    generation: dict[str, Any] = {"maxOutputTokens": max_tokens}
+    thinking_config = effort_scale.gemini_thinking_config(
+        effort, max_tokens, thinking=thinking
+    )
+    if thinking_config is not None:
+        generation["thinkingConfig"] = thinking_config
     body: dict[str, Any] = {
         "contents": contents,
-        "generationConfig": {"maxOutputTokens": max_tokens},
+        "generationConfig": generation,
     }
     if system:
         body["systemInstruction"] = {"parts": [{"text": system}]}
