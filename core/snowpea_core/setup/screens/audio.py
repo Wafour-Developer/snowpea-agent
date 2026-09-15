@@ -1,13 +1,33 @@
-"""Audio screen — voice in (speech to text) and voice out (text to speech).
+"""Audio screens — voice in (speech to text) and voice out (text to speech).
 
-Two lists in one section, because they are one decision in the user's head:
+Two screens in one section, because they are one decision in the user's head:
 "can I talk to it, and does it talk back".  The screen itself asks the *input*
 question; the wizard asks the output question, the voice and the auto-speak
 toggle straight after, the way the providers screen asks for a key and a model.
 
-What is installed decides what is offered: a row for a CLI that is not on
-``PATH`` is shown inactive rather than hidden, so the answer to "why can't I
-use piper" is on screen instead of missing from it.
+**Action-first (v0.1.x).**  These used to be a plain list of every engine with
+"Automatic" at the top, which put a *setting* in a race with the one thing a
+user with no engines actually needed to do.  Someone with nothing installed
+picked Automatic, got silence, and had no idea what to do next.
+
+So the rows are actions now:
+
+* ``Recommended: <engine> (CPU) — Install`` when nothing is installed, and
+  pre-selected — the one useful move, offered first;
+* ``Install <engine>…`` for anything else this machine could obtain;
+* ``Choose a specific engine…``, a submenu for pinning one on purpose;
+* ``Skip — keep defaults``.
+
+**Automatic is still the setting and still the default.**  It is simply no
+longer a row, because it is not an action: with nothing installed it is a
+promise the machine cannot keep, and with something installed the screen can
+say what it will actually use.  That is the status line —
+``Automatic will use <engine>`` — which replaces the Recommended callout the
+moment there is an engine to name.
+
+What is installed decides what is offered: an engine that is not on ``PATH``
+still appears in the submenu, marked, so the answer to "why can't I use piper"
+is on screen instead of missing from it.
 """
 
 from __future__ import annotations
@@ -23,23 +43,36 @@ from snowpea_core.setup.catalog import AUDIO_OFF, CatalogItem, stt_catalog, tts_
 from snowpea_core.setup.screens import Screen, ScreenItem, skip_item
 from snowpea_core.setup.state import SKIP, WizardState
 
-TITLE = "Audio — voice in and out"
-HELP = (
-    "Automatic picks a local backend first and never sends audio anywhere it does not "
-    'have to. A row marked "inactive" is not installed here; Off turns the feature off.'
-)
+TITLE = "Audio — voice in"
+HELP = "Who transcribes the microphone. Nothing here sends audio anywhere it does not have to."
 
 #: Text to speech is asked right after, by the wizard.
-TTS_TITLE = "Audio — speak replies"
-TTS_HELP = (
-    "Which backend says things out loud. Automatic prefers whatever local voice is "
-    "installed, then OpenAI. Pick an Install row to fetch one now."
+TTS_TITLE = "Audio — voice out"
+TTS_HELP = "Who says the reply out loud."
+
+#: Titles of the two submenus, reached from ``Choose a specific engine…``.
+CHOOSE_TITLE = "Audio — pick a transcription engine"
+CHOOSE_TTS_TITLE = "Audio — pick a speech engine"
+CHOOSE_HELP = (
+    "Pins one engine instead of letting Automatic decide. A row marked "
+    '"inactive" is not installed here. Esc goes back.'
 )
 
 #: Prefix marking a row that installs an engine instead of selecting one.
-#: The wizard runs the install and shows the list again, so the user lands
+#: The wizard runs the install and shows the screen again, so the user lands
 #: back where they were with the engine now active.
 INSTALL_PREFIX = "install:"
+
+#: The row that opens the submenu.  Not a provider id, so ``apply`` knows to
+#: leave the setting alone and let the wizard show the other screen.
+CHOOSE_ID = "choose"
+CHOOSE_LABEL = "Choose a specific engine…"
+
+#: The status line's three states.  There is no "Automatic" any more: a
+#: direction of voice is pinned to one engine or it is off.
+PINNED_LINE = "Pinned: {engine}."
+UNSET_LINE = "Not set — this direction of voice is off until you pick an engine."
+INSTALLED_LINE = "{engine} is installed, not selected — pick it to use it."
 
 
 def install_target(choice: str) -> str | None:
@@ -48,42 +81,167 @@ def install_target(choice: str) -> str | None:
     return text[len(INSTALL_PREFIX):] or None if text.startswith(INSTALL_PREFIX) else None
 
 
-def _install_rows(items: Sequence[CatalogItem]) -> list[ScreenItem]:
-    """One Install row per engine this machine could obtain but does not have.
+def is_choose(choice: str | set[str]) -> bool:
+    """True when the answer was ``Choose a specific engine…``."""
+    if isinstance(choice, set):
+        choice = next(iter(choice), "")
+    return str(choice or "") == CHOOSE_ID
 
-    Only for engines that are genuinely missing: an Install button next to
-    something already working is noise. A system package gets no row — its
-    hint is already on its own row — because we will not run sudo for anyone.
 
-    The recommended engine's row comes first and is the default when nothing
-    is installed at all, so the wizard leads with "Recommended: … — Install"
-    rather than with a list of things that do not work yet.  It is a *default*,
-    not a requirement: Skip and Automatic both still degrade to whatever the
-    machine turns out to have.
+#: What picking a row does.  Every row has one: a list where some entries do
+#: nothing when you choose them is a list that lies about being a choice.
+ACTION_INSTALL = "install"   # fetch it, then come back with it active
+ACTION_SYSTEM = "system"     # show the platform command, offer to run it
+ACTION_COMMAND = "command"   # ask for the template, validate, self-test, pin
+ACTION_KEY = "key"           # ask for the API key, pin
+ACTION_OFF = "off"           # unset: that direction of voice is off
+ACTION_PIN = "pin"           # it works here; pin it
+
+
+def row_action(item: CatalogItem) -> str:
+    """What choosing ``item`` will do.
+
+    The rule this enforces: **no dead rows**.  Picking an engine that is not
+    installed used to change a setting and produce silence, which is the worst
+    of both — the user thinks they chose something and the machine knows they
+    did not.  Now every row leads to an install, a configuration step, or a
+    pin, and the ones that could never lead anywhere here are not listed at all
+    (``catalog.PLATFORM_ONLY``).
     """
-    nothing_installed = not any(
-        item.active and item.id not in {"auto", AUDIO_OFF} for item in items
-    )
+    if item.id == AUDIO_OFF:
+        return ACTION_OFF
+    if item.active:
+        return ACTION_PIN
+    if item.id == "command":
+        return ACTION_COMMAND
+    if item.key == "key required":
+        return ACTION_KEY
+    if item.installable:
+        return ACTION_INSTALL
+    return ACTION_SYSTEM
+
+
+def _installed(items: Sequence[CatalogItem]) -> list[CatalogItem]:
+    """Engines that actually work here, Automatic and Off excluded."""
+    return [item for item in items if item.active and item.id not in {"auto", AUDIO_OFF}]
+
+
+def status_line(
+    items: Sequence[CatalogItem], detected: Sequence[str], pinned: str | None = None
+) -> str:
+    """The line under the title: what is pinned, or that nothing is.
+
+    Installing and pinning are separate steps, and the line says which one is
+    outstanding.  An engine on disk that nobody selected is the state a user is
+    most likely to be confused by — it looks done and does nothing — so it gets
+    a sentence of its own.
+    """
+    labels = {item.id: item.label for item in items}
+    engine = (pinned or "").strip()
+    if engine and engine != AUDIO_OFF:
+        return PINNED_LINE.format(engine=labels.get(engine, engine))
+    usable = [name for name in detected if name != AUDIO_OFF]
+    if usable:
+        return INSTALLED_LINE.format(engine=labels.get(usable[0], usable[0]))
+    return UNSET_LINE
+
+
+def _install_rows(items: Sequence[CatalogItem]) -> list[ScreenItem]:
+    """The actions: install the recommended engine, then any other obtainable one.
+
+    Only for engines that are genuinely missing — an Install button next to
+    something already working is noise — and never for a system package, whose
+    hint is on its own row in the submenu because we will not run sudo for
+    anyone.
+
+    The recommended row appears **only while nothing is installed**.  Once
+    there is an engine, the screen has something truer to say than a
+    recommendation, and says it in the status line instead.
+    """
+    nothing_installed = not _installed(items)
     rows: list[ScreenItem] = []
     for item in items:
         if item.active or not item.installable:
             continue
-        recommended = item.recommended
+        recommended = item.recommended and nothing_installed
         rows.append(
             ScreenItem(
                 id=f"{INSTALL_PREFIX}{item.id}",
                 label=(
                     f"Recommended: {item.label} — Install" if recommended
-                    else f"Install {item.label}"
+                    else f"Install {item.label}…"
                 ),
                 tags=("recommended", "installs now") if recommended else ("installs now",),
-                selected=recommended and nothing_installed,
-                default=recommended and nothing_installed,
+                selected=recommended,
+                default=recommended,
                 active=True,
             )
         )
     rows.sort(key=lambda row: "recommended" not in row.tags)
     return rows
+
+
+def _choose_row(items: Sequence[CatalogItem], pinned: str | None) -> ScreenItem:
+    """The row that opens the submenu, saying what is pinned when something is."""
+    label = CHOOSE_LABEL
+    if pinned and pinned not in {"auto", ""}:
+        labels = {item.id: item.label for item in items}
+        label = f"{CHOOSE_LABEL}  (now: {labels.get(pinned, pinned)})"
+    return ScreenItem(
+        id=CHOOSE_ID, label=label, tags=(), selected=False, default=False, active=True
+    )
+
+
+def _action_screen(
+    title: str,
+    help_text: str,
+    items: Sequence[CatalogItem],
+    detected: Sequence[str],
+    pinned: str | None,
+) -> Screen:
+    """One action-first voice screen: install rows, the submenu, Skip."""
+    installs = _install_rows(items)
+    rows = (*installs, _choose_row(items, pinned), skip_item())
+    status = status_line(items, detected, pinned)
+    return Screen(title=title, items=rows, multi=False, help=f"{help_text}\n{status}")
+
+
+def _choose_screen(
+    title: str, items: Sequence[CatalogItem], pinned: str | None, default_id: str
+) -> Screen:
+    """The submenu: every engine, installed first, then the ways out.
+
+    Order is what makes this readable — what works here, then Off, then the
+    custom command, then the one that needs an account.  An engine that is not
+    installed is still listed and still marked, because "why can't I use piper"
+    deserves an answer on screen.
+    """
+    def rank(item: CatalogItem) -> tuple[int, int]:
+        if item.id == AUDIO_OFF:
+            return (1, 0)
+        if item.id == "command":
+            return (2, 0)
+        if item.key != "no key":
+            return (3, 0)
+        return (0, 0 if item.active else 1)
+
+    listed = [item for item in items if item.id != "auto"]
+    rows = [
+        ScreenItem(
+            id=item.id,
+            label=f"★ {item.label}" if item.id == pinned else item.label,
+            tags=(*item.tags, "pinned") if item.id == pinned else item.tags,
+            selected=item.id == pinned,
+            default=item.id == default_id,
+            # Every row is choosable: an inactive engine leads to its install
+            # or its configuration step rather than to nothing (:func:`row_action`).
+            active=True,
+        )
+        for item in sorted(listed, key=rank)
+    ]
+    return Screen(
+        title=title, items=(*rows, skip_item()), multi=False, help=CHOOSE_HELP
+    )
 
 
 def _config(state: WizardState) -> AudioConfig:
@@ -108,51 +266,39 @@ def detected_tts(state: WizardState) -> list[str]:
 
 
 def build(state: WizardState, catalog: Sequence[CatalogItem] | None = None) -> Screen:
-    """The speech-to-text list."""
-    items = list(catalog) if catalog is not None else stt_catalog(detected_stt(state))
-    rows = [
-        ScreenItem(
-            id=item.id,
-            label=item.label,
-            tags=item.tags,
-            selected=item.id == state.stt_provider,
-            default=item.default,
-            active=item.active,
-        )
-        for item in items
-    ]
-    return Screen(
-        title=TITLE, items=(*rows, *_install_rows(items), skip_item()), multi=False, help=HELP
-    )
+    """The voice-in screen: what to do, not what to believe."""
+    detected = detected_stt(state)
+    items = list(catalog) if catalog is not None else stt_catalog(detected)
+    return _action_screen(TITLE, HELP, items, detected, state.stt_provider)
+
+
+def build_choose(state: WizardState, catalog: Sequence[CatalogItem] | None = None) -> Screen:
+    """The voice-in submenu, reached from ``Choose a specific engine…``."""
+    detected = detected_stt(state)
+    items = list(catalog) if catalog is not None else stt_catalog(detected)
+    return _choose_screen(CHOOSE_TITLE, items, state.stt_provider, default_id="")
 
 
 def build_tts(state: WizardState, catalog: Sequence[CatalogItem] | None = None) -> Screen:
-    """The text-to-speech list, shown straight after :func:`build`."""
-    items = list(catalog) if catalog is not None else tts_catalog(detected_tts(state))
-    rows = [
-        ScreenItem(
-            id=item.id,
-            label=item.label,
-            tags=item.tags,
-            selected=item.id == state.tts_provider,
-            default=item.default,
-            active=item.active,
-        )
-        for item in items
-    ]
-    return Screen(
-        title=TTS_TITLE,
-        items=(*rows, *_install_rows(items), skip_item()),
-        multi=False,
-        help=TTS_HELP,
-    )
+    """The voice-out screen, shown straight after :func:`build`."""
+    detected = detected_tts(state)
+    items = list(catalog) if catalog is not None else tts_catalog(detected)
+    return _action_screen(TTS_TITLE, TTS_HELP, items, detected, state.tts_provider)
+
+
+def build_choose_tts(state: WizardState, catalog: Sequence[CatalogItem] | None = None) -> Screen:
+    """The voice-out submenu."""
+    detected = detected_tts(state)
+    items = list(catalog) if catalog is not None else tts_catalog(detected)
+    return _choose_screen(CHOOSE_TTS_TITLE, items, state.tts_provider, default_id="")
 
 
 def apply(state: WizardState, choice: str | set[str]) -> WizardState:
     if isinstance(choice, set):
         choice = next(iter(choice), SKIP)
-    if install_target(str(choice)) is not None:
-        # An Install row fetches an engine; it does not answer the question.
+    if install_target(str(choice)) is not None or is_choose(choice):
+        # An Install row fetches an engine and the Choose row opens a submenu;
+        # neither is an answer to "which engine", so the setting is left alone.
         return state
     if choice and choice != SKIP:
         state.stt_provider = choice
@@ -162,7 +308,7 @@ def apply(state: WizardState, choice: str | set[str]) -> WizardState:
 def apply_tts(state: WizardState, choice: str | set[str]) -> WizardState:
     if isinstance(choice, set):
         choice = next(iter(choice), SKIP)
-    if install_target(str(choice)) is not None:
+    if install_target(str(choice)) is not None or is_choose(choice):
         return state
     if choice and choice != SKIP:
         state.tts_provider = choice
@@ -170,6 +316,41 @@ def apply_tts(state: WizardState, choice: str | set[str]) -> WizardState:
             # Off means off: no point keeping "read every reply aloud" on.
             state.auto_speak = False
     return state
+
+
+#: Placeholders a custom command template has to contain to be usable.
+COMMAND_REQUIRED: dict[str, tuple[str, ...]] = {
+    "stt": ("{path}",),
+    "tts": ("{text}", "{out}"),
+}
+
+
+def validate_command(template: str, direction: str) -> str | None:
+    """Why ``template`` cannot work, or ``None`` when it can.
+
+    Checked before it is saved, because a template missing ``{out}`` fails at
+    the first spoken reply with an error about an empty file, and the thing
+    that was actually wrong was typed three screens earlier.
+    """
+    text = (template or "").strip()
+    if not text:
+        return "a command is required"
+    import shlex
+
+    try:
+        parts = shlex.split(text)
+    except ValueError as exc:
+        return f"the command does not parse: {exc}"
+    if not parts:
+        return "a command is required"
+    missing = [name for name in COMMAND_REQUIRED.get(direction, ()) if name not in text]
+    if missing:
+        return f"the command must contain {' and '.join(missing)}"
+    import shutil
+
+    if shutil.which(parts[0]) is None:
+        return f"{parts[0]} is not on PATH"
+    return None
 
 
 def run_install(choice: str, home: Any, out: Any = None) -> bool:
@@ -205,17 +386,38 @@ def run_install(choice: str, home: Any, out: Any = None) -> bool:
 
 
 __all__ = [
+    "INSTALLED_LINE",
+    "CHOOSE_HELP",
+    "CHOOSE_ID",
+    "CHOOSE_LABEL",
+    "CHOOSE_TITLE",
+    "CHOOSE_TTS_TITLE",
     "HELP",
     "INSTALL_PREFIX",
+    "PINNED_LINE",
+    "UNSET_LINE",
     "TITLE",
     "TTS_HELP",
     "TTS_TITLE",
     "apply",
     "apply_tts",
     "build",
+    "build_choose",
+    "build_choose_tts",
     "build_tts",
     "detected_stt",
     "detected_tts",
+    "ACTION_COMMAND",
+    "ACTION_INSTALL",
+    "ACTION_KEY",
+    "ACTION_OFF",
+    "ACTION_PIN",
+    "ACTION_SYSTEM",
+    "COMMAND_REQUIRED",
     "install_target",
+    "is_choose",
+    "row_action",
+    "validate_command",
     "run_install",
+    "status_line",
 ]

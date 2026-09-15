@@ -12,7 +12,14 @@ from pathlib import Path
 import httpx
 import pytest
 
-from snowpea_core.audio import AudioConfig, audio_dir, capabilities, stt_providers
+from snowpea_core.audio import (
+    MISSING_ENGINE_REASON,
+    NO_ENGINE_REASON,
+    AudioConfig,
+    audio_dir,
+    capabilities,
+    stt_providers,
+)
 from snowpea_core.audio import tts as tts_mod
 from snowpea_core.audio.player import (
     AudioError,
@@ -38,7 +45,6 @@ from snowpea_core.audio.tts import (
     PiperTTS,
     SayTTS,
     Speech,
-    available_providers,
     materialise,
     parse_result,
     synthesize,
@@ -395,20 +401,33 @@ async def test_command_stt_needs_a_template(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_resolve_prefers_local_whisper_then_openai_then_command(only_path: Path) -> None:
-    assert resolve_provider("auto") is None
+def test_resolving_a_pinned_engine_never_falls_back(only_path: Path) -> None:
+    """Two states: an engine is pinned and usable, or it is not there.
+
+    The chain is gone. A user who pinned whisper and does not have it gets
+    "whisper is not installed", not a quiet switch to somebody's API.
+    """
+    assert resolve_provider("") is None
+    assert resolve_provider("local-whisper") is None
 
     write_script(only_path, "my-stt", "exit 0\n")
-    chosen = resolve_provider("auto", command="my-stt {path}")
+    chosen = resolve_provider("command", command="my-stt {path}")
     assert chosen is not None and chosen.name == "command"
+    # A key in the settings does not rescue a pinned local engine.
+    assert resolve_provider("local-whisper", api_key="sk-x") is None
 
-    chosen = resolve_provider("auto", api_key="sk-x", command="my-stt {path}")
-    assert chosen is not None and chosen.name == "openai"
-
-    # A local CLI wins over the hosted API: the audio never leaves the machine.
     write_script(only_path, "whisper", "exit 0\n")
-    chosen = resolve_provider("auto", api_key="sk-x", command="my-stt {path}")
+    chosen = resolve_provider("local-whisper", api_key="sk-x")
     assert chosen is not None and chosen.name == "local-whisper"
+
+
+def test_the_recommendation_order_is_local_first(only_path: Path) -> None:
+    """It no longer resolves anything; it is what the wizard suggests."""
+    from snowpea_core.audio import stt as stt_mod
+
+    order = list(stt_mod.RECOMMENDED_ORDER)
+    assert order[0] == "sherpa-onnx-sensevoice"
+    assert order.index("local-whisper") < order.index("openai")
 
 
 def test_stt_providers_lists_everything_usable(only_path: Path) -> None:
@@ -711,51 +730,40 @@ def test_command_tts_needs_a_template() -> None:
 # -- resolution
 
 
-def test_tts_resolution_order(only_path: Path) -> None:
-    assert tts_mod.resolve_provider("auto") is None
+def test_a_pinned_voice_is_the_only_voice(only_path: Path) -> None:
+    """No chain: pinning an engine you do not have is not a reason to use another."""
+    assert tts_mod.resolve_provider("") is None
+    assert tts_mod.resolve_provider("espeak-ng") is None
 
     write_script(only_path, "espeak-ng", "exit 0\n")
-    chosen = tts_mod.resolve_provider("auto")
+    chosen = tts_mod.resolve_provider("espeak-ng")
+    assert chosen is not None and chosen.name == "espeak-ng"
+
+    # Another engine being installed changes nothing about the pinned one.
+    write_script(only_path, "edge-tts", "exit 0\n")
+    chosen = tts_mod.resolve_provider("espeak-ng")
+    assert chosen is not None and chosen.name == "espeak-ng"
+    # And a key does not make a missing local engine resolve.
+    assert tts_mod.resolve_provider("piper", api_key="sk-x") is None
+
+
+def test_the_media_tool_keeps_its_chain(only_path: Path) -> None:
+    """``text_to_speech`` uses what the machine has; voice output does not."""
+    assert tts_mod.resolve_any() is None
+
+    write_script(only_path, "espeak-ng", "exit 0\n")
+    chosen = tts_mod.resolve_any()
     assert chosen is not None and chosen.name == "espeak-ng"
 
     write_script(only_path, "edge-tts", "exit 0\n")
-    chosen = tts_mod.resolve_provider("auto")
+    chosen = tts_mod.resolve_any()
+    assert chosen is not None and chosen.name == "edge-tts", "recommendation order"
+
+    # Studio is last, so it is reached only when it is all there is — which is
+    # what keeps the media tool working on a machine set up for it.
+    assert tts_mod.RECOMMENDED_ORDER[-1] == "studio"
+    chosen = tts_mod.resolve_any(studio_configured=True)
     assert chosen is not None and chosen.name == "edge-tts"
-
-    # A local voice outranks the hosted one now: speech that never leaves the
-    # machine is the better default, and OpenAI is the fallback rather than the
-    # first choice.
-    chosen = tts_mod.resolve_provider("auto", api_key="sk-x")
-    assert chosen is not None and chosen.name == "edge-tts"
-    assert tts_mod.resolve_provider("openai", api_key="sk-x") is not None
-
-    # Studio is last in the chain now, not first: it needs a configured MCP
-    # server, so leading with it made "auto" resolve to what most machines do
-    # not have. It is still reachable when it is the only thing configured,
-    # which is what keeps the `text_to_speech` media tool working.
-    chosen = tts_mod.resolve_provider("auto", api_key="sk-x", studio_configured=True)
-    assert chosen is not None and chosen.name == "edge-tts"
-    chosen = tts_mod.resolve_provider("auto", studio_configured=True)
-    assert chosen is not None and chosen.name == "edge-tts"
-
-
-def test_tts_named_provider_only_when_it_works(only_path: Path) -> None:
-    assert tts_mod.resolve_provider("piper") is None
-    assert tts_mod.resolve_provider("openai") is None
-    assert tts_mod.resolve_provider("openai", api_key="sk-x") is not None
-    assert tts_mod.resolve_provider("studio", studio_configured=True) is not None
-    assert tts_mod.resolve_provider("nonsense") is None
-
-
-def test_available_tts_providers(only_path: Path) -> None:
-    write_script(only_path, "piper", "exit 0\n")
-    write_script(only_path, "espeak-ng", "exit 0\n")
-    assert available_providers(studio_configured=True, api_key="sk-x") == [
-        "piper",
-        "espeak-ng",
-        "openai",
-        "studio",
-    ]
 
 
 def test_build_tts_provider_rejects_an_unknown_name() -> None:
@@ -777,10 +785,20 @@ def test_capabilities_on_a_bare_machine(only_path: Path) -> None:
     assert report["play"] is False
     assert report["autoSpeak"] is False
     assert set(report["reasons"]) == {"stt", "tts", "record", "play"}
-    assert "whisper" in report["reasons"]["stt"]
-    assert "edge-tts" in report["reasons"]["tts"]
+    # Nothing is pinned, and that is the reason — not a list of things that
+    # were tried and failed, which is what the chain could only ever report.
+    assert report["reasons"]["stt"] == NO_ENGINE_REASON
+    assert report["reasons"]["tts"] == NO_ENGINE_REASON
+    assert report["sttPinned"] is False and report["ttsPinned"] is False
     assert report["sttProviders"] == []
     assert report["ttsProviders"] == []
+
+
+def test_capabilities_says_which_engine_is_missing(only_path: Path) -> None:
+    report = capabilities(AudioConfig(stt_provider="local-whisper", tts_provider="piper"))
+    assert report["sttPinned"] is True and report["ttsPinned"] is True
+    assert report["reasons"]["stt"] == MISSING_ENGINE_REASON.format(engine="local-whisper")
+    assert report["reasons"]["tts"] == MISSING_ENGINE_REASON.format(engine="piper")
 
 
 def test_capabilities_with_everything(only_path: Path) -> None:
@@ -789,7 +807,13 @@ def test_capabilities_with_everything(only_path: Path) -> None:
     write_script(only_path, "whisper", "exit 0\n")
     write_script(only_path, "piper", "exit 0\n")
     config = AudioConfig(
-        openai_api_key="sk-x", auto_speak=True, voice="nova", studio_configured=True
+        openai_api_key="sk-x",
+        auto_speak=True,
+        voice="nova",
+        studio_configured=True,
+        # Both directions pinned: installed is not the same as chosen.
+        stt_provider="local-whisper",
+        tts_provider="piper",
     )
     report = capabilities(config)
     assert report["stt"] == "local-whisper"
@@ -806,13 +830,22 @@ def test_capabilities_with_everything(only_path: Path) -> None:
     assert report["ttsProviders"] == ["piper", "openai", "studio"]
 
 
-def test_capabilities_falls_back_to_a_local_voice(only_path: Path) -> None:
-    """No studio and no key still speaks, as long as something is installed."""
+def test_an_installed_engine_still_has_to_be_pinned(only_path: Path) -> None:
+    """Installing and choosing are separate steps, and so are their states."""
     write_script(only_path, "espeak-ng", "exit 0\n")
+
     report = capabilities(AudioConfig())
-    assert report["tts"] is True
-    assert report["ttsProvider"] == "espeak-ng"
-    assert "tts" not in report["reasons"]
+    assert report["tts"] is False, "on disk is not the same as chosen"
+    assert report["reasons"]["tts"] == NO_ENGINE_REASON
+    # Detection still sees it, which is what the wizard lists.
+    assert "espeak-ng" in report["ttsProviders"]
+
+    pinned = capabilities(AudioConfig(tts_provider="espeak-ng"))
+    assert pinned["tts"] is True
+    assert pinned["ttsProvider"] == "espeak-ng"
+    assert pinned["ttsEffective"] == "espeak-ng"
+    assert pinned["ttsPinned"] is True
+    assert "tts" not in pinned["reasons"]
 
 
 def test_capabilities_explains_a_disabled_tts(only_path: Path) -> None:

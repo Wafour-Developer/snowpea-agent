@@ -51,11 +51,13 @@ class WizardState:
     #: "browserbase_project_id": "..."}}``.  Written to
     #: ``browser.credentials.<id>``, which is where the runtime reads them.
     browser_credentials: dict[str, dict[str, Any]] = field(default_factory=dict)
-    #: Voice in and out.  ``"off"`` is a real answer, distinct from ``"auto"``:
-    #: it means "never listen" / "never speak" rather than "pick for me".
-    stt_provider: str = catalog.DEFAULT_STT_PROVIDER
+    #: Voice in and out.  ``None`` means nothing is pinned, which means that
+    #: direction is **off**: there is no chain to fall back to any more, so a
+    #: machine with no engine has no voice and says so.  ``"off"`` writes the
+    #: same thing and exists because it is what the wizard's own row answers.
+    stt_provider: str | None = catalog.DEFAULT_STT_PROVIDER
     stt_command: str | None = None
-    tts_provider: str = catalog.DEFAULT_TTS_PROVIDER
+    tts_provider: str | None = catalog.DEFAULT_TTS_PROVIDER
     tts_command: str | None = None
     tts_voice: str | None = None
     #: True when replies are spoken without being asked each time.
@@ -576,17 +578,29 @@ def _audio_from(block: Any) -> dict[str, Any]:
         return {}
     stt: dict[str, Any] = _as_dict(document.get("stt"))
     tts: dict[str, Any] = _as_dict(document.get("tts"))
-    provider = str(tts.get("provider") or catalog.DEFAULT_TTS_PROVIDER)
+    # ``None`` is a real value here — it means nothing is pinned, so that
+    # direction of voice is off — and must not become the string "None".
+    provider = _provider_or_none(tts.get("provider"))
     if tts.get("enabled") is False:
         provider = catalog.AUDIO_OFF
     return {
-        "stt_provider": str(stt.get("provider") or catalog.DEFAULT_STT_PROVIDER),
+        "stt_provider": _provider_or_none(stt.get("provider")),
         "stt_command": stt.get("command") or None,
         "tts_provider": provider,
         "tts_command": tts.get("command") or None,
         "tts_voice": tts.get("voice") or None,
         "auto_speak": bool(tts.get("autoSpeak")),
     }
+
+
+def _provider_or_none(value: Any) -> str | None:
+    """A pinned engine id, or ``None`` for unset.
+
+    ``"auto"`` is an older file's way of saying "try everything"; it reads as
+    unset now (``config/settings.LEGACY_AUTO``).
+    """
+    text = str(value or "").strip()
+    return None if not text or text.lower() == "auto" else text
 
 
 __all__ = ["SKIP", "SKIP_LABEL", "WizardState", "profile_id"]

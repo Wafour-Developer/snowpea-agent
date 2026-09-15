@@ -204,8 +204,90 @@ class InstallResult:
         return payload
 
 
+#: The stages an install moves through, in order.  Named rather than counted
+#: because "step 2 of 4" tells a user nothing about what is taking the time,
+#: and a 400MB download and a checksum look identical in a log.
+STAGE_RESOLVE = "resolve"
+STAGE_DOWNLOAD = "download"
+STAGE_EXTRACT = "extract"
+STAGE_VERIFY = "verify"
+STAGE_INSTALL = "install"
+STAGE_CHECK = "check"
+
+#: Which stages each kind of engine actually has, so ``steps`` is the truth
+#: rather than a constant every engine pretends to.
+STAGES_PACKAGE: tuple[str, ...] = (STAGE_RESOLVE, STAGE_INSTALL, STAGE_CHECK)
+STAGES_WITH_MODEL: tuple[str, ...] = (
+    STAGE_RESOLVE,
+    STAGE_INSTALL,
+    STAGE_DOWNLOAD,
+    STAGE_VERIFY,
+    STAGE_EXTRACT,
+    STAGE_CHECK,
+)
+STAGES_WITH_VOICE: tuple[str, ...] = (
+    STAGE_RESOLVE,
+    STAGE_INSTALL,
+    STAGE_DOWNLOAD,
+    STAGE_CHECK,
+)
+
+
+def stages_for(engine: str) -> tuple[str, ...]:
+    """The stage sequence this engine really walks."""
+    name = engine_for(engine)
+    if name in MODEL_ENGINES:
+        return STAGES_WITH_MODEL
+    if name == "piper":
+        return STAGES_WITH_VOICE
+    return STAGES_PACKAGE
+
+
+@dataclass
+class StageEvent:
+    """One progress report: where the install is, and how far into it."""
+
+    engine: str
+    stage: str
+    step: int
+    steps: int
+    line: str = ""
+    percent: float | None = None
+    bytes_done: int | None = None
+    bytes_total: int | None = None
+
+    def to_payload(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "engine": self.engine,
+            "stage": self.stage,
+            "step": self.step,
+            "steps": self.steps,
+            "line": self.line,
+        }
+        if self.percent is not None:
+            payload["percent"] = round(float(self.percent), 1)
+        if self.bytes_done is not None:
+            payload["bytesDone"] = int(self.bytes_done)
+        if self.bytes_total is not None:
+            payload["bytesTotal"] = int(self.bytes_total)
+        return payload
+
+    def bar(self, width: int = 8) -> str:
+        """``[download 3/6] 63% ▇▇▇▇▇▁▁▁ name`` — the one line a wizard draws."""
+        head = f"[{self.stage} {self.step}/{self.steps}]"
+        if self.percent is None:
+            return f"{head} {self.line}".rstrip()
+        filled = int(round(width * max(0.0, min(100.0, self.percent)) / 100))
+        meter = "▇" * filled + "▁" * (width - filled)
+        return f"{head} {self.percent:3.0f}% {meter} {self.line}".rstrip()
+
+
 #: Called with each line of output as it arrives, for ``audio.install.progress``.
+#: A caller that wants stages passes a :class:`Reporter` instead.
 Progress = Callable[[str], Awaitable[None]]
+
+#: Called with each :class:`StageEvent`.
+Stages = Callable[["StageEvent"], Awaitable[None]]
 
 #: Runs one argv and streams its lines; swapped out in tests so nothing is
 #: downloaded.  Returns the process exit status.
@@ -237,21 +319,84 @@ async def run_argv(argv: Sequence[str], progress: Progress | None = None) -> int
 
 
 class _Log:
-    """Collects the lines an install printed, capped at the tail."""
+    """Collects the lines an install printed, and reports where it is.
 
-    def __init__(self, progress: Progress | None = None) -> None:
+    It is callable as a plain ``Progress`` so everything that only knows how to
+    emit a line keeps working; :meth:`stage` is what moves the bar. The stage
+    it is currently in is carried on the object, so a line emitted from deep
+    inside a download is still labelled ``download`` without every caller
+    having to pass it along.
+    """
+
+    def __init__(
+        self,
+        progress: Progress | None = None,
+        stages: Stages | None = None,
+        *,
+        engine: str = "",
+        sequence: tuple[str, ...] = (),
+    ) -> None:
         self.lines: list[str] = []
         self._progress = progress
+        self._stages = stages
+        self.engine = engine
+        self.sequence = sequence
+        self.current = sequence[0] if sequence else ""
 
+    # -- the line side --------------------------------------------------
     async def __call__(self, line: str) -> None:
         self.lines.append(line)
         del self.lines[:-MAX_LOG_LINES]
         if self._progress is not None:
             await self._progress(line)
+        await self._emit(line=line)
 
     async def say(self, line: str) -> None:
         """Add a line of our own, so the log reads as one story."""
         await self(line)
+
+    # -- the stage side -------------------------------------------------
+    async def stage(self, name: str, line: str = "") -> None:
+        """Move to a stage and report it."""
+        self.current = name
+        if line:
+            self.lines.append(line)
+            del self.lines[:-MAX_LOG_LINES]
+            if self._progress is not None:
+                await self._progress(line)
+        await self._emit(line=line)
+
+    async def bytes(self, done: int, total: int, line: str = "") -> None:
+        """Report transfer progress inside the current stage."""
+        percent = (100.0 * done / total) if total else None
+        await self._emit(line=line, percent=percent, done=done, total=total)
+
+    async def _emit(
+        self,
+        *,
+        line: str = "",
+        percent: float | None = None,
+        done: int | None = None,
+        total: int | None = None,
+    ) -> None:
+        if self._stages is None or not self.sequence:
+            return
+        try:
+            step = self.sequence.index(self.current) + 1
+        except ValueError:  # pragma: no cover - a stage outside the sequence
+            step = 0
+        await self._stages(
+            StageEvent(
+                engine=self.engine,
+                stage=self.current,
+                step=step,
+                steps=len(self.sequence),
+                line=line,
+                percent=percent,
+                bytes_done=done,
+                bytes_total=total,
+            )
+        )
 
     @property
     def text(self) -> str:
@@ -340,6 +485,7 @@ async def install(
     *,
     home: Path,
     progress: Progress | None = None,
+    stages: Stages | None = None,
     runner: Runner | None = None,
     fetch: Any = None,
     platform: str | None = None,
@@ -372,9 +518,10 @@ async def install(
             hint=f"no installer found; install python and run: pip install {spec.package}",
         )
 
-    collected = _Log(progress)
+    collected = _Log(progress, stages, engine=name, sequence=stages_for(name))
     execute = runner or run_argv
-    await collected.say(f"$ {' '.join(argv)}")
+    await collected.stage(STAGE_RESOLVE, f"$ {' '.join(argv)}")
+    await collected.stage(STAGE_INSTALL)
     try:
         code = await asyncio.wait_for(execute(argv, collected), timeout=INSTALL_TIMEOUT_SEC)
     except TimeoutError:
@@ -392,7 +539,7 @@ async def install(
         from snowpea_core.audio import stt_models
 
         if not await stt_models.ensure_model(
-            model_id, home, progress=collected, fetch=fetch
+            model_id, home, progress=collected, fetch=fetch, log=collected
         ):
             await collected.say(f"{name}: the package is installed but its model is not")
             return InstallResult(
@@ -404,9 +551,11 @@ async def install(
 
     voice: Path | None = None
     if name == "piper":
+        await collected.stage(STAGE_DOWNLOAD)
         voice = await download_voice(home, progress=collected, fetch=fetch)
         if voice is not None:
             await collected.say(f"voice ready: {voice}")
+    await collected.stage(STAGE_CHECK)
     await collected.say(f"{name} installed")
     result = InstallResult(ok=True, engine=name, log=collected.text)
     # The caller records the voice; returning it on the result would widen the

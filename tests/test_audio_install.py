@@ -76,15 +76,16 @@ def test_the_voice_catalog_has_no_studio_row() -> None:
     assert "studio" not in {item.id for item in stt_catalog()}
 
 
-def test_the_automatic_row_no_longer_promises_studio() -> None:
-    auto = next(item for item in tts_catalog() if item.id == "auto")
-    assert "studio" not in auto.label.lower()
+def test_there_is_no_automatic_row_at_all() -> None:
+    """Two states now: nothing pinned (voice off), or one engine pinned."""
+    assert "auto" not in {item.id for item in tts_catalog()}
+    assert "auto" not in {item.id for item in stt_catalog()}
 
 
-def test_studio_is_last_in_the_chain_so_the_media_tool_still_reaches_it() -> None:
+def test_studio_is_last_in_the_order_so_the_media_tool_still_reaches_it() -> None:
     """Dropping the *choice* must not break the ``text_to_speech`` tool."""
-    assert tts_mod.AUTO_ORDER[-1] == "studio"
-    assert tts_mod.AUTO_ORDER[0] == "supertonic"
+    assert tts_mod.RECOMMENDED_ORDER[-1] == "studio"
+    assert tts_mod.RECOMMENDED_ORDER[0] == "supertonic"
     assert tts_mod.build_provider("studio", studio_configured=True).available() is True
 
 

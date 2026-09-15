@@ -51,6 +51,82 @@ Two consequences, both deliberate:
 - `SUPERTONIC_SCRIPT` is a module constant and is never formatted with user
   text. Nothing anyone types becomes part of a program.
 
+## The chain is gone: two states, per direction
+
+`auto` was removed as a value. `audio.stt.provider` / `audio.tts.provider` is
+**unset** (that direction of voice is off) or **one engine id** (pinned). An
+older file's `"auto"` reads as unset and is rewritten away on the next save
+(`config/settings.LEGACY_AUTO`).
+
+The chain could not tell a user why they got silence. It tried five backends,
+and when none worked the only honest report — "nothing is set up" — was the one
+sentence the code could never produce. Now `audio.capabilities` says exactly
+one of:
+
+| State | Reason |
+|---|---|
+| nothing pinned | `no engine set — install or pick one in setup` |
+| pinned, missing | `engine <id> is not installed` |
+
+plus `sttPinned` / `ttsPinned` and `sttEffective` / `ttsEffective`, so a surface
+can render "Not set" rather than inventing a default it would never get.
+
+`RECOMMENDED_ORDER` (the old `AUTO_ORDER`) survives with a narrower job: it is
+what the wizard suggests installing first and what detection lists first. It
+resolves nothing.
+
+**The media tools keep a chain.** `text_to_speech` and `transcribe_audio` are
+tools the *model* calls deliberately, and refusing one because the user has not
+chosen a voice for their own replies would be a non sequitur. They go through
+`resolve_any`, which walks `RECOMMENDED_ORDER` — studio included, which is what
+keeps a configured studio server working. Voice in and out never come through
+there.
+
+## Installing is not choosing
+
+`audio.install` puts an engine on the machine and **changes no setting**. The
+screen returns with that engine active and the status line says
+`X is installed, not selected — pick it to use it` until it is pinned. The two
+were one action once; separating them is what makes "I installed it and nothing
+happened" impossible to reach by accident.
+
+## Every row leads somewhere
+
+A list where some entries do nothing when chosen is a list that lies about
+being a choice. `screens/audio.row_action` gives every row one:
+
+| Row | Picking it |
+|---|---|
+| installable, missing | installs it, then comes back with it active |
+| system package | shows the platform command, offers to run it, re-checks |
+| custom command | asks for the template, validates the placeholders, self-tests 3s, pins |
+| hosted (OpenAI) | asks for the key (masked), pins |
+| Off | unsets: that direction is off |
+| installed | pins it; a pinned row is marked `★` |
+
+Engines that could never work here are not listed at all
+(`catalog.PLATFORM_ONLY`: macOS `say`, Windows `powershell`).
+
+## Staged install progress
+
+A log line cannot say how far along a 400MB download is.
+`audio.install.progress` carries `stage`, `step`, `steps`, and where they can
+be known `percent`, `bytesDone`, `bytesTotal` — additive, so a client that only
+reads `line` is unaffected. The sequences are per engine rather than a constant
+every engine pretends to: a package install has three stages, a model install
+six, piper's four.
+
+## The opening acknowledgement
+
+With `audio.tts.autoSpeak` on, the line the agent writes *before its first tool
+call* is spoken too, trimmed to two sentences or 240 characters. A spoken
+request answered by a silent minute feels dead, and the agent has already
+written what it is about to do. Only the first such line of a turn — later ones
+are thinking aloud, and narrating a whole turn is not what anyone asked for.
+Never in a delegated or unattended turn, which has nobody in the room.
+`audio.spoken` gains `utterance: "reply" | "ack"`; `audio.tts.speakAck`
+(default true) turns it off.
+
 ## Why the chains changed
 
 Both `auto` chains now put local engines ahead of hosted ones.

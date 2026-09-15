@@ -373,15 +373,17 @@ def test_supertonic_installs_where_this_interpreter_can_import_it() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_the_stt_chain_leads_with_sensevoice_and_ends_at_openai() -> None:
-    assert stt_mod.AUTO_ORDER[0] == "sherpa-onnx-sensevoice"
-    assert stt_mod.AUTO_ORDER[1:3] == ("sherpa-onnx-zipformer-ko", "sherpa-onnx-zipformer-en")
-    assert stt_mod.AUTO_ORDER.index("local-whisper") < stt_mod.AUTO_ORDER.index("openai")
+def test_the_stt_recommendation_leads_with_sensevoice_and_ends_at_openai() -> None:
+    """It no longer resolves anything; it is what the wizard suggests first."""
+    order = stt_mod.RECOMMENDED_ORDER
+    assert order[0] == "sherpa-onnx-sensevoice"
+    assert order[1:3] == ("sherpa-onnx-zipformer-ko", "sherpa-onnx-zipformer-en")
+    assert order.index("local-whisper") < order.index("openai")
 
 
-def test_the_tts_chain_leads_with_supertonic_and_ends_at_the_hosted_ones() -> None:
-    assert tts_mod.AUTO_ORDER[0] == "supertonic"
-    order = list(tts_mod.AUTO_ORDER)
+def test_the_tts_recommendation_leads_with_supertonic_and_ends_at_the_hosted_ones() -> None:
+    assert tts_mod.RECOMMENDED_ORDER[0] == "supertonic"
+    order = list(tts_mod.RECOMMENDED_ORDER)
     for local in ("edge-tts", "piper", "say", "espeak-ng", "powershell"):
         assert order.index(local) < order.index("openai"), local
     assert order[-1] == "studio"
@@ -420,14 +422,19 @@ def test_the_wizard_leads_with_the_recommended_install_when_nothing_is_there() -
     assert stt_installs[0].default is True
 
 
-def test_automatic_is_still_the_answer_and_still_degrades() -> None:
-    """Install-guided, not required: Automatic stays the default selection."""
-    auto_tts = next(item for item in tts_catalog() if item.id == "auto")
-    auto_stt = next(item for item in stt_catalog() if item.id == "auto")
-    assert auto_tts.default is True and auto_tts.active is True
-    assert auto_stt.default is True and auto_stt.active is True
-    # With nothing installed the chain resolves to nothing rather than raising.
-    assert tts_mod.resolve_provider("auto", api_key=None, command=None) is None or True
+def test_nothing_pinned_means_voice_is_off_rather_than_guessed() -> None:
+    """The replacement for Automatic: two states, and the report says which."""
+    from snowpea_core.audio import NO_ENGINE_REASON, AudioConfig, capabilities
+
+    assert "auto" not in {item.id for item in tts_catalog()}
+    assert "auto" not in {item.id for item in stt_catalog()}
+
+    report = capabilities(AudioConfig())
+    assert report["tts"] is False and report["ttsPinned"] is False
+    assert report["reasons"]["tts"] == NO_ENGINE_REASON
+    # The recommended row is what the wizard offers to install instead.
+    recommended = next(item for item in tts_catalog() if item.recommended)
+    assert recommended.installable is True
 
 
 # ---------------------------------------------------------------------------
@@ -485,3 +492,175 @@ async def test_a_model_that_will_not_download_fails_the_install(tmp_path: Path) 
 )
 def test_every_new_engine_is_offered_as_an_install(engine: str) -> None:
     assert audio_install.is_installable(engine) is True
+
+
+# ---------------------------------------------------------------------------
+# staged install progress
+# ---------------------------------------------------------------------------
+
+
+class VoiceClient:
+    """The two-file piper voice download, without the network."""
+
+    def __init__(self) -> None:
+        self.urls: list[str] = []
+
+    def __call__(self) -> VoiceClient:
+        return self
+
+    async def __aenter__(self) -> VoiceClient:
+        return self
+
+    async def __aexit__(self, *_exc: Any) -> None:
+        return None
+
+    async def get(self, url: str) -> Any:
+        self.urls.append(url)
+
+        class Response:
+            status_code = 200
+            content = b"voice"
+
+        return Response()
+
+
+class Stages:
+    """Collects the stage events an install reports."""
+
+    def __init__(self) -> None:
+        self.events: list[Any] = []
+
+    async def __call__(self, event: Any) -> None:
+        self.events.append(event)
+
+    def sequence(self) -> list[str]:
+        """Each stage once, in the order it was first reported.
+
+        A stage can recur — the VAD that ships beside SenseVoice is verified
+        too — and what the contract is about is that every stage happens and
+        that they happen in order, not how many files each one touched.
+        """
+        out: list[str] = []
+        for event in self.events:
+            if event.stage not in out:
+                out.append(event.stage)
+        return out
+
+
+async def test_a_package_install_reports_its_three_stages(tmp_path: Path) -> None:
+    stages = Stages()
+    result = await audio_install.install(
+        "edge-tts", home=tmp_path, runner=Runner(), stages=stages
+    )
+    assert result.ok is True
+    assert stages.sequence() == ["resolve", "install", "check"]
+    assert all(event.steps == 3 for event in stages.events)
+    assert {event.step for event in stages.events} == {1, 2, 3}
+    assert all(event.engine == "edge-tts" for event in stages.events)
+
+
+async def test_a_model_install_reports_download_verify_and_extract(tmp_path: Path) -> None:
+    model = stt_models.MODELS["sherpa-onnx-sensevoice"]
+    stages = Stages()
+    result = await audio_install.install(
+        "sherpa-onnx-sensevoice",
+        home=tmp_path,
+        runner=Runner(),
+        stages=stages,
+        fetch=FakeFetcher(_fake_archive(model)),
+    )
+    assert result.ok is True
+    assert stages.sequence() == [
+        "resolve",
+        "install",
+        "download",
+        "verify",
+        "extract",
+        "check",
+    ]
+    assert all(event.steps == 6 for event in stages.events)
+
+
+async def test_piper_reports_its_voice_download_as_a_stage(tmp_path: Path) -> None:
+    stages = Stages()
+    await audio_install.install(
+        "piper", home=tmp_path, runner=Runner(), stages=stages, fetch=VoiceClient()
+    )
+    assert stages.sequence() == ["resolve", "install", "download", "check"]
+
+
+async def test_bytes_are_reported_as_they_arrive(tmp_path: Path) -> None:
+    """A 400MB download and a checksum look identical in a log; not here."""
+    model = stt_models.MODELS["sherpa-onnx-zipformer-ko"]
+    body = _fake_archive(model)
+    stages = Stages()
+
+    class Chunked(FakeFetcher):
+        """Serves the archive in pieces big enough to cross a progress step."""
+
+        def stream(self, _method: str, url: str, headers: Any = None) -> Any:
+            self.urls.append(url)
+            self.ranges.append((headers or {}).get("Range"))
+            payload = self.body if url.endswith(".tar.bz2") else b"x"
+            step = audio_install.MAX_LOG_LINES  # any size; the padding decides
+            del step
+
+            class Response:
+                status_code = 200
+                headers = {"content-length": str(len(payload))}
+
+                async def aiter_bytes(self) -> Any:
+                    yield payload
+
+                async def __aenter__(self) -> Any:
+                    return self
+
+                async def __aexit__(self, *_exc: Any) -> None:
+                    return None
+
+            return Response()
+
+    await stt_models.ensure_model(
+        model.id,
+        tmp_path,
+        fetch=Chunked(body),
+        log=audio_install._Log(
+            None, stages, engine=model.id, sequence=audio_install.stages_for(model.id)
+        ),
+    )
+    downloads = [event for event in stages.events if event.stage == "download"]
+    assert downloads, "the download stage was never reported"
+
+
+def test_the_stage_bar_says_where_it_is() -> None:
+    event = audio_install.StageEvent(
+        engine="x", stage="download", step=3, steps=6, line="model.tar.bz2", percent=62.5
+    )
+    bar = event.bar()
+    assert bar.startswith("[download 3/6]")
+    assert "62%" in bar or "63%" in bar
+    assert "▇" in bar and "▁" in bar
+    assert "model.tar.bz2" in bar
+
+    # No percentage to show is not a reason to draw an empty meter.
+    plain = audio_install.StageEvent(engine="x", stage="resolve", step=1, steps=3, line="$ uv")
+    assert plain.bar() == "[resolve 1/3] $ uv"
+
+
+def test_the_payload_only_carries_what_it_knows() -> None:
+    bare = audio_install.StageEvent(engine="x", stage="check", step=3, steps=3).to_payload()
+    assert set(bare) == {"engine", "stage", "step", "steps", "line"}
+    full = audio_install.StageEvent(
+        engine="x", stage="download", step=2, steps=4, percent=10.0, bytes_done=1, bytes_total=10
+    ).to_payload()
+    assert full["percent"] == 10.0 and full["bytesDone"] == 1 and full["bytesTotal"] == 10
+
+
+def test_the_stage_sequence_matches_what_the_engine_actually_does() -> None:
+    assert audio_install.stages_for("edge-tts") == audio_install.STAGES_PACKAGE
+    assert audio_install.stages_for("piper") == audio_install.STAGES_WITH_VOICE
+    assert audio_install.stages_for("sherpa-onnx-zipformer-en") == (
+        audio_install.STAGES_WITH_MODEL
+    )
+    # A catalog id resolves to its engine's sequence, not to a default.
+    assert audio_install.stages_for("local-whisper") == audio_install.STAGES_PACKAGE

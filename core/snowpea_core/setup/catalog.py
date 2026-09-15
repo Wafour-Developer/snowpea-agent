@@ -17,6 +17,7 @@ setup`` without another edit.  The ordering AC (AC-02b) is enforced by
 from __future__ import annotations
 
 import asyncio
+import sys
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -250,9 +251,20 @@ def known_categories() -> list[str]:
 # audio (speech to text, text to speech)
 # ---------------------------------------------------------------------------
 
-#: Picked when the user says nothing: let the machine decide, local first.
-DEFAULT_STT_PROVIDER = "auto"
-DEFAULT_TTS_PROVIDER = "auto"
+#: What a fresh install has: nothing pinned, which means voice is off until
+#: the user picks an engine.  There is no ``"auto"``: a chain that silently
+#: tried five backends could not tell a user why they got silence.
+DEFAULT_STT_PROVIDER: str | None = None
+DEFAULT_TTS_PROVIDER: str | None = None
+
+#: Engines that only exist on one platform.  Listing macOS ``say`` on Linux is
+#: a row that can never lead anywhere, and every row has to lead somewhere.
+PLATFORM_ONLY: dict[str, str] = {"say": "darwin", "powershell": "win32"}
+
+
+def _on_this_platform(engine_id: str, platform: str | None = None) -> bool:
+    wanted = PLATFORM_ONLY.get(engine_id)
+    return wanted is None or (platform or sys.platform).startswith(wanted)
 
 #: The "no voice at all" row both audio screens end with.
 AUDIO_OFF = "off"
@@ -260,7 +272,6 @@ AUDIO_OFF = "off"
 #: ``(id, label, key kind, description)`` for speech to text.  Free and keyless
 #: first so :func:`assert_free_first` is satisfied; the hosted API is last.
 _STT_CHOICES: tuple[tuple[str, str, KeyKind, str], ...] = (
-    ("auto", "Automatic — whichever local engine is installed, else OpenAI", "no key", ""),
     (
         "sherpa-onnx-sensevoice",
         "SenseVoiceSmall (CPU)",
@@ -293,7 +304,6 @@ RECOMMENDED_TTS = "supertonic"
 
 #: ``(id, label, key kind, description)`` for text to speech.
 _TTS_CHOICES: tuple[tuple[str, str, KeyKind, str], ...] = (
-    ("auto", "Automatic — whichever local voice is installed, else OpenAI", "no key", ""),
     (
         "supertonic",
         "Supertonic (CPU)",
@@ -311,7 +321,9 @@ _TTS_CHOICES: tuple[tuple[str, str, KeyKind, str], ...] = (
 )
 
 
-def stt_catalog(detected: Sequence[str] = ()) -> list[CatalogItem]:
+def stt_catalog(
+    detected: Sequence[str] = (), platform: str | None = None
+) -> list[CatalogItem]:
     """Speech-to-text choices; ``detected`` marks the ones usable right now."""
     usable = set(detected)
     return assert_free_first(
@@ -321,19 +333,22 @@ def stt_catalog(detected: Sequence[str] = ()) -> list[CatalogItem]:
                 label=label,
                 tier="free" if key == "no key" else "paid",
                 key=key,
-                default=cid == DEFAULT_STT_PROVIDER,
+                default=cid == RECOMMENDED_STT,
                 description=description,
-                active=cid in {"auto", AUDIO_OFF} or cid in usable,
+                active=cid == AUDIO_OFF or cid in usable,
                 installable=audio_install.is_installable(cid),
                 install_hint=audio_install.install_hint(cid),
                 recommended=cid == RECOMMENDED_STT,
             )
             for cid, label, key, description in _STT_CHOICES
+            if _on_this_platform(cid, platform)
         ]
     )
 
 
-def tts_catalog(detected: Sequence[str] = ()) -> list[CatalogItem]:
+def tts_catalog(
+    detected: Sequence[str] = (), platform: str | None = None
+) -> list[CatalogItem]:
     """Text-to-speech choices; ``detected`` marks the ones usable right now."""
     usable = set(detected)
     return assert_free_first(
@@ -343,14 +358,15 @@ def tts_catalog(detected: Sequence[str] = ()) -> list[CatalogItem]:
                 label=label,
                 tier="free" if key in {"no key", "self-hosted"} else "paid",
                 key=key,
-                default=cid == DEFAULT_TTS_PROVIDER,
+                default=cid == RECOMMENDED_TTS,
                 description=description,
-                active=cid in {"auto", AUDIO_OFF} or cid in usable,
+                active=cid == AUDIO_OFF or cid in usable,
                 installable=audio_install.is_installable(cid),
                 install_hint=audio_install.install_hint(cid),
                 recommended=cid == RECOMMENDED_TTS,
             )
             for cid, label, key, description in _TTS_CHOICES
+            if _on_this_platform(cid, platform)
         ]
     )
 
@@ -532,6 +548,7 @@ __all__ = [
     "search_catalog",
     "RECOMMENDED_STT",
     "RECOMMENDED_TTS",
+    "PLATFORM_ONLY",
     "stt_catalog",
     "tools_catalog",
     "tts_catalog",

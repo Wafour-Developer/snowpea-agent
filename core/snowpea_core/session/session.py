@@ -45,6 +45,9 @@ class Session:
     #: True for a session a parent agent spawned: it gets the subagent preamble
     #: (no user is watching; the final message is the whole report).
     is_subagent: bool = False
+    #: True once this turn's opening acknowledgement has been spoken, so
+    #: only the first line before a tool call is read aloud.
+    ack_spoken: bool = False
     #: ``"on"`` | ``"off"`` | ``"auto"`` for this session only — an agent
     #: definition's ``thinking:``.  ``None`` falls back to the vendor block and
     #: then ``agent.thinking`` (CORE-reasoning-budget).

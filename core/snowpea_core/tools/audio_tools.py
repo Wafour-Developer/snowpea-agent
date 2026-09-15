@@ -55,7 +55,12 @@ def _tag_for(core: Any, resolve: str) -> PermissionTag:
     from snowpea_core.server.audio_handlers import audio_config, speech_caller
 
     config = audio_config(core)
-    provider = config.stt() if resolve == "stt" else config.tts(speech_caller(core))
+    # The tools use whatever the machine has; voice in/out use the pin.
+    provider = (
+        (config.stt() or config.stt_any())
+        if resolve == "stt"
+        else (config.tts(speech_caller(core)) or config.tts_any(speech_caller(core)))
+    )
     name = getattr(provider, "name", "")
     return "network" if name in HOSTED else "read"
 
@@ -81,10 +86,18 @@ def refresh_state(core: Core) -> dict[str, str]:
     ``tool.list`` can show it greyed out with a reason — the same shape the
     media tools use.
     """
-    report = capabilities(audio_config(core), caller=speech_caller(core))
+    config = audio_config(core)
+    report = capabilities(config, caller=speech_caller(core))
+    # A tool is active when *something* could serve it, pinned or not: these
+    # are tools the model calls deliberately, and refusing one because the
+    # user has not chosen a voice for their own replies would be a non sequitur.
+    usable = {
+        "stt": bool(report.get("stt")) or config.stt_any() is not None,
+        "tts": bool(report.get("tts")) or config.tts_any(speech_caller(core)) is not None,
+    }
     states: dict[str, str] = {}
     for name, key in NEEDS.items():
-        ready = bool(report.get(key))
+        ready = usable.get(key, bool(report.get(key)))
         state = "active" if ready else "inactive"
         states[name] = state
         try:
@@ -96,8 +109,14 @@ def refresh_state(core: Core) -> dict[str, str]:
 
 def _unavailable(core: Core, key: str, tool: str) -> str:
     """The error text for a tool whose backend is missing."""
-    report = capabilities(audio_config(core), caller=speech_caller(core))
-    reason = report.get("reasons", {}).get(key, "no backend is configured")
+    # The tool's own reason, not voice output's: nothing is *installed*, which
+    # is a different problem from nothing being *pinned*.
+    recommended = (
+        "install one with `snowpea audio install sherpa-onnx-sensevoice`"
+        if key == "stt"
+        else "install one with `snowpea audio install supertonic`"
+    )
+    reason = f"no {key} backend is installed here — {recommended}"
     return f"{INACTIVE}: {tool} is unavailable — {reason}"
 
 
@@ -105,7 +124,9 @@ async def run_transcribe_audio(ctx: ToolContext, args: dict[str, Any]) -> ToolRe
     """``transcribe_audio`` — read a sound file and return what was said."""
     core = ctx.core
     config = audio_config(core)
-    provider = config.stt()
+    # The tool uses whatever this machine has; voice *input* only ever uses
+    # the engine the user pinned.
+    provider = config.stt() or config.stt_any()
     if provider is None:
         return ToolResult(ok=False, error=_unavailable(core, "stt", "transcribe_audio"))
     raw = str(args.get("path") or "").strip()
@@ -135,7 +156,9 @@ async def run_text_to_speech(ctx: ToolContext, args: dict[str, Any]) -> ToolResu
     core = ctx.core
     config = audio_config(core)
     caller = speech_caller(core)
-    provider = config.tts(caller)
+    # The media tool uses whatever this machine has, including a configured
+    # studio server; voice *output* only ever uses the engine the user pinned.
+    provider = config.tts(caller) or config.tts_any(caller)
     if provider is None:
         return ToolResult(ok=False, error=_unavailable(core, "tts", "text_to_speech"))
     text = str(args.get("text") or "").strip()

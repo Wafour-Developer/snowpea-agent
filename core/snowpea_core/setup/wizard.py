@@ -172,12 +172,19 @@ def run(
     def _show(name: str, module: Any) -> Any:
         screen: Screen = module.build(state)
         choice = asker(screen, console=console, interactive=interactive)
-        # An Install row on a voice screen fetches the engine and asks again,
-        # so the user picks it from a list where it is now active rather than
-        # having to remember to come back (M3 §5, audio.install).
-        while name == "audio" and interactive and _install_chosen(choice):
-            audio_screen.run_install(
-                _one(choice), paths.home, console.print if console is not None else print
+        # The voice screens are action-first (M3 §5): an Install row fetches an
+        # engine and asks again, so the user lands back on a screen where it is
+        # now installed; the Choose row opens the submenu and comes back here
+        # when it is declined, so Esc means "back" rather than "give up".
+        while name == "audio" and interactive and _voice_detour(choice):
+            _run_voice_detour(
+                state,
+                choice,
+                asker,
+                audio_screen.build_choose,
+                paths.home,
+                console=console,
+                interactive=interactive,
             )
             screen = module.build(state)
             choice = asker(screen, console=console, interactive=interactive)
@@ -891,8 +898,18 @@ def _ask_for_audio(
         return
     out = console.print if console is not None else print
     choice = asker(audio_screen.build_tts(state), console=console, interactive=interactive)
-    while _install_chosen(choice):
-        audio_screen.run_install(_one(choice), home, out)
+    while _voice_detour(choice):
+        _run_voice_detour(
+            state,
+            choice,
+            asker,
+            audio_screen.build_choose_tts,
+            home,
+            console=console,
+            interactive=interactive,
+            apply_choice=audio_screen.apply_tts,
+            direction="tts",
+        )
         choice = asker(audio_screen.build_tts(state), console=console, interactive=interactive)
     audio_screen.apply_tts(state, choice)
     if state.stt_provider == "command":
@@ -931,6 +948,182 @@ def _one(choice: Any) -> str:
 def _install_chosen(choice: Any) -> bool:
     """True when the answer was an ``install:`` row rather than a selection."""
     return audio_screen.install_target(_one(choice)) is not None
+
+
+def _voice_detour(choice: Any) -> bool:
+    """True for a row that does something and then shows the screen again."""
+    return _install_chosen(choice) or audio_screen.is_choose(_one(choice))
+
+
+def _run_voice_detour(
+    state: WizardState,
+    choice: Any,
+    asker: Any,
+    build_submenu: Any,
+    home: Any,
+    *,
+    console: Console | None = None,
+    interactive: bool = True,
+    apply_choice: Any = None,
+    direction: str = "stt",
+) -> None:
+    """Run what an Install row or the submenu asked for.
+
+    Declining the submenu (Esc, or Skip) pins nothing and returns to the screen
+    it came from, which is what makes Esc read as "back" rather than "never
+    mind the whole question".
+    """
+    out = console.print if console is not None else print
+    if _install_chosen(choice):
+        # Installing is not choosing: it puts the engine on the machine and
+        # sends the user back to a list where it is now active, one Enter from
+        # being pinned.  Pinning it for them would decide a thing they came
+        # here to decide.
+        target = _one(choice)
+        if audio_screen.run_install(target, home, out):
+            out(f"{audio_screen.install_target(target)} installed — pick it to use it")
+        return
+    picked = asker(build_submenu(state), console=console, interactive=interactive)
+    name = _one(picked)
+    if not _picked(picked):
+        return
+    _follow_up(state, name, home, out, direction=direction, apply_choice=apply_choice)
+
+
+def _follow_up(
+    state: WizardState,
+    name: str,
+    home: Any,
+    out: Any,
+    *,
+    direction: str,
+    apply_choice: Any = None,
+) -> None:
+    """Do whatever picking engine ``name`` in the submenu means.
+
+    Every row leads somewhere: an engine that is not installed is installed,
+    a system package is explained and offered, a custom command is asked for
+    and tested, a hosted one asks for its key.  Only then is anything pinned,
+    and an install alone never pins.
+    """
+    from snowpea_core.setup import catalog as catalog_mod
+
+    apply_it = apply_choice or audio_screen.apply
+    items = (
+        catalog_mod.tts_catalog(audio_screen.detected_tts(state))
+        if direction == "tts"
+        else catalog_mod.stt_catalog(audio_screen.detected_stt(state))
+    )
+    item = next((row for row in items if row.id == name), None)
+    if item is None:
+        return
+    action = audio_screen.row_action(item)
+
+    if action == audio_screen.ACTION_INSTALL:
+        if audio_screen.run_install(f"{audio_screen.INSTALL_PREFIX}{name}", home, out):
+            out(f"{name} installed — pick it to use it")
+        return
+    if action == audio_screen.ACTION_SYSTEM:
+        _offer_system_install(name, item, out)
+        return
+    if action == audio_screen.ACTION_COMMAND:
+        if not _ask_for_voice_command(state, direction, out):
+            return
+    if action == audio_screen.ACTION_KEY and not _ask_for_voice_key(state, out):
+        return
+    apply_it(state, name)
+
+
+def _offer_system_install(name: str, item: Any, out: Any) -> None:
+    """Show the platform's own command for a system package, and offer to run it.
+
+    We will not run a package manager as root behind someone's back, but making
+    them retype a command we already know is not help either.  So: print it,
+    ask, and run it through the shell where sudo can prompt in the terminal it
+    already owns.
+    """
+    hint = item.install_hint or f"install {name} with your system package manager"
+    out(hint)
+    if not _ask_yes_no(f"run `{hint}` now?", default=False):
+        out(f"{name} is not installed; run it yourself and pick {name} again")
+        return
+    import shlex
+    import subprocess
+
+    try:
+        result = subprocess.run(shlex.split(hint), check=False)  # noqa: S603
+    except (OSError, ValueError) as exc:
+        out(f"could not run it: {exc}")
+        return
+    import shutil
+
+    if result.returncode == 0 and shutil.which(name):
+        out(f"{name} installed — pick it to use it")
+    else:
+        out(f"{name} still is not on PATH; pick it again once it is")
+
+
+def _ask_for_voice_command(state: WizardState, direction: str, out: Any) -> bool:
+    """Ask for a custom template, validate it, and self-test it once."""
+    placeholders = " and ".join(audio_screen.COMMAND_REQUIRED.get(direction, ()))
+    current = state.tts_command if direction == "tts" else state.stt_command
+    hint = "saved — Enter to keep" if current else f"must contain {placeholders}"
+    entered = ui.ask_text(f"command [{hint}]: ").strip() or (current or "")
+    problem = audio_screen.validate_command(entered, direction)
+    if problem:
+        out(f"not saved: {problem}")
+        return False
+    if direction == "tts":
+        state.tts_command = entered
+    else:
+        state.stt_command = entered
+    failure = _self_test_command(state, direction)
+    if failure:
+        # It parses and the program exists; that it did not produce audio here
+        # is worth saying, not worth refusing over.
+        out(f"warning: {failure}")
+    return True
+
+
+#: How long a custom command gets to prove itself.
+SELF_TEST_SECONDS = 3.0
+
+
+def _self_test_command(state: WizardState, direction: str) -> str | None:
+    """Run the template once on a short phrase; a sentence when it did not work."""
+    if direction != "tts":
+        return None
+    import tempfile
+
+    from snowpea_core.audio import AudioError
+    from snowpea_core.audio import tts as tts_backends
+
+    provider = tts_backends.build_provider("command", command=state.tts_command)
+    try:
+        with tempfile.TemporaryDirectory(prefix="snowpea-tts-test-") as tmp:
+            _run_sync(
+                asyncio.wait_for(
+                    provider.synthesize(TEST_PHRASE, out_dir=Path(tmp)),
+                    timeout=SELF_TEST_SECONDS,
+                )
+            )
+    except (AudioError, TimeoutError) as exc:
+        return f"the command did not produce audio: {exc}"
+    except Exception as exc:  # noqa: BLE001 - a self-test never fails setup
+        return f"could not test the command: {type(exc).__name__}: {exc}"
+    return None
+
+
+def _ask_for_voice_key(state: WizardState, out: Any) -> bool:
+    """The hosted engine needs the OpenAI key; it is the one already configured."""
+    if state.api_key or state.has_saved_key:
+        return True
+    entered = ui.ask_text("OpenAI API key [Enter to use $OPENAI_API_KEY]: ", secret=True).strip()
+    if entered:
+        state.api_key = entered
+        return True
+    out("no key entered — OpenAI voice cannot run until one is set")
+    return True
 
 
 def _picked(choice: Any) -> bool:

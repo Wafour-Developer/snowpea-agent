@@ -610,10 +610,11 @@ def test_full_with_every_screen_skipped_writes_the_free_defaults(home: Path) -> 
     settings = _settings(home)
     assert settings.search.provider == "ddgs"
     assert settings.browser.provider == "local_chromium"
-    # Audio stays on "auto": the daemon works out what this machine has.
-    assert settings.audio.stt.provider == "auto"
+    # Voice stays unset, which means off: skipping every screen installs
+    # nothing, and unset is the honest description of a machine with nothing.
+    assert settings.audio.stt.provider is None
     assert settings.audio.tts.enabled is True
-    assert settings.audio.tts.provider == "auto"
+    assert settings.audio.tts.provider is None
     assert settings.audio.tts.autoSpeak is False
     assert settings.tools.enabled_categories == catalog.default_enabled_categories()
     assert settings.gateway == {}

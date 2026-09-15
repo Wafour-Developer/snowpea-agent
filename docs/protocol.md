@@ -322,8 +322,12 @@ _No params (send `{}`)._
 | `record` | `boolean` | no | True when the microphone can be recorded. |
 | `recorders` | `string[]` | no | Recorders found on PATH. |
 | `stt` | `string \| null` | no | Transcription backend in use, or null when there is none. |
+| `sttEffective` | `string \| null` | no | The engine actually in use, or null when none is pinned or it is missing. |
+| `sttPinned` | `boolean` | no | True when audio.stt.provider names an engine. False means unset, which means voice input is off: there is no fallback chain. |
 | `sttProviders` | `string[]` | no | Every usable transcription backend, preferred first. |
 | `tts` | `boolean` | no | True when speech synthesis is available. |
+| `ttsEffective` | `string \| null` | no | The speech engine actually in use, or null. |
+| `ttsPinned` | `boolean` | no | True when audio.tts.provider names an engine. |
 | `ttsProvider` | `string \| null` | no | Speech backend in use. |
 | `ttsProviders` | `string[]` | no | Every usable speech backend, preferred first. |
 | `voice` | `string \| null` | no | Configured voice, when one is set. |
@@ -1833,8 +1837,14 @@ List the tools registered for a session.
 
 | field | type | required | description |
 |---|---|---|---|
+| `bytesDone` | `number \| null` | no | Bytes transferred so far. |
+| `bytesTotal` | `number \| null` | no | Total bytes, from Content-Length when the server sends one. |
 | `engine` | `string` | yes | Engine being installed. |
-| `line` | `string` | yes | One line of the installer's output. |
+| `line` | `string` | no | One line of the installer's output. |
+| `percent` | `number \| null` | no | 0-100 within the stage, when it can be known. |
+| `stage` | `string` | no | resolve \| download \| extract \| verify \| install \| check. 'install' is the package manager, 'verify' is the checksum, 'check' is the detection that runs afterwards. |
+| `step` | `number` | no | 1-based place of this stage in the sequence. |
+| `steps` | `number` | no | How many stages this engine has in total. |
 
 ### `commands.changed`
 
@@ -1933,6 +1943,7 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | `path` | `string` | yes | Audio file the speech was written to. |
 | `played` | `boolean` | no | True when the daemon played it. |
 | `provider` | `string` | no | Backend that synthesised it. |
+| `utterance` | `string` | no | reply = the turn's answer; ack = the opening acknowledgement the agent writes before its first tool call. A surface may label or skip an ack; one that does not know the field treats everything as a reply. |
 | `voice` | `string \| null` | no | Voice that was used. |
 
 ### kind `backend.changed`

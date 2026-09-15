@@ -446,6 +446,23 @@ class AudioCapabilitiesResult(Payload):
     )
     tts: bool = Field(default=False, description="True when speech synthesis is available.")
     ttsProvider: str | None = Field(default=None, description="Speech backend in use.")
+    sttPinned: bool = Field(
+        default=False,
+        description=(
+            "True when audio.stt.provider names an engine. False means unset, which "
+            "means voice input is off: there is no fallback chain."
+        ),
+    )
+    ttsPinned: bool = Field(
+        default=False, description="True when audio.tts.provider names an engine."
+    )
+    sttEffective: str | None = Field(
+        default=None,
+        description="The engine actually in use, or null when none is pinned or it is missing.",
+    )
+    ttsEffective: str | None = Field(
+        default=None, description="The speech engine actually in use, or null."
+    )
     voice: str | None = Field(default=None, description="Configured voice, when one is set.")
     record: bool = Field(default=False, description="True when the microphone can be recorded.")
     play: bool = Field(default=False, description="True when the daemon can play audio itself.")
@@ -1967,6 +1984,14 @@ class AudioSpoken(Payload):
     provider: str = Field(default="", description="Backend that synthesised it.")
     played: bool = Field(default=False, description="True when the daemon played it.")
     voice: str | None = Field(default=None, description="Voice that was used.")
+    utterance: str = Field(
+        default="reply",
+        description=(
+            "reply = the turn's answer; ack = the opening acknowledgement the agent "
+            "writes before its first tool call. A surface may label or skip an ack; "
+            "one that does not know the field treats everything as a reply."
+        ),
+    )
 
 
 class ModelChanged(Payload):
@@ -2219,14 +2244,37 @@ class CommandsChangedNotification(Payload):
 
 
 class AudioInstallProgressNotification(Payload):
-    """One line of output from a running ``audio.install``.
+    """Progress from a running ``audio.install``.
 
     Session-less and broadcast: an install belongs to the daemon, not to a
-    conversation, and any attached surface may be showing the log.
+    conversation, and any attached surface may be showing it.
+
+    A log line alone cannot say how far along a 400MB download is, so every
+    event names its **stage** and its place in the sequence. A surface draws a
+    one-line bar from ``stage``/``step``/``steps``/``percent`` and the log tail
+    from ``line``; either may be absent, and a client that only knows ``line``
+    keeps working.
     """
 
     engine: str = Field(description="Engine being installed.")
-    line: str = Field(description="One line of the installer's output.")
+    line: str = Field(default="", description="One line of the installer's output.")
+    stage: str = Field(
+        default="",
+        description=(
+            "resolve | download | extract | verify | install | check. "
+            "'install' is the package manager, 'verify' is the checksum, "
+            "'check' is the detection that runs afterwards."
+        ),
+    )
+    step: int = Field(default=0, description="1-based place of this stage in the sequence.")
+    steps: int = Field(default=0, description="How many stages this engine has in total.")
+    percent: float | None = Field(
+        default=None, description="0-100 within the stage, when it can be known."
+    )
+    bytesDone: int | None = Field(default=None, description="Bytes transferred so far.")
+    bytesTotal: int | None = Field(
+        default=None, description="Total bytes, from Content-Length when the server sends one."
+    )
 
 
 class JobEventNotification(Payload):

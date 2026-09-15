@@ -444,15 +444,18 @@ def parse_sherpa_output(out: str) -> str:
     return ""
 
 
-#: The order ``"auto"`` tries backends in.  Local first: transcription is the
-#: one place where audio of the user's room would otherwise leave the machine,
-#: so anything installed here wins over the hosted API.
+#: The order the wizard **recommends** engines in.  It is no longer a chain:
+#: nothing resolves through it, because a direction of voice is either pinned
+#: to one engine or off (``audio/__init__.pinned``).  What it still decides is
+#: which engine the setup screens suggest installing first, and which one
+#: detection lists first.
 #:
 #: SenseVoice leads because it is the recommended default (CPU, five languages,
 #: its own VAD) and because it needs no language guess to be right.  The
-#: zipformers follow for the case where one of those is what the user actually
-#: installed, then the whisper CLI, then OpenAI.
-AUTO_ORDER: tuple[str, ...] = (
+#: zipformers follow, then the whisper CLI, then the hosted API — local before
+#: hosted, because transcription is the one place audio of the user's room
+#: would otherwise leave the machine.
+RECOMMENDED_ORDER: tuple[str, ...] = (
     "sherpa-onnx-sensevoice",
     "sherpa-onnx-zipformer-ko",
     "sherpa-onnx-zipformer-en",
@@ -503,12 +506,15 @@ def resolve_provider(
     home: Path | str | None = None,
     language: str | None = None,
 ) -> STTProvider | None:
-    """The backend to transcribe with, or ``None`` when none is usable.
+    """The named backend, or ``None`` when it is not usable here.
 
-    A named provider is returned only when it is actually available, so the
-    caller can report *why* speech input is off rather than failing later.
+    It is returned only when it is actually available, so the caller can report
+    *why* speech input is off rather than failing later.  There is no fallback:
+    an engine the user pinned and does not have is an engine that is missing,
+    not a reason to quietly use a different one.
     """
-    names = AUTO_ORDER if name in {"auto", ""} else (name,)
+    # One name, always: the caller pins an engine or asks for nothing.
+    names = (name,) if name else ()
     for candidate in names:
         try:
             provider = build_provider(
@@ -527,8 +533,43 @@ def resolve_provider(
     return None
 
 
+def resolve_any(
+    *,
+    api_key: str | None = None,
+    model: str | None = None,
+    base_url: str | None = None,
+    command: str | None = None,
+    home: Path | str | None = None,
+    language: str | None = None,
+) -> STTProvider | None:
+    """The first usable backend in :data:`RECOMMENDED_ORDER`, or ``None``.
+
+    For the ``transcribe_audio`` **tool**, which the model calls on purpose and
+    which should use whatever this machine has.  Voice *input* does not come
+    through here: a user who turned the microphone on pinned an engine, and if
+    it is missing the honest answer is that it is missing.
+    """
+    for candidate in RECOMMENDED_ORDER:
+        try:
+            provider = build_provider(
+                candidate,
+                api_key=api_key,
+                model=model,
+                base_url=base_url,
+                command=command,
+                home=home,
+                language=language,
+            )
+        except AudioError:
+            continue
+        if provider.available():
+            return provider
+    return None
+
+
 __all__ = [
-    "AUTO_ORDER",
+    "resolve_any",
+    "RECOMMENDED_ORDER",
     "SHERPA_OFFLINE_BIN",
     "SHERPA_ONLINE_BIN",
     "SHERPA_PROVIDERS",
