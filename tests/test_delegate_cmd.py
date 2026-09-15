@@ -3,12 +3,12 @@
 Before this, both paths reached ``agent.spawn`` directly: a subagent started
 in the background and, once it finished, nobody turned that into a reply on
 the parent session — the child's own transcript was the only place the
-answer showed up. Both now rewrite into an ordinary main-agent turn whose
-text tells the model to call ``delegate_task`` and report back, so the
-model's own reply (with the child's report folded in) is what the parent
-session sees. This runs against a real in-process daemon with the
-deterministic scripted fake provider (``tests/_support.py``), so the
-assertions describe what any client — TUI, SDK, a scheduled job — would
+answer showed up. Then the command asked the main model to call
+``delegate_task``, which worked only when the model complied. Both paths now
+call the real tool directly, emit the same tool/subagent events, and answer
+the parent with the child report. This runs against a real in-process daemon
+with the deterministic scripted fake provider (``tests/_support.py``), so
+the assertions describe what any client — TUI, SDK, a scheduled job — would
 actually see.
 """
 
@@ -107,7 +107,7 @@ async def test_command_run_delegate_matches_slash_delegate(
         assert calls, f"delegate_task was never called; saw {client.kinds()}"
         assert _payloads(client, "subagent.spawn"), "the child never actually spawned"
         done = _payloads(client, "message.done")
-        assert done and "task complete" in done[-1]["text"]
+        assert done and "child executor finished doing the thing" in done[-1]["text"]
     finally:
         await client.stop()
 
@@ -131,7 +131,7 @@ async def test_delegate_command_calls_delegate_task_and_the_parent_answers(
         # The bug this fixes: the MAIN session gets a real reply, not silence.
         done = _payloads(client, "message.done")
         assert done, "the parent session never answered the user"
-        assert "task complete" in done[-1]["text"]
+        assert "child executor finished doing the thing" in done[-1]["text"]
 
         assert _payloads(client, "subagent.done"), "the child still runs and finishes as usual"
         assert _payloads(client, "turn.done")[-1]["reason"] == "complete"
@@ -199,7 +199,7 @@ async def test_dollar_shorthand_takes_the_same_path_as_slash_delegate(
 
         done = _payloads(client, "message.done")
         assert done, "the parent session never answered the user"
-        assert "task complete" in done[-1]["text"]
+        assert "child executor finished doing the thing" in done[-1]["text"]
         assert _payloads(client, "turn.done")[-1]["reason"] == "complete"
     finally:
         await client.stop()
