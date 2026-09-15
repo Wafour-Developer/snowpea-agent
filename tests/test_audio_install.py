@@ -18,6 +18,7 @@ from typing import Any
 import pytest
 
 from snowpea_core.audio import install as audio_install
+from snowpea_core.audio import runtime as audio_runtime
 from snowpea_core.audio import tts as tts_mod
 from snowpea_core.setup.catalog import stt_catalog, tts_catalog
 
@@ -171,6 +172,122 @@ def test_the_installer_chain_prefers_uv_then_pipx_then_pip(monkeypatch: Any) -> 
     # The interpreter running us is always there, so pip --user is the floor.
     assert argv is not None
     assert argv[1:] == ["-m", "pip", "install", "--user", "edge-tts"]
+
+
+# ---------------------------------------------------------------------------
+# the audio runtime: snowpea's own interpreter for the Python-API engines
+# ---------------------------------------------------------------------------
+
+
+def test_the_runtime_lives_under_the_home_it_belongs_to(tmp_path: Path) -> None:
+    assert audio_runtime.runtime_dir(tmp_path) == tmp_path / "audio-runtime"
+    python = audio_runtime.runtime_python(tmp_path)
+    assert python.parent.parent == audio_runtime.runtime_dir(tmp_path)
+    assert python.name.startswith("python")
+    assert audio_runtime.runtime_ready(tmp_path) is False
+
+
+def test_the_runtime_is_created_with_uv_when_uv_is_there(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    monkeypatch.setattr(
+        audio_runtime.shutil, "which", lambda name: "/usr/bin/uv" if name == "uv" else None
+    )
+    assert audio_runtime.create_argv(tmp_path)[0][:2] == ["uv", "venv"]
+
+
+def test_without_uv_the_runtime_falls_to_the_stdlib_venv(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    monkeypatch.setattr(audio_runtime.shutil, "which", lambda _name: None)
+    first = audio_runtime.create_argv(tmp_path)[0]
+    assert first[1:3] == ["-m", "venv"] and first[-1] == str(audio_runtime.runtime_dir(tmp_path))
+
+
+async def test_creating_the_runtime_runs_the_command_and_is_idempotent(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    monkeypatch.setattr(
+        audio_runtime.shutil, "which", lambda name: "/usr/bin/uv" if name == "uv" else None
+    )
+    runner = FakeRunner(lines=())
+
+    async def creating(argv: Any, progress: Any = None) -> int:
+        code = await runner(argv, progress)
+        _make_runtime(tmp_path)
+        return code
+
+    assert await audio_runtime.ensure_runtime(tmp_path, runner=creating) is True
+    assert runner.calls == [["uv", "venv", str(audio_runtime.runtime_dir(tmp_path))]]
+
+    # Already there: nothing is run a second time.
+    assert await audio_runtime.ensure_runtime(tmp_path, runner=creating) is True
+    assert len(runner.calls) == 1
+
+
+async def test_a_runtime_that_cannot_be_created_is_a_failed_install(tmp_path: Path) -> None:
+    runner = FakeRunner(code=1, lines=())
+    assert await audio_runtime.ensure_runtime(tmp_path, runner=runner) is False
+    result = await audio_install.install(
+        "supertonic", home=tmp_path, runner=FakeRunner(code=1, lines=())
+    )
+    assert result.ok is False
+    assert result.hint is not None and "audio-runtime" in result.hint
+
+
+def test_the_runtime_install_argv_names_the_runtime_interpreter(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    monkeypatch.setattr(
+        audio_runtime.shutil, "which", lambda name: "/usr/bin/uv" if name == "uv" else None
+    )
+    python = str(audio_runtime.runtime_python(tmp_path))
+    assert audio_runtime.runtime_install_argv(tmp_path, "sherpa-onnx") == [
+        "uv", "pip", "install", "--python", python, "sherpa-onnx",
+    ]
+
+    monkeypatch.setattr(audio_runtime.shutil, "which", lambda _name: None)
+    assert audio_runtime.runtime_install_argv(tmp_path, "sherpa-onnx") == [
+        python, "-m", "pip", "install", "sherpa-onnx",
+    ]
+
+
+def test_a_module_is_found_by_looking_rather_than_by_running(tmp_path: Path) -> None:
+    """Availability is asked on every capabilities call; a process each is too much."""
+    assert audio_runtime.has_module(tmp_path, "sherpa_onnx") is False
+    site = _make_runtime(tmp_path)
+    assert audio_runtime.has_module(tmp_path, "sherpa_onnx") is False
+    (site / "sherpa_onnx").mkdir()
+    assert audio_runtime.has_module(tmp_path, "sherpa_onnx") is True
+    # A single-file module counts too.
+    (site / "lonely.py").write_text("", encoding="utf-8")
+    assert audio_runtime.has_module(tmp_path, "lonely") is True
+    assert audio_runtime.has_module(tmp_path, "") is False
+
+
+@pytest.mark.parametrize(
+    "engine",
+    [
+        "sherpa-onnx-sensevoice",
+        "sherpa-onnx-zipformer-ko",
+        "sherpa-onnx-zipformer-en",
+        "supertonic",
+    ],
+)
+def test_the_python_api_engines_go_to_the_runtime_and_the_cli_ones_do_not(engine: str) -> None:
+    assert audio_install.ENGINES[engine].runtime is True
+    for other in ("piper", "edge-tts", "faster-whisper"):
+        assert audio_install.ENGINES[other].runtime is False
+
+
+def _make_runtime(home: Path) -> Path:
+    """A runtime venv on disk, without creating a real one."""
+    site = audio_runtime.runtime_dir(home) / "lib" / "python3.12" / "site-packages"
+    site.mkdir(parents=True, exist_ok=True)
+    python = audio_runtime.runtime_python(home)
+    python.parent.mkdir(parents=True, exist_ok=True)
+    python.write_text("#!/bin/sh\n", encoding="utf-8")
+    return site
 
 
 def test_nothing_is_ever_a_shell_string() -> None:

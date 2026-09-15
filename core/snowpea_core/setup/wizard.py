@@ -1011,9 +1011,9 @@ def _follow_up(
 
     apply_it = apply_choice or audio_screen.apply
     items = (
-        catalog_mod.tts_catalog(audio_screen.detected_tts(state))
+        catalog_mod.tts_catalog(audio_screen.detected_tts(state, home))
         if direction == "tts"
-        else catalog_mod.stt_catalog(audio_screen.detected_stt(state))
+        else catalog_mod.stt_catalog(audio_screen.detected_stt(state, home))
     )
     item = next((row for row in items if row.id == name), None)
     if item is None:
@@ -1154,7 +1154,7 @@ def _ask_for_voices(
                 engine,
                 home=home,
                 languages=languages,
-                installed_engines=tuple(audio_screen.detected_tts(state)),
+                installed_engines=tuple(audio_screen.detected_tts(state, home)),
                 openai_key=bool(state.api_key or state.has_saved_key),
             )
         )

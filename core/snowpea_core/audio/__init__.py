@@ -147,6 +147,7 @@ class AudioConfig:
             model=self.tts_model,
             base_url=self.openai_base_url,
             command=self.tts_command,
+            home=self.home,
             language=self.stt_language,
         )
 
@@ -179,6 +180,7 @@ class AudioConfig:
             studio_configured=self.studio_configured,
             api_key=self.openai_api_key,
             command=self.tts_command,
+            home=self.home,
             language=self.stt_language,
         )
 
@@ -301,6 +303,7 @@ def capabilities(
             studio_configured=cfg.studio_configured,
             api_key=cfg.openai_api_key,
             command=cfg.tts_command,
+            home=cfg.home,
             language=cfg.stt_language,
         ),
         "players": available_players(),

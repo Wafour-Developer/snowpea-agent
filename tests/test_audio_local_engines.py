@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import bz2
 import io
+import json
 import tarfile
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,7 @@ from typing import Any
 import pytest
 
 from snowpea_core.audio import install as audio_install
+from snowpea_core.audio import runtime as audio_runtime
 from snowpea_core.audio import stt as stt_mod
 from snowpea_core.audio import stt_models
 from snowpea_core.audio import tts as tts_mod
@@ -217,6 +219,16 @@ async def test_an_archive_that_escapes_its_directory_is_refused(tmp_path: Path) 
 # ---------------------------------------------------------------------------
 
 
+def _pretend_runtime(home: Path, module: str = "sherpa_onnx") -> Path:
+    """A runtime venv with ``module`` in it, without creating a real one."""
+    site = audio_runtime.runtime_dir(home) / "lib" / "python3.12" / "site-packages"
+    (site / module).mkdir(parents=True, exist_ok=True)
+    python = audio_runtime.runtime_python(home)
+    python.parent.mkdir(parents=True, exist_ok=True)
+    python.write_text("#!/bin/sh\n", encoding="utf-8")
+    return python
+
+
 def _pretend_installed(home: Path, model_id: str) -> None:
     model = stt_models.MODELS[model_id]
     root = model.root(home)
@@ -251,62 +263,120 @@ def test_nothing_installed_is_no_model(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_the_offline_and_streaming_models_use_different_binaries(tmp_path: Path) -> None:
+def test_the_offline_and_streaming_models_take_different_requests(tmp_path: Path) -> None:
     sense = stt_mod.SherpaOnnxSTT("sherpa-onnx-sensevoice", home=tmp_path)
     zipformer = stt_mod.SherpaOnnxSTT("sherpa-onnx-zipformer-ko", home=tmp_path)
-    assert sense.executable == stt_mod.SHERPA_OFFLINE_BIN
-    assert zipformer.executable == stt_mod.SHERPA_ONLINE_BIN
+    assert sense.request(Path("/tmp/a.wav"))["kind"] == "offline"
+    assert zipformer.request(Path("/tmp/a.wav"))["kind"] == "online"
 
 
-def test_the_offline_argv_names_the_model_the_language_and_the_vad(tmp_path: Path) -> None:
+def test_the_decoder_runs_the_runtime_interpreter_and_is_handed_no_user_text(
+    tmp_path: Path,
+) -> None:
+    """The audio path goes in on stdin, so nothing named becomes part of a program."""
+    engine = stt_mod.SherpaOnnxSTT("sherpa-onnx-sensevoice", home=tmp_path)
+    argv = engine.argv()
+    assert argv[0] == str(audio_runtime.runtime_python(tmp_path))
+    assert argv[1] == "-c" and argv[2] == stt_mod.SHERPA_SCRIPT
+    assert len(argv) == 3
+    assert "json.load(sys.stdin)" in stt_mod.SHERPA_SCRIPT
+
+
+def test_the_offline_request_names_the_model_the_language_and_the_vad(tmp_path: Path) -> None:
     _pretend_installed(tmp_path, "sherpa-onnx-sensevoice")
     model = stt_models.MODELS["sherpa-onnx-sensevoice"]
     (model.directory(tmp_path) / stt_models.SILERO_VAD).write_bytes(b"vad")
 
     engine = stt_mod.SherpaOnnxSTT("sherpa-onnx-sensevoice", home=tmp_path, language="ko")
-    argv = engine.argv(Path("/tmp/a.wav"))
-    assert argv[0] == stt_mod.SHERPA_OFFLINE_BIN
-    assert any(part.startswith("--sense-voice-model=") for part in argv)
-    assert "--sense-voice-language=ko" in argv
-    assert any(part.startswith("--silero-vad-model=") for part in argv)
-    assert argv[-1] == "/tmp/a.wav"
+    request = engine.request(Path("/tmp/a.wav"))
+    assert request["kind"] == "offline"
+    assert request["audio"] == "/tmp/a.wav"
+    assert request["model"].endswith("model.int8.onnx")
+    assert request["tokens"].endswith("tokens.txt")
+    assert request["language"] == "ko"
+    assert request["vad"].endswith(stt_models.SILERO_VAD)
 
     # No language configured means detect, which is SenseVoice's whole point.
     auto = stt_mod.SherpaOnnxSTT("sherpa-onnx-sensevoice", home=tmp_path)
-    assert "--sense-voice-language=auto" in auto.argv(Path("/tmp/a.wav"))
+    assert auto.request(Path("/tmp/a.wav"))["language"] == "auto"
 
 
-def test_the_streaming_argv_names_the_three_transducer_parts(tmp_path: Path) -> None:
+def test_a_model_without_a_vad_asks_for_none(tmp_path: Path) -> None:
+    _pretend_installed(tmp_path, "sherpa-onnx-sensevoice")
+    engine = stt_mod.SherpaOnnxSTT("sherpa-onnx-sensevoice", home=tmp_path)
+    assert "vad" not in engine.request(Path("/tmp/a.wav"))
+
+
+def test_the_streaming_request_names_the_three_transducer_parts(tmp_path: Path) -> None:
     _pretend_installed(tmp_path, "sherpa-onnx-zipformer-ko")
     engine = stt_mod.SherpaOnnxSTT("sherpa-onnx-zipformer-ko", home=tmp_path)
-    argv = engine.argv(Path("/tmp/a.wav"))
-    assert any(part.startswith("--encoder=") and ".int8.onnx" in part for part in argv)
-    assert any(part.startswith("--decoder=") for part in argv)
-    assert any(part.startswith("--joiner=") and ".int8.onnx" in part for part in argv)
-    assert any(part.startswith("--tokens=") for part in argv)
+    request = engine.request(Path("/tmp/a.wav"))
+    assert request["kind"] == "online"
+    assert ".int8.onnx" in request["encoder"]
+    assert request["decoder"].rsplit("/", 1)[-1].startswith("decoder")
+    assert ".int8.onnx" in request["joiner"]
+    assert request["tokens"].endswith("tokens.txt")
+    assert "model" not in request and "vad" not in request
 
 
-def test_the_engine_is_unavailable_until_both_cli_and_model_are_there(
-    tmp_path: Path, monkeypatch: Any
+def test_the_engine_is_unavailable_until_both_runtime_and_model_are_there(
+    tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(stt_mod.shutil, "which", lambda _b: None)
     engine = stt_mod.SherpaOnnxSTT("sherpa-onnx-sensevoice", home=tmp_path)
-    assert engine.available() is False, "no CLI"
+    assert engine.available() is False, "no runtime"
+    assert "audio runtime" in engine.missing_reason() or "not downloaded" in (
+        engine.missing_reason()
+    )
 
-    monkeypatch.setattr(stt_mod.shutil, "which", lambda b: f"/usr/bin/{b}")
-    assert engine.available() is False, "CLI but no model"
+    _pretend_runtime(tmp_path)
+    assert engine.available() is False, "runtime but no model"
 
     _pretend_installed(tmp_path, "sherpa-onnx-sensevoice")
-    assert stt_mod.SherpaOnnxSTT("sherpa-onnx-sensevoice", home=tmp_path).available() is True
+    ready = stt_mod.SherpaOnnxSTT("sherpa-onnx-sensevoice", home=tmp_path)
+    assert ready.available() is True
 
 
-def test_a_half_downloaded_model_is_not_installed(tmp_path: Path, monkeypatch: Any) -> None:
+def test_a_package_on_path_is_not_what_makes_the_engine_available(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """The wheel has no usable CLI, so PATH must not be what detection reads."""
     monkeypatch.setattr(stt_mod.shutil, "which", lambda b: f"/usr/bin/{b}")
+    _pretend_installed(tmp_path, "sherpa-onnx-sensevoice")
+    engine = stt_mod.SherpaOnnxSTT("sherpa-onnx-sensevoice", home=tmp_path)
+    assert engine.available() is False
+    assert "audio runtime" in engine.missing_reason()
+
+
+def test_a_half_downloaded_model_is_not_installed(tmp_path: Path) -> None:
+    _pretend_runtime(tmp_path)
     model = stt_models.MODELS["sherpa-onnx-sensevoice"]
     root = model.root(tmp_path)
     root.mkdir(parents=True)
     (root / "tokens.txt").write_bytes(b"x")  # one file of two, and no stamp
     assert stt_mod.SherpaOnnxSTT("sherpa-onnx-sensevoice", home=tmp_path).available() is False
+
+
+async def test_the_transcript_comes_back_from_the_runtime_child(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    _pretend_runtime(tmp_path)
+    _pretend_installed(tmp_path, "sherpa-onnx-sensevoice")
+    audio = tmp_path / "a.wav"
+    audio.write_bytes(b"RIFF")
+    seen: list[Any] = []
+
+    async def fake_run(argv: list[str], timeout: float, stdin: bytes | None = None) -> Any:
+        seen.append((argv, stdin))
+        return (json.dumps({"text": "안녕하세요"}), "", 0)
+
+    monkeypatch.setattr(stt_mod, "_run", fake_run)
+    engine = stt_mod.SherpaOnnxSTT("sherpa-onnx-sensevoice", home=tmp_path)
+    result = await engine.transcribe(audio)
+    assert result.text == "안녕하세요"
+    argv, stdin = seen[0]
+    assert argv[0] == str(audio_runtime.runtime_python(tmp_path))
+    assert stdin is not None
+    assert json.loads(stdin)["audio"] == str(audio)
 
 
 @pytest.mark.parametrize(
@@ -360,12 +430,21 @@ def test_the_language_tag_is_narrowed_to_what_the_engine_takes(
     assert tts_mod.supertonic_lang(language) == expected
 
 
-def test_supertonic_installs_where_this_interpreter_can_import_it() -> None:
-    """`uv tool` would hide it in a venv of its own, and the engine imports it."""
+def test_supertonic_installs_into_the_audio_runtime(tmp_path: Path) -> None:
+    """It is a Python API, not a command, so PATH is never going to have it."""
     spec = audio_install.ENGINES["supertonic"]
-    assert spec.isolated is False
-    argv = audio_install.python_install_argv(spec.package, isolated=spec.isolated)
-    assert argv is not None and argv[1:] == ["-m", "pip", "install", "--user", "supertonic"]
+    assert spec.runtime is True
+    argv = audio_install.runtime.runtime_install_argv(tmp_path, spec.package)
+    assert argv[-1] == "supertonic"
+    assert str(audio_runtime.runtime_python(tmp_path)) in argv
+
+
+def test_supertonic_is_available_through_the_runtime(tmp_path: Path) -> None:
+    engine = tts_mod.SupertonicTTS(home=tmp_path)
+    assert engine.python == str(audio_runtime.runtime_python(tmp_path))
+    assert engine.available() is False
+    _pretend_runtime(tmp_path, "supertonic")
+    assert tts_mod.SupertonicTTS(home=tmp_path).available() is True
 
 
 # ---------------------------------------------------------------------------
@@ -443,12 +522,22 @@ def test_nothing_pinned_means_voice_is_off_rather_than_guessed() -> None:
 
 
 class Runner:
+    """Records argv, and makes a ``venv`` command leave a venv behind.
+
+    The real installer refuses to go on without a runtime interpreter, so a
+    runner that answered 0 and created nothing would be testing a path that
+    cannot happen.
+    """
+
     def __init__(self, code: int = 0) -> None:
         self.code = code
         self.calls: list[list[str]] = []
 
     async def __call__(self, argv: Any, progress: Any = None) -> int:
-        self.calls.append(list(argv))
+        parts = list(argv)
+        self.calls.append(parts)
+        if "venv" in parts and self.code == 0:
+            _pretend_runtime(Path(parts[-1]).parent)
         if progress is not None:
             await progress("installed the package")
         return self.code
@@ -464,7 +553,10 @@ async def test_installing_a_sherpa_engine_installs_the_package_and_the_model(
         "sherpa-onnx-sensevoice", home=tmp_path, runner=runner, fetch=fetcher
     )
     assert result.ok is True
-    assert runner.calls and runner.calls[0][-1] == audio_install.SHERPA_PACKAGE
+    # The runtime is created first, then the package goes into it.
+    assert [call[:2] for call in runner.calls][0] in (["uv", "venv"], [runner.calls[0][0], "-m"])
+    assert runner.calls[-1][-1] == audio_install.SHERPA_PACKAGE
+    assert str(audio_runtime.runtime_python(tmp_path)) in runner.calls[-1]
     assert model.installed(tmp_path) is True
     assert "downloading" in result.log
 
@@ -572,13 +664,14 @@ async def test_a_model_install_reports_download_verify_and_extract(tmp_path: Pat
     assert result.ok is True
     assert stages.sequence() == [
         "resolve",
+        "runtime",
         "install",
         "download",
         "verify",
         "extract",
         "check",
     ]
-    assert all(event.steps == 6 for event in stages.events)
+    assert all(event.steps == 7 for event in stages.events)
 
 
 async def test_piper_reports_its_voice_download_as_a_stage(tmp_path: Path) -> None:
@@ -659,8 +752,17 @@ def test_the_payload_only_carries_what_it_knows() -> None:
 def test_the_stage_sequence_matches_what_the_engine_actually_does() -> None:
     assert audio_install.stages_for("edge-tts") == audio_install.STAGES_PACKAGE
     assert audio_install.stages_for("piper") == audio_install.STAGES_WITH_VOICE
+    # A Python-API engine creates the audio runtime first, and a stage the
+    # user waits through is a stage the bar has to count.
     assert audio_install.stages_for("sherpa-onnx-zipformer-en") == (
-        audio_install.STAGES_WITH_MODEL
+        audio_install.STAGE_RESOLVE,
+        audio_install.STAGE_RUNTIME,
+        *audio_install.STAGES_WITH_MODEL[1:],
+    )
+    assert audio_install.stages_for("supertonic") == (
+        audio_install.STAGE_RESOLVE,
+        audio_install.STAGE_RUNTIME,
+        *audio_install.STAGES_PACKAGE[1:],
     )
     # A catalog id resolves to its engine's sequence, not to a default.
     assert audio_install.stages_for("local-whisper") == audio_install.STAGES_PACKAGE
