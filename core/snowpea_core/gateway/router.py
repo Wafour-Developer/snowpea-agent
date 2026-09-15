@@ -48,6 +48,15 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 log = logging.getLogger("snowpea.gateway")
 
+#: Chat-platform greetings that are not snowpea commands.  ``/start`` is what
+#: Telegram sends when a person opens a bot for the first time.
+GREETING_COMMANDS: frozenset[str] = frozenset({"start", "hello", "hi"})
+WELCOME_TEXT = (
+    "Connected to snowpea. Ask anything, or send /help for the commands. "
+    "Approvals and questions arrive here as buttons."
+)
+UNKNOWN_COMMAND_TEXT = "Unknown command /{name} — send /help for the list, or just type a message."
+
 #: Channel string that means "just write it to the daemon log" (contract §2).
 LOG_CHANNEL = "log"
 
@@ -750,13 +759,25 @@ class GatewayRouter:
             return
         from snowpea_core.agent import loop as agent_loop
 
-        session, conn = await self._session_for(binding, message.channel_id)
         text = message.text
         parsed = self.core.commands.parse(text)
         if parsed is not None:
             name, args = parsed
+            if name in GREETING_COMMANDS:
+                # Telegram makes ``/start`` the first thing a person can send a
+                # bot, and other platforms borrow the habit.  It is a hello,
+                # not a snowpea command: answer it instead of failing it.
+                await self.send(binding, message.channel_id, WELCOME_TEXT)
+                return
+            if self.core.commands.get(name) is None:
+                # A failed command only produces an ``error`` event, which
+                # never reaches the chat; say so where the person can see it.
+                await self.send(binding, message.channel_id, UNKNOWN_COMMAND_TEXT.format(name=name))
+                return
+            session, _conn = await self._session_for(binding, message.channel_id)
             self.core.commands.start(self.core, session, name, args, None)
             return
+        session, _conn = await self._session_for(binding, message.channel_id)
         agent_loop.start_turn(self.core, session, text, unattended=True)
 
     async def _session_for(

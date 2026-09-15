@@ -20,6 +20,7 @@ from _support import connect
 
 from snowpea_core.gateway.base import (
     Button,
+    GatewayError,
     approval_callback,
     parse_approval_callback,
 )
@@ -512,3 +513,53 @@ def test_cli_parses_every_target_spelling(tmp_path: Path) -> None:
     assert parse_target('{"agent": "ops"}') == {"agent": "ops"}
     with pytest.raises(ValueError):
         parse_target("nonsense")
+
+
+async def test_start_and_unknown_commands_are_answered_in_the_chat(
+    gateway_env: None, http: aiohttp.ClientSession, tmp_path: Path
+) -> None:
+    """Telegram's ``/start`` is a hello, not a snowpea command; and a command
+    snowpea does not know must say so in the chat rather than only in an
+    ``error`` event nobody there can see."""
+    from snowpea_core.gateway import router as gateway_router
+
+    workdir = tmp_path / "project"
+    workdir.mkdir()
+    daemon = Daemon(port=0, home=tmp_path / "home")
+    await daemon.start()
+    try:
+        client = await connect(http, daemon)
+        await client.ok(
+            "gateway.bind",
+            {
+                "platform": "telegram",
+                "credentialsRef": "tg_test",
+                "target": {"new_session": {"workdir": str(workdir), "mode": "accept"}},
+                "channelId": "c1",
+                "userId": "u1",
+            },
+        )
+        adapter = FakeAdapter.instances["tg_test"]
+        await adapter.push("/start", channel_id="c1", user_id="u1")
+        reply = await adapter.wait_for_send(TIMEOUT)
+        assert reply.text == gateway_router.WELCOME_TEXT
+
+        await adapter.push("/nosuchthing now", channel_id="c1", user_id="u1")
+        reply = await adapter.wait_for_send(TIMEOUT)
+        assert "/nosuchthing" in reply.text and "/help" in reply.text
+        # Neither greeting nor typo opened a session.
+        assert (await client.ok("session.list", {}))["sessions"] == []
+        await client.stop()
+    finally:
+        await daemon.stop()
+
+
+def test_telegram_errors_never_carry_the_bot_token() -> None:
+    import asyncio
+
+    transport = httpx.MockTransport(lambda request: httpx.Response(409, json={"ok": False}))
+    adapter = TelegramAdapter(token="123:SECRET", client=httpx.AsyncClient(transport=transport))
+    with pytest.raises(GatewayError) as caught:
+        asyncio.run(adapter._api("getUpdates", {}))
+    assert "SECRET" not in str(caught.value)
+    assert "<token>" in str(caught.value)

@@ -126,7 +126,10 @@ class TelegramAdapter:
             response.raise_for_status()
             body = response.json()
         except (httpx.HTTPError, ValueError) as exc:
-            raise GatewayError(f"telegram {method} failed: {exc}") from exc
+            # httpx names the URL in its message, and the URL carries the
+            # bot token; a log line must never.
+            detail = str(exc).replace(self._token, "<token>") or type(exc).__name__
+            raise GatewayError(f"telegram {method} failed: {detail}") from exc
         if not body.get("ok"):
             raise GatewayError(f"telegram {method} rejected: {body.get('description')}")
         return body.get("result")
