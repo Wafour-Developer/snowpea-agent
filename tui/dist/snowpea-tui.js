@@ -34413,6 +34413,14 @@ function buildHudSegments(input) {
     dimColor: true,
     priority: 3
   });
+  if (input.effort) {
+    segments.push({
+      key: "effort",
+      text: `\u2699 ${input.effort}`,
+      dimColor: true,
+      priority: 4
+    });
+  }
   segments.push({
     key: "mode",
     text: `Mode: ${input.mode.toUpperCase()}${input.modeHint ? " (\u21E7Tab)" : ""}`,
@@ -34733,6 +34741,8 @@ var initialState = {
   provider: null,
   model: null,
   modelSource: null,
+  effort: null,
+  effortSource: null,
   messages: [],
   toolCalls: [],
   diffs: [],
@@ -34991,7 +35001,9 @@ function applySessionEvent(state, event, options = {}) {
       const model = "model" in payload ? payload.model ?? null : base.model;
       const provider = "provider" in payload ? payload.provider ?? null : base.provider;
       const source = typeof payload.source === "string" && payload.source.length > 0 ? payload.source : "model" in payload && payload.model === null ? null : base.modelSource;
-      return { ...base, model, provider, modelSource: source };
+      const effort = "effort" in payload ? payload.effort ?? null : base.effort;
+      const effortSource = "effortSource" in payload ? payload.effortSource ?? null : base.effortSource;
+      return { ...base, model, provider, modelSource: source, effort, effortSource };
     }
     case "mode.changed":
       return { ...base, mode: payload.mode ?? base.mode };
@@ -35946,6 +35958,12 @@ function stopSpeaking(runtime, handle) {
 
 // src/state/models.ts
 var INHERIT_REF = "inherit";
+var EFFORT_REF = "__effort__";
+var EFFORTS = ["low", "medium", "high", "max"];
+function nextEffort(current2) {
+  const index = EFFORTS.indexOf(current2 ?? "");
+  return EFFORTS[(index + 1) % EFFORTS.length] ?? "medium";
+}
 function modelOptions({
   profiles = null,
   projectProfiles = null,
@@ -35954,7 +35972,9 @@ function modelOptions({
   discovered = null,
   discoveredSource = null,
   current: current2 = null,
-  vendor = null
+  vendor = null,
+  effort = null,
+  effortSource = null
 }) {
   const options = [];
   const covered = /* @__PURE__ */ new Set();
@@ -36005,6 +36025,15 @@ function modelOptions({
       detail: [vendor, "in use"].filter(Boolean).join(" \xB7 "),
       origin: "current",
       current: true
+    });
+  }
+  if (effort) {
+    options.push({
+      ref: EFFORT_REF,
+      label: `effort: ${effort}`,
+      detail: [effortSource ? `set by ${effortSource}` : "", `Enter \u2192 ${nextEffort(effort)}`].filter(Boolean).join(" \xB7 "),
+      origin: "effort",
+      current: false
     });
   }
   options.push({
@@ -38366,6 +38395,10 @@ function ApprovalPrompt({
 var import_react33 = __toESM(require_react(), 1);
 var import_jsx_runtime13 = __toESM(require_jsx_runtime(), 1);
 var OTHER_LABEL = "\uAE30\uD0C0 / Other\u2026";
+var MASK_CHAR = "\u2022";
+function maskSecret(value) {
+  return value ? MASK_CHAR.repeat(value.length) : "";
+}
 var CONFIRM_LABEL = "\uD655\uC778 / Confirm";
 var NOT_ANSWERED = "(not answered)";
 var blank = () => ({ selected: [], text: null });
@@ -38393,6 +38426,7 @@ function QuestionPrompt({
   const current2 = questions[at];
   const options = current2?.options ?? [];
   const allowOther = current2?.allowOther !== false;
+  const secret = current2?.secret === true;
   const multi = current2?.multi === true;
   const answer = answers[at] ?? blank();
   const otherRow = allowOther ? options.length : -1;
@@ -38531,19 +38565,20 @@ function QuestionPrompt({
         numbered: true,
         allowOther,
         otherLabel: OTHER_LABEL,
-        otherText: answer.text,
+        otherText: secret ? maskSecret(answer.text) : answer.text,
         hint: null
       }
     ) }),
     typing ? /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(Box_default, { marginTop: 1, children: [
       /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { color: "cyan", children: "\u203A " }),
-      /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { children: draft }),
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { children: secret ? maskSecret(draft) : draft }),
       /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { inverse: true, children: " " }),
-      /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { dimColor: true, children: "  Enter to keep \xB7 Esc to go back" })
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { dimColor: true, children: secret ? "  hidden \xB7 Enter to keep \xB7 Esc to go back" : "  Enter to keep \xB7 Esc to go back" })
     ] }) : /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(import_jsx_runtime13.Fragment, { children: [
       questions.length > 1 && last ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Box_default, { marginTop: 1, flexDirection: "column", children: questions.map((question, index) => {
         const entry = answers[index] ?? blank();
-        const said = entry.selected.length > 0 ? entry.selected.join(", ") : entry.text ?? "";
+        const plain = entry.selected.length > 0 ? entry.selected.join(", ") : entry.text ?? "";
+        const said = question.secret === true && entry.selected.length === 0 ? maskSecret(entry.text) : plain;
         return /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(Box_default, { children: [
           /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { dimColor: true, children: `  ${question.header || `Q${index + 1}`}: ` }),
           said ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { color: "green", children: said }) : /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { color: "yellow", children: NOT_ANSWERED })
@@ -40030,6 +40065,7 @@ function App2({
       provider: state.provider,
       model: state.model,
       modelSource: state.modelSource ?? sessionModelSource,
+      effort: state.effort,
       mode: state.mode,
       usage: state.usage,
       context: state.context,
@@ -40299,7 +40335,9 @@ function App2({
           discovered: modelsResult?.models ?? null,
           discoveredSource: modelsResult?.source ?? null,
           current: state.model ?? modelsResult?.current ?? null,
-          vendor: state.provider ?? modelsResult?.vendor ?? null
+          vendor: state.provider ?? modelsResult?.vendor ?? null,
+          effort: state.effort,
+          effortSource: state.effortSource
         });
         setModelPicker(options);
       }
@@ -40307,6 +40345,19 @@ function App2({
   }, [client, workdir, state.provider, state.model]);
   const chooseModel = (0, import_react45.useCallback)(
     (ref) => {
+      if (ref === EFFORT_REF) {
+        const wanted = nextEffort(state.effort);
+        void client.call("session.setEffort", { sessionId, effort: wanted }).then((result) => {
+          showToast(`effort: ${result?.effort ?? wanted}`);
+        }).catch((error) => {
+          if (error?.code === -32601) {
+            submit(`/effort ${wanted}`);
+            return;
+          }
+          dispatch({ type: "error", message: String(error) });
+        });
+        return;
+      }
       void client.call("session.setModel", { sessionId, model: ref === INHERIT_REF ? null : ref }).then((result) => {
         const model2 = result?.model ? String(result.model) : null;
         showToast(
@@ -40321,7 +40372,7 @@ function App2({
         dispatch({ type: "error", message: String(error) });
       });
     },
-    [client, sessionId, showToast]
+    [client, sessionId, showToast, state.effort]
   );
   const takeClipboard = (0, import_react45.useCallback)(() => {
     if (!captureClipboard || !probe) {
