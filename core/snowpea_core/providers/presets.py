@@ -18,8 +18,13 @@ routes those to ``codex_transport`` / ``gemini_codeassist_transport`` instead
 
 from __future__ import annotations
 
+import logging
+import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
+
+log = logging.getLogger("snowpea.providers.presets")
 
 Adapter = Literal["anthropic_native", "gemini_native", "openai_compat"]
 WireShape = Literal["openai", "anthropic", "gemini"]
@@ -50,6 +55,11 @@ class VendorPreset:
     #: self-hosted OpenAI-compatible server is configured by its ``base_url``,
     #: not by a key, and must count as set up once one is saved.
     key_required: bool = True
+    #: True for the built-in ``local`` preset, its variants, and every named
+    #: OpenAI-compatible server a user adds.  Everything that used to test
+    #: ``vendor == "local"`` tests this instead, so a server called ``hon2``
+    #: gets the same keyless auth, model discovery and context-window probing.
+    local_style: bool = False
 
     @property
     def vendor(self) -> str:
@@ -91,6 +101,7 @@ def _preset(
     extra_headers: dict[str, str] | None = None,
     variant: str | None = None,
     key_required: bool = True,
+    local_style: bool = False,
 ) -> VendorPreset:
     return VendorPreset(
         id=vendor_id,
@@ -107,6 +118,7 @@ def _preset(
         extra_headers=dict(extra_headers or {}),
         variant=variant,
         key_required=key_required,
+        local_style=local_style,
     )
 
 
@@ -210,13 +222,14 @@ PRESETS: dict[str, VendorPreset] = {
         ),
         _preset(
             "local",
-            "OpenAI-compatible local (vLLM / Ollama / LM Studio)",
+            "Local / OpenAI-compatible servers",
             "http://localhost:11434/v1",
             "local-model",
             env_keys=("SNOWPEA_LOCAL_API_KEY",),
             models=(),
             supports_parallel_tools=False,
             key_required=False,
+            local_style=True,
         ),
     )
 }
@@ -231,6 +244,7 @@ LOCAL_VARIANTS: dict[str, VendorPreset] = {
         env_keys=("SNOWPEA_LOCAL_API_KEY",),
         supports_parallel_tools=False,
         key_required=False,
+        local_style=True,
         variant="vllm",
     ),
     "ollama": _preset(
@@ -241,6 +255,7 @@ LOCAL_VARIANTS: dict[str, VendorPreset] = {
         env_keys=("SNOWPEA_LOCAL_API_KEY",),
         supports_parallel_tools=False,
         key_required=False,
+        local_style=True,
         variant="ollama",
     ),
     "lmstudio": _preset(
@@ -251,6 +266,7 @@ LOCAL_VARIANTS: dict[str, VendorPreset] = {
         env_keys=("SNOWPEA_LOCAL_API_KEY",),
         supports_parallel_tools=False,
         key_required=False,
+        local_style=True,
         variant="lmstudio",
     ),
 }
@@ -267,14 +283,123 @@ WEB_LOGIN_VENDORS: tuple[str, ...] = tuple(
 )
 
 
-def preset_for(vendor: str, variant: str | None = None) -> VendorPreset:
-    """Look up a preset, honouring the ``local`` variants."""
-    if vendor == "local" and variant:
+#: ``providers.<name>.preset`` values that mean "an OpenAI-compatible server".
+LOCAL_PRESET_NAMES: frozenset[str] = frozenset({"local", "openai-compatible"})
+
+#: Variant ids a local-style vendor may declare.  ``generic`` is "a plain
+#: OpenAI-compatible server" — no vendor quirk, no default port to guess.
+LOCAL_VARIANT_IDS: tuple[str, ...] = ("vllm", "ollama", "lmstudio", "generic")
+
+#: What a named server may be called.  Lower-case so it reads the same in a
+#: model reference (``hon2:flash-next-mtp``) as in ``settings.json``.
+CUSTOM_VENDOR_ID_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+
+
+def is_local_preset_name(value: Any) -> bool:
+    """True for the ``preset`` markers that declare a local-style vendor."""
+    return isinstance(value, str) and value.strip().lower() in LOCAL_PRESET_NAMES
+
+
+def is_local_vendor_config(config: Any) -> bool:
+    """True when a ``providers.<name>`` block declares ``preset: local``."""
+    return isinstance(config, Mapping) and is_local_preset_name(config.get("preset"))
+
+
+def validate_custom_vendor_id(vendor_id: str) -> str:
+    """Return ``vendor_id`` if it may name a user-added server, else raise.
+
+    Two rules: the name must be a lower-case identifier (it travels inside a
+    model reference, where ``:`` already means "end of vendor"), and it must
+    not shadow one of the built-in presets — a block called ``openai`` that
+    quietly became a self-hosted server would route every ``openai:`` model
+    somewhere the user never intended.
+    """
+    if not isinstance(vendor_id, str) or not CUSTOM_VENDOR_ID_RE.match(vendor_id):
+        raise ValueError(
+            f"invalid provider name: {vendor_id!r} "
+            "(lower-case letters, digits, '-' and '_', starting with a letter, max 32)"
+        )
+    if vendor_id in PRESETS:
+        raise ValueError(f"{vendor_id!r} is a built-in provider; pick another name")
+    return vendor_id
+
+
+def local_vendor_ids(providers: Mapping[str, Any]) -> list[str]:
+    """Names under ``settings.providers`` that are local-style servers.
+
+    ``local`` itself is included when it is configured, because the surfaces
+    that list "your OpenAI-compatible servers" must show it alongside the named
+    ones.  A block whose key cannot be a vendor id is skipped rather than
+    raising: one hand-edited typo must not stop the daemon from starting.
+    """
+    found: list[str] = []
+    for name, block in providers.items():
+        if name == "local" and isinstance(block, Mapping):
+            found.append(name)
+            continue
+        if not is_local_vendor_config(block):
+            continue
         try:
+            validate_custom_vendor_id(str(name))
+        except ValueError as exc:
+            log.warning("ignoring providers.%s: %s", name, exc)
+            continue
+        found.append(str(name))
+    return found
+
+
+def synthesize_local_preset(vendor_id: str, config: Mapping[str, Any]) -> VendorPreset:
+    """A :class:`VendorPreset` for one named OpenAI-compatible server.
+
+    The block is the whole description: ``base_url`` is where it lives,
+    ``variant`` says which server software it is (for the Ollama listing
+    fallback and the URL the wizard suggests), and ``label`` is what pickers
+    print.  Everything else matches the built-in ``local`` preset, which is
+    the point — a named server is not a new kind of vendor, only another one.
+    """
+    local = PRESETS["local"]
+    raw_variant = config.get("variant")
+    variant = str(raw_variant).strip() if isinstance(raw_variant, str) else ""
+    variant = variant if variant in LOCAL_VARIANT_IDS else ""
+    fallback = LOCAL_VARIANTS.get(variant)
+    base_url = config.get("base_url")
+    resolved = str(base_url).strip() if isinstance(base_url, str) else ""
+    label = config.get("label")
+    return _preset(
+        vendor_id,
+        str(label).strip() if isinstance(label, str) and str(label).strip() else vendor_id,
+        resolved or (fallback.base_url if fallback else local.base_url),
+        local.default_model,
+        env_keys=(),
+        models=(),
+        supports_parallel_tools=False,
+        key_required=False,
+        local_style=True,
+        variant=variant or None,
+    )
+
+
+def preset_for(
+    vendor: str, variant: str | None = None, config: Mapping[str, Any] | None = None
+) -> VendorPreset:
+    """Look up a preset, honouring the ``local`` variants and named servers.
+
+    ``config`` is ``settings.providers[vendor]``.  When it declares
+    ``preset: local`` the answer is synthesized from the block, so a server the
+    user called ``hon2`` is a first-class vendor everywhere a built-in one is.
+    """
+    if vendor == "local" and variant:
+        if variant in LOCAL_VARIANTS:
             return LOCAL_VARIANTS[variant]
-        except KeyError:  # pragma: no cover - guarded by callers
-            raise KeyError(f"unknown local variant: {variant}") from None
-    return PRESETS[vendor]
+        if variant in LOCAL_VARIANT_IDS:
+            return PRESETS["local"]
+        raise KeyError(f"unknown local variant: {variant}")
+    if vendor in PRESETS:
+        return PRESETS[vendor]
+    if is_local_vendor_config(config):
+        assert config is not None
+        return synthesize_local_preset(vendor, config)
+    raise KeyError(vendor)
 
 
 @dataclass
@@ -287,9 +412,12 @@ class VendorState:
 
 
 __all__ = [
+    "CUSTOM_VENDOR_ID_RE",
     "DEFAULT_MODEL",
     "DEFAULT_VENDOR",
+    "LOCAL_PRESET_NAMES",
     "LOCAL_VARIANTS",
+    "LOCAL_VARIANT_IDS",
     "PRESETS",
     "PRESETS_BY_VENDOR",
     "WEB_LOGIN_VENDORS",
@@ -297,5 +425,10 @@ __all__ = [
     "VendorPreset",
     "VendorState",
     "WireShape",
+    "is_local_preset_name",
+    "is_local_vendor_config",
+    "local_vendor_ids",
     "preset_for",
+    "synthesize_local_preset",
+    "validate_custom_vendor_id",
 ]

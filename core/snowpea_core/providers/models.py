@@ -705,10 +705,12 @@ async def _live_catalog(
         error: str | None = None
     except ProviderError as exc:
         ids, error = [], str(exc)
-    if ids or vendor != "local":
+    if ids or not preset.local_style:
         return ids, error
     # Ollama answers ``/api/tags``, not ``/v1/models``; a local server that
-    # refused the OpenAI-compatible route is usually that one.
+    # refused the OpenAI-compatible route is usually that one.  This applies to
+    # every local-style vendor, named ones included — ``preset.local_style`` is
+    # what says so, because the vendor id is now whatever the user called it.
     resolved_base = (base_url or preset.base_url or "").rstrip("/")
     if not resolved_base:
         return [], error
@@ -728,9 +730,14 @@ def has_live_listing(vendor: str, auth_method: str | None) -> bool:
     return not (vendor == "gemini" and (auth_method or "") in {"google_oauth", "google_adc"})
 
 
-def _describe(vendor: str, source: str, *, auth_method: str | None) -> str:
+def _describe(
+    vendor: str, source: str, *, auth_method: str | None, preset: VendorPreset | None = None
+) -> str:
     """The one line a picker prints above the list."""
-    label = PRESETS_BY_VENDOR[vendor].label if vendor in PRESETS_BY_VENDOR else vendor
+    if preset is not None:
+        label = preset.label
+    else:
+        label = PRESETS_BY_VENDOR[vendor].label if vendor in PRESETS_BY_VENDOR else vendor
     if vendor == "openai" and (auth_method or "") == "chatgpt":
         label = "ChatGPT (Codex)"
     elif vendor == "gemini" and (auth_method or "") in {"google_oauth", "google_adc"}:
@@ -816,7 +823,7 @@ async def resolve_models(
             auth=_auth_key(auth_method),
             models=ids,
             source=SOURCE_LIVE,
-            detail=_describe(vendor, SOURCE_LIVE, auth_method=auth_method),
+            detail=_describe(vendor, SOURCE_LIVE, auth_method=auth_method, preset=resolved_preset),
         )
 
     pinned = override_models(config, oauth=oauth)
@@ -826,7 +833,9 @@ async def resolve_models(
             auth=_auth_key(auth_method),
             models=pinned,
             source=SOURCE_SETTINGS,
-            detail=_describe(vendor, SOURCE_SETTINGS, auth_method=auth_method),
+            detail=_describe(
+                vendor, SOURCE_SETTINGS, auth_method=auth_method, preset=resolved_preset
+            ),
             error=error,
         )
 
@@ -838,7 +847,9 @@ async def resolve_models(
                 auth=_auth_key(auth_method),
                 models=remembered,
                 source=SOURCE_CACHE,
-                detail=_describe(vendor, SOURCE_CACHE, auth_method=auth_method),
+                detail=_describe(
+                    vendor, SOURCE_CACHE, auth_method=auth_method, preset=resolved_preset
+                ),
                 error=error,
             )
 
@@ -852,7 +863,7 @@ async def resolve_models(
         auth=_auth_key(auth_method),
         models=merged,
         source=SOURCE_CURATED,
-        detail=_describe(vendor, SOURCE_CURATED, auth_method=auth_method),
+        detail=_describe(vendor, SOURCE_CURATED, auth_method=auth_method, preset=resolved_preset),
         error=error,
     )
 

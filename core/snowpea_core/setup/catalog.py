@@ -332,9 +332,16 @@ def vendor_catalog(settings: Any = None) -> list[CatalogItem]:
     registry = ProviderRegistry(settings) if settings is not None else ProviderRegistry()
     default_vendor = registry.default_vendor() if settings is not None else None
     items: list[CatalogItem] = []
-    for vendor, preset in PRESETS.items():
+    # The presets first, then the OpenAI-compatible servers the user named, so
+    # the IDE's first-run wizard and the CLI screen show the same rows.
+    for vendor in [*PRESETS, *registry.custom_vendors()]:
+        preset = registry.preset_or_none(vendor)
+        if preset is None:  # pragma: no cover - both sources are describable
+            continue
         logins = [m for m in preset.auth_methods if m != "api_key"]
         description = preset.default_model
+        if preset.local_style:
+            description = registry.base_url_for(vendor) or preset.default_model
         if logins:
             description += "  (web login: " + ", ".join(logins) + ")"
         if registry.auth_status(vendor) == "expired":
@@ -343,8 +350,8 @@ def vendor_catalog(settings: Any = None) -> list[CatalogItem]:
             CatalogItem(
                 id=vendor,
                 label=preset.label,
-                tier="paid" if vendor != "local" else "free",
-                key="self-hosted" if vendor == "local" else "key required",
+                tier="free" if preset.local_style else "paid",
+                key="self-hosted" if preset.local_style else "key required",
                 default=False,
                 description=description,
                 # An expired OAuth session is configured but not usable, and
@@ -358,9 +365,14 @@ def vendor_catalog(settings: Any = None) -> list[CatalogItem]:
 
 
 def vendor_auth_tags(vendor: str) -> tuple[str, ...]:
-    """``("api_key", "device_code")`` for one vendor, or ``()`` if unknown."""
+    """``("api_key", "device_code")`` for one vendor.
+
+    A named OpenAI-compatible server is not in :data:`PRESETS` but takes an
+    optional key like the built-in local one, so it gets ``("api_key",)``
+    rather than an empty row.
+    """
     preset = PRESETS.get(vendor)
-    return tuple(preset.auth_methods) if preset else ()
+    return tuple(preset.auth_methods) if preset else ("api_key",)
 
 
 __all__ = [

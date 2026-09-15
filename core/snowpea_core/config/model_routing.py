@@ -26,7 +26,7 @@ from pathlib import Path
 
 from snowpea_core.config.project import ModelProfile, ProjectSettings
 from snowpea_core.config.settings import Settings
-from snowpea_core.providers.presets import PRESETS
+from snowpea_core.providers.presets import PRESETS, is_local_vendor_config
 
 log = logging.getLogger("snowpea.config.model_routing")
 
@@ -131,7 +131,9 @@ def resolve_reference(
     # accepted: a typo used to be taken at face value and silently routed the
     # agent to a non-existent provider with ``model=None`` instead of falling
     # through to the configured default (CORE-fixes-v017 R12).
-    if text in PRESETS:
+    if text in PRESETS or is_local_vendor_config(settings.providers.get(text)):
+        # A named OpenAI-compatible server is as real a vendor as a preset one,
+        # so ``hon2`` alone routes to it and lets the registry pick the model.
         return ModelRoute(text, None)
     log.warning(
         "ignoring unknown model reference %r: it is neither a profile id, "

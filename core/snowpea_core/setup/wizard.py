@@ -229,40 +229,15 @@ def _ask_for_key(state: WizardState, *, interactive: bool) -> None:
     """
     if not interactive or not state.vendor:
         return
-    if state.vendor == "local":
-        from snowpea_core.providers.presets import LOCAL_VARIANTS
-
-        variants = list(LOCAL_VARIANTS)
-        saved_idx = variants.index(state.variant) + 1 if state.variant in variants else 1
-        labels = ", ".join(f"{i + 1}={LOCAL_VARIANTS[v].label}" for i, v in enumerate(variants))
-        picked = _menu_pick(
-            "local server type",
-            [(v, LOCAL_VARIANTS[v].label, ()) for v in variants],
-            default_id=variants[saved_idx - 1],
-        )
-        if picked is not None:
-            picked = str(variants.index(picked) + 1)
-        else:
-            picked = ui.ask_text(f"local server type [{labels}] (Enter={saved_idx}): ")
-        try:
-            variant = variants[int(picked) - 1] if picked else variants[saved_idx - 1]
-        except (ValueError, IndexError):
-            variant = variants[saved_idx - 1]
-        keep_url = state.base_url if variant == state.variant else None
-        state.variant = variant
-        default_url = keep_url or LOCAL_VARIANTS[variant].base_url or "http://localhost:11434/v1"
-        entered_url = ui.ask_text(f"{LOCAL_VARIANTS[variant].label} base URL [{default_url}]: ")
-        state.base_url = entered_url or default_url
-        key_hint = "saved — Enter to keep" if state.has_saved_key else "optional, Enter to skip"
-        entered_key = ui.ask_text(f"API key [{key_hint}]: ", secret=True)
-        if entered_key:
-            state.api_key = entered_key
+    if state.is_local_server(state.vendor):
+        _ask_for_local_server(state)
         return
     from snowpea_core.providers import auth_web
     from snowpea_core.providers.presets import PRESETS
     from snowpea_core.server.errors import RpcError
 
-    methods = PRESETS[state.vendor].auth_methods
+    preset = PRESETS.get(state.vendor)
+    methods = preset.auth_methods if preset is not None else ("api_key",)
     if len(methods) > 1:
         # One numbered row per flow this vendor really supports, so the
         # headless routes are visible rather than hidden behind "browser
@@ -341,6 +316,130 @@ def _ask_for_key(state: WizardState, *, interactive: bool) -> None:
         return
     if entered:
         state.api_key = entered
+
+
+
+#: Menu ids the local-server list adds below the configured servers.
+ADD_LOCAL = "__add_local__"
+REMOVE_LOCAL = "__remove_local__"
+
+
+def _local_label(state: WizardState, vendor: str) -> str:
+    """``hon2 — http://hon2:8000/v1`` for one configured server."""
+    block = state.provider_configs.get(vendor) or {}
+    label = str(block.get("label") or "") or ("local" if vendor == "local" else vendor)
+    url = str(block.get("base_url") or "")
+    if vendor == state.vendor and state.base_url:
+        url = state.base_url
+    return f"{label} — {url}" if url else label
+
+
+def _ask_for_local_server(state: WizardState) -> None:
+    """Pick which OpenAI-compatible server to configure, add one, or remove one.
+
+    ``providers.local`` is one row among the named ones rather than a special
+    case: a user who runs vLLM on two machines wants two entries with their own
+    names, and the one they already had must keep working untouched.
+    """
+    servers = state.local_servers()
+    current = state.vendor if state.vendor in servers else (servers[0] if servers else None)
+    picked = ADD_LOCAL
+    if servers:
+        rows: list[tuple[str, str, tuple[str, ...]]] = [
+            (vendor, _local_label(state, vendor), ("active",) if vendor == current else ())
+            for vendor in servers
+        ]
+        rows.append((ADD_LOCAL, "Add another server…", ()))
+        rows.append((REMOVE_LOCAL, "Remove a server…", ()))
+        chosen = _menu_pick(
+            "Local / OpenAI-compatible servers", rows, default_id=current or ADD_LOCAL
+        )
+        # Off a TTY there is no menu: configure the server already selected,
+        # which is what the single-server wizard always did.
+        picked = chosen if chosen is not None else (current or ADD_LOCAL)
+    if picked == REMOVE_LOCAL:
+        _remove_local_server(state, servers)
+        return
+    if picked == ADD_LOCAL:
+        name = _ask_for_local_name(state)
+        if name is None:
+            return
+        state.add_local_server(name)
+    elif picked != state.vendor:
+        state.select_vendor(picked)
+    _ask_for_local_details(state)
+
+
+def _ask_for_local_name(state: WizardState) -> str | None:
+    """Ask what to call a new server; ``None`` when the user gave up."""
+    from snowpea_core.providers.presets import validate_custom_vendor_id
+
+    taken = set(state.local_servers())
+    for _ in range(5):
+        try:
+            entered = ui.ask_text("name for this server (e.g. hon2, vllm-a): ").strip()
+        except (KeyboardInterrupt, EOFError):
+            return None
+        if not entered:
+            return None
+        if entered in taken:
+            print(f"{entered} is already configured; pick another name")
+            continue
+        try:
+            return validate_custom_vendor_id(entered)
+        except ValueError as exc:
+            print(str(exc))
+    return None
+
+
+def _remove_local_server(state: WizardState, servers: Sequence[str]) -> None:
+    """Delete one named server, its model profiles and its agent assignments."""
+    if not servers:
+        return
+    rows = [(vendor, f"Remove {_local_label(state, vendor)}", ()) for vendor in servers]
+    picked = _menu_pick("remove a server", rows, default_id=servers[0], finish="Keep them all")
+    if picked is None:
+        typed = ui.ask_text("remove which server (Enter to keep them all): ").strip()
+        if not typed:
+            return
+        if typed not in set(servers):
+            print(f"no server called {typed}")
+            return
+        picked = typed
+    state.remove_provider(picked)
+    state.notes.append(f"{picked}: removed")
+
+
+def _ask_for_local_details(state: WizardState) -> None:
+    """Server type, base URL and the optional API key for the selected server."""
+    from snowpea_core.providers.presets import LOCAL_VARIANTS
+
+    vendor = state.vendor or "local"
+    variants = list(LOCAL_VARIANTS)
+    saved_idx = variants.index(state.variant) + 1 if state.variant in variants else 1
+    labels = ", ".join(f"{i + 1}={LOCAL_VARIANTS[v].label}" for i, v in enumerate(variants))
+    picked = _menu_pick(
+        f"{vendor}: server type",
+        [(v, LOCAL_VARIANTS[v].label, ()) for v in variants],
+        default_id=variants[saved_idx - 1],
+    )
+    if picked is not None:
+        picked = str(variants.index(picked) + 1)
+    else:
+        picked = ui.ask_text(f"local server type [{labels}] (Enter={saved_idx}): ")
+    try:
+        variant = variants[int(picked) - 1] if picked else variants[saved_idx - 1]
+    except (ValueError, IndexError):
+        variant = variants[saved_idx - 1]
+    keep_url = state.base_url if variant == state.variant else None
+    state.variant = variant
+    default_url = keep_url or LOCAL_VARIANTS[variant].base_url or "http://localhost:11434/v1"
+    entered_url = ui.ask_text(f"{LOCAL_VARIANTS[variant].label} base URL [{default_url}]: ")
+    state.base_url = entered_url or default_url
+    key_hint = "saved — Enter to keep" if state.has_saved_key else "optional, Enter to skip"
+    entered_key = ui.ask_text(f"API key [{key_hint}]: ", secret=True)
+    if entered_key:
+        state.api_key = entered_key
 
 
 #: What each login flow is called on the authentication menu.
@@ -439,11 +538,15 @@ def _ask_for_model(
     from snowpea_core.providers.presets import preset_for
 
     out = console.print if console is not None else print
+    block = dict(state.provider_configs.get(state.vendor) or {})
+    if state.base_url and not block.get("base_url"):
+        # A URL typed a moment ago is not in the block yet; the synthesized
+        # preset for a named server is built from the block, so hand it over.
+        block = {**block, "base_url": state.base_url}
     try:
-        preset = preset_for(state.vendor, state.variant)
+        preset = preset_for(state.vendor, state.variant, block)
     except KeyError:
         return
-    block = dict(state.provider_configs.get(state.vendor) or {})
     oauth_method = state.auth_method or str(block.get("auth_method") or "")
     if oauth_method == "chatgpt":
         out("listing models from your ChatGPT account…")
@@ -608,8 +711,9 @@ def _configure_models(
                 break
             if typed.isdigit() and 1 <= int(typed) <= len(options):
                 typed = options[int(typed) - 1][0]
-            if typed not in PRESETS:
-                out(f"unknown provider id: {typed} (one of {', '.join(sorted(PRESETS))})")
+            if typed not in PRESETS and not state.is_local_server(typed):
+                known = sorted({*PRESETS, *state.local_servers()})
+                out(f"unknown provider id: {typed} (one of {', '.join(known)})")
                 continue
             vendor = typed
         state.select_vendor(vendor)
@@ -889,8 +993,18 @@ def _apply_flags(state: WizardState, **flags: Any) -> set[str]:
     if vendor:
         from snowpea_core.providers.presets import PRESETS
 
-        if vendor not in PRESETS:
-            raise SetupError(f"unknown vendor: {vendor} (try `snowpea provider list`)")
+        if vendor not in PRESETS and not state.is_local_server(vendor):
+            # A name nothing knows is a new OpenAI-compatible server when the
+            # same run says where it lives, and a typo otherwise.
+            if not flags.get("base_url"):
+                raise SetupError(
+                    f"unknown vendor: {vendor} (try `snowpea provider list`, or pass "
+                    "--base-url to add it as a local OpenAI-compatible server)"
+                )
+            try:
+                state.add_local_server(vendor)
+            except ValueError as exc:
+                raise SetupError(str(exc)) from None
         state.select_vendor(vendor)
         state.api_key = flags.get("key") or state.api_key
         state.model = flags.get("model") or state.model

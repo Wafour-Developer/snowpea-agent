@@ -150,7 +150,8 @@ v0.1에는 11종이 들어 있습니다.
 | `kimi` | Moonshot Kimi | OpenAI 호환 | API 키 |
 | `deepseek` | DeepSeek | OpenAI 호환 | API 키 |
 | `qwen` | Qwen | OpenAI 호환 | API 키 |
-| `local` | 로컬 OpenAI 호환 (vLLM, Ollama, LM Studio) | OpenAI 호환 | base URL, 키는 선택 |
+| `local` | Local / OpenAI-compatible servers (vLLM, Ollama, LM Studio) | OpenAI 호환 | base URL, 키는 선택 |
+| *직접 지은 이름* | `"preset": "local"`로 선언하는 추가 OpenAI 호환 서버 (개수 제한 없음) | OpenAI 호환 | base URL, 키는 선택 |
 
 ```bash
 snowpea provider list
@@ -223,6 +224,61 @@ snowpea setup --vendor local --base-url http://localhost:11434/v1 --model qwen3:
 ```
 
 `/v1/chat/completions`를 말하는 것이면 무엇이든 동작합니다 — vLLM, Ollama, LM Studio, llama.cpp의 서버까지. 다만 tool calling은 불러온 모델이 직접 지원해야 하며, 그렇지 않으면 에이전트가 말은 하지만 행동은 하지 못합니다.
+
+### 로컬 서버 여러 대
+
+`local` 항목 하나는 서버 한 대입니다. vLLM 장비와 Ollama 노트북처럼 여러 대를
+쓰려면 `providers` 아래에 각각 이름을 주면 됩니다. `"preset": "local"`이 붙은
+블록은 키가 곧 이름인 로컬 OpenAI 호환 서버입니다.
+
+```json
+{
+  "providers": {
+    "local": {"base_url": "http://localhost:11434/v1", "model": "qwen3:8b"},
+    "hon2": {
+      "preset": "local",
+      "label": "hon2 vLLM",
+      "variant": "vllm",
+      "base_url": "http://hon2.example.com:8000/v1",
+      "model": "flash-next-mtp"
+    }
+  },
+  "models": {
+    "profiles": {"hon2:flash-next-mtp": {"provider": "hon2", "model": "flash-next-mtp"}},
+    "default": "hon2:flash-next-mtp"
+  }
+}
+```
+
+이름이 곧 벤더 id이므로 `hon2:flash-next-mtp`는 모델을 가리킬 수 있는 모든
+자리에서 동작합니다 — `models.default`, 프로젝트별 모델, `agents.models`,
+세션의 `/model`. 이름은 소문자로 시작하는 영문자에 숫자·`-`·`_`를 쓸 수 있고,
+기본 벤더 id와 겹칠 수 없습니다.
+
+`variant`는 `vllm`, `ollama`, `lmstudio`, `generic` 중 하나입니다. 마법사가
+제안하는 URL을 고르고, `/v1/models`가 없는 서버에 Ollama의 `/api/tags` 조회를
+켭니다. `api_key`는 선택이고, `label`은 목록에 보이는 이름, `context_window`는
+서버가 알려주지 않는 컨텍스트 길이를 직접 지정합니다.
+
+명령줄에서는 이렇게 씁니다.
+
+```bash
+snowpea provider add-local hon2 --url http://hon2.example.com:8000/v1 --type vllm
+snowpea provider add-local hon2 --url http://hon2.example.com:8000/v1 --key sk-local --model flash-next-mtp
+snowpea provider models hon2
+snowpea provider remove hon2
+```
+
+`remove`는 블록과 그 서버를 가리키던 모델 프로필, 그 프로필을 쓰던 에이전트
+배정까지 함께 지웁니다.
+
+`snowpea setup`에서는 **Local / OpenAI-compatible servers** 행이 이미 설정된
+서버들을 보여 주고, 그 아래에 "Add another server…"와 "Remove a server…"가
+있습니다. 새로 추가하면 이름·서버 종류·URL·선택 키를 물은 뒤 `/v1/models`를
+조회해 기본 모델을 고르게 합니다.
+
+`providers.local`만 있는 기존 설정은 그대로 동작합니다. 그 항목은 `preset`
+표시가 없어도 로컬 서버로 취급합니다.
 
 ### 도구 호출 한도
 

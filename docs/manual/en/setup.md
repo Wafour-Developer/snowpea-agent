@@ -150,7 +150,8 @@ Eleven vendors ship in v0.1.
 | `kimi` | Moonshot Kimi | OpenAI-compatible | API key |
 | `deepseek` | DeepSeek | OpenAI-compatible | API key |
 | `qwen` | Qwen | OpenAI-compatible | API key |
-| `local` | OpenAI-compatible local (vLLM, Ollama, LM Studio) | OpenAI-compatible | base URL, key optional |
+| `local` | Local / OpenAI-compatible servers (vLLM, Ollama, LM Studio) | OpenAI-compatible | base URL, key optional |
+| *your own name* | any number of extra OpenAI-compatible servers, declared with `"preset": "local"` | OpenAI-compatible | base URL, key optional |
 
 ```bash
 snowpea provider list
@@ -243,6 +244,62 @@ snowpea setup --vendor local --base-url http://localhost:11434/v1 --model qwen3:
 ```
 
 Anything that speaks `/v1/chat/completions` works — vLLM, Ollama, LM Studio, llama.cpp's server. Tool calling has to be supported by the model you load, or the agent will be able to talk but not act.
+
+### Several local servers
+
+One `local` entry is one server. To run more than one — a vLLM box and an
+Ollama laptop, say — give each its own name under `providers`. A block that
+carries `"preset": "local"` is a local OpenAI-compatible server whose key is
+its name:
+
+```json
+{
+  "providers": {
+    "local": {"base_url": "http://localhost:11434/v1", "model": "qwen3:8b"},
+    "hon2": {
+      "preset": "local",
+      "label": "hon2 vLLM",
+      "variant": "vllm",
+      "base_url": "http://hon2.example.com:8000/v1",
+      "model": "flash-next-mtp"
+    }
+  },
+  "models": {
+    "profiles": {"hon2:flash-next-mtp": {"provider": "hon2", "model": "flash-next-mtp"}},
+    "default": "hon2:flash-next-mtp"
+  }
+}
+```
+
+The name is the vendor id, so `hon2:flash-next-mtp` works anywhere a model
+reference does: `models.default`, a project's models, `agents.models`, and
+`/model` in a session. Names are lower-case, start with a letter, may contain
+digits, `-` and `_`, and must not be one of the built-in vendor ids.
+
+`variant` is `vllm`, `ollama`, `lmstudio` or `generic`; it picks the URL the
+wizard suggests and enables Ollama's `/api/tags` listing for a server with no
+`/v1/models`. `api_key` is optional, `label` is what pickers show, and
+`context_window` pins a window the server does not report.
+
+From the command line:
+
+```bash
+snowpea provider add-local hon2 --url http://hon2.example.com:8000/v1 --type vllm
+snowpea provider add-local hon2 --url http://hon2.example.com:8000/v1 --key sk-local --model flash-next-mtp
+snowpea provider models hon2
+snowpea provider remove hon2
+```
+
+`remove` forgets the block, the model profiles that named it, and the agent
+assignments that used those profiles.
+
+In `snowpea setup`, the **Local / OpenAI-compatible servers** row lists the
+servers already configured, with "Add another server…" and "Remove a server…"
+below them. Adding one asks for a name, the server type, the URL and an
+optional key, then lists `/v1/models` so you can pick its default model.
+
+An existing configuration with only `providers.local` keeps working exactly as
+it did: that entry is a local server implicitly and needs no `preset` marker.
 
 ### Output budget and thinking
 

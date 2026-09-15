@@ -778,6 +778,17 @@ class ProviderInfo(Payload):
             "OAuth session is past its expiry and needs refreshing or a new login."
         ),
     )
+    preset: str = Field(
+        default="",
+        description=(
+            "Preset this vendor follows: 'local' for the built-in local vendor and for every "
+            "named OpenAI-compatible server, otherwise the vendor's own id."
+        ),
+    )
+    custom: bool = Field(
+        default=False,
+        description="True for a named OpenAI-compatible server the user added, not a built-in.",
+    )
 
 
 class ProviderListResult(Payload):
@@ -813,6 +824,15 @@ class ProviderConfigureParams(Payload):
     vendor: str = Field(description="Vendor to configure.")
     config: dict[str, Any] = Field(
         default_factory=dict, description="Vendor-specific settings, including credentials."
+    )
+
+
+class ProviderRemoveParams(Payload):
+    vendor: str = Field(
+        description=(
+            "Provider to forget: its credentials, its model profiles and the agent "
+            "assignments that used them."
+        )
     )
 
 
@@ -912,6 +932,26 @@ class AgentInfo(Payload):
     jobs: list[str] = Field(
         default_factory=list,
         description="For kind='named': ids of the scheduled jobs that run as this agent.",
+    )
+    active: bool | None = Field(
+        default=None,
+        description=(
+            "For kind='team': true for the project's active team. Exactly one team "
+            "row is active, or none when the project has chosen no team."
+        ),
+    )
+    agents: list[str] = Field(
+        default_factory=list,
+        description="For kind='team': its member agent names, in roster order.",
+    )
+    stages: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "For kind='team': which member fills each stage of `/team \"<task>\"` — "
+            "keys explore, plan, implement, test, review, and a stage nobody fills "
+            "is absent. Empty when the team has no implementer and so cannot run "
+            "the pipeline at all."
+        ),
     )
 
 
@@ -2656,6 +2696,12 @@ METHODS: dict[str, RpcMethod] = {
             "Store settings and credentials for a provider.",
         ),
         _m(
+            "provider.remove",
+            ProviderRemoveParams,
+            Ok,
+            "Forget a configured provider, typically a named local server.",
+        ),
+        _m(
             "provider.loginWeb",
             ProviderLoginWebParams,
             ProviderLoginWebResult,
@@ -2841,6 +2887,7 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "provider.list",
         "provider.models",
         "provider.configure",
+        "provider.remove",
         "provider.loginWeb",
         "backend.set",
         "memory.search",

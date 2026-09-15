@@ -67,6 +67,7 @@ from snowpea_core.server.protocol import (
     ProviderConfigureParams,
     ProviderLoginWebParams,
     ProviderLoginWebResult,
+    ProviderRemoveParams,
     SettingsChangedNotification,
     SettingsReloadResult,
 )
@@ -433,6 +434,14 @@ async def provider_configure_handler(
             "model",
             "models",
             "variant",
+            # A named OpenAI-compatible server is described by its own block:
+            # ``preset`` is what declares it one, ``label`` is what pickers
+            # show, and ``context_window`` pins a window no table knows.
+            "preset",
+            "label",
+            "context_window",
+            "max_tokens",
+            "thinking",
             "token",
             "oauth_token",
             "refresh_token",
@@ -467,6 +476,23 @@ async def provider_configure_handler(
             "provider.configure needs credentials, base_url, or model",
         )
     _persist_provider(core, params.vendor, config)
+    return Ok(ok=True)
+
+
+async def provider_remove_handler(
+    _conn: RpcConnection, params: ProviderRemoveParams, core: Core
+) -> Ok:
+    """``provider.remove`` — forget a provider, usually a named local server."""
+    vendor = (params.vendor or "").strip()
+    if not vendor or vendor == "default":
+        raise RpcError(errors.INVALID_PARAMS, "provider.remove needs a vendor")
+    if not core.providers.remove(vendor):
+        raise RpcError(errors.NOT_FOUND, f"no configured provider {vendor!r}")
+    try:
+        core.settings.save(core.paths)
+    except OSError as exc:  # pragma: no cover - disk failure
+        raise RpcError(errors.INTERNAL, f"could not write settings.json: {exc}") from exc
+    core.mark_settings_saved()
     return Ok(ok=True)
 
 
@@ -549,6 +575,7 @@ def build_dispatcher(core: Core) -> RpcDispatcher:
     register_mcp_handlers(dispatcher)
     register_update_handlers(dispatcher)
     dispatcher.register("provider.configure", provider_configure_handler)
+    dispatcher.register("provider.remove", provider_remove_handler)
     dispatcher.register("provider.loginWeb", provider_login_web_handler)
     for name, method in PROTOCOL_METHODS.items():
         if method.direction != "c2s" or dispatcher.has(name):

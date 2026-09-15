@@ -86,12 +86,20 @@ _LANGUAGE_NAMES: dict[str, str] = {
 }
 
 
-def vendor_class_for(provider: str | None) -> str:
-    """The prompt layer for a provider preset; unknown vendors get the default."""
+def vendor_class_for(provider: str | None, *, local_style: bool = False) -> str:
+    """The prompt layer for a provider preset; unknown vendors get the default.
+
+    ``local_style`` is what a named OpenAI-compatible server (``hon2``) passes:
+    its id is whatever the user called it, but it is running the same kind of
+    small model as the built-in ``local`` vendor and needs the same tool-use
+    enforcement.
+    """
     if not provider:
         return "anthropic"
     key = provider.strip().lower().partition(":")[0]
-    return VENDOR_CLASS_BY_PROVIDER.get(key, "openai-family")
+    if key in VENDOR_CLASS_BY_PROVIDER:
+        return VENDOR_CLASS_BY_PROVIDER[key]
+    return "small-local" if local_style else "openai-family"
 
 
 def language_name(tag: str) -> str:

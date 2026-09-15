@@ -64,6 +64,11 @@ class WizardState:
     #: gateway id -> its config block (``{"enabled": True, "token": "...",
     #: "allowed_user_id": "123"}``).
     gateways: dict[str, dict[str, Any]] = field(default_factory=dict)
+    #: Named OpenAI-compatible servers the run deleted.  ``write`` removes them
+    #: from settings.json; dropping the entry from ``provider_configs`` alone
+    #: would leave the block on disk, because ``write`` merges rather than
+    #: replaces.
+    removed_providers: list[str] = field(default_factory=list)
     #: Lines the providers screen shows above the list (detected keys, imports).
     hints: list[str] = field(default_factory=list)
     #: Human-readable record of what the run did, printed as the summary.
@@ -149,6 +154,65 @@ class WizardState:
         self.has_saved_key = bool(
             saved.get("api_key") or saved.get("token") or saved.get("oauth_token")
         )
+
+    def local_servers(self) -> list[str]:
+        """Configured local-style vendor ids, ``local`` first, then by name."""
+        from snowpea_core.providers.presets import local_vendor_ids
+
+        found = set(local_vendor_ids(self.provider_configs))
+        if self.vendor and self.is_local_server(self.vendor):
+            found.add(self.vendor)
+        return sorted(found, key=lambda name: (name != "local", name))
+
+    def is_local_server(self, vendor: str) -> bool:
+        """True for ``local`` and for any named OpenAI-compatible server here."""
+        from snowpea_core.providers.presets import is_local_vendor_config
+
+        return vendor == "local" or is_local_vendor_config(self.provider_configs.get(vendor))
+
+    def add_local_server(self, vendor: str, *, label: str | None = None) -> None:
+        """Declare ``vendor`` a named OpenAI-compatible server and select it.
+
+        ``preset: local`` in the block is what makes it one: the registry
+        synthesizes a vendor preset from that marker, so the name the user
+        chose works everywhere a built-in vendor id does.
+        """
+        from snowpea_core.providers.presets import validate_custom_vendor_id
+
+        if vendor != "local":
+            validate_custom_vendor_id(vendor)
+        block = dict(self.provider_configs.get(vendor) or {})
+        block["preset"] = "local"
+        if label:
+            block["label"] = label
+        self.provider_configs[vendor] = block
+        if vendor in self.removed_providers:
+            self.removed_providers.remove(vendor)
+        self.select_vendor(vendor)
+
+    def remove_provider(self, vendor: str) -> None:
+        """Forget one provider: its block, its profiles and its assignments."""
+        self.provider_configs.pop(vendor, None)
+        if vendor not in self.removed_providers:
+            self.removed_providers.append(vendor)
+        stale = {
+            pid for pid, block in self.model_profiles.items() if block.get("provider") == vendor
+        }
+        for pid in stale:
+            self.model_profiles.pop(pid, None)
+        if self.default_model in stale:
+            self.default_model = next(iter(self.model_profiles), None)
+        self.agent_models = {
+            agent: pid for agent, pid in self.agent_models.items() if pid not in stale
+        }
+        if self.vendor == vendor:
+            remaining = [name for name in self.provider_configs if name != "default"]
+            self.vendor = None
+            self.api_key = self.oauth_token = self.auth_method = None
+            self.model = self.base_url = self.variant = None
+            self.has_saved_key = False
+            if remaining:
+                self.select_vendor(remaining[0])
 
     def remember_current_provider(self) -> None:
         """Store the current provider fields in the per-vendor cache."""
@@ -286,6 +350,8 @@ class WizardState:
         """
         settings = Settings()
         for vendor, block in self.provider_configs.items():
+            if vendor in self.removed_providers:
+                continue
             clean = {key: value for key, value in dict(block).items() if value is not None}
             if clean:
                 settings.providers[vendor] = clean
@@ -330,6 +396,8 @@ class WizardState:
         self.add_current_model_profile()
         self.remember_current_provider()
         registry = ProviderRegistry(settings)
+        for vendor in self.removed_providers:
+            registry.remove(vendor)
         for vendor, config in self.provider_configs.items():
             if config:
                 registry.configure(vendor, dict(config))

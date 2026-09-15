@@ -223,7 +223,12 @@ def build_system_prompt(
         persona = f"{persona}\n\n{team_rule}".strip()
     return compose.build_system_prompt(
         mode=session.mode,
-        vendor_class=compose.vendor_class_for(session.provider),
+        vendor_class=compose.vendor_class_for(
+            session.provider,
+            local_style=bool(
+                core is not None and core.providers.is_local_style(session.provider or "")
+            ),
+        ),
         role=getattr(session, "prompt_role", None),
         subagent=bool(getattr(session, "is_subagent", False)),
         tools=tools,

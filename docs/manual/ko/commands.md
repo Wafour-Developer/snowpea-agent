@@ -51,6 +51,7 @@ snowpea commands list --json
 | `/review [what]` | 커밋되지 않은 변경을 읽기 전용 `reviewer` 에이전트로 리뷰하고 판정을 전달 |
 | `/init [--force]` | 프로젝트 루트에 빠르고 거친 `AGENTS.md`를 한 턴에 작성; 기존 파일이 있으면 `--force` 없이는 병합 |
 | `/deepinit [path]` | 저장소를 훑어 계층적 `AGENTS.md` 파일을 작성 |
+| `/team "<task>"` | 프로젝트 팀 구성원이 역할별로 처리 — 계획·구현·테스트·리뷰 |
 | `/team <n> <task>` | 작업자 n명에게 각각 git worktree를 주고 태스크가 끝나는 대로 브랜치를 병합 |
 | `/team create <name> <agent...>` | 기존 에이전트로 프로젝트 팀을 만들고 즉시 활성화 |
 | `/team use <name>` / `/team list` | 프로젝트의 활성 팀을 전환하거나 팀 목록 확인 |
@@ -185,6 +186,18 @@ snowpea provider list
 snowpea provider login openai
 snowpea setup --vendor deepseek --key sk-...
 ```
+
+OpenAI 호환 서버는 각각 이름을 달아 여러 대를 함께 등록할 수 있습니다.
+`add-local`이 하나를 추가하고, `remove`는 그 블록과 그 서버를 가리키던 모델
+프로필까지 지웁니다.
+
+```bash
+snowpea provider add-local hon2 --url http://hon2.example.com:8000/v1 --type vllm
+snowpea provider models hon2
+snowpea provider remove hon2
+```
+
+설정 파일 모양과 마법사 흐름은 [로컬 서버 여러 대](setup.md#로컬-서버-여러-대)를 보세요.
 
 ### 스킬과 플러그인
 

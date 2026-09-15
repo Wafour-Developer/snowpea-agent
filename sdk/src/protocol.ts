@@ -108,8 +108,12 @@ export type AgentListParams = Record<string, unknown>;
 export interface AgentListResult {
   /** Defined named agents. */
   agents?: ({
+    /** For kind='team': true for the project's active team. Exactly one team row is active, or none when the project has chosen no team. */
+    active?: boolean | null;
     /** For kind='subagent': the id its subagent.* events carry. */
     agentId?: string | null;
+    /** For kind='team': its member agent names, in roster order. */
+    agents?: string[];
     /** For kind='named': the gateway binding ids serving those channels. */
     bindings?: string[];
     /** Gateway channel bound to the agent. */
@@ -134,6 +138,8 @@ export interface AgentListResult {
     sessionId?: string | null;
     /** Where the definition came from. */
     source?: string;
+    /** For kind='team': which member fills each stage of `/team "<task>"` — keys explore, plan, implement, test, review, and a stage nobody fills is absent. Empty when the team has no implementer and so cannot run the pipeline at all. */
+    stages?: Record<string, string>;
     /** For kind='subagent': queued, running, done or error. */
     status?: string | null;
     /** For kind='subagent': the task it was given. */
@@ -1056,6 +1062,8 @@ export interface ProviderListResult {
     authStatus?: "unconfigured" | "active" | "expired";
     /** True when credentials are present. */
     configured?: boolean;
+    /** True for a named OpenAI-compatible server the user added, not a built-in. */
+    custom?: boolean;
     /** True for the vendor used when none is named. */
     default?: boolean;
     /** Model used when the caller names none. */
@@ -1064,6 +1072,8 @@ export interface ProviderListResult {
     label?: string;
     /** Model ids this vendor offers. */
     models?: string[];
+    /** Preset this vendor follows: 'local' for the built-in local vendor and for every named OpenAI-compatible server, otherwise the vendor's own id. */
+    preset?: string;
     /** Vendor key, e.g. 'anthropic'. */
     vendor: string;
   })[];
@@ -1111,6 +1121,18 @@ export interface ProviderModelsResult {
   source?: string;
   /** Vendor the listing came from. */
   vendor: string;
+}
+
+/** `provider.remove` params. Forget a configured provider, typically a named local server. */
+export interface ProviderRemoveParams {
+  /** Provider to forget: its credentials, its model profiles and the agent assignments that used them. */
+  vendor: string;
+}
+
+/** `provider.remove` result. */
+export interface ProviderRemoveResult {
+  /** True when the call succeeded. */
+  ok?: boolean;
 }
 
 /** `question.list` params. List questions the agent is still waiting on. */
@@ -2653,6 +2675,7 @@ export interface MethodMap {
   "provider.list": { params: ProviderListParams; result: ProviderListResult };
   "provider.loginWeb": { params: ProviderLoginWebParams; result: ProviderLoginWebResult };
   "provider.models": { params: ProviderModelsParams; result: ProviderModelsResult };
+  "provider.remove": { params: ProviderRemoveParams; result: ProviderRemoveResult };
   "question.list": { params: QuestionListParams; result: QuestionListResult };
   "question.request": { params: QuestionRequestParams; result: QuestionRequestResult };
   "question.respond": { params: QuestionRespondParams; result: QuestionRespondResult };
@@ -2739,6 +2762,7 @@ export type ClientMethod =
   | "provider.list"
   | "provider.loginWeb"
   | "provider.models"
+  | "provider.remove"
   | "question.list"
   | "question.respond"
   | "session.close"
