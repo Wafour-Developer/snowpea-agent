@@ -107,7 +107,42 @@ describe("derivePhase", () => {
       event(2, "subagent.spawn", { agentId: "a2", task: "two", status: "running" }),
       event(3, "subagent.spawn", { agentId: "a3", task: "three", status: "running" }),
     );
-    expect(derivePhase(state)).toEqual({ kind: "subagents", running: 3 });
+    expect(derivePhase(state)).toEqual({
+      kind: "subagents",
+      running: 3,
+      inputTokens: 0,
+      outputTokens: 0,
+    });
+  });
+
+  it("sums the tokens of the running delegates only", () => {
+    const state = apply(
+      ask(initialState, "hello"),
+      event(1, "subagent.spawn", { agentId: "a1", task: "one", status: "running" }),
+      event(2, "subagent.spawn", { agentId: "a2", task: "two", status: "running" }),
+      event(3, "subagent.update", {
+        agentId: "a1",
+        status: "running",
+        usage: { inputTokens: 40_000, outputTokens: 2000 },
+      }),
+      event(4, "subagent.update", {
+        agentId: "a2",
+        status: "running",
+        usage: { inputTokens: 1200, outputTokens: 1100 },
+      }),
+      // A finished child's tokens belong to the turn already; counting them
+      // here as well would show them twice.
+      event(5, "subagent.done", {
+        agentId: "a2",
+        usage: { inputTokens: 1200, outputTokens: 1100 },
+      }),
+    );
+    expect(derivePhase(state)).toEqual({
+      kind: "subagents",
+      running: 1,
+      inputTokens: 40_000,
+      outputTokens: 2000,
+    });
   });
 
   it("names the command when one owns the turn", () => {
@@ -185,12 +220,26 @@ describe("formatting", () => {
     expect(workingLine({ ...stats, phase: { kind: "tool", label: "Reading app.py" } })).toBe(
       `${SPINNER_FRAMES[1]} Reading app.py… (12s · ↓ 1.2k tokens)`,
     );
-    expect(workingLine({ ...stats, phase: { kind: "subagents", running: 3 } })).toBe(
-      `${SPINNER_FRAMES[1]} 3 agents working… (12s · ↓ 1.2k tokens)`,
-    );
-    expect(workingLine({ ...stats, phase: { kind: "subagents", running: 1 } })).toContain(
-      "1 agent working…",
-    );
+    expect(
+      workingLine({
+        ...stats,
+        phase: { kind: "subagents", running: 3, inputTokens: 0, outputTokens: 0 },
+      }),
+    ).toBe(`${SPINNER_FRAMES[1]} 3 agents working… (12s · ↓ 1.2k tokens)`);
+    expect(
+      workingLine({
+        ...stats,
+        phase: { kind: "subagents", running: 1, inputTokens: 0, outputTokens: 0 },
+      }),
+    ).toContain("1 agent working…");
+    // The children's live usage is added to the turn's own, so the line moves
+    // while the parent itself is spending nothing.
+    expect(
+      workingLine({
+        ...stats,
+        phase: { kind: "subagents", running: 1, inputTokens: 41_200, outputTokens: 1900 },
+      }),
+    ).toBe(`${SPINNER_FRAMES[1]} 1 agent working… (12s · ↑ 41.2k · ↓ 3.1k tokens)`);
     expect(workingLine({ ...stats, phase: { kind: "command", name: "/ralph" } })).toBe(
       `${SPINNER_FRAMES[1]} /ralph… (12s · ↓ 1.2k tokens)`,
     );

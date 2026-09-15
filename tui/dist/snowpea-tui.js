@@ -34665,8 +34665,17 @@ function derivePhase(state, { runningCommand = null } = {}) {
   const running = state.toolCalls.filter((call) => call.state === "running");
   const last = running[running.length - 1];
   if (last) return { kind: "tool", label: toolLabel(last) };
-  const agents = state.subagents.filter((agent) => agent.status === "running").length;
-  if (agents > 0) return { kind: "subagents", running: agents };
+  const agents = state.subagents.filter((agent) => agent.status === "running");
+  if (agents.length > 0) {
+    return {
+      kind: "subagents",
+      running: agents.length,
+      // Only the running children: a finished one's tokens are already part of
+      // the parent turn's own usage, and counting them here would double them.
+      inputTokens: agents.reduce((sum, agent) => sum + (agent.inputTokens || 0), 0),
+      outputTokens: agents.reduce((sum, agent) => sum + (agent.outputTokens || 0), 0)
+    };
+  }
   if (runningCommand) return { kind: "command", name: runningCommand };
   if (state.reasoningChars > 0) return { kind: "reasoning", chars: state.reasoningChars };
   return { kind: "thinking" };
@@ -34694,7 +34703,11 @@ function workingLine(input) {
   if (phase.kind === "idle") return null;
   if (phase.kind === "approval") return `${PAUSED_GLYPH} Waiting for approval`;
   const spinner = SPINNER_FRAMES[Math.abs(input.frame ?? 0) % SPINNER_FRAMES.length];
-  const stats = formatStats(input);
+  const stats = phase.kind === "subagents" ? formatStats({
+    ...input,
+    inputTokens: (input.inputTokens ?? 0) + phase.inputTokens,
+    outputTokens: (input.outputTokens ?? 0) + phase.outputTokens
+  }) : formatStats(input);
   if (phase.kind === "compacting") {
     return `${spinner} ${phase.reason === "auto" ? "Compacting (auto)" : "Compacting"}\u2026`;
   }
@@ -34980,6 +34993,7 @@ function applySessionEvent(state, event, options = {}) {
         lastText: String(payload.lastText ?? payload.text ?? entry.lastText),
         name: String(payload.name ?? entry.name),
         title: String(payload.title ?? entry.title),
+        inputTokens: Number(payload.usage?.inputTokens ?? entry.inputTokens),
         outputTokens: Number(payload.usage?.outputTokens ?? entry.outputTokens),
         sessionId: typeof payload.sessionId === "string" ? payload.sessionId : entry.sessionId
       }));
@@ -37129,7 +37143,9 @@ function agentStatusText(entry, now) {
   if ((entry.status === "done" || entry.status === "error") && entry.startedAt && entry.endedAt) {
     parts.push(formatDuration(entry.endedAt - entry.startedAt));
   }
-  if (entry.outputTokens > 0) parts.push(`\u2193 ${formatTokens(entry.outputTokens)} tokens`);
+  if (entry.outputTokens > 0 || entry.inputTokens > 0) {
+    parts.push(`\u2193 ${formatTokens(entry.outputTokens)} tokens`);
+  }
   return parts.join(" \xB7 ");
 }
 function subagentRow(entry, now) {

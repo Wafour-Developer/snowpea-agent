@@ -2641,6 +2641,13 @@ export interface SubagentUpdateEventPayload {
   text?: string;
   /** One-line label for the delegation, written by the delegating model in the user's language; empty when it wrote none. */
   title?: string;
+  /** Tokens the subagent has used so far, cumulative; sent with every update so a surface can show a long delegation is still moving. */
+  usage?: {
+    /** Prompt tokens the subagent used. */
+    inputTokens?: number;
+    /** Completion tokens the subagent used. */
+    outputTokens?: number;
+  } | null;
 }
 
 /** Payload of `session.event` with kind `team.task.update`. */

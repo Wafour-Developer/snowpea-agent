@@ -238,6 +238,27 @@ describe("subagent tree", () => {
     expect(state.subagents[1]).toMatchObject({ status: "running", lastText: "working" });
   });
 
+  it("tracks a running child's usage as its updates arrive", () => {
+    const state = apply(
+      initialState,
+      event(1, "subagent.spawn", { agentId: "a-1", task: "work", status: "running" }),
+      event(2, "subagent.update", {
+        agentId: "a-1",
+        status: "running",
+        usage: { inputTokens: 12_000, outputTokens: 300 },
+      }),
+    );
+    expect(state.subagents[0]).toMatchObject({
+      status: "running",
+      inputTokens: 12_000,
+      outputTokens: 300,
+    });
+
+    // An update without usage leaves the counters where they were.
+    const later = apply(state, event(3, "subagent.update", { agentId: "a-1", lastText: "still" }));
+    expect(later.subagents[0]).toMatchObject({ inputTokens: 12_000, outputTokens: 300 });
+  });
+
   it("ignores a replayed spawn and an update for an unknown child", () => {
     const state = apply(
       initialState,

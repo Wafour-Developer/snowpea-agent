@@ -13,7 +13,7 @@ a limit of two never has more than two running at once.
 Three events land on the **parent** session, which is what a TUI renders::
 
     subagent.spawn  {agentId, name, task, status}
-    subagent.update {agentId, status, lastText}
+    subagent.update {agentId, status, lastText, usage}
     subagent.done   {agentId, status, summary, usage}
 
 The child's own ``message.delta``, ``tool.call`` and ``turn.done`` events keep
@@ -271,6 +271,10 @@ class _ChildWatcher:
         if kind == "usage":
             record.input_tokens += int(payload.get("inputTokens") or 0)
             record.output_tokens += int(payload.get("outputTokens") or 0)
+            # A child that has been running for minutes with nothing said is
+            # indistinguishable from a stuck one unless its meter moves; one
+            # update per model round is what lets a surface show it.
+            await self._manager.emit_update(record)
             return
         if kind == "message.done":
             text = str(payload.get("text") or "")
@@ -391,6 +395,7 @@ class SubagentManager:
                     "lastText": last_text,
                     "name": record.name,
                     "sessionId": record.session_id,
+                    "usage": record.usage(),
                 },
             ),
         )

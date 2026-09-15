@@ -69,16 +69,64 @@ describe("buildAgentRows", () => {
   it("reports the time and the tokens a finished delegate spent", () => {
     expect(
       agentStatusText(
-        { status: "running", startedAt: NOW - 520_000, endedAt: null, outputTokens: 316_600 },
+        {
+          status: "running",
+          startedAt: NOW - 520_000,
+          endedAt: null,
+          inputTokens: 0,
+          outputTokens: 316_600,
+        },
         NOW,
       ),
     ).toBe("running · 8m 40s · ↓ 316.6k tokens");
     expect(
       agentStatusText(
-        { status: "done", startedAt: NOW - 8000, endedAt: NOW, outputTokens: 0 },
+        { status: "done", startedAt: NOW - 8000, endedAt: NOW, inputTokens: 0, outputTokens: 0 },
         NOW,
       ),
     ).toBe("done · 8s");
+  });
+
+  it("shows a running delegate's tokens as they come in", () => {
+    // Nothing reported yet: the row says only how long it has been going.
+    expect(
+      agentStatusText(
+        { status: "running", startedAt: NOW - 58_000, endedAt: null, inputTokens: 0, outputTokens: 0 },
+        NOW,
+      ),
+    ).toBe("running · 58s");
+    expect(
+      agentStatusText(
+        {
+          status: "running",
+          startedAt: NOW - 58_000,
+          endedAt: null,
+          inputTokens: 40_000,
+          outputTokens: 1200,
+        },
+        NOW,
+      ),
+    ).toBe("running · 58s · ↓ 1.2k tokens");
+  });
+
+  it("carries a live delegate's tokens onto its panel row", () => {
+    const state = apply(
+      initialState,
+      event(1, "subagent.spawn", {
+        agentId: "a1",
+        name: "executor",
+        task: "add failing test",
+        status: "running",
+        at: NOW - 58_000,
+      }),
+      event(2, "subagent.update", {
+        agentId: "a1",
+        status: "running",
+        usage: { inputTokens: 40_000, outputTokens: 1200 },
+      }),
+    );
+    const rows = buildAgentRows({ state, now: NOW });
+    expect(rows[1].status).toBe("running · 58s · ↓ 1.2k tokens");
   });
 
   it("counts idle agents past the third instead of listing them", () => {
