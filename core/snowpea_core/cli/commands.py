@@ -580,10 +580,86 @@ async def provider_list(home: Path | str | None = None, *, as_json: bool = False
         mark = "*" if item.get("default") else " "
         state = "configured" if item.get("configured") else "-"
         logins = ",".join(str(m) for m in item.get("authMethods") or [])
+        # A named OpenAI-compatible server looks like any other vendor here, so
+        # say which rows the user added and can remove again.
+        kind = "local (custom)" if item.get("custom") else str(item.get("preset") or vendor)
         print(
-            f"{mark} {vendor:<{width}}  {state:<10} {logins:<22} "
+            f"{mark} {vendor:<{width}}  {state:<10} {kind:<15} {logins:<22} "
             f"{item.get('defaultModel', '')}".rstrip()
         )
+    return EXIT_OK
+
+
+async def provider_add_local(
+    name: str,
+    home: Path | str | None = None,
+    *,
+    url: str = "",
+    key: str | None = None,
+    server_type: str | None = None,
+    model: str | None = None,
+    label: str | None = None,
+    as_json: bool = False,
+) -> int:
+    """``snowpea provider add-local <name> --url …`` → ``provider.configure``.
+
+    The block it writes carries ``preset: local``, which is what makes the name
+    a vendor: ``<name>:<model>`` then resolves everywhere a built-in vendor id
+    does, and several servers can be configured side by side.
+    """
+    from snowpea_core.providers.presets import LOCAL_VARIANT_IDS, validate_custom_vendor_id
+
+    try:
+        vendor = validate_custom_vendor_id(name.strip())
+    except ValueError as exc:
+        return _fail(str(exc), EXIT_USAGE)
+    if not url.strip():
+        return _fail("snowpea provider add-local needs --url", EXIT_USAGE)
+    if server_type and server_type not in LOCAL_VARIANT_IDS:
+        return _fail(
+            f"unknown server type: {server_type} (one of {', '.join(LOCAL_VARIANT_IDS)})",
+            EXIT_USAGE,
+        )
+    config: dict[str, Any] = {"preset": "local", "base_url": url.strip()}
+    if key:
+        config["api_key"] = key
+    if server_type:
+        config["variant"] = server_type
+    if model:
+        config["model"] = model
+    if label:
+        config["label"] = label
+    try:
+        await _call(home, "provider.configure", {"vendor": vendor, "config": config})
+    except DaemonError as exc:
+        return _fail(str(exc), EXIT_NO_DAEMON)
+    except RpcCallError as exc:
+        return _fail(f"provider.configure failed ({exc.code}): {exc.message}", EXIT_USAGE)
+    if as_json:
+        _print_json({"vendor": vendor, "config": {**config, "api_key": "***" if key else None}})
+        return EXIT_OK
+    print(f"{vendor}: {url.strip()}")
+    print(f"pick a model with `snowpea provider models {vendor}`")
+    return EXIT_OK
+
+
+async def provider_remove(
+    name: str, home: Path | str | None = None, *, as_json: bool = False
+) -> int:
+    """``snowpea provider remove <name>`` → ``provider.remove``."""
+    vendor = name.strip()
+    if not vendor:
+        return _fail("usage: snowpea provider remove <name>", EXIT_USAGE)
+    try:
+        await _call(home, "provider.remove", {"vendor": vendor})
+    except DaemonError as exc:
+        return _fail(str(exc), EXIT_NO_DAEMON)
+    except RpcCallError as exc:
+        return _fail(f"provider.remove failed ({exc.code}): {exc.message}", EXIT_USAGE)
+    if as_json:
+        _print_json({"vendor": vendor, "removed": True})
+        return EXIT_OK
+    print(f"{vendor}: removed")
     return EXIT_OK
 
 
@@ -2181,6 +2257,37 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
     provider_models_parser.add_argument(
         "--json", dest="sub_json", action="store_true", help="emit JSON"
     )
+    provider_add_local_parser = provider_sub.add_parser(
+        "add-local", help="add a named OpenAI-compatible server (vLLM, Ollama, LM Studio)"
+    )
+    provider_add_local_parser.add_argument("name", help="name for this server, e.g. hon2")
+    provider_add_local_parser.add_argument(
+        "--url", required=True, help="base URL, e.g. http://hon2:8000/v1"
+    )
+    provider_add_local_parser.add_argument("--key", default=None, help="API key, if it needs one")
+    provider_add_local_parser.add_argument(
+        "--type",
+        dest="server_type",
+        default=None,
+        choices=["vllm", "ollama", "lmstudio", "generic"],
+        help="which server software this is",
+    )
+    provider_add_local_parser.add_argument(
+        "--model", default=None, help="default model id for this server"
+    )
+    provider_add_local_parser.add_argument(
+        "--label", default=None, help="human-readable name for pickers"
+    )
+    provider_add_local_parser.add_argument(
+        "--json", dest="sub_json", action="store_true", help="emit JSON"
+    )
+    provider_remove_parser = provider_sub.add_parser(
+        "remove", help="forget a provider and the model profiles that used it"
+    )
+    provider_remove_parser.add_argument("name", help="provider to remove")
+    provider_remove_parser.add_argument(
+        "--json", dest="sub_json", action="store_true", help="emit JSON"
+    )
     provider_login_parser = provider_sub.add_parser(
         "login", help="browser login, or enter an OAuth token on a remote machine"
     )
@@ -2714,6 +2821,21 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
             return await provider_models(
                 getattr(args, "vendor", None) or None, home, as_json=as_json
             )
+        if action == "add-local":
+            return await provider_add_local(
+                str(getattr(args, "name", "") or ""),
+                home,
+                url=str(getattr(args, "url", "") or ""),
+                key=getattr(args, "key", None),
+                server_type=getattr(args, "server_type", None),
+                model=getattr(args, "model", None),
+                label=getattr(args, "label", None),
+                as_json=as_json,
+            )
+        if action == "remove":
+            return await provider_remove(
+                str(getattr(args, "name", "") or ""), home, as_json=as_json
+            )
         if action == "login":
             vendor_name = str(getattr(args, "vendor", "") or "")
             headless = {"openai": "device_code", "gemini": "google_adc"}
@@ -2723,7 +2845,11 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
                 token=getattr(args, "token", None),
                 method=headless.get(vendor_name) if getattr(args, "device_code", False) else None,
             )
-        return _fail("usage: snowpea provider list|models|login <vendor>", EXIT_USAGE)
+        return _fail(
+            "usage: snowpea provider list|models|login <vendor>"
+            " | add-local <name> --url <url> | remove <name>",
+            EXIT_USAGE,
+        )
     if subcommand == "gateway":
         if action == "bind":
             return await gateway_bind(
@@ -2863,10 +2989,12 @@ __all__ = [
     "format_mcp_row",
     "parse_target",
     "placeholder",
+    "provider_add_local",
     "provider_list",
     "service_command",
     "provider_login",
     "provider_models",
+    "provider_remove",
     "resolve_install_source",
     "search_test",
     "setup_command",

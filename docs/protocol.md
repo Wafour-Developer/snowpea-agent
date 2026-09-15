@@ -98,6 +98,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`provider.list`](#providerlist) | client → server | List chat providers and whether they are configured. |
 | [`provider.loginWeb`](#providerloginweb) | client → server | Start a browser-based login flow for a provider. |
 | [`provider.models`](#providermodels) | client → server | Ask a vendor's endpoint which models it serves. |
+| [`provider.remove`](#providerremove) | client → server | Forget a configured provider, typically a named local server. |
 | [`question.list`](#questionlist) | client → server | List questions the agent is still waiting on. |
 | [`question.request`](#questionrequest) | server → client | Ask the client to put a question to the human. |
 | [`question.respond`](#questionrespond) | client → server | Answer a pending question and unblock the turn. |
@@ -209,7 +210,7 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `agents` | `({ agentId?: string \| null; bindings?: string[]; channel?: string \| null; channels?: string[]; description?: string; jobs?: string[]; kind?: string; name: string; namespace?: string \| null; parentSessionId?: string \| null; path?: string \| null; sessionId?: string \| null; source?: string; status?: string \| null; task?: string \| null; })[]` | no | Defined named agents. |
+| `agents` | `({ active?: boolean \| null; agentId?: string \| null; agents?: string[]; bindings?: string[]; channel?: string \| null; channels?: string[]; description?: string; jobs?: string[]; kind?: string; name: string; namespace?: string \| null; parentSessionId?: string \| null; path?: string \| null; sessionId?: string \| null; source?: string; stages?: Record<string, string>; status?: string \| null; task?: string \| null; })[]` | no | Defined named agents. |
 
 ### `agent.spawn`
 
@@ -1005,7 +1006,7 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `providers` | `({ authMethods?: string[]; authStatus?: "unconfigured" \| "active" \| "expired"; configured?: boolean; default?: boolean; defaultModel?: string; label?: string; models?: string[]; vendor: string; })[]` | no | Known chat providers. |
+| `providers` | `({ authMethods?: string[]; authStatus?: "unconfigured" \| "active" \| "expired"; configured?: boolean; custom?: boolean; default?: boolean; defaultModel?: string; label?: string; models?: string[]; preset?: string; vendor: string; })[]` | no | Known chat providers. |
 
 ### `provider.loginWeb`
 
@@ -1052,6 +1053,24 @@ Ask a vendor's endpoint which models it serves.
 | `models` | `string[]` | no | Model ids the vendor's endpoint reports. |
 | `source` | `string` | no | Which rung answered: live (the vendor's endpoint), settings (providers.<vendor>.models), cache (the last good listing) or curated (this build's list, merged with models.dev). |
 | `vendor` | `string` | yes | Vendor the listing came from. |
+
+### `provider.remove`
+
+*Direction:* client → server
+
+Forget a configured provider, typically a named local server.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `vendor` | `string` | yes | Provider to forget: its credentials, its model profiles and the agent assignments that used them. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ok` | `boolean` | no | True when the call succeeded. |
 
 ### `question.list`
 

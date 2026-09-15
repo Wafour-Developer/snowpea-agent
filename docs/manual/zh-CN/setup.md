@@ -67,7 +67,7 @@ v0.1 中共内置了十一个供应商。
 | `kimi` | Moonshot Kimi | OpenAI-compatible | API key |
 | `deepseek` | DeepSeek | OpenAI-compatible | API key |
 | `qwen` | Qwen | OpenAI-compatible | API key |
-| `local` | OpenAI-compatible local (vLLM, Ollama, LM Studio) | OpenAI-compatible | base URL, key optional |
+| `local` | Local / OpenAI-compatible servers (vLLM, Ollama, LM Studio) | OpenAI-compatible | base URL, key optional |
 
 ```bash
 snowpea provider list

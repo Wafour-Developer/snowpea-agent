@@ -59,7 +59,7 @@ class OpenAICompatProvider:
         self._model_resolver = model_resolver
         if not self._base_url:
             raise ProviderError("invalid_params", f"{self.vendor}: no base_url configured")
-        if not api_key and self.vendor != "local" and not replay.is_replay():
+        if not api_key and resolved.key_required and not replay.is_replay():
             raise ProviderError("invalid_params", f"{self.vendor}: no API key configured")
 
     def _tag(self) -> str:

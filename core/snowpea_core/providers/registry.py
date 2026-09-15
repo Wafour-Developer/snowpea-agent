@@ -30,9 +30,11 @@ from snowpea_core.providers.fake import FakeProvider
 from snowpea_core.providers.presets import (
     DEFAULT_VENDOR,
     PRESETS,
-    PRESETS_BY_VENDOR,
     VendorPreset,
+    is_local_vendor_config,
+    local_vendor_ids,
     preset_for,
+    validate_custom_vendor_id,
 )
 from snowpea_core.server.protocol import AuthStatus, ProviderInfo
 
@@ -103,12 +105,49 @@ class ProviderRegistry:
         return dict(raw) if isinstance(raw, dict) else {}
 
     def preset(self, vendor: str) -> VendorPreset:
-        """The preset for ``vendor``, honouring a configured ``local`` variant."""
-        variant = self.vendor_config(vendor).get("variant")
+        """The preset for ``vendor``, honouring variants and named servers.
+
+        A key under ``providers`` that declares ``preset: local`` is a
+        self-hosted OpenAI-compatible server the user named, so it gets a
+        preset synthesized from its own block rather than a lookup failure.
+        """
+        config = self.vendor_config(vendor)
+        variant = config.get("variant")
         try:
-            return preset_for(vendor, str(variant) if variant else None)
+            return preset_for(vendor, str(variant) if variant else None, config)
         except KeyError:
             raise ProviderError("invalid_params", f"unknown provider vendor: {vendor}") from None
+
+    def preset_or_none(self, vendor: str) -> VendorPreset | None:
+        """:meth:`preset`, or ``None`` for a vendor nothing describes."""
+        try:
+            return self.preset(vendor)
+        except ProviderError:
+            return None
+
+    def is_local_style(self, vendor: str) -> bool:
+        """True for ``local`` and for every named OpenAI-compatible server.
+
+        This is the test that replaced ``vendor == "local"``: keyless auth,
+        ``/v1/models`` discovery, the Ollama listing fallback and live
+        context-window probing all key off it, so a server the user called
+        ``hon2`` behaves exactly like the built-in one.
+        """
+        preset = self.preset_or_none(vendor)
+        return bool(preset is not None and preset.local_style)
+
+    def local_vendors(self) -> list[str]:
+        """Configured local-style vendor ids, ``local`` first, then by name."""
+        found = local_vendor_ids(self.settings.providers)
+        return sorted(found, key=lambda name: (name != "local", name))
+
+    def custom_vendors(self) -> list[str]:
+        """Local-style vendors the user added, i.e. everything but ``local``."""
+        return [name for name in self.local_vendors() if name not in PRESETS]
+
+    def known_vendors(self) -> list[str]:
+        """Every vendor a surface may show: the presets, then the named servers."""
+        return [*PRESETS, *self.custom_vendors()]
 
     def auth_method_for(self, vendor: str) -> str | None:
         """``settings.providers[vendor].auth_method``, when one was recorded."""
@@ -131,7 +170,7 @@ class ProviderRegistry:
             value = config.get(field)
             if isinstance(value, str) and value:
                 return value
-        preset = PRESETS_BY_VENDOR.get(vendor)
+        preset = self.preset_or_none(vendor)
         for name in preset.env_keys if preset else ():
             from_env = os.environ.get(name)
             if from_env:
@@ -142,7 +181,7 @@ class ProviderRegistry:
         configured = self.vendor_config(vendor).get("base_url")
         if isinstance(configured, str) and configured:
             return configured
-        preset = PRESETS_BY_VENDOR.get(vendor)
+        preset = self.preset_or_none(vendor)
         return preset.base_url if preset else None
 
     def _profile(self, profile_id: str | None) -> tuple[str, str] | None:
@@ -166,7 +205,7 @@ class ProviderRegistry:
         configured = self.vendor_config(vendor).get("model")
         if isinstance(configured, str) and configured:
             return configured
-        preset = PRESETS_BY_VENDOR.get(vendor)
+        preset = self.preset_or_none(vendor)
         return preset.default_model if preset else ""
 
     def is_configured(self, vendor: str) -> bool:
@@ -179,7 +218,7 @@ class ProviderRegistry:
         if vendor in self._providers:
             return True
         config = self.vendor_config(vendor)
-        preset = PRESETS_BY_VENDOR.get(vendor)
+        preset = self.preset_or_none(vendor)
         # A keyless vendor (the self-hosted OpenAI-compatible ``local`` one and
         # its vLLM/Ollama/LM Studio variants) is configured by what it points
         # at, not by a credential: a saved ``base_url`` or ``model`` is the
@@ -227,16 +266,53 @@ class ProviderRegistry:
         Persisting to ``settings.json`` is the caller's job (the RPC handler
         knows the daemon's :class:`~snowpea_core.config.paths.Paths`).
         """
-        if vendor not in PRESETS:
-            raise ProviderError("invalid_params", f"unknown provider vendor: {vendor}")
         merged = {**self.vendor_config(vendor)}
         for key, value in config.items():
             if value is None:
                 merged.pop(key, None)
             else:
                 merged[key] = value
+        if vendor not in PRESETS:
+            # A name nothing knows is only acceptable when the block says what
+            # it is: ``preset: local`` (or ``openai-compatible``) declares a
+            # self-hosted server, and anything else is a typo we must refuse
+            # rather than silently persist as a vendor that can never answer.
+            if not is_local_vendor_config(merged):
+                raise ProviderError("invalid_params", f"unknown provider vendor: {vendor}")
+            try:
+                validate_custom_vendor_id(vendor)
+            except ValueError as exc:
+                raise ProviderError("invalid_params", str(exc)) from None
         self.settings.providers[vendor] = merged
         return merged
+
+    def remove(self, vendor: str) -> bool:
+        """Forget ``vendor`` entirely: its block, its profiles, its assignments.
+
+        Removing only ``providers.<vendor>`` would leave ``models.profiles``
+        pointing at a server that no longer exists, which is how a deleted
+        provider comes back as ``unknown provider vendor`` on the next prompt.
+        Returns False when there was nothing to remove.
+        """
+        removed = self.settings.providers.pop(vendor, None) is not None
+        if self.settings.providers.get("default") == vendor:
+            self.settings.providers.pop("default", None)
+        stale = {
+            pid
+            for pid, profile in self.settings.models.profiles.items()
+            if profile.provider == vendor
+        }
+        for pid in stale:
+            self.settings.models.profiles.pop(pid, None)
+            removed = True
+        if self.settings.models.default in stale:
+            self.settings.models.default = None
+        self.settings.agents.models = {
+            agent: pid
+            for agent, pid in self.settings.agents.models.items()
+            if pid not in stale
+        }
+        return removed
 
     def save(self) -> bool:
         """Write ``settings.json`` when a :class:`Paths` is bound; else do nothing."""
@@ -304,7 +380,7 @@ class ProviderRegistry:
         hit, cached = context_windows.cache_get(vendor, base_url.rstrip("/"), resolved_model)
         if hit:
             return cached
-        preset = PRESETS_BY_VENDOR.get(vendor)
+        preset = self.preset_or_none(vendor)
         if preset is None:
             return None
         return preset.context_window(resolved_model)
@@ -348,9 +424,9 @@ class ProviderRegistry:
         if override is not None:
             return override
         resolved_model = self.model_for(vendor, model)
-        preset = PRESETS_BY_VENDOR.get(vendor)
+        preset = self.preset_or_none(vendor)
         static = preset.context_window(resolved_model) if preset is not None else None
-        if vendor != "local":
+        if not self.is_local_style(vendor):
             return static
         base_url = (self.base_url_for(vendor) or "").rstrip("/")
         if not base_url or model_discovery.is_placeholder(resolved_model):
@@ -529,7 +605,8 @@ class ProviderRegistry:
             if env_vendor:
                 return env_vendor
         profile = self.default_profile()
-        if profile is not None and profile[0] in PRESETS:
+        known = set(self.known_vendors())
+        if profile is not None and profile[0] in known:
             return profile[0]
         if profile is not None:
             # ``ModelProfile`` only checks that the strings are non-empty, so a
@@ -544,7 +621,7 @@ class ProviderRegistry:
         configured = self.settings.providers.get("default")
         if isinstance(configured, str) and configured:
             return configured
-        for vendor in PRESETS:
+        for vendor in self.known_vendors():
             if self.is_configured(vendor):
                 return vendor
         return DEFAULT_VENDOR
@@ -554,7 +631,10 @@ class ProviderRegistry:
         """Every known vendor with its models, auth methods and state."""
         default = self.default_vendor()
         infos: list[ProviderInfo] = []
-        for vendor, preset in PRESETS.items():
+        for vendor in self.known_vendors():
+            preset = self.preset_or_none(vendor)
+            if preset is None:  # pragma: no cover - known_vendors only yields describable ids
+                continue
             config = self.vendor_config(vendor)
             # The same rungs ``model_listing`` uses, minus the live one: a
             # synchronous listing may not make eleven HTTP calls, but it must
@@ -576,6 +656,8 @@ class ProviderRegistry:
                     default=vendor == default,
                     authMethods=list(preset.auth_methods),
                     authStatus=self.auth_status(vendor),
+                    preset="local" if preset.local_style else vendor,
+                    custom=vendor not in PRESETS,
                 )
             )
         return infos

@@ -51,6 +51,7 @@ These are answered by the terminal UI itself rather than by the core, so they do
 | `/review [what]` | review the uncommitted diff with a read-only `reviewer` agent and report the verdict |
 | `/init [--force]` | fast, rough `AGENTS.md` for the project root, in one turn; merges into an existing file unless `--force` |
 | `/deepinit [path]` | walk the repository and write hierarchical `AGENTS.md` files |
+| `/team "<task>"` | the project team's members run it by role: plan, implement, test, review |
 | `/team <n> <task>` | n workers, one git worktree each, branches merged as tasks finish |
 | `/team create <name> <agent...>` | create a project team from existing agents and activate it |
 | `/team use <name>` / `/team list` | switch the active project team or list teams |
@@ -185,6 +186,19 @@ snowpea provider list
 snowpea provider login openai
 snowpea setup --vendor deepseek --key sk-...
 ```
+
+Several OpenAI-compatible servers can be configured side by side, each under
+its own name. `add-local` writes one, `remove` forgets it along with the model
+profiles that named it.
+
+```bash
+snowpea provider add-local hon2 --url http://hon2.example.com:8000/v1 --type vllm
+snowpea provider models hon2
+snowpea provider remove hon2
+```
+
+See [Several local servers](setup.md#several-local-servers) for the settings
+shape and the wizard flow.
 
 ### Skills and plugins
 
