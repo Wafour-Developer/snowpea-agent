@@ -35,7 +35,7 @@ from snowpea_core.agent.team_pipeline import (
     stage_summary,
 )
 from snowpea_core.commands.registry import Command, CommandContext
-from snowpea_core.commands.workers_cmd import MOVED_HINT
+from snowpea_core.commands.workers_cmd import cmd_workers
 from snowpea_core.server import errors
 from snowpea_core.session import events
 
@@ -44,6 +44,7 @@ log = logging.getLogger("snowpea.commands.team")
 USAGE = ('Usage: /team "<task>" | /team <name> "<task>" | '
          '/team create <name> <agent...> | /team use <name>|none | /team list | '
          '/team delete <name>')
+WORKERS_COMPAT_NOTE = "`/workers N` is the current spelling; forwarding this `/team N` request."
 
 #: ``/team <bareword> "<task>"`` — a leading name followed by a *quoted* task.
 #: The quotes are what marks the first word as a team name: without them
@@ -81,11 +82,28 @@ async def cmd_team(ctx: CommandContext, args: str) -> None:
         await _configure_team(ctx, words)
         return
     if words and words[0].isdigit():
-        # The old spelling. Saying where it went beats running it silently and
-        # beats a bare usage line that does not mention the new command.
-        await ctx.say(f"{MOVED_HINT}\n{USAGE}")
+        await _run_workers_compat(ctx, args)
         return
     await _dispatch_pipeline(ctx, args)
+
+
+async def _run_workers_compat(ctx: CommandContext, args: str) -> None:
+    """Run the old ``/team N`` spelling through the ``/workers`` command."""
+    original_say = ctx.say
+    note_sent = False
+
+    async def say_with_note(text: str) -> None:
+        nonlocal note_sent
+        if not note_sent:
+            note_sent = True
+            text = f"{WORKERS_COMPAT_NOTE}\n{text}"
+        await original_say(text)
+
+    ctx.say = say_with_note  # type: ignore[method-assign]
+    try:
+        await cmd_workers(ctx, args)
+    finally:
+        ctx.say = original_say  # type: ignore[method-assign]
 
 
 async def _dispatch_pipeline(ctx: CommandContext, args: str) -> None:
@@ -137,6 +155,29 @@ async def _run_pipeline(
         await _fail(ctx, f"the pipeline failed: {type(exc).__name__}: {exc}")
         return
     await ctx.say(report)
+    if _pipeline_report_failed(report):
+        await _fail(ctx, "the team pipeline finished with incomplete evidence")
+
+
+def _pipeline_report_failed(report: str) -> bool:
+    """Whether a rendered pipeline report means the command should fail."""
+    lines = [line.strip() for line in report.splitlines()]
+    stages = _report_value(lines, "stages")
+    tests = _report_value(lines, "tests")
+    verify = _report_value(lines, "verify")
+    review = _report_value(lines, "review")
+    if any(line == "Left unfinished:" for line in lines):
+        return True
+    if "test=" in stages and tests != "TESTS: PASS":
+        return True
+    if "verify=" in stages and verify != "VERIFY: PASS":
+        return True
+    return "review=" in stages and review != "APPROVE"
+
+
+def _report_value(lines: list[str], key: str) -> str:
+    prefix = f"{key}:"
+    return next((line.partition(":")[2].strip() for line in lines if line.startswith(prefix)), "")
 
 
 def _has_a_roster(ctx: CommandContext) -> bool:
@@ -226,6 +267,8 @@ async def _fail(ctx: CommandContext, message: str) -> None:
     """End the team turn unsuccessfully."""
     await ctx.say(f"team: {message}")
     await ctx.emit(events.error(errors.INTERNAL, message))
+    if ctx.session.job_id:
+        await ctx.emit(events.job_failed(ctx.session.job_id, ctx.session.id, text=message))
     ctx.handled_turn = True
     await ctx.emit(events.turn_done(ctx.turn_id, "error"))
 
@@ -242,4 +285,4 @@ COMMANDS: tuple[Command, ...] = (
 )
 
 
-__all__ = ["COMMANDS", "TEAM_ARGS_SCHEMA", "USAGE", "cmd_team"]
+__all__ = ["COMMANDS", "TEAM_ARGS_SCHEMA", "USAGE", "WORKERS_COMPAT_NOTE", "cmd_team"]

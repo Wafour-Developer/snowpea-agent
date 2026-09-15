@@ -56,14 +56,19 @@
       "text": "TESTS: PASS\n\n$ pytest -q\n2 passed in 0.10s"
     },
     {
+      "match": "verify the team pipeline evidence",
+      "repeat": true,
+      "text": "$ git diff --stat\n module_a.py | 2 +-\n\nThe changed file and the test evidence line up.\nVERIFY: PASS"
+    },
+    {
       "match": "this is a second look",
       "repeat": true,
-      "text": "VERDICT: APPROVE\n\nNothing left to raise."
+      "text": "$ git diff module_a.py\nNothing left to raise.\nVERDICT: APPROVE"
     },
     {
       "match": "you are reviewing the change the team just made",
       "repeat": true,
-      "text": "VERDICT: REQUEST_CHANGES\n\nmodule_a.py:1 — the docstring does not say what the module is for — every reader of module_a.py"
+      "text": "$ git diff module_a.py\nmodule_a.py:1 — the docstring does not say what the module is for — every reader of module_a.py\nVERDICT: REQUEST_CHANGES"
     },
     {
       "after_tool": "write_file",

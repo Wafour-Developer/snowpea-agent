@@ -56,6 +56,7 @@ These are answered by the terminal UI itself rather than by the core, so they do
 | `/deepinit [path]` | walk the repository and write hierarchical `AGENTS.md` files |
 | `/team "<task>"` | the active team's members run it by role: plan, implement, test, review |
 | `/team <name> "<task>"` | the same, on a named project or global team, just this once |
+| `/team <N> "<task>"` | compatibility spelling for `/workers <N> "<task>"`; replies with a note that `/workers N` is current |
 | `/workers <N> "<task>"` | N identical workers, one git worktree each, branches merged as tasks finish |
 | `/team create <name> <agent...>` | create a project team from existing agents and activate it |
 | `/team use <name>` / `/team use none` | switch the active project team, or clear it |

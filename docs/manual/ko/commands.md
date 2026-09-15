@@ -56,6 +56,7 @@ snowpea commands list --json
 | `/deepinit [path]` | 저장소를 훑어 계층적 `AGENTS.md` 파일을 작성 |
 | `/team "<task>"` | 활성 팀 구성원이 역할별로 처리 — 계획·구현·테스트·리뷰 |
 | `/team <name> "<task>"` | 같은 파이프라인을 지정한 프로젝트/전역 팀으로 이번 한 번만 |
+| `/team <N> "<task>"` | `/workers <N> "<task>"` 호환 표기. 응답에서 현재 표기는 `/workers N`이라고 안내 |
 | `/workers <N> "<task>"` | 동일한 작업자 N명에게 각각 git worktree를 주고 태스크가 끝나는 대로 브랜치를 병합 |
 | `/team create <name> <agent...>` | 기존 에이전트로 프로젝트 팀을 만들고 즉시 활성화 |
 | `/team use <name>` / `/team use none` | 프로젝트의 활성 팀 전환 또는 해제 |

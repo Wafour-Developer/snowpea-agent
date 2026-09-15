@@ -31,6 +31,31 @@ $explore 응답 언어는 데몬 어디서 정해지나?
 
 `explore`와 `reviewer`는 도구 허용 목록을 들고 다녀서 지시가 아니라 사실로 읽기 전용입니다. `write_file`도 `edit_file`도 `shell`도 없습니다. `<project>/.snowpea/agents/`에 같은 이름의 정의를 두면 내장 정의를 통째로 덮어씁니다.
 
+### `explore`와 `explorer`, `reviewer`와 `critic`
+
+이름만 보면 겹쳐 보이는 두 쌍이 있지만 쓰임이 다릅니다. `explore`와 `reviewer`는 **위임해서 쓰는 내장 에이전트**입니다. 읽기 전용이고 도구 허용 목록이 붙어 있으며, 질문 하나나 diff 하나를 맡깁니다. `explorer`와 `critic`은 **팀 역할**이고, 파이프라인의 explore·review 단계를 채우며 도구 제한이 없습니다. 지금 당장 뭔가를 물어볼 때는 내장 에이전트를, 로스터를 적을 때는 역할 이름을 씁니다.
+
+| 위임용 | 팀 역할 | 차이 |
+|---|---|---|
+| `explore` | `explorer` | `explore`는 내장 읽기 전용 탐색 에이전트, `explorer`는 파이프라인 explore 단계 담당 |
+| `reviewer` | `critic` | `reviewer`는 요청 시 동작하는 내장 리뷰 에이전트, `critic`은 파이프라인 review 단계 담당 |
+
+`snowpea agents` 목록의 설명에도 같은 문장이 들어가 있어, 목록만 봐도 어느 쪽인지 알 수 있습니다.
+
+### 정의를 어디서 읽어왔는지
+
+각 행에는 `project` 한 단어가 아니라 실제로 읽어온 위치가 실립니다.
+
+| `source` | 읽어온 곳 |
+|---|---|
+| `builtin` | snowpea에 함께 배포된 정의 |
+| `global` | `~/.snowpea/agents/` |
+| `project` | `<project>/.snowpea/agents/` |
+| `claude-global` | `~/.claude/agents/` |
+| `claude-project` | `<project>/.claude/agents/` |
+
+Claude Code의 에이전트 디렉터리도 그대로 읽되 출처를 그대로 표시하므로, snowpea용으로 쓰지 않은 정의를 한눈에 구분할 수 있습니다.
+
 `explore`는 브리프에 적힌 철저함(quick / medium / very thorough)에 맞춰 움직이고, 파일 덤프가 아니라 절대 경로가 붙은 텍스트로 보고합니다. `reviewer`는 판단할 파일을 반드시 열어 보고, 세 판정 중 하나로 답합니다.
 
 ```text
@@ -67,14 +92,14 @@ VERDICT: NEEDS_MORE_EVIDENCE
 /team "파서 모듈 세 개에 docstring 추가"        # 내 팀이 역할별로
 ```
 
-예전에는 첫 단어가 숫자인지로 구분하는 한 명령이었는데, 그건 문법이라기보다 퀴즈였습니다. **팀**은 내가 꾸린 사람들이 각자 역할대로 일하는 것이고, **작업자**는 익명 에이전트 N개가 같은 작업 목록을 나눠 달리는 것입니다. 이제 `/team 3 "…"`은 조용히 실행하지 않고 작업자 모드가 어디로 갔는지 알려줍니다.
+예전에는 첫 단어가 숫자인지로 구분하는 한 명령이었는데, 그건 문법이라기보다 퀴즈였습니다. **팀**은 내가 꾸린 사람들이 각자 역할대로 일하는 것이고, **작업자**는 익명 에이전트 N개가 같은 작업 목록을 나눠 달리는 것입니다. `/team 3 "…"`은 지금도 작업자 모드로 실행되며, 현재 표기는 `/workers N`이라는 안내를 한 줄 덧붙입니다.
 
 **`/workers <N> "<task>"`**(별칭 `/worker`)가 옮겨간 그 모드입니다. 작업자 N명에게 각각 git worktree를 주고, 태스크가 끝나는 대로 리드가 브랜치를 병합합니다.
 
 **`/team "<task>"`**는 활성 프로젝트 팀의 구성원을 이름이 뜻하는 역할대로, 현재 체크아웃에서 단계별로 실행합니다.
 
 ```text
-explore? -> plan -> implement -> test? -> review? -> fix? -> review?
+explore? -> plan -> implement -> test? -> verify? -> review? -> fix? -> review?
 ```
 
 각 단계는 평범한 서브에이전트라서 에이전트 트리에 그대로 보입니다. 어느 단계를 누가 맡는지는 모델이 아니라 로스터가 정합니다.
@@ -85,7 +110,8 @@ explore? -> plan -> implement -> test? -> review? -> fix? -> review?
 | plan | `architect`, 없으면 `planner` | 리드가 직접 계획 |
 | implement | `executor` | 명령이 중단되고 이유를 알려줌 |
 | test | `test-engineer` | 건너뜀 |
-| review | `reviewer`, `critic`, `verifier` 순 | 건너뜀 |
+| verify | `verifier` | 건너뛰고 보고서에 사유를 남김 |
+| review | `critic`, 없으면 `reviewer` | 건너뜀 |
 
 ### 어느 팀이 실행할지 고르기
 
@@ -102,6 +128,8 @@ explore? -> plan -> implement -> test? -> review? -> fix? -> review?
 같은 목록은 `agent.list`로도 옵니다. 팀마다 `kind: "team"` 행 하나에 `active`, `source`(`global`/`project`), `agents`, `stages`가 실립니다. implement 담당이 없는 팀은 `stages`가 빈 채로 나오므로, 선택 UI가 이유와 함께 보여줄 수 있습니다.
 
 여기에는 worktree가 없으므로 작업을 파일 단위로 갈라놓아야 합니다. plan 단계가 각 태스크가 건드릴 파일을 적고, 같은 파일을 주장하는 태스크는 시작 전에 하나로 합쳐지며, 파일이 겹치지 않는 태스크만 `agents.max_concurrent`까지 함께 돕니다. 파일을 하나도 적지 않은 태스크는 혼자 실행됩니다.
+
+test·verify·review 단계는 각각 명시적인 한 줄로 답합니다 — `TESTS: PASS`/`TESTS: FAIL`, `VERIFY: PASS`/`VERIFY: FAIL`, `VERDICT: APPROVE`/`VERDICT: REQUEST_CHANGES`. 그 줄이 없거나, 응답이 비었거나, 승인이 거부됐거나, 도구 호출 근거 없이 승인만 적힌 보고는 `NEEDS_MORE_EVIDENCE`로 처리되며 통과가 아닙니다. 최종 보고서는 테스트가 실제로 PASS이고 리뷰가 실제로 APPROVE일 때만 `Nothing was left unfinished.`라고 적고, 그렇지 않으면 무엇이 남았는지 나열하며 헤드리스 실행은 실패로 끝납니다.
 
 `REQUEST_CHANGES` 판정은 해당 코드를 쓴 에이전트의 수정 1회와 재리뷰 1회를 부릅니다. 그래도 변경을 요구하면 실행이 끝나고 무엇이 남았는지 보고합니다 — 3회차는 없습니다.
 
@@ -139,3 +167,21 @@ snowpea agents --json
 ```
 
 는 지금 대기 중이거나 돌고 있는 자식을 보여 줍니다.
+
+## 자식 컨텍스트 다이어트
+
+위임된 자식(`delegate_task`)은 빈 대화 기록과 작업 설명이 적힌 브리프로 시작합니다. 자식에게 부모의 전체 프롬프트 — 기억 회상 블록, 전체 스킬 색인, 트리의 모든 중첩 `AGENTS.md` — 를 넘겨주면 라운드마다 수십만 토큰의 입력 비용이 낭비됩니다.
+
+`agents.childContext` 설정이 컨텍스트 다이어트를 제어합니다.
+
+| 설정 | 기본값 | 선택값 | 하는 일 |
+|---|---|---|---|
+| `agents.childContext` | `"lean"` | `"lean"`, `"full"` | `"lean"`은 위임된 자식에서 기억 회상 블록, 스킬 색인, 중첩 지시 파일을 제거하고 읽기 전용 자식 툴을 축소합니다. `"full"`은 부모와 동일한 프롬프트를 복원합니다. |
+
+`"lean"` 모드에서 동작 방식:
+- **기억 블록 및 가이드 생략**: 자식은 기억 회상 블록과 가이드 라인을 받지 않습니다(기억 관련 툴 자체는 허용된 경우 정상 호출 가능).
+- **스킬 색인 생략**: 설치된 스킬 목록이 프롬프트에 나열되지 않으나, `skill_view`를 통해 이름으로 직접 스킬을 읽는 것은 언제든 가능합니다.
+- **루트 지시 파일만 제공**: 루트의 `AGENTS.md` 또는 `CLAUDE.md`만 사전에 로드되며, 중첩 지시 파일은 툴이 해당 디렉터리를 건드릴 때 온디맨드로 첨부됩니다.
+- **더 작은 eager 툴 세트**: 읽기 전용 자식(`explore`, `reviewer`)은 `read_file`, `grep`, `glob`, `shell`(허용된 경우), `tool_search`로 시작합니다. 그 외 툴은 지연(deferred)되어 필요 시 온디맨드로 로드됩니다.
+- **보존되는 요소**: 자식의 정의 프롬프트, 역할(role), 툴 라운드 예산 안내(`BUDGET_LINE`)는 항상 그대로 유지됩니다.
+

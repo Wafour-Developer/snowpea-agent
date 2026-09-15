@@ -1,6 +1,6 @@
 ---
 name: explore
-description: Read-only codebase search: finds where something lives and reports it as file:line evidence.
+description: Built-in read-only search agent for delegation; distinct from explorer, the team explore-stage role.
 model: inherit
 tools: ["read_file", "list_dir", "glob", "grep", "lsp_symbols", "lsp_workspace_symbols", "lsp_definition", "lsp_references", "lsp_hover", "lsp_diagnostics", "git_status", "git_diff", "git_log", "web_search", "web_extract"]
 permission: inherit

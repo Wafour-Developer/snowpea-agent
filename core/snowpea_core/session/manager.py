@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sqlite3
 import uuid
 from pathlib import Path
 from typing import Any, cast
@@ -458,11 +459,22 @@ class EventHub:
         if self.store is not None:
             try:
                 await self.store.append_event(session_id, seq, kind, body, ts)
-            except StoreClosed:
-                # The daemon closed the session store out from under a turn
-                # still winding down at shutdown (CORE-session-race); the
-                # event is dropped rather than raised into the turn task.
-                log.debug("dropping %s event for %s: session store is closed", kind, session_id)
+            except (StoreClosed, sqlite3.Error) as exc:
+                if isinstance(exc, StoreClosed):
+                    # The daemon closed the session store out from under a turn
+                    # still winding down at shutdown (CORE-session-race); the
+                    # event is dropped rather than raised into the turn task.
+                    log.debug("dropping %s event for %s: session store is closed", kind, session_id)
+                else:
+                    # The store already retried and logged; a disk that will not
+                    # take the row must not swallow the answer the model just
+                    # produced, so the event is still broadcast below.
+                    log.error(
+                        "dropping %s event for %s: session store write failed",
+                        kind,
+                        session_id,
+                        exc_info=True,
+                    )
         event = SessionEvent(sessionId=session_id, seq=seq, kind=kind, payload=body, ts=ts)
         params = event.model_dump(mode="json")
         for conn in self.subscribers_for(session_id):

@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncIterator
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import aiohttp
@@ -19,9 +20,12 @@ import pytest
 import pytest_asyncio
 from _support import connect, fake_provider, make_daemon
 
+from snowpea_core.agent.definition import builtin_agent_definitions
 from snowpea_core.cli import commands as cli_commands
 from snowpea_core.cli.main import build_parser, run_headless
 from snowpea_core.cli.main import main as cli_main
+from snowpea_core.commands import agent_cmd, team_cmd, workers_cmd
+from snowpea_core.commands.registry import CommandContext
 from snowpea_core.config.project import ProjectSettings
 from snowpea_core.server.app_server import Daemon
 
@@ -176,6 +180,94 @@ async def test_team_use_refuses_an_unknown_team(daemon: Daemon, tmp_path: Path) 
         await run(daemon, "team", "use", "nope", "--workdir", str(workdir))
         == cli_commands.EXIT_USAGE
     )
+
+
+async def test_team_count_forwards_to_workers_with_a_compatibility_note(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    core = SimpleNamespace()
+    session = SimpleNamespace(id="s-1", job_id=None)
+    seen: list[tuple[int, str]] = []
+    said: list[str] = []
+
+    class FakeManager:
+        async def start(self, _session: Any, workers: int, task: str) -> str:
+            seen.append((workers, task))
+            return "tm-compat"
+
+        async def status(self, _team_id: str | None = None) -> Any:
+            class Status:
+                tasks: list[Any] = []
+
+            return Status()
+
+        async def wait(self, _team_id: str) -> None:
+            return None
+
+    monkeypatch.setattr(workers_cmd, "get_manager_for", lambda _core: FakeManager())
+    ctx = CommandContext(core=core, session=session, turn_id="turn-1")
+
+    async def say(text: str) -> None:
+        said.append(text)
+
+    ctx.say = say  # type: ignore[method-assign]
+
+    await team_cmd.cmd_team(ctx, '3 "add docstrings"')
+
+    assert seen == [(3, "add docstrings")]
+    assert said[0].startswith(f"{team_cmd.WORKERS_COMPAT_NOTE}\n")
+    assert "tm-compat: 0 tasks across 3 worktrees." in said[0]
+    assert said[1] == "tm-compat finished: 0 merged, 0 failed."
+
+
+async def test_team_pipeline_report_failure_detection_tracks_evidence() -> None:
+    assert not team_cmd._pipeline_report_failed(
+        "stages: implement=executor, test=test-engineer, review=critic\n"
+        "tasks: 1/1 finished\n"
+        "tests: TESTS: PASS\n"
+        "review: APPROVE\n\n"
+        "Nothing was left unfinished."
+    )
+    assert team_cmd._pipeline_report_failed(
+        "stages: implement=executor, test=test-engineer, review=critic\n"
+        "tasks: 1/1 finished\n"
+        "tests: NEEDS_MORE_EVIDENCE\n"
+        "review: NO_VERDICT\n\n"
+        "Nothing was left unfinished."
+    )
+    assert team_cmd._pipeline_report_failed(
+        "stages: implement=executor\n"
+        "tasks: 0/1 finished\n"
+        "tests: not run\n"
+        "review: not run\n\n"
+        "Left unfinished:\n- implement failed"
+    )
+
+
+async def test_claude_agent_directories_keep_their_own_source_label(tmp_path: Path) -> None:
+    """``~/.claude/agents`` is not this project (validation report §4.4)."""
+    home = tmp_path / "snowpea-home"
+    core = SimpleNamespace(paths=SimpleNamespace(home=home))
+    global_agent = home / ".claude" / "agents" / "helper.md"
+    project_agent = tmp_path / "project" / ".claude" / "agents" / "helper.md"
+    own_agent = tmp_path / "project" / ".snowpea" / "agents" / "helper.md"
+    for path in (global_agent, project_agent, own_agent):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("---\nname: helper\n---\nbody\n", encoding="utf-8")
+
+    label = agent_cmd._agent_source_label
+    assert label(global_agent, "project", core) == "claude-global"
+    assert label(project_agent, "project", core) == "claude-project"
+    assert label(own_agent, "project", core) == "project"
+
+
+async def test_the_lookalike_builtins_say_how_they_differ() -> None:
+    """`explore`/`explorer` and `reviewer`/`critic` are told apart in the list."""
+    by_name = {defn.name: defn for defn in builtin_agent_definitions()}
+    assert "explorer" in by_name["explore"].description
+    assert "critic" in by_name["reviewer"].description
+    for name in ("explore", "reviewer"):
+        assert "built-in" in by_name[name].description.lower()
 
 
 # ---------------------------------------------------------------------------
