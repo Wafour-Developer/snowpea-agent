@@ -35,7 +35,15 @@ snowpea gateway unbind <binding-id>
 
 **Discord.** 애플리케이션을 만들고 봇 유저를 추가한 뒤 message content intent를 켜고, 서버에 초대하고, 봇 토큰을 받아 둡니다. 초대할 때 `bot`과 `applications.commands` 두 스코프를 모두 주세요. 개발자 포털의 OAuth2 URL 생성기가 그 링크를 만들어 줍니다. 두 번째 스코프가 있어야 채팅 명령이 Discord의 `/` 목록에 나타납니다. 바인딩이 시작될 때 snowpea가 명령을 등록하므로 `/sessions`, `/resume`, `/new`, `/projects`, `/status`, `/stop`, `/help`, `/mode`, `/model`, `/effort`가 자유 입력 `args` 칸과 함께 목록에 뜨고, 이렇게 부른 명령의 답은 명령 자리에 그대로 돌아옵니다. 이 스코프가 없어도 깨지는 것은 없습니다. message content intent가 켜져 있으면 `/sessions`를 그냥 글로 쳐도 똑같이 동작합니다. 채널 id는 채널 URL의 마지막 경로 조각입니다.
 
-**Slack.** 앱을 만들고 `chat:write`와 워크스페이스에 필요한 이벤트를 추가한 뒤 설치하고, 봇 토큰을 받아 둡니다. 대상으로는 채널 이름이나 id를 씁니다.
+**Slack.** Slack은 슬래시 명령을 오직 앱 매니페스트에서만 가져갑니다. 그러니 매니페스트를 출력해서 붙여 넣으세요:
+
+```bash
+snowpea gateway slack-manifest
+```
+
+[api.slack.com/apps](https://api.slack.com/apps)에서 새 앱이면 **Create from manifest**, 이미 있는 앱이면 **App Manifest**를 골라 이 JSON을 붙여 넣습니다. 봇 유저, 스코프(`chat:write`, `commands`, history 계열), 메시지 이벤트, Socket Mode, 그리고 `/sessions`, `/resume`, `/new`, `/projects`, `/status`, `/stop`, `/help`, `/mode`, `/model`, `/effort`가 진짜 슬래시 명령으로 선언됩니다. 이게 보기보다 중요합니다. Slack은 `/`로 시작하는 메시지를 앱에 넘기기 전에 **전부** 가로채기 때문에, 선언되지 않은 `/sessions`는 Slack이 "알 수 없는 명령"이라고 답해 버리고 snowpea에는 아예 도착하지 않습니다. 선언된 명령은 Socket Mode 슬래시 명령으로 들어오고, 답은 명령을 친 채널에 그대로 올라갑니다.
+
+그다음 앱을 설치해 봇 토큰(`xoxb-…`)을 받고, Socket Mode용으로 `connections:write` 권한의 app-level 토큰(`xapp-…`)도 발급받습니다. 바인딩에는 둘 다 필요합니다. 봇 토큰만 있으면 예약 메시지 전달은 되지만 수신은 되지 않습니다. 대상으로는 채널 이름이나 id를 씁니다.
 
 ## 대화하기
 
@@ -73,7 +81,7 @@ Telegram은 봇이 시작할 때 이것들을 `/` 메뉴로 등록하므로, 외
 
 턴이 도는 동안 대화방에는 플랫폼의 "입력 중…" 표시가 뜨고, 몇 초마다 갱신됩니다. 승인이나 질문이 당신의 답을 기다리는 동안에는 멈춥니다 — 당신이 고민하는 동안 에이전트는 일하고 있지 않으니까요. 턴의 첫 툴 호출에서 메시지 하나가 나가고(`⏳ shell npm test`), 이후의 툴 호출은 새 메시지 대신 *그 메시지를 고쳐 씁니다*. 끝나면 `✓ 4 tool calls · 1m 12s`로, 실패하거나 중단됐으면 `✗`로 정리됩니다.
 
-메시지를 고쳐 쓸 수 없는 플랫폼에는 진행 메시지를 아예 보내지 않습니다. 고쳐 쓰기가 없으면 이 기능은 그냥 도배이기 때문입니다. Slack은 입력 중 표시도 없습니다 — 봇 토큰으로는 보낼 수 없습니다.
+메시지를 고쳐 쓸 수 없는 플랫폼에는 진행 메시지를 아예 보내지 않습니다. 고쳐 쓰기가 없으면 이 기능은 그냥 도배이기 때문입니다. Slack은 입력 중 표시도 없습니다 — 봇 토큰으로는 보낼 수 없습니다. 그래서 Slack 대화방에는 진행 메시지만 남고, 그 진행 메시지는 제자리에서 계속 고쳐 쓰입니다.
 
 설정 두 개로 끌 수 있습니다:
 

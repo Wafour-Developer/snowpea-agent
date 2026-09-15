@@ -91,6 +91,7 @@ class TurnActivity:
         self._started = 0.0
         self._calls = 0
         self._message_id = ""
+        self._posted = False
         self._label = ""
         self._shown = ""
         self._last_edit = 0.0
@@ -124,6 +125,7 @@ class TurnActivity:
         self._started = time.monotonic()
         self._calls = 0
         self._message_id = ""
+        self._posted = False
         self._label = ""
         self._shown = ""
         self._last_edit = 0.0
@@ -138,7 +140,11 @@ class TurnActivity:
         edit = self._edit_call()
         if edit is None:
             return
-        if not self._message_id:
+        if not self._posted:
+            # Once per turn, whatever comes back.  A send that names no message
+            # — Slack answering a slash command, or a platform that failed —
+            # leaves nothing to edit, and retrying would spam the chat.
+            self._posted = True
             self._message_id = await self.conn.router.send(
                 self.conn.binding, self.conn.channel_id, f"⏳ {self._label}"
             )

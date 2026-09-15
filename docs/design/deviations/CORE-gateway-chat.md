@@ -93,8 +93,28 @@ piece of a split answer consumes the token; the rest post normally. Registration
 both non-fatal — a bot invited without `applications.commands` simply has no picker, and the
 typed-text path is untouched.
 
+## Slack's menu is a manifest, and the answer is a `response_url`
+
+Slack cannot be told about its own slash commands over the API: they exist only in the app
+manifest, which a person pastes at api.slack.com. So `slack_manifest()` builds one from
+`MENU_COMMANDS` and `snowpea gateway slack-manifest` prints it — the only place in the gateway
+where a platform needs a manual step no code can take. It is not cosmetic: Slack intercepts every
+message beginning with `/` before the Events API sees it, so an undeclared `/sessions` never
+arrives at all.
+
+A declared command arrives as a third Socket Mode envelope type, `slash_commands`, which
+`parse_envelope` turns into the line the person typed (`/new foo`). The envelope is acked like
+any other — empty, within three seconds — because the router answers asynchronously and an ack
+body cannot wait for it. The payload's `response_url` is remembered per channel for sixty
+seconds, mirroring Discord's interaction token, and the first `send` for that channel posts
+there with `response_type: "in_channel"` instead of calling `chat.postMessage`. A `response_url`
+post names no message, so that `send` returns `""`; `TurnActivity` now posts its progress line at
+most once per turn rather than on every tool call, so an unnameable message costs one line rather
+than a flood. Slack still has no typing hint, and the progress line still edits in place.
+
 ## Where it lives
 
 `core/snowpea_core/gateway/{chat,activity,router,base,telegram,discord,slack,fake}.py`,
-`core/snowpea_core/server/session_handlers.py`, `core/snowpea_core/config/settings.py`.
-Tests: `tests/test_gateway_chat.py`, fixture `tests/fixtures/providers/fake/gateway_chat.json`.
+`core/snowpea_core/server/session_handlers.py`, `core/snowpea_core/config/settings.py`,
+`core/snowpea_core/cli/commands.py`.
+Tests: `tests/test_gateway_chat.py`, `tests/test_gateway.py`, fixture `tests/fixtures/providers/fake/gateway_chat.json`.

@@ -34,7 +34,7 @@ from snowpea_core.gateway.discord import (
 )
 from snowpea_core.gateway.fake import FakeAdapter
 from snowpea_core.gateway.router import Binding, GatewayConnection
-from snowpea_core.gateway.slack import SlackAdapter, parse_envelope
+from snowpea_core.gateway.slack import SlackAdapter, parse_envelope, slack_manifest
 from snowpea_core.gateway.telegram import TelegramAdapter, inline_keyboard, parse_update
 from snowpea_core.server.app_server import Daemon
 
@@ -430,8 +430,8 @@ def test_discord_parses_messages_and_interactions() -> None:
     )
 
 
-class _DiscordFrame:
-    """One text frame off the fake gateway socket."""
+class _Frame:
+    """One text frame off a fake socket (Discord's gateway, Slack's Socket Mode)."""
 
     type = aiohttp.WSMsgType.TEXT
 
@@ -442,8 +442,8 @@ class _DiscordFrame:
         return self._payload
 
 
-class _DiscordSocket:
-    """Just enough of an aiohttp websocket for ``_consume``."""
+class _Socket:
+    """Just enough of an aiohttp websocket for either adapter's ``_consume``."""
 
     def __init__(self, frames: list[dict[str, Any]]) -> None:
         self._frames = frames
@@ -452,7 +452,7 @@ class _DiscordSocket:
     def __aiter__(self) -> Any:
         async def frames() -> Any:
             for frame in self._frames:
-                yield _DiscordFrame(frame)
+                yield _Frame(frame)
 
         return frames()
 
@@ -599,7 +599,7 @@ async def test_discord_answers_a_command_in_the_interaction() -> None:
     async def on_message(message: Any) -> None:
         received.append(message)
 
-    await adapter._consume(_DiscordSocket([COMMAND_FRAME]), on_message)
+    await adapter._consume(_Socket([COMMAND_FRAME]), on_message)
     first = await adapter.send("chan-1", "one", buttons=[Button("ok", "apr:ap-5:allow")])
     second = await adapter.send("chan-1", "two")
     await adapter.stop()
@@ -641,7 +641,7 @@ async def test_discord_button_presses_are_untouched_by_the_command_path() -> Non
             "data": {"type": 3, "custom_id": "apr:ap-6:allow"},
         },
     }
-    await adapter._consume(_DiscordSocket([press]), on_message)
+    await adapter._consume(_Socket([press]), on_message)
     message_id = await adapter.send("chan-1", "posted")
     await adapter.stop()
 
@@ -727,6 +727,107 @@ def test_slack_parses_events_and_interactive_presses() -> None:
     )
 
 
+SLASH_ENVELOPE: dict[str, Any] = {
+    "type": "slash_commands",
+    "envelope_id": "env-3",
+    "payload": {
+        "command": "/new",
+        "text": "foo",
+        "channel_id": "C1",
+        "user_id": "U1",
+        "response_url": "https://hooks.slack.test/commands/1",
+        "trigger_id": "trig-1",
+    },
+}
+
+
+def test_slack_parses_a_slash_command_envelope() -> None:
+    message = parse_envelope(SLASH_ENVELOPE)
+    assert message is not None
+    assert (message.channel_id, message.user_id, message.text) == ("C1", "U1", "/new foo")
+    assert message.callback_id == "env-3"
+    assert message.callback_data is None
+
+    bare = parse_envelope(
+        {
+            "type": "slash_commands",
+            "envelope_id": "env-4",
+            "payload": {"command": "/sessions", "text": "", "channel_id": "C1", "user_id": "U1"},
+        }
+    )
+    assert bare is not None
+    assert bare.text == "/sessions"
+
+
+async def test_slack_answers_a_slash_command_on_its_response_url() -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.host == "hooks.slack.test":
+            return httpx.Response(200, text="ok")
+        return httpx.Response(200, json={"ok": True, "ts": "1700.9"})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    adapter = SlackAdapter("xoxb-1", app_token="xapp-1", client=client)
+    socket = _Socket([SLASH_ENVELOPE])
+    received: list[Any] = []
+
+    async def on_message(message: Any) -> None:
+        received.append(message)
+
+    await adapter._consume(socket, on_message)
+    first = await adapter.send("C1", "one", buttons=[Button("ok", "apr:ap-7:allow")])
+    second = await adapter.send("C1", "two")
+    await adapter.stop()
+
+    assert [m.text for m in received] == ["/new foo"]
+    # Socket Mode wants the envelope acked, and the ack carries no reply text.
+    assert socket.sent == [{"envelope_id": "env-3"}]
+    # The first answer goes to the response_url, the second to the channel.
+    assert str(seen[0].url) == "https://hooks.slack.test/commands/1"
+    body = json.loads(seen[0].content)
+    assert body["response_type"] == "in_channel"
+    assert body["text"] == "one"
+    assert body["blocks"][1]["elements"][0]["value"] == "apr:ap-7:allow"
+    assert seen[1].url.path == "/api/chat.postMessage"
+    assert json.loads(seen[1].content)["text"] == "two"
+    # A response_url post names no message, so there is nothing to edit later.
+    assert (first, second) == ("", "1700.9")
+
+
+async def test_slack_sends_to_the_channel_without_a_slash_command() -> None:
+    """A plain message still goes through ``chat.postMessage`` unchanged."""
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={"ok": True, "ts": "1701.0"})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    adapter = SlackAdapter("xoxb-1", client=client)
+    ts = await adapter.send("C1", "hello")
+    await adapter.stop()
+
+    assert ts == "1701.0"
+    assert [r.url.path for r in seen] == ["/api/chat.postMessage"]
+
+
+def test_slack_manifest_declares_every_chat_command() -> None:
+    manifest = slack_manifest()
+    commands = manifest["features"]["slash_commands"]
+    assert [entry["command"] for entry in commands] == [f"/{name}" for name, _ in MENU_COMMANDS]
+    for entry in commands:
+        assert entry["should_escape"] is False
+        assert 0 < len(entry["description"]) <= 2000
+    assert manifest["settings"]["socket_mode_enabled"] is True
+    assert manifest["settings"]["interactivity"]["is_enabled"] is True
+    assert "commands" in manifest["oauth_config"]["scopes"]["bot"]
+    assert "message.im" in manifest["settings"]["event_subscriptions"]["bot_events"]
+    assert manifest["features"]["bot_user"]["display_name"] == "snowpea"
+    assert slack_manifest("beanbot")["features"]["bot_user"]["display_name"] == "beanbot"
+
+
 # ---------------------------------------------------------------------------
 # (h) CLI target parsing
 # ---------------------------------------------------------------------------
@@ -741,6 +842,27 @@ def test_cli_parses_every_target_spelling(tmp_path: Path) -> None:
     assert parse_target('{"agent": "ops"}') == {"agent": "ops"}
     with pytest.raises(ValueError):
         parse_target("nonsense")
+
+
+async def test_cli_prints_a_slack_manifest(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``snowpea gateway slack-manifest`` needs no daemon: it is pure text."""
+    from snowpea_core.cli import commands as cli_commands
+    from snowpea_core.cli.main import build_parser
+
+    args = build_parser().parse_args(["gateway", "slack-manifest"])
+    assert await cli_commands.dispatch(args, tmp_path / "home") == 0
+    manifest = json.loads(capsys.readouterr().out)
+    commands = [entry["command"] for entry in manifest["features"]["slash_commands"]]
+    assert "/sessions" in commands
+    assert commands == [f"/{name}" for name, _ in MENU_COMMANDS]
+
+    args = build_parser().parse_args(["gateway", "slack-manifest", "--name", "beanbot", "--json"])
+    assert await cli_commands.dispatch(args, tmp_path / "home") == 0
+    line = capsys.readouterr().out.strip()
+    assert "\n" not in line
+    assert json.loads(line)["features"]["bot_user"]["display_name"] == "beanbot"
 
 
 async def test_start_and_unknown_commands_are_answered_in_the_chat(
