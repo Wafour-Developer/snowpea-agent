@@ -71,9 +71,10 @@ SUBAGENT_TOOL_ROUNDS = 80
 #: carries it is made with **no tools**, so the only thing it can produce is
 #: the report (CORE-subagent-budget).
 BUDGET_INSTRUCTION = (
-    "You have used the tool budget for this turn: no further tool calls are possible. "
-    "Stop and report, in plain prose: what you did, what you found, what remains, "
-    "and which files you changed. Do not promise further work in this turn."
+    "You have used the tool budget for this turn. If the work is finished, give your "
+    "final answer now, with no tool call. If it is not, do not call a tool either: report "
+    "in plain prose what you did, what you found, what remains and which files you "
+    "changed — a checkpoint follows. Do not promise further work in this turn."
 )
 
 #: What is fed back after the person chose to keep going at the checkpoint, so
@@ -360,8 +361,7 @@ async def _model_turn(
     if not attempt.text.strip() and attempt.reasoning_tokens > 0:
         spent = attempt.reasoning_tokens
         can_stop_thinking = (
-            bool(getattr(provider, "supports_thinking_option", False))
-            and config.thinking != "off"
+            bool(getattr(provider, "supports_thinking_option", False)) and config.thinking != "off"
         )
         if can_stop_thinking:
             log.info(
@@ -372,13 +372,10 @@ async def _model_turn(
             )
             budget, thinking = config.max_tokens, "off"
         else:
-            budget = context_windows.clamp_output_tokens(
-                session.model, config.max_tokens * 2
-            )
+            budget = context_windows.clamp_output_tokens(session.model, config.max_tokens * 2)
             thinking = config.thinking
             log.info(
-                "turn spent its whole %d-token budget on reasoning (%d tokens); "
-                "retrying with %d",
+                "turn spent its whole %d-token budget on reasoning (%d tokens); retrying with %d",
                 config.max_tokens,
                 spent,
                 budget,
@@ -672,7 +669,36 @@ async def _drive(
             # turn first writes a report — it used to end on an ``error`` event
             # with no ``message.done`` at all, which left a delegating parent
             # holding an empty summary (CORE-subagent-budget).
-            await _budget_report(core, session, provider, config, memory_block)
+            # First a probe with the tools still on the table: a model that is
+            # simply done answers without calling anything, and that answer is
+            # the turn — no checkpoint (the popup used to appear under a
+            # finished reply).  Only a model that still reaches for a tool gets
+            # the report-then-ask path.
+            probe = await _budget_probe(core, session, provider, config, memory_block)
+            if probe is not None and not probe.calls and not probe.interrupted:
+                assistant_text = probe.text
+                session.history.append(ChatMessage(role="assistant", content=assistant_text))
+                await hub.emit_event(
+                    session.id,
+                    events.message_done(
+                        assistant_text,
+                        truncated=probe.truncated,
+                        continuations=probe.continuations,
+                    ),
+                )
+                await speak_reply(core, session, assistant_text)
+                await finish_turn(core, session, turn_id, "complete")
+                await nudge_after_turn(core, session, text)
+                await plugin_hooks.stop(core, session)
+                return "complete"
+            await _budget_report(
+                core,
+                session,
+                provider,
+                config,
+                memory_block,
+                probe_text=(probe.text if probe else ""),
+            )
             if session.interrupt.is_set():
                 # Stop pressed while the report was being written: the report
                 # was still published, but nobody is waiting for a question.
@@ -749,12 +775,38 @@ async def _drive(
         session.history.compact()
 
 
+async def _budget_probe(
+    core: Core,
+    session: Session,
+    provider: Any,
+    config: AgentConfig,
+    memory_block: str,
+) -> _Attempt | None:
+    """The model's own verdict at the budget: finished (no calls) or not.
+
+    The instruction is local, like the report's; the tools stay available so
+    a model that is done can simply answer.  Never raises.
+    """
+    try:
+        specs = core.tools.specs(session)
+        messages = [
+            *build_messages(session, specs, memory_block, core=core),
+            ChatMessage(role="user", content=BUDGET_INSTRUCTION),
+        ]
+        return await _model_turn(core, session, provider, messages, specs, config)
+    except Exception:  # noqa: BLE001 - fall through to the tools-free report
+        log.exception("the tool-budget probe failed for %s", session.id)
+        return None
+
+
 async def _budget_report(
     core: Core,
     session: Session,
     provider: Any,
     config: AgentConfig,
     memory_block: str,
+    *,
+    probe_text: str = "",
 ) -> str:
     """One last model call, with no tools, so the turn always says something.
 
@@ -768,20 +820,23 @@ async def _budget_report(
 
     Never raises: a provider that fails here still leaves a written report.
     """
-    text = ""
+    # The probe's prose is the report when it wrote one; a second, tools-free
+    # call only when it reached for a tool without saying anything.
+    text = probe_text.strip()
     truncated = False
     continuations = 0
-    try:
-        messages = [
-            *build_messages(session, [], memory_block, core=core),
-            ChatMessage(role="user", content=BUDGET_INSTRUCTION),
-        ]
-        attempt = await _model_turn(core, session, provider, messages, [], config)
-        text = attempt.text.strip()
-        truncated = attempt.truncated
-        continuations = attempt.continuations
-    except Exception:  # noqa: BLE001 - the report is a courtesy, never a failure
-        log.exception("the tool-budget report failed for %s", session.id)
+    if not text:
+        try:
+            messages = [
+                *build_messages(session, [], memory_block, core=core),
+                ChatMessage(role="user", content=BUDGET_INSTRUCTION),
+            ]
+            attempt = await _model_turn(core, session, provider, messages, [], config)
+            text = attempt.text.strip()
+            truncated = attempt.truncated
+            continuations = attempt.continuations
+        except Exception:  # noqa: BLE001 - the report is a courtesy, never a failure
+            log.exception("the tool-budget report failed for %s", session.id)
     if not text:
         text = BUDGET_EMPTY_REPORT.format(n=config.max_tool_rounds)
     session.history.append(ChatMessage(role="assistant", content=text))
@@ -795,10 +850,18 @@ async def _budget_report(
 
 #: The continue / stop rows of the tool-round checkpoint, per reply language.
 _CONTINUE_ROWS: dict[str, tuple[str, str, str, str]] = {
-    "ko": ("도구 호출 한도", "도구 호출 {n}회에 도달했습니다. 계속할까요?",
-           "계속 (추천) — {n}회 더 진행합니다", "여기서 멈춤 — 지금까지의 작업만 남깁니다"),
-    "en": ("Tool-call budget", "The turn has made {n} tool calls. Keep going?",
-           "Continue (recommended) — another {n} calls", "Stop here — keep what is done"),
+    "ko": (
+        "도구 호출 한도",
+        "도구 호출 {n}회에 도달했습니다. 계속할까요?",
+        "계속 (추천) — {n}회 더 진행합니다",
+        "여기서 멈춤 — 지금까지의 작업만 남깁니다",
+    ),
+    "en": (
+        "Tool-call budget",
+        "The turn has made {n} tool calls. Keep going?",
+        "Continue (recommended) — another {n} calls",
+        "Stop here — keep what is done",
+    ),
 }
 
 
@@ -816,21 +879,28 @@ async def _ask_to_continue(core: Core, session: Session, config: AgentConfig) ->
     try:
         answers = await questions.ask(
             session,
-            [QuestionItem(
-                header=header,
-                question=question.format(n=n),
-                options=[
-                    QuestionOption(label=go_on.format(n=n)),
-                    QuestionOption(label=stop),
-                ],
-                allowOther=False,
-            )],
+            [
+                QuestionItem(
+                    header=header,
+                    question=question.format(n=n),
+                    options=[
+                        QuestionOption(label=go_on.format(n=n)),
+                        QuestionOption(label=stop),
+                    ],
+                    allowOther=False,
+                )
+            ],
         )
     except Exception:  # noqa: BLE001 - a surface that cannot ask means stop
         return False
     answer = answers[0] if answers else None
-    return bool(answer and not answer.declined and not answer.timed_out
-                and answer.selected and answer.selected[0] == go_on.format(n=n))
+    return bool(
+        answer
+        and not answer.declined
+        and not answer.timed_out
+        and answer.selected
+        and answer.selected[0] == go_on.format(n=n)
+    )
 
 
 async def _run_one_call(
@@ -987,7 +1057,7 @@ async def _deny_call(core: Core, session: Session, call: ToolCall, reason: str) 
     message = f"Denied: {reason}. Choose a different action; do not retry the same call."
     if session.mode == "plan":
         message += (
-            " In plan mode, finish the plan and call set_mode(\"accept\") so the user can"
+            ' In plan mode, finish the plan and call set_mode("accept") so the user can'
             " choose to start implementing; never ask them in prose to switch modes."
         )
     await _fail_call(core, session, call, message)

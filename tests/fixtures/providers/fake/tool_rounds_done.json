@@ -1,0 +1,38 @@
+{
+ "steps": [
+  {
+   "match": "두 번 써줘",
+   "text": "하나",
+   "tool_calls": [
+    {
+     "name": "write_file",
+     "arguments": {
+      "path": "a.txt",
+      "content": "1\n"
+     }
+    }
+   ]
+  },
+  {
+   "after_tool": "write_file",
+   "text": "둘",
+   "tool_calls": [
+    {
+     "name": "write_file",
+     "arguments": {
+      "path": "b.txt",
+      "content": "2\n"
+     }
+    }
+   ]
+  },
+  {
+   "match": "used the tool budget",
+   "repeat": true,
+   "text": "둘 다 썼습니다"
+  }
+ ],
+ "default": {
+  "text": "fake default reply"
+ }
+}
