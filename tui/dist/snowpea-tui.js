@@ -37144,6 +37144,7 @@ function agentStatusText(entry, now) {
     parts.push(formatDuration(entry.endedAt - entry.startedAt));
   }
   if (entry.outputTokens > 0 || entry.inputTokens > 0) {
+    if (entry.inputTokens > 0) parts.push(`\u2191 ${formatTokens(entry.inputTokens)}`);
     parts.push(`\u2193 ${formatTokens(entry.outputTokens)} tokens`);
   }
   return parts.join(" \xB7 ");

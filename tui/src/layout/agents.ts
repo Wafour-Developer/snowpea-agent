@@ -58,7 +58,7 @@ export interface AgentRow {
   dim: boolean;
 }
 
-/** `running · 8m 40s · ↓ 316.6k tokens`, as much of it as there is to say. */
+/** `running · 8m 40s · ↑ 41.2k · ↓ 316.6k tokens`, as much of it as there is to say. */
 export function agentStatusText(
   entry: Pick<SubagentEntry, "status" | "startedAt" | "endedAt" | "inputTokens" | "outputTokens">,
   now: number,
@@ -74,6 +74,8 @@ export function agentStatusText(
   // Nothing is said until it has reported something, or every fresh row would
   // claim a hard zero.
   if (entry.outputTokens > 0 || entry.inputTokens > 0) {
+    // Same shape as the desktop's rows: input first when there is any.
+    if (entry.inputTokens > 0) parts.push(`↑ ${formatTokens(entry.inputTokens)}`);
     parts.push(`↓ ${formatTokens(entry.outputTokens)} tokens`);
   }
   return parts.join(" · ");

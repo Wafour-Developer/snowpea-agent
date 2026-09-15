@@ -106,7 +106,7 @@ describe("buildAgentRows", () => {
         },
         NOW,
       ),
-    ).toBe("running · 58s · ↓ 1.2k tokens");
+    ).toBe("running · 58s · ↑ 40.0k · ↓ 1.2k tokens");
   });
 
   it("carries a live delegate's tokens onto its panel row", () => {
@@ -126,7 +126,7 @@ describe("buildAgentRows", () => {
       }),
     );
     const rows = buildAgentRows({ state, now: NOW });
-    expect(rows[1].status).toBe("running · 58s · ↓ 1.2k tokens");
+    expect(rows[1].status).toBe("running · 58s · ↑ 40.0k · ↓ 1.2k tokens");
   });
 
   it("counts idle agents past the third instead of listing them", () => {
