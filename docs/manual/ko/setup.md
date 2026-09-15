@@ -309,6 +309,126 @@ snowpea provider remove hon2
 자식은 위임한 세션보다 훨씬 많이 읽고, 밖에서 보이는 것은 마지막 보고뿐이기
 때문입니다.
 
+### 로컬 서버의 이미지 인식
+
+모델에 이미지를 보낼 수 있는지는 강한 규칙부터 네 단계로 정합니다.
+
+1. `providers.<vendor>.vision`, 또는 그 서버의 특정 모델에 대한
+   `providers.<vendor>.models.<model>.vision`;
+2. 캐시에 이미 있는 models.dev 카드;
+3. 모델 이름 (`gpt-4o`, `claude`, `qwen2.5-vl`, `llava`, `-vl`로 끝나는 이름 등
+   내장 목록과 대조);
+4. 로컬·이름 붙인 OpenAI 호환 서버에 한해 **한 번 시도**. 이미지를 그대로
+   보내고, 서버가 요청을 거부하면 그 사실을 기억하고 로그에 한 번 남긴 뒤,
+   같은 턴을 텍스트 설명으로 즉시 다시 보내 답은 오게 합니다.
+
+4단계가 이름을 모르는 로컬 모델을 쓸 수 있게 만드는 지점입니다. 목록에 없는
+이름(`flash-next-mtp` 같은)으로 올린 비전 모델은 예전에는 이미지가 전부
+"(this model cannot see images)"로 바뀌었습니다. 이제는 그냥 이미지를 보냅니다.
+정말 텍스트 전용인 서버라면 모델당 거부되는 요청 한 번이 비용이고, 그 결과는
+`<SNOWPEA_HOME>/cache/vision.json`에 일주일간 기억되므로 다음 프롬프트나 다음
+재시작에서 다시 치르지 않습니다.
+
+호스팅 벤더는 이렇게 떠보지 않습니다. 카탈로그를 알 수 있고, 거기서 거부되는
+요청은 아무것도 얻지 못하는 과금이기 때문입니다.
+
+떠보게 두지 않고 직접 정하려면 이렇게 씁니다.
+
+```json
+{
+  "providers": {
+    "hon2": {
+      "preset": "local",
+      "base_url": "http://hon2:8000/v1",
+      "vision": true,
+      "models": {"flash-next-mtp": {"vision": true}, "qwen3-8b": {"vision": false}}
+    }
+  }
+}
+```
+
+모델별 규칙이 서버별 규칙을 이깁니다. 카탈로그만 고정할 때는 `models`를 예전처럼
+id 목록으로 둬도 됩니다. 객체 형태는 모델마다 무언가를 말하고 싶을 때 씁니다.
+
+명령줄에서는 이렇게 씁니다.
+
+```bash
+snowpea provider add-local hon2 --url http://hon2:8000/v1 --vision
+snowpea provider add-local hon2 --url http://hon2:8000/v1 --no-vision
+snowpea provider models hon2
+```
+
+`provider models`는 아는 모델에 표시를 답니다. 이미지를 받는 모델에는 👁,
+받지 않는 모델에는 `(text only)`, 아직 아무도 확인하지 않은 모델에는 아무것도
+붙이지 않습니다. 설치 마법사의 모델 목록에도 같은 눈 표시가 보입니다.
+
+호스팅 벤더에도 덮어쓰기는 동작합니다. 앞단 프록시가 이미지를 떼어 내는 경우를
+알려 주는 방법입니다.
+
+### 추론 강도(effort)
+
+`thinking`이 스위치라면 effort는 다이얼입니다. `low`, `medium`, `high`, `max`
+한 가지 척도가 모든 벤더에 닿고, 각 어댑터가 그 벤더가 실제로 받는 필드로
+옮깁니다.
+
+| 벤더 | 전송 필드 | low | medium | high | max |
+|---|---|---|---|---|---|
+| `openai` (API 키) | `reasoning_effort` | `low` | `medium` | `high` | `high` |
+| `openai` (ChatGPT 로그인, Codex 백엔드) | `reasoning.effort` | `low` | `medium` | `high` | `xhigh` |
+| `anthropic` | `thinking.budget_tokens` | 2 048 | 8 192 | 32 768 | 65 536 |
+| `gemini` | `thinkingConfig.thinkingBudget` | 2 048 | 8 192 | 32 768 | 65 536 |
+| `openrouter`, `xai` | `reasoning_effort` | `low` | `medium` | `high` | `high` |
+| `glm`, `minimax`, `kimi`, `deepseek`, `qwen` | — | 아무것도 보내지 않음 | | | |
+| `local`과 이름 붙인 서버 | `reasoning_effort` (선택) | `low` | `medium` | `high` | `high` |
+
+토큰 예산은 그 호출 `max_tokens`의 3/4까지만 잡습니다. 세게 생각하는 턴도 답을
+쓸 자리는 남겨 두기 위해서입니다. `thinking: "off"`는 모든 단계보다 우선합니다.
+thinking을 끈 사용자에게 effort 설정이 숨은 추론을 되돌려 주지는 않습니다.
+
+OpenAI 필드는 그것을 받는 모델(`o` 계열, `gpt-5*`, `codex*`)에만 보냅니다. 그럼에도
+모델이 거부하면(`HTTP 400: Unsupported parameter`) 그 호출만 필드 없이 한 번
+다시 보내고, 그 모델에는 데몬이 사는 동안 다시 보내지 않습니다.
+
+자체 호스팅 서버는 선택 사항입니다. vLLM은 불러온 모델의 채팅 템플릿에 따라
+`reasoning_effort`를 무시하거나 거부하기 때문입니다.
+
+```json
+{
+  "providers": {
+    "hon2": {"preset": "local", "base_url": "http://hon2:8000/v1", "effort_param": true}
+  }
+}
+```
+
+설정은 약한 규칙부터 이렇습니다.
+
+```json
+{
+  "agent": {
+    "effort": "medium",
+    "effortBy": {"openai": "high", "anthropic:claude-opus-4-1": "max"}
+  }
+}
+```
+
+`agent.effort`가 전체 기본값입니다. `agent.effortBy`는 벤더별(`"openai"`) 또는
+모델별(`"openai:o3"`)로 그것을 덮고, 모델 규칙이 벤더 규칙을 이깁니다. 둘보다
+위에 세션 핀이 있습니다.
+
+```text
+/effort            지금 적용 중인 값과 그것을 정한 규칙을 보여 줍니다
+/effort high       이 세션에 고정합니다
+/effort auto       고정을 풉니다
+```
+
+핀은 세션과 함께 저장되므로 대화를 이어 열어도 고른 단계가 유지됩니다.
+`snowpea model profiles`는 프로필마다 적용될 effort를 보여 주고, TUI는 모델 옆에
+(`⚙ high`) 그려 줍니다. `/model` 선택 화면에는 단계를 차례로 바꾸는 행이 있습니다.
+
+예전 설정의 `providers.openai.reasoning_effort`는 Codex 백엔드용으로 계속
+읽습니다. 업그레이드했다고 생각의 깊이가 달라지지는 않습니다. 다만 이제 아무도
+그 키를 쓰지 않습니다. `/effort`는 통합된 키에 씁니다.
+
 ### 출력 한도와 thinking
 
 추론 모델(Qwen3, DeepSeek-R1, GLM의 thinking 계열)은 답을 쓰기 *전에* 생각을
@@ -425,7 +545,30 @@ snowpea tools list --json
 
 ```bash
 snowpea setup --browser-provider local_chromium
+snowpea setup --browser-provider firecrawl_cloud --browser-key fc-your-key
+snowpea setup browser
 ```
+
+**`key required` 태그가 붙은 제공자는 자격 증명을 물어봅니다.** `browserbase`나 `firecrawl_cloud`를 고르면 목록 바로 뒤에 키를 마스킹된 입력으로 묻고, 이미 저장된 값이 있으면 Enter로 유지합니다. Browserbase는 값이 둘 필요하므로 둘 다 묻습니다. API 키 다음에 프로젝트 id를 묻는데, 이것은 비밀이 아니라 식별자라서 마스킹하지 않습니다.
+
+| id | 태그 | 필요한 것 |
+| --- | --- | --- |
+| `local_chromium` ★ | free · no key | Playwright의 Chromium. 처음 쓸 때 내려받습니다 |
+| `camoufox` | free · no key | 아직 없음 |
+| `browser_use_local` | free · no key | 아직 없음 |
+| `browserbase` | paid · key required | `BROWSERBASE_API_KEY`와 `BROWSERBASE_PROJECT_ID` |
+| `firecrawl_cloud` | paid · key required | `FIRECRAWL_API_KEY` |
+
+자격 증명은 검색과 같은 모양으로 `browser.credentials.<id>`에 저장됩니다.
+
+```json
+{ "browser": { "provider": "browserbase",
+               "credentials": { "browserbase": { "api_key": "...", "browserbase_project_id": "..." } } } }
+```
+
+환경 변수보다 설정이 우선입니다. 마법사에 방금 입력한 키가 export 한 변수를 이깁니다. 저장된 값도 없는데 빈 답을 주면 조용히 넘어가지 않고 말로 거절합니다. 제공자는 기록되고, 요약에 키가 없다고 적히며, 키가 생기기 전까지 브라우저 툴은 계속 거절합니다.
+
+키를 입력하면 설정이 값싼 호출 하나로 확인합니다. Browserbase는 세션 목록, Firecrawl은 `HEAD` 요청이며 예산은 3초입니다. 실패는 **경고이지 차단이 아닙니다**. 오프라인 기계나 프록시, 혹은 제공자의 나쁜 하루 때문에 방금 붙여넣은 키를 잃어서는 안 되므로 어느 쪽이든 저장합니다.
 
 ## 툴 카테고리
 
@@ -437,6 +580,64 @@ snowpea tools list
 ```
 
 카테고리는 `file`, `terminal`, `git`, `web`, `browser`, `delegate`, `schedule`, `memory`, `media`이고, `.mcp.json` 서버가 제공하는 것은 무엇이든 `mcp`에 들어갑니다. 그 `.mcp.json` 서버를 추가·테스트·삭제하는 것은 `/mcp`와 `snowpea mcp`이며, [MCP 서버](plugins.md#mcp-서버)에서 다룹니다. 미디어 툴(`image_generate`, `video_generate`, `music_generate`, `text_to_speech`)은 항상 등록되어 있지만 자격 증명이 없으면 `inactive` 상태로 남습니다. 설정이 끝나면 재시작 없이 `active`로 바뀌고, 그 전에 호출하면 힌트와 함께 `tool_inactive`가 돌아옵니다.
+
+## 음성 입력과 출력
+
+목록은 둘이지만 결정은 하나입니다. 말을 걸 수 있는가, 그리고 대답을 소리로 해주는가. 설치 여부와 상관없이 모두 보여줍니다. "왜 piper를 못 쓰지"라는 질문의 답이 화면에 없어서가 아니라 화면에 있어야 하기 때문입니다.
+
+기본값 둘은 모두 로컬·CPU 전용입니다. 계정도 GPU도 없이 음성이 동작합니다.
+
+**음성 입력** — 권장 기본값은 **SenseVoiceSmall**입니다.
+
+| 항목 | 무엇인가 | 필요한 것 |
+|---|---|---|
+| `sherpa-onnx-sensevoice` ★ | SenseVoiceSmall. zh/en/ja/ko/yue, CPU에서 실시간의 약 17~20배, VAD를 함께 받아 긴 녹음을 스스로 잘라냅니다 | `sherpa-onnx` 패키지와 약 230MB 모델 |
+| `sherpa-onnx-zipformer-ko` | 한국어 스트리밍 Zipformer INT8. CPU에서 실시간의 약 10~38배 | 같은 패키지와 한국어 모델 |
+| `sherpa-onnx-zipformer-en` | 영어 스트리밍 Zipformer INT8 | 같은 패키지와 영어 모델 |
+| `local-whisper` | 이미 있을 수도 있는 whisper CLI | PATH 위의 `faster-whisper` 또는 `whisper` |
+| `openai` | 호스팅 전사 | 이미 설정한 OpenAI 키 |
+| `command` | 직접 만든 템플릿 | `{path}`를 포함한 명령 |
+
+**음성 출력** — 권장 기본값은 **Supertonic**입니다.
+
+| 항목 | 무엇인가 | 필요한 것 |
+|---|---|---|
+| `supertonic` ★ | Supertone의 온디바이스 신경망 TTS. 한국어·영어 포함 31개 언어, CPU에서 동작 | `supertonic` 파이썬 패키지. ONNX 음성은 첫 사용 때 스스로 받아옵니다 |
+| `piper` | 로컬 신경망 음성 | `piper` CLI와 음성 파일 하나 |
+| `edge-tts` | 마이크로소프트 신경망 음성 | `edge-tts` CLI, 말할 때 네트워크 |
+| `espeak-ng` | 작고 기계적이며 어디에나 있음 | 시스템 패키지 |
+| `say` / `powershell` | macOS / Windows 기본 제공 | 없음 |
+| `openai` | 호스팅 음성 | 이미 설정한 OpenAI 키 |
+| `command` | 직접 만든 템플릿 | `{text}`와 `{out}`을 포함한 명령 |
+
+자동(Automatic)은 호스팅보다 로컬 엔진을 먼저 시도합니다. 이 기계에서 처리할 수 있으면 방 안의 소리가 밖으로 나가지 않습니다. 아무것도 설치되지 않았으면 실패하지 않고 있는 것으로 물러납니다. 기본값은 **설치를 안내할 뿐 강요하지 않습니다**.
+
+음성 모델은 공식 sherpa-onnx 릴리스 자산에서 받아 `$SNOWPEA_HOME/models/sherpa-onnx/` 아래에 놓입니다. 중단된 다운로드는 이어받고, 완전히 풀린 뒤에야 설치된 것으로 칩니다. 취소된 다운로드가 엔진을 준비된 것처럼 보이게 하는 일은 없습니다.
+
+`audio.stt.language`를 `ko` 같은 태그로 두면 SenseVoice에 기대할 언어를 알려주고 맞는 Zipformer를 고릅니다. 비워 두면 SenseVoice가 스스로 언어를 판별합니다.
+
+**엔진 설치.** 사용자 영역 패키지인 셋은 데몬이 대신 설치합니다.
+
+```bash
+snowpea audio install sherpa-onnx-sensevoice
+snowpea audio install supertonic
+snowpea audio install faster-whisper
+snowpea audio install piper
+snowpea audio install edge-tts
+```
+
+`uv`가 PATH에 있으면 `uv tool install`, 없으면 `pipx`, 그것도 없으면 `pip install --user` 순서로 실행하며 로그를 그대로 보여줍니다. sherpa-onnx 항목은 패키지를 설치한 뒤 모델을 내려받습니다. `supertonic`은 항상 `pip install --user`로 들어갑니다. 엔진이 명령을 실행하는 게 아니라 패키지를 import 하기 때문입니다. `piper`를 설치하면 기본 음성 하나를 `$SNOWPEA_HOME/voices/`에 내려받아 `audio.tts.voice`에 기록합니다. 음성 파일이 없는 piper 바이너리는 아무 말도 못 하기 때문입니다. 끝나면 탐지를 다시 돌리므로 재시작 없이 바로 쓸 수 있습니다.
+
+설정 마법사도 같은 일을 합니다. 가져올 수 있는데 설치되지 않은 엔진 옆에 **Install** 행을 두고, 설치가 끝나면 목록을 다시 보여주므로 이제 활성 상태가 된 엔진을 그 자리에서 고르면 됩니다.
+
+`espeak-ng`, `say`, `powershell`은 시스템 패키지이고, 데몬은 사용자를 대신해 root로 패키지 관리자를 돌리지 않습니다. 대신 플랫폼에 맞는 명령을 알려줍니다.
+
+```
+$ snowpea audio install espeak-ng
+could not install espeak-ng: sudo apt install espeak-ng
+```
+
+**snowpea-studio는 이제 음성 선택지가 아닙니다.** `text_to_speech` 미디어 도구는 설정된 studio MCP 서버로 그대로 넘어가고, 자동(Automatic)도 다른 게 하나도 없으면 여전히 studio로 떨어집니다. 다만 음성 목록에는 나오지 않고 체인의 맨 앞도 아닙니다. 한마디라도 하려면 MCP 서버 설정이 먼저 필요해서, 맨 앞에 두면 "자동"이 대부분의 기계에 없는 백엔드로 해석됐습니다.
 
 ## 게이트웨이
 

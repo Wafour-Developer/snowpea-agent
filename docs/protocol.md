@@ -63,6 +63,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`approval.request`](#approvalrequest) | server → client | Ask the client to approve a tool call. |
 | [`approval.respond`](#approvalrespond) | client → server | Answer a pending approval and unblock the turn. |
 | [`audio.capabilities`](#audiocapabilities) | client → server | Report what voice input and output can do on this machine. |
+| [`audio.install`](#audioinstall) | client → server | Install a local voice engine and re-run detection. |
 | [`audio.record.start`](#audiorecordstart) | client → server | Start recording the microphone. |
 | [`audio.record.stop`](#audiorecordstop) | client → server | Stop the recording and return the wav it wrote. |
 | [`audio.speak`](#audiospeak) | client → server | Synthesise speech, optionally playing it on the daemon's machine. |
@@ -110,6 +111,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`session.list`](#sessionlist) | client → server | List live or saved sessions. |
 | [`session.prompt`](#sessionprompt) | client → server | Send user text to a session and start a turn. |
 | [`session.resume`](#sessionresume) | client → server | Replay the events a disconnected client missed. |
+| [`session.setEffort`](#sessionseteffort) | client → server | Pin how hard a session's model may think, or clear the pin. |
 | [`session.setMode`](#sessionsetmode) | client → server | Switch a session between plan, accept and auto. |
 | [`session.setModel`](#sessionsetmodel) | client → server | Pin a session to a model profile, or clear the pin. |
 | [`settings.get`](#settingsget) | client → server | Read global or project settings, with secrets masked. |
@@ -325,6 +327,27 @@ _No params (send `{}`)._
 | `ttsProvider` | `string \| null` | no | Speech backend in use. |
 | `ttsProviders` | `string[]` | no | Every usable speech backend, preferred first. |
 | `voice` | `string \| null` | no | Configured voice, when one is set. |
+
+### `audio.install`
+
+*Direction:* client → server
+
+Install a local voice engine and re-run detection.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `engine` | `string` | yes | Engine id from the setup catalog: faster-whisper (or local-whisper), piper, edge-tts. A system package (espeak-ng, say, powershell) answers ok=false with a hint instead. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `engine` | `string` | yes | Engine that was attempted, after id normalisation. |
+| `hint` | `string \| null` | no | What to do instead, when ok is false: the platform's own install command for a system package, or why the attempt could not run. |
+| `log` | `string` | no | Tail of the installer's combined output, newest last; may be empty. |
+| `ok` | `boolean` | yes | True when the engine is installed and now detected. |
 
 ### `audio.record.start`
 
@@ -1006,7 +1029,7 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `providers` | `({ authMethods?: string[]; authStatus?: "unconfigured" \| "active" \| "expired"; configured?: boolean; custom?: boolean; default?: boolean; defaultModel?: string; label?: string; models?: string[]; preset?: string; vendor: string; })[]` | no | Known chat providers. |
+| `providers` | `({ authMethods?: string[]; authStatus?: "unconfigured" \| "active" \| "expired"; configured?: boolean; custom?: boolean; default?: boolean; defaultModel?: string; label?: string; models?: string[]; preset?: string; supportsEffort?: boolean; vendor: string; })[]` | no | Known chat providers. |
 
 ### `provider.loginWeb`
 
@@ -1053,6 +1076,7 @@ Ask a vendor's endpoint which models it serves.
 | `models` | `string[]` | no | Model ids the vendor's endpoint reports. |
 | `source` | `string` | no | Which rung answered: live (the vendor's endpoint), settings (providers.<vendor>.models), cache (the last good listing) or curated (this build's list, merged with models.dev). |
 | `vendor` | `string` | yes | Vendor the listing came from. |
+| `vision` | `Record<string, boolean>` | no | Which of the listed models can be sent images, when that is known. A model missing from this map is unknown rather than text-only, so a picker draws no badge for it instead of a negative one. |
 
 ### `provider.remove`
 
@@ -1088,7 +1112,7 @@ List questions the agent is still waiting on.
 
 | field | type | required | description |
 |---|---|---|---|
-| `requests` | `({ questions?: ({ allowOther?: boolean; header?: string; multi?: boolean; options?: ({ description?: string; label: string; preview?: string; })[]; question: string; })[]; requestId: string; sessionId: string; timeoutSec?: number; })[]` | no | Questions still waiting for an answer. |
+| `requests` | `({ questions?: ({ allowOther?: boolean; header?: string; multi?: boolean; options?: ({ description?: string; label: string; preview?: string; })[]; question: string; secret?: boolean; })[]; requestId: string; sessionId: string; timeoutSec?: number; })[]` | no | Questions still waiting for an answer. |
 
 ### `question.request`
 
@@ -1100,7 +1124,7 @@ Ask the client to put a question to the human.
 
 | field | type | required | description |
 |---|---|---|---|
-| `questions` | `({ allowOther?: boolean; header?: string; multi?: boolean; options?: ({ description?: string; label: string; preview?: string; })[]; question: string; })[]` | no | The questions, in the order they were asked. |
+| `questions` | `({ allowOther?: boolean; header?: string; multi?: boolean; options?: ({ description?: string; label: string; preview?: string; })[]; question: string; secret?: boolean; })[]` | no | The questions, in the order they were asked. |
 | `requestId` | `string` | yes | Id to answer with question.respond. |
 | `sessionId` | `string` | yes | Session whose turn is blocked. |
 | `timeoutSec` | `number` | no | Seconds before the batch gives up. |
@@ -1180,6 +1204,7 @@ Open a session rooted at a working directory.
 | field | type | required | description |
 |---|---|---|---|
 | `agent` | `string \| null` | no | Named agent whose persona to load. |
+| `effort` | `"low" \| "medium" \| "high" \| "max" \| null` | no | Reasoning effort for this session; null follows the settings. |
 | `maxConcurrent` | `number \| null` | no | Override for concurrent subagents. |
 | `mode` | `"plan" \| "accept" \| "auto" \| null` | no | Starting mode; defaults to the project setting. |
 | `model` | `string \| null` | no | Model id; defaults to the provider's default. |
@@ -1249,7 +1274,7 @@ List live or saved sessions.
 
 | field | type | required | description |
 |---|---|---|---|
-| `sessions` | `({ agent?: string \| null; contextUsed?: number; contextWindow?: number \| null; createdAt: string; jobId?: string \| null; kind?: "chat" \| "scheduled" \| "subagent" \| "agent"; lastPrompt?: string \| null; mode: "plan" \| "accept" \| "auto"; model?: string \| null; originSurface?: string \| null; parentSessionId?: string \| null; provider?: string \| null; running?: boolean; seq?: number; sessionId: string; workdir: string; })[]` | no | Every live session. |
+| `sessions` | `({ agent?: string \| null; contextUsed?: number; contextWindow?: number \| null; createdAt: string; effort?: "low" \| "medium" \| "high" \| "max" \| null; jobId?: string \| null; kind?: "chat" \| "scheduled" \| "subagent" \| "agent"; lastPrompt?: string \| null; mode: "plan" \| "accept" \| "auto"; model?: string \| null; originSurface?: string \| null; parentSessionId?: string \| null; provider?: string \| null; running?: boolean; seq?: number; sessionId: string; workdir: string; })[]` | no | Every live session. |
 
 ### `session.prompt`
 
@@ -1290,6 +1315,28 @@ Replay the events a disconnected client missed.
 |---|---|---|---|
 | `events` | `({ kind: string; payload?: Record<string, unknown>; seq: number; sessionId: string; ts: string; })[]` | no | Missed events in seq order. |
 | `sessionId` | `string` | yes | Session that was resumed. |
+
+### `session.setEffort`
+
+*Direction:* client → server
+
+Pin how hard a session's model may think, or clear the pin.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `effort` | `"low" \| "medium" \| "high" \| "max" \| null` | no | One of 'low', 'medium', 'high', 'max'. Null clears the pin and lets agent.effortBy / agent.effort decide again. |
+| `sessionId` | `string` | yes | Session to pin. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `effort` | `"low" \| "medium" \| "high" \| "max"` | yes | Effective reasoning effort after the change. |
+| `effortSource` | `"session" \| "model" \| "vendor" \| "default"` | yes | Rule that decided it: the session pin, a model or vendor rule, or the default. |
+| `pinned` | `"low" \| "medium" \| "high" \| "max" \| null` | no | The session's own pin; null when it follows the settings. |
+| `sessionId` | `string` | yes | Session that was pinned. |
 
 ### `session.setMode`
 
@@ -1384,13 +1431,13 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `browser` | `({ active?: boolean; default?: boolean; description?: string; id: string; key: string; label: string; tags?: string[]; tier: string; })[]` | no | Browser-control providers. |
-| `gateway` | `({ active?: boolean; default?: boolean; description?: string; id: string; key: string; label: string; tags?: string[]; tier: string; })[]` | no | Chat gateways (telegram, discord, slack), all off. |
-| `search` | `({ active?: boolean; default?: boolean; description?: string; id: string; key: string; label: string; tags?: string[]; tier: string; })[]` | no | Web-search providers, ddgs first. |
-| `stt` | `({ active?: boolean; default?: boolean; description?: string; id: string; key: string; label: string; tags?: string[]; tier: string; })[]` | no | Speech-to-text choices; active reflects what is usable on this machine. |
-| `tools` | `({ active?: boolean; default?: boolean; description?: string; id: string; key: string; label: string; tags?: string[]; tier: string; })[]` | no | Tool categories and their default on/off state. |
-| `tts` | `({ active?: boolean; default?: boolean; description?: string; id: string; key: string; label: string; tags?: string[]; tier: string; })[]` | no | Text-to-speech choices; active reflects what is usable on this machine. |
-| `vendors` | `({ active?: boolean; default?: boolean; description?: string; id: string; key: string; label: string; tags?: string[]; tier: string; })[]` | no | LLM vendors. |
+| `browser` | `({ active?: boolean; default?: boolean; description?: string; id: string; installHint?: string \| null; installable?: boolean; key: string; label: string; recommended?: boolean; tags?: string[]; tier: string; })[]` | no | Browser-control providers. |
+| `gateway` | `({ active?: boolean; default?: boolean; description?: string; id: string; installHint?: string \| null; installable?: boolean; key: string; label: string; recommended?: boolean; tags?: string[]; tier: string; })[]` | no | Chat gateways (telegram, discord, slack), all off. |
+| `search` | `({ active?: boolean; default?: boolean; description?: string; id: string; installHint?: string \| null; installable?: boolean; key: string; label: string; recommended?: boolean; tags?: string[]; tier: string; })[]` | no | Web-search providers, ddgs first. |
+| `stt` | `({ active?: boolean; default?: boolean; description?: string; id: string; installHint?: string \| null; installable?: boolean; key: string; label: string; recommended?: boolean; tags?: string[]; tier: string; })[]` | no | Speech-to-text choices; active reflects what is usable on this machine. |
+| `tools` | `({ active?: boolean; default?: boolean; description?: string; id: string; installHint?: string \| null; installable?: boolean; key: string; label: string; recommended?: boolean; tags?: string[]; tier: string; })[]` | no | Tool categories and their default on/off state. |
+| `tts` | `({ active?: boolean; default?: boolean; description?: string; id: string; installHint?: string \| null; installable?: boolean; key: string; label: string; recommended?: boolean; tags?: string[]; tier: string; })[]` | no | Text-to-speech choices; active reflects what is usable on this machine. |
+| `vendors` | `({ active?: boolean; default?: boolean; description?: string; id: string; installHint?: string \| null; installable?: boolean; key: string; label: string; recommended?: boolean; tags?: string[]; tier: string; })[]` | no | LLM vendors. |
 
 ### `skill.create`
 
@@ -1782,6 +1829,13 @@ List the tools registered for a session.
 | `decision` | `"allow" \| "deny"` | yes | The decision that was recorded. |
 | `requestId` | `string` | yes | Request that was resolved. |
 
+### `audio.install.progress`
+
+| field | type | required | description |
+|---|---|---|---|
+| `engine` | `string` | yes | Engine being installed. |
+| `line` | `string` | yes | One line of the installer's output. |
+
 ### `commands.changed`
 
 | field | type | required | description |
@@ -1833,7 +1887,7 @@ List the tools registered for a session.
 
 | field | type | required | description |
 |---|---|---|---|
-| `request` | `{ questions?: ({ allowOther?: boolean; header?: string; multi?: boolean; options?: ({ description?: string; label: string; preview?: string; })[]; question: string; })[]; requestId: string; sessionId: string; timeoutSec?: number; }` | yes | The question now in the shared queue. |
+| `request` | `{ questions?: ({ allowOther?: boolean; header?: string; multi?: boolean; options?: ({ description?: string; label: string; preview?: string; })[]; question: string; secret?: boolean; })[]; requestId: string; sessionId: string; timeoutSec?: number; }` | yes | The question now in the shared queue. |
 
 ### `question.resolved`
 
@@ -2009,6 +2063,8 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 
 | field | type | required | description |
 |---|---|---|---|
+| `effort` | `"low" \| "medium" \| "high" \| "max" \| null` | no | Effective reasoning effort for the session (CORE-effort). |
+| `effortSource` | `"session" \| "model" \| "vendor" \| "default" \| null` | no | Rule that decided the effort: 'session', 'model', 'vendor' or 'default'. |
 | `kind` | `"model.changed"` | no |  |
 | `model` | `string \| null` | no | Model id now in effect. |
 | `provider` | `string \| null` | no | Vendor now in effect. |

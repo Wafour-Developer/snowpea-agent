@@ -248,7 +248,20 @@ def test_speech_is_network_when_hosted_and_read_when_local(
     local = make_core(tmp_path)
     assert effective_permission(tool("text_to_speech"), {}, None, local) == "read"
 
-    hosted = make_core(tmp_path, {"providers": {"openai": {"api_key": "sk-x"}}})
+    # A key alone no longer makes the call hosted: the `auto` chain puts local
+    # voices ahead of OpenAI now, and a local voice sends nothing anywhere. The
+    # tag follows the backend that will actually run, so the hosted case has to
+    # be the one the user actually asked for.
+    with_key = make_core(tmp_path, {"providers": {"openai": {"api_key": "sk-x"}}})
+    assert effective_permission(tool("text_to_speech"), {}, None, with_key) == "read"
+
+    hosted = make_core(
+        tmp_path,
+        {
+            "providers": {"openai": {"api_key": "sk-x"}},
+            "audio": {"tts": {"provider": "openai"}},
+        },
+    )
     assert effective_permission(tool("text_to_speech"), {}, None, hosted) == "network"
 
 

@@ -36,6 +36,7 @@ snowpea commands list --json
 |---|---|
 | `/resume` | 이 디렉터리에서 마지막으로 쓰던 세션을 다시 열고 재생 |
 | `/model` | 목록에서 모델·프로필을 고름. `/model <ref>` 는 이 세션에 고정(저장되어 재시작 후에도 유지), `/model inherit` 은 고정 해제, `/model default <id>` 는 `models.default` 설정 |
+| `/effort` | 모델이 얼마나 오래 생각할지와 그것을 정한 규칙을 보여 줌. `/effort low\|medium\|high\|max` 는 이 세션에 고정(저장됨), `/effort auto` 는 고정 해제. [추론 강도](setup.md#추론-강도effort) 참고 |
 | `/attach <경로>` | 다음 프롬프트에 파일을 첨부 |
 | `/voice` | 음성 입력을 켬. 이후 `Ctrl+Space` 로 녹음 |
 | `/rec` | 녹음 시작·중지, `Ctrl+Space` 와 같음 |
@@ -49,12 +50,16 @@ snowpea commands list --json
 | `/ralph <task>` | PRD 루프: 수용 기준이 붙은 스토리를 쓰고, 구현하고, 검증하고, APPROVE가 나올 때까지 리뷰 |
 | `/ultrawork <task>` | 독립적인 조각으로 쪼개 동시 서브에이전트에 돌리고 보고서를 합침 |
 | `/review [what]` | 커밋되지 않은 변경을 읽기 전용 `reviewer` 에이전트로 리뷰하고 판정을 전달 |
+| `/setup [providers\|search\|browser\|audio\|all]` | 설정 마법사 화면을 이 자리에서 다시 실행. 키는 가려진 채 입력 |
+| `/login <vendor> [method]` | 벤더 로그인 — 브라우저 흐름, 디바이스 흐름, 또는 가려진 키 입력 |
 | `/init [--force]` | 프로젝트 루트에 빠르고 거친 `AGENTS.md`를 한 턴에 작성; 기존 파일이 있으면 `--force` 없이는 병합 |
 | `/deepinit [path]` | 저장소를 훑어 계층적 `AGENTS.md` 파일을 작성 |
-| `/team "<task>"` | 프로젝트 팀 구성원이 역할별로 처리 — 계획·구현·테스트·리뷰 |
-| `/team <n> <task>` | 작업자 n명에게 각각 git worktree를 주고 태스크가 끝나는 대로 브랜치를 병합 |
+| `/team "<task>"` | 활성 팀 구성원이 역할별로 처리 — 계획·구현·테스트·리뷰 |
+| `/team <name> "<task>"` | 같은 파이프라인을 지정한 프로젝트/전역 팀으로 이번 한 번만 |
+| `/workers <N> "<task>"` | 동일한 작업자 N명에게 각각 git worktree를 주고 태스크가 끝나는 대로 브랜치를 병합 |
 | `/team create <name> <agent...>` | 기존 에이전트로 프로젝트 팀을 만들고 즉시 활성화 |
-| `/team use <name>` / `/team list` | 프로젝트의 활성 팀을 전환하거나 팀 목록 확인 |
+| `/team use <name>` / `/team use none` | 프로젝트의 활성 팀 전환 또는 해제 |
+| `/team list` | 모든 팀과 출처, 각 구성원이 맡는 단계 표시 |
 | `/deep-interview <idea>` | 모호함을 점수화해 스펙이 확정될 때까지 넘기지 않는 소크라테스식 인터뷰 |
 | `/deep-research <topic>` | 서브에이전트에 걸쳐 흩어진 다중 출처 웹 리서치, 출처와 함께 답변 |
 | `/ralplan <task>` | 합의 기반 계획 — 코드를 쓰기 전에 planner, architect, critic이 논쟁 |
@@ -247,9 +252,20 @@ snowpea gateway list --json
 snowpea gateway unbind <binding-id>
 ```
 
+### 음성 엔진
+
+```bash
+snowpea audio install faster-whisper
+snowpea audio install piper
+snowpea audio install edge-tts
+```
+
+데몬이 도는 기계에 로컬 음성 엔진을 설치합니다. `uv tool install`, `pipx`, `pip install --user` 중 있는 것을 쓰고 로그를 그대로 보여줍니다. `piper`는 기본 음성 하나도 함께 받습니다. 시스템 패키지(`espeak-ng`, `say`, `powershell`)는 대신 설치하지 않습니다. 종료 코드 `2`와 함께 직접 실행할 명령을 알려줍니다. [설정](setup.md#음성-입력과-출력)을 보세요.
+
 ### 팀과 서비스
 
 ```bash
+snowpea workers status
 snowpea team status
 snowpea team list
 snowpea team create delivery architect executor verifier
@@ -260,7 +276,7 @@ snowpea service status
 snowpea service uninstall
 ```
 
-`team status`는 돌고 있는 팀의 태스크별 상태와 재시도 횟수를 보여줍니다. `team list`·`create`·`use`·`delete`는 재사용 가능한 에이전트 팀 쪽입니다. `/team create`가 쓰는 것과 같은 `<workdir>/.snowpea/settings.json`의 프로젝트 팀을 전역 팀과 함께 보여주고, 활성 팀에 표시를 붙입니다. `team delete`는 프로젝트 팀만 지웁니다. `service`는 데몬을 로그인 시 자동 시작하도록 등록합니다 — Linux에서는 systemd 사용자 유닛, macOS에서는 launchd 에이전트, Windows에서는 예약 작업입니다. 기본값은 꺼짐이고, 스케줄과 게이트웨이가 터미널 로그인 없이도 재부팅을 넘겨 살아남아야 할 때만 필요합니다.
+`workers status`(예전 이름 `team status`)는 돌고 있는 팀의 태스크별 상태와 재시도 횟수를 보여줍니다. `team list`·`create`·`use`·`delete`는 재사용 가능한 에이전트 팀 쪽입니다. `/team create`가 쓰는 것과 같은 `<workdir>/.snowpea/settings.json`의 프로젝트 팀을 전역 팀과 함께 보여주고, 활성 팀에 표시를 붙입니다. `team delete`는 프로젝트 팀만 지웁니다. `service`는 데몬을 로그인 시 자동 시작하도록 등록합니다 — Linux에서는 systemd 사용자 유닛, macOS에서는 launchd 에이전트, Windows에서는 예약 작업입니다. 기본값은 꺼짐이고, 스케줄과 게이트웨이가 터미널 로그인 없이도 재부팅을 넘겨 살아남아야 할 때만 필요합니다.
 
 ### 전역 옵션
 

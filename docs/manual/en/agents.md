@@ -60,6 +60,59 @@ Team mode can review each task before it is accepted, which is off by default:
 
 With it on, a `reviewer` child reads the merge of each finished task. A `REQUEST_CHANGES` verdict sends that task back to the same worker once, with the findings attached; anything else lets the merge stand.
 
+## Teams and workers are two commands
+
+```text
+/workers 3 "add docstrings to the three parser modules"   # three identical workers
+/team "add docstrings to the three parser modules"        # your team, by role
+```
+
+They used to be one command told apart by whether the first word was a number, which was a puzzle rather than a grammar. A **team** is the people you assembled, each doing the job their role implies. **Workers** are N copies of one anonymous agent racing through a task list. `/team 3 "…"` now tells you where worker mode went rather than quietly running it.
+
+**`/workers <N> "<task>"`** (alias `/worker`) is the mode that moved: N identical workers, one git worktree each, branches merged by the lead as tasks finish.
+
+**`/team "<task>"`** runs the members of your active project team, each in the role its name implies, one stage after another in your own checkout:
+
+```text
+explore? -> plan -> implement -> test? -> review? -> fix? -> review?
+```
+
+Every stage is an ordinary subagent, so you see the whole pipeline in the agent tree. Who fills which stage comes from the roster, never from the model:
+
+| Stage | Taken by | If nobody fits |
+|---|---|---|
+| explore | `explore`, then `explorer` | skipped |
+| plan | `architect`, then `planner` | the lead plans for itself |
+| implement | `executor` | the command stops and tells you |
+| test | `test-engineer` | skipped |
+| review | `reviewer`, then `critic`, then `verifier` | skipped |
+
+### Picking which team runs it
+
+`/team "<task>"` uses the project's active team. To run a different one just this once, name it:
+
+```text
+/team external "add docstrings to the three parser modules"
+```
+
+The named team may be one of the project's own or a global one from your `settings.json`, and running it changes nothing: the project's active team is exactly what it was afterwards. An unknown name is answered with the list of teams you do have.
+
+`/team list` shows every team, where it came from, and the stage each member fills, so a roster is never just a list of names. A member matching no stage is named too, rather than quietly ignored. `/team use <name>` switches the active team and `/team use none` clears it, which puts delegation back to unrestricted.
+
+The same list reaches a client through `agent.list`: one row per team with `kind: "team"`, carrying `active`, `source` (`global` or `project`), `agents` and `stages`. A team with no implementer is listed with an empty `stages`, so a picker can show it and say why it cannot run.
+
+There are no worktrees here, so the plan has to keep the work apart by hand: the plan stage names the files each task owns, tasks claiming the same file are merged into one before anything runs, and tasks with disjoint files run together up to `agents.max_concurrent`. A task that names no file runs on its own.
+
+A `REQUEST_CHANGES` verdict buys one fix pass by whoever wrote the code the findings point at, and one more review. If the reviewer still wants changes after that, the run ends and the report says what is unfinished — there is no third round.
+
+Three settings shape it:
+
+```json
+{ "team": { "pipeline": { "maxTasks": 8, "review": true, "test": false } } }
+```
+
+`maxTasks` caps the plan. `review` and `test` are on whenever your roster has somebody for that stage; set either to `false` to turn the stage off anyway.
+
 ## What a report is and is not
 
 A child's report is a self-report. It says what the child believes it did, which is not the same as what happened. For anything with an effect outside the session — a file written, something uploaded, a service called — ask for a handle in the brief (a path, a URL, an id) and check it yourself before telling anyone it worked.

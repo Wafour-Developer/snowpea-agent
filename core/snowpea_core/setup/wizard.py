@@ -99,6 +99,7 @@ def run(
     search_provider: str | None = None,
     search_key: str | None = None,
     browser_provider: str | None = None,
+    browser_key: str | None = None,
     tools: str | None = None,
     gateway: str | None = None,
     token: str | None = None,
@@ -134,6 +135,7 @@ def run(
         search_provider=search_provider,
         search_key=search_key,
         browser_provider=browser_provider,
+        browser_key=browser_key,
         tools=tools,
         gateway=gateway,
         token=token,
@@ -152,6 +154,8 @@ def run(
     # `answered` skipped `_show("search", ...)`, accidentally skipping the key.
     if "search" in answered and interactive and search_provider and not search_key:
         _ask_for_search_key(state, interactive=True, console=console)
+    if "browser" in answered and interactive and browser_provider and not browser_key:
+        _ask_for_browser_key(state, interactive=True, console=console)
 
     order: Sequence[tuple[str, Any]] = ()
     if section is not None:
@@ -165,6 +169,15 @@ def run(
     def _show(name: str, module: Any) -> Any:
         screen: Screen = module.build(state)
         choice = asker(screen, console=console, interactive=interactive)
+        # An Install row on a voice screen fetches the engine and asks again,
+        # so the user picks it from a list where it is now active rather than
+        # having to remember to come back (M3 §5, audio.install).
+        while name == "audio" and interactive and _install_chosen(choice):
+            audio_screen.run_install(
+                _one(choice), paths.home, console.print if console is not None else print
+            )
+            screen = module.build(state)
+            choice = asker(screen, console=console, interactive=interactive)
         module.apply(state, choice)
         shown.append(name)
         if name == "providers" and state.vendor and not state.api_key:
@@ -174,10 +187,14 @@ def run(
             _configure_models(state, interactive=interactive, console=console, home=paths.home)
         if name == "search":
             _ask_for_search_key(state, interactive=interactive, console=console)
+        if name == "browser":
+            _ask_for_browser_key(state, interactive=interactive, console=console)
         if name == "tools":
             _ask_for_registry_token(state, interactive=interactive)
         if name == "audio":
-            _ask_for_audio(state, asker, interactive=interactive, console=console)
+            _ask_for_audio(
+                state, asker, interactive=interactive, console=console, home=paths.home
+            )
         if name == "gateway":
             _ask_for_gateway(state, interactive=interactive)
         return choice
@@ -596,13 +613,16 @@ def _ask_for_model(
         return
     shown = available[:MODEL_CHOICES_SHOWN]
     default_idx = shown.index(state.model) + 1 if state.model in shown else 1
+    # An eye next to the models that are known to take images; a model nobody
+    # has said anything about gets no badge rather than a claim (CORE-vision).
+    badges = _vision_badges(state, preset, shown)
     for index, name in enumerate(shown, 1):
-        out(f"  {index}. {name}")
+        out(f"  {index}. {name}{badges.get(name, '')}")
     if len(available) > len(shown):
         out(f"  … and {len(available) - len(shown)} more")
     menu = _menu_pick(
         "model",
-        [(name, name, ()) for name in shown],
+        [(name, f"{name}{badges.get(name, '')}", ()) for name in shown],
         default_id=shown[default_idx - 1],
         console=console,
     )
@@ -616,6 +636,29 @@ def _ask_for_model(
         state.model = shown[int(picked) - 1]
     else:
         state.model = picked
+
+
+def _vision_badges(
+    state: WizardState, preset: Any, models: Sequence[str]
+) -> dict[str, str]:
+    """``{model: "  👁"}`` for the models known to take images.
+
+    Resolved through the same registry chain a turn uses, so the wizard cannot
+    promise a capability the request path would not act on.
+    """
+    from snowpea_core.providers.registry import ProviderRegistry
+
+    vendor = state.vendor or preset.id
+    registry = ProviderRegistry(state.as_settings())
+    badges: dict[str, str] = {}
+    for name in models:
+        try:
+            answer = registry.vision_for(vendor, name)
+        except Exception:  # noqa: BLE001 - a badge must never stop the wizard
+            continue
+        if answer:
+            badges[name] = "  \N{EYE}"
+    return badges
 
 
 def _menu_pick(
@@ -809,6 +852,7 @@ def _ask_for_audio(
     *,
     interactive: bool,
     console: Console | None = None,
+    home: Any = None,
 ) -> None:
     """Ask the rest of the audio question: voice out, the voice, auto-speak.
 
@@ -821,6 +865,9 @@ def _ask_for_audio(
         return
     out = console.print if console is not None else print
     choice = asker(audio_screen.build_tts(state), console=console, interactive=interactive)
+    while _install_chosen(choice):
+        audio_screen.run_install(_one(choice), home, out)
+        choice = asker(audio_screen.build_tts(state), console=console, interactive=interactive)
     audio_screen.apply_tts(state, choice)
     if state.stt_provider == "command":
         entered = ui.ask_text("speech-to-text command (must contain {path}): ")
@@ -846,6 +893,18 @@ def _ask_for_audio(
         state.auto_speak = False
     if _ask_yes_no("test the voice now?", default=False):
         _test_voice(state, out)
+
+
+def _one(choice: Any) -> str:
+    """One screen answer as a string, whatever shape the asker returned."""
+    if isinstance(choice, set):
+        choice = next(iter(choice), "")
+    return str(choice or "")
+
+
+def _install_chosen(choice: Any) -> bool:
+    """True when the answer was an ``install:`` row rather than a selection."""
+    return audio_screen.install_target(_one(choice)) is not None
 
 
 def _picked(choice: Any) -> bool:
@@ -913,42 +972,126 @@ def _ask_for_registry_token(state: WizardState, *, interactive: bool) -> None:
 def _ask_for_search_key(
     state: WizardState, *, interactive: bool, console: Console | None = None
 ) -> None:
-    """Ask for the search provider's API key when it needs one.
+    """Ask for the search provider's API key or base URL when it needs one.
 
-    ``ddgs`` and the self-hosted providers skip this; the keyed ones ask, and
-    an empty answer warns rather than silently leaving the provider unusable.
+    Runs the same :class:`~snowpea_core.setup.credentials.CredentialPlan` the
+    browser screen and ``/setup`` run, so what counts as "needs a key", what the
+    hint says and where the answer is written are decided once.
     """
+    from snowpea_core.setup import credentials as creds
     from snowpea_core.tools import search_providers
 
     pid = state.search_provider
-    provider = search_providers.get(pid)
-    if provider is None:
+    plan = creds.plan_for("search", pid, state.search_credentials)
+    if plan is None:
         return
     if not interactive:
         _note_missing_search_key(state, search_providers)
         return
     out = console.print if console is not None else print
-    if provider.meta.key == "self-hosted":
-        env = next((name for name in provider.meta.env if name.endswith("_URL")), "")
-        current = (state.search_credentials.get(pid) or {}).get("url") or ""
-        hint = "saved — Enter to keep" if current else f"Enter to use ${env}" if env else ""
-        entered = ui.ask_text(f"{provider.meta.label} base URL [{hint}]: ")
-        if entered:
-            block = dict(state.search_credentials.get(pid) or {})
-            block["url"] = entered
-            state.search_credentials[pid] = block
+    if not plan.needed:
         return
-    if provider.meta.key == "no key":
-        return
-    env = search_providers.credential_env(pid)
-    saved = state.has_search_key(pid)
-    hint = "saved — Enter to keep" if saved else (f"Enter to use ${env}" if env else "optional")
-    entered = ui.ask_text(f"{provider.meta.label} API key [{hint}]: ", secret=True)
-    if entered:
-        state.set_search_key(pid, entered)
-    elif not saved and provider.meta.key == "key required":
-        out(f"no key entered — {pid} cannot answer searches until it has one")
+
+    _ask_prompts(plan, console=console)
+    for field_name, value in plan.answers.items():
+        block = dict(state.search_credentials.get(pid) or {})
+        block[field_name] = value
+        state.search_credentials[pid] = block
+
+    if not (state.search_credentials.get(pid) or {}).get("api_key"):
+        message = creds.refusal(plan)
+        if message:
+            out(message)
     _note_missing_search_key(state, search_providers)
+
+
+def _ask_prompts(plan: Any, *, console: Console | None = None) -> Any:
+    """Run one :class:`~snowpea_core.setup.credentials.CredentialPlan` at a terminal.
+
+    The plan says *what* to ask and whether each answer is a secret; this is
+    only the terminal's way of asking it.  ``/setup`` runs the same plan through
+    the question queue, which is what keeps the two from drifting apart.
+    """
+    for prompt in plan.prompts:
+        try:
+            answer = ui.ask_text(f"{prompt.text()}: ", secret=prompt.secret)
+        except (KeyboardInterrupt, EOFError):
+            break
+        if answer:
+            plan.answers[prompt.field] = answer.strip()
+    return plan
+
+
+def _probe_browser(provider_id: str, credentials: dict[str, str]) -> str | None:
+    """Kept as a seam the tests patch; the check itself lives in ``credentials``."""
+    from snowpea_core.setup import credentials as creds
+
+    plan = creds.CredentialPlan(
+        kind="browser", provider_id=provider_id, label=provider_id, prompts=()
+    )
+    plan.answers.update(credentials)
+    return creds.probe(plan)
+
+
+def _ask_for_browser_key(
+    state: WizardState, *, interactive: bool, console: Console | None = None
+) -> None:
+    """Ask the browser provider for its credentials when it needs any.
+
+    The gap this closes: picking Browserbase or Firecrawl used to write the
+    provider name and nothing else, so the choice could not work and nothing
+    said so.  Masked input, Enter keeps what is saved, and a provider that
+    declares more than one credential (Browserbase wants a project id as well)
+    is asked for all of them rather than half.
+    """
+    from snowpea_core.setup import credentials as creds
+
+    pid = state.browser_provider
+    plan = creds.plan_for("browser", pid, state.browser_credentials)
+    if plan is None:
+        return
+    if not interactive:
+        _note_missing_browser_key(state)
+        return
+    out = console.print if console is not None else print
+    if not plan.needed:
+        return
+
+    _ask_prompts(plan, console=console)
+    for field_name, value in plan.answers.items():
+        state.set_browser_value(pid, field_name, value)
+
+    block = state.browser_credentials.get(pid) or {}
+    if block.get("api_key"):
+        problem = _probe_browser(pid, {k: str(v) for k, v in block.items()})
+        if problem:
+            out(f"warning: {problem}")
+    else:
+        message = creds.refusal(plan)
+        if message:
+            out(message)
+    _note_missing_browser_key(state)
+
+
+def _note_missing_browser_key(state: WizardState) -> None:
+    """Leave a summary note when the chosen browser provider cannot run."""
+    from snowpea_core.tools import browser_providers
+
+    pid = state.browser_provider
+    if not browser_providers.needs_key(pid):
+        return
+    block = state.browser_credentials.get(pid) or {}
+    missing = [
+        name for name in browser_providers.extra_envs(pid) if not block.get(name.lower())
+    ]
+    if not block.get("api_key"):
+        env = browser_providers.credential_env(pid)
+        state.notes.append(
+            f"{pid}: no API key — the browser tools refuse until one is set"
+            + (f" (or ${env} is exported)" if env else "")
+        )
+    elif missing:
+        state.notes.append(f"{pid}: missing {', '.join(missing)}; the first call will fail")
 
 
 #: Where each platform tells a user their own numeric account id.
@@ -1039,13 +1182,19 @@ def _apply_flags(state: WizardState, **flags: Any) -> set[str]:
         raise SetupError("--search-key needs --search-provider")
 
     browser_provider = flags.get("browser_provider")
+    browser_key = flags.get("browser_key")
     if browser_provider:
         from snowpea_core.tools import browser_providers
 
         if browser_providers.get(browser_provider) is None:
             raise SetupError(f"unknown browser provider: {browser_provider}")
         state.browser_provider = browser_provider
+        if browser_key:
+            state.set_browser_key(browser_provider, browser_key)
+        _note_missing_browser_key(state)
         answered.add("browser")
+    elif browser_key:
+        raise SetupError("--browser-key needs --browser-provider")
 
     tools = flags.get("tools")
     if tools:

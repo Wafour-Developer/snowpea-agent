@@ -301,6 +301,131 @@ optional key, then lists `/v1/models` so you can pick its default model.
 An existing configuration with only `providers.local` keeps working exactly as
 it did: that entry is a local server implicitly and needs no `preset` marker.
 
+### Vision on local servers
+
+Whether a model can be sent an image is decided in four steps, strongest first:
+
+1. `providers.<vendor>.vision`, or `providers.<vendor>.models.<model>.vision`
+   for one model of that server;
+2. the public models.dev card, when one is already in the cache;
+3. the model name, against a built-in list (`gpt-4o`, `claude`, `qwen2.5-vl`,
+   `llava`, anything ending `-vl`, and so on);
+4. for a local or named OpenAI-compatible server only: **try once**. The images
+   go out, and if the server refuses the request, snowpea remembers that, says
+   so once in the log, and immediately retries the same turn with the text
+   description so the answer still arrives.
+
+Step 4 is what makes an unknown local model usable. A vision model loaded under
+a name no list recognises — `flash-next-mtp`, say — used to have every image
+replaced by "(this model cannot see images)". Now it is simply sent the image.
+The cost of a server that really is text-only is one refused request per model,
+remembered for a week in `<SNOWPEA_HOME>/cache/vision.json`, so it is not paid
+again on the next prompt or the next restart.
+
+A hosted vendor is never probed this way: its catalog is knowable, and a
+refused request there is a charge for nothing.
+
+To settle it yourself rather than let the probe find out:
+
+```json
+{
+  "providers": {
+    "hon2": {
+      "preset": "local",
+      "base_url": "http://hon2:8000/v1",
+      "vision": true,
+      "models": {"flash-next-mtp": {"vision": true}, "qwen3-8b": {"vision": false}}
+    }
+  }
+}
+```
+
+The per-model rule wins over the per-server one. `models` may still be a plain
+list of ids when you are only pinning a catalog; the object form is for when
+you want to say something about each model.
+
+From the command line:
+
+```bash
+snowpea provider add-local hon2 --url http://hon2:8000/v1 --vision
+snowpea provider add-local hon2 --url http://hon2:8000/v1 --no-vision
+snowpea provider models hon2
+```
+
+`provider models` marks each model it knows about: 👁 for one that takes
+images, `(text only)` for one that does not, and nothing at all for one nobody
+has established yet. The setup wizard's model list shows the same eye.
+
+An override also works on a hosted vendor, which is the way to describe a proxy
+in front of it that strips images.
+
+### Reasoning effort
+
+`thinking` is a switch; effort is a dial. One scale — `low`, `medium`, `high`,
+`max` — reaches every vendor, and each adapter maps it to whatever that vendor
+actually accepts:
+
+| Vendor | Wire field | low | medium | high | max |
+|---|---|---|---|---|---|
+| `openai` (API key) | `reasoning_effort` | `low` | `medium` | `high` | `high` |
+| `openai` (ChatGPT login, Codex backend) | `reasoning.effort` | `low` | `medium` | `high` | `xhigh` |
+| `anthropic` | `thinking.budget_tokens` | 2 048 | 8 192 | 32 768 | 65 536 |
+| `gemini` | `thinkingConfig.thinkingBudget` | 2 048 | 8 192 | 32 768 | 65 536 |
+| `openrouter`, `xai` | `reasoning_effort` | `low` | `medium` | `high` | `high` |
+| `glm`, `minimax`, `kimi`, `deepseek`, `qwen` | — | nothing is sent | | | |
+| `local` and named servers | `reasoning_effort`, opt-in | `low` | `medium` | `high` | `high` |
+
+A token budget is capped at three quarters of the call's `max_tokens`, so a
+"think hard" turn always keeps room to answer. `thinking: "off"` still wins
+over every tier: a user who turned thinking off gets no hidden reasoning, and
+an effort setting does not put it back.
+
+The OpenAI field only goes to models that accept it — the `o`-series, `gpt-5*`
+and `codex*`. If a model refuses it anyway (`HTTP 400: Unsupported parameter`),
+the call is retried once without the field and that model is never sent it
+again for the life of the daemon.
+
+Self-hosted servers are opt-in, because vLLM either ignores `reasoning_effort`
+or rejects it depending on the loaded model's chat template:
+
+```json
+{
+  "providers": {
+    "hon2": {"preset": "local", "base_url": "http://hon2:8000/v1", "effort_param": true}
+  }
+}
+```
+
+Settings, weakest rule first:
+
+```json
+{
+  "agent": {
+    "effort": "medium",
+    "effortBy": {"openai": "high", "anthropic:claude-opus-4-1": "max"}
+  }
+}
+```
+
+`agent.effort` is the default for everything. `agent.effortBy` overrides it per
+vendor (`"openai"`) or per model (`"openai:o3"`), and the model rule wins over
+the vendor rule. Above both sits the session pin:
+
+```text
+/effort            show what is in force and which rule decided it
+/effort high       pin this session
+/effort auto       clear the pin
+```
+
+The pin is persisted with the session, so resuming a thread keeps the tier you
+chose. `snowpea model profiles` shows the effort each profile resolves to, and the
+TUI draws it next to the model (`⚙ high`); the `/model` picker has a row that
+cycles through the tiers.
+
+`providers.openai.reasoning_effort` from an older configuration is still read
+for the Codex backend, so upgrading does not change how hard your sessions
+think. Nothing writes it any more — `/effort` writes the unified keys.
+
 ### Output budget and thinking
 
 A reasoning model — Qwen3, DeepSeek-R1, GLM's thinking variants — streams its
@@ -446,7 +571,30 @@ Three `skills` settings shape the skills index the agent reads on every turn (se
 
 ```bash
 snowpea setup --browser-provider local_chromium
+snowpea setup --browser-provider firecrawl_cloud --browser-key fc-your-key
+snowpea setup browser
 ```
+
+**A provider tagged `key required` asks for its credentials.** Picking `browserbase` or `firecrawl_cloud` prompts for the key straight after the list, masked, with Enter keeping whatever is already saved. Browserbase needs two values and is asked for both: the API key, then the project id, which is an identifier rather than a secret and so is not masked.
+
+| id | tag | needs |
+| --- | --- | --- |
+| `local_chromium` ★ | free · no key | Playwright's Chromium, downloaded on first use |
+| `camoufox` | free · no key | nothing yet |
+| `browser_use_local` | free · no key | nothing yet |
+| `browserbase` | paid · key required | `BROWSERBASE_API_KEY` and `BROWSERBASE_PROJECT_ID` |
+| `firecrawl_cloud` | paid · key required | `FIRECRAWL_API_KEY` |
+
+Credentials land in `browser.credentials.<id>`, the same shape search uses:
+
+```json
+{ "browser": { "provider": "browserbase",
+               "credentials": { "browserbase": { "api_key": "...", "browserbase_project_id": "..." } } } }
+```
+
+Settings win over the environment, so a key you type into the wizard beats an exported variable. An empty answer with nothing saved is refused in words rather than silently: the provider is written, the summary says it has no key, and the browser tools keep refusing until one exists.
+
+When a key is entered, setup makes one cheap call to check it — Browserbase's session list, a `HEAD` against Firecrawl — with a three-second budget. A failure is a **warning, not a block**: an offline machine, a proxy or a provider having a bad afternoon must not cost you the key you just pasted, so it is saved either way.
 
 ## Tool categories
 
@@ -458,6 +606,64 @@ snowpea tools list
 ```
 
 Categories are `file`, `terminal`, `git`, `web`, `browser`, `delegate`, `schedule`, `memory`, `media`, and `mcp` for anything a `.mcp.json` server contributed. Adding, testing and removing those `.mcp.json` servers is `/mcp` and `snowpea mcp`, covered in [MCP servers](plugins.md#mcp-servers). Media tools (`image_generate`, `video_generate`, `music_generate`, `text_to_speech`) are always registered but stay `inactive` until credentials exist; they flip to `active` without a restart once configured, and calling one before that returns `tool_inactive` with a hint.
+
+## Voice in and out
+
+Two lists, one decision: can you talk to it, and does it talk back. Both are shown whether or not the engine is installed here, because "why can't I use piper" should be answered on screen rather than by its absence.
+
+The two defaults are local and CPU-only, so voice works without an account and without a GPU.
+
+**Voice in** — the recommended default is **SenseVoiceSmall**.
+
+| Row | What it is | What it needs |
+|---|---|---|
+| `sherpa-onnx-sensevoice` ★ | SenseVoiceSmall, zh/en/ja/ko/yue, ~17-20x real time on CPU, comes with its own VAD so it splits long recordings itself | the `sherpa-onnx` package and a ~230MB model |
+| `sherpa-onnx-zipformer-ko` | Korean streaming Zipformer INT8, ~10-38x real time on CPU | the same package and a Korean model |
+| `sherpa-onnx-zipformer-en` | English streaming Zipformer INT8 | the same package and an English model |
+| `local-whisper` | the whisper CLI you may already have | `faster-whisper` or `whisper` on PATH |
+| `openai` | hosted transcription | the OpenAI key you already configured |
+| `command` | your own template | a command containing `{path}` |
+
+**Voice out** — the recommended default is **Supertonic**.
+
+| Row | What it is | What it needs |
+|---|---|---|
+| `supertonic` ★ | Supertone's on-device neural TTS, 31 languages including Korean and English, runs on CPU | the `supertonic` Python package, which fetches its own ONNX voices on first use |
+| `piper` | local neural voices | the `piper` CLI and one voice file |
+| `edge-tts` | Microsoft neural voices | the `edge-tts` CLI, and the network at speaking time |
+| `espeak-ng` | small and robotic, everywhere | the system package |
+| `say` / `powershell` | built into macOS / Windows | nothing |
+| `openai` | hosted speech | the OpenAI key you already configured |
+| `command` | your own template | a command containing `{text}` and `{out}` |
+
+Automatic tries the local engines before the hosted ones, so audio of your room never leaves the machine when something here can handle it. With nothing installed it degrades to whatever exists rather than failing: the defaults are **install-guided, not required**.
+
+Speech models come from the official sherpa-onnx release assets and land under `$SNOWPEA_HOME/models/sherpa-onnx/`. Downloads resume if they are interrupted, and a model only counts as installed once it has unpacked completely, so a cancelled download never leaves an engine looking ready.
+
+Set `audio.stt.language` to a tag like `ko` to tell SenseVoice what to expect and to pick the matching Zipformer; leave it empty and SenseVoice detects the language itself.
+
+**Installing an engine.** For the three that are ordinary user-space packages the daemon installs them for you:
+
+```bash
+snowpea audio install sherpa-onnx-sensevoice
+snowpea audio install supertonic
+snowpea audio install faster-whisper
+snowpea audio install piper
+snowpea audio install edge-tts
+```
+
+It runs `uv tool install` if `uv` is on PATH, then `pipx`, then `pip install --user`, printing the log as it goes. A sherpa-onnx row installs the package and then downloads its model; `supertonic` always goes in with `pip install --user`, because the engine imports it rather than running a command. Installing `piper` also downloads one default voice into `$SNOWPEA_HOME/voices/` and records it in `audio.tts.voice`, because a piper binary with no voice cannot say anything. Detection re-runs at the end, so the engine is usable immediately and nothing needs restarting.
+
+The setup wizard offers the same thing as an **Install** row next to any engine it could fetch but cannot find, and shows the list again afterwards so you pick the engine from a list where it is now active.
+
+`espeak-ng`, `say` and `powershell` are system packages, and the daemon will not run a package manager as root for you. Asking for one prints the command for your platform instead:
+
+```
+$ snowpea audio install espeak-ng
+could not install espeak-ng: sudo apt install espeak-ng
+```
+
+**snowpea-studio is no longer a voice choice.** The `text_to_speech` media tool still forwards to a configured studio MCP server, and Automatic still falls back to it when nothing else is available. It is no longer offered in the voice list and no longer leads the chain: it needs an MCP server configured before it can say a word, so leading with it made "Automatic" resolve to a backend most machines do not have.
 
 ## Gateway
 

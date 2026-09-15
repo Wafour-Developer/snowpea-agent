@@ -68,7 +68,7 @@ and there are only four reasons a step skips:
 | 5 | `snowpea -c "/help" --json` | all nine built-in commands listed |
 | 6 | `snowpea tools list --json` | the media tools are present, each with a state |
 | 7 | `snowpea -c "/ralph …" --mode auto` | exit 0, non-empty diff |
-| 8 | `snowpea -c "/team 2 …" --mode auto`, `snowpea team status` | two tasks merged, no worktree left |
+| 8 | `snowpea -c "/workers 2 …" --mode auto`, `snowpea workers status` | two tasks merged, no worktree left |
 | 9 | `snowpea skill install …/sample-plugin` | the MCP tool registers and the PreToolUse hook fires |
 | 10 | `snowpea job schedule --in 60s --channel …` | delivered to the channel inside 65s |
 | 11 | approval timeout | `denied_by_timeout` in `logs/approvals.jsonl` |

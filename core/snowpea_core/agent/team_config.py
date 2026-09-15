@@ -21,6 +21,21 @@ def teams_for(settings: Settings, workdir: Path | str) -> dict[str, list[str]]:
     return teams
 
 
+def teams_with_source(settings: Settings, workdir: Path | str) -> dict[str, tuple[list[str], str]]:
+    """Every visible team as ``name -> (members, "global"|"project")``.
+
+    The merge rule is :func:`teams_for`'s — a project team wins on a name
+    clash — but the winner's origin is kept, because a client offering the
+    user a team to pick has to say where it came from.
+    """
+    out: dict[str, tuple[list[str], str]] = {
+        name: (list(members), "global") for name, members in settings.agents.teams.items()
+    }
+    for name, members in ProjectSettings.load(workdir).agents.teams.items():
+        out[name] = (list(members), "project")
+    return out
+
+
 def active_team(settings: Settings, workdir: Path | str) -> ActiveTeam | None:
     """The team a session in ``workdir`` runs under, or ``None``.
 
@@ -46,4 +61,10 @@ def default_roster(settings: Settings, workdir: Path | str) -> list[str]:
     return list(teams_for(settings, workdir).get(name or "", []))
 
 
-__all__ = ["ActiveTeam", "active_team", "default_roster", "teams_for"]
+__all__ = [
+    "ActiveTeam",
+    "active_team",
+    "default_roster",
+    "teams_for",
+    "teams_with_source",
+]

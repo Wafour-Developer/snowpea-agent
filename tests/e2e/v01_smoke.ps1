@@ -234,7 +234,7 @@ try {
         Skip-Step 8 '/team is not registered yet (pending US-020)'
     }
     else {
-        Invoke-Snowpea '-c' "/team 2 'add docstrings'" '--mode' 'auto' '--cwd' $FixtureRepo | Out-Null
+        Invoke-Snowpea '-c' "/workers 2 'add docstrings'" '--mode' 'auto' '--cwd' $FixtureRepo | Out-Null
         $teamRc = $script:LastRc
         $teamStatus = Invoke-Snowpea 'team' 'status'
         $merged = ([regex]::Matches($teamStatus, 'merged')).Count

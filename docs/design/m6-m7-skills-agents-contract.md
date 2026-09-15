@@ -81,12 +81,12 @@ Both resolve through `delegate_task(agent="explore"|"reviewer")`, `/delegate` an
 - `/ultrawork <task>`: split into independent subtasks (JSON) → fan out subagents in parallel → merge summaries. The splitter prompt (`prompts/workflows/ultrawork-split.md`) requires each subtask to own a **disjoint** set of files and to list them in `files`; `merge_overlapping` then validates the split and folds subtasks that claim the same file into one brief (which says so) before anything runs, logging each merge. (M15 §C4)
 - `/review [what]`: one `reviewer` pass over the uncommitted diff, relayed as a verdict (§3.3).
 - `/deepinit`: walk the repo, write hierarchical `AGENTS.md` (root + per top-level dir) via subagents.
-- `/team N <task>`: see §5.
+- `/workers <N> "<task>"`: see §5. `/team "<task>"`: see §9.
 - Bundled markdown skills: `builtin_skills/{deep-interview,deep-research,ralplan}/SKILL.md` — original texts written for snowpea (OMC has no `deep-research`; compose from its external-context/autoresearch ideas), loaded by the same loader (source=builtin). `/help` lists ralph, ralplan, ultrawork, deepinit, deep-research, deep-interview, plan, accept, auto (+ others) — the rendered list lives in `tui/src/components/HelpPanel.tsx`; keep it and `docs/design/m12-tui-contract.md` §4 pinned to the same constant.
 - Replacement map for OMC concepts per `docs/omc-porting-map.md`.
 
-## 5. Team mode — `agent/team.py`
-`team.start(sessionId, n, task) -> teamId`: lead (the session) splits `task` into tasks (JSON list with ids/deps) → shared task list persisted in state.db (`team_tasks`: id, team_id, title, status queued|claimed|done|conflict|merged|failed, agent_n, retries, conflict_hunks) → N worker subagents each get a git worktree `<workdir>/.snowpea/worktrees/<teamId>-<n>` on branch `snowpea/team-<teamId>-<n>` (created with `git worktree add -b …`) and loop: claim next queued task (atomic UPDATE), work, commit on their branch, mark done, post a message to the team board (`team_messages`) → lead merges done tasks in completion order with `git merge --no-ff <branch>` in the main worktree; on conflict `git merge --abort`, task → `conflict` (retries+1, hunks captured from `git diff --diff-filter=U` or the merge output) and re-queued to the same agent with the hunks in its prompt; after `team.max_conflict_retries` (default 2) → `failed` (hunks kept) and the lead continues. End: remove worktrees (`git worktree remove --force`) and branches; `team.status(teamId)` returns tasks with states; events `team.task.update{teamId, taskId, status, agentN, retries}`; CLI `snowpea team status [teamId]`; `/team N <task>` command. Test uses the fake provider with a script that makes one worker always write conflicting content to the same file.
+## 5. Worker mode — `agent/team.py`, `/workers <N> "<task>"`
+`team.start(sessionId, n, task) -> teamId`: lead (the session) splits `task` into tasks (JSON list with ids/deps) → shared task list persisted in state.db (`team_tasks`: id, team_id, title, status queued|claimed|done|conflict|merged|failed, agent_n, retries, conflict_hunks) → N worker subagents each get a git worktree `<workdir>/.snowpea/worktrees/<teamId>-<n>` on branch `snowpea/team-<teamId>-<n>` (created with `git worktree add -b …`) and loop: claim next queued task (atomic UPDATE), work, commit on their branch, mark done, post a message to the team board (`team_messages`) → lead merges done tasks in completion order with `git merge --no-ff <branch>` in the main worktree; on conflict `git merge --abort`, task → `conflict` (retries+1, hunks captured from `git diff --diff-filter=U` or the merge output) and re-queued to the same agent with the hunks in its prompt; after `team.max_conflict_retries` (default 2) → `failed` (hunks kept) and the lead continues. End: remove worktrees (`git worktree remove --force`) and branches; `team.status(teamId)` returns tasks with states; events `team.task.update{teamId, taskId, status, agentN, retries}`; CLI `snowpea workers status [runId]` (and `snowpea team status`, its older spelling); `/workers <N> "<task>"` command. Test uses the fake provider with a script that makes one worker always write conflicting content to the same file.
 
 **Optional review stage (`team.review`, default `false`, M15 §C5).** When it is on, a task that merges cleanly is first read by a `reviewer` child over `git diff HEAD~1 HEAD` from a stand-in parent rooted at the repository (`_review_anchor`, outside the team roster so the §3.1 membership guard does not refuse it). A `REQUEST_CHANGES` verdict re-queues the task to the **same** worker once — status back to `queued` with `agent_n` kept, the findings handed to it through `workflows/team-review-fix.md` on its next brief — and every other verdict lets the merge stand. One review per task, however often it is re-queued; the merge is not reverted, because the rest of the board may already build on it.
 
@@ -119,18 +119,87 @@ Resolution (`agent/team_config.py`):
 **Effects of an active team**, all three of which MUST hold together:
 1. The system prompt carries the restriction rule (M1 §17-7, `agent/agent.py`).
 2. `delegate_task` / `agent.spawn` refuse a non-member (§3.1).
-3. `agent.list` filters definitions down to the team's members and **prepends one synthetic row** `AgentInfo(name=<teamName>, description="Active project team", kind="team", source="project")` (`server/agent_handlers.py`). `kind="team"` is a fourth value alongside `definition|subagent|named`; a client that does not know it MUST render it as an ordinary row rather than dropping it. Named instances and running subagents are appended after the filter and are **not** filtered by team.
+3. `agent.list` filters definitions down to the team's members and **prepends one `kind:"team"` row per team the user could pick here** (`server/agent_handlers.py`, `_team_rows`) — every global and project team from `teams_with_source()`, the active one first, then by name. `kind="team"` is a fourth value alongside `definition|subagent|named`; a client that does not know it MUST render it as an ordinary row rather than dropping it. Named instances and running subagents are appended after the filter and are **not** filtered by team.
 
-`/team` keeps its `N <task>` form (§5) and gains four configuration subcommands (`commands/team_cmd.py`):
+Each team row carries (all additive to `AgentInfo`, v0.1.x):
+
+| field | meaning |
+|---|---|
+| `active` | `true` for the project's `activeTeam`; at most one row, none when the project has chosen no team |
+| `source` | `"project"` or `"global"` — where the winning definition came from (a project team wins a name clash) |
+| `agents` | its member names, in roster order |
+| `stages` | `{explore?, plan?, implement, test?, review?} -> member`, the §9 mapping; **empty** when the team has no implementer and therefore cannot run `/team "<task>"` at all |
+
+A team that cannot run the pipeline is listed with empty `stages` rather than hidden: a picker still has to show it, and say why it is not offered.
+
+`/team` has four configuration subcommands (`commands/team_cmd.py`); the `N <task>` form it used to carry is now `/workers` (§9):
 
 ```text
-/team <N> "<task>"              # unchanged: run N workers on one task
+/workers <N> "<task>"           # §5: run N identical workers on one task
 /team create <name> <agent...>  # define/redefine a project team
 /team use <name>                # set the project's activeTeam
+/team use none                  # clear it (also --none, -): no team, unrestricted delegation
 /team list                      # every team visible here, marking the active one
 /team delete <name>             # remove a project team
 ```
 
-The first word disambiguates: a leading `create|use|list|delete` is configuration, anything else is the worker form. `/team use <unknown>` answers `team: unknown team <name>; use /team list` and changes nothing.
+The first word disambiguates; the full grammar is in §9. `/team use <unknown>` answers `team: unknown team <name>; use /team list` and changes nothing. `/team use none` clears `activeTeam`, so the session goes back to unrestricted delegation and `/team "<task>"` falls back to the global default roster. `/team list` prints each team with its source and the stage every member fills.
 
 **TUI short delegation.** `$agent-name <task>` in the input line is a surface-local shortcut that calls `agent.spawn` directly rather than going through `session.prompt` (`tui/src/app.tsx`, pattern `/^\$([A-Za-z0-9._-]+)\s+([\s\S]+)$/`). The same refusal rules apply — the daemon does not know the input came from a shortcut.
+
+## 9. Team pipeline mode (`agent/team_pipeline.py`) — `/team "<task>"`
+
+Added in v0.1.x. `/team` now wraps **two** modes, and the first word decides which:
+
+```text
+/team "<task>"                  # the active team's members, by role
+/team run "<task>"              # the same, spelled explicitly
+/team <name> "<task>"           # the same on a named team, for this run only
+/workers <N> "<task>"           # §5: N identical workers, one git worktree each
+```
+
+**Worker mode moved off `/team` (v0.1.x).** N identical workers are `/workers <N> "<task>"` (alias `/worker`, `commands/workers_cmd.py`); `/team` is the roster, by role, and nothing else. The two were never variations of one idea — a team is the people you assembled each doing the job their role implies, workers are N copies of one anonymous agent racing through a task list — and telling them apart by whether the first word happened to be a number was a puzzle rather than a grammar. `/team <N> …` now answers `worker mode is /workers <N> "<task>"` and runs nothing: a silent fallback would leave someone who typed the old spelling with no idea the grammar had changed. The machinery is untouched; only the spelling moved, and `TeamManager` still owns the board, the worktrees and the merges.
+
+The first word disambiguates, in this order: `create|use|list|delete` is configuration; a leading integer is the moved-mode hint; `run` is the explicit pipeline spelling; a bare word followed by a **quoted** task is a team name; anything else is the task itself. The quotes are what make a leading word a team name — `/team add docstrings to the parser` is a task, not an unknown team called `add`. An unknown team name answers with the teams that do exist and runs nothing.
+
+**`/team <name> "<task>"` never writes `activeTeam`.** The run delegates through a stand-in parent session (`TeamPipeline._anchor`) that carries the lead's id, workdir, mode, route and backend but the *named* team in `team`/`team_agents`, so the §3.1 membership guard admits that roster for the run and nothing outside it. Sharing the lead's id keeps the `subagent.*` events, the concurrency semaphore and the sibling-file registry where they were. The project's own settings are untouched, which is the whole point: a global ("external") team is as runnable as an adopted one.
+
+`/team "<task>"` with no active team falls back to the global `agents.default_team` roster; with no roster at all it answers `no active team — /team use <name>, or /team <name> "<task>" to run one just this once` and runs nothing.
+
+Pipeline mode runs the roster **as ordinary subagents in the session's own checkout** — no worktrees, no board, no merge. Every stage is one `SubagentManager.run` on the lead's session, so the `subagent.spawn|update|done` events a TUI or IDE already renders show the pipeline as a tree under the lead. No new RPC method and no new event: the stage is carried in the delegation's `title` (`plan`, `implement: <task title>`, `test`, `review`, `review (2)`, `fix`), not in a new `SubagentSpawn` field.
+
+**Roster → stages.** The roster is the active project team (`agents.activeTeam`) or, when the session has none, the global `agents.default_team` roster (`default_roster()`, §8). Each stage takes the first roster member that resolves to a definition here, best candidate first, and no agent owns two stages:
+
+| stage | candidates | when absent |
+|---|---|---|
+| `explore` | `explore`, `explorer` | skipped |
+| `plan` | `architect`, `planner` | the lead plans for itself, one plain provider call |
+| `implement` | `executor` | **error** — `/team <N>` is the mode for a roster with no implementer |
+| `test` | `test-engineer` | skipped |
+| `review` | `reviewer`, `critic`, `verifier` | skipped |
+
+Roster members matching no stage are reported (`not used by any stage: …`) rather than dropped silently, and `/team list` prints the stage each member of the active roster fills. The default roster (architect, critic, executor, explorer, test-engineer, verifier) therefore fills every stage, with `verifier` unused.
+
+**Stages.**
+1. **explore** (optional) — a read-only survey of the project, ≤ 20 lines of findings, handed to `plan`.
+2. **plan** — `workflows/team-pipeline-plan.md`: one JSON object `{"tasks": [{id, title, brief, files[], dependsOn[]}]}`, at most `team.pipeline.maxTasks` (8, hard ceiling `MAX_TASKS`). Validated in code: a `dependsOn` naming a task not listed *before* this one is dropped (the list is ordered, so a forward or circular reference would leave nothing ready), and tasks claiming the same file are folded into one brief by the same `merge_overlapping` rule `/ultrawork` uses (M15 §C4) — there are no worktrees, so two agents on one file is how a run loses half a change.
+3. **implement** — the tasks run in dependency order, **one owner per task**. Tasks whose file sets are disjoint run in the same wave, up to the resolved `agents.max_concurrent`; a task that claims no file runs alone, because nothing can be proved disjoint from it. `file_state`'s sibling-ownership guard (§3.2) is the safety net under the file scoping. Each brief carries `${BASE_RULES}`, the task's file list, and the previous stage's handoff.
+4. **test** (optional) — runs the project's checks over the changed files and answers `TESTS: PASS` / `TESTS: FAIL` with the commands it ran.
+5. **review** (optional) — the reviewer gets `git diff` of the changed files and answers `VERDICT: APPROVE` / `REQUEST_CHANGES` / `NEEDS_MORE_EVIDENCE`. `REQUEST_CHANGES` buys exactly one **fix** pass by the implementer of the task whose files the findings name, then one more review, told it is a second look. Still `REQUEST_CHANGES` after that (`MAX_REVIEW_ROUNDS = 2`) ends the run and the report says so; there is no third round.
+6. **report** — composed by the lead **in code**, in `render_report` shape: a header (`stages:` / `tasks: n/m finished` / `tests:` / `review:`), what each task changed (its own first report line, trimmed), the files the plan claimed, and what was left unfinished. A child's raw output is never relayed whole.
+
+**Handoffs** are the previous stage's report trimmed to `HANDOFF_LINES` (20) and prefixed `What <stage> handed over:`. Implementers and fixers are asked to answer in `Decided:` / `Files:` / `Remaining:` lines so the handoff is already the right shape. Nothing is written to disk and a pipeline run is not resumable.
+
+**Stage reporting.** `stages_map(core, workdir, roster)` is the non-raising counterpart of `stage_assignments` — it answers `{}` for a roster with no implementer instead of raising — and is what `agent.list` (§8) and `/team list` describe teams with. `stage_line` renders it as one line.
+
+**Settings** (`config/settings.py`, `TeamPipelineSettings`):
+
+| key | default | meaning |
+|---|---|---|
+| `team.pipeline.maxTasks` | `8` | ceiling on the plan stage's task list |
+| `team.pipeline.review` | unset | unset = on when the roster has a reviewer; `false` turns it off anyway |
+| `team.pipeline.test` | unset | unset = on when the roster has a test agent; `false` turns it off anyway |
+
+`team.review` and `team.max_conflict_retries` still belong to worker mode (§5) and are unaffected.
+
+The staged shape is ported from oh-my-claudecode's `team` skill; see `docs/design/deviations/CORE-team-pipeline.md`. Tests: `tests/test_team_pipeline.py`.

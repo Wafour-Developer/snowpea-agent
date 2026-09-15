@@ -1,4 +1,7 @@
-"""M7 US-020 / AC-16: ``/team N <task>`` in real git worktrees.
+"""M7 US-020 / AC-16: ``/workers N <task>`` in real git worktrees.
+
+The command was ``/team <N>`` until the grammar split: ``/team`` is the
+project's roster by role, and N identical workers are ``/workers``.
 
 Everything runs in-process against the deterministic scripted fake provider, so
 there is no API key and no Docker.  The assertions are the acceptance criteria
@@ -179,7 +182,7 @@ async def test_three_workers_merge_three_tasks_and_clean_up(daemon: Daemon, repo
     before = worktree_paths(repo)
     assert len(before) == 1
 
-    turn_id = core.commands.start(core, session, "team", f'3 "{TEAM_TASK}"')
+    turn_id = core.commands.start(core, session, "workers", f'3 "{TEAM_TASK}"')
     turn = session.turn_task
     assert turn is not None
 
@@ -241,7 +244,7 @@ async def test_a_conflicting_task_retries_twice_then_fails(
     core.hub.subscribe(recorder, session.id)
 
     turn_id = await asyncio.wait_for(
-        core.commands.run(core, session, "team", f'2 "{CONFLICT_TASK}"'), timeout=TIMEOUT
+        core.commands.run(core, session, "workers", f'2 "{CONFLICT_TASK}"'), timeout=TIMEOUT
     )
 
     status = await _status(daemon)
@@ -301,7 +304,7 @@ async def test_team_status_and_the_cli_report_the_board(
     assert core is not None
     session = await core.sessions.create(repo, mode="auto", max_concurrent=3)
     await asyncio.wait_for(
-        core.commands.run(core, session, "team", f'3 "{TEAM_TASK}"'), timeout=TIMEOUT
+        core.commands.run(core, session, "workers", f'3 "{TEAM_TASK}"'), timeout=TIMEOUT
     )
 
     # Addressing the team by id and letting the daemon pick the latest agree.
@@ -350,7 +353,7 @@ async def test_task_update_events_carry_the_board_transitions(
     core.hub.subscribe(recorder, session.id)
 
     await asyncio.wait_for(
-        core.commands.run(core, session, "team", f'3 "{TEAM_TASK}"'), timeout=TIMEOUT
+        core.commands.run(core, session, "workers", f'3 "{TEAM_TASK}"'), timeout=TIMEOUT
     )
 
     updates = recorder.of_kind("team.task.update")
@@ -385,19 +388,19 @@ async def test_task_update_events_carry_the_board_transitions(
 
 @pytest.mark.parametrize("script", [TEAM_SCRIPT], indirect=True)
 async def test_team_without_arguments_explains_itself(daemon: Daemon, repo: Path) -> None:
-    from snowpea_core.commands import team_cmd
+    from snowpea_core.commands import workers_cmd
 
     core = daemon.core
     assert core is not None
     session = await core.sessions.create(repo, mode="auto")
     recorder = Recorder()
     core.hub.subscribe(recorder, session.id)
-    await asyncio.wait_for(core.commands.run(core, session, "team", ""), timeout=TIMEOUT)
-    assert team_cmd.USAGE in recorder.texts()
+    await asyncio.wait_for(core.commands.run(core, session, "workers", ""), timeout=TIMEOUT)
+    assert workers_cmd.USAGE in recorder.texts()
 
 
 @pytest.mark.parametrize("script", [TEAM_SCRIPT], indirect=True)
-async def test_team_outside_a_git_repository_fails_the_turn(
+async def test_workers_outside_a_git_repository_fails_the_turn(
     daemon: Daemon, tmp_path: Path
 ) -> None:
     core = daemon.core
@@ -409,7 +412,7 @@ async def test_team_outside_a_git_repository_fails_the_turn(
     core.hub.subscribe(recorder, session.id)
 
     turn_id = await asyncio.wait_for(
-        core.commands.run(core, session, "team", '2 "anything"'), timeout=TIMEOUT
+        core.commands.run(core, session, "workers", '2 "anything"'), timeout=TIMEOUT
     )
     reasons = [
         event["payload"]["reason"]

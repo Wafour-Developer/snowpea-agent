@@ -124,6 +124,87 @@ def metas() -> list[BrowserProviderMeta]:
     return [provider.meta for provider in all_providers()]
 
 
+def needs_key(provider_id: str) -> bool:
+    """True when this id cannot run at all until credentials are configured."""
+    provider = _REGISTRY.get(provider_id)
+    return provider is not None and provider.meta.key == "key required"
+
+
+def credential_env(provider_id: str) -> str:
+    """The environment variable a user would set instead of the settings key."""
+    provider = _REGISTRY.get(provider_id)
+    if provider is None:
+        return ""
+    for name in provider.meta.env:
+        if not name.endswith("_URL"):
+            return name
+    return ""
+
+
+def extra_envs(provider_id: str) -> tuple[str, ...]:
+    """Credential variables past the first one, e.g. Browserbase's project id.
+
+    A provider that needs two values has to be *asked* for two values, or the
+    wizard saves half a credential and the first call fails on the half that
+    was never requested.
+    """
+    provider = _REGISTRY.get(provider_id)
+    if provider is None:
+        return ()
+    names = [name for name in provider.meta.env if not name.endswith("_URL")]
+    return tuple(names[1:])
+
+
+def credentials_for(provider_id: str, settings: Any) -> dict[str, str]:
+    """``settings.browser.credentials[<id>]``, falling back to ``meta.env``.
+
+    The same shape and the same precedence as
+    :func:`snowpea_core.tools.search_providers.credentials_for`: settings win
+    over the environment, because settings are what the user just typed into
+    the wizard.
+    """
+    import os
+
+    provider = _REGISTRY.get(provider_id)
+    if provider is None:
+        return {}
+    block: dict[str, Any] = {}
+    browser = getattr(settings, "browser", None)
+    store = getattr(browser, "credentials", None)
+    if isinstance(store, dict):
+        candidate = store.get(provider_id)
+        if isinstance(candidate, dict):
+            block = candidate
+    out: dict[str, str] = {}
+    api_key = block.get("api_key") or block.get("apiKey")
+    base_url = block.get("base_url") or block.get("baseUrl") or block.get("url")
+    for name in provider.meta.env:
+        value = block.get(name) or block.get(name.lower()) or os.environ.get(name)
+        if not value:
+            continue
+        if name.endswith("_URL") and not base_url:
+            base_url = value
+        elif not api_key:
+            api_key = value
+        else:
+            out[name.lower()] = str(value)
+    if api_key:
+        out["api_key"] = str(api_key)
+    if base_url:
+        out["base_url"] = str(base_url)
+    return out
+
+
+def configured(provider_id: str, settings: Any) -> bool:
+    """True when this provider has everything it was declared to need."""
+    if not needs_key(provider_id):
+        return True
+    found = credentials_for(provider_id, settings)
+    if not found.get("api_key"):
+        return False
+    return all(name.lower() in found for name in extra_envs(provider_id))
+
+
 def resolve(settings: Any) -> BrowserProvider:
     """The provider ``settings.browser.provider`` names, else the default."""
     name = getattr(getattr(settings, "browser", None), "provider", None) or "local_chromium"
@@ -138,6 +219,11 @@ async def close_all_sessions(session_id: str) -> None:
 
 __all__ = [
     "PROVIDER_ORDER",
+    "configured",
+    "credential_env",
+    "credentials_for",
+    "extra_envs",
+    "needs_key",
     "BrowserNotInstalled",
     "BrowserProvider",
     "BrowserProviderMeta",

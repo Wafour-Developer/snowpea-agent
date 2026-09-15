@@ -54,6 +54,11 @@ DEFAULT_MAX_TOKENS = 16384
 #: Values ``agent.thinking`` and ``providers.<vendor>.thinking`` accept.
 THINKING_CHOICES: tuple[str, ...] = ("on", "off", "auto")
 
+#: Values ``agent.effort`` and ``agent.effortBy`` accept (``providers/effort.py``
+#: owns the mappings; this is only what the document may say).
+EFFORT_CHOICES: tuple[str, ...] = ("low", "medium", "high", "max")
+DEFAULT_EFFORT = "medium"
+
 DEFAULT_AGENT_TEAM: tuple[str, ...] = (
     "architect",
     "critic",
@@ -126,12 +131,53 @@ class ModelsSettings(_Model):
     profiles: dict[str, ModelProfile] = Field(default_factory=dict)
 
 
+class TeamPipelineSettings(_Model):
+    """``/team "<task>"`` — the roster run by role, staged (M6/M7 §9).
+
+    ``review`` and ``test`` are three-valued on purpose: unset means "on when
+    the roster has somebody for that stage", which is what makes the pipeline
+    follow the team the user actually assembled instead of a global flag.
+    Setting either to ``false`` turns the stage off even with an owner.
+    """
+
+    #: Ceiling on the task list the plan stage may produce.
+    maxTasks: int = 8
+    review: bool | None = None
+    test: bool | None = None
+
+
 class TeamSettings(_Model):
     max_conflict_retries: int = 2
     #: Run a read-only ``reviewer`` child over each task's merge before it is
     #: accepted (M15 §C5).  Off by default: a review is a model turn the user
     #: did not ask for, and review is opt-in everywhere in snowpea.
     review: bool = False
+    pipeline: TeamPipelineSettings = Field(default_factory=TeamPipelineSettings)
+
+
+#: Globs a plan-mode write may land on, relative to the workdir (M2 §9).
+#: Documents only: the plan itself is a file, everything else waits for the
+#: user to leave plan mode.  ``permissions/plan_paths.py`` is what reads them.
+DEFAULT_PLAN_WRITABLE_GLOBS: tuple[str, ...] = (
+    "**/*.md",
+    "**/*.markdown",
+    "**/*.txt",
+    ".snowpea/plans/**",
+    "docs/**",
+)
+
+
+class PlanModeSettings(_Model):
+    """``modes.plan`` — the one place plan mode's write deny can be widened."""
+
+    writableGlobs: list[str] = Field(
+        default_factory=lambda: list(DEFAULT_PLAN_WRITABLE_GLOBS),
+        description="Globs a plan-mode write may land on, relative to the workdir.",
+    )
+
+
+class ModesSettings(_Model):
+    plan: PlanModeSettings = Field(default_factory=PlanModeSettings)
 
 
 class RalphSettings(_Model):
@@ -167,6 +213,14 @@ class AgentSettings(_Model):
     #: is the whole output.  ``settings.providers.<vendor>.thinking`` overrides
     #: it per vendor, and an agent definition's ``thinking:`` outranks both.
     thinking: str = "auto"
+    #: How hard a reasoning model may think: ``"low"`` | ``"medium"`` |
+    #: ``"high"`` | ``"max"``.  One scale for every vendor; each adapter maps
+    #: it to its own request field (``providers/effort.py``, CORE-effort).
+    effort: str = DEFAULT_EFFORT
+    #: Per-vendor and per-model effort rules, e.g.
+    #: ``{"openai": "high", "anthropic:claude-opus-4-1": "max"}``.  The
+    #: ``"<vendor>:<model>"`` rule wins over the bare ``"<vendor>"`` one.
+    effortBy: dict[str, str] = Field(default_factory=dict)
     #: Characters of one project instruction file (AGENTS.md, CLAUDE.md,
     #: .snowpea/instructions.md, .cursorrules) that reach the prompt, and the
     #: ceiling on the merged block.  ``None`` derives it from the session's
@@ -393,6 +447,7 @@ class Settings(_Model):
     agents: AgentsSettings = Field(default_factory=AgentsSettings)
     ralph: RalphSettings = Field(default_factory=RalphSettings)
     team: TeamSettings = Field(default_factory=TeamSettings)
+    modes: ModesSettings = Field(default_factory=ModesSettings)
     approvals: ApprovalsSettings = Field(default_factory=ApprovalsSettings)
     questions: QuestionsSettings = Field(default_factory=QuestionsSettings)
     agent: AgentSettings = Field(default_factory=AgentSettings)
@@ -498,6 +553,8 @@ __all__ = [
     "DEFAULT_REMEMBER_PATTERNS",
     "FILE_MODE",
     "DEFAULT_AGENT_TEAM",
+    "DEFAULT_EFFORT",
+    "EFFORT_CHOICES",
     "THINKING_CHOICES",
     "AgentSettings",
     "AgentsSettings",

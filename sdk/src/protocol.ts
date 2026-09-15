@@ -273,6 +273,24 @@ export interface AudioCapabilitiesResult {
   voice?: string | null;
 }
 
+/** `audio.install` params. Install a local voice engine and re-run detection. */
+export interface AudioInstallParams {
+  /** Engine id from the setup catalog: faster-whisper (or local-whisper), piper, edge-tts. A system package (espeak-ng, say, powershell) answers ok=false with a hint instead. */
+  engine: string;
+}
+
+/** `audio.install` result. */
+export interface AudioInstallResult {
+  /** Engine that was attempted, after id normalisation. */
+  engine: string;
+  /** What to do instead, when ok is false: the platform's own install command for a system package, or why the attempt could not run. */
+  hint?: string | null;
+  /** Tail of the installer's combined output, newest last; may be empty. */
+  log?: string;
+  /** True when the engine is installed and now detected. */
+  ok: boolean;
+}
+
 /** `audio.record.start` params. Start recording the microphone. */
 export interface AudioRecordStartParams {
   /** Session the recording belongs to. */
@@ -1074,6 +1092,8 @@ export interface ProviderListResult {
     models?: string[];
     /** Preset this vendor follows: 'local' for the built-in local vendor and for every named OpenAI-compatible server, otherwise the vendor's own id. */
     preset?: string;
+    /** True when this vendor accepts a reasoning-effort setting. False for a local-style server unless its block sets effort_param: true. */
+    supportsEffort?: boolean;
     /** Vendor key, e.g. 'anthropic'. */
     vendor: string;
   })[];
@@ -1121,6 +1141,8 @@ export interface ProviderModelsResult {
   source?: string;
   /** Vendor the listing came from. */
   vendor: string;
+  /** Which of the listed models can be sent images, when that is known. A model missing from this map is unknown rather than text-only, so a picker draws no badge for it instead of a negative one. */
+  vision?: Record<string, boolean>;
 }
 
 /** `provider.remove` params. Forget a configured provider, typically a named local server. */
@@ -1164,6 +1186,8 @@ export interface QuestionListResult {
       })[];
       /** The question, including why the answer matters. */
       question: string;
+      /** The free-text answer is a credential. A surface MUST mask it while it is typed, MUST NOT echo it into the transcript, and MUST NOT log it. Set for API keys and tokens; a URL or a project id is asked in the clear. */
+      secret?: boolean;
     })[];
     /** Id to answer with question.respond. */
     requestId: string;
@@ -1195,6 +1219,8 @@ export interface QuestionRequestParams {
     })[];
     /** The question, including why the answer matters. */
     question: string;
+    /** The free-text answer is a credential. A surface MUST mask it while it is typed, MUST NOT echo it into the transcript, and MUST NOT log it. Set for API keys and tokens; a URL or a project id is asked in the clear. */
+    secret?: boolean;
   })[];
   /** Id to answer with question.respond. */
   requestId: string;
@@ -1268,6 +1294,8 @@ export interface SessionCompactResult {
 export interface SessionCreateParams {
   /** Named agent whose persona to load. */
   agent?: string | null;
+  /** Reasoning effort for this session; null follows the settings. */
+  effort?: "low" | "medium" | "high" | "max" | null;
   /** Override for concurrent subagents. */
   maxConcurrent?: number | null;
   /** Starting mode; defaults to the project setting. */
@@ -1337,6 +1365,8 @@ export interface SessionListResult {
     contextWindow?: number | null;
     /** UTC ISO-8601 creation timestamp. */
     createdAt: string;
+    /** Reasoning effort pinned to this session, or null when it follows agent.effortBy / agent.effort. */
+    effort?: "low" | "medium" | "high" | "max" | null;
     /** Scheduled job this run belongs to; null for other kinds. */
     jobId?: string | null;
     /** What opened the session: a human (chat), a scheduled job, a spawned subagent, or a persistent named agent (CORE-session-kind). */
@@ -1422,6 +1452,26 @@ export interface SessionResumeResult {
   sessionId: string;
 }
 
+/** `session.setEffort` params. Pin how hard a session's model may think, or clear the pin. */
+export interface SessionSetEffortParams {
+  /** One of 'low', 'medium', 'high', 'max'. Null clears the pin and lets agent.effortBy / agent.effort decide again. */
+  effort?: "low" | "medium" | "high" | "max" | null;
+  /** Session to pin. */
+  sessionId: string;
+}
+
+/** `session.setEffort` result. */
+export interface SessionSetEffortResult {
+  /** Effective reasoning effort after the change. */
+  effort: "low" | "medium" | "high" | "max";
+  /** Rule that decided it: the session pin, a model or vendor rule, or the default. */
+  effortSource: "session" | "model" | "vendor" | "default";
+  /** The session's own pin; null when it follows the settings. */
+  pinned?: "low" | "medium" | "high" | "max" | null;
+  /** Session that was pinned. */
+  sessionId: string;
+}
+
 /** `session.setMode` params. Switch a session between plan, accept and auto. */
 export interface SessionSetModeParams {
   /** New permission mode. */
@@ -1499,10 +1549,16 @@ export interface SetupCatalogResult {
     description?: string;
     /** Stable id, e.g. a vendor or provider name. */
     id: string;
+    /** A command the user runs themselves, e.g. 'sudo apt install espeak-ng'. Set for a system package the daemon will not install, and as a fallback beside an Install button. */
+    installHint?: string | null;
+    /** True when audio.install can obtain this row without root, so a surface may draw an Install button next to it. Only the voice rows set it. */
+    installable?: boolean;
     /** "no key", "key optional", "key required" or "self-hosted". */
     key: string;
     /** Display label. */
     label: string;
+    /** True for the one row a screen should lead with and pre-select when nothing is configured yet. At most one row per list sets it. */
+    recommended?: boolean;
     /** Display tags, e.g. ('free · no key', 'active'). */
     tags?: string[];
     /** "free", "paid" or "subscription". */
@@ -1518,10 +1574,16 @@ export interface SetupCatalogResult {
     description?: string;
     /** Stable id, e.g. a vendor or provider name. */
     id: string;
+    /** A command the user runs themselves, e.g. 'sudo apt install espeak-ng'. Set for a system package the daemon will not install, and as a fallback beside an Install button. */
+    installHint?: string | null;
+    /** True when audio.install can obtain this row without root, so a surface may draw an Install button next to it. Only the voice rows set it. */
+    installable?: boolean;
     /** "no key", "key optional", "key required" or "self-hosted". */
     key: string;
     /** Display label. */
     label: string;
+    /** True for the one row a screen should lead with and pre-select when nothing is configured yet. At most one row per list sets it. */
+    recommended?: boolean;
     /** Display tags, e.g. ('free · no key', 'active'). */
     tags?: string[];
     /** "free", "paid" or "subscription". */
@@ -1537,10 +1599,16 @@ export interface SetupCatalogResult {
     description?: string;
     /** Stable id, e.g. a vendor or provider name. */
     id: string;
+    /** A command the user runs themselves, e.g. 'sudo apt install espeak-ng'. Set for a system package the daemon will not install, and as a fallback beside an Install button. */
+    installHint?: string | null;
+    /** True when audio.install can obtain this row without root, so a surface may draw an Install button next to it. Only the voice rows set it. */
+    installable?: boolean;
     /** "no key", "key optional", "key required" or "self-hosted". */
     key: string;
     /** Display label. */
     label: string;
+    /** True for the one row a screen should lead with and pre-select when nothing is configured yet. At most one row per list sets it. */
+    recommended?: boolean;
     /** Display tags, e.g. ('free · no key', 'active'). */
     tags?: string[];
     /** "free", "paid" or "subscription". */
@@ -1556,10 +1624,16 @@ export interface SetupCatalogResult {
     description?: string;
     /** Stable id, e.g. a vendor or provider name. */
     id: string;
+    /** A command the user runs themselves, e.g. 'sudo apt install espeak-ng'. Set for a system package the daemon will not install, and as a fallback beside an Install button. */
+    installHint?: string | null;
+    /** True when audio.install can obtain this row without root, so a surface may draw an Install button next to it. Only the voice rows set it. */
+    installable?: boolean;
     /** "no key", "key optional", "key required" or "self-hosted". */
     key: string;
     /** Display label. */
     label: string;
+    /** True for the one row a screen should lead with and pre-select when nothing is configured yet. At most one row per list sets it. */
+    recommended?: boolean;
     /** Display tags, e.g. ('free · no key', 'active'). */
     tags?: string[];
     /** "free", "paid" or "subscription". */
@@ -1575,10 +1649,16 @@ export interface SetupCatalogResult {
     description?: string;
     /** Stable id, e.g. a vendor or provider name. */
     id: string;
+    /** A command the user runs themselves, e.g. 'sudo apt install espeak-ng'. Set for a system package the daemon will not install, and as a fallback beside an Install button. */
+    installHint?: string | null;
+    /** True when audio.install can obtain this row without root, so a surface may draw an Install button next to it. Only the voice rows set it. */
+    installable?: boolean;
     /** "no key", "key optional", "key required" or "self-hosted". */
     key: string;
     /** Display label. */
     label: string;
+    /** True for the one row a screen should lead with and pre-select when nothing is configured yet. At most one row per list sets it. */
+    recommended?: boolean;
     /** Display tags, e.g. ('free · no key', 'active'). */
     tags?: string[];
     /** "free", "paid" or "subscription". */
@@ -1594,10 +1674,16 @@ export interface SetupCatalogResult {
     description?: string;
     /** Stable id, e.g. a vendor or provider name. */
     id: string;
+    /** A command the user runs themselves, e.g. 'sudo apt install espeak-ng'. Set for a system package the daemon will not install, and as a fallback beside an Install button. */
+    installHint?: string | null;
+    /** True when audio.install can obtain this row without root, so a surface may draw an Install button next to it. Only the voice rows set it. */
+    installable?: boolean;
     /** "no key", "key optional", "key required" or "self-hosted". */
     key: string;
     /** Display label. */
     label: string;
+    /** True for the one row a screen should lead with and pre-select when nothing is configured yet. At most one row per list sets it. */
+    recommended?: boolean;
     /** Display tags, e.g. ('free · no key', 'active'). */
     tags?: string[];
     /** "free", "paid" or "subscription". */
@@ -1613,10 +1699,16 @@ export interface SetupCatalogResult {
     description?: string;
     /** Stable id, e.g. a vendor or provider name. */
     id: string;
+    /** A command the user runs themselves, e.g. 'sudo apt install espeak-ng'. Set for a system package the daemon will not install, and as a fallback beside an Install button. */
+    installHint?: string | null;
+    /** True when audio.install can obtain this row without root, so a surface may draw an Install button next to it. Only the voice rows set it. */
+    installable?: boolean;
     /** "no key", "key optional", "key required" or "self-hosted". */
     key: string;
     /** Display label. */
     label: string;
+    /** True for the one row a screen should lead with and pre-select when nothing is configured yet. At most one row per list sets it. */
+    recommended?: boolean;
     /** Display tags, e.g. ('free · no key', 'active'). */
     tags?: string[];
     /** "free", "paid" or "subscription". */
@@ -2057,6 +2149,14 @@ export interface ApprovalResolvedPayload {
   requestId: string;
 }
 
+/** `audio.install.progress` notification payload. */
+export interface AudioInstallProgressPayload {
+  /** Engine being installed. */
+  engine: string;
+  /** One line of the installer's output. */
+  line: string;
+}
+
 /** `commands.changed` notification payload. */
 export interface CommandsChangedPayload {
   /** The command table as it stands now. */
@@ -2153,6 +2253,8 @@ export interface QuestionPendingPayload {
       })[];
       /** The question, including why the answer matters. */
       question: string;
+      /** The free-text answer is a credential. A surface MUST mask it while it is typed, MUST NOT echo it into the transcript, and MUST NOT log it. Set for API keys and tokens; a URL or a project id is asked in the clear. */
+      secret?: boolean;
     })[];
     /** Id to answer with question.respond. */
     requestId: string;
@@ -2377,6 +2479,10 @@ export interface ModeChangedEventPayload {
 
 /** Payload of `session.event` with kind `model.changed`. */
 export interface ModelChangedEventPayload {
+  /** Effective reasoning effort for the session (CORE-effort). */
+  effort?: "low" | "medium" | "high" | "max" | null;
+  /** Rule that decided the effort: 'session', 'model', 'vendor' or 'default'. */
+  effortSource?: "session" | "model" | "vendor" | "default" | null;
   kind?: "model.changed";
   /** Model id now in effect. */
   model?: string | null;
@@ -2640,6 +2746,7 @@ export interface MethodMap {
   "approval.request": { params: ApprovalRequestParams; result: ApprovalRequestResult };
   "approval.respond": { params: ApprovalRespondParams; result: ApprovalRespondResult };
   "audio.capabilities": { params: AudioCapabilitiesParams; result: AudioCapabilitiesResult };
+  "audio.install": { params: AudioInstallParams; result: AudioInstallResult };
   "audio.record.start": { params: AudioRecordStartParams; result: AudioRecordStartResult };
   "audio.record.stop": { params: AudioRecordStopParams; result: AudioRecordStopResult };
   "audio.speak": { params: AudioSpeakParams; result: AudioSpeakResult };
@@ -2687,6 +2794,7 @@ export interface MethodMap {
   "session.list": { params: SessionListParams; result: SessionListResult };
   "session.prompt": { params: SessionPromptParams; result: SessionPromptResult };
   "session.resume": { params: SessionResumeParams; result: SessionResumeResult };
+  "session.setEffort": { params: SessionSetEffortParams; result: SessionSetEffortResult };
   "session.setMode": { params: SessionSetModeParams; result: SessionSetModeResult };
   "session.setModel": { params: SessionSetModelParams; result: SessionSetModelResult };
   "settings.get": { params: SettingsGetParams; result: SettingsGetResult };
@@ -2727,6 +2835,7 @@ export type ClientMethod =
   | "approval.list"
   | "approval.respond"
   | "audio.capabilities"
+  | "audio.install"
   | "audio.record.start"
   | "audio.record.stop"
   | "audio.speak"
@@ -2773,6 +2882,7 @@ export type ClientMethod =
   | "session.list"
   | "session.prompt"
   | "session.resume"
+  | "session.setEffort"
   | "session.setMode"
   | "session.setModel"
   | "settings.get"
@@ -2806,6 +2916,7 @@ export type ServerMethod =
 export interface EventMap {
   "approval.pending": ApprovalPendingPayload;
   "approval.resolved": ApprovalResolvedPayload;
+  "audio.install.progress": AudioInstallProgressPayload;
   "commands.changed": CommandsChangedPayload;
   "gateway.event": GatewayEventPayload;
   "job.event": JobEventPayload;
@@ -2822,6 +2933,7 @@ export type EventName = keyof EventMap;
 export const EVENT_NAMES: readonly EventName[] = [
   "approval.pending",
   "approval.resolved",
+  "audio.install.progress",
   "commands.changed",
   "gateway.event",
   "job.event",

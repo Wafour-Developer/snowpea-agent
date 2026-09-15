@@ -73,6 +73,40 @@ def _workdir(core: Core, conn: RpcConnection) -> Path:
     return Path(session.workdir) if session is not None else Path.cwd()
 
 
+def _team_rows(core: Core, workdir: Path, session: Session | None) -> list[AgentInfo]:
+    """One ``kind:"team"`` row per team the user could pick here.
+
+    A client that offers "assign a team to this project" needs the whole list,
+    not only the one in force: every global and project team, each with its
+    members, where it came from, whether it is the active one, and which stage
+    of ``/team "<task>"`` each member fills.  A team with no implementer gets
+    an empty ``stages`` rather than being hidden — the user still has to see it
+    to understand why it is not offered.
+    """
+    from snowpea_core.agent.team_config import teams_with_source
+    from snowpea_core.agent.team_pipeline import stages_map
+
+    active = session.team if session is not None else None
+    rows: list[AgentInfo] = []
+    for name, (members, origin) in sorted(teams_with_source(core.settings, workdir).items()):
+        rows.append(
+            AgentInfo(
+                name=name,
+                description=(
+                    "Active project team" if name == active else f"{origin.capitalize()} team"
+                ),
+                source=origin,
+                kind="team",
+                active=name == active,
+                agents=list(members),
+                stages=stages_map(core, workdir, members),
+            )
+        )
+    # The active team is what a client renders first, as it did before.
+    rows.sort(key=lambda row: (not row.active, row.name))
+    return rows
+
+
 async def agent_list_handler(conn: RpcConnection, _params: Empty, core: Core) -> AgentListResult:
     """``agent.list`` — definitions on disk, named instances, subagents running now.
 
@@ -101,16 +135,7 @@ async def agent_list_handler(conn: RpcConnection, _params: Empty, core: Core) ->
         )
         for defn in definitions
     ]
-    if session is not None and session.team:
-        agents.insert(
-            0,
-            AgentInfo(
-                name=session.team,
-                description="Active project team",
-                source="project",
-                kind="team",
-            ),
-        )
+    agents[:0] = _team_rows(core, _workdir(core, conn), session)
     # US-021: the persistent instances, listed alongside their definitions.
     agents.extend(await named_agents.list_infos(core))
     # US-019: the children this daemon is running for somebody right now.

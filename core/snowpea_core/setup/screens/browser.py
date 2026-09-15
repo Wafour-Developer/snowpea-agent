@@ -9,7 +9,11 @@ from snowpea_core.setup.screens import Screen, ScreenItem, skip_item
 from snowpea_core.setup.state import SKIP, WizardState
 
 TITLE = "③ Browser provider"
-HELP = "Local headless Chromium needs no key; the cloud ones do."
+HELP = (
+    "Local headless Chromium needs no key; the cloud ones do. "
+    'A provider tagged "key required" asks for its credentials next and cannot '
+    "drive a browser without them."
+)
 
 
 def build(state: WizardState, catalog: Sequence[CatalogItem] | None = None) -> Screen:

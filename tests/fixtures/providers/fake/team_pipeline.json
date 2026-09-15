@@ -1,0 +1,77 @@
+{
+  "steps": [
+    {
+      "match": "reply with the json object only",
+      "repeat": true,
+      "text": "```json\n{\"tasks\": [{\"id\": \"T1\", \"title\": \"Document module_a.py\", \"brief\": \"Add a module docstring to module_a.py.\", \"files\": [\"module_a.py\"], \"dependsOn\": []}, {\"id\": \"T2\", \"title\": \"Document module_b.py\", \"brief\": \"Add a module docstring to module_b.py.\", \"files\": [\"module_b.py\"], \"dependsOn\": []}]}\n```"
+    },
+    {
+      "match": "your task t1:",
+      "repeat": true,
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "module_a.py"
+          }
+        },
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "module_a.py",
+            "content": "\"\"\"Module A.\"\"\"\n\n\ndef a() -> str:\n    return \"a\"\n"
+          }
+        }
+      ],
+      "text": "documenting module_a"
+    },
+    {
+      "match": "your task t2:",
+      "repeat": true,
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "module_b.py"
+          }
+        },
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "module_b.py",
+            "content": "\"\"\"Module B.\"\"\"\n\n\ndef b() -> str:\n    return \"b\"\n"
+          }
+        }
+      ],
+      "text": "documenting module_b"
+    },
+    {
+      "match": "a reviewer read the work you did on",
+      "repeat": true,
+      "text": "Decided: added the missing trailing newline the reviewer asked for.\nFiles: module_a.py\nRemaining: nothing"
+    },
+    {
+      "match": "the team has just finished implementing",
+      "repeat": true,
+      "text": "TESTS: PASS\n\n$ pytest -q\n2 passed in 0.10s"
+    },
+    {
+      "match": "this is a second look",
+      "repeat": true,
+      "text": "VERDICT: APPROVE\n\nNothing left to raise."
+    },
+    {
+      "match": "you are reviewing the change the team just made",
+      "repeat": true,
+      "text": "VERDICT: REQUEST_CHANGES\n\nmodule_a.py:1 — the docstring does not say what the module is for — every reader of module_a.py"
+    },
+    {
+      "after_tool": "write_file",
+      "repeat": true,
+      "text": "Decided: wrote the docstring the task asked for.\nFiles: the module named in the task.\nRemaining: nothing"
+    }
+  ],
+  "default": {
+    "text": "fake default reply"
+  }
+}

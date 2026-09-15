@@ -1,0 +1,47 @@
+{
+  "steps": [
+    {
+      "match": "reply with the json object only",
+      "repeat": true,
+      "text": "```json\n{\"tasks\": [{\"id\": \"T1\", \"title\": \"Document module_a.py\", \"brief\": \"Add a module docstring to module_a.py.\", \"files\": [\"module_a.py\"], \"dependsOn\": []}]}\n```"
+    },
+    {
+      "match": "your task t1:",
+      "repeat": true,
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "module_a.py"
+          }
+        },
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "module_a.py",
+            "content": "\"\"\"Module A.\"\"\"\n\n\ndef a() -> str:\n    return \"a\"\n"
+          }
+        }
+      ],
+      "text": "documenting module_a"
+    },
+    {
+      "match": "a reviewer read the work you did on",
+      "repeat": true,
+      "text": "Decided: tried what the reviewer asked for.\nFiles: module_a.py\nRemaining: nothing"
+    },
+    {
+      "match": "you are reviewing the change the team just made",
+      "repeat": true,
+      "text": "VERDICT: REQUEST_CHANGES\n\nmodule_a.py:1 — still not good enough — every reader of module_a.py"
+    },
+    {
+      "after_tool": "write_file",
+      "repeat": true,
+      "text": "Decided: wrote the docstring the task asked for.\nFiles: module_a.py\nRemaining: nothing"
+    }
+  ],
+  "default": {
+    "text": "fake default reply"
+  }
+}
