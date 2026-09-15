@@ -722,11 +722,21 @@ def test_tts_resolution_order(only_path: Path) -> None:
     chosen = tts_mod.resolve_provider("auto")
     assert chosen is not None and chosen.name == "edge-tts"
 
+    # A local voice outranks the hosted one now: speech that never leaves the
+    # machine is the better default, and OpenAI is the fallback rather than the
+    # first choice.
     chosen = tts_mod.resolve_provider("auto", api_key="sk-x")
-    assert chosen is not None and chosen.name == "openai"
+    assert chosen is not None and chosen.name == "edge-tts"
+    assert tts_mod.resolve_provider("openai", api_key="sk-x") is not None
 
+    # Studio is last in the chain now, not first: it needs a configured MCP
+    # server, so leading with it made "auto" resolve to what most machines do
+    # not have. It is still reachable when it is the only thing configured,
+    # which is what keeps the `text_to_speech` media tool working.
     chosen = tts_mod.resolve_provider("auto", api_key="sk-x", studio_configured=True)
-    assert chosen is not None and chosen.name == "studio"
+    assert chosen is not None and chosen.name == "edge-tts"
+    chosen = tts_mod.resolve_provider("auto", studio_configured=True)
+    assert chosen is not None and chosen.name == "edge-tts"
 
 
 def test_tts_named_provider_only_when_it_works(only_path: Path) -> None:
@@ -741,10 +751,10 @@ def test_available_tts_providers(only_path: Path) -> None:
     write_script(only_path, "piper", "exit 0\n")
     write_script(only_path, "espeak-ng", "exit 0\n")
     assert available_providers(studio_configured=True, api_key="sk-x") == [
-        "studio",
-        "openai",
         "piper",
         "espeak-ng",
+        "openai",
+        "studio",
     ]
 
 
@@ -784,7 +794,7 @@ def test_capabilities_with_everything(only_path: Path) -> None:
     report = capabilities(config)
     assert report["stt"] == "local-whisper"
     assert report["tts"] is True
-    assert report["ttsProvider"] == "studio"
+    assert report["ttsProvider"] == "piper"
     assert report["voice"] == "nova"
     assert report["autoSpeak"] is True
     assert report["record"] is True
@@ -793,7 +803,7 @@ def test_capabilities_with_everything(only_path: Path) -> None:
     assert report["players"] == ["mpv"]
     assert report["recorders"] == ["sox"]
     assert report["sttProviders"] == ["local-whisper", "openai"]
-    assert report["ttsProviders"] == ["studio", "openai", "piper"]
+    assert report["ttsProviders"] == ["piper", "openai", "studio"]
 
 
 def test_capabilities_falls_back_to_a_local_voice(only_path: Path) -> None:

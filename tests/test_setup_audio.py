@@ -92,7 +92,15 @@ def test_tts_screen_lists_detected_backends(only_path: Path) -> None:
     assert audio_screen.detected_tts(state) == ["espeak-ng"]
     rows = {item.id: item for item in audio_screen.build_tts(state).items}
     assert rows["espeak-ng"].active is True
-    assert rows["studio"].active is False
+    # The studio row is gone from the voice catalog: it needs an MCP server
+    # configured before it can say anything, so every machine without one saw
+    # a choice that could never work.
+    assert "studio" not in rows
+    # A missing engine the daemon can fetch gets an Install row beside it.
+    assert rows["piper"].active is False
+    assert f"{audio_screen.INSTALL_PREFIX}piper" in rows
+    # A system package does not: we will not run sudo for anyone.
+    assert f"{audio_screen.INSTALL_PREFIX}espeak-ng" not in rows
 
 
 # ---------------------------------------------------------------------------

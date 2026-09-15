@@ -43,6 +43,9 @@ class AudioConfig:
     stt_provider: str = "auto"
     stt_command: str | None = None
     stt_model: str | None = None
+    #: ``audio.stt.language`` — what SenseVoice is told to expect, and which
+    #: zipformer the ``auto`` chain reaches for first.  Empty means detect.
+    stt_language: str | None = None
     # -- text to speech
     tts_enabled: bool = True
     tts_provider: str = "auto"
@@ -57,6 +60,11 @@ class AudioConfig:
     studio_configured: bool = False
     player: str | None = None
     recorder: str | None = None
+    #: ``$SNOWPEA_HOME``: where downloaded speech and voice models live.  The
+    #: local engines are unavailable without it, which is what makes a config
+    #: built by hand in a test degrade to the hosted backends rather than
+    #: pretending a model is there.
+    home: Path | str | None = None
 
     @property
     def stt_off(self) -> bool:
@@ -76,6 +84,8 @@ class AudioConfig:
             model=self.stt_model,
             base_url=self.openai_base_url,
             command=self.stt_command,
+            home=self.home,
+            language=self.stt_language,
         )
 
     def tts(self, caller: SpeechCaller | None = None) -> TTSProvider | None:
@@ -95,6 +105,7 @@ class AudioConfig:
             model=self.tts_model,
             base_url=self.openai_base_url,
             command=self.tts_command,
+            language=self.stt_language,
         )
 
 
@@ -128,8 +139,9 @@ def capabilities(
             reasons["stt"] = f"stt provider {cfg.stt_provider!r} is not usable here"
         else:
             reasons["stt"] = (
-                "no transcription backend: install the whisper CLI, set an OpenAI API key, "
-                "or configure audio.stt.command"
+                "no transcription backend: run `snowpea audio install "
+                "sherpa-onnx-sensevoice` (CPU, recommended), install the whisper CLI, "
+                "set an OpenAI API key, or configure audio.stt.command"
             )
 
     speaker = cfg.tts(caller)
@@ -140,8 +152,8 @@ def capabilities(
             reasons["tts"] = f"tts provider {cfg.tts_provider!r} is not usable here"
         else:
             reasons["tts"] = (
-                "no speech backend: configure the snowpea-studio MCP server, set an OpenAI "
-                "API key, or install edge-tts, piper, say or espeak-ng"
+                "no speech backend: run `snowpea audio install supertonic` (CPU, "
+                "recommended), install edge-tts or piper, or set an OpenAI API key"
             )
 
     record_backend = find_recorder(cfg.recorder)
@@ -165,6 +177,7 @@ def capabilities(
             studio_configured=cfg.studio_configured,
             api_key=cfg.openai_api_key,
             command=cfg.tts_command,
+            language=cfg.stt_language,
         ),
         "players": available_players(),
         "recorders": available_recorders(),
@@ -184,6 +197,8 @@ def stt_providers(config: AudioConfig) -> list[str]:
             model=config.stt_model,
             base_url=config.openai_base_url,
             command=config.stt_command,
+            home=config.home,
+            language=config.stt_language,
         )
         if provider.available():
             found.append(provider.name)

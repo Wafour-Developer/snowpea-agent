@@ -569,7 +569,7 @@ async def test_audio_methods_are_implemented(daemon: Daemon) -> None:
 
     audio = {name for name in METHODS if name.startswith("audio.")}
     assert audio <= IMPLEMENTED_METHODS
-    assert len(audio) == 5
+    assert len(audio) == 6
     async with aiohttp.ClientSession() as http:
         client = await connect(http, daemon)
         try:

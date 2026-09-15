@@ -20,6 +20,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from snowpea_core.audio import install as audio_install
 from snowpea_core.providers.presets import PRESETS
 from snowpea_core.tools import browser_providers, search_providers
 
@@ -48,11 +49,23 @@ class CatalogItem:
     active: bool = True
     #: Extra tags appended after ``[active]``/``[inactive]``, e.g. ``default``.
     extra_tags: tuple[str, ...] = ()
+    #: True when ``audio.install`` could obtain this row without root, so a
+    #: surface can draw an Install button next to it (like ``lsp.catalog``).
+    installable: bool = False
+    #: The command a user would run by hand, when there is one.  Set for a
+    #: system package we will not install for them, and as a fallback next to
+    #: an Install button.
+    install_hint: str | None = None
+    #: True for the one row a screen should lead with and pre-select.  The
+    #: ``(recommended)`` suffix in the tags is what a surface renders.
+    recommended: bool = False
 
     @property
     def tags(self) -> tuple[str, ...]:
         """``("free · no key", "active")`` — what the screen prints."""
         tags = [f"{self.tier} · {self.key}"]
+        if self.recommended:
+            tags.append("recommended")
         # ``default`` comes before the active/inactive state so it survives the
         # ellipsis on a narrow terminal: which vendor a session will actually
         # use is the more useful of the two.
@@ -228,16 +241,46 @@ AUDIO_OFF = "off"
 #: ``(id, label, key kind, description)`` for speech to text.  Free and keyless
 #: first so :func:`assert_free_first` is satisfied; the hosted API is last.
 _STT_CHOICES: tuple[tuple[str, str, KeyKind, str], ...] = (
-    ("auto", "Automatic — local whisper if installed, else OpenAI", "no key", ""),
+    ("auto", "Automatic — whichever local engine is installed, else OpenAI", "no key", ""),
+    (
+        "sherpa-onnx-sensevoice",
+        "SenseVoiceSmall (CPU)",
+        "no key",
+        "zh/en/ja/ko/yue, ~17-20x real time, its own VAD — the recommended default",
+    ),
+    (
+        "sherpa-onnx-zipformer-ko",
+        "sherpa-onnx Korean Zipformer INT8 (CPU)",
+        "no key",
+        "streaming Korean, ~10-38x real time",
+    ),
+    (
+        "sherpa-onnx-zipformer-en",
+        "sherpa-onnx English Zipformer INT8 (CPU)",
+        "no key",
+        "streaming English",
+    ),
     ("local-whisper", "Local whisper CLI", "no key", "whisper or faster-whisper on PATH"),
     ("command", "Custom command", "no key", "a command template containing {path}"),
     (AUDIO_OFF, "Off — no speech input", "no key", ""),
     ("openai", "OpenAI (whisper-1 / gpt-4o-transcribe)", "key required", "reuses your OpenAI key"),
 )
 
+#: The row each voice screen leads with and pre-selects when nothing is
+#: installed.  Both are CPU-only and local, which is what makes them a default
+#: rather than a recommendation to buy something.
+RECOMMENDED_STT = "sherpa-onnx-sensevoice"
+RECOMMENDED_TTS = "supertonic"
+
 #: ``(id, label, key kind, description)`` for text to speech.
 _TTS_CHOICES: tuple[tuple[str, str, KeyKind, str], ...] = (
-    ("auto", "Automatic — studio, then OpenAI, then a local voice", "no key", ""),
+    ("auto", "Automatic — whichever local voice is installed, else OpenAI", "no key", ""),
+    (
+        "supertonic",
+        "Supertonic (CPU)",
+        "no key",
+        "on-device neural voices, 31 languages incl. ko/en — the recommended default",
+    ),
     ("espeak-ng", "espeak-ng", "no key", "small, robotic, everywhere"),
     ("piper", "Piper", "no key", "local neural voices"),
     ("edge-tts", "edge-tts", "no key", "Microsoft neural voices, needs the network"),
@@ -245,7 +288,6 @@ _TTS_CHOICES: tuple[tuple[str, str, KeyKind, str], ...] = (
     ("powershell", "Windows SAPI", "no key", "built into Windows"),
     ("command", "Custom command", "no key", "a template containing {text} and {out}"),
     (AUDIO_OFF, "Off — never speak", "no key", ""),
-    ("studio", "snowpea-studio", "self-hosted", "needs the media MCP server"),
     ("openai", "OpenAI (tts-1 / gpt-4o-mini-tts)", "key required", "reuses your OpenAI key"),
 )
 
@@ -263,6 +305,9 @@ def stt_catalog(detected: Sequence[str] = ()) -> list[CatalogItem]:
                 default=cid == DEFAULT_STT_PROVIDER,
                 description=description,
                 active=cid in {"auto", AUDIO_OFF} or cid in usable,
+                installable=audio_install.is_installable(cid),
+                install_hint=audio_install.install_hint(cid),
+                recommended=cid == RECOMMENDED_STT,
             )
             for cid, label, key, description in _STT_CHOICES
         ]
@@ -282,6 +327,9 @@ def tts_catalog(detected: Sequence[str] = ()) -> list[CatalogItem]:
                 default=cid == DEFAULT_TTS_PROVIDER,
                 description=description,
                 active=cid in {"auto", AUDIO_OFF} or cid in usable,
+                installable=audio_install.is_installable(cid),
+                install_hint=audio_install.install_hint(cid),
+                recommended=cid == RECOMMENDED_TTS,
             )
             for cid, label, key, description in _TTS_CHOICES
         ]
@@ -393,6 +441,8 @@ __all__ = [
     "known_categories",
     "rank_of",
     "search_catalog",
+    "RECOMMENDED_STT",
+    "RECOMMENDED_TTS",
     "stt_catalog",
     "tools_catalog",
     "tts_catalog",
