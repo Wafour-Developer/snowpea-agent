@@ -31,6 +31,9 @@ class SentMessage:
 class FakeAdapter:
     """A platform that exists only inside the test process."""
 
+    #: Small on purpose, so a test can see a long answer split.
+    max_message_chars = 4000
+
     #: Every adapter built in this process, keyed by credential ref, so a test
     #: can reach the instance the router created for a binding.
     instances: dict[str, FakeAdapter] = {}

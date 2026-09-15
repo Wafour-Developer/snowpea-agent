@@ -100,6 +100,9 @@ def action_row(buttons: list[Button]) -> list[dict[str, Any]]:
 class DiscordAdapter:
     """Bot-token client for one Discord application."""
 
+    #: The platform's hard cap on one message; the router splits above it.
+    max_message_chars = 2000
+
     platform = "discord"
 
     def __init__(
