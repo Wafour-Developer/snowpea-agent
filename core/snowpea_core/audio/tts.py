@@ -5,10 +5,6 @@ MCP server.  That leaves the feature dead on every machine without studio
 configured, so this module is a chain instead, tried in this order when the
 provider is ``"auto"``:
 
-``studio``
-    The existing ``text_to_speech`` media tool (snowpea-studio's
-    ``generate_speech``).  First when it is configured, because it is the one
-    backend with real voices behind it.
 ``openai``
     ``POST /audio/speech`` (``tts-1``, ``gpt-4o-mini-tts``), using the key
     already configured for the ``openai`` provider.
@@ -17,6 +13,14 @@ provider is ``"auto"``:
     the machine.
 ``command``
     A user-configured template with ``{text}`` and ``{out}`` placeholders.
+
+``studio``
+    The ``text_to_speech`` media tool (snowpea-studio's ``generate_speech``),
+    **last** rather than first, and no longer offered as a voice choice in the
+    setup catalog.  It needs a configured MCP server before it can say a word,
+    so leading with it made "Automatic" resolve to a backend most machines do
+    not have.  The media tool resolves through this same chain, so forwarding
+    to studio still works wherever it is configured.
 
 Every backend answers the same :class:`TTSProvider` protocol and returns a
 :class:`Speech` — a file on disk, which the caller either plays through
@@ -607,27 +611,174 @@ class CommandTTS(_CliTTS):
         return None if "{text}" in self.template else text.encode("utf-8")
 
 
+
+# ---------------------------------------------------------------------------
+# supertonic (local neural TTS, CPU)
+# ---------------------------------------------------------------------------
+
+#: The Python distribution that carries the engine and its runtime.
+#:
+#: Verified 2026-09-15 against PyPI and the upstream repository:
+#: ``supertonic`` 1.3.1 (Supertone, ``supertone-inc/supertonic``), code MIT and
+#: models OpenRAIL-M, Python >= 3.9, depending on onnxruntime / numpy /
+#: soundfile / huggingface-hub.  Supertonic 3 (2026-04-29) is the current
+#: generation, 31 languages including Korean and English.
+SUPERTONIC_PACKAGE = "supertonic"
+
+#: Preset voice styles the package ships, as documented upstream.  ``M1`` is
+#: the one every example uses, so it is the default here too.
+SUPERTONIC_VOICES: tuple[str, ...] = (
+    "M1", "M2", "M3", "M4", "M5", "F1", "F2", "F3", "F4", "F5",
+)
+DEFAULT_SUPERTONIC_VOICE = "M1"
+
+#: How long one synthesis may take before the child is killed.  Generous for a
+#: first run, which downloads the ONNX assets from Hugging Face.
+SUPERTONIC_TIMEOUT = 300.0
+
+#: The script the child interpreter runs.  It is a *constant*, never formatted
+#: with user text: the request arrives on stdin as JSON, so nothing the user
+#: types is ever part of a program.
+#:
+#: The API is upstream's own documented one — ``TTS(auto_download=True)``,
+#: ``get_voice_style(voice_name=...)``, ``synthesize(text=, voice_style=,
+#: lang=)``, ``save_audio(wav, path)`` — which is why this runs the package
+#: rather than its CLI: the Python surface is the part upstream documents
+#: exactly, and ``supertonic tts``'s flags are not published.
+SUPERTONIC_SCRIPT = """
+import json, sys
+from supertonic import TTS
+
+request = json.load(sys.stdin)
+tts = TTS(auto_download=True)
+style = tts.get_voice_style(voice_name=request["voice"])
+wav, _duration = tts.synthesize(
+    text=request["text"], voice_style=style, lang=request["lang"]
+)
+tts.save_audio(wav, request["out"])
+"""
+
+
+def supertonic_voice(voice: str | None, language: str | None = None) -> str:
+    """The preset style to speak with: the caller's, else one for the language.
+
+    A voice id belongs to the backend, so an id from another engine (an OpenAI
+    voice name, a piper model path) must not be forwarded — it would fail deep
+    inside the child. Anything unrecognised falls back to the default.
+    """
+    wanted = (voice or "").strip()
+    if wanted in SUPERTONIC_VOICES:
+        return wanted
+    upper = wanted.upper()
+    if upper in SUPERTONIC_VOICES:
+        return upper
+    return DEFAULT_SUPERTONIC_VOICE
+
+
+def supertonic_lang(language: str | None) -> str:
+    """The ``lang`` the engine is told, defaulting to English."""
+    tag = (language or "").strip().lower().partition("-")[0]
+    return tag or "en"
+
+
+class SupertonicTTS:
+    """Supertone's on-device ONNX TTS, run in a child interpreter.
+
+    A child rather than an import because onnxruntime is a large thing to pull
+    into the daemon for a feature most sessions never use, and because a child
+    can be killed on a timeout while an in-process call cannot.
+    """
+
+    name = "supertonic"
+    suffix = ".wav"
+
+    def __init__(
+        self,
+        *,
+        python: str | None = None,
+        language: str | None = None,
+        timeout: float = SUPERTONIC_TIMEOUT,
+    ) -> None:
+        self.python = python or sys.executable
+        self.language = language
+        self.timeout = timeout
+
+    def available(self) -> bool:
+        """True when the package is importable by the interpreter we would run.
+
+        ``find_spec`` rather than an import: asking whether it is there must
+        not pay for loading onnxruntime.
+        """
+        if self.python != sys.executable:  # pragma: no cover - alternate interpreter
+            return bool(shutil.which(self.python))
+        try:
+            from importlib.util import find_spec
+
+            return find_spec(SUPERTONIC_PACKAGE) is not None
+        except (ImportError, ValueError):  # pragma: no cover - broken import system
+            return False
+
+    async def synthesize(
+        self,
+        text: str,
+        *,
+        out_dir: Path,
+        voice: str | None = None,
+        language: str | None = None,
+        stem: str | None = None,
+    ) -> Speech:
+        if not self.available():
+            raise AudioError("no_tts", "supertonic is not installed")
+        body = _prepare(text, out_dir)
+        target = out_dir / f"{_stem_for(body, stem)}{self.suffix}"
+        chosen = supertonic_voice(voice, language or self.language)
+        request = json.dumps(
+            {
+                "text": body,
+                "voice": chosen,
+                "lang": supertonic_lang(language or self.language),
+                "out": str(target),
+            }
+        )
+        stderr, code = await _run(
+            [self.python, "-c", SUPERTONIC_SCRIPT], self.timeout, request.encode("utf-8")
+        )
+        _check_output(target, self.name, stderr, code)
+        return Speech(path=target, mime=mime_for(self.suffix), voice=chosen, provider=self.name)
+
+
 # ---------------------------------------------------------------------------
 # resolution
 # ---------------------------------------------------------------------------
 
 #: The order ``"auto"`` tries backends in.
+#:
+#: ``studio`` used to be **first** here and is now **last**.  It needs a
+#: configured MCP server before it can say a word, so leading with it meant
+#: "Automatic" resolved to a backend most machines did not have.  It stays in
+#: the chain because the ``text_to_speech`` media tool resolves through this
+#: same function and forwarding to studio is what that tool *is*; it is simply
+#: no longer what anyone gets by default, and it is no longer offered as a
+#: voice choice in the setup catalog.
 AUTO_ORDER: tuple[str, ...] = (
-    "studio",
-    "openai",
+    "supertonic",
     "edge-tts",
     "piper",
     "say",
     "espeak-ng",
     "powershell",
     "command",
+    "openai",
+    "studio",
 )
 
 #: Every backend name, for settings validation and the setup wizard.
 PROVIDER_NAMES: tuple[str, ...] = AUTO_ORDER
 
-#: The local CLIs, in the order the wizard should report them.
-LOCAL_PROVIDERS: tuple[str, ...] = ("edge-tts", "piper", "say", "espeak-ng", "powershell")
+#: The local backends, in the order the wizard should report them.
+LOCAL_PROVIDERS: tuple[str, ...] = (
+    "supertonic", "edge-tts", "piper", "say", "espeak-ng", "powershell",
+)
 
 
 def build_provider(
@@ -640,6 +791,7 @@ def build_provider(
     base_url: str | None = None,
     command: str | None = None,
     client_factory: Any = None,
+    language: str | None = None,
 ) -> TTSProvider:
     """Construct one named backend, configured but not yet checked."""
     if name == "studio":
@@ -658,6 +810,8 @@ def build_provider(
         return PowershellTTS()
     if name == "command":
         return CommandTTS(command)
+    if name == "supertonic":
+        return SupertonicTTS(language=language)
     raise AudioError("no_tts", f"unknown tts provider {name!r}")
 
 
@@ -671,6 +825,7 @@ def resolve_provider(
     base_url: str | None = None,
     command: str | None = None,
     client_factory: Any = None,
+    language: str | None = None,
 ) -> TTSProvider | None:
     """The backend to speak with, or ``None`` when none is usable."""
     names = AUTO_ORDER if name in {"auto", ""} else (name,)
@@ -685,6 +840,7 @@ def resolve_provider(
                 base_url=base_url,
                 command=command,
                 client_factory=client_factory,
+                language=language,
             )
         except AudioError:
             continue
@@ -699,6 +855,7 @@ def available_providers(
     studio_configured: bool = False,
     api_key: str | None = None,
     command: str | None = None,
+    language: str | None = None,
 ) -> list[str]:
     """Every backend that would work here, in preference order."""
     found: list[str] = []
@@ -709,6 +866,7 @@ def available_providers(
             studio_configured=studio_configured,
             api_key=api_key,
             command=command,
+            language=language,
         )
         if provider.available():
             found.append(provider.name)
@@ -749,8 +907,8 @@ async def synthesize(
     if chosen is None:
         raise AudioError(
             "no_tts",
-            "no speech backend: configure the snowpea-studio MCP server, set an OpenAI API key, "
-            "or install edge-tts, piper, say or espeak-ng",
+            "no speech backend: set an OpenAI API key, or install one of edge-tts, piper, "
+            "say or espeak-ng (audio.install can do the first two for you)",
         )
     return await chosen.synthesize(
         text, out_dir=Path(out_dir).expanduser(), voice=voice, language=language, stem=stem
@@ -759,6 +917,14 @@ async def synthesize(
 
 __all__ = [
     "AUTO_ORDER",
+    "DEFAULT_SUPERTONIC_VOICE",
+    "SUPERTONIC_PACKAGE",
+    "SUPERTONIC_SCRIPT",
+    "SUPERTONIC_TIMEOUT",
+    "SUPERTONIC_VOICES",
+    "SupertonicTTS",
+    "supertonic_lang",
+    "supertonic_voice",
     "DEFAULT_OPENAI_BASE_URL",
     "DEFAULT_OPENAI_MODEL",
     "DEFAULT_OPENAI_VOICE",

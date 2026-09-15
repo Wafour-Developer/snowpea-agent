@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 from snowpea_core.attachments.model import decode_base64
 from snowpea_core.audio import AudioConfig, capabilities
+from snowpea_core.audio import install as audio_install
 from snowpea_core.audio import tts as tts_backends
 from snowpea_core.audio.player import AudioError
 from snowpea_core.audio.player import play as play_audio
@@ -26,6 +27,8 @@ from snowpea_core.config.paths import utc_now
 from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import (
     AudioCapabilitiesResult,
+    AudioInstallParams,
+    AudioInstallResult,
     AudioRecordResult,
     AudioRecordStartParams,
     AudioRecordStopParams,
@@ -50,7 +53,11 @@ HANDLED_METHODS: tuple[str, ...] = (
     "audio.speak",
     "audio.record.start",
     "audio.record.stop",
+    "audio.install",
 )
+
+#: Notification carrying one line of an install's output to every surface.
+INSTALL_PROGRESS = "audio.install.progress"
 
 #: Audio error codes that mean "you asked for something impossible here".
 _UNAVAILABLE = frozenset({"no_player", "no_recorder", "no_stt", "no_tts", "not_recording"})
@@ -95,6 +102,7 @@ def audio_config(core: Core) -> AudioConfig:
         stt_provider=str(_get(stt, "provider", "auto")),
         stt_command=_block(stt, "command"),
         stt_model=_block(stt, "model"),
+        stt_language=_block(stt, "language"),
         tts_enabled=bool(_get(tts, "enabled", True)),
         tts_command=_block(tts, "command"),
         tts_model=_block(tts, "model"),
@@ -106,6 +114,8 @@ def audio_config(core: Core) -> AudioConfig:
         studio_configured=media_tools.configured(core),
         player=_block(block, "player"),
         recorder=_block(block, "recorder"),
+        # The local engines look for their models under the daemon's own home.
+        home=getattr(getattr(core, "paths", None), "home", None),
     )
 
 
@@ -240,6 +250,66 @@ async def audio_speak_handler(
     )
 
 
+async def audio_install_handler(
+    _conn: RpcConnection, params: AudioInstallParams, core: Core
+) -> AudioInstallResult:
+    """``audio.install`` — obtain one local voice engine, then re-detect.
+
+    The output is streamed as :data:`INSTALL_PROGRESS` notifications to every
+    attached surface while it runs, and returned in full as ``log`` when it is
+    over, so a client that connected late still sees what happened.
+
+    A failure is a result, never an exception: a system package answers
+    ``ok=false`` with the command for this platform.  After a real install the
+    engine is re-detected here, so ``audio.capabilities`` and ``setup.catalog``
+    report it active without anyone restarting the daemon.
+    """
+    engine = audio_install.engine_for((params.engine or "").strip())
+
+    async def progress(line: str) -> None:
+        try:
+            await core.hub.notify(INSTALL_PROGRESS, {"engine": engine, "line": line})
+        except Exception:  # noqa: BLE001 - a dead surface must not stop the install
+            log.debug("could not publish %s", INSTALL_PROGRESS, exc_info=True)
+
+    result = await audio_install.install(engine, home=core.paths.home, progress=progress)
+    if result.ok:
+        _after_install(core, result)
+    return AudioInstallResult(**result.to_payload())
+
+
+def _after_install(core: Core, result: audio_install.InstallResult) -> None:
+    """Record what the install produced and make detection see it.
+
+    Detection is ``shutil.which`` behind an ``lru_cache`` in the standard
+    library; clearing it is what makes a freshly installed binary visible to
+    the very next ``audio.capabilities`` rather than after a restart.
+    """
+    import shutil as _shutil
+
+    try:
+        _shutil.which.cache_clear()  # type: ignore[attr-defined]
+    except AttributeError:  # pragma: no cover - which is not cached on this build
+        pass
+    voice = getattr(result, "voice_path", None)
+    if voice is None:
+        return
+    # Piper needs a voice named before it can say anything, and this install is
+    # the only moment we know which one landed.
+    try:
+        block = core.settings.audio if hasattr(core.settings, "audio") else None
+        tts = _block(block, "tts")
+        if isinstance(tts, dict):
+            tts["voice"] = str(voice)
+        elif tts is not None:
+            tts.voice = str(voice)
+        else:
+            return
+        core.settings.save(core.paths)
+    except Exception:  # noqa: BLE001 - the engine is installed either way
+        log.info("installed %s but could not record its voice in settings", result.engine)
+
+
 async def audio_record_start_handler(
     _conn: RpcConnection, params: AudioRecordStartParams, core: Core
 ) -> AudioRecordResult:
@@ -295,12 +365,15 @@ def register_audio_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
     dispatcher.register("audio.speak", audio_speak_handler)
     dispatcher.register("audio.record.start", audio_record_start_handler)
     dispatcher.register("audio.record.stop", audio_record_stop_handler)
+    dispatcher.register("audio.install", audio_install_handler)
     return dispatcher
 
 
 __all__ = [
     "HANDLED_METHODS",
+    "INSTALL_PROGRESS",
     "audio_capabilities_handler",
+    "audio_install_handler",
     "audio_config",
     "audio_dir_for",
     "audio_record_start_handler",

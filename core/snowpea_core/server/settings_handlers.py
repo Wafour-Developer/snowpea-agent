@@ -150,6 +150,9 @@ def _to_wire(item: CatalogItem) -> SetupCatalogItem:
         description=item.description,
         active=item.active,
         tags=list(item.tags),
+        installable=item.installable,
+        installHint=item.install_hint,
+        recommended=item.recommended,
     )
 
 

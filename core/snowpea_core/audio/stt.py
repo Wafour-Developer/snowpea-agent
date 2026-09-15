@@ -284,10 +284,189 @@ async def _run(argv: list[str], timeout: float) -> tuple[str, str, int]:
     )
 
 
+
+
+# ---------------------------------------------------------------------------
+# sherpa-onnx (local neural ASR, CPU)
+# ---------------------------------------------------------------------------
+
+#: Executables ``sherpa-onnx`` installs.  The offline one decodes a whole file
+#: (SenseVoice), the online one decodes a stream (the zipformers); both accept
+#: a wav path, which is all this backend needs.
+SHERPA_OFFLINE_BIN = "sherpa-onnx-offline"
+SHERPA_ONLINE_BIN = "sherpa-onnx"
+
+#: How long a local decode may take.  Generous: the point of these models is
+#: that they run on a CPU, and a CPU decoding a long recording is not stuck.
+SHERPA_TIMEOUT = 600.0
+
+
+class SherpaOnnxSTT:
+    """Transcription through the ``sherpa-onnx`` CLIs and a downloaded model.
+
+    One class covers the whole family because the difference between the models
+    is which binary decodes them and which files they are handed, and both of
+    those are rows in :mod:`snowpea_core.audio.stt_models`.  SenseVoice decodes
+    offline and detects its own language; the zipformers are streaming models
+    for one language each.
+
+    The engine is *available* when the CLI is on PATH and the model directory
+    is stamped complete, so a half-finished download never makes voice input
+    look ready.
+    """
+
+    name = "sherpa-onnx"
+
+    def __init__(
+        self,
+        model_id: str | None = None,
+        *,
+        home: Path | str | None = None,
+        language: str | None = None,
+        timeout: float = SHERPA_TIMEOUT,
+    ) -> None:
+        from snowpea_core.audio import stt_models
+
+        self.home = Path(home).expanduser() if home else None
+        self.language = (language or "").strip() or None
+        self.timeout = timeout
+        resolved = model_id
+        if resolved in (None, "", "auto") and self.home is not None:
+            resolved = stt_models.preferred(self.home, self.language)
+        self.model_id = resolved
+        self.model = stt_models.model_for(resolved) if resolved else None
+        if self.model is not None:
+            # The engine reports itself by the model it will actually use, so a
+            # capabilities report names what is running rather than a family.
+            self.name = self.model.id
+
+    @property
+    def executable(self) -> str:
+        if self.model is not None and self.model.kind == "online":
+            return SHERPA_ONLINE_BIN
+        return SHERPA_OFFLINE_BIN
+
+    def available(self) -> bool:
+        if self.model is None or self.home is None:
+            return False
+        return bool(shutil.which(self.executable)) and self.model.installed(self.home)
+
+    def vad(self) -> Path | None:
+        """The silero VAD that came with this model, when it has one."""
+        from snowpea_core.audio import stt_models
+
+        if self.model is None or self.home is None:
+            return None
+        candidate = self.model.directory(self.home) / stt_models.SILERO_VAD
+        return candidate if candidate.is_file() else None
+
+    def argv(self, audio: Path) -> list[str]:
+        """The command line that decodes ``audio``.
+
+        Flags are the ones the sherpa-onnx CLIs document for each model family;
+        the model files come from the table rather than from guesswork, so a
+        model whose archive layout changes fails detection instead of running
+        with a wrong path.
+        """
+        if self.model is None or self.home is None:  # pragma: no cover - guarded by available()
+            raise AudioError("no_stt", "sherpa-onnx has no model configured")
+        root = self.model.root(self.home)
+        argv = [self.executable, f"--tokens={root / 'tokens.txt'}"]
+        if self.model.kind == "offline":
+            argv.append(f"--sense-voice-model={root / 'model.int8.onnx'}")
+            language = self.language or "auto"
+            argv.append(f"--sense-voice-language={language}")
+            vad = self.vad()
+            if vad is not None:
+                # With a VAD the decoder splits a long recording into
+                # utterances instead of trying to swallow it whole.
+                argv.append(f"--silero-vad-model={vad}")
+        else:
+            encoder, decoder, joiner = self._transducer(root)
+            argv += [
+                f"--encoder={encoder}",
+                f"--decoder={decoder}",
+                f"--joiner={joiner}",
+            ]
+        argv.append(str(audio))
+        return argv
+
+    def _transducer(self, root: Path) -> tuple[Path, Path, Path]:
+        """The encoder / decoder / joiner this streaming model unpacked to."""
+        needs = list(self.model.needs) if self.model is not None else []
+        pick = {part: next((n for n in needs if n.startswith(part)), "") for part in
+                ("encoder", "decoder", "joiner")}
+        missing = [part for part, name in pick.items() if not name]
+        if missing:  # pragma: no cover - the table always names all three
+            raise AudioError("no_stt", f"model table has no {', '.join(missing)}")
+        return (root / pick["encoder"], root / pick["decoder"], root / pick["joiner"])
+
+    async def transcribe(self, path: Path, mime: str | None = None) -> Transcript:
+        if not self.available():
+            raise AudioError("no_stt", f"{self.name} is not installed")
+        audio = Path(path)
+        if not audio.is_file():
+            raise AudioError("transcribe_failed", f"no such audio file: {audio}")
+        out, err, code = await _run(self.argv(audio), self.timeout)
+        if code:
+            detail = (err or out).strip()[:300]
+            raise AudioError("transcribe_failed", f"{self.name} exited {code}: {detail}")
+        text = parse_sherpa_output(out)
+        if not text:
+            raise AudioError("transcribe_failed", f"{self.name} produced no transcript")
+        return Transcript(text=text, provider=self.name)
+
+
+def parse_sherpa_output(out: str) -> str:
+    """The transcript out of a sherpa-onnx CLI's report.
+
+    The CLIs print a block per file — the path, then timing lines, then the
+    text — and the text is what follows the last ``text:`` label.  Falling back
+    to the last non-empty line keeps this working if the report is reworded,
+    because a transcript that is one line off is better than none.
+    """
+    lines = [line.rstrip() for line in (out or "").splitlines()]
+    for line in reversed(lines):
+        stripped = line.strip()
+        lowered = stripped.lower()
+        if lowered.startswith("text:"):
+            return stripped.split(":", 1)[1].strip()
+        if lowered.startswith("{") and '"text"' in lowered:
+            import json
+
+            try:
+                return str(json.loads(stripped).get("text", "")).strip()
+            except ValueError:
+                continue
+    for line in reversed(lines):
+        if line.strip() and ":" not in line:
+            return line.strip()
+    return ""
+
+
 #: The order ``"auto"`` tries backends in.  Local first: transcription is the
 #: one place where audio of the user's room would otherwise leave the machine,
-#: so a whisper CLI that is already installed wins over the hosted API.
-AUTO_ORDER: tuple[str, ...] = ("local-whisper", "openai", "command")
+#: so anything installed here wins over the hosted API.
+#:
+#: SenseVoice leads because it is the recommended default (CPU, five languages,
+#: its own VAD) and because it needs no language guess to be right.  The
+#: zipformers follow for the case where one of those is what the user actually
+#: installed, then the whisper CLI, then OpenAI.
+AUTO_ORDER: tuple[str, ...] = (
+    "sherpa-onnx-sensevoice",
+    "sherpa-onnx-zipformer-ko",
+    "sherpa-onnx-zipformer-en",
+    "local-whisper",
+    "openai",
+    "command",
+)
+
+#: The sherpa-onnx rows, so callers can tell the family from the chain.
+SHERPA_PROVIDERS: tuple[str, ...] = (
+    "sherpa-onnx-sensevoice",
+    "sherpa-onnx-zipformer-ko",
+    "sherpa-onnx-zipformer-en",
+)
 
 
 def build_provider(
@@ -297,6 +476,8 @@ def build_provider(
     model: str | None = None,
     base_url: str | None = None,
     command: str | None = None,
+    home: Path | str | None = None,
+    language: str | None = None,
 ) -> STTProvider:
     """Construct one named backend, configured but not yet checked."""
     if name == "openai":
@@ -305,6 +486,10 @@ def build_provider(
         return LocalWhisperSTT(model=model or DEFAULT_WHISPER_MODEL)
     if name == "command":
         return CommandSTT(command)
+    if name in SHERPA_PROVIDERS or name == "sherpa-onnx":
+        return SherpaOnnxSTT(
+            None if name == "sherpa-onnx" else name, home=home, language=language
+        )
     raise AudioError("no_stt", f"unknown stt provider {name!r}")
 
 
@@ -315,6 +500,8 @@ def resolve_provider(
     model: str | None = None,
     base_url: str | None = None,
     command: str | None = None,
+    home: Path | str | None = None,
+    language: str | None = None,
 ) -> STTProvider | None:
     """The backend to transcribe with, or ``None`` when none is usable.
 
@@ -325,7 +512,13 @@ def resolve_provider(
     for candidate in names:
         try:
             provider = build_provider(
-                candidate, api_key=api_key, model=model, base_url=base_url, command=command
+                candidate,
+                api_key=api_key,
+                model=model,
+                base_url=base_url,
+                command=command,
+                home=home,
+                language=language,
             )
         except AudioError:
             continue
@@ -336,6 +529,11 @@ def resolve_provider(
 
 __all__ = [
     "AUTO_ORDER",
+    "SHERPA_OFFLINE_BIN",
+    "SHERPA_ONLINE_BIN",
+    "SHERPA_PROVIDERS",
+    "SherpaOnnxSTT",
+    "parse_sherpa_output",
     "DEFAULT_OPENAI_BASE_URL",
     "DEFAULT_OPENAI_MODEL",
     "DEFAULT_TIMEOUT",
