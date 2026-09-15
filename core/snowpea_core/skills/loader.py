@@ -39,9 +39,14 @@ log = logging.getLogger("snowpea.skills")
 SOURCE_BUILTIN = "builtin"
 SOURCE_GLOBAL = "global"
 SOURCE_PROJECT = "project"
+SOURCE_CLAUDE_GLOBAL = "claude-global"
+SOURCE_CLAUDE_PROJECT = "claude-project"
 
 #: Project-local bundles, read in this order (``.snowpea`` wins).
-PROJECT_DIRS: tuple[str, ...] = (".claude", ".snowpea")
+PROJECT_DIRS: tuple[tuple[str, str], ...] = (
+    (".claude", SOURCE_CLAUDE_PROJECT),
+    (".snowpea", SOURCE_PROJECT),
+)
 
 #: Ceiling on the project directories one scan walks (M15 §B5a).
 MAX_SCANNED_WORKDIRS = 50
@@ -212,10 +217,11 @@ class SkillLoader:
 
         self._scan_builtins()
         self._scan_bundle(self.home, SOURCE_GLOBAL)
+        self._scan_bundle(self.home / ".claude", SOURCE_CLAUDE_GLOBAL)
         self._scan_plugins()
         for workdir in self.workdirs():
-            for name in PROJECT_DIRS:
-                self._scan_bundle(workdir / name, SOURCE_PROJECT)
+            for name, source in PROJECT_DIRS:
+                self._scan_bundle(workdir / name, source)
 
         commands = sum(1 for skill in self.skills.values() if skill.doc.user_invocable)
         return ReloadReport(
@@ -372,8 +378,8 @@ class SkillLoader:
         root = Path(workdir)
         async with self._lock:
             before = len(self.skills), len(self.agents)
-            for name in PROJECT_DIRS:
-                self._scan_bundle(root / name, SOURCE_PROJECT)
+            for name, source in PROJECT_DIRS:
+                self._scan_bundle(root / name, source)
             self._index_groups = None
             self._apply_commands()
             report = ReloadReport(
@@ -456,6 +462,11 @@ class SkillLoader:
 
     async def _announce(self) -> None:
         """Tell every connected client that the command table moved."""
+        # A reload can add or drop a skill's tools and its index entry, both of
+        # which the cached prompt fragments quote (CORE-round-cost).
+        from snowpea_core.agent import agent as agent_mod
+
+        agent_mod.invalidate_tools()
         hub = getattr(self.core, "hub", None)
         if hub is None:
             return
@@ -612,6 +623,8 @@ __all__ = [
     "PYTHON_VAR",
     "ROOT_VARS",
     "SOURCE_BUILTIN",
+    "SOURCE_CLAUDE_GLOBAL",
+    "SOURCE_CLAUDE_PROJECT",
     "SOURCE_GLOBAL",
     "SOURCE_PROJECT",
     "IndexGroups",

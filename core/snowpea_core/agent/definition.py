@@ -42,8 +42,14 @@ FENCE = "---"
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 
 #: Where definitions live, relative to a project or the snowpea home.
-PROJECT_DIRS: tuple[str, ...] = (".snowpea/agents", ".claude/agents")
-HOME_DIR = "agents"
+PROJECT_DIRS: tuple[tuple[str, str], ...] = (
+    (".snowpea/agents", "project"),
+    (".claude/agents", "claude-project"),
+)
+HOME_DIRS: tuple[tuple[str, str], ...] = (
+    ("agents", "global"),
+    (".claude/agents", "claude-global"),
+)
 
 #: Built-in definitions shipped with the package (M15 §C4).  Unlike the role
 #: files, these carry frontmatter — a tool allowlist above all — so ``explore``
@@ -86,7 +92,8 @@ class AgentDefinition:
     prompt: str = ""
     #: Where it was read from, when it came off disk.
     path: Path | None = None
-    #: ``builtin`` | ``global`` | ``project`` | ``plugin:<name>``.
+    #: ``builtin`` | ``global`` | ``project`` | ``claude-global`` |
+    #: ``claude-project`` | ``plugin:<name>``.
     source: str = "project"
 
     def tool_list(self) -> list[str] | None:
@@ -308,13 +315,18 @@ def parse_agent_text(
 
 
 def definition_dirs(workdir: Path | str | None, home: Path | str | None) -> list[tuple[Path, str]]:
-    """``(directory, source)`` pairs in precedence order (later wins)."""
+    """``(directory, source)`` pairs in precedence order (later wins).
+
+    ``home`` is ``SNOWPEA_HOME``.  Nothing outside it and the project is
+    walked: the label a ``.claude`` definition ends up with is decided by the
+    root it was read from, not by guessing at the operating system home.
+    """
     dirs: list[tuple[Path, str]] = []
     if home:
-        dirs.append((Path(home) / HOME_DIR, "global"))
+        dirs.extend((Path(home) / relative, source) for relative, source in HOME_DIRS)
     if workdir:
-        for relative in PROJECT_DIRS:
-            dirs.append((Path(workdir) / relative, "project"))
+        for relative, source in PROJECT_DIRS:
+            dirs.append((Path(workdir) / relative, source))
     return dirs
 
 
@@ -397,7 +409,7 @@ def discover_definitions(
 
 def write_definition(defn: AgentDefinition, workdir: Path | str) -> Path:
     """Write ``defn`` to ``<workdir>/.snowpea/agents/<name>.md`` and return it."""
-    directory = Path(workdir) / PROJECT_DIRS[0]
+    directory = Path(workdir) / PROJECT_DIRS[0][0]
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{defn.name}.md"
     path.write_text(render_agent_md(defn), encoding="utf-8")

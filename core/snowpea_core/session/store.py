@@ -10,12 +10,16 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import sqlite3
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
 from snowpea_core.config.paths import Paths
+
+log = logging.getLogger("snowpea.session.store")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
@@ -61,6 +65,11 @@ SESSION_COLUMNS: tuple[tuple[str, str], ...] = (
     ("effort", "TEXT"),
 )
 
+SQLITE_RETRY_ATTEMPTS = 5
+SQLITE_RETRY_INITIAL_DELAY = 0.05
+SQLITE_RETRY_MAX_DELAY = 0.8
+SQLITE_BUSY_TIMEOUT_MS = 5000
+
 
 class StoreClosed(RuntimeError):
     """A :class:`Store` operation was attempted after :meth:`Store.close`.
@@ -80,12 +89,27 @@ class Store:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
         self._closed = False
-        self._conn = sqlite3.connect(str(path), check_same_thread=False)
-        self._conn.row_factory = sqlite3.Row
+        self._conn = self._connect()
         with self._lock:
             self._conn.executescript(SCHEMA)
             self._migrate()
             self._conn.commit()
+
+    def _connect(self) -> sqlite3.Connection:
+        """Open a configured connection for this store."""
+        conn = sqlite3.connect(str(self.path), check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        conn.execute(f"PRAGMA busy_timeout = {SQLITE_BUSY_TIMEOUT_MS}")
+        conn.execute("PRAGMA journal_mode = WAL")
+        return conn
+
+    def _reconnect_locked(self) -> None:
+        """Replace the connection after SQLite leaves it in an uncertain state."""
+        try:
+            self._conn.close()
+        except sqlite3.Error:
+            pass
+        self._conn = self._connect()
 
     def _migrate(self) -> None:
         """Add columns a newer build needs to an older ``sessions`` table.
@@ -111,8 +135,21 @@ class Store:
         with self._lock:
             if self._closed:
                 raise StoreClosed("session store is closed")
-            self._conn.execute(sql, params)
-            self._conn.commit()
+            delay = SQLITE_RETRY_INITIAL_DELAY
+            for attempt in range(1, SQLITE_RETRY_ATTEMPTS + 1):
+                try:
+                    self._conn.execute(sql, params)
+                    try:
+                        self._conn.commit()
+                    except sqlite3.OperationalError:
+                        self._reconnect_locked()
+                        raise
+                    return
+                except sqlite3.OperationalError:
+                    if attempt >= SQLITE_RETRY_ATTEMPTS:
+                        raise
+                    time.sleep(delay)
+                    delay = min(delay * 2, SQLITE_RETRY_MAX_DELAY)
 
     def _query(self, sql: str, params: tuple[Any, ...] = ()) -> list[sqlite3.Row]:
         with self._lock:
@@ -259,12 +296,23 @@ class Store:
     async def append_event(
         self, session_id: str, seq: int, kind: str, payload: dict[str, Any], ts: str
     ) -> None:
-        await asyncio.to_thread(
-            self._execute,
-            "INSERT OR REPLACE INTO events (session_id, seq, kind, payload_json, ts)"
-            " VALUES (?, ?, ?, ?, ?)",
-            (session_id, seq, kind, json.dumps(payload), ts),
-        )
+        try:
+            await asyncio.to_thread(
+                self._execute,
+                "INSERT OR REPLACE INTO events (session_id, seq, kind, payload_json, ts)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (session_id, seq, kind, json.dumps(payload), ts),
+            )
+        except sqlite3.OperationalError:
+            # Logged here, where the session id is known; the caller decides
+            # whether the turn survives it (:meth:`EventHub.emit` does).
+            log.error(
+                "could not persist event for session %s after %d attempts",
+                session_id,
+                SQLITE_RETRY_ATTEMPTS,
+                exc_info=True,
+            )
+            raise
 
     async def events_after(self, session_id: str, after_seq: int = 0) -> list[dict[str, Any]]:
         """Stored events with ``seq`` strictly greater than ``after_seq``."""

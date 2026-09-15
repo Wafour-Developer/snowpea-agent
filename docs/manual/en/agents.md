@@ -31,6 +31,31 @@ Parallel delegation without worktrees is therefore only safe across disjoint fil
 
 `explore` and `reviewer` carry a tool allowlist, so they are read-only in fact and not only by instruction: no `write_file`, no `edit_file`, no `shell`. A definition of the same name in `<project>/.snowpea/agents/` overrides the built-in one completely.
 
+### `explore` vs `explorer`, `reviewer` vs `critic`
+
+Two pairs read like duplicates and are not. `explore` and `reviewer` are the **built-in agents you delegate to**: read-only, tool-allowlisted, meant for one question or one diff. `explorer` and `critic` are **team roles**, filled by the pipeline's explore and review stages, with every tool available. Pick the built-in when you are asking for something now; the role name is what a roster is written in.
+
+| Delegate to | Team role | Difference |
+|---|---|---|
+| `explore` | `explorer` | `explore` is the built-in read-only search agent; `explorer` owns the pipeline's explore stage |
+| `reviewer` | `critic` | `reviewer` is the built-in on-request review agent; `critic` owns the pipeline's review stage |
+
+`snowpea agents` prints the same sentence in each description, so the list itself says which is which.
+
+### Where a definition came from
+
+Each row carries the root it was read from, not just the word `project`:
+
+| `source` | Read from |
+|---|---|
+| `builtin` | shipped with snowpea |
+| `global` | `~/.snowpea/agents/` |
+| `project` | `<project>/.snowpea/agents/` |
+| `claude-global` | `~/.claude/agents/` |
+| `claude-project` | `<project>/.claude/agents/` |
+
+Claude Code's own agent directories are read as they are, and labelled as theirs, so an agent you did not write for snowpea is recognisable at a glance.
+
 `explore` takes a thoroughness level in the brief — quick, medium, or very thorough — and reports findings as text with absolute paths, never as file dumps. `reviewer` opens the files it judges and answers with one of three verdicts:
 
 ```text
@@ -67,14 +92,14 @@ With it on, a `reviewer` child reads the merge of each finished task. A `REQUEST
 /team "add docstrings to the three parser modules"        # your team, by role
 ```
 
-They used to be one command told apart by whether the first word was a number, which was a puzzle rather than a grammar. A **team** is the people you assembled, each doing the job their role implies. **Workers** are N copies of one anonymous agent racing through a task list. `/team 3 "…"` now tells you where worker mode went rather than quietly running it.
+They used to be one command told apart by whether the first word was a number, which was a puzzle rather than a grammar. A **team** is the people you assembled, each doing the job their role implies. **Workers** are N copies of one anonymous agent racing through a task list. `/team 3 "…"` still runs worker mode, and says once that `/workers N` is the current spelling.
 
 **`/workers <N> "<task>"`** (alias `/worker`) is the mode that moved: N identical workers, one git worktree each, branches merged by the lead as tasks finish.
 
 **`/team "<task>"`** runs the members of your active project team, each in the role its name implies, one stage after another in your own checkout:
 
 ```text
-explore? -> plan -> implement -> test? -> review? -> fix? -> review?
+explore? -> plan -> implement -> test? -> verify? -> review? -> fix? -> review?
 ```
 
 Every stage is an ordinary subagent, so you see the whole pipeline in the agent tree. Who fills which stage comes from the roster, never from the model:
@@ -85,7 +110,8 @@ Every stage is an ordinary subagent, so you see the whole pipeline in the agent 
 | plan | `architect`, then `planner` | the lead plans for itself |
 | implement | `executor` | the command stops and tells you |
 | test | `test-engineer` | skipped |
-| review | `reviewer`, then `critic`, then `verifier` | skipped |
+| verify | `verifier` | skipped, with a note in the report |
+| review | `critic`, then `reviewer` | skipped |
 
 ### Picking which team runs it
 
@@ -102,6 +128,8 @@ The named team may be one of the project's own or a global one from your `settin
 The same list reaches a client through `agent.list`: one row per team with `kind: "team"`, carrying `active`, `source` (`global` or `project`), `agents` and `stages`. A team with no implementer is listed with an empty `stages`, so a picker can show it and say why it cannot run.
 
 There are no worktrees here, so the plan has to keep the work apart by hand: the plan stage names the files each task owns, tasks claiming the same file are merged into one before anything runs, and tasks with disjoint files run together up to `agents.max_concurrent`. A task that names no file runs on its own.
+
+The test, verify and review stages each answer with one explicit line — `TESTS: PASS` or `TESTS: FAIL`, `VERIFY: PASS` or `VERIFY: FAIL`, `VERDICT: APPROVE` or `VERDICT: REQUEST_CHANGES`. A report with no such line, an empty report, a denied approval, or an approval with no tool call behind it counts as `NEEDS_MORE_EVIDENCE`, which is not a pass. The final report says `Nothing was left unfinished.` only when the tests really passed and the review really approved; otherwise it lists what did not, and a headless run fails.
 
 A `REQUEST_CHANGES` verdict buys one fix pass by whoever wrote the code the findings point at, and one more review. If the reviewer still wants changes after that, the run ends and the report says what is unfinished — there is no third round.
 
@@ -138,3 +166,21 @@ snowpea agents --json
 ```
 
 lists the children that are queued or running right now.
+
+## Child context diet
+
+Delegated children (`delegate_task`) start with an empty history and a brief explaining the task. Handing a child the parent's full prompt — the memory recall block, the full skills index, and every nested `AGENTS.md` — wastes hundreds of thousands of input tokens across its rounds.
+
+Setting `agents.childContext` controls the context diet:
+
+| setting | default | values | what it does |
+|---|---|---|---|
+| `agents.childContext` | `"lean"` | `"lean"`, `"full"` | `"lean"` strips the memory recall block, the skills index, and nested instruction files from delegated children, and narrows read-only child tools. `"full"` restores the parent's prompt for children. |
+
+In `"lean"` mode:
+- **No memory block or guidance**: the child has no memory recall block or guidance line (though memory tools still work if permitted).
+- **No skills index**: installed skills are not enumerated in the prompt, but the child can still view any skill by name with `skill_view`.
+- **Root instructions only**: only the root `AGENTS.md` or `CLAUDE.md` is loaded up front; nested instruction files attach on demand when a tool touches that directory.
+- **Smaller eager tool set**: read-only children (`explore`, `reviewer`) start with `read_file`, `grep`, `glob`, `shell` (if allowed), and `tool_search`. Other tools are deferred and loaded on demand.
+- **Preserved**: the child's definition prompt, role, and the tool round budget line (`BUDGET_LINE`) are always preserved.
+

@@ -163,7 +163,7 @@ async def test_a_report_is_never_empty() -> None:
     assert "without a final report" in report
 
 
-def test_delegate_task_needs_no_approval_in_accept_mode() -> None:
+async def test_delegate_task_needs_no_approval_in_accept_mode() -> None:
     """Delegating is not an exec: the child inherits the mode and its own calls ask."""
     from snowpea_core.permissions.policy import PermissionPolicy
 

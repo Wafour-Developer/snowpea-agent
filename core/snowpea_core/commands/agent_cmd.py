@@ -82,10 +82,37 @@ def _from_loader(core: Core) -> list[AgentDefinition]:
         if not path:
             continue
         try:
-            found.append(parse_agent_md(Path(path), source=str(source or "project")))
+            found.append(
+                parse_agent_md(
+                    Path(path),
+                    source=_agent_source_label(Path(path), str(source or "project"), core),
+                )
+            )
         except DefinitionError:  # pragma: no cover - a broken file on disk
             continue
     return found
+
+
+def _agent_source_label(path: Path, source: str, core: Core) -> str:
+    """Label a ``.claude/agents`` definition by the root it was read from.
+
+    ``project`` was the label every discovered definition got, which made an
+    agent written for Claude Code in ``~/.claude/agents`` look like one of this
+    project's own (validation report §4.4).  Only the label changes here: which
+    directories are walked is decided elsewhere.
+    """
+    parts = path.parts
+    if ".claude" not in parts or "agents" not in parts:
+        return source
+    for root in (_home(core), Path.home()):
+        if root is None:
+            continue
+        try:
+            if path.resolve().is_relative_to((root / ".claude" / "agents").resolve()):
+                return "claude-global"
+        except OSError:  # pragma: no cover - an unreadable home
+            continue
+    return "claude-project"
 
 
 def definitions_for(core: Core, workdir: Path | str | None) -> list[AgentDefinition]:

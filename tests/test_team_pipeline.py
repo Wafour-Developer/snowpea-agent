@@ -29,6 +29,7 @@ from snowpea_core.agent.team_pipeline import (
     PLAN,
     REVIEW,
     TEST,
+    VERIFY,
     PipelineError,
     PipelineTask,
     handoff,
@@ -64,11 +65,10 @@ def test_the_default_roster_fills_every_stage() -> None:
         PLAN: "architect",
         IMPLEMENT: "executor",
         TEST: "test-engineer",
+        VERIFY: "verifier",
         REVIEW: "critic",
     }
-    # `verifier` is a reviewer fallback `critic` already covers; it is reported
-    # rather than silently dropped.
-    assert plan.unused == ("verifier",)
+    assert plan.unused == ()
 
 
 def test_each_stage_falls_back_to_its_second_choice() -> None:
@@ -77,7 +77,7 @@ def test_each_stage_falls_back_to_its_second_choice() -> None:
         EXPLORE: "explore",
         PLAN: "planner",
         IMPLEMENT: "executor",
-        REVIEW: "verifier",
+        VERIFY: "verifier",
     }
     assert plan.owner(TEST) is None
 
@@ -213,7 +213,57 @@ def test_a_handoff_is_trimmed_to_twenty_lines() -> None:
 def test_the_verdict_is_read_from_the_reviewer_s_own_answer() -> None:
     assert team_pipeline._verdict("VERDICT: APPROVE\nnothing to raise") == "APPROVE"
     assert team_pipeline._verdict("VERDICT: REQUEST_CHANGES\n…") == "REQUEST_CHANGES"
+    assert team_pipeline._verdict("VERDICT: REJECT\n…") == "REQUEST_CHANGES"
     assert team_pipeline._verdict("I have opinions") == "NO_VERDICT"
+
+
+def test_test_verdict_requires_an_explicit_line_and_tool_evidence() -> None:
+    with_tools = team_pipeline.SubagentResult(
+        "a-1", True, "pytest passed\nTESTS: PASS", rounds_used=1, last_calls=["shell"]
+    )
+    assert team_pipeline._test_verdict(with_tools, with_tools.summary) == team_pipeline.TESTS_PASS
+    assert (
+        team_pipeline._test_verdict(with_tools, "pytest passed")
+        == team_pipeline.NEEDS_MORE_EVIDENCE
+    )
+    no_tools = team_pipeline.SubagentResult("a-2", True, "TESTS: PASS")
+    assert (
+        team_pipeline._test_verdict(no_tools, no_tools.summary)
+        == team_pipeline.NEEDS_MORE_EVIDENCE
+    )
+    denied = team_pipeline.SubagentResult(
+        "a-3", True, "approval.resolved denied\nTESTS: PASS", rounds_used=1
+    )
+    assert (
+        team_pipeline._test_verdict(denied, denied.summary)
+        == team_pipeline.NEEDS_MORE_EVIDENCE
+    )
+    failed = team_pipeline.SubagentResult("a-4", False, "TESTS: PASS", error="tool failed")
+    assert (
+        team_pipeline._test_verdict(failed, failed.summary)
+        == team_pipeline.NEEDS_MORE_EVIDENCE
+    )
+    assert team_pipeline._test_verdict(with_tools, "TESTS: FAIL") == team_pipeline.TESTS_FAIL
+
+
+def test_review_approval_requires_an_explicit_line_and_tool_evidence() -> None:
+    approved = team_pipeline.SubagentResult(
+        "a-1", True, "VERDICT: APPROVE\nchecked a.py", rounds_used=1, last_calls=["read_file"]
+    )
+    assert team_pipeline._review_verdict(approved, approved.summary) == team_pipeline.APPROVE
+    no_tools = team_pipeline.SubagentResult("a-2", True, "VERDICT: APPROVE\nseems fine")
+    assert (
+        team_pipeline._review_verdict(no_tools, no_tools.summary)
+        == team_pipeline.NEEDS_MORE_EVIDENCE
+    )
+    empty = team_pipeline.SubagentResult("a-3", True, "", rounds_used=1)
+    assert (
+        team_pipeline._review_verdict(empty, empty.summary)
+        == team_pipeline.NEEDS_MORE_EVIDENCE
+    )
+    assert team_pipeline._review_verdict(approved, "VERDICT: NEEDS_MORE_EVIDENCE") == (
+        team_pipeline.NEEDS_MORE_EVIDENCE
+    )
 
 
 def test_findings_are_routed_to_the_task_that_owns_the_files() -> None:
@@ -322,7 +372,9 @@ async def test_the_pipeline_plans_implements_tests_and_reviews(
     # The lead's report, not a child's transcript.
     assert "tasks: 2/2 finished" in report
     assert "tests: TESTS: PASS" in report
+    assert "verify: not run" in report
     assert "review: APPROVE" in report
+    assert "verify stage skipped: no verifier on the roster" in report
     assert "Nothing was left unfinished." in report
     assert "T1" in report and "T2" in report
 
@@ -392,13 +444,14 @@ async def test_the_review_stage_is_off_when_the_setting_says_so(
 # ---------------------------------------------------------------------------
 
 
-async def test_a_leading_number_says_where_worker_mode_went(
+async def test_a_leading_number_forwards_to_worker_mode_with_a_note(
     daemon: Daemon, project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``/team <N>`` used to run workers; it now names the command that does.
+    """``/team <N>`` is the old spelling, and it still runs.
 
-    A silent fallback would leave someone who typed the old spelling with no
-    idea the grammar changed, so the answer is the new command line.
+    Refusing it left someone who typed it with nothing done; forwarding it
+    silently left them never learning the new name.  So it runs the worker
+    path and says, once, what the current spelling is.
     """
     core = daemon.core
     assert core is not None
@@ -415,9 +468,10 @@ async def test_a_leading_number_says_where_worker_mode_went(
     ctx.say = said  # type: ignore[method-assign]
 
     await team_cmd.cmd_team(ctx, '3 "add docstrings"')
-    assert seen == [], "no team run, and certainly no worktrees"
-    assert workers_cmd.MOVED_HINT in said.text
-    assert '/workers <N> "<task>"' in said.text
+    assert seen == [], "the pipeline is not what /team N means"
+    assert said.text.startswith(f"{team_cmd.WORKERS_COMPAT_NOTE}\n")
+    assert "`/workers N` is the current spelling" in said.text
+    assert "3 worktrees" in said.text, "the worker run itself happened"
 
     # The pipeline spellings still work, and still reach the pipeline.
     await team_cmd.cmd_team(ctx, '"add docstrings"')
@@ -551,7 +605,7 @@ async def test_a_named_global_team_runs_once_without_being_adopted(
     assert "roster 'external'" in said.text
     assert "explore=explorer" in said.text
     assert "implement=executor" in said.text
-    assert "review=verifier" in said.text
+    assert "verify=verifier" in said.text
     names = {record.name for record in get_manager(core).records()}
     assert "explorer" in names and "architect" not in names
 
@@ -661,7 +715,7 @@ async def test_agent_list_offers_every_team_with_its_stages(
     assert teams["external"].stages == {
         EXPLORE: "explorer",
         IMPLEMENT: "executor",
-        REVIEW: "verifier",
+        VERIFY: "verifier",
     }
     # The active team is the first row, as it was before this became a list.
     assert listing.agents[0].name == "delivery"

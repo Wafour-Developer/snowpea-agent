@@ -5,7 +5,7 @@
 **members of the active project team, by role**, as ordinary subagents in the
 session's own checkout::
 
-    explore? -> plan -> implement (xN) -> test? -> review? -> fix? -> review?
+    explore? -> plan -> implement (xN) -> test? -> verify? -> review? -> fix? -> review?
 
 Each stage is one :meth:`~snowpea_core.agent.subagent.SubagentManager.run`, so
 the ``subagent.*`` events a TUI or IDE already renders show the whole pipeline
@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -55,10 +56,11 @@ EXPLORE = "explore"
 PLAN = "plan"
 IMPLEMENT = "implement"
 TEST = "test"
+VERIFY = "verify"
 REVIEW = "review"
 FIX = "fix"
 
-STAGE_ORDER: tuple[str, ...] = (EXPLORE, PLAN, IMPLEMENT, TEST, REVIEW)
+STAGE_ORDER: tuple[str, ...] = (EXPLORE, PLAN, IMPLEMENT, TEST, VERIFY, REVIEW)
 
 #: Stage -> the roster names that may own it, best first.  A roster member
 #: that matches none of these owns no stage and is reported as unused.
@@ -67,7 +69,8 @@ STAGE_AGENTS: dict[str, tuple[str, ...]] = {
     EXPLORE: ("explore", "explorer"),
     IMPLEMENT: ("executor",),
     TEST: ("test-engineer",),
-    REVIEW: ("reviewer", "critic", "verifier"),
+    VERIFY: ("verifier",),
+    REVIEW: ("critic", "reviewer"),
 }
 
 #: The one stage that cannot be skipped: with nobody to write the code there
@@ -86,8 +89,11 @@ HANDOFF_LINES = 20
 #: Verdict tokens the test and review stages answer with.
 APPROVE = "APPROVE"
 REQUEST_CHANGES = "REQUEST_CHANGES"
+NEEDS_MORE_EVIDENCE = "NEEDS_MORE_EVIDENCE"
 TESTS_FAIL = "TESTS: FAIL"
 TESTS_PASS = "TESTS: PASS"
+VERIFY_FAIL = "VERIFY: FAIL"
+VERIFY_PASS = "VERIFY: PASS"
 
 #: Review rounds at most: one review, one fix, one re-review.  A third round is
 #: not a disagreement the team can settle, so it is reported as unfinished.
@@ -470,7 +476,9 @@ class PipelineRun:
     review_rounds: int = 0
     verdict: str = ""
     tests: str = ""
+    verification: str = ""
     unfinished: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
 
     def changed_files(self) -> list[str]:
         seen: dict[str, None] = {}
@@ -478,6 +486,9 @@ class PipelineRun:
             for name in task.files:
                 seen.setdefault(name, None)
         return list(seen)
+
+    def passed(self) -> bool:
+        return not _unfinished(self)
 
 
 class TeamPipeline:
@@ -555,6 +566,7 @@ class TeamPipeline:
 
         await self._implement(run, findings)
         await self._test(run)
+        await self._verify(run)
         await self._review(run)
         return self.report(run)
 
@@ -669,10 +681,42 @@ class TeamPipeline:
             title=TEST,
         )
         text = _text(result)
-        run.tests = TESTS_PASS if result.ok and TESTS_FAIL not in text.upper() else TESTS_FAIL
+        run.tests = _test_verdict(result, text)
         run.stages.append(StageResult(TEST, agent, result.ok, text))
         if run.tests == TESTS_FAIL:
             run.unfinished.append("the test stage reported FAIL")
+        elif run.tests == NEEDS_MORE_EVIDENCE:
+            run.unfinished.append(
+                f"the test stage needs more evidence: {_evidence_problem(result, text)}"
+            )
+
+    async def _verify(self, run: PipelineRun) -> None:
+        agent = run.plan.owner(VERIFY)
+        if not self._switch("verify", VERIFY, run.plan) or agent is None:
+            run.notes.append("verify stage skipped: no verifier on the roster")
+            return
+        result = await self._delegate(
+            agent,
+            workflow_brief(
+                "team-pipeline-verify",
+                reply_language=self.language,
+                TASK=run.task,
+                TESTS=run.tests or "not run",
+                FILES=_bullets(run.changed_files()),
+                HANDOFF=handoff(TEST, _stage_text(run, TEST)),
+                WORKDIR=self.session.workdir,
+            ),
+            title=VERIFY,
+        )
+        text = _text(result)
+        run.verification = _verify_verdict(result, text)
+        run.stages.append(StageResult(VERIFY, agent, result.ok, text))
+        if run.verification == VERIFY_FAIL:
+            run.unfinished.append("the verify stage reported FAIL")
+        elif run.verification == NEEDS_MORE_EVIDENCE:
+            run.unfinished.append(
+                f"the verify stage needs more evidence: {_evidence_problem(result, text)}"
+            )
 
     async def _review(self, run: PipelineRun) -> None:
         agent = run.plan.owner(REVIEW)
@@ -695,8 +739,13 @@ class TeamPipeline:
             )
             text = _text(result)
             run.stages.append(StageResult(REVIEW, agent, result.ok, text))
-            run.verdict = _verdict(text) if result.ok else "NO_VERDICT"
+            run.verdict = _review_verdict(result, text)
             if run.verdict != REQUEST_CHANGES:
+                if run.verdict != APPROVE:
+                    run.unfinished.append(
+                        f"the review stage did not approve: {run.verdict} "
+                        f"({_evidence_problem(result, text)})"
+                    )
                 return
             if run.review_rounds >= MAX_REVIEW_ROUNDS:
                 break
@@ -791,6 +840,7 @@ class TeamPipeline:
             f"stages: {', '.join(f'{stage}={agent}' for stage, agent in run.plan.rows())}",
             f"tasks: {len(done)}/{len(run.tasks)} finished",
             f"tests: {run.tests or 'not run'}",
+            f"verify: {run.verification or 'not run'}",
             f"review: {run.verdict or 'not run'}",
         ]
         parts = ["\n".join(head)]
@@ -808,8 +858,11 @@ class TeamPipeline:
         files = run.changed_files()
         if files:
             parts.append("Files the plan claimed:\n" + _bullets(files))
-        if run.unfinished:
-            parts.append("Left unfinished:\n" + _bullets(run.unfinished))
+        if run.notes:
+            parts.append("Notes:\n" + _bullets(run.notes))
+        unfinished = _unfinished(run)
+        if unfinished:
+            parts.append("Left unfinished:\n" + _bullets(unfinished))
         else:
             parts.append("Nothing was left unfinished.")
         return "\n\n".join(parts)
@@ -819,13 +872,128 @@ def _text(result: SubagentResult) -> str:
     return (result.summary or result.error or "").strip()
 
 
-def _verdict(text: str) -> str:
-    """The reviewer's verdict token, read from its own answer."""
-    upper = text.upper()
-    for token in (REQUEST_CHANGES, "NEEDS_MORE_EVIDENCE", APPROVE):
-        if token in upper:
-            return token
+_APPROVAL_DENIED = re.compile(
+    r"\b(approval\.resolved[^.\n]*(?:denied|deny)|"
+    r"approval[^.\n]*denied|denied[^.\n]*approval)\b",
+    re.I,
+)
+_FAILED_TOOL = re.compile(r"\b(tool call failed|tool failed|failed tool call)\b", re.I)
+_COMMAND_EVIDENCE = re.compile(r"(?m)^\s*(?:\$|>)\s*\S+")
+
+
+def _explicit_line(text: str, allowed: Collection[str]) -> str:
+    allowed_upper = {item.upper(): item for item in allowed}
+    for line in (text or "").splitlines():
+        token = " ".join(line.strip().split()).upper()
+        if token in allowed_upper:
+            return allowed_upper[token]
+    return ""
+
+
+def _has_tool_evidence(result: SubagentResult, text: str = "") -> bool:
+    """Whether the child actually looked at something.
+
+    ``rounds_used`` is deliberately not evidence: a child that answered in one
+    round without calling anything still used a round, so counting it would
+    make every claimed verdict self-certifying.
+    """
+    return bool(result.last_calls) or _COMMAND_EVIDENCE.search(text) is not None
+
+
+def _hard_evidence_problem(result: SubagentResult, text: str) -> str:
+    """Evidence defects that override any claimed verdict."""
+    if not result.ok:
+        return result.error or f"the child ended with status {result.status}"
+    reason = (result.reason or "").lower()
+    if reason and reason != "complete":
+        return f"the child ended with reason {result.reason}"
+    if _APPROVAL_DENIED.search(text):
+        return "the child reported a denied approval"
+    if _FAILED_TOOL.search(text):
+        return "the child reported a failed tool call"
+    if not text.strip():
+        return "the child returned an empty report"
+    return ""
+
+
+def _evidence_problem(result: SubagentResult, text: str) -> str:
+    hard = _hard_evidence_problem(result, text)
+    if hard:
+        return hard
+    if not _has_tool_evidence(result, text):
+        return "the child report contained no tool evidence"
+    return "the child did not include the required verdict line"
+
+
+def _test_verdict(result: SubagentResult, text: str) -> str:
+    if _hard_evidence_problem(result, text):
+        return NEEDS_MORE_EVIDENCE
+    token = _explicit_line(text, (TESTS_PASS, TESTS_FAIL))
+    if token == TESTS_FAIL:
+        return TESTS_FAIL
+    if token == TESTS_PASS and _has_tool_evidence(result, text):
+        return TESTS_PASS
+    return NEEDS_MORE_EVIDENCE
+
+
+def _verify_verdict(result: SubagentResult, text: str) -> str:
+    if _hard_evidence_problem(result, text):
+        return NEEDS_MORE_EVIDENCE
+    token = _explicit_line(text, (VERIFY_PASS, VERIFY_FAIL))
+    if token == VERIFY_FAIL:
+        return VERIFY_FAIL
+    if token == VERIFY_PASS and _has_tool_evidence(result, text):
+        return VERIFY_PASS
+    return NEEDS_MORE_EVIDENCE
+
+
+def _review_verdict(result: SubagentResult, text: str) -> str:
+    if _hard_evidence_problem(result, text):
+        return NEEDS_MORE_EVIDENCE
+    token = _explicit_line(
+        text,
+        (
+            "VERDICT: APPROVE",
+            "VERDICT: REQUEST_CHANGES",
+            "VERDICT: REJECT",
+            "VERDICT: NEEDS_MORE_EVIDENCE",
+        ),
+    )
+    if token in ("VERDICT: REQUEST_CHANGES", "VERDICT: REJECT"):
+        return REQUEST_CHANGES
+    if token == "VERDICT: NEEDS_MORE_EVIDENCE":
+        return NEEDS_MORE_EVIDENCE
+    if token == "VERDICT: APPROVE":
+        # An approval nobody looked at is not an approval: without a tool call
+        # behind it the child only asserted that the change is fine.
+        return APPROVE if _has_tool_evidence(result, text) else NEEDS_MORE_EVIDENCE
     return "NO_VERDICT"
+
+
+def _verdict(text: str) -> str:
+    """The reviewer's explicit verdict token, read from its own answer."""
+    return _review_verdict(
+        SubagentResult("parser", True, text, rounds_used=1, last_calls=["read_file"]),
+        text,
+    )
+
+
+def _stage_text(run: PipelineRun, stage: str) -> str:
+    return "\n".join(item.text for item in run.stages if item.stage == stage)
+
+
+def _unfinished(run: PipelineRun) -> list[str]:
+    unfinished = list(run.unfinished)
+    if run.tests != TESTS_PASS:
+        unfinished.append(f"tests were not PASS ({run.tests or 'not run'})")
+    if run.verification and run.verification != VERIFY_PASS:
+        unfinished.append(f"verify was not PASS ({run.verification})")
+    if run.verdict != APPROVE:
+        unfinished.append(f"review was not APPROVE ({run.verdict or 'not run'})")
+    for stage in run.stages:
+        if not stage.ok:
+            unfinished.append(f"{stage.stage} failed: {stage.text[:160] or 'no report'}")
+    return list(dict.fromkeys(unfinished))
 
 
 def _task_for(run: PipelineRun, findings: str) -> PipelineTask:
@@ -906,8 +1074,12 @@ __all__ = [
     "STAGE_AGENTS",
     "STAGE_ORDER",
     "TEST",
+    "VERIFY",
+    "NEEDS_MORE_EVIDENCE",
     "TESTS_FAIL",
     "TESTS_PASS",
+    "VERIFY_FAIL",
+    "VERIFY_PASS",
     "PipelineError",
     "PipelineRun",
     "PipelineTask",

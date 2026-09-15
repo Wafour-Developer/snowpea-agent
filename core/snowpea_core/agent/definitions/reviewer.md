@@ -1,6 +1,6 @@
 ---
 name: reviewer
-description: Read-only review of a diff or a change: a verdict plus findings, each with the evidence behind it.
+description: Built-in on-request read-only review agent; distinct from critic, the team review-stage role.
 model: inherit
 tools: ["read_file", "list_dir", "glob", "grep", "lsp_symbols", "lsp_workspace_symbols", "lsp_definition", "lsp_references", "lsp_hover", "lsp_diagnostics", "git_status", "git_diff", "git_log"]
 permission: inherit
