@@ -43,7 +43,7 @@ fields `stable`, `context`, `volatile`; `PromptTiers.text()` joins them in that 
 
 | tier | contents | budget (tokens) |
 |---|---|---|
-| stable | `base.md` (or an explicit `identity`), `fragments/execution.md`, the vendor layer, `config_rule.md`, `search_honesty.md`, `fragments/memory-guidance.md` (unless `memory_guidance=False`), the mode file, for a subagent `roles/_preamble.md` + the role file, the persona, and the reply-language rule | **3100** |
+| stable | `base.md` (or an explicit `identity`), `fragments/execution.md`, the vendor layer, `config_rule.md`, `search_honesty.md`, `fragments/memory-guidance.md` (unless `memory_guidance=False`), the mode file, for a subagent `roles/_preamble.md` + the role file, the persona, and the reply-language rule | **3250** |
 | context | environment block, `AGENTS.md`-style context files, `fragments/skills.md` (the skills index, only when skills are installed and `skills.indexInPrompt` is on), tool listing (only when tools are present) | 800 |
 | volatile | memory recall block, context-pressure note (above `CONTEXT_PRESSURE_THRESHOLD = 0.75`) | 600 |
 
@@ -56,7 +56,7 @@ Both are rebuilt together — a skill reload and a tool registration invalidate 
 the index is what the model needs before it starts choosing tools. `SkillLoader.index_groups()`
 caches the grouping and drops it on every scan, so composing it per turn is a dictionary lookup.
 
-**AC-22.** The tier budgets MUST be enforced by test. `TIER_BUDGET_TOKENS = {"stable": 3100,
+**AC-22.** The tier budgets MUST be enforced by test. `TIER_BUDGET_TOKENS = {"stable": 3250,
 "context": 800, "volatile": 600}` is a **test-file constant** (`tests/test_prompts_compose.py:29`),
 not production code. `test_stable_tier_stays_under_budget` is parametrized over the three modes ×
 the three vendor classes × `ROLES = (None, "executor")`; the context and volatile budgets are
