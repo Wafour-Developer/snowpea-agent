@@ -83,3 +83,35 @@ async def test_stop_ends_the_turn_at_the_budget(
         "a.txt와 b.txt를 썼습니다. c.txt가 남았습니다."
     ]
     await client.stop()
+
+
+DONE_FIXTURE = Path(__file__).parent / "fixtures" / "providers" / "fake" / "tool_rounds_done.json"
+
+
+@pytest_asyncio.fixture
+async def done_daemon(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
+    monkeypatch.setenv("SNOWPEA_PROVIDER", f"fake:{DONE_FIXTURE}")
+    monkeypatch.setenv("SNOWPEA_TEST", "1")
+    instance = await make_daemon(tmp_path / "home", settings={"agent": {"max_tool_rounds": 2}})
+    try:
+        yield instance
+    finally:
+        await instance.stop()
+
+
+async def test_a_turn_that_finishes_exactly_at_the_budget_asks_nothing(
+    done_daemon: Any, http: aiohttp.ClientSession, tmp_path: Path
+) -> None:
+    """Two writes on a budget of two: the model is done, so the turn ends
+    ``complete`` with its final answer and no checkpoint question."""
+    workdir = tmp_path / "proj"
+    workdir.mkdir()
+    client = await connect(http, done_daemon, question_answer=[{"selected": [STOP], "text": None}])
+    session_id = await open_session(client, workdir, "auto")
+
+    turn_id = await prompt(client, session_id, "파일 두 번 써줘")
+    assert await client.wait_turn(turn_id) == "complete"
+    assert client.questions == []
+    assert sorted(p.name for p in workdir.glob("*.txt")) == ["a.txt", "b.txt"]
+    assert [e["payload"]["text"] for e in client.of_kind("message.done")] == ["둘 다 썼습니다"]
+    await client.stop()

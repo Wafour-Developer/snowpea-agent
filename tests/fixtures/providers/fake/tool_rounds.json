@@ -1,10 +1,63 @@
 {
-  "steps": [
-    {"match": "세 번 써줘", "text": "하나", "tool_calls": [{"name": "write_file", "arguments": {"path": "a.txt", "content": "1\n"}}]},
-    {"match": "used the tool budget", "repeat": true, "text": "a.txt와 b.txt를 썼습니다. c.txt가 남았습니다."},
-    {"match": "continue the work", "text": "셋", "tool_calls": [{"name": "write_file", "arguments": {"path": "c.txt", "content": "3\n"}}]},
-    {"after_tool": "write_file", "text": "둘", "tool_calls": [{"name": "write_file", "arguments": {"path": "b.txt", "content": "2\n"}}]},
-    {"after_tool": "write_file", "text": "다 썼습니다"}
-  ],
-  "default": {"text": "fake default reply"}
+ "steps": [
+  {
+   "match": "세 번 써줘",
+   "text": "하나",
+   "tool_calls": [
+    {
+     "name": "write_file",
+     "arguments": {
+      "path": "a.txt",
+      "content": "1\n"
+     }
+    }
+   ]
+  },
+  {
+   "match": "used the tool budget",
+   "repeat": true,
+   "text": "a.txt와 b.txt를 썼습니다. c.txt가 남았습니다.",
+   "tool_calls": [
+    {
+     "name": "read_file",
+     "arguments": {
+      "path": "a.txt"
+     }
+    }
+   ]
+  },
+  {
+   "match": "continue the work",
+   "text": "셋",
+   "tool_calls": [
+    {
+     "name": "write_file",
+     "arguments": {
+      "path": "c.txt",
+      "content": "3\n"
+     }
+    }
+   ]
+  },
+  {
+   "after_tool": "write_file",
+   "text": "둘",
+   "tool_calls": [
+    {
+     "name": "write_file",
+     "arguments": {
+      "path": "b.txt",
+      "content": "2\n"
+     }
+    }
+   ]
+  },
+  {
+   "after_tool": "write_file",
+   "text": "다 썼습니다"
+  }
+ ],
+ "default": {
+  "text": "fake default reply"
+ }
 }
