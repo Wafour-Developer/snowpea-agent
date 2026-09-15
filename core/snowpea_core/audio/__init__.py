@@ -13,7 +13,8 @@ tools the agent calls.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import logging
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,8 @@ from snowpea_core.audio.player import AudioError, available_players, can_play, f
 from snowpea_core.audio.recorder import Recorder, available_recorders, can_record, find_recorder
 from snowpea_core.audio.stt import STTProvider, Transcript, resolve_provider
 from snowpea_core.audio.tts import Speech, SpeechCaller, TTSProvider, synthesize
+
+log = logging.getLogger("snowpea.audio")
 
 #: Directory under ``SNOWPEA_HOME`` where recordings and speech are kept.
 DIRNAME = "audio"
@@ -70,13 +73,15 @@ class AudioConfig:
     stt_model: str | None = None
     #: ``audio.stt.language`` — what SenseVoice is told to expect, and which
     #: zipformer the ``auto`` chain reaches for first.  Empty means detect.
-    stt_language: str | None = None
+    stt_language: str = "auto"
     # -- text to speech
     tts_enabled: bool = True
     tts_provider: str | None = None
     tts_command: str | None = None
     tts_model: str | None = None
     voice: str | None = None
+    #: Voice per language, ``{"ko": "F2", "*": "M1"}``; see :mod:`.voices`.
+    voices: dict[str, str] = field(default_factory=dict)
     auto_speak: bool = False
     # -- shared
     openai_api_key: str | None = None
@@ -121,7 +126,7 @@ class AudioConfig:
             base_url=self.openai_base_url,
             command=self.stt_command,
             home=self.home,
-            language=self.stt_language,
+            language=self.stt_language_for()[0],
         )
 
     def tts(self, caller: SpeechCaller | None = None) -> TTSProvider | None:
@@ -178,6 +183,46 @@ class AudioConfig:
         )
 
 
+    def voice_for(self, language: str | None = None, engine: str | None = None) -> str | None:
+        """The voice to speak ``language`` with, or ``None`` for the engine's own.
+
+        The reply's own language first, then ``*``, then nothing — and nothing
+        is a good answer: every engine has a default, and forcing one of its
+        voices on a language it was not recorded for sounds worse than letting
+        it choose.
+        """
+        from snowpea_core.audio import voices as voice_catalog
+
+        table = voice_catalog.normalise(self.voices, self.voice)
+        known = (
+            voice_catalog.SUPERTONIC_LANGUAGES
+            if (engine or self.tts_provider) == "supertonic"
+            else ()
+        )
+        choice = voice_catalog.pick(table, language, known)
+        if choice.note:
+            # Once, at INFO: a language the engine cannot do is worth knowing
+            # about, and worth knowing about only once.
+            log.info("%s", choice.note)
+        return choice.voice
+
+    def stt_language_for(self, reply_language: str | None = None) -> tuple[str, str]:
+        """``(language, source)`` for transcription: what to expect, and who said so.
+
+        ``auto`` does not mean "no language". It means nobody forced one, so
+        an engine that detects for itself does that, and one that cannot —
+        a single-language Zipformer has one model per language — takes the
+        language the session is replying in.
+        """
+        forced = (self.stt_language or "").strip()
+        if forced and forced.lower() != "auto":
+            return forced, "setting"
+        tag = (reply_language or "").strip()
+        if tag and tag.lower() != "auto":
+            return tag, "reply"
+        return "auto", "detect"
+
+
 def audio_dir(home: Path | str, session_id: str | None = None) -> Path:
     """Where audio files for ``session_id`` live under a snowpea home."""
     root = Path(home).expanduser() / DIRNAME
@@ -206,11 +251,14 @@ def capabilities(
     listener = cfg.stt()
     stt_pin = cfg.stt_pinned
     if listener is None:
-        reasons["stt"] = (
-            NO_ENGINE_REASON
-            if stt_pin is None
-            else MISSING_ENGINE_REASON.format(engine=stt_pin)
-        )
+        if stt_pin is None:
+            reasons["stt"] = NO_ENGINE_REASON
+        else:
+            # The engine may know exactly what is wrong — a Zipformer asked for
+            # a language it does not speak can name the model that does.
+            reasons["stt"] = _engine_reason(cfg, stt_pin) or MISSING_ENGINE_REASON.format(
+                engine=stt_pin
+            )
 
     speaker = cfg.tts(caller)
     tts_pin = cfg.tts_pinned
@@ -238,6 +286,8 @@ def capabilities(
         "ttsProvider": speaker.name if speaker is not None else None,
         # What is actually pinned, and whether anything is: a surface can say
         # "Not set" rather than inventing a default it would never get.
+        "sttLanguage": cfg.stt_language_for()[0],
+        "sttLanguageSource": cfg.stt_language_for()[1],
         "sttPinned": stt_pin is not None,
         "ttsPinned": tts_pin is not None,
         "sttEffective": listener.name if listener is not None else None,
@@ -257,6 +307,24 @@ def capabilities(
         "recorders": available_recorders(),
         "reasons": reasons,
     }
+
+
+def _engine_reason(config: AudioConfig, engine: str) -> str:
+    """The pinned engine's own account of why it cannot run, when it has one."""
+    try:
+        built = stt.build_provider(
+            engine,
+            api_key=config.openai_api_key,
+            model=config.stt_model,
+            base_url=config.openai_base_url,
+            command=config.stt_command,
+            home=config.home,
+            language=config.stt_language_for()[0],
+        )
+    except AudioError:
+        return ""
+    reason = getattr(built, "missing_reason", None)
+    return str(reason()) if callable(reason) else ""
 
 
 def stt_providers(config: AudioConfig) -> list[str]:

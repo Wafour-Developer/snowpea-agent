@@ -202,6 +202,13 @@ def run(
         if name == "tools":
             _ask_for_registry_token(state, interactive=interactive)
         if name == "audio":
+            _ask_for_stt_language(
+                state,
+                asker,
+                console=console,
+                interactive=interactive,
+                reply_language=_configured_reply_language(settings),
+            )
             _ask_for_audio(
                 state, asker, interactive=interactive, console=console, home=paths.home
             )
@@ -926,10 +933,7 @@ def _ask_for_audio(
         entered = ui.ask_text("text-to-speech command (use {text} and {out}): ")
         if entered:
             state.tts_command = entered
-    voice_hint = state.tts_voice or "Enter for the backend's default"
-    voice = ui.ask_text(f"voice [{voice_hint}]: ")
-    if voice:
-        state.tts_voice = voice
+    _ask_for_voices(state, asker, console=console, interactive=interactive, home=home)
     if _ask_yes_no("read replies aloud by default?", default=state.auto_speak):
         state.auto_speak = True
     else:
@@ -1124,6 +1128,171 @@ def _ask_for_voice_key(state: WizardState, out: Any) -> bool:
         return True
     out("no key entered — OpenAI voice cannot run until one is set")
     return True
+
+
+def _ask_for_voices(
+    state: WizardState,
+    asker: Any,
+    *,
+    console: Console | None = None,
+    interactive: bool = True,
+    home: Any = None,
+) -> None:
+    """After an engine is pinned, which voice it speaks each language with.
+
+    One tab per language, because one engine can and should sound like a
+    different person in Korean than in English; a single voice is stored under
+    ``*`` and still works, which is what the legacy ``voice`` field becomes.
+    """
+    from snowpea_core.audio import voices as voice_catalog
+
+    engine = (state.tts_provider or "").strip()
+    if not engine or engine in {"command", "off"}:
+        return
+    out = console.print if console is not None else print
+    languages = _voice_languages(state)
+    try:
+        found = _run_sync(
+            voice_catalog.voices_for(
+                engine,
+                home=home,
+                languages=languages,
+                installed_engines=tuple(audio_screen.detected_tts(state)),
+                openai_key=bool(state.api_key or state.has_saved_key),
+            )
+        )
+    except Exception as exc:  # noqa: BLE001 - a voice list never fails setup
+        out(f"could not list {engine} voices: {exc}")
+        return
+    if not found:
+        return
+
+    grouped = voice_catalog.by_language(found)
+    for tag in languages:
+        options = grouped.get(tag) or grouped.get(voice_catalog.ANY) or []
+        if not options:
+            out(f"{engine} has no voice for {tag}")
+            continue
+        pinned = state.tts_voices.get(tag) or state.tts_voices.get(voice_catalog.ANY)
+        choice = asker(
+            audio_screen.build_voices(options, tag, pinned),
+            console=console,
+            interactive=interactive,
+        )
+        name = _one(choice)
+        if not _picked(choice):
+            continue
+        voice = next((item for item in options if item.id == name), None)
+        if voice is None:
+            continue
+        if not voice.installed and not _install_voice(engine, voice, home, out):
+            continue
+        state.tts_voices[tag] = name
+        if _ask_yes_no(f"preview {name} in {tag}?", default=False):
+            _preview_voice(state, name, tag, out)
+    # A single voice chosen for every language is the same as one under `*`,
+    # and storing it that way keeps the settings file honest about the choice.
+    values = set(state.tts_voices.values())
+    if len(values) == 1 and set(state.tts_voices) >= set(languages):
+        state.tts_voices = {voice_catalog.ANY: values.pop()}
+
+
+def _configured_reply_language(settings: Any) -> str:
+    """``agent.replyLanguage``, or ``""`` when it is left on auto."""
+    tag = str(getattr(getattr(settings, "agent", None), "replyLanguage", "") or "").strip()
+    return "" if tag.lower() in {"", "auto"} else tag
+
+
+def _voice_languages(state: WizardState) -> tuple[str, ...]:
+    """Korean and English, plus the transcription language when it is another."""
+    from snowpea_core.audio import voices as voice_catalog
+
+    tags = list(voice_catalog.DEFAULT_LANGUAGES)
+    forced = (state.stt_language or "").strip().lower().partition("-")[0]
+    if forced and forced != "auto" and forced not in tags:
+        tags.append(forced)
+    return tuple(tags)
+
+
+def _install_voice(engine: str, voice: Any, home: Any, out: Any) -> bool:
+    """Fetch a voice that is not on disk yet; ``True`` when it landed."""
+    from snowpea_core.audio import install as audio_install
+
+    async def progress(line: str) -> None:
+        out(f"  {line}")
+
+    try:
+        result = _run_sync(
+            audio_install.install_voice(engine, voice.id, home=Path(home), progress=progress)
+        )
+    except Exception as exc:  # noqa: BLE001 - a failed download is not a failed wizard
+        out(f"could not install {voice.id}: {exc}")
+        return False
+    if not result.ok:
+        out(result.hint or f"could not install {voice.id}")
+    return bool(result.ok)
+
+
+#: What a preview says, per language, so it is a sentence rather than a word.
+PREVIEW_TEXT: dict[str, str] = {
+    "ko": "안녕하세요, 스노우피가 준비되었습니다.",
+    "ja": "こんにちは、スノーピーの準備ができました。",
+    "zh": "你好，snowpea 已经准备好了。",
+}
+PREVIEW_DEFAULT = "Hello, snowpea is ready."
+
+
+def _preview_voice(state: WizardState, voice: str, language: str, out: Any) -> None:
+    """Synthesise a short sentence in ``language`` and play it."""
+    import tempfile
+
+    from snowpea_core.audio import AudioError, player
+    from snowpea_core.audio import tts as tts_backends
+
+    provider = tts_backends.resolve_provider(
+        state.tts_provider or "", command=state.tts_command, language=language
+    )
+    if provider is None:
+        out("the engine is not available here; nothing was played")
+        return
+    phrase = PREVIEW_TEXT.get(language, PREVIEW_DEFAULT)
+    try:
+        with tempfile.TemporaryDirectory(prefix="snowpea-voice-") as tmp:
+            speech = _run_sync(
+                provider.synthesize(phrase, out_dir=Path(tmp), voice=voice, language=language)
+            )
+            _run_sync(player.play(speech.path))
+    except AudioError as exc:
+        out(f"could not preview: {exc}")
+    except Exception as exc:  # noqa: BLE001 - a preview never fails setup
+        out(f"could not preview: {type(exc).__name__}: {exc}")
+
+
+def _ask_for_stt_language(
+    state: WizardState,
+    asker: Any,
+    *,
+    console: Console | None = None,
+    interactive: bool = True,
+    reply_language: str = "",
+) -> None:
+    """Which language transcription expects, once an engine is pinned."""
+    if not (state.stt_provider or "").strip() or state.stt_provider in {"off", "command"}:
+        return
+    choice = asker(
+        audio_screen.build_language(state, reply_language=reply_language),
+        console=console,
+        interactive=interactive,
+    )
+    name = _one(choice)
+    if not _picked(choice):
+        return
+    if name == audio_screen.LANGUAGE_OTHER:
+        entered = ui.ask_text("language tag (e.g. fr, pt-BR): ").strip()
+        if entered:
+            state.stt_language = entered
+        return
+    state.stt_language = name
 
 
 def _picked(choice: Any) -> bool:

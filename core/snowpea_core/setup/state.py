@@ -57,9 +57,14 @@ class WizardState:
     #: same thing and exists because it is what the wizard's own row answers.
     stt_provider: str | None = catalog.DEFAULT_STT_PROVIDER
     stt_command: str | None = None
+    #: ``"auto"`` or a BCP-47 tag.  For a single-language engine it is what
+    #: picks the model, not just a hint.
+    stt_language: str = "auto"
     tts_provider: str | None = catalog.DEFAULT_TTS_PROVIDER
     tts_command: str | None = None
     tts_voice: str | None = None
+    #: Voice per language, ``{"ko": "F2", "*": "M1"}``.
+    tts_voices: dict[str, str] = field(default_factory=dict)
     #: True when replies are spoken without being asked each time.
     auto_speak: bool = False
     #: category id -> enabled.
@@ -274,7 +279,7 @@ class WizardState:
 
     def audio_block(self) -> dict[str, Any]:
         """The ``settings.audio`` object these answers describe."""
-        stt: dict[str, Any] = {"provider": self.stt_provider}
+        stt: dict[str, Any] = {"provider": self.stt_provider, "language": self.stt_language}
         if self.stt_command:
             stt["command"] = self.stt_command
         tts: dict[str, Any] = {
@@ -286,6 +291,8 @@ class WizardState:
             tts["command"] = self.tts_command
         if self.tts_voice:
             tts["voice"] = self.tts_voice
+        if self.tts_voices:
+            tts["voices"] = dict(self.tts_voices)
         return {"stt": stt, "tts": tts}
 
     def enabled_categories(self) -> list[str]:
@@ -489,8 +496,11 @@ class WizardState:
     def _voice_note(self) -> str:
         """``" · voice nova · auto-speak"`` — only what was actually chosen."""
         parts = []
-        if self.tts_voice:
-            parts.append(f"voice {self.tts_voice}")
+        chosen = self.tts_voices or ({"*": self.tts_voice} if self.tts_voice else {})
+        if chosen:
+            parts.append(
+                "voice " + ", ".join(f"{tag}={name}" for tag, name in sorted(chosen.items()))
+            )
         if self.auto_speak and self.tts_provider != catalog.AUDIO_OFF:
             parts.append("auto-speak")
         return (" · " + " · ".join(parts)) if parts else ""
@@ -585,10 +595,12 @@ def _audio_from(block: Any) -> dict[str, Any]:
         provider = catalog.AUDIO_OFF
     return {
         "stt_provider": _provider_or_none(stt.get("provider")),
+        "stt_language": str(stt.get("language") or "auto"),
         "stt_command": stt.get("command") or None,
         "tts_provider": provider,
         "tts_command": tts.get("command") or None,
         "tts_voice": tts.get("voice") or None,
+        "tts_voices": dict(tts.get("voices") or {}),
         "auto_speak": bool(tts.get("autoSpeak")),
     }
 

@@ -127,6 +127,62 @@ Never in a delegated or unattended turn, which has nobody in the room.
 `audio.spoken` gains `utterance: "reply" | "ack"`; `audio.tts.speakAck`
 (default true) turns it off.
 
+## Supertonic has no per-language models — verified
+
+The brief assumed per-language model assets to list and install. There are
+none. Verified 2026-09-15 against PyPI and the model card: Supertonic 3 is
+**one multilingual model**, ~400MB into `~/.cache/supertonic3/`, covering 31
+languages plus an `na` fallback, with ten preset voice styles (M1-M5, F1-F5)
+that are not language-specific. `lang` is a synthesis-time parameter, not a
+model selector.
+
+So `audio.voices` reports Supertonic's styles as `language: "*"`, every one
+`installed` once the package is there and none of them a download. Choosing a
+different style per language is still worth offering — that is what the
+mapping is for — it simply costs nothing extra.
+
+Piper is the engine that *does* work the way the brief described: one file per
+voice, each tied to a language, `installed: false` until fetched.
+
+## Voices are per language
+
+`audio.tts.voice` became `audio.tts.voices`, a mapping:
+
+```json
+{ "audio": { "tts": { "voices": { "ko": "F2", "en": "M1", "*": "M1" } } } }
+```
+
+Resolution is the reply's own language, then `*`, then the engine's default —
+and the default is a real answer, not a gap: forcing one of an engine's voices
+on a language it was not recorded for sounds worse than letting it choose. The
+old single `voice` string reads as `voices["*"]`, so nothing has to migrate.
+
+`audio.voices {engine}` lists what an engine offers *whether or not it is
+installed*, because choosing between engines means seeing what each would give
+you. `sample` is the field that says whether a preview can actually be played.
+`audio.install {engine, voice}` fetches one, with the same staged progress, and
+**does not select it**.
+
+## `audio.stt.language`: not a hint for every engine
+
+`"auto"` (default) means nobody forced a language, not that there is none. An
+engine that detects for itself does that; one that cannot takes the session's
+reply language. A BCP-47 tag forces it.
+
+The distinction that matters: a **sherpa Zipformer is single-language**, so the
+setting picks the *model*. Asking the English model for Korean would produce
+confident nonsense, so it refuses and the capability reason names the model
+that would work:
+
+```
+sherpa-onnx-zipformer-en does not speak ko; install sherpa-onnx-zipformer-ko
+```
+
+`"auto"` is never passed to an engine's command line — whisper would go looking
+for a language called "auto" — and `capabilities` reports `sttLanguage` plus
+`sttLanguageSource` (`setting` | `reply` | `detect`) so a surface can say who
+decided.
+
 ## Why the chains changed
 
 Both `auto` chains now put local engines ahead of hosted ones.

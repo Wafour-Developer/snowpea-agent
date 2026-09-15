@@ -696,6 +696,30 @@ could not install espeak-ng: sudo apt install espeak-ng
 
 **snowpea-studio is no longer a voice choice.** The `text_to_speech` media tool still forwards to a configured studio MCP server, and Automatic still falls back to it when nothing else is available. It is no longer offered in the voice list and no longer leads the chain: it needs an MCP server configured before it can say a word, so leading with it made "Automatic" resolve to a backend most machines do not have.
 
+### Voices
+
+Picking an engine is half a decision. The wizard follows it with a **voice step**: one tab per language, because one engine can and should sound like a different person in Korean than in English. A row that is not on disk downloads first; Preview synthesises a sentence in that language and plays it; Skip keeps the engine's own default, which is a perfectly good answer.
+
+```json
+{ "audio": { "tts": { "voices": { "ko": "F2", "en": "M1", "*": "M1" } } } }
+```
+
+A reply is spoken with its own language's entry, then `*`, then the engine's default. A settings file written before this was a mapping carries `voice: "M1"`, which reads as `"*"` and still works.
+
+**Supertonic is one multilingual model.** Its ten preset styles (M1-M5, F1-F5) work in all 31 languages, so choosing a different one per language costs no extra download. **Piper is the opposite**: a voice *is* a download, and a language with no voice file is a language it cannot speak, so those rows say so and install on selection. `edge-tts`, `espeak-ng`, macOS `say` and Windows SAPI are asked at run time what they have, filtered to Korean, English and your reply language.
+
+`audio.voices {engine}` returns the same list over RPC, and `audio.install {engine, voice}` fetches one with the same staged progress. Installing a voice does not select it, for the same reason installing an engine does not pin it.
+
+### The transcription language
+
+```json
+{ "audio": { "stt": { "language": "auto" } } }
+```
+
+`auto` is the default and does not mean "no language". It means nobody forced one, so an engine that detects for itself does that, and one that cannot takes the language you are replying in. A BCP-47 tag forces it.
+
+For **SenseVoice**, whisper and OpenAI this is a hint. For a **sherpa Zipformer it picks the model**: those are single-language, so asking a Korean model for English is asking for a different model. When the one you need is missing the reason says which: `sherpa-onnx-zipformer-en does not speak ko; install sherpa-onnx-zipformer-ko`. `audio.capabilities` reports `sttLanguage` and `sttLanguageSource` (`setting`, `reply` or `detect`) so a surface can say who decided.
+
 ## Gateway
 
 ```bash

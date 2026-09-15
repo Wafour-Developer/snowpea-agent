@@ -52,9 +52,8 @@ VOICES_DIRNAME = "voices"
 DEFAULT_PIPER_VOICE = "en_US-lessac-medium"
 
 #: Where that voice comes from.  Two files: the model and its config.
-PIPER_VOICE_BASE = (
-    "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium"
-)
+PIPER_VOICES_ROOT = "https://huggingface.co/rhasspy/piper-voices/resolve/main"
+PIPER_VOICE_BASE = f"{PIPER_VOICES_ROOT}/en/en_US/lessac/medium"
 
 #: ``(runner, argv-prefix)`` tried in order for a Python package.  The first
 #: runner on PATH is the one used.
@@ -196,9 +195,14 @@ class InstallResult:
     engine: str
     log: str = ""
     hint: str | None = None
+    #: The voice this was, when the request named one.  ``engine`` stays the
+    #: bare id either way, so a surface can key a row on the pair.
+    voice: str | None = None
 
     def to_payload(self) -> dict[str, Any]:
         payload: dict[str, Any] = {"ok": self.ok, "engine": self.engine, "log": self.log}
+        if self.voice:
+            payload["voice"] = self.voice
         if self.hint:
             payload["hint"] = self.hint
         return payload
@@ -251,6 +255,8 @@ class StageEvent:
     stage: str
     step: int
     steps: int
+    #: Set while a *voice* of that engine is installing; empty for the engine.
+    voice: str = ""
     line: str = ""
     percent: float | None = None
     bytes_done: int | None = None
@@ -264,6 +270,8 @@ class StageEvent:
             "steps": self.steps,
             "line": self.line,
         }
+        if self.voice:
+            payload["voice"] = self.voice
         if self.percent is not None:
             payload["percent"] = round(float(self.percent), 1)
         if self.bytes_done is not None:
@@ -335,11 +343,13 @@ class _Log:
         *,
         engine: str = "",
         sequence: tuple[str, ...] = (),
+        voice: str = "",
     ) -> None:
         self.lines: list[str] = []
         self._progress = progress
         self._stages = stages
         self.engine = engine
+        self.voice = voice
         self.sequence = sequence
         self.current = sequence[0] if sequence else ""
 
@@ -388,6 +398,7 @@ class _Log:
         await self._stages(
             StageEvent(
                 engine=self.engine,
+                voice=self.voice,
                 stage=self.current,
                 step=step,
                 steps=len(self.sequence),
@@ -422,9 +433,15 @@ def python_install_argv(package: str, *, isolated: bool = True) -> list[str] | N
     return None
 
 
-def voice_files(voice: str = DEFAULT_PIPER_VOICE) -> tuple[str, str]:
-    """``(model url, config url)`` for one piper voice."""
-    return (f"{PIPER_VOICE_BASE}/{voice}.onnx", f"{PIPER_VOICE_BASE}/{voice}.onnx.json")
+def voice_files(voice: str = DEFAULT_PIPER_VOICE, path: str | None = None) -> tuple[str, str]:
+    """``(model url, config url)`` for one piper voice.
+
+    ``path`` is the voice's directory in the upstream repo; the default one is
+    the only voice with its base URL baked in, because it is the one an engine
+    install fetches on its own.
+    """
+    base = f"{PIPER_VOICES_ROOT}/{path}" if path else PIPER_VOICE_BASE
+    return (f"{base}/{voice}.onnx", f"{base}/{voice}.onnx.json")
 
 
 async def download_voice(
@@ -433,6 +450,7 @@ async def download_voice(
     *,
     progress: Progress | None = None,
     fetch: Any = None,
+    path: str | None = None,
 ) -> Path | None:
     """Fetch one piper voice into ``$SNOWPEA_HOME/voices`` and return its path.
 
@@ -458,7 +476,7 @@ async def download_voice(
     client_factory = fetch or _httpx_client
     try:
         async with client_factory() as client:
-            for url, path in zip(voice_files(voice), (model, config), strict=True):
+            for url, target in zip(voice_files(voice, path), (model, config), strict=True):
                 if progress is not None:
                     await progress(f"downloading {url}")
                 response = await client.get(url)
@@ -466,7 +484,7 @@ async def download_voice(
                     if progress is not None:
                         await progress(f"HTTP {response.status_code} for {url}")
                     return None
-                path.write_bytes(response.content)
+                target.write_bytes(response.content)
     except Exception as exc:  # noqa: BLE001 - a missing voice is not a failed install
         if progress is not None:
             await progress(f"could not download the voice: {type(exc).__name__}: {exc}")
@@ -478,6 +496,68 @@ def _httpx_client() -> Any:
     import httpx
 
     return httpx.AsyncClient(timeout=120.0, follow_redirects=True)
+
+
+#: The stages a voice download walks: fetch the two files, then re-detect.
+STAGES_VOICE: tuple[str, ...] = (STAGE_RESOLVE, STAGE_DOWNLOAD, STAGE_CHECK)
+
+
+async def install_voice(
+    engine: str,
+    voice: str,
+    *,
+    home: Path,
+    progress: Progress | None = None,
+    stages: Stages | None = None,
+    fetch: Any = None,
+) -> InstallResult:
+    """Fetch one of an engine's voices.
+
+    Only piper has voices that are downloads; everything else either ships its
+    voices with the engine (Supertonic's ten presets come out of the one
+    multilingual model) or reads them off the system, and asking to install
+    one of those is answered rather than attempted.
+
+    Installing a voice does **not** select it, for the same reason installing
+    an engine does not pin it: the two are separate decisions and running them
+    together is how a user ends up with a setting they did not choose.
+    """
+    name = engine_for((engine or "").strip())
+    wanted = (voice or "").strip()
+    if name != "piper":
+        return InstallResult(
+            ok=False,
+            engine=name,
+            voice=wanted,
+            hint=f"{name} voices are not downloads; pick one and it is ready",
+        )
+    from snowpea_core.audio import voices as voice_catalog
+
+    path = voice_catalog.piper_voice_path(wanted)
+    if path is None:
+        known = ", ".join(entry[0] for entry in voice_catalog.PIPER_VOICES)
+        return InstallResult(
+            ok=False,
+            engine=name,
+            voice=wanted,
+            hint=f"unknown piper voice {wanted!r}; known: {known}",
+        )
+    collected = _Log(progress, stages, engine=name, sequence=STAGES_VOICE, voice=wanted)
+    await collected.stage(STAGE_RESOLVE, f"voice {wanted}")
+    await collected.stage(STAGE_DOWNLOAD)
+    landed = await download_voice(home, wanted, progress=collected, fetch=fetch, path=path)
+    if landed is None:
+        return InstallResult(
+            ok=False,
+            engine=name,
+            voice=wanted,
+            log=collected.text,
+            hint="re-run the install to resume the download",
+        )
+    await collected.stage(STAGE_CHECK, f"voice ready: {landed}")
+    result = InstallResult(ok=True, engine=name, voice=wanted, log=collected.text)
+    setattr(result, "voice_path", landed)  # noqa: B010 - deliberate side channel
+    return result
 
 
 async def install(
@@ -573,6 +653,7 @@ __all__ = [
     "INSTALL_TIMEOUT_SEC",
     "LOCAL_WHISPER",
     "MAX_LOG_LINES",
+    "PIPER_VOICES_ROOT",
     "PIPER_VOICE_BASE",
     "PIP_FALLBACK",
     "PYTHON_INSTALLERS",
@@ -585,6 +666,7 @@ __all__ = [
     "engine_for",
     "install",
     "install_hint",
+    "install_voice",
     "is_installable",
     "python_install_argv",
     "run_argv",

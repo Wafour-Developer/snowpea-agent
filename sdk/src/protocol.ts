@@ -263,6 +263,10 @@ export interface AudioCapabilitiesResult {
   stt?: string | null;
   /** The engine actually in use, or null when none is pinned or it is missing. */
   sttEffective?: string | null;
+  /** 'auto' (the engine detects, or the reply language decides) or the BCP-47 tag audio.stt.language forces. */
+  sttLanguage?: string;
+  /** Which rung decided it: setting | reply | detect. 'detect' means the engine works it out itself and nothing had to choose. */
+  sttLanguageSource?: string;
   /** True when audio.stt.provider names an engine. False means unset, which means voice input is off: there is no fallback chain. */
   sttPinned?: boolean;
   /** Every usable transcription backend, preferred first. */
@@ -281,10 +285,12 @@ export interface AudioCapabilitiesResult {
   voice?: string | null;
 }
 
-/** `audio.install` params. Install a local voice engine and re-run detection. */
+/** `audio.install` params. Install a local voice engine (or one of its voices) and re-run detection. */
 export interface AudioInstallParams {
   /** Engine id from the setup catalog: faster-whisper (or local-whisper), piper, edge-tts. A system package (espeak-ng, say, powershell) answers ok=false with a hint instead. */
   engine: string;
+  /** Install one of the engine's voices rather than the engine itself, e.g. piper's ko_KR-kss-medium. Same staged progress; installing a voice does not select it. */
+  voice?: string | null;
 }
 
 /** `audio.install` result. */
@@ -297,6 +303,8 @@ export interface AudioInstallResult {
   log?: string;
   /** True when the engine is installed and now detected. */
   ok: boolean;
+  /** The voice that was installed, when the request named one. */
+  voice?: string | null;
 }
 
 /** `audio.record.start` params. Start recording the microphone. */
@@ -387,6 +395,35 @@ export interface AudioTranscribeResult {
   provider: string;
   /** What the backend heard. */
   text: string;
+}
+
+/** `audio.voices` params. List the voices one speech engine offers here. */
+export interface AudioVoicesParams {
+  /** Engine id, e.g. supertonic, piper, edge-tts. */
+  engine: string;
+  /** Filter a large catalogue to these BCP-47 tags; empty uses ko and en plus the session's reply language. Ignored by engines with few voices. */
+  languages?: string[];
+}
+
+/** `audio.voices` result. */
+export interface AudioVoicesResult {
+  /** Installed voices first, then by language and id. */
+  voices?: ({
+    /** male / female, when known. */
+    gender?: string | null;
+    /** Voice id, as audio.tts.voices stores it. */
+    id: string;
+    /** False when choosing it downloads something first (piper voices). */
+    installed?: boolean;
+    /** Display name. */
+    label: string;
+    /** BCP-47 tag, or '*' for a voice that works in every language the engine supports (Supertonic's presets are '*': one multilingual model). */
+    language?: string;
+    /** True when a preview can be synthesised here and now. */
+    sample?: boolean;
+    /** Roughly what the download weighs, when it is one. */
+    sizeBytes?: number | null;
+  })[];
 }
 
 /** `backend.set` params. Choose where a session's tools execute: local, docker or ssh. */
@@ -2191,7 +2228,7 @@ export interface AudioInstallProgressPayload {
   bytesDone?: number | null;
   /** Total bytes, from Content-Length when the server sends one. */
   bytesTotal?: number | null;
-  /** Engine being installed. */
+  /** Engine being installed, always the bare id. */
   engine: string;
   /** One line of the installer's output. */
   line?: string;
@@ -2203,6 +2240,8 @@ export interface AudioInstallProgressPayload {
   step?: number;
   /** How many stages this engine has in total. */
   steps?: number;
+  /** Set when a *voice* of that engine is installing, e.g. ko_KR-kss-medium; empty for the engine itself. A surface keys its progress row on the pair, so an engine install and a voice install never share a row. */
+  voice?: string;
 }
 
 /** `commands.changed` notification payload. */
@@ -2801,6 +2840,7 @@ export interface MethodMap {
   "audio.record.stop": { params: AudioRecordStopParams; result: AudioRecordStopResult };
   "audio.speak": { params: AudioSpeakParams; result: AudioSpeakResult };
   "audio.transcribe": { params: AudioTranscribeParams; result: AudioTranscribeResult };
+  "audio.voices": { params: AudioVoicesParams; result: AudioVoicesResult };
   "backend.set": { params: BackendSetParams; result: BackendSetResult };
   "command.list": { params: CommandListParams; result: CommandListResult };
   "command.run": { params: CommandRunParams; result: CommandRunResult };
@@ -2890,6 +2930,7 @@ export type ClientMethod =
   | "audio.record.stop"
   | "audio.speak"
   | "audio.transcribe"
+  | "audio.voices"
   | "backend.set"
   | "command.list"
   | "command.run"

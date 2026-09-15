@@ -353,6 +353,116 @@ def validate_command(template: str, direction: str) -> str | None:
     return None
 
 
+#: Row ids for the language step's fixed answers.
+LANGUAGE_AUTO = "auto"
+LANGUAGE_OTHER = "other"
+
+#: Languages the voice and language steps offer before adding the reply one.
+STEP_LANGUAGES: tuple[str, ...] = ("ko", "en", "ja", "zh")
+
+VOICE_TITLE = "Audio — voice out: which voice"
+VOICE_HELP = (
+    "One engine can sound like a different person per language. A row that is not "
+    "installed downloads first. Skip keeps the engine's own default."
+)
+
+LANGUAGE_TITLE = "Audio — voice in: which language"
+LANGUAGE_HELP = (
+    "Auto-detect lets the engine work it out, or falls back to your reply language. "
+    "A fixed language forces it — and for a single-language engine it picks the model."
+)
+
+
+def build_language(
+    state: WizardState, *, reply_language: str = "", catalog_rows: Any = None
+) -> Screen:
+    """Which language transcription should expect (``audio.stt.language``).
+
+    For a single-language engine this is not a hint: a sherpa Zipformer has one
+    model per language, so the answer decides which model is used and the rows
+    say which one each language needs.
+    """
+    from snowpea_core.audio.stt import MODEL_BY_LANGUAGE
+    from snowpea_core.audio.stt_models import MODELS
+
+    current = (state.stt_language or LANGUAGE_AUTO).strip().lower()
+    tags = [*STEP_LANGUAGES]
+    reply = (reply_language or "").strip().lower().partition("-")[0]
+    if reply and reply not in tags and reply != "auto":
+        tags.append(reply)
+
+    installed = set(detected_stt(state))
+    rows = [
+        ScreenItem(
+            id=LANGUAGE_AUTO,
+            label="Auto-detect",
+            tags=("recommended",),
+            selected=current in {"", LANGUAGE_AUTO},
+            default=True,
+            active=True,
+        )
+    ]
+    for tag in tags:
+        needed = MODEL_BY_LANGUAGE.get(tag)
+        note: tuple[str, ...] = ()
+        if needed and needed not in installed:
+            model = MODELS.get(needed)
+            note = (f"needs {model.id if model else needed}",)
+        rows.append(
+            ScreenItem(
+                id=tag,
+                label=tag,
+                tags=note,
+                selected=current == tag,
+                default=False,
+                active=True,
+            )
+        )
+    rows.append(
+        ScreenItem(
+            id=LANGUAGE_OTHER,
+            label="Other…  (a BCP-47 tag)",
+            tags=(),
+            selected=bool(current) and current not in {LANGUAGE_AUTO, *tags},
+            default=False,
+            active=True,
+        )
+    )
+    return Screen(
+        title=LANGUAGE_TITLE, items=(*rows, skip_item()), multi=False, help=LANGUAGE_HELP
+    )
+
+
+def build_voices(
+    voices: Sequence[Any], language: str, pinned: str | None = None
+) -> Screen:
+    """One language's voices for the pinned engine, installed ones first."""
+    rows = [
+        ScreenItem(
+            id=voice.id,
+            label=f"★ {voice.label}" if voice.id == pinned else voice.label,
+            tags=_voice_tags(voice, pinned),
+            selected=voice.id == pinned,
+            default=False,
+            # Every row is choosable: an uninstalled voice downloads first.
+            active=True,
+        )
+        for voice in voices
+    ]
+    title = f"{VOICE_TITLE} ({language})"
+    return Screen(title=title, items=(*rows, skip_item()), multi=False, help=VOICE_HELP)
+
+
+def _voice_tags(voice: Any, pinned: str | None) -> tuple[str, ...]:
+    tags: list[str] = []
+    if voice.id == pinned:
+        tags.append("pinned")
+    if getattr(voice, "gender", ""):
+        tags.append(str(voice.gender))
+    tags.append("installed" if voice.installed else "downloads first")
+    return tuple(tags)
+
+
 def run_install(choice: str, home: Any, out: Any = None) -> bool:
     """Install the engine an ``install:`` row names; returns whether it worked.
 
@@ -414,6 +524,15 @@ __all__ = [
     "ACTION_PIN",
     "ACTION_SYSTEM",
     "COMMAND_REQUIRED",
+    "LANGUAGE_AUTO",
+    "LANGUAGE_HELP",
+    "LANGUAGE_OTHER",
+    "LANGUAGE_TITLE",
+    "STEP_LANGUAGES",
+    "VOICE_HELP",
+    "VOICE_TITLE",
+    "build_language",
+    "build_voices",
     "install_target",
     "is_choose",
     "row_action",

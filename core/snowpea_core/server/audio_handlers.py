@@ -20,6 +20,7 @@ from snowpea_core.attachments.model import decode_base64
 from snowpea_core.audio import AudioConfig, capabilities
 from snowpea_core.audio import install as audio_install
 from snowpea_core.audio import tts as tts_backends
+from snowpea_core.audio import voices as audio_voices
 from snowpea_core.audio.player import AudioError
 from snowpea_core.audio.player import play as play_audio
 from snowpea_core.audio.recorder import Recorder
@@ -36,6 +37,9 @@ from snowpea_core.server.protocol import (
     AudioSpeakResult,
     AudioTranscribeParams,
     AudioTranscribeResult,
+    AudioVoice,
+    AudioVoicesParams,
+    AudioVoicesResult,
     Empty,
 )
 from snowpea_core.server.rpc import RpcConnection, RpcDispatcher
@@ -54,6 +58,7 @@ HANDLED_METHODS: tuple[str, ...] = (
     "audio.record.start",
     "audio.record.stop",
     "audio.install",
+    "audio.voices",
 )
 
 #: Notification carrying one line of an install's output to every surface.
@@ -102,12 +107,13 @@ def audio_config(core: Core) -> AudioConfig:
         stt_provider=str(_get(stt, "provider", "auto")),
         stt_command=_block(stt, "command"),
         stt_model=_block(stt, "model"),
-        stt_language=_block(stt, "language"),
+        stt_language=str(_get(stt, "language", "auto")),
         tts_enabled=bool(_get(tts, "enabled", True)),
         tts_command=_block(tts, "command"),
         tts_model=_block(tts, "model"),
         tts_provider=str(_get(tts, "provider", "auto")),
         voice=_block(tts, "voice"),
+        voices=audio_voices.normalise(_block(tts, "voices"), _block(tts, "voice")),
         auto_speak=bool(_get(tts, "autoSpeak", False)),
         openai_api_key=api_key,
         openai_base_url=base_url,
@@ -226,10 +232,12 @@ async def audio_speak_handler(
             {"audio": "no_tts"},
         )
     try:
+        # The caller's voice wins; otherwise the reply language picks one.
+        language = config.stt_language_for()[0]
         speech = await provider.synthesize(
             params.text,
             out_dir=audio_dir_for(core, params.sessionId),
-            voice=params.voice or config.voice,
+            voice=params.voice or config.voice_for(language),
         )
     except AudioError as exc:
         raise _rpc_error(exc) from exc
@@ -250,6 +258,40 @@ async def audio_speak_handler(
     )
 
 
+async def audio_voices_handler(
+    _conn: RpcConnection, params: AudioVoicesParams, core: Core
+) -> AudioVoicesResult:
+    """``audio.voices`` — what one engine can speak with, here.
+
+    An engine that is not installed still answers: a user choosing between
+    engines wants to know what each *would* offer.  ``sample`` is what says
+    whether a preview can actually be played.
+    """
+    report = capabilities(audio_config(core), caller=speech_caller(core))
+    languages = tuple(params.languages) or _voice_languages(core)
+    found = await audio_voices.voices_for(
+        params.engine,
+        home=core.paths.home,
+        languages=languages,
+        installed_engines=tuple(report["ttsProviders"]),
+        openai_key=bool(audio_config(core).openai_api_key),
+    )
+    return AudioVoicesResult(
+        voices=[AudioVoice(**voice.to_payload()) for voice in found]
+    )
+
+
+def _voice_languages(core: Core) -> tuple[str, ...]:
+    """Korean and English, plus the configured reply language when it is another."""
+    from snowpea_core.agent.agent import reply_language
+
+    tags = list(audio_voices.DEFAULT_LANGUAGES)
+    configured = (reply_language(core) or "").strip().lower().partition("-")[0]
+    if configured and configured != "auto" and configured not in tags:
+        tags.append(configured)
+    return tuple(tags)
+
+
 async def audio_install_handler(
     _conn: RpcConnection, params: AudioInstallParams, core: Core
 ) -> AudioInstallResult:
@@ -265,14 +307,31 @@ async def audio_install_handler(
     report it active without anyone restarting the daemon.
     """
     engine = audio_install.engine_for((params.engine or "").strip())
+    voice = (params.voice or "").strip()
+    # The pair identifies the row a surface draws: an engine install and one of
+    # its voices are two jobs, and they must not share one progress line.
+    label = {"engine": engine, "voice": voice} if voice else {"engine": engine}
 
-    async def progress(line: str) -> None:
+    async def publish(payload: dict[str, Any]) -> None:
         try:
-            await core.hub.notify(INSTALL_PROGRESS, {"engine": engine, "line": line})
+            await core.hub.notify(INSTALL_PROGRESS, payload)
         except Exception:  # noqa: BLE001 - a dead surface must not stop the install
             log.debug("could not publish %s", INSTALL_PROGRESS, exc_info=True)
 
-    result = await audio_install.install(engine, home=core.paths.home, progress=progress)
+    async def progress(line: str) -> None:
+        await publish({**label, "line": line})
+
+    async def stages(event: Any) -> None:
+        await publish({**event.to_payload(), **label})
+
+    if voice:
+        result = await audio_install.install_voice(
+            engine, voice, home=core.paths.home, progress=progress, stages=stages
+        )
+    else:
+        result = await audio_install.install(
+            engine, home=core.paths.home, progress=progress, stages=stages
+        )
     if result.ok:
         _after_install(core, result)
     return AudioInstallResult(**result.to_payload())
@@ -366,6 +425,7 @@ def register_audio_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
     dispatcher.register("audio.record.start", audio_record_start_handler)
     dispatcher.register("audio.record.stop", audio_record_stop_handler)
     dispatcher.register("audio.install", audio_install_handler)
+    dispatcher.register("audio.voices", audio_voices_handler)
     return dispatcher
 
 
@@ -374,6 +434,7 @@ __all__ = [
     "INSTALL_PROGRESS",
     "audio_capabilities_handler",
     "audio_install_handler",
+    "audio_voices_handler",
     "audio_config",
     "audio_dir_for",
     "audio_record_start_handler",

@@ -398,3 +398,58 @@ def test_the_slot_is_spelled_once(tmp_path: Path) -> None:
         "api_key": "k",
         "browserbase_project_id": "p",
     }
+
+
+# ---------------------------------------------------------------------------
+# the voice and language steps
+# ---------------------------------------------------------------------------
+
+
+async def test_setup_audio_asks_for_a_voice_per_language(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One engine can sound like a different person per language."""
+    from snowpea_core.audio import voices as voice_catalog
+
+    async def fake_voices(engine: str, **_kw: Any) -> Any:
+        return voice_catalog.supertonic_voices(installed=True)
+
+    monkeypatch.setattr(voice_catalog, "voices_for", fake_voices)
+    # Both engine questions go in one batch, then the follow-ups in order:
+    # stt engine, tts engine, then a voice per language.
+    ctx, core, said = make(tmp_path, ["off", "supertonic", "F2", "M1"])
+
+    await setup_cmd.cmd_setup(ctx, "audio")
+
+    voices = core.settings.audio.tts.voices
+    assert voices == {"ko": "F2", "en": "M1"}
+    assert "audio.tts.voices.ko: F2" in "\n".join(said)
+
+
+async def test_setup_audio_asks_which_language_transcription_expects(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from snowpea_core.audio import voices as voice_catalog
+
+    async def no_voices(engine: str, **_kw: Any) -> Any:
+        return []
+
+    monkeypatch.setattr(voice_catalog, "voices_for", no_voices)
+    ctx, core, said = make(tmp_path, ["sherpa-onnx-zipformer-ko", "off", "ko"])
+
+    await setup_cmd.cmd_setup(ctx, "audio")
+
+    assert core.settings.audio.stt.language == "ko"
+    assert "audio.stt.language: ko" in "\n".join(said)
+    # The row for a single-language engine says which model it needs.
+    language_question = next(q for q in core.questions.asked if q.header == "Language")
+    korean = next(o for o in language_question.options if o.label == "ko")
+    assert "sherpa-onnx-zipformer-ko" in (korean.description or "")
+
+
+async def test_off_unsets_rather_than_writing_a_provider(tmp_path: Path) -> None:
+    ctx, core, said = make(tmp_path, ["off", "off"])
+    await setup_cmd.cmd_setup(ctx, "audio")
+    assert core.settings.audio.stt.provider is None
+    assert core.settings.audio.tts.provider is None
+    assert "audio.stt: off" in "\n".join(said)
