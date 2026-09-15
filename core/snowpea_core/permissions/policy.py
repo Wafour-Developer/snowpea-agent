@@ -4,6 +4,23 @@ The matrix decides first.  The allowlist plugs in through
 :meth:`PermissionPolicy.promote`, which may only turn ``ask`` into ``allow`` —
 it can never weaken a ``deny``, because :meth:`PermissionPolicy.decide` only
 calls it for an ``ask``.
+
+**Plan mode's two exceptions** (M2 §9) are the one place a verdict is loosened,
+and they are part of the *mode's own definition* rather than a hook.  That
+distinction matters: m2 §2 says a per-call `permission_for` may only ever be at
+least as strict as the declared tag, so a hook can never widen anything.  These
+two are widened here, in the matrix's own module, where they are visible next
+to the row they qualify:
+
+* ``write`` on ``write_file``/``edit_file`` becomes ``allow`` for a document —
+  markdown, text, ``docs/``, ``.snowpea/plans/``, ``$SNOWPEA_HOME/plans/``
+  (:mod:`snowpea_core.permissions.plan_paths`).  Every other path stays denied.
+* ``exec`` on ``shell`` becomes ``allow`` for a command that only inspects
+  (:mod:`snowpea_core.permissions.safe_commands`).  Everything else still asks.
+
+Neither touches ``config``: a write that lands on a settings file is re-tagged
+``config`` before the policy sees it, and ``config`` is ``deny`` in plan mode
+with no exception at all.
 """
 
 from __future__ import annotations
@@ -24,6 +41,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 MODE_MATRIX: dict[str, dict[str, str]] = {
     "plan": {
         "read": "allow",
+        # Denied except for documents — see PLAN_WRITE_TOOLS below and M2 §9.
         "write": "deny",
         # A planner that cannot run `node --version` or the test suite writes
         # a worse plan, so commands ask instead of being refused; the prompt
@@ -58,6 +76,13 @@ MODE_MATRIX: dict[str, dict[str, str]] = {
 
 #: Tags the allowlist may never promote from ``ask`` to ``allow``.
 UNPROMOTABLE: frozenset[str] = frozenset({"config"})
+
+#: Tools the plan-mode document exception applies to.  Only these two take a
+#: ``path``; no other ``write``-tagged tool is loosened by it.
+PLAN_WRITE_TOOLS: frozenset[str] = frozenset({"write_file", "edit_file"})
+
+#: Tool the plan-mode read-only-command exception applies to.
+PLAN_EXEC_TOOL = "shell"
 
 #: Human-facing risk label used in ``approval.request``.
 RISK_BY_TAG: dict[str, str] = {
@@ -94,9 +119,51 @@ class PermissionPolicy:
     ) -> Verdict:
         """Look the pair up in :data:`MODE_MATRIX`, then apply the allowlist."""
         verdict = MODE_MATRIX.get(mode, {}).get(tag, "ask")
+        if mode == "plan":
+            verdict = self.plan_exception(verdict, tag, tool, args, session)
         if verdict == "ask" and tag not in UNPROMOTABLE:
             verdict = self.promote(verdict, tool, args, session)
         return verdict  # type: ignore[return-value]
+
+    def plan_exception(
+        self,
+        verdict: str,
+        tag: str,
+        tool: Tool | None,
+        args: dict[str, Any] | None,
+        session: Any,
+    ) -> str:
+        """Plan mode's two documented widenings (M2 §9), and nothing else.
+
+        Both are keyed on the tool *and* the tag, so a future ``write``-tagged
+        tool without a ``path`` — or a ``shell`` call that somehow arrives
+        tagged ``config`` — is untouched and keeps the matrix's answer.
+        """
+        if tool is None:
+            return verdict
+        if verdict == "deny" and tag == "write" and tool.name in PLAN_WRITE_TOOLS:
+            from snowpea_core.permissions.plan_paths import is_plan_writable
+
+            path = str((args or {}).get("path", "") or "")
+            if is_plan_writable(
+                path,
+                workdir=getattr(session, "workdir", None),
+                home=self._home(),
+                settings=self._settings(),
+            ):
+                return "allow"
+        if verdict == "ask" and tag == "exec" and tool.name == PLAN_EXEC_TOOL:
+            from snowpea_core.permissions.safe_commands import is_read_only
+
+            if is_read_only(str((args or {}).get("command", "") or "")):
+                return "allow"
+        return verdict
+
+    def _settings(self) -> Any:
+        return getattr(self.allowlist, "settings", None)
+
+    def _home(self) -> Any:
+        return getattr(getattr(self.allowlist, "paths", None), "home", None)
 
     def promote(
         self,
@@ -121,4 +188,12 @@ class PermissionPolicy:
         return NOTE_BY_TAG.get(tag, "")
 
 
-__all__ = ["MODE_MATRIX", "NOTE_BY_TAG", "RISK_BY_TAG", "UNPROMOTABLE", "PermissionPolicy"]
+__all__ = [
+    "MODE_MATRIX",
+    "NOTE_BY_TAG",
+    "PLAN_EXEC_TOOL",
+    "PLAN_WRITE_TOOLS",
+    "RISK_BY_TAG",
+    "UNPROMOTABLE",
+    "PermissionPolicy",
+]

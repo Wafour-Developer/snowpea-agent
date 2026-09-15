@@ -266,13 +266,15 @@ async def test_plan_mode_denies_writes(
     client = await connect(http, daemon)
     session_id = await start_session(client, workdir, mode="plan")
 
-    turn_id = await prompt(client, session_id, "write a greeting")
+    # A source file: plan mode writes markdown and plan files, nothing else
+    # (M2 §9), so this is the case the denial is about.
+    turn_id = await prompt(client, session_id, "write the source")
     # A refusal no longer ends the turn (CORE-prompts, gap 3): it comes back to
     # the model as a failed tool result so it can choose something else.
     assert await client.wait_turn(turn_id) == "complete"
 
     assert [event["payload"]["code"] for event in client.of_kind("error")] == ["mode_denied"]
-    assert not (workdir / "greeting.txt").exists()
+    assert not (workdir / "greeting.py").exists()
     assert client.approval_requests == []
     denial = client.of_kind("tool.result")[0]["payload"]
     assert denial["ok"] is False

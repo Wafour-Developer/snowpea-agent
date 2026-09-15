@@ -11,4 +11,4 @@ ${SETTINGS_NOTE}
 ${BASE_RULES}
 ${LANGUAGE_RULE}
 
-Finish with exactly three lines summarising what you wrote — or, if you are in plan mode and cannot write, what you would write.
+Finish with exactly three lines summarising what you wrote. (Plan mode may write AGENTS.md — it is a document — but not the settings file; say so if that applies.)

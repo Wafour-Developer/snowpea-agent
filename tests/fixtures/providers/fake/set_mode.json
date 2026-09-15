@@ -10,7 +10,7 @@
       "after_tool": "set_mode",
       "text": "구현 시작",
       "repeat": true,
-      "tool_calls": [{"name": "write_file", "arguments": {"path": "out.txt", "content": "x\n"}}]
+      "tool_calls": [{"name": "write_file", "arguments": {"path": "out.py", "content": "x = 1\n"}}]
     },
     {"after_tool": "write_file", "text": "완료", "repeat": true}
   ],

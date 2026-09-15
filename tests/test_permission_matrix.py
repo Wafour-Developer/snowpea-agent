@@ -34,7 +34,9 @@ FIXTURE = Path(__file__).parent / "fixtures" / "providers" / "fake" / "permissio
 TOOL_FOR_TAG: dict[str, tuple[str, str]] = {
     "read": ("use read_file", "read_file"),
     "write": ("use write_file", "write_file"),
-    "exec": ("use shell", "shell"),
+    # A command the plan-mode read-only classifier does *not* recognise, so
+    # this row still measures the matrix rather than the M2 §9 exception.
+    "exec": ("use unsafe shell", "shell"),
     "network": ("use net_fetch", "net_fetch"),
     "send": ("use send_message", "send_message"),
 }
@@ -248,16 +250,35 @@ async def test_plan_mode_asks_before_a_command_and_honours_the_allowlist(
     client.approval_mode = "allow"
     session_id = await open_session(client, workdir, "plan")
 
-    first = await prompt(client, session_id, "use shell")
+    first = await prompt(client, session_id, "use unsafe shell")
     assert await client.wait_turn(first) == "complete"
     assert len(client.approval_requests) == 1
     assert client.of_kind("error") == []
 
-    await client.ok("permission.allowlist.add", {"pattern": "^ls( .*)?$", "scope": "project"})
-    second = await prompt(client, session_id, "use shell")
+    await client.ok(
+        "permission.allowlist.add", {"pattern": "^python( .*)?$", "scope": "project"}
+    )
+    second = await prompt(client, session_id, "use unsafe shell")
     assert await client.wait_turn(second) == "complete"
     assert len(client.approval_requests) == 1, "the allowlisted command must not ask"
     assert [item["payload"]["ok"] for item in client.of_kind("tool.result")] == [True, True]
+
+    await client.stop()
+
+
+async def test_plan_mode_runs_a_read_only_command_without_asking(
+    daemon: Daemon, http: aiohttp.ClientSession, workdir: Path
+) -> None:
+    """M2 §9: inspection is what plan mode is for, so `ls` does not ask."""
+    client = await connect(http, daemon)
+    client.approval_mode = "deny"
+    session_id = await open_session(client, workdir, "plan")
+
+    turn_id = await prompt(client, session_id, "use shell")
+    assert await client.wait_turn(turn_id) == "complete"
+    assert client.approval_requests == [], "a read-only command must not ask"
+    assert client.of_kind("error") == []
+    assert [item["payload"]["ok"] for item in client.of_kind("tool.result")] == [True]
 
     await client.stop()
 

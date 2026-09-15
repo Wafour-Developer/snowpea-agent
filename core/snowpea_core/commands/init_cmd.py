@@ -98,7 +98,7 @@ def ensure_project_settings(root: Path, *, plan: bool) -> str:
     if plan:
         return (
             f'Plan mode: {relative} would be created with defaultMode "accept", '
-            "but nothing is written."
+            "but configuration is not written in plan mode (AGENTS.md itself is)."
         )
     settings = ProjectSettings.load(root)
     settings.defaultMode = "accept"
