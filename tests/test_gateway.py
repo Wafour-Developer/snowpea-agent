@@ -563,3 +563,49 @@ def test_telegram_errors_never_carry_the_bot_token() -> None:
         asyncio.run(adapter._api("getUpdates", {}))
     assert "SECRET" not in str(caught.value)
     assert "<token>" in str(caught.value)
+
+
+def test_split_message_cuts_at_line_breaks_under_the_limit() -> None:
+    from snowpea_core.gateway.base import split_message
+
+    text = "\n".join(f"line {i:03d} " + "x" * 30 for i in range(200))
+    pieces = split_message(text, 4096)
+    assert len(pieces) > 1
+    assert all(len(piece) <= 4096 for piece in pieces)
+    assert "\n".join(pieces).replace("\n", "") == text.replace("\n", "")
+    assert split_message("short", 4096) == ["short"]
+    assert split_message("x" * 10, 4) == ["xxxx", "xxxx", "xx"]
+
+
+async def test_a_long_answer_is_sent_in_pieces(
+    gateway_env: None, http: aiohttp.ClientSession, tmp_path: Path
+) -> None:
+    """The registry's /help alone is 8k chars; Telegram rejects anything over
+    4096 with a 400, which is what silently ate an answer."""
+    workdir = tmp_path / "project"
+    workdir.mkdir()
+    daemon = Daemon(port=0, home=tmp_path / "home")
+    await daemon.start()
+    try:
+        client = await connect(http, daemon)
+        bound = await client.ok(
+            "gateway.bind",
+            {
+                "platform": "telegram",
+                "credentialsRef": "tg_test",
+                "target": {"new_session": {"workdir": str(workdir), "mode": "accept"}},
+                "channelId": "c1",
+                "userId": "u1",
+            },
+        )
+        adapter = FakeAdapter.instances["tg_test"]
+        adapter.max_message_chars = 50
+        router = daemon.core.gateway
+        binding = next(b for b in router.list() if b.id == bound["bindingId"])
+        await router.send(binding, "c1", "\n".join(f"row {i} " + "y" * 20 for i in range(8)))
+        sent = [item for item in adapter.sent if item.channel_id == "c1"]
+        assert len(sent) >= 3
+        assert all(len(item.text) <= 50 for item in sent)
+        await client.stop()
+    finally:
+        await daemon.stop()

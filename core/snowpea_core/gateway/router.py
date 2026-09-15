@@ -37,6 +37,7 @@ from snowpea_core.config.credentials import CredentialError, CredentialStore
 from snowpea_core.config.paths import utc_now
 from snowpea_core.gateway.activity import TurnActivity
 from snowpea_core.gateway.base import (
+    DEFAULT_MAX_MESSAGE_CHARS,
     QUESTION_OTHER,
     Button,
     GatewayError,
@@ -48,6 +49,7 @@ from snowpea_core.gateway.base import (
     parse_question_callback,
     question_buttons,
     question_text,
+    split_message,
 )
 from snowpea_core.gateway.chat import CHAT_KINDS, CHATS_FILE, ChatCommands, ChatSessionMemory
 
@@ -627,8 +629,15 @@ class GatewayRouter:
         if adapter is None:
             log.warning("gateway binding %s has no adapter; dropping message", binding.id)
             return ""
+        limit = int(getattr(adapter, "max_message_chars", DEFAULT_MAX_MESSAGE_CHARS) or 0)
+        pieces = split_message(text, limit)
         try:
-            return await adapter.send(channel_id, text, buttons=buttons)
+            # Buttons ride on the last piece, under the text they answer.
+            last = ""
+            for index, piece in enumerate(pieces):
+                tail = index == len(pieces) - 1
+                last = await adapter.send(channel_id, piece, buttons=buttons if tail else None)
+            return last
         except Exception as exc:  # noqa: BLE001 - a dead platform must not end a turn
             log.warning("gateway send on %s failed: %s", binding.id, exc)
             return ""

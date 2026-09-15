@@ -91,6 +91,9 @@ def inline_keyboard(buttons: list[Button]) -> dict[str, Any]:
 class TelegramAdapter:
     """Bot API client: long-poll for updates, POST to reply."""
 
+    #: The platform's hard cap on one message; the router splits above it.
+    max_message_chars = 4096
+
     platform = "telegram"
 
     def __init__(

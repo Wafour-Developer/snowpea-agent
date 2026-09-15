@@ -90,6 +90,9 @@ def action_blocks(text: str, buttons: list[Button]) -> list[dict[str, Any]]:
 class SlackAdapter:
     """One Slack app: ``chat.postMessage`` out, Socket Mode in."""
 
+    #: The platform's hard cap on one message; the router splits above it.
+    max_message_chars = 4000
+
     platform = "slack"
 
     def __init__(

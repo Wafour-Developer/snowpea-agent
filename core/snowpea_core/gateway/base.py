@@ -279,3 +279,27 @@ __all__ = [
     "question_text",
     "session_callback",
 ]
+
+
+#: What a platform accepts in one message when the adapter does not say.
+DEFAULT_MAX_MESSAGE_CHARS = 4000
+
+
+def split_message(text: str, limit: int) -> list[str]:
+    """Cut ``text`` into pieces no longer than ``limit``, at line breaks when
+    one is near, so a long answer arrives as several messages instead of a
+    platform's ``400 Bad Request``.  An empty text stays one empty piece."""
+    if limit <= 0 or len(text) <= limit:
+        return [text]
+    pieces: list[str] = []
+    rest = text
+    while len(rest) > limit:
+        cut = rest.rfind("\n", 0, limit)
+        if cut < limit // 2:
+            cut = rest.rfind(" ", 0, limit)
+        if cut < limit // 2:
+            cut = limit
+        pieces.append(rest[:cut].rstrip("\n"))
+        rest = rest[cut:].lstrip("\n")
+    pieces.append(rest)
+    return [piece for piece in pieces if piece] or [text[:limit]]
