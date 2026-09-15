@@ -555,3 +555,29 @@ def test_installing_does_not_pin(only_path: Path, tmp_path: Path, monkeypatch) -
 
     assert result.state.tts_provider is None, "an install is not a choice"
     assert any("pick it to use it" in line for line in said), said
+
+
+def test_run_install_works_under_a_running_loop(monkeypatch, tmp_path):
+    """``/setup`` from the TUI reaches the wizard inside an event loop, where
+    a bare ``asyncio.run`` raises "cannot be called from a running event loop"."""
+    import asyncio
+
+    from snowpea_core.audio import install as audio_install
+
+    async def fake_install(target, *, home, progress=None, **_):
+        if progress is not None:
+            await progress("downloading")
+        return audio_install.InstallResult(ok=True, engine=target)
+
+    monkeypatch.setattr(audio_install, "install", fake_install)
+    said: list[str] = []
+    target = audio_screen.install_target(f"{audio_screen.INSTALL_PREFIX}sherpa-onnx-sensevoice")
+    assert target
+
+    async def inside_loop():
+        return audio_screen.run_install(
+            f"{audio_screen.INSTALL_PREFIX}sherpa-onnx-sensevoice", tmp_path, said.append
+        )
+
+    assert asyncio.run(inside_loop()) is True
+    assert said == ["  downloading"]

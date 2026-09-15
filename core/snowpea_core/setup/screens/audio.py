@@ -466,11 +466,12 @@ def _voice_tags(voice: Any, pinned: str | None) -> tuple[str, ...]:
 def run_install(choice: str, home: Any, out: Any = None) -> bool:
     """Install the engine an ``install:`` row names; returns whether it worked.
 
-    Synchronous on purpose: the wizard is a terminal flow, not an event loop,
-    and it has nothing else to do while pip runs.  The log is printed as it
-    arrives so a three-minute download does not look like a hang.
+    Synchronous on purpose: the wizard is a terminal flow and has nothing
+    else to do while pip runs.  The log is printed as it arrives so a
+    three-minute download does not look like a hang.  ``run_sync`` copes with
+    being called under a running loop (``/setup`` from the TUI).
     """
-    import asyncio
+    from snowpea_core.setup.sync import run_sync
 
     target = install_target(choice)
     if target is None:
@@ -486,7 +487,7 @@ def run_install(choice: str, home: Any, out: Any = None) -> bool:
         )
 
     try:
-        result = asyncio.run(go())
+        result = run_sync(go())
     except Exception as exc:  # noqa: BLE001 - a failed install is not a failed wizard
         say(f"could not install {target}: {type(exc).__name__}: {exc}")
         return False
