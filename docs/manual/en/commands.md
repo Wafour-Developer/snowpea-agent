@@ -36,6 +36,7 @@ These are answered by the terminal UI itself rather than by the core, so they do
 |---|---|
 | `/resume` | reopen the session this directory was last in, and replay it |
 | `/model` | pick a model or profile from a list; `/model <ref>` pins this session (persisted, survives a restart); `/model inherit` clears the pin; `/model default <id>` sets `models.default` |
+| `/effort` | show how hard the model may think and which rule decided it; `/effort low\|medium\|high\|max` pins this session (persisted); `/effort auto` clears the pin. See [Reasoning effort](setup.md#reasoning-effort) |
 | `/attach <path>` | attach a file to the next prompt |
 | `/voice` | arm voice input; `Ctrl+Space` then records |
 | `/rec` | start or stop recording, same as `Ctrl+Space` |
@@ -49,12 +50,16 @@ These are answered by the terminal UI itself rather than by the core, so they do
 | `/ralph <task>` | PRD loop: stories with acceptance criteria, implement, verify, review until APPROVE |
 | `/ultrawork <task>` | split into independent parts, run them on concurrent subagents, merge the reports |
 | `/review [what]` | review the uncommitted diff with a read-only `reviewer` agent and report the verdict |
+| `/setup [providers\|search\|browser\|audio\|all]` | re-run a wizard screen here, keys entered masked |
+| `/login <vendor> [method]` | sign in to a vendor: browser flow, device flow, or a masked key |
 | `/init [--force]` | fast, rough `AGENTS.md` for the project root, in one turn; merges into an existing file unless `--force` |
 | `/deepinit [path]` | walk the repository and write hierarchical `AGENTS.md` files |
-| `/team "<task>"` | the project team's members run it by role: plan, implement, test, review |
-| `/team <n> <task>` | n workers, one git worktree each, branches merged as tasks finish |
+| `/team "<task>"` | the active team's members run it by role: plan, implement, test, review |
+| `/team <name> "<task>"` | the same, on a named project or global team, just this once |
+| `/workers <N> "<task>"` | N identical workers, one git worktree each, branches merged as tasks finish |
 | `/team create <name> <agent...>` | create a project team from existing agents and activate it |
-| `/team use <name>` / `/team list` | switch the active project team or list teams |
+| `/team use <name>` / `/team use none` | switch the active project team, or clear it |
+| `/team list` | every team, where it came from, and the stage each member fills |
 | `/deep-interview <idea>` | Socratic interview that scores ambiguity and refuses to hand off until the spec holds |
 | `/deep-research <topic>` | multi-source web research fanned out over subagents, answered with citations |
 | `/ralplan <task>` | consensus planning — planner, architect and critic argue before any code is written |
@@ -248,9 +253,20 @@ snowpea gateway list --json
 snowpea gateway unbind <binding-id>
 ```
 
+### Voice engines
+
+```bash
+snowpea audio install faster-whisper
+snowpea audio install piper
+snowpea audio install edge-tts
+```
+
+Installs a local voice engine on the daemon's machine with `uv tool install`, `pipx` or `pip install --user`, whichever is there, and prints the log. Installing `piper` also fetches one default voice. A system package (`espeak-ng`, `say`, `powershell`) is not installed for you: the command exits `2` and prints what to run yourself. See [setup](setup.md#voice-in-and-out).
+
 ### Team and service
 
 ```bash
+snowpea workers status
 snowpea team status
 snowpea team list
 snowpea team create delivery architect executor verifier
@@ -261,7 +277,7 @@ snowpea service status
 snowpea service uninstall
 ```
 
-`team status` reports each task's state and retry count for a running team. `team list`, `create`, `use` and `delete` manage the reusable agent rosters instead: the same project teams `/team create` writes to `<workdir>/.snowpea/settings.json`, listed together with the global ones and with the active team marked. `team delete` removes project teams only. `service` registers the daemon to start at login — a systemd user unit on Linux, a launchd agent on macOS, a scheduled task on Windows. It is off by default, and you only need it if you want schedules and gateways to survive a reboot without anyone logging into a terminal.
+`workers status` (and `team status`, its older spelling) reports each task's state and retry count for a running `/workers` batch. `team list`, `create`, `use` and `delete` manage the reusable agent rosters instead: the same project teams `/team create` writes to `<workdir>/.snowpea/settings.json`, listed together with the global ones and with the active team marked. `team delete` removes project teams only. `service` registers the daemon to start at login — a systemd user unit on Linux, a launchd agent on macOS, a scheduled task on Windows. It is off by default, and you only need it if you want schedules and gateways to survive a reboot without anyone logging into a terminal.
 
 ### Global options
 

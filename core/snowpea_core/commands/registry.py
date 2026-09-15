@@ -176,6 +176,7 @@ def register_builtin_commands(registry: CommandRegistry) -> CommandRegistry:
         backend_cmd,
         deepinit,
         delegate_cmd,
+        effort_cmd,
         init_cmd,
         mcp_cmd,
         memory_cmd,
@@ -184,9 +185,11 @@ def register_builtin_commands(registry: CommandRegistry) -> CommandRegistry:
         ralph,
         review_cmd,
         schedule_cmd,
+        setup_cmd,
         skill_cmd,
         team_cmd,
         ultrawork,
+        workers_cmd,
     )
     from snowpea_core.commands.builtin import COMMANDS
 
@@ -196,6 +199,7 @@ def register_builtin_commands(registry: CommandRegistry) -> CommandRegistry:
         *memory_cmd.COMMANDS,
         *mode_cmd.COMMANDS,
         *model_cmd.COMMANDS,
+        *effort_cmd.COMMANDS,
         *backend_cmd.COMMANDS,
         *schedule_cmd.COMMANDS,
         *agent_cmd.COMMANDS,
@@ -207,7 +211,9 @@ def register_builtin_commands(registry: CommandRegistry) -> CommandRegistry:
         *ultrawork.COMMANDS,
         *deepinit.COMMANDS,
         *init_cmd.COMMANDS,
+        *setup_cmd.COMMANDS,
         *team_cmd.COMMANDS,
+        *workers_cmd.COMMANDS,
     ):
         registry.register(command)
     return registry

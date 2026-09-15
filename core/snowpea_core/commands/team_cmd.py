@@ -1,39 +1,77 @@
-"""``/team N <task>`` — the slash command in front of team mode (M7 §4, §5).
+"""``/team`` — run the project's team, by role (M7 §4, §9).
 
-The command is a thin wrapper: it parses ``N`` and the quoted task, hands both
-to :class:`~snowpea_core.agent.team.TeamManager`, and waits for the run so that
-``turn.done`` really means the team is finished and its worktrees are gone.
+``/team`` is one idea now: *your team does this*.
+
+* ``/team "<task>"`` — the active team's members, each in the role its name
+  implies, staged plan → implement → test → review
+  (:mod:`snowpea_core.agent.team_pipeline`).
+* ``/team <name> "<task>"`` — the same pipeline on a *named* team, project or
+  global, for this one run.  The project's ``activeTeam`` is not touched.
+* ``/team create|use|list|delete`` — the project roster.
+
+**N identical workers moved to** :mod:`~snowpea_core.commands.workers_cmd`
+(``/workers <N> "<task>"``).  They were never a variation of a team: a team is
+the people you assembled, workers are N copies of one anonymous agent racing
+through a task list, and deciding between them by whether the first word was a
+number was a puzzle rather than a grammar.  ``/team <N> …`` now says where the
+mode went instead of quietly doing it — a silent fallback would leave a user
+who typed the old spelling with no idea the grammar had changed.
+
+The run is awaited, so ``turn.done`` really means the team is finished.
 """
 
 from __future__ import annotations
 
 import logging
+import re
 import shlex
 
-from snowpea_core.agent import team_store
-from snowpea_core.agent.team import TeamError, get_manager_for
-from snowpea_core.agent.team import parse_team_args as _parse_args
+from snowpea_core.agent.team_pipeline import (
+    PipelineError,
+    named_roster,
+    parse_pipeline_args,
+    run_pipeline,
+    stage_line,
+    stage_summary,
+)
 from snowpea_core.commands.registry import Command, CommandContext
+from snowpea_core.commands.workers_cmd import MOVED_HINT
 from snowpea_core.server import errors
 from snowpea_core.session import events
 
 log = logging.getLogger("snowpea.commands.team")
 
-USAGE = ('Usage: /team <N> "<task>" | /team create <name> <agent...> | '
-         '/team use <name> | /team list | /team delete <name>')
+USAGE = ('Usage: /team "<task>" | /team <name> "<task>" | '
+         '/team create <name> <agent...> | /team use <name>|none | /team list | '
+         '/team delete <name>')
+
+#: ``/team <bareword> "<task>"`` — a leading name followed by a *quoted* task.
+#: The quotes are what marks the first word as a team name: without them
+#: ``/team add docstrings`` would read "add" as an unknown team rather than as
+#: the task the user plainly meant.
+NAMED_RUN = re.compile(r"""^(\S+)\s+(["'])(.+)\2\s*$""", re.DOTALL)
+
+#: What ``/team use`` takes to mean "no team at all".
+NONE_WORDS = frozenset({"none", "--none", "-"})
 
 TEAM_ARGS_SCHEMA = {
     "type": "object",
     "properties": {
-        "n": {"type": "integer", "description": "How many workers to run in parallel."},
+        "team": {
+            "type": "string",
+            "description": (
+                "Name of a project or global team to run this once; omit it to use "
+                "the project's active team."
+            ),
+        },
         "task": {"type": "string", "description": "What the team should build."},
     },
-    "required": ["n", "task"],
+    "required": ["task"],
 }
 
 
 async def cmd_team(ctx: CommandContext, args: str) -> None:
-    """``/team 3 "add docstrings"`` — split, work in worktrees, merge."""
+    """``/team "add docstrings"`` — the roster, by role, staged."""
     try:
         words = shlex.split(args)
     except ValueError:
@@ -42,52 +80,75 @@ async def cmd_team(ctx: CommandContext, args: str) -> None:
     if words and words[0] in {"create", "use", "list", "delete"}:
         await _configure_team(ctx, words)
         return
-    try:
-        workers, task = _parse_args(args)
-    except TeamError:
+    if words and words[0].isdigit():
+        # The old spelling. Saying where it went beats running it silently and
+        # beats a bare usage line that does not mention the new command.
+        await ctx.say(f"{MOVED_HINT}\n{USAGE}")
+        return
+    await _dispatch_pipeline(ctx, args)
+
+
+async def _dispatch_pipeline(ctx: CommandContext, args: str) -> None:
+    """Tell ``/team <name> "<task>"`` from ``/team "<task>"`` and run it."""
+    from snowpea_core.agent.team_config import teams_with_source
+
+    match = NAMED_RUN.match(args.strip())
+    if match is not None and match.group(1).lower() != "run":
+        name = match.group(1)
+        roster = named_roster(ctx.core, ctx.session.workdir, name)
+        if roster is None:
+            known = sorted(teams_with_source(ctx.core.settings, ctx.session.workdir))
+            await _fail(
+                ctx,
+                f"unknown team '{name}'; known teams: {', '.join(known) or 'none'} "
+                "(/team create <name> <agent...> makes one)",
+            )
+            return
+        await _run_pipeline(ctx, match.group(3).strip(), roster=roster, source=name)
+        return
+    await _run_pipeline(ctx, parse_pipeline_args(args))
+
+
+async def _run_pipeline(
+    ctx: CommandContext,
+    task: str,
+    *,
+    roster: list[str] | None = None,
+    source: str | None = None,
+) -> None:
+    """``/team "<task>"`` — a roster, by role, staged."""
+    if not task:
         await ctx.say(USAGE)
         return
-
-    manager = get_manager_for(ctx.core)
+    if roster is None and not _has_a_roster(ctx):
+        await _fail(
+            ctx,
+            'no active team — /team use <name>, or /team <name> "<task>" to run one '
+            "just this once (/team list shows them)",
+        )
+        return
     try:
-        team_id = await manager.start(ctx.session, workers, task)
-    except TeamError as exc:
+        report = await run_pipeline(ctx.core, ctx.session, task, ctx.say, roster, source=source)
+    except PipelineError as exc:
         await _fail(ctx, str(exc))
         return
-    except Exception as exc:  # noqa: BLE001 - a broken start ends the command
-        log.exception("could not start a team")
-        await _fail(ctx, f"could not start the team: {type(exc).__name__}: {exc}")
+    except Exception as exc:  # noqa: BLE001 - a broken pipeline ends the command
+        log.exception("the team pipeline failed")
+        await _fail(ctx, f"the pipeline failed: {type(exc).__name__}: {exc}")
         return
+    await ctx.say(report)
 
-    status = await manager.status(team_id)
-    await ctx.say(
-        "\n".join(
-            [
-                f"team {team_id}: {len(status.tasks)} tasks across {workers} worktrees.",
-                *(f"  {row.taskId} {row.title}" for row in status.tasks),
-            ]
-        )
-    )
 
-    await manager.wait(team_id)
-    final = await manager.status(team_id)
-    merged = [row for row in final.tasks if row.status == team_store.MERGED]
-    failed = [row for row in final.tasks if row.status == team_store.FAILED]
-    lines = [
-        f"team {team_id} finished: {len(merged)} merged, {len(failed)} failed.",
-        *(
-            f"  {row.taskId} {row.status}"
-            + (f" (retries {row.retries})" if row.retries else "")
-            + (f" — {row.conflictSummary}" if row.conflictSummary else "")
-            for row in final.tasks
-        ),
-    ]
-    await ctx.say("\n".join(lines))
+def _has_a_roster(ctx: CommandContext) -> bool:
+    """True when ``/team "<task>"`` has somebody to run: a team, or the default."""
+    from snowpea_core.agent.team_pipeline import roster_for
+
+    return bool(roster_for(ctx.core, ctx.session)[0])
 
 
 async def _configure_team(ctx: CommandContext, words: list[str]) -> None:
     """Manage the project roster without disturbing legacy team execution."""
-    from snowpea_core.agent.team_config import teams_for
+    from snowpea_core.agent.team_config import teams_for, teams_with_source
     from snowpea_core.commands.agent_cmd import definitions_for
     from snowpea_core.config.project import ProjectSettings
 
@@ -96,15 +157,34 @@ async def _configure_team(ctx: CommandContext, words: list[str]) -> None:
     all_teams = teams_for(ctx.core.settings, ctx.session.workdir)
     if action == "list":
         active = project.agents.activeTeam or ctx.core.settings.agents.default_team
+        sourced = teams_with_source(ctx.core.settings, ctx.session.workdir)
         lines = ["Teams:"]
-        for name, members in sorted(all_teams.items()):
-            lines.append(f"  {'*' if name == active else ' '} {name}: {', '.join(members)}")
+        for name, (members, origin) in sorted(sourced.items()):
+            lines.append(
+                f"  {'*' if name == active else ' '} {name} [{origin}]: {', '.join(members)}"
+            )
+            # A roster is a list of names until you know which stage of
+            # `/team "<task>"` each one fills, so say it here.
+            lines.append(f"      {stage_line(ctx.core, ctx.session.workdir, members)}")
+        if not sourced:
+            lines.append("  (none — /team create <name> <agent...> makes one)")
+        lines.append("Pipeline stages for the active roster:")
+        lines.extend(stage_summary(ctx.core, ctx.session))
         await ctx.say("\n".join(lines))
         return
     if len(words) < 2:
         await ctx.say(USAGE)
         return
     name = words[1]
+    if action == "use" and name.lower() in NONE_WORDS:
+        # Back to no team: delegation is unrestricted again and `/team
+        # "<task>"` falls back to the global default roster.
+        project.agents.activeTeam = None
+        project.save(ctx.session.workdir)
+        ctx.session.team = None
+        ctx.session.team_agents = ()
+        await ctx.say("Active team cleared. This project has no team now.")
+        return
     if action == "create":
         members = list(dict.fromkeys(words[2:]))
         known = {definition.name for definition in definitions_for(ctx.core, ctx.session.workdir)}
@@ -153,8 +233,9 @@ async def _fail(ctx: CommandContext, message: str) -> None:
 COMMANDS: tuple[Command, ...] = (
     Command(
         name="team",
-        summary=('Run a worktree team or manage the project roster: '
-                 '/team create <name> <agent...> | /team use <name> | /team list.'),
+        summary=('Run the project team by role: /team "<task>" | /team <name> "<task>", '
+                 'or manage the roster: /team create <name> <agent...> | /team use '
+                 '<name>|none | /team list | /team delete <name>.'),
         run=cmd_team,
         args_schema=TEAM_ARGS_SCHEMA,
     ),

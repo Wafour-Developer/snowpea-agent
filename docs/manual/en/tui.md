@@ -240,6 +240,27 @@ The argument schema is a superset of Claude Code's `AskUserQuestion` — `questi
 
 On a messenger binding the same question arrives as numbered text with one button per option plus an "Other" button, and a typed reply of `2` (or `1,3` for a multi-select) answers it. A chat has no tabs, so it works through a batch one message at a time and says where it is (`(1/3)`). Headless `snowpea -c` has no picker to draw, so it declines the question at once and says so on stderr instead of waiting out the timeout.
 
+## Setting up from inside the TUI
+
+Keys used to be typable only in the Python wizard: a provider you picked here had nowhere to put its credential, so you quit, ran `snowpea setup`, and came back. Two commands close that.
+
+```text
+/setup                    # every screen in turn
+/setup browser            # just one: providers, search, browser or audio
+/login anthropic          # asks which flow, then runs it
+/login gemini browser     # straight to the browser login
+```
+
+They use the same question picker as everything else: the recommended row first and marked, arrows or 1-9 to pick, Esc to decline. The difference is what happens when the answer is a **credential**.
+
+**A key is masked as you type it.** The field draws `••••` rather than the characters, one dot per character so a paste that arrived short is visibly different from one that worked. The footer says `hidden`. The value never appears in the transcript, never in the review tab of a multi-question batch, and never in a log — only in `settings.json`, with the file's usual `0600`.
+
+The daemon marks those questions itself with `secret` on the question, so any surface that draws questions gets the same treatment without being told which providers have keys. A URL or a project id is asked in the clear, because neither is a secret and hiding it while you paste helps nobody.
+
+`/setup` writes exactly what `snowpea setup` writes, through the same code: which provider needs a key, what the hint says and where the answer is stored are decided in one place, so the two can never drift apart.
+
+Both refuse in a session with nobody to ask — an unattended run, a scheduled job, a delegated child — because a key prompt there either hangs until the timeout or takes silence for an answer.
+
 ## Diffs
 
 A file change appears where it happened, in the conversation:

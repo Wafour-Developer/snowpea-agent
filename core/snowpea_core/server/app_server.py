@@ -440,6 +440,10 @@ async def provider_configure_handler(
             "preset",
             "label",
             "context_window",
+            # Whether this server's model may be sent images, and the opt-in
+            # for a reasoning-effort field (CORE-vision, CORE-effort).
+            "vision",
+            "effort_param",
             "max_tokens",
             "thinking",
             "token",

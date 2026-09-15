@@ -41,6 +41,10 @@ Decision = Literal["allow", "deny"]
 ApprovalScope = Literal["once", "session", "project", "always"]
 AllowlistScope = Literal["session", "project", "always"]
 BackendKind = Literal["local", "docker", "ssh"]
+#: How hard a reasoning model may think; one scale for every vendor.
+EffortLevel = Literal["low", "medium", "high", "max"]
+#: Which rule decided the effective effort, for a surface that shows why.
+EffortSource = Literal["session", "model", "vendor", "default"]
 #: What a language server is doing right now (M13 contract §4).
 LspServerState = Literal["starting", "ready", "broken", "stopped"]
 #: Where an MCP server is declared (M14 contract §2).  ``plugin`` and
@@ -248,6 +252,9 @@ class SessionCreateParams(Payload):
         default=None, description="Model id; defaults to the provider's default."
     )
     agent: str | None = Field(default=None, description="Named agent whose persona to load.")
+    effort: EffortLevel | None = Field(
+        default=None, description="Reasoning effort for this session; null follows the settings."
+    )
     maxConcurrent: int | None = Field(
         default=None, description="Override for concurrent subagents."
     )
@@ -300,6 +307,13 @@ class SessionSummary(Payload):
         default=None, description="Context window of the session's model; null when unknown."
     )
     lastPrompt: str | None = Field(default=None, description="Latest saved user input.")
+    effort: EffortLevel | None = Field(
+        default=None,
+        description=(
+            "Reasoning effort pinned to this session, or null when it follows "
+            "agent.effortBy / agent.effort."
+        ),
+    )
     kind: SessionKind = Field(
         default="chat",
         description=(
@@ -464,6 +478,36 @@ class AudioTranscribeParams(Payload):
 class AudioTranscribeResult(Payload):
     text: str = Field(description="What the backend heard.")
     provider: str = Field(description="Backend that produced the transcript.")
+
+
+class AudioInstallParams(Payload):
+    """Install one local voice engine on the daemon's machine."""
+
+    engine: str = Field(
+        description=(
+            "Engine id from the setup catalog: faster-whisper (or local-whisper), "
+            "piper, edge-tts. A system package (espeak-ng, say, powershell) answers "
+            "ok=false with a hint instead."
+        )
+    )
+
+
+class AudioInstallResult(Payload):
+    """What ``audio.install`` did, log and all."""
+
+    ok: bool = Field(description="True when the engine is installed and now detected.")
+    engine: str = Field(description="Engine that was attempted, after id normalisation.")
+    log: str = Field(
+        default="",
+        description="Tail of the installer's combined output, newest last; may be empty.",
+    )
+    hint: str | None = Field(
+        default=None,
+        description=(
+            "What to do instead, when ok is false: the platform's own install command "
+            "for a system package, or why the attempt could not run."
+        ),
+    )
 
 
 class AudioSpeakParams(Payload):
@@ -658,6 +702,14 @@ class QuestionItem(Payload):
     allowOther: bool = Field(
         default=True, description="Offer a free-text '기타 / Other' row alongside the options."
     )
+    secret: bool = Field(
+        default=False,
+        description=(
+            "The free-text answer is a credential. A surface MUST mask it while it is "
+            "typed, MUST NOT echo it into the transcript, and MUST NOT log it. Set for "
+            "API keys and tokens; a URL or a project id is asked in the clear."
+        ),
+    )
 
 
 class QuestionRequest(Payload):
@@ -789,6 +841,13 @@ class ProviderInfo(Payload):
         default=False,
         description="True for a named OpenAI-compatible server the user added, not a built-in.",
     )
+    supportsEffort: bool = Field(
+        default=False,
+        description=(
+            "True when this vendor accepts a reasoning-effort setting. False for a local-style "
+            "server unless its block sets effort_param: true."
+        ),
+    )
 
 
 class ProviderListResult(Payload):
@@ -817,6 +876,40 @@ class ProviderModelsResult(Payload):
     )
     detail: str = Field(
         default="", description="One line naming the source, for a picker to show."
+    )
+    vision: dict[str, bool] = Field(
+        default_factory=dict,
+        description=(
+            "Which of the listed models can be sent images, when that is known. A model "
+            "missing from this map is unknown rather than text-only, so a picker draws no "
+            "badge for it instead of a negative one."
+        ),
+    )
+
+
+class SessionSetEffortParams(Payload):
+    """``session.setEffort`` — pin how hard this session may think."""
+
+    sessionId: str = Field(description="Session to pin.")
+    effort: EffortLevel | None = Field(
+        default=None,
+        description=(
+            "One of 'low', 'medium', 'high', 'max'. Null clears the pin and lets "
+            "agent.effortBy / agent.effort decide again."
+        ),
+    )
+
+
+class SessionSetEffortResult(Payload):
+    """What the session will now use, and which rule decided it."""
+
+    sessionId: str = Field(description="Session that was pinned.")
+    effort: EffortLevel = Field(description="Effective reasoning effort after the change.")
+    effortSource: EffortSource = Field(
+        description="Rule that decided it: the session pin, a model or vendor rule, or the default."
+    )
+    pinned: EffortLevel | None = Field(
+        default=None, description="The session's own pin; null when it follows the settings."
     )
 
 
@@ -1499,6 +1592,28 @@ class SetupCatalogItem(Payload):
     tags: list[str] = Field(
         default_factory=list, description="Display tags, e.g. ('free · no key', 'active')."
     )
+    installable: bool = Field(
+        default=False,
+        description=(
+            "True when audio.install can obtain this row without root, so a surface "
+            "may draw an Install button next to it. Only the voice rows set it."
+        ),
+    )
+    installHint: str | None = Field(
+        default=None,
+        description=(
+            "A command the user runs themselves, e.g. 'sudo apt install espeak-ng'. "
+            "Set for a system package the daemon will not install, and as a fallback "
+            "beside an Install button."
+        ),
+    )
+    recommended: bool = Field(
+        default=False,
+        description=(
+            "True for the one row a screen should lead with and pre-select when "
+            "nothing is configured yet. At most one row per list sets it."
+        ),
+    )
 
 
 class SetupCatalogResult(Payload):
@@ -1848,6 +1963,13 @@ class ModelChanged(Payload):
     kind: Literal["model.changed"] = "model.changed"
     provider: str | None = Field(default=None, description="Vendor now in effect.")
     model: str | None = Field(default=None, description="Model id now in effect.")
+    effort: EffortLevel | None = Field(
+        default=None, description="Effective reasoning effort for the session (CORE-effort)."
+    )
+    effortSource: EffortSource | None = Field(
+        default=None,
+        description="Rule that decided the effort: 'session', 'model', 'vendor' or 'default'.",
+    )
 
 
 class TurnStarted(Payload):
@@ -2077,6 +2199,17 @@ class CommandsChangedNotification(Payload):
         default_factory=list, description="The command table as it stands now."
     )
     reason: str = Field(default="reload", description="Why the table changed.")
+
+
+class AudioInstallProgressNotification(Payload):
+    """One line of output from a running ``audio.install``.
+
+    Session-less and broadcast: an install belongs to the daemon, not to a
+    conversation, and any attached surface may be showing the log.
+    """
+
+    engine: str = Field(description="Engine being installed.")
+    line: str = Field(description="One line of the installer's output.")
 
 
 class JobEventNotification(Payload):
@@ -2588,6 +2721,12 @@ METHODS: dict[str, RpcMethod] = {
             "Pin a session to a model profile, or clear the pin.",
         ),
         _m(
+            "session.setEffort",
+            SessionSetEffortParams,
+            SessionSetEffortResult,
+            "Pin how hard a session's model may think, or clear the pin.",
+        ),
+        _m(
             "audio.capabilities",
             Empty,
             AudioCapabilitiesResult,
@@ -2616,6 +2755,12 @@ METHODS: dict[str, RpcMethod] = {
             AudioRecordStopParams,
             AudioRecordResult,
             "Stop the recording and return the wav it wrote.",
+        ),
+        _m(
+            "audio.install",
+            AudioInstallParams,
+            AudioInstallResult,
+            "Install a local voice engine and re-run detection.",
         ),
         _m(
             "command.list",
@@ -2830,6 +2975,7 @@ EVENTS: dict[str, type[BaseModel]] = {
     "provider.loginProgress": ProviderLoginProgressNotification,
     "settings.changed": SettingsChangedNotification,
     "mcp.changed": McpChangedNotification,
+    "audio.install.progress": AudioInstallProgressNotification,
 }
 
 CAPABILITIES: list[str] = [
@@ -2872,11 +3018,13 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "session.compact",
         "session.setMode",
         "session.setModel",
+        "session.setEffort",
         "audio.capabilities",
         "audio.transcribe",
         "audio.speak",
         "audio.record.start",
         "audio.record.stop",
+        "audio.install",
         "command.list",
         "command.run",
         "tool.list",

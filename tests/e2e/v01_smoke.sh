@@ -278,7 +278,7 @@ fi
 if ! command_registered team; then
   skip_step 8 "/team is not registered yet (pending US-020)"
 else
-  sn -c "/team 2 'add docstrings'" --mode auto --cwd "$FIXTURE_REPO" >/dev/null 2>&1
+  sn -c "/workers 2 'add docstrings'" --mode auto --cwd "$FIXTURE_REPO" >/dev/null 2>&1
   team_rc=$?
   team_status="$(cd "$FIXTURE_REPO" && sn team status 2>&1)"
   merged="$(printf '%s\n' "$team_status" | grep -c "merged")"

@@ -249,14 +249,42 @@ def has_media(parts: Iterable[ContentPart]) -> bool:
     return any(not isinstance(part, TextPart) for part in parts)
 
 
+def messages_have_images(messages: Iterable[Any]) -> bool:
+    """True when any message in a turn carries an image block.
+
+    What the try-once probe keys off: there is no point spending a refused
+    request to learn whether a model can see when this turn has nothing for it
+    to look at (CORE-vision).
+    """
+    for message in messages:
+        blocks = getattr(message, "content", None)
+        if not isinstance(blocks, list) or not has_blocks(blocks):
+            continue
+        if any(block.get("type") == "image" for block in blocks):
+            return True
+    return False
+
+
 def supports_vision(vendor: str, model: str | None) -> bool:
-    """Whether ``vendor``/``model`` can be sent image content parts.
+    """Whether ``vendor``/``model`` can be sent image content parts, by name.
 
     Anthropic and Gemini take images on every catalog model.  For the nine
     OpenAI-compatible vendors the model name decides, against
     :data:`VISION_HINTS`; an unrecognised name (a local GGUF, say) is treated
     as text-only so the turn degrades instead of erroring.
+
+    This is the *name* rung only, and it is the last one that can answer from
+    nothing but two strings.  A configured override, the public catalog, and
+    the try-once probe for a self-hosted server all sit above it in
+    :meth:`~snowpea_core.providers.registry.ProviderRegistry.vision_for`;
+    keeping them out of here is what keeps this module free of settings, HTTP
+    and state.
     """
+    return vision_from_name(vendor, model)
+
+
+def vision_from_name(vendor: str, model: str | None) -> bool:
+    """The name rung, under the name that says what it is."""
     if vendor in VISION_VENDORS:
         return True
     name = (model or "").lower()
@@ -407,6 +435,7 @@ __all__ = [
     "data_uri",
     "has_blocks",
     "has_media",
+    "messages_have_images",
     "history_blocks",
     "parts_from_attachments",
     "parts_from_blocks",
@@ -415,4 +444,5 @@ __all__ = [
     "to_gemini",
     "to_openai",
     "to_text",
+    "vision_from_name",
 ]

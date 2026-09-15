@@ -12,6 +12,7 @@ import argparse
 import io
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -1159,3 +1160,246 @@ def test_vendor_menu_rows_carry_each_tag_once() -> None:
     rows = {vendor: tags for vendor, _label, tags in wizard._vendor_options(state)}  # noqa: SLF001
     assert rows["local"].count("active") == 1
     assert ui.CONFIGURED in rows["local"]
+
+
+# ---------------------------------------------------------------------------
+# the browser key prompt (CORE-setup-browser-key)
+# ---------------------------------------------------------------------------
+
+
+def test_picking_a_paid_browser_provider_asks_for_its_key(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The bug: the choice was saved and the credential never asked for."""
+    asked: list[tuple[str, bool]] = []
+
+    def fake_ask_text(prompt: str, *, secret: bool = False) -> str:
+        asked.append((prompt, secret))
+        return "fc-secret" if "API key" in prompt else "answer"
+
+    monkeypatch.setattr(ui, "ask_text", fake_ask_text)
+    monkeypatch.setattr(wizard, "_probe_browser", lambda *a, **kw: None)
+
+    wizard.run(
+        "full",
+        home=home,
+        interactive=True,
+        ask=lambda screen, **kwargs: (
+            "firecrawl_cloud" if screen.title.startswith("③") else SKIP
+        ),
+    )
+
+    assert any("Firecrawl" in prompt and "API key" in prompt and secret
+               for prompt, secret in asked), asked
+    settings = _settings(home)
+    assert settings.browser.provider == "firecrawl_cloud"
+    assert settings.browser.credentials["firecrawl_cloud"]["api_key"] == "fc-secret"
+
+
+def test_a_provider_needing_two_values_is_asked_for_both(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Browserbase wants a project id as well; half a credential is no credential."""
+    asked: list[tuple[str, bool]] = []
+
+    def fake_ask_text(prompt: str, *, secret: bool = False) -> str:
+        asked.append((prompt, secret))
+        return "bb-key" if "API key" in prompt else "proj-123"
+
+    monkeypatch.setattr(ui, "ask_text", fake_ask_text)
+    monkeypatch.setattr(wizard, "_probe_browser", lambda *a, **kw: None)
+
+    wizard.run(
+        "full",
+        home=home,
+        interactive=True,
+        ask=lambda screen, **kwargs: "browserbase" if screen.title.startswith("③") else SKIP,
+    )
+
+    assert any("BROWSERBASE_PROJECT_ID" in prompt for prompt, _ in asked), asked
+    # The project id is an identifier, not a secret, so it is not masked.
+    assert all(
+        not secret for prompt, secret in asked if "BROWSERBASE_PROJECT_ID" in prompt
+    )
+    block = _settings(home).browser.credentials["browserbase"]
+    assert block["api_key"] == "bb-key"
+    assert block["browserbase_project_id"] == "proj-123"
+
+
+def test_a_keyless_browser_provider_is_never_asked_for_one(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    asked: list[str] = []
+    monkeypatch.setattr(
+        ui, "ask_text", lambda prompt, *, secret=False: asked.append(prompt) or ""
+    )
+
+    wizard.run(
+        "full",
+        home=home,
+        interactive=True,
+        ask=lambda screen, **kwargs: (
+            "local_chromium" if screen.title.startswith("③") else SKIP
+        ),
+    )
+
+    assert not any("API key" in prompt and "Chromium" in prompt for prompt in asked)
+    assert _settings(home).browser.provider == "local_chromium"
+
+
+def test_enter_keeps_an_already_saved_browser_key(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    wizard.run(
+        "full",
+        home=home,
+        browser_provider="firecrawl_cloud",
+        browser_key="first-key",
+        interactive=False,
+    )
+    assert _settings(home).browser.credentials["firecrawl_cloud"]["api_key"] == "first-key"
+
+    prompts: list[str] = []
+    monkeypatch.setattr(
+        ui, "ask_text", lambda prompt, *, secret=False: prompts.append(prompt) or ""
+    )
+    monkeypatch.setattr(wizard, "_probe_browser", lambda *a, **kw: None)
+    wizard.run(
+        "full",
+        home=home,
+        interactive=True,
+        ask=lambda screen, **kwargs: (
+            "firecrawl_cloud" if screen.title.startswith("③") else SKIP
+        ),
+    )
+
+    assert any("saved — Enter to keep" in prompt for prompt in prompts), prompts
+    assert _settings(home).browser.credentials["firecrawl_cloud"]["api_key"] == "first-key"
+
+
+def test_an_empty_answer_with_nothing_saved_is_refused_in_words(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    said: list[str] = []
+    monkeypatch.setattr(ui, "ask_text", lambda prompt, *, secret=False: "")
+
+    result = wizard.run(
+        "full",
+        home=home,
+        interactive=True,
+        console=SimpleNamespace(print=lambda text="", **kw: said.append(str(text))),
+        ask=lambda screen, **kwargs: (
+            "firecrawl_cloud" if screen.title.startswith("③") else SKIP
+        ),
+    )
+
+    assert any("a key is required" in line for line in said), said
+    notes = "\n".join(result.summary())
+    assert "firecrawl_cloud: no API key" in notes
+    assert "FIRECRAWL_API_KEY" in notes
+
+
+def test_the_browser_key_flag_is_saved_and_does_not_prompt_again(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    asked: list[str] = []
+    monkeypatch.setattr(
+        ui, "ask_text", lambda prompt, *, secret=False: asked.append(prompt) or "unexpected"
+    )
+
+    wizard.run(
+        "full",
+        home=home,
+        browser_provider="browserbase",
+        browser_key="flag-key",
+        interactive=True,
+        ask=lambda screen, **kwargs: SKIP,
+    )
+
+    assert not any("API key" in prompt and "Browserbase" in prompt for prompt in asked)
+    assert _settings(home).browser.credentials["browserbase"]["api_key"] == "flag-key"
+
+
+def test_the_browser_provider_flag_alone_still_prompts_interactively(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The flag answers the screen; it must not answer the credential."""
+    asked: list[str] = []
+
+    def fake_ask_text(prompt: str, *, secret: bool = False) -> str:
+        asked.append(prompt)
+        return "prompted-key" if "API key" in prompt else "p-1"
+
+    monkeypatch.setattr(ui, "ask_text", fake_ask_text)
+    monkeypatch.setattr(wizard, "_probe_browser", lambda *a, **kw: None)
+
+    wizard.run(
+        "full",
+        home=home,
+        browser_provider="firecrawl_cloud",
+        interactive=True,
+        ask=lambda screen, **kwargs: SKIP,
+    )
+
+    assert any("Firecrawl" in prompt and "API key" in prompt for prompt in asked), asked
+    assert _settings(home).browser.credentials["firecrawl_cloud"]["api_key"] == "prompted-key"
+
+
+def test_a_browser_key_without_a_provider_is_a_usage_error(home: Path) -> None:
+    with pytest.raises(wizard.SetupError, match="--browser-key needs --browser-provider"):
+        wizard.run("full", home=home, browser_key="orphan", interactive=False)
+
+
+def test_a_paid_browser_provider_without_a_key_warns_in_the_summary(home: Path) -> None:
+    result = wizard.run("full", home=home, browser_provider="browserbase", interactive=False)
+    notes = "\n".join(result.summary())
+    assert "browserbase: no API key" in notes
+    assert "BROWSERBASE_API_KEY" in notes
+
+
+def test_a_failing_probe_warns_but_still_saves(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A probe is a courtesy: an offline machine must not lose the key."""
+    said: list[str] = []
+    monkeypatch.setattr(
+        ui, "ask_text", lambda prompt, *, secret=False: "fc-key" if "API key" in prompt else ""
+    )
+    monkeypatch.setattr(
+        wizard, "_probe_browser", lambda *a, **kw: "firecrawl_cloud rejected the key (HTTP 401)"
+    )
+
+    wizard.run(
+        "full",
+        home=home,
+        interactive=True,
+        console=SimpleNamespace(print=lambda text="", **kw: said.append(str(text))),
+        ask=lambda screen, **kwargs: (
+            "firecrawl_cloud" if screen.title.startswith("③") else SKIP
+        ),
+    )
+
+    assert any("warning:" in line and "401" in line for line in said), said
+    assert _settings(home).browser.credentials["firecrawl_cloud"]["api_key"] == "fc-key"
+
+
+def test_the_runtime_reads_the_slot_the_wizard_writes(home: Path) -> None:
+    """The contract between the two halves: browser.credentials.<id>."""
+    from snowpea_core.tools import browser_providers
+
+    wizard.run(
+        "full",
+        home=home,
+        browser_provider="browserbase",
+        browser_key="bb-key",
+        interactive=False,
+    )
+    settings = _settings(home)
+    settings.browser.credentials["browserbase"]["browserbase_project_id"] = "p-9"
+
+    found = browser_providers.credentials_for("browserbase", settings)
+    assert found["api_key"] == "bb-key"
+    assert found["browserbase_project_id"] == "p-9"
+    assert browser_providers.configured("browserbase", settings) is True
+    assert browser_providers.configured("firecrawl_cloud", settings) is False
+    assert browser_providers.configured("local_chromium", settings) is True

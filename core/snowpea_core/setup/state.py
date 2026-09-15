@@ -46,6 +46,11 @@ class WizardState:
     #: Only providers the run actually touched appear here.
     search_credentials: dict[str, dict[str, Any]] = field(default_factory=dict)
     browser_provider: str = catalog.DEFAULT_BROWSER_PROVIDER
+    #: Per-provider browser credentials, the same shape as
+    #: :attr:`search_credentials`: ``{"browserbase": {"api_key": "...",
+    #: "browserbase_project_id": "..."}}``.  Written to
+    #: ``browser.credentials.<id>``, which is where the runtime reads them.
+    browser_credentials: dict[str, dict[str, Any]] = field(default_factory=dict)
     #: Voice in and out.  ``"off"`` is a real answer, distinct from ``"auto"``:
     #: it means "never listen" / "never speak" rather than "pick for me".
     stt_provider: str = catalog.DEFAULT_STT_PROVIDER
@@ -130,6 +135,9 @@ class WizardState:
                 if isinstance(block, dict)
             },
             browser_provider=settings.browser.provider or catalog.DEFAULT_BROWSER_PROVIDER,
+            browser_credentials={
+                pid: dict(block) for pid, block in settings.browser.credentials.items()
+            },
             tool_categories=defaults,
             gateways=gateways,
             has_saved_registry_token=bool(
@@ -424,6 +432,11 @@ class WizardState:
             if existing:
                 settings.search.credentials[pid] = existing
         settings.browser.provider = self.browser_provider
+        for pid, block in self.browser_credentials.items():
+            existing = dict(settings.browser.credentials.get(pid) or {})
+            existing.update({k: v for k, v in block.items() if v})
+            if existing:
+                settings.browser.credentials[pid] = existing
         settings.tools.enabled_categories = self.enabled_categories()
         if self.registry_token:
             settings.skills.registry.token = self.registry_token
@@ -455,7 +468,7 @@ class WizardState:
                 else ""
             ),
             f"search     {self.search_provider}{self._search_key_note()}",
-            f"browser    {self.browser_provider}",
+            f"browser    {self.browser_provider}{self.browser_note()}",
             f"audio      in {self.stt_provider} · out {self.tts_provider}{self._voice_note()}",
             f"tools      {len(self.enabled_categories())} categories on"
             f" ({', '.join(self.enabled_categories())})",
@@ -497,6 +510,39 @@ class WizardState:
         block = dict(self.search_credentials.get(provider_id) or {})
         block["api_key"] = api_key
         self.search_credentials[provider_id] = block
+
+    def has_browser_key(self, provider_id: str) -> bool:
+        """True when this run knows an API key for ``provider_id``."""
+        return bool((self.browser_credentials.get(provider_id) or {}).get("api_key"))
+
+    def set_browser_key(self, provider_id: str, api_key: str) -> None:
+        block = dict(self.browser_credentials.get(provider_id) or {})
+        block["api_key"] = api_key
+        self.browser_credentials[provider_id] = block
+
+    def set_browser_value(self, provider_id: str, name: str, value: str) -> None:
+        """Store one extra credential, e.g. Browserbase's project id."""
+        block = dict(self.browser_credentials.get(provider_id) or {})
+        block[name.lower()] = value
+        self.browser_credentials[provider_id] = block
+
+    def browser_note(self) -> str:
+        """What the summary line says about the browser provider's credentials."""
+        from snowpea_core.tools import browser_providers
+
+        if not browser_providers.needs_key(self.browser_provider):
+            return ""
+        block = self.browser_credentials.get(self.browser_provider) or {}
+        missing = [
+            name
+            for name in browser_providers.extra_envs(self.browser_provider)
+            if not block.get(name.lower())
+        ]
+        if not block.get("api_key"):
+            return " (no key — the browser tools will refuse)"
+        if missing:
+            return f" (missing {', '.join(missing)})"
+        return " (key saved)"
 
     def _gateway_labels(self) -> list[str]:
         """``telegram (user 12345)`` — the id, and who may approve from chat."""

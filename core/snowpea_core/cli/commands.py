@@ -209,9 +209,21 @@ async def model_profiles(
     profiles.update(project_profiles)
     assignments.update(project.agents)
     effective_default = project.default or models.get("default")
+    from snowpea_core.providers import effort as effort_scale
+
+    # The effort each profile would run at, resolved with the same chain the
+    # daemon uses, so the listing answers "how hard does this one think?"
+    # without a second command (CORE-effort).
+    efforts = {
+        name: effort_scale.resolve(
+            settings, (profile or {}).get("provider"), (profile or {}).get("model")
+        )
+        for name, profile in profiles.items()
+    }
     payload = {
         "workdir": str(directory),
         "default": effective_default,
+        "efforts": {name: tier for name, (tier, _source) in efforts.items()},
         "globalDefault": models.get("default"),
         "projectDefault": project.default,
         "profiles": profiles,
@@ -233,7 +245,9 @@ async def model_profiles(
             scope = "project" if name in project_profiles else "global"
             provider = (profile or {}).get("provider", "")
             model = (profile or {}).get("model", "")
-            print(f"{marker} {name:<{width}}  {provider}:{model}  [{scope}]")
+            tier, source = efforts.get(name, ("", ""))
+            effort_note = f"  effort {tier}" + (f" ({source})" if source != "default" else "")
+            print(f"{marker} {name:<{width}}  {provider}:{model}  [{scope}]{effort_note}")
     if assignments:
         print("agents:")
         for agent, profile in sorted(assignments.items()):
@@ -516,6 +530,41 @@ async def team_delete(
     return EXIT_OK
 
 
+async def audio_install(
+    engine: str, home: Path | str | None = None, *, as_json: bool = False
+) -> int:
+    """``snowpea audio install <engine>`` → ``audio.install``.
+
+    The daemon streams its output as ``audio.install.progress`` while it works;
+    the CLI is not subscribed to those, so it prints the log the call returns.
+    An engine the daemon will not install itself — a system package — exits
+    ``2`` with the command to run by hand, which is the useful answer.
+    """
+    name = (engine or "").strip()
+    if not name:
+        return _fail("usage: snowpea audio install <engine>", EXIT_USAGE)
+    try:
+        result = await _call(home, "audio.install", {"engine": name})
+    except DaemonError as exc:
+        return _fail(str(exc), EXIT_NO_DAEMON)
+    except RpcCallError as exc:
+        return _fail(f"audio.install failed ({exc.code}): {exc.message}", EXIT_USAGE)
+    if as_json:
+        _print_json(result)
+        return EXIT_OK if result.get("ok") else EXIT_USAGE
+    body = str(result.get("log") or "").strip()
+    if body:
+        print(body)
+    if result.get("ok"):
+        print(f"{result.get('engine', name)} installed")
+        return EXIT_OK
+    hint = str(result.get("hint") or "").strip()
+    return _fail(
+        f"could not install {result.get('engine', name)}" + (f": {hint}" if hint else ""),
+        EXIT_USAGE,
+    )
+
+
 async def team_status(
     team_id: str | None = None, home: Path | str | None = None, *, as_json: bool = False
 ) -> int:
@@ -599,6 +648,7 @@ async def provider_add_local(
     server_type: str | None = None,
     model: str | None = None,
     label: str | None = None,
+    vision: bool | None = None,
     as_json: bool = False,
 ) -> int:
     """``snowpea provider add-local <name> --url …`` → ``provider.configure``.
@@ -629,6 +679,10 @@ async def provider_add_local(
         config["model"] = model
     if label:
         config["label"] = label
+    if vision is not None:
+        # Settles it for this server rather than letting the try-once probe
+        # spend a refused request learning it (CORE-vision).
+        config["vision"] = vision
     try:
         await _call(home, "provider.configure", {"vendor": vendor, "config": config})
     except DaemonError as exc:
@@ -688,8 +742,14 @@ async def provider_models(
     detail = str(result.get("detail") or "")
     if detail:
         print(f"{name}: {detail}")
+    # A model nothing has said anything about gets no badge at all, rather than
+    # a crossed-out eye that would claim more than is known.
+    raw_vision = result.get("vision")
+    vision: dict[str, Any] = raw_vision if isinstance(raw_vision, dict) else {}
     for model in listed:
-        print(f"{'*' if model == current else ' '} {model}")
+        seen = vision.get(model)
+        badge = "" if seen is None else ("  \N{EYE}" if seen else "  (text only)")
+        print(f"{'*' if model == current else ' '} {model}{badge}")
     return EXIT_OK
 
 
@@ -883,6 +943,7 @@ def setup_command(args: argparse.Namespace, home: Path | str | None = None) -> i
             search_provider=getattr(args, "search_provider", None),
             search_key=getattr(args, "search_key", None),
             browser_provider=getattr(args, "browser_provider", None),
+            browser_key=getattr(args, "browser_key", None),
             tools=getattr(args, "tools", None),
             gateway=getattr(args, "gateway", None),
             token=getattr(args, "token", None),
@@ -2279,6 +2340,19 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
         "--label", default=None, help="human-readable name for pickers"
     )
     provider_add_local_parser.add_argument(
+        "--vision",
+        dest="vision",
+        action="store_true",
+        default=None,
+        help="this server's model can be sent images",
+    )
+    provider_add_local_parser.add_argument(
+        "--no-vision",
+        dest="vision",
+        action="store_false",
+        help="this server's model is text-only; never send images",
+    )
+    provider_add_local_parser.add_argument(
         "--json", dest="sub_json", action="store_true", help="emit JSON"
     )
     provider_remove_parser = provider_sub.add_parser(
@@ -2348,6 +2422,12 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
     )
     setup_parser.add_argument(
         "--browser-provider", dest="browser_provider", default=None, help="browser provider id"
+    )
+    setup_parser.add_argument(
+        "--browser-key",
+        dest="browser_key",
+        default=None,
+        help="API key for --browser-provider (saved under browser.credentials)",
     )
     setup_parser.add_argument(
         "--tools", default=None, help="tool categories: 'vision,-git' enables and disables"
@@ -2628,6 +2708,29 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
         "--force", action="store_true", help="rewrite AGENTS.md from scratch instead of merging"
     )
 
+    audio = sub.add_parser("audio", help="install and inspect the local voice engines")
+    audio_sub = audio.add_subparsers(dest="action", metavar="<action>")
+    audio_install_parser = audio_sub.add_parser(
+        "install", help="install a local voice engine on the daemon's machine"
+    )
+    audio_install_parser.add_argument(
+        "engine",
+        help="faster-whisper (or local-whisper), piper, edge-tts; a system package prints a hint",
+    )
+    audio_install_parser.add_argument(
+        "--json", dest="sub_json", action="store_true", help="emit JSON"
+    )
+
+    workers = sub.add_parser(
+        "workers", help="inspect a run of N identical workers in git worktrees"
+    )
+    workers_sub = workers.add_subparsers(dest="action", metavar="<action>")
+    workers_status = workers_sub.add_parser("status", help="show the worker task board")
+    workers_status.add_argument(
+        "team_id", nargs="?", default=None, help="run id; defaults to the most recent one"
+    )
+    workers_status.add_argument("--json", dest="sub_json", action="store_true", help="emit JSON")
+
     team = sub.add_parser("team", help="inspect a parallel worktree team run")
     team_sub = team.add_subparsers(dest="action", metavar="<action>")
     team_status_parser = team_sub.add_parser("status", help="show a team's task board")
@@ -2779,6 +2882,18 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
         return await update_cli(
             home, check_only=bool(getattr(args, "check_only", False)), as_json=as_json
         )
+    if subcommand == "workers":
+        if action in (None, "status"):
+            return await team_status(getattr(args, "team_id", None), home, as_json=as_json)
+        return _fail("usage: snowpea workers status [runId]", EXIT_USAGE)
+
+    if subcommand == "audio":
+        if action == "install":
+            return await audio_install(
+                str(getattr(args, "engine", "") or ""), home, as_json=as_json
+            )
+        return _fail("usage: snowpea audio install <engine>", EXIT_USAGE)
+
     if subcommand == "team":
         if action == "status":
             return await team_status(getattr(args, "team_id", None), home, as_json=as_json)
@@ -2830,6 +2945,7 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
                 server_type=getattr(args, "server_type", None),
                 model=getattr(args, "model", None),
                 label=getattr(args, "label", None),
+                vision=getattr(args, "vision", None),
                 as_json=as_json,
             )
         if action == "remove":

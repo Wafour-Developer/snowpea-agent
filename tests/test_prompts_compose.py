@@ -469,7 +469,9 @@ def test_every_workflow_prompt_renders_with_no_placeholders_left() -> None:
     names = sorted(
         path.stem for path in (loader.PACKAGE_DIR / "workflows").glob("*.md")
     )
-    assert len(names) == 15  # the workflow briefs, init.md, skill-generate.md, the review trio
+    # the workflow briefs, init.md, skill-generate.md, the review trio,
+    # and the six team-pipeline stage briefs (M6/M7 §9)
+    assert len(names) == 21
     for name in names:
         text = compose.workflow_brief(
             name,
@@ -499,6 +501,10 @@ def test_every_workflow_prompt_renders_with_no_placeholders_left() -> None:
             FILES="- a.py",
             DIFF="@@ -1 +1 @@",
             FINDINGS="- a.py:1 — nothing reads it",
+            TASK_BRIEF="do the thing",
+            HANDOFF="",
+            ROUND_NOTE="",
+            MAX_TASKS=8,
         )
         assert "${" not in text, name
         assert text.strip(), name
