@@ -1893,6 +1893,13 @@ class SubagentSpawn(Payload):
     )
 
 
+class SubagentUsage(Payload):
+    """Tokens one subagent consumed."""
+
+    inputTokens: int = Field(default=0, description="Prompt tokens the subagent used.")
+    outputTokens: int = Field(default=0, description="Completion tokens the subagent used.")
+
+
 class SubagentUpdate(Payload):
     """Progress from a running subagent."""
 
@@ -1910,13 +1917,14 @@ class SubagentUpdate(Payload):
     lastText: str = Field(default="", description="Most recent text the subagent produced.")
     name: str = Field(default="", description="Named agent that is running, when there is one.")
     sessionId: str | None = Field(default=None, description="The subagent's own session.")
+    usage: SubagentUsage | None = Field(
+        default=None,
+        description=(
+            "Tokens the subagent has used so far, cumulative; sent with every update "
+            "so a surface can show a long delegation is still moving."
+        ),
+    )
 
-
-class SubagentUsage(Payload):
-    """Tokens one subagent consumed."""
-
-    inputTokens: int = Field(default=0, description="Prompt tokens the subagent used.")
-    outputTokens: int = Field(default=0, description="Completion tokens the subagent used.")
 
 
 class SubagentDone(Payload):

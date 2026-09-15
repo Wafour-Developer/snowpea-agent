@@ -214,7 +214,8 @@ async def test_a_childs_token_stream_does_not_become_parent_events() -> None:
     A child streams a ``message.delta`` per token, so republishing those would
     put a hundred events a second on the parent session — which is what made
     the TUI's agent panel flicker.  The watcher therefore reacts to whole
-    messages and to tool calls, and counts usage silently.
+    messages and to tool calls; a ``usage`` event is one per model round, so
+    it may republish the meter (that is what shows a quiet child is alive).
     """
     record = SubagentRecord(
         agent_id="a1", name="executor", task="stream a lot", parent_session_id="parent"
@@ -239,8 +240,9 @@ async def test_a_childs_token_stream_does_not_become_parent_events() -> None:
     await watcher.notify(
         "session.event", {"kind": "usage", "payload": {"inputTokens": 7, "outputTokens": 9}}
     )
-    assert manager.updates == [], "usage is counted, not announced"
+    assert manager.updates == [""], "usage moves the meter without a new last line"
     assert record.usage() == {"inputTokens": 7, "outputTokens": 9}
+    manager.updates.clear()
 
     await watcher.notify(
         "session.event", {"kind": "tool.call", "payload": {"name": "read_file"}}

@@ -29,8 +29,12 @@ export type WorkingPhase =
   | { kind: "approval" }
   /** One tool call is in flight. */
   | { kind: "tool"; label: string }
-  /** Delegates are doing the work. */
-  | { kind: "subagents"; running: number }
+  /**
+   * Delegates are doing the work. The token counts are the running children's
+   * own usage so far, so the line can say something is happening while the
+   * parent session itself spends nothing.
+   */
+  | { kind: "subagents"; running: number; inputTokens: number; outputTokens: number }
   /** A slash command owns the turn. */
   | { kind: "command"; name: string }
   /** The model is thinking. */
@@ -114,8 +118,17 @@ export function derivePhase(
   const last = running[running.length - 1];
   if (last) return { kind: "tool", label: toolLabel(last) };
 
-  const agents = state.subagents.filter((agent) => agent.status === "running").length;
-  if (agents > 0) return { kind: "subagents", running: agents };
+  const agents = state.subagents.filter((agent) => agent.status === "running");
+  if (agents.length > 0) {
+    return {
+      kind: "subagents",
+      running: agents.length,
+      // Only the running children: a finished one's tokens are already part of
+      // the parent turn's own usage, and counting them here would double them.
+      inputTokens: agents.reduce((sum, agent) => sum + (agent.inputTokens || 0), 0),
+      outputTokens: agents.reduce((sum, agent) => sum + (agent.outputTokens || 0), 0),
+    };
+  }
 
   if (runningCommand) return { kind: "command", name: runningCommand };
   // Hidden reasoning is the one thing the transcript cannot show, so the
@@ -173,7 +186,16 @@ export function workingLine(input: WorkingLineInput): string | null {
   if (phase.kind === "approval") return `${PAUSED_GLYPH} Waiting for approval`;
 
   const spinner = SPINNER_FRAMES[Math.abs(input.frame ?? 0) % SPINNER_FRAMES.length];
-  const stats = formatStats(input);
+  // While delegates run, the parent spends nothing, so its own counters sit at
+  // zero for minutes. Adding the children's usage keeps the line alive.
+  const stats =
+    phase.kind === "subagents"
+      ? formatStats({
+          ...input,
+          inputTokens: (input.inputTokens ?? 0) + phase.inputTokens,
+          outputTokens: (input.outputTokens ?? 0) + phase.outputTokens,
+        })
+      : formatStats(input);
 
   if (phase.kind === "compacting") {
     // Compaction can run between turns, when the turn clock says nothing, so

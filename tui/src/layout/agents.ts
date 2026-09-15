@@ -60,7 +60,7 @@ export interface AgentRow {
 
 /** `running · 8m 40s · ↓ 316.6k tokens`, as much of it as there is to say. */
 export function agentStatusText(
-  entry: Pick<SubagentEntry, "status" | "startedAt" | "endedAt" | "outputTokens">,
+  entry: Pick<SubagentEntry, "status" | "startedAt" | "endedAt" | "inputTokens" | "outputTokens">,
   now: number,
 ): string {
   const parts: string[] = [entry.status];
@@ -70,7 +70,12 @@ export function agentStatusText(
   if ((entry.status === "done" || entry.status === "error") && entry.startedAt && entry.endedAt) {
     parts.push(formatDuration(entry.endedAt - entry.startedAt));
   }
-  if (entry.outputTokens > 0) parts.push(`↓ ${formatTokens(entry.outputTokens)} tokens`);
+  // A running child reports its usage as it goes, so its row counts up with it.
+  // Nothing is said until it has reported something, or every fresh row would
+  // claim a hard zero.
+  if (entry.outputTokens > 0 || entry.inputTokens > 0) {
+    parts.push(`↓ ${formatTokens(entry.outputTokens)} tokens`);
+  }
   return parts.join(" · ");
 }
 

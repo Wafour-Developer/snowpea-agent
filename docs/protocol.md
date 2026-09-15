@@ -2144,6 +2144,7 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | `status` | `"queued" \| "running" \| "done" \| "error"` | no | Lifecycle state. |
 | `text` | `string` | no | Human-readable progress text. |
 | `title` | `string` | no | One-line label for the delegation, written by the delegating model in the user's language; empty when it wrote none. |
+| `usage` | `{ inputTokens?: number; outputTokens?: number; } \| null` | no | Tokens the subagent has used so far, cumulative; sent with every update so a surface can show a long delegation is still moving. |
 
 ### kind `team.task.update`
 

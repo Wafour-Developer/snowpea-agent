@@ -685,6 +685,7 @@ function applySessionEvent(
         lastText: String(payload.lastText ?? payload.text ?? entry.lastText),
         name: String(payload.name ?? entry.name),
         title: String(payload.title ?? entry.title),
+        inputTokens: Number(payload.usage?.inputTokens ?? entry.inputTokens),
         outputTokens: Number(payload.usage?.outputTokens ?? entry.outputTokens),
         sessionId:
           typeof payload.sessionId === "string" ? payload.sessionId : entry.sessionId,
