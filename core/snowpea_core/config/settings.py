@@ -120,6 +120,12 @@ class AgentsSettings(_Model):
     #: bounded to the built-in roles instead of every custom definition.
     teams: dict[str, list[str]] = Field(default_factory=dict)
     default_team: str | None = None
+    #: How much of the parent's context a delegated child starts with.
+    #: ``"lean"`` drops the memory recall block, the skills index and the
+    #: nested instruction files, and narrows a read-only child's eager tool
+    #: set; ``"full"`` gives a child the same prompt a person's session gets
+    #: (CORE-round-cost).
+    childContext: str = "lean"
 
     _normalise_teams = field_validator("teams", mode="before")(normalise_teams)
 
@@ -224,12 +230,25 @@ class AgentSettings(_Model):
     #: Characters of one project instruction file (AGENTS.md, CLAUDE.md,
     #: .snowpea/instructions.md, .cursorrules) that reach the prompt, and the
     #: ceiling on the merged block.  ``None`` derives it from the session's
-    #: context window, clamped to [20_000, 500_000] (CORE-context-files).
+    #: context window, clamped to [20_000, 500_000] (CORE-context-files),
+    #: with the floor dropping to 8_000 for windows <= 32k (CORE-round-cost).
     contextFileMaxChars: int | None = None
+    #: Characters the whole ``# Project Context`` block may spend, across
+    #: every instruction file it quotes.  ``None`` derives it from the
+    #: session's context window, clamped to [12_000, 120_000]; past it the
+    #: deepest files are truncated first (CORE-round-cost).
+    contextFilesMaxChars: int | None = None
     #: Skip project instruction files entirely, the way Hermes'
     #: ``--ignore-rules`` does — for a session that must run on snowpea's own
     #: defaults, or to reproduce a problem without the project's prose.
     ignoreContextFiles: bool = False
+    #: False keeps every tool result in the outgoing request verbatim.  True
+    #: replaces results older than :attr:`keepToolRounds` tool rounds with a
+    #: one-line stub and head/tail trims the long ones that remain
+    #: (CORE-repeat-guard).  The stored transcript is never changed.
+    pruneToolOutputs: bool = True
+    #: Tool rounds whose results reach the provider in full.
+    keepToolRounds: int = 6
 
 
 class DaemonSettings(_Model):
@@ -264,10 +283,21 @@ class ToolsSettings(_Model):
     #: ``write_file`` stop refusing a write to a file this session has not read
     #: in full.  The prompt rule stays either way.
     readBeforeWrite: bool = True
+    #: False disables the repeat guard (CORE-repeat-guard): a re-read of an
+    #: unchanged file, an identical call repeated in a row and a call whose
+    #: output never changes all stop being stubbed, warned about or refused.
+    repeatGuard: bool = True
     #: Tool categories the setup wizard turned on (M3 contract §5).  Empty
     #: means "nothing was chosen yet", which every reader treats as the
     #: catalog defaults in ``setup/catalog.py``.
     enabled_categories: list[str] = Field(default_factory=list)
+    #: Send only the core tools' schemas each round and name the rest in one
+    #: grouped line, which ``tool_search`` expands on demand
+    #: (CORE-round-cost).  False restores the full list on every round.
+    deferred: bool = True
+    #: Tools that must be sent in full whatever the default eager set says —
+    #: an MCP tool a project leans on, say.
+    eager: list[str] = Field(default_factory=list)
 
 
 class MediaMcpSettings(_Model):

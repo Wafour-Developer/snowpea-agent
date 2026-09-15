@@ -75,7 +75,8 @@ def labels(project: environment.ProjectContext) -> list[str]:
 
 def strip_markers(text: str) -> str:
     """The kept file content, without the ``[...truncated …]`` explanation."""
-    return re.sub(r"\n\n\[\.\.\.truncated.*?\]\n\n", "", text, flags=re.S)
+    text = re.sub(r"\n\n\[\.\.\.truncated.*?\]\n\n", "", text, flags=re.S)
+    return re.sub(r"\n?…\[truncated:.*?\]", "", text, flags=re.S)
 
 
 # ---------------------------------------------------------------------------
@@ -187,8 +188,10 @@ def test_the_cap_scales_with_the_context_window() -> None:
     floor = environment.CONTEXT_FILE_MAX_CHARS
     assert environment.context_file_max_chars(None) == floor
     assert environment.context_file_max_chars(0) == floor
-    # A small local model stays at the floor; 6% of 4 chars/token of 8k is less.
-    assert environment.context_file_max_chars(8_000) == floor
+    # A small local model (<= 32k) drops to the 8 000 floor; > 32k stays at 20 000.
+    assert environment.context_file_max_chars(8_000) == environment.CONTEXT_FILE_LOW_WINDOW_CHARS
+    assert environment.context_file_max_chars(32_000) == environment.CONTEXT_FILE_LOW_WINDOW_CHARS
+    assert environment.context_file_max_chars(40_000) == floor
     assert environment.context_file_max_chars(200_000) == int(200_000 * 4 * 0.06)
     assert (
         environment.context_file_max_chars(10_000_000)
@@ -196,6 +199,36 @@ def test_the_cap_scales_with_the_context_window() -> None:
     )
     # An explicit override wins over everything.
     assert environment.context_file_max_chars(200_000, override=1_234) == 1_234
+
+
+def test_the_total_cap_scales_with_the_context_window() -> None:
+    """CORE-round-cost §3: the whole block has its own, tighter ceiling."""
+    assert environment.context_files_max_chars(None) == environment.CONTEXT_FILES_MIN_CHARS
+    assert environment.context_files_max_chars(8_000) == environment.CONTEXT_FILES_MIN_CHARS
+    assert environment.context_files_max_chars(200_000) == int(200_000 * 4 * 0.10)
+    assert (
+        environment.context_files_max_chars(10_000_000)
+        == environment.CONTEXT_FILES_MAX_CHARS
+    )
+    assert environment.context_files_max_chars(200_000, override=999) == 999
+
+
+def test_the_total_cap_truncates_the_deepest_file_first(workdir: Path) -> None:
+    (workdir / "AGENTS.md").write_text("R" * 400, encoding="utf-8")
+    (workdir / "src" / "AGENTS.md").write_text("S" * 400, encoding="utf-8")
+    project = environment.build_project_context(
+        workdir / "src", max_chars=1_000, total_max_chars=500, include_nested=False
+    )
+    root, deepest = project.files
+    # The root file is the project's contract, so it survives whole.
+    assert root.text == "R" * 400
+    assert root.truncated is False
+    assert deepest.truncated is True
+    assert deepest.text.startswith("S" * 100)
+    assert "…[truncated: 300 more chars; read AGENTS.md for the rest]" in deepest.text
+
+    block = environment.context_files_block(project)
+    assert "agent.contextFilesMaxChars" in block
 
 
 def test_truncation_keeps_the_head_and_the_tail(workdir: Path) -> None:
@@ -219,7 +252,7 @@ def test_the_merged_chain_is_capped_once_more(workdir: Path) -> None:
     (workdir / "AGENTS.md").write_text("A" * 600, encoding="utf-8")
     (workdir / "src" / "AGENTS.md").write_text("B" * 600, encoding="utf-8")
     project = environment.build_project_context(
-        workdir / "src", max_chars=1_000, include_nested=False
+        workdir / "src", max_chars=1_000, total_max_chars=1_000, include_nested=False
     )
     assert [item.name for item in project.files] == ["../AGENTS.md", "AGENTS.md"]
     assert project.files[-1].truncated is True
@@ -309,7 +342,9 @@ def test_what_does_not_fit_is_listed_instead(workdir: Path) -> None:
     (workdir / "src" / "AGENTS.md").write_text("S" * 400, encoding="utf-8")
     (workdir / "test" / "AGENTS.md").write_text("T" * 400, encoding="utf-8")
 
-    project = environment.build_project_context(workdir, max_chars=500)
+    project = environment.build_project_context(
+        workdir, max_chars=500, total_max_chars=500
+    )
     assert labels(project) == ["AGENTS.md"]
     assert project.nested_loaded == ()
     assert project.nested_skipped == ("src/AGENTS.md", "test/AGENTS.md")
@@ -344,11 +379,20 @@ async def test_a_brand_new_session_sees_the_whole_hierarchy(
         "test/AGENTS.md",
     }
 
-    # A resumed session and a subagent in the same workdir see the same thing.
+    # A resumed session sees the same thing.  A child does not: a lean child
+    # starts with the root file alone and picks the nested ones up on demand
+    # when a tool touches their directory (CORE-round-cost).
     restored = await daemon.core.sessions.restore(session_id)
     assert restored is not None
     child = Session(id="s-child", workdir=workdir, is_subagent=True)
+    lean = agent.build_system_prompt(child, [], core=daemon.core)
+    assert "root rules" in lean
+    assert "src rules" not in lean
+
+    daemon.core.settings.agents.childContext = "full"
+    agent.invalidate_environment(child)
     assert "src rules" in agent.build_system_prompt(child, [], core=daemon.core)
+    daemon.core.settings.agents.childContext = "lean"
     await client.stop()
 
 
@@ -359,6 +403,7 @@ async def test_a_tiny_cap_leaves_the_rest_to_be_read(
     (workdir / "src" / "AGENTS.md").write_text("src rules", encoding="utf-8")
     (workdir / "test" / "AGENTS.md").write_text("test rules", encoding="utf-8")
     daemon.core.settings.agent.contextFileMaxChars = 12
+    daemon.core.settings.agent.contextFilesMaxChars = 12
 
     client = await connect(http, daemon, timeout=TIMEOUT)
     session_id = await open_session(client, workdir)

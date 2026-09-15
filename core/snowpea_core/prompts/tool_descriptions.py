@@ -129,6 +129,15 @@ ASK_USER = (
     "or timed-out question is not agreement."
 )
 
+TOOL_SEARCH = (
+    "Load the schema of a tool your tool list only names. The list ends with the "
+    "deferred groups — browser, media, git, an MCP server — and their tools are "
+    "callable only once you have their input schemas. Pass \"select:name,name\" when "
+    "you know the names, or a few keywords (\"+browser click\") when you do not; at "
+    "most five come back. What it returns stays in your tool list for the rest of "
+    "the session, so search once per capability, not once per call."
+)
+
 SKILL_VIEW = (
     "Read one installed skill: its SKILL.md body plus the names of the reference, "
     "template and script files that ship with it. Call it the moment a skill in the "
@@ -210,5 +219,6 @@ __all__ = [
     "READ_FILE",
     "SET_MODE",
     "SHELL",
+    "TOOL_SEARCH",
     "WRITE_FILE",
 ]

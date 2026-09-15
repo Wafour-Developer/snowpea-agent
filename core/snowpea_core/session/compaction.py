@@ -492,6 +492,111 @@ async def maybe_auto_compact(core: Core, session: Session) -> CompactionResult |
     return await compact_session(core, session, auto=True)
 
 
+#: Tool rounds whose results reach the provider verbatim when settings say
+#: nothing (Hermes' lean tail keeps six).
+DEFAULT_KEEP_TOOL_ROUNDS = 6
+
+#: Characters of a kept tool result that survive; past this the middle goes
+#: (opencode's ``TOOL_OUTPUT_MAX_CHARS``).
+DEFAULT_TOOL_OUTPUT_MAX_CHARS = 2000
+
+#: Marker left where the middle of a trimmed tool result used to be.
+TRIM_MARKER = "\n…[trimmed]…\n"
+
+
+def _tool_output_stub(name: str, chars: int) -> str:
+    """What an old tool result becomes in the outgoing request."""
+    return (
+        f"[earlier {name or 'tool'} output pruned — {chars} chars; "
+        "re-run the tool if you need it again]"
+    )
+
+
+def _trim_tool_output(text: str, max_chars: int) -> str:
+    """Head/tail ``text`` to ``max_chars``, marking where the middle went."""
+    if max_chars <= 0 or len(text) <= max_chars:
+        return text
+    budget = max(0, max_chars - len(TRIM_MARKER))
+    head = budget * 3 // 4
+    tail = budget - head
+    return text[:head] + TRIM_MARKER + (text[len(text) - tail :] if tail else "")
+
+
+def _tool_round_starts(messages: list[ChatMessage]) -> list[int]:
+    """Index at which each run of consecutive ``tool`` messages begins.
+
+    A round is one assistant turn's worth of results, and the history writes
+    them contiguously, so a run *is* a round without needing a round id.
+    """
+    starts: list[int] = []
+    previous = ""
+    for index, message in enumerate(messages):
+        if message.role == "tool" and previous != "tool":
+            starts.append(index)
+        previous = message.role
+    return starts
+
+
+def prune_old_tool_outputs(
+    history: list[ChatMessage],
+    keep_rounds: int = DEFAULT_KEEP_TOOL_ROUNDS,
+    max_chars: int = DEFAULT_TOOL_OUTPUT_MAX_CHARS,
+) -> list[ChatMessage]:
+    """Shrink old tool results for the *outgoing request only* (CORE-repeat-guard).
+
+    Results older than the last ``keep_rounds`` tool rounds become a one-line
+    stub naming the tool and what it cost; results inside the kept window that
+    run past ``max_chars`` keep a head and a tail.  ``skill_view`` bodies are
+    left alone: :func:`prune_skill_views` already has a marker for them and a
+    second one would tell the model to reload something it cannot.
+
+    The argument list is never mutated and the stored transcript never sees
+    any of this — the caller hands the result straight to the provider.
+    """
+    if not history:
+        return history
+    starts = _tool_round_starts(history)
+    if keep_rounds <= 0:
+        cutoff: int | None = len(history)
+    elif len(starts) > keep_rounds:
+        cutoff = starts[-keep_rounds]
+    else:
+        cutoff = None
+    if cutoff is None and max_chars <= 0:
+        return history
+    skills = set(_skill_names_by_call(history))
+    out = list(history)
+    for index, message in enumerate(out):
+        if message.role != "tool" or not isinstance(message.content, str):
+            continue
+        if message.name == "skill_view" or (message.tool_call_id or "") in skills:
+            continue
+        if message.content.startswith(SKILL_PRUNED_PREFIX):
+            continue
+        if cutoff is not None and index < cutoff:
+            out[index] = replace(
+                message, content=_tool_output_stub(message.name or "", len(message.content))
+            )
+            continue
+        trimmed = _trim_tool_output(message.content, max_chars)
+        if trimmed != message.content:
+            out[index] = replace(message, content=trimmed)
+    return out
+
+
+def tool_prune_settings(core: Core | None) -> tuple[bool, int, int]:
+    """``(on, keep_rounds, max_chars)`` from ``agent.*``; defaults when unset."""
+    agent = getattr(getattr(core, "settings", None), "agent", None)
+    if agent is None:
+        return True, DEFAULT_KEEP_TOOL_ROUNDS, DEFAULT_TOOL_OUTPUT_MAX_CHARS
+    try:
+        keep = max(0, int(getattr(agent, "keepToolRounds", DEFAULT_KEEP_TOOL_ROUNDS)))
+    except (TypeError, ValueError):
+        keep = DEFAULT_KEEP_TOOL_ROUNDS
+    on = bool(getattr(agent, "pruneToolOutputs", True))
+    return on, keep, DEFAULT_TOOL_OUTPUT_MAX_CHARS
+
+
 def format_tokens(count: int) -> str:
     """``12345`` -> ``12.3k``; what the compaction divider shows."""
     if count < 1000:
@@ -501,7 +606,9 @@ def format_tokens(count: int) -> str:
 
 __all__ = [
     "DEFAULT_KEEP_LAST",
+    "DEFAULT_KEEP_TOOL_ROUNDS",
     "DEFAULT_PROTECT_RECENT_VIEWS",
+    "DEFAULT_TOOL_OUTPUT_MAX_CHARS",
     "SKILL_PRUNED_PREFIX",
     "SKILL_VIEW_PRUNE_MIN_CHARS",
     "SUMMARY_HEADING",
@@ -515,6 +622,7 @@ __all__ = [
     "maybe_auto_compact",
     "measure",
     "prompt_messages",
+    "prune_old_tool_outputs",
     "prune_skill_views",
     "reinject_markers",
     "record_provider_usage",
@@ -526,6 +634,7 @@ __all__ = [
     "state_for",
     "summarise",
     "summary_message",
+    "tool_prune_settings",
     "skill_pruned_marker",
     "turn_start_index",
     "window_for",

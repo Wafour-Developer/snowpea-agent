@@ -41,7 +41,7 @@ from snowpea_core.server import errors
 from snowpea_core.session import compaction, events
 from snowpea_core.session.history import message_to_json
 from snowpea_core.skills import hooks as plugin_hooks
-from snowpea_core.tools import output_spill
+from snowpea_core.tools import output_spill, repeat_guard
 from snowpea_core.tools.registry import (
     ProgressEmitter,
     Tool,
@@ -1110,8 +1110,16 @@ async def _run_one_call(
         call_id=call.id,
         progress=ProgressEmitter(core, session.id, call.id, call.name),
     )
+    # A call this session has already paid for does not run again: the guard
+    # answers with the stub (or the refusal) the model should read instead
+    # (CORE-repeat-guard).  The result still travels the normal path below, so
+    # every surface sees a ``tool.result`` either way.
+    repeated = repeat_guard.check(core, session, call.name, dict(call.arguments))
     try:
-        result = await tool.run(ctx, dict(call.arguments))
+        if repeated is not None:
+            result = repeated.as_result()
+        else:
+            result = await tool.run(ctx, dict(call.arguments))
     except asyncio.CancelledError:
         raise
     except Exception as exc:  # noqa: BLE001 - a broken tool is a failed call
@@ -1119,6 +1127,10 @@ async def _run_one_call(
         result = ToolResult(ok=False, error=f"{type(exc).__name__}: {exc}")
     await plugin_hooks.post_tool_use(core, session, call.name, dict(call.arguments))
     result = _spill_long_result(core, call.name, result)
+    if repeated is None:
+        result = await repeat_guard.record(
+            core, session, call.name, dict(call.arguments), result
+        )
     # Next to the LSP ``Diagnostics`` block (tools/fs.py ``_with_diagnostics``):
     # a call that touches a directory with its own AGENTS.md gets that file
     # once, and a call that *writes* one drops the cached prompt that no longer

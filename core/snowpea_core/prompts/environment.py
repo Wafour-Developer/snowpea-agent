@@ -52,6 +52,20 @@ CONTEXT_FILE_CEILING_CHARS = 500_000
 #: slice of the window: ~4 characters per token, 6% of it.
 CONTEXT_FILE_CHARS_PER_TOKEN = 4
 CONTEXT_FILE_WINDOW_FRACTION = 0.06
+#: For small context windows (<= 32k), the per-file floor drops to 8 000 (CORE-round-cost).
+CONTEXT_FILE_LOW_WINDOW_CHARS = 8_000
+CONTEXT_FILE_LOW_WINDOW_THRESHOLD = 32_000
+
+#: The ``# Project Context`` block as a whole — every file it quotes — is
+#: capped separately and more tightly than any one file, because a monorepo
+#: with a nested ``AGENTS.md`` per package otherwise multiplies the per-file
+#: budget by its depth.  claw-code's equivalent pair is 4 000 / 12 000.
+CONTEXT_FILES_MIN_CHARS = 12_000
+CONTEXT_FILES_MAX_CHARS = 120_000
+CONTEXT_FILES_WINDOW_FRACTION = 0.10
+
+#: Marker left where a file was cut to fit the total budget.
+CONTEXT_TOTAL_TRUNCATED = "…[truncated: {count} more chars; read {path} for the rest]"
 #: A clipped file keeps its head and its tail, with the middle replaced by a
 #: marker: the rules at the end of a file matter as much as the ones at the top.
 CONTEXT_TRUNCATE_HEAD_RATIO = 0.7
@@ -220,16 +234,75 @@ def context_file_max_chars(
     """Characters one context file may contribute.
 
     An explicit ``agent.contextFileMaxChars`` wins.  Otherwise the cap scales
-    with the session's context window — a 1M-token model can afford a much
-    larger ``AGENTS.md`` than an 8k local one — clamped to
-    ``[20 000, 500 000]``, and flat at the floor when the window is unknown.
+    with the session's context window — clamped to ``[20 000, 500 000]``, with
+    the floor dropping to 8 000 for small windows (<= 32k).  When the window is
+    unknown, the floor of 20 000 is used.
+    The whole block is capped again by :func:`context_files_max_chars`.
     """
     if override is not None and override > 0:
         return int(override)
     if not isinstance(context_window, int) or context_window <= 0:
         return CONTEXT_FILE_MAX_CHARS
+    floor = (
+        CONTEXT_FILE_LOW_WINDOW_CHARS
+        if context_window <= CONTEXT_FILE_LOW_WINDOW_THRESHOLD
+        else CONTEXT_FILE_MAX_CHARS
+    )
     budget = int(context_window * CONTEXT_FILE_CHARS_PER_TOKEN * CONTEXT_FILE_WINDOW_FRACTION)
-    return max(CONTEXT_FILE_MAX_CHARS, min(budget, CONTEXT_FILE_CEILING_CHARS))
+    return max(floor, min(budget, CONTEXT_FILE_CEILING_CHARS))
+
+
+def context_files_max_chars(
+    context_window: int | None = None, override: int | None = None
+) -> int:
+    """Characters the whole ``# Project Context`` block may contribute.
+
+    ``agent.contextFilesMaxChars`` wins; otherwise the same window scaling as
+    the per-file cap, clamped to ``[12 000, 120 000]``.  The block is the part
+    of the prompt that is re-sent on every single round, so its ceiling is an
+    order of magnitude below the per-file one: one enormous root ``AGENTS.md``
+    is a deliberate choice, twenty nested ones are an accident.
+    """
+    if override is not None and override > 0:
+        return int(override)
+    if not isinstance(context_window, int) or context_window <= 0:
+        return CONTEXT_FILES_MIN_CHARS
+    budget = int(context_window * CONTEXT_FILE_CHARS_PER_TOKEN * CONTEXT_FILES_WINDOW_FRACTION)
+    return max(CONTEXT_FILES_MIN_CHARS, min(budget, CONTEXT_FILES_MAX_CHARS))
+
+
+def apply_total_budget(
+    files: Sequence[ContextFile], budget: int
+) -> tuple[list[ContextFile], list[str]]:
+    """Fit ``files`` into ``budget`` characters, deepest file truncated first.
+
+    The list arrives root-first, so spending the budget front to back leaves
+    the root instructions whole and cuts the nested ones — which is the right
+    way round: the root file is the project's contract, a package's file is a
+    detail the model can read on demand.  A file that loses everything keeps
+    its marker, so the model still knows the file exists and where it is.
+    """
+    kept: list[ContextFile] = []
+    warnings: list[str] = []
+    used = 0
+    for item in files:
+        room = budget - used
+        if len(item.text) <= room:
+            kept.append(item)
+            used += len(item.text)
+            continue
+        head = item.text[: max(0, room)] if room > 0 else ""
+        marker = CONTEXT_TOTAL_TRUNCATED.format(
+            count=len(item.text) - len(head), path=item.name
+        )
+        kept.append(ContextFile(item.name, f"{head}\n{marker}".strip(), truncated=True))
+        warnings.append(
+            f"Context file {item.name} was cut to fit the {budget}-character total for "
+            "the project context block. Read it with read_file, or raise "
+            "agent.contextFilesMaxChars."
+        )
+        used = budget
+    return kept, warnings
 
 
 def truncate_context_content(
@@ -453,8 +526,10 @@ def build_project_context(
     workdir: Path | str,
     *,
     max_chars: int | None = None,
+    total_max_chars: int | None = None,
     context_window: int | None = None,
     override_chars: int | None = None,
+    total_override_chars: int | None = None,
     include_nested: bool = True,
 ) -> ProjectContext:
     """Discover and load this project's instruction files.
@@ -465,6 +540,10 @@ def build_project_context(
     ``AGENTS.md`` files found under the workdir are then appended while the
     merged budget allows; the rest are named so the model can read them where
     it needs them.
+
+    Two budgets apply: ``max_chars`` per file, and ``total_max_chars`` across
+    the whole block.  The total is spent root-first, so the deepest files are
+    the ones that get cut (CORE-round-cost).
     """
     root = Path(workdir)
     try:
@@ -474,32 +553,15 @@ def build_project_context(
     budget = max_chars if max_chars is not None else context_file_max_chars(
         context_window, override_chars
     )
+    total = total_max_chars if total_max_chars is not None else context_files_max_chars(
+        context_window, total_override_chars
+    )
     files: list[ContextFile] = []
     warnings: list[str] = []
     for loader in (_load_snowpea_files, _load_agents_chain, _load_claude_files, _load_cursor_rules):
         files, warnings = loader(root, budget)
         if files:
             break
-    if len(files) > 1:
-        # Per-file budgets are applied above; cap the merged chain once more so
-        # a deep monorepo cannot multiply the budget by its depth.
-        merged = "\n\n".join(item.text for item in files)
-        if len(merged) > budget:
-            keep: list[ContextFile] = []
-            used = 0
-            for item in files:
-                if used + len(item.text) > budget:
-                    clipped, warning = truncate_context_content(
-                        item.text, item.name, max(0, budget - used), read_path=item.name
-                    )
-                    if clipped.strip():
-                        keep.append(ContextFile(item.name, clipped, truncated=True))
-                        if warning:
-                            warnings.append(warning)
-                    break
-                keep.append(item)
-                used += len(item.text)
-            files = keep
     nested_loaded: list[str] = []
     nested_skipped: list[str] = []
     if include_nested:
@@ -512,7 +574,7 @@ def build_project_context(
             if not text:
                 continue
             item, warning = _section(root / relative, root, text, budget)
-            if used + len(item.text) > budget:
+            if used + len(item.text) > total:
                 nested_skipped.append(relative)
                 continue
             files.append(item)
@@ -520,6 +582,11 @@ def build_project_context(
             used += len(item.text)
             if warning:
                 warnings.append(warning)
+    # The last word on size: the merged block, deepest file cut first.  A deep
+    # monorepo cannot multiply the per-file budget by its depth any more.
+    if sum(len(item.text) for item in files) > total:
+        files, clipped = apply_total_budget(files, total)
+        warnings.extend(clipped)
     return ProjectContext(
         files=tuple(files),
         nested_loaded=tuple(nested_loaded),
@@ -571,6 +638,8 @@ def collect(
     read_context: bool = True,
     context_window: int | None = None,
     context_file_chars: int | None = None,
+    context_files_chars: int | None = None,
+    include_nested: bool = True,
     model: str | None = None,
     mode: str | None = None,
     backend: str = "local",
@@ -582,7 +651,11 @@ def collect(
         project = ProjectContext(files=tuple(context_files))
     elif read_context:
         project = build_project_context(
-            workdir, context_window=context_window, override_chars=context_file_chars
+            workdir,
+            context_window=context_window,
+            override_chars=context_file_chars,
+            total_override_chars=context_files_chars,
+            include_nested=include_nested,
         )
     else:
         project = ProjectContext()
@@ -685,6 +758,9 @@ def build_environment_block(env: Environment) -> str:
 __all__ = [
     "AGENTS_FILE_NAMES",
     "CLAUDE_FILE_NAMES",
+    "CONTEXT_FILES_MAX_CHARS",
+    "CONTEXT_FILES_MIN_CHARS",
+    "CONTEXT_FILES_WINDOW_FRACTION",
     "CONTEXT_FILE_CEILING_CHARS",
     "CONTEXT_FILE_MAX_CHARS",
     "CONTEXT_FILE_NAMES",
@@ -701,11 +777,14 @@ __all__ = [
     "Environment",
     "GitSnapshot",
     "ProjectContext",
+    "CONTEXT_TOTAL_TRUNCATED",
     "agents_directory_chain",
+    "apply_total_budget",
     "build_environment_block",
     "build_project_context",
     "collect",
     "context_file_max_chars",
+    "context_files_max_chars",
     "context_files_block",
     "environment_lines",
     "find_git_root",

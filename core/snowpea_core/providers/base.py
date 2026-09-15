@@ -23,6 +23,13 @@ class ToolSpec:
     source: str = "builtin"
     #: The tool's permission tag, shown once per MCP server heading.
     permission: str = ""
+    #: True when this round names the tool but does not send its schema
+    #: (CORE-round-cost).  Stamped by ``tools.deferred.split``; no provider
+    #: sends it, and it is False whenever the scheme is switched off.
+    deferred: bool = False
+    #: The registry category (``file``, ``browser``, ``lsp``…).  Only the
+    #: deferred-tool grouping reads it; no provider sends it.
+    category: str = ""
 
 
 @dataclass

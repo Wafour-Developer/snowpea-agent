@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from snowpea_core.config.settings import DEFAULT_EFFORT, DEFAULT_MAX_TOKENS
 from snowpea_core.prompts import compose
@@ -60,6 +60,12 @@ class _EnvCacheEntry:
 
 _ENV_CACHE: dict[str, _EnvCacheEntry] = {}
 
+#: session id -> (cache key, rendered tools fragment).  The provider's prefix
+#: cache keys off an exact leading substring, so two rounds that offer the same
+#: tools must produce the *same bytes*, not merely equivalent text
+#: (CORE-round-cost).
+_TOOLS_CACHE: dict[str, tuple[tuple[Any, ...], str]] = {}
+
 
 @dataclass
 class AgentConfig:
@@ -91,6 +97,65 @@ def invalidate_environment(session: Session | None = None) -> None:
     _ENV_CACHE.pop(f"{session.id}:{session.workdir}", None)
 
 
+def invalidate_tools(session: Session | Any | None = None) -> None:
+    """Forget the cached tool fragment — ``tool_search``, an MCP sync, a reload."""
+    if session is None:
+        _TOOLS_CACHE.clear()
+        return
+    _TOOLS_CACHE.pop(str(getattr(session, "id", "")), None)
+
+
+def tools_fragment(
+    session: Session,
+    tools: list[ToolSpec],
+    deferred: list[ToolSpec] | None = None,
+    root: Any = None,
+) -> str:
+    """The rendered tool list for this round, cached per session.
+
+    Keyed on what can change the text — the tool names offered, the mode and
+    the role — so an unchanged round reuses the identical string instead of
+    re-rendering one that merely happens to match.
+    """
+    deferred = deferred or []
+    key = (
+        tuple(spec.name for spec in tools),
+        tuple(sorted(spec.name for spec in deferred)),
+        str(getattr(session, "mode", "")),
+        str(getattr(session, "prompt_role", "") or ""),
+    )
+    session_id = str(getattr(session, "id", ""))
+    cached = _TOOLS_CACHE.get(session_id)
+    if cached is not None and cached[0] == key:
+        return cached[1]
+    text = compose.tools_block(tools, deferred, root)
+    _TOOLS_CACHE[session_id] = (key, text)
+    return text
+
+
+def child_context(core: Core | None) -> str:
+    """``agents.childContext`` — ``"lean"`` or ``"full"``."""
+    if core is None:
+        return "lean"
+    try:
+        value = str(core.settings.agents.childContext or "lean").strip().lower()
+    except AttributeError:  # pragma: no cover - a partially built Core in a test
+        return "lean"
+    return value if value in ("lean", "full") else "lean"
+
+
+def is_lean_child(session: Session, core: Core | None) -> bool:
+    """True when this session is a subagent running on the diet prompt.
+
+    A child starts with an empty history and a brief that already says what it
+    is for, so the parent's memory recall, the skills index and every nested
+    ``AGENTS.md`` are context it was not asked to carry (CORE-round-cost).  It
+    keeps its role, its definition prompt, its budget line and the root
+    instruction file, and can still reach a skill by name with ``skill_view``.
+    """
+    return bool(getattr(session, "is_subagent", False)) and child_context(core) == "lean"
+
+
 def context_file_settings(core: Core | None) -> tuple[int | None, bool]:
     """``(agent.contextFileMaxChars, agent.ignoreContextFiles)`` from settings."""
     if core is None:
@@ -104,14 +169,34 @@ def context_file_settings(core: Core | None) -> tuple[int | None, bool]:
     return override, bool(getattr(agent_settings, "ignoreContextFiles", False))
 
 
+def context_files_total_chars(core: Core | None) -> int | None:
+    """``agent.contextFilesMaxChars`` — the cap on the whole block, or ``None``.
+
+    Separate from :func:`context_file_settings` because the agent loop unpacks
+    that pair on the tool-dispatch path and a third element would break it.
+    """
+    if core is None:
+        return None
+    try:
+        total = getattr(core.settings.agent, "contextFilesMaxChars", None)
+    except AttributeError:  # pragma: no cover - a partially built Core in a test
+        return None
+    return int(total) if total else None
+
+
 def environment_blocks(session: Session, core: Core | None = None) -> tuple[str, str]:
     """``(environment block, project context files block)`` for ``session``.
 
     Also records on the session which instruction files the prompt already
     quotes, so the on-demand attachment in :mod:`agent.context_files` fires
     only for the ones the budget could not fit (CORE-context-files).
+
+    A lean child gets the root instruction file only: the nested ones are still
+    attached on demand when a tool touches their directory, which is where they
+    are actually useful (CORE-round-cost).
     """
-    key = f"{session.id}:{session.workdir}"
+    nested = not is_lean_child(session, core)
+    key = f"{session.id}:{session.workdir}:{int(nested)}"
     cached = _ENV_CACHE.get(key)
     if cached is not None and cached.expires > time.monotonic():
         session.loaded_context_files = set(cached.loaded)
@@ -121,6 +206,7 @@ def environment_blocks(session: Session, core: Core | None = None) -> tuple[str,
     if session.provider or session.model:
         model = f"{session.provider or '?'}:{session.model or '?'}"
     override, ignore = context_file_settings(core)
+    total_override = context_files_total_chars(core)
     env = prompt_env.collect(
         session.workdir,
         model=model,
@@ -129,6 +215,8 @@ def environment_blocks(session: Session, core: Core | None = None) -> tuple[str,
         read_context=not ignore,
         context_window=session.context_window,
         context_file_chars=override,
+        context_files_chars=total_override,
+        include_nested=nested,
     )
     project = env.project_context
     entry = _EnvCacheEntry(
@@ -218,6 +306,10 @@ def build_system_prompt(
     sits in the volatile tier so that the prefix in front of it stays cacheable.
     """
     environment, context_files = environment_blocks(session, core)
+    lean = is_lean_child(session, core)
+    deferred_specs: list[ToolSpec] = []
+    if core is not None and getattr(core, "tools", None) is not None:
+        deferred_specs = core.tools.deferred_specs(session)
     persona = getattr(session, "system_prompt", None) or ""
     if session.team_agents:
         team_rule = (
@@ -237,10 +329,14 @@ def build_system_prompt(
         role=getattr(session, "prompt_role", None),
         subagent=bool(getattr(session, "is_subagent", False)),
         tools=tools,
-        skill_groups=skill_groups(core),
+        deferred_tools=deferred_specs,
+        tools_text=tools_fragment(session, tools, deferred_specs, session.workdir)
+        if tools
+        else None,
+        skill_groups=[] if lean else skill_groups(core),
         skill_index_max=skill_index_max(core),
-        memory_guidance=memory_enabled(core),
-        memory_block=memory_block,
+        memory_guidance=memory_enabled(core) and not lean,
+        memory_block="" if lean else memory_block,
         environment=environment,
         context_files=context_files,
         context_fill=context_fill(session),
@@ -257,13 +353,27 @@ def build_messages(
     *,
     core: Core | None = None,
 ) -> list[ChatMessage]:
-    """System prompt followed by the session's history."""
+    """System prompt followed by the session's history.
+
+    The one place a provider request is assembled, so it is also the one place
+    old tool output is pruned (CORE-repeat-guard): the shrinking happens on the
+    snapshot handed to the provider, never on the stored transcript, and the
+    context accounting in ``session/compaction.py`` reads the same list and so
+    reports what the turn will actually cost.
+    """
+    # Local import: ``session/compaction.py`` imports this function.
+    from snowpea_core.session import compaction
+
+    history = session.history.snapshot()
+    on, keep, max_chars = compaction.tool_prune_settings(core)
+    if on:
+        history = compaction.prune_old_tool_outputs(history, keep, max_chars)
     return [
         ChatMessage(
             role="system",
             content=build_system_prompt(session, tools, memory_block, core=core),
         ),
-        *session.history.snapshot(),
+        *history,
     ]
 
 
@@ -276,13 +386,18 @@ __all__ = [
     "AgentConfig",
     "build_messages",
     "build_system_prompt",
+    "child_context",
     "context_file_settings",
+    "context_files_total_chars",
     "context_fill",
     "environment_blocks",
     "invalidate_environment",
+    "invalidate_tools",
+    "is_lean_child",
     "memory_enabled",
     "reply_language",
     "skill_groups",
     "skill_index_max",
     "tool_lines",
+    "tools_fragment",
 ]

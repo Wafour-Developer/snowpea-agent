@@ -656,7 +656,16 @@ async def sync_tools(core: Core, workdir: Path | str | None = None) -> list[str]
     registered: list[str] = []
     for config in configs.values():
         registered.extend(await register_config(core, config))
+    if registered:
+        _invalidate_tool_prompt()
     return registered
+
+
+def _invalidate_tool_prompt() -> None:
+    """The tool list just changed, so the cached tools fragment is stale."""
+    from snowpea_core.agent import agent as agent_mod
+
+    agent_mod.invalidate_tools()
 
 
 def drop_tools(core: Core, name: str) -> list[str]:
@@ -665,6 +674,8 @@ def drop_tools(core: Core, name: str) -> list[str]:
     dropped = [info.name for info in core.tools.list() if info.source == source]
     for tool in dropped:
         core.tools.unregister(tool)
+    if dropped:
+        _invalidate_tool_prompt()
     return dropped
 
 
