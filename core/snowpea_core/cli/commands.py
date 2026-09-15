@@ -40,6 +40,7 @@ from snowpea_core.cli.render import (
 )
 from snowpea_core.cli.service import service_command
 from snowpea_core.config.paths import Paths, resolve_home
+from snowpea_core.gateway.slack import slack_manifest
 
 #: Subcommands whose implementation lands after M1.  ``team`` left this list
 #: in US-020; nothing is a placeholder now.
@@ -1293,6 +1294,23 @@ async def gateway_unbind(binding_id: str, home: Path | str | None = None) -> int
     except RpcCallError as exc:
         return _fail(f"gateway.unbind failed ({exc.code}): {exc.message}", EXIT_USAGE)
     print(f"unbound {binding_id}")
+    return EXIT_OK
+
+
+def gateway_slack_manifest(*, bot_name: str = "snowpea", as_json: bool = False) -> int:
+    """``snowpea gateway slack-manifest [--json]``.
+
+    Slack is the one platform whose slash commands cannot be registered over
+    the API: they live in the app manifest.  Printing it here is the whole
+    feature — paste it into api.slack.com/apps, either "Create from manifest"
+    for a new app or App Manifest on an existing one.  The default is indented
+    for reading; ``--json`` prints one line, for piping.
+    """
+    manifest = slack_manifest(bot_name)
+    if as_json:
+        print(json.dumps(manifest, ensure_ascii=False))
+    else:
+        _print_json(manifest)
     return EXIT_OK
 
 
@@ -2621,6 +2639,15 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
     )
     unbind_parser = gateway_sub.add_parser("unbind", help="detach a binding")
     unbind_parser.add_argument("binding_id", help="binding id from `gateway list`")
+    slack_manifest_parser = gateway_sub.add_parser(
+        "slack-manifest", help="print a Slack app manifest with the chat commands"
+    )
+    slack_manifest_parser.add_argument(
+        "--name", dest="bot_name", default="snowpea", help="bot display name"
+    )
+    slack_manifest_parser.add_argument(
+        "--json", dest="sub_json", action="store_true", help="emit JSON"
+    )
 
     job = sub.add_parser("job", help="schedule prompts to run unattended")
     job_sub = job.add_subparsers(dest="action", metavar="<action>")
@@ -2981,9 +3008,14 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
             return await gateway_list(home, as_json=as_json)
         if action == "unbind":
             return await gateway_unbind(str(getattr(args, "binding_id", "") or ""), home)
+        if action == "slack-manifest":
+            return gateway_slack_manifest(
+                bot_name=str(getattr(args, "bot_name", "") or "snowpea"),
+                as_json=as_json,
+            )
         return _fail(
             "usage: snowpea gateway bind <platform> <credentialsRef> <target>"
-            " | list | unbind <bindingId>",
+            " | list | unbind <bindingId> | slack-manifest",
             EXIT_USAGE,
         )
     if subcommand == "job":
@@ -3093,6 +3125,7 @@ __all__ = [
     "dispatch",
     "gateway_bind",
     "gateway_list",
+    "gateway_slack_manifest",
     "gateway_unbind",
     "format_job_line",
     "format_update_line",

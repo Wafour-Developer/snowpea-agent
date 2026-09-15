@@ -42,7 +42,15 @@ The three positional arguments are the platform, the credentials reference (a ke
 
 **Discord.** Create an application, add a bot user, enable the message content intent, invite it to your server, keep the bot token. Invite it with both the `bot` and the `applications.commands` scopes — the OAuth2 URL generator in the developer portal builds that link — because the second scope is what lets the chat commands appear in Discord's `/` picker. Snowpea registers them when the binding starts, so `/sessions`, `/resume`, `/new`, `/projects`, `/status`, `/stop`, `/help`, `/mode`, `/model` and `/effort` are listed there with a free-text `args` field; a command answered this way replies inside the command itself. Without that scope nothing breaks: typing `/sessions` as ordinary text still works as long as the message content intent is on. The channel id is the last path segment of a channel URL.
 
-**Slack.** Create an app, add `chat:write` and the events your workspace needs, install it, keep the bot token. Use the channel name or id as the target.
+**Slack.** Slack takes its slash commands from the app manifest and from nowhere else, so print one and paste it in:
+
+```bash
+snowpea gateway slack-manifest
+```
+
+At [api.slack.com/apps](https://api.slack.com/apps) choose **Create from manifest** for a new app, or **App Manifest** on an existing one, and paste the JSON. It declares the bot user, the scopes (`chat:write`, `commands`, the history scopes), the message events, Socket Mode, and `/sessions`, `/resume`, `/new`, `/projects`, `/status`, `/stop`, `/help`, `/mode`, `/model` and `/effort` as real slash commands. This matters more than it looks: Slack intercepts *any* message beginning with `/` before your app sees it, so an undeclared `/sessions` is answered by Slack with "unknown command" and never reaches snowpea. A declared one arrives as a Socket Mode slash command, and the answer is posted back into the channel where it was typed.
+
+Then install the app, keep the bot token (`xoxb-…`) and generate an app-level token (`xapp-…`) with `connections:write` for Socket Mode. Bind with both; with only the bot token the binding still delivers scheduled messages but cannot listen. Use the channel name or id as the target.
 
 ## Talking to it
 
@@ -80,7 +88,7 @@ Which session a chat is in survives a daemon restart. The choice is one line in 
 
 While a turn runs the chat shows the platform's "typing…" hint, refreshed every few seconds and paused whenever an approval or a question is waiting on you — the agent is not working while you decide. On the turn's first tool call one message goes out (`⏳ shell npm test`), and every later tool call *edits* that same message rather than sending another. At the end it settles on `✓ 4 tool calls · 1m 12s`, or `✗` when the turn failed or was stopped.
 
-A platform that cannot edit a message gets no progress message at all, because without editing the feature is a stream of chat spam. Slack shows no typing hint either: bot tokens cannot send one.
+A platform that cannot edit a message gets no progress message at all, because without editing the feature is a stream of chat spam. Slack shows no typing hint either: bot tokens cannot send one, so a Slack chat gets the progress message and nothing else. The progress message still edits itself in place there.
 
 Two settings turn them off:
 
