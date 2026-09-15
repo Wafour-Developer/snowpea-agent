@@ -110,7 +110,8 @@ async def skill_remove_handler(_conn: RpcConnection, params: SkillRemoveParams, 
 def _resolve_skill_path(name: str, workdir: str, home: Path) -> tuple[Path, SkillScope] | None:
     """First existing ``SKILL.md`` for ``name``: project dirs, then global."""
     root = Path(workdir)
-    for relative in reversed(PROJECT_DIRS):  # ".snowpea" wins over ".claude" (loader order)
+    # ".snowpea" wins over ".claude" (loader order).
+    for relative, _source in reversed(PROJECT_DIRS):
         candidate = root / relative / "skills" / name / "SKILL.md"
         if candidate.is_file():
             return candidate, "project"

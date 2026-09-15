@@ -327,7 +327,7 @@ class NamedAgentRegistry:
         core = self._require_core()
         if definition is not None and definition.path is not None:
             path = Path(definition.path)
-            for relative in PROJECT_DIRS:
+            for relative, _source in PROJECT_DIRS:
                 parts = Path(relative).parts
                 if path.parent.parts[-len(parts) :] == parts and len(path.parents) > len(parts):
                     return path.parents[len(parts)]

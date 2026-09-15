@@ -1839,7 +1839,7 @@ List the tools registered for a session.
 
 | field | type | required | description |
 |---|---|---|---|
-| `tools` | `({ category: string; description?: string; name: string; permissionTag: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate"; provider?: string; reason?: string; server?: string; source?: string; state?: "active" \| "inactive"; })[]` | no | Registered tools. |
+| `tools` | `({ category: string; deferred?: boolean; description?: string; name: string; permissionTag: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate"; provider?: string; reason?: string; server?: string; source?: string; state?: "active" \| "inactive"; })[]` | no | Registered tools. |
 
 ## Notifications
 
@@ -2044,6 +2044,14 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | `sessionId` | `string \| null` | no | Session the run used. |
 | `status` | `string` | no | Job status as the scheduler recorded it. |
 | `text` | `string` | no | What the run reported, or the error. |
+
+### kind `loop.suspected`
+
+| field | type | required | description |
+|---|---|---|---|
+| `count` | `number` | no | Repeats seen in the last 20 tool calls. |
+| `kind` | `"loop.suspected"` | no |  |
+| `tool` | `string` | yes | Tool whose call repeated. |
 
 ### kind `lsp.diagnostics`
 

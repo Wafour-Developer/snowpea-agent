@@ -697,6 +697,13 @@ class ToolInfo(Payload):
         default="",
         description="Why an inactive tool is inactive, e.g. \"lsp.enabled is false\".",
     )
+    deferred: bool = Field(
+        default=False,
+        description=(
+            "True when the model is told the tool's name but not its schema until it "
+            "calls tool_search; the tool is still listed and still callable."
+        ),
+    )
 
 
 class ToolListResult(Payload):
@@ -2177,6 +2184,18 @@ class LspDiagnostics(Payload):
     warnings: int = Field(default=0, description="How many of them are warnings.")
 
 
+class LoopSuspected(Payload):
+    """The same tool call keeps running with the same arguments (CORE-repeat-guard).
+
+    Advisory: the call still ran.  A surface can show the turn is going in
+    circles, and the model gets the same sentence appended to its tool result.
+    """
+
+    kind: Literal["loop.suspected"] = "loop.suspected"
+    tool: str = Field(description="Tool whose call repeated.")
+    count: int = Field(default=0, description="Repeats seen in the last 20 tool calls.")
+
+
 class JobDone(Payload):
     """A scheduled job this session created finished successfully.
 
@@ -2229,6 +2248,7 @@ SessionEventPayload = Annotated[
     | TurnDequeued
     | TurnDone
     | LspDiagnostics
+    | LoopSuspected
     | JobDone
     | JobFailed,
     Field(discriminator="kind"),
@@ -2262,6 +2282,7 @@ SESSION_EVENT_MODELS: dict[str, type[BaseModel]] = {
     "turn.dequeued": TurnDequeued,
     "turn.done": TurnDone,
     "lsp.diagnostics": LspDiagnostics,
+    "loop.suspected": LoopSuspected,
     "job.done": JobDone,
     "job.failed": JobFailed,
 }

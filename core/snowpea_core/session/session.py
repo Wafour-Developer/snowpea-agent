@@ -117,6 +117,10 @@ class Session:
     #: Tool names a skill command restricts the current turn to
     #: (``allowed-tools`` in its front matter); ``None`` means every tool.
     allowed_tools: set[str] | None = None
+    #: Deferred tools whose schemas this session has already loaded, by
+    #: ``tool_search`` or by calling one of them outright.  They join the tool
+    #: list from the next round on and stay there (CORE-round-cost).
+    loaded_tools: set[str] = field(default_factory=set)
     #: Set by ``session.interrupt``; the agent loop checks it between steps.
     interrupt: asyncio.Event = field(default_factory=asyncio.Event)
     turn_task: asyncio.Task[Any] | None = None

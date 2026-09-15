@@ -107,6 +107,11 @@ class Tool:
     #: a snowpea configuration file is re-tagged ``config``, which the mode
     #: matrix never resolves to a silent ``allow`` (see ``tools/config_guard``).
     permission_for: Callable[[dict[str, Any], Any, Any], PermissionTag] | None = None
+    #: True when the model is told this tool's *name* but not its schema until
+    #: it asks (CORE-round-cost).  Set per round by ``tools.deferred``; the
+    #: field is here so a registration can pin a tool eager whatever the
+    #: default set says.
+    deferred: bool = False
 
     def info(self) -> ToolInfo:
         # ``mcp:<server>`` is the source an MCP tool is registered with, so the
@@ -122,6 +127,7 @@ class Tool:
             server=server,
             description=self.description,
             reason=self.reason,
+            deferred=self.deferred,
         )
 
     def spec(self) -> ToolSpec:
@@ -131,6 +137,8 @@ class Tool:
             input_schema=self.input_schema,
             source=self.source,
             permission=self.permission,
+            deferred=self.deferred,
+            category=self.category,
         )
 
 
@@ -146,8 +154,18 @@ class ToolRegistry:
     """Name -> :class:`Tool` lookup, insertion-ordered."""
 
     _tools: dict[str, Tool] = field(default_factory=dict)
+    #: The daemon's :class:`Settings`, so :meth:`specs` can read
+    #: ``tools.deferred`` without every caller having to pass a ``Core``.
+    #: ``None`` — a registry built bare in a test — means the defaults.
+    settings: Any = None
+
+    def bind(self, settings: Any) -> ToolRegistry:
+        """Point the registry at the daemon's settings (``wire_core``)."""
+        self.settings = settings
+        return self
 
     def register(self, tool: Tool) -> Tool:
+        _wrap_deferred_run(tool)
         self._tools[tool.name] = tool
         return tool
 
@@ -170,24 +188,113 @@ class ToolRegistry:
         return tool
 
     def list(self, session: Any | None = None) -> ToolInfos:
-        """Every registered tool as protocol ``ToolInfo`` (``tool.list``)."""
-        return [tool.info() for tool in self._tools.values()]
+        """Every registered tool as protocol ``ToolInfo`` (``tool.list``).
+
+        Nothing is hidden here — ``tool.list`` is the surface a person browses.
+        ``ToolInfo.deferred`` says which ones this session's prompt names
+        without describing, so a client can show that without guessing.
+        """
+        from snowpea_core.tools import deferred as deferred_tools
+
+        eager: frozenset[str] | None = None
+        if deferred_tools.enabled(self.settings):
+            eager = deferred_tools.eager_names(
+                session, deferred_tools.forced_eager(self.settings)
+            )
+        infos: ToolInfos = []
+        for tool in self._tools.values():
+            info = tool.info()
+            if eager is not None:
+                info.deferred = tool.name not in eager
+            infos.append(info)
+        return infos
 
     def active(self, session: Any | None = None) -> Tools:
-        """Active tools, narrowed by a skill's ``allowed-tools`` when one is set."""
+        """Active tools, narrowed by a skill's ``allowed-tools`` when one is set.
+
+        ``tool_search`` survives the narrowing: it is how a session reaches the
+        tools its prompt only names, and a narrowed session still defers the
+        long tail of a read-only agent definition (CORE-round-cost).
+        """
+        from snowpea_core.tools import deferred as deferred_tools
+
         allowed = getattr(session, "allowed_tools", None) if session is not None else None
+        if allowed is not None and deferred_tools.enabled(self.settings):
+            allowed = set(allowed) | {deferred_tools.TOOL_SEARCH}
         return [
             tool
             for tool in self._tools.values()
             if tool.state == "active" and (allowed is None or tool.name in allowed)
         ]
 
-    def specs(self, session: Any | None = None) -> ToolSpecs:
-        """Tool descriptions for the provider (active tools only)."""
+    def all_specs(self, session: Any | None = None) -> ToolSpecs:
+        """Every active tool, deferred ones included — what ``tool_search`` searches."""
         return [tool.spec() for tool in self.active(session)]
+
+    def specs(self, session: Any | None = None) -> ToolSpecs:
+        """Tool descriptions for the provider: eager plus already-loaded ones.
+
+        A deferred tool is named in the prompt but its schema is not sent, so
+        it must not be in the provider request either (CORE-round-cost).
+        :meth:`deferred_specs` returns the other half.
+        """
+        from snowpea_core.tools import deferred as deferred_tools
+
+        keep, _ = deferred_tools.split(self.all_specs(session), session, self.settings)
+        return keep
+
+    def deferred_specs(self, session: Any | None = None) -> ToolSpecs:
+        """The active tools this round names but does not describe."""
+        from snowpea_core.tools import deferred as deferred_tools
+
+        _, hidden = deferred_tools.split(self.all_specs(session), session, self.settings)
+        return hidden
 
     def __len__(self) -> int:
         return len(self._tools)
+
+
+def _wrap_deferred_run(tool: Tool) -> Tool:
+    """Make a deferred tool load itself when the model calls it unprompted.
+
+    A model that remembers ``browser_navigate`` from the grouped line and calls
+    it without searching first must not hit an unknown-tool error: the call
+    runs, and the result carries one line saying the tool is now loaded, so the
+    next round's list contains it.
+    """
+    inner = tool.run
+    if getattr(inner, "_snowpea_deferred_wrapped", False):
+        return tool
+
+    async def run(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
+        from snowpea_core.tools import deferred as deferred_tools
+
+        session = ctx.session
+        settings = getattr(ctx.core, "settings", None)
+        # ``call_id`` is set only when the agent loop is serving a model's tool
+        # call.  A tool invoked by a test or an internal caller has no model to
+        # tell about a changed tool list, so it is left exactly as it was.
+        unloaded = (
+            bool(ctx.call_id)
+            and deferred_tools.enabled(settings)
+            and tool.name
+            not in deferred_tools.eager_names(session, deferred_tools.forced_eager(settings))
+        )
+        result = await inner(ctx, args)
+        if unloaded and deferred_tools.load(session, [tool.name]):
+            from snowpea_core.tools import tool_search as tool_search_mod
+
+            tool_search_mod.invalidate(session)
+            note = deferred_tools.LOADED_NOTE.format(name=tool.name)
+            if result.ok:
+                result.output = f"{result.output}\n{note}".strip()
+            else:
+                result.error = f"{result.error or ''}\n{note}".strip()
+        return result
+
+    run._snowpea_deferred_wrapped = True  # type: ignore[attr-defined]
+    tool.run = run
+    return tool
 
 
 def effective_permission(
@@ -235,6 +342,7 @@ def register_builtin_tools(registry: ToolRegistry) -> ToolRegistry:
         shell,
         skills_tools,
         stubs,
+        tool_search,
         web,
     )
 
@@ -256,6 +364,7 @@ def register_builtin_tools(registry: ToolRegistry) -> ToolRegistry:
         *audio_tools.TOOLS,
         *delegate.TOOLS,
         *lsp_tools.TOOLS,
+        *tool_search.TOOLS,
     ):
         registry.register(tool)
     return registry

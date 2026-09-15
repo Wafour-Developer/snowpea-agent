@@ -526,14 +526,28 @@ snowpea tools list --json
 
 `web_extract`는 사설망·루프백·link-local 주소를 거부하고, 가져온 페이지를 `tools.max_output_chars`(기본 20000)까지 잘라냅니다.
 
-파일 작업과 긴 출력에 관여하는 `tools` 설정이 둘 더 있습니다.
+파일 작업과 긴 출력, 라운드 비용에 관여하는 `tools` 설정이 다섯 더 있습니다.
 
 | 설정 | 기본값 | 하는 일 |
 |---|---|---|
 | `tools.readBeforeWrite` | `true` | 이번 세션에서 전체를 읽지 않은 파일, 또는 읽은 뒤 형제 서브에이전트가 쓴 파일에 대해 `edit_file`·`write_file`이 거부합니다. 거부는 이유를 담은 `stale_file` 오류입니다. 새 파일 생성은 언제나 허용됩니다. `false`로 두면 가드가 꺼집니다. |
 | `tools.maxResultLines` | `400` | 이 줄 수를 넘으면 `shell`·`grep`·`glob`·`list_dir` 결과는 앞뒤만 남기고, 가운데는 `$SNOWPEA_HOME/cache/tool-output/`으로 빠집니다. 결과에는 그것을 다시 읽을 offset·limit이 적힌 `read_file` 포인터가 남습니다. |
+| `tools.repeatGuard` | `true` | 같은 답에 두 번 값을 치르지 않게 합니다. 이번 세션에서 이미 읽었고 그 뒤로 내용이 바뀌지 않은 `read_file`은 한 줄 요약으로 돌아오고, 그런 요약이 두 번 나간 뒤의 반복은 `repeat_blocked` 오류로 거부됩니다. 어떤 툴이든 같은 인자로 연달아 세 번 부르면 결과에 경고가 붙고 네 번째는 거부되며, `shell`·`grep`·`glob`·`list_dir`·MCP 호출의 출력이 직전과 같으면 요약으로 바뀝니다. 해당 경로에 쓰기가 일어나거나 사이에 다른 툴 호출이 끼면 해당 카운터는 초기화됩니다. `false`로 두면 전부 꺼집니다. |
+| `tools.deferred` | `true` | 매 라운드마다 핵심 툴 스키마만 온전히 보내고 나머지는 그룹별 한 줄로 이름만 제공하며 필요 시 `tool_search`로 로드합니다. `false`로 두면 매 라운드 모든 툴 스키마를 보냅니다. |
+| `tools.eager` | `[]` | 기본 설정과 무관하게 언제나 전체 스키마를 보낼 툴 이름 목록. |
 
 `read_file`은 `offset`(1부터 세는 시작 줄)과 `limit`(줄 수)을 선택적으로 받습니다. 일부만 읽은 것은 `readBeforeWrite`를 만족시키지 않습니다 — 쓰기 전에 파일 전체를 읽어야 합니다.
+
+같은 호출이 계속 돌아올 때 — 최근 20번의 호출 안에서 같은 인자로 다섯 번 — 결과에 `loop suspected: …` 줄이 붙고 세션은 턴당 한 번 `loop.suspected` 이벤트를 냅니다. 표면은 이것으로 턴이 제자리를 돌고 있음을 보여 줄 수 있습니다.
+
+오래된 툴 출력은 요청이 나가기 전에 줄어듭니다. 저장된 대화 기록은 건드리지 않습니다.
+
+| 설정 | 기본값 | 하는 일 |
+|---|---|---|
+| `agent.pruneToolOutputs` | `true` | 최근 `agent.keepToolRounds`번의 툴 라운드보다 오래된 결과는 **나가는 요청에서만** `[earlier shell output pruned — N chars; re-run the tool if you need it again]`로 바뀝니다. 남은 구간에서도 2000자를 넘는 결과는 `…[trimmed]…`를 사이에 두고 앞뒤만 남습니다. `skill_view` 본문은 `skills.protectRecentViews`가 맡습니다. `false`로 두면 전부 그대로 보냅니다. |
+| `agent.keepToolRounds` | `6` | 온전히 제공자에게 전달되는 툴 라운드 수. |
+
+이어 열거나 내보내거나 압축한 세션에는 툴이 만든 바이트가 모두 남아 있습니다. 잘라내기는 모델에게 건네는 사본에서만 일어납니다.
 
 에이전트가 매 턴 읽는 스킬 색인은 `skills` 설정 세 개가 좌우합니다([플러그인과 스킬](plugins.md) 참고).
 
@@ -717,7 +731,7 @@ snowpea setup --gateway telegram --token 123456:ABC-your-bot-token
 
 `.git` 조상이 없으면 체인은 세션 디렉터리 하나뿐입니다. `/tmp`나 홈 디렉터리에 놓인 파일이 프롬프트 권위를 얻는 일은 없습니다.
 
-크기. 파일 하나가 프롬프트에 들어가는 양은 `clamp(컨텍스트 윈도우 × 4 × 0.06, 20 000, 500 000)`자이며 — 작은 로컬 모델에서는 20 000자, 큰 모델에서는 훨씬 많습니다 — 합쳐진 블록도 같은 값으로 제한됩니다. 잘린 파일은 앞부분과 뒷부분을 남기고 그 사이에 어떤 파일을 `read_file` 하면 되는지 알려주는 표시가 들어가며, 블록 끝에 잘렸다는 사실이 문장으로도 적힙니다. `agent.contextFileMaxChars`로 값을 고정하거나 `agent.ignoreContextFiles`로 전부 끌 수 있습니다.
+크기. 파일 하나가 프롬프트에 들어가는 양은 `clamp(컨텍스트 윈도우 × 4 × 0.06, 20 000, 500 000)`자이며(32k 이하의 작은 윈도우에서는 하한이 8 000자로 내려갑니다), 전체 `# Project Context` 블록은 `clamp(컨텍스트 윈도우 × 4 × 0.10, 12 000, 120 000)`자로 제한됩니다. 총합 예산을 초과하면 루트 파일을 온전히 남기기 위해 깊은 파일부터 `…[truncated: N more chars; read <path> for the rest]` 마커와 함께 먼저 잘립니다. 개별 파일이 잘릴 때는 앞부분과 뒷부분을 남기고 그 사이에 어떤 파일을 `read_file` 하면 되는지 알려주는 표시가 들어가며, 블록 끝에 잘렸다는 사실이 문장으로도 적힙니다. `agent.contextFileMaxChars`와 `agent.contextFilesMaxChars`로 값을 고정하거나 `agent.ignoreContextFiles`로 전부 끌 수 있습니다.
 
 중첩 파일. `/deepinit`은 디렉터리마다 `AGENTS.md`를 쓰는데 세션은 평생 저장소 루트에 앉아 있으므로 체인만으로는 그 파일들에 닿지 않습니다. 그래서 예산이 허락하는 만큼 미리 각자의 섹션으로 실립니다 — 그 프로젝트에서 새로 연 대화도, 이어받은 세션도, 같은 디렉터리의 서브에이전트도 처음부터 계층 전체를 가지고 있습니다. 탐색은 4단계까지, 최대 40개이며 `.git`·`node_modules`·`.venv`·`dist`·`build`·`__pycache__`와 숨김 디렉터리는 지나갑니다.
 
@@ -733,7 +747,7 @@ Nested instructions not loaded (read_file when you work there): src/AGENTS.md, t
 
 ## 디스크에 남는 것
 
-`$SNOWPEA_HOME/settings.json`에는 `providers`, `search.provider`, `browser.provider`, `tools.enabled_categories`, `tools.readBeforeWrite`(true), `tools.maxResultLines`(400), `gateway`, `agents.max_concurrent`(3), `team.max_conflict_retries`(2), `approvals.timeoutSec`(300), `agent.max_tokens`(16384), `agent.thinking`(`auto`), `memory.enabled`(true), `memory.askScope`(true), `memory.digestEntries`(30), `memory.digestChars`(6000), `skills.indexInPrompt`(true), `skills.indexMaxEntries`(60), `skills.protectRecentViews`(2)가 담깁니다. 모드·allowlist·백엔드에 대한 프로젝트별 오버라이드는 `<project>/.snowpea/settings.json`에 있고 전역 파일보다 우선합니다. 비밀값은 `settings.json`에 절대 쓰이지 않고, 로그에도 남지 않습니다.
+`$SNOWPEA_HOME/settings.json`에는 `providers`, `search.provider`, `browser.provider`, `tools.enabled_categories`, `tools.readBeforeWrite`(true), `tools.maxResultLines`(400), `tools.repeatGuard`(true), `tools.deferred`(true), `tools.eager`([]), `gateway`, `agents.max_concurrent`(3), `agents.childContext`("lean"), `team.max_conflict_retries`(2), `approvals.timeoutSec`(300), `agent.max_tokens`(16384), `agent.thinking`(`auto`), `agent.contextFilesMaxChars`, `agent.pruneToolOutputs`(true), `agent.keepToolRounds`(6), `memory.enabled`(true), `memory.askScope`(true), `memory.digestEntries`(30), `memory.digestChars`(6000), `skills.indexInPrompt`(true), `skills.indexMaxEntries`(60), `skills.protectRecentViews`(2)가 담깁니다. 모드·allowlist·백엔드에 대한 프로젝트별 오버라이드는 `<project>/.snowpea/settings.json`에 있고 전역 파일보다 우선합니다. 비밀값은 `settings.json`에 절대 쓰이지 않고, 로그에도 남지 않습니다.
 
 ## 다음
 

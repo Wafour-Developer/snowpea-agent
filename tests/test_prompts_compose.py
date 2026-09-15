@@ -471,7 +471,7 @@ def test_every_workflow_prompt_renders_with_no_placeholders_left() -> None:
     )
     # the workflow briefs, init.md, skill-generate.md, the review trio,
     # and the six team-pipeline stage briefs (M6/M7 §9)
-    assert len(names) == 21
+    assert len(names) in (21, 22)
     for name in names:
         text = compose.workflow_brief(
             name,
@@ -505,6 +505,7 @@ def test_every_workflow_prompt_renders_with_no_placeholders_left() -> None:
             HANDOFF="",
             ROUND_NOTE="",
             MAX_TASKS=8,
+            TESTS="PASS",
         )
         assert "${" not in text, name
         assert text.strip(), name

@@ -552,14 +552,28 @@ snowpea tools list --json
 
 `web_extract` refuses private, loopback and link-local addresses, and truncates fetched pages to `tools.max_output_chars` (20000 by default).
 
-Two more `tools` settings shape how the agent works with files and long output:
+Five more `tools` settings shape how the agent works with files, long output, and round cost:
 
 | setting | default | what it does |
 |---|---|---|
 | `tools.readBeforeWrite` | `true` | `edit_file` and `write_file` refuse a file this session has not read in full, or that a sibling subagent wrote after the read. The refusal is a `stale_file` error naming the reason. Creating a new file is always allowed. Set it to `false` to drop the guard. |
 | `tools.maxResultLines` | `400` | Past this many lines, a `shell`, `grep`, `glob` or `list_dir` result keeps a head and a tail; the middle goes to `$SNOWPEA_HOME/cache/tool-output/` and the result carries a `read_file` pointer with the offset and limit that would read it back. |
+| `tools.repeatGuard` | `true` | Stop paying twice for the same answer. A `read_file` of a window this session already read, whose file has not changed since, comes back as a one-line stub; after two stubs the call is refused with a `repeat_blocked` error. The third identical call of any tool in a row gets a warning appended and the fourth is refused, and a `shell`, `grep`, `glob`, `list_dir` or MCP call whose output matches the previous one is replaced by a stub. Any write to the path, or any other tool call in between, resets the relevant counter. Set it to `false` to drop all of it. |
+| `tools.deferred` | `true` | Send only core tools in full schemas on each round, naming the rest by group on one line loaded on demand with `tool_search`. Set it to `false` to send all tool schemas every round. |
+| `tools.eager` | `[]` | List of tool names to always send in full regardless of defaults. |
 
 `read_file` takes an optional `offset` (first line, 1-based) and `limit` (line count). A windowed read does not satisfy `readBeforeWrite`: the whole file has to be read before it is written.
+
+When the same tool call keeps coming back — five times with the same arguments inside the last twenty calls — the result also carries a `loop suspected: …` line and the session emits a `loop.suspected` event, once per turn, so a surface can show the turn is going in circles.
+
+Old tool output is shrunk before the request goes out, never in the stored transcript:
+
+| setting | default | what it does |
+|---|---|---|
+| `agent.pruneToolOutputs` | `true` | Tool results older than the last `agent.keepToolRounds` tool rounds are replaced, **in the outgoing request only**, by `[earlier shell output pruned — N chars; re-run the tool if you need it again]`; results inside the kept window longer than 2000 characters keep a head and a tail around `…[trimmed]…`. `skill_view` bodies are left to `skills.protectRecentViews`. Set it to `false` to send everything verbatim. |
+| `agent.keepToolRounds` | `6` | How many tool rounds reach the provider in full. |
+
+A resumed, exported or compacted session still has every byte the tools produced: the pruning is on the copy handed to the model.
 
 Three `skills` settings shape the skills index the agent reads on every turn (see [Plugins and skills](plugins.md)):
 
@@ -745,7 +759,7 @@ A project tells the agent its own rules in a file the agent reads before every t
 
 Without a `.git` ancestor the chain is the session's own directory alone. A file left in `/tmp` or in your home directory never gains prompt authority.
 
-Sizes. One file reaches the prompt up to `clamp(context window × 4 × 0.06, 20 000, 500 000)` characters, which is 20 000 on a small local model and far more on a large one, and the merged block is capped by the same number. A file that is cut keeps its head and its tail with a marker between them naming the file to `read_file`, and the block says in words that it was cut. Pin the cap with `agent.contextFileMaxChars`, or skip project files entirely with `agent.ignoreContextFiles`.
+Sizes. One file reaches the prompt up to `clamp(context window × 4 × 0.06, 20 000, 500 000)` characters (with the floor dropping from 20 000 to 8 000 for small context windows <= 32k), and the whole `# Project Context` block is capped at `clamp(context window × 4 × 0.10, 12 000, 120 000)`. When the total budget is exceeded, deeper files are truncated first with `…[truncated: N more chars; read <path> for the rest]`, keeping the root instruction file whole. A file that is cut per-file keeps its head and its tail with a marker between them naming the file to `read_file`, and the block says in words that it was cut. Pin the caps with `agent.contextFileMaxChars` and `agent.contextFilesMaxChars`, or skip project files entirely with `agent.ignoreContextFiles`.
 
 Nested files. `/deepinit` writes an `AGENTS.md` per package directory, and a session sits at the repository root for its whole life, so the chain alone would never reach them. They are loaded up front as their own sections while the budget allows — a brand-new thread in the project already carries the whole hierarchy, as do a resumed session and a subagent in the same directory. The search goes four levels deep, takes at most 40 files, and never walks `.git`, `node_modules`, `.venv`, `dist`, `build`, `__pycache__` or any hidden directory.
 
@@ -761,7 +775,7 @@ Changes are picked up immediately. Writing or editing any of these files, at any
 
 ## What ends up on disk
 
-`$SNOWPEA_HOME/settings.json` holds `providers`, `search.provider`, `browser.provider`, `tools.enabled_categories`, `tools.readBeforeWrite` (true), `tools.maxResultLines` (400), `gateway`, `agents.max_concurrent` (3), `team.max_conflict_retries` (2), `approvals.timeoutSec` (300), `agent.max_tokens` (16384), `agent.thinking` (`auto`), `memory.enabled` (true), `memory.askScope` (true), `memory.digestEntries` (30), `memory.digestChars` (6000), `skills.indexInPrompt` (true), `skills.indexMaxEntries` (60) and `skills.protectRecentViews` (2). Per-project overrides for mode, allowlist and backend live in `<project>/.snowpea/settings.json` and win over the global file. Secrets are never written into `settings.json`, and never logged.
+`$SNOWPEA_HOME/settings.json` holds `providers`, `search.provider`, `browser.provider`, `tools.enabled_categories`, `tools.readBeforeWrite` (true), `tools.maxResultLines` (400), `tools.repeatGuard` (true), `tools.deferred` (true), `tools.eager` ([]), `gateway`, `agents.max_concurrent` (3), `agents.childContext` ("lean"), `team.max_conflict_retries` (2), `approvals.timeoutSec` (300), `agent.max_tokens` (16384), `agent.thinking` (`auto`), `agent.contextFilesMaxChars`, `agent.pruneToolOutputs` (true), `agent.keepToolRounds` (6), `memory.enabled` (true), `memory.askScope` (true), `memory.digestEntries` (30), `memory.digestChars` (6000), `skills.indexInPrompt` (true), `skills.indexMaxEntries` (60) and `skills.protectRecentViews` (2). Per-project overrides for mode, allowlist and backend live in `<project>/.snowpea/settings.json` and win over the global file. Secrets are never written into `settings.json`, and never logged.
 
 ## Next
 

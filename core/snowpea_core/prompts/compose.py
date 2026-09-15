@@ -156,6 +156,29 @@ def tool_lines(tools: Sequence[ToolSpec]) -> str:
     return "\n".join(out)
 
 
+def tools_block(
+    tools: Sequence[ToolSpec],
+    deferred: Sequence[ToolSpec] = (),
+    root: Path | None = None,
+) -> str:
+    """The rendered ``Available tools:`` fragment for one round.
+
+    ``deferred`` is the half of the catalogue this round names but does not
+    describe (CORE-round-cost): one grouped, description-free line instead of
+    forty schemas.  Rendering is a pure function of its arguments, which is
+    what lets the agent layer cache the string and keep the cached prefix
+    byte-identical between rounds.
+    """
+    from snowpea_core.tools.deferred import deferred_line
+
+    return render(
+        "fragments/tools",
+        root,
+        TOOL_LINES=tool_lines(tools),
+        DEFERRED_LINE=deferred_line(deferred),
+    )
+
+
 def skills_index(
     groups: Sequence[tuple[str, Sequence[tuple[str, str]]]],
     max_entries: int = DEFAULT_SKILL_INDEX_MAX,
@@ -212,6 +235,8 @@ def build_tiers(
     role: str | None = None,
     subagent: bool = False,
     tools: Sequence[ToolSpec] | None = None,
+    deferred_tools: Sequence[ToolSpec] | None = None,
+    tools_text: str | None = None,
     skill_groups: Sequence[tuple[str, Sequence[tuple[str, str]]]] | None = None,
     skill_index_max: int = DEFAULT_SKILL_INDEX_MAX,
     memory_guidance: bool = True,
@@ -257,8 +282,13 @@ def build_tiers(
     # skill covers before it starts picking tools (M15 §B1).
     if skill_groups:
         context.append(skills_index(skill_groups, skill_index_max, root))
-    if tools:
-        context.append(render("fragments/tools", root, TOOL_LINES=tool_lines(tools)))
+    # ``tools_text`` is an already-rendered fragment, handed in by the agent
+    # layer's per-session cache so two identical rounds produce byte-identical
+    # prompts and the provider's prefix cache actually hits (CORE-round-cost).
+    if tools_text:
+        context.append(tools_text)
+    elif tools:
+        context.append(tools_block(tools, deferred_tools or (), root))
 
     volatile: list[str] = [memory_block]
     if context_fill is not None and context_fill >= CONTEXT_PRESSURE_THRESHOLD:
@@ -314,6 +344,7 @@ __all__ = [
     "reply_language_rule",
     "skills_index",
     "tool_lines",
+    "tools_block",
     "vendor_class_for",
     "workflow_brief",
 ]

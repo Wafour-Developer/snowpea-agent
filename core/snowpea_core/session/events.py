@@ -21,6 +21,7 @@ from snowpea_core.server.protocol import (
     ErrorEvent,
     JobDone,
     JobFailed,
+    LoopSuspected,
     LspDiagnostics,
     MessageDelta,
     MessageDone,
@@ -238,6 +239,11 @@ def lsp_diagnostics(path: str, *, count: int, errors: int, warnings: int) -> Eve
     return _pack(LspDiagnostics(path=path, count=count, errors=errors, warnings=warnings))
 
 
+def loop_suspected(tool: str, count: int) -> Event:
+    """One tool call keeps repeating with the same arguments (CORE-repeat-guard)."""
+    return _pack(LoopSuspected(tool=tool, count=count))
+
+
 def turn_done(turn_id: str, reason: str = "complete", *, synthetic: bool = False) -> Event:
     """A turn ended.
 
@@ -281,6 +287,7 @@ __all__ = [
     "error",
     "job_done",
     "job_failed",
+    "loop_suspected",
     "message_delta",
     "message_done",
     "message_reasoning",

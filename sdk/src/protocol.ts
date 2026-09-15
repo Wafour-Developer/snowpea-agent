@@ -2166,6 +2166,8 @@ export interface ToolListResult {
   tools?: ({
     /** Grouping used by the UI. */
     category: string;
+    /** True when the model is told the tool's name but not its schema until it calls tool_search; the tool is still listed and still callable. */
+    deferred?: boolean;
     /** Text shown to the model. */
     description?: string;
     /** Tool name as the model calls it. */
@@ -2503,6 +2505,15 @@ export interface JobFailedEventPayload {
   text?: string;
 }
 
+/** Payload of `session.event` with kind `loop.suspected`. */
+export interface LoopSuspectedEventPayload {
+  /** Repeats seen in the last 20 tool calls. */
+  count?: number;
+  kind?: "loop.suspected";
+  /** Tool whose call repeated. */
+  tool: string;
+}
+
 /** Payload of `session.event` with kind `lsp.diagnostics`. */
 export interface LspDiagnosticsEventPayload {
   /** Diagnostics of every severity. */
@@ -2774,6 +2785,7 @@ export interface SessionEventKindMap {
   "error": ErrorEventPayload;
   "job.done": JobDoneEventPayload;
   "job.failed": JobFailedEventPayload;
+  "loop.suspected": LoopSuspectedEventPayload;
   "lsp.diagnostics": LspDiagnosticsEventPayload;
   "message.delta": MessageDeltaEventPayload;
   "message.done": MessageDoneEventPayload;
@@ -2806,6 +2818,7 @@ export const SESSION_EVENT_KINDS: readonly SessionEventKind[] = [
   "error",
   "job.done",
   "job.failed",
+  "loop.suspected",
   "lsp.diagnostics",
   "message.delta",
   "message.done",
