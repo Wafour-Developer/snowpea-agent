@@ -24,7 +24,14 @@ from snowpea_core.gateway.base import (
     approval_callback,
     parse_approval_callback,
 )
-from snowpea_core.gateway.discord import DiscordAdapter, action_row, parse_event
+from snowpea_core.gateway.chat import MENU_COMMANDS
+from snowpea_core.gateway.discord import (
+    OPTION_DESCRIPTION,
+    DiscordAdapter,
+    action_row,
+    menu_payload,
+    parse_event,
+)
 from snowpea_core.gateway.fake import FakeAdapter
 from snowpea_core.gateway.router import Binding, GatewayConnection
 from snowpea_core.gateway.slack import SlackAdapter, parse_envelope
@@ -421,6 +428,227 @@ def test_discord_parses_messages_and_interactions() -> None:
         )
         is None
     )
+
+
+class _DiscordFrame:
+    """One text frame off the fake gateway socket."""
+
+    type = aiohttp.WSMsgType.TEXT
+
+    def __init__(self, payload: dict[str, Any]) -> None:
+        self._payload = payload
+
+    def json(self) -> dict[str, Any]:
+        return self._payload
+
+
+class _DiscordSocket:
+    """Just enough of an aiohttp websocket for ``_consume``."""
+
+    def __init__(self, frames: list[dict[str, Any]]) -> None:
+        self._frames = frames
+        self.sent: list[dict[str, Any]] = []
+
+    def __aiter__(self) -> Any:
+        async def frames() -> Any:
+            for frame in self._frames:
+                yield _DiscordFrame(frame)
+
+        return frames()
+
+    async def send_json(self, payload: dict[str, Any]) -> None:
+        self.sent.append(payload)
+
+
+class _DeadSession:
+    """A client session whose socket never opens, so ``start`` returns fast."""
+
+    async def ws_connect(self, url: str) -> Any:
+        raise RuntimeError("no socket in a test")
+
+    async def close(self) -> None:
+        return None
+
+
+def _discord_routes(seen: list[httpx.Request]) -> Any:
+    """MockTransport handler covering every Discord call the adapter makes."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        path = request.url.path
+        if path == "/api/v10/oauth2/applications/@me":
+            return httpx.Response(200, json={"id": "app-1"})
+        if path == "/api/v10/applications/app-1/commands":
+            return httpx.Response(200, json=[])
+        if path.endswith("/callback"):
+            return httpx.Response(204)
+        if path == "/api/v10/webhooks/app-1/tok-7/messages/@original":
+            return httpx.Response(200, json={"id": "m-original"})
+        return httpx.Response(200, json={"id": "m-channel"})
+
+    return handler
+
+
+COMMAND_FRAME = {
+    "op": 0,
+    "t": "INTERACTION_CREATE",
+    "d": {
+        "id": "int-7",
+        "token": "tok-7",
+        "channel_id": "chan-1",
+        "member": {"user": {"id": "user-9"}},
+        "data": {"type": 2, "name": "new", "options": [{"name": "args", "value": "foo"}]},
+    },
+}
+
+
+async def test_discord_start_registers_the_command_menu() -> None:
+    seen: list[httpx.Request] = []
+    client = httpx.AsyncClient(transport=httpx.MockTransport(_discord_routes(seen)))
+    adapter = DiscordAdapter("bot-token", client=client, session=_DeadSession())
+
+    async def on_message(message: Any) -> None:  # pragma: no cover - never called
+        raise AssertionError("no inbound traffic in this test")
+
+    await adapter.start(on_message)
+    await adapter.stop()
+
+    assert [(r.method, r.url.path) for r in seen] == [
+        ("GET", "/api/v10/oauth2/applications/@me"),
+        ("GET", "/api/v10/applications/app-1/commands"),
+        ("PUT", "/api/v10/applications/app-1/commands"),
+    ]
+    body = json.loads(seen[2].content)
+    assert [item["name"] for item in body] == [name for name, _ in MENU_COMMANDS]
+    for item in body:
+        assert item["type"] == 1
+        assert len(item["description"]) <= 100
+        assert item["options"] == [
+            {
+                "type": 3,
+                "name": "args",
+                "description": OPTION_DESCRIPTION,
+                "required": False,
+            }
+        ]
+
+
+async def test_discord_skips_the_put_when_the_menu_is_already_right() -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.path == "/api/v10/oauth2/applications/@me":
+            return httpx.Response(200, json={"id": "app-1"})
+        return httpx.Response(200, json=menu_payload())
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    adapter = DiscordAdapter("bot-token", client=client)
+    await adapter.register_commands()
+    await adapter.stop()
+
+    assert [r.method for r in seen] == ["GET", "GET"]
+
+
+async def test_discord_command_registration_failure_only_logs(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, json={"message": "nope"})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    adapter = DiscordAdapter("bot-token", client=client)
+    with caplog.at_level("WARNING"):
+        await adapter.register_commands()
+    await adapter.stop()
+
+    assert "could not register the discord command menu" in caplog.text
+    assert "bot-token" not in caplog.text
+
+
+def test_discord_parses_a_slash_command_interaction() -> None:
+    message = parse_event(COMMAND_FRAME)
+    assert message is not None
+    assert (message.channel_id, message.user_id, message.text) == ("chan-1", "user-9", "/new foo")
+    assert message.callback_id == "int-7:tok-7"
+    assert message.callback_data is None
+
+    bare = parse_event(
+        {
+            "op": 0,
+            "t": "INTERACTION_CREATE",
+            "d": {
+                "id": "int-8",
+                "token": "tok-8",
+                "channel_id": "chan-1",
+                "user": {"id": "user-9"},
+                "data": {"type": 2, "name": "sessions"},
+            },
+        }
+    )
+    assert bare is not None
+    assert bare.text == "/sessions"
+
+
+async def test_discord_answers_a_command_in_the_interaction() -> None:
+    seen: list[httpx.Request] = []
+    client = httpx.AsyncClient(transport=httpx.MockTransport(_discord_routes(seen)))
+    adapter = DiscordAdapter("bot-token", client=client)
+    received: list[Any] = []
+
+    async def on_message(message: Any) -> None:
+        received.append(message)
+
+    await adapter._consume(_DiscordSocket([COMMAND_FRAME]), on_message)
+    first = await adapter.send("chan-1", "one", buttons=[Button("ok", "apr:ap-5:allow")])
+    second = await adapter.send("chan-1", "two")
+    await adapter.stop()
+
+    assert [m.text for m in received] == ["/new foo"]
+    # The deferred callback comes before the handler ever runs.
+    assert (seen[0].method, seen[0].url.path) == ("GET", "/api/v10/oauth2/applications/@me")
+    assert seen[1].url.path == "/api/v10/interactions/int-7/tok-7/callback"
+    assert json.loads(seen[1].content) == {"type": 5}
+    # The first answer edits the deferred reply; the second is a plain post.
+    assert (seen[2].method, seen[2].url.path) == (
+        "PATCH",
+        "/api/v10/webhooks/app-1/tok-7/messages/@original",
+    )
+    patched = json.loads(seen[2].content)
+    assert patched["content"] == "one"
+    assert patched["components"] == action_row([Button("ok", "apr:ap-5:allow")])
+    assert (seen[3].method, seen[3].url.path) == ("POST", "/api/v10/channels/chan-1/messages")
+    assert (first, second) == ("m-original", "m-channel")
+
+
+async def test_discord_button_presses_are_untouched_by_the_command_path() -> None:
+    seen: list[httpx.Request] = []
+    client = httpx.AsyncClient(transport=httpx.MockTransport(_discord_routes(seen)))
+    adapter = DiscordAdapter("bot-token", client=client)
+    received: list[Any] = []
+
+    async def on_message(message: Any) -> None:
+        received.append(message)
+
+    press = {
+        "op": 0,
+        "t": "INTERACTION_CREATE",
+        "d": {
+            "id": "int-9",
+            "token": "tok-9",
+            "channel_id": "chan-1",
+            "member": {"user": {"id": "user-9"}},
+            "data": {"type": 3, "custom_id": "apr:ap-6:allow"},
+        },
+    }
+    await adapter._consume(_DiscordSocket([press]), on_message)
+    message_id = await adapter.send("chan-1", "posted")
+    await adapter.stop()
+
+    assert parse_approval_callback(received[0].callback_data) == ("ap-6", "allow")
+    # No deferral, so the answer goes to the channel as it always did.
+    assert [r.url.path for r in seen] == ["/api/v10/channels/chan-1/messages"]
+    assert message_id == "m-channel"
 
 
 # ---------------------------------------------------------------------------
