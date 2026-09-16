@@ -45,3 +45,15 @@ describe("panelRowAt", () => {
     expect(panelRowAt(1, layout)).toBe(3);
   });
 });
+
+describe("mouse reports as Ink delivers them", () => {
+  it("accepts a stripped ESC, a missing bracket, and several reports in one chunk", async () => {
+    const { mouseReports, parseMouse } = await import("../src/input/mouse.js");
+    expect(parseMouse("[<0;11;22M")).toEqual({ button: 0, col: 11, row: 22, press: true });
+    expect(parseMouse("<0;2;30m")).toEqual({ button: 0, col: 2, row: 30, press: false });
+    const chunk = mouseReports("[<0;11;22M[<0;11;22m[<0;2;30M[<0;2;30m");
+    expect(chunk.map((r) => r.press)).toEqual([true, false, true, false]);
+    expect(mouseReports("hello")).toEqual([]);
+    expect(mouseReports("<not a report")).toEqual([]);
+  });
+});
