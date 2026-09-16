@@ -395,6 +395,14 @@ type StaticEntry =
   /** The `✓ Done in 12s` line a finished turn leaves behind. */
   | { key: string; kind: "note"; text: string; ok: boolean };
 
+/** Tool lines stack tightly; whatever follows a run of them gets one blank line above. */
+function followsTools(entries: StaticEntry[], index: number): boolean {
+  const previous = entries[index - 1];
+  if (!previous) return false;
+  if (previous.kind === "tools") return true;
+  return previous.kind === "entry" && previous.item.kind === "tool";
+}
+
 /**
  * Turn a slice of settled timeline entries into what the scrollback shows.
  *
@@ -2701,6 +2709,7 @@ export function App({
             // The launch wordmark runs edge to edge; everything else keeps the
             // one-column gutter the rest of the session is laid out on.
             paddingX={entry.kind === "launch" ? 0 : 1}
+            marginTop={followsTools(staticItems, staticItems.indexOf(entry)) ? 1 : 0}
           >
             {entry.kind === "launch" ? (
               <LaunchBanner

@@ -36622,7 +36622,7 @@ function tableAt(source, start, width, id) {
 }
 function messageLines(message, width = 80) {
   const out = [];
-  const text2 = message.text.replace(/^(?:[ \t]*\n)+/, "");
+  const text2 = message.text.replace(/^(?:[ \t]*\n)+/, "").replace(/(?:\n[ \t]*)+$/, "");
   const body = message.streaming ? `${text2}\u2026` : text2;
   const source = body.split("\n");
   let inFence = false;
@@ -37176,6 +37176,13 @@ var MAX_AGENT_ROWS = 6;
 var MAX_IDLE_ROWS = 3;
 var CURRENT_GLYPH = "\u25CF";
 var AGENT_GLYPH = "\u25EF";
+var ORIGIN_COLOR = {
+  external: "magenta",
+  named: "blue"
+};
+function rowColor(row) {
+  return row.color ?? (row.origin ? ORIGIN_COLOR[row.origin] : void 0);
+}
 var STATUS_GLYPH = {
   current: CURRENT_GLYPH,
   idle: AGENT_GLYPH,
@@ -37320,8 +37327,7 @@ function cells(text2) {
 var NAME_WIDTH = 16;
 function layoutAgentRow(row, width) {
   const safeWidth = Math.max(10, Math.floor(width));
-  const origin = row.origin === "team" ? " [team]" : row.origin === "external" ? " [ext]" : row.origin === "named" ? " [named]" : "";
-  const left = `${row.glyph} ${row.name}${origin}`;
+  const left = `${row.glyph} ${row.name}`;
   const pad = Math.max(0, NAME_WIDTH + 2 - cells(left));
   const padded = row.task.length > 0 ? left + " ".repeat(pad) : left;
   const leftCells = cells(padded);
@@ -38014,7 +38020,7 @@ function ToolCall({
   const shown = expanded ? lines.slice(0, maxOutputLines) : [];
   const hidden = lines.length - shown.length;
   const tail = call.state === "running" ? call.progress ?? [] : [];
-  return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(Box_default, { flexDirection: "column", marginBottom: 1, children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(Box_default, { flexDirection: "column", children: [
     /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(Text, { children: [
       /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(Text, { color: meta.color, children: [
         meta.glyph,
@@ -38268,7 +38274,7 @@ function ChoiceList({
     const held = checked?.has(index) ?? false;
     const mark = multi ? held ? "[x] " : "[ ] " : radio ? held ? "\u25CF " : "\u25CB " : "";
     const number = numbered ? `${index + 1}. ` : "";
-    const rowColor = option.danger ? "red" : here ? color : void 0;
+    const rowColor2 = option.danger ? "red" : here ? color : void 0;
     return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(Box_default, { flexDirection: "column", children: [
       /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(Box_default, { children: [
         /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Text, { color: here ? option.danger ? "red" : color : void 0, bold: here, children: here ? "\u276F " : "  " }),
@@ -38277,7 +38283,7 @@ function ChoiceList({
           {
             inverse: here,
             bold: here || option.bold,
-            color: rowColor,
+            color: rowColor2,
             dimColor: !here && !held && !option.danger,
             wrap: "truncate-end",
             children: ` ${number}${mark}${option.label} `
@@ -38820,7 +38826,7 @@ function AgentPanelInner({
     const focused = index === focusedIndex;
     const line = layoutAgentRow(row, width - 1);
     return /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(Box_default, { width, flexWrap: "nowrap", overflow: "hidden", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { color: row.color, dimColor: row.dim && !row.color, inverse: focused, bold: focused, children: line.left }),
+      /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { color: rowColor(row), dimColor: row.dim && !rowColor(row), inverse: focused, bold: focused, children: line.left }),
       /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { dimColor: !focused, inverse: focused, wrap: "truncate-end", children: line.task }),
       /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { dimColor: true, inverse: focused, children: line.gap }),
       /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { dimColor: row.dim && !focused, color: row.color, inverse: focused, children: line.status })
@@ -39579,7 +39585,7 @@ var SUMMARY_GLYPH = "\u23FA";
 function ToolSummary({ calls }) {
   if (calls.length === 0) return null;
   const lines = hiddenLines(calls);
-  return /* @__PURE__ */ (0, import_jsx_runtime28.jsxs)(Box_default, { marginBottom: 1, children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime28.jsxs)(Box_default, { children: [
     /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(Text, { color: "green", children: `${SUMMARY_GLYPH} ` }),
     /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(Text, { children: summarizeCalls(calls) }),
     lines > 0 ? /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(Text, { dimColor: true, children: ` (${lines} lines)` }) : null
@@ -39737,6 +39743,12 @@ function TimelineEntry({
       diagnostics: state.diagnostics[diff2.path]
     }
   ) : null;
+}
+function followsTools(entries, index) {
+  const previous = entries[index - 1];
+  if (!previous) return false;
+  if (previous.kind === "tools") return true;
+  return previous.kind === "entry" && previous.item.kind === "tool";
 }
 function releaseEntries(state, items) {
   const out = [];
@@ -41389,6 +41401,7 @@ function App2({
       {
         flexDirection: "column",
         paddingX: entry.kind === "launch" ? 0 : 1,
+        marginTop: followsTools(staticItems, staticItems.indexOf(entry)) ? 1 : 0,
         children: entry.kind === "launch" ? /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
           LaunchBanner,
           {

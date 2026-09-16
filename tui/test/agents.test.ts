@@ -217,9 +217,13 @@ describe("layoutAgentRow", () => {
     expect(cells(wide.left)).toBe(cells(long.left));
   });
 
-  it("prints the agent origin tag in the name column", () => {
+  it("says the agent origin with colour, not a tag", async () => {
+    const { rowColor } = await import("../src/layout/agents.js");
     const tagged = layoutAgentRow({ ...row, name: "explore", origin: "external" }, 60);
-    expect(tagged.left).toContain("explore [ext]");
+    expect(tagged.left.trimEnd()).toBe("◯ explore");
+    expect(rowColor({ color: undefined, origin: "external" })).toBe("magenta");
+    expect(rowColor({ color: undefined, origin: "team" })).toBeUndefined();
+    expect(rowColor({ color: "green", origin: "external" })).toBe("green");
   });
 });
 

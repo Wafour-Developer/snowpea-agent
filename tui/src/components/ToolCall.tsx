@@ -41,7 +41,7 @@ export function ToolCall({
   const tail = call.state === "running" ? (call.progress ?? []) : [];
 
   return (
-    <Box flexDirection="column" marginBottom={1}>
+    <Box flexDirection="column">
       <Text>
         <Text color={meta.color}>{meta.glyph} </Text>
         <Text bold>{call.name}</Text>
