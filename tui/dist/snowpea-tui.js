@@ -34463,12 +34463,12 @@ function buildHudSegments(input) {
   } else if (input.voiceInput) {
     segments.push({ key: "mic", text: `\u{1F3A4}${engine(input.sttEngine)}`, color: "cyan", priority: 3 });
   } else if (input.sttEngine) {
-    segments.push({ key: "mic", text: `\u{1F3A4} off`, dimColor: true, priority: 9 });
+    segments.push({ key: "mic", text: `\u{1F3A4}${engine(input.sttEngine)}`, dimColor: true, priority: 9 });
   }
   if (input.speaking) {
     segments.push({ key: "tts", text: `\u{1F50A}${engine(input.ttsEngine)}`, color: "cyan", priority: 3 });
   } else if (input.ttsEngine) {
-    segments.push({ key: "tts", text: `\u{1F50A} off`, dimColor: true, priority: 9 });
+    segments.push({ key: "tts", text: `\u{1F50A}${engine(input.ttsEngine)}`, dimColor: true, priority: 9 });
   }
   if (input.toolCount && input.toolCount > 0) {
     segments.push({
