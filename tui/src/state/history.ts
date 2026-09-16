@@ -66,18 +66,26 @@ export function sessionKindPrefix(
  * list a person has to scan; both are dropped. Ids are shortened to eight
  * characters, which is what the daemon accepts as a prefix everywhere.
  */
-export function resumeRows(entries: SessionRecord[]): SessionRecord[] {
-  return entries.filter(
+export function resumeRows(entries: SessionRecord[], workdir?: string): SessionRecord[] {
+  const kept = entries.filter(
     (entry) => entry.kind !== "subagent" && entry.firstPrompt.trim().length > 0,
   );
+  if (!workdir) return kept;
+  // This project's own threads first — that is what a person opening the
+  // picker here almost always wants — then everything else, still newest first.
+  const here = kept.filter((entry) => entry.workdir === workdir);
+  const elsewhere = kept.filter((entry) => entry.workdir !== workdir);
+  return [...here, ...elsewhere];
 }
 
-export function resumeLabel(entry: SessionRecord, promptChars = 48): string {
+export function resumeLabel(entry: SessionRecord, promptChars = 48, workdir?: string): string {
   const prompt =
     entry.firstPrompt.length > promptChars
       ? `${entry.firstPrompt.slice(0, promptChars - 1)}…`
       : entry.firstPrompt;
-  return `${sessionKindPrefix(entry.kind, entry.parentSessionId)}${entry.sessionId.slice(
+  const where =
+    workdir && entry.workdir !== workdir ? `[${entry.workdir.split("/").pop() || entry.workdir}] ` : "";
+  return `${where}${sessionKindPrefix(entry.kind, entry.parentSessionId)}${entry.sessionId.slice(
     0,
     8,
   )} · ${new Date(entry.at).toLocaleString()} · ${prompt || "(no prompt)"}`;
