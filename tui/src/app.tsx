@@ -46,7 +46,7 @@ import {
   type TimelineItem,
   type ToolCallEntry,
 } from "./state/store.js";
-import { derivePhase, queuedLabel, turnSummaryLine, workingLine } from "./state/working.js";
+import { derivePhase, queuedLabel, turnSummaryLine, workingLine, estimateTokens } from "./state/working.js";
 import { cycleMode } from "./state/mode.js";
 import { useTerminalSize } from "./hooks/useTerminalSize.js";
 import { useDaemonInfo } from "./hooks/useDaemonInfo.js";
@@ -1205,7 +1205,11 @@ export function App({
         phase,
         elapsedMs: turnStartedAt === null ? 0 : clock - turnStartedAt,
         inputTokens: turn ? state.usage.inputTokens - turn.inputTokens : 0,
-        outputTokens: turn ? state.usage.outputTokens - turn.outputTokens : 0,
+        // The daemon reports usage once per model round; between reports the
+        // streamed answer and thinking stand in, so a long round still moves.
+        outputTokens:
+          (turn ? state.usage.outputTokens - turn.outputTokens : 0) +
+          estimateTokens(state.streamedChars + state.reasoningChars),
         frame: spinnerFrame,
         verbOffset: state.messages.length,
         waited: state.turnWaited,

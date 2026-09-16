@@ -34698,6 +34698,9 @@ function formatStats({
   parts.push(`\u2193 ${formatTokens(outputTokens)} tokens`);
   return `(${parts.join(" \xB7 ")})`;
 }
+function estimateTokens(chars) {
+  return Math.ceil(Math.max(0, chars) / 4);
+}
 function workingLine(input) {
   const { phase } = input;
   if (phase.kind === "idle") return null;
@@ -34784,6 +34787,7 @@ var initialState = {
   turnWaited: false,
   compacting: null,
   reasoningChars: 0,
+  streamedChars: 0,
   errors: []
 };
 var counter = 0;
@@ -34902,8 +34906,10 @@ function applySessionEvent(state, event, options = {}) {
         timeline: pushTimeline(base, { kind: "message", id: message.id })
       };
     }
-    case "message.delta":
-      return appendDelta(base, String(payload.text ?? ""));
+    case "message.delta": {
+      const text2 = String(payload.text ?? "");
+      return { ...appendDelta(base, text2), streamedChars: base.streamedChars + text2.length };
+    }
     // Thinking, not an answer: counted for the working line, never appended.
     case "message.reasoning":
       return { ...base, reasoningChars: Number(payload.chars ?? base.reasoningChars) };
@@ -35025,6 +35031,8 @@ function applySessionEvent(state, event, options = {}) {
     case "usage":
       return {
         ...base,
+        streamedChars: 0,
+        reasoningChars: 0,
         usage: {
           inputTokens: base.usage.inputTokens + Number(payload.inputTokens ?? 0),
           outputTokens: base.usage.outputTokens + Number(payload.outputTokens ?? 0)
@@ -35270,7 +35278,8 @@ function reducer(state, action) {
           ...state,
           pendingEchoes,
           deferredPrompts: [...state.deferredPrompts, message],
-          reasoningChars: 0
+          reasoningChars: 0,
+          streamedChars: 0
         };
       }
       return {
@@ -35279,7 +35288,8 @@ function reducer(state, action) {
         messages: [...state.messages, message],
         timeline: pushTimeline(state, { kind: "message", id: message.id }),
         turnActive: true,
-        reasoningChars: 0
+        reasoningChars: 0,
+        streamedChars: 0
       };
     }
     case "session/event":
@@ -40253,7 +40263,9 @@ function App2({
     phase,
     elapsedMs: turnStartedAt === null ? 0 : clock - turnStartedAt,
     inputTokens: turn ? state.usage.inputTokens - turn.inputTokens : 0,
-    outputTokens: turn ? state.usage.outputTokens - turn.outputTokens : 0,
+    // The daemon reports usage once per model round; between reports the
+    // streamed answer and thinking stand in, so a long round still moves.
+    outputTokens: (turn ? state.usage.outputTokens - turn.outputTokens : 0) + estimateTokens(state.streamedChars + state.reasoningChars),
     frame: spinnerFrame,
     verbOffset: state.messages.length,
     waited: state.turnWaited

@@ -13,8 +13,7 @@ import {
   formatStats,
   toolLabel,
   turnSummaryLine,
-  workingLine,
-} from "../src/state/working.js";
+  workingLine, estimateTokens } from "../src/state/working.js";
 import {
   __resetIdCounter,
   initialState,
@@ -306,5 +305,20 @@ describe("the output limit", () => {
     const last = state.messages[state.messages.length - 1];
     expect(last.role).toBe("system");
     expect(last.text).toMatch(/continued/);
+  });
+});
+
+describe("live token estimate between usage reports", () => {
+  it("counts streamed answer characters and clears them on the daemon's usage", () => {
+    let s = apply(
+      ask(initialState, "go"),
+      event(1, "message.delta", { text: "x".repeat(400) }),
+      event(2, "message.reasoning", { text: "…", chars: 200 }),
+    );
+    expect(estimateTokens(s.streamedChars + s.reasoningChars)).toBe(150);
+    s = apply(s, event(3, "usage", { inputTokens: 10, outputTokens: 120 }));
+    expect(s.streamedChars).toBe(0);
+    expect(s.reasoningChars).toBe(0);
+    expect(s.usage.outputTokens).toBe(120);
   });
 });

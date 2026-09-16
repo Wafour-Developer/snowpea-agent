@@ -165,6 +165,11 @@ export function formatStats({
   return `(${parts.join(" · ")})`;
 }
 
+/** A rough token count for streamed text while the daemon has not reported yet. */
+export function estimateTokens(chars: number): number {
+  return Math.ceil(Math.max(0, chars) / 4);
+}
+
 export interface WorkingLineInput {
   phase: WorkingPhase;
   /** Milliseconds since the turn started. */
