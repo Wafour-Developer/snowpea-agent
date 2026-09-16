@@ -672,3 +672,29 @@ def test_should_auto_compact_respects_the_settings() -> None:
 
     # A conversation no longer than what compaction would keep is left alone.
     assert compaction.should_auto_compact(core, SessionStub(2), over) is False  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_a_known_family_served_larger_is_discovered_not_tabled() -> None:
+    """``qwen`` is 131k in the static table; a vLLM node serving it at 256k
+    must be believed, so the ``context`` event asks the server even though
+    the table already has an answer (it only stops asking once cached)."""
+    from types import SimpleNamespace
+
+    from snowpea_core.session import compaction
+
+    server = WindowServer([{"id": "qwen38-flash-next", "max_model_len": 262_144}])
+    try:
+        settings = Settings.model_validate(
+            {"providers": {"local": {"base_url": server.base_url, "model": "qwen38-flash-next"}}}
+        )
+        registry = ProviderRegistry(settings)
+        assert registry.context_window("local") == 131_072  # the table, before asking
+        core = SimpleNamespace(providers=registry)
+        session = SimpleNamespace(provider="local", model="qwen38-flash-next")
+        assert compaction.window_is_cold(core, session) is True
+        assert await compaction.resolve_window(core, session) == 262_144
+        assert compaction.window_is_cold(core, session) is False
+        assert registry.context_window("local") == 262_144
+    finally:
+        server.close()

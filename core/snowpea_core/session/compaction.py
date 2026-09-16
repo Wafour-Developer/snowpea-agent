@@ -209,6 +209,34 @@ def window_for(core: Core, session: Session) -> int | None:
         return None
 
 
+def window_is_cold(core: Core, session: Session) -> bool:
+    """True when a ``local`` server has not been asked about this model yet.
+
+    The static table has an answer for most model families (``qwen`` →
+    131k), which used to stop discovery from ever running; a vLLM node
+    serving the same family at 256k was reported at half its size for the
+    whole session.  Only a cache entry (a real answer, or a remembered
+    negative one) counts as knowing.
+    """
+    from snowpea_core.providers import context_windows
+    from snowpea_core.providers import models as model_discovery
+
+    vendor = session.provider or core.providers.default_vendor()
+    try:
+        if not core.providers.is_local_style(vendor):
+            return False
+        if core.providers.vendor_config(vendor).get("context_window"):
+            return False
+        base_url = (core.providers.base_url_for(vendor) or "").rstrip("/")
+        model = core.providers.model_for(vendor, session.model)
+        if not base_url or model_discovery.is_placeholder(model):
+            return False
+        hit, _cached = context_windows.cache_get(vendor, base_url, model)
+        return not hit
+    except Exception:  # noqa: BLE001 - an unknown vendor is simply not local
+        return False
+
+
 async def resolve_window(core: Core, session: Session) -> int | None:
     """Like :func:`window_for`, but lets a ``local`` server be asked once."""
     vendor = session.provider or core.providers.default_vendor()
@@ -263,8 +291,10 @@ async def emit_context(
     turn, so nothing is lost.
     """
     resolved = state or state_for(core, session)
-    if resolved.window is None and discover:
-        resolved.window = await resolve_window(core, session)
+    if discover and (resolved.window is None or window_is_cold(core, session)):
+        live = await resolve_window(core, session)
+        if live is not None:
+            resolved.window = live
     session.context_used = resolved.used
     session.context_estimated = resolved.estimated
     session.context_window = resolved.window
@@ -485,8 +515,10 @@ async def maybe_auto_compact(core: Core, session: Session) -> CompactionResult |
     answered yet.
     """
     state = state_for(core, session)
-    if state.window is None:
-        state.window = await resolve_window(core, session)
+    if state.window is None or window_is_cold(core, session):
+        live = await resolve_window(core, session)
+        if live is not None:
+            state.window = live
     if not should_auto_compact(core, session, state):
         return None
     return await compact_session(core, session, auto=True)
@@ -629,6 +661,7 @@ __all__ = [
     "render_conversation",
     "resolved_identity",
     "resolve_window",
+    "window_is_cold",
     "should_auto_compact",
     "split_index",
     "state_for",
