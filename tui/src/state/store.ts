@@ -17,6 +17,7 @@ import type {
   TurnStarted,
 } from "../rpc/sdk.js";
 import type { ConnectionStatus } from "../rpc/client.js";
+import { uiLanguage } from "../layout/language.js";
 import type { FileDiagnostics, LspServer } from "./lsp.js";
 import { applyMcpChange, type McpServerRow } from "./mcp.js";
 import { replayTurnSummaryLine } from "./working.js";
@@ -280,6 +281,8 @@ export interface State {
   turnStartedAt: number | null;
   /** True when the running turn sat in the queue before it began. */
   turnWaited: boolean;
+  /** Reason from the most recent turn.done event. */
+  lastTurnReason: string | null;
   /** Set while a compaction is running; cleared by the `compaction` event. */
   compacting: { reason: NonNullable<CompactionStarted["reason"]>; before: number } | null;
   /**
@@ -330,6 +333,7 @@ export const initialState: State = {
   turnActive: false,
   turnStartedAt: null,
   turnWaited: false,
+  lastTurnReason: null,
   compacting: null,
   reasoningChars: 0,
   streamedChars: 0,
@@ -461,8 +465,18 @@ function withLimitNote(state: State, payload: Record<string, unknown>): State {
 }
 
 function finishMessage(state: State, payload: Record<string, unknown>): State {
-  const text = typeof payload.text === "string" ? payload.text : undefined;
-  const role = (typeof payload.role === "string" ? payload.role : "assistant") as MessageRole;
+  let text = typeof payload.text === "string" ? payload.text : undefined;
+  const payloadKind = String(payload.kind ?? payload.messageKind ?? "");
+  if (payloadKind === "interrupted" && uiLanguage() === "ko") {
+    text = "중단했습니다. 무엇을 바꿀지 알려주세요 — 다음 메시지가 이 세션을 이어갑니다.";
+  }
+  const role = (
+    payloadKind === "interrupted"
+      ? "note"
+      : typeof payload.role === "string"
+        ? payload.role
+        : "assistant"
+  ) as MessageRole;
   const last = state.messages[state.messages.length - 1];
   if (last && last.streaming && last.role === role) {
     const messages = state.messages
@@ -847,6 +861,7 @@ function applySessionEvent(
         turnActive: true,
         turnStartedAt: Number.isFinite(stamped) ? stamped : Date.now(),
         turnWaited: waited,
+        lastTurnReason: null,
         promptTexts:
           text.length > 0 && turnId.length > 0
             ? { ...base.promptTexts, [turnId]: text }
@@ -921,6 +936,7 @@ function applySessionEvent(
         turnActive: false,
         turnStartedAt: null,
         turnWaited: false,
+        lastTurnReason: String(payload.reason ?? "complete"),
       };
       if (!options.replay) return settled;
       // A live turn's summary is written by `app.tsx`, which watched it run. A

@@ -301,6 +301,19 @@ class TeamManager:
             return
         await run.runner
 
+    async def interrupt_for_session(self, session_id: str) -> None:
+        """Cancel live worktree-team runs owned by ``session_id``."""
+        for run in list(self._runs.values()):
+            if run.session.id != session_id:
+                continue
+            run.session.interrupt.set()
+            if run.runner is not None and not run.runner.done():
+                run.runner.cancel()
+                try:
+                    await run.runner
+                except asyncio.CancelledError:
+                    pass
+
     async def plan(self, session: Session, task: str, workers: int) -> list[PlannedTask]:
         """Ask the session's provider for the task list."""
         provider = self.core.providers.get(session.provider, session.model)
@@ -408,6 +421,7 @@ class TeamManager:
     # -- the loops -----------------------------------------------------
     async def _run(self, run: TeamRun) -> None:
         """Workers and the merge loop, then cleanup — always cleanup."""
+        cancelled = False
         try:
             workers = [
                 asyncio.ensure_future(self._worker(run, entry)) for entry in run.worktrees
@@ -415,13 +429,26 @@ class TeamManager:
             merger = asyncio.ensure_future(self._merge_loop(run))
             try:
                 await asyncio.gather(*workers)
+            except asyncio.CancelledError:
+                cancelled = True
+                for worker in workers:
+                    worker.cancel()
+                merger.cancel()
+                await asyncio.gather(*workers, return_exceptions=True)
+                raise
             finally:
-                await merger
+                if not merger.cancelled():
+                    try:
+                        await merger
+                    except asyncio.CancelledError:
+                        cancelled = True
         finally:
             await self._cleanup(run)
             rows = await self.store.tasks(run.id)
             failed = [row for row in rows if row.status == team_store.FAILED]
-            run.state = "failed" if failed and len(failed) == len(rows) else "done"
+            run.state = "interrupted" if cancelled else (
+                "failed" if failed and len(failed) == len(rows) else "done"
+            )
             await self.store.set_team_state(run.id, run.state)
             await self.store.post(
                 run.id,

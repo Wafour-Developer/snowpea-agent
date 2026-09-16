@@ -65,6 +65,7 @@ QUEUED = "queued"
 RUNNING = "running"
 DONE = "done"
 ERROR = "error"
+INTERRUPTED = "interrupted"
 
 #: Kind reported by ``agent.list`` for a delegated child.
 SUBAGENT_KIND = "subagent"
@@ -216,6 +217,9 @@ class SubagentRecord:
     #: delegating tool call; set by ``delegate_task`` when a surface is
     #: listening, ``None`` otherwise (IDE-PROGRESS D2).
     progress: ProgressEmitter | None = field(default=None, repr=False, compare=False)
+    #: Steer prompts to inject when the child session starts or reaches its
+    #: next model round.
+    pending_steers: list[tuple[str, str]] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -334,6 +338,7 @@ class SubagentManager:
         self._records: dict[str, SubagentRecord] = {}
         self._order: list[str] = []
         self._semaphores: dict[str, tuple[int, asyncio.Semaphore]] = {}
+        self._tasks: dict[str, asyncio.Task[Any]] = {}
 
     # -- concurrency ---------------------------------------------------
     def limit_for(self, parent: Session) -> int:
@@ -365,6 +370,57 @@ class SubagentManager:
     def active(self) -> list[SubagentRecord]:
         """Queued and running children — what ``agent.list`` reports."""
         return [record for record in self.records() if record.status in (QUEUED, RUNNING)]
+
+    def descendants(self, parent_session_id: str) -> list[SubagentRecord]:
+        """Live children below ``parent_session_id``, recursively."""
+        out: list[SubagentRecord] = []
+        frontier = [parent_session_id]
+        seen: set[str] = set()
+        while frontier:
+            parent_id = frontier.pop()
+            if parent_id in seen:
+                continue
+            seen.add(parent_id)
+            for record in self.records():
+                if record.parent_session_id != parent_id:
+                    continue
+                if record.status not in (QUEUED, RUNNING):
+                    continue
+                out.append(record)
+                if record.session_id:
+                    frontier.append(record.session_id)
+        return out
+
+    def queue_steer(self, record: SubagentRecord, source_turn_id: str, text: str) -> None:
+        if any(turn_id == source_turn_id for turn_id, _ in record.pending_steers):
+            return
+        record.pending_steers.append((source_turn_id, text))
+
+    def take_pending_steers(self, session_id: str) -> list[tuple[str, str]]:
+        for record in self.records():
+            if record.session_id == session_id:
+                pending = list(record.pending_steers)
+                record.pending_steers.clear()
+                return pending
+        return []
+
+    async def interrupt_descendants(self, parent_session_id: str) -> None:
+        """Set interrupt on every live child below ``parent_session_id``."""
+        for record in self.descendants(parent_session_id):
+            if record.session_id:
+                child = self.core.sessions.get(record.session_id)
+                if child is not None:
+                    child.interrupt.set()
+                    from snowpea_core.agent import loop as agent_loop
+
+                    await agent_loop.flush_queued_turns(self.core, child)
+            elif record.status == QUEUED:
+                record.status = INTERRUPTED
+                record.reason = INTERRUPTED
+                record.error = "interrupted"
+                task = self._tasks.get(record.agent_id)
+                if task is not None and not task.done():
+                    task.cancel()
 
     def infos(self, *, include_finished: bool = False) -> list[AgentInfo]:
         source = self.records() if include_finished else self.active()
@@ -615,22 +671,33 @@ class SubagentManager:
             return await self._refuse(record, f"unknown agent '{agent}'")
 
         semaphore = self.semaphore_for(parent)
-        async with semaphore:
-            record.status = RUNNING
-            await self.emit_update(record, last_text="started")
-            try:
+        current = asyncio.current_task()
+        if current is not None:
+            self._tasks[record.agent_id] = current
+        try:
+            async with semaphore:
+                if parent.interrupt.is_set() or record.status == INTERRUPTED:
+                    record.status = INTERRUPTED
+                    record.reason = INTERRUPTED
+                    record.error = "interrupted"
+                    await self.emit_done(record)
+                    return self._result(record)
+                record.status = RUNNING
+                await self.emit_update(record, last_text="started")
                 await self._execute(parent, record, brief, defn, tools, timeout)
-            except asyncio.CancelledError:
-                record.status = ERROR
-                record.error = "cancelled"
-                record.reason = "interrupted"
-                await self.emit_done(record)
-                raise
-            except Exception as exc:  # noqa: BLE001 - a broken child is a failed task
-                log.exception("subagent %s failed", record.agent_id)
-                record.status = ERROR
-                record.error = f"{type(exc).__name__}: {exc}"
-                record.reason = ERROR
+        except asyncio.CancelledError:
+            record.status = INTERRUPTED
+            record.error = "interrupted"
+            record.reason = INTERRUPTED
+            await self.emit_done(record)
+            return self._result(record)
+        except Exception as exc:  # noqa: BLE001 - a broken child is a failed task
+            log.exception("subagent %s failed", record.agent_id)
+            record.status = ERROR
+            record.error = f"{type(exc).__name__}: {exc}"
+            record.reason = ERROR
+        finally:
+            self._tasks.pop(record.agent_id, None)
 
         if record.status == RUNNING:
             record.status = DONE
@@ -676,6 +743,8 @@ class SubagentManager:
 
         child = await self._child_session(parent, record, defn)
         record.session_id = child.id
+        child.steered_prompts.extend(record.pending_steers)
+        record.pending_steers.clear()
         watcher = _ChildWatcher(self, record)
         self.core.hub.subscribe(watcher, child.id)
         try:
@@ -704,6 +773,9 @@ class SubagentManager:
                 record.status = ERROR
                 denied = ", ".join(dict.fromkeys(record.denied_tools)) or "a tool call"
                 record.error = f"the subagent stopped after a denied call ({denied})"
+            if (record.reason or "").lower() == INTERRUPTED:
+                record.status = INTERRUPTED
+                record.error = "interrupted"
         except TimeoutError:
             child.interrupt.set()
             record.status = ERROR
@@ -856,6 +928,7 @@ __all__ = [
     "COMPLETE",
     "DONE",
     "ERROR",
+    "INTERRUPTED",
     "TIMEOUT",
     "QUEUED",
     "RUNNING",

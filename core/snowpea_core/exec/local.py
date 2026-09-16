@@ -6,6 +6,7 @@ import asyncio
 import codecs
 import contextlib
 import os
+import signal
 from pathlib import Path, PurePath
 
 from snowpea_core.exec.backend import (
@@ -82,6 +83,7 @@ class LocalBackend:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env={**os.environ, **(env or {})},
+            start_new_session=True,
         )
         captured: dict[str, list[str]] = {"stdout": [], "stderr": []}
         waiting: dict[str, str] = {"stdout": "", "stderr": ""}
@@ -119,18 +121,24 @@ class LocalBackend:
             return await process.wait()
 
         flusher = asyncio.ensure_future(ticker()) if on_chunk is not None else None
+        drain_task: asyncio.Task[int] | None = None
         try:
-            exit_code = await asyncio.wait_for(asyncio.ensure_future(drain()), timeout)
+            drain_task = asyncio.ensure_future(drain())
+            exit_code = await asyncio.wait_for(drain_task, timeout)
         except TimeoutError:
-            with contextlib.suppress(ProcessLookupError):
-                process.kill()
-            with contextlib.suppress(Exception):
-                await process.wait()
+            await _terminate_process_group(process)
             return ExecResult(
                 exit_code=124,
                 stderr=f"command timed out after {timeout:g}s",
                 timed_out=True,
             )
+        except asyncio.CancelledError:
+            await _terminate_process_group(process)
+            if drain_task is not None:
+                drain_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await drain_task
+            raise
         finally:
             if flusher is not None:
                 flusher.cancel()
@@ -176,6 +184,21 @@ class LocalBackend:
     async def close(self) -> None:
         """Nothing to release: the local backend owns no resources."""
         return None
+
+
+async def _terminate_process_group(process: asyncio.subprocess.Process) -> None:
+    """Stop a shell command and anything it spawned."""
+    with contextlib.suppress(ProcessLookupError):
+        os.killpg(process.pid, signal.SIGTERM)
+    try:
+        await asyncio.wait_for(process.wait(), 0.5)
+        return
+    except TimeoutError:
+        pass
+    with contextlib.suppress(ProcessLookupError):
+        os.killpg(process.pid, signal.SIGKILL)
+    with contextlib.suppress(Exception):
+        await process.wait()
 
 
 __all__ = ["CHUNK_LIMIT", "FLUSH_INTERVAL", "MAX_OUTPUT", "READ_SIZE", "LocalBackend"]

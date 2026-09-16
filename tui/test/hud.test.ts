@@ -124,7 +124,7 @@ describe("buildHudSegments", () => {
     // adds how to stop it.
     expect(
       buildHudSegments({ ...base, turnActive: true }).find((s) => s.key === "command")?.text,
-    ).toBe("esc to interrupt");
+    ).toBe("Esc stops · type what to change");
   });
 
   it("falls back to the elapsed time alone before the session id is known", () => {

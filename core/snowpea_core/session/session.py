@@ -123,11 +123,22 @@ class Session:
     loaded_tools: set[str] = field(default_factory=set)
     #: Set by ``session.interrupt``; the agent loop checks it between steps.
     interrupt: asyncio.Event = field(default_factory=asyncio.Event)
+    #: True when the interrupt came from a user-facing stop request. Shutdown
+    #: and close paths also set :attr:`interrupt`, but they must not produce the
+    #: "tell me what to change" invitation.
+    interrupt_user_requested: bool = False
+    #: Steer prompts already propagated from an ancestor session, keyed by the
+    #: source prompt turn id so a child sees each one once.
+    propagated_steers: set[str] = field(default_factory=set)
     turn_task: asyncio.Task[Any] | None = None
     current_turn: str | None = None
     #: Prompts submitted while a turn is running.  They are drained FIFO by
     #: the same task so two turns never mutate one history concurrently.
     queued_turns: list[Any] = field(default_factory=list)
+    #: Steering prompts inherited from a parent turn.  They are injected at the
+    #: same point as local busy-steer prompts, but have no queued turn id of
+    #: their own.
+    steered_prompts: list[tuple[str, str]] = field(default_factory=list)
     #: Tokens the current prompt occupies, provider-reported when
     #: :attr:`context_estimated` is False (CORE-context).
     context_used: int = 0

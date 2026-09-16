@@ -303,7 +303,7 @@ export function buildHudSegments(input: HudInput): HudSegment[] {
   if (input.runningCommand) {
     segments.push({ key: "command", text: `▶ ${input.runningCommand}`, color: "yellow", priority: 2 });
   } else if (input.turnActive) {
-    segments.push({ key: "command", text: "esc to interrupt", dimColor: true, priority: 3 });
+    segments.push({ key: "command", text: "Esc stops · type what to change", dimColor: true, priority: 3 });
   }
 
   segments.push({

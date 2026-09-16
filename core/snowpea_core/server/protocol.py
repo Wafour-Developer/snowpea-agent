@@ -1255,7 +1255,7 @@ class TeamTask(Payload):
 
 class TeamStatusResult(Payload):
     teamId: str = Field(description="Team that was inspected.")
-    state: Literal["running", "done", "failed"] = Field(
+    state: Literal["running", "done", "failed", "interrupted"] = Field(
         default="running", description="Overall state."
     )
     tasks: list[TeamTask] = Field(default_factory=list, description="Task board contents.")
@@ -1829,6 +1829,15 @@ class MessageDone(Payload):
     role: Literal["assistant", "user", "system"] = Field(
         "assistant", description="Who produced the message."
     )
+    messageKind: Literal["", "interrupted"] = Field(
+        default="",
+        serialization_alias="kind",
+        validation_alias="messageKind",
+        description=(
+            "Optional message classification inside the message.done payload, "
+            "for example 'interrupted' for the post-stop system note."
+        ),
+    )
     truncated: bool = Field(
         False, description="The answer still hit the output limit and is incomplete."
     )
@@ -1893,7 +1902,7 @@ class DiffEvent(Payload):
 
 
 #: Lifecycle of one delegated subagent run (M7 contract §3).
-SubagentStatus = Literal["queued", "running", "done", "error"]
+SubagentStatus = Literal["queued", "running", "done", "error", "interrupted"]
 
 
 class SubagentSpawn(Payload):
@@ -1966,7 +1975,9 @@ class SubagentDone(Payload):
         ),
     )
     result: str = Field(default="", description="Final report.")
-    status: SubagentStatus = Field(default="done", description="Terminal state: done or error.")
+    status: SubagentStatus = Field(
+        default="done", description="Terminal state: done, error or interrupted."
+    )
     summary: str = Field(default="", description="The subagent's final answer.")
     usage: SubagentUsage = Field(
         default_factory=SubagentUsage, description="Tokens the subagent consumed."

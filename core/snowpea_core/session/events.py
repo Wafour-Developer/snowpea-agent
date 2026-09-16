@@ -8,7 +8,7 @@ back a ``(kind, payload_dict)`` pair ready for :meth:`EventHub.emit`.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, Literal
 
 from snowpea_core.server.protocol import (
     SESSION_EVENT_MODELS,
@@ -78,13 +78,26 @@ def message_reasoning(text: str, chars: int) -> Event:
 
 
 def message_done(
-    text: str, role: str = "assistant", *, truncated: bool = False, continuations: int = 0
+    text: str,
+    role: str = "assistant",
+    *,
+    kind: Literal["", "interrupted"] = "",
+    truncated: bool = False,
+    continuations: int = 0,
 ) -> Event:
-    return _pack(
+    event_kind, payload = _pack(
         MessageDone(  # type: ignore[arg-type]
-            text=text, role=role, truncated=truncated, continuations=continuations
+            text=text,
+            role=role,
+            messageKind=kind,
+            truncated=truncated,
+            continuations=continuations,
         )
     )
+    payload.pop("messageKind", None)
+    if kind:
+        payload["kind"] = kind
+    return event_kind, payload
 
 
 def tool_call(call_id: str, name: str, args: dict[str, Any]) -> Event:
@@ -277,8 +290,16 @@ def validate(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
     model = SESSION_EVENT_MODELS.get(kind)
     if model is None:
         return payload
-    data = model.model_validate({**payload, "kind": kind}).model_dump(mode="json")
+    data_in = {**payload, "kind": kind}
+    message_kind = ""
+    if kind == "message.done" and "kind" in payload:
+        message_kind = str(payload["kind"])
+        data_in["messageKind"] = message_kind
+    data = model.model_validate(data_in).model_dump(mode="json")
     data.pop("kind", None)
+    data.pop("messageKind", None)
+    if message_kind:
+        data["kind"] = message_kind
     return data
 
 

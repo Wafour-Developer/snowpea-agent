@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import type { SessionEvent } from "../src/rpc/sdk.js";
+import { resetUiLanguage, setUiLanguage } from "../src/layout/language.js";
 import { __resetIdCounter, initialState, reducer, type State } from "../src/state/store.js";
 
 function event(seq: number, kind: string, payload: Record<string, unknown>): SessionEvent {
@@ -280,3 +281,49 @@ describe("subagent tree", () => {
     expect(state.subagents[0]).toMatchObject({ status: "error", summary: "it broke" });
   });
 });
+
+describe("interrupted turns and post-stop note", () => {
+  it("renders an interrupted message.done as a quiet system note (role: note)", () => {
+    resetUiLanguage();
+    const state = apply(
+      initialState,
+      event(1, "turn.started", { turnId: "t1" }),
+      event(2, "turn.done", { turnId: "t1", reason: "interrupted" }),
+      event(3, "message.done", {
+        role: "system",
+        kind: "interrupted",
+        text: "Interrupted. Tell me what to change — your next message continues this session.",
+      }),
+    );
+
+    expect(state.lastTurnReason).toBe("interrupted");
+    expect(state.messages).toHaveLength(1);
+    expect(state.messages[0]).toMatchObject({
+      role: "note",
+      text: "Interrupted. Tell me what to change — your next message continues this session.",
+    });
+  });
+
+  it("translates the interrupted invitation when UI language is Korean", () => {
+    try {
+      setUiLanguage("ko");
+      const state = apply(
+        initialState,
+        event(1, "turn.done", { turnId: "t1", reason: "interrupted" }),
+        event(2, "message.done", {
+          role: "system",
+          kind: "interrupted",
+          text: "Interrupted. Tell me what to change — your next message continues this session.",
+        }),
+      );
+
+      expect(state.messages[0]).toMatchObject({
+        role: "note",
+        text: "중단했습니다. 무엇을 바꿀지 알려주세요 — 다음 메시지가 이 세션을 이어갑니다.",
+      });
+    } finally {
+      resetUiLanguage();
+    }
+  });
+});
+

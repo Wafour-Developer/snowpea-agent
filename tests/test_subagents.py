@@ -791,3 +791,117 @@ async def test_a_child_inherits_the_parents_pin_when_nothing_else_applies(
     seen = await _observe_child(manager, core, runner)
     # It used to be dropped for every child the moment any models.default existed.
     assert (seen["provider"], seen["model"]) == ("openai", "pinned-by-the-user")
+
+
+async def test_parent_interrupt_cascades_to_slow_child(
+    daemon: Daemon, workdir: Path, tmp_path: Path
+) -> None:
+    """Parent interrupt cascades to running child and subagent.done is interrupted."""
+    from snowpea_core.agent import loop as agent_loop
+    from snowpea_core.server.session_handlers import interrupt_session
+    from snowpea_core.tools.registry import Tool, ToolResult
+
+    core = daemon.core
+    assert core is not None
+
+    async def _sleeping_run(ctx: Any, args: dict[str, Any]) -> ToolResult:
+        del ctx, args
+        await asyncio.sleep(30.0)
+        return ToolResult(ok=True, output="slept")
+
+    sleeping_tool = Tool(
+        name="sleep_tool",
+        category="test",
+        description="sleeps for 30s",
+        input_schema={"type": "object"},
+        permission="read",
+        run=_sleeping_run,
+    )
+    core.tools.register(sleeping_tool)
+
+    class CascadeProvider:
+        vendor = "test-cascade"
+
+        async def stream(
+            self, messages: list[Any], tools: list[Any], **kwargs: Any
+        ) -> AsyncIterator[StreamEvent]:
+            del tools, kwargs
+            users = "\n".join(
+                str(getattr(m, "content", "")) for m in messages if getattr(m, "role", "") == "user"
+            )
+            if "slow child task" in users:
+                yield StreamEvent(
+                    kind="tool_call",
+                    tool_call=ToolCall(
+                        id="call_child_sleep",
+                        name="sleep_tool",
+                        arguments={},
+                    ),
+                )
+                yield StreamEvent(kind="done", stop_reason="tool_use")
+                return
+            yield StreamEvent(
+                kind="tool_call",
+                tool_call=ToolCall(
+                    id="call_delegate",
+                    name="delegate_task",
+                    arguments={"task": "slow child task", "agent": "executor"},
+                ),
+            )
+            yield StreamEvent(kind="done", stop_reason="tool_use")
+
+    core.providers.get = lambda _p, _m: CascadeProvider()  # type: ignore[assignment]
+
+    parent_session = await open_session(core, workdir)
+    unrelated_dir = tmp_path / "unrelated"
+    unrelated_dir.mkdir()
+    unrelated_session = await open_session(core, unrelated_dir)
+
+    recorder = Recorder()
+    core.hub.subscribe(recorder, None)
+
+    parent_runner = asyncio.create_task(
+        agent_loop.run_turn(core, parent_session, "delegate to slow child", turn_id="t-parent")
+    )
+
+    deadline = asyncio.get_running_loop().time() + TIMEOUT
+    child_session_id = None
+    while asyncio.get_running_loop().time() < deadline:
+        calls = [
+            e
+            for e in recorder.of_kind("tool.call")
+            if e["sessionId"] != parent_session.id and e["payload"].get("name") == "sleep_tool"
+        ]
+        if calls:
+            child_session_id = calls[0]["sessionId"]
+            break
+        await asyncio.sleep(0.01)
+    assert child_session_id is not None
+
+    await interrupt_session(core, parent_session)
+    await asyncio.wait_for(parent_runner, timeout=TIMEOUT)
+
+    parent_turn_done = [
+        e["payload"]
+        for e in recorder.of_kind("turn.done")
+        if e["sessionId"] == parent_session.id
+    ]
+    assert any(
+        p.get("turnId") == "t-parent" and p.get("reason") == "interrupted" for p in parent_turn_done
+    )
+
+    child_turn_done = [
+        e["payload"]
+        for e in recorder.of_kind("turn.done")
+        if e["sessionId"] == child_session_id
+    ]
+    assert any(p.get("reason") == "interrupted" for p in child_turn_done)
+
+    subagent_done = [
+        e["payload"]
+        for e in recorder.of_kind("subagent.done")
+        if e["sessionId"] == parent_session.id
+    ]
+    assert any(p.get("status") == "interrupted" for p in subagent_done)
+
+    assert not unrelated_session.interrupt.is_set()
