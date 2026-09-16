@@ -284,6 +284,16 @@ class SessionResumeParams(Payload):
 
 class SessionResumeResult(Payload):
     sessionId: str = Field(description="Session that was resumed.")
+    mode: Mode | None = Field(
+        default=None,
+        description=(
+            "The session's permission mode as restored, so a surface that resumes "
+            "adopts it instead of keeping the mode it launched with."
+        ),
+    )
+    provider: str | None = Field(default=None, description="Chat provider vendor in use.")
+    model: str | None = Field(default=None, description="Model id in use.")
+    effort: str | None = Field(default=None, description="Reasoning effort pinned on the session.")
     events: list[SessionEvent] = Field(
         default_factory=list, description="Missed events in seq order."
     )

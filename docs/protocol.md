@@ -1341,7 +1341,11 @@ Replay the events a disconnected client missed.
 
 | field | type | required | description |
 |---|---|---|---|
+| `effort` | `string \| null` | no | Reasoning effort pinned on the session. |
 | `events` | `({ kind: string; payload?: Record<string, unknown>; seq: number; sessionId: string; ts: string; })[]` | no | Missed events in seq order. |
+| `mode` | `"plan" \| "accept" \| "auto" \| null` | no | The session's permission mode as restored, so a surface that resumes adopts it instead of keeping the mode it launched with. |
+| `model` | `string \| null` | no | Model id in use. |
+| `provider` | `string \| null` | no | Chat provider vendor in use. |
 | `sessionId` | `string` | yes | Session that was resumed. |
 
 ### `session.setEffort`

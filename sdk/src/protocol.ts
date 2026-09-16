@@ -1480,6 +1480,8 @@ export interface SessionResumeParams {
 
 /** `session.resume` result. */
 export interface SessionResumeResult {
+  /** Reasoning effort pinned on the session. */
+  effort?: string | null;
   /** Missed events in seq order. */
   events?: ({
     /** Event kind; see sessionEventKinds in the schema dump. */
@@ -1493,6 +1495,12 @@ export interface SessionResumeResult {
     /** UTC ISO-8601 timestamp. */
     ts: string;
   })[];
+  /** The session's permission mode as restored, so a surface that resumes adopts it instead of keeping the mode it launched with. */
+  mode?: "plan" | "accept" | "auto" | null;
+  /** Model id in use. */
+  model?: string | null;
+  /** Chat provider vendor in use. */
+  provider?: string | null;
   /** Session that was resumed. */
   sessionId: string;
 }

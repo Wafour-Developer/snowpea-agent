@@ -1037,6 +1037,11 @@ export function App({
             if (into === "child") dispatch({ type: "child/replay", sessionId: target, events });
             else dispatch({ type: "session/replay", events });
           }
+          // The daemon restored the session's own mode; the HUD must say the
+          // one the next turn will actually run under, not the launch flag.
+          if (into === "main" && typeof result?.mode === "string") {
+            dispatch({ type: "mode", mode: result.mode as Mode });
+          }
         })
         .catch((error: unknown) =>
           dispatch({ type: "error", message: `resume failed: ${String(error)}` }),

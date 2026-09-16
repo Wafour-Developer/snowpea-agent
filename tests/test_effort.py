@@ -481,7 +481,11 @@ async def test_the_pin_survives_a_resume(tmp_path: Path, http: aiohttp.ClientSes
         daemon = await make_daemon(home)
         try:
             client = await connect(http, daemon)
-            await client.ok("session.resume", {"sessionId": session_id})
+            resumed = await client.ok("session.resume", {"sessionId": session_id})
+            # The resume answer says what the session runs under now, so a
+            # surface adopts it instead of the mode it launched with.
+            assert resumed["mode"] == "accept"
+            assert resumed["effort"] == "high"
             rows = {row["sessionId"]: row for row in (await client.ok("session.list"))["sessions"]}
             assert rows[session_id]["effort"] == "high"
             await client.stop()
