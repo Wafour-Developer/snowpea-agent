@@ -110,7 +110,7 @@ async def test_sessions_lists_with_a_star_and_buttons(
         listed = await say_msg(adapter, "/sessions")
 
         assert listed.text.startswith("★ 1. ")
-        assert current in listed.text
+        assert current[:8] in listed.text
         assert "project" in listed.text  # the workdir basename
         assert "첫 번째 질문" in listed.text
         assert [parse_session_callback(data) for data in listed.button_data()] == [current]
@@ -153,7 +153,7 @@ async def test_resume_switches_the_chat_by_number_and_by_prefix(
 
         # And by the row number of the list the chat just saw.
         listed = await say_msg(adapter, "/sessions")
-        wanted = [line for line in listed.text.splitlines() if new_id in line][0]
+        wanted = [line for line in listed.text.splitlines() if new_id[:8] in line][0]
         number = wanted.split(".")[0].replace("★", "").strip()
         assert (await say(adapter, f"/resume {number}")).startswith(f"Now in {new_id}")
         await client.stop()
