@@ -6,8 +6,8 @@
  * to avoid pulling another dependency into the bundled artifact.
  */
 
-import React, { useEffect, useRef, useState } from "react";
-import { Box, Text, useInput } from "ink";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Box, Text, useInput, useStdout } from "ink";
 
 import type { CommandInfo } from "../rpc/sdk.js";
 import {
@@ -16,6 +16,21 @@ import {
   filterAgents,
   type AgentCandidate,
 } from "../state/agent-completion.js";
+import {
+  backspace,
+  del,
+  down,
+  end,
+  home,
+  insert as insertText,
+  layout as layoutEditor,
+  left,
+  right,
+  up,
+  wordLeft,
+  wordRight,
+  type EditorState,
+} from "../state/editor.js";
 import { AgentPalette } from "./AgentPalette.js";
 import { SlashCommandPalette } from "./SlashCommandPalette.js";
 
@@ -62,6 +77,8 @@ export interface ChatProps {
    * the draft lives here.
    */
   agents?: AgentCandidate[];
+  /** Cells available to the draft, excluding the `> ` prompt. */
+  draftWidth?: number;
   disabled?: boolean;
   placeholder?: string;
   onChange?: (value: string) => void;
@@ -85,14 +102,25 @@ export function Chat({
   onAppended,
   completions,
   agents = [],
+  draftWidth,
   disabled = false,
   placeholder = "ask anything, or /command",
   onChange,
   onInterrupt,
 }: ChatProps): React.ReactElement {
-  const [value, setValue] = useState("");
-  /** Insertion point within `value`; unlike a terminal cursor this is stable across renders. */
-  const [cursor, setCursor] = useState(0);
+  const [editor, setEditor] = useState<EditorState>({ text: "", cursor: 0 });
+  const value = editor.text;
+  const cursor = editor.cursor;
+  const { stdout } = useStdout();
+  const wrapWidth = Math.max(
+    1,
+    Math.floor(draftWidth ?? Math.max(1, (stdout?.columns ?? 80) - 2)),
+  );
+  const draft = useMemo(
+    () => layoutEditor(value, wrapWidth, cursor),
+    [value, wrapWidth, cursor],
+  );
+  const stickyColumn = useRef<number | null>(null);
   // Seeded from the file on disk, so ↑ reaches prompts from previous runs.
   const [history, setHistory] = useState<string[]>(initialHistory);
   const [historyIndex, setHistoryIndex] = useState<number | null>(null);
@@ -109,12 +137,27 @@ export function Chat({
   const agentMatches = query ? filterAgents(agents, query.prefix) : [];
   const showAgents = query !== null && !agentsDismissed && !showPalette;
 
+  const update = (next: EditorState, options: { keepColumn?: boolean } = {}) => {
+    const safe = {
+      text: next.text,
+      cursor: Math.max(0, Math.min(next.text.length, next.cursor)),
+    };
+    setEditor(safe);
+    if (!options.keepColumn) stickyColumn.current = null;
+    setSelected(0);
+    setAgentsDismissed(false);
+    onChange?.(safe.text);
+  };
+
+  const replace = (text: string, nextCursor = text.length) =>
+    update({ text, cursor: nextCursor });
+
   // Text produced elsewhere — a transcription, for now — lands in the draft for
   // the user to read before it is sent.
   useEffect(() => {
     if (!insert) return;
     const text = value.length > 0 ? ` ${insert}` : insert;
-    update(value.slice(0, cursor) + text + value.slice(cursor), cursor + text.length);
+    update(insertText(editor, text));
     onInserted?.();
     // Only a new `insert` matters; the draft it is appended to is read live.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -122,22 +165,21 @@ export function Chat({
 
   useEffect(() => {
     if (!append) return;
-    update(value.slice(0, cursor) + append + value.slice(cursor), cursor + append.length);
+    update(insertText(editor, append));
     onAppended?.();
     // Only a new `append` matters; the current draft is read live.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [append]);
 
-  const update = (next: string, nextCursor = next.length) => {
-    setValue(next);
-    setCursor(Math.max(0, Math.min(next.length, nextCursor)));
-    setSelected(0);
-    setAgentsDismissed(false);
-    onChange?.(next);
-  };
-
   useInput(
     (input, key) => {
+      const keyPlus = key as typeof key & {
+        shift?: boolean;
+        alt?: boolean;
+        home?: boolean;
+        end?: boolean;
+      };
+
       if (key.escape) {
         // Esc closes the agent list first; only an open turn is interrupted.
         if (showAgents) {
@@ -157,7 +199,7 @@ export function Chat({
         if (key.tab || key.return) {
           const candidate = agentMatches[Math.min(selected, agentMatches.length - 1)];
           const next = applyAgentCompletion(value, query!, candidate.name);
-          update(next.text, next.cursor);
+          replace(next.text, next.cursor);
           return;
         }
       }
@@ -167,7 +209,7 @@ export function Chat({
         return;
       }
       if (showPalette && key.tab) {
-        update(`/${completions[selected].name} `);
+        replace(`/${completions[selected].name} `);
         return;
       }
 
@@ -176,14 +218,63 @@ export function Chat({
       // mode-cycle shortcut handled by the parent's own `useInput`.
       if (key.tab || input === "[Z" || input === "[Z") return;
 
+      if ((key.ctrl || key.meta) && key.leftArrow) {
+        setHistoryIndex(null);
+        update(wordLeft(editor));
+        return;
+      }
+
+      if ((key.ctrl || key.meta) && key.rightArrow) {
+        setHistoryIndex(null);
+        update(wordRight(editor));
+        return;
+      }
+
+      if (key.ctrl && input === "a") {
+        setHistoryIndex(null);
+        update(home(editor));
+        return;
+      }
+
+      if (key.ctrl && input === "e") {
+        setHistoryIndex(null);
+        update(end(editor));
+        return;
+      }
+
+      if (keyPlus.home) {
+        setHistoryIndex(null);
+        update(home(editor));
+        return;
+      }
+
+      if (keyPlus.end) {
+        setHistoryIndex(null);
+        update(end(editor));
+        return;
+      }
+
       if (key.leftArrow || key.rightArrow) {
-        setCursor((position) => key.leftArrow
-          ? Math.max(0, position - 1)
-          : Math.min(value.length, position + 1));
+        setHistoryIndex(null);
+        update(key.leftArrow ? left(editor) : right(editor));
         return;
       }
 
       if (key.upArrow || key.downArrow) {
+        const target = stickyColumn.current ?? draft.cursorCol;
+        if (key.upArrow && draft.cursorRow > 0) {
+          stickyColumn.current = target;
+          setHistoryIndex(null);
+          update(up(editor, wrapWidth, target), { keepColumn: true });
+          return;
+        }
+        if (key.downArrow && draft.cursorRow < draft.lines.length - 1) {
+          stickyColumn.current = target;
+          setHistoryIndex(null);
+          update(down(editor, wrapWidth, target), { keepColumn: true });
+          return;
+        }
+
         // Down with nothing left to go forward to hands the keyboard to the
         // rows under the input, the way Claude Code does.
         if (key.downArrow && historyIndex === null) {
@@ -198,7 +289,13 @@ export function Chat({
         const current = historyIndex ?? history.length;
         const next = key.upArrow ? Math.max(0, current - 1) : Math.min(history.length, current + 1);
         setHistoryIndex(next === history.length ? null : next);
-        update(next === history.length ? historyDraft.current : history[next]);
+        replace(next === history.length ? historyDraft.current : history[next]);
+        return;
+      }
+
+      if (key.return && (keyPlus.shift || key.meta || keyPlus.alt)) {
+        setHistoryIndex(null);
+        update(insertText(editor, "\n"));
         return;
       }
 
@@ -215,7 +312,7 @@ export function Chat({
           if (completion && full.startsWith(trimmed)) {
             const accepted = full === trimmed && value.length > trimmed.length;
             if (!accepted) {
-              update(`${full} `);
+              replace(`${full} `);
               return;
             }
           }
@@ -224,8 +321,14 @@ export function Chat({
         if (text.length === 0) return;
         setHistory((h) => [...h, text]);
         setHistoryIndex(null);
-        update("");
+        replace("");
         onSubmit(text);
+        return;
+      }
+
+      if (key.ctrl && input === "d") {
+        setHistoryIndex(null);
+        update(del(editor));
         return;
       }
 
@@ -236,10 +339,8 @@ export function Chat({
         // With nothing typed, backspace takes the newest attachment off instead
         // of doing nothing at all.
         if (value.length === 0 && onBackspaceEmpty?.()) return;
-        if (cursor > 0) {
-          setHistoryIndex(null);
-          update(value.slice(0, cursor - 1) + value.slice(cursor), cursor - 1);
-        }
+        setHistoryIndex(null);
+        update(backspace(editor));
         return;
       }
 
@@ -261,22 +362,26 @@ export function Chat({
       }
 
       if (key.ctrl || key.meta || input.length === 0) return;
+      const typed = input.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
       // A paste arrives as one chunk: if it names files, it becomes chips
       // rather than a wall of text in the draft.
-      if (input.length > 1 && onPaste?.(input)) return;
-      if (input === "U" && value.length === 0 && onQuickUpdate) {
+      if (typed.length > 1 && onPaste?.(typed)) return;
+      if (typed === "U" && value.length === 0 && onQuickUpdate) {
         onQuickUpdate();
         return;
       }
-      if (input === "R" && value.length === 0 && onQuickResume) {
+      if (typed === "R" && value.length === 0 && onQuickResume) {
         onQuickResume();
         return;
       }
       setHistoryIndex(null);
-      update(value.slice(0, cursor) + input + value.slice(cursor), cursor + input.length);
+      update(insertText(editor, typed));
     },
     { isActive: !disabled },
   );
+
+  const cursorEnd = useMemo(() => right(editor).cursor, [editor]);
+  const promptColor = disabled ? "gray" : "green";
 
   return (
     <Box flexDirection="column">
@@ -290,19 +395,41 @@ export function Chat({
       {showPalette ? (
         <SlashCommandPalette commands={completions} selectedIndex={selected} />
       ) : null}
-      <Box>
-        <Text color={disabled ? "gray" : "green"}>{"> "}</Text>
-        {value.length === 0 ? (
+      {value.length === 0 ? (
+        <Box>
+          <Text color={promptColor}>{"> "}</Text>
           <Text dimColor>{placeholder}</Text>
-        ) : (
-          <>
-            <Text>{value.slice(0, cursor)}</Text>
-            <Text inverse>{value[cursor] ?? " "}</Text>
-            <Text>{value.slice(cursor + 1)}</Text>
-          </>
-        )}
-        {value.length === 0 ? <Text inverse>{" "}</Text> : null}
-      </Box>
+          <Text inverse>{" "}</Text>
+        </Box>
+      ) : (
+        <Box flexDirection="column">
+          {draft.lines.map((line, row) => {
+            const prefix = row === 0 ? "> " : "  ";
+            if (row !== draft.cursorRow) {
+              return (
+                <Box key={`draft-${row}`}>
+                  <Text color={promptColor}>{prefix}</Text>
+                  <Text>{value.slice(line.start, line.end)}</Text>
+                </Box>
+              );
+            }
+            const hasCursorText = cursor >= line.start && cursor < line.end && cursorEnd > cursor;
+            const before = value.slice(line.start, cursor);
+            const mark = hasCursorText ? value.slice(cursor, cursorEnd) : " ";
+            const after = hasCursorText
+              ? value.slice(cursorEnd, line.end)
+              : value.slice(cursor, line.end);
+            return (
+              <Box key={`draft-${row}`}>
+                <Text color={promptColor}>{prefix}</Text>
+                <Text>{before}</Text>
+                <Text inverse>{mark}</Text>
+                <Text>{after}</Text>
+              </Box>
+            );
+          })}
+        </Box>
+      )}
     </Box>
   );
 }

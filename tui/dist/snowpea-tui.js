@@ -1400,7 +1400,7 @@ var require_react_development = __commonJS({
           var dispatcher = resolveDispatcher();
           return dispatcher.useCallback(callback, deps);
         }
-        function useMemo5(create2, deps) {
+        function useMemo6(create2, deps) {
           var dispatcher = resolveDispatcher();
           return dispatcher.useMemo(create2, deps);
         }
@@ -2172,7 +2172,7 @@ var require_react_development = __commonJS({
         exports.useImperativeHandle = useImperativeHandle;
         exports.useInsertionEffect = useInsertionEffect;
         exports.useLayoutEffect = useLayoutEffect2;
-        exports.useMemo = useMemo5;
+        exports.useMemo = useMemo6;
         exports.useReducer = useReducer2;
         exports.useRef = useRef5;
         exports.useState = useState20;
@@ -2701,21 +2701,21 @@ var require_scheduler_development = __commonJS({
           var halfLength = length >>> 1;
           while (index < halfLength) {
             var leftIndex = (index + 1) * 2 - 1;
-            var left = heap[leftIndex];
+            var left2 = heap[leftIndex];
             var rightIndex = leftIndex + 1;
-            var right = heap[rightIndex];
-            if (compare(left, node) < 0) {
-              if (rightIndex < length && compare(right, left) < 0) {
-                heap[index] = right;
+            var right2 = heap[rightIndex];
+            if (compare(left2, node) < 0) {
+              if (rightIndex < length && compare(right2, left2) < 0) {
+                heap[index] = right2;
                 heap[rightIndex] = node;
                 index = rightIndex;
               } else {
-                heap[index] = left;
+                heap[index] = left2;
                 heap[leftIndex] = node;
                 index = leftIndex;
               }
-            } else if (rightIndex < length && compare(right, node) < 0) {
-              heap[index] = right;
+            } else if (rightIndex < length && compare(right2, node) < 0) {
+              heap[index] = right2;
               heap[rightIndex] = node;
               index = rightIndex;
             } else {
@@ -7933,7 +7933,7 @@ var require_react_reconciler_development = __commonJS({
         var HostPortal = 4;
         var HostComponent = 5;
         var HostText = 6;
-        var Fragment9 = 7;
+        var Fragment8 = 7;
         var Mode = 8;
         var ContextConsumer = 9;
         var ContextProvider = 10;
@@ -8073,7 +8073,7 @@ var require_react_reconciler_development = __commonJS({
               return "DehydratedFragment";
             case ForwardRef:
               return getWrappedName$1(type, type.render, "ForwardRef");
-            case Fragment9:
+            case Fragment8:
               return "Fragment";
             case HostComponent:
               return type;
@@ -11207,7 +11207,7 @@ var require_react_reconciler_development = __commonJS({
             }
           }
           function updateFragment2(returnFiber, current3, fragment, lanes, key) {
-            if (current3 === null || current3.tag !== Fragment9) {
+            if (current3 === null || current3.tag !== Fragment8) {
               var created = createFiberFromFragment(fragment, returnFiber.mode, lanes, key);
               created.return = returnFiber;
               return created;
@@ -11610,7 +11610,7 @@ var require_react_reconciler_development = __commonJS({
               if (child.key === key) {
                 var elementType = element.type;
                 if (elementType === REACT_FRAGMENT_TYPE) {
-                  if (child.tag === Fragment9) {
+                  if (child.tag === Fragment8) {
                     deleteRemainingChildren(returnFiber, child.sibling);
                     var existing = useFiber(child, element.props.children);
                     existing.return = returnFiber;
@@ -17101,7 +17101,7 @@ var require_react_reconciler_development = __commonJS({
               var _resolvedProps2 = workInProgress2.elementType === type ? _unresolvedProps2 : resolveDefaultProps(type, _unresolvedProps2);
               return updateForwardRef(current3, workInProgress2, type, _resolvedProps2, renderLanes2);
             }
-            case Fragment9:
+            case Fragment8:
               return updateFragment(current3, workInProgress2, renderLanes2);
             case Mode:
               return updateMode(current3, workInProgress2, renderLanes2);
@@ -17538,7 +17538,7 @@ var require_react_reconciler_development = __commonJS({
             case SimpleMemoComponent:
             case FunctionComponent:
             case ForwardRef:
-            case Fragment9:
+            case Fragment8:
             case Mode:
             case Profiler:
             case ContextConsumer:
@@ -22306,7 +22306,7 @@ var require_react_reconciler_development = __commonJS({
           return fiber;
         }
         function createFiberFromFragment(elements, mode, lanes, key) {
-          var fiber = createFiber(Fragment9, elements, key, mode);
+          var fiber = createFiber(Fragment8, elements, key, mode);
           fiber.lanes = lanes;
           return fiber;
         }
@@ -25169,51 +25169,51 @@ var require_extension = __commonJS({
       let paramName;
       let start = -1;
       let code = -1;
-      let end = -1;
+      let end2 = -1;
       let i = 0;
       for (; i < header.length; i++) {
         code = header.charCodeAt(i);
         if (extensionName === void 0) {
-          if (end === -1 && tokenChars[code] === 1) {
+          if (end2 === -1 && tokenChars[code] === 1) {
             if (start === -1) start = i;
           } else if (i !== 0 && (code === 32 || code === 9)) {
-            if (end === -1 && start !== -1) end = i;
+            if (end2 === -1 && start !== -1) end2 = i;
           } else if (code === 59 || code === 44) {
             if (start === -1) {
               throw new SyntaxError(`Unexpected character at index ${i}`);
             }
-            if (end === -1) end = i;
-            const name = header.slice(start, end);
+            if (end2 === -1) end2 = i;
+            const name = header.slice(start, end2);
             if (code === 44) {
               push(offers, name, params);
               params = /* @__PURE__ */ Object.create(null);
             } else {
               extensionName = name;
             }
-            start = end = -1;
+            start = end2 = -1;
           } else {
             throw new SyntaxError(`Unexpected character at index ${i}`);
           }
         } else if (paramName === void 0) {
-          if (end === -1 && tokenChars[code] === 1) {
+          if (end2 === -1 && tokenChars[code] === 1) {
             if (start === -1) start = i;
           } else if (code === 32 || code === 9) {
-            if (end === -1 && start !== -1) end = i;
+            if (end2 === -1 && start !== -1) end2 = i;
           } else if (code === 59 || code === 44) {
             if (start === -1) {
               throw new SyntaxError(`Unexpected character at index ${i}`);
             }
-            if (end === -1) end = i;
-            push(params, header.slice(start, end), true);
+            if (end2 === -1) end2 = i;
+            push(params, header.slice(start, end2), true);
             if (code === 44) {
               push(offers, extensionName, params);
               params = /* @__PURE__ */ Object.create(null);
               extensionName = void 0;
             }
-            start = end = -1;
-          } else if (code === 61 && start !== -1 && end === -1) {
+            start = end2 = -1;
+          } else if (code === 61 && start !== -1 && end2 === -1) {
             paramName = header.slice(start, i);
-            start = end = -1;
+            start = end2 = -1;
           } else {
             throw new SyntaxError(`Unexpected character at index ${i}`);
           }
@@ -25230,7 +25230,7 @@ var require_extension = __commonJS({
               if (start === -1) start = i;
             } else if (code === 34 && start !== -1) {
               inQuotes = false;
-              end = i;
+              end2 = i;
             } else if (code === 92) {
               isEscaping = true;
             } else {
@@ -25238,16 +25238,16 @@ var require_extension = __commonJS({
             }
           } else if (code === 34 && header.charCodeAt(i - 1) === 61) {
             inQuotes = true;
-          } else if (end === -1 && tokenChars[code] === 1) {
+          } else if (end2 === -1 && tokenChars[code] === 1) {
             if (start === -1) start = i;
           } else if (start !== -1 && (code === 32 || code === 9)) {
-            if (end === -1) end = i;
+            if (end2 === -1) end2 = i;
           } else if (code === 59 || code === 44) {
             if (start === -1) {
               throw new SyntaxError(`Unexpected character at index ${i}`);
             }
-            if (end === -1) end = i;
-            let value = header.slice(start, end);
+            if (end2 === -1) end2 = i;
+            let value = header.slice(start, end2);
             if (mustUnescape) {
               value = value.replace(/\\/g, "");
               mustUnescape = false;
@@ -25259,7 +25259,7 @@ var require_extension = __commonJS({
               extensionName = void 0;
             }
             paramName = void 0;
-            start = end = -1;
+            start = end2 = -1;
           } else {
             throw new SyntaxError(`Unexpected character at index ${i}`);
           }
@@ -25268,8 +25268,8 @@ var require_extension = __commonJS({
       if (start === -1 || inQuotes || code === 32 || code === 9) {
         throw new SyntaxError("Unexpected end of input");
       }
-      if (end === -1) end = i;
-      const token = header.slice(start, end);
+      if (end2 === -1) end2 = i;
+      const token = header.slice(start, end2);
       if (extensionName === void 0) {
         push(offers, token, params);
       } else {
@@ -26305,30 +26305,30 @@ var require_subprotocol = __commonJS({
     function parse2(header) {
       const protocols = /* @__PURE__ */ new Set();
       let start = -1;
-      let end = -1;
+      let end2 = -1;
       let i = 0;
       for (i; i < header.length; i++) {
         const code = header.charCodeAt(i);
-        if (end === -1 && tokenChars[code] === 1) {
+        if (end2 === -1 && tokenChars[code] === 1) {
           if (start === -1) start = i;
         } else if (i !== 0 && (code === 32 || code === 9)) {
-          if (end === -1 && start !== -1) end = i;
+          if (end2 === -1 && start !== -1) end2 = i;
         } else if (code === 44) {
           if (start === -1) {
             throw new SyntaxError(`Unexpected character at index ${i}`);
           }
-          if (end === -1) end = i;
-          const protocol2 = header.slice(start, end);
+          if (end2 === -1) end2 = i;
+          const protocol2 = header.slice(start, end2);
           if (protocols.has(protocol2)) {
             throw new SyntaxError(`The "${protocol2}" subprotocol is duplicated`);
           }
           protocols.add(protocol2);
-          start = end = -1;
+          start = end2 = -1;
         } else {
           throw new SyntaxError(`Unexpected character at index ${i}`);
         }
       }
-      if (start === -1 || end !== -1) {
+      if (start === -1 || end2 !== -1) {
         throw new SyntaxError("Unexpected end of input");
       }
       const protocol = header.slice(start, i);
@@ -30187,13 +30187,13 @@ function findWideFastPathRange(ranges) {
   let fastPathEnd = ranges[1];
   for (let index = 0; index < ranges.length; index += 2) {
     const start = ranges[index];
-    const end = ranges[index + 1];
-    if (commonCjkCodePoint >= start && commonCjkCodePoint <= end) {
-      return [start, end];
+    const end2 = ranges[index + 1];
+    if (commonCjkCodePoint >= start && commonCjkCodePoint <= end2) {
+      return [start, end2];
     }
-    if (end - start > fastPathEnd - fastPathStart) {
+    if (end2 - start > fastPathEnd - fastPathStart) {
       fastPathStart = start;
-      fastPathEnd = end;
+      fastPathEnd = end2;
     }
   }
   return [fastPathStart, fastPathEnd];
@@ -30715,10 +30715,10 @@ var checkAnsi = (ansiCodes, isEscapes, endAnsiCode) => {
   }
   return output.join("");
 };
-function sliceAnsi(string, begin, end) {
+function sliceAnsi(string, begin, end2) {
   const characters = [...string];
   const ansiCodes = [];
-  let stringEnd = typeof end === "number" ? end : characters.length;
+  let stringEnd = typeof end2 === "number" ? end2 : characters.length;
   let isInsideEscape = false;
   let ansiCode;
   let visible = 0;
@@ -30743,7 +30743,7 @@ function sliceAnsi(string, begin, end) {
     }
     if (!astralRegex.test(character) && isFullwidthCodePoint(character.codePointAt())) {
       visible++;
-      if (typeof end !== "number") {
+      if (typeof end2 !== "number") {
         stringEnd++;
       }
     }
@@ -32149,9 +32149,9 @@ var CODE_POINT_9 = "9".codePointAt(0);
 var MAX_ANSI_SEQUENCE_LENGTH = 19;
 var endCodesSet = /* @__PURE__ */ new Set();
 var endCodesMap = /* @__PURE__ */ new Map();
-for (const [start, end] of ansi_styles_default.codes) {
-  endCodesSet.add(ansi_styles_default.color.ansi(end));
-  endCodesMap.set(ansi_styles_default.color.ansi(start), ansi_styles_default.color.ansi(end));
+for (const [start, end2] of ansi_styles_default.codes) {
+  endCodesSet.add(ansi_styles_default.color.ansi(end2));
+  endCodesMap.set(ansi_styles_default.color.ansi(start), ansi_styles_default.color.ansi(end2));
 }
 function getEndCode(code) {
   if (endCodesSet.has(code)) {
@@ -32242,14 +32242,14 @@ function undoAnsiCodes(codes) {
   const endCodes = reduced.map(({ endCode }) => endCode);
   return endCodes.reverse().join("");
 }
-function sliceAnsi2(string, start, end) {
-  const tokens = tokenize(string, end);
+function sliceAnsi2(string, start, end2) {
+  const tokens = tokenize(string, end2);
   let activeCodes = [];
   let position = 0;
   let returnValue = "";
   let include = false;
   for (const token of tokens) {
-    if (end !== void 0 && position >= end) {
+    if (end2 !== void 0 && position >= end2) {
       break;
     }
     if (token.type === "ansi") {
@@ -32277,9 +32277,9 @@ function sliceAnsi2(string, start, end) {
 var ESCAPES4 = /* @__PURE__ */ new Set([27, 155]);
 var endCodesSet2 = /* @__PURE__ */ new Set();
 var endCodesMap2 = /* @__PURE__ */ new Map();
-for (const [start, end] of ansi_styles_default.codes) {
-  endCodesSet2.add(ansi_styles_default.color.ansi(end));
-  endCodesMap2.set(ansi_styles_default.color.ansi(start), ansi_styles_default.color.ansi(end));
+for (const [start, end2] of ansi_styles_default.codes) {
+  endCodesSet2.add(ansi_styles_default.color.ansi(end2));
+  endCodesMap2.set(ansi_styles_default.color.ansi(start), ansi_styles_default.color.ansi(end2));
 }
 var linkStartCodePrefix = "\x1B]8;;";
 var linkStartCodePrefixCharCodes = linkStartCodePrefix.split("").map((char) => char.charCodeAt(0));
@@ -34320,8 +34320,8 @@ function summaryLine({ mode, shells, agents }) {
 function compactionDivider(before, after, width) {
   const label = ` compacted (${formatTokens(before)} \u2192 ${formatTokens(after)} tokens) `;
   const room = Math.max(0, Math.floor(width) - label.length);
-  const left = Math.floor(room / 2);
-  return `${"\u2500".repeat(left)}${label}${"\u2500".repeat(room - left)}`;
+  const left2 = Math.floor(room / 2);
+  return `${"\u2500".repeat(left2)}${label}${"\u2500".repeat(room - left2)}`;
 }
 
 // src/state/lsp.ts
@@ -34584,11 +34584,11 @@ function truncate(segment, width) {
   return { ...segment, text: `${segment.text.slice(0, width - 1)}\u2026` };
 }
 function layoutHud(segments, width, rows = MAX_HUD_ROWS) {
-  const safeWidth = Math.max(1, Math.floor(width));
+  const safeWidth2 = Math.max(1, Math.floor(width));
   const safeRows = Math.max(1, Math.floor(rows));
   let candidates = segments.slice();
   while (candidates.length > 0) {
-    const packed = pack(candidates, safeWidth, safeRows);
+    const packed = pack(candidates, safeWidth2, safeRows);
     if (packed) return packed;
     let worst = 0;
     for (let i = 1; i < candidates.length; i += 1) {
@@ -34598,7 +34598,7 @@ function layoutHud(segments, width, rows = MAX_HUD_ROWS) {
     candidates = candidates.filter((_, index) => index !== worst);
   }
   if (candidates.length === 0) return [[]];
-  return [[truncate(candidates[0], safeWidth)]];
+  return [[truncate(candidates[0], safeWidth2)]];
 }
 function shortEngine(name) {
   const tail = name.split("-").filter(Boolean).pop() ?? name;
@@ -35728,12 +35728,12 @@ function mouseReports(input) {
   }
   return reports;
 }
-function panelRowAt(row, layout) {
+function panelRowAt(row, layout2) {
   const y = Math.floor(row);
   if (!Number.isFinite(y) || y < 1) return null;
-  const totalRows = Math.max(1, Math.floor(layout.totalRows));
-  const bottomRows2 = Math.max(0, Math.floor(layout.bottomRows));
-  const panelRows = Math.max(0, Math.floor(layout.panelRows));
+  const totalRows = Math.max(1, Math.floor(layout2.totalRows));
+  const bottomRows2 = Math.max(0, Math.floor(layout2.bottomRows));
+  const panelRows = Math.max(0, Math.floor(layout2.panelRows));
   if (panelRows < 1) return null;
   const top = totalRows - bottomRows2 - panelRows + 1;
   const bottom = top + panelRows - 1;
@@ -35770,8 +35770,8 @@ function resumeLabel(entry, promptChars = 48, workdir) {
     8
   )} \xB7 ${new Date(entry.at).toLocaleString()} \xB7 ${prompt || "(no prompt)"}`;
 }
-function stateDir(env3, home) {
-  return env3.SNOWPEA_HOME && env3.SNOWPEA_HOME.length > 0 ? env3.SNOWPEA_HOME : `${home}/.snowpea`;
+function stateDir(env3, home2) {
+  return env3.SNOWPEA_HOME && env3.SNOWPEA_HOME.length > 0 ? env3.SNOWPEA_HOME : `${home2}/.snowpea`;
 }
 function parseHistory(contents) {
   if (!contents) return [];
@@ -36251,6 +36251,232 @@ function candidateTag(candidate) {
   return candidate.kind === "definition" ? "" : candidate.kind;
 }
 
+// src/layout/text-width.ts
+var segmenter2 = new Intl.Segmenter(void 0, { granularity: "grapheme" });
+function graphemes(text2) {
+  return Array.from(segmenter2.segment(text2), ({ segment, index }) => ({
+    text: segment,
+    index,
+    width: graphemeWidth(segment)
+  }));
+}
+function graphemeWidth(text2) {
+  if (/^[\p{Mark}\p{Control}\p{Format}]+$/u.test(text2)) return 0;
+  if (new RegExp("\\p{Emoji_Presentation}|\\p{Regional_Indicator}|\\uFE0F|\\u20E3", "u").test(text2)) return 2;
+  const code = text2.codePointAt(0) ?? 0;
+  if (code >= 4352 && (code <= 4447 || code === 9001 || code === 9002 || code >= 11904 && code <= 42191 && code !== 12351 || code >= 44032 && code <= 55203 || code >= 63744 && code <= 64255 || code >= 65040 && code <= 65049 || code >= 65072 && code <= 65135 || code >= 65281 && code <= 65376 || code >= 65504 && code <= 65510 || code >= 131072 && code <= 262141)) return 2;
+  return 1;
+}
+function textWidth(text2) {
+  return graphemes(text2).reduce((sum, part) => sum + part.width, 0);
+}
+
+// src/state/editor.ts
+var WHITESPACE = /^\s$/u;
+function partsOf(text2) {
+  return graphemes(text2).map((part) => ({
+    ...part,
+    end: part.index + part.text.length
+  }));
+}
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+function safeWidth(width) {
+  const rounded = Number.isFinite(width) ? Math.floor(width) : 1;
+  return Math.max(1, rounded);
+}
+function floorBoundary(parts, cursor, textLength) {
+  if (cursor <= 0) return 0;
+  if (cursor >= textLength) return textLength;
+  let last = 0;
+  for (const part of parts) {
+    if (part.index === cursor || part.end === cursor) return cursor;
+    if (part.end > cursor) return part.index;
+    last = part.end;
+  }
+  return last;
+}
+function previousBoundary(parts, cursor) {
+  if (cursor <= 0) return 0;
+  let last = 0;
+  for (const part of parts) {
+    if (part.end >= cursor) return part.index;
+    last = part.end;
+  }
+  return last;
+}
+function nextBoundary(parts, cursor, textLength) {
+  if (cursor >= textLength) return textLength;
+  for (const part of parts) {
+    if (part.index >= cursor || part.index < cursor && cursor < part.end) return part.end;
+  }
+  return textLength;
+}
+function withCursor(state, cursor) {
+  return { text: state.text, cursor };
+}
+function normalizedCursor(text2, cursor, parts = partsOf(text2)) {
+  const clamped = clamp(cursor, 0, text2.length);
+  return floorBoundary(parts, clamped, text2.length);
+}
+function isWhitespace(part) {
+  return WHITESPACE.test(part.text);
+}
+function locateCursorRow(lines, cursor) {
+  for (let row = 0; row < lines.length; row += 1) {
+    const line = lines[row];
+    if (cursor < line.end) return row;
+    if (cursor === line.end) {
+      const next = lines[row + 1];
+      if (next && next.start === cursor) return row + 1;
+      return row;
+    }
+  }
+  return Math.max(0, lines.length - 1);
+}
+function cursorAtColumn(text2, line, column) {
+  if (column <= 0) return line.start;
+  const local = partsOf(text2.slice(line.start, line.end));
+  let used = 0;
+  for (const part of local) {
+    const partStart = line.start + part.index;
+    const partEnd = line.start + part.end;
+    const next = used + part.width;
+    if (column < next) {
+      const before = column - used;
+      const after = next - column;
+      return after <= before ? partEnd : partStart;
+    }
+    used = next;
+    if (column === used) return partEnd;
+  }
+  return line.end;
+}
+function moveVertical(state, width, direction, stickyColumn) {
+  const view = layout(state.text, width, state.cursor);
+  const row = view.cursorRow + direction;
+  if (row < 0 || row >= view.lines.length) return state;
+  const target = stickyColumn ?? view.cursorCol;
+  return withCursor(state, cursorAtColumn(state.text, view.lines[row], target));
+}
+function insert(state, chunk) {
+  if (chunk.length === 0) return state;
+  const parts = partsOf(state.text);
+  const at = normalizedCursor(state.text, state.cursor, parts);
+  const text2 = state.text.slice(0, at) + chunk + state.text.slice(at);
+  return { text: text2, cursor: at + chunk.length };
+}
+function backspace(state) {
+  if (state.text.length === 0 || state.cursor <= 0) return state;
+  const parts = partsOf(state.text);
+  const at = normalizedCursor(state.text, state.cursor, parts);
+  if (at <= 0) return withCursor(state, 0);
+  const start = previousBoundary(parts, at);
+  if (start === at) return state;
+  return {
+    text: state.text.slice(0, start) + state.text.slice(at),
+    cursor: start
+  };
+}
+function del(state) {
+  if (state.text.length === 0) return state;
+  const parts = partsOf(state.text);
+  const at = normalizedCursor(state.text, state.cursor, parts);
+  const end2 = nextBoundary(parts, at, state.text.length);
+  if (end2 === at) return state;
+  return {
+    text: state.text.slice(0, at) + state.text.slice(end2),
+    cursor: at
+  };
+}
+function left(state) {
+  if (state.cursor <= 0) return withCursor(state, 0);
+  const parts = partsOf(state.text);
+  const at = normalizedCursor(state.text, state.cursor, parts);
+  return withCursor(state, previousBoundary(parts, at));
+}
+function right(state) {
+  if (state.cursor >= state.text.length) return withCursor(state, state.text.length);
+  const parts = partsOf(state.text);
+  const at = normalizedCursor(state.text, state.cursor, parts);
+  return withCursor(state, nextBoundary(parts, at, state.text.length));
+}
+function home(state) {
+  const parts = partsOf(state.text);
+  const at = normalizedCursor(state.text, state.cursor, parts);
+  const previousBreak = state.text.lastIndexOf("\n", Math.max(0, at - 1));
+  return withCursor(state, previousBreak === -1 ? 0 : previousBreak + 1);
+}
+function end(state) {
+  const parts = partsOf(state.text);
+  const at = normalizedCursor(state.text, state.cursor, parts);
+  const nextBreak = state.text.indexOf("\n", at);
+  return withCursor(state, nextBreak === -1 ? state.text.length : nextBreak);
+}
+function up(state, width, stickyColumn) {
+  return moveVertical(state, width, -1, stickyColumn);
+}
+function down(state, width, stickyColumn) {
+  return moveVertical(state, width, 1, stickyColumn);
+}
+function wordLeft(state) {
+  if (state.cursor <= 0) return withCursor(state, 0);
+  const parts = partsOf(state.text);
+  const at = normalizedCursor(state.text, state.cursor, parts);
+  let index = parts.length - 1;
+  while (index >= 0 && parts[index].end > at) index -= 1;
+  while (index >= 0 && isWhitespace(parts[index])) index -= 1;
+  while (index >= 0 && !isWhitespace(parts[index])) index -= 1;
+  return withCursor(state, index < 0 ? 0 : parts[index + 1].index);
+}
+function wordRight(state) {
+  if (state.cursor >= state.text.length) return withCursor(state, state.text.length);
+  const parts = partsOf(state.text);
+  const at = normalizedCursor(state.text, state.cursor, parts);
+  let index = 0;
+  while (index < parts.length && parts[index].end <= at) index += 1;
+  if (index >= parts.length) return withCursor(state, state.text.length);
+  if (isWhitespace(parts[index])) {
+    while (index < parts.length && isWhitespace(parts[index])) index += 1;
+    return withCursor(state, index < parts.length ? parts[index].index : state.text.length);
+  }
+  while (index < parts.length && !isWhitespace(parts[index])) index += 1;
+  while (index < parts.length && isWhitespace(parts[index])) index += 1;
+  return withCursor(state, index < parts.length ? parts[index].index : state.text.length);
+}
+function layout(text2, width, cursor = text2.length) {
+  const limit = safeWidth(width);
+  const safeCursor = clamp(cursor, 0, text2.length);
+  const parts = partsOf(text2);
+  const lines = [];
+  let start = 0;
+  let used = 0;
+  for (const part of parts) {
+    if (part.text === "\n") {
+      lines.push({ start, end: part.index, cells: used });
+      start = part.end;
+      used = 0;
+      continue;
+    }
+    if (used > 0 && used + part.width > limit) {
+      lines.push({ start, end: part.index, cells: used });
+      start = part.index;
+      used = 0;
+    }
+    used += part.width;
+  }
+  lines.push({ start, end: text2.length, cells: used });
+  const cursorRow = locateCursorRow(lines, safeCursor);
+  const line = lines[cursorRow] ?? { start: 0, end: 0, cells: 0 };
+  const stop = clamp(safeCursor, line.start, line.end);
+  return {
+    lines,
+    cursorRow,
+    cursorCol: textWidth(text2.slice(line.start, stop))
+  };
+}
+
 // src/state/attachments.ts
 var MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 var MIME_BY_EXTENSION = {
@@ -36476,26 +36702,6 @@ function recordingLabel(startedAt, now) {
 // src/version.ts
 var TUI_VERSION = "0.2.4";
 
-// src/layout/text-width.ts
-var segmenter2 = new Intl.Segmenter(void 0, { granularity: "grapheme" });
-function graphemes(text2) {
-  return Array.from(segmenter2.segment(text2), ({ segment, index }) => ({
-    text: segment,
-    index,
-    width: graphemeWidth(segment)
-  }));
-}
-function graphemeWidth(text2) {
-  if (/^[\p{Mark}\p{Control}\p{Format}]+$/u.test(text2)) return 0;
-  if (new RegExp("\\p{Emoji_Presentation}|\\p{Regional_Indicator}|\\uFE0F|\\u20E3", "u").test(text2)) return 2;
-  const code = text2.codePointAt(0) ?? 0;
-  if (code >= 4352 && (code <= 4447 || code === 9001 || code === 9002 || code >= 11904 && code <= 42191 && code !== 12351 || code >= 44032 && code <= 55203 || code >= 63744 && code <= 64255 || code >= 65040 && code <= 65049 || code >= 65072 && code <= 65135 || code >= 65281 && code <= 65376 || code >= 65504 && code <= 65510 || code >= 131072 && code <= 262141)) return 2;
-  return 1;
-}
-function textWidth(text2) {
-  return graphemes(text2).reduce((sum, part) => sum + part.width, 0);
-}
-
 // src/layout/transcript.ts
 var TOOL_OUTPUT_LINES = 12;
 var DIFF_LINES = 40;
@@ -36520,7 +36726,7 @@ function plainLength(segments) {
 function lineText(line) {
   return line.segments.map((segment) => segment.text).join("");
 }
-function sliceSegments(segments, start, end) {
+function sliceSegments(segments, start, end2) {
   const out = [];
   let cursor = 0;
   for (const segment of segments) {
@@ -36528,8 +36734,8 @@ function sliceSegments(segments, start, end) {
     const segEnd = cursor + segment.text.length;
     cursor = segEnd;
     if (segEnd <= start) continue;
-    if (segStart >= end) break;
-    const text2 = segment.text.slice(Math.max(0, start - segStart), Math.min(segment.text.length, end - segStart));
+    if (segStart >= end2) break;
+    const text2 = segment.text.slice(Math.max(0, start - segStart), Math.min(segment.text.length, end2 - segStart));
     if (text2.length > 0) out.push({ ...segment, text: text2 });
   }
   return out;
@@ -36543,24 +36749,24 @@ function wrapLine(line, width, indent = "") {
   while (start < parts.length) {
     const prefix = out.length === 0 ? "" : indent;
     const room = Math.max(1, width - textWidth(prefix));
-    let end = start;
+    let end2 = start;
     let used = 0;
-    while (end < parts.length && used + parts[end].width <= room) {
-      used += parts[end].width;
-      end += 1;
+    while (end2 < parts.length && used + parts[end2].width <= room) {
+      used += parts[end2].width;
+      end2 += 1;
     }
-    if (end === start) end += 1;
-    if (end < parts.length) {
-      let space = end;
+    if (end2 === start) end2 += 1;
+    if (end2 < parts.length) {
+      let space = end2;
       while (space > start && parts[space]?.text !== " ") space -= 1;
-      if (space > start) end = space;
+      if (space > start) end2 = space;
     }
-    const segments = sliceSegments(line.segments, parts[start].index, parts[end]?.index ?? text2.length);
+    const segments = sliceSegments(line.segments, parts[start].index, parts[end2]?.index ?? text2.length);
     out.push({
       key: `${line.key}-w${out.length}`,
       segments: prefix ? [{ text: prefix, dimColor: true }, ...segments] : segments
     });
-    start = end;
+    start = end2;
     while (parts[start]?.text === " ") start += 1;
   }
   return out;
@@ -36592,13 +36798,13 @@ function tableCells(raw) {
       cell += "|";
       i += 1;
     } else if (text2[i] === "`") {
-      let end = i + 1;
-      while (text2[end] === "`") end += 1;
-      const count2 = end - i;
+      let end2 = i + 1;
+      while (text2[end2] === "`") end2 += 1;
+      const count2 = end2 - i;
       if (ticks === 0) ticks = count2;
       else if (ticks === count2) ticks = 0;
-      cell += text2.slice(i, end);
-      i = end - 1;
+      cell += text2.slice(i, end2);
+      i = end2 - 1;
     } else if (text2[i] === "|" && ticks === 0) {
       cells2.push(cell.trim());
       cell = "";
@@ -36614,12 +36820,12 @@ function tableAt(source, start, width, id) {
   const divider = tableCells(source[start + 1] ?? "");
   if (!header || !divider || header.length !== divider.length || !divider.every((cell) => /^:?-{3,}:?$/.test(cell))) return null;
   const rows = [header];
-  let end = start + 2;
-  while (end < source.length) {
-    const row = tableCells(source[end]);
+  let end2 = start + 2;
+  while (end2 < source.length) {
+    const row = tableCells(source[end2]);
     if (!row || row.length !== header.length) break;
     rows.push(row);
-    end += 1;
+    end2 += 1;
   }
   const styled = rows.map((row) => row.map(inlineSegments));
   const widths = header.map((_, col) => Math.max(2, ...styled.map((row) => plainLength(row[col]))));
@@ -36638,14 +36844,14 @@ function tableAt(source, start, width, id) {
       });
     });
     if (lines.length === 0) add(styled[0].flatMap((cell, col) => col ? [{ text: " / " }, ...cell] : cell));
-    return { lines, end };
+    return { lines, end: end2 };
   }
   while (widths.reduce((sum, value) => sum + value, 0) + header.length * 3 + 1 > width) {
     const largest = widths.indexOf(Math.max(...widths));
     widths[largest] -= 1;
   }
-  const border = (left, middle, right) => add([{
-    text: left + widths.map((size) => "\u2500".repeat(size + 2)).join(middle) + right,
+  const border = (left2, middle, right2) => add([{
+    text: left2 + widths.map((size) => "\u2500".repeat(size + 2)).join(middle) + right2,
     dimColor: true
   }]);
   border("\u250C", "\u252C", "\u2510");
@@ -36657,12 +36863,12 @@ function tableAt(source, start, width, id) {
       cells2.forEach((cell, col) => {
         const content = cell[line]?.segments ?? [];
         const padding = Math.max(0, widths[col] - plainLength(content));
-        const right = divider[col].endsWith(":");
-        const left = right ? divider[col].startsWith(":") ? Math.floor(padding / 2) : padding : 0;
+        const right2 = divider[col].endsWith(":");
+        const left2 = right2 ? divider[col].startsWith(":") ? Math.floor(padding / 2) : padding : 0;
         segments.push(
-          { text: " ".repeat(left) },
+          { text: " ".repeat(left2) },
           ...content.map((segment) => rowIndex === 0 ? { ...segment, bold: true } : segment),
-          { text: " ".repeat(padding - left) },
+          { text: " ".repeat(padding - left2) },
           { text: col === cells2.length - 1 ? " \u2502" : " \u2502 ", dimColor: true }
         );
       });
@@ -36671,7 +36877,7 @@ function tableAt(source, start, width, id) {
     if (rowIndex === 0) border("\u251C", "\u253C", "\u2524");
   });
   border("\u2514", "\u2534", "\u2518");
-  return { lines, end };
+  return { lines, end: end2 };
 }
 function messageLines(message, width = 80) {
   const out = [];
@@ -36880,15 +37086,15 @@ function sliceViewport(lines, height, scrollOffset = 0) {
   const safeHeight = Math.max(1, Math.floor(height));
   const total = lines.length;
   const offset = clampScroll(scrollOffset, total, safeHeight);
-  const end = Math.max(0, total - offset);
-  const start = Math.max(0, end - safeHeight);
+  const end2 = Math.max(0, total - offset);
+  const start = Math.max(0, end2 - safeHeight);
   return {
-    lines: lines.slice(start, end),
+    lines: lines.slice(start, end2),
     start,
-    end,
+    end: end2,
     scrollOffset: offset,
     hiddenAbove: start,
-    hiddenBelow: total - end,
+    hiddenBelow: total - end2,
     atTop: start === 0,
     atBottom: offset === 0
   };
@@ -36905,6 +37111,7 @@ function approvalQueueRows(requestCount, focused = false) {
   return 2 + 1 + requestCount + (focused ? 3 : 1);
 }
 function bottomRows({
+  inputRows = 1,
   paletteCommands = 0,
   approvalArgs = null,
   questionRows = 0,
@@ -36916,7 +37123,7 @@ function bottomRows({
   queuedRows = 0,
   delegationVisible = false
 } = {}) {
-  const input = questionRows > 0 ? questionRows : approvalArgs === null ? 1 + paletteRows(paletteCommands) : approvalPromptRows(approvalArgs);
+  const input = questionRows > 0 ? questionRows : approvalArgs === null ? Math.max(1, inputRows) + paletteRows(paletteCommands) : approvalPromptRows(approvalArgs);
   return input + approvalQueueRows(queueRequests, queueFocused) + (errorVisible ? 1 : 0) + (workingVisible ? 1 : 0) + (noticeVisible ? 1 : 0) + Math.max(0, queuedRows) + (delegationVisible ? 1 : 0);
 }
 function scrollIndicator(view) {
@@ -37371,21 +37578,18 @@ function buildAgentRows({
   });
   return shown;
 }
-var WIDE_GLYPHS = /* @__PURE__ */ new Set(["\u23F3"]);
 function cells(text2) {
-  let width = 0;
-  for (const character of text2) width += WIDE_GLYPHS.has(character) ? 2 : 1;
-  return width;
+  return textWidth(text2);
 }
 var NAME_WIDTH = 16;
 function layoutAgentRow(row, width) {
-  const safeWidth = Math.max(10, Math.floor(width));
-  const left = `${row.glyph} ${row.name}`;
-  const pad = Math.max(0, NAME_WIDTH + 2 - cells(left));
-  const padded = row.task.length > 0 ? left + " ".repeat(pad) : left;
+  const safeWidth2 = Math.max(10, Math.floor(width));
+  const left2 = `${row.glyph} ${row.name}`;
+  const pad = Math.max(0, NAME_WIDTH + 2 - cells(left2));
+  const padded = row.task.length > 0 ? left2 + " ".repeat(pad) : left2;
   const leftCells = cells(padded);
   const statusCells = cells(row.status);
-  const room = safeWidth - leftCells - (statusCells > 0 ? statusCells + 1 : 0);
+  const room = safeWidth2 - leftCells - (statusCells > 0 ? statusCells + 1 : 0);
   let task = row.task;
   if (room <= 0) task = "";
   else if (task.length > room) task = `${task.slice(0, Math.max(1, room - 1))}\u2026`;
@@ -37393,7 +37597,7 @@ function layoutAgentRow(row, width) {
   return {
     left: padded,
     task,
-    gap: " ".repeat(Math.max(statusCells > 0 ? 1 : 0, safeWidth - used)),
+    gap: " ".repeat(Math.max(statusCells > 0 ? 1 : 0, safeWidth2 - used)),
     status: row.status
   };
 }
@@ -37845,19 +38049,31 @@ function Chat({
   onClearAttachments,
   onToggleRecording,
   onClipboard,
-  insert = null,
+  insert: insert2 = null,
   onInserted,
   append = null,
   onAppended,
   completions,
   agents = [],
+  draftWidth,
   disabled = false,
   placeholder = "ask anything, or /command",
   onChange,
   onInterrupt
 }) {
-  const [value, setValue] = (0, import_react30.useState)("");
-  const [cursor, setCursor] = (0, import_react30.useState)(0);
+  const [editor, setEditor] = (0, import_react30.useState)({ text: "", cursor: 0 });
+  const value = editor.text;
+  const cursor = editor.cursor;
+  const { stdout } = use_stdout_default();
+  const wrapWidth = Math.max(
+    1,
+    Math.floor(draftWidth ?? Math.max(1, (stdout?.columns ?? 80) - 2))
+  );
+  const draft = (0, import_react30.useMemo)(
+    () => layout(value, wrapWidth, cursor),
+    [value, wrapWidth, cursor]
+  );
+  const stickyColumn = (0, import_react30.useRef)(null);
   const [history, setHistory] = (0, import_react30.useState)(initialHistory);
   const [historyIndex, setHistoryIndex] = (0, import_react30.useState)(null);
   const historyDraft = (0, import_react30.useRef)("");
@@ -37867,26 +38083,32 @@ function Chat({
   const query = agentQuery(value, cursor);
   const agentMatches = query ? filterAgents(agents, query.prefix) : [];
   const showAgents = query !== null && !agentsDismissed && !showPalette;
-  (0, import_react30.useEffect)(() => {
-    if (!insert) return;
-    const text2 = value.length > 0 ? ` ${insert}` : insert;
-    update(value.slice(0, cursor) + text2 + value.slice(cursor), cursor + text2.length);
-    onInserted?.();
-  }, [insert]);
-  (0, import_react30.useEffect)(() => {
-    if (!append) return;
-    update(value.slice(0, cursor) + append + value.slice(cursor), cursor + append.length);
-    onAppended?.();
-  }, [append]);
-  const update = (next, nextCursor = next.length) => {
-    setValue(next);
-    setCursor(Math.max(0, Math.min(next.length, nextCursor)));
+  const update = (next, options = {}) => {
+    const safe = {
+      text: next.text,
+      cursor: Math.max(0, Math.min(next.text.length, next.cursor))
+    };
+    setEditor(safe);
+    if (!options.keepColumn) stickyColumn.current = null;
     setSelected(0);
     setAgentsDismissed(false);
-    onChange?.(next);
+    onChange?.(safe.text);
   };
+  const replace = (text2, nextCursor = text2.length) => update({ text: text2, cursor: nextCursor });
+  (0, import_react30.useEffect)(() => {
+    if (!insert2) return;
+    const text2 = value.length > 0 ? ` ${insert2}` : insert2;
+    update(insert(editor, text2));
+    onInserted?.();
+  }, [insert2]);
+  (0, import_react30.useEffect)(() => {
+    if (!append) return;
+    update(insert(editor, append));
+    onAppended?.();
+  }, [append]);
   use_input_default(
     (input, key) => {
+      const keyPlus = key;
       if (key.escape) {
         if (showAgents) {
           setAgentsDismissed(true);
@@ -37904,7 +38126,7 @@ function Chat({
         if (key.tab || key.return) {
           const candidate = agentMatches[Math.min(selected, agentMatches.length - 1)];
           const next = applyAgentCompletion(value, query, candidate.name);
-          update(next.text, next.cursor);
+          replace(next.text, next.cursor);
           return;
         }
       }
@@ -37914,15 +38136,59 @@ function Chat({
         return;
       }
       if (showPalette && key.tab) {
-        update(`/${completions[selected].name} `);
+        replace(`/${completions[selected].name} `);
         return;
       }
       if (key.tab || input === "\x1B[Z" || input === "[Z") return;
+      if ((key.ctrl || key.meta) && key.leftArrow) {
+        setHistoryIndex(null);
+        update(wordLeft(editor));
+        return;
+      }
+      if ((key.ctrl || key.meta) && key.rightArrow) {
+        setHistoryIndex(null);
+        update(wordRight(editor));
+        return;
+      }
+      if (key.ctrl && input === "a") {
+        setHistoryIndex(null);
+        update(home(editor));
+        return;
+      }
+      if (key.ctrl && input === "e") {
+        setHistoryIndex(null);
+        update(end(editor));
+        return;
+      }
+      if (keyPlus.home) {
+        setHistoryIndex(null);
+        update(home(editor));
+        return;
+      }
+      if (keyPlus.end) {
+        setHistoryIndex(null);
+        update(end(editor));
+        return;
+      }
       if (key.leftArrow || key.rightArrow) {
-        setCursor((position) => key.leftArrow ? Math.max(0, position - 1) : Math.min(value.length, position + 1));
+        setHistoryIndex(null);
+        update(key.leftArrow ? left(editor) : right(editor));
         return;
       }
       if (key.upArrow || key.downArrow) {
+        const target = stickyColumn.current ?? draft.cursorCol;
+        if (key.upArrow && draft.cursorRow > 0) {
+          stickyColumn.current = target;
+          setHistoryIndex(null);
+          update(up(editor, wrapWidth, target), { keepColumn: true });
+          return;
+        }
+        if (key.downArrow && draft.cursorRow < draft.lines.length - 1) {
+          stickyColumn.current = target;
+          setHistoryIndex(null);
+          update(down(editor, wrapWidth, target), { keepColumn: true });
+          return;
+        }
         if (key.downArrow && historyIndex === null) {
           onFocusDown?.();
           return;
@@ -37935,7 +38201,12 @@ function Chat({
         const current2 = historyIndex ?? history.length;
         const next = key.upArrow ? Math.max(0, current2 - 1) : Math.min(history.length, current2 + 1);
         setHistoryIndex(next === history.length ? null : next);
-        update(next === history.length ? historyDraft.current : history[next]);
+        replace(next === history.length ? historyDraft.current : history[next]);
+        return;
+      }
+      if (key.return && (keyPlus.shift || key.meta || keyPlus.alt)) {
+        setHistoryIndex(null);
+        update(insert(editor, "\n"));
         return;
       }
       if (key.return) {
@@ -37946,7 +38217,7 @@ function Chat({
           if (completion && full.startsWith(trimmed)) {
             const accepted = full === trimmed && value.length > trimmed.length;
             if (!accepted) {
-              update(`${full} `);
+              replace(`${full} `);
               return;
             }
           }
@@ -37955,16 +38226,19 @@ function Chat({
         if (text2.length === 0) return;
         setHistory((h) => [...h, text2]);
         setHistoryIndex(null);
-        update("");
+        replace("");
         onSubmit(text2);
+        return;
+      }
+      if (key.ctrl && input === "d") {
+        setHistoryIndex(null);
+        update(del(editor));
         return;
       }
       if (key.backspace || key.delete) {
         if (value.length === 0 && onBackspaceEmpty?.()) return;
-        if (cursor > 0) {
-          setHistoryIndex(null);
-          update(value.slice(0, cursor - 1) + value.slice(cursor), cursor - 1);
-        }
+        setHistoryIndex(null);
+        update(backspace(editor));
         return;
       }
       if (key.ctrl && input === "v") {
@@ -37980,20 +38254,23 @@ function Chat({
         return;
       }
       if (key.ctrl || key.meta || input.length === 0) return;
-      if (input.length > 1 && onPaste?.(input)) return;
-      if (input === "U" && value.length === 0 && onQuickUpdate) {
+      const typed = input.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+      if (typed.length > 1 && onPaste?.(typed)) return;
+      if (typed === "U" && value.length === 0 && onQuickUpdate) {
         onQuickUpdate();
         return;
       }
-      if (input === "R" && value.length === 0 && onQuickResume) {
+      if (typed === "R" && value.length === 0 && onQuickResume) {
         onQuickResume();
         return;
       }
       setHistoryIndex(null);
-      update(value.slice(0, cursor) + input + value.slice(cursor), cursor + input.length);
+      update(insert(editor, typed));
     },
     { isActive: !disabled }
   );
+  const cursorEnd = (0, import_react30.useMemo)(() => right(editor).cursor, [editor]);
+  const promptColor = disabled ? "gray" : "green";
   return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexDirection: "column", children: [
     showAgents ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
       AgentPalette,
@@ -38004,15 +38281,29 @@ function Chat({
       }
     ) : null,
     showPalette ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(SlashCommandPalette, { commands: completions, selectedIndex: selected }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { color: disabled ? "gray" : "green", children: "> " }),
-      value.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { dimColor: true, children: placeholder }) : /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(import_jsx_runtime6.Fragment, { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { children: value.slice(0, cursor) }),
-        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { inverse: true, children: value[cursor] ?? " " }),
-        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { children: value.slice(cursor + 1) })
-      ] }),
-      value.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { inverse: true, children: " " }) : null
-    ] })
+    value.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { color: promptColor, children: "> " }),
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { dimColor: true, children: placeholder }),
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { inverse: true, children: " " })
+    ] }) : /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Box_default, { flexDirection: "column", children: draft.lines.map((line, row) => {
+      const prefix = row === 0 ? "> " : "  ";
+      if (row !== draft.cursorRow) {
+        return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { color: promptColor, children: prefix }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { children: value.slice(line.start, line.end) })
+        ] }, `draft-${row}`);
+      }
+      const hasCursorText = cursor >= line.start && cursor < line.end && cursorEnd > cursor;
+      const before = value.slice(line.start, cursor);
+      const mark = hasCursorText ? value.slice(cursor, cursorEnd) : " ";
+      const after = hasCursorText ? value.slice(cursorEnd, line.end) : value.slice(cursor, line.end);
+      return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { color: promptColor, children: prefix }),
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { children: before }),
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { inverse: true, children: mark }),
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { children: after })
+      ] }, `draft-${row}`);
+    }) })
   ] });
 }
 
@@ -39872,7 +40163,7 @@ function App2({
   const [agentRosterVersion, setAgentRosterVersion] = (0, import_react45.useState)(0);
   const [attachments, setAttachments] = (0, import_react45.useState)([]);
   const [voice, setVoice] = (0, import_react45.useState)(initialVoice);
-  const [insert, setInsert] = (0, import_react45.useState)(null);
+  const [insert2, setInsert] = (0, import_react45.useState)(null);
   const [append, setAppend] = (0, import_react45.useState)(null);
   const [sessionModelSource, setSessionModelSource] = (0, import_react45.useState)(null);
   const [agentModels, setAgentModels] = (0, import_react45.useState)({});
@@ -40361,7 +40652,11 @@ function App2({
     () => delegationHint(draft, knownAgents.map((agent) => agent.name)),
     [draft, knownAgents]
   );
-  const layout = computeLayout({
+  const draftRows = (0, import_react45.useMemo)(
+    () => layout(draft, Math.max(1, contentWidth - 2), draft.length).lines.length,
+    [draft, contentWidth]
+  );
+  const layout2 = computeLayout({
     // One row short of the terminal on purpose; see `RESERVED_FRAME_ROW`.
     rows: usableRows(terminal.rows),
     columns: terminal.columns,
@@ -40371,6 +40666,7 @@ function App2({
     // every row of the agent panel and its key/mouse hint.
     statusRows: hudRows.length + (contextWarning(state.context) ? 1 : 0) + 1 + agentRows.length + 3,
     bottomRows: bottomRows({
+      inputRows: draftRows,
       paletteCommands: draft.startsWith("/") ? completions.length : 0,
       approvalArgs: state.pendingApproval ? Object.keys(state.pendingApproval.args ?? {}).length : null,
       queueRequests: state.approvalQueue.length,
@@ -40386,16 +40682,16 @@ function App2({
   const agentWindowRows = agentTranscriptRows({
     fullscreen,
     usable: usableRows(terminal.rows),
-    statusRows: layout.statusRows,
-    bottomRows: layout.bottomRows
+    statusRows: layout2.statusRows,
+    bottomRows: layout2.bottomRows
   });
   const liveRegionRows = fullscreen ? Number.POSITIVE_INFINITY : Math.max(
     1,
-    usableRows(terminal.rows) - layout.statusRows - layout.bottomRows - INLINE_CHROME_SLACK
+    usableRows(terminal.rows) - layout2.statusRows - layout2.bottomRows - INLINE_CHROME_SLACK
   );
   const holdRegionRows = fullscreen ? Number.POSITIVE_INFINITY : Math.max(
     1,
-    usableRows(terminal.rows) - layout.statusRows - layout.bottomRows - HOLD_CHROME_SLACK
+    usableRows(terminal.rows) - layout2.statusRows - layout2.bottomRows - HOLD_CHROME_SLACK
   );
   const agentWindowRowsRef = (0, import_react45.useRef)(agentWindowRows);
   agentWindowRowsRef.current = agentWindowRows;
@@ -40405,11 +40701,11 @@ function App2({
   );
   const panelMouseLayout = (0, import_react45.useMemo)(
     () => ({
-      totalRows: fullscreen ? layout.rows : terminal.rows,
-      bottomRows: layout.bottomRows,
+      totalRows: fullscreen ? layout2.rows : terminal.rows,
+      bottomRows: layout2.bottomRows,
       panelRows: agentRows.length
     }),
-    [fullscreen, layout.rows, layout.bottomRows, terminal.rows, agentRows.length]
+    [fullscreen, layout2.rows, layout2.bottomRows, terminal.rows, agentRows.length]
   );
   const holdRows = state.messages.some((message) => message.streaming) ? Math.max(1, holdRegionRows - MIN_LIVE_MESSAGE_ROWS) : holdRegionRows;
   const released = settledCount(state, staticCursorRef.current, holdRows);
@@ -40454,8 +40750,8 @@ function App2({
     [fullscreen, state, contentWidth, expandedId]
   );
   const viewport = (0, import_react45.useMemo)(
-    () => sliceViewport(lines, layout.transcriptRows, scrollOffset),
-    [lines, layout.transcriptRows, scrollOffset]
+    () => sliceViewport(lines, layout2.transcriptRows, scrollOffset),
+    [lines, layout2.transcriptRows, scrollOffset]
   );
   const previousLineCount = (0, import_react45.useRef)(0);
   (0, import_react45.useEffect)(() => {
@@ -40464,11 +40760,11 @@ function App2({
     if (grown > 0) setScrollOffset((offset) => offset > 0 ? offset + grown : 0);
   }, [lines.length]);
   (0, import_react45.useEffect)(() => {
-    setScrollOffset((offset) => clampScroll(offset, lines.length, layout.transcriptRows));
-  }, [layout.transcriptRows, lines.length]);
+    setScrollOffset((offset) => clampScroll(offset, lines.length, layout2.transcriptRows));
+  }, [layout2.transcriptRows, lines.length]);
   const scrollBy = (0, import_react45.useCallback)(
-    (delta) => setScrollOffset((offset) => clampScroll(offset + delta, lines.length, layout.transcriptRows)),
-    [lines.length, layout.transcriptRows]
+    (delta) => setScrollOffset((offset) => clampScroll(offset + delta, lines.length, layout2.transcriptRows)),
+    [lines.length, layout2.transcriptRows]
   );
   const takePaste = (0, import_react45.useCallback)(
     (text2) => {
@@ -41224,19 +41520,19 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
     }
     if (fullscreen) {
       if (key.pageUp) {
-        scrollBy(pageStep(layout.transcriptRows));
+        scrollBy(pageStep(layout2.transcriptRows));
         return;
       }
       if (key.pageDown) {
-        scrollBy(-pageStep(layout.transcriptRows));
+        scrollBy(-pageStep(layout2.transcriptRows));
         return;
       }
       if (key.ctrl && input === "u") {
-        scrollBy(halfPageStep(layout.transcriptRows));
+        scrollBy(halfPageStep(layout2.transcriptRows));
         return;
       }
       if (key.ctrl && input === "d") {
-        scrollBy(-halfPageStep(layout.transcriptRows));
+        scrollBy(-halfPageStep(layout2.transcriptRows));
         return;
       }
     }
@@ -41408,12 +41704,13 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
         },
         onClearAttachments: () => setAttachments([]),
         onToggleRecording: toggleRecording,
-        insert,
+        insert: insert2,
         onInserted: () => setInsert(null),
         append,
         onAppended: () => setAppend(null),
         completions,
         agents: completableAgents,
+        draftWidth: Math.max(1, contentWidth - 2),
         onChange: (next) => {
           setDraft(next);
           if (next.length > 0 && state.errors.length > 0) dispatch({ type: "errors/clear" });
@@ -41468,7 +41765,7 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
     {
       commands: state.commands,
       width: contentWidth,
-      height: fullscreen ? layout.transcriptRows : Math.max(4, usableRows(terminal.rows) - layout.bottomRows - layout.statusRows - (bannerText(update) ? 3 : 0)),
+      height: fullscreen ? layout2.transcriptRows : Math.max(4, usableRows(terminal.rows) - layout2.bottomRows - layout2.statusRows - (bannerText(update) ? 3 : 0)),
       isActive: state.pendingApproval === null && state.pendingQuestion === null && update.phase !== "confirm",
       runningSubagents: state.subagents.filter((agent) => agent.status === "running").length
     }
@@ -41478,11 +41775,11 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
     return /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
       FullscreenLayout,
       {
-        rows: layout.rows,
+        rows: layout2.rows,
         terminalRows: terminal.rows,
         version,
-        columns: layout.columns,
-        transcriptRows: layout.transcriptRows,
+        columns: layout2.columns,
+        transcriptRows: layout2.transcriptRows,
         lines: viewport.lines,
         banner: bannerText(update),
         scrollIndicator: scrollIndicator(viewport),
@@ -42491,10 +42788,10 @@ var fileStore = {
     return join(...parts);
   }
 };
-function createProbe(cwd2, home) {
+function createProbe(cwd2, home2) {
   return {
     resolve(path) {
-      const expanded = path.startsWith("~/") ? join(home, path.slice(2)) : path;
+      const expanded = path.startsWith("~/") ? join(home2, path.slice(2)) : path;
       return isAbsolute(expanded) ? expanded : resolve(cwd2, expanded);
     },
     size(path) {
