@@ -35006,6 +35006,7 @@ function applySessionEvent(state, event, options = {}) {
         lastText: "",
         inputTokens: Number(payload.usage?.inputTokens ?? entry.inputTokens),
         outputTokens: Number(payload.usage?.outputTokens ?? entry.outputTokens),
+        sessionId: typeof payload.sessionId === "string" ? payload.sessionId : entry.sessionId,
         endedAt: Number(payload.at ?? Date.now())
       }));
     // The daemon re-routed the session: a pin, a profile change, or a project
@@ -35648,6 +35649,32 @@ function clampFocus(focus, agentRows) {
   if (focus.zone !== "agent") return focus;
   if (agentRows === 0) return { zone: "footer" };
   return focus.index < agentRows ? focus : { zone: "agent", index: agentRows - 1 };
+}
+
+// src/input/mouse.ts
+function parseMouse(input) {
+  if (!input.startsWith("\x1B[<")) return null;
+  const match = /^\u001b\[<(\d+);(\d+);(\d+)([Mm])$/.exec(input);
+  if (!match) return null;
+  const button = Number(match[1]);
+  const col = Number(match[2]);
+  const row = Number(match[3]);
+  if (!Number.isFinite(button) || !Number.isFinite(col) || !Number.isFinite(row)) return null;
+  if (button < 0 || col < 1 || row < 1) return null;
+  return { button, col, row, press: match[4] === "M" };
+}
+function panelRowAt(row, layout) {
+  const y = Math.floor(row);
+  if (!Number.isFinite(y) || y < 1) return null;
+  const totalRows = Math.max(1, Math.floor(layout.totalRows));
+  const bottomRows2 = Math.max(0, Math.floor(layout.bottomRows));
+  const panelRows = Math.max(0, Math.floor(layout.panelRows));
+  if (panelRows < 1) return null;
+  const top = totalRows - bottomRows2 - panelRows + 1;
+  const bottom = top + panelRows - 1;
+  if (y < Math.max(1, top) || y > bottom) return null;
+  const index = y - top;
+  return index >= 0 && index < panelRows ? index : null;
 }
 
 // src/state/history.ts
@@ -37166,7 +37193,7 @@ function agentStatusText(entry, now) {
   }
   return parts.join(" \xB7 ");
 }
-function subagentRow(entry, now) {
+function subagentRow(entry, now, origin) {
   const status = entry.status;
   return {
     key: `agent-${entry.agentId}`,
@@ -37177,10 +37204,11 @@ function subagentRow(entry, now) {
     // the brief is written for a machine, often in English, and is long.
     task: entry.title || entry.task || entry.lastText || "",
     status: agentStatusText(entry, now),
+    origin,
     dim: entry.status === "done"
   };
 }
-function teamRow(task) {
+function teamRow(task, origin) {
   const running = task.status === "running" || task.status === "claimed";
   return {
     key: `team-${task.taskId}`,
@@ -37189,8 +37217,16 @@ function teamRow(task) {
     name: task.assignee || task.teamId || "team",
     task: `task ${task.taskId}`,
     status: task.status,
+    origin,
     dim: task.status === "merged" || task.status === "done"
   };
+}
+var NAMED_GLYPH = "\u25C6";
+function rowOrigin(name, roster, named) {
+  if (!roster) return void 0;
+  if (roster.has(name)) return "team";
+  if (named.has(name)) return "named";
+  return "external";
 }
 function buildAgentRows({
   state,
@@ -37200,6 +37236,10 @@ function buildAgentRows({
   expanded = false,
   currentLabel = "main"
 }) {
+  const onTeam = roster ? new Set(roster) : null;
+  const named = new Set(
+    known.filter((agent) => agent.kind === "agent").map((agent) => agent.name).filter((name) => name.length > 0)
+  );
   const rows = [
     {
       key: "current",
@@ -37208,20 +37248,27 @@ function buildAgentRows({
       name: currentLabel,
       task: "",
       status: "",
+      origin: "current",
       dim: false
     }
   ];
-  const live = state.subagents.map((entry) => subagentRow(entry, now));
+  const live = state.subagents.map(
+    (entry) => subagentRow(entry, now, rowOrigin(entry.name, onTeam, named))
+  );
   rows.push(...live.filter((row) => !row.dim));
-  rows.push(...state.teamTasks.map(teamRow).filter((row) => !row.dim));
+  rows.push(
+    ...state.teamTasks.map(
+      (task) => teamRow(task, rowOrigin(task.assignee || task.teamId || "team", onTeam, named))
+    ).filter((row) => !row.dim)
+  );
   const busy = new Set(state.subagents.map((entry) => entry.name).filter(Boolean));
-  const onTeam = roster ? new Set(roster) : null;
   const idle = known.filter((agent) => agent.kind !== "subagent" && !busy.has(agent.name)).filter((agent) => !onTeam || onTeam.has(agent.name) || agent.kind === "agent").map((agent) => ({
     key: `idle-${agent.name}`,
-    glyph: AGENT_GLYPH,
+    glyph: agent.kind === "agent" ? NAMED_GLYPH : AGENT_GLYPH,
     name: agent.name,
     task: agent.description ?? "",
     status: "idle",
+    origin: rowOrigin(agent.name, onTeam, named),
     dim: true
   }));
   if (expanded || idle.length <= MAX_IDLE_ROWS) {
@@ -37260,7 +37307,8 @@ function cells(text2) {
 var NAME_WIDTH = 16;
 function layoutAgentRow(row, width) {
   const safeWidth = Math.max(10, Math.floor(width));
-  const left = `${row.glyph} ${row.name}`;
+  const origin = row.origin === "team" ? " [team]" : row.origin === "external" ? " [ext]" : row.origin === "named" ? " [named]" : "";
+  const left = `${row.glyph} ${row.name}${origin}`;
   const pad = Math.max(0, NAME_WIDTH + 2 - cells(left));
   const padded = row.task.length > 0 ? left + " ".repeat(pad) : left;
   const leftCells = cells(padded);
@@ -39621,6 +39669,8 @@ function UpdateBanner({ update }) {
 
 // src/app.tsx
 var import_jsx_runtime32 = __toESM(require_jsx_runtime(), 1);
+var ENABLE_MOUSE = "\x1B[?1000h\x1B[?1006h";
+var DISABLE_MOUSE = "\x1B[?1000l\x1B[?1006l";
 var UPDATE_OPTIONS = [
   { label: "Update and restart", value: true, shortcut: "y" },
   { label: "Not now", value: false, shortcut: "n", danger: true }
@@ -39736,6 +39786,7 @@ function App2({
   const [state, dispatch] = (0, import_react45.useReducer)(reducer, initialState);
   const [showHelp, setShowHelp] = (0, import_react45.useState)(false);
   const { stdin, setRawMode } = use_stdin_default();
+  const { stdout } = use_stdout_default();
   const [draft, setDraft] = (0, import_react45.useState)("");
   const [expandedId, setExpandedId] = (0, import_react45.useState)(null);
   const [queueFocused, setQueueFocused] = (0, import_react45.useState)(false);
@@ -40036,6 +40087,17 @@ function App2({
     if (modeToastTimer.current) clearTimeout(modeToastTimer.current);
     modeToastTimer.current = setTimeout(() => setModeToast(null), 2500);
   }, []);
+  const setMouseMode = (0, import_react45.useCallback)(
+    (enabled) => {
+      if (!stdout?.isTTY) return;
+      stdout.write(enabled ? ENABLE_MOUSE : DISABLE_MOUSE);
+    },
+    [stdout]
+  );
+  (0, import_react45.useEffect)(() => {
+    setMouseMode(true);
+    return () => setMouseMode(false);
+  }, [setMouseMode]);
   const resumeSession = (0, import_react45.useCallback)(
     (target, into) => {
       if (into === "main") {
@@ -40211,8 +40273,8 @@ function App2({
     columns: terminal.columns,
     // Logo block, then the workdir row and the rule row.
     headerRows: logoRows(terminal.rows) + HEADER_ROWS,
-    // The HUD's rows, the context warning when there is one, the summary line
-    // and every row of the agent panel.
+    // The HUD's rows, the context warning when there is one, the summary line,
+    // every row of the agent panel and its key/mouse hint.
     statusRows: hudRows.length + (contextWarning(state.context) ? 1 : 0) + 1 + agentRows.length + 3,
     bottomRows: bottomRows({
       paletteCommands: draft.startsWith("/") ? completions.length : 0,
@@ -40246,6 +40308,14 @@ function App2({
   const agentViewport = (0, import_react45.useMemo)(
     () => sliceViewport(agentLines, agentWindowRows, agentScroll),
     [agentLines, agentWindowRows, agentScroll]
+  );
+  const panelMouseLayout = (0, import_react45.useMemo)(
+    () => ({
+      totalRows: fullscreen ? layout.rows : terminal.rows,
+      bottomRows: layout.bottomRows,
+      panelRows: agentRows.length
+    }),
+    [fullscreen, layout.rows, layout.bottomRows, terminal.rows, agentRows.length]
   );
   const holdRows = state.messages.some((message) => message.streaming) ? Math.max(1, holdRegionRows - MIN_LIVE_MESSAGE_ROWS) : holdRegionRows;
   const released = settledCount(state, staticCursorRef.current, holdRows);
@@ -40338,9 +40408,15 @@ function App2({
         }
         setSuspended(true);
         setRawMode?.(false);
-        const code = await editor.run(path);
-        setRawMode?.(true);
-        setSuspended(false);
+        setMouseMode(false);
+        let code = 0;
+        try {
+          code = await editor.run(path);
+        } finally {
+          setRawMode?.(true);
+          setMouseMode(true);
+          setSuspended(false);
+        }
         if (code !== 0) {
           showToast(`${editor.command()} exited with ${code}`);
           return;
@@ -40355,7 +40431,7 @@ function App2({
         }
       })();
     },
-    [client, editor, setRawMode, showToast]
+    [client, editor, setMouseMode, setRawMode, showToast]
   );
   const openModelPicker = (0, import_react45.useCallback)(() => {
     const settings = client.call("settings.get", { scope: "global" }).catch(() => ({ settings: {} }));
@@ -40910,6 +40986,24 @@ function App2({
     if (state.pendingQuestion || state.pendingApproval || update.phase === "confirm" || modelPicker) {
       return;
     }
+    const mouse = parseMouse(input);
+    if (mouse) {
+      if (!mouse.press) return;
+      if (openAgent && mouse.button === 64) {
+        setAgentScroll((offset) => offset + 1);
+        return;
+      }
+      if (openAgent && mouse.button === 65) {
+        setAgentScroll((offset) => Math.max(0, offset - 1));
+        return;
+      }
+      if (openAgent || mouse.button !== 0) return;
+      const index = panelRowAt(mouse.row, panelMouseLayout);
+      if (index === null) return;
+      setFocus({ zone: "agent", index });
+      openAgentRow(index);
+      return;
+    }
     if (showHelp) {
       if (key.escape || key.return || input === "q") {
         setShowHelp(false);
@@ -41023,7 +41117,7 @@ function App2({
       const agentId = row.key.startsWith("agent-") ? row.key.slice("agent-".length) : null;
       const entry = state.subagents.find((agent) => agent.agentId === agentId);
       if (!entry?.sessionId) {
-        showToast(`${row.name}: no transcript yet`);
+        showToast(`${row.name}: no run in this session yet`);
         return;
       }
       setOpenAgent({ sessionId: entry.sessionId, name: entry.name || row.name });
@@ -41198,7 +41292,6 @@ function App2({
     agents: state.subagents.filter((agent) => agent.status === "running").length
   });
   const statusNode = /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)(import_jsx_runtime32.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(SectionRule, { width: contentWidth, color: "green" }),
     /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
       Text,
       {
@@ -41221,7 +41314,8 @@ function App2({
         width: contentWidth,
         focusedIndex: focus.zone === "agent" ? focus.index : null
       }
-    )
+    ),
+    /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(Text, { dimColor: true, children: "\u2191\u2193 select \xB7 click or Enter opens" })
   ] });
   const helpNode = showHelp ? /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
     HelpPanel,

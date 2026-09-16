@@ -25,6 +25,7 @@ export const CURRENT_GLYPH = "●";
 export const AGENT_GLYPH = "◯";
 
 export type AgentStatus = "current" | "idle" | "queued" | "running" | "done" | "error";
+export type AgentOrigin = "team" | "external" | "named" | "current";
 
 const STATUS_GLYPH: Record<AgentStatus, string> = {
   current: CURRENT_GLYPH,
@@ -54,6 +55,8 @@ export interface AgentRow {
   task: string;
   /** Right-aligned column: `idle`, `running · 8m 40s · ↓ 316.6k`, … */
   status: string;
+  /** Where this row's agent comes from, when the active roster is known. */
+  origin?: AgentOrigin;
   /** True for the rows that only count other rows. */
   dim: boolean;
 }
@@ -81,7 +84,11 @@ export function agentStatusText(
   return parts.join(" · ");
 }
 
-function subagentRow(entry: SubagentEntry, now: number): AgentRow {
+function subagentRow(
+  entry: SubagentEntry,
+  now: number,
+  origin: AgentOrigin | undefined,
+): AgentRow {
   const status = entry.status as AgentStatus;
   return {
     key: `agent-${entry.agentId}`,
@@ -92,11 +99,12 @@ function subagentRow(entry: SubagentEntry, now: number): AgentRow {
     // the brief is written for a machine, often in English, and is long.
     task: entry.title || entry.task || entry.lastText || "",
     status: agentStatusText(entry, now),
+    origin,
     dim: entry.status === "done",
   };
 }
 
-function teamRow(task: TeamTaskEntry): AgentRow {
+function teamRow(task: TeamTaskEntry, origin: AgentOrigin | undefined): AgentRow {
   const running = task.status === "running" || task.status === "claimed";
   return {
     key: `team-${task.taskId}`,
@@ -105,6 +113,7 @@ function teamRow(task: TeamTaskEntry): AgentRow {
     name: task.assignee || task.teamId || "team",
     task: `task ${task.taskId}`,
     status: task.status,
+    origin,
     dim: task.status === "merged" || task.status === "done",
   };
 }
@@ -139,6 +148,19 @@ export interface AgentRowsInput {
   currentLabel?: string;
 }
 
+const NAMED_GLYPH = "◆";
+
+function rowOrigin(
+  name: string,
+  roster: Set<string> | null,
+  named: Set<string>,
+): AgentOrigin | undefined {
+  if (!roster) return undefined;
+  if (roster.has(name)) return "team";
+  if (named.has(name)) return "named";
+  return "external";
+}
+
 /**
  * Every row the panel draws, the current session first.
  *
@@ -155,6 +177,13 @@ export function buildAgentRows({
   expanded = false,
   currentLabel = "main",
 }: AgentRowsInput): AgentRow[] {
+  const onTeam = roster ? new Set(roster) : null;
+  const named = new Set(
+    known
+      .filter((agent) => agent.kind === "agent")
+      .map((agent) => agent.name)
+      .filter((name) => name.length > 0),
+  );
   const rows: AgentRow[] = [
     {
       key: "current",
@@ -163,26 +192,35 @@ export function buildAgentRows({
       name: currentLabel,
       task: "",
       status: "",
+      origin: "current",
       dim: false,
     },
   ];
 
-  const live = state.subagents.map((entry) => subagentRow(entry, now));
+  const live = state.subagents.map((entry) =>
+    subagentRow(entry, now, rowOrigin(entry.name, onTeam, named)),
+  );
   rows.push(...live.filter((row) => !row.dim));
-  rows.push(...state.teamTasks.map(teamRow).filter((row) => !row.dim));
+  rows.push(
+    ...state.teamTasks
+      .map((task) =>
+        teamRow(task, rowOrigin(task.assignee || task.teamId || "team", onTeam, named)),
+      )
+      .filter((row) => !row.dim),
+  );
 
   // Idle rows: agents the daemon defines that are not part of this turn.
   const busy = new Set(state.subagents.map((entry) => entry.name).filter(Boolean));
-  const onTeam = roster ? new Set(roster) : null;
   const idle = known
     .filter((agent) => agent.kind !== "subagent" && !busy.has(agent.name))
     .filter((agent) => !onTeam || onTeam.has(agent.name) || agent.kind === "agent")
     .map<AgentRow>((agent) => ({
       key: `idle-${agent.name}`,
-      glyph: AGENT_GLYPH,
+      glyph: agent.kind === "agent" ? NAMED_GLYPH : AGENT_GLYPH,
       name: agent.name,
       task: agent.description ?? "",
       status: "idle",
+      origin: rowOrigin(agent.name, onTeam, named),
       dim: true,
     }));
 
@@ -253,7 +291,15 @@ export const NAME_WIDTH = 16;
  */
 export function layoutAgentRow(row: AgentRow, width: number): AgentRowLayout {
   const safeWidth = Math.max(10, Math.floor(width));
-  const left = `${row.glyph} ${row.name}`;
+  const origin =
+    row.origin === "team"
+      ? " [team]"
+      : row.origin === "external"
+        ? " [ext]"
+        : row.origin === "named"
+          ? " [named]"
+          : "";
+  const left = `${row.glyph} ${row.name}${origin}`;
   // Padding is measured in screen cells, not characters, or a row whose glyph
   // is two cells wide would push its task one column out of the column.
   const pad = Math.max(0, NAME_WIDTH + 2 - cells(left));

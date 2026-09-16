@@ -216,6 +216,11 @@ describe("layoutAgentRow", () => {
     expect(cells(short.left)).toBe(cells(long.left));
     expect(cells(wide.left)).toBe(cells(long.left));
   });
+
+  it("prints the agent origin tag in the name column", () => {
+    const tagged = layoutAgentRow({ ...row, name: "explore", origin: "external" }, 60);
+    expect(tagged.left).toContain("explore [ext]");
+  });
 });
 
 describe("idle rows and the active team", () => {
@@ -230,7 +235,47 @@ describe("idle rows and the active team", () => {
     const rows = buildAgentRows({ state: initialState, now: NOW, known, roster: ["architect", "executor"], expanded: true });
     const idle = rows.filter((row) => row.status === "idle").map((row) => row.name);
     expect(idle).toEqual(["architect", "executor", "yap"]);
+    const idleRows = new Map(rows.filter((row) => row.status === "idle").map((row) => [row.name, row]));
+    expect(idleRows.get("architect")).toMatchObject({ origin: "team", glyph: AGENT_GLYPH });
+    expect(idleRows.get("executor")).toMatchObject({ origin: "team", glyph: AGENT_GLYPH });
+    expect(idleRows.get("yap")).toMatchObject({ origin: "named", glyph: "◆" });
     const all = buildAgentRows({ state: initialState, now: NOW, known, expanded: true });
     expect(all.filter((row) => row.status === "idle")).toHaveLength(5);
+  });
+
+  it("marks live delegates outside the roster as external when a roster is known", () => {
+    const state = apply(
+      initialState,
+      event(1, "subagent.spawn", {
+        agentId: "a1",
+        name: "explore",
+        task: "scan for handlers",
+        status: "done",
+        at: NOW - 4000,
+      }),
+      event(2, "subagent.done", {
+        agentId: "a1",
+        status: "done",
+        at: NOW,
+      }),
+    );
+    const rows = buildAgentRows({
+      state,
+      now: NOW,
+      known: [{ name: "architect", kind: "definition" }, { name: "executor", kind: "definition" }],
+      roster: ["architect", "executor"],
+      expanded: true,
+    });
+    expect(rows.find((row) => row.key === "agent-a1")).toMatchObject({ origin: "external" });
+  });
+
+  it("leaves idle tags off when no roster is known", () => {
+    const rows = buildAgentRows({
+      state: initialState,
+      now: NOW,
+      known: [{ name: "yap", kind: "agent", description: "named" }],
+      expanded: true,
+    });
+    expect(rows.find((row) => row.key === "idle-yap")).toMatchObject({ origin: undefined });
   });
 });

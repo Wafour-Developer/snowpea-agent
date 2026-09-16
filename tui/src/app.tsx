@@ -15,7 +15,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { Box, Static, Text, useApp, useInput, useStdin } from "ink";
+import { Box, Static, Text, useApp, useInput, useStdin, useStdout } from "ink";
 
 import type { TuiClient } from "./rpc/client.js";
 import type {
@@ -60,6 +60,7 @@ import {
 import { useSpinner } from "./hooks/useSpinner.js";
 import { useKnownAgents } from "./hooks/useKnownAgents.js";
 import { clampFocus, focusDown, focusUp, isInput, INPUT_FOCUS, type Focus } from "./state/focus.js";
+import { panelRowAt, parseMouse } from "./input/mouse.js";
 import { offerSession, resumeLabel, resumeRows } from "./state/history.js";
 import {
   beginRecording,
@@ -179,6 +180,8 @@ import { HelpPanel } from "./components/HelpPanel.js";
 import { UpdateBanner } from "./components/UpdateBanner.js";
 
 export const PLACEHOLDER_TEXT = "snowpea tui placeholder";
+const ENABLE_MOUSE = "\u001b[?1000h\u001b[?1006h";
+const DISABLE_MOUSE = "\u001b[?1000l\u001b[?1006l";
 
 /** The answers to "update now?", offered the same way approvals are. */
 const UPDATE_OPTIONS: ConfirmOption<boolean>[] = [
@@ -462,6 +465,7 @@ export function App({
   const [state, dispatch] = useReducer(reducer, initialState);
   const [showHelp, setShowHelp] = useState(false);
   const { stdin, setRawMode } = useStdin();
+  const { stdout } = useStdout();
   const [draft, setDraft] = useState("");
   /** Id of the transcript entry Ctrl+O opened: a tool call or a diff. */
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -965,6 +969,19 @@ export function App({
     modeToastTimer.current = setTimeout(() => setModeToast(null), 2500);
   }, []);
 
+  const setMouseMode = useCallback(
+    (enabled: boolean) => {
+      if (!stdout?.isTTY) return;
+      stdout.write(enabled ? ENABLE_MOUSE : DISABLE_MOUSE);
+    },
+    [stdout],
+  );
+
+  useEffect(() => {
+    setMouseMode(true);
+    return () => setMouseMode(false);
+  }, [setMouseMode]);
+
   /**
    * Replay a session's events into a transcript.
    *
@@ -1213,8 +1230,8 @@ export function App({
     columns: terminal.columns,
     // Logo block, then the workdir row and the rule row.
     headerRows: logoRows(terminal.rows) + HEADER_ROWS,
-    // The HUD's rows, the context warning when there is one, the summary line
-    // and every row of the agent panel.
+    // The HUD's rows, the context warning when there is one, the summary line,
+    // every row of the agent panel and its key/mouse hint.
     statusRows:
       hudRows.length +
       (contextWarning(state.context) ? 1 : 0) +
@@ -1277,6 +1294,14 @@ export function App({
   const agentViewport = useMemo(
     () => sliceViewport(agentLines, agentWindowRows, agentScroll),
     [agentLines, agentWindowRows, agentScroll],
+  );
+  const panelMouseLayout = useMemo(
+    () => ({
+      totalRows: fullscreen ? layout.rows : terminal.rows,
+      bottomRows: layout.bottomRows,
+      panelRows: agentRows.length,
+    }),
+    [fullscreen, layout.rows, layout.bottomRows, terminal.rows, agentRows.length],
   );
 
   // --- what has reached the scrollback --------------------------------------
@@ -1415,9 +1440,15 @@ export function App({
         }
         setSuspended(true);
         setRawMode?.(false);
-        const code = await editor.run(path);
-        setRawMode?.(true);
-        setSuspended(false);
+        setMouseMode(false);
+        let code = 0;
+        try {
+          code = await editor.run(path);
+        } finally {
+          setRawMode?.(true);
+          setMouseMode(true);
+          setSuspended(false);
+        }
         if (code !== 0) {
           showToast(`${editor.command()} exited with ${code}`);
           return;
@@ -1432,7 +1463,7 @@ export function App({
         }
       })();
     },
-    [client, editor, setRawMode, showToast],
+    [client, editor, setMouseMode, setRawMode, showToast],
   );
 
   /**
@@ -2179,6 +2210,24 @@ export function App({
     if (state.pendingQuestion || state.pendingApproval || update.phase === "confirm" || modelPicker) {
       return;
     }
+    const mouse = parseMouse(input);
+    if (mouse) {
+      if (!mouse.press) return;
+      if (openAgent && mouse.button === 64) {
+        setAgentScroll((offset) => offset + 1);
+        return;
+      }
+      if (openAgent && mouse.button === 65) {
+        setAgentScroll((offset) => Math.max(0, offset - 1));
+        return;
+      }
+      if (openAgent || mouse.button !== 0) return;
+      const index = panelRowAt(mouse.row, panelMouseLayout);
+      if (index === null) return;
+      setFocus({ zone: "agent", index });
+      openAgentRow(index);
+      return;
+    }
 
     if (showHelp) {
       if (key.escape || key.return || input === "q") {
@@ -2316,7 +2365,7 @@ export function App({
       const agentId = row.key.startsWith("agent-") ? row.key.slice("agent-".length) : null;
       const entry = state.subagents.find((agent) => agent.agentId === agentId);
       if (!entry?.sessionId) {
-        showToast(`${row.name}: no transcript yet`);
+        showToast(`${row.name}: no run in this session yet`);
         return;
       }
       setOpenAgent({ sessionId: entry.sessionId, name: entry.name || row.name });
@@ -2530,7 +2579,6 @@ export function App({
   });
   const statusNode = (
     <>
-      <SectionRule width={contentWidth} color="green" />
       <Text
         color={summary.color}
         dimColor={summary.dimColor && focus.zone !== "footer"}
@@ -2553,6 +2601,7 @@ export function App({
         width={contentWidth}
         focusedIndex={focus.zone === "agent" ? focus.index : null}
       />
+      <Text dimColor>↑↓ select · click or Enter opens</Text>
     </>
   );
 
