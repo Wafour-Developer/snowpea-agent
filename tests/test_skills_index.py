@@ -784,3 +784,28 @@ async def test_skills_index_text_contains_claude_plugin_group(
 
     tiers = compose.build_tiers(skill_groups=groups)
     assert "[claude-plugin:frontend-design]" in tiers.context
+
+
+def test_claude_root_is_the_users_claude_dir_when_the_snowpea_home_has_none(
+    tmp_path, monkeypatch
+) -> None:
+    """The daemon's home is ~/.snowpea, which never holds a .claude tree; the
+    loader must still find Claude Code's own directory (or CLAUDE_CONFIG_DIR)."""
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from snowpea_core.config.paths import Paths
+    from snowpea_core.skills.loader import SkillLoader
+
+    home = tmp_path / "home"
+    home.mkdir()
+    loader = SkillLoader(SimpleNamespace(paths=Paths(home=home)))  # type: ignore[arg-type]
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    assert loader.claude_root == Path.home() / ".claude"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "elsewhere"))
+    assert loader.claude_root == tmp_path / "elsewhere"
+    # A .claude inside the snowpea home wins over both — that is how a
+    # self-contained home (and every test) carries its own tree.
+    (loader.home / ".claude").mkdir(parents=True)
+    assert loader.claude_root == loader.home / ".claude"
+    assert isinstance(loader, SkillLoader)

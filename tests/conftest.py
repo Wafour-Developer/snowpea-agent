@@ -27,7 +27,15 @@ def snowpea_home() -> Iterator[Path]:
     # path with an httpx.MockTransport instead of reaching the internet.
     with tempfile.TemporaryDirectory(prefix="snowpea-home-") as tmp:
         home = Path(tmp)
-        with env_vars(SNOWPEA_HOME=str(home), SNOWPEA_UPDATE_CHECK="0", SNOWPEA_MODELS_DEV="0"):
+        # CLAUDE_CONFIG_DIR keeps the developer's real ~/.claude (its plugins,
+        # skills, agents) out of every test; a test that wants a Claude tree
+        # creates one under its own home, which the loader prefers.
+        with env_vars(
+            SNOWPEA_HOME=str(home),
+            SNOWPEA_UPDATE_CHECK="0",
+            SNOWPEA_MODELS_DEV="0",
+            CLAUDE_CONFIG_DIR=str(home / "claude-config"),
+        ):
             yield home
 
 
