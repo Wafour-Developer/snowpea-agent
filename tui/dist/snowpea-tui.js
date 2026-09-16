@@ -36622,7 +36622,8 @@ function tableAt(source, start, width, id) {
 }
 function messageLines(message, width = 80) {
   const out = [];
-  const body = message.streaming ? `${message.text}\u2026` : message.text;
+  const text2 = message.text.replace(/^(?:[ \t]*\n)+/, "");
+  const body = message.streaming ? `${text2}\u2026` : text2;
   const source = body.split("\n");
   let inFence = false;
   for (let index = 0; index < source.length; index += 1) {

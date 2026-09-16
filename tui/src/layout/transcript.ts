@@ -228,7 +228,10 @@ function tableAt(source: string[], start: number, width: number, id: string): { 
 /** One message, markdown-lite applied, with the role glyph on the first row. */
 export function messageLines(message: Message, width = 80): Line[] {
   const out: Line[] = [];
-  const body = message.streaming ? `${message.text}…` : message.text;
+  // A model often opens with a blank line; the glyph belongs on the first
+  // line that says something, not on an empty one above it.
+  const text = message.text.replace(/^(?:[ \t]*\n)+/, "");
+  const body = message.streaming ? `${text}…` : text;
   const source = body.split("\n");
   let inFence = false;
 
