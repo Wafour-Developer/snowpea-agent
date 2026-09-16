@@ -51,7 +51,7 @@ unchanged since your earlier read_file of core/app.py (412 lines, sha256 9f2c1ab
   ```
   [earlier shell output pruned — 8123 chars; re-run the tool if you need it again]
   ```
-- **최근 라운드(최근 6라운드 이내):** 2,000자를 넘는 툴 결과는 머리와 꼬리만 남기고 가운데를 `…[trimmed]…`로 줄입니다.
+- **최근 라운드(최근 6라운드 이내):** 그대로 보냅니다. 모델이 아직 참고 중인 결과를 자르면 파일이 잘린 것으로 오해합니다.
 - **`skill_view` 본문은 제외:** 스킬은 자체 압축 수명 주기와 재로드 포인터(`[SKILL_PRUNED: …]`)를 가지며, 이는 `skills.protectRecentViews`가 관리합니다.
 
 > [!IMPORTANT]

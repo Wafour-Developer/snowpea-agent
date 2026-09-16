@@ -58,7 +58,15 @@ def test_the_last_six_rounds_survive_verbatim() -> None:
         assert kept.content == original.content
 
 
-def test_a_long_kept_result_is_head_tail_trimmed() -> None:
+def test_a_kept_result_is_never_trimmed_by_default() -> None:
+    """What the model is still working from reaches it whole: a read cut short
+    made it believe the file was truncated."""
+    history = rounds(2, chars=9000)
+    pruned = compaction.prune_old_tool_outputs(history, 6, compaction.DEFAULT_TOOL_OUTPUT_MAX_CHARS)
+    assert [m.content for m in pruned] == [m.content for m in history]
+
+
+def test_a_long_kept_result_is_head_tail_trimmed_when_asked() -> None:
     history = rounds(2, chars=5000)
     pruned = compaction.prune_old_tool_outputs(history, 6, 2000)
     kept = [message for message in pruned if message.role == "tool"]

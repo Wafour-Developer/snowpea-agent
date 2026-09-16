@@ -530,7 +530,12 @@ DEFAULT_KEEP_TOOL_ROUNDS = 6
 
 #: Characters of a kept tool result that survive; past this the middle goes
 #: (opencode's ``TOOL_OUTPUT_MAX_CHARS``).
-DEFAULT_TOOL_OUTPUT_MAX_CHARS = 2000
+#: Head/tail cap on tool results still inside the kept window.  Off: a result
+#: the model is still working from must reach it whole — a read_file cut to
+#: 2 000 chars made the model believe the file was truncated and reach for
+#: write_file over edit_file.  Old results are stubbed, not trimmed, and the
+#: read tool has its own line and spill limits for the genuinely huge.
+DEFAULT_TOOL_OUTPUT_MAX_CHARS = 0
 
 #: Marker left where the middle of a trimmed tool result used to be.
 TRIM_MARKER = "\n…[trimmed]…\n"
