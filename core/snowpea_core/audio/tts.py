@@ -679,10 +679,33 @@ def supertonic_voice(voice: str | None, language: str | None = None) -> str:
     return DEFAULT_SUPERTONIC_VOICE
 
 
-def supertonic_lang(language: str | None) -> str:
-    """The ``lang`` the engine is told, defaulting to English."""
+def supertonic_lang(language: str | None, text: str = "") -> str:
+    """The ``lang`` the engine is told.
+
+    ``"auto"`` is a *setting* value — Supertonic rejects it outright — so it,
+    like an empty tag, is resolved from the text's script: Hangul is Korean,
+    kana is Japanese, other CJK is Chinese, Cyrillic is Russian, everything
+    else English.  A real tag is passed through as its primary subtag.
+    """
     tag = (language or "").strip().lower().partition("-")[0]
-    return tag or "en"
+    if tag and tag != "auto":
+        return tag
+    return guess_language(text)
+
+
+def guess_language(text: str) -> str:
+    """A language tag from the script a text is written in; ``en`` when unsure."""
+    for char in text:
+        code = ord(char)
+        if 0xAC00 <= code <= 0xD7A3 or 0x1100 <= code <= 0x11FF or 0x3130 <= code <= 0x318F:
+            return "ko"
+        if 0x3040 <= code <= 0x30FF:
+            return "ja"
+        if 0x4E00 <= code <= 0x9FFF:
+            return "zh"
+        if 0x0400 <= code <= 0x04FF:
+            return "ru"
+    return "en"
 
 
 class SupertonicTTS:
@@ -752,7 +775,7 @@ class SupertonicTTS:
             {
                 "text": body,
                 "voice": chosen,
-                "lang": supertonic_lang(language or self.language),
+                "lang": supertonic_lang(language or self.language, body),
                 "out": str(target),
             }
         )
