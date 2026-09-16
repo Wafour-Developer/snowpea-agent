@@ -766,3 +766,14 @@ def test_the_stage_sequence_matches_what_the_engine_actually_does() -> None:
     )
     # A catalog id resolves to its engine's sequence, not to a default.
     assert audio_install.stages_for("local-whisper") == audio_install.STAGES_PACKAGE
+
+
+def test_supertonic_language_is_never_auto() -> None:
+    """Supertonic rejects ``auto``; the setting's ``auto`` means "from the text"."""
+    from snowpea_core.audio.tts import guess_language, supertonic_lang
+
+    assert supertonic_lang("auto", "안녕하세요, 테스트입니다.") == "ko"
+    assert supertonic_lang(None, "こんにちは") == "ja"
+    assert supertonic_lang("", "Hello there") == "en"
+    assert supertonic_lang("ko-KR", "whatever") == "ko"
+    assert guess_language("Привет") == "ru"
