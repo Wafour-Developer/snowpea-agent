@@ -42,6 +42,8 @@ snowpea skill remove my-plugin
 
 설치는 플러그인을 `$SNOWPEA_HOME/plugins/<name>`에 복사하고 레지스트리를 재적재합니다. 재적재는 `commands.changed` 알림을 내보내므로, TUI는 재시작 없이 팔레트를 새로 고칩니다.
 
+Plugins installed in Claude Code are visible automatically: Claude Code에 설치된 플러그인은 자동으로 인식됩니다. snowpea는 재적재할 때마다 `~/.claude/plugins/installed_plugins.json`을 스캔하여 스킬·명령·에이전트를 `claude-plugin` 출처로 등록하며, `~/.claude/settings.json`의 `enabledPlugins`에서 false로 지정된 항목은 건너뜁니다. 같은 이름의 플러그인이나 스킬이 snowpea에 이미 설치되어 있다면 snowpea 복사본이 우선하고 Claude 복사본은 건너뜁니다.
+
 TUI 안에서 에이전트에게 부탁해도 됩니다. "pdf 관련 스킬 찾아줘"라고 하면 `skill_search`를 호출해 후보와 각각의 install spec을 보여주고, "두 번째 거 설치해줘"라고 하면 그 spec으로 `skill_install`을 호출합니다. `skill_list`는 이미 설치된 것을, `skill_remove`는 플러그인 삭제를 담당합니다. 검색과 목록은 `read` 툴이라 묻지 않고 바로 실행되고, 설치와 삭제는 `exec`이라 accept 모드에서는 먼저 물어보고 plan 모드에서는 거부됩니다 — 승인하지 않은 설치는 일어나지 않습니다. 설치하면 그 자리에서 재적재되고, 에이전트가 새로 생긴 `/commands`·에이전트·MCP 서버를 알려줍니다.
 
 ## 검색

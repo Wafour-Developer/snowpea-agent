@@ -42,6 +42,8 @@ snowpea skill remove my-plugin
 
 Installing copies the plugin into `$SNOWPEA_HOME/plugins/<name>` and reloads the registry. A reload emits a `commands.changed` notification, so the TUI refreshes its palette without a restart.
 
+Plugins installed in Claude Code are visible automatically: snowpea reads `~/.claude/plugins/installed_plugins.json` on every reload and registers their skills, commands and agents under source `claude-plugin`, skipping any that `enabledPlugins` in `~/.claude/settings.json` marks false. If a plugin or skill with the same name is installed in snowpea, the snowpea copy takes precedence and the Claude copy is skipped.
+
 You can also ask the agent inside the TUI. "Find me a pdf skill" makes it call `skill_search`, and it answers with the candidates and the install spec of each one; "install the second one" makes it call `skill_install` with that spec. `skill_list` shows what is already installed and `skill_remove` deletes a plugin. Searching and listing are `read` tools and happen without a prompt; installing and removing are `exec`, so accept mode asks you first and plan mode refuses — the agent cannot install anything you did not approve. An install reloads in place, and the agent tells you which new `/commands`, agents and MCP servers it brought.
 
 ## Searching

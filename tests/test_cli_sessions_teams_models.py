@@ -251,7 +251,10 @@ async def test_claude_agent_directories_keep_their_own_source_label(tmp_path: Pa
     global_agent = home / ".claude" / "agents" / "helper.md"
     project_agent = tmp_path / "project" / ".claude" / "agents" / "helper.md"
     own_agent = tmp_path / "project" / ".snowpea" / "agents" / "helper.md"
-    for path in (global_agent, project_agent, own_agent):
+    plugin_agent = (
+        home / ".claude" / "plugins" / "cache" / "market" / "helper" / "agents" / "helper.md"
+    )
+    for path in (global_agent, project_agent, own_agent, plugin_agent):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("---\nname: helper\n---\nbody\n", encoding="utf-8")
 
@@ -259,6 +262,7 @@ async def test_claude_agent_directories_keep_their_own_source_label(tmp_path: Pa
     assert label(global_agent, "project", core) == "claude-global"
     assert label(project_agent, "project", core) == "claude-project"
     assert label(own_agent, "project", core) == "project"
+    assert label(plugin_agent, "project", core) == "claude-plugin"
 
 
 async def test_the_lookalike_builtins_say_how_they_differ() -> None:
