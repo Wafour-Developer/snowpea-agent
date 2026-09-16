@@ -48,7 +48,12 @@ def _pack(model: Any) -> Event:
     return kind, data
 
 
-def message_user(text: str, attachments: Sequence[Any] | None = None) -> Event:
+def message_user(
+    text: str,
+    attachments: Sequence[Any] | None = None,
+    *,
+    steered: bool = False,
+) -> Event:
     """The prompt that opened this turn, as it entered the history.
 
     Emitted once per prompt, where the user message is appended — so a
@@ -60,7 +65,7 @@ def message_user(text: str, attachments: Sequence[Any] | None = None) -> Event:
         {"kind": getattr(item, "kind", "file") or "file", "name": getattr(item, "name", "") or ""}
         for item in (attachments or [])
     ]
-    return _pack(MessageUser(text=text, attachments=files))  # type: ignore[arg-type]
+    return _pack(MessageUser(text=text, attachments=files, steered=steered))  # type: ignore[arg-type]
 
 
 def message_delta(text: str) -> Event:
@@ -230,7 +235,7 @@ def turn_queued(turn_id: str, position: int, queued: int) -> Event:
 
 
 def turn_dequeued(turn_id: str, reason: str = "started", queued: int = 0) -> Event:
-    """A queued prompt started running (``started``) or was flushed (``dropped``)."""
+    """A queued prompt started, was dropped, or was steered into the running turn."""
     return _pack(TurnDequeued(turnId=turn_id, reason=reason, queued=queued))  # type: ignore[arg-type]
 
 

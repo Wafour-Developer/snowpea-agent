@@ -20,6 +20,7 @@ snowpea commands list --json
 | `/compact [지시]` | 지금까지의 대화를 요약해 그 요약으로 이어서 진행 |
 | `/plan`, `/accept`, `/auto` | 모드 전환 |
 | `/mode [plan\|accept\|auto\|save\|show]` | 프로젝트 기본값을 보거나, 바꾸거나, 저장 |
+| `/busy [steer\|queue]` | 바쁜 턴의 후속 프롬프트 처리 방식을 보거나 설정. 기본 `steer`는 대기열 프롬프트를 실행 중 턴의 다음 모델 호출 전에 합치고, `queue`는 예전처럼 별도 턴으로 나중에 실행 |
 | `/memory [list\|search <q>\|forget <id>] [--project\|--global\|--all]` | 장기 기억을 보고, 찾고, 지웁니다. 범위 기본값은 `--all`이고, 에이전트가 실제로 회상하는 범위와 같습니다 |
 | `/approvals` | 답을 기다리는 무인 승인 요청을 나열 |
 | `/allow <regex> [--global]` | 반복되는 질문을 조용한 허용으로 승격 |

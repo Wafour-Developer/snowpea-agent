@@ -316,7 +316,13 @@ Then the agent rows, one at a time. `Esc` or `↑` walks back up to the input.
 
 ### Sending while it is working
 
-You do not have to wait for a turn to finish. A prompt sent while one is running is accepted and queued rather than refused, and the queue drains first in, first out — one turn at a time against one history, so two provider loops never run over the same conversation. Attachments are captured when you press `Enter`, so a chip queued now is still the file you meant by the time its turn starts. The queue is in memory only; it does not survive a daemon restart.
+You do not have to wait for a turn to finish. A prompt sent while one is running is accepted rather than refused.
+
+By default (`/busy steer`), the prompt is queued only briefly and then folded into the **running turn** before its next model call, so it can steer what is already in progress (Hermes-style busy steer). The queued-turn id is retired with `turn.dequeued` reason `steered`; it does not start a separate turn.
+
+`/busy queue` restores the legacy behavior: queued prompts drain first in, first out as separate turns, one at a time against one history, so two provider loops never run over the same conversation.
+
+Attachments are captured when you press `Enter`, so a chip sent while busy is still the file you meant when the model sees it. The queue is in memory only; it does not survive a daemon restart.
 
 `Esc` drops the queue along with the running turn. Interrupting means stop what I asked for, and that has to include the follow-ups still waiting, or Stop would be followed by the queue running anyway. Every dropped prompt is reported to clients as `turn.dequeued` with reason `dropped`, followed by its own `turn.done`, so nothing waiting on that turn id is left hanging.
 
@@ -329,7 +335,7 @@ While the queue drains the UI shows it: the working line gains a `⏳ N queued` 
  > ask anything, or /command
 ```
 
-A prompt leaves the list the moment its turn starts. `Esc` clears the whole queue and says so once — `2 queued prompts dropped` — rather than one notice per prompt.
+A prompt leaves the list the moment it is steered into the running turn or starts its own queued turn. `Esc` clears the whole queue and says so once — `2 queued prompts dropped` — rather than one notice per prompt.
 
 ### Handing one prompt to an agent
 

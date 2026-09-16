@@ -576,6 +576,41 @@ async def flush_queued_turns(core: Core, session: Session) -> list[str]:
     return [queued.turn_id for queued in dropped]
 
 
+def _busy_policy(core: Core) -> str:
+    """How an active turn handles follow-up prompts: ``steer`` or ``queue``."""
+    value = str(getattr(core.settings.agent, "busy", "steer") or "steer").strip().lower()
+    return value if value in {"steer", "queue"} else "steer"
+
+
+async def _steer_queued_turns(core: Core, session: Session) -> int:
+    """Fold queued prompts into the running turn as fresh user messages."""
+    if _busy_policy(core) != "steer" or not session.queued_turns:
+        return 0
+    steered = list(session.queued_turns)
+    session.queued_turns.clear()
+    for index, queued in enumerate(steered):
+        remaining = len(steered) - index - 1
+        session.history.append(
+            ChatMessage(
+                role="user",
+                content=(
+                    content_parts.history_blocks(queued.text, queued.attachments)
+                    if queued.attachments
+                    else queued.text
+                ),
+            )
+        )
+        session.history.compact()
+        await core.hub.emit_event(
+            session.id,
+            events.message_user(queued.text, queued.attachments, steered=True),
+        )
+        await core.hub.emit_event(
+            session.id, events.turn_dequeued(queued.turn_id, "steered", remaining)
+        )
+    return len(steered)
+
+
 async def _drain_turns(core: Core, session: Session, first: QueuedTurn) -> None:
     """Run ``first`` and every follow-up received during it, in FIFO order."""
     queued = first
@@ -909,6 +944,8 @@ async def _drive(
             await finish_turn(core, session, turn_id, "interrupted")
             return "interrupted"
 
+        # Busy follow-ups become new user messages for the next model call.
+        await _steer_queued_turns(core, session)
         specs = core.tools.specs(session)
         messages = build_messages(session, specs, memory_block, core=core)
         attempt = await _model_turn(core, session, provider, messages, specs, config)
@@ -964,6 +1001,9 @@ async def _drive(
             if outcome is not None:
                 return outcome
         session.history.compact()
+        # A prompt typed during a long tool call is folded in before the next
+        # model round starts.
+        await _steer_queued_turns(core, session)
 
 
 async def _budget_probe(

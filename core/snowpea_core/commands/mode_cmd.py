@@ -25,6 +25,7 @@ from snowpea_core.server.protocol import Mode
 from snowpea_core.session import events
 
 MODES: tuple[str, ...] = get_args(Mode)
+BUSY_MODES: tuple[str, str] = ("steer", "queue")
 
 MODE_ARGS_SCHEMA = {
     "type": "object",
@@ -35,6 +36,21 @@ MODE_ARGS_SCHEMA = {
             "description": (
                 "Mode to switch to, 'save' to make the current mode this project's "
                 "default, or 'show' to print it."
+            ),
+        }
+    },
+}
+
+BUSY_ARGS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "busy": {
+            "type": "string",
+            "enum": [*BUSY_MODES],
+            "description": (
+                "What to do with prompts submitted while a turn is busy: "
+                "'steer' folds them into the running turn, 'queue' runs them "
+                "as later turns."
             ),
         }
     },
@@ -78,6 +94,11 @@ async def _set_mode(ctx: CommandContext, mode: str) -> None:
     await ctx.emit(events.mode_changed(mode))
 
 
+def _busy(ctx: CommandContext) -> str:
+    value = str(getattr(ctx.core.settings.agent, "busy", "steer") or "steer").strip().lower()
+    return value if value in BUSY_MODES else "steer"
+
+
 # ---------------------------------------------------------------------------
 # modes
 # ---------------------------------------------------------------------------
@@ -100,6 +121,23 @@ async def cmd_mode(ctx: CommandContext, args: str) -> None:
         return
     await _set_mode(ctx, target)
     await ctx.say(f"Mode: {target}")
+
+
+async def cmd_busy(ctx: CommandContext, args: str) -> None:
+    """Show or set how a busy turn handles follow-up prompts."""
+    target = args.strip().lower()
+    if not target:
+        await ctx.say(f"Busy: {_busy(ctx)} (use /busy steer|queue)")
+        return
+    if target not in BUSY_MODES:
+        await ctx.say(f"Unknown busy policy '{target}'. Use one of: {', '.join(BUSY_MODES)}.")
+        return
+    if _busy(ctx) != target:
+        ctx.core.settings.agent.busy = target  # type: ignore[assignment]
+        ctx.core.settings.save(ctx.core.paths)
+        if hasattr(ctx.core, "mark_settings_saved"):
+            ctx.core.mark_settings_saved()
+    await ctx.say(f"Busy: {target}")
 
 
 def _mode_command(mode: str) -> Command:
@@ -215,6 +253,12 @@ COMMANDS: tuple[Command, ...] = (
         args_schema=MODE_ARGS_SCHEMA,
     ),
     Command(
+        name="busy",
+        summary="Show or set busy-turn handling: /busy [steer|queue].",
+        run=cmd_busy,
+        args_schema=BUSY_ARGS_SCHEMA,
+    ),
+    Command(
         name="approvals",
         summary="List the unattended approvals waiting for an answer.",
         run=cmd_approvals,
@@ -236,11 +280,14 @@ COMMANDS: tuple[Command, ...] = (
 
 
 __all__ = [
+    "BUSY_ARGS_SCHEMA",
+    "BUSY_MODES",
     "ALLOWLIST_ARGS_SCHEMA",
     "ALLOW_ARGS_SCHEMA",
     "COMMANDS",
     "MODES",
     "MODE_ARGS_SCHEMA",
+    "cmd_busy",
     "cmd_allow",
     "cmd_allowlist",
     "cmd_approvals",

@@ -87,6 +87,20 @@ describe("the queue", () => {
     expect(state.queued).toEqual([]);
   });
 
+  it("clears the queued pill on steered and keeps one user line", () => {
+    let state = reducer(initialState, { type: "user/message", text: "run this now" });
+    state = reducer(state, { type: "prompt/turn", turnId: "t-1", text: "run this now" });
+    state = apply(
+      state,
+      event(1, "turn.queued", { turnId: "t-1", position: 1, queued: 1 }),
+      event(2, "turn.dequeued", { turnId: "t-1", reason: "steered", queued: 0 }),
+      event(3, "message.user", { text: "run this now", steered: true }),
+    );
+    expect(state.queued).toEqual([]);
+    expect(state.pendingEchoes).toEqual([]);
+    expect(state.messages.filter((entry) => entry.role === "user" && entry.text === "run this now")).toHaveLength(1);
+  });
+
   it("ignores a queue event with no turn id", () => {
     const state = apply(initialState, event(1, "turn.queued", { position: 1 }));
     expect(state.queued).toEqual([]);

@@ -2098,6 +2098,7 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 |---|---|---|---|
 | `attachments` | `({ kind?: "file" \| "image" \| "text"; name?: string; })[]` | no | Files sent along with the prompt. |
 | `kind` | `"message.user"` | no |  |
+| `steered` | `boolean` | no | True when this prompt was queued behind a running turn and then folded into that same turn before its next model call. |
 | `text` | `string` | yes | Prompt text as the model received it. |
 
 ### kind `mode.changed`
@@ -2213,7 +2214,7 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 |---|---|---|---|
 | `kind` | `"turn.dequeued"` | no |  |
 | `queued` | `number` | no | Prompts still waiting after this one left. |
-| `reason` | `"started" \| "dropped"` | no | started = it is now running, dropped = it was discarded. |
+| `reason` | `"started" \| "dropped" \| "steered"` | no | started = it is now running, dropped = it was discarded, steered = it was merged into the running turn. |
 | `turnId` | `string` | yes | Turn id that left the queue. |
 
 ### kind `turn.done`

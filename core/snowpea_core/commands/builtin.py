@@ -13,6 +13,7 @@ from snowpea_core.commands.mode_cmd import (
     cmd_allow,
     cmd_allowlist,
     cmd_approvals,
+    cmd_busy,
     cmd_mode,
 )
 from snowpea_core.commands.registry import Command, CommandContext
@@ -150,6 +151,7 @@ __all__ = [
     "cmd_allow",
     "cmd_allowlist",
     "cmd_approvals",
+    "cmd_busy",
     "cmd_compact",
     "cmd_help",
     "cmd_mode",

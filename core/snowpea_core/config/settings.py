@@ -11,7 +11,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import (
     BaseModel,
@@ -210,6 +210,10 @@ class AgentSettings(_Model):
     #: Tool calls one turn may make before the loop checks in with the person
     #: (a picker: continue or stop). An unattended turn stops at the budget.
     max_tool_rounds: int = 200
+    #: What to do with prompts submitted while a turn is busy:
+    #: ``"steer"`` folds them into the running turn before the next model call,
+    #: ``"queue"`` keeps the legacy "run as a later turn" behaviour.
+    busy: Literal["steer", "queue"] = "steer"
     #: Language the model answers in.  ``"auto"`` follows whatever the user
     #: wrote; a tag like ``"ko"`` emits a directed override (CORE-prompts).
     replyLanguage: str = "auto"
