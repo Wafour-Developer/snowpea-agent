@@ -275,7 +275,12 @@ async def session_resume_handler(
         else []
     )
     return SessionResumeResult(
-        sessionId=session.id, events=[SessionEvent.model_validate(e) for e in stored]
+        sessionId=session.id,
+        mode=session.mode,
+        provider=session.provider,
+        model=session.model,
+        effort=getattr(session, "effort", None),
+        events=[SessionEvent.model_validate(e) for e in stored],
     )
 
 

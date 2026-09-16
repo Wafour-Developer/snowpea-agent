@@ -34,6 +34,7 @@ function fakeClient() {
       if (method === "session.resume") {
         return {
           sessionId: params.sessionId,
+          mode: "auto",
           events: [
             {
               sessionId: params.sessionId,
@@ -149,6 +150,8 @@ describe("session resume", () => {
       }
       await sleep(200);
       expect(stdout.text()).toContain("CHILD-ONLY-ANSWER");
+      // The HUD adopts the mode the daemon restored with the session.
+      expect(stdout.text()).toContain("Mode: AUTO");
       stdin.write(typed);
       await sleep(60);
       stdin.write("\r");
