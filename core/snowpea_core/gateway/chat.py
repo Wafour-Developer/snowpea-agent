@@ -94,6 +94,21 @@ SESSION_ROWS = 10
 PROJECT_ROWS = 15
 #: Longest slice of a remembered prompt shown in a row.
 PROMPT_CHARS = 40
+#: What a button can carry: Telegram caps labels well under this anyway.
+BUTTON_PROMPT_CHARS = 28
+#: ``s-`` plus six hex digits is enough to tell sessions apart in a chat,
+#: and ``/resume`` accepts the prefix.
+SHORT_ID_CHARS = 8
+
+
+def short_id(session_id: str) -> str:
+    return session_id[:SHORT_ID_CHARS]
+
+
+def _button_label(row: Any) -> str:
+    name = Path(row.workdir).name or row.workdir
+    prompt = clip((row.lastPrompt or "").strip(), BUTTON_PROMPT_CHARS)
+    return f'{name} · "{prompt}"' if prompt else f"{name} · {short_id(row.sessionId)}"
 #: Telegram refuses a message over 4096 characters; stay well inside it.
 MESSAGE_CHARS = 3500
 
@@ -289,9 +304,11 @@ class ChatCommands:
             f"{'★ ' if row.sessionId == current else ''}{index}. {self._session_row(row)}"
             for index, row in enumerate(rows, start=1)
         ]
+        # A button names the conversation the way a person remembers it:
+        # the project and what was last asked, not an id.
         buttons = [
             Button(
-                text=f"{index}. {row.sessionId} {Path(row.workdir).name}",
+                text=f"{index}. {_button_label(row)}",
                 data=session_callback(row.sessionId),
             )
             for index, row in enumerate(rows, start=1)
@@ -459,8 +476,15 @@ class ChatCommands:
         from snowpea_core.server.session_handlers import collect_sessions
 
         rows = await collect_sessions(core, SessionListParams(includeClosed=True))
-        usable = [row for row in rows if (row.kind or "chat") in CHAT_KINDS]
         current = self._current_session_id(binding, channel_id)
+        # Subagent runs are not conversations, and a session nobody ever
+        # prompted (a probe, an abandoned tab) is noise in a phone-sized list.
+        usable = [
+            row
+            for row in rows
+            if (row.kind or "chat") in CHAT_KINDS
+            and ((row.lastPrompt or "").strip() or row.sessionId == current)
+        ]
         if current and not any(row.sessionId == current for row in usable):
             usable = [row for row in rows if row.sessionId == current] + usable
         return usable[:SESSION_ROWS]
@@ -468,7 +492,7 @@ class ChatCommands:
     def _session_row(self, row: Any) -> str:
         prompt = clip(row.lastPrompt or "", PROMPT_CHARS)
         name = Path(row.workdir).name or row.workdir
-        line = f"{row.sessionId} · {name} · {row.mode}"
+        line = f"{short_id(row.sessionId)} · {name} · {row.mode}"
         return f'{line} · "{prompt}"' if prompt else line
 
     def _projects(self) -> list[Project]:
@@ -554,6 +578,7 @@ __all__ = [
     "CHATS_FILE",
     "CHAT_COMMANDS",
     "CHAT_KINDS",
+    "short_id",
     "HELP_REGISTRY",
     "MENU_COMMANDS",
     "MESSAGE_CHARS",
