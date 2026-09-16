@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import shutil
 import sys
 from dataclasses import dataclass, field
@@ -173,6 +174,24 @@ class SkillLoader:
 
     # -- paths ---------------------------------------------------------
     @property
+    def claude_root(self) -> Path:
+        """Where Claude Code keeps its own tree (skills, agents, plugins).
+
+        ``$CLAUDE_CONFIG_DIR`` when set, else the user's ``~/.claude``.  A
+        ``.claude`` directly under the snowpea home is honoured first so a
+        self-contained home (tests, a sandboxed daemon) can carry one; the
+        production daemon's home is ``~/.snowpea``, which has none, and that is
+        exactly why Claude Code's installed plugins used to be invisible.
+        """
+        local = self.home / ".claude"
+        if local.is_dir():
+            return local
+        override = os.environ.get("CLAUDE_CONFIG_DIR")
+        if override:
+            return Path(override).expanduser()
+        return Path.home() / ".claude"
+
+    @property
     def home(self) -> Path:
         return Path(self.core.paths.home)
 
@@ -229,7 +248,7 @@ class SkillLoader:
 
         self._scan_builtins()
         self._scan_bundle(self.home, SOURCE_GLOBAL)
-        self._scan_bundle(self.home / ".claude", SOURCE_CLAUDE_GLOBAL)
+        self._scan_bundle(self.claude_root, SOURCE_CLAUDE_GLOBAL)
         self._scan_plugins()
         self._scan_claude_plugins()
         for workdir in self.workdirs():
@@ -282,7 +301,7 @@ class SkillLoader:
         with a debug log (no duplicate commands). Hooks from Claude plugins are
         NOT registered (only skills, commands, agents).
         """
-        installed_file = self.home / ".claude" / "plugins" / "installed_plugins.json"
+        installed_file = self.claude_root / "plugins" / "installed_plugins.json"
         if not installed_file.is_file():
             return
         import json
@@ -298,7 +317,7 @@ class SkillLoader:
             return
 
         enabled_plugins: dict[str, Any] = {}
-        settings_file = self.home / ".claude" / "settings.json"
+        settings_file = self.claude_root / "settings.json"
         if settings_file.is_file():
             try:
                 settings_data = json.loads(settings_file.read_text(encoding="utf-8"))
