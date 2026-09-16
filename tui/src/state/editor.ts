@@ -249,6 +249,13 @@ export function layout(text: string, width: number, cursor = text.length): Edito
     used += part.width;
   }
   lines.push({ start, end: text.length, cells: used });
+  // A line that fills the width exactly has no cell left for the caret: with
+  // the cursor at its end the caret belongs on a fresh line below, the way
+  // every editor shows it — otherwise the terminal wraps the caret cell on
+  // its own and the row the layout reports is not the row on screen.
+  if (used >= limit && safeCursor === text.length && !text.endsWith("\n")) {
+    lines.push({ start: text.length, end: text.length, cells: 0 });
+  }
 
   const cursorRow = locateCursorRow(lines, safeCursor);
   const line = lines[cursorRow] ?? { start: 0, end: 0, cells: 0 };
