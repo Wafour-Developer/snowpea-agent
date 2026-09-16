@@ -29,7 +29,7 @@ import type {
   Mode,
   SessionEvent,
 } from "./rpc/sdk.js";
-import { SlashRegistry, ttsSubCommands } from "./slash/registry.js";
+import { SlashRegistry, ttsSubCommands, voiceSubCommands } from "./slash/registry.js";
 import {
   bannerText,
   cancel as cancelUpdate,
@@ -1076,7 +1076,13 @@ export function App({
     const mcp = state.commands.some((command) => command.name === "mcp")
       ? mcpSubCommands(draft, state.mcp, mcpCatalog ?? [])
       : [];
-    return [...skills, ...mcp, ...ttsSubCommands(draft), ...registryRef.current.complete(draft)];
+    return [
+      ...skills,
+      ...mcp,
+      ...ttsSubCommands(draft),
+      ...voiceSubCommands(draft),
+      ...registryRef.current.complete(draft),
+    ];
   }, [draft, state.commands, state.mcp, mcpCatalog]);
 
   // --- full-screen geometry -------------------------------------------------
@@ -1985,8 +1991,16 @@ export function App({
         showToast("this daemon has no audio support");
         return;
       }
-      if (/^\/voice\s*$/.test(text.trim())) {
+      const voiceCmd = /^\/voice(?:\s+(on|off))?\s*$/.exec(text.trim());
+      if (voiceCmd) {
+        // `/voice` toggles; `/voice on|off` is the same switch said outright,
+        // the way `/tts on|off` is, so the two commands read alike.
+        const wanted = voiceCmd[1] === "on" ? true : voiceCmd[1] === "off" ? false : null;
         setVoice((current) => {
+          if (wanted !== null && current.input === wanted) {
+            showToast(wanted ? "voice input is already on" : "voice input is already off");
+            return current;
+          }
           const outcome = toggleVoiceInput(current, capabilities, {
             localRecorder: Boolean(localAudio) && Boolean(recordingPath),
           });

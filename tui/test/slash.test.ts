@@ -103,5 +103,8 @@ describe("/tts completion", () => {
     expect(ttsSubCommands("/tts").map((c) => c.name)).toEqual(["tts on", "tts off", "tts voices", "tts voice"]);
     expect(ttsSubCommands("/tts vo").map((c) => c.name)).toEqual(["tts voices", "tts voice"]);
     expect(ttsSubCommands("/mode")).toEqual([]);
+    expect(ttsSubCommands("/tts ")).toEqual([]);
+    const { voiceSubCommands } = await import("../src/slash/registry.js");
+    expect(voiceSubCommands("/voice o").map((c) => c.name)).toEqual(["voice on", "voice off"]);
   });
 });

@@ -25,7 +25,7 @@ const SURFACE_COMMANDS: CommandInfo[] = [
   },
   {
     name: "voice",
-    summary: "Toggle voice input; then Ctrl+Space (or /rec) records.",
+    summary: "Voice input: /voice toggles, /voice on|off; then Ctrl+Space (or /rec) records.",
     source: "tui",
   },
   { name: "rec", summary: "Start or stop a recording.", source: "tui" },
@@ -50,14 +50,33 @@ export const TTS_ACTIONS: ReadonlyArray<{ action: string; summary: string }> = [
 ];
 
 export function ttsSubCommands(draft: string): CommandInfo[] {
-  const match = /^\/tts(?:\s+([^\s]*))?$/.exec(draft);
+  return subCommands(draft, "tts", TTS_ACTIONS);
+}
+
+/** `/voice on|off` completes too; a bare `/voice` toggles. */
+export const VOICE_ACTIONS: ReadonlyArray<{ action: string; summary: string }> = [
+  { action: "on", summary: "Arm voice input; Ctrl+Space records." },
+  { action: "off", summary: "Disarm voice input." },
+];
+
+export function voiceSubCommands(draft: string): CommandInfo[] {
+  return subCommands(draft, "voice", VOICE_ACTIONS);
+}
+
+function subCommands(
+  draft: string,
+  command: string,
+  actions: ReadonlyArray<{ action: string; summary: string }>,
+): CommandInfo[] {
+  const match = new RegExp(`^\\/${command}(?:\\s+([^\\s]*))?$`).exec(draft);
   if (!match) return [];
   const typed = match[1] ?? "";
-  return TTS_ACTIONS.filter((entry) => entry.action.startsWith(typed)).map((entry) => ({
-    name: `tts ${entry.action}`,
-    summary: entry.summary,
-    source: "tui",
-  }));
+  // `/tts ` with nothing after it is the bare command, ready to run on Enter;
+  // the sub-actions appear once a letter of one is typed.
+  if (typed === "" && /\s$/.test(draft)) return [];
+  return actions
+    .filter((entry) => entry.action.startsWith(typed))
+    .map((entry) => ({ name: `${command} ${entry.action}`, summary: entry.summary, source: "tui" }));
 }
 
 function withSurfaceCommands(commands: CommandInfo[]): CommandInfo[] {
