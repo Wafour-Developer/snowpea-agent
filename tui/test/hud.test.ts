@@ -228,3 +228,20 @@ describe("layoutHud", () => {
     expect(rows[0][0].text).toHaveLength(10);
   });
 });
+
+describe("voice on the HUD", () => {
+  it("says mic and speaker state with the engine name, red while recording", async () => {
+    const { buildHudSegments: hudSegments, shortEngine } = await import("../src/layout/hud.js");
+    const base = { model: "m", mode: "accept" as const, usage: { inputTokens: 0, outputTokens: 0 } };
+    const texts = (input: any) => hudSegments(input).map((s: any) => s.text);
+    expect(shortEngine("sherpa-onnx-sensevoice")).toBe("sensevoice");
+    expect(texts({ ...base, sttEngine: "sherpa-onnx-sensevoice", ttsEngine: "supertonic" })).toEqual(
+      expect.arrayContaining(["🎤 off", "🔊 off"]),
+    );
+    expect(texts({ ...base, voiceInput: true, speaking: true, sttEngine: "sherpa-onnx-sensevoice", ttsEngine: "supertonic" })).toEqual(
+      expect.arrayContaining(["🎤 sensevoice", "🔊 supertonic"]),
+    );
+    expect(texts({ ...base, voiceInput: true, recording: true, sttEngine: "x" })).toContain("● rec");
+    expect(texts({ ...base })).not.toEqual(expect.arrayContaining(["🎤 off"]));
+  });
+});
