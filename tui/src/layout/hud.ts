@@ -109,6 +109,12 @@ export interface HudInput {
   toolCount?: number | null;
   /** True while assistant replies are being spoken. */
   speaking?: boolean;
+  /** Voice input armed (Ctrl+Space records), and whether a recording is running. */
+  voiceInput?: boolean;
+  recording?: boolean;
+  /** Engines pinned for voice in / out, when the daemon reported them. */
+  sttEngine?: string | null;
+  ttsEngine?: string | null;
   /** Language servers, for the `lsp N` segment. */
   lsp?: readonly LspServer[];
   /** MCP servers, for the `mcp 2/3` segment; hidden when none are configured. */
@@ -236,8 +242,20 @@ export function buildHudSegments(input: HudInput): HudSegment[] {
     });
   }
 
+  // Voice, said small and always: the mic and the speaker each read on or
+  // off (with the engine's name when one is pinned), red while recording.
+  const engine = (name?: string | null): string => (name ? ` ${shortEngine(name)}` : "");
+  if (input.recording) {
+    segments.push({ key: "mic", text: "● rec", color: "red", priority: 2 });
+  } else if (input.voiceInput) {
+    segments.push({ key: "mic", text: `🎤${engine(input.sttEngine)}`, color: "cyan", priority: 3 });
+  } else if (input.sttEngine) {
+    segments.push({ key: "mic", text: `🎤 off`, dimColor: true, priority: 9 });
+  }
   if (input.speaking) {
-    segments.push({ key: "tts", text: "🔊", color: "cyan", priority: 2 });
+    segments.push({ key: "tts", text: `🔊${engine(input.ttsEngine)}`, color: "cyan", priority: 3 });
+  } else if (input.ttsEngine) {
+    segments.push({ key: "tts", text: `🔊 off`, dimColor: true, priority: 9 });
   }
 
   if (input.toolCount && input.toolCount > 0) {
@@ -363,4 +381,10 @@ export function layoutHud(segments: HudSegment[], width: number, rows = MAX_HUD_
 
   if (candidates.length === 0) return [[]];
   return [[truncate(candidates[0], safeWidth)]];
+}
+
+/** `sherpa-onnx-sensevoice` → `sensevoice`, `supertonic` stays: the tail is the name. */
+export function shortEngine(name: string): string {
+  const tail = name.split("-").filter(Boolean).pop() ?? name;
+  return tail.length > 12 ? `${tail.slice(0, 11)}…` : tail;
 }

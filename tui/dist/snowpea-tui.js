@@ -34457,8 +34457,18 @@ function buildHudSegments(input) {
       priority: 6
     });
   }
+  const engine = (name) => name ? ` ${shortEngine(name)}` : "";
+  if (input.recording) {
+    segments.push({ key: "mic", text: "\u25CF rec", color: "red", priority: 2 });
+  } else if (input.voiceInput) {
+    segments.push({ key: "mic", text: `\u{1F3A4}${engine(input.sttEngine)}`, color: "cyan", priority: 3 });
+  } else if (input.sttEngine) {
+    segments.push({ key: "mic", text: `\u{1F3A4} off`, dimColor: true, priority: 9 });
+  }
   if (input.speaking) {
-    segments.push({ key: "tts", text: "\u{1F50A}", color: "cyan", priority: 2 });
+    segments.push({ key: "tts", text: `\u{1F50A}${engine(input.ttsEngine)}`, color: "cyan", priority: 3 });
+  } else if (input.ttsEngine) {
+    segments.push({ key: "tts", text: `\u{1F50A} off`, dimColor: true, priority: 9 });
   }
   if (input.toolCount && input.toolCount > 0) {
     segments.push({
@@ -34550,6 +34560,10 @@ function layoutHud(segments, width, rows = MAX_HUD_ROWS) {
   }
   if (candidates.length === 0) return [[]];
   return [[truncate(candidates[0], safeWidth)]];
+}
+function shortEngine(name) {
+  const tail = name.split("-").filter(Boolean).pop() ?? name;
+  return tail.length > 12 ? `${tail.slice(0, 11)}\u2026` : tail;
 }
 
 // src/state/verbs.ts
@@ -40200,6 +40214,10 @@ function App2({
       lsp: state.lsp,
       mcp: state.mcp,
       speaking: voice.tts,
+      voiceInput: voice.input,
+      recording: voice.recording,
+      sttEngine: capabilities?.sttProvider ?? null,
+      ttsEngine: capabilities?.ttsProvider ?? null,
       sessionMs: sessionElapsedMs,
       daemonPid: daemon.pid,
       daemonSummary: daemon.summary,
