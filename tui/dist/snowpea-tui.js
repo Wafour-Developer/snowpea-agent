@@ -33849,7 +33849,7 @@ var SURFACE_COMMANDS = [
   },
   {
     name: "voice",
-    summary: "Toggle voice input; then Ctrl+Space (or /rec) records.",
+    summary: "Voice input: /voice toggles, /voice on|off; then Ctrl+Space (or /rec) records.",
     source: "tui"
   },
   { name: "rec", summary: "Start or stop a recording.", source: "tui" },
@@ -33871,14 +33871,21 @@ var TTS_ACTIONS = [
   { action: "voice", summary: "/tts voice <id> [lang] \u2014 pick a voice." }
 ];
 function ttsSubCommands(draft) {
-  const match = /^\/tts(?:\s+([^\s]*))?$/.exec(draft);
+  return subCommands(draft, "tts", TTS_ACTIONS);
+}
+var VOICE_ACTIONS = [
+  { action: "on", summary: "Arm voice input; Ctrl+Space records." },
+  { action: "off", summary: "Disarm voice input." }
+];
+function voiceSubCommands(draft) {
+  return subCommands(draft, "voice", VOICE_ACTIONS);
+}
+function subCommands(draft, command, actions) {
+  const match = new RegExp(`^\\/${command}(?:\\s+([^\\s]*))?$`).exec(draft);
   if (!match) return [];
   const typed = match[1] ?? "";
-  return TTS_ACTIONS.filter((entry) => entry.action.startsWith(typed)).map((entry) => ({
-    name: `tts ${entry.action}`,
-    summary: entry.summary,
-    source: "tui"
-  }));
+  if (typed === "" && /\s$/.test(draft)) return [];
+  return actions.filter((entry) => entry.action.startsWith(typed)).map((entry) => ({ name: `${command} ${entry.action}`, summary: entry.summary, source: "tui" }));
 }
 function withSurfaceCommands(commands) {
   const names = new Set(commands.map((command) => command.name));
@@ -40221,7 +40228,13 @@ function App2({
     if (!draft.startsWith("/")) return [];
     const skills = state.commands.some((command) => command.name === "skill") ? skillSubCommands(draft) : [];
     const mcp = state.commands.some((command) => command.name === "mcp") ? mcpSubCommands(draft, state.mcp, mcpCatalog ?? []) : [];
-    return [...skills, ...mcp, ...ttsSubCommands(draft), ...registryRef.current.complete(draft)];
+    return [
+      ...skills,
+      ...mcp,
+      ...ttsSubCommands(draft),
+      ...voiceSubCommands(draft),
+      ...registryRef.current.complete(draft)
+    ];
   }, [draft, state.commands, state.mcp, mcpCatalog]);
   const terminal = useTerminalSize();
   const contentWidth = Math.max(1, terminal.columns - 2);
@@ -40871,8 +40884,14 @@ function App2({
         showToast("this daemon has no audio support");
         return;
       }
-      if (/^\/voice\s*$/.test(text2.trim())) {
+      const voiceCmd = /^\/voice(?:\s+(on|off))?\s*$/.exec(text2.trim());
+      if (voiceCmd) {
+        const wanted = voiceCmd[1] === "on" ? true : voiceCmd[1] === "off" ? false : null;
         setVoice((current2) => {
+          if (wanted !== null && current2.input === wanted) {
+            showToast(wanted ? "voice input is already on" : "voice input is already off");
+            return current2;
+          }
           const outcome = toggleVoiceInput(current2, capabilities, {
             localRecorder: Boolean(localAudio) && Boolean(recordingPath)
           });
