@@ -233,7 +233,7 @@ describe("attachments", () => {
 describe("voice", () => {
   it("explains itself when the daemon cannot listen", async () => {
     const { stdin, stdout, instance } = await open({}, NO_BACKENDS_ANSWER);
-    await type(stdin, "/voice", 20);
+    await type(stdin, "/voice ", 20);
     stdin.write("\r");
     await sleep(150);
     const output = stdout.text();
@@ -243,7 +243,7 @@ describe("voice", () => {
 
   it("arms voice input and records with Ctrl+Space", async () => {
     const { stdin, stdout, instance } = await open({}, ABLE_ANSWER);
-    await type(stdin, "/voice", 20);
+    await type(stdin, "/voice ", 20);
     stdin.write("\r");
     await sleep(150);
     expect(stdout.text()).toContain("voice input on");
@@ -258,7 +258,7 @@ describe("voice", () => {
 
   it("turns speech on, and says so in the status line", async () => {
     const { stdin, stdout, instance } = await open({}, ABLE_ANSWER);
-    await type(stdin, "/tts on", 20);
+    await type(stdin, "/tts on ", 20);
     stdin.write("\r");
     await sleep(200);
     const output = stdout.text();
@@ -269,7 +269,7 @@ describe("voice", () => {
 
   it("refuses speech when the daemon has no voice", async () => {
     const { stdin, stdout, instance } = await open({}, NO_BACKENDS_ANSWER);
-    await type(stdin, "/tts on", 20);
+    await type(stdin, "/tts on ", 20);
     stdin.write("\r");
     await sleep(200);
     const output = stdout.text();
@@ -302,7 +302,7 @@ describe("voice", () => {
 
   it("records through the daemon and puts the transcript in the draft", async () => {
     const { client, stdin, stdout, instance } = await open({}, ABLE_ANSWER);
-    await type(stdin, "/voice", 20);
+    await type(stdin, "/voice ", 20);
     stdin.write("\r");
     await sleep(150);
 
@@ -324,7 +324,7 @@ describe("voice", () => {
 
   it("speaks a finished reply once /tts is on", async () => {
     const { client, stdin, stdout, instance } = await open({}, ABLE_ANSWER);
-    await type(stdin, "/tts on", 20);
+    await type(stdin, "/tts on ", 20);
     stdin.write("\r");
     await sleep(200);
 
@@ -346,7 +346,7 @@ describe("voice", () => {
 
   it("keeps quiet when the daemon reports no audio at all", async () => {
     const { client, stdin, instance } = await open({}, NO_BACKENDS_ANSWER);
-    await type(stdin, "/tts on", 20);
+    await type(stdin, "/tts on ", 20);
     stdin.write("\r");
     await sleep(200);
     client.emit({
@@ -362,7 +362,7 @@ describe("voice", () => {
 
   it("says so when the daemon advertises no audio at all", async () => {
     const { client, stdin, stdout, instance } = await open();
-    await type(stdin, "/voice", 20);
+    await type(stdin, "/voice ", 20);
     stdin.write("\r");
     await sleep(200);
     const output = stdout.text();

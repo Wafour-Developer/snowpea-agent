@@ -40,9 +40,9 @@ describe("SlashRegistry", () => {
 
     expect(client.call).toHaveBeenCalledWith("command.list", { sessionId: "sess-1" });
     expect(commands.map((c) => c.name)).toEqual([
-      "help", "plan", "mode", "ralph", "resume", "session", "sessions",
+      "help", "plan", "mode", "ralph", "resume", "session", "sessions", "voice", "rec", "tts", "mouse",
     ]);
-    expect(registry.list()).toHaveLength(7);
+    expect(registry.list()).toHaveLength(11);
   });
 
   it("has no built-in table before load", () => {
@@ -53,7 +53,7 @@ describe("SlashRegistry", () => {
 
   it("completes from the fetched table", async () => {
     const registry = await load(mockClient(), "sess-1");
-    expect(registry.complete("/m").map((c) => c.name)).toEqual(["mode"]);
+    expect(registry.complete("/m").map((c) => c.name)).toEqual(["mode", "mouse"]);
     expect(registry.complete("p").map((c) => c.name)).toEqual(["plan"]);
     expect(registry.complete("/res").map((c) => c.name)).toEqual(["resume"]);
     expect(registry.complete("/ses").map((c) => c.name)).toEqual(["session", "sessions"]);
@@ -93,5 +93,15 @@ describe("SlashRegistry", () => {
     expect(client.call).toHaveBeenCalledTimes(2);
     expect(commands.map((c) => c.name)).toContain("newskill");
     expect(commands.filter((c) => c.name === "resume")).toHaveLength(1);
+  });
+});
+
+
+describe("/tts completion", () => {
+  it("offers on, off, voices and voice after the command", async () => {
+    const { ttsSubCommands } = await import("../src/slash/registry.js");
+    expect(ttsSubCommands("/tts").map((c) => c.name)).toEqual(["tts on", "tts off", "tts voices", "tts voice"]);
+    expect(ttsSubCommands("/tts vo").map((c) => c.name)).toEqual(["tts voices", "tts voice"]);
+    expect(ttsSubCommands("/mode")).toEqual([]);
   });
 });

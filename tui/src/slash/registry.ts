@@ -23,7 +23,42 @@ const SURFACE_COMMANDS: CommandInfo[] = [
     summary: "List saved sessions and choose one to resume.",
     source: "tui",
   },
+  {
+    name: "voice",
+    summary: "Toggle voice input; then Ctrl+Space (or /rec) records.",
+    source: "tui",
+  },
+  { name: "rec", summary: "Start or stop a recording.", source: "tui" },
+  {
+    name: "tts",
+    summary: "Spoken replies: /tts on|off, /tts voices, /tts voice <id> [lang].",
+    source: "tui",
+  },
+  {
+    name: "mouse",
+    summary: "Mouse on|off: click ◯ rows to open an agent (Shift+drag selects while on).",
+    source: "tui",
+  },
 ];
+
+/** The words `/tts` takes, offered as completions after the command. */
+export const TTS_ACTIONS: ReadonlyArray<{ action: string; summary: string }> = [
+  { action: "on", summary: "Read every finished reply aloud." },
+  { action: "off", summary: "Stop reading replies." },
+  { action: "voices", summary: "List the pinned engine's voices." },
+  { action: "voice", summary: "/tts voice <id> [lang] — pick a voice." },
+];
+
+export function ttsSubCommands(draft: string): CommandInfo[] {
+  const match = /^\/tts(?:\s+([^\s]*))?$/.exec(draft);
+  if (!match) return [];
+  const typed = match[1] ?? "";
+  return TTS_ACTIONS.filter((entry) => entry.action.startsWith(typed)).map((entry) => ({
+    name: `tts ${entry.action}`,
+    summary: entry.summary,
+    source: "tui",
+  }));
+}
 
 function withSurfaceCommands(commands: CommandInfo[]): CommandInfo[] {
   const names = new Set(commands.map((command) => command.name));

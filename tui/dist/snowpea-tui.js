@@ -33846,8 +33846,40 @@ var SURFACE_COMMANDS = [
     name: "sessions",
     summary: "List saved sessions and choose one to resume.",
     source: "tui"
+  },
+  {
+    name: "voice",
+    summary: "Toggle voice input; then Ctrl+Space (or /rec) records.",
+    source: "tui"
+  },
+  { name: "rec", summary: "Start or stop a recording.", source: "tui" },
+  {
+    name: "tts",
+    summary: "Spoken replies: /tts on|off, /tts voices, /tts voice <id> [lang].",
+    source: "tui"
+  },
+  {
+    name: "mouse",
+    summary: "Mouse on|off: click \u25EF rows to open an agent (Shift+drag selects while on).",
+    source: "tui"
   }
 ];
+var TTS_ACTIONS = [
+  { action: "on", summary: "Read every finished reply aloud." },
+  { action: "off", summary: "Stop reading replies." },
+  { action: "voices", summary: "List the pinned engine's voices." },
+  { action: "voice", summary: "/tts voice <id> [lang] \u2014 pick a voice." }
+];
+function ttsSubCommands(draft) {
+  const match = /^\/tts(?:\s+([^\s]*))?$/.exec(draft);
+  if (!match) return [];
+  const typed = match[1] ?? "";
+  return TTS_ACTIONS.filter((entry) => entry.action.startsWith(typed)).map((entry) => ({
+    name: `tts ${entry.action}`,
+    summary: entry.summary,
+    source: "tui"
+  }));
+}
 function withSurfaceCommands(commands) {
   const names = new Set(commands.map((command) => command.name));
   return [...commands, ...SURFACE_COMMANDS.filter((command) => !names.has(command.name))];
@@ -40189,7 +40221,7 @@ function App2({
     if (!draft.startsWith("/")) return [];
     const skills = state.commands.some((command) => command.name === "skill") ? skillSubCommands(draft) : [];
     const mcp = state.commands.some((command) => command.name === "mcp") ? mcpSubCommands(draft, state.mcp, mcpCatalog ?? []) : [];
-    return [...skills, ...mcp, ...registryRef.current.complete(draft)];
+    return [...skills, ...mcp, ...ttsSubCommands(draft), ...registryRef.current.complete(draft)];
   }, [draft, state.commands, state.mcp, mcpCatalog]);
   const terminal = useTerminalSize();
   const contentWidth = Math.max(1, terminal.columns - 2);
@@ -40851,6 +40883,42 @@ function App2({
       }
       if (/^\/rec\s*$/.test(text2.trim())) {
         toggleRecording();
+        return;
+      }
+      const ttsVoices = /^\/tts\s+voices\s*$/.exec(text2.trim());
+      const ttsVoice = /^\/tts\s+voice\s+(\S+)(?:\s+(\S+))?\s*$/.exec(text2.trim());
+      if (ttsVoices || ttsVoice) {
+        const engine = capabilities?.ttsProvider;
+        if (!engine) {
+          showToast("no speech engine is set \u2014 run /setup");
+          return;
+        }
+        void client.call("audio.voices", { engine, languages: [] }).then(async (result) => {
+          const voices = Array.isArray(result?.voices) ? result.voices : [];
+          if (ttsVoices) {
+            const lines2 = voices.map(
+              (v) => `${v.id} \xB7 ${v.label} \xB7 ${v.language}${v.installed ? "" : " \xB7 downloads first"}`
+            );
+            dispatch({
+              type: "note",
+              text: lines2.length > 0 ? `${engine} voices:
+${lines2.join("\n")}` : `${engine}: no voices listed`
+            });
+            return;
+          }
+          const wanted = ttsVoice[1];
+          const picked = voices.find((v) => v.id === wanted || v.label === wanted);
+          if (!picked) {
+            showToast(`${engine}: no voice "${wanted}" \u2014 /tts voices lists them`);
+            return;
+          }
+          const lang = (ttsVoice[2] ?? picked.language ?? "").split("-")[0] || "en";
+          await client.call("settings.set", {
+            scope: "global",
+            patch: { audio: { tts: { voices: { [lang]: picked.id } } } }
+          });
+          showToast(`speech voice for ${lang}: ${picked.label} (${picked.id})`);
+        }).catch((error) => showToast(`voices: ${String(error)}`));
         return;
       }
       const tts = /^\/tts(?:\s+(on|off))?\s*$/.exec(text2.trim());

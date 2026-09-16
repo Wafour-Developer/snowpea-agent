@@ -29,7 +29,7 @@ import type {
   Mode,
   SessionEvent,
 } from "./rpc/sdk.js";
-import { SlashRegistry } from "./slash/registry.js";
+import { SlashRegistry, ttsSubCommands } from "./slash/registry.js";
 import {
   bannerText,
   cancel as cancelUpdate,
@@ -1076,7 +1076,7 @@ export function App({
     const mcp = state.commands.some((command) => command.name === "mcp")
       ? mcpSubCommands(draft, state.mcp, mcpCatalog ?? [])
       : [];
-    return [...skills, ...mcp, ...registryRef.current.complete(draft)];
+    return [...skills, ...mcp, ...ttsSubCommands(draft), ...registryRef.current.complete(draft)];
   }, [draft, state.commands, state.mcp, mcpCatalog]);
 
   // --- full-screen geometry -------------------------------------------------
@@ -1997,6 +1997,47 @@ export function App({
       }
       if (/^\/rec\s*$/.test(text.trim())) {
         toggleRecording();
+        return;
+      }
+      // `/tts voices` and `/tts voice <id> [lang]`: the engine's catalogue, and
+      // the per-language pick `audio.tts.voices` stores.
+      const ttsVoices = /^\/tts\s+voices\s*$/.exec(text.trim());
+      const ttsVoice = /^\/tts\s+voice\s+(\S+)(?:\s+(\S+))?\s*$/.exec(text.trim());
+      if (ttsVoices || ttsVoice) {
+        const engine = capabilities?.ttsProvider;
+        if (!engine) {
+          showToast("no speech engine is set — run /setup");
+          return;
+        }
+        void client
+          .call("audio.voices", { engine, languages: [] })
+          .then(async (result: any) => {
+            const voices: Array<{ id: string; label: string; language: string; installed: boolean }> =
+              Array.isArray(result?.voices) ? result.voices : [];
+            if (ttsVoices) {
+              const lines = voices.map(
+                (v) => `${v.id} · ${v.label} · ${v.language}${v.installed ? "" : " · downloads first"}`,
+              );
+              dispatch({
+                type: "note",
+                text: lines.length > 0 ? `${engine} voices:\n${lines.join("\n")}` : `${engine}: no voices listed`,
+              });
+              return;
+            }
+            const wanted = ttsVoice![1];
+            const picked = voices.find((v) => v.id === wanted || v.label === wanted);
+            if (!picked) {
+              showToast(`${engine}: no voice "${wanted}" — /tts voices lists them`);
+              return;
+            }
+            const lang = (ttsVoice![2] ?? picked.language ?? "").split("-")[0] || "en";
+            await client.call("settings.set", {
+              scope: "global",
+              patch: { audio: { tts: { voices: { [lang]: picked.id } } } },
+            });
+            showToast(`speech voice for ${lang}: ${picked.label} (${picked.id})`);
+          })
+          .catch((error: unknown) => showToast(`voices: ${String(error)}`));
         return;
       }
       const tts = /^\/tts(?:\s+(on|off))?\s*$/.exec(text.trim());
