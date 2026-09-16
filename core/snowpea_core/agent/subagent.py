@@ -88,6 +88,15 @@ LAST_CALLS = 3
 #: Characters of one remembered call's arguments.
 CALL_ARG_CHARS = 120
 
+#: Roles that are read-only by default unless a definition explicitly lists
+#: a broader tool set.
+READONLY_DEFAULT_AGENTS: frozenset[str] = frozenset(
+    {"explore", "explorer", "reviewer", "critic"}
+)
+
+#: Default tools for the read-only roles above.
+READONLY_DEFAULT_TOOLS: frozenset[str] = frozenset({"read_file", "grep", "glob"})
+
 #: Why the child's turn ended, as reported to the caller.  Mirrors
 #: ``turn.done.reason`` with ``"complete"`` as the default.
 COMPLETE = "complete"
@@ -194,6 +203,8 @@ class SubagentRecord:
     truncated: bool = False
     #: How many times that answer was resumed before it was given up on.
     continuations: int = 0
+    #: Tool names whose calls were denied while this child still ran on.
+    denied_tools: list[str] = field(default_factory=list)
     #: Caller's explicit model override for this one delegation, resolved from
     #: ``delegate_task(model=…)`` / ``agent.spawn(model=…)``.  Highest rung of
     #: the precedence chain (CORE-model-assignment).
@@ -244,6 +255,8 @@ class SubagentResult:
     rounds_used: int = 0
     budget: int = 0
     last_calls: list[str] = field(default_factory=list)
+    #: Tool names whose calls were denied while this child still reported.
+    denied_tools: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -290,6 +303,10 @@ class _ChildWatcher:
             return
         if kind == "turn.done":
             record.reason = str(payload.get("reason") or COMPLETE)
+            return
+        if kind == "tool.result":
+            if _is_denied_tool_result(payload):
+                record.denied_tools.append(str(payload.get("name") or "tool"))
             return
         if kind == "tool.call":
             # Whatever the child said before reaching for a tool was not its
@@ -418,8 +435,11 @@ class SubagentManager:
                     "usage": record.usage(),
                     "name": record.name,
                     "sessionId": record.session_id,
+                    "reason": record.reason or COMPLETE,
                     "rounds": record.rounds_used,
                     "budget": record.budget,
+                    "deniedCalls": len(record.denied_tools),
+                    "deniedTools": list(dict.fromkeys(record.denied_tools)),
                 },
             ),
         )
@@ -632,6 +652,7 @@ class SubagentManager:
             rounds_used=record.rounds_used,
             budget=record.budget,
             last_calls=list(record.last_calls),
+            denied_tools=list(record.denied_tools),
         )
 
     async def _refuse(self, record: SubagentRecord, message: str) -> SubagentResult:
@@ -679,6 +700,10 @@ class SubagentManager:
                     f"{record.summary}\n\n"
                     f"{TRUNCATED_MARK.format(count=record.continuations)}"
                 ).strip()
+            if (record.reason or "").lower() == "denied" and not record.summary.strip():
+                record.status = ERROR
+                denied = ", ".join(dict.fromkeys(record.denied_tools)) or "a tool call"
+                record.error = f"the subagent stopped after a denied call ({denied})"
         except TimeoutError:
             child.interrupt.set()
             record.status = ERROR
@@ -765,6 +790,10 @@ class SubagentManager:
         if tools:
             explicit = {str(name) for name in tools if str(name).strip()}
             allowed = explicit if allowed is None else (allowed & explicit)
+        if allowed is None and defn is not None and defn.name in READONLY_DEFAULT_AGENTS:
+            # Built-in read-only roles are intentionally sparse by default:
+            # they can still load or allow more tools only when explicitly listed.
+            allowed = set(READONLY_DEFAULT_TOOLS)
         child.allowed_tools = allowed
 
 
@@ -801,6 +830,13 @@ def _last_assistant_text(session: Session) -> str:
             return message.content
         return ""
     return ""
+
+
+def _is_denied_tool_result(payload: dict[str, Any]) -> bool:
+    if payload.get("ok", True):
+        return False
+    text = str(payload.get("error") or payload.get("output") or "")
+    return text.startswith("Denied:")
 
 
 def get_manager(core: Core) -> SubagentManager:

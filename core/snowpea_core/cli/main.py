@@ -293,7 +293,7 @@ async def run_headless(args: argparse.Namespace, home: str | None) -> int:
         if always_allow:
             return {"decision": "allow", "scope": "session"}
         if not interactive:
-            tracker.denied = True
+            tracker.note_denied_request(params.get("sessionId"))
             return {"decision": "deny", "scope": "once"}
         answer = await _ask_approval(params)
         if answer in ("a", "always"):
@@ -301,7 +301,7 @@ async def run_headless(args: argparse.Namespace, home: str | None) -> int:
             return {"decision": "allow", "scope": "session"}
         if answer in ("y", "yes"):
             return {"decision": "allow", "scope": "once"}
-        tracker.denied = True
+        tracker.note_denied_request(params.get("sessionId"))
         return {"decision": "deny", "scope": "once"}
 
     async def question_handler(params: dict[str, Any]) -> dict[str, Any]:
@@ -365,6 +365,7 @@ async def run_headless(args: argparse.Namespace, home: str | None) -> int:
                 _err(f"session.create failed ({exc.code}): {exc.message}")
                 return _exit_code_for_rpc_error(exc)
             session_id = str(created.get("sessionId", ""))
+        tracker.root_session_id = session_id
 
         consumer = asyncio.ensure_future(_consume(client, session_id, renderer, tracker))
         try:

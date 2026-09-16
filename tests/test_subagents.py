@@ -31,7 +31,11 @@ from snowpea_core.agent.subagent import (
     get_manager,
 )
 from snowpea_core.config.project import ModelProfile
+from snowpea_core.permissions.approval_queue import Decision
+from snowpea_core.providers.base import StreamEvent, ToolCall
+from snowpea_core.server import errors
 from snowpea_core.server.app_server import Core, Daemon
+from snowpea_core.tools.delegate import render_report
 
 FIXTURE = Path(__file__).parent / "fixtures" / "providers" / "fake" / "subagents.json"
 TIMEOUT = 20.0
@@ -362,6 +366,38 @@ async def test_builtin_agent_name_resolves_and_applies_role_prompt(
     assert "Role: executor." in seen["prompt"]
 
 
+async def test_explorer_defaults_to_read_only_tools_unless_declared(
+    daemon: Daemon, workdir: Path
+) -> None:
+    core = daemon.core
+    assert core is not None
+    parent = await open_session(core, workdir)
+    manager = get_manager(core)
+
+    builtin = manager.definition(parent, "explorer")
+    assert builtin is not None and builtin.source == "builtin"
+    child = await open_session(core, workdir)
+    manager._apply_definition(child, builtin, None)
+    assert child.allowed_tools == {"read_file", "glob", "grep"}
+    assert "shell" not in (child.allowed_tools or set())
+
+    write_definition(
+        AgentDefinition(
+            name="explorer",
+            description="project explorer with shell",
+            tools=["read_file", "glob", "grep", "shell"],
+            prompt="",
+        ),
+        workdir,
+    )
+    project = manager.definition(parent, "explorer")
+    assert project is not None and project.source == "project"
+    child = await open_session(core, workdir)
+    manager._apply_definition(child, project, None)
+    assert child.allowed_tools is not None
+    assert "shell" in child.allowed_tools
+
+
 async def test_a_narrowed_child_cannot_reach_other_tools(daemon: Daemon, workdir: Path) -> None:
     """``tools=[...]`` really refuses the tools it leaves out."""
     core = daemon.core
@@ -384,6 +420,84 @@ async def test_a_narrowed_child_cannot_reach_other_tools(daemon: Daemon, workdir
     assert refusals[0]["ok"] is False
     assert "allowed-tools" in refusals[0]["error"]
     assert result.ok
+
+
+async def test_a_denied_tool_call_with_a_final_answer_stays_ok(
+    daemon: Daemon, workdir: Path
+) -> None:
+    class DeniedThenFinalProvider:
+        vendor = "test-denied"
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def stream(
+            self, messages: list, tools: list, **kwargs: Any
+        ) -> AsyncIterator[StreamEvent]:
+            del messages, tools, kwargs
+            self.calls += 1
+            if self.calls == 1:
+                yield StreamEvent(
+                    kind="tool_call",
+                    tool_call=ToolCall(
+                        id="call_1", name="shell", arguments={"command": "rm -rf build"}
+                    ),
+                )
+                yield StreamEvent(kind="done", stop_reason="tool_use")
+                return
+            yield StreamEvent(kind="text_delta", text="final answer from read-only fallback")
+            yield StreamEvent(kind="done", stop_reason="end_turn")
+
+    core = daemon.core
+    assert core is not None
+    provider = DeniedThenFinalProvider()
+    core.providers.get = lambda _provider, _model: provider  # type: ignore[assignment]
+    async def deny(*args: Any, **kwargs: Any) -> Decision:
+        del args, kwargs
+        return Decision("deny", "once", "test", errors.APPROVAL_DENIED)
+    core.approvals.request = deny  # type: ignore[method-assign]
+    session = await core.sessions.create(workdir, mode="accept")
+
+    result = await asyncio.wait_for(
+        get_manager(core).run(session, "denied once then finish"), TIMEOUT
+    )
+    assert result.ok is True
+    assert result.reason == "complete"
+    assert result.denied_tools == ["shell"]
+    assert "1 tool call was denied: shell" in render_report(result)
+
+
+async def test_a_child_that_ends_on_denials_still_fails(daemon: Daemon, workdir: Path) -> None:
+    class AlwaysDeniedProvider:
+        vendor = "test-denied"
+
+        async def stream(
+            self, messages: list, tools: list, **kwargs: Any
+        ) -> AsyncIterator[StreamEvent]:
+            del messages, tools, kwargs
+            yield StreamEvent(
+                kind="tool_call",
+                tool_call=ToolCall(
+                    id="call_1",
+                    name="shell",
+                    arguments={"command": "rm -rf build"},
+                ),
+            )
+            yield StreamEvent(kind="done", stop_reason="tool_use")
+
+    core = daemon.core
+    assert core is not None
+    core.providers.get = lambda _provider, _model: AlwaysDeniedProvider()  # type: ignore[assignment]
+    async def deny(*args: Any, **kwargs: Any) -> Decision:
+        del args, kwargs
+        return Decision("deny", "once", "test", errors.APPROVAL_DENIED)
+    core.approvals.request = deny  # type: ignore[method-assign]
+    session = await core.sessions.create(workdir, mode="accept")
+
+    result = await asyncio.wait_for(get_manager(core).run(session, "deny until stopped"), TIMEOUT)
+    assert result.ok is False
+    assert result.reason == "denied"
+    assert "stopped after a denied call" in (result.error or "")
 
 
 async def test_an_unknown_agent_name_is_refused(daemon: Daemon, workdir: Path) -> None:

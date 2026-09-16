@@ -299,6 +299,99 @@ def test_approve_none_denies_and_exits_four(home: Path) -> None:
     assert result.returncode == 4, f"stdout={result.stdout!r} stderr={result.stderr!r}"
 
 
+def test_headless_keeps_exit_zero_when_a_child_recovers_after_one_denial(home: Path) -> None:
+    script = home / "provider-child-recovers.json"
+    script.write_text(
+        json.dumps(
+            {
+                "steps": [
+                    {
+                        "match": "delegate and recover",
+                        "tool_calls": [
+                            {
+                                "name": "delegate_task",
+                                "arguments": {
+                                    "task": "child recovers after one denied shell",
+                                    "tools": ["shell", "read_file"],
+                                },
+                            }
+                        ],
+                        "text": "delegating",
+                    },
+                    {
+                        "match": "child recovers after one denied shell",
+                        "tool_calls": [{"name": "shell", "arguments": {"command": "pwd; ls -la"}}],
+                        "text": "trying shell",
+                    },
+                    {
+                        "after_tool": "shell",
+                        "tool_calls": [
+                            {
+                                "name": "read_file",
+                                "arguments": {"path": "pyproject.toml"},
+                            }
+                        ],
+                        "text": "fallback",
+                    },
+                    {"after_tool": "read_file", "text": "child finished after fallback"},
+                    {"after_tool": "delegate_task", "text": "parent finished"},
+                ],
+                "default": {"text": "default"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    env = _base_env(home)
+    env["SNOWPEA_PROVIDER"] = f"fake:{script}"
+    _wait_for_implementation(env, "-c", "say hello", label="session.prompt")
+    result = run_cli("--mode", "accept", "-c", "delegate and recover", env=env)
+    assert result.returncode == 0, f"stdout={result.stdout!r} stderr={result.stderr!r}"
+
+
+def test_headless_exits_four_when_the_child_stops_on_denials(home: Path) -> None:
+    script = home / "provider-child-denied.json"
+    script.write_text(
+        json.dumps(
+            {
+                "steps": [
+                    {
+                        "match": "delegate and fail",
+                        "tool_calls": [
+                            {
+                                "name": "delegate_task",
+                                "arguments": {
+                                    "task": "child stops on denied shell",
+                                    "tools": ["shell"],
+                                },
+                            }
+                        ],
+                        "text": "delegating",
+                    },
+                    {
+                        "match": "child stops on denied shell",
+                        "tool_calls": [{"name": "shell", "arguments": {"command": "pwd; ls -la"}}],
+                        "text": "try one",
+                    },
+                    {
+                        "after_tool": "shell",
+                        "repeat": True,
+                        "tool_calls": [{"name": "shell", "arguments": {"command": "pwd; ls -la"}}],
+                        "text": "retry",
+                    },
+                    {"after_tool": "delegate_task", "text": "parent saw failure"},
+                ],
+                "default": {"text": "default"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    env = _base_env(home)
+    env["SNOWPEA_PROVIDER"] = f"fake:{script}"
+    _wait_for_implementation(env, "-c", "say hello", label="session.prompt")
+    result = run_cli("--mode", "accept", "-c", "delegate and fail", env=env)
+    assert result.returncode == 4, f"stdout={result.stdout!r} stderr={result.stderr!r}"
+
+
 def test_plan_mode_blocks_exec_and_exits_four(home: Path) -> None:
     """``plan`` asks before ``exec`` and a headless run has nobody to ask.
 

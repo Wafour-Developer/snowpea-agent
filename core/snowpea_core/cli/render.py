@@ -183,8 +183,20 @@ class TurnTracker:
         self.denied = False
         self.reason: str | None = None
         self.turn_id: str | None = None
+        #: Session id of the top-level headless turn.
+        self.root_session_id: str | None = None
+        #: Child sessions that had at least one denied tool call.
+        self._child_denied: set[str] = set()
         #: Body of the most recent ``context`` event, reported by --json.
         self.context: dict[str, Any] | None = None
+
+    def note_denied_request(self, session_id: str | None) -> None:
+        """Record where an approval was denied: root turn or delegated child."""
+        sid = str(session_id or "").strip()
+        if not sid or sid == self.root_session_id:
+            self.denied = True
+            return
+        self._child_denied.add(sid)
 
     def event(self, event: dict[str, Any]) -> None:
         kind = str(event.get("kind", ""))
@@ -196,6 +208,12 @@ class TurnTracker:
             self.context = dict(payload)
         elif kind == "error" and str(payload.get("code", "")) in DENIAL_CODES:
             self.denied = True
+        elif kind == "subagent.done":
+            child = str(payload.get("sessionId") or "")
+            if child and child in self._child_denied:
+                if str(payload.get("reason") or "").lower() == "denied":
+                    self.denied = True
+                self._child_denied.discard(child)
         elif kind == "turn.done":
             self.reason = str(payload.get("reason", "complete"))
             self.turn_id = payload.get("turnId")

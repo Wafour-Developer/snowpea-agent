@@ -46,8 +46,8 @@ EAGER_TOOLS: frozenset[str] = frozenset(
 
 #: The eager set for a read-only child (an ``explore`` or ``reviewer``
 #: definition).  Its whole job is to look and report, so it starts with the
-#: four tools that do that and loads an LSP or git tool if it wants one.
-READONLY_EAGER_TOOLS: frozenset[str] = frozenset({"read_file", "grep", "glob", "shell"})
+#: three tools that do that and loads an LSP or git tool if it wants one.
+READONLY_EAGER_TOOLS: frozenset[str] = frozenset({"read_file", "grep", "glob"})
 
 #: A session that may call one of these is not read-only, whatever its role
 #: says.  ``shell`` is deliberately absent: a read-only reviewer is routinely

@@ -183,10 +183,10 @@ async def test_role_defaults_for_subagents(daemon: Daemon, workdir: Path) -> Non
     for role, expected in [
         ("explore", 8),
         ("explorer", 8),
-        ("reviewer", 12),
-        ("critic", 12),
+        ("reviewer", 16),
+        ("critic", 16),
         ("test-engineer", 15),
-        ("verifier", 10),
+        ("verifier", 14),
         ("architect", 10),
         ("executor", 32),
         ("unknown-role", 32),

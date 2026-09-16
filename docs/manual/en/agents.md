@@ -27,13 +27,14 @@ Parallel delegation without worktrees is therefore only safe across disjoint fil
 |---|---|
 | `explore` | read-only search: finds where something lives and reports it as `path:line` evidence |
 | `reviewer` | read-only review: a verdict plus findings, each with the evidence behind it |
-| `executor`, `architect`, `critic`, `verifier`, `explorer`, `test-engineer` | role prompts, with every tool available |
+| `executor`, `architect`, `verifier`, `test-engineer` | role prompts, with every tool available |
+| `explorer`, `critic` | read-only-by-default team roles (`read_file`, `glob`, `grep`) unless a definition explicitly broadens tools |
 
 `explore` and `reviewer` carry a tool allowlist, so they are read-only in fact and not only by instruction: no `write_file`, no `edit_file`, no `shell`. A definition of the same name in `<project>/.snowpea/agents/` overrides the built-in one completely.
 
 ### `explore` vs `explorer`, `reviewer` vs `critic`
 
-Two pairs read like duplicates and are not. `explore` and `reviewer` are the **built-in agents you delegate to**: read-only, tool-allowlisted, meant for one question or one diff. `explorer` and `critic` are **team roles**, filled by the pipeline's explore and review stages, with every tool available. Pick the built-in when you are asking for something now; the role name is what a roster is written in.
+Two pairs read like duplicates and are not. `explore` and `reviewer` are the **built-in agents you delegate to**: read-only, tool-allowlisted, meant for one question or one diff. `explorer` and `critic` are **team roles**, filled by the pipeline's explore and review stages, but read-only by default (`read_file`, `glob`, `grep`) unless a definition explicitly adds more tools. Pick the built-in when you are asking for something now; the role name is what a roster is written in.
 
 | Delegate to | Team role | Difference |
 |---|---|---|
@@ -165,9 +166,9 @@ To prevent runaway token spend, subagents and pipeline stages operate with role-
 | Role / Agent | Default tool rounds |
 |---|---|
 | `explore`, `explorer` | 8 |
-| `reviewer`, `critic` | 12 |
+| `reviewer`, `critic` | 16 |
 | `test-engineer` | 15 |
-| `verifier` | 10 |
+| `verifier` | 14 |
 | `architect` | 10 |
 | `executor` & other subagents | 32 |
 
@@ -224,6 +225,6 @@ In `"lean"` mode:
 - **No memory block or guidance**: the child has no memory recall block or guidance line (though memory tools still work if permitted).
 - **No skills index**: installed skills are not enumerated in the prompt, but the child can still view any skill by name with `skill_view`.
 - **Root instructions only**: only the root `AGENTS.md` or `CLAUDE.md` is loaded up front; nested instruction files attach on demand when a tool touches that directory.
-- **Smaller eager tool set**: read-only children (`explore`, `reviewer`) start with `read_file`, `grep`, `glob`, `shell` (if allowed), and `tool_search`. Other tools are deferred and loaded on demand.
+- **Smaller eager tool set**: read-only children (`explore`, `reviewer`) start with `read_file`, `grep`, `glob`, and `tool_search`. Other tools are deferred and loaded on demand.
 - **Preserved**: the child's definition prompt, role, and the tool round budget line (`BUDGET_LINE`) are always preserved.
 
