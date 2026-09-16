@@ -40106,10 +40106,11 @@ function App2({
     },
     [stdout]
   );
+  const [mouseOn, setMouseOn] = (0, import_react45.useState)(false);
   (0, import_react45.useEffect)(() => {
-    setMouseMode(true);
+    setMouseMode(mouseOn);
     return () => setMouseMode(false);
-  }, [setMouseMode]);
+  }, [setMouseMode, mouseOn]);
   const resumeSession = (0, import_react45.useCallback)(
     (target, into) => {
       if (into === "main") {
@@ -40721,6 +40722,15 @@ function App2({
         });
         return;
       }
+      const mouse = /^\/mouse(?:\s+(on|off))?\s*$/.exec(text2.trim());
+      if (mouse) {
+        const next = mouse[1] ? mouse[1] === "on" : !mouseOn;
+        setMouseOn(next);
+        showToast(
+          next ? "mouse on: click a \u25EF row to open it; Shift+drag selects text" : "mouse off: the terminal selects text as usual"
+        );
+        return;
+      }
       const resume = /^\/resume(?:\s+(\S+))?\s*$/.exec(text2.trim());
       if (resume) {
         if (state.turnActive) {
@@ -41330,7 +41340,7 @@ function App2({
         focusedIndex: focus.zone === "agent" ? focus.index : null
       }
     ),
-    /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(Text, { dimColor: true, children: "\u2191\u2193 select \xB7 click or Enter opens" })
+    /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(Text, { dimColor: true, children: mouseOn ? "\u2191\u2193 select \xB7 click or Enter opens" : "\u2191\u2193 select \xB7 Enter opens \xB7 /mouse enables clicking" })
   ] });
   const helpNode = showHelp ? /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(
     HelpPanel,

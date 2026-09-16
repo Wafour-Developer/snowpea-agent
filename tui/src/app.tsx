@@ -977,10 +977,14 @@ export function App({
     [stdout],
   );
 
+  // Off by default: a terminal cannot scope mouse reporting to one region,
+  // so while it is on the terminal's own drag-to-select stops working
+  // everywhere. `/mouse` turns it on for people who want to click the ◯ rows.
+  const [mouseOn, setMouseOn] = useState(false);
   useEffect(() => {
-    setMouseMode(true);
+    setMouseMode(mouseOn);
     return () => setMouseMode(false);
-  }, [setMouseMode]);
+  }, [setMouseMode, mouseOn]);
 
   /**
    * Replay a session's events into a transcript.
@@ -1854,6 +1858,17 @@ export function App({
         });
         return;
       }
+      const mouse = /^\/mouse(?:\s+(on|off))?\s*$/.exec(text.trim());
+      if (mouse) {
+        const next = mouse[1] ? mouse[1] === "on" : !mouseOn;
+        setMouseOn(next);
+        showToast(
+          next
+            ? "mouse on: click a ◯ row to open it; Shift+drag selects text"
+            : "mouse off: the terminal selects text as usual",
+        );
+        return;
+      }
       // `/resume` is the TUI's own: the session it reopens is the one this
       // surface remembers for this directory.
       const resume = /^\/resume(?:\s+(\S+))?\s*$/.exec(text.trim());
@@ -2607,7 +2622,7 @@ export function App({
         width={contentWidth}
         focusedIndex={focus.zone === "agent" ? focus.index : null}
       />
-      <Text dimColor>↑↓ select · click or Enter opens</Text>
+      <Text dimColor>{mouseOn ? "↑↓ select · click or Enter opens" : "↑↓ select · Enter opens · /mouse enables clicking"}</Text>
     </>
   );
 

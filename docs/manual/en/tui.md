@@ -102,6 +102,8 @@ When a run of tool calls finishes, it collapses into one line in the scrollback 
 
 A call that failed keeps its own card, with its output, because that is the one you need to read. `Ctrl+O` expands the newest tool call or diff while it is still live.
 
+The agent panel under the status line lists who is working for this session: running and finished delegates, then the active team's idle roster. Tab moves the focus into it, ↑↓ pick a row and Enter opens that agent's own transcript. Clicking a row does the same once you type `/mouse` (or `/mouse on`): a terminal cannot report clicks for one region only, so while the mouse is on the terminal's own drag-to-select needs Shift held, and `/mouse off` (or `/mouse` again) gives it back. It is off when the TUI starts.
+
 ## Modes
 
 `Shift+Tab` cycles accept → auto → plan → accept. The mode is in the status line and in the summary row, and [Modes](modes.md) explains what each one permits. `Ctrl+P` toggles plan mode on and off without cycling.
