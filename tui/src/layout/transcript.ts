@@ -230,7 +230,7 @@ export function messageLines(message: Message, width = 80): Line[] {
   const out: Line[] = [];
   // A model often opens with a blank line; the glyph belongs on the first
   // line that says something, not on an empty one above it.
-  const text = message.text.replace(/^(?:[ \t]*\n)+/, "");
+  const text = message.text.replace(/^(?:[ \t]*\n)+/, "").replace(/(?:\n[ \t]*)+$/, "");
   const body = message.streaming ? `${text}…` : text;
   const source = body.split("\n");
   let inFence = false;

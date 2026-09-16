@@ -10,7 +10,7 @@
 import React from "react";
 import { Box, Text } from "ink";
 
-import { layoutAgentRow, type AgentRow } from "../layout/agents.js";
+import { layoutAgentRow, type AgentRow, rowColor } from "../layout/agents.js";
 
 export interface AgentPanelProps {
   rows: AgentRow[];
@@ -34,7 +34,7 @@ function AgentPanelInner({
         const line = layoutAgentRow(row, width - 1);
         return (
           <Box key={row.key} width={width} flexWrap="nowrap" overflow="hidden">
-            <Text color={row.color} dimColor={row.dim && !row.color} inverse={focused} bold={focused}>
+            <Text color={rowColor(row)} dimColor={row.dim && !rowColor(row)} inverse={focused} bold={focused}>
               {line.left}
             </Text>
             <Text dimColor={!focused} inverse={focused} wrap="truncate-end">

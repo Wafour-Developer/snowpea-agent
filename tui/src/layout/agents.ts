@@ -27,6 +27,22 @@ export const AGENT_GLYPH = "◯";
 export type AgentStatus = "current" | "idle" | "queued" | "running" | "done" | "error";
 export type AgentOrigin = "team" | "external" | "named" | "current";
 
+/**
+ * Where a row's agent comes from, said with colour rather than a tag: the
+ * active team's members keep the panel's plain colour, an agent someone
+ * delegated to from outside the team is magenta, a named persistent agent
+ * is blue (and already carries the ◆ glyph).
+ */
+export const ORIGIN_COLOR: Partial<Record<AgentOrigin, string>> = {
+  external: "magenta",
+  named: "blue",
+};
+
+/** The colour a row is drawn in: status first, origin when the status has none. */
+export function rowColor(row: Pick<AgentRow, "color" | "origin">): string | undefined {
+  return row.color ?? (row.origin ? ORIGIN_COLOR[row.origin] : undefined);
+}
+
 const STATUS_GLYPH: Record<AgentStatus, string> = {
   current: CURRENT_GLYPH,
   idle: AGENT_GLYPH,
@@ -291,15 +307,7 @@ export const NAME_WIDTH = 16;
  */
 export function layoutAgentRow(row: AgentRow, width: number): AgentRowLayout {
   const safeWidth = Math.max(10, Math.floor(width));
-  const origin =
-    row.origin === "team"
-      ? " [team]"
-      : row.origin === "external"
-        ? " [ext]"
-        : row.origin === "named"
-          ? " [named]"
-          : "";
-  const left = `${row.glyph} ${row.name}${origin}`;
+  const left = `${row.glyph} ${row.name}`;
   // Padding is measured in screen cells, not characters, or a row whose glyph
   // is two cells wide would push its task one column out of the column.
   const pad = Math.max(0, NAME_WIDTH + 2 - cells(left));

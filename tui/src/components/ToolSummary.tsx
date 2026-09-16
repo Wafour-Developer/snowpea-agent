@@ -19,7 +19,7 @@ export function ToolSummary({ calls }: { calls: ToolCallEntry[] }): React.ReactE
   if (calls.length === 0) return null;
   const lines = hiddenLines(calls);
   return (
-    <Box marginBottom={1}>
+    <Box>
       <Text color="green">{`${SUMMARY_GLYPH} `}</Text>
       <Text>{summarizeCalls(calls)}</Text>
       {lines > 0 ? <Text dimColor>{` (${lines} lines)`}</Text> : null}
