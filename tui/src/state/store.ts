@@ -290,6 +290,8 @@ export interface State {
    * Reset when a turn starts.
    */
   reasoningChars: number;
+  /** Answer characters streamed since the last usage report; ≈ tokens until the daemon says. */
+  streamedChars: number;
   errors: string[];
 }
 
@@ -330,6 +332,7 @@ export const initialState: State = {
   turnWaited: false,
   compacting: null,
   reasoningChars: 0,
+  streamedChars: 0,
   errors: [],
 };
 
@@ -572,8 +575,10 @@ function applySessionEvent(
       };
     }
 
-    case "message.delta":
-      return appendDelta(base, String(payload.text ?? ""));
+    case "message.delta": {
+      const text = String(payload.text ?? "");
+      return { ...appendDelta(base, text), streamedChars: base.streamedChars + text.length };
+    }
 
     // Thinking, not an answer: counted for the working line, never appended.
     case "message.reasoning":
@@ -732,8 +737,11 @@ function applySessionEvent(
       return { ...base, mode: (payload.mode ?? base.mode) as Mode };
 
     case "usage":
+      // The daemon's count replaces the estimate the stream built up.
       return {
         ...base,
+        streamedChars: 0,
+        reasoningChars: 0,
         usage: {
           inputTokens: base.usage.inputTokens + Number(payload.inputTokens ?? 0),
           outputTokens: base.usage.outputTokens + Number(payload.outputTokens ?? 0),
@@ -1046,6 +1054,7 @@ export function reducer(state: State, action: Action): State {
           pendingEchoes,
           deferredPrompts: [...state.deferredPrompts, message],
           reasoningChars: 0,
+          streamedChars: 0,
         };
       }
       return {
@@ -1054,7 +1063,8 @@ export function reducer(state: State, action: Action): State {
         messages: [...state.messages, message],
         timeline: pushTimeline(state, { kind: "message", id: message.id }),
         turnActive: true,
-        reasoningChars: 0,
+          reasoningChars: 0,
+          streamedChars: 0,
       };
     }
 
