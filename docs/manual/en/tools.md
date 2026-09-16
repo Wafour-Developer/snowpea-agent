@@ -51,7 +51,7 @@ During a long session, large command outputs (such as test runs, build logs, or 
   ```
   [earlier shell output pruned — 8123 chars; re-run the tool if you need it again]
   ```
-- **Recent rounds (within the last 6 rounds):** Tool results longer than 2,000 characters retain their head and tail, with the middle shortened to `…[trimmed]…`.
+- **Recent rounds (within the last 6 rounds):** sent verbatim. The model is still working from them, and a result cut short reads as a truncated file.
 - **`skill_view` bodies are exempt:** Skills carry their own compaction lifecycle and reload pointers (`[SKILL_PRUNED: …]`), governed by `skills.protectRecentViews`.
 
 > [!IMPORTANT]
