@@ -1,6 +1,6 @@
 {
   "name": "snowpea",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "npx entry point for snowpea — runs the platform installer, then execs the agent.",
   "license": "MIT",
   "type": "commonjs",
