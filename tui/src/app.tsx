@@ -60,7 +60,7 @@ import {
 import { useSpinner } from "./hooks/useSpinner.js";
 import { useKnownAgents } from "./hooks/useKnownAgents.js";
 import { clampFocus, focusDown, focusUp, isInput, INPUT_FOCUS, type Focus } from "./state/focus.js";
-import { panelRowAt, parseMouse } from "./input/mouse.js";
+import { mouseReports, panelRowAt } from "./input/mouse.js";
 import { offerSession, resumeLabel, resumeRows } from "./state/history.js";
 import {
   beginRecording,
@@ -2214,9 +2214,11 @@ export function App({
     if (state.pendingQuestion || state.pendingApproval || update.phase === "confirm" || modelPicker) {
       return;
     }
-    const mouse = parseMouse(input);
-    if (mouse) {
-      if (!mouse.press) return;
+    const reports = mouseReports(input);
+    if (reports.length > 0) {
+      // Mouse traffic never reaches the editor, handled or not.
+      const mouse = reports.find((report) => report.press);
+      if (!mouse) return;
       if (openAgent && mouse.button === 64) {
         setAgentScroll((offset) => offset + 1);
         return;

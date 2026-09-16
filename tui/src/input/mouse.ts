@@ -18,16 +18,33 @@ export interface MouseReport {
  *
  * Returns null for anything else, including malformed numbers.
  */
+const REPORT = /(?:\u001b)?\[?<(\d+);(\d+);(\d+)([Mm])/g;
+
+/**
+ * Every SGR mouse report in one stdin chunk, in order.
+ *
+ * Ink hands `useInput` the sequence with its ESC stripped (and sometimes
+ * without the `[`), and a fast click lands press and release in the same
+ * chunk, so `<0;11;22M<0;11;22m` and `[<0;2;30M` are as common as the
+ * textbook `ESC [ < 0;11;22 M`. Anything that is not wholly made of reports
+ * is not mouse input and yields nothing.
+ */
+export function mouseReports(input: string): MouseReport[] {
+  if (!/^(?:(?:\u001b)?\[?<\d+;\d+;\d+[Mm])+$/.test(input)) return [];
+  const reports: MouseReport[] = [];
+  for (const match of input.matchAll(REPORT)) {
+    const button = Number(match[1]);
+    const col = Number(match[2]);
+    const row = Number(match[3]);
+    if (button < 0 || col < 1 || row < 1) continue;
+    reports.push({ button, col, row, press: match[4] === "M" });
+  }
+  return reports;
+}
+
+/** The first report in the chunk, or null when the chunk is not mouse input. */
 export function parseMouse(input: string): MouseReport | null {
-  if (!input.startsWith("\u001b[<")) return null;
-  const match = /^\u001b\[<(\d+);(\d+);(\d+)([Mm])$/.exec(input);
-  if (!match) return null;
-  const button = Number(match[1]);
-  const col = Number(match[2]);
-  const row = Number(match[3]);
-  if (!Number.isFinite(button) || !Number.isFinite(col) || !Number.isFinite(row)) return null;
-  if (button < 0 || col < 1 || row < 1) return null;
-  return { button, col, row, press: match[4] === "M" };
+  return mouseReports(input)[0] ?? null;
 }
 
 export interface PanelMouseLayout {

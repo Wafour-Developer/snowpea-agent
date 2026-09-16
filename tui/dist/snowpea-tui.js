@@ -35662,16 +35662,18 @@ function clampFocus(focus, agentRows) {
 }
 
 // src/input/mouse.ts
-function parseMouse(input) {
-  if (!input.startsWith("\x1B[<")) return null;
-  const match = /^\u001b\[<(\d+);(\d+);(\d+)([Mm])$/.exec(input);
-  if (!match) return null;
-  const button = Number(match[1]);
-  const col = Number(match[2]);
-  const row = Number(match[3]);
-  if (!Number.isFinite(button) || !Number.isFinite(col) || !Number.isFinite(row)) return null;
-  if (button < 0 || col < 1 || row < 1) return null;
-  return { button, col, row, press: match[4] === "M" };
+var REPORT = /(?:\u001b)?\[?<(\d+);(\d+);(\d+)([Mm])/g;
+function mouseReports(input) {
+  if (!/^(?:(?:\u001b)?\[?<\d+;\d+;\d+[Mm])+$/.test(input)) return [];
+  const reports = [];
+  for (const match of input.matchAll(REPORT)) {
+    const button = Number(match[1]);
+    const col = Number(match[2]);
+    const row = Number(match[3]);
+    if (button < 0 || col < 1 || row < 1) continue;
+    reports.push({ button, col, row, press: match[4] === "M" });
+  }
+  return reports;
 }
 function panelRowAt(row, layout) {
   const y = Math.floor(row);
@@ -40998,9 +41000,10 @@ function App2({
     if (state.pendingQuestion || state.pendingApproval || update.phase === "confirm" || modelPicker) {
       return;
     }
-    const mouse = parseMouse(input);
-    if (mouse) {
-      if (!mouse.press) return;
+    const reports = mouseReports(input);
+    if (reports.length > 0) {
+      const mouse = reports.find((report) => report.press);
+      if (!mouse) return;
       if (openAgent && mouse.button === 64) {
         setAgentScroll((offset) => offset + 1);
         return;
