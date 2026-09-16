@@ -1,3 +1,4 @@
+import { describe, expect, it } from "vitest";
 
 describe("leading blank lines", () => {
   it("puts the role glyph on the first line that says something", async () => {
