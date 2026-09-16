@@ -36467,6 +36467,9 @@ function layout(text2, width, cursor = text2.length) {
     used += part.width;
   }
   lines.push({ start, end: text2.length, cells: used });
+  if (used >= limit && safeCursor === text2.length && !text2.endsWith("\n")) {
+    lines.push({ start: text2.length, end: text2.length, cells: 0 });
+  }
   const cursorRow = locateCursorRow(lines, safeCursor);
   const line = lines[cursorRow] ?? { start: 0, end: 0, cells: 0 };
   const stop = clamp(safeCursor, line.start, line.end);
@@ -38288,20 +38291,20 @@ function Chat({
     ] }) : /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Box_default, { flexDirection: "column", children: draft.lines.map((line, row) => {
       const prefix = row === 0 ? "> " : "  ";
       if (row !== draft.cursorRow) {
-        return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { children: [
+        return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexWrap: "nowrap", overflow: "hidden", children: [
           /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { color: promptColor, children: prefix }),
-          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { children: value.slice(line.start, line.end) })
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { wrap: "truncate-end", children: value.slice(line.start, line.end) })
         ] }, `draft-${row}`);
       }
       const hasCursorText = cursor >= line.start && cursor < line.end && cursorEnd > cursor;
       const before = value.slice(line.start, cursor);
       const mark = hasCursorText ? value.slice(cursor, cursorEnd) : " ";
       const after = hasCursorText ? value.slice(cursorEnd, line.end) : value.slice(cursor, line.end);
-      return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { children: [
+      return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexWrap: "nowrap", overflow: "hidden", children: [
         /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { color: promptColor, children: prefix }),
         /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { children: before }),
         /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { inverse: true, children: mark }),
-        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { children: after })
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { wrap: "truncate-end", children: after })
       ] }, `draft-${row}`);
     }) })
   ] });

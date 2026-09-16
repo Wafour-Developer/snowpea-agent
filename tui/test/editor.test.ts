@@ -76,3 +76,18 @@ describe("editor model", () => {
     expect(view.cursorRow).toBe(view.lines.length - 1);
   });
 });
+
+
+describe("a line that fills the width", () => {
+  it("puts the caret on a fresh row below when the cursor is at the end", () => {
+    const ascii = layout("1234567890", 10, 10);
+    expect(ascii.lines).toHaveLength(2);
+    expect(ascii.cursorRow).toBe(1);
+    expect(ascii.cursorCol).toBe(0);
+    const wide = layout("12345678가", 10, 10);
+    expect(wide.lines).toHaveLength(2);
+    expect(wide.cursorRow).toBe(1);
+    // With the cursor inside the line no extra row appears.
+    expect(layout("1234567890", 10, 5).lines).toHaveLength(1);
+  });
+});

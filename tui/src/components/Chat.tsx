@@ -407,9 +407,9 @@ export function Chat({
             const prefix = row === 0 ? "> " : "  ";
             if (row !== draft.cursorRow) {
               return (
-                <Box key={`draft-${row}`}>
+                <Box key={`draft-${row}`} flexWrap="nowrap" overflow="hidden">
                   <Text color={promptColor}>{prefix}</Text>
-                  <Text>{value.slice(line.start, line.end)}</Text>
+                  <Text wrap="truncate-end">{value.slice(line.start, line.end)}</Text>
                 </Box>
               );
             }
@@ -419,12 +419,15 @@ export function Chat({
             const after = hasCursorText
               ? value.slice(cursorEnd, line.end)
               : value.slice(cursor, line.end);
+            // The layout already wrapped by display cells; Ink must not wrap
+            // again, or a wide character near the edge would put the caret on
+            // a row the model does not know about.
             return (
-              <Box key={`draft-${row}`}>
+              <Box key={`draft-${row}`} flexWrap="nowrap" overflow="hidden">
                 <Text color={promptColor}>{prefix}</Text>
                 <Text>{before}</Text>
                 <Text inverse>{mark}</Text>
-                <Text>{after}</Text>
+                <Text wrap="truncate-end">{after}</Text>
               </Box>
             );
           })}
