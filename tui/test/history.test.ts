@@ -200,4 +200,18 @@ describe("the /sessions picker rows", () => {
     expect(label).not.toContain("s-281c44db0861");
     expect(label.endsWith("README.md와 cache.py를 읽고")).toBe(true);
   });
+
+  it("puts this directory's sessions first and names the others' project", async () => {
+    const { resumeRows, resumeLabel } = await import("../src/state/history.js");
+    const rows = resumeRows(
+      [
+        { sessionId: "s-aaaaaaaaaaaa", workdir: "/other/calc-team", firstPrompt: "fix div", at: 3 },
+        { sessionId: "s-bbbbbbbbbbbb", workdir: "/here", firstPrompt: "hello", at: 2 },
+      ],
+      "/here",
+    );
+    expect(rows.map((r) => r.sessionId)).toEqual(["s-bbbbbbbbbbbb", "s-aaaaaaaaaaaa"]);
+    expect(resumeLabel(rows[0], 48, "/here").startsWith("s-bbbbbb ·")).toBe(true);
+    expect(resumeLabel(rows[1], 48, "/here").startsWith("[calc-team] s-aaaaaa ·")).toBe(true);
+  });
 });

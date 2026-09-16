@@ -35661,14 +35661,19 @@ function sessionKindPrefix(kind, parentSessionId) {
   if (kind === "agent") return "\u25C6 ";
   return "";
 }
-function resumeRows(entries) {
-  return entries.filter(
+function resumeRows(entries, workdir) {
+  const kept = entries.filter(
     (entry) => entry.kind !== "subagent" && entry.firstPrompt.trim().length > 0
   );
+  if (!workdir) return kept;
+  const here = kept.filter((entry) => entry.workdir === workdir);
+  const elsewhere = kept.filter((entry) => entry.workdir !== workdir);
+  return [...here, ...elsewhere];
 }
-function resumeLabel(entry, promptChars = 48) {
+function resumeLabel(entry, promptChars = 48, workdir) {
   const prompt = entry.firstPrompt.length > promptChars ? `${entry.firstPrompt.slice(0, promptChars - 1)}\u2026` : entry.firstPrompt;
-  return `${sessionKindPrefix(entry.kind, entry.parentSessionId)}${entry.sessionId.slice(
+  const where = workdir && entry.workdir !== workdir ? `[${entry.workdir.split("/").pop() || entry.workdir}] ` : "";
+  return `${where}${sessionKindPrefix(entry.kind, entry.parentSessionId)}${entry.sessionId.slice(
     0,
     8
   )} \xB7 ${new Date(entry.at).toLocaleString()} \xB7 ${prompt || "(no prompt)"}`;
@@ -40475,7 +40480,7 @@ function App2({
   }, [lastSession, resumeSession, showToast]);
   const openResumePicker = (0, import_react45.useCallback)(() => {
     showToast("loading saved sessions");
-    void client.call("session.list", { includeClosed: true, workdir }).then((result) => {
+    void client.call("session.list", { includeClosed: true }).then((result) => {
       const choices = (Array.isArray(result?.sessions) ? result.sessions : []).filter((row) => row.sessionId !== activeSessionRef.current).map((row) => ({
         sessionId: String(row.sessionId),
         workdir: String(row.workdir),
@@ -40484,7 +40489,7 @@ function App2({
         kind: typeof row.kind === "string" ? row.kind : "chat",
         parentSessionId: typeof row.parentSessionId === "string" ? row.parentSessionId : void 0
       }));
-      const rows = resumeRows(choices);
+      const rows = resumeRows(choices, workdir);
       if (rows.length === 0) {
         showToast("no saved sessions for this directory");
         return;
@@ -41131,7 +41136,7 @@ function App2({
       {
         options: [
           ...resumeChoices.map((entry) => ({
-            label: resumeLabel(entry),
+            label: resumeLabel(entry, 48, workdir),
             value: entry.sessionId
           })),
           { label: "Cancel", value: null }

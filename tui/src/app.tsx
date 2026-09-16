@@ -1604,7 +1604,7 @@ export function App({
 
   const openResumePicker = useCallback(() => {
     showToast("loading saved sessions");
-    void client.call("session.list", { includeClosed: true, workdir }).then((result) => {
+    void client.call("session.list", { includeClosed: true }).then((result) => {
       const choices = (Array.isArray(result?.sessions) ? result.sessions : [])
         .filter((row: any) => row.sessionId !== activeSessionRef.current)
         .map((row: any) => ({
@@ -1616,7 +1616,7 @@ export function App({
           parentSessionId:
             typeof row.parentSessionId === "string" ? row.parentSessionId : undefined,
         }));
-      const rows = resumeRows(choices);
+      const rows = resumeRows(choices, workdir);
       if (rows.length === 0) {
         showToast("no saved sessions for this directory");
         return;
@@ -2459,7 +2459,7 @@ export function App({
         <ConfirmMenu<string | null>
           options={[
             ...resumeChoices.map((entry) => ({
-              label: resumeLabel(entry),
+              label: resumeLabel(entry, 48, workdir),
               value: entry.sessionId,
             })),
             { label: "Cancel", value: null },
