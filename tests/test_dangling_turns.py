@@ -312,3 +312,44 @@ async def test_a_stored_row_is_never_running(
             await client.stop()
         finally:
             await daemon.stop()
+
+
+def stored_messages(home: Path, session_id: str) -> list[dict[str, object]]:
+    connection = sqlite3.connect(Paths.create(home).state_db)
+    connection.row_factory = sqlite3.Row
+    try:
+        rows = connection.execute(
+            "SELECT role, content_json FROM messages WHERE session_id = ? ORDER BY idx",
+            (session_id,),
+        )
+        return [{"role": row["role"], "content": json.loads(row["content_json"])} for row in rows]
+    finally:
+        connection.close()
+
+
+async def test_an_interrupted_turn_keeps_its_prompt_for_resume(
+    tmp_path: Path, http: aiohttp.ClientSession
+) -> None:
+    """Stop a turn mid-way: the prompt it began with must be in the stored
+    history, or a resumed session answers as if it was never asked."""
+    home = tmp_path / "home"
+    with fake_provider(FIXTURE):
+        daemon = await make_daemon(home)
+        workdir = home / "project"
+        workdir.mkdir(parents=True, exist_ok=True)
+        client = await connect(http, daemon, timeout=TIMEOUT)
+        session_id = await start_session(client, workdir)
+        turn = await client.ok("session.prompt", {"sessionId": session_id, "text": "slow reply"})
+        turn_id = str(turn["turnId"])
+        await client.wait(
+            lambda event: event["kind"] == "turn.started"
+            and event["payload"]["turnId"] == turn_id
+        )
+        await client.ok("session.interrupt", {"sessionId": session_id})
+        await client.wait(
+            lambda event: event["kind"] == "turn.done" and event["payload"]["turnId"] == turn_id
+        )
+        messages = stored_messages(home, session_id)
+        assert [m["role"] for m in messages][-1:] == ["user"], messages
+        assert "slow reply" in json.dumps(messages[-1]["content"], ensure_ascii=False)
+        await daemon.stop()

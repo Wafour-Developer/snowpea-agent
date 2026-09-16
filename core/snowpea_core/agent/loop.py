@@ -39,7 +39,7 @@ from snowpea_core.providers import effort as effort_scale
 from snowpea_core.providers.base import ChatMessage, ProviderError, ToolCall
 from snowpea_core.server import errors
 from snowpea_core.session import compaction, events
-from snowpea_core.session.history import message_to_json
+from snowpea_core.session.manager import persist_history
 from snowpea_core.skills import hooks as plugin_hooks
 from snowpea_core.tools import output_spill, repeat_guard
 from snowpea_core.tools.registry import (
@@ -140,24 +140,16 @@ async def finish_turn(core: Core, session: Session, turn_id: str, reason: str) -
     shutdown has begun, for the same reason the final write is skipped in
     :func:`run_turn` (CORE-session-race).
     """
+    if not getattr(core, "stopping", False):
+        # Written whether or not the turn was already closed for us: the
+        # prompt it began with must survive an interruption (CORE-dangling-turns).
+        await persist_history(getattr(core, "store", None), session)
     if turn_id in session.finished_turns:
         # Already closed by ``SessionManager.finish_open_turns`` at shutdown;
         # the interrupt it then sets must not make this turn report itself done
         # a second time (CORE-dangling-turns).
         return reason
     if not getattr(core, "stopping", False):
-        store = getattr(core, "store", None)
-        if store is not None:
-            try:
-                await store.replace_messages(
-                    session.id,
-                    [
-                        {"role": message.role, "content": message_to_json(message)}
-                        for message in session.history.snapshot()
-                    ],
-                )
-            except Exception:  # noqa: BLE001 - persistence must not fail a turn
-                log.debug("could not persist history for %s", session.id, exc_info=True)
         try:
             await compaction.emit_context(core, session, discover=False)
         except Exception:  # noqa: BLE001 - accounting must not fail a turn

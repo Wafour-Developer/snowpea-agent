@@ -349,6 +349,9 @@ class SessionManager:
                 continue
             session.current_turn = None
             session.finished_turns.add(turn_id)
+            # The prompt this turn began with is in the history already; keep
+            # it, or a resume would open on a conversation that never asked.
+            await persist_history(self.store, session)
             try:
                 await self.hub.emit_event(
                     session.id, event_builders.turn_done(turn_id, reason, synthetic=True)
@@ -401,6 +404,33 @@ class SessionManager:
 
     def __len__(self) -> int:
         return len(self._sessions)
+
+
+async def persist_history(store: Any, session: Any) -> bool:
+    """Write ``session.history`` to the store as it stands; True when written.
+
+    Called at the end of every turn *and* on every interruption, so the user
+    message a turn began with survives even when the turn does not: a resumed
+    session used to forget any prompt whose turn was stopped, because the
+    snapshot was written only by the loop's own finish, which the synthetic
+    close had already claimed (CORE-dangling-turns).
+    """
+    from snowpea_core.session.history import message_to_json
+
+    if store is None:
+        return False
+    try:
+        await store.replace_messages(
+            session.id,
+            [
+                {"role": message.role, "content": message_to_json(message)}
+                for message in session.history.snapshot()
+            ],
+        )
+    except Exception:  # noqa: BLE001 - persistence must not fail a turn
+        log.debug("could not persist history for %s", session.id, exc_info=True)
+        return False
+    return True
 
 
 class EventHub:
