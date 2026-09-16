@@ -157,6 +157,17 @@ PARTIAL_REASONS = frozenset({BUDGET, "timeout", "error", "interrupted", "denied"
 NO_REPORT = "(the sub-agent ended without a final report; see the steps below)"
 
 
+def _denied_note(result: SubagentResult) -> str:
+    denied = [name for name in result.denied_tools if name]
+    if not denied:
+        return ""
+    names = ", ".join(dict.fromkeys(denied))
+    count = len(denied)
+    noun = "call" if count == 1 else "calls"
+    verb = "was" if count == 1 else "were"
+    return f"{count} tool {noun} {verb} denied: {names}"
+
+
 def render_report(result: SubagentResult) -> str:
     """The text the parent model reads: the header, the report, the last calls.
 
@@ -180,6 +191,9 @@ def render_report(result: SubagentResult) -> str:
             kind="report",
         ).text
     parts = ["\n".join(head), summary or NO_REPORT]
+    denied_note = _denied_note(result)
+    if denied_note:
+        parts.append(denied_note)
     if result.error and result.error not in (result.summary or ""):
         parts.append(f"error: {result.error}")
     if result.last_calls and (not summary or result.reason in PARTIAL_REASONS):

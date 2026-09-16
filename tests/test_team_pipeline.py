@@ -332,6 +332,94 @@ def test_review_approval_requires_an_explicit_line_and_tool_evidence() -> None:
     )
 
 
+def test_budget_exhaustion_keeps_an_explicit_pass_when_there_is_evidence() -> None:
+    budgeted = team_pipeline.SubagentResult(
+        "a-1",
+        True,
+        "ran pytest\nTESTS: PASS",
+        reason="budget",
+        rounds_used=10,
+        budget=10,
+        last_calls=["shell"],
+    )
+    assert team_pipeline._test_verdict(budgeted, budgeted.summary) == (
+        "TESTS: PASS (budget exhausted: 10/10 rounds)"
+    )
+
+    verify = team_pipeline.SubagentResult(
+        "a-2",
+        True,
+        "rechecked\nVERIFY: PASS",
+        reason="budget",
+        rounds_used=14,
+        budget=14,
+        last_calls=["shell"],
+    )
+    assert team_pipeline._verify_verdict(verify, verify.summary) == (
+        "VERIFY: PASS (budget exhausted: 14/14 rounds)"
+    )
+
+    review = team_pipeline.SubagentResult(
+        "a-3",
+        True,
+        "VERDICT: APPROVE\nlooked at the diff",
+        reason="budget",
+        rounds_used=16,
+        budget=16,
+        last_calls=["read_file"],
+    )
+    assert team_pipeline._review_verdict(review, review.summary) == (
+        "APPROVE (budget exhausted: 16/16 rounds)"
+    )
+
+
+def test_budget_exhaustion_without_a_verdict_marker_needs_more_evidence() -> None:
+    budgeted = team_pipeline.SubagentResult(
+        "a-1",
+        True,
+        "tests look good",
+        reason="budget",
+        rounds_used=10,
+        budget=10,
+        last_calls=["shell"],
+    )
+    assert (
+        team_pipeline._test_verdict(budgeted, budgeted.summary)
+        == team_pipeline.NEEDS_MORE_EVIDENCE
+    )
+    assert (
+        team_pipeline._verify_verdict(budgeted, budgeted.summary)
+        == team_pipeline.NEEDS_MORE_EVIDENCE
+    )
+    assert (
+        team_pipeline._review_verdict(budgeted, budgeted.summary)
+        == team_pipeline.NEEDS_MORE_EVIDENCE
+    )
+
+
+def test_budget_exhaustion_without_tool_evidence_needs_more_evidence() -> None:
+    budgeted = team_pipeline.SubagentResult(
+        "a-1",
+        True,
+        "VERDICT: APPROVE\nTESTS: PASS\nVERIFY: PASS",
+        reason="budget",
+        rounds_used=10,
+        budget=10,
+    )
+    assert (
+        team_pipeline._test_verdict(budgeted, budgeted.summary)
+        == team_pipeline.NEEDS_MORE_EVIDENCE
+    )
+    assert (
+        team_pipeline._verify_verdict(budgeted, budgeted.summary)
+        == team_pipeline.NEEDS_MORE_EVIDENCE
+    )
+    assert (
+        team_pipeline._review_verdict(budgeted, budgeted.summary)
+        == team_pipeline.NEEDS_MORE_EVIDENCE
+    )
+
+
 def test_findings_are_routed_to_the_task_that_owns_the_files() -> None:
     run = team_pipeline.PipelineRun(
         task="t",

@@ -27,13 +27,14 @@ $explore 응답 언어는 데몬 어디서 정해지나?
 |---|---|
 | `explore` | 읽기 전용 탐색: 무엇이 어디 있는지 찾아 `path:line` 근거로 보고 |
 | `reviewer` | 읽기 전용 리뷰: 판정 한 줄과, 근거가 붙은 지적들 |
-| `executor`, `architect`, `critic`, `verifier`, `explorer`, `test-engineer` | 역할 프롬프트, 도구 제한 없음 |
+| `executor`, `architect`, `verifier`, `test-engineer` | 역할 프롬프트, 도구 제한 없음 |
+| `explorer`, `critic` | 기본은 읽기 전용 역할(`read_file`, `glob`, `grep`), 정의에서 명시적으로 확장한 경우만 추가 도구 사용 |
 
 `explore`와 `reviewer`는 도구 허용 목록을 들고 다녀서 지시가 아니라 사실로 읽기 전용입니다. `write_file`도 `edit_file`도 `shell`도 없습니다. `<project>/.snowpea/agents/`에 같은 이름의 정의를 두면 내장 정의를 통째로 덮어씁니다.
 
 ### `explore`와 `explorer`, `reviewer`와 `critic`
 
-이름만 보면 겹쳐 보이는 두 쌍이 있지만 쓰임이 다릅니다. `explore`와 `reviewer`는 **위임해서 쓰는 내장 에이전트**입니다. 읽기 전용이고 도구 허용 목록이 붙어 있으며, 질문 하나나 diff 하나를 맡깁니다. `explorer`와 `critic`은 **팀 역할**이고, 파이프라인의 explore·review 단계를 채우며 도구 제한이 없습니다. 지금 당장 뭔가를 물어볼 때는 내장 에이전트를, 로스터를 적을 때는 역할 이름을 씁니다.
+이름만 보면 겹쳐 보이는 두 쌍이 있지만 쓰임이 다릅니다. `explore`와 `reviewer`는 **위임해서 쓰는 내장 에이전트**입니다. 읽기 전용이고 도구 허용 목록이 붙어 있으며, 질문 하나나 diff 하나를 맡깁니다. `explorer`와 `critic`은 **팀 역할**로 파이프라인의 explore·review 단계를 채우지만, 기본 도구는 `read_file`/`glob`/`grep` 읽기 전용이고 정의에서 명시적으로 추가한 경우에만 더 넓어집니다. 지금 당장 뭔가를 물어볼 때는 내장 에이전트를, 로스터를 적을 때는 역할 이름을 씁니다.
 
 | 위임용 | 팀 역할 | 차이 |
 |---|---|---|
@@ -165,9 +166,9 @@ test·verify·review 단계는 각각 명시적인 한 줄로 답합니다 — `
 | 역할 / 에이전트 | 기본 툴 라운드 |
 |---|---|
 | `explore`, `explorer` | 8 |
-| `reviewer`, `critic` | 12 |
+| `reviewer`, `critic` | 16 |
 | `test-engineer` | 15 |
-| `verifier` | 10 |
+| `verifier` | 14 |
 | `architect` | 10 |
 | `executor` 및 기타 서브에이전트 | 32 |
 
@@ -225,6 +226,6 @@ snowpea agents --json
 - **기억 블록 및 가이드 생략**: 자식은 기억 회상 블록과 가이드 라인을 받지 않습니다(기억 관련 툴 자체는 허용된 경우 정상 호출 가능).
 - **스킬 색인 생략**: 설치된 스킬 목록이 프롬프트에 나열되지 않으나, `skill_view`를 통해 이름으로 직접 스킬을 읽는 것은 언제든 가능합니다.
 - **루트 지시 파일만 제공**: 루트의 `AGENTS.md` 또는 `CLAUDE.md`만 사전에 로드되며, 중첩 지시 파일은 툴이 해당 디렉터리를 건드릴 때 온디맨드로 첨부됩니다.
-- **더 작은 eager 툴 세트**: 읽기 전용 자식(`explore`, `reviewer`)은 `read_file`, `grep`, `glob`, `shell`(허용된 경우), `tool_search`로 시작합니다. 그 외 툴은 지연(deferred)되어 필요 시 온디맨드로 로드됩니다.
+- **더 작은 eager 툴 세트**: 읽기 전용 자식(`explore`, `reviewer`)은 `read_file`, `grep`, `glob`, `tool_search`로 시작합니다. 그 외 툴은 지연(deferred)되어 필요 시 온디맨드로 로드됩니다.
 - **보존되는 요소**: 자식의 정의 프롬프트, 역할(role), 툴 라운드 예산 안내(`BUDGET_LINE`)는 항상 그대로 유지됩니다.
 

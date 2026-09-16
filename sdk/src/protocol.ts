@@ -2596,11 +2596,17 @@ export interface SubagentDoneEventPayload {
   agentId: string;
   /** Tool-round budget cap. */
   budget?: number;
+  /** How many child tool calls were denied in this run. */
+  deniedCalls?: number;
+  /** Unique names of tools whose calls were denied. */
+  deniedTools?: string[];
   kind?: "subagent.done";
   /** Named agent that ran, when there was one. */
   name?: string;
   /** False when it failed. */
   ok?: boolean;
+  /** Why it ended: complete, budget, timeout, error, interrupted or denied. */
+  reason?: string;
   /** Final report. */
   result?: string;
   /** Tool rounds used by the subagent. */

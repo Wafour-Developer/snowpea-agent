@@ -2119,9 +2119,12 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 |---|---|---|---|
 | `agentId` | `string` | yes | Subagent that finished. |
 | `budget` | `number` | no | Tool-round budget cap. |
+| `deniedCalls` | `number` | no | How many child tool calls were denied in this run. |
+| `deniedTools` | `string[]` | no | Unique names of tools whose calls were denied. |
 | `kind` | `"subagent.done"` | no |  |
 | `name` | `string` | no | Named agent that ran, when there was one. |
 | `ok` | `boolean` | no | False when it failed. |
+| `reason` | `string` | no | Why it ended: complete, budget, timeout, error, interrupted or denied. |
 | `result` | `string` | no | Final report. |
 | `rounds` | `number` | no | Tool rounds used by the subagent. |
 | `sessionId` | `string \| null` | no | The subagent's own session. |

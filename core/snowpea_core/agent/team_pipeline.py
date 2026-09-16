@@ -829,7 +829,7 @@ class TeamPipeline:
             self._record_handoff(run, REVIEW, text)
             run.verdict = _review_verdict(result, text)
             if run.verdict != REQUEST_CHANGES:
-                if run.verdict != APPROVE:
+                if not _is_verdict_pass(run.verdict, APPROVE):
                     run.unfinished.append(
                         f"the review stage did not approve: {run.verdict} "
                         f"({_evidence_problem(result, text)})"
@@ -1041,6 +1041,22 @@ def _explicit_line(text: str, allowed: Collection[str]) -> str:
     return ""
 
 
+_VERDICT_MARKERS = (
+    TESTS_PASS,
+    TESTS_FAIL,
+    VERIFY_PASS,
+    VERIFY_FAIL,
+    "VERDICT: APPROVE",
+    "VERDICT: REQUEST_CHANGES",
+    "VERDICT: REJECT",
+    "VERDICT: NEEDS_MORE_EVIDENCE",
+)
+
+
+def _has_verdict_marker(text: str) -> bool:
+    return bool(_explicit_line(text, _VERDICT_MARKERS))
+
+
 def _has_tool_evidence(result: SubagentResult, text: str = "") -> bool:
     """Whether the child actually looked at something.
 
@@ -1051,13 +1067,24 @@ def _has_tool_evidence(result: SubagentResult, text: str = "") -> bool:
     return bool(result.last_calls) or _COMMAND_EVIDENCE.search(text) is not None
 
 
+def _budget_annotation(result: SubagentResult) -> str:
+    if (result.reason or "").lower() == "budget":
+        rounds = result.rounds_used or result.budget
+        budget = result.budget or rounds
+        return f" (budget exhausted: {rounds}/{budget} rounds)"
+    return ""
+
+
 def _hard_evidence_problem(result: SubagentResult, text: str) -> str:
     """Evidence defects that override any claimed verdict."""
     if not result.ok:
         return result.error or f"the child ended with status {result.status}"
     reason = (result.reason or "").lower()
     if reason and reason != "complete":
-        return f"the child ended with reason {result.reason}"
+        if reason == "budget" and _has_verdict_marker(text) and _has_tool_evidence(result, text):
+            pass
+        else:
+            return f"the child ended with reason {result.reason}"
     if _APPROVAL_DENIED.search(text):
         return "the child reported a denied approval"
     if _FAILED_TOOL.search(text):
@@ -1083,7 +1110,7 @@ def _test_verdict(result: SubagentResult, text: str) -> str:
     if token == TESTS_FAIL:
         return TESTS_FAIL
     if token == TESTS_PASS and _has_tool_evidence(result, text):
-        return TESTS_PASS
+        return TESTS_PASS + _budget_annotation(result)
     return NEEDS_MORE_EVIDENCE
 
 
@@ -1094,7 +1121,7 @@ def _verify_verdict(result: SubagentResult, text: str) -> str:
     if token == VERIFY_FAIL:
         return VERIFY_FAIL
     if token == VERIFY_PASS and _has_tool_evidence(result, text):
-        return VERIFY_PASS
+        return VERIFY_PASS + _budget_annotation(result)
     return NEEDS_MORE_EVIDENCE
 
 
@@ -1117,7 +1144,11 @@ def _review_verdict(result: SubagentResult, text: str) -> str:
     if token == "VERDICT: APPROVE":
         # An approval nobody looked at is not an approval: without a tool call
         # behind it the child only asserted that the change is fine.
-        return APPROVE if _has_tool_evidence(result, text) else NEEDS_MORE_EVIDENCE
+        return (
+            (APPROVE + _budget_annotation(result))
+            if _has_tool_evidence(result, text)
+            else NEEDS_MORE_EVIDENCE
+        )
     return "NO_VERDICT"
 
 
@@ -1129,17 +1160,21 @@ def _verdict(text: str) -> str:
     )
 
 
+def _is_verdict_pass(actual: str, expected: str) -> bool:
+    return actual == expected or actual.startswith(f"{expected} (budget exhausted")
+
+
 def _stage_text(run: PipelineRun, stage: str) -> str:
     return "\n".join(item.text for item in run.stages if item.stage == stage)
 
 
 def _unfinished(run: PipelineRun) -> list[str]:
     unfinished = list(run.unfinished)
-    if run.tests != TESTS_PASS:
+    if not _is_verdict_pass(run.tests, TESTS_PASS):
         unfinished.append(f"tests were not PASS ({run.tests or 'not run'})")
-    if run.verification and run.verification != VERIFY_PASS:
+    if run.verification and not _is_verdict_pass(run.verification, VERIFY_PASS):
         unfinished.append(f"verify was not PASS ({run.verification})")
-    if run.verdict != APPROVE:
+    if not _is_verdict_pass(run.verdict, APPROVE):
         unfinished.append(f"review was not APPROVE ({run.verdict or 'not run'})")
     for stage in run.stages:
         if not stage.ok:

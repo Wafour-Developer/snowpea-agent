@@ -1955,8 +1955,20 @@ class SubagentDone(Payload):
     )
     name: str = Field(default="", description="Named agent that ran, when there was one.")
     sessionId: str | None = Field(default=None, description="The subagent's own session.")
+    reason: str = Field(
+        default="complete",
+        description=(
+            "Why it ended: complete, budget, timeout, error, interrupted or denied."
+        ),
+    )
     rounds: int = Field(default=0, description="Tool rounds used by the subagent.")
     budget: int = Field(default=0, description="Tool-round budget cap.")
+    deniedCalls: int = Field(
+        default=0, description="How many child tool calls were denied in this run."
+    )
+    deniedTools: list[str] = Field(
+        default_factory=list, description="Unique names of tools whose calls were denied."
+    )
 
 
 class TeamTaskUpdate(Payload):

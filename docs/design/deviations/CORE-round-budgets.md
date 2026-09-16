@@ -14,9 +14,9 @@ tailored to their responsibilities.
 
 ### Role defaults
 - `explore` / `explorer`: **8** rounds
-- `reviewer` / `critic`: **12** rounds
+- `reviewer` / `critic`: **16** rounds
 - `test-engineer`: **15** rounds
-- `verifier`: **10** rounds
+- `verifier`: **14** rounds
 - `architect`: **10** rounds
 - `executor` and others: **32** rounds
 

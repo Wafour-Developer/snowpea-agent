@@ -78,10 +78,10 @@ SUBAGENT_TOOL_ROUNDS = 32
 DEFAULT_TOOL_ROUNDS: dict[str, int] = {
     "explore": 8,
     "explorer": 8,
-    "reviewer": 12,
-    "critic": 12,
+    "reviewer": 16,
+    "critic": 16,
     "test-engineer": 15,
-    "verifier": 10,
+    "verifier": 14,
     "architect": 10,
     "executor": 32,
 }
@@ -181,8 +181,8 @@ def tool_rounds_for(core: Core, session: Session | None = None) -> int:
     3. ``agents.toolRounds[<agent name>]`` when the setting is a mapping;
     4. ``agents.maxToolRounds`` as a number;
     5. ``agents.toolRounds`` as a number, or its ``"default"`` / ``"*"`` key;
-    6. Role defaults when absent (explore/explorer 8, reviewer/critic 12,
-       test-engineer 15, verifier 10, architect 10, executor 32);
+    6. Role defaults when absent (explore/explorer 8, reviewer/critic 16,
+       test-engineer 15, verifier 14, architect 10, executor 32);
     7. :data:`SUBAGENT_TOOL_ROUNDS` (32) for a delegated child, or
        ``agent.max_tool_rounds`` for a human session.
     """
