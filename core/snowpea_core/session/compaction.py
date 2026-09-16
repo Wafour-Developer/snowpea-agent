@@ -578,6 +578,7 @@ def prune_old_tool_outputs(
     history: list[ChatMessage],
     keep_rounds: int = DEFAULT_KEEP_TOOL_ROUNDS,
     max_chars: int = DEFAULT_TOOL_OUTPUT_MAX_CHARS,
+    pruned: list[str] | None = None,
 ) -> list[ChatMessage]:
     """Shrink old tool results for the *outgoing request only* (CORE-repeat-guard).
 
@@ -614,6 +615,10 @@ def prune_old_tool_outputs(
             out[index] = replace(
                 message, content=_tool_output_stub(message.name or "", len(message.content))
             )
+            # The caller may need to know which results the model can no
+            # longer see: the repeat guard must let those be asked for again.
+            if pruned is not None and message.tool_call_id:
+                pruned.append(message.tool_call_id)
             continue
         trimmed = _trim_tool_output(message.content, max_chars)
         if trimmed != message.content:
