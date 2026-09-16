@@ -185,3 +185,19 @@ describe("session kind prefixes", () => {
     expect(sessionKindPrefix("agent", "s-850623abcdef")).toBe("◆ ");
   });
 });
+
+describe("the /sessions picker rows", () => {
+  it("hides subagent children and never-prompted sessions, and shortens ids", async () => {
+    const { resumeRows, resumeLabel } = await import("../src/state/history.js");
+    const rows = resumeRows([
+      { sessionId: "s-82dc1166a09f", workdir: "/p", firstPrompt: "", at: 1 },
+      { sessionId: "s-9d3e08a40b9b", workdir: "/p", firstPrompt: "child", at: 2, kind: "subagent", parentSessionId: "s-82dc1166a09f" },
+      { sessionId: "s-281c44db0861", workdir: "/p", firstPrompt: "README.md와 cache.py를 읽고", at: 3 },
+    ]);
+    expect(rows.map((r) => r.sessionId)).toEqual(["s-281c44db0861"]);
+    const label = resumeLabel(rows[0]);
+    expect(label.startsWith("s-281c44 · ")).toBe(true);
+    expect(label).not.toContain("s-281c44db0861");
+    expect(label.endsWith("README.md와 cache.py를 읽고")).toBe(true);
+  });
+});
