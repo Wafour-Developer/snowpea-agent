@@ -83,6 +83,7 @@ import {
 import { lspTable, readLspStatus } from "./state/lsp.js";
 import { delegationHint, delegationLabel } from "./state/delegation.js";
 import { agentCandidates } from "./state/agent-completion.js";
+import { layout as editorLayout } from "./state/editor.js";
 import type { LocalAudio } from "./util/audio-tools.js";
 import {
   addAttachments,
@@ -1254,6 +1255,10 @@ export function App({
     () => delegationHint(draft, knownAgents.map((agent) => agent.name)),
     [draft, knownAgents],
   );
+  const draftRows = useMemo(
+    () => editorLayout(draft, Math.max(1, contentWidth - 2), draft.length).lines.length,
+    [draft, contentWidth],
+  );
 
   const layout = computeLayout({
     // One row short of the terminal on purpose; see `RESERVED_FRAME_ROW`.
@@ -1270,6 +1275,7 @@ export function App({
       agentRows.length +
       3,
     bottomRows: reserveBottomRows({
+      inputRows: draftRows,
       paletteCommands: draft.startsWith("/") ? completions.length : 0,
       approvalArgs: state.pendingApproval
         ? Object.keys(state.pendingApproval.args ?? {}).length
@@ -2640,6 +2646,7 @@ export function App({
           onAppended={() => setAppend(null)}
           completions={completions}
           agents={completableAgents}
+          draftWidth={Math.max(1, contentWidth - 2)}
           onChange={(next) => {
             setDraft(next);
             if (next.length > 0 && state.errors.length > 0) dispatch({ type: "errors/clear" });

@@ -11,6 +11,7 @@
  */
 
 import { formatTokens } from "./hud.js";
+import { textWidth } from "./text-width.js";
 import { formatDuration } from "../state/working.js";
 import type { State, SubagentEntry, TeamTaskEntry } from "../state/store.js";
 
@@ -271,19 +272,9 @@ export function buildAgentRows({
   return shown;
 }
 
-/**
- * Glyphs a terminal draws two cells wide.
- *
- * Only the panel's own glyphs need to be known, and they are all listed above,
- * so this is exact rather than a general width table.
- */
-const WIDE_GLYPHS = new Set(["⏳"]);
-
 /** Columns a string occupies on screen, counting the wide glyphs as two. */
 export function cells(text: string): number {
-  let width = 0;
-  for (const character of text) width += WIDE_GLYPHS.has(character) ? 2 : 1;
-  return width;
+  return textWidth(text);
 }
 
 export interface AgentRowLayout {

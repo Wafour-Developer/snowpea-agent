@@ -65,4 +65,26 @@ describe("Chat line editing", () => {
       expect(onSubmit).toHaveBeenCalledWith("working draft");
     } finally { instance.unmount(); }
   });
+
+  it("edits a multiline draft with arrow keys and submits expected text", async () => {
+    const onSubmit = vi.fn();
+    const stdin = fakeStdin();
+    const stdout = fakeStdout(40, 10);
+    const instance = render(<Chat onSubmit={onSubmit} completions={[]} draftWidth={20} />, {
+      stdin, stdout: stdout.stream, exitOnCtrlC: false, patchConsole: false,
+    });
+    try {
+      stdin.write("first line\nsecond line");
+      await sleep(40);
+      stdin.write("\u001b[A");
+      await sleep(30);
+      await type(stdin, "!", 20);
+      await sleep(30);
+      stdin.write("\u001b[B");
+      await sleep(30);
+      stdin.write("\r");
+      await sleep(60);
+      expect(onSubmit).toHaveBeenCalledWith("first line!\nsecond line");
+    } finally { instance.unmount(); }
+  });
 });

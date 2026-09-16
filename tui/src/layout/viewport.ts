@@ -163,6 +163,7 @@ export function approvalQueueRows(requestCount: number, focused = false): number
  * under-reserving would push content past the last row and make Ink scroll.
  */
 export function bottomRows({
+  inputRows = 1,
   paletteCommands = 0,
   approvalArgs = null,
   questionRows = 0,
@@ -174,6 +175,8 @@ export function bottomRows({
   queuedRows = 0,
   delegationVisible = false,
 }: {
+  /** Visual rows the draft currently occupies. */
+  inputRows?: number;
   paletteCommands?: number;
   /** Number of argument lines on the interactive prompt, or null when absent. */
   approvalArgs?: number | null;
@@ -197,7 +200,7 @@ export function bottomRows({
     questionRows > 0
       ? questionRows
       : approvalArgs === null
-        ? 1 + paletteRows(paletteCommands)
+        ? Math.max(1, inputRows) + paletteRows(paletteCommands)
         : approvalPromptRows(approvalArgs);
   return (
     input +
