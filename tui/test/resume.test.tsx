@@ -143,7 +143,7 @@ describe("session resume", () => {
       stdin.write("\r");
       if (command === "/resume" || command === "/sessions") {
         await sleep(100);
-        expect(stdout.text()).toContain(CHILD);
+        expect(stdout.text()).toContain(CHILD.slice(0, 8));
         expect(stdout.text()).toContain("fix the failing build");
         stdin.write("\r");
       }

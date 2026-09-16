@@ -35661,6 +35661,18 @@ function sessionKindPrefix(kind, parentSessionId) {
   if (kind === "agent") return "\u25C6 ";
   return "";
 }
+function resumeRows(entries) {
+  return entries.filter(
+    (entry) => entry.kind !== "subagent" && entry.firstPrompt.trim().length > 0
+  );
+}
+function resumeLabel(entry, promptChars = 48) {
+  const prompt = entry.firstPrompt.length > promptChars ? `${entry.firstPrompt.slice(0, promptChars - 1)}\u2026` : entry.firstPrompt;
+  return `${sessionKindPrefix(entry.kind, entry.parentSessionId)}${entry.sessionId.slice(
+    0,
+    8
+  )} \xB7 ${new Date(entry.at).toLocaleString()} \xB7 ${prompt || "(no prompt)"}`;
+}
 function stateDir(env3, home) {
   return env3.SNOWPEA_HOME && env3.SNOWPEA_HOME.length > 0 ? env3.SNOWPEA_HOME : `${home}/.snowpea`;
 }
@@ -40472,11 +40484,12 @@ function App2({
         kind: typeof row.kind === "string" ? row.kind : "chat",
         parentSessionId: typeof row.parentSessionId === "string" ? row.parentSessionId : void 0
       }));
-      if (choices.length === 0) {
+      const rows = resumeRows(choices);
+      if (rows.length === 0) {
         showToast("no saved sessions for this directory");
         return;
       }
-      setResumeChoices(choices);
+      setResumeChoices(rows);
     }).catch(
       (error) => dispatch({ type: "error", message: `could not list saved sessions: ${String(error)}` })
     );
@@ -41118,7 +41131,7 @@ function App2({
       {
         options: [
           ...resumeChoices.map((entry) => ({
-            label: `${sessionKindPrefix(entry.kind, entry.parentSessionId)}${entry.sessionId} \xB7 ${new Date(entry.at).toLocaleString()} \xB7 ${entry.firstPrompt ? entry.firstPrompt.length > 48 ? `${entry.firstPrompt.slice(0, 47)}\u2026` : entry.firstPrompt : "(no prompt)"}`,
+            label: resumeLabel(entry),
             value: entry.sessionId
           })),
           { label: "Cancel", value: null }

@@ -58,6 +58,31 @@ export function sessionKindPrefix(
   return "";
 }
 
+/**
+ * The rows the `/sessions` picker offers, out of what `session.list` returned.
+ *
+ * A subagent's session is a child of a thread, not a thread of its own, and
+ * a session nobody ever prompted (a probe, an abandoned tab) is noise in a
+ * list a person has to scan; both are dropped. Ids are shortened to eight
+ * characters, which is what the daemon accepts as a prefix everywhere.
+ */
+export function resumeRows(entries: SessionRecord[]): SessionRecord[] {
+  return entries.filter(
+    (entry) => entry.kind !== "subagent" && entry.firstPrompt.trim().length > 0,
+  );
+}
+
+export function resumeLabel(entry: SessionRecord, promptChars = 48): string {
+  const prompt =
+    entry.firstPrompt.length > promptChars
+      ? `${entry.firstPrompt.slice(0, promptChars - 1)}…`
+      : entry.firstPrompt;
+  return `${sessionKindPrefix(entry.kind, entry.parentSessionId)}${entry.sessionId.slice(
+    0,
+    8,
+  )} · ${new Date(entry.at).toLocaleString()} · ${prompt || "(no prompt)"}`;
+}
+
 /** The file operations this module needs; `node:fs` satisfies it. */
 export interface FileStore {
   read(path: string): string | null;

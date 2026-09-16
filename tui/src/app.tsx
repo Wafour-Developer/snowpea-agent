@@ -60,7 +60,7 @@ import {
 import { useSpinner } from "./hooks/useSpinner.js";
 import { useKnownAgents } from "./hooks/useKnownAgents.js";
 import { clampFocus, focusDown, focusUp, isInput, INPUT_FOCUS, type Focus } from "./state/focus.js";
-import { offerSession, sessionKindPrefix } from "./state/history.js";
+import { offerSession, resumeLabel, resumeRows } from "./state/history.js";
 import {
   beginRecording,
   endRecording,
@@ -1616,11 +1616,12 @@ export function App({
           parentSessionId:
             typeof row.parentSessionId === "string" ? row.parentSessionId : undefined,
         }));
-      if (choices.length === 0) {
+      const rows = resumeRows(choices);
+      if (rows.length === 0) {
         showToast("no saved sessions for this directory");
         return;
       }
-      setResumeChoices(choices);
+      setResumeChoices(rows);
     }).catch((error: unknown) =>
       dispatch({ type: "error", message: `could not list saved sessions: ${String(error)}` }),
     );
@@ -2458,15 +2459,7 @@ export function App({
         <ConfirmMenu<string | null>
           options={[
             ...resumeChoices.map((entry) => ({
-              label: `${sessionKindPrefix(entry.kind, entry.parentSessionId)}${
-                entry.sessionId
-              } · ${new Date(entry.at).toLocaleString()} · ${
-                entry.firstPrompt
-                  ? entry.firstPrompt.length > 48
-                    ? `${entry.firstPrompt.slice(0, 47)}…`
-                    : entry.firstPrompt
-                  : "(no prompt)"
-              }`,
+              label: resumeLabel(entry),
               value: entry.sessionId,
             })),
             { label: "Cancel", value: null },
