@@ -235,13 +235,15 @@ describe("voice on the HUD", () => {
     const base = { model: "m", mode: "accept" as const, usage: { inputTokens: 0, outputTokens: 0 } };
     const texts = (input: any) => hudSegments(input).map((s: any) => s.text);
     expect(shortEngine("sherpa-onnx-sensevoice")).toBe("sensevoice");
-    expect(texts({ ...base, sttEngine: "sherpa-onnx-sensevoice", ttsEngine: "supertonic" })).toEqual(
-      expect.arrayContaining(["🎤 off", "🔊 off"]),
-    );
+    const off = hudSegments({ ...base, sttEngine: "sherpa-onnx-sensevoice", ttsEngine: "supertonic" });
+    expect(off.filter((s: any) => s.key === "mic" || s.key === "tts").map((s: any) => [s.text, s.dimColor])).toEqual([
+      ["🎤 sensevoice", true],
+      ["🔊 supertonic", true],
+    ]);
     expect(texts({ ...base, voiceInput: true, speaking: true, sttEngine: "sherpa-onnx-sensevoice", ttsEngine: "supertonic" })).toEqual(
       expect.arrayContaining(["🎤 sensevoice", "🔊 supertonic"]),
     );
     expect(texts({ ...base, voiceInput: true, recording: true, sttEngine: "x" })).toContain("● rec");
-    expect(texts({ ...base })).not.toEqual(expect.arrayContaining(["🎤 off"]));
+    expect(hudSegments({ ...base }).some((s: any) => s.key === "mic")).toBe(false);
   });
 });

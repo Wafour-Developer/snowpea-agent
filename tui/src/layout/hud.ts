@@ -250,12 +250,13 @@ export function buildHudSegments(input: HudInput): HudSegment[] {
   } else if (input.voiceInput) {
     segments.push({ key: "mic", text: `🎤${engine(input.sttEngine)}`, color: "cyan", priority: 3 });
   } else if (input.sttEngine) {
-    segments.push({ key: "mic", text: `🎤 off`, dimColor: true, priority: 9 });
+    // Set but not armed: the engine's name, dimmed, so it reads as "ready".
+    segments.push({ key: "mic", text: `🎤${engine(input.sttEngine)}`, dimColor: true, priority: 9 });
   }
   if (input.speaking) {
     segments.push({ key: "tts", text: `🔊${engine(input.ttsEngine)}`, color: "cyan", priority: 3 });
   } else if (input.ttsEngine) {
-    segments.push({ key: "tts", text: `🔊 off`, dimColor: true, priority: 9 });
+    segments.push({ key: "tts", text: `🔊${engine(input.ttsEngine)}`, dimColor: true, priority: 9 });
   }
 
   if (input.toolCount && input.toolCount > 0) {
