@@ -52,6 +52,13 @@ snowpea setup audio
 
 That section asks two questions — how to listen, and how to speak — and shows which backends are actually installed here.
 
+### Installing from multiple surfaces
+
+`audio.install` is single-flight per target key (`engine`, or `engine+voice` for a voice download).
+If another window or CLI asks for the same target while one run is already active, the daemon refuses
+the second request with RPC code `install_running` and includes the running install metadata (engine,
+optional voice, latest progress snapshot). Clients should attach to that running job instead of retrying.
+
 ### Speech to text
 
 | Provider | Needs | Notes |

@@ -20,6 +20,7 @@ import pytest
 from snowpea_core.audio import install as audio_install
 from snowpea_core.audio import runtime as audio_runtime
 from snowpea_core.audio import tts as tts_mod
+from snowpea_core.server.errors import RpcError
 from snowpea_core.setup.catalog import stt_catalog, tts_catalog
 
 # ---------------------------------------------------------------------------
@@ -534,3 +535,55 @@ async def test_the_handler_records_the_voice_piper_downloaded(
     voice = core.settings.audio["tts"].get("voice")
     assert voice and voice.endswith(f"{audio_install.DEFAULT_PIPER_VOICE}.onnx")
     assert saved, "the voice has to be written, or piper has nothing to say"
+
+
+async def test_a_second_handler_call_for_the_same_engine_is_refused_as_running(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    from snowpea_core.server import audio_handlers
+    from snowpea_core.server.protocol import AudioInstallParams
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+    calls: list[str] = []
+
+    async def fake_install(engine: str, **_kwargs: Any) -> Any:
+        calls.append(engine)
+        stages = _kwargs.get("stages")
+        if callable(stages):
+            await stages(
+                audio_install.StageEvent(
+                    engine=engine,
+                    stage="resolve",
+                    step=1,
+                    steps=3,
+                    line="$ uv tool install edge-tts",
+                )
+            )
+        started.set()
+        await release.wait()
+        return audio_install.InstallResult(ok=True, engine=engine, log=f"{engine} installed")
+
+    monkeypatch.setattr(audio_handlers.audio_install, "install", fake_install)
+    core = _Core(tmp_path)
+
+    first = asyncio.create_task(
+        audio_handlers.audio_install_handler(
+            None, AudioInstallParams(engine="edge-tts"), core  # type: ignore[arg-type]
+        )
+    )
+    await started.wait()
+
+    with pytest.raises(RpcError) as second:
+        await audio_handlers.audio_install_handler(
+            None, AudioInstallParams(engine="edge-tts"), core  # type: ignore[arg-type]
+        )
+    assert second.value.code == "install_running"
+    assert second.value.data["engine"] == "edge-tts"
+    assert second.value.data["progress"]["engine"] == "edge-tts"
+    assert second.value.data["progress"]["stage"] == "resolve"
+
+    release.set()
+    result = await first
+    assert result.ok is True
+    assert calls == ["edge-tts"], "the second request must not start a second install"

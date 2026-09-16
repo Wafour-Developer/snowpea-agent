@@ -12,6 +12,7 @@ reading it the same way once the model lands.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -69,6 +70,18 @@ _UNAVAILABLE = frozenset({"no_player", "no_recorder", "no_stt", "no_tts", "not_r
 
 #: One recorder per session; ``None`` is the key for a client with no session.
 _RECORDERS: dict[str | None, Recorder] = {}
+
+#: Guards the install in-flight registry.
+_INSTALL_LOCK = asyncio.Lock()
+#: One running ``audio.install`` task per ``engine`` or ``engine:voice`` key.
+_INSTALL_IN_FLIGHT: dict[str, asyncio.Task[audio_install.InstallResult]] = {}
+#: Latest progress payload per running install key, for ``install_running``.
+_INSTALL_PROGRESS: dict[str, dict[str, Any]] = {}
+
+
+def _install_key(engine: str, voice: str) -> str:
+    """The install row key: ``engine`` or ``engine:voice``."""
+    return f"{engine}:{voice}" if voice else engine
 
 
 # ---------------------------------------------------------------------------
@@ -305,9 +318,14 @@ async def audio_install_handler(
     ``ok=false`` with the command for this platform.  After a real install the
     engine is re-detected here, so ``audio.capabilities`` and ``setup.catalog``
     report it active without anyone restarting the daemon.
+
+    A second call for the same engine (or engine+voice) while one is already
+    running is refused with ``install_running`` and the latest progress payload,
+    so a surface can attach to the existing run rather than starting another.
     """
     engine = audio_install.engine_for((params.engine or "").strip())
     voice = (params.voice or "").strip()
+    key = _install_key(engine, voice)
     # The pair identifies the row a surface draws: an engine install and one of
     # its voices are two jobs, and they must not share one progress line.
     label = {"engine": engine, "voice": voice} if voice else {"engine": engine}
@@ -322,16 +340,42 @@ async def audio_install_handler(
         # One notification per event, not two: the stage payload already
         # carries the log line, so a client that only reads `line` is served
         # by the same message a client drawing a bar reads.
-        await publish({**event.to_payload(), **label})
+        payload = {**event.to_payload(), **label}
+        _INSTALL_PROGRESS[key] = payload
+        await publish(payload)
 
-    if voice:
-        result = await audio_install.install_voice(
-            engine, voice, home=core.paths.home, stages=stages
-        )
-    else:
-        result = await audio_install.install(engine, home=core.paths.home, stages=stages)
-    if result.ok:
-        _after_install(core, result)
+    async with _INSTALL_LOCK:
+        running = _INSTALL_IN_FLIGHT.get(key)
+        if running is not None:
+            details: dict[str, Any] = {"engine": engine}
+            if voice:
+                details["voice"] = voice
+            progress = _INSTALL_PROGRESS.get(key)
+            if progress is not None:
+                details["progress"] = progress
+            raise RpcError("install_running", f"{key} is already installing", details)
+
+        async def run() -> audio_install.InstallResult:
+            if voice:
+                result = await audio_install.install_voice(
+                    engine, voice, home=core.paths.home, stages=stages
+                )
+            else:
+                result = await audio_install.install(engine, home=core.paths.home, stages=stages)
+            if result.ok:
+                _after_install(core, result)
+            return result
+
+        task = asyncio.create_task(run())
+        _INSTALL_IN_FLIGHT[key] = task
+
+    try:
+        result = await task
+    finally:
+        async with _INSTALL_LOCK:
+            if _INSTALL_IN_FLIGHT.get(key) is task:
+                _INSTALL_IN_FLIGHT.pop(key, None)
+                _INSTALL_PROGRESS.pop(key, None)
     return AudioInstallResult(**result.to_payload())
 
 

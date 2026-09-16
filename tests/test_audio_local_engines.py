@@ -682,11 +682,14 @@ async def test_piper_reports_its_voice_download_as_a_stage(tmp_path: Path) -> No
     assert stages.sequence() == ["resolve", "install", "download", "check"]
 
 
-async def test_bytes_are_reported_as_they_arrive(tmp_path: Path) -> None:
+async def test_bytes_are_reported_as_they_arrive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A 400MB download and a checksum look identical in a log; not here."""
     model = stt_models.MODELS["sherpa-onnx-zipformer-ko"]
     body = _fake_archive(model)
     stages = Stages()
+    monkeypatch.setattr(stt_models, "PROGRESS_STEP", 1)
 
     class Chunked(FakeFetcher):
         """Serves the archive in pieces big enough to cross a progress step."""
@@ -723,6 +726,10 @@ async def test_bytes_are_reported_as_they_arrive(tmp_path: Path) -> None:
     )
     downloads = [event for event in stages.events if event.stage == "download"]
     assert downloads, "the download stage was never reported"
+    assert any(event.line == f"downloading {model.asset}" for event in downloads)
+    ticks = [event for event in downloads if event.bytes_done is not None]
+    assert ticks, "byte ticks were never reported"
+    assert all(event.line == "" for event in ticks)
 
 
 def test_the_stage_bar_says_where_it_is() -> None:

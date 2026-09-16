@@ -275,7 +275,7 @@ async def download_file(
                             # checksum look identical in a log, and only one of
                             # them takes four minutes.
                             if log is not None:
-                                await log.bytes(written, total, target.name)
+                                await log.bytes(written, total, "")
                             elif progress is not None:
                                 await progress(line)
     except Exception as exc:  # noqa: BLE001 - a failed download is a result
@@ -390,7 +390,7 @@ async def ensure_model(
     if log is not None:
         from snowpea_core.audio.install import STAGE_DOWNLOAD, STAGE_EXTRACT
 
-        await log.stage(STAGE_DOWNLOAD, f"downloading {model.url}")
+        await log.stage(STAGE_DOWNLOAD, f"downloading {archive.name}")
     elif progress is not None:
         await progress(f"downloading {model.url}")
     if not await download_file(
