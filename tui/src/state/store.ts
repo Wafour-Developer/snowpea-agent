@@ -700,6 +700,8 @@ function applySessionEvent(
         lastText: "",
         inputTokens: Number(payload.usage?.inputTokens ?? entry.inputTokens),
         outputTokens: Number(payload.usage?.outputTokens ?? entry.outputTokens),
+        sessionId:
+          typeof payload.sessionId === "string" ? payload.sessionId : entry.sessionId,
         endedAt: Number(payload.at ?? Date.now()),
       }));
 

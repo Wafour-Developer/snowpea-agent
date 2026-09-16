@@ -16,9 +16,19 @@ import { countOf, fakeStdin, fakeStdout, sleep, type } from "./tty.js";
 
 const CHILD = "child-session-1";
 
-function fakeClient() {
+function fakeClient(options: { knownAgents?: any[]; childEvents?: SessionEvent[] } = {}) {
   let onSessionEvent: ((event: SessionEvent) => void) | undefined;
   const calls: Array<{ method: string; params: any }> = [];
+  const childEvents =
+    options.childEvents ??
+    [
+      {
+        sessionId: CHILD,
+        seq: 1,
+        kind: "message.done",
+        payload: { role: "assistant", text: "CHILD-ONLY-ANSWER" },
+      } as SessionEvent,
+    ];
   return {
     calls,
     getStatus: () => "connected",
@@ -34,16 +44,10 @@ function fakeClient() {
       if (method === "session.resume") {
         return {
           sessionId: params.sessionId,
-          events: [
-            {
-              sessionId: params.sessionId,
-              seq: 1,
-              kind: "message.done",
-              payload: { role: "assistant", text: "CHILD-ONLY-ANSWER" },
-            },
-          ],
+          events: childEvents.map((event) => ({ ...event, sessionId: params.sessionId })),
         };
       }
+      if (method === "agent.list") return { agents: options.knownAgents ?? [] };
       if (method === "system.info") return { pid: 1, lifecycle: { summary: "idle" } };
       return { commands: [], tools: [], agents: [] };
     },
@@ -78,6 +82,34 @@ async function withDelegate() {
       name: "executor",
       task: "do the delegated work",
       status: "running",
+      sessionId: CHILD,
+    }),
+  );
+  await sleep(120);
+  return { client, stdin, stdout, instance };
+}
+
+async function withDoneDelegateLateSession() {
+  const client = fakeClient();
+  const stdin = fakeStdin();
+  const stdout = fakeStdout(100, 24);
+  const instance = render(
+    <App client={client as any} sessionId="sess-1" mode="accept" workdir="/tmp/project" />,
+    { stdin, stdout: stdout.stream, exitOnCtrlC: false, patchConsole: false },
+  );
+  await sleep(150);
+  client.emit(
+    event(1, "subagent.spawn", {
+      agentId: "a1",
+      name: "executor",
+      task: "do the delegated work",
+      status: "running",
+    }),
+  );
+  client.emit(
+    event(2, "subagent.done", {
+      agentId: "a1",
+      status: "done",
       sessionId: CHILD,
     }),
   );
@@ -147,6 +179,52 @@ describe("the bottom panel", () => {
     expect(stdout.text()).toContain("hello");
     expect(client.calls.filter((call) => call.method === "session.resume")).toHaveLength(0);
     instance.unmount();
+  });
+
+  it("opens a finished delegate row and replays its child transcript", async () => {
+    const { client, stdin, stdout, instance } = await withDoneDelegateLateSession();
+    stdout.chunks.length = 0;
+    for (let i = 0; i < 3; i += 1) {
+      stdin.write("\u001B[B");
+      await sleep(60);
+    }
+    stdin.write("\r");
+    await sleep(220);
+    const output = stdout.text();
+    const resumed = client.calls.filter((call) => call.method === "session.resume");
+    instance.unmount();
+    stdin.end();
+    expect(resumed).toHaveLength(1);
+    expect(resumed[0].params).toEqual({ sessionId: CHILD, afterSeq: 0 });
+    expect(output).toContain("CHILD-ONLY-ANSWER");
+    expect(output).toContain("◯ executor");
+  });
+
+  it("says when an idle roster row has not run in this session", async () => {
+    const client = fakeClient({
+      knownAgents: [
+        { name: "core", kind: "team", active: true, agents: ["architect"] },
+        { name: "architect", kind: "definition", description: "plans" },
+      ],
+    });
+    const stdin = fakeStdin();
+    const stdout = fakeStdout(100, 24);
+    const instance = render(
+      <App client={client as any} sessionId="sess-1" mode="accept" workdir="/tmp/project" />,
+      { stdin, stdout: stdout.stream, exitOnCtrlC: false, patchConsole: false },
+    );
+    await sleep(220);
+    stdout.chunks.length = 0;
+    for (let i = 0; i < 3; i += 1) {
+      stdin.write("\u001B[B");
+      await sleep(60);
+    }
+    stdin.write("\r");
+    await sleep(120);
+    const output = stdout.text();
+    instance.unmount();
+    stdin.end();
+    expect(output).toContain("architect: no run in this session yet");
   });
 
   it("never mixes a child's events into the main transcript", async () => {
