@@ -288,3 +288,55 @@ async def test_the_setting_turns_the_whole_guard_off(session: Session) -> None:
         result = await call(core, session, "read_file", args, output="one")
         assert result.ok
         assert result.output == "one"
+
+
+def test_a_read_whose_result_was_pruned_can_be_asked_for_again(tmp_path) -> None:
+    """Pruning stubs an old read in the request; the guard must then hand the
+    file back in full instead of pointing at a result the model cannot see."""
+    from types import SimpleNamespace
+
+    from snowpea_core.session import compaction
+    from snowpea_core.session.history import ChatMessage, ToolCall
+    from snowpea_core.tools import repeat_guard
+
+    target = tmp_path / "npc.ts"
+    target.write_text("export const npc = 1;\n" * 20, encoding="utf-8")
+    session = SimpleNamespace(id="s-prune", workdir=str(tmp_path))
+    guard = repeat_guard.guard_for(session)
+    key = repeat_guard._read_key(session, {"path": "npc.ts"})
+    assert key is not None
+    guard.reads[key] = repeat_guard._ReadEntry(
+        hash=repeat_guard._file_digest(str(target)), lines=20
+    )
+
+    # Seven rounds after the read, so the read's result falls out of the window.
+    history: list[ChatMessage] = []
+    history.append(
+        ChatMessage(
+            role="assistant",
+            content="",
+            tool_calls=[ToolCall(id="c-read", name="read_file", arguments={"path": "npc.ts"})],
+        )
+    )
+    history.append(
+        ChatMessage(role="tool", content="x" * 500, tool_call_id="c-read", name="read_file")
+    )
+    for index in range(7):
+        history.append(
+            ChatMessage(
+                role="assistant",
+                content="",
+                tool_calls=[
+                    ToolCall(id=f"c{index}", name="shell", arguments={"command": f"echo {index}"})
+                ],
+            )
+        )
+        history.append(
+            ChatMessage(role="tool", content=str(index), tool_call_id=f"c{index}", name="shell")
+        )
+
+    pruned: list[str] = []
+    compaction.prune_old_tool_outputs(history, 6, 0, pruned)
+    assert "c-read" in pruned
+    repeat_guard.forget_pruned(session, history, pruned)
+    assert key not in guard.reads

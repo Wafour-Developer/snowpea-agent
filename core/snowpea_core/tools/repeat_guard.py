@@ -424,3 +424,31 @@ __all__ = [
     "guard_for",
     "record",
 ]
+
+
+def forget_pruned(session: Any, history: list[Any], tool_call_ids: list[str]) -> None:
+    """Drop what the guard remembers about calls whose results were pruned.
+
+    ``prune_old_tool_outputs`` stubs results older than the kept window in the
+    outgoing request; from then on the model has only "re-run the tool if you
+    need it again", so the guard must not answer that re-run with "the content
+    in your earlier result is still current" — it no longer is, for the model.
+    """
+    wanted = set(tool_call_ids)
+    if not wanted:
+        return
+    guard = guard_for(session)
+    for message in history:
+        calls = getattr(message, "tool_calls", None) or []
+        for call in calls:
+            if getattr(call, "id", None) not in wanted:
+                continue
+            name = str(getattr(call, "name", "") or "")
+            arguments = dict(getattr(call, "arguments", None) or {})
+            if name == "read_file":
+                key = _read_key(session, arguments)
+                if key is not None:
+                    guard.reads.pop(key, None)
+            else:
+                guard.results.pop((name, _canonical(arguments)), None)
+

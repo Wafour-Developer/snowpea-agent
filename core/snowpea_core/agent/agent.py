@@ -367,7 +367,17 @@ def build_messages(
     history = session.history.snapshot()
     on, keep, max_chars = compaction.tool_prune_settings(core)
     if on:
-        history = compaction.prune_old_tool_outputs(history, keep, max_chars)
+        pruned: list[str] = []
+        stored = history
+        history = compaction.prune_old_tool_outputs(history, keep, max_chars, pruned)
+        if pruned:
+            # A result the model can no longer see is not one it should be
+            # refused when it asks again (CORE-repeat-guard): the guard's
+            # "unchanged since your earlier read" only holds while that
+            # earlier read is still in the request.
+            from snowpea_core.tools import repeat_guard
+
+            repeat_guard.forget_pruned(session, stored, pruned)
     return [
         ChatMessage(
             role="system",
