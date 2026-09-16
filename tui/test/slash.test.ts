@@ -57,7 +57,7 @@ describe("SlashRegistry", () => {
     expect(registry.complete("p").map((c) => c.name)).toEqual(["plan"]);
     expect(registry.complete("/res").map((c) => c.name)).toEqual(["resume"]);
     expect(registry.complete("/ses").map((c) => c.name)).toEqual(["session", "sessions"]);
-    expect(registry.complete("/").map((c) => c.name)).toHaveLength(7);
+    expect(registry.complete("/").map((c) => c.name)).toHaveLength(11);
     expect(registry.complete("/zz")).toEqual([]);
   });
 
