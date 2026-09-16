@@ -217,3 +217,20 @@ describe("layoutAgentRow", () => {
     expect(cells(wide.left)).toBe(cells(long.left));
   });
 });
+
+describe("idle rows and the active team", () => {
+  it("lists only the team's roster plus named agents when a roster is known", () => {
+    const known = [
+      { name: "architect", kind: "definition", description: "plans" },
+      { name: "executor", kind: "definition", description: "implements" },
+      { name: "explore", kind: "definition", description: "built-in search" },
+      { name: "reviewer", kind: "definition", description: "built-in review" },
+      { name: "yap", kind: "agent", description: "named agent" },
+    ];
+    const rows = buildAgentRows({ state: initialState, now: NOW, known, roster: ["architect", "executor"], expanded: true });
+    const idle = rows.filter((row) => row.status === "idle").map((row) => row.name);
+    expect(idle).toEqual(["architect", "executor", "yap"]);
+    const all = buildAgentRows({ state: initialState, now: NOW, known, expanded: true });
+    expect(all.filter((row) => row.status === "idle")).toHaveLength(5);
+  });
+});

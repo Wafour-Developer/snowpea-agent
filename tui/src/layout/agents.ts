@@ -116,12 +116,22 @@ export interface KnownAgent {
   description?: string;
   status?: string | null;
   task?: string | null;
+  /** For kind "team": its members in roster order. */
+  agents?: string[];
+  /** For kind "team": the project's active team. */
+  active?: boolean;
 }
 
 export interface AgentRowsInput {
   state: State;
   /** `agent.list`, when the daemon answered it. */
   known?: KnownAgent[];
+  /**
+   * The active team's roster. When given, idle rows are that team's members
+   * (plus named persistent agents), not every definition the daemon knows:
+   * the panel is "who works for this project", not the catalogue.
+   */
+  roster?: string[];
   now: number;
   /** Ctrl+A shows every row instead of collapsing. */
   expanded?: boolean;
@@ -140,6 +150,7 @@ export interface AgentRowsInput {
 export function buildAgentRows({
   state,
   known = [],
+  roster,
   now,
   expanded = false,
   currentLabel = "main",
@@ -162,8 +173,10 @@ export function buildAgentRows({
 
   // Idle rows: agents the daemon defines that are not part of this turn.
   const busy = new Set(state.subagents.map((entry) => entry.name).filter(Boolean));
+  const onTeam = roster ? new Set(roster) : null;
   const idle = known
     .filter((agent) => agent.kind !== "subagent" && !busy.has(agent.name))
+    .filter((agent) => !onTeam || onTeam.has(agent.name) || agent.kind === "agent")
     .map<AgentRow>((agent) => ({
       key: `idle-${agent.name}`,
       glyph: AGENT_GLYPH,

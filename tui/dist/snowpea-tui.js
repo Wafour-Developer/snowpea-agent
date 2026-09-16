@@ -37195,6 +37195,7 @@ function teamRow(task) {
 function buildAgentRows({
   state,
   known = [],
+  roster,
   now,
   expanded = false,
   currentLabel = "main"
@@ -37214,7 +37215,8 @@ function buildAgentRows({
   rows.push(...live.filter((row) => !row.dim));
   rows.push(...state.teamTasks.map(teamRow).filter((row) => !row.dim));
   const busy = new Set(state.subagents.map((entry) => entry.name).filter(Boolean));
-  const idle = known.filter((agent) => agent.kind !== "subagent" && !busy.has(agent.name)).map((agent) => ({
+  const onTeam = roster ? new Set(roster) : null;
+  const idle = known.filter((agent) => agent.kind !== "subagent" && !busy.has(agent.name)).filter((agent) => !onTeam || onTeam.has(agent.name) || agent.kind === "agent").map((agent) => ({
     key: `idle-${agent.name}`,
     glyph: AGENT_GLYPH,
     name: agent.name,
@@ -40151,11 +40153,13 @@ function App2({
   const now = Date.now();
   const clock = useClock(state.turnActive || voice.recording);
   const knownAgents = useKnownAgents(client, void 0, agentRosterVersion);
-  const activeTeam = knownAgents.find((agent) => agent.kind === "team")?.name;
+  const teamRow2 = knownAgents.find((agent) => agent.kind === "team" && agent.active) ?? knownAgents.find((agent) => agent.kind === "team");
+  const activeTeam = teamRow2?.name;
   const agentRows = (0, import_react45.useMemo)(
     () => buildAgentRows({
       state,
       known: knownAgents.filter((agent) => agent.kind !== "team"),
+      roster: teamRow2?.agents,
       now: clock,
       expanded: agentsExpanded,
       currentLabel: "main"
@@ -40165,7 +40169,7 @@ function App2({
     // hand `AgentPanel` a new array on each of the spinner's five frames a
     // second and on every token a delegate streams.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.subagents, state.teamTasks, knownAgents, activeTeam, agentsExpanded, clock]
+    [state.subagents, state.teamTasks, knownAgents, teamRow2, agentsExpanded, clock]
   );
   const agentRowCount = agentRows.length;
   (0, import_react45.useEffect)(() => {
