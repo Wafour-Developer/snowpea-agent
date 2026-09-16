@@ -1130,12 +1130,16 @@ export function App({
   // all, which is the same rule the spinner's timer follows.
   const clock = useClock(state.turnActive || voice.recording);
   const knownAgents = useKnownAgents(client, undefined, agentRosterVersion);
-  const activeTeam = knownAgents.find((agent) => agent.kind === "team")?.name;
+  const teamRow =
+    knownAgents.find((agent) => agent.kind === "team" && agent.active) ??
+    knownAgents.find((agent) => agent.kind === "team");
+  const activeTeam = teamRow?.name;
   const agentRows = useMemo(
     () =>
       buildAgentRows({
         state,
         known: knownAgents.filter((agent) => agent.kind !== "team"),
+        roster: teamRow?.agents,
         now: clock,
         expanded: agentsExpanded,
         currentLabel: "main",
@@ -1145,7 +1149,7 @@ export function App({
     // hand `AgentPanel` a new array on each of the spinner's five frames a
     // second and on every token a delegate streams.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.subagents, state.teamTasks, knownAgents, activeTeam, agentsExpanded, clock],
+    [state.subagents, state.teamTasks, knownAgents, teamRow, agentsExpanded, clock],
   );
 
   // Rows come and go as delegates finish; the cursor must stay on one.
