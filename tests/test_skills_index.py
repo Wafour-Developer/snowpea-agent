@@ -536,3 +536,251 @@ async def test_a_real_server_advertising_both_families_gets_all_four_stubs(
     text = compose.tool_lines([tool.spec() for tool in registry.active()])
     assert "MCP server fixture-capable (network)" in text
     assert "MCP server fixture-bare (network)" in text
+
+
+# ---------------------------------------------------------------------------
+# Claude Code installed plugins scanning
+# ---------------------------------------------------------------------------
+
+
+def write_claude_bundle(
+    root: Path,
+    name: str,
+    skill_name: str,
+    skill_desc: str = "Claude skill",
+    command_name: str = "",
+    command_desc: str = "Claude command",
+) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    manifest = root / ".claude-plugin" / "plugin.json"
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text(
+        json.dumps({"name": name, "version": "1.0.0", "description": f"{name} plugin"}),
+        encoding="utf-8",
+    )
+    if skill_name:
+        skills_dir = root / "skills" / skill_name
+        skills_dir.mkdir(parents=True, exist_ok=True)
+        (skills_dir / "SKILL.md").write_text(
+            f"---\nname: {skill_name}\ndescription: {skill_desc}\n---\n\nSkill body.\n",
+            encoding="utf-8",
+        )
+    if command_name:
+        commands_dir = root / "commands"
+        commands_dir.mkdir(parents=True, exist_ok=True)
+        (commands_dir / f"{command_name}.md").write_text(
+            f"---\ndescription: {command_desc}\n---\n\nCommand body.\n",
+            encoding="utf-8",
+        )
+    return root
+
+
+@pytest.mark.asyncio
+async def test_claude_plugin_skill_and_command_loaded(loader: SkillLoader, tmp_path: Path) -> None:
+    bundle = write_claude_bundle(
+        tmp_path / "claude_cache" / "design",
+        name="frontend-design",
+        skill_name="canvas",
+        skill_desc="Draw UI canvas",
+        command_name="render-canvas",
+        command_desc="Render canvas command",
+    )
+    installed_file = loader.home / ".claude" / "plugins" / "installed_plugins.json"
+    installed_file.parent.mkdir(parents=True, exist_ok=True)
+    installed_file.write_text(
+        json.dumps(
+            {
+                "version": 2,
+                "plugins": {
+                    "frontend-design@claude-code-plugins": [
+                        {
+                            "scope": "user",
+                            "installPath": str(bundle),
+                            "version": "1.0.0",
+                        }
+                    ]
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    await loader.reload()
+
+    # Skill appears with source claude-plugin
+    assert "canvas" in loader.skills
+    assert loader.skills["canvas"].source == "claude-plugin"
+    assert loader.skills["canvas"].kind == "skill"
+
+    # Command is registered and has source claude-plugin
+    assert "render-canvas" in loader.skills
+    assert loader.skills["render-canvas"].source == "claude-plugin"
+    assert loader.skills["render-canvas"].kind == "command"
+    assert loader.core.commands.get("render-canvas") is not None
+
+    # Plugin row appears with source claude-plugin
+    assert any(
+        p.name == "frontend-design" and p.source == "claude-plugin" for p in loader.plugins
+    )
+
+    # loader.list() includes them with source claude-plugin
+    infos = loader.list()
+    canvas_info = next(info for info in infos if info.name == "canvas")
+    assert canvas_info.source == "claude-plugin"
+    design_info = next(
+        info for info in infos if info.name == "frontend-design" and info.kind == "plugin"
+    )
+    assert design_info.source == "claude-plugin"
+
+
+@pytest.mark.asyncio
+async def test_claude_plugin_disabled_by_settings_is_skipped(
+    loader: SkillLoader, tmp_path: Path
+) -> None:
+    bundle = write_claude_bundle(
+        tmp_path / "claude_cache" / "design",
+        name="frontend-design",
+        skill_name="canvas",
+        command_name="render-canvas",
+    )
+    installed_file = loader.home / ".claude" / "plugins" / "installed_plugins.json"
+    installed_file.parent.mkdir(parents=True, exist_ok=True)
+    installed_file.write_text(
+        json.dumps(
+            {
+                "version": 2,
+                "plugins": {
+                    "frontend-design@claude-code-plugins": [
+                        {
+                            "scope": "user",
+                            "installPath": str(bundle),
+                            "version": "1.0.0",
+                        }
+                    ]
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    settings_file = loader.home / ".claude" / "settings.json"
+    settings_file.write_text(
+        json.dumps({"enabledPlugins": {"frontend-design@claude-code-plugins": False}}),
+        encoding="utf-8",
+    )
+
+    await loader.reload()
+
+    assert "canvas" not in loader.skills
+    assert "render-canvas" not in loader.skills
+    assert loader.core.commands.get("render-canvas") is None
+    assert not any(p.name == "frontend-design" for p in loader.plugins)
+
+
+@pytest.mark.asyncio
+async def test_same_named_snowpea_plugin_wins(loader: SkillLoader, tmp_path: Path) -> None:
+    # loader fixture already loaded snowpea plugin 'pdfkit' with skill 'pdf-split'
+    assert loader.skills["pdf-split"].source == "plugin:pdfkit"
+    assert loader.skills["pdf-split"].description == "Split a pdf"
+
+    # Claude plugin cache with same name 'pdfkit' and skill 'pdf-split'
+    bundle = write_claude_bundle(
+        tmp_path / "claude_cache" / "pdfkit",
+        name="pdfkit",
+        skill_name="pdf-split",
+        skill_desc="Claude duplicate split",
+    )
+    installed_file = loader.home / ".claude" / "plugins" / "installed_plugins.json"
+    installed_file.parent.mkdir(parents=True, exist_ok=True)
+    installed_file.write_text(
+        json.dumps(
+            {
+                "version": 2,
+                "plugins": {
+                    "pdfkit@claude-code-plugins": [
+                        {
+                            "scope": "user",
+                            "installPath": str(bundle),
+                            "version": "2.0.0",
+                        }
+                    ]
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    await loader.reload()
+
+    # Snowpea-installed plugin wins
+    assert loader.skills["pdf-split"].description == "Split a pdf"
+    assert loader.skills["pdf-split"].source == "plugin:pdfkit"
+    pdfkit_plugin = next(p for p in loader.plugins if p.name == "pdfkit")
+    assert pdfkit_plugin.source == "plugin:pdfkit"
+
+
+@pytest.mark.asyncio
+async def test_missing_or_malformed_installed_plugins_json_ignored(loader: SkillLoader) -> None:
+    installed_file = loader.home / ".claude" / "plugins" / "installed_plugins.json"
+    if installed_file.is_file():
+        installed_file.unlink()
+
+    report = await loader.reload()
+    assert report.skills > 0
+
+    installed_file.parent.mkdir(parents=True, exist_ok=True)
+    installed_file.write_text("{malformed json syntax", encoding="utf-8")
+    report = await loader.reload()
+    assert report.skills > 0
+
+    installed_file.write_text(json.dumps(["not a dict"]), encoding="utf-8")
+    report = await loader.reload()
+    assert report.skills > 0
+
+    installed_file.write_text(json.dumps({"plugins": "not a dict"}), encoding="utf-8")
+    report = await loader.reload()
+    assert report.skills > 0
+
+
+@pytest.mark.asyncio
+async def test_skills_index_text_contains_claude_plugin_group(
+    loader: SkillLoader, tmp_path: Path
+) -> None:
+    bundle = write_claude_bundle(
+        tmp_path / "claude_cache" / "frontend-design",
+        name="frontend-design",
+        skill_name="design-mockup",
+        skill_desc="Create responsive mockups",
+    )
+    installed_file = loader.home / ".claude" / "plugins" / "installed_plugins.json"
+    installed_file.parent.mkdir(parents=True, exist_ok=True)
+    installed_file.write_text(
+        json.dumps(
+            {
+                "version": 2,
+                "plugins": {
+                    "frontend-design@claude-code-plugins": [
+                        {
+                            "scope": "user",
+                            "installPath": str(bundle),
+                            "version": "1.0.0",
+                        }
+                    ]
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    await loader.reload()
+
+    groups = loader.index_groups()
+    group_labels = [label for label, _ in groups]
+    assert "[claude-plugin:frontend-design]" in group_labels
+
+    index_text = compose.skills_index(groups)
+    assert "[claude-plugin:frontend-design]" in index_text
+    assert "- design-mockup: Create responsive mockups" in index_text
+
+    tiers = compose.build_tiers(skill_groups=groups)
+    assert "[claude-plugin:frontend-design]" in tiers.context

@@ -104,6 +104,8 @@ def _agent_source_label(path: Path, source: str, core: Core) -> str:
     parts = path.parts
     if ".claude" not in parts or "agents" not in parts:
         return source
+    if source == "claude-plugin" or "plugins" in parts:
+        return "claude-plugin"
     for root in (_home(core), Path.home()):
         if root is None:
             continue

@@ -2,10 +2,17 @@
 
 Search roots, in the order they are scanned — a later root wins a name clash:
 
-1. built-ins  ``core/snowpea_core/builtin_skills/<name>/SKILL.md``      (``builtin``)
-2. global     ``$SNOWPEA_HOME/{skills,agents,commands}``                (``global``)
-3. plugins    ``$SNOWPEA_HOME/plugins/<plugin>/…``                      (``plugin:<name>``)
-4. project    ``<workdir>/.claude/…`` then ``<workdir>/.snowpea/…``     (``project``)
+1. built-ins      ``core/snowpea_core/builtin_skills/<name>/SKILL.md``      (``builtin``)
+2. global         ``$SNOWPEA_HOME/{skills,agents,commands}``                (``global``)
+3. claude-global  ``~/.claude/{skills,agents,commands}``                    (``claude-global``)
+4. plugins        ``$SNOWPEA_HOME/plugins/<plugin>/…``                      (``plugin:<name>``)
+5. claude-plugin  ``~/.claude/plugins/cache/…``                             (``claude-plugin``)
+6. project        ``<workdir>/.claude/…`` then ``<workdir>/.snowpea/…``     (``project``)
+
+Claude Code plugins installed under ``~/.claude/plugins/installed_plugins.json``
+are scanned as ``claude-plugin``. Snowpea-installed plugins and skills with the
+same name win over Claude copies and the duplicate is skipped with a debug log.
+Hooks from Claude plugins are NOT registered (only skills, commands, agents).
 
 A *bundle* is any directory that may hold ``skills/<name>/SKILL.md``,
 ``agents/*.md``, ``commands/*.md``, ``hooks/hooks.json`` and ``.mcp.json``; a
@@ -41,6 +48,7 @@ SOURCE_GLOBAL = "global"
 SOURCE_PROJECT = "project"
 SOURCE_CLAUDE_GLOBAL = "claude-global"
 SOURCE_CLAUDE_PROJECT = "claude-project"
+SOURCE_CLAUDE_PLUGIN = "claude-plugin"
 
 #: Project-local bundles, read in this order (``.snowpea`` wins).
 PROJECT_DIRS: tuple[tuple[str, str], ...] = (
@@ -82,6 +90,7 @@ class LoadedSkill:
     doc: SkillDoc
     source: str
     kind: SkillKind = "skill"
+    plugin: str = ""
 
     @property
     def name(self) -> str:
@@ -159,6 +168,8 @@ class SkillLoader:
         self.last_not_included: list[tuple[str, str]] = []
         #: Cached :meth:`index_groups` result, dropped by every scan (M15 §B1).
         self._index_groups: IndexGroups | None = None
+        #: Plugin names detected in Claude Code's installed_plugins.json.
+        self.claude_plugin_names: set[str] = set()
 
     # -- paths ---------------------------------------------------------
     @property
@@ -214,11 +225,13 @@ class SkillLoader:
         self.mcp_servers = {}
         self.mcp_server_plugins = {}
         self._index_groups = None
+        self.claude_plugin_names = set()
 
         self._scan_builtins()
         self._scan_bundle(self.home, SOURCE_GLOBAL)
         self._scan_bundle(self.home / ".claude", SOURCE_CLAUDE_GLOBAL)
         self._scan_plugins()
+        self._scan_claude_plugins()
         for workdir in self.workdirs():
             for name, source in PROJECT_DIRS:
                 self._scan_bundle(workdir / name, source)
@@ -260,16 +273,137 @@ class SkillLoader:
             )
             self._scan_bundle(entry, source, plugin=name)
 
-    def _scan_bundle(self, root: Path, source: str, plugin: str = "") -> None:
-        """Read ``skills/``, ``agents/``, ``commands/``, hooks and ``.mcp.json``."""
+    def _scan_claude_plugins(self) -> None:
+        """Scan plugins installed by Claude Code in ``~/.claude/plugins/``.
+
+        Reads ``~/.claude/plugins/installed_plugins.json`` and respects
+        ``enabledPlugins`` in ``~/.claude/settings.json``. A snowpea-installed
+        plugin or skill with the same name wins and the Claude copy is skipped
+        with a debug log (no duplicate commands). Hooks from Claude plugins are
+        NOT registered (only skills, commands, agents).
+        """
+        installed_file = self.home / ".claude" / "plugins" / "installed_plugins.json"
+        if not installed_file.is_file():
+            return
+        import json
+
+        try:
+            data = json.loads(installed_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+        if not isinstance(data, dict):
+            return
+        raw_plugins = data.get("plugins")
+        if not isinstance(raw_plugins, dict):
+            return
+
+        enabled_plugins: dict[str, Any] = {}
+        settings_file = self.home / ".claude" / "settings.json"
+        if settings_file.is_file():
+            try:
+                settings_data = json.loads(settings_file.read_text(encoding="utf-8"))
+                if isinstance(settings_data, dict):
+                    raw_enabled = settings_data.get("enabledPlugins")
+                    if isinstance(raw_enabled, dict):
+                        enabled_plugins = raw_enabled
+            except (OSError, json.JSONDecodeError):
+                pass
+
+        known_workdirs = {w.resolve() for w in self.workdirs()}
+        snowpea_plugin_names = {p.name for p in self.plugins if p.source != SOURCE_CLAUDE_PLUGIN}
+
+        for plugin_key, raw_entries in sorted(raw_plugins.items(), key=lambda item: str(item[0])):
+            key_str = str(plugin_key)
+            plugin_id = key_str.partition("@")[0]
+            if enabled_plugins.get(key_str) is False or enabled_plugins.get(plugin_id) is False:
+                continue
+
+            if isinstance(raw_entries, dict):
+                entries = [raw_entries]
+            elif isinstance(raw_entries, list):
+                entries = [e for e in raw_entries if isinstance(e, dict)]
+            else:
+                continue
+
+            user_entry: dict[str, Any] | None = None
+            matching_proj_entry: dict[str, Any] | None = None
+            for e in entries:
+                scope = e.get("scope")
+                if scope == "user":
+                    user_entry = e
+                    break
+                if scope == "project":
+                    proj_path = e.get("projectPath")
+                    if proj_path:
+                        try:
+                            if Path(proj_path).resolve() in known_workdirs:
+                                if matching_proj_entry is None:
+                                    matching_proj_entry = e
+                        except OSError:
+                            continue
+
+            chosen = user_entry if user_entry is not None else matching_proj_entry
+            if chosen is None:
+                continue
+
+            install_path_str = chosen.get("installPath")
+            if not install_path_str:
+                continue
+            install_path = Path(install_path_str)
+            if not install_path.is_dir():
+                continue
+
+            manifest = marketplace.read_plugin_json(install_path)
+            manifest_name = manifest.get("name")
+            name = str(manifest_name if manifest_name else plugin_id)
+            version = str(manifest.get("version") or chosen.get("version") or "")
+            description = str(manifest.get("description") or "")
+
+            self.claude_plugin_names.add(name)
+            self.claude_plugin_names.add(plugin_id)
+
+            if (
+                name in snowpea_plugin_names
+                or any(p.name == name for p in self.plugins)
+                or (self.plugins_dir / name).is_dir()
+            ):
+                log.debug("Claude plugin %s skipped: snowpea-installed copy wins", name)
+                continue
+            if name in self.skills and self.skills[name].source != SOURCE_CLAUDE_PLUGIN:
+                log.debug("Claude plugin %s skipped: snowpea-installed skill wins", name)
+                continue
+
+            self.plugins.append(
+                LoadedPlugin(
+                    name=name,
+                    version=version,
+                    description=description,
+                    root=install_path,
+                    source=SOURCE_CLAUDE_PLUGIN,
+                )
+            )
+            self._scan_bundle(
+                install_path,
+                SOURCE_CLAUDE_PLUGIN,
+                plugin=name,
+                load_hooks=False,
+            )
+
+    def _scan_bundle(
+        self, root: Path, source: str, plugin: str = "", load_hooks: bool = True
+    ) -> None:
+        """Read ``skills/``, ``agents/``, ``commands/``, hooks and ``.mcp.json``.
+
+        Hooks from Claude plugins are NOT registered (only skills, commands, agents).
+        """
         if not root.is_dir():
             return
         # A bundle that *is* one skill: ``<root>/SKILL.md`` with no skills/
         # directory around it.  ``~/.snowpea/plugins/flux/SKILL.md`` is shaped
         # this way and used to load as nothing at all (M15 §B5c).
         if (root / "SKILL.md").is_file():
-            self._add_skill_dir(root, source)
-            if plugin:
+            self._add_skill_dir(root, source, plugin=plugin)
+            if plugin and source != SOURCE_CLAUDE_PLUGIN:
                 log.info(
                     "plugin %s is a bare skill directory (only SKILL.md); it is registered "
                     "as a skill — install it under %s/skills/%s to keep it out of plugins/",
@@ -280,7 +414,7 @@ class SkillLoader:
         skills_dir = root / "skills"
         if skills_dir.is_dir():
             for entry in sorted(skills_dir.iterdir()):
-                self._add_skill_dir(entry, source)
+                self._add_skill_dir(entry, source, plugin=plugin)
         agents_dir = root / "agents"
         if agents_dir.is_dir():
             for entry in sorted(agents_dir.glob("*.md")):
@@ -292,14 +426,20 @@ class SkillLoader:
                 if doc is None:
                     continue
                 doc.name = entry.stem
-                self.skills[doc.name] = LoadedSkill(doc=doc, source=source, kind="command")
-        for candidate in (root / "hooks" / "hooks.json", root / "hooks.json"):
-            if candidate.is_file():
-                self.hooks.load_file(candidate, plugin=plugin or source, root=root)
-        if plugin:
+                if source == SOURCE_CLAUDE_PLUGIN and doc.name in self.skills:
+                    log.debug("Claude command %s skipped: snowpea copy wins", doc.name)
+                    continue
+                self.skills[doc.name] = LoadedSkill(
+                    doc=doc, source=source, kind="command", plugin=plugin
+                )
+        if load_hooks:
+            for candidate in (root / "hooks" / "hooks.json", root / "hooks.json"):
+                if candidate.is_file():
+                    self.hooks.load_file(candidate, plugin=plugin or source, root=root)
+        if plugin and source != SOURCE_CLAUDE_PLUGIN:
             self._read_mcp(root / ".mcp.json", root, plugin)
 
-    def _add_skill_dir(self, entry: Path, source: str) -> None:
+    def _add_skill_dir(self, entry: Path, source: str, plugin: str = "") -> None:
         if not entry.is_dir():
             return
         path = entry / "SKILL.md"
@@ -308,7 +448,10 @@ class SkillLoader:
         doc = load_skill_md(path, default_name=entry.name)
         if doc is None:
             return
-        self.skills[doc.name] = LoadedSkill(doc=doc, source=source, kind="skill")
+        if source == SOURCE_CLAUDE_PLUGIN and doc.name in self.skills:
+            log.debug("Claude skill %s skipped: snowpea copy wins", doc.name)
+            return
+        self.skills[doc.name] = LoadedSkill(doc=doc, source=source, kind="skill", plugin=plugin)
 
     def register_agent_definition(
         self, path: Path | str, source: str = SOURCE_PROJECT
@@ -318,8 +461,14 @@ class SkillLoader:
         doc = load_skill_md(target, default_name=target.stem)
         if doc is None:
             return None
+        agent_name = doc.name or target.stem
+        if source == SOURCE_CLAUDE_PLUGIN and any(
+            existing.name == agent_name for existing in self.agents
+        ):
+            log.debug("Claude agent %s skipped: snowpea copy wins", agent_name)
+            return None
         agent = LoadedAgent(
-            name=doc.name or target.stem,
+            name=agent_name,
             description=doc.description,
             source=source,
             path=target,
@@ -484,11 +633,11 @@ class SkillLoader:
         """Visible skills for the prompt index, grouped by origin (M15 §B1).
 
         ``[project]`` first, then ``[global]``, then each ``[plugin:<name>]``
-        alphabetically, then ``[builtin]`` — the order a reader would guess.
-        Only ``kind == "skill"`` entries are listed: a ``commands/*.md`` file is
-        a slash command the user runs, not something ``skill_view`` explains.
-        Cached until the next scan, because the index is rebuilt into the
-        context tier of every prompt.
+        alphabetically, then each ``[claude-plugin:<name>]``, then ``[builtin]`` —
+        the order a reader would guess. Only ``kind == "skill"`` entries are
+        listed: a ``commands/*.md`` file is a slash command the user runs, not
+        something ``skill_view`` explains. Cached until the next scan, because
+        the index is rebuilt into the context tier of every prompt.
         """
         if self._index_groups is not None:
             return self._index_groups
@@ -496,11 +645,30 @@ class SkillLoader:
         for skill in self.skills.values():
             if skill.kind != "skill" or not skill.doc.user_invocable:
                 continue
-            buckets.setdefault(skill.source, []).append(
+            group_key = (
+                f"claude-plugin:{skill.plugin}"
+                if skill.source == SOURCE_CLAUDE_PLUGIN and skill.plugin
+                else skill.source
+            )
+            buckets.setdefault(group_key, []).append(
                 (skill.name, _clip(skill.description, INDEX_DESCRIPTION_CHARS))
             )
         plugins = sorted(name for name in buckets if name.startswith("plugin:"))
-        order = [*INDEX_GROUP_ORDER, *plugins, SOURCE_BUILTIN]
+        claude_plugins = sorted(name for name in buckets if name.startswith("claude-plugin:"))
+        order = [
+            SOURCE_PROJECT,
+            SOURCE_CLAUDE_PROJECT,
+            SOURCE_GLOBAL,
+            SOURCE_CLAUDE_GLOBAL,
+            *plugins,
+            *claude_plugins,
+        ]
+        if SOURCE_CLAUDE_PLUGIN in buckets and SOURCE_CLAUDE_PLUGIN not in order:
+            order.append(SOURCE_CLAUDE_PLUGIN)
+        order.append(SOURCE_BUILTIN)
+        for key in sorted(buckets):
+            if key not in order:
+                order.append(key)
         groups: IndexGroups = [
             (f"[{source}]", sorted(buckets[source]))
             for source in order
@@ -624,6 +792,7 @@ __all__ = [
     "ROOT_VARS",
     "SOURCE_BUILTIN",
     "SOURCE_CLAUDE_GLOBAL",
+    "SOURCE_CLAUDE_PLUGIN",
     "SOURCE_CLAUDE_PROJECT",
     "SOURCE_GLOBAL",
     "SOURCE_PROJECT",

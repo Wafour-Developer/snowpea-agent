@@ -95,7 +95,7 @@ class AgentDefinition:
     #: Where it was read from, when it came off disk.
     path: Path | None = None
     #: ``builtin`` | ``global`` | ``project`` | ``claude-global`` |
-    #: ``claude-project`` | ``plugin:<name>``.
+    #: ``claude-project`` | ``claude-plugin`` | ``plugin:<name>``.
     source: str = "project"
     _source_key: str | None = None
 

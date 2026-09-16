@@ -16,11 +16,11 @@ every port is a rewrite against snowpea's own objects, so the differences are re
    `SkillLoader.scan` (later root wins), so there is no ambiguous name for the index to flag.
 
 2. **Grouping is by origin, not by category.** Hermes groups skills under author-declared
-   categories; snowpea groups them under `[project]` / `[global]` / `[plugin:<name>]` / `[builtin]`
-   — the four search roots the loader already has. A category field would have to be invented in
-   `SKILL.md` front matter and would be empty for every skill that exists today, while the root a
-   skill came from is both known and the thing a reader actually wants (is this mine, or the
-   package's?).
+   categories; snowpea groups them under `[project]` / `[global]` / `[plugin:<name>]` /
+   `[claude-plugin:<name>]` / `[builtin]` — the search roots the loader already has. A
+   category field would have to be invented in `SKILL.md` front matter and would be empty for
+   every skill that exists today, while the root a skill came from is both known and the thing a
+   reader actually wants (is this mine, or the package's?).
 
 3. **`skill_view`'s repeat-view stub** (`tools/skills_tools.py`) is hermes
    `tools/skills_tool_dedup.py::_check_skill_view_dedup`, keyed differently. Hermes keys on

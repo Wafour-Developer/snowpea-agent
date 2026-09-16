@@ -311,3 +311,65 @@ async def test_the_four_tools_are_in_the_builtin_catalog() -> None:
         assert tool.description and tool.input_schema["type"] == "object"
     # The search description has to send the model here instead of to the CLI.
     assert "snowpea CLI" in registry.get("skill_search").description  # type: ignore[union-attr]
+
+
+async def test_skill_install_notes_when_already_available_in_claude_plugin_cache(
+    ctx: ToolContext, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cache_bundle = tmp_path / "claude_cache" / "frontend-design"
+    cache_bundle.mkdir(parents=True, exist_ok=True)
+    (cache_bundle / ".claude-plugin").mkdir(parents=True, exist_ok=True)
+    (cache_bundle / ".claude-plugin" / "plugin.json").write_text(
+        json.dumps({"name": "frontend-design", "version": "1.0.0"}),
+        encoding="utf-8",
+    )
+    installed_file = ctx.core.paths.home / ".claude" / "plugins" / "installed_plugins.json"
+    installed_file.parent.mkdir(parents=True, exist_ok=True)
+    installed_file.write_text(
+        json.dumps(
+            {
+                "version": 2,
+                "plugins": {
+                    "frontend-design@claude-code-plugins": [
+                        {
+                            "scope": "user",
+                            "installPath": str(cache_bundle),
+                            "version": "1.0.0",
+                        }
+                    ]
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    loader = ctx.core.skills
+    await loader.reload()
+    assert "frontend-design" in loader.claude_plugin_names
+
+    async def fake_install(spec: str) -> Path:
+        target = ctx.core.paths.home / "plugins" / "frontend-design"
+        target.mkdir(parents=True, exist_ok=True)
+        (target / "plugin.json").write_text(
+            json.dumps({"name": "frontend-design", "version": "1.0.1"}),
+            encoding="utf-8",
+        )
+        (target / "skills" / "design").mkdir(parents=True, exist_ok=True)
+        (target / "skills" / "design" / "SKILL.md").write_text(
+            "---\nname: design\ndescription: Design UI\n---\n\nBody.\n",
+            encoding="utf-8",
+        )
+        await loader.reload()
+        return target
+
+    monkeypatch.setattr(loader, "install", fake_install)
+
+    result = await skills_tools.skill_install(
+        ctx, {"spec": "github:claude-code-plugins/frontend-design@frontend-design"}
+    )
+    assert result.ok, result.error
+    assert (
+        "already available from Claude Code's plugin cache; installing a snowpea copy anyway"
+        in result.output
+    )
+    assert "installed frontend-design" in result.output

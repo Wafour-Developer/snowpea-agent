@@ -283,6 +283,11 @@ async def skill_install(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     except LoaderMissing as exc:
         return ToolResult(ok=False, error=str(exc))
 
+    claude_plugins = set(getattr(loader, "claude_plugin_names", set()))
+    plugin_name = ""
+    if "@" in spec:
+        plugin_name = spec.split("@", 1)[1].strip()
+
     before = _kinds(loader)
     try:
         target = await loader.install(_resolve_spec(ctx, spec))
@@ -290,8 +295,18 @@ async def skill_install(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         return ToolResult(ok=False, error=str(exc))
     after = _kinds(loader)
 
-    installed = sorted(after["plugins"] - before["plugins"]) or [Path(target).name]
+    target_name = Path(target).name
+    already_in_claude = bool(
+        (plugin_name and plugin_name in claude_plugins)
+        or (target_name in claude_plugins)
+    )
+
+    installed = sorted(after["plugins"] - before["plugins"]) or [target_name]
     lines = [f"installed {', '.join(installed)} from {spec} into {target}"]
+    if already_in_claude:
+        lines.append(
+            "already available from Claude Code's plugin cache; installing a snowpea copy anyway"
+        )
     gained = _added(before, after)
     lines.extend(gained)
     lines.append(
