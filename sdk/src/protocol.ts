@@ -2126,7 +2126,7 @@ export interface TeamStatusParams {
 /** `team.status` result. */
 export interface TeamStatusResult {
   /** Overall state. */
-  state?: "running" | "done" | "failed";
+  state?: "running" | "done" | "failed" | "interrupted";
   /** The task the team was given. */
   task?: string;
   /** Task board contents. */
@@ -2547,6 +2547,8 @@ export interface MessageDoneEventPayload {
   /** How many times the turn was resumed after hitting the output limit. */
   continuations?: number;
   kind?: "message.done";
+  /** Optional message classification inside the message.done payload, for example 'interrupted' for the post-stop system note. */
+  messageKind?: "" | "interrupted";
   /** Who produced the message. */
   role?: "assistant" | "user" | "system";
   /** Full message text. */
@@ -2623,8 +2625,8 @@ export interface SubagentDoneEventPayload {
   rounds?: number;
   /** The subagent's own session. */
   sessionId?: string | null;
-  /** Terminal state: done or error. */
-  status?: "queued" | "running" | "done" | "error";
+  /** Terminal state: done, error or interrupted. */
+  status?: "queued" | "running" | "done" | "error" | "interrupted";
   /** The subagent's final answer. */
   summary?: string;
   /** One-line label for the delegation, written by the delegating model in the user's language; empty when it wrote none. */
@@ -2648,7 +2650,7 @@ export interface SubagentSpawnEventPayload {
   /** The subagent's own session, once it has one. */
   sessionId?: string | null;
   /** State at spawn: queued until a concurrency slot frees up. */
-  status?: "queued" | "running" | "done" | "error";
+  status?: "queued" | "running" | "done" | "error" | "interrupted";
   /** Task it was given. */
   task?: string;
   /** One-line label for the delegation, written by the delegating model in the user's language; empty when it wrote none. */
@@ -2667,7 +2669,7 @@ export interface SubagentUpdateEventPayload {
   /** The subagent's own session. */
   sessionId?: string | null;
   /** Lifecycle state. */
-  status?: "queued" | "running" | "done" | "error";
+  status?: "queued" | "running" | "done" | "error" | "interrupted";
   /** Human-readable progress text. */
   text?: string;
   /** One-line label for the delegation, written by the delegating model in the user's language; empty when it wrote none. */

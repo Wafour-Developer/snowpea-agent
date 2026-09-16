@@ -101,9 +101,14 @@ async def test_turn_started_precedes_the_first_delta(
 
 @needs_python3
 async def test_turn_started_marks_a_turn_that_waited_in_the_queue(
-    daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path
+    http: aiohttp.ClientSession, tmp_path: Path
 ) -> None:
-    """``queued`` is true only for the turn that actually sat in the FIFO."""
+    """``queued`` is true only for the turn that actually sat in the FIFO.
+
+    Queue mode on purpose: this test is about the separate-turn path; the
+    default (steer) merges the second prompt into the running turn instead.
+    """
+    daemon = await make_daemon(tmp_path / "home", settings={"agent": {"busy": "queue"}})
     client = await connect(http, daemon, timeout=TIMEOUT)
     try:
         session_id = await start_session(client, tmp_path)
@@ -130,6 +135,7 @@ async def test_turn_started_marks_a_turn_that_waited_in_the_queue(
         assert kinds.index("turn.dequeued") < starts[1]
     finally:
         await client.stop()
+        await daemon.stop()
 
 
 # ---------------------------------------------------------------------------

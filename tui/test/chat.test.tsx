@@ -35,11 +35,11 @@ describe("Chat line editing", () => {
     try {
       await type(stdin, "abcd", 5);
       stdin.write("\u001b[D");
-      await sleep(20);
+      await sleep(40);
       stdin.write("\u001b[D");
-      await sleep(20);
+      await sleep(40);
       stdin.write("\u007f");
-      await sleep(20);
+      await sleep(40);
       stdin.write("\r");
       await sleep(40);
       expect(onSubmit).toHaveBeenCalledWith("acd");
@@ -86,5 +86,27 @@ describe("Chat line editing", () => {
       await sleep(60);
       expect(onSubmit).toHaveBeenCalledWith("first line!\nsecond line");
     } finally { instance.unmount(); }
+  });
+
+  it("pressing Esc invokes onInterrupt and keeps the in-progress draft", async () => {
+    const onSubmit = vi.fn();
+    const onInterrupt = vi.fn();
+    const stdin = fakeStdin();
+    const stdout = fakeStdout(80, 10);
+    const instance = render(
+      <Chat onSubmit={onSubmit} onInterrupt={onInterrupt} completions={[]} />,
+      { stdin, stdout: stdout.stream, exitOnCtrlC: false, patchConsole: false },
+    );
+    try {
+      await type(stdin, "keep this draft", 10);
+      stdin.write("\u001b");
+      await sleep(40);
+      expect(onInterrupt).toHaveBeenCalled();
+      stdin.write("\r");
+      await sleep(40);
+      expect(onSubmit).toHaveBeenCalledWith("keep this draft");
+    } finally {
+      instance.unmount();
+    }
   });
 });

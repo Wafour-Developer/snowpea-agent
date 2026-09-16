@@ -490,9 +490,27 @@ async def interrupt_session(core: Core, session: Session) -> bool:
     The body of ``session.interrupt``, callable without an RPC connection so
     the gateway's ``/stop`` is the same Stop as the TUI's (CORE-gateway-chat).
     """
-    running = session.current_turn is not None or bool(session.queued_turns)
+    task = session.turn_task
+    running = (
+        session.current_turn is not None
+        or bool(session.queued_turns)
+        or (task is not None and not task.done())
+    )
+    session.interrupt_user_requested = running
     session.interrupt.set()
     await agent_loop.flush_queued_turns(core, session)
+    try:
+        from snowpea_core.agent.subagent import get_manager
+
+        await get_manager(core).interrupt_descendants(session.id)
+    except Exception:  # noqa: BLE001 - a cascade failure must not block Stop
+        log.debug("could not cascade interrupt from %s", session.id, exc_info=True)
+    try:
+        from snowpea_core.agent.team import get_manager_for as get_team_manager
+
+        await get_team_manager(core).interrupt_for_session(session.id)
+    except Exception:  # noqa: BLE001 - team mode is best-effort here
+        log.debug("could not interrupt team workers for %s", session.id, exc_info=True)
     # The stopped turn's prompt is already in the history; write it now so a
     # resume (or a crash before the loop winds down) still has it.
     from snowpea_core.session.manager import persist_history

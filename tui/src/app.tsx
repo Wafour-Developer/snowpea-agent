@@ -1384,13 +1384,14 @@ export function App({
   }
   if (!state.turnActive && turnActiveRef.current && turnRef.current) {
     const turn = turnRef.current;
+    const ok = state.lastTurnReason === null || state.lastTurnReason === "complete";
     turnCountRef.current += 1;
     staticBlocksRef.current = staticBlocksRef.current.concat({
       key: `turn-${turnCountRef.current}`,
       kind: "note",
-      ok: state.errors.length === turn.errors,
+      ok,
       text: turnSummaryLine({
-        ok: state.errors.length === turn.errors,
+        ok,
         elapsedMs: now - turn.startedAt,
         inputTokens: state.usage.inputTokens - turn.inputTokens,
         outputTokens: state.usage.outputTokens - turn.outputTokens,
@@ -2644,6 +2645,7 @@ export function App({
           onInserted={() => setInsert(null)}
           append={append}
           onAppended={() => setAppend(null)}
+          placeholder={state.turnActive ? "Esc stops · type what to change" : undefined}
           completions={completions}
           agents={completableAgents}
           draftWidth={Math.max(1, contentWidth - 2)}
@@ -2658,6 +2660,7 @@ export function App({
               setSkillHint(false);
               return;
             }
+            setFocus(INPUT_FOCUS);
             void client.interrupt(sessionId).catch(() => undefined);
           }}
           disabled={skillForm || mcpForm !== null || mcpCatalog !== null || mcpConfigure !== null || showHelp || update.phase === "confirm" || update.phase === "running" || update.phase === "done" || approvalActive || queueFocused || !isInput(focus) || openAgent !== null}

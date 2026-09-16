@@ -318,13 +318,13 @@ Then the agent rows, one at a time. `Esc` or `↑` walks back up to the input.
 
 You do not have to wait for a turn to finish. A prompt sent while one is running is accepted rather than refused.
 
-By default (`/busy steer`), the prompt is queued only briefly and then folded into the **running turn** before its next model call, so it can steer what is already in progress (Hermes-style busy steer). The queued-turn id is retired with `turn.dequeued` reason `steered`; it does not start a separate turn.
+By default (`/busy steer`), the prompt is queued only briefly and then folded into the **running turn** before its next model call, so it can steer what is already in progress (Hermes-style busy steer). Running subagents and team workers get the same note at their next step, prefixed as mid-task user guidance. The queued-turn id is retired with `turn.dequeued` reason `steered`; it does not start a separate turn.
 
-`/busy queue` restores the legacy behavior: queued prompts drain first in, first out as separate turns, one at a time against one history, so two provider loops never run over the same conversation.
+`/busy queue` restores the legacy behavior: queued prompts drain first in, first out as separate turns, one at a time against one history, so two provider loops never run over the same conversation. Queue mode also disables the mid-turn steering broadcast to helpers.
 
 Attachments are captured when you press `Enter`, so a chip sent while busy is still the file you meant when the model sees it. The queue is in memory only; it does not survive a daemon restart.
 
-`Esc` drops the queue along with the running turn. Interrupting means stop what I asked for, and that has to include the follow-ups still waiting, or Stop would be followed by the queue running anyway. Every dropped prompt is reported to clients as `turn.dequeued` with reason `dropped`, followed by its own `turn.done`, so nothing waiting on that turn id is left hanging.
+`Esc` stops the running turn, its in-flight tool call, its subagents and team workers, and drops the queue behind it. Interrupting means stop what I asked for, and that has to include the follow-ups still waiting, or Stop would be followed by the queue running anyway. Every dropped prompt is reported to clients as `turn.dequeued` with reason `dropped`, followed by its own `turn.done`, so nothing waiting on that turn id is left hanging. After a stop, the next message continues the same session.
 
 While the queue drains the UI shows it: the working line gains a `⏳ N queued` count, and the prompts themselves are listed under the input, dimmed and numbered in the order they will run.
 

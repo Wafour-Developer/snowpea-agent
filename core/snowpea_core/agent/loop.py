@@ -60,6 +60,12 @@ log = logging.getLogger("snowpea.agent")
 #: Refusals tolerated in one turn before it ends with reason ``"denied"``.
 MAX_DENIALS_PER_TURN = 3
 
+INTERRUPTED_INVITATION = (
+    "Interrupted. Tell me what to change — your next message continues this session."
+)
+
+STEER_PREFIX = "[from the user, mid-task] "
+
 #: How many times one assistant turn may be resumed after the model stopped at
 #: the output limit.  Two is enough for a long review and still bounded
 #: (CORE-reasoning-budget).
@@ -155,6 +161,20 @@ async def finish_turn(core: Core, session: Session, turn_id: str, reason: str) -
         except Exception:  # noqa: BLE001 - accounting must not fail a turn
             log.debug("could not emit the context event for %s", session.id, exc_info=True)
     await core.hub.emit_event(session.id, events.turn_done(turn_id, reason))
+    if (
+        reason == "interrupted"
+        and getattr(session, "interrupt_user_requested", False)
+        and not getattr(core, "stopping", False)
+    ):
+        await core.hub.emit_event(
+            session.id,
+            events.message_done(
+                INTERRUPTED_INVITATION,
+                role="system",
+                kind="interrupted",
+            ),
+        )
+        session.interrupt_user_requested = False
     return reason
 
 
@@ -542,6 +562,8 @@ def start_turn(core: Core, session: Session, text: str, *, unattended: bool = Fa
         # has no way to tell it from a dropped keystroke (CORE-fixes-v017 R5).
         waiting = len(session.queued_turns)
         _emit_soon(core, session, events.turn_queued(turn_id, waiting, waiting))
+        if _busy_policy(core) == "steer":
+            asyncio.ensure_future(_propagate_steer(core, session, turn_id, text))
         return turn_id
     session.turn_task = asyncio.ensure_future(_drain_turns(core, session, queued))
     return turn_id
@@ -578,14 +600,27 @@ async def flush_queued_turns(core: Core, session: Session) -> list[str]:
 
 def _busy_policy(core: Core) -> str:
     """How an active turn handles follow-up prompts: ``steer`` or ``queue``."""
-    value = str(getattr(core.settings.agent, "busy", "steer") or "steer").strip().lower()
+    agent = getattr(getattr(core, "settings", None), "agent", None)
+    value = str(getattr(agent, "busy", "steer") or "steer").strip().lower()
     return value if value in {"steer", "queue"} else "steer"
 
 
 async def _steer_queued_turns(core: Core, session: Session) -> int:
     """Fold queued prompts into the running turn as fresh user messages."""
-    if _busy_policy(core) != "steer" or not session.queued_turns:
+    if _busy_policy(core) != "steer":
+        session.steered_prompts.clear()
         return 0
+    injected = 0
+    for item in list(getattr(session, "steered_prompts", [])):
+        if isinstance(item, tuple):
+            source_turn_id, steer_text = item
+        else:
+            source_turn_id, steer_text = f"legacy:{len(session.propagated_steers)}", str(item)
+        if await _inject_external_steer(core, session, str(source_turn_id), str(steer_text)):
+            injected += 1
+    session.steered_prompts.clear()
+    if not session.queued_turns:
+        return injected
     steered = list(session.queued_turns)
     session.queued_turns.clear()
     for index, queued in enumerate(steered):
@@ -608,7 +643,40 @@ async def _steer_queued_turns(core: Core, session: Session) -> int:
         await core.hub.emit_event(
             session.id, events.turn_dequeued(queued.turn_id, "steered", remaining)
         )
-    return len(steered)
+        await _propagate_steer(core, session, queued.turn_id, queued.text)
+    return injected + len(steered)
+
+
+async def _inject_external_steer(
+    core: Core, session: Session, source_turn_id: str, text: str
+) -> bool:
+    """Inject a steer prompt propagated from an ancestor session."""
+    if source_turn_id in session.propagated_steers:
+        return False
+    session.propagated_steers.add(source_turn_id)
+    body = f"{STEER_PREFIX}{text}"
+    session.history.append(ChatMessage(role="user", content=body))
+    session.history.compact()
+    await core.hub.emit_event(session.id, events.message_user(body, steered=True))
+    return True
+
+
+async def _propagate_steer(core: Core, session: Session, source_turn_id: str, text: str) -> None:
+    if _busy_policy(core) != "steer":
+        return
+    from snowpea_core.agent.subagent import get_manager
+
+    manager = get_manager(core)
+    for record in manager.descendants(session.id):
+        child = core.sessions.get(record.session_id) if record.session_id else None
+        if child is None:
+            manager.queue_steer(record, source_turn_id, text)
+            continue
+        queued_ids = {
+            str(item[0]) for item in child.steered_prompts if isinstance(item, tuple) and item
+        }
+        if source_turn_id not in child.propagated_steers and source_turn_id not in queued_ids:
+            child.steered_prompts.append((source_turn_id, text))
 
 
 async def _drain_turns(core: Core, session: Session, first: QueuedTurn) -> None:
@@ -864,6 +932,11 @@ async def _drive(
         # and none of the questions.  Once per prompt, and never for the
         # continuation nudge the loop appends to itself further down.
         await hub.emit_event(session.id, events.message_user(text, attachments))
+    if session.is_subagent and _busy_policy(core) == "steer":
+        from snowpea_core.agent.subagent import get_manager
+
+        for source_turn_id, steer_text in get_manager(core).take_pending_steers(session.id):
+            await _inject_external_steer(core, session, source_turn_id, steer_text)
 
     # Recall once per turn, on the user's own words (M5 contract §1).
     memory_block = await context_for_turn(core, session, text)
@@ -1223,11 +1296,38 @@ async def _run_one_call(
     # (CORE-repeat-guard).  The result still travels the normal path below, so
     # every surface sees a ``tool.result`` either way.
     repeated = repeat_guard.check(core, session, call.name, dict(call.arguments))
+    was_interrupted = False
     try:
         if repeated is not None:
             result = repeated.as_result()
         else:
-            result = await tool.run(ctx, dict(call.arguments))
+            tool_task: asyncio.Task[ToolResult] = asyncio.ensure_future(
+                tool.run(ctx, dict(call.arguments))
+            )
+            interrupt_task: asyncio.Task[bool] = asyncio.ensure_future(
+                session.interrupt.wait()
+            )
+            done, pending = await asyncio.wait(
+                {tool_task, interrupt_task}, return_when=asyncio.FIRST_COMPLETED
+            )
+            if interrupt_task in done and session.interrupt.is_set():
+                was_interrupted = True
+                if not tool_task.done():
+                    tool_task.cancel()
+                try:
+                    await tool_task
+                except asyncio.CancelledError:
+                    pass
+                result = ToolResult(ok=False, error="interrupted")
+            else:
+                result = await tool_task
+            for pending_task in pending:
+                pending_task.cancel()
+            for pending_task in pending:
+                try:
+                    await pending_task
+                except asyncio.CancelledError:
+                    pass
     except asyncio.CancelledError:
         raise
     except Exception as exc:  # noqa: BLE001 - a broken tool is a failed call
@@ -1235,7 +1335,7 @@ async def _run_one_call(
         result = ToolResult(ok=False, error=f"{type(exc).__name__}: {exc}")
     await plugin_hooks.post_tool_use(core, session, call.name, dict(call.arguments))
     result = _spill_long_result(core, call.name, result)
-    if repeated is None:
+    if repeated is None and not was_interrupted:
         result = await repeat_guard.record(
             core, session, call.name, dict(call.arguments), result
         )
@@ -1268,6 +1368,9 @@ async def _run_one_call(
             name=call.name,
         )
     )
+    if was_interrupted or session.interrupt.is_set():
+        await finish_turn(core, session, turn_id, "interrupted")
+        return "interrupted"
     return None
 
 

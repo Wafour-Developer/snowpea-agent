@@ -33990,6 +33990,41 @@ function bannerText(state) {
   }
 }
 
+// src/layout/language.ts
+var UI_LANGUAGES = ["en", "ko", "ja", "zh"];
+var DEFAULT = "en";
+var current = DEFAULT;
+function asUiLanguage(tag) {
+  const key = String(tag ?? "").trim().toLowerCase().replace("_", "-").split("-")[0];
+  return UI_LANGUAGES.includes(key) ? key : DEFAULT;
+}
+function uiLanguage() {
+  return current;
+}
+function setUiLanguage(tag) {
+  current = asUiLanguage(tag);
+  return current;
+}
+function detectLanguage(text2) {
+  if (!text2) return DEFAULT;
+  let kana = 0;
+  let han = 0;
+  for (const character of text2) {
+    const code = character.codePointAt(0) ?? 0;
+    if (code >= 44032 && code <= 55203 || code >= 4352 && code <= 4607 || code >= 12592 && code <= 12687) {
+      return "ko";
+    }
+    if (code >= 12352 && code <= 12447 || code >= 12448 && code <= 12543 || code >= 65382 && code <= 65437) {
+      kana += 1;
+    } else if (code >= 19968 && code <= 40959 || code >= 13312 && code <= 19903 || code >= 63744 && code <= 64255) {
+      han += 1;
+    }
+  }
+  if (kana > 0) return "ja";
+  if (han > 0) return "zh";
+  return DEFAULT;
+}
+
 // src/state/mcp.ts
 var STATES = ["stopped", "starting", "ready", "error"];
 var SCOPES = ["project", "global", "plugin", "settings"];
@@ -34544,7 +34579,7 @@ function buildHudSegments(input) {
   if (input.runningCommand) {
     segments.push({ key: "command", text: `\u25B6 ${input.runningCommand}`, color: "yellow", priority: 2 });
   } else if (input.turnActive) {
-    segments.push({ key: "command", text: "esc to interrupt", dimColor: true, priority: 3 });
+    segments.push({ key: "command", text: "Esc stops \xB7 type what to change", dimColor: true, priority: 3 });
   }
   segments.push({
     key: "status",
@@ -34838,6 +34873,7 @@ var initialState = {
   turnActive: false,
   turnStartedAt: null,
   turnWaited: false,
+  lastTurnReason: null,
   compacting: null,
   reasoningChars: 0,
   streamedChars: 0,
@@ -34891,8 +34927,12 @@ function withLimitNote(state, payload) {
   };
 }
 function finishMessage(state, payload) {
-  const text2 = typeof payload.text === "string" ? payload.text : void 0;
-  const role = typeof payload.role === "string" ? payload.role : "assistant";
+  let text2 = typeof payload.text === "string" ? payload.text : void 0;
+  const payloadKind = String(payload.kind ?? payload.messageKind ?? "");
+  if (payloadKind === "interrupted" && uiLanguage() === "ko") {
+    text2 = "\uC911\uB2E8\uD588\uC2B5\uB2C8\uB2E4. \uBB34\uC5C7\uC744 \uBC14\uAFC0\uC9C0 \uC54C\uB824\uC8FC\uC138\uC694 \u2014 \uB2E4\uC74C \uBA54\uC2DC\uC9C0\uAC00 \uC774 \uC138\uC158\uC744 \uC774\uC5B4\uAC11\uB2C8\uB2E4.";
+  }
+  const role = payloadKind === "interrupted" ? "note" : typeof payload.role === "string" ? payload.role : "assistant";
   const last = state.messages[state.messages.length - 1];
   if (last && last.streaming && last.role === role) {
     const messages = state.messages.slice(0, -1).concat({ ...last, text: text2 ?? last.text, streaming: false });
@@ -35172,6 +35212,7 @@ function applySessionEvent(state, event, options = {}) {
         turnActive: true,
         turnStartedAt: Number.isFinite(stamped) ? stamped : Date.now(),
         turnWaited: waited,
+        lastTurnReason: null,
         promptTexts: text2.length > 0 && turnId.length > 0 ? { ...base.promptTexts, [turnId]: text2 } : base.promptTexts,
         queued: base.queued.filter((entry) => entry.turnId !== turnId)
       };
@@ -35233,7 +35274,8 @@ function applySessionEvent(state, event, options = {}) {
         promptTexts,
         turnActive: false,
         turnStartedAt: null,
-        turnWaited: false
+        turnWaited: false,
+        lastTurnReason: String(payload.reason ?? "complete")
       };
       if (!options.replay) return settled;
       const started = Date.parse(options.turnStartedAt ?? "");
@@ -37178,41 +37220,6 @@ function settledCount(state, cursor = 0, liveRows = Number.POSITIVE_INFINITY) {
     }
   }
   return count2;
-}
-
-// src/layout/language.ts
-var UI_LANGUAGES = ["en", "ko", "ja", "zh"];
-var DEFAULT = "en";
-var current = DEFAULT;
-function asUiLanguage(tag) {
-  const key = String(tag ?? "").trim().toLowerCase().replace("_", "-").split("-")[0];
-  return UI_LANGUAGES.includes(key) ? key : DEFAULT;
-}
-function uiLanguage() {
-  return current;
-}
-function setUiLanguage(tag) {
-  current = asUiLanguage(tag);
-  return current;
-}
-function detectLanguage(text2) {
-  if (!text2) return DEFAULT;
-  let kana = 0;
-  let han = 0;
-  for (const character of text2) {
-    const code = character.codePointAt(0) ?? 0;
-    if (code >= 44032 && code <= 55203 || code >= 4352 && code <= 4607 || code >= 12592 && code <= 12687) {
-      return "ko";
-    }
-    if (code >= 12352 && code <= 12447 || code >= 12448 && code <= 12543 || code >= 65382 && code <= 65437) {
-      kana += 1;
-    } else if (code >= 19968 && code <= 40959 || code >= 13312 && code <= 19903 || code >= 63744 && code <= 64255) {
-      han += 1;
-    }
-  }
-  if (kana > 0) return "ja";
-  if (han > 0) return "zh";
-  return DEFAULT;
 }
 
 // src/layout/summary.ts
@@ -40731,13 +40738,14 @@ function App2({
   }
   if (!state.turnActive && turnActiveRef.current && turnRef.current) {
     const turn2 = turnRef.current;
+    const ok = state.lastTurnReason === null || state.lastTurnReason === "complete";
     turnCountRef.current += 1;
     staticBlocksRef.current = staticBlocksRef.current.concat({
       key: `turn-${turnCountRef.current}`,
       kind: "note",
-      ok: state.errors.length === turn2.errors,
+      ok,
       text: turnSummaryLine({
-        ok: state.errors.length === turn2.errors,
+        ok,
         elapsedMs: now - turn2.startedAt,
         inputTokens: state.usage.inputTokens - turn2.inputTokens,
         outputTokens: state.usage.outputTokens - turn2.outputTokens
@@ -41711,6 +41719,7 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
         onInserted: () => setInsert(null),
         append,
         onAppended: () => setAppend(null),
+        placeholder: state.turnActive ? "Esc stops \xB7 type what to change" : void 0,
         completions,
         agents: completableAgents,
         draftWidth: Math.max(1, contentWidth - 2),
@@ -41723,6 +41732,7 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
             setSkillHint(false);
             return;
           }
+          setFocus(INPUT_FOCUS);
           void client.interrupt(sessionId).catch(() => void 0);
         },
         disabled: skillForm || mcpForm !== null || mcpCatalog !== null || mcpConfigure !== null || showHelp || update.phase === "confirm" || update.phase === "running" || update.phase === "done" || approvalActive || queueFocused || !isInput(focus) || openAgent !== null

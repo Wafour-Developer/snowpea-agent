@@ -1820,7 +1820,7 @@ Inspect a team's task board.
 
 | field | type | required | description |
 |---|---|---|---|
-| `state` | `"running" \| "done" \| "failed"` | no | Overall state. |
+| `state` | `"running" \| "done" \| "failed" \| "interrupted"` | no | Overall state. |
 | `task` | `string` | no | The task the team was given. |
 | `tasks` | `({ agentN?: number \| null; assignee?: string \| null; branch?: string; conflictHunks?: string; conflictSummary?: string; dependsOn?: string[]; note?: string; retries?: number; status?: "pending" \| "queued" \| "claimed" \| "running" \| "done" \| "conflict" \| "merged" \| "failed"; taskId: string; title: string; })[]` | no | Task board contents. |
 | `teamId` | `string` | yes | Team that was inspected. |
@@ -2080,6 +2080,7 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 |---|---|---|---|
 | `continuations` | `number` | no | How many times the turn was resumed after hitting the output limit. |
 | `kind` | `"message.done"` | no |  |
+| `messageKind` | `"" \| "interrupted"` | no | Optional message classification inside the message.done payload, for example 'interrupted' for the post-stop system note. |
 | `role` | `"assistant" \| "user" \| "system"` | no | Who produced the message. |
 | `text` | `string` | yes | Full message text. |
 | `truncated` | `boolean` | no | The answer still hit the output limit and is incomplete. |
@@ -2133,7 +2134,7 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | `result` | `string` | no | Final report. |
 | `rounds` | `number` | no | Tool rounds used by the subagent. |
 | `sessionId` | `string \| null` | no | The subagent's own session. |
-| `status` | `"queued" \| "running" \| "done" \| "error"` | no | Terminal state: done or error. |
+| `status` | `"queued" \| "running" \| "done" \| "error" \| "interrupted"` | no | Terminal state: done, error or interrupted. |
 | `summary` | `string` | no | The subagent's final answer. |
 | `title` | `string` | no | One-line label for the delegation, written by the delegating model in the user's language; empty when it wrote none. |
 | `usage` | `{ inputTokens?: number; outputTokens?: number; }` | no | Tokens the subagent consumed. |
@@ -2146,7 +2147,7 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | `kind` | `"subagent.spawn"` | no |  |
 | `name` | `string` | no | Named agent that was spawned. |
 | `sessionId` | `string \| null` | no | The subagent's own session, once it has one. |
-| `status` | `"queued" \| "running" \| "done" \| "error"` | no | State at spawn: queued until a concurrency slot frees up. |
+| `status` | `"queued" \| "running" \| "done" \| "error" \| "interrupted"` | no | State at spawn: queued until a concurrency slot frees up. |
 | `task` | `string` | no | Task it was given. |
 | `title` | `string` | no | One-line label for the delegation, written by the delegating model in the user's language; empty when it wrote none. |
 
@@ -2159,7 +2160,7 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | `lastText` | `string` | no | Most recent text the subagent produced. |
 | `name` | `string` | no | Named agent that is running, when there is one. |
 | `sessionId` | `string \| null` | no | The subagent's own session. |
-| `status` | `"queued" \| "running" \| "done" \| "error"` | no | Lifecycle state. |
+| `status` | `"queued" \| "running" \| "done" \| "error" \| "interrupted"` | no | Lifecycle state. |
 | `text` | `string` | no | Human-readable progress text. |
 | `title` | `string` | no | One-line label for the delegation, written by the delegating model in the user's language; empty when it wrote none. |
 | `usage` | `{ inputTokens?: number; outputTokens?: number; } \| null` | no | Tokens the subagent has used so far, cumulative; sent with every update so a surface can show a long delegation is still moving. |
