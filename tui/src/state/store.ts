@@ -904,6 +904,7 @@ function applySessionEvent(
 
     case "turn.dequeued": {
       const turnId = String(payload.turnId ?? "");
+      // started, dropped, or steered: all mean this row is no longer queued.
       return { ...base, queued: base.queued.filter((entry) => entry.turnId !== turnId) };
     }
 

@@ -1,0 +1,27 @@
+{
+  "steps": [
+    {
+      "match": "start steer",
+      "text": "running tool",
+      "tool_calls": [
+        {
+          "name": "shell",
+          "arguments": {
+            "command": "sleep 0.4"
+          }
+        }
+      ]
+    },
+    {
+      "match": "insert this mid-turn",
+      "text": "steered instruction observed"
+    },
+    {
+      "after_tool": "shell",
+      "text": "completed without steer"
+    }
+  ],
+  "default": {
+    "text": "nothing to do"
+  }
+}

@@ -2574,6 +2574,8 @@ export interface MessageUserEventPayload {
     name?: string;
   })[];
   kind?: "message.user";
+  /** True when this prompt was queued behind a running turn and then folded into that same turn before its next model call. */
+  steered?: boolean;
   /** Prompt text as the model received it. */
   text: string;
 }
@@ -2744,8 +2746,8 @@ export interface TurnDequeuedEventPayload {
   kind?: "turn.dequeued";
   /** Prompts still waiting after this one left. */
   queued?: number;
-  /** started = it is now running, dropped = it was discarded. */
-  reason?: "started" | "dropped";
+  /** started = it is now running, dropped = it was discarded, steered = it was merged into the running turn. */
+  reason?: "started" | "dropped" | "steered";
   /** Turn id that left the queue. */
   turnId: string;
 }

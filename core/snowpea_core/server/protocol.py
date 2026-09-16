@@ -63,8 +63,9 @@ AuthStatus = Literal["unconfigured", "active", "expired"]
 #: tool-round budget, wrote a report and ended.  A surface that does not know
 #: it must treat it as an ordinary end of turn.
 TurnReason = Literal["complete", "interrupted", "error", "denied", "timeout", "budget"]
-#: Why a queued prompt left the queue: it started running, or it was dropped.
-QueuedTurnReason = Literal["started", "dropped"]
+#: Why a queued prompt left the queue: it started running, it was dropped, or
+#: it was merged into the running turn as a steer message.
+QueuedTurnReason = Literal["started", "dropped", "steered"]
 TaskState = Literal["pending", "running", "done", "failed"]
 #: States a team task walks through (M7 contract §5).  A superset of
 #: :data:`TaskState`, so nothing that already emitted a task state breaks.
@@ -1791,6 +1792,13 @@ class MessageUser(Payload):
     attachments: list[UserAttachment] = Field(
         default_factory=list, description="Files sent along with the prompt."
     )
+    steered: bool = Field(
+        default=False,
+        description=(
+            "True when this prompt was queued behind a running turn and then "
+            "folded into that same turn before its next model call."
+        ),
+    )
 
 
 class MessageDelta(Payload):
@@ -2158,7 +2166,7 @@ class TurnQueued(Payload):
 
 
 class TurnDequeued(Payload):
-    """A queued prompt left the queue - it started, or it was dropped.
+    """A queued prompt left the queue - it started, was dropped, or was steered.
 
     ``reason="dropped"`` is emitted for every prompt flushed by
     ``session.interrupt``, so a surface can clear its queue indicator.
@@ -2167,7 +2175,11 @@ class TurnDequeued(Payload):
     kind: Literal["turn.dequeued"] = "turn.dequeued"
     turnId: str = Field(description="Turn id that left the queue.")
     reason: QueuedTurnReason = Field(
-        default="started", description="started = it is now running, dropped = it was discarded."
+        default="started",
+        description=(
+            "started = it is now running, dropped = it was discarded, "
+            "steered = it was merged into the running turn."
+        ),
     )
     queued: int = Field(default=0, description="Prompts still waiting after this one left.")
 

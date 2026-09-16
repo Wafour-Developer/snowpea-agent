@@ -20,6 +20,7 @@ That prints the live registry, including commands contributed by installed plugi
 | `/compact [instructions]` | summarise the conversation so far and continue with the summary |
 | `/plan`, `/accept`, `/auto` | switch mode |
 | `/mode [plan\|accept\|auto\|save\|show]` | show, switch, or save the project default |
+| `/busy [steer\|queue]` | show or set busy-turn follow-ups: `steer` (default) folds queued prompts into the running turn before its next model call; `queue` keeps the legacy “run later as a separate turn” behavior |
 | `/memory [list\|search <q>\|forget <id>] [--project\|--global\|--all]` | show, search or forget long-term memories; scope defaults to `--all`, which is what the agent itself recalls from |
 | `/approvals` | list unattended approvals waiting for an answer |
 | `/allow <regex> [--global]` | promote a repeated prompt to a silent allow |
