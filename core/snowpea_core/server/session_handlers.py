@@ -488,6 +488,11 @@ async def interrupt_session(core: Core, session: Session) -> bool:
     running = session.current_turn is not None or bool(session.queued_turns)
     session.interrupt.set()
     await agent_loop.flush_queued_turns(core, session)
+    # The stopped turn's prompt is already in the history; write it now so a
+    # resume (or a crash before the loop winds down) still has it.
+    from snowpea_core.session.manager import persist_history
+
+    await persist_history(core.store, session)
     return running
 
 
