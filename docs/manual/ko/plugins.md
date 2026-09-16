@@ -77,7 +77,7 @@ snowpea skill publish ./my-skill                 # 압축 + 검증 + 업로드
 snowpea skill rate ralplan 5 --comment "좋아요"   # 1-5점, 호출자당 하나
 ```
 
-`skill install`은 검색 결과가 내놓는 어떤 설치 스펙이든 받아들입니다. `registry:<id>`(로컬에 배포된 스킬)와 `clawhub:<id>`는 레지스트리 자체의 다운로드 프록시로 풀립니다. `github:<owner>/<repo>[@plugin]`(레지스트리가 미러링하는 Claude Code 마켓플레이스 항목에 대해 돌려주는 형태)은 대신 곧바로 `git clone`됩니다 — 이 스펙은 레지스트리 id와 같은 문자열이 아니라서, 레지스트리에 다운로드를 요청하면 항상 404가 나기 때문입니다. `@plugin`이 없으면 저장소 전체를 클론하고, 있으면 그 플러그인의 디렉터리만 설치합니다 — 같은 저장소를 가리키는 로컬에 등록된 마켓플레이스에서, 그마저 없으면 GitHub의 저장소 자체 `marketplace.json`에서 그 위치를 찾습니다. 결과의 `id`(`skill search --json`에 표시됨)를 그대로 쓸 수도 있습니다 — 로컬에 배포된 사본을 id로 바로 설치하려면 `skill install registry:<id>`.
+`skill install`은 검색 결과가 내놓는 어떤 설치 스펙이든 받아들입니다. `registry:<id>`(로컬에 배포된 스킬)와 `clawhub:<id>`는 레지스트리 자체의 다운로드 프록시로 풀립니다. `github:<owner>/<repo>[@plugin]`(레지스트리가 미러링하는 Claude Code 마켓플레이스 항목에 대해 돌려주는 형태)은 대신 곧바로 `git clone`됩니다 — 이 스펙은 레지스트리 id와 같은 문자열이 아니라서, 레지스트리에 다운로드를 요청하면 항상 404가 나기 때문입니다. GitHub URL처럼 저장소 안의 디렉터리를 지정할 수도 있습니다 — `github:anthropics/skills/skills/docx`는 그 디렉터리만 자기 이름으로 설치합니다. `@plugin`도 경로도 없으면 저장소 전체를 클론하고, `@plugin`이 있으면 그 플러그인의 디렉터리만 설치합니다 — 같은 저장소를 가리키는 로컬에 등록된 마켓플레이스에서, 그마저 없으면 GitHub의 저장소 자체 `marketplace.json`에서 그 위치를 찾습니다. 결과의 `id`(`skill search --json`에 표시됨)를 그대로 쓸 수도 있습니다 — 로컬에 배포된 사본을 id로 바로 설치하려면 `skill install registry:<id>`.
 
 `publish`는 `<dir>/SKILL.md`를 읽어 프런트매터를 로컬에서 먼저 검사합니다
 (`name`은 `^[a-z0-9][a-z0-9._-]{1,63}$`를 만족해야 하고, `description`은

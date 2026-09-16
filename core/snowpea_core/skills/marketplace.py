@@ -608,11 +608,23 @@ async def _install_github_spec(spec: str, plugins_dir: Path, home: Path | str) -
     ``.claude-plugin/marketplace.json`` on GitHub.
     """
     rest = spec[len("github:") :]
-    repo_spec, _, plugin = rest.partition("@")
-    repo_spec = repo_spec.strip()
-    if not repo_spec:
-        raise InstallError(f"{spec}: expected github:<owner>/<repo>[@plugin]")
+    path_spec, _, plugin = rest.partition("@")
+    parts = [part for part in path_spec.strip().strip("/").split("/") if part]
+    if len(parts) < 2:
+        raise InstallError(
+            f"{spec}: expected github:<owner>/<repo>[/<path/inside/repo>][@plugin]"
+        )
+    repo_spec = "/".join(parts[:2])
+    # ``github:anthropics/skills/skills/docx`` names one directory inside the
+    # repo, the way a GitHub URL does; only that directory is installed, under
+    # its own name.  It used to be glued onto the repo URL and fail to clone.
+    inside = "/".join(parts[2:])
     url = f"https://github.com/{repo_spec}.git"
+
+    if inside and not plugin:
+        target = plugins_dir / parts[-1]
+        await _clone_subdir(url, inside, target)
+        return target
 
     if not plugin:
         target = plugins_dir / plugin_name_from(repo_spec)

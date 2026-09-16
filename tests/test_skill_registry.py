@@ -807,3 +807,34 @@ async def test_cli_skill_sources_happy_path(
     assert code == 0
     out = capsys.readouterr().out
     assert "local" in out and "hermes" in out and "does not resolve" in out
+
+
+@pytest.mark.asyncio
+async def test_install_github_spec_with_a_path_installs_that_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``github:anthropics/skills/skills/docx`` names a directory inside the
+    repo; it is installed under its own name, not glued onto the clone URL."""
+    seen: list[str] = []
+
+    async def fake_clone(url: str, target: Path) -> None:
+        seen.append(url)
+        (target / "skills" / "docx").mkdir(parents=True, exist_ok=True)
+        (target / "skills" / "docx" / "SKILL.md").write_text(
+            "---\nname: docx\n---\n", encoding="utf-8"
+        )
+        (target / "skills" / "xlsx").mkdir(parents=True, exist_ok=True)
+        (target / "skills" / "xlsx" / "SKILL.md").write_text(
+            "---\nname: xlsx\n---\n", encoding="utf-8"
+        )
+
+    monkeypatch.setattr(marketplace, "_clone", fake_clone)
+    home = tmp_path / "home"
+    plugins = home / "plugins"
+    target = await marketplace._install_bundle(
+        "github:anthropics/skills/skills/docx", plugins, home
+    )
+    assert seen == ["https://github.com/anthropics/skills.git"]
+    assert target == plugins / "docx"
+    assert (target / "SKILL.md").exists()
+    assert not (target / "xlsx").exists() and not (plugins / "xlsx").exists()
