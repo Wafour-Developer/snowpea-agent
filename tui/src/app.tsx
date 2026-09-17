@@ -29,6 +29,7 @@ import type {
   Mode,
   SessionEvent,
 } from "./rpc/sdk.js";
+import { defaultResolveEndpoint } from "./rpc/sdk.js";
 import { SlashRegistry, ttsSubCommands, voiceSubCommands } from "./slash/registry.js";
 import {
   bannerText,
@@ -120,6 +121,12 @@ import {
 } from "./layout/viewport.js";
 import { buildHudSegments, formatTokens, layoutHud } from "./layout/hud.js";
 import { entryRows, settledCount } from "./layout/statics.js";
+import {
+  commitStreamingPrefixes,
+  messageFullyCommitted,
+  type StreamChunkEntry,
+} from "./layout/stream-scrollback.js";
+import { RenderedLines } from "./components/RenderedLines.js";
 import { groupCalls, toolKind } from "./layout/summary.js";
 import { agentStatusText, buildAgentRows } from "./layout/agents.js";
 import { compactionDivider, contextWarning, summaryLine } from "./layout/bottom.js";
@@ -332,6 +339,8 @@ export interface AppProps {
   recordingPath?: string;
   /** Runs `$EDITOR` for `/skill edit`; absent in tests and in a pipe. */
   editor?: EditorRunner;
+  /** Starts the daemon when gone; injected for tests or defaults to launcher path. */
+  startDaemon?: () => Promise<void> | void;
 }
 
 /** One transcript entry — a message, a tool call, a diff or a compaction. */
@@ -341,6 +350,7 @@ function TimelineEntry({
   expandedId,
   width,
   maxMessageRows,
+  messageStartLine = 0,
 }: {
   state: State;
   item: TimelineItem;
@@ -353,11 +363,18 @@ function TimelineEntry({
    * the whole thing, so the scrollback is always complete.
    */
   maxMessageRows?: number;
+  /** Wrapped rows already frozen into scrollback for this message. */
+  messageStartLine?: number;
 }): React.ReactElement | null {
   if (item.kind === "message") {
     const message = state.messages.find((m) => m.id === item.id);
     return message ? (
-      <MessageView message={message} width={width} maxRows={maxMessageRows} />
+      <MessageView
+        message={message}
+        width={width}
+        maxRows={maxMessageRows}
+        startLine={messageStartLine}
+      />
     ) : null;
   }
   if (item.kind === "tool") {
@@ -390,7 +407,9 @@ function TimelineEntry({
  */
 type StaticEntry =
   | { key: "launch"; kind: "launch" }
-  | { key: string; kind: "entry"; item: TimelineItem }
+  | { key: string; kind: "entry"; item: TimelineItem; messageStartLine?: number }
+  /** Prefix lines of a message still streaming, frozen into scrollback. */
+  | StreamChunkEntry
   /** A run of successful tool calls, folded into one line. */
   | { key: string; kind: "tools"; calls: ToolCallEntry[] }
   /** The `✓ Done in 12s` line a finished turn leaves behind. */
@@ -410,7 +429,12 @@ function followsTools(entries: StaticEntry[], index: number): boolean {
  * Consecutive successful tool calls fold into one summary line; a failed call
  * breaks the run and keeps its own card, so a failure is never summarised away.
  */
-function releaseEntries(state: State, items: TimelineItem[]): StaticEntry[] {
+function releaseEntries(
+  state: State,
+  items: TimelineItem[],
+  width: number,
+  streamCommitted: ReadonlyMap<string, number>,
+): StaticEntry[] {
   const out: StaticEntry[] = [];
   let run: ToolCallEntry[] = [];
 
@@ -442,6 +466,20 @@ function releaseEntries(state: State, items: TimelineItem[]): StaticEntry[] {
       }
     }
     flush();
+    if (item.kind === "message") {
+      const message = state.messages.find((entry) => entry.id === item.id);
+      if (message && messageFullyCommitted(message, width, streamCommitted)) {
+        continue;
+      }
+      const startLine = streamCommitted.get(item.id) ?? 0;
+      out.push({
+        key: `${item.kind}-${item.id}`,
+        kind: "entry",
+        item,
+        messageStartLine: startLine > 0 ? startLine : undefined,
+      });
+      continue;
+    }
     out.push({ key: `${item.kind}-${item.id}`, kind: "entry", item });
   }
   flush();
@@ -466,12 +504,42 @@ export function App({
   localAudio = null,
   recordingPath,
   editor,
+  startDaemon,
 }: AppProps): React.ReactElement {
   const { exit } = useApp();
   const [sessionId, setSessionId] = useState(initialSessionId);
   const activeSessionRef = useRef(initialSessionId);
   const resumingRef = useRef(false);
   const [state, dispatch] = useReducer(reducer, initialState);
+  const [reconnectAttempt, setReconnectAttempt] = useState<number | null>(null);
+  const [daemonGone, setDaemonGone] = useState(false);
+  const disconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleStartDaemon = useCallback(async () => {
+    if (startDaemon) {
+      await startDaemon();
+      return;
+    }
+    try {
+      const { spawn } = await import("node:child_process");
+      const cmd = process.env.SNOWPEA_DAEMON_CMD;
+      if (cmd) {
+        const parts = cmd.split(" ");
+        const child = spawn(parts[0], parts.slice(1), { detached: true, stdio: "ignore" });
+        child.unref();
+      } else {
+        const child = spawn("snowpea", ["daemon", "start"], { detached: true, stdio: "ignore" });
+        child.on("error", () => {
+          const fallback = spawn("python3", ["-m", "snowpea_core", "--port", "0"], { detached: true, stdio: "ignore" });
+          fallback.unref();
+        });
+        child.unref();
+      }
+    } catch {
+      // ignore
+    }
+  }, [startDaemon]);
+
   const [showHelp, setShowHelp] = useState(false);
   const { stdin, setRawMode } = useStdin();
   const { stdout } = useStdout();
@@ -572,6 +640,8 @@ export function App({
   const staticCursorRef = useRef(0);
   /** Everything already written to the scrollback, in the order it went there. */
   const staticBlocksRef = useRef<StaticEntry[]>([{ key: "launch", kind: "launch" }]);
+  /** Wrapped rows already committed to scrollback per open-stream message id. */
+  const streamCommittedRef = useRef<Map<string, number>>(new Map());
   /**
    * The turn in flight: when it started and what the session had spent by then,
    * so the indicator can report this turn rather than the whole session.
@@ -729,7 +799,49 @@ export function App({
         }
         liveEvents.push(event);
       },
-      onStatus: (status) => dispatch({ type: "status", status }),
+      onStatus: (status) => {
+        dispatch({ type: "status", status });
+        if (status === "reconnecting") {
+          if (!defaultResolveEndpoint()) {
+            setDaemonGone(true);
+          }
+          if (!disconnectTimer.current) {
+            disconnectTimer.current = setTimeout(() => {
+              setDaemonGone(true);
+            }, 20_000);
+          }
+        } else if (status === "connected") {
+          setDaemonGone(false);
+          setReconnectAttempt(null);
+          if (disconnectTimer.current) {
+            clearTimeout(disconnectTimer.current);
+            disconnectTimer.current = null;
+          }
+        } else if (status === "closed") {
+          setDaemonGone(true);
+        }
+      },
+      onReconnecting: ({ attempt }) => {
+        setReconnectAttempt(attempt);
+        if (!defaultResolveEndpoint()) {
+          setDaemonGone(true);
+        }
+        if (!disconnectTimer.current) {
+          disconnectTimer.current = setTimeout(() => {
+            setDaemonGone(true);
+          }, 20_000);
+        }
+      },
+      onReconnected: () => {
+        setReconnectAttempt(null);
+        setDaemonGone(false);
+        if (disconnectTimer.current) {
+          clearTimeout(disconnectTimer.current);
+          disconnectTimer.current = null;
+        }
+        showToast("daemon restarted — session resumed");
+        dispatch({ type: "session/reconnected" });
+      },
       // An unattended turn raised a request the daemon broadcast to every
       // surface; the queue is re-read rather than trusted from the payload.
       onApprovalPending: () => refreshApprovals(),
@@ -841,6 +953,10 @@ export function App({
       childEvents.dispose();
       liveEvents.dispose();
       if (childEventsRef.current === childEvents) childEventsRef.current = null;
+      if (disconnectTimer.current) {
+        clearTimeout(disconnectTimer.current);
+        disconnectTimer.current = null;
+      }
     };
   }, [
     client,
@@ -1015,6 +1131,7 @@ export function App({
             activeSessionRef.current = target;
             registryRef.current = new SlashRegistry(client, target);
             staticCursorRef.current = 0;
+            streamCommittedRef.current = new Map();
             turnRef.current = null;
             turnActiveRef.current = false;
             setOpenAgent(null);
@@ -1101,6 +1218,8 @@ export function App({
     () =>
       buildHudSegments({
         status: state.status,
+        reconnectAttempt,
+        daemonGone,
         version,
         latestVersion: updateAvailable ? update.latest : null,
         workdir,
@@ -1131,6 +1250,8 @@ export function App({
       }),
     [
       state.status,
+      reconnectAttempt,
+      daemonGone,
       version,
       update.latest,
       updateAvailable,
@@ -1361,9 +1482,18 @@ export function App({
     : holdRegionRows;
   const released = settledCount(state, staticCursorRef.current, holdRows);
   if (released > staticCursorRef.current) {
+    const previous = staticCursorRef.current;
     staticBlocksRef.current = staticBlocksRef.current.concat(
-      releaseEntries(state, state.timeline.slice(staticCursorRef.current, released)),
+      releaseEntries(
+        state,
+        state.timeline.slice(previous, released),
+        contentWidth,
+        streamCommittedRef.current,
+      ),
     );
+    for (const item of state.timeline.slice(previous, released)) {
+      if (item.kind === "message") streamCommittedRef.current.delete(item.id);
+    }
     staticCursorRef.current = released;
   }
 
@@ -1402,7 +1532,6 @@ export function App({
   turnActiveRef.current = state.turnActive;
 
   const staticCursor = staticCursorRef.current;
-  const staticItems = staticBlocksRef.current;
 
   const lines = useMemo(
     () => (fullscreen ? transcriptLines(state, contentWidth, { expandedCall: expandedId }) : []),
@@ -2303,6 +2432,10 @@ export function App({
       exit();
       return;
     }
+    if (daemonGone && (input === "R" || input === "r")) {
+      void handleStartDaemon();
+      return;
+    }
     // A prompt on screen owns every other key: mode cycling, Ctrl+O and the
     // rest would otherwise fire underneath the question being asked.
     if (state.pendingQuestion || state.pendingApproval || update.phase === "confirm" || modelPicker) {
@@ -2632,6 +2765,7 @@ export function App({
           onQuickResume={
             lastSession && state.messages.length === 0 ? resumeMemory : undefined
           }
+          onStartDaemon={daemonGone ? () => { void handleStartDaemon(); } : undefined}
           onPaste={takePaste}
           onClipboard={takeClipboard}
           onBackspaceEmpty={() => {
@@ -2773,6 +2907,19 @@ export function App({
     ),
   );
 
+  const streamCommit = commitStreamingPrefixes(
+    state,
+    staticCursor,
+    contentWidth,
+    liveMessageRows,
+    streamCommittedRef.current,
+  );
+  if (streamCommit.chunks.length > 0) {
+    staticBlocksRef.current = staticBlocksRef.current.concat(streamCommit.chunks);
+  }
+  streamCommittedRef.current = streamCommit.committed;
+  const staticItems = staticBlocksRef.current;
+
   return (
     <Box flexDirection="column">
       <Static items={staticItems}>
@@ -2796,6 +2943,8 @@ export function App({
                 model={state.model}
                 lastSession={lastSession}
               />
+            ) : entry.kind === "stream-chunk" ? (
+              <RenderedLines lines={entry.lines} />
             ) : entry.kind === "tools" ? (
               <ToolSummary calls={entry.calls} />
             ) : entry.kind === "note" ? (
@@ -2810,6 +2959,7 @@ export function App({
                 item={entry.item}
                 expandedId={expandedId}
                 width={contentWidth}
+                messageStartLine={entry.messageStartLine}
               />
             )}
           </Box>
@@ -2837,6 +2987,9 @@ export function App({
             expandedId={expandedId}
             width={contentWidth}
             maxMessageRows={liveMessageRows}
+            messageStartLine={
+              item.kind === "message" ? streamCommittedRef.current.get(item.id) ?? 0 : 0
+            }
           />
         ))
       )}

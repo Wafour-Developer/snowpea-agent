@@ -353,3 +353,50 @@ async def test_an_interrupted_turn_keeps_its_prompt_for_resume(
         assert [m["role"] for m in messages][-1:] == ["user"], messages
         assert "slow reply" in json.dumps(messages[-1]["content"], ensure_ascii=False)
         await daemon.stop()
+
+
+async def test_session_resume_after_daemon_died_mid_turn_has_synthetic_interrupted_turn_done(
+    tmp_path: Path, http: aiohttp.ClientSession
+) -> None:
+    """session.resume for a session whose daemon died mid-turn has synthetic
+    interrupted turn.done in replay.
+    """
+    home = tmp_path / "home"
+    workdir = home / "project"
+    workdir.mkdir(parents=True, exist_ok=True)
+
+    with fake_provider(FIXTURE):
+        daemon1 = await make_daemon(home)
+        client1 = await connect(http, daemon1, timeout=TIMEOUT)
+        session_id = await start_session(client1, workdir)
+        turn = await client1.ok("session.prompt", {"sessionId": session_id, "text": "slow reply"})
+        turn_id = str(turn["turnId"])
+
+        # Wait until turn has started
+        await client1.wait(
+            lambda event: event["kind"] == "turn.started"
+            and event["payload"]["turnId"] == turn_id
+        )
+        after_seq = max(e.get("seq", 0) for e in client1.events if e.get("sessionId") == session_id)
+
+        # Abrupt stop/death mid-turn
+        await client1.stop()
+        await daemon1.stop()
+
+        # Restart daemon on same home and connect fresh client
+        daemon2 = await make_daemon(home)
+        try:
+            client2 = await connect(http, daemon2, timeout=TIMEOUT)
+            replay = await client2.ok(
+                "session.resume", {"sessionId": session_id, "afterSeq": after_seq}
+            )
+            events = replay.get("events", [])
+            dones = [e for e in events if e.get("kind") == "turn.done"]
+            assert len(dones) == 1, events
+            assert dones[0]["payload"]["turnId"] == turn_id
+            assert dones[0]["payload"]["reason"] == "interrupted"
+            assert dones[0]["payload"]["synthetic"] is True
+            await client2.stop()
+        finally:
+            await daemon2.stop()
+

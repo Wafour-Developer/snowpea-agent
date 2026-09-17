@@ -157,9 +157,16 @@ def resolve_tui_command(
         return ["node", str(entry)]
 
     packaged = packaged_tui_bundle(package_root)
+    repo = repo_tui_bundle(repo_root)
+    if packaged.exists() and repo.exists():
+        # Editable installs ship an older copy under ``snowpea_core/tui/dist``.
+        # Prefer whichever bundle was built most recently so reconnect and other
+        # TUI fixes in the checkout actually run.
+        if repo.stat().st_mtime > packaged.stat().st_mtime:
+            return ["node", str(repo)]
+        return ["node", str(packaged)]
     if packaged.exists():
         return ["node", str(packaged)]
-    repo = repo_tui_bundle(repo_root)
     if repo.exists():
         return ["node", str(repo)]
     raise TuiNotFound(

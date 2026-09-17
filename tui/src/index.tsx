@@ -340,6 +340,21 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       onRestart={() => {
         restart = true;
       }}
+      startDaemon={() => {
+        const cmd = process.env.SNOWPEA_DAEMON_CMD;
+        if (cmd) {
+          const parts = cmd.split(" ");
+          const child = spawn(parts[0], parts.slice(1), { detached: true, stdio: "ignore" });
+          child.unref();
+        } else {
+          const child = spawn("snowpea", ["daemon", "start"], { detached: true, stdio: "ignore" });
+          child.on("error", () => {
+            const fallback = spawn("python3", ["-m", "snowpea_core", "--port", "0"], { detached: true, stdio: "ignore" });
+            fallback.unref();
+          });
+          child.unref();
+        }
+      }}
     />,
     // Ink's own Ctrl+C handling unmounts before the app can tear the screen
     // down; `App` handles the key itself and calls `exit()`.

@@ -61,7 +61,7 @@ it("/delegate goes to the daemon as a prompt too, and shows in the transcript", 
   const { call, client, stdin, stdout, app } = open();
   try {
     await sleep(150);
-    await type(stdin, "/delegate executor fix tests", 8);
+    await type(stdin, "/delegate executor fix tests", 15);
     stdin.write("\r");
     await sleep(200);
 
