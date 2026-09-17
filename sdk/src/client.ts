@@ -7,6 +7,9 @@
  * that only listens to `session.event` never sees a gap.
  */
 
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import WebSocket from "ws";
 
 import {
@@ -19,10 +22,25 @@ import {
   type ServerMethod,
 } from "./protocol.js";
 
+export interface ReconnectedEvent {
+  attempts: number;
+  sessions: string[];
+  /** Alias for attempts for backward compatibility. */
+  attempt: number;
+  /** Alias for sessions for backward compatibility. */
+  resumedSessions: string[];
+}
+
+export interface ReconnectingEvent {
+  attempt: number;
+}
+
 /** Lifecycle notifications the client raises on top of the protocol events. */
 export interface ClientLifecycleEvents {
   /** The socket reconnected and every tracked session was resumed. */
-  reconnected: { attempt: number; resumedSessions: string[] };
+  reconnected: ReconnectedEvent;
+  /** An attempt to reconnect is starting. */
+  reconnecting: ReconnectingEvent;
   /** The socket dropped; a reconnect is scheduled unless `reconnect` is off. */
   disconnected: { code: number; reason: string; willRetry: boolean };
   /** A transport or handler error that did not reject a specific call. */
@@ -33,6 +51,14 @@ export interface ClientEvents extends EventMap, ClientLifecycleEvents {}
 
 export type ClientEventName = keyof ClientEvents;
 export type EventListener<E extends ClientEventName> = (payload: ClientEvents[E]) => void;
+
+export interface EndpointInfo {
+  port: number;
+  token: string;
+  host?: string;
+}
+
+export type EndpointResolver = () => Promise<EndpointInfo | null | undefined> | EndpointInfo | null | undefined;
 
 export interface ConnectOptions {
   /** Daemon port, from `$SNOWPEA_HOME/daemon.json`. */
@@ -49,14 +75,18 @@ export interface ConnectOptions {
   protocolVersion?: string;
   /** Reconnect automatically after an unexpected close. Default `true`. */
   reconnect?: boolean;
-  /** First reconnect delay in ms. Default `200`. */
+  /** First reconnect delay in ms. Default `500`. */
   reconnectInitialDelayMs?: number;
-  /** Reconnect delay ceiling in ms. Default `10_000`. */
+  /** Reconnect delay ceiling in ms. Default `5_000`. */
   reconnectMaxDelayMs?: number;
   /** Give up after this many consecutive failures. Default `Infinity`. */
   reconnectMaxAttempts?: number;
   /** Per-call timeout in ms. Default `30_000`; `0` disables it. */
   callTimeoutMs?: number;
+  /** Timeout for waiting for reconnect during call() while socket is down. Default `30_000`. */
+  reconnectWaitMs?: number;
+  /** Custom endpoint resolver called before each reconnect attempt. */
+  resolveEndpoint?: EndpointResolver;
 }
 
 /** A JSON-RPC error response. `code` is the protocol's string code. */
@@ -130,6 +160,28 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+export function defaultResolveEndpoint(): EndpointInfo | null {
+  try {
+    const envHome = process.env.SNOWPEA_HOME;
+    let home: string;
+    if (envHome && envHome.trim().length > 0) {
+      home = envHome.startsWith("~/") ? join(homedir(), envHome.slice(2)) : envHome;
+    } else {
+      home = join(homedir(), ".snowpea");
+    }
+    const daemonJsonPath = join(home, "daemon.json");
+    if (!existsSync(daemonJsonPath)) return null;
+    const content = readFileSync(daemonJsonPath, "utf8");
+    const data = JSON.parse(content);
+    if (typeof data.port === "number" && typeof data.token === "string") {
+      return { port: data.port, token: data.token };
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 export class Client {
   readonly options: Required<Omit<ConnectOptions, "host" | "path" | "protocolVersion">> &
     Pick<ConnectOptions, "host" | "path" | "protocolVersion">;
@@ -148,6 +200,12 @@ export class Client {
   private closed = false;
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   private attempt = 0;
+  private isReconnecting = false;
+  private readonly reconnectWaiters = new Set<{
+    resolve: () => void;
+    reject: (err: Error) => void;
+    timer?: ReturnType<typeof setTimeout>;
+  }>();
 
   constructor(options: ConnectOptions) {
     this.options = {
@@ -158,10 +216,12 @@ export class Client {
       path: options.path,
       protocolVersion: options.protocolVersion,
       reconnect: options.reconnect ?? true,
-      reconnectInitialDelayMs: options.reconnectInitialDelayMs ?? 200,
-      reconnectMaxDelayMs: options.reconnectMaxDelayMs ?? 10_000,
+      reconnectInitialDelayMs: options.reconnectInitialDelayMs ?? 500,
+      reconnectMaxDelayMs: options.reconnectMaxDelayMs ?? 5_000,
       reconnectMaxAttempts: options.reconnectMaxAttempts ?? Number.POSITIVE_INFINITY,
       callTimeoutMs: options.callTimeoutMs ?? 30_000,
+      reconnectWaitMs: options.reconnectWaitMs ?? 30_000,
+      resolveEndpoint: options.resolveEndpoint ?? defaultResolveEndpoint,
     };
   }
 
@@ -255,6 +315,38 @@ export class Client {
     }
   }
 
+  private async ensureConnected(timeoutMs?: number): Promise<void> {
+    if (this.connected && !this.isReconnecting) return;
+    if (this.closed || !this.options.reconnect) {
+      throw new ConnectionClosedError("socket is not open");
+    }
+    const waitMs = timeoutMs ?? this.options.reconnectWaitMs ?? this.options.callTimeoutMs;
+    await new Promise<void>((resolve, reject) => {
+      const waiter: {
+        resolve: () => void;
+        reject: (err: Error) => void;
+        timer?: ReturnType<typeof setTimeout>;
+      } = {
+        resolve: () => {
+          this.reconnectWaiters.delete(waiter);
+          resolve();
+        },
+        reject: (err: Error) => {
+          this.reconnectWaiters.delete(waiter);
+          reject(err);
+        },
+      };
+      if (waitMs > 0) {
+        waiter.timer = setTimeout(() => {
+          this.reconnectWaiters.delete(waiter);
+          const waitSec = Math.round(waitMs / 1000);
+          reject(new ConnectionClosedError(`daemon unreachable after ${waitSec} s`));
+        }, waitMs);
+      }
+      this.reconnectWaiters.add(waiter);
+    });
+  }
+
   // -- calls ----------------------------------------------------------------
 
   /** Invoke a JSON-RPC method and resolve with its typed result. */
@@ -263,6 +355,7 @@ export class Client {
     params: MethodMap[M]["params"],
     opts: { timeoutMs?: number } = {},
   ): Promise<MethodMap[M]["result"]> {
+    await this.ensureConnected(opts.timeoutMs);
     const result = (await this.rawCall(
       method as string,
       params as unknown,
@@ -397,31 +490,67 @@ export class Client {
 
   private async scheduleReconnect(): Promise<void> {
     if (this.reconnectTimer) return;
+    if (this.isReconnecting) return;
+    this.isReconnecting = true;
     while (!this.closed && this.options.reconnect) {
       this.attempt += 1;
       if (this.attempt > this.options.reconnectMaxAttempts) {
-        this.emit("error", { error: new ConnectionClosedError("reconnect attempts exhausted") });
+        const err = new ConnectionClosedError("reconnect attempts exhausted");
+        for (const waiter of [...this.reconnectWaiters]) {
+          if (waiter.timer) clearTimeout(waiter.timer);
+          waiter.reject(err);
+        }
+        this.reconnectWaiters.clear();
+        this.isReconnecting = false;
+        this.emit("error", { error: err });
         return;
       }
-      const base = Math.min(
+      const delay = Math.min(
         this.options.reconnectMaxDelayMs,
         this.options.reconnectInitialDelayMs * 2 ** (this.attempt - 1),
       );
-      const delay = Math.round(base * (0.5 + Math.random() / 2));
       await sleep(delay);
-      if (this.closed) return;
+      if (this.closed) {
+        this.isReconnecting = false;
+        return;
+      }
+      this.emit("reconnecting", { attempt: this.attempt });
       try {
+        if (this.options.resolveEndpoint) {
+          try {
+            const ep = await this.options.resolveEndpoint();
+            if (ep && typeof ep.port === "number" && typeof ep.token === "string") {
+              this.options.port = ep.port;
+              this.options.token = ep.token;
+              if (ep.host) this.options.host = ep.host;
+            }
+          } catch {
+            // resolver error; retry next attempt
+          }
+        }
         await this.openSocket();
         await this.hello();
         const resumed = await this.resumeTracked();
-        const attempt = this.attempt;
+        const attempts = this.attempt;
         this.attempt = 0;
-        this.emit("reconnected", { attempt, resumedSessions: resumed });
+        this.isReconnecting = false;
+        for (const waiter of [...this.reconnectWaiters]) {
+          if (waiter.timer) clearTimeout(waiter.timer);
+          waiter.resolve();
+        }
+        this.reconnectWaiters.clear();
+        this.emit("reconnected", {
+          attempts,
+          sessions: resumed,
+          attempt: attempts,
+          resumedSessions: resumed,
+        });
         return;
       } catch (err) {
         this.emit("error", { error: err instanceof Error ? err : new Error(String(err)) });
       }
     }
+    this.isReconnecting = false;
   }
 
   private async resumeTracked(): Promise<string[]> {
@@ -519,16 +648,22 @@ export class Client {
 
   // -- teardown -------------------------------------------------------------
 
-  /** Close the socket and stop reconnecting. */
   async close(code = 1000, reason = "client close"): Promise<void> {
     this.closed = true;
+    this.isReconnecting = false;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = undefined;
     }
+    const closeError = new ConnectionClosedError("client closed");
+    for (const waiter of [...this.reconnectWaiters]) {
+      if (waiter.timer) clearTimeout(waiter.timer);
+      waiter.reject(closeError);
+    }
+    this.reconnectWaiters.clear();
     const ws = this.ws;
     this.ws = undefined;
-    this.failPending(new ConnectionClosedError("client closed"));
+    this.failPending(closeError);
     if (!ws) return;
     await new Promise<void>((resolve) => {
       if (ws.readyState === WebSocket.CLOSED) {
