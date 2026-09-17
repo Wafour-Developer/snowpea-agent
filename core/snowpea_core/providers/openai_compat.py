@@ -31,6 +31,12 @@ DEFAULT_TIMEOUT = 300.0
 DONE = "[DONE]"
 
 
+def _is_image_count_rejection(detail: str) -> bool:
+    """True when a local VLM refused the request for carrying too many images."""
+    lowered = detail.lower()
+    return "image" in lowered and ("at most" in lowered or "too many" in lowered)
+
+
 class OpenAICompatProvider:
     """Streaming ``ChatProvider`` for any OpenAI-compatible endpoint."""
 
@@ -216,6 +222,31 @@ class OpenAICompatProvider:
                             ):
                                 yield event
                             return
+                        if (
+                            response.status_code == 400
+                            and self.preset.local_style
+                            and _is_image_count_rejection(detail)
+                        ):
+                            from snowpea_core.session import compaction
+
+                            pruned = compaction.prune_request_images(messages)
+                            if pruned is not messages:
+                                async for event in self._retry(
+                                    client,
+                                    build_openai_request(
+                                        self.preset,
+                                        model,
+                                        pruned,
+                                        tools,
+                                        max_tokens=max_tokens,
+                                        thinking=thinking,
+                                        effort=wanted,
+                                        vision=True if probing else self._vision,
+                                    ),
+                                    normalizer,
+                                ):
+                                    yield event
+                                return
                         if wanted and effort_scale.UNSUPPORTED.is_unsupported_error(detail):
                             # The supported-model list is a guess about someone
                             # else's catalog; a wrong guess costs one retry, not
