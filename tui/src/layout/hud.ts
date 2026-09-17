@@ -87,6 +87,10 @@ export function formatElapsed(ms: number): string {
 
 export interface HudInput {
   status: ConnectionStatus;
+  /** Reconnect attempt count shown as (n) while reconnecting. */
+  reconnectAttempt?: number | null;
+  /** True when daemon is gone for good (>20s outage or no daemon.json). */
+  daemonGone?: boolean;
   /** Version of the running daemon. */
   version: string;
   /** Newer version `system.checkUpdate` found, when there is one. */
@@ -306,10 +310,26 @@ export function buildHudSegments(input: HudInput): HudSegment[] {
     segments.push({ key: "command", text: "Esc stops · type what to change", dimColor: true, priority: 3 });
   }
 
+  let statusText = `● ${input.status}`;
+  let statusColor = STATUS_COLOR[input.status];
+  if (input.daemonGone) {
+    statusText = "daemon is not running — press R to start it";
+    statusColor = "red";
+  } else if (input.status === "reconnecting") {
+    statusText =
+      typeof input.reconnectAttempt === "number" && input.reconnectAttempt > 0
+        ? `⟳ reconnecting… (${input.reconnectAttempt})`
+        : "⟳ reconnecting…";
+    statusColor = "yellow";
+  } else if (input.status === "connected") {
+    statusText = "● connected";
+    statusColor = "green";
+  }
+
   segments.push({
     key: "status",
-    text: `● ${input.status}`,
-    color: STATUS_COLOR[input.status],
+    text: statusText,
+    color: statusColor,
     priority: 0,
   });
 

@@ -27,7 +27,7 @@ import type {
   SystemUpdateResult,
 } from "@snowpea/sdk";
 
-export { connect } from "@snowpea/sdk";
+export { connect, defaultResolveEndpoint } from "@snowpea/sdk";
 
 /** `session.event` notification payload (contract §1). */
 export type SessionEvent = SessionEventPayload;

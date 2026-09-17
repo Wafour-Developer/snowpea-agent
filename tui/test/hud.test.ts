@@ -137,6 +137,35 @@ describe("buildHudSegments", () => {
     expect(segments[0].key).toBe("toast");
     expect(segments[0].text).toBe("mode: AUTO");
   });
+
+  it("shows reconnecting attempt count while down and connected when restored", () => {
+    const reconnecting = buildHudSegments({
+      ...base,
+      status: "reconnecting",
+      reconnectAttempt: 3,
+    });
+    expect(reconnecting.find((s) => s.key === "status")?.text).toBe("⟳ reconnecting… (3)");
+    expect(reconnecting.find((s) => s.key === "status")?.color).toBe("yellow");
+
+    const restored = buildHudSegments({
+      ...base,
+      status: "connected",
+      reconnectAttempt: null,
+    });
+    expect(restored.find((s) => s.key === "status")?.text).toBe("● connected");
+    expect(restored.find((s) => s.key === "status")?.color).toBe("green");
+  });
+
+  it("shows start prompt when daemon is gone for good", () => {
+    const gone = buildHudSegments({
+      ...base,
+      status: "reconnecting",
+      daemonGone: true,
+    });
+    expect(gone.find((s) => s.key === "status")?.text).toBe(
+      "daemon is not running — press R to start it",
+    );
+  });
 });
 
 describe("the context segment", () => {

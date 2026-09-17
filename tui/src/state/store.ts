@@ -379,6 +379,7 @@ export type Action =
    * single render.
    */
   | { type: "session/replay"; events: SessionEvent[] }
+  | { type: "session/reconnected" }
   | { type: "child/event"; sessionId: string; event: SessionEvent }
   | { type: "child/replay"; sessionId: string; events: SessionEvent[] }
   | { type: "approval/request"; request: ApprovalRequestParams }
@@ -1090,6 +1091,16 @@ export function reducer(state: State, action: Action): State {
 
     case "session/replay":
       return replayEvents(state, action.events);
+
+    case "session/reconnected": {
+      const messages = state.messages.map((m) => (m.streaming ? { ...m, streaming: false } : m));
+      return {
+        ...flushDeferred({ ...state, messages }),
+        turnActive: false,
+        turnStartedAt: null,
+        turnWaited: false,
+      };
+    }
 
     case "child/replay": {
       const current = state.children[action.sessionId] ?? initialState;

@@ -186,11 +186,32 @@ def test_the_packaged_bundle_beats_the_checkout(
     monkeypatch.delenv("SNOWPEA_TUI_ENTRY", raising=False)
     packaged = _make_bundle(tmp_path / "packaged")
     repo = _make_bundle(tmp_path / "repo")
+    # Same mtime: packaged wins (wheel copy is the default).
+    packaged.touch()
+    repo.touch()
 
     command = resolve_tui_command(package_root=tmp_path / "packaged", repo_root=tmp_path / "repo")
 
     assert command == ["node", str(packaged)]
     assert command != ["node", str(repo)]
+
+
+def test_a_newer_checkout_bundle_beats_packaged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("SNOWPEA_TUI_ENTRY", raising=False)
+    packaged = _make_bundle(tmp_path / "packaged")
+    repo = _make_bundle(tmp_path / "repo")
+    packaged.touch()
+    import os
+    import time
+
+    time.sleep(0.01)
+    os.utime(repo, (time.time() + 1, time.time() + 1))
+
+    command = resolve_tui_command(package_root=tmp_path / "packaged", repo_root=tmp_path / "repo")
+
+    assert command == ["node", str(repo)]
 
 
 def test_the_checkout_is_the_last_resort(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

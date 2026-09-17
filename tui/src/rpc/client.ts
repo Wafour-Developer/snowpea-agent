@@ -65,6 +65,8 @@ export interface CreateSessionOptions {
 export interface TuiClientListeners {
   onSessionEvent?: (event: SessionEvent) => void;
   onStatus?: (status: ConnectionStatus) => void;
+  onReconnecting?: (params: { attempt: number }) => void;
+  onReconnected?: (params: { attempts: number; sessions: string[] }) => void;
   onApprovalResolved?: (params: { requestId: string; decision: string; by?: string }) => void;
   /** An unattended request joined the shared queue; re-read `approval.list`. */
   onApprovalPending?: (params: { request: ApprovalRequestParams }) => void;
@@ -144,7 +146,14 @@ export class TuiClient {
     client.on("disconnected", (params) =>
       this.setStatus(params.willRetry ? "reconnecting" : "closed"),
     );
-    client.on("reconnected", () => this.setStatus("connected"));
+    client.on("reconnecting", (params: any) => {
+      this.setStatus("reconnecting");
+      this.listeners.onReconnecting?.(params);
+    });
+    client.on("reconnected", (params: any) => {
+      this.setStatus("connected");
+      this.listeners.onReconnected?.(params);
+    });
 
     this.setStatus("connected");
     await this.loadUiLanguage();

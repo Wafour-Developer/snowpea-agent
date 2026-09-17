@@ -66,6 +66,8 @@ export interface ChatProps {
    * yet — after that, R is just a letter.
    */
   onQuickResume?: () => void;
+  /** Pressing R when daemon is not running starts daemon. */
+  onStartDaemon?: () => void;
   /** U on empty input opens update confirmation without entering the draft. */
   onQuickUpdate?: () => void;
   /** Autocomplete candidates for the current input; owner calls registry.complete(). */
@@ -90,6 +92,7 @@ export function Chat({
   initialHistory = [],
   onFocusDown,
   onQuickResume,
+  onStartDaemon,
   onQuickUpdate,
   onPaste,
   onBackspaceEmpty,
@@ -366,6 +369,10 @@ export function Chat({
       // A paste arrives as one chunk: if it names files, it becomes chips
       // rather than a wall of text in the draft.
       if (typed.length > 1 && onPaste?.(typed)) return;
+      if ((typed === "R" || typed === "r") && onStartDaemon) {
+        onStartDaemon();
+        return;
+      }
       if (typed === "U" && value.length === 0 && onQuickUpdate) {
         onQuickUpdate();
         return;

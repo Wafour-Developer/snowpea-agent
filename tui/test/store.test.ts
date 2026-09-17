@@ -325,5 +325,26 @@ describe("interrupted turns and post-stop note", () => {
       resetUiLanguage();
     }
   });
+
+  it("reconnect event clears stuck turn and dangling streaming messages", () => {
+    let state = reducer(initialState, {
+      type: "user/message",
+      text: "hello",
+    });
+    expect(state.turnActive).toBe(true);
+
+    state = reducer(state, {
+      type: "session/event",
+      event: event(1, "message.delta", { text: "working on it..." }),
+    });
+    expect(state.messages[1]?.streaming).toBe(true);
+
+    state = reducer(state, { type: "session/reconnected" });
+
+    expect(state.turnActive).toBe(false);
+    expect(state.turnStartedAt).toBeNull();
+    expect(state.turnWaited).toBe(false);
+    expect(state.messages[1]?.streaming).toBe(false);
+  });
 });
 
