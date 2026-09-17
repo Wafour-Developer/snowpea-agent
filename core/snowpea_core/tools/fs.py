@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import difflib
 import logging
+from pathlib import Path
 from typing import Any
 
 from snowpea_core.prompts import tool_descriptions as descriptions
 from snowpea_core.tools import file_state
 from snowpea_core.tools.config_guard import permission_for_write
 from snowpea_core.tools.registry import Tool, ToolContext, ToolResult
+from snowpea_core.tools.view_image import IMAGE_SUFFIXES, image_dimensions, resolve_image_path
 from snowpea_core.vendor.hermes.tools.binary_extensions import (
     has_binary_extension,
     has_opaque_document_extension,
@@ -90,10 +92,38 @@ def _window(content: str, offset: int | None, limit: int | None) -> tuple[str, b
     return "".join(window), start == 0 and end >= len(lines)
 
 
+def _image_read_hint(path: str, resolved: Path) -> ToolResult:
+    """Tell the model to use ``view_image`` instead of dumping image bytes."""
+    try:
+        size = resolved.stat().st_size
+        data = resolved.read_bytes()
+    except OSError as exc:
+        return ToolResult(ok=False, error=f"{type(exc).__name__}: {exc}")
+    width, height = image_dimensions(data, "")
+    if isinstance(width, int) and isinstance(height, int):
+        size_label = f"{width}×{height}, "
+    else:
+        size_label = ""
+    size_kb = max(1, size // 1024)
+    return ToolResult(
+        ok=True,
+        output=(
+            f"{path} is an image ({size_label}{size_kb} KB); use view_image to inspect it — "
+            "read_file cannot show pictures to the model"
+        ),
+        path=path,
+    )
+
+
 async def read_file(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     path = str(args.get("path", "")).strip()
     if not path:
         return ToolResult(ok=False, error="path is required")
+    if Path(path).suffix.lower() in IMAGE_SUFFIXES:
+        resolved, error = resolve_image_path(ctx, path)
+        if error or resolved is None:
+            return ToolResult(ok=False, error=error or "path is required")
+        return _image_read_hint(path, resolved)
     if has_binary_extension(path) or has_opaque_document_extension(path):
         return ToolResult(
             ok=False,

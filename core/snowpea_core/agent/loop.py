@@ -41,7 +41,7 @@ from snowpea_core.server import errors
 from snowpea_core.session import compaction, events
 from snowpea_core.session.manager import persist_history
 from snowpea_core.skills import hooks as plugin_hooks
-from snowpea_core.tools import output_spill, repeat_guard
+from snowpea_core.tools import output_spill, repeat_guard, view_image
 from snowpea_core.tools.registry import (
     ProgressEmitter,
     Tool,
@@ -1368,6 +1368,8 @@ async def _run_one_call(
             name=call.name,
         )
     )
+    if call.name == "view_image" and result.ok:
+        view_image.append_view_image_message(session, result)
     if was_interrupted or session.interrupt.is_set():
         await finish_turn(core, session, turn_id, "interrupted")
         return "interrupted"

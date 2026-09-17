@@ -343,11 +343,13 @@ def register_builtin_tools(registry: ToolRegistry) -> ToolRegistry:
         skills_tools,
         stubs,
         tool_search,
+        view_image,
         web,
     )
 
     for tool in (
         *fs.TOOLS,
+        *view_image.TOOLS,
         *ask_user.TOOLS,
         *glob.TOOLS,
         *grep.TOOLS,

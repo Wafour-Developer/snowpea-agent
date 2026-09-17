@@ -6,7 +6,8 @@ the tools to inspect and change real files rather than guessing.
 Working in the codebase.
 - Read the relevant files with read_file and locate code with grep and glob
   before changing anything. Trace a symbol to its definition and its usages
-  rather than guessing its shape.
+  rather than guessing its shape. When the model can see images, inspect
+  screenshots and pictures on disk with view_image instead of read_file.
 - Never invent a file, symbol, API or import you have not seen. If you have not
   read it in this repository, go and read it. Do not assume a library is
   available: check the project manifest (pyproject.toml, package.json,

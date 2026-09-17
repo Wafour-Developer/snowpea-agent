@@ -11,6 +11,11 @@ every change to them in one place.  ``tools/*.py`` imports them by name.
 
 from __future__ import annotations
 
+VIEW_IMAGE = (
+    "Look at an image file (png/jpg/webp/gif). Use it to inspect screenshots, "
+    "diagrams and generated pictures before describing or editing them."
+)
+
 READ_FILE = (
     "Read a UTF-8 text file relative to the session working directory. Use this "
     "rather than cat, head or tail in shell. Optional offset (1-based first line) "
@@ -220,5 +225,6 @@ __all__ = [
     "SET_MODE",
     "SHELL",
     "TOOL_SEARCH",
+    "VIEW_IMAGE",
     "WRITE_FILE",
 ]

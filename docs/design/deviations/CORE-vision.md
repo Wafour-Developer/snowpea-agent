@@ -23,3 +23,7 @@ Against `docs/design/m3-providers-setup-contract.md` §2 and the CORE-vision bri
 10. **No settings-model fields were added.** `settings.providers` is already a free-form `dict[str, Any]`, so `vision` and the `models` object form need no change to `config/settings.py` at all.
 
 11. **`--vision` and `--no-vision` are separate flags on `add-local`.** Argparse's `store_true`/`store_false` onto one destination with `default=None` keeps all three states — on, off, and "say nothing, let the chain decide" — which a single `--vision BOOL` would have collapsed.
+
+12. **`view_image` is the on-disk counterpart to prompt attachments.** A pasted `/attach` image and a file the model opens with `view_image` both become the same `history_blocks` user message after the tool result; only vision-capable sessions get that second message, and non-vision models see a refusal with no image appended.
+
+13. **The loop appends the image block, not the tool registry.** Tool messages stay text on every provider; `agent/loop.py` inserts the user image turn immediately after a successful `view_image` call so the next provider request carries the picture without teaching every adapter a new tool-result shape.
