@@ -378,6 +378,15 @@ def build_messages(
             from snowpea_core.tools import repeat_guard
 
             repeat_guard.forget_pruned(session, stored, pruned)
+    vision = (
+        core.providers.vision_for(session.provider, session.model)
+        if core is not None and session.provider
+        else False
+    )
+    if core is not None and session.provider and core.providers.is_local_style(session.provider):
+        # ``None`` means try-once: images still go out. Many local VLMs cap at two.
+        if vision is not False:
+            history = compaction.prune_request_images(history)
     return [
         ChatMessage(
             role="system",

@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any
 
 from snowpea_core.agent.agent import build_messages
 from snowpea_core.prompts.loader import load
+from snowpea_core.providers import content
 from snowpea_core.providers.base import ChatMessage, ProviderError
 from snowpea_core.session import events
 from snowpea_core.session.history import estimate_messages
@@ -574,6 +575,62 @@ def _tool_round_starts(messages: list[ChatMessage]) -> list[int]:
     return starts
 
 
+#: Many local VLMs (Qwen, etc.) hard-fail above two images per request.
+DEFAULT_MAX_REQUEST_IMAGES = 2
+
+
+def _image_block_marker(block: dict[str, object]) -> str:
+    name = block.get("name") or "image"
+    return str(block.get("text") or f"[image: {name}]")
+
+
+def prune_request_images(
+    history: list[ChatMessage],
+    max_images: int = DEFAULT_MAX_REQUEST_IMAGES,
+) -> list[ChatMessage]:
+    """Keep only the newest image blocks in an outgoing provider request.
+
+    Older images become their text marker so the model still knows they were
+    shown, without sending bytes the server would reject.  The stored transcript
+    is never mutated.
+    """
+    if max_images <= 0 or not history:
+        return history
+    positions: list[tuple[int, int]] = []
+    for message_index, message in enumerate(history):
+        if message.role != "user" or not content.has_blocks(message.content):
+            continue
+        for block_index, block in enumerate(message.content):  # type: ignore[union-attr]
+            if isinstance(block, dict) and block.get("type") == "image":
+                positions.append((message_index, block_index))
+    if len(positions) <= max_images:
+        return history
+    drop = set(positions[: len(positions) - max_images])
+    out = list(history)
+    for message_index, message in enumerate(out):
+        if message_index not in {slot[0] for slot in drop}:
+            continue
+        if not content.has_blocks(message.content):
+            continue
+        blocks: list[dict[str, object]] = []
+        for block_index, block in enumerate(message.content):  # type: ignore[union-attr]
+            if not isinstance(block, dict):
+                blocks.append(block)
+                continue
+            if (message_index, block_index) in drop:
+                marker = _image_block_marker(block)
+                blocks.append(
+                    {
+                        "type": "text",
+                        "text": f"{marker} (not sent — at most {max_images} images per request)",
+                    }
+                )
+            else:
+                blocks.append(block)
+        out[message_index] = replace(message, content=blocks)
+    return out
+
+
 def prune_old_tool_outputs(
     history: list[ChatMessage],
     keep_rounds: int = DEFAULT_KEEP_TOOL_ROUNDS,
@@ -664,7 +721,9 @@ __all__ = [
     "maybe_auto_compact",
     "measure",
     "prompt_messages",
+    "DEFAULT_MAX_REQUEST_IMAGES",
     "prune_old_tool_outputs",
+    "prune_request_images",
     "prune_skill_views",
     "reinject_markers",
     "record_provider_usage",
