@@ -4,6 +4,10 @@
 
 snowpea는 이를 해결하기 위해 다섯 가지 협력 메커니즘을 제공합니다: 루프와 중복 읽기를 차단하는 **반복 방지(repeat guard)**, 나가는 요청에서 오래된 툴 결과를 줄이는 **출력 정리(pruning)**, `tool_search`를 통해 필요할 때 스키마를 로드하는 **지연 로딩 툴(deferred tools)**, 위임된 서브에이전트를 위한 **자식 컨텍스트 다이어트**, 그리고 **계층적 컨텍스트 파일 한도**.
 
+## 이미지
+
+세션 모델이 비전을 지원할 때는 디스크에 있는 스크린샷·도표·생성 이미지를 `view_image`로 확인합니다. 이 툴은 작업 디렉터리 안의 경로만 허용하고 20MB 한도를 적용하며, 너무 큰 이미지는 필요 시 축소한 뒤 보냅니다. 모델은 `/attach`로 붙인 프롬프트 첨부와 같은 형태의 이미지 블록을 이어지는 사용자 메시지로 받고, 툴 결과 텍스트는 짧은 요약만 남습니다. `.png`나 `.jpg`에 `read_file`을 쓰면 `view_image`를 안내하는 한 줄만 돌아옵니다. 이미지를 볼 수 없는 모델에서는 `view_image`가 거부되고 기록에 이미지 메시지는 추가되지 않습니다.
+
 ## 툴 확인하기
 
 ```bash
@@ -74,7 +78,7 @@ snowpea는 툴을 매 라운드 전송하는 **즉시 전송(eager)** 세트와 
 
 코딩 에이전트의 핵심 작업에 필수적인 툴들로 구성됩니다:
 
-- 핵심 툴: `read_file`, `write_file`, `edit_file`, `shell`, `grep`, `glob`, `ask_user`, `delegate_task`, `skill_view`, `set_mode`, 그리고 `tool_search` 자체.
+- 핵심 툴: `read_file`, `view_image`, `write_file`, `edit_file`, `shell`, `grep`, `glob`, `ask_user`, `delegate_task`, `skill_view`, `set_mode`, 그리고 `tool_search` 자체.
 - 읽기 전용 자식 세션(쓰기 권한이 없는 `explore`나 `reviewer` 정의): `read_file`, `grep`, `glob`, `shell`, `tool_search`로 좁혀집니다.
 - 세션 모드나 역할이 명시적으로 요구하는 툴(`allowed_tools`) 또는 `tools.eager`에 지정된 툴.
 

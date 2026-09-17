@@ -44,6 +44,7 @@ FIXTURE_ECHO = Path(__file__).parent / "fixtures" / "mcp" / "echo_server.py"
 #: carry.  ``tool.list`` is the API, so a rename here is a breaking change.
 CATALOG: dict[str, tuple[str, str]] = {
     "read_file": ("file", "read"),
+    "view_image": ("file", "read"),
     "write_file": ("file", "write"),
     "edit_file": ("file", "write"),
     "list_dir": ("file", "read"),

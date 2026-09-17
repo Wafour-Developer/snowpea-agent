@@ -29,8 +29,9 @@ GOLDEN_DIR = Path(__file__).parent / "golden" / "prompts"
 #: 2200 for CORE-skill-create's one-sentence addition to base.md's "Skills
 #: and plugins" paragraph (/skill create); raised again from 2900 for M15 §D2's
 #: memory-guidance fragment, which is twelve lines the stable tier did not
-#: carry before.  Still headroom, not a reset.
-TIER_BUDGET_TOKENS = {"stable": 3250, "context": 800, "volatile": 600}
+#: carry before; raised again from 3250 for CORE-vision's one-line ``view_image``
+#: guidance in base.md.  Still headroom, not a reset.
+TIER_BUDGET_TOKENS = {"stable": 3270, "context": 800, "volatile": 600}
 
 MODES = ("plan", "accept", "auto")
 VENDOR_CLASSES = ("anthropic", "openai-family", "small-local")
