@@ -375,6 +375,71 @@ async def test_audio_speak_uses_a_local_cli(
     assert report["ttsProvider"] == "espeak-ng"
 
 
+async def test_audio_speak_can_preview_an_unpinned_backend(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    script = bin_dir / "espeak-ng"
+    script.write_text(
+        '#!/bin/sh\nout=""\nnext=0\nfor a in "$@"; do\n'
+        '  if [ "$next" = "1" ]; then out="$a"; next=0; fi\n'
+        '  if [ "$a" = "-w" ]; then next=1; fi\ndone\n'
+        "printf 'RIFF....WAVE' > \"$out\"\n"
+    )
+    script.chmod(script.stat().st_mode | stat.S_IXUSR)
+    monkeypatch.setenv("PATH", str(bin_dir))
+
+    daemon = await make_daemon(tmp_path / "home")
+    try:
+        async with aiohttp.ClientSession() as http:
+            client = await connect(http, daemon)
+            try:
+                result = await client.ok(
+                    "audio.speak",
+                    {"text": "preview", "provider": "espeak-ng"},
+                )
+            finally:
+                await client.stop()
+    finally:
+        await daemon.stop()
+    assert result["provider"] == "espeak-ng"
+    assert Path(result["path"]).read_bytes().startswith(b"RIFF")
+
+
+async def test_audio_speak_accepts_language(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    script = bin_dir / "espeak-ng"
+    script.write_text(
+        '#!/bin/sh\nout=""\nnext=0\nfor a in "$@"; do\n'
+        '  if [ "$next" = "1" ]; then out="$a"; next=0; fi\n'
+        '  if [ "$a" = "-w" ]; then next=1; fi\ndone\n'
+        "printf 'RIFF....WAVE' > \"$out\"\n"
+    )
+    script.chmod(script.stat().st_mode | stat.S_IXUSR)
+    monkeypatch.setenv("PATH", str(bin_dir))
+
+    daemon = await make_daemon(
+        tmp_path / "home", {"audio": {"tts": {"provider": "espeak-ng"}}}
+    )
+    try:
+        async with aiohttp.ClientSession() as http:
+            client = await connect(http, daemon)
+            try:
+                result = await client.ok(
+                    "audio.speak",
+                    {"text": "preview", "language": "ko"},
+                )
+            finally:
+                await client.stop()
+    finally:
+        await daemon.stop()
+    assert result["provider"] == "espeak-ng"
+
+
 async def test_audio_speak_without_a_backend_says_why(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

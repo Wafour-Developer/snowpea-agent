@@ -291,6 +291,8 @@ export interface AudioInstallParams {
   engine: string;
   /** Install one of the engine's voices rather than the engine itself, e.g. piper's ko_KR-kss-medium. Same staged progress; installing a voice does not select it. */
   voice?: string | null;
+  /** Download first-run assets only (e.g. Supertonic ONNX models) with staged progress. */
+  warmup?: boolean;
 }
 
 /** `audio.install` result. */
@@ -353,6 +355,10 @@ export interface AudioRecordStopResult {
 export interface AudioSpeakParams {
   /** Play on the daemon's machine instead of returning only a path. */
   play?: boolean;
+  /** Speech backend to use for this call only (preview before pinning). */
+  provider?: string | null;
+  /** BCP-47 language for voice selection. */
+  language?: string | null;
   /** Session the audio belongs to. */
   sessionId?: string | null;
   /** What to say. */
@@ -1137,6 +1143,10 @@ export interface ProviderListResult {
     models?: string[];
     /** Preset this vendor follows: 'local' for the built-in local vendor and for every named OpenAI-compatible server, otherwise the vendor's own id. */
     preset?: string;
+    /** Configured endpoint for a local-style vendor; empty for hosted vendors. */
+    baseUrl?: string;
+    /** Server software hint for a local-style vendor: vllm, ollama, lmstudio, or generic. */
+    variant?: string;
     /** True when this vendor accepts a reasoning-effort setting. False for a local-style server unless its block sets effort_param: true. */
     supportsEffort?: boolean;
     /** Vendor key, e.g. 'anthropic'. */

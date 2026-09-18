@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import shutil
 import signal
+import subprocess
 import sys
 import time
 from dataclasses import dataclass
@@ -20,6 +22,9 @@ from pathlib import Path
 from snowpea_core.audio.player import AudioError
 
 log = logging.getLogger("snowpea.audio.recorder")
+
+# ffmpeg lists capture devices as ``…] [0] Built-in Microphone``.
+_FFMPEG_DEVICE_LINE = re.compile(r"\] \[(\d+)\] .+")
 
 #: Recording format: 16 kHz mono PCM, which every STT backend accepts.
 SAMPLE_RATE = 16_000
@@ -75,7 +80,59 @@ BACKENDS: tuple[RecorderBackend, ...] = (
 
 def available_recorders() -> list[str]:
     """Names of the capture tools installed here, in preference order."""
-    return [backend.name for backend in BACKENDS if shutil.which(backend.executable)]
+    names: list[str] = []
+    for backend in BACKENDS:
+        if not shutil.which(backend.executable):
+            continue
+        if backend.name == "ffmpeg" and not _ffmpeg_has_audio_device():
+            continue
+        names.append(backend.name)
+    return names
+
+
+def _ffmpeg_has_audio_device() -> bool:
+    """True when ffmpeg's avfoundation backend can see at least one microphone.
+
+    On macOS ffmpeg is often installed without any capture devices listed — only
+    screen capture — and then it happily writes a zero-byte wav. Treat that as
+    "no recorder" so clients fall back to their own microphone.
+    """
+    executable = shutil.which("ffmpeg")
+    if executable is None:
+        return False
+    try:
+        completed = subprocess.run(
+            [
+                executable,
+                "-hide_banner",
+                "-f",
+                "avfoundation",
+                "-list_devices",
+                "true",
+                "-i",
+                "",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        text = f"{completed.stderr or ''}\n{completed.stdout or ''}"
+    except (OSError, subprocess.TimeoutExpired):
+        # A probe we could not run should not hide a backend that might work.
+        return True
+    in_audio = False
+    for line in text.splitlines():
+        if "AVFoundation audio devices:" in line:
+            in_audio = True
+            continue
+        if not in_audio:
+            continue
+        if "AVFoundation video devices:" in line:
+            break
+        if _FFMPEG_DEVICE_LINE.search(line):
+            return True
+    return False if in_audio else True
 
 
 def find_recorder(preferred: str | None = None) -> RecorderBackend | None:
@@ -83,11 +140,17 @@ def find_recorder(preferred: str | None = None) -> RecorderBackend | None:
     if preferred:
         for backend in BACKENDS:
             if backend.name == preferred and shutil.which(backend.executable):
+                if backend.name == "ffmpeg" and not _ffmpeg_has_audio_device():
+                    continue
                 return backend
         log.debug("configured recorder %r not found; falling back", preferred)
     for backend in BACKENDS:
-        if shutil.which(backend.executable):
-            return backend
+        if not shutil.which(backend.executable):
+            continue
+        if backend.name == "ffmpeg" and not _ffmpeg_has_audio_device():
+            log.debug("ffmpeg is installed but lists no microphone; skipping")
+            continue
+        return backend
     return None
 
 
@@ -224,4 +287,5 @@ __all__ = [
     "available_recorders",
     "can_record",
     "find_recorder",
+    "_ffmpeg_has_audio_device",
 ]

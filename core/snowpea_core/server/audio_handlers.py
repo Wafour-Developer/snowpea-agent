@@ -237,16 +237,33 @@ async def audio_speak_handler(
     config = audio_config(core)
     caller = speech_caller(core)
     provider = config.tts(caller)
+    if params.provider:
+        provider = tts_backends.resolve_provider(
+            params.provider,
+            caller=caller,
+            studio_configured=config.studio_configured,
+            api_key=config.openai_api_key,
+            model=config.tts_model,
+            base_url=config.openai_base_url,
+            command=config.tts_command,
+            home=config.home,
+            language=config.stt_language,
+        )
     if provider is None:
         reasons = capabilities(config, caller=caller)["reasons"]
+        detail = (
+            f"{params.provider!r} is not available on this machine"
+            if params.provider
+            else str(reasons.get("tts", "no speech backend is configured"))
+        )
         raise RpcError(
             "invalid_params",
-            str(reasons.get("tts", "no speech backend is configured")),
+            detail,
             {"audio": "no_tts"},
         )
     try:
         # The caller's voice wins; otherwise the reply language picks one.
-        language = config.stt_language_for()[0]
+        language = (params.language or "").strip() or config.stt_language_for()[0]
         speech = await provider.synthesize(
             params.text,
             out_dir=audio_dir_for(core, params.sessionId),
@@ -359,6 +376,10 @@ async def audio_install_handler(
             if voice:
                 result = await audio_install.install_voice(
                     engine, voice, home=core.paths.home, stages=stages
+                )
+            elif params.warmup:
+                result = await audio_install.warmup(
+                    engine, home=core.paths.home, stages=stages
                 )
             else:
                 result = await audio_install.install(engine, home=core.paths.home, stages=stages)

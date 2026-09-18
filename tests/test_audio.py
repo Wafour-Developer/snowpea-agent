@@ -7,6 +7,7 @@ import base64
 import json
 import os
 import stat
+import subprocess
 from pathlib import Path
 
 import httpx
@@ -247,6 +248,39 @@ def test_ffmpeg_argv_names_a_capture_device(only_path: Path) -> None:
     argv = backend.argv(Path("/tmp/a.wav"))
     assert "-i" in argv
     assert argv[-1] == "/tmp/a.wav"
+
+
+def test_ffmpeg_without_audio_devices_is_ignored(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "snowpea_core.audio.recorder._ffmpeg_has_audio_device",
+        lambda: False,
+    )
+    monkeypatch.setattr("shutil.which", lambda name: "ffmpeg" if name == "ffmpeg" else None)
+    assert find_recorder() is None
+    assert available_recorders() == []
+
+
+def test_ffmpeg_probe_ignores_error_lines_without_devices(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Screen-only ffmpeg builds list video devices but no microphone."""
+    from snowpea_core.audio.recorder import _ffmpeg_has_audio_device
+
+    stderr = """\
+[AVFoundation indev @ 0x7f998c804ec0] AVFoundation video devices:
+[AVFoundation indev @ 0x7f998c804ec0] [0] Capture screen 0
+[AVFoundation indev @ 0x7f998c804ec0] [1] Capture screen 1
+[AVFoundation indev @ 0x7f998c804ec0] AVFoundation audio devices:
+[in#0 @ 0x7f998c8048c0] Error opening input: Input/output error
+Error opening input file .
+"""
+    monkeypatch.setattr("shutil.which", lambda name: "ffmpeg" if name == "ffmpeg" else None)
+
+    def fake_run(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess([], 1, "", stderr)
+
+    monkeypatch.setattr("snowpea_core.audio.recorder.subprocess.run", fake_run)
+    assert _ffmpeg_has_audio_device() is False
 
 
 # ---------------------------------------------------------------------------

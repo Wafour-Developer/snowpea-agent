@@ -774,6 +774,19 @@ class ProviderRegistry:
                 config,
                 home=self.paths.home if self.paths is not None else resolve_home(),
             )
+            base_url = ""
+            variant = ""
+            if preset.local_style:
+                raw_url = config.get("base_url")
+                if isinstance(raw_url, str):
+                    base_url = raw_url.strip()
+                if not base_url and preset.base_url:
+                    base_url = preset.base_url
+                raw_variant = config.get("variant")
+                if isinstance(raw_variant, str):
+                    variant = raw_variant.strip()
+                if not variant and preset.variant:
+                    variant = preset.variant
             infos.append(
                 ProviderInfo(
                     vendor=vendor,
@@ -786,6 +799,8 @@ class ProviderRegistry:
                     authStatus=self.auth_status(vendor),
                     preset="local" if preset.local_style else vendor,
                     custom=vendor not in PRESETS,
+                    baseUrl=base_url,
+                    variant=variant,
                     supportsEffort=preset.supports_effort,
                 )
             )

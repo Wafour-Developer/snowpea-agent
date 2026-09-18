@@ -587,3 +587,34 @@ async def test_a_second_handler_call_for_the_same_engine_is_refused_as_running(
     result = await first
     assert result.ok is True
     assert calls == ["edge-tts"], "the second request must not start a second install"
+
+
+# ---------------------------------------------------------------------------
+# supertonic first-run model download
+# ---------------------------------------------------------------------------
+
+
+async def test_supertonic_warmup_streams_progress(tmp_path: Path, monkeypatch: Any) -> None:
+    monkeypatch.setattr(audio_install, "supertonic_models_ready", lambda _home: False)
+    monkeypatch.setattr(audio_runtime, "has_module", lambda _home, _name: True)
+    monkeypatch.setattr(
+        audio_runtime,
+        "runtime_python",
+        lambda _home: tmp_path / "python",
+    )
+    runner = FakeRunner(lines=("Downloading voice models…", "ready"))
+    result = await audio_install.warmup("supertonic", home=tmp_path, runner=runner)
+    assert result.ok is True
+    stamp = audio_runtime.runtime_dir(tmp_path) / audio_install.SUPERTONIC_WARMUP_STAMP
+    assert stamp.is_file()
+    assert runner.calls
+
+
+async def test_supertonic_warmup_skips_when_the_stamp_exists(tmp_path: Path) -> None:
+    stamp = audio_runtime.runtime_dir(tmp_path) / audio_install.SUPERTONIC_WARMUP_STAMP
+    stamp.parent.mkdir(parents=True, exist_ok=True)
+    stamp.write_text("ok", encoding="utf-8")
+    runner = FakeRunner()
+    result = await audio_install.warmup("supertonic", home=tmp_path, runner=runner)
+    assert result.ok is True
+    assert runner.calls == []

@@ -588,6 +588,13 @@ class AudioInstallParams(Payload):
             "does not select it."
         ),
     )
+    warmup: bool = Field(
+        default=False,
+        description=(
+            "When true, download first-run assets only — Supertonic's ONNX models — "
+            "with staged progress, without reinstalling the package."
+        ),
+    )
 
 
 class AudioInstallResult(Payload):
@@ -618,6 +625,17 @@ class AudioSpeakParams(Payload):
     text: str = Field(description="What to say.")
     sessionId: str | None = Field(default=None, description="Session the audio belongs to.")
     voice: str | None = Field(default=None, description="Voice id; defaults to the setting.")
+    provider: str | None = Field(
+        default=None,
+        description=(
+            "Speech backend to use for this call only. When set, the pinned voice-out "
+            "engine is not required — settings screens use this to preview before saving."
+        ),
+    )
+    language: str | None = Field(
+        default=None,
+        description="BCP-47 language for voice selection; defaults to the stt language setting.",
+    )
     play: bool = Field(
         default=False, description="Play on the daemon's machine instead of returning only a path."
     )
@@ -949,6 +967,20 @@ class ProviderInfo(Payload):
     custom: bool = Field(
         default=False,
         description="True for a named OpenAI-compatible server the user added, not a built-in.",
+    )
+    baseUrl: str = Field(
+        default="",
+        description=(
+            "Configured endpoint for a local-style vendor. Empty for hosted vendors "
+            "whose URL is fixed by the preset."
+        ),
+    )
+    variant: str = Field(
+        default="",
+        description=(
+            "Server software hint for a local-style vendor: vllm, ollama, lmstudio, "
+            "or generic. Empty for hosted vendors."
+        ),
     )
     supportsEffort: bool = Field(
         default=False,

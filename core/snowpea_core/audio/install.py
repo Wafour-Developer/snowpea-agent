@@ -252,6 +252,43 @@ STAGES_WITH_VOICE: tuple[str, ...] = (
     STAGE_DOWNLOAD,
     STAGE_CHECK,
 )
+#: Supertonic's Python package installs quickly; the ONNX assets download on first
+#: use unless this warmup step runs first.
+STAGES_SUPERTONIC: tuple[str, ...] = (
+    STAGE_RESOLVE,
+    STAGE_INSTALL,
+    STAGE_DOWNLOAD,
+    STAGE_CHECK,
+)
+
+#: Engines whose first speak downloads assets; ``audio.install`` with
+#: ``warmup=true`` runs only that download with staged progress.
+WARMUP_ENGINES: frozenset[str] = frozenset({"supertonic"})
+
+SUPERTONIC_WARMUP_STAMP = ".supertonic-warmed"
+
+#: A one-line synthesis that forces ``TTS(auto_download=True)`` to fetch models.
+SUPERTONIC_WARMUP_SCRIPT = """
+import os, sys, tempfile
+print("Downloading voice models…", flush=True)
+from supertonic import TTS
+tts = TTS(auto_download=True)
+print("Loading a voice style…", flush=True)
+style = tts.get_voice_style(voice_name="M1")
+print("Verifying synthesis…", flush=True)
+wav, _ = tts.synthesize(text=".", voice_style=style, lang="en")
+with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as handle:
+    path = handle.name
+tts.save_audio(wav, path)
+os.unlink(path)
+print("ready", flush=True)
+"""
+
+
+def supertonic_models_ready(home: Path | str) -> bool:
+    """True when the Supertonic warmup stamp exists under the audio runtime."""
+    stamp = runtime.runtime_dir(home) / SUPERTONIC_WARMUP_STAMP
+    return stamp.is_file()
 
 
 def stages_for(engine: str) -> tuple[str, ...]:
@@ -259,6 +296,8 @@ def stages_for(engine: str) -> tuple[str, ...]:
     name = engine_for(engine)
     if name in MODEL_ENGINES:
         sequence = STAGES_WITH_MODEL
+    elif name == "supertonic":
+        sequence = STAGES_SUPERTONIC
     elif name == "piper":
         sequence = STAGES_WITH_VOICE
     else:
@@ -672,6 +711,14 @@ async def install(
         voice = await download_voice(home, progress=collected, fetch=fetch)
         if voice is not None:
             await collected.say(f"voice ready: {voice}")
+    if name == "supertonic":
+        if not await warmup_supertonic(home, collected, runner=execute):
+            return InstallResult(
+                ok=False,
+                engine=name,
+                log=collected.text,
+                hint="re-run the install to resume the model download",
+            )
     await collected.stage(STAGE_CHECK)
     await collected.say(f"{name} installed")
     result = InstallResult(ok=True, engine=name, log=collected.text)
@@ -679,6 +726,71 @@ async def install(
     # wire shape for one engine.
     setattr(result, "voice_path", voice)  # noqa: B010 - deliberate side channel
     return result
+
+
+async def warmup_supertonic(
+    home: Path | str,
+    log: _Log,
+    *,
+    runner: Runner | None = None,
+) -> bool:
+    """Download Supertonic's ONNX assets with streamed progress, or skip if ready."""
+    home_path = Path(home).expanduser()
+    if supertonic_models_ready(home_path):
+        await log.say("voice models are already downloaded")
+        return True
+    if not runtime.has_module(home_path, RUNTIME_MODULES["supertonic"]):
+        await log.say("supertonic is not installed in the audio runtime")
+        return False
+    execute = runner or run_argv
+    await log.stage(STAGE_DOWNLOAD, "downloading voice models from Hugging Face")
+    argv = [str(runtime.runtime_python(home_path)), "-c", SUPERTONIC_WARMUP_SCRIPT]
+    try:
+        code = await asyncio.wait_for(execute(argv, log), timeout=INSTALL_TIMEOUT_SEC)
+    except TimeoutError:
+        await log.say(f"timed out after {INSTALL_TIMEOUT_SEC:g}s")
+        return False
+    if code != 0:
+        await log.say(f"warmup exited {code}")
+        return False
+    stamp = runtime.runtime_dir(home_path) / SUPERTONIC_WARMUP_STAMP
+    try:
+        stamp.parent.mkdir(parents=True, exist_ok=True)
+        stamp.write_text("ok", encoding="utf-8")
+    except OSError as exc:
+        await log.say(f"could not write warmup stamp: {exc}")
+        return False
+    return True
+
+
+async def warmup(
+    engine: str,
+    home: Path | str,
+    *,
+    stages: Stages | None = None,
+    runner: Runner | None = None,
+) -> InstallResult:
+    """Download first-run assets for one engine without reinstalling the package."""
+    name = engine_for((engine or "").strip())
+    if name not in WARMUP_ENGINES:
+        return InstallResult(
+            ok=False,
+            engine=name or str(engine),
+            log="",
+            hint=f"{name or engine} has no separate warmup step",
+        )
+    collected = _Log(stages=stages, engine=name, sequence=(STAGE_DOWNLOAD, STAGE_CHECK))
+    ok = await warmup_supertonic(home, collected, runner=runner)
+    if not ok:
+        return InstallResult(
+            ok=False,
+            engine=name,
+            log=collected.text,
+            hint="re-run to resume the model download",
+        )
+    await collected.stage(STAGE_CHECK)
+    await collected.say(f"{name} is ready to speak")
+    return InstallResult(ok=True, engine=name, log=collected.text)
 
 
 __all__ = [
@@ -701,7 +813,12 @@ __all__ = [
     "InstallResult",
     "Progress",
     "Runner",
+    "WARMUP_ENGINES",
+    "SUPERTONIC_WARMUP_STAMP",
     "download_voice",
+    "supertonic_models_ready",
+    "warmup",
+    "warmup_supertonic",
     "engine_for",
     "install",
     "install_hint",

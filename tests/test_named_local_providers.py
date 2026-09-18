@@ -277,6 +277,8 @@ def test_provider_list_reports_the_preset_and_the_custom_flag() -> None:
     assert rows["hon2"].preset == "local"
     assert rows["hon2"].custom is True
     assert rows["hon2"].label == "Hon2"
+    assert rows["hon2"].baseUrl == "http://hon2:8000/v1"
+    assert rows["local"].baseUrl == PRESETS["local"].base_url
     assert rows["local"].preset == "local"
     assert rows["local"].custom is False
     assert rows["openai"].preset == "openai"
