@@ -694,8 +694,194 @@ def test_deepinit_picks_the_directories_worth_documenting(tmp_path: Path) -> Non
     (root / "README.md").write_text("readme", encoding="utf-8")
 
     assert [path.name for path in deepinit.interesting_dirs(root)] == ["src"]
-    assert "src/AGENTS.md" in deepinit.dir_task(root / "src", root)
+    assert "Map the code under src" in deepinit.map_dir_task(root / "src", root)
+    assert "Do NOT write" in deepinit.map_dir_task(root / "src", root)
+    assert "src/AGENTS.md" in deepinit.write_dir_task(root / "src", root, "notes here")
+    assert "Explore notes" in deepinit.write_dir_task(root / "src", root, "notes here")
+    assert "write_file now" in deepinit.write_dir_task(root / "src", root, "", retry=True)
     assert "- src/AGENTS.md" in deepinit.root_task(root, [root / "src"])
+
+
+def test_deepinit_root_task_with_summaries(tmp_path: Path) -> None:
+    from snowpea_core.commands import deepinit
+
+    root = tmp_path / "tree"
+    documented = [(root / "src", "Core source code containing modules.")]
+    task = deepinit.root_task(root, documented)
+    assert "- src/AGENTS.md: Core source code containing modules." in task
+    assert "- src/AGENTS.md" in task
+    retry = deepinit.root_task(root, documented, retry=True)
+    assert "Previous attempt did not create AGENTS.md" in retry
+
+
+async def test_deepinit_falls_back_when_model_skips_write(
+    daemon: Daemon, workdir: Path
+) -> None:
+    """Model attempts (plus manager incomplete retry) still leave no file → stub."""
+    from snowpea_core.agent.subagent import SubagentResult, get_manager
+    from snowpea_core.commands.deepinit import FALLBACK_MARKER
+
+    core = daemon.core
+    assert core is not None
+    root = workdir / "tree"
+    src = root / "src"
+    src.mkdir(parents=True)
+    (src / "a.py").write_text("a\n", encoding="utf-8")
+    (src / "b.py").write_text("b\n", encoding="utf-8")
+
+    async def fake_run(_parent: object, brief: str, **kwargs: object) -> SubagentResult:
+        title = str(kwargs.get("title") or "")
+        if title.startswith("explore"):
+            return SubagentResult(
+                agent_id="a-map",
+                ok=True,
+                summary="src holds the core package.",
+                reason="complete",
+                name="explorer",
+            )
+        return SubagentResult(
+            agent_id="a-1",
+            ok=True,
+            summary="Stopped after budget without writing.",
+            reason="budget",
+            name="executor",
+        )
+
+    manager = get_manager(core)
+    manager.run = fake_run  # type: ignore[method-assign]
+
+    session = await open_session(core, root)
+    recorder = Recorder()
+    core.hub.subscribe(recorder, session.id)
+    await asyncio.wait_for(core.commands.run(core, session, "deepinit", ""), timeout=TIMEOUT)
+
+    assert (src / "AGENTS.md").is_file()
+    assert (root / "AGENTS.md").is_file()
+    assert FALLBACK_MARKER in (src / "AGENTS.md").read_text(encoding="utf-8")
+    assert FALLBACK_MARKER in (root / "AGENTS.md").read_text(encoding="utf-8")
+    said = "\n".join(
+        str(event["payload"]["text"]) for event in recorder.of_kind("message.done")
+    )
+    assert "fallback" in said
+    assert "wrote 2 file(s)" in said
+    assert "did not get written" not in said
+
+
+async def test_deepinit_explore_then_write_passes_notes(
+    daemon: Daemon, workdir: Path
+) -> None:
+    """Explorer maps; executor receives those notes in the write brief."""
+    from snowpea_core.agent.subagent import SubagentResult, get_manager
+
+    core = daemon.core
+    assert core is not None
+    root = workdir / "tree"
+    src = root / "src"
+    src.mkdir(parents=True)
+    (src / "a.py").write_text("a\n", encoding="utf-8")
+    (src / "b.py").write_text("b\n", encoding="utf-8")
+
+    briefs: list[str] = []
+
+    async def fake_run(_parent: object, brief: str, **kwargs: object) -> SubagentResult:
+        briefs.append(brief)
+        title = str(kwargs.get("title") or "")
+        agent = kwargs.get("agent") or kwargs.get("prefer")
+        if title.startswith("explore"):
+            return SubagentResult(
+                agent_id="a-map",
+                ok=True,
+                summary="MAP-NOTE: src is the Python core.",
+                name="explorer",
+            )
+        if title.startswith("write src"):
+            (src / "AGENTS.md").write_text("# src\n\nfrom map\n", encoding="utf-8")
+            return SubagentResult(
+                agent_id="a-write", ok=True, summary="Wrote src.", name="executor"
+            )
+        if "outline" in title:
+            return SubagentResult(
+                agent_id="a-outline", ok=True, summary="ROOT-OUTLINE", name="architect"
+            )
+        if title.startswith("write AGENTS"):
+            (root / "AGENTS.md").write_text("# root\n", encoding="utf-8")
+            return SubagentResult(
+                agent_id="a-root", ok=True, summary="Wrote root.", name="executor"
+            )
+        return SubagentResult(agent_id="a-x", ok=False, summary="", error=f"unexpected {title} {agent}")
+
+    manager = get_manager(core)
+    manager.run = fake_run  # type: ignore[method-assign]
+
+    session = await open_session(core, root)
+    # Give the session a default-team-like roster so picks resolve.
+    session.team_agents = ("architect", "executor", "explorer", "critic")
+    await asyncio.wait_for(core.commands.run(core, session, "deepinit", ""), timeout=TIMEOUT)
+
+    assert (src / "AGENTS.md").is_file()
+    assert (root / "AGENTS.md").is_file()
+    write_briefs = [b for b in briefs if "Write src/AGENTS.md" in b or "write src/AGENTS.md" in b.lower() or "Explore notes:" in b]
+    assert any("MAP-NOTE: src is the Python core." in b for b in write_briefs)
+
+
+def test_deepinit_fallback_helpers_are_deterministic(tmp_path: Path) -> None:
+    from snowpea_core.commands import deepinit
+
+    root = tmp_path / "proj"
+    pkg = root / "pkg"
+    pkg.mkdir(parents=True)
+    (pkg / "main.py").write_text("x\n", encoding="utf-8")
+    (pkg / "util.py").write_text("y\n", encoding="utf-8")
+    (root / "README.md").write_text("# Demo\n\nA demo project.\n", encoding="utf-8")
+
+    path, summary = deepinit.write_dir_fallback(pkg, root)
+    assert path == pkg / "AGENTS.md"
+    assert path.is_file()
+    assert "main.py" in path.read_text(encoding="utf-8")
+    assert "Fallback stub" in summary
+
+    documented = [(pkg, summary)]
+    root_path = deepinit.write_root_fallback(root, documented, [pkg])
+    assert root_path.is_file()
+    text = root_path.read_text(encoding="utf-8")
+    assert deepinit.FALLBACK_MARKER in text
+    assert "Demo" in text or "demo project" in text.lower()
+    assert "pkg/AGENTS.md" in text
+
+
+def test_deepinit_picks_team_writing_roles() -> None:
+    """Map prefers explorer; write prefers executor — not the other way around."""
+    from snowpea_core.commands import deepinit
+
+    class _Defn:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+    class _Manager:
+        def __init__(self, names: set[str]) -> None:
+            self.names = names
+
+        def definition(self, _session: object, name: str | None) -> object | None:
+            return _Defn(name) if name in self.names else None
+
+    class _Session:
+        def __init__(self, team: tuple[str, ...] = ()) -> None:
+            self.team_agents = team
+
+    manager = _Manager({"architect", "executor", "explorer", "critic"})
+    team = _Session(("architect", "executor", "explorer", "critic"))
+    assert deepinit.pick_doc_agent(team, manager, deepinit.MAP_AGENTS) == "explorer"
+    assert deepinit.pick_doc_agent(team, manager, deepinit.WRITE_AGENTS) == "executor"
+    assert deepinit.pick_doc_agent(team, manager, deepinit.ROOT_MAP_AGENTS) == "architect"
+    # Team without a writing role → None for write (anonymous + WRITE_TOOLS).
+    explore_only = _Session(("explorer", "critic"))
+    assert deepinit.pick_doc_agent(explore_only, manager, deepinit.WRITE_AGENTS) is None
+    assert deepinit.pick_doc_agent(explore_only, manager, deepinit.MAP_AGENTS) == "explorer"
+    # No team: matching builtins.
+    bare = _Session()
+    assert deepinit.pick_doc_agent(bare, manager, deepinit.MAP_AGENTS) == "explorer"
+    assert deepinit.pick_doc_agent(bare, manager, deepinit.WRITE_AGENTS) == "executor"
+
 
 
 # ---------------------------------------------------------------------------

@@ -256,3 +256,10 @@ def test_ensure_project_settings_in_plan_mode_writes_nothing(tmp_path: Path) -> 
     note = init_cmd.ensure_project_settings(tmp_path, plan=True)
     assert "Plan mode" in note
     assert not ProjectSettings.path_for(tmp_path).is_file()
+
+
+def test_explore_dir_task() -> None:
+    task = init_cmd.explore_dir_task(Path("/proj/src"), Path("/proj"))
+    assert "src" in task
+    assert "Do NOT write any files" in task
+

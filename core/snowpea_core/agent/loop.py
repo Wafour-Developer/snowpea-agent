@@ -75,11 +75,13 @@ MAX_CONTINUATIONS = 2
 #: What the model is told when its answer was cut off mid-sentence.
 CONTINUE_INSTRUCTION = "Continue exactly where you stopped, without repeating."
 
-#: Tool rounds a delegated child gets when nothing was configured for it.  A
-#: worker reads far more than it writes, and the parent only ever sees its
-#: final report, so a child's floor is higher than the session default
-#: (CORE-subagent-budget). Capped at 32 per Claude Code's harness.
-SUBAGENT_TOOL_ROUNDS = 32
+#: Floor for a delegated child's tool rounds when nothing else is configured.
+#: A worker reads far more than it writes, and the parent only ever sees its
+#: final report, so the child must not inherit a short human-session budget
+#: (CORE-subagent-budget).  Aligned with Hermes' higher child iteration floor
+#: (their ``delegation.max_iterations`` default is 50–250); 80 is the contract
+#: number already documented in CORE-subagent-budget.
+SUBAGENT_TOOL_ROUNDS = 80
 
 #: Default tool-round budgets per role when not configured in definition or settings.
 DEFAULT_TOOL_ROUNDS: dict[str, int] = {
@@ -90,7 +92,7 @@ DEFAULT_TOOL_ROUNDS: dict[str, int] = {
     "test-engineer": 15,
     "verifier": 14,
     "architect": 10,
-    "executor": 32,
+    "executor": 80,
 }
 
 #: What the model is asked for when the round budget runs out.  The call that
@@ -195,9 +197,9 @@ def tool_rounds_for(core: Core, session: Session | None = None) -> int:
     4. ``agents.maxToolRounds`` as a number;
     5. ``agents.toolRounds`` as a number, or its ``"default"`` / ``"*"`` key;
     6. Role defaults when absent (explore/explorer 8, reviewer/critic 16,
-       test-engineer 15, verifier 14, architect 10, executor 32);
-    7. :data:`SUBAGENT_TOOL_ROUNDS` (32) for a delegated child, or
-       ``agent.max_tool_rounds`` for a human session.
+       test-engineer 15, verifier 14, architect 10, executor 80);
+    7. ``agent.max_tool_rounds`` for a human session, or that value
+       **floored at** :data:`SUBAGENT_TOOL_ROUNDS` (80) for a delegated child.
     """
     settings = core.settings
     name = (
@@ -262,14 +264,14 @@ def tool_rounds_for(core: Core, session: Session | None = None) -> int:
         except (TypeError, ValueError):
             pass
 
-    # 3. Role defaults
+    # 5. Role defaults
     if name and name in DEFAULT_TOOL_ROUNDS:
         return DEFAULT_TOOL_ROUNDS[name]
 
-    # 4. Fallback
+    # 6. Fallback — children get at least SUBAGENT_TOOL_ROUNDS (Hermes-style floor).
     base = max(1, int(settings.agent.max_tool_rounds))
     if session is not None and session.is_subagent:
-        return SUBAGENT_TOOL_ROUNDS
+        return max(base, SUBAGENT_TOOL_ROUNDS)
     return base
 
 

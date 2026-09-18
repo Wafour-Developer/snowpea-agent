@@ -18,7 +18,7 @@ tailored to their responsibilities.
 - `test-engineer`: **15** rounds
 - `verifier`: **14** rounds
 - `architect`: **10** rounds
-- `executor` and others: **32** rounds
+- `executor` and unnamed workers: **80** rounds (Hermes-aligned child floor)
 
 ### Precedence resolution
 `tool_rounds_for(core, session)` (`agent/loop.py`) resolves round budgets with the following precedence:
@@ -27,7 +27,7 @@ tailored to their responsibilities.
 3. `session.tool_rounds` / `max_tool_rounds` from the agent definition (`AgentDefinition`)
 4. Legacy `agents.toolRounds` mapping / scalar
 5. Built-in role default (`DEFAULT_TOOL_ROUNDS`)
-6. Fallback `SUBAGENT_TOOL_ROUNDS` (32) for subagents, or `agent.max_tool_rounds`
+6. Fallback: `agent.max_tool_rounds`, **floored at** `SUBAGENT_TOOL_ROUNDS` (80) for a delegated child
 
 ## D2 — Hermes toolless grace call on exhaustion
 

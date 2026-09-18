@@ -54,7 +54,7 @@ These are answered by the terminal UI itself rather than by the core, so they do
 | `/setup [providers\|search\|browser\|audio\|all]` | re-run a wizard screen here, keys entered masked |
 | `/login <vendor> [method]` | sign in to a vendor: browser flow, device flow, or a masked key |
 | `/init [--force]` | fast, rough `AGENTS.md` for the project root, in one turn; merges into an existing file unless `--force` |
-| `/deepinit [path]` | walk the repository and write hierarchical `AGENTS.md` files |
+| `/deepinit [path]` | explore then write hierarchical `AGENTS.md` (map → write per directory, then root) |
 | `/team "<task>"` | the active team's members run it by role: plan, implement, test, review |
 | `/team <name> "<task>"` | the same, on a named project or global team, just this once |
 | `/team <N> "<task>"` | compatibility spelling for `/workers <N> "<task>"`; replies with a note that `/workers N` is current |

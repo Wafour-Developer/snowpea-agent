@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from snowpea_core.agent.definition import AgentDefinition
+from snowpea_core.agent.role_pick import PARENT, missing_role_policy, pick_agent
 from snowpea_core.config.model_routing import ModelRoute, model_config_for, resolve_reference
 from snowpea_core.config.settings import THINKING_CHOICES
 from snowpea_core.prompts.loader import PromptNotFound, load
@@ -109,6 +110,75 @@ BUDGET_LINE = (
     "You have {n} tool rounds for this task. Leave enough of them to write your "
     "report: if you run out, the report is written for you and the work stops."
 )
+
+#: Reasons that mean the work did not finish and is worth one automatic
+#: re-issue (Hermes ``truncated`` / OMC "generate missing" — a new child turn,
+#: not an extended budget on the same session).
+RETRYABLE_REASONS: frozenset[str] = frozenset({BUDGET, TIMEOUT, ERROR})
+
+#: Caps how much of a prior report is pasted into a continuation brief.
+CONTINUATION_SUMMARY_CHARS = 4000
+CONTINUATION_CALLS = 8
+
+
+def incomplete_retries_for(core: Any) -> int:
+    """``agents.incompleteRetries``, floored at 0."""
+    agents = getattr(getattr(core, "settings", None), "agents", None)
+    raw = getattr(agents, "incompleteRetries", 1)
+    try:
+        return max(0, int(raw))
+    except (TypeError, ValueError):
+        return 1
+
+
+def is_incomplete(result: SubagentResult) -> bool:
+    """True when the child stopped before finishing and a re-issue may help."""
+    reason = (result.reason or "").lower()
+    if reason in ("interrupted", "denied", PARENT):
+        return False
+    if reason == BUDGET:
+        return True
+    if reason == TIMEOUT:
+        return True
+    if reason == ERROR:
+        # Validation refusals (empty task, unknown agent, duplicate) never
+        # started a turn — re-issuing them would invent a new brief and hide
+        # the refusal.  Only retry errors from a child that actually ran.
+        return bool(result.last_calls) or int(result.rounds_used or 0) > 0
+    return False
+
+
+def continuation_brief(original: str, result: SubagentResult) -> str:
+    """Brief for an automatic incomplete re-issue."""
+    reason = (result.reason or "incomplete").strip() or "incomplete"
+    summary = (result.summary or "").strip()
+    if len(summary) > CONTINUATION_SUMMARY_CHARS:
+        summary = summary[: CONTINUATION_SUMMARY_CHARS - 20].rstrip() + "\n…[truncated]"
+    calls = list(result.last_calls or [])[-CONTINUATION_CALLS:]
+    parts = [
+        "Your previous attempt on this task did not finish "
+        f"(reason: {reason}, roundsUsed: {result.rounds_used}"
+        + (f"/{result.budget}" if result.budget else "")
+        + "). Continue from that checkpoint and finish the work.",
+        "",
+        "Original task:",
+        original.strip(),
+    ]
+    if summary:
+        parts.extend(["", "Prior report / findings:", summary])
+    if calls:
+        parts.extend(
+            ["", "Last tool calls from the prior attempt:"]
+            + [f"- {call}" for call in calls]
+        )
+    parts.extend(
+        [
+            "",
+            "Do not restart from scratch unless the prior findings are wrong. "
+            "Finish what remains, then write your final report.",
+        ]
+    )
+    return "\n".join(parts)
 
 
 #: Characters of the normalised task text a fingerprint is taken over.  Two
@@ -253,8 +323,10 @@ class SubagentResult:
     error: str | None = None
     session_id: str | None = None
     usage: dict[str, int] = field(default_factory=dict)
-    #: ``complete`` | ``budget`` | ``error`` | ``timeout`` | ``interrupted``.
+    #: ``complete`` | ``budget`` | ``error`` | ``timeout`` | ``interrupted`` | ``parent``.
     reason: str = COMPLETE
+    #: Role / definition name the child ran as, or ``""`` when anonymous.
+    name: str = ""
     #: Tool rounds the child used, and the last few calls it made.
     rounds_used: int = 0
     budget: int = 0
@@ -605,6 +677,8 @@ class SubagentManager:
         title: str = "",
         progress: ProgressEmitter | None = None,
         force: bool = False,
+        prefer: tuple[str, ...] | list[str] | None = None,
+        _allow_incomplete_retry: bool = True,
     ) -> SubagentResult:
         """Delegate ``task`` to a child session and return its final answer.
 
@@ -612,10 +686,119 @@ class SubagentManager:
         bare vendor — and outranks everything else for this delegation only
         (CORE-model-assignment).  An unresolvable reference is refused rather
         than silently ignored: the caller asked for a specific model.
+
+        When ``agent`` is omitted, ``prefer`` names specialised roles to try
+        first (team roster / builtins); then ``agents.generalAgent``; then
+        ``agents.missingRole`` decides among generalist, anonymous child, or
+        asking the parent to do the work (``reason: parent``).
+
+        When the child stops incomplete (budget / timeout / empty error), the
+        manager re-issues the work up to ``agents.incompleteRetries`` times
+        with a continuation brief (Hermes/OMC: re-issue, do not extend the
+        same turn).  Pass ``_allow_incomplete_retry=False`` for the inner
+        attempts themselves.
         """
         brief = (task or "").strip()
+        prefer_roles = tuple(str(name).strip() for name in (prefer or ()) if str(name).strip())
+        result = await self._run_once(
+            parent,
+            brief,
+            agent=agent,
+            tools=tools,
+            timeout=timeout,
+            record=record,
+            model=model,
+            title=title,
+            progress=progress,
+            force=force,
+            prefer=prefer_roles,
+        )
+        if not _allow_incomplete_retry:
+            return result
+        if result.reason == PARENT:
+            return result
+        retries = incomplete_retries_for(self.core)
+        attempt = 0
+        while attempt < retries and is_incomplete(result):
+            if parent.interrupt.is_set():
+                break
+            attempt += 1
+            cont_title = (
+                f"{title} (continue {attempt})" if title else f"continue {attempt}"
+            )
+            log.info(
+                "subagent incomplete (reason=%s); re-issuing %d/%d for parent %s",
+                result.reason,
+                attempt,
+                retries,
+                parent.id,
+            )
+            nxt = await self._run_once(
+                parent,
+                continuation_brief(brief, result),
+                agent=agent or (result.name or None),
+                tools=tools,
+                timeout=timeout,
+                record=None,
+                model=model,
+                title=cont_title,
+                progress=progress,
+                force=True,
+                prefer=prefer_roles,
+            )
+            # Prefer the continuation's answer; keep prior findings if the
+            # retry came back emptier than the first attempt.
+            if not (nxt.summary or "").strip() and (result.summary or "").strip():
+                nxt.summary = (
+                    f"{result.summary.rstrip()}\n\n"
+                    f"(continue {attempt} added no further report; "
+                    f"reason: {nxt.reason})"
+                )
+            result = nxt
+        return result
+
+    async def _run_once(
+        self,
+        parent: Session,
+        task: str,
+        *,
+        agent: str | None = None,
+        tools: list[str] | None = None,
+        timeout: float | None = None,
+        record: SubagentRecord | None = None,
+        model: str | None = None,
+        title: str = "",
+        progress: ProgressEmitter | None = None,
+        force: bool = False,
+        prefer: tuple[str, ...] = (),
+    ) -> SubagentResult:
+        """One child turn with no incomplete re-issue."""
+        brief = (task or "").strip()
+        # Resolve role: explicit → prefer → general → missingRole policy.
+        if not agent:
+            agent = pick_agent(
+                parent, self, prefer, core=self.core, allow_general=True
+            )
+        if not agent and missing_role_policy(self.core) == "parent":
+            if record is None:
+                record = self.new_record(parent, task, None, title)
+            record.status = DONE
+            record.reason = PARENT
+            record.summary = (
+                "No suitable team agent for this task. Do it yourself "
+                "in this session — do not re-delegate unchanged.\n\n"
+                f"Task:\n{brief}"
+            )
+            await self.emit_spawn(record)
+            await self.emit_done(record)
+            return self._result(record)
+        # else: anonymous child when agent is still None (missingRole=anonymous
+        # or general with no matching definition).
+
         if record is None:
             record = self.new_record(parent, task, agent, title)
+        elif agent and not record.name:
+            record.name = agent
         if not record.task_fingerprint:
             record.task_fingerprint = fingerprint(agent, brief)
         if progress is not None:
@@ -646,8 +829,7 @@ class SubagentManager:
                 await self.emit_done(record)
                 return self._result(record)
             record.provider_override, record.model_override = route.provider, route.model
-        if parent.team_agents and not agent:
-            agent = "executor" if "executor" in parent.team_agents else parent.team_agents[0]
+        if agent:
             record.name = agent
         await self.emit_spawn(record)
         if not brief:
@@ -657,7 +839,7 @@ class SubagentManager:
             await self.emit_done(record)
             return self._result(record)
 
-        if parent.team_agents:
+        if parent.team_agents and agent:
             # A persistent named agent is one the user invented; a team
             # roster never hides it.
             if agent not in parent.team_agents and not self._is_named(agent):
@@ -709,13 +891,14 @@ class SubagentManager:
         reason = record.reason or (COMPLETE if record.ok else ERROR)
         return SubagentResult(
             agent_id=record.agent_id,
-            ok=record.ok,
+            ok=record.ok if reason != PARENT else True,
             summary=record.summary,
             status=record.status,
             error=record.error,
             session_id=record.session_id,
             usage=record.usage(),
             reason=reason,
+            name=record.name or "",
             rounds_used=record.rounds_used,
             budget=record.budget,
             last_calls=list(record.last_calls),
@@ -934,11 +1117,15 @@ __all__ = [
     "RUNNING",
     "SUBAGENT_KIND",
     "TRUNCATED_MARK",
+    "RETRYABLE_REASONS",
     "SharedBackend",
     "SubagentManager",
     "SubagentRecord",
     "SubagentResult",
+    "continuation_brief",
     "fingerprint",
     "get_manager",
+    "incomplete_retries_for",
+    "is_incomplete",
     "new_agent_id",
 ]

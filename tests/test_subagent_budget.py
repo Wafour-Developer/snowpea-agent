@@ -42,7 +42,8 @@ async def daemon(tmp_path: Path) -> AsyncIterator[Daemon]:
     previous = os.environ.get("SNOWPEA_PROVIDER")
     os.environ["SNOWPEA_PROVIDER"] = f"fake:{FIXTURE}"
     instance = await make_daemon(
-        tmp_path / "home", settings={"agents": {"toolRounds": {"default": TINY}}}
+        tmp_path / "home",
+        settings={"agents": {"toolRounds": {"default": TINY}, "incompleteRetries": 0}},
     )
     try:
         yield instance
@@ -146,6 +147,10 @@ async def test_a_child_gets_more_rounds_than_the_session_default(
     session.is_subagent = True
     assert tool_rounds_for(core, session) == SUBAGENT_TOOL_ROUNDS
 
+    # When the session default is already above the floor, the child keeps it.
+    core.settings.agent.max_tool_rounds = 200
+    assert tool_rounds_for(core, session) == 200
+
 
 async def test_tool_rounds_survives_a_definition_round_trip() -> None:
     defn = parse_agent_text("---\nname: reader\ntool_rounds: 9\n---\nYou read things.")
@@ -180,6 +185,7 @@ async def test_role_defaults_for_subagents(daemon: Daemon, workdir: Path) -> Non
     session = await core.sessions.create(workdir, mode="auto")
     session.is_subagent = True
 
+    floor = max(int(core.settings.agent.max_tool_rounds), SUBAGENT_TOOL_ROUNDS)
     for role, expected in [
         ("explore", 8),
         ("explorer", 8),
@@ -188,8 +194,8 @@ async def test_role_defaults_for_subagents(daemon: Daemon, workdir: Path) -> Non
         ("test-engineer", 15),
         ("verifier", 14),
         ("architect", 10),
-        ("executor", 32),
-        ("unknown-role", 32),
+        ("executor", 80),
+        ("unknown-role", floor),
     ]:
         session.agent = role
         assert tool_rounds_for(core, session) == expected
@@ -316,3 +322,103 @@ async def test_a_report_without_a_final_answer_says_so() -> None:
     assert "without a final report" in report
     assert "roundsUsed: 7" in report
     assert "pytest" in report
+
+
+def test_is_incomplete_and_continuation_brief() -> None:
+    from snowpea_core.agent.subagent import continuation_brief, is_incomplete
+
+    budgeted = SubagentResult(
+        agent_id="a-1",
+        ok=True,
+        summary="Found src/app.py still unwritten.",
+        reason="budget",
+        rounds_used=3,
+        budget=3,
+        last_calls=['read_file {"path": "a.txt"}'],
+    )
+    assert is_incomplete(budgeted) is True
+    brief = continuation_brief("document the package", budgeted)
+    assert "reason: budget" in brief
+    assert "document the package" in brief
+    assert "Found src/app.py" in brief
+    assert "read_file" in brief
+
+    assert (
+        is_incomplete(
+            SubagentResult(agent_id="a-2", ok=True, summary="done", reason="complete")
+        )
+        is False
+    )
+    assert (
+        is_incomplete(
+            SubagentResult(
+                agent_id="a-3", ok=False, summary="", reason="interrupted", error="interrupted"
+            )
+        )
+        is False
+    )
+    assert (
+        is_incomplete(
+            SubagentResult(
+                agent_id="a-4",
+                ok=False,
+                summary="",
+                reason="error",
+                error="boom",
+                rounds_used=2,
+                last_calls=['shell {"command": "true"}'],
+            )
+        )
+        is True
+    )
+    assert (
+        is_incomplete(
+            SubagentResult(
+                agent_id="a-5",
+                ok=False,
+                summary="",
+                reason="error",
+                error="delegate_task needs a non-empty task",
+            )
+        )
+        is False
+    )
+    assert (
+        is_incomplete(
+            SubagentResult(
+                agent_id="a-6",
+                ok=False,
+                summary="clear failure detail",
+                reason="error",
+                error="unknown agent",
+            )
+        )
+        is False
+    )
+
+
+async def test_incomplete_budget_is_reissued_once(
+    daemon: Daemon, workdir: Path
+) -> None:
+    """Manager re-issues a budget stop with a continuation brief (default retries=1)."""
+    core = daemon.core
+    assert core is not None
+    core.settings.agents.incompleteRetries = 1
+    core.settings.agents.toolRounds = {"default": TINY}
+    parent = await core.sessions.create(workdir, mode="auto")
+    everything = Recorder()
+    core.hub.subscribe(everything, None)
+
+    result = await get_manager(core).run(
+        parent, "endless child that never stops reading", title="survey"
+    )
+
+    # Two child sessions: first attempt + one continue.
+    spawns = [e for e in everything.events if e["kind"] == "subagent.spawn"]
+    assert len(spawns) == 2
+    titles = [str(e["payload"].get("title") or "") for e in spawns]
+    assert "survey" in titles
+    assert any("continue" in title for title in titles)
+    # Still unfinished after the continue (fixture never stops reading).
+    assert result.reason == "budget"
+

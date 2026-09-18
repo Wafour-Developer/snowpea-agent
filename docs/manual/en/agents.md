@@ -170,7 +170,21 @@ To prevent runaway token spend, subagents and pipeline stages operate with role-
 | `test-engineer` | 15 |
 | `verifier` | 14 |
 | `architect` | 10 |
-| `executor` & other subagents | 32 |
+| `executor` & other subagents | 80 (floor; keeps `agent.max_tool_rounds` when higher) |
+
+### Incomplete re-issue
+
+When a child stops with `reason: budget`, `timeout`, or an empty `error`, `SubagentManager.run` re-issues the task up to `agents.incompleteRetries` times (default **1**) with a continuation brief that includes the prior report and last tool calls. This is a **new child turn**, not an extension of the same round counter — the Hermes/OMC pattern of re-issuing incomplete work. Set `agents.incompleteRetries` to `0` to disable. Interrupted and permission-denied stops are never re-issued.
+
+### Role assignment
+
+When `agent` is omitted, the runtime picks a role:
+
+1. `prefer=(...)` specialised roles (team roster first, then builtins)
+2. `agents.generalAgent` (default `executor`)
+3. `agents.missingRole`: `general` (stop after step 2), `anonymous` (unnamed child), or `parent` (`reason: parent` — main agent does the work, do not re-delegate)
+
+`/deepinit` runs in two phases: `explorer` / `explore` maps each directory (read-only), then `writer` / `executor` writes `AGENTS.md` from those notes; the root is outlined by `architect` (falling back to explorer) before the same write roles create the file. Map and write do not fall through to a read-only generalist for the write phase. `/ultrawork` and `/ralph` prefer `executor`.
 
 ### Configuring round budgets
 
@@ -179,7 +193,7 @@ Budgets are resolved in precedence order:
 2. `agents.maxToolRounds` global scalar in `settings.json`
 3. `max_tool_rounds` in the agent definition frontmatter
 4. Role defaults shown above
-5. Fallback of 32 rounds
+5. Fallback: `agent.max_tool_rounds`, floored at 80 for a delegated child
 
 ### Toolless grace call on budget exhaustion
 

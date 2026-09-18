@@ -170,7 +170,21 @@ test·verify·review 단계는 각각 명시적인 한 줄로 답합니다 — `
 | `test-engineer` | 15 |
 | `verifier` | 14 |
 | `architect` | 10 |
-| `executor` 및 기타 서브에이전트 | 32 |
+| `executor` 및 기타 서브에이전트 | 80 (하한; `agent.max_tool_rounds`가 더 크면 그대로) |
+
+### 미완료 재발행
+
+자식이 `reason: budget`, `timeout`, 또는 빈 `error`로 끝나면 `SubagentManager.run`이 `agents.incompleteRetries`회(기본 **1**)까지 이전 보고서·마지막 툴 호출을 담은 continuation 브리프로 **새 자식 턴**을 다시 띄웁니다. 같은 라운드 카운터를 늘리는 것이 아니라 Hermes/OMC처럼 미완료 작업을 재발행하는 방식입니다. `0`이면 끕니다. `interrupted`·권한 거부는 재발행하지 않습니다.
+
+### 역할 배정
+
+`agent`를 생략하면 런타임이 역할을 고릅니다:
+
+1. `prefer=(...)` 전문 역할 (팀 로스터 우선, 그다음 빌트인)
+2. `agents.generalAgent` (기본 `executor`)
+3. `agents.missingRole`: `general` (2에서 끝), `anonymous` (이름 없는 자식), `parent` (`reason: parent` — 메인 에이전트가 직접 수행, 재위임 금지)
+
+`/deepinit`은 2단계입니다. `explorer`/`explore`가 디렉터리를 읽고(쓰기 없음) 노트를 남기면, `writer`/`executor`가 그 노트로 `AGENTS.md`를 씁니다. 루트는 `architect`(없으면 explorer)가 개요를 잡은 뒤 같은 쓰기 역할이 파일을 만듭니다. 쓰기 단계에서는 읽기 전용 generalist로 떨어지지 않습니다. `/ultrawork`·`/ralph`는 `executor`를 선호합니다.
 
 ### 라운드 예산 설정 우선순위
 
@@ -179,7 +193,7 @@ test·verify·review 단계는 각각 명시적인 한 줄로 답합니다 — `
 2. `settings.json`의 `agents.maxToolRounds` 전역 스칼라 설정
 3. 에이전트 정의 프론트매터의 `max_tool_rounds`
 4. 위의 내장 역할 기본값
-5. 32라운드 기본 폴백
+5. 폴백: `agent.max_tool_rounds`, 위임된 자식은 80 하한
 
 ### 예산 소진 시 무도구 Grace Call
 

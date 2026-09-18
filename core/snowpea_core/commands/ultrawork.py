@@ -192,7 +192,15 @@ async def cmd_ultrawork(ctx: CommandContext, args: str) -> None:
 
     manager = get_manager(ctx.core)
     results = await asyncio.gather(
-        *(manager.run(ctx.session, part.brief, title=part.title) for part in subtasks),
+        *(
+            manager.run(
+                ctx.session,
+                part.brief,
+                title=part.title,
+                prefer=("executor",),
+            )
+            for part in subtasks
+        ),
         return_exceptions=True,
     )
 

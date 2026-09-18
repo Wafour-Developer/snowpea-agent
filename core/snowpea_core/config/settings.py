@@ -130,6 +130,21 @@ class AgentsSettings(_Model):
     #: set; ``"full"`` gives a child the same prompt a person's session gets
     #: (CORE-round-cost).
     childContext: str = "lean"
+    #: When a child stops incomplete (``budget``, ``timeout``, or a failed
+    #: turn with no report), how many times ``SubagentManager.run`` re-issues
+    #: the work with a continuation brief before returning to the parent.
+    #: Mirrors Hermes/OMC "re-issue incomplete work" rather than extending
+    #: the same turn's round counter.  ``0`` disables.  Default ``1``.
+    incompleteRetries: int = 1
+    #: Generalist role used when no specialised ``prefer`` role is available
+    #: (``delegate_task``, ultrawork, …).  A string or a list; default
+    #: ``executor``.
+    generalAgent: str | list[str] | None = "executor"
+    #: When neither a preferred role nor the generalist is on the roster:
+    #: ``general`` still tries the generalist (and stops); ``anonymous``
+    #: spawns an unnamed child; ``parent`` asks the main agent to do the work
+    #: without spawning.
+    missingRole: str = "general"
 
     _normalise_teams = field_validator("teams", mode="before")(normalise_teams)
 

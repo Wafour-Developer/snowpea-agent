@@ -343,7 +343,14 @@ async def cmd_ralph(ctx: CommandContext, args: str) -> None:
             break
         language = reply_language_for(ctx)
         results = await asyncio.gather(
-            *(manager.run(ctx.session, story_task(task, story, language)) for story in batch),
+            *(
+                manager.run(
+                    ctx.session,
+                    story_task(task, story, language),
+                    prefer=("executor",),
+                )
+                for story in batch
+            ),
             return_exceptions=True,
         )
         lines = ["", f"## iteration {iteration}"]

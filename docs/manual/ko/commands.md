@@ -54,7 +54,7 @@ snowpea commands list --json
 | `/setup [providers\|search\|browser\|audio\|all]` | 설정 마법사 화면을 이 자리에서 다시 실행. 키는 가려진 채 입력 |
 | `/login <vendor> [method]` | 벤더 로그인 — 브라우저 흐름, 디바이스 흐름, 또는 가려진 키 입력 |
 | `/init [--force]` | 프로젝트 루트에 빠르고 거친 `AGENTS.md`를 한 턴에 작성; 기존 파일이 있으면 `--force` 없이는 병합 |
-| `/deepinit [path]` | 저장소를 훑어 계층적 `AGENTS.md` 파일을 작성 |
+| `/deepinit [path]` | 탐색 후 계층적 `AGENTS.md` 작성 (디렉터리별 map→write, 이어서 루트) |
 | `/team "<task>"` | 활성 팀 구성원이 역할별로 처리 — 계획·구현·테스트·리뷰 |
 | `/team <name> "<task>"` | 같은 파이프라인을 지정한 프로젝트/전역 팀으로 이번 한 번만 |
 | `/team <N> "<task>"` | `/workers <N> "<task>"` 호환 표기. 응답에서 현재 표기는 `/workers N`이라고 안내 |

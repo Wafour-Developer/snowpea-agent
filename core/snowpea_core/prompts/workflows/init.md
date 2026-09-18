@@ -4,6 +4,8 @@ In at most 8 tool calls, look at the root of this project: the README, a package
 
 ${AGENTS_STATUS}
 
+${DIRECTORY_SUMMARIES}
+
 Then write ${AGENTS_PATH}: at most 60 lines covering, in this order — what the project is, how to run/build/test/lint it, the top-level layout, conventions worth knowing, and anything an agent should avoid. Use write_file.
 
 ${SETTINGS_NOTE}

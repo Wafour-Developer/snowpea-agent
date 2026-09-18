@@ -27,10 +27,13 @@ path should not try to replace.
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from snowpea_core.agent import loop as agent_loop
+from snowpea_core.agent.subagent import SubagentResult, get_manager
+from snowpea_core.commands.deepinit import interesting_dirs
 from snowpea_core.commands.registry import Command, CommandContext
 from snowpea_core.config.project import ProjectSettings
 from snowpea_core.prompts.compose import workflow_brief
@@ -106,11 +109,52 @@ def ensure_project_settings(root: Path, *, plan: bool) -> str:
     return f"{relative} did not exist and was created with defaultMode \"accept\"."
 
 
+def explore_dir_task(directory: Path, root: Path) -> str:
+    """Brief for an explore subagent reading one directory for /init."""
+    relative = directory.relative_to(root)
+    return (
+        f"Explore the code under {relative} and provide a concise summary.\n"
+        "Identify: what this directory is for, its main entry points and key files, "
+        "the conventions or tech stack used here, and any important caveats.\n"
+        "Do NOT write any files. Keep your summary under 15 lines."
+    )
+
+
 async def cmd_init(ctx: CommandContext, args: str) -> None:
     """``/init [--force]`` — write AGENTS.md and stub .snowpea/settings.json."""
     force = _wants_force(args)
     root = Path(ctx.session.workdir)
     plan = ctx.session.mode == "plan"
+
+    directories = interesting_dirs(root)
+    dir_summaries_text = ""
+    if directories:
+        await ctx.say(
+            f"init: exploring {len(directories)} top-level "
+            f"director{'y' if len(directories) == 1 else 'ies'} in parallel with explore..."
+        )
+        manager = get_manager(ctx.core)
+        tasks = [
+            manager.run(
+                ctx.session,
+                explore_dir_task(directory, root),
+                tools=["read_file", "list_dir", "glob", "grep"],
+                title=f"explore {directory.relative_to(root)}",
+                prefer=("explore", "explorer"),
+            )
+            for directory in directories
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        lines: list[str] = []
+        for directory, res in zip(directories, results):
+            rel = directory.relative_to(root)
+            if isinstance(res, SubagentResult) and res.summary:
+                lines.append(f"### {rel}\n{res.summary.strip()}")
+        if lines:
+            dir_summaries_text = (
+                "Directory summaries gathered from parallel exploration:\n"
+                + "\n\n".join(lines)
+            )
 
     settings_note = ensure_project_settings(root, plan=plan)
     _note_agents_md_was_shown(ctx, root / AGENTS_FILE, force=force)
@@ -120,6 +164,7 @@ async def cmd_init(ctx: CommandContext, args: str) -> None:
         AGENTS_PATH=AGENTS_FILE,
         AGENTS_STATUS=agents_status(root / AGENTS_FILE, force),
         SETTINGS_NOTE=settings_note,
+        DIRECTORY_SUMMARIES=dir_summaries_text,
     )
 
     ctx.handled_turn = True
@@ -183,4 +228,5 @@ __all__ = [
     "agents_status",
     "cmd_init",
     "ensure_project_settings",
+    "explore_dir_task",
 ]

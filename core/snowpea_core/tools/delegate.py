@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 from snowpea_core.agent.agent import reply_language
 from snowpea_core.agent.definition import builtin_agent_definitions
 from snowpea_core.agent.subagent import BUDGET, COMPLETE, SubagentResult, get_manager
+from snowpea_core.agent.role_pick import PARENT
 from snowpea_core.prompts import tool_descriptions as descriptions
 from snowpea_core.prompts.compose import language_name
 from snowpea_core.session.history import message_text
@@ -120,19 +121,21 @@ NEXT_STEPS: dict[str, str] = {
         "own account of what it did — then answer the user in your own words."
     ),
     BUDGET: (
-        "This task is unfinished: the child used its whole tool-round budget. Next: "
-        "take what is done from the report and delegate only what is left, with a "
-        "narrower brief. Do not re-send this task."
+        "This task is unfinished: the child used its whole tool-round budget "
+        "(the runtime already re-issued once with a continuation brief when "
+        "agents.incompleteRetries > 0). Next: take what is done from the report "
+        "and delegate only what is left, with a narrower brief. Do not re-send "
+        "this exact task unchanged."
     ),
     "timeout": (
-        "The child ran out of time, so the report is partial. Next: work out from the "
-        "last calls below how far it got, and either finish that part here or delegate "
-        "a smaller slice."
+        "The child ran out of time, so the report is partial (a continue retry "
+        "may already have run). Next: work out from the last calls below how far "
+        "it got, and either finish that part here or delegate a smaller slice."
     ),
     "error": (
         "The child failed. Next: read the error, fix what caused it (a missing path, a "
         "bad agent name, a tool it was not given) and try once — do not re-delegate the "
-        "same brief unchanged."
+        "same brief unchanged. Empty failures may already have been re-issued once."
     ),
     "interrupted": (
         "The child was interrupted, so nothing here is final. Next: say so plainly, and "
@@ -142,12 +145,16 @@ NEXT_STEPS: dict[str, str] = {
         "The child was denied a permission it needed. Next: tell the user what was "
         "blocked and what you need from them; do not retry it silently."
     ),
+    PARENT: (
+        "No suitable team agent was available. Next: do this task yourself in this "
+        "session. Do not re-delegate the same brief unchanged."
+    ),
 }
 
 
 #: Reasons whose report the parent has to read as partial: the child stopped
 #: for a reason of its own, not because the work was finished.
-PARTIAL_REASONS = frozenset({BUDGET, "timeout", "error", "interrupted", "denied"})
+PARTIAL_REASONS = frozenset({BUDGET, "timeout", "error", "interrupted", "denied", PARENT})
 
 #: What is said when the child never wrote a final answer — it was cut off
 #: between tool calls.  A delegation never comes back as an empty string, and
