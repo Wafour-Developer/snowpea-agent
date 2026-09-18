@@ -287,7 +287,7 @@ class ToolsSettings(_Model):
     #: context before the middle is spilled to a file the agent can read back
     #: (M15 §A4).
     maxResultLines: int = 400
-    #: False disables the read-before-write guard (M15 §A3): ``edit_file`` and
+    #: False disables the read-before-write guard (M15 §A3): ``patch`` and
     #: ``write_file`` stop refusing a write to a file this session has not read
     #: in full.  The prompt rule stays either way.
     readBeforeWrite: bool = True

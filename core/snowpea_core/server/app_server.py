@@ -444,6 +444,8 @@ async def provider_configure_handler(
             # for a reasoning-effort field (CORE-vision, CORE-effort).
             "vision",
             "effort_param",
+            "parallelToolCalls",
+            "supportsParallelTools",
             "max_tokens",
             "thinking",
             "token",

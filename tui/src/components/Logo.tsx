@@ -46,8 +46,8 @@ export const WORDMARK: readonly [string, string] = [
 export const SPROUT = "🌱";
 export const TAGLINE = "open-source multi-vendor coding agent · your own AI assistant";
 
-/** snowpea green; the wordmark and the sprout share it. */
-export const LOGO_COLOR = "green";
+/** Brand violet; the wordmark and the sprout share it on basic-colour terminals. */
+export const LOGO_COLOR = "magenta";
 
 /** Rows the logo needs at this terminal height. */
 export function logoRows(terminalRows: number): number {

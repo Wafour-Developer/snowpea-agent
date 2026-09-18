@@ -11,11 +11,22 @@
  */
 
 import type { CommandInfo } from "../rpc/sdk.js";
+import type { SlashCompletion } from "./slash-completion.js";
 
 /** One sub-action of `/skill`, as the palette lists it. */
 export interface SkillAction {
   action: string;
   summary: string;
+  /** The next token is an installed skill name. */
+  takesName?: boolean;
+}
+
+/** One installed skill, as `skill.list` returns it. */
+export interface SkillRow {
+  name: string;
+  summary: string;
+  kind?: string;
+  source?: string;
 }
 
 /**
@@ -26,13 +37,18 @@ export interface SkillAction {
  */
 export const SKILL_ACTIONS: readonly SkillAction[] = [
   { action: "create", summary: "Write a new skill from a name and a description." },
-  { action: "learn", summary: "Turn what this session just did into a skill." },
-  { action: "edit", summary: "Open a skill's SKILL.md in $EDITOR." },
+  { action: "learn", summary: "Turn what this session just did into a skill.", takesName: true },
+  { action: "edit", summary: "Open a skill's SKILL.md in $EDITOR.", takesName: true },
   { action: "publish", summary: "Upload a skill directory to the registry." },
   { action: "sources", summary: "List the hubs the registry federates." },
   { action: "reload", summary: "Re-read skills from disk." },
   { action: "list", summary: "Show the installed skills, agents and commands." },
 ];
+
+/** Sub-actions whose next word is a skill name. */
+export const SKILL_NAME_ACTIONS: readonly string[] = SKILL_ACTIONS.filter(
+  (entry) => entry.takesName,
+).map((entry) => entry.action);
 
 /** Where a scope lands on disk, and what the flag for it is. */
 export type SkillScope = "project" | "global";
@@ -45,7 +61,32 @@ export type SkillScope = "project" | "global";
  * offers the daemon's commands: `/skill create` is as much a thing you can run
  * as `/help` is.
  */
-export function skillSubCommands(draft: string): CommandInfo[] {
+function skillNameRows(
+  draft: string,
+  skills: readonly SkillRow[],
+): SlashCompletion[] {
+  const named = /^\/skill\s+([a-z-]+)\s+([^\s-][^\s]*|)$/.exec(draft);
+  if (!named || !SKILL_NAME_ACTIONS.includes(named[1])) return [];
+  const typed = named[2] ?? "";
+  const head = draft.slice(1, draft.length - typed.length);
+  return skills
+    .filter((row) => (row.kind ?? "skill") === "skill")
+    .filter((row) => row.name.startsWith(typed))
+    .map((row) => ({
+      name: `${head}${row.name}`,
+      summary: row.summary || row.source || "",
+      source: "core",
+      preview: row.summary || undefined,
+    }));
+}
+
+export function skillSubCommands(
+  draft: string,
+  skills: readonly SkillRow[] = [],
+): SlashCompletion[] {
+  const names = skillNameRows(draft, skills);
+  if (names.length > 0) return names;
+
   const match = /^\/skill(?:\s+([^\s]*))?$/.exec(draft);
   if (!match) return [];
   const typed = match[1] ?? "";

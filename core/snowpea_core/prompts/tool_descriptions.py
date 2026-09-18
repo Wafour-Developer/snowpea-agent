@@ -26,21 +26,25 @@ READ_FILE = (
 )
 
 WRITE_FILE = (
-    "Create a file, or replace an existing file's contents entirely. Use edit_file "
+    "Create a file, or replace an existing file's contents entirely. Use patch "
     "for a targeted change; this tool destroys everything the file currently holds. "
     "Prefer it over an echo or heredoc in shell."
 )
 
-EDIT_FILE = (
-    "Replace an exact string in a file. Read the file first: the old string must "
-    "match byte for byte, including indentation, and must appear exactly once unless "
-    "replaceAll is true. Include a line or two of surrounding context to make the "
-    "match unique. If it fails, re-read the file rather than retrying the same text."
+PATCH = (
+    "Targeted find-and-replace edits in files. Use this instead of sed or awk in "
+    "shell. Uses fuzzy matching so minor whitespace or indentation differences will "
+    "not break it. Returns a unified diff. Finds a unique string and replaces it "
+    "unless replace_all is true. Include a line or two of surrounding context to make "
+    "the match unique. If it fails, re-read the file rather than retrying the same "
+    "text. You may batch read_file and patch for the same path in one response — read "
+    "runs before patch in the same turn. Batch several patch calls in one turn when "
+    "several files need the same kind of change."
 )
 
 SHELL = (
     "Run a shell command in the session working directory. Do not use it to read "
-    "files (use read_file), to search (use grep or glob), or to edit (use edit_file). "
+    "files (use read_file), to search (use grep or glob), or to edit (use patch). "
     "Reserve it for builds, installs, git, tests, package managers and scripts. The "
     "working directory and exported environment persist between calls, so activate a "
     "virtualenv once rather than before every command. Set `timeout` generously for "
@@ -199,16 +203,16 @@ LSP_HOVER = (
 
 LSP_RENAME = (
     "Rename the symbol at a position everywhere it is used, through the language "
-    "server, and write the result to disk. Prefer it over a find-and-replace, which "
-    "cannot tell a symbol from a string that spells it the same way. Read the list of "
-    "changed files it returns. If the server declines, do the rename by hand with "
-    "lsp_references as the checklist."
+    "server, and write the result to disk. Prefer it over patch when the symbol graph "
+    "matters; patch cannot tell a symbol from a string that spells it the same way. "
+    "Read the list of changed files it returns. If the server declines, do the rename "
+    "by hand with patch and lsp_references as the checklist."
 )
 
 __all__ = [
     "ASK_USER",
     "DELEGATE_TASK",
-    "EDIT_FILE",
+    "PATCH",
     "GLOB",
     "GREP",
     "LSP_DEFINITION",

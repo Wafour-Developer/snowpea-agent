@@ -42,17 +42,17 @@
           }
         },
         {
-          "name": "edit_file",
+          "name": "patch",
           "arguments": {
             "path": "greeting.txt",
-            "old": "hello",
-            "new": "bonjour"
+            "old_string": "hello",
+            "new_string": "bonjour"
           }
         }
       ]
     },
     {
-      "after_tool": "edit_file",
+      "after_tool": "patch",
       "text": "edited greeting.txt"
     },
     {

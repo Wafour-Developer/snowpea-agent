@@ -116,6 +116,16 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="deny every approval request instead of prompting",
     )
+    parser.add_argument(
+        "--deny-exec",
+        action="store_true",
+        help="refuse shell/exec tools without prompting (headless file-work CI)",
+    )
+    parser.add_argument(
+        "--strict-approvals",
+        action="store_true",
+        help="exit 4 when any approval was denied even if the turn completed",
+    )
     cli_commands.add_subparsers(parser)
     return parser
 
@@ -291,7 +301,7 @@ async def run_headless(args: argparse.Namespace, home: str | None) -> int:
         _err("--mode/--provider are ignored with --resume; the saved session keeps its own")
 
     renderer: Renderer = JsonRenderer() if args.json else PlainRenderer()
-    tracker = TurnTracker()
+    tracker = TurnTracker(strict_approvals=getattr(args, "strict_approvals", False))
     interactive = sys.stdin.isatty() and not args.approve_none
     always_allow = False
 
@@ -362,6 +372,8 @@ async def run_headless(args: argparse.Namespace, home: str | None) -> int:
                 "workdir": str(workdir),
                 "originSurface": "cli",
             }
+            if getattr(args, "deny_exec", False):
+                create_params["denyExec"] = True
             if args.mode:
                 create_params["mode"] = args.mode
             if args.provider:
@@ -400,7 +412,13 @@ async def run_headless(args: argparse.Namespace, home: str | None) -> int:
             with contextlib.suppress(DaemonError, RpcCallError, Exception):
                 await client.call("session.close", {"sessionId": session_id}, timeout=10.0)
         await client.close()
-        renderer.finish(exit_code, session_id, tracker.usage, tracker.context)
+        renderer.finish(
+            exit_code,
+            session_id,
+            tracker.usage,
+            tracker.context,
+            tracker.warnings or None,
+        )
 
 
 async def _consume(

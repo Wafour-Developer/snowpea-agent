@@ -19,6 +19,7 @@ import logging
 import os
 import time
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 from typing import Any
 
 from snowpea_core.config.paths import Paths, resolve_home
@@ -37,6 +38,7 @@ from snowpea_core.providers.presets import (
     is_local_vendor_config,
     local_vendor_ids,
     preset_for,
+    resolve_parallel_tools,
     validate_custom_vendor_id,
 )
 from snowpea_core.server.protocol import AuthStatus, ProviderInfo
@@ -127,6 +129,26 @@ class ProviderRegistry:
             return self.preset(vendor)
         except ProviderError:
             return None
+
+    def _profile_record_for(self, vendor: str, model: str) -> dict[str, Any] | None:
+        for profile in self.settings.models.profiles.values():
+            if profile.provider == vendor and profile.model == model:
+                return profile.model_dump()
+        return None
+
+    def effective_preset(self, vendor: str, model: str | None = None) -> VendorPreset:
+        """Static preset with per-model ``supports_parallel_tools`` resolved."""
+        preset = self.preset(vendor)
+        resolved_model = self.model_for(vendor, model)
+        parallel = resolve_parallel_tools(
+            preset,
+            model=resolved_model,
+            vendor_config=self.vendor_config(vendor),
+            profile=self._profile_record_for(vendor, resolved_model),
+        )
+        if parallel == preset.supports_parallel_tools:
+            return preset
+        return replace(preset, supports_parallel_tools=parallel)
 
     def is_local_style(self, vendor: str) -> bool:
         """True for ``local`` and for every named OpenAI-compatible server.
@@ -654,7 +676,7 @@ class ProviderRegistry:
 
     def build(self, vendor: str, model: str | None = None) -> ChatProvider:
         """Instantiate the adapter a preset names, with resolved credentials."""
-        preset = self.preset(vendor)
+        preset = self.effective_preset(vendor, model)
         resolved_model = self.model_for(vendor, model)
         oauth = self._oauth_provider(vendor, resolved_model)
         if oauth is not None:

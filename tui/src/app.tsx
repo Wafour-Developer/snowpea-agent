@@ -135,7 +135,7 @@ import { Chat } from "./components/Chat.js";
 import { MessageView } from "./components/MessageStream.js";
 import { ToolCall } from "./components/ToolCall.js";
 import { DiffView } from "./components/DiffView.js";
-import { ApprovalPrompt } from "./components/ApprovalPrompt.js";
+import { ApprovalPrompt, type ApprovalAnswer } from "./components/ApprovalPrompt.js";
 import {
   QuestionPrompt,
   questionPromptRows,
@@ -154,6 +154,7 @@ import {
   parseSkillEdit,
   skillCreateCommand,
   skillSubCommands,
+  type SkillRow,
 } from "./state/skill-completion.js";
 import { SKILL_HINT_TEXT, shouldSuggestSkill } from "./state/skill-hint.js";
 import { McpAddForm, type McpSubmission } from "./components/McpAddForm.js";
@@ -573,6 +574,8 @@ export function App({
   const [modelPicker, setModelPicker] = useState<ModelOption[] | null>(null);
   /** `/skill create` with no arguments: the three questions are up. */
   const [skillForm, setSkillForm] = useState(false);
+  /** Installed skills, for `/skill learn|edit <name>` completion. */
+  const [skillRows, setSkillRows] = useState<SkillRow[]>([]);
   /** `/mcp add` with no arguments: the draft the form is collecting, or null. */
   const [mcpForm, setMcpForm] = useState<McpDraft | null>(null);
   /** `/mcp catalog`: the presets, as a list to pick from. */
@@ -749,6 +752,28 @@ export function App({
       });
   }, [client, sessionId, workdir]);
 
+  /** Installed skills for `/skill learn|edit` name completion. */
+  const refreshSkills = useCallback(() => {
+    void client
+      .call("skill.list", {})
+      .then((result) => {
+        const rows = Array.isArray(result?.skills) ? result.skills : [];
+        setSkillRows(
+          rows
+            .map((row: Record<string, unknown>) => ({
+              name: String(row.name ?? ""),
+              summary: String(row.summary ?? ""),
+              kind: typeof row.kind === "string" ? row.kind : undefined,
+              source: typeof row.source === "string" ? row.source : undefined,
+            }))
+            .filter((row) => row.name.length > 0),
+        );
+      })
+      .catch(() => {
+        setSkillRows([]);
+      });
+  }, [client]);
+
   const refreshApprovals = useCallback(() => {
     void client
       .listApprovals(sessionId)
@@ -847,6 +872,7 @@ export function App({
       onApprovalPending: () => refreshApprovals(),
       // A plugin install or `skill.reload` moved the server-side table.
       onCommandsChanged: () => {
+        refreshSkills();
         void registryRef.current
           .refresh()
           .then((commands: CommandInfo[]) => dispatch({ type: "commands", commands }))
@@ -903,6 +929,7 @@ export function App({
 
     refreshLsp();
     refreshMcp();
+    refreshSkills();
 
     // Which model each agent is assigned, for the completion list's tag.
     void client
@@ -968,6 +995,7 @@ export function App({
     refreshCapabilities,
     refreshLsp,
     refreshMcp,
+    refreshSkills,
   ]);
 
   // One fresh, non-blocking check per launch, independent of session/mode changes.
@@ -1187,7 +1215,7 @@ export function App({
     // `/skill` is one command with five jobs, and only its name reaches the
     // command table; the jobs are offered here so they can be completed too.
     const skills = state.commands.some((command) => command.name === "skill")
-      ? skillSubCommands(draft)
+      ? skillSubCommands(draft, skillRows)
       : [];
     // `/mcp` likewise: the daemon knows the command, this surface knows the
     // sub-actions, the server names and the catalog ids they take.
@@ -1201,7 +1229,7 @@ export function App({
       ...voiceSubCommands(draft),
       ...registryRef.current.complete(draft),
     ];
-  }, [draft, state.commands, state.mcp, mcpCatalog]);
+  }, [draft, state.commands, state.mcp, mcpCatalog, skillRows]);
 
   // --- full-screen geometry -------------------------------------------------
   // Everything below is inert while `fullscreen` is false: the inline layout
@@ -2394,16 +2422,18 @@ export function App({
   );
 
   const decideApproval = useCallback(
-    (decision: ApprovalDecision, scope: ApprovalScope, reason?: string) => {
+    (answer: ApprovalAnswer, reason?: string) => {
+      if (answer.switchToAuto) changeMode("auto");
       const resolve = approvalResolver.current;
       const requestId = state.pendingApproval?.requestId;
       approvalResolver.current = null;
       if (requestId) dispatch({ type: "approval/resolved", requestId });
-      // `reason` is only ever set by "No, and tell it why"; the daemon quotes
-      // it back to the model as the tool's refusal (M15b §1).
+      // `reason` is only ever set by "No, with reason"; the daemon quotes it
+      // back to the model as the tool's refusal (M15b §1).
+      const { decision, scope } = answer;
       resolve?.(reason ? { decision, scope, reason } : { decision, scope });
     },
-    [state.pendingApproval],
+    [changeMode, state.pendingApproval],
   );
 
   const answerQuestion = useCallback(

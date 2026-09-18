@@ -648,7 +648,7 @@ async def test_the_config_guard_covers_the_whole_snowpea_home(tmp_path: Path) ->
         assert tool is not None
         return effective_permission(tool, {"path": path}, session, core)
 
-    for name in ("write_file", "edit_file"):
+    for name in ("write_file", "patch"):
         for path in (
             str(home.settings_json),
             str(home.credentials_json),

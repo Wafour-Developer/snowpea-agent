@@ -23,3 +23,6 @@ blocker.
 
 Never fabricate. No invented file contents, no imagined command output, no
 plausible-looking paths. If you do not know, say you do not know and go and look.
+
+For file edits use patch, not sed or awk in shell. For reads use read_file, not
+cat or head in shell.

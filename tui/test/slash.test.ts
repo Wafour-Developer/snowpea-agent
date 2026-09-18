@@ -61,6 +61,12 @@ describe("SlashRegistry", () => {
     expect(registry.complete("/zz")).toEqual([]);
   });
 
+  it("stops completing once the draft is past the command name", async () => {
+    const registry = await load(mockClient(), "sess-1");
+    expect(registry.complete("/skill create ")).toEqual([]);
+    expect(registry.complete("/mode plan")).toEqual([]);
+  });
+
   it("dispatch calls command.run with the parsed name and raw args", async () => {
     const client = mockClient();
     const registry = new SlashRegistry(client, "sess-1");

@@ -26,7 +26,7 @@ const MODE_CHIP: Record<Mode, string> = {
 };
 
 const MODE_COLOR: Record<Mode, string> = {
-  auto: "red",
+  auto: "magenta",
   accept: "green",
   plan: "cyan",
 };

@@ -91,6 +91,31 @@ describe("the /skill palette", () => {
     expect(shown).toContain("/skill create");
     expect(shown).not.toContain("/skill publish");
   });
+
+  it("says Enter selects rather than run", async () => {
+    const { stdin, instance, frame } = await open(fakeClient());
+    await type(stdin, "/skill ", 15);
+    await sleep(200);
+    const shown = frame();
+    instance.unmount();
+
+    expect(shown).toContain("Enter select");
+    expect(shown).not.toContain("Enter run");
+  });
+
+  it("hides the palette once a sub-action is accepted", async () => {
+    const { stdin, instance, frame } = await open(fakeClient());
+    await type(stdin, "/skill create", 15);
+    await sleep(50);
+    stdin.write("\r");
+    await sleep(200);
+    const shown = frame();
+    instance.unmount();
+
+    expect(shown).not.toContain("/skill learn");
+    expect(shown).not.toContain("Tab complete");
+    expect(shown).not.toContain("Enter run");
+  });
 });
 
 describe("the /skill create form", () => {

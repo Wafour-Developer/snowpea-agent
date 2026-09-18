@@ -251,7 +251,7 @@ def test_the_policy_allows_a_plan_write_and_denies_a_source_write(project: Path)
     policy = PermissionPolicy()
     assert _decide(policy, "plan", "write", "write_file",
                    {"path": ".snowpea/plans/x.md"}, project) == "allow"
-    assert _decide(policy, "plan", "write", "edit_file",
+    assert _decide(policy, "plan", "write", "patch",
                    {"path": "docs/x.md"}, project) == "allow"
     assert _decide(policy, "plan", "write", "write_file",
                    {"path": "src/a.py"}, project) == "deny"

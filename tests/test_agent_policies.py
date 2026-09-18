@@ -105,12 +105,13 @@ async def test_a_file_never_read_may_not_be_edited(tmp_path: Path) -> None:
     (tmp_path / "a.txt").write_text("hello\n", encoding="utf-8")
     ctx = _ctx(tmp_path, "s-1")
 
-    result = await fs.edit_file(ctx, {"path": "a.txt", "old": "hello", "new": "bye"})
+    result = await fs.patch(ctx, {"path": "a.txt", "old_string": "hello", "new_string": "bye"})
 
     assert result.ok is False
     assert result.error is not None
     assert result.error.startswith("stale_file:")
     assert "has not been read" in result.error
+    assert "recovery:" in result.error
     assert (tmp_path / "a.txt").read_text(encoding="utf-8") == "hello\n"
 
 
@@ -119,7 +120,7 @@ async def test_a_full_read_unlocks_the_edit(tmp_path: Path) -> None:
     ctx = _ctx(tmp_path, "s-1")
 
     assert (await fs.read_file(ctx, {"path": "a.txt"})).ok is True
-    result = await fs.edit_file(ctx, {"path": "a.txt", "old": "hello", "new": "bye"})
+    result = await fs.patch(ctx, {"path": "a.txt", "old_string": "hello", "new_string": "bye"})
 
     assert result.ok is True
     assert (tmp_path / "a.txt").read_text(encoding="utf-8") == "bye\n"
@@ -150,7 +151,7 @@ async def test_a_sibling_write_makes_the_other_child_stale(tmp_path: Path) -> No
     assert (await fs.read_file(second, {"path": "a.txt"})).ok is True
     assert (await fs.write_file(second, {"path": "a.txt", "content": "from two\n"})).ok is True
 
-    blocked = await fs.edit_file(first, {"path": "a.txt", "old": "hello", "new": "from one"})
+    blocked = await fs.patch(first, {"path": "a.txt", "old_string": "hello", "new_string": "from one"})
     assert blocked.ok is False
     assert blocked.error is not None
     assert "s-child-2" in blocked.error
@@ -185,7 +186,7 @@ async def test_the_guard_can_be_switched_off(tmp_path: Path) -> None:
     (tmp_path / "a.txt").write_text("hello\n", encoding="utf-8")
     ctx = _ctx(tmp_path, "s-1", guard=False)
 
-    result = await fs.edit_file(ctx, {"path": "a.txt", "old": "hello", "new": "bye"})
+    result = await fs.patch(ctx, {"path": "a.txt", "old_string": "hello", "new_string": "bye"})
     assert result.ok is True
     assert (tmp_path / "a.txt").read_text(encoding="utf-8") == "bye\n"
 

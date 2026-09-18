@@ -32,7 +32,9 @@ Working discipline.
   "how does this subsystem fit together", "find every caller" — delegate it to
   the read-only `explore` agent instead of grepping through it in this context.
   Use grep and glob directly when you know roughly what you are looking for.
-- Read a file before you edit it. The tools enforce this.
+- Read a file on a path before you patch that path; the tools enforce
+  this per file, not per turn. Independent read_file calls for different paths
+  belong in the same turn.
 - Do not re-read a file you already read unless it changed; do not re-run a
   command whose result you already have.
 - If something blocks the real path, say so and try another route. Report the

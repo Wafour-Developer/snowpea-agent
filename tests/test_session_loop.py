@@ -161,7 +161,7 @@ async def test_accept_mode_write_needs_no_approval(
     await client.stop()
 
 
-async def test_accept_mode_edit_file_emits_a_diff(
+async def test_accept_mode_patch_emits_a_diff(
     daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path
 ) -> None:
     workdir = tmp_path / "project"
@@ -596,7 +596,7 @@ async def test_command_and_tool_and_provider_listings(
     tools = (await client.ok("tool.list", {"sessionId": session_id}))["tools"]
     by_name = {tool["name"]: tool for tool in tools}
     # US-009 widened the catalog; the M1 tools must still all be there.
-    assert set(by_name) >= {"read_file", "write_file", "edit_file", "list_dir", "shell"}
+    assert set(by_name) >= {"read_file", "write_file", "patch", "list_dir", "shell"}
     assert by_name["shell"]["permissionTag"] == "exec"
     assert by_name["read_file"]["permissionTag"] == "read"
 

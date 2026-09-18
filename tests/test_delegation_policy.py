@@ -202,7 +202,7 @@ async def test_a_running_sibling_owns_the_file_it_wrote(tmp_path: Path) -> None:
     assert (await fs.read_file(one, {"path": "shared.py"})).ok is True
     assert (await fs.write_file(one, {"path": "shared.py", "content": "one = 2\n"})).ok is True
 
-    blocked = await fs.edit_file(two, {"path": "shared.py", "old": "one", "new": "two"})
+    blocked = await fs.patch(two, {"path": "shared.py", "old_string": "one", "new_string": "two"})
     assert blocked.ok is False
     assert blocked.error is not None
     assert blocked.error.startswith(f"{file_state.OWNED_CODE}:")
@@ -212,7 +212,7 @@ async def test_a_running_sibling_owns_the_file_it_wrote(tmp_path: Path) -> None:
     # Once that sibling has finished, the collision is an ordinary staleness
     # refusal again: re-read and carry on.
     record.status = subagent.DONE
-    stale = await fs.edit_file(two, {"path": "shared.py", "old": "one", "new": "two"})
+    stale = await fs.patch(two, {"path": "shared.py", "old_string": "one", "new_string": "two"})
     assert stale.ok is False
     assert stale.error is not None
     assert stale.error.startswith(f"{file_state.STALE_CODE}:")
@@ -226,7 +226,7 @@ async def test_the_ownership_guard_follows_read_before_write_setting(tmp_path: P
     one.core.settings.tools.readBeforeWrite = False
 
     assert (await fs.write_file(one, {"path": "shared.py", "content": "one = 2\n"})).ok is True
-    allowed = await fs.edit_file(two, {"path": "shared.py", "old": "one", "new": "two"})
+    allowed = await fs.patch(two, {"path": "shared.py", "old_string": "one", "new_string": "two"})
     assert allowed.ok is True
 
 
@@ -289,7 +289,7 @@ def test_explore_and_reviewer_are_built_in_and_read_only() -> None:
         assert tools is not None, f"{name} must not inherit every tool"
         assert "read_file" in tools and "grep" in tools
         assert "write_file" not in tools
-        assert "edit_file" not in tools
+        assert "patch" not in tools
         assert "shell" not in tools
     assert "very thorough" in by_name["explore"].prompt.lower()
     assert "REQUEST_CHANGES" in by_name["reviewer"].prompt

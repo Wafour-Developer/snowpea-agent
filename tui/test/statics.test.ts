@@ -145,7 +145,7 @@ describe("the height bound on what is held back", () => {
     for (let i = 0; i < count; i += 1) {
       state = apply(
         state,
-        event(i * 3 + 1, "tool.call", { callId: `c${i}`, name: "edit_file", args: {} }),
+        event(i * 3 + 1, "tool.call", { callId: `c${i}`, name: "patch", args: {} }),
         event(i * 3 + 2, "tool.result", { callId: `c${i}`, ok: true }),
         event(i * 3 + 3, "diff", { path: `f${i}.ts`, patch }),
       );

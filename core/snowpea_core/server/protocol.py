@@ -262,6 +262,10 @@ class SessionCreateParams(Payload):
     originSurface: str | None = Field(
         None, description="Surface that owns approvals for this session (TUI, gateway, ...)."
     )
+    denyExec: bool | None = Field(
+        default=None,
+        description="When true, refuse exec-tagged tools without prompting (headless CI).",
+    )
 
 
 class SessionCreateResult(Payload):

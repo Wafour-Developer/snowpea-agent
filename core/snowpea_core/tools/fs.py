@@ -1,7 +1,7 @@
-"""Filesystem tools: ``read_file``, ``write_file``, ``edit_file``, ``list_dir``.
+"""Filesystem tools: ``read_file``, ``patch``, ``write_file``, ``list_dir``.
 
 All four go through the session's :class:`ExecutionBackend`, so a docker or ssh
-backend (US-010) gets them for free.  ``write_file`` and ``edit_file`` return a
+backend (US-010) gets them for free.  ``patch`` and ``write_file`` return a
 unified diff, which the agent loop turns into a ``diff`` session event.
 """
 
@@ -177,7 +177,7 @@ async def write_file(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     )
 
 
-async def edit_file(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
+async def _replace_in_file(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     """Replace an exact ``old`` string with ``new``; the match must be unique."""
     path = str(args.get("path", "")).strip()
     if not path:
@@ -242,8 +242,28 @@ def _fuzzy_replace(
     )
     if error or not matches or updated == content:
         return None, error
-    log.info("edit_file matched fuzzily via %s (%d match(es))", strategy, matches)
+    log.info("patch matched fuzzily via %s (%d match(es))", strategy, matches)
     return updated, None
+
+
+async def patch(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
+    """Targeted find-and-replace in one file (Hermes ``patch`` dialect)."""
+    mode = str(args.get("mode", "replace") or "replace").strip().lower()
+    if mode != "replace":
+        return ToolResult(
+            ok=False,
+            error="only mode='replace' is supported; pass path, old_string, and new_string",
+        )
+    path = str(args.get("path", "")).strip()
+    old = str(args.get("old_string", "") or "")
+    new = str(args.get("new_string", "") or "")
+    if not old:
+        return ToolResult(ok=False, error="old_string is required and must not be empty")
+    replace_all = bool(args.get("replace_all", False))
+    return await _replace_in_file(
+        ctx,
+        {"path": path, "old": old, "new": new, "replaceAll": replace_all},
+    )
 
 
 async def list_dir(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
@@ -283,6 +303,42 @@ TOOLS: tuple[Tool, ...] = (
         run=read_file,
     ),
     Tool(
+        name="patch",
+        category="file",
+        description=descriptions.PATCH,
+        input_schema={
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "File path to edit."},
+                "old_string": {
+                    "type": "string",
+                    "description": (
+                        "Exact text to find and replace. Must be unique in the file unless "
+                        "replace_all=true. Include surrounding context lines to ensure uniqueness."
+                    ),
+                },
+                "new_string": {
+                    "type": "string",
+                    "description": (
+                        "Changed replacement text; it must differ from old_string. Pass empty "
+                        "string '' to delete the matched text."
+                    ),
+                },
+                "replace_all": {
+                    "type": "boolean",
+                    "description": (
+                        "Replace all occurrences instead of requiring a unique match (default: false)"
+                    ),
+                    "default": False,
+                },
+            },
+            "required": ["path", "old_string", "new_string"],
+        },
+        permission="write",
+        permission_for=permission_for_write,
+        run=patch,
+    ),
+    Tool(
         name="write_file",
         category="file",
         description=descriptions.WRITE_FILE,
@@ -297,24 +353,6 @@ TOOLS: tuple[Tool, ...] = (
         permission="write",
         permission_for=permission_for_write,
         run=write_file,
-    ),
-    Tool(
-        name="edit_file",
-        category="file",
-        description=descriptions.EDIT_FILE,
-        input_schema={
-            "type": "object",
-            "properties": {
-                "path": {"type": "string", "description": "File to edit."},
-                "old": {"type": "string", "description": "Exact text to replace."},
-                "new": {"type": "string", "description": "Replacement text."},
-                "replaceAll": {"type": "boolean", "description": "Replace every occurrence."},
-            },
-            "required": ["path", "old", "new"],
-        },
-        permission="write",
-        permission_for=permission_for_write,
-        run=edit_file,
     ),
     Tool(
         name="list_dir",
@@ -333,8 +371,8 @@ TOOLS: tuple[Tool, ...] = (
 __all__ = [
     "MAX_READ_CHARS",
     "TOOLS",
-    "edit_file",
     "list_dir",
+    "patch",
     "read_file",
     "unified_diff",
     "write_file",

@@ -189,7 +189,7 @@ def test_a_named_server_gets_a_preset_built_from_its_block() -> None:
     assert preset.local_style is True
     # The two quirks the built-in local vendor has, for the same reasons.
     assert preset.key_required is False
-    assert preset.supports_parallel_tools is False
+    assert preset.supports_parallel_tools is True
     assert model_discovery.is_placeholder(preset.default_model)
 
 

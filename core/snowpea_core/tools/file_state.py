@@ -1,7 +1,7 @@
 """Read-before-write guard (M15 §A3).
 
 A per-session registry of what each session has read and who wrote what, so
-``edit_file`` and ``write_file`` can refuse a write that would be blind:
+``patch`` and ``write_file`` can refuse a write that would be blind:
 
 * the file was never read in this session,
 * it was read only partially (a windowed or truncated ``read_file``),
@@ -207,7 +207,7 @@ def note_read(core: Any, session: Session, path: str, content: str, *, complete:
 
 
 def note_write(core: Any, session: Session, path: str, content: str) -> None:
-    """Record a successful ``write_file`` / ``edit_file``."""
+    """Record a successful ``write_file`` / ``patch``."""
     if not enabled(core):
         return
     REGISTRY.record_write(
@@ -215,14 +215,37 @@ def note_write(core: Any, session: Session, path: str, content: str) -> None:
     )
 
 
-def refusal(reason: str) -> str:
+def recovery_hint(reason: str) -> str | None:
+    """Actionable recovery text for a :func:`check_stale` refusal."""
+    text = (reason or "").strip()
+    if not text:
+        return None
+    if text.startswith(f"{OWNED_CODE}:"):
+        return "report the sibling conflict to the user instead of editing"
+    if "only read in part" in text or "truncated read" in text:
+        return "read_file the whole file without offset or limit, then retry the write"
+    if "has not been read" in text:
+        return (
+            "read_file the whole file without offset or limit in this turn, then "
+            "patch or write_file — you can batch read and patch in one response"
+        )
+    if "after you read it" in text or "after you last read" in text:
+        return "read_file again — the file changed since your last read"
+    return "read_file the whole file, then retry the write"
+
+
+def refusal(reason: str, *, recovery: str | None = None) -> str:
     """The tool error a refusal becomes: coded once, never twice.
 
     :func:`check_stale` already codes a sibling conflict; everything else is a
     plain read-before-write refusal and gets :data:`STALE_CODE` here.
     """
     text = (reason or "").strip()
-    return text if text.startswith(f"{OWNED_CODE}:") else f"{STALE_CODE}: {text}"
+    coded = text if text.startswith(f"{OWNED_CODE}:") else f"{STALE_CODE}: {text}"
+    hint = recovery if recovery is not None else recovery_hint(reason)
+    if hint:
+        coded = f"{coded} (recovery: {hint})"
+    return coded
 
 
 def sibling_label(core: Any, group: str, session_id: str) -> str | None:
@@ -287,6 +310,7 @@ __all__ = [
     "group_for",
     "note_read",
     "note_write",
+    "recovery_hint",
     "refusal",
     "resolve",
     "sibling_label",

@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any
 from snowpea_core.agent import agent as agent_mod
 from snowpea_core.agent import context_files
 from snowpea_core.agent.agent import AgentConfig, build_messages
+from snowpea_core.agent.tool_batch import plan_tool_batch_segments
 from snowpea_core.attachments import pending
 from snowpea_core.config.settings import THINKING_CHOICES
 from snowpea_core.exec.local import LocalBackend
@@ -1060,19 +1061,33 @@ async def _drive(
         session.history.append(
             ChatMessage(role="assistant", content=assistant_text, tool_calls=list(calls))
         )
-        for call in calls:
-            outcome = await _run_one_call(core, session, backend, policy, call, turn_id, unattended)
-            if outcome == "denied":
-                # The refusal went back to the model as a tool result; it gets
-                # to choose something else.  A model that only ever retries the
-                # refused call still cannot burn the round budget.
-                denials += 1
-                if denials >= MAX_DENIALS_PER_TURN:
-                    await finish_turn(core, session, turn_id, "denied")
-                    return "denied"
-                continue
-            if outcome is not None:
-                return outcome
+        segments = plan_tool_batch_segments(calls, workdir=session.workdir)
+        for kind, batch in segments:
+            if kind == "parallel" and len(batch) > 1:
+                outcomes = await asyncio.gather(
+                    *[
+                        _run_one_call(
+                            core, session, backend, policy, call, turn_id, unattended
+                        )
+                        for call in batch
+                    ]
+                )
+            else:
+                outcomes = [
+                    await _run_one_call(
+                        core, session, backend, policy, call, turn_id, unattended
+                    )
+                    for call in batch
+                ]
+            for outcome in outcomes:
+                if outcome == "denied":
+                    denials += 1
+                    if denials >= MAX_DENIALS_PER_TURN:
+                        await finish_turn(core, session, turn_id, "denied")
+                        return "denied"
+                    continue
+                if outcome is not None:
+                    return outcome
         session.history.compact()
         # A prompt typed during a long tool call is folded in before the next
         # model round starts.
@@ -1250,6 +1265,15 @@ async def _run_one_call(
         await hub.emit_event(session.id, events.error(errors.MODE_DENIED, message))
         await _deny_call(core, session, call, message)
         return "denied"
+    if getattr(session, "deny_exec", False) and tag == "exec":
+        await _deny_call(
+            core,
+            session,
+            call,
+            "exec tools are disabled for this session; use read_file, glob, grep, or "
+            "patch instead",
+        )
+        return None
     if verdict == "ask":
         decision = await core.approvals.request(
             session,

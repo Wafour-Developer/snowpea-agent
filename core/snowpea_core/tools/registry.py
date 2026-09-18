@@ -305,7 +305,7 @@ def effective_permission(
 ) -> PermissionTag:
     """The tag this particular call is judged by.
 
-    Almost always :attr:`Tool.permission`; ``write_file`` and ``edit_file``
+    Almost always :attr:`Tool.permission`; ``write_file`` and ``patch``
     raise it to ``config`` when the path is a settings or credentials file.
     ``core`` is passed so the hook can read the daemon's real home rather than
     re-deriving it from the environment.

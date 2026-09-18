@@ -2,15 +2,12 @@
  * Interactive approval prompt (contract §7, M15b §1).
  *
  * Shown for the server→client `approval.request` on the session's origin
- * surface. The four answers are the four things a person actually wants to say
- * — yes once, yes for the session, yes for this project, no — so each is a row
- * of a `ConfirmMenu` rather than a scope the user has to assemble out of arrow
- * keys before pressing a letter. Enter takes the highlighted row; `y`, `a` and
- * `n` still work for anyone who knows them.
+ * surface. Each row is one line: yes once, yes for the session, yes for this
+ * project, switch to auto, no, or no with a reason. Enter takes the highlighted
+ * row; letter shortcuts still work for anyone who knows them.
  *
- * A fifth row refuses *and says why*. A bare "no" tells the model nothing, so
- * it tries the same call again in a slightly different shape; the reason goes
- * back as the tool's refusal, and the next turn has to answer it.
+ * A bare "no" tells the model nothing, so the reason row sends what you type
+ * back as the tool's refusal.
  */
 
 import React, { useState } from "react";
@@ -31,29 +28,34 @@ export interface ApprovalAnswer {
   scope: ApprovalScope;
   /** True for the row that asks for a reason before it answers. */
   withReason?: boolean;
+  /** True for the row that switches the session to auto mode. */
+  switchToAuto?: boolean;
 }
 
-/** The five answers, in the order they are offered. */
+/** The six answers, in the order they are offered. */
 export const APPROVAL_OPTIONS: ConfirmOption<ApprovalAnswer>[] = [
   { label: "Yes", value: { decision: "allow", scope: "once" }, shortcut: "y" },
   {
-    label: "Yes, and don't ask again this session",
+    label: "Yes, this session only",
     value: { decision: "allow", scope: "session" },
     shortcut: "a",
   },
   {
-    label: "Yes for this project",
+    label: "Yes, add to project allowlist",
     value: { decision: "allow", scope: "project" },
     shortcut: "p",
-    hint: "adds an allowlist rule the daemon keeps",
+  },
+  {
+    label: "Allow Everything (Auto mode)",
+    value: { decision: "allow", scope: "once", switchToAuto: true },
+    shortcut: "e",
   },
   { label: "No", value: { decision: "deny", scope: "once" }, shortcut: "n", danger: true },
   {
-    label: "No, and tell it why",
+    label: "No, with reason",
     value: { decision: "deny", scope: "once", withReason: true },
     shortcut: "r",
     danger: true,
-    hint: "the model reads what you type as the refusal",
   },
 ];
 
@@ -71,7 +73,7 @@ export function ApprovalPrompt({
   isActive = true,
 }: {
   request: ApprovalEntry;
-  onDecide: (decision: ApprovalDecision, scope: ApprovalScope, reason?: string) => void;
+  onDecide: (answer: ApprovalAnswer, reason?: string) => void;
   isActive?: boolean;
 }): React.ReactElement {
   // A daemon that suggests a scope moves the cursor to it; otherwise the
@@ -87,7 +89,7 @@ export function ApprovalPrompt({
     (input, key) => {
       if (reason === null) return;
       if (key.return) {
-        onDecide("deny", "once", reason.trim() || undefined);
+        onDecide({ decision: "deny", scope: "once" }, reason.trim() || undefined);
         return;
       }
       if (key.escape) {
@@ -138,7 +140,7 @@ export function ApprovalPrompt({
                 setReason("");
                 return;
               }
-              onDecide(answer.decision, answer.scope);
+              onDecide(answer);
             }}
           />
         ) : (

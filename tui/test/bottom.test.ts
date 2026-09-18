@@ -77,9 +77,9 @@ describe("contextWarning", () => {
 
 describe("summaryLine", () => {
   it("leads with the mode chip", () => {
-    expect(summaryLine({ mode: "auto", shells: 0, agents: 0 }).text).toBe(
-      "⏵⏵ auto mode on · ⇧Tab change mode · Ctrl+P plan",
-    );
+    const auto = summaryLine({ mode: "auto", shells: 0, agents: 0 });
+    expect(auto.text).toBe("⏵⏵ auto mode on · ⇧Tab change mode · Ctrl+P plan");
+    expect(auto.color).toBe("magenta");
     expect(summaryLine({ mode: "accept", shells: 0, agents: 0 }).text).toContain(
       "▶ accept mode · ⇧Tab change mode",
     );

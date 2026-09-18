@@ -247,6 +247,7 @@ async def session_create_handler(
         max_concurrent=params.maxConcurrent,
         origin_surface=params.originSurface or conn.surface_id,
         origin_conn=conn,
+        deny_exec=bool(params.denyExec),
     )
     core.hub.subscribe(conn, session.id)
     _count_sessions(core)

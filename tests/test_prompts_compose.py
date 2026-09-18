@@ -30,8 +30,9 @@ GOLDEN_DIR = Path(__file__).parent / "golden" / "prompts"
 #: and plugins" paragraph (/skill create); raised again from 2900 for M15 §D2's
 #: memory-guidance fragment, which is twelve lines the stable tier did not
 #: carry before; raised again from 3250 for CORE-vision's one-line ``view_image``
-#: guidance in base.md.  Still headroom, not a reset.
-TIER_BUDGET_TOKENS = {"stable": 3270, "context": 800, "volatile": 600}
+#: guidance in base.md; raised again for Hermes-style ``patch`` tool text and
+#: ``small-local`` edit guidance.
+TIER_BUDGET_TOKENS = {"stable": 3400, "context": 800, "volatile": 600}
 
 MODES = ("plan", "accept", "auto")
 VENDOR_CLASSES = ("anthropic", "openai-family", "small-local")
@@ -53,7 +54,7 @@ class FakeSpec:
 
 TOOLS = (
     FakeSpec("read_file", tool_descriptions.READ_FILE),
-    FakeSpec("edit_file", tool_descriptions.EDIT_FILE),
+    FakeSpec("patch", tool_descriptions.PATCH),
     FakeSpec("shell", tool_descriptions.SHELL),
 )
 

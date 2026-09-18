@@ -375,7 +375,7 @@ async def lsp_rename(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             ok=False,
             error=(
                 "the language server would not rename this symbol; use lsp_references "
-                "and edit_file instead"
+                "and patch instead"
             ),
         )
     updates = apply_workspace_edit(edit)

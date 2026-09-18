@@ -38,6 +38,21 @@ describe("the /skill sub-actions", () => {
     expect(names("/skill learn my-thing")).toEqual([]);
   });
 
+  it("offers installed skill names for learn and edit", () => {
+    const skills = [
+      { name: "deploy", summary: "ship the site", kind: "skill", source: "project" },
+      { name: "audit", summary: "review changes", kind: "skill", source: "global" },
+    ];
+    expect(skillSubCommands("/skill learn ", skills).map((row) => row.name)).toEqual([
+      "skill learn deploy",
+      "skill learn audit",
+    ]);
+    expect(skillSubCommands("/skill edit dep", skills).map((row) => row.name)).toEqual([
+      "skill edit deploy",
+    ]);
+    expect(skillSubCommands("/skill learn dep", skills)[0]?.preview).toBe("ship the site");
+  });
+
   it("says nothing about other commands", () => {
     expect(names("/model")).toEqual([]);
     expect(names("not a command")).toEqual([]);

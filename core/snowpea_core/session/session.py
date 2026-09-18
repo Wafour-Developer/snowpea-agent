@@ -89,6 +89,9 @@ class Session:
     #: True for sessions nobody is watching — a scheduled job (M5 contract §2)
     #: or a gateway message.  Their approvals go to the shared queue.
     unattended: bool = False
+    #: When true, ``exec``-tagged tools (e.g. ``shell``) are refused without an
+    #: approval prompt — for headless CI runs that should not fail on exit 4.
+    deny_exec: bool = False
     #: The connection that created (or last resumed) the session; interactive
     #: ``approval.request`` calls go only here (contract §7).
     origin_conn: Any = None

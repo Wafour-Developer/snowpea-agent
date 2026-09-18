@@ -61,7 +61,7 @@ describe("summarizeCalls in another language", () => {
   it("uses the Korean verbs when the session is Korean", () => {
     setUiLanguage("ko");
     expect(summarizeCalls([call("read_file", { path: "/src/app.py" })])).toBe("app.py 읽음");
-    expect(summarizeCalls([call("edit_file", { file_path: "/repo/README.md" })])).toBe(
+    expect(summarizeCalls([call("patch", { file_path: "/repo/README.md" })])).toBe(
       "README.md 수정",
     );
     expect(summarizeCalls([call("bash", { command: "npm test" })])).toBe("셸 실행: npm test");

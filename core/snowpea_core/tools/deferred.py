@@ -34,7 +34,7 @@ EAGER_TOOLS: frozenset[str] = frozenset(
         "read_file",
         "view_image",
         "write_file",
-        "edit_file",
+        "patch",
         "shell",
         "grep",
         "glob",
@@ -53,7 +53,7 @@ READONLY_EAGER_TOOLS: frozenset[str] = frozenset({"read_file", "view_image", "gr
 #: A session that may call one of these is not read-only, whatever its role
 #: says.  ``shell`` is deliberately absent: a read-only reviewer is routinely
 #: allowed to run the test suite.
-WRITE_TOOLS: frozenset[str] = frozenset({"write_file", "edit_file", "git_commit", "lsp_rename"})
+WRITE_TOOLS: frozenset[str] = frozenset({"write_file", "patch", "git_commit", "lsp_rename"})
 
 #: Prefix of the line appended to a deferred tool's first result.
 LOADED_NOTE = "loaded {name} for this session"

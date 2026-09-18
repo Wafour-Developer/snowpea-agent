@@ -21,10 +21,17 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
 log = logging.getLogger("snowpea.providers.presets")
+
+#: Models that reliably emit only one tool call per turn even when the API
+#: allows more.  Everything else on a parallel-capable vendor defaults on.
+_PARALLEL_TOOLS_MODEL_DENYLIST = re.compile(
+    r"(?:^|[-_/])(?:deepseek-v|deepseek-r)",
+    re.IGNORECASE,
+)
 
 Adapter = Literal["anthropic_native", "gemini_native", "openai_compat"]
 WireShape = Literal["openai", "anthropic", "gemini"]
@@ -239,7 +246,6 @@ PRESETS: dict[str, VendorPreset] = {
             "local-model",
             env_keys=("SNOWPEA_LOCAL_API_KEY",),
             models=(),
-            supports_parallel_tools=False,
             key_required=False,
             local_style=True,
         ),
@@ -254,7 +260,6 @@ LOCAL_VARIANTS: dict[str, VendorPreset] = {
         "http://localhost:8000/v1",
         "local-model",
         env_keys=("SNOWPEA_LOCAL_API_KEY",),
-        supports_parallel_tools=False,
         key_required=False,
         local_style=True,
         variant="vllm",
@@ -265,7 +270,6 @@ LOCAL_VARIANTS: dict[str, VendorPreset] = {
         "http://localhost:11434/v1",
         "local-model",
         env_keys=("SNOWPEA_LOCAL_API_KEY",),
-        supports_parallel_tools=False,
         key_required=False,
         local_style=True,
         variant="ollama",
@@ -276,7 +280,6 @@ LOCAL_VARIANTS: dict[str, VendorPreset] = {
         "http://localhost:1234/v1",
         "local-model",
         env_keys=("SNOWPEA_LOCAL_API_KEY",),
-        supports_parallel_tools=False,
         key_required=False,
         local_style=True,
         variant="lmstudio",
@@ -384,7 +387,6 @@ def synthesize_local_preset(vendor_id: str, config: Mapping[str, Any]) -> Vendor
         local.default_model,
         env_keys=(),
         models=(),
-        supports_parallel_tools=False,
         key_required=False,
         local_style=True,
         # A self-hosted server usually ignores ``reasoning_effort`` and
@@ -392,6 +394,49 @@ def synthesize_local_preset(vendor_id: str, config: Mapping[str, Any]) -> Vendor
         supports_effort=bool(config.get("effort_param")),
         variant=variant or None,
     )
+
+
+def _config_bool(config: Mapping[str, Any], *keys: str) -> bool | None:
+    for key in keys:
+        value = config.get(key)
+        if isinstance(value, bool):
+            return value
+    return None
+
+
+def _profile_parallel(profile: Mapping[str, Any] | None) -> bool | None:
+    if not isinstance(profile, Mapping):
+        return None
+    return _config_bool(profile, "supportsParallelTools", "parallelToolCalls")
+
+
+def resolve_parallel_tools(
+    preset: VendorPreset,
+    *,
+    model: str | None = None,
+    vendor_config: Mapping[str, Any] | None = None,
+    profile: Mapping[str, Any] | None = None,
+) -> bool:
+    """Whether to send ``parallel_tool_calls`` for this vendor/model pair.
+
+    Precedence (highest first):
+
+    1. ``providers.<vendor>.parallelToolCalls`` / ``supportsParallelTools``
+    2. a matching ``models.profiles[*]`` with the same keys
+    3. model denylist (``deepseek-v*`` / ``deepseek-r*`` families)
+    4. :attr:`VendorPreset.supports_parallel_tools`
+    """
+    config = vendor_config if isinstance(vendor_config, Mapping) else {}
+    explicit = _config_bool(config, "parallelToolCalls", "supportsParallelTools")
+    if explicit is not None:
+        return explicit
+    prof = _profile_parallel(profile)
+    if prof is not None:
+        return prof
+    name = (model or preset.default_model or "").strip()
+    if name and _PARALLEL_TOOLS_MODEL_DENYLIST.search(name):
+        return False
+    return preset.supports_parallel_tools
 
 
 def preset_for(
@@ -444,6 +489,7 @@ __all__ = [
     "is_local_vendor_config",
     "local_vendor_ids",
     "preset_for",
+    "resolve_parallel_tools",
     "synthesize_local_preset",
     "validate_custom_vendor_id",
 ]

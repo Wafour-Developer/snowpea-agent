@@ -23,7 +23,7 @@ describe("toolKind", () => {
     expect(toolKind("run_terminal_cmd")).toBe("shell");
     expect(toolKind("read_file")).toBe("read");
     expect(toolKind("Grep")).toBe("search");
-    expect(toolKind("edit_file")).toBe("edit");
+    expect(toolKind("patch")).toBe("edit");
     expect(toolKind("write")).toBe("write");
     expect(toolKind("web_fetch")).toBe("fetch");
     expect(toolKind("summon_pixies")).toBe("other");

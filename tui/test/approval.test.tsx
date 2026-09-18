@@ -8,7 +8,7 @@
 
 import React from "react";
 import { render } from "ink";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { App } from "../src/app.js";
 import type { ApprovalRequestParams, ApprovalResponse } from "../src/rpc/sdk.js";
@@ -31,7 +31,7 @@ function fakeClient() {
     call: async () => ({ commands: [] }),
     prompt: async () => ({ turnId: "t" }),
     interrupt: async () => undefined,
-    setMode: async () => ({ mode: "accept" }),
+    setMode: vi.fn(async (_sessionId: string, mode: string) => ({ mode })),
     respondApproval: async (requestId: string, decision: string, scope: string) => {
       responded.push({ requestId, decision, scope });
     },
@@ -86,8 +86,8 @@ describe("approval prompt", () => {
 
   it("walks to No with the arrow keys and confirms that instead", async () => {
     const { stdin, instance, answer } = await openPrompt();
-    // Down three rows: Yes → session → project → No.
-    for (let i = 0; i < 3; i += 1) {
+    // Down four rows: Yes → session → project → auto → No.
+    for (let i = 0; i < 4; i += 1) {
       stdin.write("\u001B[B");
       await sleep(40);
     }
@@ -110,9 +110,9 @@ describe("approval prompt", () => {
     expect(decided).toEqual({ decision: "deny", scope: "once" });
   });
 
-  it("offers a fifth row that refuses and says why", async () => {
+  it("offers a row that refuses and says why", async () => {
     const { stdin, stdout, instance, answer } = await openPrompt();
-    expect(stdout.text()).toContain("No, and tell it why");
+    expect(stdout.text()).toContain("No, with reason");
     stdin.write("r");
     await sleep(80);
     expect(stdout.text()).toContain("Why are you refusing?");
@@ -133,7 +133,7 @@ describe("approval prompt", () => {
     await sleep(80);
     stdin.write("\u001B");
     await sleep(80);
-    expect(stdout.text()).toContain("Yes for this project");
+    expect(stdout.text()).toContain("Yes, add to project allowlist");
     stdin.write("y");
     const decided = await answer;
     instance.unmount();
@@ -142,7 +142,7 @@ describe("approval prompt", () => {
 
   it("jumps to a row with a number key and confirms it with Enter", async () => {
     const { stdin, instance, answer } = await openPrompt();
-    stdin.write("4");
+    stdin.write("5");
     await sleep(60);
     stdin.write("\r");
     const decided = await answer;
@@ -163,6 +163,26 @@ describe("approval prompt", () => {
       instance.unmount();
       expect(decided).toEqual(expected);
     }
+  });
+
+  it("switches to auto mode when Allow Everything is chosen", async () => {
+    const client = fakeClient();
+    const stdin = fakeStdin();
+    const stdout = fakeStdout(100, 24);
+    const instance = render(
+      <App client={client as any} sessionId="sess-1" mode="accept" workdir="/tmp/project" />,
+      { stdin, stdout: stdout.stream, exitOnCtrlC: false, patchConsole: false },
+    );
+    await sleep(120);
+    const answer = client.ask();
+    await sleep(120);
+    stdin.write("e");
+    const decided = await answer;
+    await sleep(120);
+    instance.unmount();
+    expect(decided).toEqual({ decision: "allow", scope: "once" });
+    expect(client.setMode).toHaveBeenCalledWith("sess-1", "auto");
+    expect(stdout.text()).toContain("mode: AUTO");
   });
 
   it("takes Escape as a refusal", async () => {

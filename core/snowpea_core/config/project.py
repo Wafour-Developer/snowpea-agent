@@ -93,6 +93,13 @@ class ModelProfile(BaseModel):
 
     provider: str
     model: str
+    supportsParallelTools: bool | None = Field(
+        default=None,
+        description=(
+            "When set, overrides whether parallel_tool_calls is sent for this "
+            "provider/model pair."
+        ),
+    )
 
     @field_validator("provider", "model")
     @classmethod

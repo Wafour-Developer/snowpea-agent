@@ -28167,10 +28167,10 @@ var require_react_jsx_runtime_development = __commonJS({
           }
         }
         var jsx35 = jsxWithValidationDynamic;
-        var jsxs28 = jsxWithValidationStatic;
+        var jsxs27 = jsxWithValidationStatic;
         exports.Fragment = REACT_FRAGMENT_TYPE;
         exports.jsx = jsx35;
-        exports.jsxs = jsxs28;
+        exports.jsxs = jsxs27;
       })();
     }
   }
@@ -34454,7 +34454,9 @@ var SlashRegistry = class {
   }
   /** Autocomplete candidates for a typed prefix, with or without the slash. */
   complete(prefix) {
-    const needle = (prefix.startsWith("/") ? prefix.slice(1) : prefix).split(/\s/)[0] ?? "";
+    const body = prefix.startsWith("/") ? prefix.slice(1) : prefix;
+    if (body.includes(" ")) return [];
+    const needle = body.split(/\s/)[0] ?? "";
     if (needle.length === 0) return this.commands;
     return this.commands.filter((c) => c.name.startsWith(needle));
   }
@@ -34838,7 +34840,7 @@ var MODE_CHIP = {
   plan: "\u23F8 plan mode"
 };
 var MODE_COLOR = {
-  auto: "red",
+  auto: "magenta",
   accept: "green",
   plan: "cyan"
 };
@@ -34962,7 +34964,7 @@ var STATUS_COLOR = {
 var MODE_COLOR2 = {
   plan: "cyan",
   accept: "green",
-  auto: "red"
+  auto: "magenta"
 };
 function shortenPath(path, max) {
   if (max <= 1 || path.length <= max) return path;
@@ -37298,6 +37300,7 @@ var TUI_VERSION = "0.2.5";
 
 // src/layout/transcript.ts
 var TOOL_OUTPUT_LINES = 12;
+var COLLAPSED_ERROR_LINES = 3;
 var DIFF_LINES = 40;
 var ROLE_MARK = {
   user: { text: "\u203A ", color: "green", bold: true },
@@ -37516,17 +37519,26 @@ function summarizeArgs(args, max = 60) {
   const joined = Object.entries(args).map(([k, v]) => `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`).join(" ");
   return joined.length > max ? `${joined.slice(0, max - 1)}\u2026` : joined;
 }
-function toolCallLines(call, expanded) {
+function visibleToolBodyLines(call, expanded, maxLines = TOOL_OUTPUT_LINES) {
   const body = call.error ?? call.output ?? "";
   const all = body.length > 0 ? body.split("\n") : [];
-  const shown = expanded ? all.slice(0, TOOL_OUTPUT_LINES) : [];
-  const hidden = all.length - shown.length;
+  if (expanded) return { shown: all.slice(0, maxLines), total: all.length };
+  if (call.state === "error" && all.length > 0) {
+    return { shown: all.slice(0, COLLAPSED_ERROR_LINES), total: all.length };
+  }
+  return { shown: [], total: all.length };
+}
+function toolCallLines(call, expanded) {
+  const { shown, total: allLength } = visibleToolBodyLines(call, expanded);
+  const hidden = allLength - shown.length;
   const head = [
     TOOL_MARK[call.state] ?? TOOL_MARK.running,
     { text: call.name, bold: true },
     { text: ` ${summarizeArgs(call.args)}`, dimColor: true }
   ];
-  if (!expanded && all.length > 0) head.push({ text: ` (${all.length} lines)`, dimColor: true });
+  if (!expanded && allLength > 0 && shown.length === 0) {
+    head.push({ text: ` (${allLength} lines)`, dimColor: true });
+  }
   const out = [{ key: `${call.callId}-h`, segments: head }];
   shown.forEach((line, index) => {
     const severity = diagnosticLineColor(line);
@@ -37541,7 +37553,7 @@ function toolCallLines(call, expanded) {
       ]
     });
   });
-  if (expanded && hidden > 0) {
+  if (hidden > 0) {
     out.push({ key: `${call.callId}-more`, segments: [{ text: `  \u2026 ${hidden} more lines`, dimColor: true }] });
   }
   return out;
@@ -38585,6 +38597,28 @@ function FullscreenLayout({
 // src/components/Chat.tsx
 var import_react30 = __toESM(require_react(), 1);
 
+// src/state/slash-completion.ts
+function slashCommandText(name) {
+  return `/${name}`;
+}
+function shouldShowSlashPalette(draft, completions) {
+  if (!draft.startsWith("/") || completions.length === 0) return false;
+  const trimmed = draft.trimEnd();
+  if (draft.endsWith(" ") && completions.some((row) => slashCommandText(row.name) === trimmed)) {
+    return false;
+  }
+  return completions.some((row) => {
+    const full = slashCommandText(row.name);
+    if (trimmed.length < full.length && full.startsWith(trimmed)) return true;
+    if (trimmed === full && !draft.endsWith(" ")) return true;
+    if (full.startsWith(trimmed) && trimmed !== full) return true;
+    if (trimmed.startsWith(`${full} `)) {
+      return full.startsWith(trimmed) || trimmed.startsWith(full);
+    }
+    return false;
+  });
+}
+
 // src/components/AgentPalette.tsx
 var import_jsx_runtime5 = __toESM(require_jsx_runtime(), 1);
 function AgentPalette({
@@ -38613,41 +38647,230 @@ function AgentPalette({
   ] });
 }
 
-// src/components/SlashCommandPalette.tsx
+// src/hooks/useChoiceKeys.ts
+function useChoiceKeys(options) {
+  const {
+    count: count2,
+    index,
+    onIndex,
+    onEnter,
+    onCancel,
+    onToggle,
+    multi = false,
+    onDigit,
+    digitLimit,
+    digits = true,
+    onLeft,
+    onRight,
+    onTab,
+    onShiftTab,
+    shortcuts,
+    vim = true,
+    onKey,
+    isActive = true
+  } = options;
+  use_input_default(
+    (input, key) => {
+      if (onKey?.(input, key)) return;
+      if (key.escape) {
+        onCancel?.();
+        return;
+      }
+      if (key.tab && key.shift) {
+        if (onShiftTab) onShiftTab();
+        return;
+      }
+      if (key.tab) {
+        if (onTab) onTab();
+        return;
+      }
+      if (key.leftArrow) {
+        onLeft?.();
+        return;
+      }
+      if (key.rightArrow) {
+        onRight?.();
+        return;
+      }
+      const typed = input.toLowerCase();
+      const shortcut = shortcuts?.[typed];
+      if (shortcut) {
+        shortcut();
+        return;
+      }
+      if (count2 > 0) {
+        if (key.upArrow || vim && typed === "k") {
+          onIndex((index + count2 - 1) % count2);
+          return;
+        }
+        if (key.downArrow || vim && typed === "j") {
+          onIndex((index + 1) % count2);
+          return;
+        }
+      }
+      if (input === " ") {
+        if (multi) onToggle?.(index);
+        return;
+      }
+      if (key.return) {
+        onEnter?.(index);
+        return;
+      }
+      if (digits && /^[1-9]$/.test(input)) {
+        const target = Number(input) - 1;
+        const limit = digitLimit ?? count2;
+        if (target < limit) {
+          if (onDigit) onDigit(target);
+          else {
+            onIndex(target);
+            if (multi) onToggle?.(target);
+          }
+        }
+        return;
+      }
+    },
+    { isActive }
+  );
+}
+function choiceHint(options) {
+  const {
+    multi = false,
+    tabs = false,
+    digits = true,
+    enter = "confirm",
+    extra = [],
+    cancel: cancel2 = "cancel"
+  } = options;
+  return [
+    "\u2191\u2193 move",
+    multi ? "Space toggle" : null,
+    `Enter ${enter}`,
+    digits ? multi ? "1-9 toggle" : "1-9 pick" : null,
+    tabs ? "\u2190\u2192 tabs" : null,
+    ...extra,
+    `Esc ${cancel2}`
+  ].filter(Boolean).join(" \xB7 ");
+}
+
+// src/components/ChoiceList.tsx
 var import_jsx_runtime6 = __toESM(require_jsx_runtime(), 1);
+function otherRowIndex(options, allowOther) {
+  return allowOther ? options.length : -1;
+}
+function windowStart(index, total, size) {
+  if (total <= size) return 0;
+  return Math.max(0, Math.min(index - size + 2, total - size));
+}
+function ChoiceList({
+  options,
+  selectedIndex,
+  checked,
+  multi = false,
+  radio = false,
+  numbered = false,
+  allowOther = false,
+  otherLabel = "Other\u2026",
+  otherText = null,
+  color = "cyan",
+  windowSize,
+  descriptionMode = "block",
+  hint,
+  showPreview = true
+}) {
+  const size = windowSize ?? options.length;
+  const start = windowStart(selectedIndex, options.length, Math.max(size, 1));
+  const shown = options.slice(start, start + Math.max(size, 1));
+  const preview = showPreview ? options[selectedIndex]?.preview ?? "" : "";
+  const other = otherRowIndex(options, allowOther);
+  const row = (option, index) => {
+    const here = index === selectedIndex;
+    const held = checked?.has(index) ?? false;
+    const mark = multi ? held ? "[x] " : "[ ] " : radio ? held ? "\u25CF " : "\u25CB " : "";
+    const number = numbered ? `${index + 1}. ` : "";
+    const rowColor2 = option.danger ? "red" : here ? color : void 0;
+    return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexDirection: "column", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { color: here ? option.danger ? "red" : color : void 0, bold: here, children: here ? "\u276F " : "  " }),
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+          Text,
+          {
+            inverse: here,
+            bold: here || option.bold,
+            color: rowColor2,
+            dimColor: !here && !held && !option.danger,
+            wrap: "truncate-end",
+            children: ` ${number}${mark}${option.label} `
+          }
+        ),
+        option.shortcut ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { dimColor: true, children: `  (${option.shortcut})` }) : null,
+        option.description && descriptionMode === "inline" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `  ${option.description}` }) : null,
+        option.badge ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { color: option.badgeColor ?? color, children: `  ${option.badge}` }) : null
+      ] }),
+      option.description && descriptionMode === "block" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `      ${option.description}` }) : null
+    ] }, `${index}-${option.label}`);
+  };
+  return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexDirection: "column", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexDirection: "row", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexDirection: "column", flexGrow: 1, children: [
+        shown.map((option, offset) => row(option, start + offset)),
+        allowOther ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { color: selectedIndex === other ? color : void 0, bold: selectedIndex === other, children: selectedIndex === other ? "\u276F " : "  " }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+            Text,
+            {
+              inverse: selectedIndex === other,
+              color: selectedIndex === other ? color : void 0,
+              dimColor: selectedIndex !== other && !otherText,
+              children: ` ${otherText ? `\u25CF ${otherText}` : otherLabel} `
+            }
+          )
+        ] }) : null
+      ] }),
+      preview ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+        Box_default,
+        {
+          flexDirection: "column",
+          marginLeft: 2,
+          borderStyle: "single",
+          borderColor: "gray",
+          paddingX: 1,
+          children: preview.split("\n").map((line, index) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: line }, `preview-${index}`))
+        }
+      ) : null
+    ] }),
+    hint === null || hint === void 0 ? null : /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { dimColor: true, children: hint })
+  ] });
+}
+
+// src/components/SlashCommandPalette.tsx
+var import_jsx_runtime7 = __toESM(require_jsx_runtime(), 1);
 function SlashCommandPalette({
   commands,
   selectedIndex = 0,
   maxRows = 8
 }) {
   if (commands.length === 0) return null;
-  const start = Math.max(0, Math.min(selectedIndex - maxRows + 1, commands.length - maxRows));
-  const shown = commands.slice(Math.max(0, start), Math.max(0, start) + maxRows);
-  return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexDirection: "column", borderStyle: "round", borderColor: "blue", paddingX: 1, children: [
-    shown.map((command) => {
-      const active = commands.indexOf(command) === selectedIndex;
-      return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Text, { inverse: active, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Text, { color: "blue", children: [
-          "/",
-          command.name
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Text, { dimColor: true, children: [
-          " ",
-          command.summary
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Text, { dimColor: true, children: [
-          " [",
-          command.source,
-          "]"
-        ] })
-      ] }, command.name);
-    }),
-    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { dimColor: true, children: "\u2191/\u2193 select \xB7 Tab complete \xB7 Enter run" })
-  ] });
+  const hasPreview = commands.some((command) => Boolean(command.preview));
+  return /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Box_default, { flexDirection: "column", borderStyle: "round", borderColor: "blue", paddingX: 1, children: /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+    ChoiceList,
+    {
+      options: commands.map((command) => ({
+        label: `/${command.name}`,
+        description: command.summary,
+        preview: command.preview
+      })),
+      selectedIndex,
+      color: "blue",
+      windowSize: maxRows,
+      descriptionMode: "inline",
+      hint: choiceHint({ enter: "select", digits: false, extra: ["Tab complete"] }),
+      showPreview: hasPreview
+    }
+  ) });
 }
 
 // src/components/Chat.tsx
-var import_jsx_runtime7 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime8 = __toESM(require_jsx_runtime(), 1);
 function Chat({
   onSubmit,
   initialHistory = [],
@@ -38690,7 +38913,7 @@ function Chat({
   const historyDraft = (0, import_react30.useRef)("");
   const [selected, setSelected] = (0, import_react30.useState)(0);
   const [agentsDismissed, setAgentsDismissed] = (0, import_react30.useState)(false);
-  const showPalette = value.startsWith("/") && completions.length > 0;
+  const showPalette = shouldShowSlashPalette(value, completions);
   const query = agentQuery(value, cursor);
   const agentMatches = query ? filterAgents(agents, query.prefix) : [];
   const showAgents = query !== null && !agentsDismissed && !showPalette;
@@ -38886,8 +39109,8 @@ function Chat({
   );
   const cursorEnd = (0, import_react30.useMemo)(() => right(editor).cursor, [editor]);
   const promptColor = disabled ? "gray" : "green";
-  return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(Box_default, { flexDirection: "column", children: [
-    showAgents ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(Box_default, { flexDirection: "column", children: [
+    showAgents ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
       AgentPalette,
       {
         candidates: agentMatches,
@@ -38895,35 +39118,35 @@ function Chat({
         prefix: query?.prefix ?? ""
       }
     ) : null,
-    showPalette ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(SlashCommandPalette, { commands: completions, selectedIndex: selected }) : null,
-    value.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(Box_default, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { color: promptColor, children: "> " }),
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { dimColor: true, children: placeholder }),
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { inverse: true, children: " " })
-    ] }) : /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Box_default, { flexDirection: "column", children: draft.lines.map((line, row) => {
+    showPalette ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(SlashCommandPalette, { commands: completions, selectedIndex: selected }) : null,
+    value.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(Box_default, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { color: promptColor, children: "> " }),
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { dimColor: true, children: placeholder }),
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { inverse: true, children: " " })
+    ] }) : /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Box_default, { flexDirection: "column", children: draft.lines.map((line, row) => {
       const prefix = row === 0 ? "> " : "  ";
       if (row !== draft.cursorRow) {
-        return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(Box_default, { flexWrap: "nowrap", overflow: "hidden", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { color: promptColor, children: prefix }),
-          /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { wrap: "truncate-end", children: value.slice(line.start, line.end) })
+        return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(Box_default, { flexWrap: "nowrap", overflow: "hidden", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { color: promptColor, children: prefix }),
+          /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { wrap: "truncate-end", children: value.slice(line.start, line.end) })
         ] }, `draft-${row}`);
       }
       const hasCursorText = cursor >= line.start && cursor < line.end && cursorEnd > cursor;
       const before = value.slice(line.start, cursor);
       const mark = hasCursorText ? value.slice(cursor, cursorEnd) : " ";
       const after = hasCursorText ? value.slice(cursorEnd, line.end) : value.slice(cursor, line.end);
-      return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(Box_default, { flexWrap: "nowrap", overflow: "hidden", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { color: promptColor, children: prefix }),
-        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { children: before }),
-        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { inverse: true, children: mark }),
-        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { wrap: "truncate-end", children: after })
+      return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(Box_default, { flexWrap: "nowrap", overflow: "hidden", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { color: promptColor, children: prefix }),
+        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { children: before }),
+        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { inverse: true, children: mark }),
+        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { wrap: "truncate-end", children: after })
       ] }, `draft-${row}`);
     }) })
   ] });
 }
 
 // src/components/MessageStream.tsx
-var import_jsx_runtime8 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime9 = __toESM(require_jsx_runtime(), 1);
 function MessageView({
   message,
   width = 80,
@@ -38936,14 +39159,14 @@ function MessageView({
     const cap = Math.max(1, Math.floor(maxRows));
     if (lines.length > cap) lines = lines.slice(lines.length - cap);
   }
-  return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(Box_default, { flexDirection: "column", marginBottom: 1, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(RenderedLines, { lines }),
-    (message.attachments ?? []).map((attachment) => /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `  \u{1F4CE} ${attachment.name}` }, `${message.id}-${attachment.name}`))
+  return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { flexDirection: "column", marginBottom: 1, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(RenderedLines, { lines }),
+    (message.attachments ?? []).map((attachment) => /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `  \u{1F4CE} ${attachment.name}` }, `${message.id}-${attachment.name}`))
   ] });
 }
 
 // src/components/ToolCall.tsx
-var import_jsx_runtime9 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime10 = __toESM(require_jsx_runtime(), 1);
 var STATE_GLYPH = {
   running: { glyph: "\u25CC", color: "yellow" },
   ok: { glyph: "\u2713", color: "green" },
@@ -38963,29 +39186,27 @@ function ToolCall({
   maxOutputLines = 12
 }) {
   const meta = STATE_GLYPH[call.state];
-  const body = call.error ?? call.output ?? "";
-  const lines = body.length > 0 ? body.split("\n") : [];
-  const shown = expanded ? lines.slice(0, maxOutputLines) : [];
-  const hidden = lines.length - shown.length;
+  const { shown, total } = visibleToolBodyLines(call, expanded, maxOutputLines);
+  const hidden = total - shown.length;
   const tail = call.state === "running" ? call.progress ?? [] : [];
-  return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { flexDirection: "column", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Text, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Text, { color: meta.color, children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(Box_default, { flexDirection: "column", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(Text, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(Text, { color: meta.color, children: [
         meta.glyph,
         " "
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { bold: true, children: call.name }),
-      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Text, { dimColor: true, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Text, { bold: true, children: call.name }),
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(Text, { dimColor: true, children: [
         " ",
         summarizeArgs2(call.args)
       ] }),
-      !expanded && lines.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Text, { dimColor: true, children: [
+      !expanded && total > 0 && shown.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(Text, { dimColor: true, children: [
         " (",
-        lines.length,
+        total,
         " lines)"
       ] }) : null
     ] }),
-    tail.map((line, index) => /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(
+    tail.map((line, index) => /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(
       Text,
       {
         dimColor: line.stream === "stdout",
@@ -38997,10 +39218,10 @@ function ToolCall({
       },
       `${call.callId}-p${index}`
     )),
-    tail.length > 0 && call.progressTruncated ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { dimColor: true, children: "  \u2026 truncated" }) : null,
+    tail.length > 0 && call.progressTruncated ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Text, { dimColor: true, children: "  \u2026 truncated" }) : null,
     shown.map((line, index) => {
       const severity = diagnosticLineColor(line);
-      return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(
+      return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(
         Text,
         {
           dimColor: !call.error && severity === void 0,
@@ -39013,12 +39234,12 @@ function ToolCall({
         `${call.callId}-o${index}`
       );
     }),
-    expanded && hidden > 0 ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { dimColor: true, children: `  \u2026 ${hidden} more lines` }) : null
+    hidden > 0 ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Text, { dimColor: true, children: `  \u2026 ${hidden} more lines` }) : null
   ] });
 }
 
 // src/components/DiffView.tsx
-var import_jsx_runtime10 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime11 = __toESM(require_jsx_runtime(), 1);
 var COLLAPSED_LINES = 12;
 var EXPANDED_LINES = 200;
 function diffLineColor2(line) {
@@ -39057,12 +39278,12 @@ function DiffView({
   const limit = expanded ? EXPANDED_LINES : COLLAPSED_LINES;
   const shown = lines.slice(0, limit);
   const hidden = lines.length - shown.length;
-  return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(Box_default, { flexDirection: "column", marginBottom: 1, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(Text, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Text, { bold: true, color: diff2.created ? "green" : "yellow", children: diffHeader(diff2) }),
-      badge ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Text, { color: diagnosticsColor(diagnostics), children: `  ${badge}` }) : null
+  return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(Box_default, { flexDirection: "column", marginBottom: 1, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(Text, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { bold: true, color: diff2.created ? "green" : "yellow", children: diffHeader(diff2) }),
+      badge ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { color: diagnosticsColor(diagnostics), children: `  ${badge}` }) : null
     ] }),
-    shown.map((line, index) => /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
+    shown.map((line, index) => /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
       Text,
       {
         color: diffLineColor2(line),
@@ -39072,7 +39293,7 @@ function DiffView({
       },
       `${diff2.id}-d${index}`
     )),
-    hidden > 0 ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Text, { dimColor: true, children: `\u2026 ${hidden} more ${hidden === 1 ? "line" : "lines"} (Ctrl+O)` }) : null
+    hidden > 0 ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { dimColor: true, children: `\u2026 ${hidden} more ${hidden === 1 ? "line" : "lines"} (Ctrl+O)` }) : null
   ] });
 }
 
@@ -39081,203 +39302,6 @@ var import_react32 = __toESM(require_react(), 1);
 
 // src/components/ConfirmMenu.tsx
 var import_react31 = __toESM(require_react(), 1);
-
-// src/hooks/useChoiceKeys.ts
-function useChoiceKeys(options) {
-  const {
-    count: count2,
-    index,
-    onIndex,
-    onEnter,
-    onCancel,
-    onToggle,
-    multi = false,
-    onDigit,
-    digitLimit,
-    digits = true,
-    onLeft,
-    onRight,
-    onTab,
-    onShiftTab,
-    shortcuts,
-    vim = true,
-    onKey,
-    isActive = true
-  } = options;
-  use_input_default(
-    (input, key) => {
-      if (onKey?.(input, key)) return;
-      if (key.escape) {
-        onCancel?.();
-        return;
-      }
-      if (key.tab && key.shift) {
-        if (onShiftTab) onShiftTab();
-        return;
-      }
-      if (key.tab) {
-        if (onTab) onTab();
-        return;
-      }
-      if (key.leftArrow) {
-        onLeft?.();
-        return;
-      }
-      if (key.rightArrow) {
-        onRight?.();
-        return;
-      }
-      const typed = input.toLowerCase();
-      const shortcut = shortcuts?.[typed];
-      if (shortcut) {
-        shortcut();
-        return;
-      }
-      if (count2 > 0) {
-        if (key.upArrow || vim && typed === "k") {
-          onIndex((index + count2 - 1) % count2);
-          return;
-        }
-        if (key.downArrow || vim && typed === "j") {
-          onIndex((index + 1) % count2);
-          return;
-        }
-      }
-      if (input === " ") {
-        if (multi) onToggle?.(index);
-        return;
-      }
-      if (key.return) {
-        onEnter?.(index);
-        return;
-      }
-      if (digits && /^[1-9]$/.test(input)) {
-        const target = Number(input) - 1;
-        const limit = digitLimit ?? count2;
-        if (target < limit) {
-          if (onDigit) onDigit(target);
-          else {
-            onIndex(target);
-            if (multi) onToggle?.(target);
-          }
-        }
-        return;
-      }
-    },
-    { isActive }
-  );
-}
-function choiceHint(options) {
-  const {
-    multi = false,
-    tabs = false,
-    digits = true,
-    enter = "confirm",
-    extra = [],
-    cancel: cancel2 = "cancel"
-  } = options;
-  return [
-    "\u2191\u2193 move",
-    multi ? "Space toggle" : null,
-    `Enter ${enter}`,
-    digits ? multi ? "1-9 toggle" : "1-9 pick" : null,
-    tabs ? "\u2190\u2192 tabs" : null,
-    ...extra,
-    `Esc ${cancel2}`
-  ].filter(Boolean).join(" \xB7 ");
-}
-
-// src/components/ChoiceList.tsx
-var import_jsx_runtime11 = __toESM(require_jsx_runtime(), 1);
-function otherRowIndex(options, allowOther) {
-  return allowOther ? options.length : -1;
-}
-function windowStart(index, total, size) {
-  if (total <= size) return 0;
-  return Math.max(0, Math.min(index - size + 2, total - size));
-}
-function ChoiceList({
-  options,
-  selectedIndex,
-  checked,
-  multi = false,
-  radio = false,
-  numbered = false,
-  allowOther = false,
-  otherLabel = "Other\u2026",
-  otherText = null,
-  color = "cyan",
-  windowSize,
-  descriptionMode = "block",
-  hint,
-  showPreview = true
-}) {
-  const size = windowSize ?? options.length;
-  const start = windowStart(selectedIndex, options.length, Math.max(size, 1));
-  const shown = options.slice(start, start + Math.max(size, 1));
-  const preview = showPreview ? options[selectedIndex]?.preview ?? "" : "";
-  const other = otherRowIndex(options, allowOther);
-  const row = (option, index) => {
-    const here = index === selectedIndex;
-    const held = checked?.has(index) ?? false;
-    const mark = multi ? held ? "[x] " : "[ ] " : radio ? held ? "\u25CF " : "\u25CB " : "";
-    const number = numbered ? `${index + 1}. ` : "";
-    const rowColor2 = option.danger ? "red" : here ? color : void 0;
-    return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(Box_default, { flexDirection: "column", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(Box_default, { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { color: here ? option.danger ? "red" : color : void 0, bold: here, children: here ? "\u276F " : "  " }),
-        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
-          Text,
-          {
-            inverse: here,
-            bold: here || option.bold,
-            color: rowColor2,
-            dimColor: !here && !held && !option.danger,
-            wrap: "truncate-end",
-            children: ` ${number}${mark}${option.label} `
-          }
-        ),
-        option.shortcut ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { dimColor: true, children: `  (${option.shortcut})` }) : null,
-        option.description && descriptionMode === "inline" ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `  ${option.description}` }) : null,
-        option.badge ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { color: option.badgeColor ?? color, children: `  ${option.badge}` }) : null
-      ] }),
-      option.description && descriptionMode === "block" ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `      ${option.description}` }) : null
-    ] }, `${index}-${option.label}`);
-  };
-  return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(Box_default, { flexDirection: "column", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(Box_default, { flexDirection: "row", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(Box_default, { flexDirection: "column", flexGrow: 1, children: [
-        shown.map((option, offset) => row(option, start + offset)),
-        allowOther ? /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(Box_default, { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { color: selectedIndex === other ? color : void 0, bold: selectedIndex === other, children: selectedIndex === other ? "\u276F " : "  " }),
-          /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
-            Text,
-            {
-              inverse: selectedIndex === other,
-              color: selectedIndex === other ? color : void 0,
-              dimColor: selectedIndex !== other && !otherText,
-              children: ` ${otherText ? `\u25CF ${otherText}` : otherLabel} `
-            }
-          )
-        ] }) : null
-      ] }),
-      preview ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
-        Box_default,
-        {
-          flexDirection: "column",
-          marginLeft: 2,
-          borderStyle: "single",
-          borderColor: "gray",
-          paddingX: 1,
-          children: preview.split("\n").map((line, index) => /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: line }, `preview-${index}`))
-        }
-      ) : null
-    ] }),
-    hint === null || hint === void 0 ? null : /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { dimColor: true, children: hint })
-  ] });
-}
-
-// src/components/ConfirmMenu.tsx
 var import_jsx_runtime12 = __toESM(require_jsx_runtime(), 1);
 function ConfirmMenu({
   options,
@@ -39341,23 +39365,26 @@ var RISK_COLOR = {
 var APPROVAL_OPTIONS = [
   { label: "Yes", value: { decision: "allow", scope: "once" }, shortcut: "y" },
   {
-    label: "Yes, and don't ask again this session",
+    label: "Yes, this session only",
     value: { decision: "allow", scope: "session" },
     shortcut: "a"
   },
   {
-    label: "Yes for this project",
+    label: "Yes, add to project allowlist",
     value: { decision: "allow", scope: "project" },
-    shortcut: "p",
-    hint: "adds an allowlist rule the daemon keeps"
+    shortcut: "p"
+  },
+  {
+    label: "Allow Everything (Auto mode)",
+    value: { decision: "allow", scope: "once", switchToAuto: true },
+    shortcut: "e"
   },
   { label: "No", value: { decision: "deny", scope: "once" }, shortcut: "n", danger: true },
   {
-    label: "No, and tell it why",
+    label: "No, with reason",
     value: { decision: "deny", scope: "once", withReason: true },
     shortcut: "r",
-    danger: true,
-    hint: "the model reads what you type as the refusal"
+    danger: true
   }
 ];
 function formatArgs(args, max = 72) {
@@ -39380,7 +39407,7 @@ function ApprovalPrompt({
     (input, key) => {
       if (reason === null) return;
       if (key.return) {
-        onDecide("deny", "once", reason.trim() || void 0);
+        onDecide({ decision: "deny", scope: "once" }, reason.trim() || void 0);
         return;
       }
       if (key.escape) {
@@ -39427,7 +39454,7 @@ function ApprovalPrompt({
             setReason("");
             return;
           }
-          onDecide(answer.decision, answer.scope);
+          onDecide(answer);
         }
       }
     ) : /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(Box_default, { flexDirection: "column", children: [
@@ -39855,14 +39882,31 @@ var import_react38 = __toESM(require_react(), 1);
 // src/state/skill-completion.ts
 var SKILL_ACTIONS = [
   { action: "create", summary: "Write a new skill from a name and a description." },
-  { action: "learn", summary: "Turn what this session just did into a skill." },
-  { action: "edit", summary: "Open a skill's SKILL.md in $EDITOR." },
+  { action: "learn", summary: "Turn what this session just did into a skill.", takesName: true },
+  { action: "edit", summary: "Open a skill's SKILL.md in $EDITOR.", takesName: true },
   { action: "publish", summary: "Upload a skill directory to the registry." },
   { action: "sources", summary: "List the hubs the registry federates." },
   { action: "reload", summary: "Re-read skills from disk." },
   { action: "list", summary: "Show the installed skills, agents and commands." }
 ];
-function skillSubCommands(draft) {
+var SKILL_NAME_ACTIONS = SKILL_ACTIONS.filter(
+  (entry) => entry.takesName
+).map((entry) => entry.action);
+function skillNameRows(draft, skills) {
+  const named = /^\/skill\s+([a-z-]+)\s+([^\s-][^\s]*|)$/.exec(draft);
+  if (!named || !SKILL_NAME_ACTIONS.includes(named[1])) return [];
+  const typed = named[2] ?? "";
+  const head = draft.slice(1, draft.length - typed.length);
+  return skills.filter((row) => (row.kind ?? "skill") === "skill").filter((row) => row.name.startsWith(typed)).map((row) => ({
+    name: `${head}${row.name}`,
+    summary: row.summary || row.source || "",
+    source: "core",
+    preview: row.summary || void 0
+  }));
+}
+function skillSubCommands(draft, skills = []) {
+  const names = skillNameRows(draft, skills);
+  if (names.length > 0) return names;
   const match = /^\/skill(?:\s+([^\s]*))?$/.exec(draft);
   if (!match) return [];
   const typed = match[1] ?? "";
@@ -40823,6 +40867,7 @@ function App2({
   const [agentModels, setAgentModels] = (0, import_react45.useState)({});
   const [modelPicker, setModelPicker] = (0, import_react45.useState)(null);
   const [skillForm, setSkillForm] = (0, import_react45.useState)(false);
+  const [skillRows, setSkillRows] = (0, import_react45.useState)([]);
   const [mcpForm, setMcpForm] = (0, import_react45.useState)(null);
   const [mcpCatalog, setMcpCatalog] = (0, import_react45.useState)(null);
   const [mcpConfigure, setMcpConfigure] = (0, import_react45.useState)(null);
@@ -40897,6 +40942,21 @@ function App2({
       dispatch({ type: "mcp/list", servers: [] });
     });
   }, [client, sessionId, workdir]);
+  const refreshSkills = (0, import_react45.useCallback)(() => {
+    void client.call("skill.list", {}).then((result) => {
+      const rows = Array.isArray(result?.skills) ? result.skills : [];
+      setSkillRows(
+        rows.map((row) => ({
+          name: String(row.name ?? ""),
+          summary: String(row.summary ?? ""),
+          kind: typeof row.kind === "string" ? row.kind : void 0,
+          source: typeof row.source === "string" ? row.source : void 0
+        })).filter((row) => row.name.length > 0)
+      );
+    }).catch(() => {
+      setSkillRows([]);
+    });
+  }, [client]);
   const refreshApprovals = (0, import_react45.useCallback)(() => {
     void client.listApprovals(sessionId).then((result) => dispatch({ type: "approval/list", requests: result.requests ?? [] })).catch(() => {
     });
@@ -40978,6 +41038,7 @@ function App2({
       onApprovalPending: () => refreshApprovals(),
       // A plugin install or `skill.reload` moved the server-side table.
       onCommandsChanged: () => {
+        refreshSkills();
         void registryRef.current.refresh().then((commands) => dispatch({ type: "commands", commands })).catch(() => {
         });
       },
@@ -41020,6 +41081,7 @@ function App2({
     });
     refreshLsp();
     refreshMcp();
+    refreshSkills();
     void client.call("settings.get", { scope: "global" }).then((result) => {
       const assigned = result?.settings?.agents?.models ?? {};
       setAgentModels(assigned);
@@ -41062,7 +41124,8 @@ function App2({
     refreshApprovals,
     refreshCapabilities,
     refreshLsp,
-    refreshMcp
+    refreshMcp,
+    refreshSkills
   ]);
   (0, import_react45.useEffect)(() => {
     let cancelled = false;
@@ -41219,7 +41282,7 @@ function App2({
   );
   const completions = (0, import_react45.useMemo)(() => {
     if (!draft.startsWith("/")) return [];
-    const skills = state.commands.some((command) => command.name === "skill") ? skillSubCommands(draft) : [];
+    const skills = state.commands.some((command) => command.name === "skill") ? skillSubCommands(draft, skillRows) : [];
     const mcp = state.commands.some((command) => command.name === "mcp") ? mcpSubCommands(draft, state.mcp, mcpCatalog ?? []) : [];
     return [
       ...skills,
@@ -41228,7 +41291,7 @@ function App2({
       ...voiceSubCommands(draft),
       ...registryRef.current.complete(draft)
     ];
-  }, [draft, state.commands, state.mcp, mcpCatalog]);
+  }, [draft, state.commands, state.mcp, mcpCatalog, skillRows]);
   const terminal = useTerminalSize();
   const contentWidth = Math.max(1, terminal.columns - 2);
   const daemon = useDaemonInfo(client);
@@ -42108,14 +42171,16 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
     [client, state.turnActive]
   );
   const decideApproval = (0, import_react45.useCallback)(
-    (decision, scope, reason) => {
+    (answer, reason) => {
+      if (answer.switchToAuto) changeMode("auto");
       const resolve2 = approvalResolver.current;
       const requestId = state.pendingApproval?.requestId;
       approvalResolver.current = null;
       if (requestId) dispatch({ type: "approval/resolved", requestId });
+      const { decision, scope } = answer;
       resolve2?.(reason ? { decision, scope, reason } : { decision, scope });
     },
-    [state.pendingApproval]
+    [changeMode, state.pendingApproval]
   );
   const answerQuestion = (0, import_react45.useCallback)(
     (answers) => {

@@ -2,7 +2,7 @@
  * The colours the wordmark is painted in, and what to do when the terminal
  * cannot show them.
  *
- * Three stops — mint, snowpea green, deep teal — interpolated down the rows of
+ * Three stops — lavender, violet, deep violet — interpolated down the rows of
  * the logo. A terminal that speaks 24-bit colour gets the real gradient; one
  * that does not gets three named greens chosen to keep the same light-to-dark
  * direction; `NO_COLOR` or a pipe gets no colour at all, which is what makes the
@@ -19,15 +19,20 @@ export interface Rgb {
   b: number;
 }
 
-/** Mint at the top. */
-export const MINT: Rgb = { r: 0xa8, g: 0xf0, b: 0xc6 };
-/** Snowpea green in the middle; the brand colour. */
-export const SNOWPEA: Rgb = { r: 0x3d, g: 0xdc, b: 0x84 };
-/** Deep teal at the bottom. */
-export const TEAL: Rgb = { r: 0x1e, g: 0x9e, b: 0x6a };
+/** Lavender at the top. */
+export const LAVENDER: Rgb = { r: 0xdd, g: 0xd6, b: 0xfe };
+/** Violet in the middle; the brand colour. */
+export const VIOLET: Rgb = { r: 0xa7, g: 0x8b, b: 0xfa };
+/** Deep violet at the bottom. */
+export const DEEP_VIOLET: Rgb = { r: 0x7c, g: 0x3a, b: 0xed };
+
+/** Legacy names kept for callers that still import them. */
+export const MINT = LAVENDER;
+export const SNOWPEA = VIOLET;
+export const TEAL = DEEP_VIOLET;
 
 /** The named colours that stand in for the ramp on a 256-colour terminal. */
-export const BASIC_RAMP: readonly string[] = ["greenBright", "green", "cyan"];
+export const BASIC_RAMP: readonly string[] = ["magentaBright", "magenta", "blue"];
 
 /**
  * What this terminal can do.
@@ -61,7 +66,7 @@ export function toHex({ r, g, b }: Rgb): string {
 /** The colour at `position` (0 at the top, 1 at the bottom) of the ramp. */
 export function gradientAt(position: number): Rgb {
   const at = Math.min(1, Math.max(0, position));
-  return at <= 0.5 ? mix(MINT, SNOWPEA, at * 2) : mix(SNOWPEA, TEAL, (at - 0.5) * 2);
+  return at <= 0.5 ? mix(LAVENDER, VIOLET, at * 2) : mix(VIOLET, DEEP_VIOLET, (at - 0.5) * 2);
 }
 
 /**

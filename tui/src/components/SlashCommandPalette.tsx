@@ -4,35 +4,38 @@
  */
 
 import React from "react";
-import { Box, Text } from "ink";
+import { Box } from "ink";
 
-import type { CommandInfo } from "../rpc/sdk.js";
+import { choiceHint } from "../hooks/useChoiceKeys.js";
+import type { SlashCompletion } from "../state/slash-completion.js";
+import { ChoiceList } from "./ChoiceList.js";
 
 export function SlashCommandPalette({
   commands,
   selectedIndex = 0,
   maxRows = 8,
 }: {
-  commands: CommandInfo[];
+  commands: SlashCompletion[];
   selectedIndex?: number;
   maxRows?: number;
 }): React.ReactElement | null {
   if (commands.length === 0) return null;
-  const start = Math.max(0, Math.min(selectedIndex - maxRows + 1, commands.length - maxRows));
-  const shown = commands.slice(Math.max(0, start), Math.max(0, start) + maxRows);
+  const hasPreview = commands.some((command) => Boolean(command.preview));
   return (
     <Box flexDirection="column" borderStyle="round" borderColor="blue" paddingX={1}>
-      {shown.map((command) => {
-        const active = commands.indexOf(command) === selectedIndex;
-        return (
-          <Text key={command.name} inverse={active}>
-            <Text color="blue">/{command.name}</Text>
-            <Text dimColor> {command.summary}</Text>
-            <Text dimColor> [{command.source}]</Text>
-          </Text>
-        );
-      })}
-      <Text dimColor>↑/↓ select · Tab complete · Enter run</Text>
+      <ChoiceList
+        options={commands.map((command) => ({
+          label: `/${command.name}`,
+          description: command.summary,
+          preview: command.preview,
+        }))}
+        selectedIndex={selectedIndex}
+        color="blue"
+        windowSize={maxRows}
+        descriptionMode="inline"
+        hint={choiceHint({ enter: "select", digits: false, extra: ["Tab complete"] })}
+        showPreview={hasPreview}
+      />
     </Box>
   );
 }

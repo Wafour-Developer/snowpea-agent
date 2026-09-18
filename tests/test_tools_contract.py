@@ -46,7 +46,7 @@ CATALOG: dict[str, tuple[str, str]] = {
     "read_file": ("file", "read"),
     "view_image": ("file", "read"),
     "write_file": ("file", "write"),
-    "edit_file": ("file", "write"),
+    "patch": ("file", "write"),
     "list_dir": ("file", "read"),
     "glob": ("file", "read"),
     "grep": ("file", "read"),

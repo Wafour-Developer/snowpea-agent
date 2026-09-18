@@ -135,7 +135,7 @@ async def test_an_edit_clears_the_read_key(core: _Core, session: Session) -> Non
     await call(
         core,
         session,
-        "edit_file",
+        "patch",
         {"path": "b.txt", "old_str": "hello", "new_str": "world"},
         output="ok",
     )

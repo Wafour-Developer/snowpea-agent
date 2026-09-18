@@ -34,7 +34,7 @@ log = logging.getLogger("snowpea.agent.context")
 PATH_ARGUMENTS: dict[str, str] = {
     "read_file": "path",
     "write_file": "path",
-    "edit_file": "path",
+    "patch": "path",
     "list_dir": "path",
     "glob": "path",
     "grep": "path",
@@ -193,7 +193,7 @@ def note_write(session: Session, name: str, args: dict[str, Any]) -> bool:
     ``/deepinit`` write from a *subagent* session, and it is the parent's
     prompt that has to pick the new file up.
     """
-    if name not in ("write_file", "edit_file"):
+    if name not in ("write_file", "patch"):
         return False
     path = str(args.get("path", "") or "").strip()
     if not path or not is_context_file(path):

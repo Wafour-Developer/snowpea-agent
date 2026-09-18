@@ -31,6 +31,7 @@ import {
   wordRight,
   type EditorState,
 } from "../state/editor.js";
+import { shouldShowSlashPalette } from "../state/slash-completion.js";
 import { AgentPalette } from "./AgentPalette.js";
 import { SlashCommandPalette } from "./SlashCommandPalette.js";
 
@@ -133,7 +134,7 @@ export function Chat({
   /** True while Esc has closed the agent list for the name being typed. */
   const [agentsDismissed, setAgentsDismissed] = useState(false);
 
-  const showPalette = value.startsWith("/") && completions.length > 0;
+  const showPalette = shouldShowSlashPalette(value, completions);
 
   // `$name` or `/delegate name`: the same list, in the place the name goes.
   const query = agentQuery(value, cursor);

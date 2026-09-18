@@ -13,6 +13,7 @@ permits reuse with attribution; neither file was copied verbatim.
 |---|---|---|
 | `prompts/fragments/execution.md` | `agent/prompt_builder.py` lines 351-470 — `TASK_COMPLETION_GUIDANCE`, `PARALLEL_TOOL_CALL_GUIDANCE`, `OPENAI_MODEL_EXECUTION_GUIDANCE` (`<tool_persistence>`, `<mandatory_tool_use>`, `<act_dont_ask>`, `<verification>`, `<external_state_verification>`, `<literal_preservation>`) | the rules, rewritten as prose in snowpea's prompt voice |
 | `tools/file_state.py` | `tools/file_state.py` (`FileStateRegistry.check_stale`) | the staleness ladder: sibling-wrote-after-your-read > partial read > never read |
+| `agent/tool_batch.py` | `agent/tool_dispatch_helpers.py` (`_plan_tool_batch_segments`) | path-scoped parallel/sequential segment planning for one model turn |
 | `tools/output_spill.py` | the delegation-report head/tail spill | the shape: keep a head and a tail, write the whole thing to a cache file, leave a pointer |
 
 The exploration-routing rule in `execution.md` comes from **opencode**

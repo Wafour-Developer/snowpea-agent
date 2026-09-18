@@ -52,7 +52,7 @@ BLOCKED_CODE = "repeat_blocked"
 RESULT_TOOLS: frozenset[str] = frozenset({"shell", "grep", "glob", "list_dir"})
 
 #: Tools whose arguments name a path a write invalidates.
-WRITE_TOOLS: frozenset[str] = frozenset({"write_file", "edit_file"})
+WRITE_TOOLS: frozenset[str] = frozenset({"write_file", "patch"})
 
 #: Identical calls in a row before the result carries a warning, and before the
 #: call is refused (Hermes' ``notify_other_tool_call`` resets the count).

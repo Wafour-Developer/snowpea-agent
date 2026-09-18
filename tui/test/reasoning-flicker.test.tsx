@@ -98,10 +98,10 @@ describe("a long implementing turn", () => {
     stdin.write("\r");
     await sleep(150);
 
-    // Twelve finished write_file/edit_file cards with diffs, as in the report.
+    // Twelve finished write_file/patch cards with diffs, as in the report.
     for (let i = 0; i < 12; i += 1) {
       const callId = `call-${i}`;
-      client.emit(ev("tool.call", { callId, name: "edit_file", args: { path: `src/f${i}.ts` } }));
+      client.emit(ev("tool.call", { callId, name: "patch", args: { path: `src/f${i}.ts` } }));
       await sleep(5);
       client.emit(ev("tool.result", { callId, ok: true, output: "edited" }));
       client.emit(ev("diff", { path: `src/f${i}.ts`, patch: PATCH }));

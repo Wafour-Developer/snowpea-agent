@@ -88,6 +88,10 @@ describe("buildHudSegments", () => {
     const byKey = Object.fromEntries(segments.map((s) => [s.key, s.text]));
     expect(byKey.model).toBe("Model: anthropic/claude-sonnet-5");
     expect(byKey.mode).toBe("Mode: ACCEPT");
+    expect(segments.find((s) => s.key === "mode")?.color).toBe("green");
+    expect(buildHudSegments({ ...base, mode: "auto" }).find((s) => s.key === "mode")?.color).toBe(
+      "magenta",
+    );
     expect(byKey.tokens).toBe("tok 12.3k↑/1.2k↓");
     expect(byKey.cwd).toBe("/home/dev/src/snowpea");
     expect(byKey.session).toBe("session: s-50dd0a · 12m");

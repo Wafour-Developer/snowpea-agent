@@ -432,7 +432,7 @@ async def test_a_tiny_cap_leaves_the_rest_to_be_read(
     [
         ("read_file", {"path": "src/app.py"}, "src/app.py"),
         ("write_file", {"path": "src/app.py", "content": ""}, "src/app.py"),
-        ("edit_file", {"path": "src/app.py", "old": "a", "new": "b"}, "src/app.py"),
+        ("patch", {"path": "src/app.py", "old_string": "a", "new_string": "b"}, "src/app.py"),
         ("list_dir", {"path": "src"}, "src"),
         ("glob", {"pattern": "*.py", "path": "src"}, "src"),
         ("grep", {"pattern": "x", "path": "src"}, "src"),

@@ -50,7 +50,7 @@ const STATUS_COLOR: Record<ConnectionStatus, string> = {
 const MODE_COLOR: Record<Mode, string> = {
   plan: "cyan",
   accept: "green",
-  auto: "red",
+  auto: "magenta",
 };
 
 /** `~/src/snowpea` — keeps the tail of a long path, which is the useful half. */

@@ -140,7 +140,11 @@ export class SlashRegistry {
 
   /** Autocomplete candidates for a typed prefix, with or without the slash. */
   complete(prefix: string): CommandInfo[] {
-    const needle = (prefix.startsWith("/") ? prefix.slice(1) : prefix).split(/\s/)[0] ?? "";
+    const body = prefix.startsWith("/") ? prefix.slice(1) : prefix;
+    // Multi-word commands are completed by the TUI (`/skill`, `/mcp`, …).
+    // Once a space appears, the registry must not offer the bare first token again.
+    if (body.includes(" ")) return [];
+    const needle = body.split(/\s/)[0] ?? "";
     if (needle.length === 0) return this.commands;
     return this.commands.filter((c) => c.name.startsWith(needle));
   }

@@ -8,7 +8,7 @@ server per ``(server, project root)`` and shuts it down again when it goes
 idle.
 
 Nothing here may fail an edit.  A missing server, a crashed server and a slow
-server all mean "no diagnostics this time"; ``write_file`` and ``edit_file``
+server all mean "no diagnostics this time"; ``write_file`` and ``patch``
 succeed either way (contract §3).
 """
 
@@ -37,7 +37,7 @@ def wire_lsp(core: object) -> None:
 
 
 async def diagnostics_block(ctx: ToolContext, path: str) -> str:
-    """The ``Diagnostics`` block ``write_file``/``edit_file`` append, or ``""``.
+    """The ``Diagnostics`` block ``write_file``/``patch`` append, or ``""``.
 
     Bounded by :data:`START_BUDGET_SEC` for starting a server and by the
     client's own diagnostics timeout for the answer, and it swallows

@@ -31,6 +31,8 @@ export interface Line {
 
 /** Tool output stays collapsed unless Ctrl+O expanded that call. */
 const TOOL_OUTPUT_LINES = 12;
+/** Failed calls still show this many error lines in scrollback (inline `<Static>` cannot expand). */
+const COLLAPSED_ERROR_LINES = 3;
 /** A single diff never gets to push the whole transcript out of the window. */
 const DIFF_LINES = 40;
 
@@ -278,18 +280,33 @@ export function summarizeArgs(args: Record<string, unknown>, max = 60): string {
   return joined.length > max ? `${joined.slice(0, max - 1)}…` : joined;
 }
 
-export function toolCallLines(call: ToolCallEntry, expanded: boolean): Line[] {
+/** Which result lines to draw for a tool call in the transcript. */
+export function visibleToolBodyLines(
+  call: ToolCallEntry,
+  expanded: boolean,
+  maxLines = TOOL_OUTPUT_LINES,
+): { shown: string[]; total: number } {
   const body = call.error ?? call.output ?? "";
   const all = body.length > 0 ? body.split("\n") : [];
-  const shown = expanded ? all.slice(0, TOOL_OUTPUT_LINES) : [];
-  const hidden = all.length - shown.length;
+  if (expanded) return { shown: all.slice(0, maxLines), total: all.length };
+  if (call.state === "error" && all.length > 0) {
+    return { shown: all.slice(0, COLLAPSED_ERROR_LINES), total: all.length };
+  }
+  return { shown: [], total: all.length };
+}
+
+export function toolCallLines(call: ToolCallEntry, expanded: boolean): Line[] {
+  const { shown, total: allLength } = visibleToolBodyLines(call, expanded);
+  const hidden = allLength - shown.length;
 
   const head: Segment[] = [
     TOOL_MARK[call.state] ?? TOOL_MARK.running,
     { text: call.name, bold: true },
     { text: ` ${summarizeArgs(call.args)}`, dimColor: true },
   ];
-  if (!expanded && all.length > 0) head.push({ text: ` (${all.length} lines)`, dimColor: true });
+  if (!expanded && allLength > 0 && shown.length === 0) {
+    head.push({ text: ` (${allLength} lines)`, dimColor: true });
+  }
 
   const out: Line[] = [{ key: `${call.callId}-h`, segments: head }];
   shown.forEach((line, index) => {
@@ -305,7 +322,7 @@ export function toolCallLines(call: ToolCallEntry, expanded: boolean): Line[] {
       ],
     });
   });
-  if (expanded && hidden > 0) {
+  if (hidden > 0) {
     out.push({ key: `${call.callId}-more`, segments: [{ text: `  … ${hidden} more lines`, dimColor: true }] });
   }
   return out;

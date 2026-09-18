@@ -161,24 +161,26 @@ class JsonRenderer:
         session_id: str | None,
         usage: dict[str, int],
         context: dict[str, Any] | None = None,
+        warnings: list[dict[str, Any]] | None = None,
     ) -> None:
-        self._emit(
-            {
-                "kind": "result",
-                "exitCode": exit_code,
-                "sessionId": session_id,
-                "usage": usage,
-                # How full the window was when the turn ended (CORE-context);
-                # null when the daemon never reported one.
-                "context": context,
-            }
-        )
+        payload: dict[str, Any] = {
+            "kind": "result",
+            "exitCode": exit_code,
+            "sessionId": session_id,
+            "usage": usage,
+            # How full the window was when the turn ended (CORE-context);
+            # null when the daemon never reported one.
+            "context": context,
+        }
+        if warnings:
+            payload["warnings"] = warnings
+        self._emit(payload)
 
 
 class TurnTracker:
     """Accumulates the bits of a turn the exit code depends on."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, strict_approvals: bool = False) -> None:
         self.usage: dict[str, int] = {"inputTokens": 0, "outputTokens": 0}
         self.denied = False
         self.reason: str | None = None
@@ -189,12 +191,16 @@ class TurnTracker:
         self._child_denied: set[str] = set()
         #: Body of the most recent ``context`` event, reported by --json.
         self.context: dict[str, Any] | None = None
+        #: When false, a completed turn with only soft approval denials exits 0.
+        self.strict_approvals = strict_approvals
+        self.warnings: list[dict[str, Any]] = []
 
     def note_denied_request(self, session_id: str | None) -> None:
         """Record where an approval was denied: root turn or delegated child."""
         sid = str(session_id or "").strip()
         if not sid or sid == self.root_session_id:
-            self.denied = True
+            if self.strict_approvals:
+                self.denied = True
             return
         self._child_denied.add(sid)
 
@@ -207,7 +213,14 @@ class TurnTracker:
         elif kind == "context":
             self.context = dict(payload)
         elif kind == "error" and str(payload.get("code", "")) in DENIAL_CODES:
-            self.denied = True
+            code = str(payload.get("code", ""))
+            warning = {
+                "code": code,
+                "message": str(payload.get("message", "") or ""),
+            }
+            self.warnings.append(warning)
+            if self.strict_approvals or code == "mode_denied":
+                self.denied = True
         elif kind == "subagent.done":
             child = str(payload.get("sessionId") or "")
             if child and child in self._child_denied:
@@ -229,6 +242,13 @@ class TurnTracker:
         code = TURN_REASON_EXIT.get(self.reason, EXIT_AGENT_FAILED)
         if self.denied and code in (EXIT_OK, EXIT_AGENT_FAILED):
             return EXIT_DENIED
+        if (
+            not self.strict_approvals
+            and self.warnings
+            and self.reason == "complete"
+            and code == EXIT_OK
+        ):
+            return EXIT_OK
         return code
 
 

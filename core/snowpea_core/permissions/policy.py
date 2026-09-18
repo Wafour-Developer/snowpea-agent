@@ -12,7 +12,7 @@ least as strict as the declared tag, so a hook can never widen anything.  These
 two are widened here, in the matrix's own module, where they are visible next
 to the row they qualify:
 
-* ``write`` on ``write_file``/``edit_file`` becomes ``allow`` for a document —
+* ``write`` on ``write_file``/``patch`` becomes ``allow`` for a document —
   markdown, text, ``docs/``, ``.snowpea/plans/``, ``$SNOWPEA_HOME/plans/``
   (:mod:`snowpea_core.permissions.plan_paths`).  Every other path stays denied.
 * ``exec`` on ``shell`` becomes ``allow`` for a command that only inspects
@@ -79,7 +79,7 @@ UNPROMOTABLE: frozenset[str] = frozenset({"config"})
 
 #: Tools the plan-mode document exception applies to.  Only these two take a
 #: ``path``; no other ``write``-tagged tool is loosened by it.
-PLAN_WRITE_TOOLS: frozenset[str] = frozenset({"write_file", "edit_file"})
+PLAN_WRITE_TOOLS: frozenset[str] = frozenset({"write_file", "patch"})
 
 #: Tool the plan-mode read-only-command exception applies to.
 PLAN_EXEC_TOOL = "shell"

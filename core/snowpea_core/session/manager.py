@@ -95,6 +95,7 @@ class SessionManager:
         kind: SessionKind = "chat",
         job_id: str | None = None,
         effort: str | None = None,
+        deny_exec: bool = False,
     ) -> Session:
         """Register a new session and persist its row.
 
@@ -136,6 +137,7 @@ class SessionManager:
             kind=kind,
             job_id=job_id,
             effort=effort_scale.normalize(effort),
+            deny_exec=deny_exec,
         )
         self._sessions[session.id] = session
         if self.store is not None:
