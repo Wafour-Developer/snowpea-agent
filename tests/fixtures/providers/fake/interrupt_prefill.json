@@ -1,0 +1,12 @@
+{
+  "steps": [
+    {
+      "match": "slow prefill",
+      "delaySec": 30,
+      "text": "too late"
+    }
+  ],
+  "default": {
+    "text": "dflt"
+  }
+}

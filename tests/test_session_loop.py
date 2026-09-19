@@ -453,6 +453,24 @@ async def test_session_list_and_close(
     await client.stop()
 
 
+async def test_other_clients_learn_when_a_session_is_created(
+    daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path
+) -> None:
+    """The IDE refreshes its thread list from ``sessions.changed`` (CORE-session-list)."""
+    workdir = tmp_path / "project"
+    workdir.mkdir()
+    watcher = await connect(http, daemon)
+    creator = await connect(http, daemon)
+    try:
+        created = await creator.ok("session.create", {"workdir": str(workdir), "originSurface": "cli"})
+        note = await watcher.wait_notification("sessions.changed")
+        assert note["reason"] == "created"
+        assert note["sessionId"] == created["sessionId"]
+    finally:
+        await creator.stop()
+        await watcher.stop()
+
+
 async def test_delete_saved_sessions_keeps_the_live_session(
     daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path
 ) -> None:
@@ -693,6 +711,38 @@ async def test_approval_timeout_denies_and_is_logged(
             os.environ.pop("SNOWPEA_PROVIDER", None)
         else:
             os.environ["SNOWPEA_PROVIDER"] = previous
+
+
+PREFILL_FIXTURE = (
+    Path(__file__).parent / "fixtures" / "providers" / "fake" / "interrupt_prefill.json"
+)
+
+
+async def test_interrupt_during_model_prefill(
+    http: aiohttp.ClientSession, tmp_path: Path
+) -> None:
+    """Stop must tear down a silent provider stream, not wait for the first token."""
+    workdir = tmp_path / "project"
+    workdir.mkdir()
+    with fake_provider(PREFILL_FIXTURE):
+        daemon = await make_daemon(tmp_path / "home")
+        try:
+            client = await connect(http, daemon)
+            session_id = await start_session(client, workdir)
+            turn_id = await prompt(client, session_id, "slow prefill")
+            await client.wait(
+                lambda e: e["kind"] == "turn.started" and e["payload"]["turnId"] == turn_id,
+                timeout=TIMEOUT,
+            )
+            started = asyncio.get_event_loop().time()
+            assert (await client.ok("session.interrupt", {"sessionId": session_id}))["ok"] is True
+            reason = await client.wait_turn(turn_id, timeout=TIMEOUT)
+            elapsed = asyncio.get_event_loop().time() - started
+            assert reason == "interrupted"
+            assert elapsed < 2.0
+            await client.stop()
+        finally:
+            await daemon.stop()
 
 
 async def test_interrupt_ends_the_turn(

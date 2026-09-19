@@ -390,10 +390,11 @@ async def _stream_once(
             events.message_reasoning(text, reasoning_base + attempt.reasoning_chars),
         )
 
-    async for event in provider.stream(messages, specs, max_tokens=max_tokens, **extra):
+    async def handle_event(event: Any) -> bool:
+        """Drain one provider event; return True when the stream should stop."""
         if session.interrupt.is_set():
             attempt.interrupted = True
-            break
+            return True
         if event.kind == "text_delta" and event.text:
             # The answer has started, so whatever thinking led to it is over.
             await flush_reasoning()
@@ -422,6 +423,45 @@ async def _stream_once(
             if event.error:
                 await hub.emit_event(session.id, events.error(errors.INTERNAL, event.error))
             attempt.stop_reason = event.stop_reason or "end_turn"
+        return False
+
+    # The interrupt flag is only visible between yielded events.  During a long
+    # local prefill the HTTP stream can sit silent for tens of seconds, so Stop
+    # used to look like a no-op until the first SSE line arrived.  Race each
+    # ``__anext__`` against the session interrupt and close the generator on
+    # Stop so the provider request is torn down immediately.
+    stream = provider.stream(messages, specs, max_tokens=max_tokens, **extra)
+    interrupt_watcher = asyncio.ensure_future(session.interrupt.wait())
+    try:
+        while True:
+            next_event = asyncio.ensure_future(stream.__anext__())
+            done, _ = await asyncio.wait(
+                {next_event, interrupt_watcher},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if interrupt_watcher in done and session.interrupt.is_set():
+                next_event.cancel()
+                try:
+                    await next_event
+                except (asyncio.CancelledError, StopAsyncIteration):
+                    pass
+                attempt.interrupted = True
+                break
+            if next_event in done:
+                try:
+                    event = next_event.result()
+                except StopAsyncIteration:
+                    break
+                if await handle_event(event):
+                    break
+    finally:
+        if not interrupt_watcher.done():
+            interrupt_watcher.cancel()
+            try:
+                await interrupt_watcher
+            except asyncio.CancelledError:
+                pass
+        await stream.aclose()
     # Nothing thought is dropped, including by an interrupt: the last window is
     # always published, so the totals a surface shows match what was counted.
     await flush_reasoning()
@@ -870,7 +910,9 @@ async def speak_reply(
             return
         # The reply's own language picks the voice: one engine can sound like
         # a different person per language, which is the point of the mapping.
-        language = _reply_language_of(core, session)
+        from snowpea_core.audio.tts import speak_language
+
+        language = speak_language(_reply_language_of(core, session), body)
         speech = await provider.synthesize(
             body,
             out_dir=audio_dir_for(core, session.id),
