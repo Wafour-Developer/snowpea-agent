@@ -269,7 +269,10 @@ async def session_resume_handler(
     core.hub.subscribe(conn, session.id)
     if session.origin_conn is None or getattr(session.origin_conn, "closed", False):
         session.origin_conn = conn
-        session.origin_surface = conn.surface_id
+        # Keep the surface that opened the session. Overwriting it with this
+        # connection's opaque id made a TUI/CLI thread look like an IDE spare.
+        if not session.origin_surface:
+            session.origin_surface = conn.surface_id
     stored = (
         await core.store.events_after(session.id, params.afterSeq or 0)
         if core.store is not None
@@ -369,6 +372,8 @@ async def session_delete_saved_handler(
     deleted = await core.store.delete_sessions(ids)
     for session_id in ids:
         _purge_session_files(core, session_id)
+    if deleted:
+        await core.sessions.announce_sessions_changed("deleted", params.sessionId or "")
     return SessionDeleteResult(deleted=deleted)
 
 
@@ -430,7 +435,9 @@ async def session_prompt_handler(
         args = f"{delegate_match.group(1)} {delegate_match.group(2)}"
         return TurnResult(turnId=core.commands.start(core, session, "delegate", args, conn))
     unattended = session.origin_conn is None
-    return TurnResult(turnId=agent_loop.start_turn(core, session, text, unattended=unattended))
+    turn_id = agent_loop.start_turn(core, session, text, unattended=unattended)
+    await core.sessions.announce_sessions_changed("prompt", session.id)
+    return TurnResult(turnId=turn_id)
 
 
 def _accept_attachments(

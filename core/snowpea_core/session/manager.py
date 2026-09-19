@@ -48,6 +48,23 @@ class SessionManager:
         #: Coroutines run with the session id when a session closes, so a tool
         #: that holds per-session state (a browser context, say) can release it.
         self.on_close: list[Any] = []
+
+    async def announce_sessions_changed(self, reason: str, session_id: str) -> None:
+        """Tell every authenticated client the session list just moved.
+
+        The IDE listens for ``sessions.changed`` and re-reads ``session.list``;
+        without this, a TUI/CLI session only appeared after the IDE window
+        regained focus.
+        """
+        if self.hub is None:
+            return
+        try:
+            await self.hub.notify(
+                "sessions.changed",
+                {"reason": reason, "sessionId": session_id},
+            )
+        except Exception:  # noqa: BLE001 - a dead socket must not fail create/close
+            log.debug("could not broadcast sessions.changed", exc_info=True)
         #: ``(agent_name, workdir) -> the definition's ``model:`` field``.
         #: Injected by ``wire_core`` because resolving a definition needs the
         #: plugin loader, which lives on ``Core``.  Three of the five session
@@ -156,6 +173,7 @@ class SessionManager:
             if session.effort:
                 await self.store.update_effort(session.id, session.effort)
         log.info("session %s created (%s, mode=%s)", session.id, session.workdir, session.mode)
+        await self.announce_sessions_changed("created", session.id)
         return session
 
     def _definition_model(self, agent: str, workdir: Path) -> str | None:
@@ -325,6 +343,7 @@ class SessionManager:
                     "skipping close_session write for %s: session store is closed", session_id
                 )
         log.info("session %s closed", session_id)
+        await self.announce_sessions_changed("closed", session_id)
         return True
 
     async def finish_open_turns(self, reason: str = "interrupted") -> tuple[str, ...]:
