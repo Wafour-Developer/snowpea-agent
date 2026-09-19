@@ -103,6 +103,8 @@ async def test_installed_voices_are_listed_first(tmp_path: Path) -> None:
         ({"*": "M1"}, "ko", "M1", "any"),
         ({}, "ko", None, "engine"),
         ({"ko": "F2"}, "en", None, "engine"),
+        ({"ko": "F1"}, "auto", None, "engine"),
+        ({"ko": "F1"}, None, None, "engine"),
     ],
 )
 def test_the_reply_language_picks_the_voice(

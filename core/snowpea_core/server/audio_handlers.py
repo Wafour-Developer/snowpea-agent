@@ -263,11 +263,17 @@ async def audio_speak_handler(
         )
     try:
         # The caller's voice wins; otherwise the reply language picks one.
-        language = (params.language or "").strip() or config.stt_language_for()[0]
+        # ``stt.language: auto`` is not a voice-table key — resolve from the
+        # text so ``tts.voices.ko`` is used for Korean instead of M1.
+        language = tts_backends.speak_language(
+            (params.language or "").strip() or None,
+            params.text,
+        )
         speech = await provider.synthesize(
             params.text,
             out_dir=audio_dir_for(core, params.sessionId),
             voice=params.voice or config.voice_for(language),
+            language=language,
         )
     except AudioError as exc:
         raise _rpc_error(exc) from exc

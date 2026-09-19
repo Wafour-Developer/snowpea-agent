@@ -391,6 +391,8 @@ def pick(voices: Any, language: str | None, known: tuple[str, ...] = ()) -> Voic
     """
     table = voices if isinstance(voices, dict) else {}
     tag = (language or "").strip().lower().partition("-")[0]
+    if tag == "auto":
+        tag = ""
     if tag and table.get(tag):
         return VoiceChoice(voice=str(table[tag]), source="language")
     note = ""

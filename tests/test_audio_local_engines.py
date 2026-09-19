@@ -777,10 +777,23 @@ def test_the_stage_sequence_matches_what_the_engine_actually_does() -> None:
 
 def test_supertonic_language_is_never_auto() -> None:
     """Supertonic rejects ``auto``; the setting's ``auto`` means "from the text"."""
-    from snowpea_core.audio.tts import guess_language, supertonic_lang
+    from snowpea_core.audio.tts import guess_language, speak_language, supertonic_lang
 
     assert supertonic_lang("auto", "안녕하세요, 테스트입니다.") == "ko"
     assert supertonic_lang(None, "こんにちは") == "ja"
     assert supertonic_lang("", "Hello there") == "en"
     assert supertonic_lang("ko-KR", "whatever") == "ko"
     assert guess_language("Привет") == "ru"
+    assert speak_language("auto", "안녕하세요") == "ko"
+    assert speak_language(None, "Hello") == "en"
+    assert speak_language("en", "안녕하세요") == "en"
+
+
+def test_korean_voice_map_is_used_when_language_is_auto() -> None:
+    from snowpea_core.audio import AudioConfig
+    from snowpea_core.audio.tts import speak_language
+
+    config = AudioConfig(voices={"ko": "F1"})
+    language = speak_language("auto", "안녕하세요, 테스트입니다.")
+    assert language == "ko"
+    assert config.voice_for(language) == "F1"

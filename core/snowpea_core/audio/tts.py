@@ -708,6 +708,20 @@ def guess_language(text: str) -> str:
     return "en"
 
 
+def speak_language(requested: str | None, text: str = "") -> str:
+    """The language used to pick a TTS voice for this utterance.
+
+    An explicit tag wins.  ``auto`` and a missing tag mean "from the text",
+    because using the STT setting ``auto`` as a voice-table key never matches
+    ``audio.tts.voices.ko`` and silently falls back to the engine default
+    (Supertonic ``M1``).
+    """
+    tag = (requested or "").strip()
+    if tag and tag.lower() != "auto":
+        return tag
+    return guess_language(text)
+
+
 class SupertonicTTS:
     """Supertone's on-device ONNX TTS, run in a child interpreter.
 
@@ -1010,6 +1024,8 @@ __all__ = [
     "SUPERTONIC_TIMEOUT",
     "SUPERTONIC_VOICES",
     "SupertonicTTS",
+    "guess_language",
+    "speak_language",
     "supertonic_lang",
     "supertonic_voice",
     "DEFAULT_OPENAI_BASE_URL",
