@@ -136,9 +136,10 @@ class PlainRenderer:
         session_id: str | None,
         usage: dict[str, int],
         context: dict[str, Any] | None = None,
+        warnings: list[dict[str, Any]] | None = None,
     ) -> None:
         """Terminate the transcript (no trailing summary in plain mode)."""
-        del exit_code, session_id, usage, context
+        del exit_code, session_id, usage, context, warnings
         self._newline()
 
 
