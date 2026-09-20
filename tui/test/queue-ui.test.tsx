@@ -124,7 +124,15 @@ describe("the model picker", () => {
         },
       },
     },
-    "provider.models": { vendor: "anthropic", models: ["claude-opus-4-1"], current: null },
+    "provider.list": {
+      providers: [{ vendor: "anthropic", configured: true, models: [], defaultModel: null }],
+    },
+    "provider.models": {
+      vendor: "anthropic",
+      models: ["claude-opus-4-1"],
+      current: null,
+      source: "live",
+    },
   };
 
   it("opens on a bare /model and lists profiles and discovered models", async () => {

@@ -9,11 +9,14 @@
 
 import React from "react";
 import { render } from "ink";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import { App } from "../src/app.js";
 import type { SessionEvent } from "../src/rpc/sdk.js";
+import { hiddenLines, summarizeCalls } from "../src/layout/summary.js";
+import { resetUiLanguage } from "../src/layout/language.js";
 import { SPINNER_FRAMES } from "../src/state/working.js";
+import type { ToolCallEntry } from "../src/state/store.js";
 import { countOf, fakeStdin, fakeStdout, sleep, type } from "./tty.js";
 
 /** True when a chunk carries any spinner frame. */
@@ -50,6 +53,10 @@ const event = (seq: number, kind: string, payload: Record<string, unknown>): Ses
   seq,
   kind,
   payload,
+});
+
+beforeEach(() => {
+  resetUiLanguage();
 });
 
 describe("inline layout", () => {
@@ -150,7 +157,25 @@ describe("inline layout", () => {
   it("folds a run of tool calls into one line of scrollback", async () => {
     const client = fakeClient();
     const stdin = fakeStdin();
-    const stdout = fakeStdout(100, 20);
+    const stdout = fakeStdout(120, 30);
+    const foldedCalls: ToolCallEntry[] = [
+      {
+        callId: "c1",
+        name: "shell",
+        args: { command: "ls" },
+        state: "ok",
+        output: "a\nb",
+      },
+      {
+        callId: "c2",
+        name: "shell",
+        args: { command: "pwd" },
+        state: "ok",
+        output: "/tmp",
+      },
+    ];
+    const summary = summarizeCalls(foldedCalls, "en");
+    const hidden = hiddenLines(foldedCalls);
 
     const instance = render(
       <App client={client as any} sessionId="sess-1" mode="accept" workdir="/tmp/project" />,
@@ -158,7 +183,7 @@ describe("inline layout", () => {
     );
 
     await sleep(120);
-    await type(stdin, "go");
+    await type(stdin, "go", 10);
     stdin.write("\r");
     await sleep(200);
 
@@ -169,14 +194,17 @@ describe("inline layout", () => {
     await sleep(120);
     client.emit(event(5, "message.done", { text: "ALL-DONE", role: "assistant" }));
     client.emit(event(6, "turn.done", {}));
-    await sleep(200);
 
-    const output = stdout.text();
+    let output = stdout.text();
+    for (let attempt = 0; attempt < 20 && !output.includes(summary); attempt += 1) {
+      await sleep(50);
+      output = stdout.text();
+    }
     instance.unmount();
 
     // One line for the pair, carrying the output it stands in for, written once.
-    expect(countOf(output, "Ran 2 shell commands")).toBe(1);
-    expect(output).toContain("Ran 2 shell commands (3 lines)");
+    expect(countOf(output, summary)).toBe(1);
+    expect(output).toContain(`(${hidden} lines)`);
     expect(countOf(output, "ALL-DONE")).toBe(1);
   });
 });

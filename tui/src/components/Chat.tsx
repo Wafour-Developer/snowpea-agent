@@ -32,8 +32,15 @@ import {
   type EditorState,
 } from "../state/editor.js";
 import { shouldShowSlashPalette } from "../state/slash-completion.js";
+import {
+  findFileRefToken,
+  applyFileCompletion,
+  type FileCompletionEntry,
+} from "../state/fileRefs.js";
 import { AgentPalette } from "./AgentPalette.js";
+import { FilePalette } from "./FilePalette.js";
 import { SlashCommandPalette } from "./SlashCommandPalette.js";
+import type { FileCompleteResult } from "../rpc/client.js";
 
 export interface ChatProps {
   onSubmit: (text: string) => void;
@@ -86,6 +93,10 @@ export interface ChatProps {
   placeholder?: string;
   onChange?: (value: string) => void;
   onInterrupt?: () => void;
+  /** Function to complete file paths (calls file.complete via RPC). */
+  onFileComplete?: (query: string) => Promise<FileCompleteResult>;
+  /** Debounce milliseconds for file completion (defaults to 80). */
+  fileCompleteDebounceMs?: number;
 }
 
 export function Chat({
@@ -111,6 +122,8 @@ export function Chat({
   placeholder = "ask anything, or /command",
   onChange,
   onInterrupt,
+  onFileComplete,
+  fileCompleteDebounceMs = 80,
 }: ChatProps): React.ReactElement {
   const [editor, setEditor] = useState<EditorState>({ text: "", cursor: 0 });
   const value = editor.text;
@@ -134,12 +147,64 @@ export function Chat({
   /** True while Esc has closed the agent list for the name being typed. */
   const [agentsDismissed, setAgentsDismissed] = useState(false);
 
+  // File completion state
+  const [fileCompletions, setFileCompletions] = useState<FileCompletionEntry[]>([]);
+  const [fileTruncated, setFileTruncated] = useState(false);
+  const [selectedFile, setSelectedFile] = useState(0);
+  const [dismissedTokenStart, setDismissedTokenStart] = useState<number | null>(null);
+
   const showPalette = shouldShowSlashPalette(value, completions);
+
+  const fileToken = findFileRefToken(value, cursor);
+  const isFileDismissed =
+    fileToken !== null && dismissedTokenStart === fileToken.start;
+  const showFilePopup =
+    fileToken !== null && !isFileDismissed && !showPalette;
+
+  useEffect(() => {
+    if (dismissedTokenStart !== null) {
+      if (!fileToken || fileToken.start !== dismissedTokenStart) {
+        setDismissedTokenStart(null);
+      }
+    }
+  }, [fileToken, dismissedTokenStart]);
+
+  useEffect(() => {
+    if (!showFilePopup || !onFileComplete) {
+      setFileCompletions([]);
+      setFileTruncated(false);
+      setSelectedFile(0);
+      return;
+    }
+
+    const query = fileToken.query;
+    let cancelled = false;
+
+    const timer = setTimeout(() => {
+      onFileComplete(query)
+        .then((result) => {
+          if (cancelled) return;
+          setFileCompletions((result.entries ?? []) as FileCompletionEntry[]);
+          setFileTruncated(Boolean(result.truncated));
+          setSelectedFile(0);
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setFileCompletions([]);
+          setFileTruncated(false);
+        });
+    }, fileCompleteDebounceMs);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [showFilePopup, fileToken?.query, fileToken?.start, onFileComplete, fileCompleteDebounceMs]);
 
   // `$name` or `/delegate name`: the same list, in the place the name goes.
   const query = agentQuery(value, cursor);
   const agentMatches = query ? filterAgents(agents, query.prefix) : [];
-  const showAgents = query !== null && !agentsDismissed && !showPalette;
+  const showAgents = query !== null && !agentsDismissed && !showPalette && !showFilePopup;
 
   const update = (next: EditorState, options: { keepColumn?: boolean } = {}) => {
     const safe = {
@@ -185,6 +250,11 @@ export function Chat({
       };
 
       if (key.escape) {
+        if (showFilePopup) {
+          setDismissedTokenStart(fileToken!.start);
+          setFileCompletions([]);
+          return;
+        }
         // Esc closes the agent list first; only an open turn is interrupted.
         if (showAgents) {
           setAgentsDismissed(true);
@@ -192,6 +262,22 @@ export function Chat({
         }
         onInterrupt?.();
         return;
+      }
+
+      if (showFilePopup && fileCompletions.length > 0) {
+        if (key.upArrow || key.downArrow) {
+          const delta = key.downArrow ? 1 : -1;
+          setSelectedFile((i) => (i + delta + fileCompletions.length) % fileCompletions.length);
+          return;
+        }
+        if (key.tab) {
+          const candidate = fileCompletions[Math.min(selectedFile, fileCompletions.length - 1)];
+          if (candidate) {
+            const next = applyFileCompletion(value, fileToken!, candidate);
+            replace(next.text, next.cursor);
+            return;
+          }
+        }
       }
 
       if (showAgents && agentMatches.length > 0) {
@@ -304,6 +390,14 @@ export function Chat({
       }
 
       if (key.return) {
+        if (showFilePopup && fileCompletions.length > 0) {
+          const candidate = fileCompletions[Math.min(selectedFile, fileCompletions.length - 1)];
+          if (candidate) {
+            const next = applyFileCompletion(value, fileToken!, candidate);
+            replace(next.text, next.cursor);
+            return;
+          }
+        }
         // Enter accepts the highlighted completion while the draft is still a
         // name — including a sub-action like `/skill create`, whose name has
         // a space in it, and including the exact name with no trailing space,
@@ -383,6 +477,18 @@ export function Chat({
         return;
       }
       setHistoryIndex(null);
+      if (
+        fileToken &&
+        fileToken.quoted &&
+        value[fileToken.end - 1] === '"' &&
+        cursor === fileToken.end &&
+        typed !== '"'
+      ) {
+        const before = value.slice(0, cursor - 1);
+        const after = value.slice(cursor - 1);
+        update({ text: before + typed + after, cursor: cursor - 1 + typed.length });
+        return;
+      }
       update(insertText(editor, typed));
     },
     { isActive: !disabled },
@@ -393,6 +499,13 @@ export function Chat({
 
   return (
     <Box flexDirection="column">
+      {showFilePopup && fileCompletions.length > 0 ? (
+        <FilePalette
+          entries={fileCompletions}
+          selectedIndex={Math.min(selectedFile, Math.max(0, fileCompletions.length - 1))}
+          truncated={fileTruncated}
+        />
+      ) : null}
       {showAgents ? (
         <AgentPalette
           candidates={agentMatches}

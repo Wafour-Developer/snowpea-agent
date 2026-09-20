@@ -28166,11 +28166,11 @@ var require_react_jsx_runtime_development = __commonJS({
             return jsxWithValidation(type, props, key, false);
           }
         }
-        var jsx35 = jsxWithValidationDynamic;
-        var jsxs27 = jsxWithValidationStatic;
+        var jsx36 = jsxWithValidationDynamic;
+        var jsxs28 = jsxWithValidationStatic;
         exports.Fragment = REACT_FRAGMENT_TYPE;
-        exports.jsx = jsx35;
-        exports.jsxs = jsxs27;
+        exports.jsx = jsx36;
+        exports.jsxs = jsxs28;
       })();
     }
   }
@@ -38630,6 +38630,243 @@ function shouldShowSlashPalette(draft, completions) {
   });
 }
 
+// src/state/fileRefs.ts
+var THEME_ACCENT = "cyan";
+var TRAILING_PUNCT_CHARS = /* @__PURE__ */ new Set([".", ",", ";", ":", ")", "!", "?"]);
+function findAllFileRefs(text2) {
+  const refs = [];
+  const len = text2.length;
+  let i = 0;
+  while (i < len) {
+    if (text2[i] !== "@") {
+      i += 1;
+      continue;
+    }
+    if (i > 0) {
+      const prev = text2[i - 1];
+      if (prev === "\\" || /\w/.test(prev)) {
+        i += 1;
+        continue;
+      }
+    }
+    const start = i;
+    if (i + 1 < len && text2[i + 1] === '"') {
+      let closeIdx = -1;
+      let j2 = i + 2;
+      while (j2 < len && text2[j2] !== "\n") {
+        if (text2[j2] === '"') {
+          closeIdx = j2;
+          break;
+        }
+        j2 += 1;
+      }
+      if (closeIdx !== -1) {
+        const query2 = text2.slice(i + 2, closeIdx);
+        let tokenEnd = closeIdx + 1;
+        let lineRange2;
+        const rangeMatch2 = /^:(\d+(?:-\d+)?)/.exec(text2.slice(tokenEnd));
+        if (rangeMatch2) {
+          lineRange2 = rangeMatch2[1];
+          tokenEnd += rangeMatch2[0].length;
+        }
+        refs.push({
+          raw: text2.slice(start, tokenEnd),
+          start,
+          end: tokenEnd,
+          query: query2,
+          quoted: true,
+          lineRange: lineRange2
+        });
+        i = tokenEnd;
+        continue;
+      } else {
+        const end2 = j2;
+        const query2 = text2.slice(i + 2, end2);
+        refs.push({
+          raw: text2.slice(start, end2),
+          start,
+          end: end2,
+          query: query2,
+          quoted: true
+        });
+        i = end2;
+        continue;
+      }
+    }
+    let j = i + 1;
+    while (j < len && !/\s/.test(text2[j]) && text2[j] !== "@") {
+      j += 1;
+    }
+    const rawSegment = text2.slice(i + 1, j);
+    let pathEnd = j;
+    let trailingPunct = "";
+    if (rawSegment.length === 0) {
+      refs.push({
+        raw: "@",
+        start,
+        end: j,
+        query: "",
+        quoted: false
+      });
+      i = j;
+      continue;
+    }
+    let p = j - 1;
+    while (p > i && TRAILING_PUNCT_CHARS.has(text2[p])) {
+      if (text2[p] === "." && (p === i + 1 || text2[p - 1] === "/")) {
+        break;
+      }
+      p -= 1;
+    }
+    trailingPunct = text2.slice(p + 1, j);
+    pathEnd = p + 1;
+    const fullPathSegment = text2.slice(i + 1, pathEnd);
+    let query = fullPathSegment;
+    let lineRange;
+    const rangeMatch = /^(.+?):(\d+(?:-\d+)?)$/.exec(fullPathSegment);
+    if (rangeMatch) {
+      query = rangeMatch[1];
+      lineRange = rangeMatch[2];
+    }
+    refs.push({
+      raw: text2.slice(start, pathEnd),
+      start,
+      end: pathEnd,
+      query,
+      quoted: false,
+      lineRange,
+      trailingPunct: trailingPunct.length > 0 ? trailingPunct : void 0
+    });
+    i = j;
+  }
+  return refs;
+}
+function findFileRefToken(text2, cursor) {
+  if (text2.length === 0 || cursor <= 0) return null;
+  const len = text2.length;
+  let atPos = -1;
+  let inQuotes = false;
+  for (let k = cursor - 1; k >= 0; k -= 1) {
+    const ch = text2[k];
+    if (ch === "\n") break;
+    if (ch === '"') inQuotes = true;
+    if (ch === "@") {
+      if (k === 0 || text2[k - 1] !== "\\" && !/\w/.test(text2[k - 1])) {
+        atPos = k;
+      }
+      break;
+    }
+  }
+  if (atPos === -1) return null;
+  if (atPos + 1 < len && text2[atPos + 1] === '"') {
+    let closeIdx = -1;
+    let j2 = atPos + 2;
+    while (j2 < len && text2[j2] !== "\n") {
+      if (text2[j2] === '"') {
+        closeIdx = j2;
+        break;
+      }
+      j2 += 1;
+    }
+    if (closeIdx !== -1) {
+      let tokenEnd = closeIdx + 1;
+      let lineRange2;
+      const rangeMatch2 = /^:(\d+(?:-\d+)?)/.exec(text2.slice(tokenEnd));
+      if (rangeMatch2) {
+        lineRange2 = rangeMatch2[1];
+        tokenEnd += rangeMatch2[0].length;
+      }
+      if (cursor > atPos && cursor <= tokenEnd) {
+        return {
+          raw: text2.slice(atPos, tokenEnd),
+          start: atPos,
+          end: tokenEnd,
+          query: text2.slice(atPos + 2, closeIdx),
+          quoted: true,
+          lineRange: lineRange2
+        };
+      }
+      return null;
+    } else {
+      const end2 = j2;
+      if (cursor > atPos && cursor <= end2) {
+        return {
+          raw: text2.slice(atPos, end2),
+          start: atPos,
+          end: end2,
+          query: text2.slice(atPos + 2, end2),
+          quoted: true
+        };
+      }
+      return null;
+    }
+  }
+  let j = atPos + 1;
+  while (j < len && !/\s/.test(text2[j]) && text2[j] !== "@") {
+    j += 1;
+  }
+  if (cursor <= atPos || cursor > j) return null;
+  const rawSegment = text2.slice(atPos + 1, j);
+  if (rawSegment.length === 0) {
+    return {
+      raw: "@",
+      start: atPos,
+      end: atPos + 1,
+      query: "",
+      quoted: false
+    };
+  }
+  let pathEnd = j;
+  let trailingPunct = "";
+  let p = j - 1;
+  while (p > atPos && TRAILING_PUNCT_CHARS.has(text2[p])) {
+    if (text2[p] === "." && (cursor === j || p === atPos + 1 || text2[p - 1] === "/")) {
+      break;
+    }
+    if (cursor > p) {
+      break;
+    }
+    p -= 1;
+  }
+  trailingPunct = text2.slice(p + 1, j);
+  pathEnd = p + 1;
+  if (cursor > pathEnd && trailingPunct.length > 0) {
+    return null;
+  }
+  const fullPathSegment = text2.slice(atPos + 1, pathEnd);
+  let query = fullPathSegment;
+  let lineRange;
+  const rangeMatch = /^(.+?):(\d+(?:-\d+)?)$/.exec(fullPathSegment);
+  if (rangeMatch) {
+    query = rangeMatch[1];
+    lineRange = rangeMatch[2];
+  }
+  return {
+    raw: text2.slice(atPos, pathEnd),
+    start: atPos,
+    end: pathEnd,
+    query,
+    quoted: false,
+    lineRange,
+    trailingPunct: trailingPunct.length > 0 ? trailingPunct : void 0
+  };
+}
+function applyFileCompletion(text2, token, entry) {
+  const path = typeof entry === "string" ? entry : entry.path;
+  const isDir = typeof entry === "object" && entry.kind === "dir" || path.endsWith("/");
+  const normalizedPath = isDir && !path.endsWith("/") ? `${path}/` : path;
+  const hasSpaces = normalizedPath.includes(" ");
+  let replacement;
+  if (isDir) {
+    replacement = hasSpaces ? `@"${normalizedPath}"` : `@${normalizedPath}`;
+  } else {
+    replacement = hasSpaces ? `@"${normalizedPath}" ` : `@${normalizedPath} `;
+  }
+  const newText = text2.slice(0, token.start) + replacement + text2.slice(token.end);
+  const nextCursor = token.start + replacement.length;
+  return { text: newText, cursor: nextCursor };
+}
+
 // src/components/AgentPalette.tsx
 var import_jsx_runtime5 = __toESM(require_jsx_runtime(), 1);
 function AgentPalette({
@@ -38853,8 +39090,43 @@ function ChoiceList({
   ] });
 }
 
-// src/components/SlashCommandPalette.tsx
+// src/components/FilePalette.tsx
 var import_jsx_runtime7 = __toESM(require_jsx_runtime(), 1);
+function FilePalette({
+  entries,
+  selectedIndex = 0,
+  maxRows = 8,
+  truncated = false
+}) {
+  if (entries.length === 0) return null;
+  const options = entries.map((entry) => {
+    const isDir = entry.kind === "dir" || entry.path.endsWith("/");
+    const label = isDir && !entry.path.endsWith("/") ? `${entry.path}/` : entry.path;
+    const description = !isDir && entry.size != null ? formatSize(entry.size) : void 0;
+    return {
+      label,
+      description
+    };
+  });
+  return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(Box_default, { flexDirection: "column", borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+      ChoiceList,
+      {
+        options,
+        selectedIndex,
+        color: "cyan",
+        windowSize: maxRows,
+        descriptionMode: "inline",
+        hint: choiceHint({ enter: "select", digits: false, extra: ["Tab complete"] }),
+        showPreview: false
+      }
+    ),
+    truncated ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { dimColor: true, children: "\u2026 more" }) : null
+  ] });
+}
+
+// src/components/SlashCommandPalette.tsx
+var import_jsx_runtime8 = __toESM(require_jsx_runtime(), 1);
 function SlashCommandPalette({
   commands,
   selectedIndex = 0,
@@ -38862,7 +39134,7 @@ function SlashCommandPalette({
 }) {
   if (commands.length === 0) return null;
   const hasPreview = commands.some((command) => Boolean(command.preview));
-  return /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Box_default, { flexDirection: "column", borderStyle: "round", borderColor: "blue", paddingX: 1, children: /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Box_default, { flexDirection: "column", borderStyle: "round", borderColor: "blue", paddingX: 1, children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
     ChoiceList,
     {
       options: commands.map((command) => ({
@@ -38881,7 +39153,7 @@ function SlashCommandPalette({
 }
 
 // src/components/Chat.tsx
-var import_jsx_runtime8 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime9 = __toESM(require_jsx_runtime(), 1);
 function Chat({
   onSubmit,
   initialHistory = [],
@@ -38904,7 +39176,9 @@ function Chat({
   disabled = false,
   placeholder = "ask anything, or /command",
   onChange,
-  onInterrupt
+  onInterrupt,
+  onFileComplete,
+  fileCompleteDebounceMs = 80
 }) {
   const [editor, setEditor] = (0, import_react30.useState)({ text: "", cursor: 0 });
   const value = editor.text;
@@ -38924,10 +39198,50 @@ function Chat({
   const historyDraft = (0, import_react30.useRef)("");
   const [selected, setSelected] = (0, import_react30.useState)(0);
   const [agentsDismissed, setAgentsDismissed] = (0, import_react30.useState)(false);
+  const [fileCompletions, setFileCompletions] = (0, import_react30.useState)([]);
+  const [fileTruncated, setFileTruncated] = (0, import_react30.useState)(false);
+  const [selectedFile, setSelectedFile] = (0, import_react30.useState)(0);
+  const [dismissedTokenStart, setDismissedTokenStart] = (0, import_react30.useState)(null);
   const showPalette = shouldShowSlashPalette(value, completions);
+  const fileToken = findFileRefToken(value, cursor);
+  const isFileDismissed = fileToken !== null && dismissedTokenStart === fileToken.start;
+  const showFilePopup = fileToken !== null && !isFileDismissed && !showPalette;
+  (0, import_react30.useEffect)(() => {
+    if (dismissedTokenStart !== null) {
+      if (!fileToken || fileToken.start !== dismissedTokenStart) {
+        setDismissedTokenStart(null);
+      }
+    }
+  }, [fileToken, dismissedTokenStart]);
+  (0, import_react30.useEffect)(() => {
+    if (!showFilePopup || !onFileComplete) {
+      setFileCompletions([]);
+      setFileTruncated(false);
+      setSelectedFile(0);
+      return;
+    }
+    const query2 = fileToken.query;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      onFileComplete(query2).then((result) => {
+        if (cancelled) return;
+        setFileCompletions(result.entries ?? []);
+        setFileTruncated(Boolean(result.truncated));
+        setSelectedFile(0);
+      }).catch(() => {
+        if (cancelled) return;
+        setFileCompletions([]);
+        setFileTruncated(false);
+      });
+    }, fileCompleteDebounceMs);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [showFilePopup, fileToken?.query, fileToken?.start, onFileComplete, fileCompleteDebounceMs]);
   const query = agentQuery(value, cursor);
   const agentMatches = query ? filterAgents(agents, query.prefix) : [];
-  const showAgents = query !== null && !agentsDismissed && !showPalette;
+  const showAgents = query !== null && !agentsDismissed && !showPalette && !showFilePopup;
   const update = (next, options = {}) => {
     const safe = {
       text: next.text,
@@ -38955,12 +39269,32 @@ function Chat({
     (input, key) => {
       const keyPlus = key;
       if (key.escape) {
+        if (showFilePopup) {
+          setDismissedTokenStart(fileToken.start);
+          setFileCompletions([]);
+          return;
+        }
         if (showAgents) {
           setAgentsDismissed(true);
           return;
         }
         onInterrupt?.();
         return;
+      }
+      if (showFilePopup && fileCompletions.length > 0) {
+        if (key.upArrow || key.downArrow) {
+          const delta = key.downArrow ? 1 : -1;
+          setSelectedFile((i) => (i + delta + fileCompletions.length) % fileCompletions.length);
+          return;
+        }
+        if (key.tab) {
+          const candidate = fileCompletions[Math.min(selectedFile, fileCompletions.length - 1)];
+          if (candidate) {
+            const next = applyFileCompletion(value, fileToken, candidate);
+            replace(next.text, next.cursor);
+            return;
+          }
+        }
       }
       if (showAgents && agentMatches.length > 0) {
         if (key.upArrow || key.downArrow) {
@@ -39055,6 +39389,14 @@ function Chat({
         return;
       }
       if (key.return) {
+        if (showFilePopup && fileCompletions.length > 0) {
+          const candidate = fileCompletions[Math.min(selectedFile, fileCompletions.length - 1)];
+          if (candidate) {
+            const next = applyFileCompletion(value, fileToken, candidate);
+            replace(next.text, next.cursor);
+            return;
+          }
+        }
         if (showPalette) {
           const completion = completions[selected];
           const full = completion ? `/${completion.name}` : "";
@@ -39114,14 +39456,28 @@ function Chat({
         return;
       }
       setHistoryIndex(null);
+      if (fileToken && fileToken.quoted && value[fileToken.end - 1] === '"' && cursor === fileToken.end && typed !== '"') {
+        const before = value.slice(0, cursor - 1);
+        const after = value.slice(cursor - 1);
+        update({ text: before + typed + after, cursor: cursor - 1 + typed.length });
+        return;
+      }
       update(insert(editor, typed));
     },
     { isActive: !disabled }
   );
   const cursorEnd = (0, import_react30.useMemo)(() => right(editor).cursor, [editor]);
   const promptColor = disabled ? "gray" : "green";
-  return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(Box_default, { flexDirection: "column", children: [
-    showAgents ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { flexDirection: "column", children: [
+    showFilePopup && fileCompletions.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+      FilePalette,
+      {
+        entries: fileCompletions,
+        selectedIndex: Math.min(selectedFile, Math.max(0, fileCompletions.length - 1)),
+        truncated: fileTruncated
+      }
+    ) : null,
+    showAgents ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
       AgentPalette,
       {
         candidates: agentMatches,
@@ -39129,55 +39485,95 @@ function Chat({
         prefix: query?.prefix ?? ""
       }
     ) : null,
-    showPalette ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(SlashCommandPalette, { commands: completions, selectedIndex: selected }) : null,
-    value.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(Box_default, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { color: promptColor, children: "> " }),
-      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { dimColor: true, children: placeholder }),
-      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { inverse: true, children: " " })
-    ] }) : /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Box_default, { flexDirection: "column", children: draft.lines.map((line, row) => {
+    showPalette ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(SlashCommandPalette, { commands: completions, selectedIndex: selected }) : null,
+    value.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { color: promptColor, children: "> " }),
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { dimColor: true, children: placeholder }),
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { inverse: true, children: " " })
+    ] }) : /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Box_default, { flexDirection: "column", children: draft.lines.map((line, row) => {
       const prefix = row === 0 ? "> " : "  ";
       if (row !== draft.cursorRow) {
-        return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(Box_default, { flexWrap: "nowrap", overflow: "hidden", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { color: promptColor, children: prefix }),
-          /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { wrap: "truncate-end", children: value.slice(line.start, line.end) })
+        return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { flexWrap: "nowrap", overflow: "hidden", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { color: promptColor, children: prefix }),
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { wrap: "truncate-end", children: value.slice(line.start, line.end) })
         ] }, `draft-${row}`);
       }
       const hasCursorText = cursor >= line.start && cursor < line.end && cursorEnd > cursor;
       const before = value.slice(line.start, cursor);
       const mark = hasCursorText ? value.slice(cursor, cursorEnd) : " ";
       const after = hasCursorText ? value.slice(cursorEnd, line.end) : value.slice(cursor, line.end);
-      return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(Box_default, { flexWrap: "nowrap", overflow: "hidden", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { color: promptColor, children: prefix }),
-        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { children: before }),
-        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { inverse: true, children: mark }),
-        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { wrap: "truncate-end", children: after })
+      return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { flexWrap: "nowrap", overflow: "hidden", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { color: promptColor, children: prefix }),
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { children: before }),
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { inverse: true, children: mark }),
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { wrap: "truncate-end", children: after })
       ] }, `draft-${row}`);
     }) })
   ] });
 }
 
 // src/components/MessageStream.tsx
-var import_jsx_runtime9 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime10 = __toESM(require_jsx_runtime(), 1);
+function colorizeFileRefs(lines) {
+  return lines.map((line) => {
+    const segments = [];
+    for (const segment of line.segments) {
+      if (segment.color || !segment.text) {
+        segments.push(segment);
+        continue;
+      }
+      const refs = findAllFileRefs(segment.text);
+      if (refs.length === 0) {
+        segments.push(segment);
+        continue;
+      }
+      let lastIndex = 0;
+      for (const ref of refs) {
+        if (ref.start > lastIndex) {
+          segments.push({
+            ...segment,
+            text: segment.text.slice(lastIndex, ref.start)
+          });
+        }
+        segments.push({
+          ...segment,
+          text: ref.raw,
+          color: THEME_ACCENT
+        });
+        lastIndex = ref.end;
+      }
+      if (lastIndex < segment.text.length) {
+        segments.push({
+          ...segment,
+          text: segment.text.slice(lastIndex)
+        });
+      }
+    }
+    return { ...line, segments };
+  });
+}
 function MessageView({
   message,
   width = 80,
   maxRows,
   startLine = 0
 }) {
-  const all = messageLines(message, width).flatMap((line) => wrapLine(line, width, "  "));
+  const baseLines = messageLines(message, width);
+  const formattedLines = message.role === "user" ? colorizeFileRefs(baseLines) : baseLines;
+  const all = formattedLines.flatMap((line) => wrapLine(line, width, "  "));
   let lines = all.slice(Math.max(0, Math.floor(startLine)));
   if (message.streaming && maxRows !== void 0) {
     const cap = Math.max(1, Math.floor(maxRows));
     if (lines.length > cap) lines = lines.slice(lines.length - cap);
   }
-  return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { flexDirection: "column", marginBottom: 1, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(RenderedLines, { lines }),
-    (message.attachments ?? []).map((attachment) => /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `  \u{1F4CE} ${attachment.name}` }, `${message.id}-${attachment.name}`))
+  return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(Box_default, { flexDirection: "column", marginBottom: 1, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(RenderedLines, { lines }),
+    (message.attachments ?? []).map((attachment) => /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `  \u{1F4CE} ${attachment.name}` }, `${message.id}-${attachment.name}`))
   ] });
 }
 
 // src/components/ToolCall.tsx
-var import_jsx_runtime10 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime11 = __toESM(require_jsx_runtime(), 1);
 var STATE_GLYPH = {
   running: { glyph: "\u25CC", color: "yellow" },
   ok: { glyph: "\u2713", color: "green" },
@@ -39200,24 +39596,24 @@ function ToolCall({
   const { shown, total } = visibleToolBodyLines(call, expanded, maxOutputLines);
   const hidden = total - shown.length;
   const tail = call.state === "running" ? call.progress ?? [] : [];
-  return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(Box_default, { flexDirection: "column", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(Text, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(Text, { color: meta.color, children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(Box_default, { flexDirection: "column", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(Text, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(Text, { color: meta.color, children: [
         meta.glyph,
         " "
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Text, { bold: true, children: call.name }),
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(Text, { dimColor: true, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { bold: true, children: call.name }),
+      /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(Text, { dimColor: true, children: [
         " ",
         summarizeArgs2(call.args)
       ] }),
-      !expanded && total > 0 && shown.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(Text, { dimColor: true, children: [
+      !expanded && total > 0 && shown.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(Text, { dimColor: true, children: [
         " (",
         total,
         " lines)"
       ] }) : null
     ] }),
-    tail.map((line, index) => /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(
+    tail.map((line, index) => /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(
       Text,
       {
         dimColor: line.stream === "stdout",
@@ -39229,10 +39625,10 @@ function ToolCall({
       },
       `${call.callId}-p${index}`
     )),
-    tail.length > 0 && call.progressTruncated ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Text, { dimColor: true, children: "  \u2026 truncated" }) : null,
+    tail.length > 0 && call.progressTruncated ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { dimColor: true, children: "  \u2026 truncated" }) : null,
     shown.map((line, index) => {
       const severity = diagnosticLineColor(line);
-      return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(
+      return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(
         Text,
         {
           dimColor: !call.error && severity === void 0,
@@ -39245,12 +39641,12 @@ function ToolCall({
         `${call.callId}-o${index}`
       );
     }),
-    hidden > 0 ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Text, { dimColor: true, children: `  \u2026 ${hidden} more lines` }) : null
+    hidden > 0 ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { dimColor: true, children: `  \u2026 ${hidden} more lines` }) : null
   ] });
 }
 
 // src/components/DiffView.tsx
-var import_jsx_runtime11 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime12 = __toESM(require_jsx_runtime(), 1);
 var COLLAPSED_LINES = 12;
 var EXPANDED_LINES = 200;
 function diffLineColor2(line) {
@@ -39289,12 +39685,12 @@ function DiffView({
   const limit = expanded ? EXPANDED_LINES : COLLAPSED_LINES;
   const shown = lines.slice(0, limit);
   const hidden = lines.length - shown.length;
-  return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(Box_default, { flexDirection: "column", marginBottom: 1, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(Text, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { bold: true, color: diff2.created ? "green" : "yellow", children: diffHeader(diff2) }),
-      badge ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { color: diagnosticsColor(diagnostics), children: `  ${badge}` }) : null
+  return /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(Box_default, { flexDirection: "column", marginBottom: 1, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(Text, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { bold: true, color: diff2.created ? "green" : "yellow", children: diffHeader(diff2) }),
+      badge ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { color: diagnosticsColor(diagnostics), children: `  ${badge}` }) : null
     ] }),
-    shown.map((line, index) => /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
+    shown.map((line, index) => /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
       Text,
       {
         color: diffLineColor2(line),
@@ -39304,7 +39700,7 @@ function DiffView({
       },
       `${diff2.id}-d${index}`
     )),
-    hidden > 0 ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { dimColor: true, children: `\u2026 ${hidden} more ${hidden === 1 ? "line" : "lines"} (Ctrl+O)` }) : null
+    hidden > 0 ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { dimColor: true, children: `\u2026 ${hidden} more ${hidden === 1 ? "line" : "lines"} (Ctrl+O)` }) : null
   ] });
 }
 
@@ -39313,7 +39709,7 @@ var import_react32 = __toESM(require_react(), 1);
 
 // src/components/ConfirmMenu.tsx
 var import_react31 = __toESM(require_react(), 1);
-var import_jsx_runtime12 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime13 = __toESM(require_jsx_runtime(), 1);
 function ConfirmMenu({
   options,
   onChoose,
@@ -39355,7 +39751,7 @@ function ConfirmMenu({
     shortcut: option.shortcut,
     danger: option.danger
   }));
-  return /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Box_default, { flexDirection: "column", children: /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Box_default, { flexDirection: "column", children: /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
     ChoiceList,
     {
       options: rows,
@@ -39367,7 +39763,7 @@ function ConfirmMenu({
 }
 
 // src/components/ApprovalPrompt.tsx
-var import_jsx_runtime13 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime14 = __toESM(require_jsx_runtime(), 1);
 var RISK_COLOR = {
   low: "green",
   medium: "yellow",
@@ -39433,27 +39829,27 @@ function ApprovalPrompt({
     },
     { isActive: isActive && reason !== null }
   );
-  return /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(Box_default, { flexDirection: "column", borderStyle: "round", borderColor: "yellow", paddingX: 1, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { bold: true, color: "yellow", children: "Approval required" }),
-    /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(Text, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { bold: true, children: request.tool }),
-      /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { dimColor: true, children: " risk=" }),
-      /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { color: RISK_COLOR[request.risk ?? ""] ?? "white", children: request.risk ?? "unknown" }),
-      request.timeoutSec ? /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(Text, { dimColor: true, children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(Box_default, { flexDirection: "column", borderStyle: "round", borderColor: "yellow", paddingX: 1, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { bold: true, color: "yellow", children: "Approval required" }),
+    /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(Text, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { bold: true, children: request.tool }),
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { dimColor: true, children: " risk=" }),
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { color: RISK_COLOR[request.risk ?? ""] ?? "white", children: request.risk ?? "unknown" }),
+      request.timeoutSec ? /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(Text, { dimColor: true, children: [
         " timeout=",
         request.timeoutSec,
         "s"
       ] }) : null
     ] }),
-    request.note ? /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(Text, { bold: true, color: "red", children: [
+    request.note ? /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(Text, { bold: true, color: "red", children: [
       "  \u26A0 ",
       request.note
     ] }) : null,
-    formatArgs(request.args).map((line, index) => /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(Text, { dimColor: true, wrap: "truncate-end", children: [
+    formatArgs(request.args).map((line, index) => /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(Text, { dimColor: true, wrap: "truncate-end", children: [
       "  ",
       line
     ] }, `${request.requestId}-a${index}`)),
-    /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Box_default, { marginTop: 1, flexDirection: "column", children: reason === null ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Box_default, { marginTop: 1, flexDirection: "column", children: reason === null ? /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
       ConfirmMenu,
       {
         options: APPROVAL_OPTIONS,
@@ -39468,21 +39864,21 @@ function ApprovalPrompt({
           onDecide(answer);
         }
       }
-    ) : /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(Box_default, { flexDirection: "column", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { color: "red", children: "Why are you refusing? The model is told exactly this." }),
-      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(Box_default, { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { color: "red", children: "\u203A " }),
-        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { children: reason }),
-        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { inverse: true, children: " " })
+    ) : /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(Box_default, { flexDirection: "column", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { color: "red", children: "Why are you refusing? The model is told exactly this." }),
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(Box_default, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { color: "red", children: "\u203A " }),
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { children: reason }),
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { inverse: true, children: " " })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { dimColor: true, children: "Enter deny with this reason \xB7 Esc back to the choices" })
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { dimColor: true, children: "Enter deny with this reason \xB7 Esc back to the choices" })
     ] }) })
   ] });
 }
 
 // src/components/QuestionPrompt.tsx
 var import_react33 = __toESM(require_react(), 1);
-var import_jsx_runtime14 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime15 = __toESM(require_jsx_runtime(), 1);
 var OTHER_LABEL = "\uAE30\uD0C0 / Other\u2026";
 var MASK_CHAR = "\u2022";
 function maskSecret(value) {
@@ -39620,11 +40016,11 @@ function QuestionPrompt({
     "1-9 \uACE0\uB974\uAE30",
     "Esc \uCDE8\uC18C"
   ].filter(Boolean).join(" \xB7 ");
-  return /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(Box_default, { flexDirection: "column", borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
-    questions.length > 1 ? /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Box_default, { children: questions.map((question, index) => {
+  return /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(Box_default, { flexDirection: "column", borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
+    questions.length > 1 ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Box_default, { children: questions.map((question, index) => {
       const here = index === at;
       const tick = answeredAt(index) ? "\u2713 " : here ? "\u25B8 " : "\xB7 ";
-      return /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+      return /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
         Text,
         {
           inverse: here,
@@ -39635,9 +40031,9 @@ function QuestionPrompt({
         },
         `${request.requestId}-t${index}`
       );
-    }) }) : /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { bold: true, color: "cyan", children: current2?.header || "\uC9C8\uBB38 / Question" }),
-    /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { wrap: "wrap", children: current2?.question ?? "" }),
-    /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Box_default, { marginTop: 1, flexDirection: "column", children: /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+    }) }) : /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { bold: true, color: "cyan", children: current2?.header || "\uC9C8\uBB38 / Question" }),
+    /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { wrap: "wrap", children: current2?.question ?? "" }),
+    /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Box_default, { marginTop: 1, flexDirection: "column", children: /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
       ChoiceList,
       {
         options: options.map((option) => ({
@@ -39658,24 +40054,24 @@ function QuestionPrompt({
         hint: null
       }
     ) }),
-    typing ? /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(Box_default, { marginTop: 1, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { color: "cyan", children: "\u203A " }),
-      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { children: secret ? maskSecret(draft) : draft }),
-      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { inverse: true, children: " " }),
-      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { dimColor: true, children: secret ? "  hidden \xB7 Enter to keep \xB7 Esc to go back" : "  Enter to keep \xB7 Esc to go back" })
-    ] }) : /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(import_jsx_runtime14.Fragment, { children: [
-      questions.length > 1 && last ? /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Box_default, { marginTop: 1, flexDirection: "column", children: questions.map((question, index) => {
+    typing ? /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(Box_default, { marginTop: 1, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { color: "cyan", children: "\u203A " }),
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { children: secret ? maskSecret(draft) : draft }),
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { inverse: true, children: " " }),
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { dimColor: true, children: secret ? "  hidden \xB7 Enter to keep \xB7 Esc to go back" : "  Enter to keep \xB7 Esc to go back" })
+    ] }) : /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(import_jsx_runtime15.Fragment, { children: [
+      questions.length > 1 && last ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Box_default, { marginTop: 1, flexDirection: "column", children: questions.map((question, index) => {
         const entry = answers[index] ?? blank();
         const plain = entry.selected.length > 0 ? entry.selected.join(", ") : entry.text ?? "";
         const said = question.secret === true && entry.selected.length === 0 ? maskSecret(entry.text) : plain;
-        return /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(Box_default, { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { dimColor: true, children: `  ${question.header || `Q${index + 1}`}: ` }),
-          said ? /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { color: "green", children: said }) : /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { color: "yellow", children: NOT_ANSWERED })
+        return /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(Box_default, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { dimColor: true, children: `  ${question.header || `Q${index + 1}`}: ` }),
+          said ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { color: "green", children: said }) : /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { color: "yellow", children: NOT_ANSWERED })
         ] }, `${request.requestId}-r${index}`);
       }) }) : null,
-      /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(Box_default, { marginTop: questions.length > 1 && last ? 0 : 1, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { color: cursor === confirmRow ? "cyan" : void 0, bold: cursor === confirmRow, children: cursor === confirmRow ? "\u276F " : "  " }),
-        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(Box_default, { marginTop: questions.length > 1 && last ? 0 : 1, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { color: cursor === confirmRow ? "cyan" : void 0, bold: cursor === confirmRow, children: cursor === confirmRow ? "\u276F " : "  " }),
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
           Text,
           {
             inverse: cursor === confirmRow,
@@ -39685,16 +40081,16 @@ function QuestionPrompt({
             children: ` ${confirmText} `
           }
         ),
-        questions.length > 1 ? /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { dimColor: true, children: `  ${questions.filter((_, index) => answeredAt(index)).length}/${questions.length}` }) : null
+        questions.length > 1 ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { dimColor: true, children: `  ${questions.filter((_, index) => answeredAt(index)).length}/${questions.length}` }) : null
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Text, { dimColor: true, children: hint })
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { dimColor: true, children: hint })
     ] })
   ] });
 }
 
 // src/components/ApprovalQueue.tsx
 var import_react34 = __toESM(require_react(), 1);
-var import_jsx_runtime15 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime16 = __toESM(require_jsx_runtime(), 1);
 function summarise(request) {
   const command = (request.args ?? {})["command"];
   if (typeof command === "string" && command.length > 0) return command;
@@ -39734,7 +40130,7 @@ function ApprovalQueue({
     isActive: isActive && requests.length > 0
   });
   if (requests.length === 0) return null;
-  return /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(
+  return /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(
     Box_default,
     {
       flexDirection: "column",
@@ -39742,12 +40138,12 @@ function ApprovalQueue({
       borderColor: isActive ? "yellow" : "gray",
       paddingX: 1,
       children: [
-        /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(Text, { bold: true, dimColor: !isActive, color: isActive ? "yellow" : void 0, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(Text, { bold: true, dimColor: !isActive, color: isActive ? "yellow" : void 0, children: [
           "Unattended approvals (",
           requests.length,
           ")"
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
           ChoiceList,
           {
             options: requests.map((request) => ({
@@ -39758,10 +40154,10 @@ function ApprovalQueue({
             hint: null
           }
         ),
-        isActive ? /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(import_jsx_runtime15.Fragment, { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(Box_default, { marginTop: 1, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { children: "scope: " }),
-            APPROVAL_SCOPES.map((scope, index) => /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
+        isActive ? /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(import_jsx_runtime16.Fragment, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(Box_default, { marginTop: 1, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { children: "scope: " }),
+            APPROVAL_SCOPES.map((scope, index) => /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
               Text,
               {
                 inverse: index === scopeIndex,
@@ -39772,8 +40168,8 @@ function ApprovalQueue({
               scope
             ))
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { dimColor: true, children: "\u2191\u2193 move \xB7 1-9 pick \xB7 \u2190\u2192 scope \xB7 a allow \xB7 d deny \xB7 Esc or Ctrl+R leave" })
-        ] }) : /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { dimColor: true, children: "Ctrl+R to answer them here." })
+          /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { dimColor: true, children: "\u2191\u2193 move \xB7 1-9 pick \xB7 \u2190\u2192 scope \xB7 a allow \xB7 d deny \xB7 Esc or Ctrl+R leave" })
+        ] }) : /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { dimColor: true, children: "Ctrl+R to answer them here." })
       ]
     }
   );
@@ -39781,11 +40177,11 @@ function ApprovalQueue({
 
 // src/components/StatusHud.tsx
 var import_react35 = __toESM(require_react(), 1);
-var import_jsx_runtime16 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime17 = __toESM(require_jsx_runtime(), 1);
 function StatusHudInner({ rows, width }) {
-  return /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Box_default, { flexDirection: "column", flexShrink: 0, width, children: rows.map((segments, rowIndex) => /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Box_default, { width, flexWrap: "nowrap", overflow: "hidden", children: segments.map((segment, index) => /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(import_react35.default.Fragment, { children: [
-    index > 0 ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { dimColor: true, children: SEPARATOR }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(Box_default, { flexDirection: "column", flexShrink: 0, width, children: rows.map((segments, rowIndex) => /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(Box_default, { width, flexWrap: "nowrap", overflow: "hidden", children: segments.map((segment, index) => /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(import_react35.default.Fragment, { children: [
+    index > 0 ? /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(Text, { dimColor: true, children: SEPARATOR }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
       Text,
       {
         color: segment.color,
@@ -39801,42 +40197,42 @@ var StatusHud = import_react35.default.memo(StatusHudInner);
 
 // src/components/AgentPanel.tsx
 var import_react36 = __toESM(require_react(), 1);
-var import_jsx_runtime17 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime18 = __toESM(require_jsx_runtime(), 1);
 function AgentPanelInner({
   rows,
   width,
   focusedIndex = null
 }) {
   if (rows.length === 0) return null;
-  return /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(Box_default, { flexDirection: "column", flexShrink: 0, width, children: rows.map((row, index) => {
+  return /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Box_default, { flexDirection: "column", flexShrink: 0, width, children: rows.map((row, index) => {
     const focused = index === focusedIndex;
     const line = layoutAgentRow(row, width - 1);
-    return /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(Box_default, { width, flexWrap: "nowrap", overflow: "hidden", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(Text, { color: rowColor(row), dimColor: row.dim && !rowColor(row), inverse: focused, bold: focused, children: line.left }),
-      /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(Text, { dimColor: !focused, inverse: focused, wrap: "truncate-end", children: line.task }),
-      /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(Text, { dimColor: true, inverse: focused, children: line.gap }),
-      /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(Text, { dimColor: row.dim && !focused, color: row.color, inverse: focused, children: line.status })
+    return /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)(Box_default, { width, flexWrap: "nowrap", overflow: "hidden", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Text, { color: rowColor(row), dimColor: row.dim && !rowColor(row), inverse: focused, bold: focused, children: line.left }),
+      /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Text, { dimColor: !focused, inverse: focused, wrap: "truncate-end", children: line.task }),
+      /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Text, { dimColor: true, inverse: focused, children: line.gap }),
+      /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Text, { dimColor: row.dim && !focused, color: row.color, inverse: focused, children: line.status })
     ] }, row.key);
   }) });
 }
 var AgentPanel = import_react36.default.memo(AgentPanelInner);
 
 // src/components/AttachmentChips.tsx
-var import_jsx_runtime18 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime19 = __toESM(require_jsx_runtime(), 1);
 function AttachmentChips({
   attachments,
   width
 }) {
   if (attachments.length === 0) return null;
-  return /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)(Box_default, { width, flexWrap: "wrap", children: [
-    attachments.map((attachment) => /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Text, { color: "cyan", children: `[${chipLabel(attachment)}] ` }, attachment.id)),
-    /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Text, { dimColor: true, children: "(backspace removes the last \xB7 Ctrl+X clears)" })
+  return /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Box_default, { width, flexWrap: "wrap", children: [
+    attachments.map((attachment) => /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { color: "cyan", children: `[${chipLabel(attachment)}] ` }, attachment.id)),
+    /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { dimColor: true, children: "(backspace removes the last \xB7 Ctrl+X clears)" })
   ] });
 }
 
 // src/components/ModelPicker.tsx
 var import_react37 = __toESM(require_react(), 1);
-var import_jsx_runtime19 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime20 = __toESM(require_jsx_runtime(), 1);
 var MODEL_PICKER_ROWS = 8;
 function ModelPicker({
   options,
@@ -39862,12 +40258,12 @@ function ModelPicker({
     },
     isActive
   });
-  return /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Box_default, { flexDirection: "column", width, borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { bold: true, color: "cyan", children: "Model" }),
-    options.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(import_jsx_runtime19.Fragment, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { dimColor: true, children: "no profiles configured and the vendor listed nothing" }),
-      /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { dimColor: true, children: choiceHint({ enter: "pick", digits: false }) })
-    ] }) : /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Box_default, { flexDirection: "column", width, borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { bold: true, color: "cyan", children: "Model" }),
+    options.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(import_jsx_runtime20.Fragment, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { dimColor: true, children: "no profiles configured and the vendor listed nothing" }),
+      /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { dimColor: true, children: choiceHint({ enter: "pick", digits: false }) })
+    ] }) : /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(
       ChoiceList,
       {
         options: options.map((option) => ({
@@ -39957,7 +40353,7 @@ function isValidSkillName(name) {
 }
 
 // src/components/SkillCreateForm.tsx
-var import_jsx_runtime20 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime21 = __toESM(require_jsx_runtime(), 1);
 var SCOPES2 = [
   { value: "project", label: "this project", hint: ".snowpea/skills \u2014 travels with the repo" },
   { value: "global", label: "everywhere", hint: "your home \u2014 available in every project" }
@@ -40021,21 +40417,21 @@ function SkillCreateForm({
     },
     { isActive: isActive && step !== "scope" }
   );
-  return /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Box_default, { flexDirection: "column", width, borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { bold: true, color: "cyan", children: "New skill" }),
-    /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Text, { dimColor: step !== "name", children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)(Box_default, { flexDirection: "column", width, borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { bold: true, color: "cyan", children: "New skill" }),
+    /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)(Text, { dimColor: step !== "name", children: [
       "  name         ",
-      step === "name" ? /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { children: name }) : /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { color: "green", children: name }),
-      step === "name" ? /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { inverse: true, children: " " }) : null
+      step === "name" ? /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { children: name }) : /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { color: "green", children: name }),
+      step === "name" ? /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { inverse: true, children: " " }) : null
     ] }),
-    step === "name" ? null : /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(Text, { dimColor: step !== "description", children: [
+    step === "name" ? null : /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)(Text, { dimColor: step !== "description", children: [
       "  description  ",
-      step === "description" ? /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(import_jsx_runtime20.Fragment, { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { children: description }),
-        /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { inverse: true, children: " " })
-      ] }) : /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { color: "green", children: description })
+      step === "description" ? /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)(import_jsx_runtime21.Fragment, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { children: description }),
+        /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { inverse: true, children: " " })
+      ] }) : /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { color: "green", children: description })
     ] }),
-    step === "scope" ? /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(
+    step === "scope" ? /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(
       ChoiceList,
       {
         options: SCOPES2.map((entry) => ({ label: entry.label, description: entry.hint })),
@@ -40044,8 +40440,8 @@ function SkillCreateForm({
         hint: null
       }
     ) : null,
-    error ? /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { color: "red", children: `  ${error}` }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(Text, { dimColor: true, children: step === "scope" ? choiceHint({ enter: "create" }) : "Enter next \xB7 Esc cancel" })
+    error ? /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { color: "red", children: `  ${error}` }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { dimColor: true, children: step === "scope" ? choiceHint({ enter: "create" }) : "Enter next \xB7 Esc cancel" })
   ] });
 }
 
@@ -40069,7 +40465,7 @@ var import_react40 = __toESM(require_react(), 1);
 
 // src/components/ToolChecklist.tsx
 var import_react39 = __toESM(require_react(), 1);
-var import_jsx_runtime21 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime22 = __toESM(require_jsx_runtime(), 1);
 var CHECKLIST_ROWS = 8;
 function ToolChecklist({
   title,
@@ -40119,12 +40515,12 @@ function ToolChecklist({
     enter: "save",
     extra: ["a all", "n none"]
   });
-  return /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)(Box_default, { flexDirection: "column", width, borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { bold: true, color: "cyan", children: title }),
-    tools2.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)(import_jsx_runtime21.Fragment, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { dimColor: true, children: "this server reported no tools" }),
-      /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { dimColor: true, children: `0/0 chosen \xB7 ${hint}` })
-    ] }) : /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)(Box_default, { flexDirection: "column", width, borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { bold: true, color: "cyan", children: title }),
+    tools2.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)(import_jsx_runtime22.Fragment, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { dimColor: true, children: "this server reported no tools" }),
+      /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { dimColor: true, children: `0/0 chosen \xB7 ${hint}` })
+    ] }) : /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
       ChoiceList,
       {
         options: tools2.map((tool) => ({ label: tool.name, description: tool.description })),
@@ -40143,7 +40539,7 @@ function ToolChecklist({
 }
 
 // src/components/McpAddForm.tsx
-var import_jsx_runtime22 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime23 = __toESM(require_jsx_runtime(), 1);
 var TRANSPORTS = [
   { value: "stdio", label: "Command", hint: "a program this machine runs, e.g. npx \u2026" },
   { value: "url", label: "URL", hint: "a remote server, http or sse" }
@@ -40326,7 +40722,7 @@ function McpAddForm({
     { isActive: isActive && step !== "tools" && !onList }
   );
   if (step === "tools") {
-    return /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
+    return /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(
       ToolChecklist,
       {
         width,
@@ -40341,16 +40737,16 @@ function McpAddForm({
       }
     );
   }
-  const field = (label, value, active) => /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)(Text, { dimColor: !active, wrap: "truncate-end", children: [
+  const field = (label, value, active) => /* @__PURE__ */ (0, import_jsx_runtime23.jsxs)(Text, { dimColor: !active, wrap: "truncate-end", children: [
     `  ${label.padEnd(11)}`,
     value,
-    active ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { inverse: true, children: " " }) : null
+    active ? /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { inverse: true, children: " " }) : null
   ] });
-  const done = (value) => /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { color: "green", children: value });
-  return /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)(Box_default, { flexDirection: "column", width, borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { bold: true, color: "cyan", children: "New MCP server" }),
-    field("name", step === "name" ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { children: typed }) : done(draft.name), step === "name"),
-    step === "transport" ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
+  const done = (value) => /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { color: "green", children: value });
+  return /* @__PURE__ */ (0, import_jsx_runtime23.jsxs)(Box_default, { flexDirection: "column", width, borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { bold: true, color: "cyan", children: "New MCP server" }),
+    field("name", step === "name" ? /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { children: typed }) : done(draft.name), step === "name"),
+    step === "transport" ? /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(
       ChoiceList,
       {
         options: TRANSPORTS.map((entry) => ({ label: entry.label, description: entry.hint })),
@@ -40361,16 +40757,16 @@ function McpAddForm({
     ) : step === "name" ? null : field("transport", done(isUrl ? "URL" : "Command"), false),
     step === "command" || !isUrl && draft.commandLine && step !== "name" && step !== "transport" ? field(
       "command",
-      step === "command" ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { children: typed }) : done(draft.commandLine),
+      step === "command" ? /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { children: typed }) : done(draft.commandLine),
       step === "command"
     ) : null,
-    step === "url" || isUrl && draft.url && step !== "name" && step !== "transport" ? field("url", step === "url" ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { children: typed }) : done(draft.url), step === "url") : null,
-    collected.map((entry) => /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)(Text, { dimColor: true, wrap: "truncate-end", children: [
+    step === "url" || isUrl && draft.url && step !== "name" && step !== "transport" ? field("url", step === "url" ? /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { children: typed }) : done(draft.url), step === "url") : null,
+    collected.map((entry) => /* @__PURE__ */ (0, import_jsx_runtime23.jsxs)(Text, { dimColor: true, wrap: "truncate-end", children: [
       `  ${varLabel.padEnd(11)}`,
-      /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { color: "green", children: maskAssignment(entry.key) })
+      /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { color: "green", children: maskAssignment(entry.key) })
     ] }, `${varLabel}-${entry.key}`)),
-    step === "vars" ? field(varLabel, /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { children: typed }), true) : null,
-    step === "scope" ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
+    step === "vars" ? field(varLabel, /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { children: typed }), true) : null,
+    step === "scope" ? /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(
       ChoiceList,
       {
         options: SCOPES3.map((entry) => ({ label: entry.label, description: entry.hint })),
@@ -40379,11 +40775,11 @@ function McpAddForm({
         hint: null
       }
     ) : null,
-    step === "testing" ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { color: "yellow", children: `  testing ${draft.name}\u2026` }) : null,
-    step === "connected" && probe ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { color: "green", wrap: "truncate-end", children: `  ${probeSummary(probe)}` }) : null,
-    (step === "failed" || step === "unsafe") && probe ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { color: "red", wrap: "truncate-end", children: `  could not start ${draft.name}: ${probe.error ?? "no answer"}` }) : null,
-    step === "unsafe" ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { color: "yellow", wrap: "truncate-end", children: "  this entry failed the safety check; saving it accepts that finding" }) : null,
-    menu.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
+    step === "testing" ? /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { color: "yellow", children: `  testing ${draft.name}\u2026` }) : null,
+    step === "connected" && probe ? /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { color: "green", wrap: "truncate-end", children: `  ${probeSummary(probe)}` }) : null,
+    (step === "failed" || step === "unsafe") && probe ? /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { color: "red", wrap: "truncate-end", children: `  could not start ${draft.name}: ${probe.error ?? "no answer"}` }) : null,
+    step === "unsafe" ? /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { color: "yellow", wrap: "truncate-end", children: "  this entry failed the safety check; saving it accepts that finding" }) : null,
+    menu.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(
       ChoiceList,
       {
         options: menu.map((entry) => ({ label: entry.label, description: entry.hint })),
@@ -40392,14 +40788,14 @@ function McpAddForm({
         hint: null
       }
     ) : null,
-    error ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { color: "red", children: `  ${error}` }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(Text, { dimColor: true, children: step === "testing" ? "probing the server \xB7 Esc cancel" : onList ? choiceHint({ enter: "pick" }) : step === "vars" ? `Enter adds one ${varLabel} \xB7 empty Enter continues \xB7 Esc cancel` : "Enter next \xB7 Esc cancel" })
+    error ? /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { color: "red", children: `  ${error}` }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { dimColor: true, children: step === "testing" ? "probing the server \xB7 Esc cancel" : onList ? choiceHint({ enter: "pick" }) : step === "vars" ? `Enter adds one ${varLabel} \xB7 empty Enter continues \xB7 Esc cancel` : "Enter next \xB7 Esc cancel" })
   ] });
 }
 
 // src/components/McpCatalogPicker.tsx
 var import_react41 = __toESM(require_react(), 1);
-var import_jsx_runtime23 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime24 = __toESM(require_jsx_runtime(), 1);
 var CATALOG_ROWS = 8;
 function McpCatalogPicker({
   entries,
@@ -40422,12 +40818,12 @@ function McpCatalogPicker({
     },
     isActive
   });
-  return /* @__PURE__ */ (0, import_jsx_runtime23.jsxs)(Box_default, { flexDirection: "column", width, borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { bold: true, color: "cyan", children: "MCP catalog" }),
-    entries.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime23.jsxs)(import_jsx_runtime23.Fragment, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { dimColor: true, children: "this daemon ships no presets" }),
-      /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { dimColor: true, children: choiceHint({ enter: "fills the add form", digits: false }) })
-    ] }) : /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime24.jsxs)(Box_default, { flexDirection: "column", width, borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(Text, { bold: true, color: "cyan", children: "MCP catalog" }),
+    entries.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime24.jsxs)(import_jsx_runtime24.Fragment, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(Text, { dimColor: true, children: "this daemon ships no presets" }),
+      /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(Text, { dimColor: true, children: choiceHint({ enter: "fills the add form", digits: false }) })
+    ] }) : /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(
       ChoiceList,
       {
         options: entries.map((entry) => ({
@@ -40445,7 +40841,7 @@ function McpCatalogPicker({
 }
 
 // src/components/QueuedPrompts.tsx
-var import_jsx_runtime24 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime25 = __toESM(require_jsx_runtime(), 1);
 var MAX_QUEUED_ROWS = 3;
 function QueuedPrompts({
   queued,
@@ -40454,15 +40850,15 @@ function QueuedPrompts({
   if (queued.length === 0) return null;
   const shown = queued.slice(0, MAX_QUEUED_ROWS);
   const hidden = queued.length - shown.length;
-  return /* @__PURE__ */ (0, import_jsx_runtime24.jsxs)(Box_default, { flexDirection: "column", width, flexShrink: 0, children: [
-    shown.map((entry, index) => /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `   ${index + 1}. ${clip(entry.text || "(queued prompt)", Math.max(10, width - 8))}` }, entry.turnId)),
-    hidden > 0 ? /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(Text, { dimColor: true, children: `   \u2026 ${hidden} more queued` }) : null
+  return /* @__PURE__ */ (0, import_jsx_runtime25.jsxs)(Box_default, { flexDirection: "column", width, flexShrink: 0, children: [
+    shown.map((entry, index) => /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `   ${index + 1}. ${clip(entry.text || "(queued prompt)", Math.max(10, width - 8))}` }, entry.turnId)),
+    hidden > 0 ? /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(Text, { dimColor: true, children: `   \u2026 ${hidden} more queued` }) : null
   ] });
 }
 
 // src/components/AgentTranscript.tsx
 var import_react42 = __toESM(require_react(), 1);
-var import_jsx_runtime25 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime26 = __toESM(require_jsx_runtime(), 1);
 function AgentTranscriptInner({
   name,
   task,
@@ -40473,7 +40869,7 @@ function AgentTranscriptInner({
   scrollIndicator: scrollIndicator2 = null,
   empty = false
 }) {
-  return /* @__PURE__ */ (0, import_jsx_runtime25.jsxs)(
+  return /* @__PURE__ */ (0, import_jsx_runtime26.jsxs)(
     Box_default,
     {
       flexDirection: "column",
@@ -40483,15 +40879,15 @@ function AgentTranscriptInner({
       paddingX: 1,
       flexShrink: 0,
       children: [
-        /* @__PURE__ */ (0, import_jsx_runtime25.jsxs)(Box_default, { justifyContent: "space-between", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime25.jsxs)(Text, { wrap: "truncate-end", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(Text, { bold: true, color: "cyan", children: `\u25EF ${name}` }),
-            /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(Text, { dimColor: true, children: task ? ` \xB7 ${task}` : "" })
+        /* @__PURE__ */ (0, import_jsx_runtime26.jsxs)(Box_default, { justifyContent: "space-between", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime26.jsxs)(Text, { wrap: "truncate-end", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Text, { bold: true, color: "cyan", children: `\u25EF ${name}` }),
+            /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Text, { dimColor: true, children: task ? ` \xB7 ${task}` : "" })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(Text, { dimColor: true, children: scrollIndicator2 ? `${scrollIndicator2} \xB7 ${status}` : status })
+          /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Text, { dimColor: true, children: scrollIndicator2 ? `${scrollIndicator2} \xB7 ${status}` : status })
         ] }),
-        empty ? /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(Box_default, { height, children: /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(Text, { dimColor: true, children: "waiting for the agent's first output\u2026" }) }) : /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(TranscriptView, { lines, height }),
-        /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(Text, { dimColor: true, children: "\u2191\u2193 PgUp/PgDn scroll \xB7 Esc back to the main transcript" })
+        empty ? /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Box_default, { height, children: /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Text, { dimColor: true, children: "waiting for the agent's first output\u2026" }) }) : /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(TranscriptView, { lines, height }),
+        /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Text, { dimColor: true, children: "\u2191\u2193 PgUp/PgDn scroll \xB7 Esc back to the main transcript" })
       ]
     }
   );
@@ -40499,7 +40895,7 @@ function AgentTranscriptInner({
 var AgentTranscript = import_react42.default.memo(AgentTranscriptInner);
 
 // src/components/SectionRule.tsx
-var import_jsx_runtime26 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime27 = __toESM(require_jsx_runtime(), 1);
 function SectionRule({
   width,
   color,
@@ -40507,11 +40903,11 @@ function SectionRule({
 }) {
   const suffix = label ? ` ${label}` : "";
   const rule = `${"\u2500".repeat(Math.max(1, width - suffix.length))}${suffix}`.slice(0, Math.max(1, width));
-  return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Box_default, { width, flexShrink: 0, overflow: "hidden", children: /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(Text, { color, dimColor: !color, wrap: "truncate-end", children: rule }) });
+  return /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Box_default, { width, flexShrink: 0, overflow: "hidden", children: /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Text, { color, dimColor: !color, wrap: "truncate-end", children: rule }) });
 }
 
 // src/components/LaunchBanner.tsx
-var import_jsx_runtime27 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime28 = __toESM(require_jsx_runtime(), 1);
 var PROMPT_PREVIEW = 60;
 var TIPS = [
   "/help lists every command the daemon offers",
@@ -40542,27 +40938,27 @@ function LaunchBanner({
   const paint = paintProp ?? colorMode(process.env, Boolean(process.stdout?.isTTY));
   const description = "Open-source multi-vendor coding agent and personal AI assistant";
   const meta = [`v${version}`, target, workdir, mode.toUpperCase()].filter(Boolean).join(" \xB7 ");
-  return /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)(Box_default, { flexDirection: "column", width, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Logo, { terminalRows, version, width, big: true, mode: paint }),
-    /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Text, { dimColor: true, children: "\u2500".repeat(Math.max(0, width)) }),
-    /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)(Box_default, { flexDirection: "column", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Text, { wrap: "truncate-end", children: centre(description, width) }),
-      /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: centre(meta, width) })
+  return /* @__PURE__ */ (0, import_jsx_runtime28.jsxs)(Box_default, { flexDirection: "column", width, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(Logo, { terminalRows, version, width, big: true, mode: paint }),
+    /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(Text, { dimColor: true, children: "\u2500".repeat(Math.max(0, width)) }),
+    /* @__PURE__ */ (0, import_jsx_runtime28.jsxs)(Box_default, { flexDirection: "column", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(Text, { wrap: "truncate-end", children: centre(description, width) }),
+      /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: centre(meta, width) })
     ] }),
-    lastSession ? /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)(Box_default, { marginTop: 1, flexDirection: "column", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)(Text, { wrap: "truncate-end", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Text, { color: "cyan", children: "Last session: " }),
-        /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Text, { dimColor: true, children: `${relativeTime(lastSession.at, now)} \xB7 ` }),
-        /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Text, { children: lastSession.firstPrompt ? `"${previewPrompt(lastSession.firstPrompt)}"` : lastSession.sessionId.slice(0, 8) })
+    lastSession ? /* @__PURE__ */ (0, import_jsx_runtime28.jsxs)(Box_default, { marginTop: 1, flexDirection: "column", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime28.jsxs)(Text, { wrap: "truncate-end", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(Text, { color: "cyan", children: "Last session: " }),
+        /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(Text, { dimColor: true, children: `${relativeTime(lastSession.at, now)} \xB7 ` }),
+        /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(Text, { children: lastSession.firstPrompt ? `"${previewPrompt(lastSession.firstPrompt)}"` : lastSession.sessionId.slice(0, 8) })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Text, { dimColor: true, children: "Press R or type /resume to continue it" })
+      /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(Text, { dimColor: true, children: "Press R or type /resume to continue it" })
     ] }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Box_default, { marginTop: 1, marginBottom: 1, flexDirection: "column", children: TIPS.map((tip) => /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `  \xB7 ${tip}` }, tip)) })
+    /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(Box_default, { marginTop: 1, marginBottom: 1, flexDirection: "column", children: TIPS.map((tip) => /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `  \xB7 ${tip}` }, tip)) })
   ] });
 }
 
 // src/components/ShellList.tsx
-var import_jsx_runtime28 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime29 = __toESM(require_jsx_runtime(), 1);
 function runningCalls(calls) {
   const running = calls.filter((call) => call.state === "running");
   return [
@@ -40576,37 +40972,37 @@ function ShellList({
   width
 }) {
   const running = runningCalls(calls);
-  return /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(Box_default, { flexDirection: "column", width, children: running.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime28.jsx)(Text, { dimColor: true, children: "    nothing running" }) : running.map((call) => /* @__PURE__ */ (0, import_jsx_runtime28.jsxs)(Text, { dimColor: true, wrap: "truncate-end", children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(Box_default, { flexDirection: "column", width, children: running.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(Text, { dimColor: true, children: "    nothing running" }) : running.map((call) => /* @__PURE__ */ (0, import_jsx_runtime29.jsxs)(Text, { dimColor: true, wrap: "truncate-end", children: [
     `    \u25E6 ${summarizeCalls([call])}`,
     call.startedAt ? ` \xB7 ${formatDuration(now - call.startedAt)}` : ""
   ] }, call.callId)) });
 }
 
 // src/components/ToolSummary.tsx
-var import_jsx_runtime29 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime30 = __toESM(require_jsx_runtime(), 1);
 var SUMMARY_GLYPH = "\u23FA";
 function ToolSummary({ calls }) {
   if (calls.length === 0) return null;
   const lines = hiddenLines(calls);
-  return /* @__PURE__ */ (0, import_jsx_runtime29.jsxs)(Box_default, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(Text, { color: "green", children: `${SUMMARY_GLYPH} ` }),
-    /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(Text, { children: summarizeCalls(calls) }),
-    lines > 0 ? /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(Text, { dimColor: true, children: ` (${lines} lines)` }) : null
+  return /* @__PURE__ */ (0, import_jsx_runtime30.jsxs)(Box_default, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime30.jsx)(Text, { color: "green", children: `${SUMMARY_GLYPH} ` }),
+    /* @__PURE__ */ (0, import_jsx_runtime30.jsx)(Text, { children: summarizeCalls(calls) }),
+    lines > 0 ? /* @__PURE__ */ (0, import_jsx_runtime30.jsx)(Text, { dimColor: true, children: ` (${lines} lines)` }) : null
   ] });
 }
 
 // src/components/WorkingIndicator.tsx
 var import_react43 = __toESM(require_react(), 1);
-var import_jsx_runtime30 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime31 = __toESM(require_jsx_runtime(), 1);
 function WorkingIndicatorInner({ line }) {
   if (!line) return null;
-  return /* @__PURE__ */ (0, import_jsx_runtime30.jsx)(Box_default, { flexShrink: 0, children: /* @__PURE__ */ (0, import_jsx_runtime30.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: line }) });
+  return /* @__PURE__ */ (0, import_jsx_runtime31.jsx)(Box_default, { flexShrink: 0, children: /* @__PURE__ */ (0, import_jsx_runtime31.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: line }) });
 }
 var WorkingIndicator = import_react43.default.memo(WorkingIndicatorInner);
 
 // src/components/HelpPanel.tsx
 var import_react44 = __toESM(require_react(), 1);
-var import_jsx_runtime31 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime32 = __toESM(require_jsx_runtime(), 1);
 var WORKFLOW_COMMANDS = [
   "ralph",
   "ralplan",
@@ -40621,6 +41017,7 @@ var WORKFLOW_COMMANDS = [
 var KEYS = [
   "Esc / F1 / q / Enter close help \xB7 \u2191\u2193 / PgUp / PgDn scroll",
   "$agent-name task delegates directly to a member of the active team",
+  "@ to reference files \xB7 Tab or Enter completes \xB7 Esc dismisses",
   "Ctrl+C quit \xB7 Esc outside help interrupts the current turn",
   "Ctrl+O expand the newest tool call or diff \xB7 Ctrl+A open the agent panel",
   "\u21E7Tab cycles accept -> auto -> plan \xB7 Ctrl+P toggles plan mode",
@@ -40667,15 +41064,15 @@ function HelpPanel({ commands, runningSubagents = 0, width = 80, height = 20, is
     const step = key.pageDown ? rows : key.pageUp ? -rows : key.downArrow ? 1 : key.upArrow ? -1 : 0;
     if (step) setOffset((current2) => Math.min(maxOffset, Math.max(0, current2 + step)));
   }, { isActive });
-  if (height < 4) return /* @__PURE__ */ (0, import_jsx_runtime31.jsx)(Text, { wrap: "truncate-end", children: "Esc / F1 close help" });
-  return /* @__PURE__ */ (0, import_jsx_runtime31.jsxs)(Box_default, { flexDirection: "column", width, height, borderStyle: "round", borderColor: "cyan", paddingX: 1, overflow: "hidden", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime31.jsx)(TranscriptView, { lines: lines.slice(start, start + rows), height: rows }),
-    /* @__PURE__ */ (0, import_jsx_runtime31.jsx)(Text, { color: "cyan", wrap: "truncate-end", children: `Esc / F1 / q / Enter close \xB7 \u2191\u2193 scroll \xB7 ${start + 1}-${Math.min(start + rows, lines.length)}/${lines.length}` })
+  if (height < 4) return /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(Text, { wrap: "truncate-end", children: "Esc / F1 close help" });
+  return /* @__PURE__ */ (0, import_jsx_runtime32.jsxs)(Box_default, { flexDirection: "column", width, height, borderStyle: "round", borderColor: "cyan", paddingX: 1, overflow: "hidden", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(TranscriptView, { lines: lines.slice(start, start + rows), height: rows }),
+    /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(Text, { color: "cyan", wrap: "truncate-end", children: `Esc / F1 / q / Enter close \xB7 \u2191\u2193 scroll \xB7 ${start + 1}-${Math.min(start + rows, lines.length)}/${lines.length}` })
   ] });
 }
 
 // src/components/UpdateBanner.tsx
-var import_jsx_runtime32 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime33 = __toESM(require_jsx_runtime(), 1);
 var PHASE_COLOR = {
   available: "cyan",
   confirm: "yellow",
@@ -40686,11 +41083,11 @@ var PHASE_COLOR = {
 function UpdateBanner({ update }) {
   const text2 = bannerText(update);
   if (text2 === null) return null;
-  return /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime32.jsx)(Text, { color: PHASE_COLOR[update.phase] ?? "cyan", children: text2 }) });
+  return /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(Text, { color: PHASE_COLOR[update.phase] ?? "cyan", children: text2 }) });
 }
 
 // src/app.tsx
-var import_jsx_runtime33 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime34 = __toESM(require_jsx_runtime(), 1);
 var ENABLE_MOUSE = "\x1B[?1000h\x1B[?1006h";
 var DISABLE_MOUSE = "\x1B[?1000l\x1B[?1006l";
 var UPDATE_OPTIONS = [
@@ -40728,7 +41125,7 @@ function TimelineEntry({
 }) {
   if (item.kind === "message") {
     const message = state.messages.find((m) => m.id === item.id);
-    return message ? /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(
+    return message ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
       MessageView,
       {
         message,
@@ -40740,14 +41137,14 @@ function TimelineEntry({
   }
   if (item.kind === "tool") {
     const call = state.toolCalls.find((c) => c.callId === item.id);
-    return call ? /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(ToolCall, { call, expanded: expandedId === item.id }) : null;
+    return call ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(ToolCall, { call, expanded: expandedId === item.id }) : null;
   }
   if (item.kind === "compaction") {
     const entry = state.compactions.find((c) => c.id === item.id);
-    return entry ? /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(Text, { dimColor: true, children: compactionDivider(entry.before, entry.after, width) }) }) : null;
+    return entry ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { dimColor: true, children: compactionDivider(entry.before, entry.after, width) }) }) : null;
   }
   const diff2 = state.diffs.find((d) => d.id === item.id);
-  return diff2 ? /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(
+  return diff2 ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
     DiffView,
     {
       diff: diff2,
@@ -41290,6 +41687,10 @@ function App2({
       void client.setMode(sessionId, next).catch((error) => dispatch({ type: "error", message: String(error) }));
     },
     [client, sessionId, showToast]
+  );
+  const handleFileComplete = (0, import_react45.useCallback)(
+    (query) => client.fileComplete({ sessionId, query }),
+    [client, sessionId]
   );
   const completions = (0, import_react45.useMemo)(() => {
     if (!draft.startsWith("/")) return [];
@@ -42380,15 +42781,15 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
     setFocus(INPUT_FOCUS);
   }, []);
   const approvalActive = state.pendingApproval !== null;
-  const bottomNode = /* @__PURE__ */ (0, import_jsx_runtime33.jsxs)(import_jsx_runtime33.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(WorkingIndicator, { line: indicatorText }),
-    delegation ? /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(Text, { color: delegation.known ? "magenta" : "yellow", wrap: "truncate-end", children: `[${delegationLabel(delegation)}]` }) : null,
-    skillChip ? /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(Text, { color: "green", wrap: "truncate-end", children: `[run /${skillChip}]` }) : null,
-    skillHint ? /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `${SKILL_HINT_TEXT} \xB7 Esc dismisses` }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(QueuedPrompts, { queued: state.queued, width: contentWidth }),
-    /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(AttachmentChips, { attachments, width: contentWidth }),
-    modeToast && modeToast.length > TOAST_INLINE_MAX ? /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(Text, { color: "cyan", wrap: "truncate-end", children: modeToast }) : null,
-    skillForm ? /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(
+  const bottomNode = /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)(import_jsx_runtime34.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(WorkingIndicator, { line: indicatorText }),
+    delegation ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { color: delegation.known ? "magenta" : "yellow", wrap: "truncate-end", children: `[${delegationLabel(delegation)}]` }) : null,
+    skillChip ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { color: "green", wrap: "truncate-end", children: `[run /${skillChip}]` }) : null,
+    skillHint ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `${SKILL_HINT_TEXT} \xB7 Esc dismisses` }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(QueuedPrompts, { queued: state.queued, width: contentWidth }),
+    /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(AttachmentChips, { attachments, width: contentWidth }),
+    modeToast && modeToast.length > TOAST_INLINE_MAX ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { color: "cyan", wrap: "truncate-end", children: modeToast }) : null,
+    skillForm ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
       SkillCreateForm,
       {
         width: contentWidth,
@@ -42397,7 +42798,7 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
         onSubmit: createSkill
       }
     ) : null,
-    mcpForm ? /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(
+    mcpForm ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
       McpAddForm,
       {
         width: contentWidth,
@@ -42408,7 +42809,7 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
         onSubmit: addMcpServer
       }
     ) : null,
-    mcpCatalog ? /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(
+    mcpCatalog ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
       McpCatalogPicker,
       {
         width: contentWidth,
@@ -42421,7 +42822,7 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
         }
       }
     ) : null,
-    mcpConfigure ? /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(
+    mcpConfigure ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
       ToolChecklist,
       {
         width: contentWidth,
@@ -42433,7 +42834,7 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
         onSubmit: (names) => saveMcpTools(mcpConfigure.name, mcpConfigure.scope, names)
       }
     ) : null,
-    modelPicker ? /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(
+    modelPicker ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
       ModelPicker,
       {
         options: modelPicker,
@@ -42446,7 +42847,7 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
         }
       }
     ) : null,
-    update.phase === "confirm" ? /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(
+    update.phase === "confirm" ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
       ConfirmMenu,
       {
         options: UPDATE_OPTIONS,
@@ -42456,8 +42857,8 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
         isActive: state.pendingApproval === null && state.pendingQuestion === null
       }
     ) : null,
-    state.errors.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(Text, { color: "red", wrap: "truncate-end", children: state.errors[state.errors.length - 1] }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(
+    state.errors.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { color: "red", wrap: "truncate-end", children: state.errors[state.errors.length - 1] }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
       ApprovalQueue,
       {
         requests: state.approvalQueue,
@@ -42466,7 +42867,7 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
         onBlur: () => setQueueFocused(false)
       }
     ),
-    state.pendingQuestion ? /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(QuestionPrompt, { request: state.pendingQuestion, onAnswer: answerQuestion }) : state.pendingApproval ? /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(ApprovalPrompt, { request: state.pendingApproval, onDecide: decideApproval }) : modePicker ? /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(
+    state.pendingQuestion ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(QuestionPrompt, { request: state.pendingQuestion, onAnswer: answerQuestion }) : state.pendingApproval ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(ApprovalPrompt, { request: state.pendingApproval, onDecide: decideApproval }) : modePicker ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
       ConfirmMenu,
       {
         options: ["accept", "auto", "plan"].map((value) => ({ label: `${value} mode`, value })),
@@ -42478,7 +42879,7 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
           if (value) changeMode(value);
         }
       }
-    ) : resumeChoices ? /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(
+    ) : resumeChoices ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
       ConfirmMenu,
       {
         options: [
@@ -42494,7 +42895,7 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
           if (target) resumeSession(target, "main");
         }
       }
-    ) : /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(
+    ) : /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
       Chat,
       {
         onSubmit: submit,
@@ -42521,6 +42922,7 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
         placeholder: state.turnActive ? "Esc stops \xB7 type what to change" : void 0,
         completions,
         agents: completableAgents,
+        onFileComplete: handleFileComplete,
         draftWidth: Math.max(1, contentWidth - 2),
         onChange: (next) => {
           setDraft(next);
@@ -42546,8 +42948,8 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
     ).length,
     agents: state.subagents.filter((agent) => agent.status === "running").length
   });
-  const statusNode = /* @__PURE__ */ (0, import_jsx_runtime33.jsxs)(import_jsx_runtime33.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(
+  const statusNode = /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)(import_jsx_runtime34.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
       Text,
       {
         color: summary.color,
@@ -42557,12 +42959,12 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
         children: `${summary.text}${focus.zone === "footer" ? " \xB7 Enter to choose mode" : ""}`
       }
     ),
-    shellsOpen ? /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(ShellList, { calls: state.toolCalls, now: clock, width: contentWidth }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(SectionRule, { width: contentWidth }),
-    /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(StatusHud, { rows: hudRows, width: contentWidth }),
-    warning ? /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(Text, { color: warning.color, bold: warning.bold, wrap: "truncate-end", children: warning.text }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(SectionRule, { width: contentWidth, label: activeTeam ? `Team: ${activeTeam}` : void 0 }),
-    /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(
+    shellsOpen ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(ShellList, { calls: state.toolCalls, now: clock, width: contentWidth }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(SectionRule, { width: contentWidth }),
+    /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(StatusHud, { rows: hudRows, width: contentWidth }),
+    warning ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { color: warning.color, bold: warning.bold, wrap: "truncate-end", children: warning.text }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(SectionRule, { width: contentWidth, label: activeTeam ? `Team: ${activeTeam}` : void 0 }),
+    /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
       AgentPanel,
       {
         rows: agentRows,
@@ -42570,9 +42972,9 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
         focusedIndex: focus.zone === "agent" ? focus.index : null
       }
     ),
-    /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(Text, { dimColor: true, children: mouseOn ? "\u2191\u2193 select \xB7 click or Enter opens" : "\u2191\u2193 select \xB7 Enter opens \xB7 /mouse enables clicking" })
+    /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { dimColor: true, children: mouseOn ? "\u2191\u2193 select \xB7 click or Enter opens" : "\u2191\u2193 select \xB7 Enter opens \xB7 /mouse enables clicking" })
   ] });
-  const helpNode = showHelp ? /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(
+  const helpNode = showHelp ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
     HelpPanel,
     {
       commands: state.commands,
@@ -42582,9 +42984,9 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
       runningSubagents: state.subagents.filter((agent) => agent.status === "running").length
     }
   ) : null;
-  if (suspended) return /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(Box_default, {});
+  if (suspended) return /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Box_default, {});
   if (fullscreen) {
-    return /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(
+    return /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
       FullscreenLayout,
       {
         rows: layout2.rows,
@@ -42624,14 +43026,14 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
   }
   streamCommittedRef.current = streamCommit.committed;
   const staticItems = staticBlocksRef.current;
-  return /* @__PURE__ */ (0, import_jsx_runtime33.jsxs)(Box_default, { flexDirection: "column", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(Static, { items: staticItems, children: (entry) => /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)(Box_default, { flexDirection: "column", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Static, { items: staticItems, children: (entry) => /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
       Box_default,
       {
         flexDirection: "column",
         paddingX: entry.kind === "launch" ? 0 : 1,
         marginTop: followsTools(staticItems, staticItems.indexOf(entry)) ? 1 : 0,
-        children: entry.kind === "launch" ? /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(
+        children: entry.kind === "launch" ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
           LaunchBanner,
           {
             width: terminal.columns,
@@ -42643,7 +43045,7 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
             model: state.model,
             lastSession
           }
-        ) : entry.kind === "stream-chunk" ? /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(RenderedLines, { lines: entry.lines }) : entry.kind === "tools" ? /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(ToolSummary, { calls: entry.calls }) : entry.kind === "note" ? /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(Text, { color: entry.ok ? "green" : "red", dimColor: true, children: entry.text }) }) : /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(
+        ) : entry.kind === "stream-chunk" ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(RenderedLines, { lines: entry.lines }) : entry.kind === "tools" ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(ToolSummary, { calls: entry.calls }) : entry.kind === "note" ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { color: entry.ok ? "green" : "red", dimColor: true, children: entry.text }) }) : /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
           TimelineEntry,
           {
             state,
@@ -42656,8 +43058,8 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
       },
       entry.key
     ) }),
-    /* @__PURE__ */ (0, import_jsx_runtime33.jsxs)(Box_default, { flexDirection: "column", paddingX: 1, children: [
-      showHelp ? null : openAgent ? /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)(Box_default, { flexDirection: "column", paddingX: 1, children: [
+      showHelp ? null : openAgent ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
         AgentTranscript,
         {
           name: openAgent.name,
@@ -42669,7 +43071,7 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
           scrollIndicator: scrollIndicator(agentViewport),
           empty: agentLines.length === 0
         }
-      ) : live.map((item) => /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(
+      ) : live.map((item) => /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
         TimelineEntry,
         {
           state,
@@ -42681,7 +43083,7 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
         },
         `${item.kind}-${item.id}`
       )),
-      /* @__PURE__ */ (0, import_jsx_runtime33.jsx)(UpdateBanner, { update }),
+      /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(UpdateBanner, { update }),
       helpNode,
       bottomNode,
       statusNode
@@ -43086,6 +43488,9 @@ var TuiClient = class {
   interrupt(sessionId) {
     return this.call("session.interrupt", { sessionId });
   }
+  fileComplete(params) {
+    return this.call("file.complete", params);
+  }
   setMode(sessionId, mode) {
     return this.call("session.setMode", { sessionId, mode });
   }
@@ -43122,7 +43527,7 @@ var TuiClient = class {
 };
 
 // src/index.tsx
-var import_jsx_runtime34 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime35 = __toESM(require_jsx_runtime(), 1);
 var CLIENT_VERSION = TUI_VERSION;
 var MODES = ["plan", "accept", "auto"];
 var BOOLEAN_FLAGS = /* @__PURE__ */ new Set(["fullscreen", "no-fullscreen", "inline"]);
@@ -43314,7 +43719,7 @@ async function main(argv = process.argv.slice(2)) {
   const recordingPath = join2(dir, "tmp", `recording-${Date.now()}.wav`);
   let restart = false;
   const instance = render_default(
-    /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime35.jsx)(
       App2,
       {
         client,

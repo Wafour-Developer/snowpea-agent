@@ -42,6 +42,24 @@ export type ApprovalHandler = (
   request: ApprovalRequestParams,
 ) => Promise<ApprovalResponse>;
 
+export interface FileCompleteParams {
+  limit?: number | null;
+  query?: string;
+  sessionId?: string | null;
+  workdir?: string | null;
+}
+
+export interface FileCompleteEntry {
+  kind: "file" | "dir";
+  path: string;
+  size?: number | null;
+}
+
+export interface FileCompleteResult {
+  entries?: FileCompleteEntry[];
+  truncated?: boolean;
+}
+
 /** Answers the server→client `question.request` the `ask_user` tool raises. */
 export type QuestionHandler = (
   request: QuestionRequestParams,
@@ -263,6 +281,10 @@ export class TuiClient {
 
   interrupt(sessionId: string): Promise<unknown> {
     return this.call("session.interrupt", { sessionId });
+  }
+
+  fileComplete(params: FileCompleteParams): Promise<FileCompleteResult> {
+    return this.call("file.complete", params as Record<string, unknown>);
   }
 
   setMode(sessionId: string, mode: Mode): Promise<{ mode: Mode }> {

@@ -1210,6 +1210,11 @@ export function App({
     [client, sessionId, showToast],
   );
 
+  const handleFileComplete = useCallback(
+    (query: string) => client.fileComplete({ sessionId, query }),
+    [client, sessionId],
+  );
+
   const completions = useMemo(() => {
     if (!draft.startsWith("/")) return [];
     // `/skill` is one command with five jobs, and only its name reaches the
@@ -2822,6 +2827,7 @@ export function App({
           placeholder={state.turnActive ? "Esc stops · type what to change" : undefined}
           completions={completions}
           agents={completableAgents}
+          onFileComplete={handleFileComplete}
           draftWidth={Math.max(1, contentWidth - 2)}
           onChange={(next) => {
             setDraft(next);
