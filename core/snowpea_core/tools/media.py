@@ -119,14 +119,15 @@ async def _forward(ctx: ToolContext, tool_name: str, args: dict[str, Any]) -> To
         return ToolResult(ok=False, error=f"{INACTIVE}: no snowpea-studio configuration")
     server = mcp_client.MANAGER.register(entry)
     try:
-        output = await server.call(FORWARDS[tool_name], args)
+        rendered = await server.call(FORWARDS[tool_name], args)
     except mcp_client.McpError as exc:
         return ToolResult(ok=False, error=str(exc))
     except TimeoutError:
         return ToolResult(ok=False, error=f"{tool_name} timed out")
     except Exception as exc:  # noqa: BLE001 - the studio server can raise anything
         return ToolResult(ok=False, error=f"{type(exc).__name__}: {exc}")
-    return ToolResult(ok=True, output=output)
+    meta = {"images": list(rendered.images)} if rendered.images else None
+    return ToolResult(ok=True, output=rendered.text, meta=meta)
 
 
 def _runner(tool_name: str) -> Any:

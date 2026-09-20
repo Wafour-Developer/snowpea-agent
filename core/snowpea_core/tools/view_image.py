@@ -92,31 +92,113 @@ def build_image_meta(attachment: Attachment, resolved: Path) -> dict[str, Any]:
     return meta
 
 
-def append_view_image_message(session: Any, result: ToolResult) -> None:
-    """After ``view_image``, append the image block the provider will read."""
-    image_meta = (result.meta or {}).get("image")
-    if not isinstance(image_meta, dict):
+def session_can_see_images(core: Any, session: Any) -> bool:
+    """True when the session model may be sent image content."""
+    registry = core.providers
+    vendor = session.provider or registry.default_vendor()
+    model = session.model
+    answer = registry.vision_for(vendor, model)
+    if answer is True:
+        return True
+    if answer is False:
+        return False
+    return registry.is_local_style(vendor)
+
+
+def _image_metas(result: ToolResult) -> list[dict[str, Any]]:
+    meta = result.meta or {}
+    images: list[dict[str, Any]] = []
+    single = meta.get("image")
+    if isinstance(single, dict):
+        images.append(single)
+    many = meta.get("images")
+    if isinstance(many, list):
+        for item in many:
+            if isinstance(item, dict):
+                images.append(item)
+    return images
+
+
+def flush_tool_image_messages(core: Any, session: Any, *, append: bool = True) -> None:
+    """Append one user message for all pending tool images, or clear without appending."""
+    pending = session.pending_tool_images
+    if not pending:
         return
-    path = str(image_meta.get("path") or "").strip()
-    raw_b64 = image_meta.get("bytes_b64")
-    mime = str(image_meta.get("mime") or "")
-    name = Path(path).name if path else "image"
-    if isinstance(raw_b64, str) and raw_b64:
-        attachment = Attachment.from_bytes(name, base64.b64decode(raw_b64), mime or None)
-    elif path:
-        attachment = Attachment.from_path(path, name or None, mime or None)
-    else:
+    if not append or not session_can_see_images(core, session):
+        pending.clear()
         return
-    label = path or name
+    attachments: list[Attachment] = []
+    segments: list[str] = []
+    for source, result in pending:
+        labels: list[str] = []
+        for image_meta in _image_metas(result):
+            path = str(image_meta.get("path") or "").strip()
+            raw_b64 = image_meta.get("bytes_b64")
+            mime = str(image_meta.get("mime") or "")
+            name = str(image_meta.get("name") or (Path(path).name if path else "image"))
+            if isinstance(raw_b64, str) and raw_b64:
+                attachment = Attachment.from_bytes(name, base64.b64decode(raw_b64), mime or None)
+            elif path:
+                attachment = Attachment.from_path(path, name or None, mime or None)
+            else:
+                continue
+            attachments.append(attachment)
+            labels.append(path or name)
+        if labels:
+            segments.append(f"{source}: {', '.join(labels)}")
+    pending.clear()
+    if not attachments:
+        return
+    label = f"(images from {'; '.join(segments)})"
+    session.history.append(
+        ChatMessage(
+            role="user",
+            content=content_parts.history_blocks(label, attachments),
+        )
+    )
+
+
+def append_tool_image_messages(
+    core: Any, session: Any, result: ToolResult, *, source: str = "tool"
+) -> None:
+    """After a tool that carried images, append the blocks the provider will read."""
+    if not session_can_see_images(core, session):
+        return
+    attachments: list[Attachment] = []
+    labels: list[str] = []
+    for image_meta in _image_metas(result):
+        path = str(image_meta.get("path") or "").strip()
+        raw_b64 = image_meta.get("bytes_b64")
+        mime = str(image_meta.get("mime") or "")
+        name = str(image_meta.get("name") or (Path(path).name if path else "image"))
+        if isinstance(raw_b64, str) and raw_b64:
+            attachment = Attachment.from_bytes(name, base64.b64decode(raw_b64), mime or None)
+        elif path:
+            attachment = Attachment.from_path(path, name or None, mime or None)
+        else:
+            continue
+        attachments.append(attachment)
+        labels.append(path or name)
+    if not attachments:
+        return
+    label = ", ".join(labels)
     session.history.append(
         ChatMessage(
             role="user",
             content=content_parts.history_blocks(
-                f"(image from view_image: {label})",
-                [attachment],
+                f"(image from {source}: {label})",
+                attachments,
             ),
         )
     )
+
+
+def append_view_image_message(session: Any, result: ToolResult) -> None:
+    """After ``view_image``, append the image block the provider will read."""
+    core = getattr(session, "core", None)
+    if core is None:
+        return
+    append_tool_image_messages(core, session, result, source="view_image")
 
 
 async def view_image(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
@@ -209,9 +291,12 @@ TOOLS: tuple[Tool, ...] = (
 __all__ = [
     "IMAGE_SUFFIXES",
     "TOOLS",
+    "flush_tool_image_messages",
+    "append_tool_image_messages",
     "append_view_image_message",
     "image_dimensions",
     "resolve_image_path",
     "session_can_see",
+    "session_can_see_images",
     "view_image",
 ]

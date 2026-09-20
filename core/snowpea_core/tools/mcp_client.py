@@ -14,6 +14,8 @@ calls arrive from whichever task is running a turn.
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import contextlib
 import json
 import logging
@@ -23,6 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from snowpea_core.attachments.model import MAX_BYTES
 from snowpea_core.server.protocol import McpState, PermissionTag
 from snowpea_core.tools.registry import Tool, ToolContext, ToolResult
 
@@ -337,7 +340,7 @@ class McpServer:
         finally:
             self._session = None
 
-    async def call(self, tool: str, args: dict[str, Any]) -> str:
+    async def call(self, tool: str, args: dict[str, Any]) -> RenderedMcpContent:
         await self.start()
         session = self._session
         if session is None:
@@ -450,14 +453,50 @@ def _flatten(exc: BaseException) -> str:
     return f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
 
 
-def render_content(result: Any) -> str:
-    """Flatten an MCP ``CallToolResult`` into text the model can read."""
+MAX_MCP_IMAGES = 4
+
+
+@dataclass(frozen=True)
+class RenderedMcpContent:
+    """Text plus any image blocks carried out of an MCP tool result."""
+
+    text: str
+    images: tuple[dict[str, Any], ...] = ()
+
+
+def _decode_image_block(block: Any) -> dict[str, Any] | None:
+    data = getattr(block, "data", None)
+    if data is None:
+        return None
+    mime = str(getattr(block, "mimeType", None) or "image/png")
+    if not mime.startswith("image/"):
+        return None
+    if isinstance(data, str):
+        try:
+            raw = base64.b64decode(data, validate=False)
+        except (binascii.Error, ValueError):
+            return None
+    else:
+        raw = bytes(data)
+    if len(raw) > MAX_BYTES:
+        return None
+    name = str(getattr(block, "name", None) or getattr(block, "uri", None) or "image")
+    return {"mime": mime, "bytes_b64": base64.b64encode(raw).decode("ascii"), "name": name}
+
+
+def render_content(result: Any) -> RenderedMcpContent:
+    """Flatten an MCP ``CallToolResult`` into text and optional image metadata."""
     blocks = getattr(result, "content", None) or []
     parts: list[str] = []
+    images: list[dict[str, Any]] = []
     for block in blocks:
         text = getattr(block, "text", None)
         if text:
             parts.append(str(text))
+            continue
+        image_meta = _decode_image_block(block)
+        if image_meta is not None and len(images) < MAX_MCP_IMAGES:
+            images.append(image_meta)
             continue
         data = getattr(block, "data", None)
         uri = getattr(block, "uri", None)
@@ -467,11 +506,16 @@ def render_content(result: Any) -> str:
             kind = getattr(block, "mimeType", "binary")
             parts.append(f"[{kind} content, {len(str(data))} bytes]")
     structured = getattr(result, "structuredContent", None)
-    if not parts and structured is not None:
+    if not parts and not images and structured is not None:
         parts.append(json.dumps(structured, ensure_ascii=False, indent=2))
     if getattr(result, "isError", False):
         raise McpError("\n".join(parts) or "the MCP tool reported an error")
-    return "\n".join(parts)
+    if images:
+        summary = f"{len(images)} image(s) attached"
+        text = f"{summary}\n" + "\n".join(parts) if parts else summary
+    else:
+        text = "\n".join(parts)
+    return RenderedMcpContent(text=text, images=tuple(images))
 
 
 # ---------------------------------------------------------------------------
@@ -562,14 +606,15 @@ def _make_runner(server_name: str, tool: str) -> Any:
         if server is None:
             return ToolResult(ok=False, error=f"mcp server {server_name} is no longer configured")
         try:
-            output = await server.call(tool, args)
+            rendered = await server.call(tool, args)
         except McpError as exc:
             return ToolResult(ok=False, error=str(exc))
         except TimeoutError:
             return ToolResult(ok=False, error=f"{server_name}.{tool} timed out")
         except Exception as exc:  # noqa: BLE001 - a server can raise anything
             return ToolResult(ok=False, error=f"{type(exc).__name__}: {exc}")
-        return ToolResult(ok=True, output=output)
+        meta = {"images": list(rendered.images)} if rendered.images else None
+        return ToolResult(ok=True, output=rendered.text, meta=meta)
 
     return run
 
@@ -748,6 +793,7 @@ __all__ = [
     "drop_tools",
     "permission_for",
     "register_config",
+    "RenderedMcpContent",
     "render_content",
     "render_listing",
     "sync_tools",

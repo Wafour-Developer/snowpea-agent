@@ -173,5 +173,5 @@ async def test_loop_appends_image_user_message_before_next_provider_request(
             isinstance(block, dict) and block.get("type") == "image" for block in blocks
         ):
             saw_image = True
-            assert "(image from view_image: " in str(blocks[0].get("text", ""))
+            assert "(images from view_image: " in str(blocks[0].get("text", ""))
     assert saw_image
