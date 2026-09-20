@@ -1153,6 +1153,50 @@ def test_configured_vendors_render_as_filled_circles() -> None:
     assert "[configured]" not in rendered
 
 
+def test_first_run_model_setup_connects_every_configured_vendor(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The wizard registers every chosen vendor/model, not a vendor allowlist."""
+    models = {
+        "openai": "gpt-5",
+        "anthropic": "claude-sonnet-4-5",
+        "gemini": "gemini-2.5-pro",
+        "xai": "grok-4",
+        "minimax": "MiniMax-M2.1",
+        "deepseek": "deepseek-reasoner",
+    }
+    pending = iter(["anthropic", "gemini", "xai", "minimax", "deepseek", None])
+
+    def pick(title: str, *_args: Any, **_kwargs: Any) -> str | None:
+        if title == "add another model":
+            return next(pending)
+        if title == "default model":
+            return "deepseek:deepseek-reasoner"
+        if title == "assign model to agent":
+            return None
+        return None
+
+    def credentials(state: WizardState, **_kwargs: Any) -> None:
+        state.api_key = f"{state.vendor}-key"
+
+    def choose_model(state: WizardState, **_kwargs: Any) -> None:
+        state.model = models[state.vendor or ""]
+
+    monkeypatch.setattr(ui, "is_interactive", lambda: True)
+    monkeypatch.setattr(wizard, "_menu_pick", pick)
+    monkeypatch.setattr(wizard, "_ask_for_key", credentials)
+    monkeypatch.setattr(wizard, "_ask_for_model", choose_model)
+
+    state = WizardState.from_settings(Settings())
+    state.select_vendor("openai")
+    state.api_key = "openai-key"
+    state.model = models["openai"]
+    wizard._configure_models(state, interactive=True, console=None, home=tmp_path)  # noqa: SLF001
+
+    assert set(state.model_profiles) == {f"{vendor}:{model}" for vendor, model in models.items()}
+    assert state.default_model == "deepseek:deepseek-reasoner"
+
+
 def test_vendor_menu_rows_carry_each_tag_once() -> None:
     state = WizardState.from_settings(Settings())
     state.select_vendor("local")

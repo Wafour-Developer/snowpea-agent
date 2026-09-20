@@ -291,7 +291,7 @@ export interface AudioInstallParams {
   engine: string;
   /** Install one of the engine's voices rather than the engine itself, e.g. piper's ko_KR-kss-medium. Same staged progress; installing a voice does not select it. */
   voice?: string | null;
-  /** Download first-run assets only (e.g. Supertonic ONNX models) with staged progress. */
+  /** When true, download first-run assets only — Supertonic's ONNX models — with staged progress, without reinstalling the package. */
   warmup?: boolean;
 }
 
@@ -353,12 +353,12 @@ export interface AudioRecordStopResult {
 
 /** `audio.speak` params. Synthesise speech, optionally playing it on the daemon's machine. */
 export interface AudioSpeakParams {
+  /** BCP-47 language for voice selection; defaults to the stt language setting. */
+  language?: string | null;
   /** Play on the daemon's machine instead of returning only a path. */
   play?: boolean;
-  /** Speech backend to use for this call only (preview before pinning). */
+  /** Speech backend to use for this call only. When set, the pinned voice-out engine is not required — settings screens use this to preview before saving. */
   provider?: string | null;
-  /** BCP-47 language for voice selection. */
-  language?: string | null;
   /** Session the audio belongs to. */
   sessionId?: string | null;
   /** What to say. */
@@ -1129,6 +1129,8 @@ export interface ProviderListResult {
     authMethods?: string[];
     /** State of the stored credential: 'unconfigured', 'active', or 'expired' when an OAuth session is past its expiry and needs refreshing or a new login. */
     authStatus?: "unconfigured" | "active" | "expired";
+    /** Configured endpoint for a local-style vendor. Empty for hosted vendors whose URL is fixed by the preset. */
+    baseUrl?: string;
     /** True when credentials are present. */
     configured?: boolean;
     /** True for a named OpenAI-compatible server the user added, not a built-in. */
@@ -1143,12 +1145,10 @@ export interface ProviderListResult {
     models?: string[];
     /** Preset this vendor follows: 'local' for the built-in local vendor and for every named OpenAI-compatible server, otherwise the vendor's own id. */
     preset?: string;
-    /** Configured endpoint for a local-style vendor; empty for hosted vendors. */
-    baseUrl?: string;
-    /** Server software hint for a local-style vendor: vllm, ollama, lmstudio, or generic. */
-    variant?: string;
     /** True when this vendor accepts a reasoning-effort setting. False for a local-style server unless its block sets effort_param: true. */
     supportsEffort?: boolean;
+    /** Server software hint for a local-style vendor: vllm, ollama, lmstudio, or generic. Empty for hosted vendors. */
+    variant?: string;
     /** Vendor key, e.g. 'anthropic'. */
     vendor: string;
   })[];
@@ -1349,6 +1349,8 @@ export interface SessionCompactResult {
 export interface SessionCreateParams {
   /** Named agent whose persona to load. */
   agent?: string | null;
+  /** When true, refuse exec-tagged tools without prompting (headless CI). */
+  denyExec?: boolean | null;
   /** Reasoning effort for this session; null follows the settings. */
   effort?: "low" | "medium" | "high" | "max" | null;
   /** Override for concurrent subagents. */

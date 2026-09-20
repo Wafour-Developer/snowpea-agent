@@ -80,31 +80,43 @@ def _profile_lines(ctx: CommandContext) -> list[str]:
     return [*lines, ""]
 
 
+async def _configured_models(ctx: CommandContext) -> list[tuple[str, str]]:
+    """All selectable models, ordered exactly as the combined listing."""
+    found: list[tuple[str, str]] = []
+    for info in ctx.core.providers.list():
+        if not info.configured:
+            continue
+        try:
+            listing = await ctx.core.providers.model_listing(info.vendor)
+        except ProviderError:
+            continue
+        found.extend((info.vendor, model) for model in listing.models)
+    return found
+
+
 async def _list(ctx: CommandContext, vendor: str) -> None:
     current = _current(ctx, vendor)
     profiles = _profile_lines(ctx)
-    try:
-        listing = await ctx.core.providers.model_listing(vendor)
-    except ProviderError as exc:
-        await ctx.say(
-            "\n".join(profiles) + f"{vendor}: could not list models ({exc}).\n"
-            f"Current model: {current or 'unset'}.\n{USAGE}"
-        )
-        return
-    available = listing.models
-    if not available:
-        # ``listing.error`` is why the live rung came back empty; without it a
-        # dead endpoint and a vendor with nothing to offer read the same.
-        why = f": could not list models ({listing.error})" if listing.error else " listed no models"
-        await ctx.say(
-            "\n".join(profiles) + f"{vendor}{why}.\nCurrent model: {current or 'unset'}.\n{USAGE}"
-        )
-        return
-    # Name the rung: a curated fallback must not pass for the vendor's answer.
-    lines = [*profiles, f"Models for {vendor} ({listing.detail}):"]
-    for index, name in enumerate(available, 1):
-        mark = "*" if name == current else " "
-        lines.append(f" {mark} {index}. {name}")
+    configured = [info for info in ctx.core.providers.list() if info.configured]
+    lines = [*profiles]
+    index = 0
+    for info in configured:
+        try:
+            listing = await ctx.core.providers.model_listing(info.vendor)
+        except ProviderError as exc:
+            lines.append(f"Models for {info.vendor}: unavailable ({exc})")
+            continue
+        if not listing.models and listing.error:
+            lines.append(f"{info.vendor}: could not list models ({listing.error})")
+            continue
+        lines.append(f"Models for {info.vendor} ({listing.detail}):")
+        for name in listing.models:
+            index += 1
+            mark = "*" if info.vendor == vendor and name == current else " "
+            lines.append(f" {mark} {index}. {info.vendor}:{name}")
+        lines.append("")
+    if index == 0:
+        lines.append("No models were found for the configured providers.")
     lines.append("")
     lines.append(USAGE)
     await ctx.say("\n".join(lines))
@@ -137,16 +149,13 @@ async def cmd_model(ctx: CommandContext, args: str) -> None:
         return
 
     if wanted.isdigit():
-        try:
-            available = await ctx.core.providers.list_models(vendor)
-        except ProviderError as exc:
-            await ctx.say(f"{vendor}: could not list models ({exc}).\n{USAGE}")
-            return
+        available = await _configured_models(ctx)
         index = int(wanted)
         if not 1 <= index <= len(available):
-            await ctx.say(f"{vendor} has no model number {index}.\n{USAGE}")
+            await ctx.say(f"there is no configured model number {index}.\n{USAGE}")
             return
-        wanted = available[index - 1]
+        selected_vendor, selected_model = available[index - 1]
+        wanted = f"{selected_vendor}:{selected_model}"
 
     # A profile id / vendor:model / bare vendor goes through the shared pin so
     # it persists and emits the same event as ``session.setModel``.  A plain
@@ -177,8 +186,14 @@ MODEL_COMMAND = Command(
     run=cmd_model,
     args_schema=ARGS_SCHEMA,
 )
+MODELS_COMMAND = Command(
+    name="models",
+    summary="Open the model list for every configured provider.",
+    run=cmd_model,
+    args_schema=ARGS_SCHEMA,
+)
 
-COMMANDS: tuple[Command, ...] = (MODEL_COMMAND,)
+COMMANDS: tuple[Command, ...] = (MODEL_COMMAND, MODELS_COMMAND)
 
 
 __all__ = ["ARGS_SCHEMA", "COMMANDS", "MODEL_COMMAND", "USAGE", "cmd_model"]

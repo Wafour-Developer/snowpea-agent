@@ -63,6 +63,8 @@ export interface ModelPickerInput {
   agentModels?: Record<string, string> | null;
   /** `provider.models` — what the vendor's endpoint reports. */
   discovered?: string[] | null;
+  /** Catalogs from every configured vendor. When present, these replace the legacy single-vendor list. */
+  discoveries?: Array<{ vendor: string; models: string[]; source?: string | null }> | null;
   /**
    * Which rung of the daemon's model chain answered: `live` (the vendor's own
    * endpoint), `settings`, `cache` or `curated`. Anything but `live` is a
@@ -94,6 +96,7 @@ export function modelOptions({
   defaultProfile = null,
   agentModels = null,
   discovered = null,
+  discoveries = null,
   discoveredSource = null,
   current = null,
   vendor = null,
@@ -116,7 +119,10 @@ export function modelOptions({
       named.add(name);
       const model = profile?.model ?? "";
       const provider = profile?.provider ?? "";
-      if (model) covered.add(model);
+      if (model) {
+        covered.add(model);
+        if (provider) covered.add(`${provider}:${model}`);
+      }
       const agents = Object.entries(agentModels ?? {})
         .filter(([, assigned]) => assigned === name)
         .map(([agent]) => agent);
@@ -136,25 +142,34 @@ export function modelOptions({
     }
   }
 
-  const fallbackTag =
-    { settings: "from settings", cache: "cached list", curated: "curated list" }[
-      discoveredSource ?? ""
-    ] ?? "";
-  for (const model of discovered ?? []) {
-    if (covered.has(model)) continue;
-    covered.add(model);
-    options.push({
-      ref: model,
-      label: model,
-      detail: [vendor, fallbackTag].filter(Boolean).join(" · "),
-      origin: "discovered",
-      current: model === current,
-    });
+  const catalogs = discoveries?.length
+    ? discoveries
+    : [{ vendor: vendor ?? "", models: discovered ?? [], source: discoveredSource }];
+  let currentFound = false;
+  for (const catalog of catalogs) {
+    const fallbackTag =
+      { settings: "from settings", cache: "cached list", curated: "curated list" }[
+        catalog.source ?? ""
+      ] ?? "";
+    for (const model of catalog.models) {
+      const key = `${catalog.vendor}:${model}`;
+      const isCurrent = model === current && (!vendor || catalog.vendor === vendor);
+      if (isCurrent) currentFound = true;
+      if (covered.has(key) || (!catalog.vendor && covered.has(model))) continue;
+      covered.add(key);
+      options.push({
+        ref: catalog.vendor ? key : model,
+        label: model,
+        detail: [catalog.vendor, fallbackTag].filter(Boolean).join(" · "),
+        origin: "discovered",
+        current: isCurrent,
+      });
+    }
   }
 
   // The model in use is always offered, even when nothing lists it — a local
   // endpoint that refuses `GET /models` is the common case.
-  if (current && !covered.has(current)) {
+  if (current && !covered.has(current) && !currentFound) {
     options.unshift({
       ref: current,
       label: current,

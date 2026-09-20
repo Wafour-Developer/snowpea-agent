@@ -54,9 +54,27 @@ describe("modelOptions", () => {
     expect(withoutInherit(options).map((option) => option.ref)).toEqual([
       "fast",
       "deep",
-      "gpt-4o-mini",
+      "openai:claude-sonnet-4-5",
+      "openai:gpt-4o-mini",
     ]);
     expect(options[2]).toMatchObject({ origin: "discovered", detail: "openai" });
+  });
+
+  it("lists models from every configured vendor with routable refs", () => {
+    const options = withoutInherit(modelOptions({
+      discoveries: [
+        { vendor: "openai", models: ["gpt-5"], source: "live" },
+        { vendor: "gemini", models: ["gemini-2.5-pro"], source: "curated" },
+      ],
+      vendor: "openai",
+      current: "gpt-5",
+    }));
+    expect(options.map((option) => option.ref)).toEqual([
+      "openai:gpt-5",
+      "gemini:gemini-2.5-pro",
+    ]);
+    expect(options[0].current).toBe(true);
+    expect(options[1].detail).toContain("curated list");
   });
 
   it("offers the model in use even when nothing lists it", () => {

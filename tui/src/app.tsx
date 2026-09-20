@@ -766,7 +766,7 @@ export function App({
               kind: typeof row.kind === "string" ? row.kind : undefined,
               source: typeof row.source === "string" ? row.source : undefined,
             }))
-            .filter((row) => row.name.length > 0),
+            .filter((row: { name: string }) => row.name.length > 0),
         );
       })
       .catch(() => {
@@ -1675,12 +1675,23 @@ export function App({
     const projectSettings = client
       .call("settings.get", { scope: "project", workdir })
       .catch(() => ({ settings: {} }));
-    const discovered = client
-      .call("provider.models", state.provider ? { vendor: state.provider } : {})
-      .catch(() => ({ models: [], current: null }));
+    const discovered = client.call("provider.list", {}).then(async (result) => {
+      const providers = (result?.providers ?? []).filter((provider: any) => provider.configured);
+      const listings = await Promise.all(
+        providers.map((provider: any) =>
+          client.call("provider.models", { vendor: provider.vendor }).catch(() => ({
+            vendor: provider.vendor,
+            models: provider.models ?? [],
+            source: "curated",
+            current: provider.defaultModel ?? null,
+          })),
+        ),
+      );
+      return listings;
+    }).catch(() => []);
 
     void Promise.all([settings, projectSettings, discovered]).then(
-      ([settingsResult, projectResult, modelsResult]) => {
+      ([settingsResult, projectResult, modelListings]) => {
       const document = (settingsResult?.settings ?? {}) as Record<string, any>;
       const project = (projectResult?.settings ?? {}) as Record<string, any>;
       const options = modelOptions({
@@ -1688,10 +1699,9 @@ export function App({
         projectProfiles: project.models?.profiles ?? null,
         defaultProfile: document.models?.default ?? null,
         agentModels: document.agents?.models ?? null,
-        discovered: modelsResult?.models ?? null,
-        discoveredSource: modelsResult?.source ?? null,
-        current: state.model ?? modelsResult?.current ?? null,
-        vendor: state.provider ?? modelsResult?.vendor ?? null,
+        discoveries: modelListings,
+        current: state.model ?? null,
+        vendor: state.provider ?? null,
         effort: state.effort,
         effortSource: state.effortSource,
       });

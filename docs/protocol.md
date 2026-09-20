@@ -347,6 +347,7 @@ Install a local voice engine (or one of its voices) and re-run detection.
 |---|---|---|---|
 | `engine` | `string` | yes | Engine id from the setup catalog: faster-whisper (or local-whisper), piper, edge-tts. A system package (espeak-ng, say, powershell) answers ok=false with a hint instead. |
 | `voice` | `string \| null` | no | Install one of the engine's voices rather than the engine itself, e.g. piper's ko_KR-kss-medium. Same staged progress; installing a voice does not select it. |
+| `warmup` | `boolean` | no | When true, download first-run assets only — Supertonic's ONNX models — with staged progress, without reinstalling the package. |
 
 **Result**
 
@@ -413,7 +414,9 @@ Synthesise speech, optionally playing it on the daemon's machine.
 
 | field | type | required | description |
 |---|---|---|---|
+| `language` | `string \| null` | no | BCP-47 language for voice selection; defaults to the stt language setting. |
 | `play` | `boolean` | no | Play on the daemon's machine instead of returning only a path. |
+| `provider` | `string \| null` | no | Speech backend to use for this call only. When set, the pinned voice-out engine is not required — settings screens use this to preview before saving. |
 | `sessionId` | `string \| null` | no | Session the audio belongs to. |
 | `text` | `string` | yes | What to say. |
 | `voice` | `string \| null` | no | Voice id; defaults to the setting. |
@@ -1057,7 +1060,7 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `providers` | `({ authMethods?: string[]; authStatus?: "unconfigured" \| "active" \| "expired"; configured?: boolean; custom?: boolean; default?: boolean; defaultModel?: string; label?: string; models?: string[]; preset?: string; supportsEffort?: boolean; vendor: string; })[]` | no | Known chat providers. |
+| `providers` | `({ authMethods?: string[]; authStatus?: "unconfigured" \| "active" \| "expired"; baseUrl?: string; configured?: boolean; custom?: boolean; default?: boolean; defaultModel?: string; label?: string; models?: string[]; preset?: string; supportsEffort?: boolean; variant?: string; vendor: string; })[]` | no | Known chat providers. |
 
 ### `provider.loginWeb`
 
@@ -1232,6 +1235,7 @@ Open a session rooted at a working directory.
 | field | type | required | description |
 |---|---|---|---|
 | `agent` | `string \| null` | no | Named agent whose persona to load. |
+| `denyExec` | `boolean \| null` | no | When true, refuse exec-tagged tools without prompting (headless CI). |
 | `effort` | `"low" \| "medium" \| "high" \| "max" \| null` | no | Reasoning effort for this session; null follows the settings. |
 | `maxConcurrent` | `number \| null` | no | Override for concurrent subagents. |
 | `mode` | `"plan" \| "accept" \| "auto" \| null` | no | Starting mode; defaults to the project setting. |

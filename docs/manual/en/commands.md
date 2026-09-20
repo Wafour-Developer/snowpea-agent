@@ -36,7 +36,7 @@ These are answered by the terminal UI itself rather than by the core, so they do
 | Command | What it does |
 |---|---|
 | `/resume` | reopen the session this directory was last in, and replay it |
-| `/model` | pick a model or profile from a list; `/model <ref>` pins this session (persisted, survives a restart); `/model inherit` clears the pin; `/model default <id>` sets `models.default` |
+| `/model`, `/models` | list every supported model from every configured vendor and pick one; `/model <vendor:model>` pins this session (persisted, survives a restart); `/model inherit` clears the pin; `/model default <id>` sets `models.default` |
 | `/effort` | show how hard the model may think and which rule decided it; `/effort low\|medium\|high\|max` pins this session (persisted); `/effort auto` clears the pin. See [Reasoning effort](setup.md#reasoning-effort) |
 | `/attach <path>` | attach a file to the next prompt |
 | `/voice` | arm voice input; `Ctrl+Space` then records |

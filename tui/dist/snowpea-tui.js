@@ -36686,6 +36686,7 @@ function modelOptions({
   defaultProfile = null,
   agentModels = null,
   discovered = null,
+  discoveries = null,
   discoveredSource = null,
   current: current2 = null,
   vendor = null,
@@ -36705,7 +36706,10 @@ function modelOptions({
       named.add(name);
       const model = profile?.model ?? "";
       const provider = profile?.provider ?? "";
-      if (model) covered.add(model);
+      if (model) {
+        covered.add(model);
+        if (provider) covered.add(`${provider}:${model}`);
+      }
       const agents = Object.entries(agentModels ?? {}).filter(([, assigned]) => assigned === name).map(([agent]) => agent);
       const notes = [
         fromProject ? "[project]" : "",
@@ -36722,19 +36726,26 @@ function modelOptions({
       });
     }
   }
-  const fallbackTag = { settings: "from settings", cache: "cached list", curated: "curated list" }[discoveredSource ?? ""] ?? "";
-  for (const model of discovered ?? []) {
-    if (covered.has(model)) continue;
-    covered.add(model);
-    options.push({
-      ref: model,
-      label: model,
-      detail: [vendor, fallbackTag].filter(Boolean).join(" \xB7 "),
-      origin: "discovered",
-      current: model === current2
-    });
+  const catalogs = discoveries?.length ? discoveries : [{ vendor: vendor ?? "", models: discovered ?? [], source: discoveredSource }];
+  let currentFound = false;
+  for (const catalog of catalogs) {
+    const fallbackTag = { settings: "from settings", cache: "cached list", curated: "curated list" }[catalog.source ?? ""] ?? "";
+    for (const model of catalog.models) {
+      const key = `${catalog.vendor}:${model}`;
+      const isCurrent = model === current2 && (!vendor || catalog.vendor === vendor);
+      if (isCurrent) currentFound = true;
+      if (covered.has(key) || !catalog.vendor && covered.has(model)) continue;
+      covered.add(key);
+      options.push({
+        ref: catalog.vendor ? key : model,
+        label: model,
+        detail: [catalog.vendor, fallbackTag].filter(Boolean).join(" \xB7 "),
+        origin: "discovered",
+        current: isCurrent
+      });
+    }
   }
-  if (current2 && !covered.has(current2)) {
+  if (current2 && !covered.has(current2) && !currentFound) {
     options.unshift({
       ref: current2,
       label: current2,
@@ -38444,10 +38455,10 @@ function shadowRow(width) {
 }
 
 // src/layout/palette.ts
-var MINT = { r: 168, g: 240, b: 198 };
-var SNOWPEA = { r: 61, g: 220, b: 132 };
-var TEAL = { r: 30, g: 158, b: 106 };
-var BASIC_RAMP = ["greenBright", "green", "cyan"];
+var LAVENDER = { r: 221, g: 214, b: 254 };
+var VIOLET = { r: 167, g: 139, b: 250 };
+var DEEP_VIOLET = { r: 124, g: 58, b: 237 };
+var BASIC_RAMP = ["magentaBright", "magenta", "blue"];
 function colorMode(env3, isTTY) {
   if (env3.NO_COLOR !== void 0 && env3.NO_COLOR !== "") return "none";
   if (!isTTY) return "none";
@@ -38469,7 +38480,7 @@ function toHex({ r, g, b }) {
 }
 function gradientAt(position) {
   const at = Math.min(1, Math.max(0, position));
-  return at <= 0.5 ? mix(MINT, SNOWPEA, at * 2) : mix(SNOWPEA, TEAL, (at - 0.5) * 2);
+  return at <= 0.5 ? mix(LAVENDER, VIOLET, at * 2) : mix(VIOLET, DEEP_VIOLET, (at - 0.5) * 2);
 }
 function gradientColors(rows, mode) {
   const count2 = Math.max(1, Math.floor(rows));
@@ -38501,7 +38512,7 @@ var WORDMARK = [
 ];
 var SPROUT = "\u{1F331}";
 var TAGLINE = "open-source multi-vendor coding agent \xB7 your own AI assistant";
-var LOGO_COLOR = "green";
+var LOGO_COLOR = "magenta";
 function logoRows(terminalRows) {
   return terminalRows < LOGO_COLLAPSE_ROWS ? LOGO_COLLAPSED_ROWS : LOGO_EXPANDED_ROWS;
 }
@@ -41604,9 +41615,22 @@ function App2({
   const openModelPicker = (0, import_react45.useCallback)(() => {
     const settings = client.call("settings.get", { scope: "global" }).catch(() => ({ settings: {} }));
     const projectSettings = client.call("settings.get", { scope: "project", workdir }).catch(() => ({ settings: {} }));
-    const discovered = client.call("provider.models", state.provider ? { vendor: state.provider } : {}).catch(() => ({ models: [], current: null }));
+    const discovered = client.call("provider.list", {}).then(async (result) => {
+      const providers = (result?.providers ?? []).filter((provider2) => provider2.configured);
+      const listings = await Promise.all(
+        providers.map(
+          (provider2) => client.call("provider.models", { vendor: provider2.vendor }).catch(() => ({
+            vendor: provider2.vendor,
+            models: provider2.models ?? [],
+            source: "curated",
+            current: provider2.defaultModel ?? null
+          }))
+        )
+      );
+      return listings;
+    }).catch(() => []);
     void Promise.all([settings, projectSettings, discovered]).then(
-      ([settingsResult, projectResult, modelsResult]) => {
+      ([settingsResult, projectResult, modelListings]) => {
         const document2 = settingsResult?.settings ?? {};
         const project = projectResult?.settings ?? {};
         const options = modelOptions({
@@ -41614,10 +41638,9 @@ function App2({
           projectProfiles: project.models?.profiles ?? null,
           defaultProfile: document2.models?.default ?? null,
           agentModels: document2.agents?.models ?? null,
-          discovered: modelsResult?.models ?? null,
-          discoveredSource: modelsResult?.source ?? null,
-          current: state.model ?? modelsResult?.current ?? null,
-          vendor: state.provider ?? modelsResult?.vendor ?? null,
+          discoveries: modelListings,
+          current: state.model ?? null,
+          vendor: state.provider ?? null,
           effort: state.effort,
           effortSource: state.effortSource
         });

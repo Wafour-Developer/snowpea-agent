@@ -337,7 +337,7 @@ async def test_model_command_lists_with_the_current_one_marked(
 
     said = "\n".join(_texts(ctx))
     assert MODEL_IDS[0] in said
-    assert f"* 2. {MODEL_IDS[1]}" in said
+    assert f"* 2. local:{MODEL_IDS[1]}" in said
 
 
 async def test_model_command_sets_and_persists(tmp_path: Path, server: FakeServer) -> None:
@@ -360,6 +360,45 @@ async def test_model_command_accepts_a_row_number(tmp_path: Path, server: FakeSe
     assert ctx.session.model == MODEL_IDS[1]
 
 
+async def test_models_lists_and_selects_every_configured_vendor(
+    tmp_path: Path, server: FakeServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The combined picker is data-driven, including MiniMax and DeepSeek."""
+    from types import SimpleNamespace
+
+    registry = _registry(tmp_path, server.base_url)
+    catalogs = {
+        "openai": ["gpt-5"],
+        "anthropic": ["claude-sonnet-4-5"],
+        "gemini": ["gemini-2.5-pro"],
+        "xai": ["grok-4"],
+        "minimax": ["MiniMax-M2.1"],
+        "deepseek": ["deepseek-chat", "deepseek-reasoner"],
+    }
+    monkeypatch.setattr(
+        registry,
+        "list",
+        lambda: [SimpleNamespace(vendor=vendor, configured=True) for vendor in catalogs],
+    )
+
+    async def listing(vendor: str):
+        return SimpleNamespace(models=catalogs[vendor], detail="live account list", error=None)
+
+    monkeypatch.setattr(registry, "model_listing", listing)
+    ctx = _ctx(registry)
+
+    await model_cmd.cmd_model(ctx, "")
+    output = "\n".join(_texts(ctx))
+    for vendor, models in catalogs.items():
+        assert f"Models for {vendor}" in output
+        for model in models:
+            assert f"{vendor}:{model}" in output
+
+    # Sixth in the same displayed ordering is DeepSeek's first model.
+    await model_cmd.cmd_model(ctx, "6")
+    assert (ctx.session.provider, ctx.session.model) == ("deepseek", "deepseek-chat")
+
+
 async def test_model_command_survives_a_down_server(tmp_path: Path) -> None:
     registry = _registry(tmp_path, "http://127.0.0.1:1/v1")
     ctx = _ctx(registry)
@@ -374,6 +413,7 @@ def test_model_command_is_registered() -> None:
 
     registry = register_builtin_commands(CommandRegistry())
     assert registry.get("model") is not None
+    assert registry.get("models") is not None
 
 
 # ---------------------------------------------------------------------------
