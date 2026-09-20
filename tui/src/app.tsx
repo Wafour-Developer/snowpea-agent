@@ -130,6 +130,7 @@ import { RenderedLines } from "./components/RenderedLines.js";
 import { groupCalls, toolKind } from "./layout/summary.js";
 import { agentStatusText, buildAgentRows } from "./layout/agents.js";
 import { compactionDivider, contextWarning, summaryLine } from "./layout/bottom.js";
+import { currentAccent } from "./layout/palette.js";
 import { FullscreenLayout } from "./components/FullscreenLayout.js";
 import { Chat } from "./components/Chat.js";
 import { MessageView } from "./components/MessageStream.js";
@@ -2673,7 +2674,7 @@ export function App({
       ) : null}
 
       {skillChip ? (
-        <Text color="green" wrap="truncate-end">{`[run /${skillChip}]`}</Text>
+        <Text color={currentAccent()} wrap="truncate-end">{`[run /${skillChip}]`}</Text>
       ) : null}
 
       {skillHint ? (
@@ -2862,13 +2863,19 @@ export function App({
   });
   const statusNode = (
     <>
-      <Text
-        color={summary.color}
-        dimColor={summary.dimColor && focus.zone !== "footer"}
-        inverse={focus.zone === "footer"}
-        wrap="truncate-end"
-      >
-        {`${summary.text}${focus.zone === "footer" ? " · Enter to choose mode" : ""}`}
+      <Text inverse={focus.zone === "footer"} wrap="truncate-end">
+        {(summary.segments ?? [{ text: summary.text, color: summary.color, dimColor: summary.dimColor }]).map(
+          (segment, index) => (
+            <Text
+              key={`summary-${index}`}
+              color={segment.color}
+              dimColor={segment.dimColor && focus.zone !== "footer"}
+            >
+              {segment.text}
+            </Text>
+          ),
+        )}
+        {focus.zone === "footer" ? <Text dimColor> · Enter to choose mode</Text> : null}
       </Text>
       {shellsOpen ? <ShellList calls={state.toolCalls} now={clock} width={contentWidth} /> : null}
       <SectionRule width={contentWidth} />
@@ -2995,9 +3002,8 @@ export function App({
               <ToolSummary calls={entry.calls} />
             ) : entry.kind === "note" ? (
               <Box marginBottom={1}>
-                <Text color={entry.ok ? "green" : "red"} dimColor>
-                  {entry.text}
-                </Text>
+                <Text color={entry.ok ? "green" : "red"}>{entry.text[0]}</Text>
+                <Text dimColor>{entry.text.slice(1)}</Text>
               </Box>
             ) : (
               <TimelineEntry

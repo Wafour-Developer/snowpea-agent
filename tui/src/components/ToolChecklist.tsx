@@ -10,6 +10,7 @@
 import React, { useState } from "react";
 import { Box, Text } from "ink";
 
+import { currentAccent } from "../layout/palette.js";
 import { choiceHint, useChoiceKeys } from "../hooks/useChoiceKeys.js";
 import type { McpTool } from "../state/mcp.js";
 import { ChoiceList } from "./ChoiceList.js";
@@ -102,7 +103,7 @@ export function ToolChecklist({
             )
           }
           multi
-          color="green"
+          color={currentAccent()}
           windowSize={CHECKLIST_ROWS}
           descriptionMode="inline"
           hint={`${picked.size}/${tools.length} chosen · ${hint}`}

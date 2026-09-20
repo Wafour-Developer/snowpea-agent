@@ -9,8 +9,6 @@
  * - Optional line range: `@src/a.py:10-40` or `@"path with spaces":10-40`
  */
 
-export const THEME_ACCENT = "cyan";
-
 export interface FileRefToken {
   /** Raw token text as typed (e.g. "@src/a.py", '@"path with spaces"', "@") */
   raw: string;

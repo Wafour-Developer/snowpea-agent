@@ -8,6 +8,7 @@
  */
 
 import { formatTokens } from "./hud.js";
+import { currentAccent } from "./palette.js";
 import type { ContextUsage } from "../state/store.js";
 import type { Mode } from "../rpc/sdk.js";
 
@@ -25,17 +26,30 @@ const MODE_CHIP: Record<Mode, string> = {
   plan: "⏸ plan mode",
 };
 
-const MODE_COLOR: Record<Mode, string> = {
-  auto: "magenta",
-  accept: "green",
-  plan: "cyan",
+function modeColor(mode: Mode): string {
+  if (mode === "plan") return "cyan";
+  if (mode === "accept") return currentAccent();
+  return "yellow";
+}
+
+const MODE_PARTS: Record<Mode, { prefix: string; word: string; suffix: string }> = {
+  auto: { prefix: "⏵⏵ ", word: "auto", suffix: " mode on" },
+  accept: { prefix: "▶ ", word: "accept", suffix: " mode" },
+  plan: { prefix: "⏸ ", word: "plan", suffix: " mode" },
 };
+
+export interface PaintedSegment {
+  text: string;
+  color?: string;
+  dimColor?: boolean;
+}
 
 export interface Painted {
   text: string;
   color?: string;
   dimColor?: boolean;
   bold?: boolean;
+  segments?: PaintedSegment[];
 }
 
 /** How full the window is, as a colour. */
@@ -94,10 +108,18 @@ export interface SummaryLineInput {
 
 /** `⏵⏵ auto mode on · 3 shells · ← 1 agent`. */
 export function summaryLine({ mode, shells, agents }: SummaryLineInput): Painted {
-  const parts = [`${MODE_CHIP[mode]} · ⇧Tab change mode · Ctrl+P plan`];
-  if (shells > 0) parts.push(`${shells} ${shells === 1 ? "shell" : "shells"}`);
-  if (agents > 0) parts.push(`← ${agents} ${agents === 1 ? "agent" : "agents"}`);
-  return { text: parts.join(" · "), color: MODE_COLOR[mode], dimColor: mode === "accept" };
+  const chip = MODE_PARTS[mode];
+  const tail: string[] = [" · ⇧Tab change mode · Ctrl+P plan"];
+  if (shells > 0) tail.push(` · ${shells} ${shells === 1 ? "shell" : "shells"}`);
+  if (agents > 0) tail.push(` · ← ${agents} ${agents === 1 ? "agent" : "agents"}`);
+  const text = `${MODE_CHIP[mode]}${tail.join("")}`;
+  const segments: PaintedSegment[] = [
+    { text: chip.prefix, dimColor: true },
+    { text: chip.word, color: modeColor(mode) },
+    { text: chip.suffix, dimColor: true },
+    { text: tail.join(""), dimColor: true },
+  ];
+  return { text, segments };
 }
 
 /** `— compacted (12.3k → 2.1k tokens) —`, sized to the terminal. */

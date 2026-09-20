@@ -10,6 +10,7 @@
 import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
 
+import { currentAccent } from "../layout/palette.js";
 import { choiceHint, useChoiceKeys } from "../hooks/useChoiceKeys.js";
 import { isValidSkillName, type SkillScope } from "../state/skill-completion.js";
 import { ChoiceList } from "./ChoiceList.js";
@@ -108,7 +109,7 @@ export function SkillCreateForm({
 
       <Text dimColor={step !== "name"}>
         {"  name         "}
-        {step === "name" ? <Text>{name}</Text> : <Text color="green">{name}</Text>}
+        {step === "name" ? <Text>{name}</Text> : <Text color={currentAccent()}>{name}</Text>}
         {step === "name" ? <Text inverse>{" "}</Text> : null}
       </Text>
 
@@ -121,7 +122,7 @@ export function SkillCreateForm({
               <Text inverse>{" "}</Text>
             </>
           ) : (
-            <Text color="green">{description}</Text>
+            <Text color={currentAccent()}>{description}</Text>
           )}
         </Text>
       )}

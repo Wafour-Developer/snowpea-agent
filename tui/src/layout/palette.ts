@@ -91,3 +91,49 @@ export function gradientColors(rows: number, mode: ColorMode): (string | undefin
     toHex(gradientAt(count === 1 ? 0 : row / (count - 1))),
   );
 }
+
+/** Brand accent — the middle violet stop of the wordmark ramp. */
+export function accentColor(mode: ColorMode): string {
+  if (mode === "truecolor") return toHex(VIOLET);
+  if (mode === "basic") return "magentaBright";
+  return "magenta";
+}
+
+/** Dimmer brand accent — the deep violet stop. */
+export function accentDimColor(mode: ColorMode): string {
+  if (mode === "truecolor") return toHex(DEEP_VIOLET);
+  return "magenta";
+}
+
+let testColorMode: ColorMode | null = null;
+let cachedMode: ColorMode | null = null;
+let cachedAccent: string | null = null;
+let cachedAccentDim: string | null = null;
+
+/** Test-only override for `currentAccent` / `currentAccentDim`. */
+export function setColorModeForTests(mode: ColorMode | null): void {
+  testColorMode = mode;
+  cachedMode = null;
+  cachedAccent = null;
+  cachedAccentDim = null;
+}
+
+function resolvedColorMode(): ColorMode {
+  if (testColorMode !== null) return testColorMode;
+  if (cachedMode === null) {
+    cachedMode = colorMode(process.env, Boolean(process.stdout?.isTTY));
+  }
+  return cachedMode;
+}
+
+/** Memoised brand accent for the running process (see `LaunchBanner`). */
+export function currentAccent(): string {
+  if (cachedAccent === null) cachedAccent = accentColor(resolvedColorMode());
+  return cachedAccent;
+}
+
+/** Memoised dim brand accent for the running process. */
+export function currentAccentDim(): string {
+  if (cachedAccentDim === null) cachedAccentDim = accentDimColor(resolvedColorMode());
+  return cachedAccentDim;
+}

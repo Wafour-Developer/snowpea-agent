@@ -9,6 +9,7 @@
  */
 
 import { contextSegment } from "./bottom.js";
+import { currentAccent } from "./palette.js";
 import { lspColor, lspLabel, type LspServer } from "../state/lsp.js";
 import { mcpColor, mcpLabel, type McpServerRow } from "../state/mcp.js";
 import type { ConnectionStatus } from "../rpc/client.js";
@@ -47,11 +48,11 @@ const STATUS_COLOR: Record<ConnectionStatus, string> = {
   closed: "red",
 };
 
-const MODE_COLOR: Record<Mode, string> = {
-  plan: "cyan",
-  accept: "green",
-  auto: "magenta",
-};
+function modeColor(mode: Mode): string {
+  if (mode === "plan") return "cyan";
+  if (mode === "accept") return currentAccent();
+  return "yellow";
+}
 
 /** `~/src/snowpea` — keeps the tail of a long path, which is the useful half. */
 export function shortenPath(path: string, max: number): string {
@@ -202,7 +203,7 @@ export function buildHudSegments(input: HudInput): HudSegment[] {
   segments.push({
     key: "mode",
     text: `Mode: ${input.mode.toUpperCase()}${input.modeHint ? " (⇧Tab)" : ""}`,
-    color: MODE_COLOR[input.mode],
+    color: modeColor(input.mode),
     priority: 2,
   });
 

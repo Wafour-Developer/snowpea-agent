@@ -11,6 +11,7 @@
  */
 
 import { formatTokens } from "./hud.js";
+import { currentAccent } from "./palette.js";
 import { textWidth } from "./text-width.js";
 import { formatDuration } from "../state/working.js";
 import type { State, SubagentEntry, TeamTaskEntry } from "../state/store.js";
@@ -53,14 +54,24 @@ const STATUS_GLYPH: Record<AgentStatus, string> = {
   error: "✗",
 };
 
-const STATUS_COLOR: Record<AgentStatus, string | undefined> = {
-  current: "green",
-  idle: undefined,
-  queued: "yellow",
-  running: "cyan",
-  done: "green",
-  error: "red",
-};
+function statusColor(status: AgentStatus): string | undefined {
+  switch (status) {
+    case "current":
+      return currentAccent();
+    case "idle":
+      return undefined;
+    case "queued":
+      return "yellow";
+    case "running":
+      return "cyan";
+    case "done":
+      return "green";
+    case "error":
+      return "red";
+    default:
+      return undefined;
+  }
+}
 
 export interface AgentRow {
   key: string;
@@ -110,7 +121,7 @@ function subagentRow(
   return {
     key: `agent-${entry.agentId}`,
     glyph: STATUS_GLYPH[status] ?? AGENT_GLYPH,
-    color: STATUS_COLOR[status],
+    color: statusColor(status),
     name: entry.name || "agent",
     // The model's own one-line title beats the brief it wrote for the child:
     // the brief is written for a machine, often in English, and is long.
@@ -205,7 +216,7 @@ export function buildAgentRows({
     {
       key: "current",
       glyph: CURRENT_GLYPH,
-      color: STATUS_COLOR.current,
+      color: statusColor("current"),
       name: currentLabel,
       task: "",
       status: "",

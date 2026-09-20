@@ -13,6 +13,7 @@
 
 import { graphemes, textWidth } from "./text-width.js";
 
+import { currentAccent } from "./palette.js";
 import { diagnosticLineColor } from "../state/lsp.js";
 import type { DiffEntry, Message, State, ToolCallEntry } from "../state/store.js";
 
@@ -36,14 +37,20 @@ const COLLAPSED_ERROR_LINES = 3;
 /** A single diff never gets to push the whole transcript out of the window. */
 const DIFF_LINES = 40;
 
-const ROLE_MARK: Record<Message["role"], Segment> = {
-  user: { text: "› ", color: "green", bold: true },
-  assistant: { text: "◆ ", color: "blue", bold: true },
-  system: { text: "! ", color: "yellow", bold: true },
-  // An aside from the surface itself, e.g. a replayed turn's `✓ Done` line: no
-  // speaker, so no marker and no attention-seeking colour.
-  note: { text: "", dimColor: true },
-};
+function roleMark(role: Message["role"]): Segment {
+  switch (role) {
+    case "user":
+      return { text: "› ", color: currentAccent(), bold: true };
+    case "assistant":
+      return { text: "◆ ", color: currentAccent(), bold: true };
+    case "system":
+      return { text: "! ", color: "yellow", bold: true };
+    // An aside from the surface itself, e.g. a replayed turn's `✓ Done` line: no
+    // speaker, so no marker and no attention-seeking colour.
+    default:
+      return { text: "", dimColor: true };
+  }
+}
 
 const TOOL_MARK: Record<ToolCallEntry["state"], Segment> = {
   running: { text: "◌ ", color: "yellow" },
@@ -244,7 +251,7 @@ export function messageLines(message: Message, width = 80): Line[] {
       if (table) {
         table.lines.forEach((line, row) => out.push({
           ...line,
-          segments: [index === 0 && row === 0 ? ROLE_MARK[message.role] : { text: "  " }, ...line.segments],
+          segments: [index === 0 && row === 0 ? roleMark(message.role) : { text: "  " }, ...line.segments],
         }));
         index = table.end - 1;
         continue;
@@ -265,7 +272,7 @@ export function messageLines(message: Message, width = 80): Line[] {
         segments = [{ text: bullet[1] }, { text: "• ", color: "magenta" }, ...inlineSegments(bullet[2])];
       else segments = inlineSegments(raw);
     }
-    const mark = index === 0 ? ROLE_MARK[message.role] : { text: "  " };
+    const mark = index === 0 ? roleMark(message.role) : { text: "  " };
     out.push({ key, segments: [mark, ...segments] });
   }
 

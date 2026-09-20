@@ -9,6 +9,7 @@
 import React from "react";
 import { Box, Text } from "ink";
 
+import { currentAccentDim } from "../layout/palette.js";
 import { hiddenLines, summarizeCalls } from "../layout/summary.js";
 import type { ToolCallEntry } from "../state/store.js";
 
@@ -20,7 +21,7 @@ export function ToolSummary({ calls }: { calls: ToolCallEntry[] }): React.ReactE
   const lines = hiddenLines(calls);
   return (
     <Box>
-      <Text color="green">{`${SUMMARY_GLYPH} `}</Text>
+      <Text color={currentAccentDim()}>{`${SUMMARY_GLYPH} `}</Text>
       <Text>{summarizeCalls(calls)}</Text>
       {lines > 0 ? <Text dimColor>{` (${lines} lines)`}</Text> : null}
     </Box>

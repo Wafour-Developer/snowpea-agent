@@ -3,7 +3,8 @@ import React from "react";
 import { Box, Text } from "ink";
 import type { Message } from "../state/store.js";
 import { messageLines, wrapLine, type Line, type Segment } from "../layout/transcript.js";
-import { THEME_ACCENT, findAllFileRefs } from "../state/fileRefs.js";
+import { currentAccent } from "../layout/palette.js";
+import { findAllFileRefs } from "../state/fileRefs.js";
 import { RenderedLines } from "./RenderedLines.js";
 
 /** Colorize '@' file references with the theme's accent color. */
@@ -31,7 +32,7 @@ export function colorizeFileRefs(lines: Line[]): Line[] {
         segments.push({
           ...segment,
           text: ref.raw,
-          color: THEME_ACCENT,
+          color: currentAccent(),
         });
         lastIndex = ref.end;
       }

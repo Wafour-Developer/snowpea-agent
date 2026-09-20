@@ -17,6 +17,7 @@
 import React, { useState } from "react";
 import { Box } from "ink";
 
+import { currentAccent } from "../layout/palette.js";
 import { choiceHint, useChoiceKeys } from "../hooks/useChoiceKeys.js";
 import { ChoiceList, type ChoiceOption } from "./ChoiceList.js";
 
@@ -98,7 +99,7 @@ export function ConfirmMenu<T>({
       <ChoiceList
         options={rows}
         selectedIndex={index}
-        color="green"
+        color={currentAccent()}
         hint={choiceHint({ enter: "confirm" })}
       />
     </Box>

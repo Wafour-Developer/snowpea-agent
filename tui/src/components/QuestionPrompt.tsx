@@ -28,6 +28,7 @@
 import React, { useMemo, useState } from "react";
 import { Box, Text, useInput } from "ink";
 
+import { currentAccent } from "../layout/palette.js";
 import { useChoiceKeys } from "../hooks/useChoiceKeys.js";
 import type { QuestionEntry } from "../state/store.js";
 import { ChoiceList } from "./ChoiceList.js";
@@ -305,7 +306,7 @@ export function QuestionPrompt({
                   <Box key={`${request.requestId}-r${index}`}>
                     <Text dimColor>{`  ${question.header || `Q${index + 1}`}: `}</Text>
                     {said ? (
-                      <Text color="green">{said}</Text>
+                      <Text color={currentAccent()}>{said}</Text>
                     ) : (
                       <Text color="yellow">{NOT_ANSWERED}</Text>
                     )}

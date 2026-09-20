@@ -16,6 +16,7 @@
 import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
 
+import { currentAccent } from "../layout/palette.js";
 import { choiceHint, useChoiceKeys } from "../hooks/useChoiceKeys.js";
 
 import {
@@ -311,7 +312,7 @@ export function McpAddForm({
     </Text>
   );
 
-  const done = (value: string): React.ReactElement => <Text color="green">{value}</Text>;
+  const done = (value: string): React.ReactElement => <Text color={currentAccent()}>{value}</Text>;
 
   return (
     <Box flexDirection="column" width={width} borderStyle="round" borderColor="cyan" paddingX={1}>
@@ -347,7 +348,7 @@ export function McpAddForm({
       {collected.map((entry) => (
         <Text key={`${varLabel}-${entry.key}`} dimColor wrap="truncate-end">
           {`  ${varLabel.padEnd(11)}`}
-          <Text color="green">{maskAssignment(entry.key)}</Text>
+          <Text color={currentAccent()}>{maskAssignment(entry.key)}</Text>
         </Text>
       ))}
 

@@ -34830,6 +34830,80 @@ function probeSummary(probe) {
   return `${head}: ${shown}${names.length > 8 ? ", \u2026" : ""}`;
 }
 
+// src/layout/palette.ts
+var LAVENDER = { r: 221, g: 214, b: 254 };
+var VIOLET = { r: 167, g: 139, b: 250 };
+var DEEP_VIOLET = { r: 124, g: 58, b: 237 };
+var BASIC_RAMP = ["magentaBright", "magenta", "blue"];
+function colorMode(env3, isTTY) {
+  if (env3.NO_COLOR !== void 0 && env3.NO_COLOR !== "") return "none";
+  if (!isTTY) return "none";
+  const colorTerm = (env3.COLORTERM ?? "").toLowerCase();
+  if (colorTerm.includes("truecolor") || colorTerm.includes("24bit")) return "truecolor";
+  if ((env3.TERM ?? "").includes("direct")) return "truecolor";
+  return "basic";
+}
+function mix(from, to, amount) {
+  const at = Math.min(1, Math.max(0, amount));
+  return {
+    r: Math.round(from.r + (to.r - from.r) * at),
+    g: Math.round(from.g + (to.g - from.g) * at),
+    b: Math.round(from.b + (to.b - from.b) * at)
+  };
+}
+function toHex({ r, g, b }) {
+  return `#${[r, g, b].map((value) => value.toString(16).padStart(2, "0")).join("")}`;
+}
+function gradientAt(position) {
+  const at = Math.min(1, Math.max(0, position));
+  return at <= 0.5 ? mix(LAVENDER, VIOLET, at * 2) : mix(VIOLET, DEEP_VIOLET, (at - 0.5) * 2);
+}
+function gradientColors(rows, mode) {
+  const count2 = Math.max(1, Math.floor(rows));
+  if (mode === "none") return new Array(count2).fill(void 0);
+  if (mode === "basic") {
+    return Array.from({ length: count2 }, (_, row) => {
+      const index = Math.min(
+        BASIC_RAMP.length - 1,
+        Math.floor(row / Math.max(1, count2 - 1) * BASIC_RAMP.length)
+      );
+      return BASIC_RAMP[index];
+    });
+  }
+  return Array.from(
+    { length: count2 },
+    (_, row) => toHex(gradientAt(count2 === 1 ? 0 : row / (count2 - 1)))
+  );
+}
+function accentColor(mode) {
+  if (mode === "truecolor") return toHex(VIOLET);
+  if (mode === "basic") return "magentaBright";
+  return "magenta";
+}
+function accentDimColor(mode) {
+  if (mode === "truecolor") return toHex(DEEP_VIOLET);
+  return "magenta";
+}
+var testColorMode = null;
+var cachedMode = null;
+var cachedAccent = null;
+var cachedAccentDim = null;
+function resolvedColorMode() {
+  if (testColorMode !== null) return testColorMode;
+  if (cachedMode === null) {
+    cachedMode = colorMode(process.env, Boolean(process.stdout?.isTTY));
+  }
+  return cachedMode;
+}
+function currentAccent() {
+  if (cachedAccent === null) cachedAccent = accentColor(resolvedColorMode());
+  return cachedAccent;
+}
+function currentAccentDim() {
+  if (cachedAccentDim === null) cachedAccentDim = accentDimColor(resolvedColorMode());
+  return cachedAccentDim;
+}
+
 // src/layout/bottom.ts
 var CONTEXT_WARN_PERCENT = 70;
 var CONTEXT_ALERT_PERCENT = 80;
@@ -34839,10 +34913,15 @@ var MODE_CHIP = {
   accept: "\u25B6 accept mode",
   plan: "\u23F8 plan mode"
 };
-var MODE_COLOR = {
-  auto: "magenta",
-  accept: "green",
-  plan: "cyan"
+function modeColor(mode) {
+  if (mode === "plan") return "cyan";
+  if (mode === "accept") return currentAccent();
+  return "yellow";
+}
+var MODE_PARTS = {
+  auto: { prefix: "\u23F5\u23F5 ", word: "auto", suffix: " mode on" },
+  accept: { prefix: "\u25B6 ", word: "accept", suffix: " mode" },
+  plan: { prefix: "\u23F8 ", word: "plan", suffix: " mode" }
 };
 function contextColor(percent) {
   if (percent === null) return void 0;
@@ -34877,10 +34956,18 @@ function contextWarning(context) {
   };
 }
 function summaryLine({ mode, shells, agents }) {
-  const parts = [`${MODE_CHIP[mode]} \xB7 \u21E7Tab change mode \xB7 Ctrl+P plan`];
-  if (shells > 0) parts.push(`${shells} ${shells === 1 ? "shell" : "shells"}`);
-  if (agents > 0) parts.push(`\u2190 ${agents} ${agents === 1 ? "agent" : "agents"}`);
-  return { text: parts.join(" \xB7 "), color: MODE_COLOR[mode], dimColor: mode === "accept" };
+  const chip = MODE_PARTS[mode];
+  const tail = [" \xB7 \u21E7Tab change mode \xB7 Ctrl+P plan"];
+  if (shells > 0) tail.push(` \xB7 ${shells} ${shells === 1 ? "shell" : "shells"}`);
+  if (agents > 0) tail.push(` \xB7 \u2190 ${agents} ${agents === 1 ? "agent" : "agents"}`);
+  const text2 = `${MODE_CHIP[mode]}${tail.join("")}`;
+  const segments = [
+    { text: chip.prefix, dimColor: true },
+    { text: chip.word, color: modeColor(mode) },
+    { text: chip.suffix, dimColor: true },
+    { text: tail.join(""), dimColor: true }
+  ];
+  return { text: text2, segments };
 }
 function compactionDivider(before, after, width) {
   const label = ` compacted (${formatTokens(before)} \u2192 ${formatTokens(after)} tokens) `;
@@ -34961,11 +35048,11 @@ var STATUS_COLOR = {
   reconnecting: "yellow",
   closed: "red"
 };
-var MODE_COLOR2 = {
-  plan: "cyan",
-  accept: "green",
-  auto: "magenta"
-};
+function modeColor2(mode) {
+  if (mode === "plan") return "cyan";
+  if (mode === "accept") return currentAccent();
+  return "yellow";
+}
 function shortenPath(path, max) {
   if (max <= 1 || path.length <= max) return path;
   return `\u2026${path.slice(path.length - (max - 1))}`;
@@ -35028,7 +35115,7 @@ function buildHudSegments(input) {
   segments.push({
     key: "mode",
     text: `Mode: ${input.mode.toUpperCase()}${input.modeHint ? " (\u21E7Tab)" : ""}`,
-    color: MODE_COLOR2[input.mode],
+    color: modeColor2(input.mode),
     priority: 2
   });
   const context = contextSegment(input.context ?? null);
@@ -35112,21 +35199,21 @@ function buildHudSegments(input) {
     segments.push({ key: "command", text: "Esc stops \xB7 type what to change", dimColor: true, priority: 3 });
   }
   let statusText = `\u25CF ${input.status}`;
-  let statusColor = STATUS_COLOR[input.status];
+  let statusColor2 = STATUS_COLOR[input.status];
   if (input.daemonGone) {
     statusText = "daemon is not running \u2014 press R to start it";
-    statusColor = "red";
+    statusColor2 = "red";
   } else if (input.status === "reconnecting") {
     statusText = typeof input.reconnectAttempt === "number" && input.reconnectAttempt > 0 ? `\u27F3 reconnecting\u2026 (${input.reconnectAttempt})` : "\u27F3 reconnecting\u2026";
-    statusColor = "yellow";
+    statusColor2 = "yellow";
   } else if (input.status === "connected") {
     statusText = "\u25CF connected";
-    statusColor = "green";
+    statusColor2 = "green";
   }
   segments.push({
     key: "status",
     text: statusText,
-    color: statusColor,
+    color: statusColor2,
     priority: 0
   });
   return segments;
@@ -37313,14 +37400,20 @@ var TUI_VERSION = "0.2.5";
 var TOOL_OUTPUT_LINES = 12;
 var COLLAPSED_ERROR_LINES = 3;
 var DIFF_LINES = 40;
-var ROLE_MARK = {
-  user: { text: "\u203A ", color: "green", bold: true },
-  assistant: { text: "\u25C6 ", color: "blue", bold: true },
-  system: { text: "! ", color: "yellow", bold: true },
-  // An aside from the surface itself, e.g. a replayed turn's `✓ Done` line: no
-  // speaker, so no marker and no attention-seeking colour.
-  note: { text: "", dimColor: true }
-};
+function roleMark(role) {
+  switch (role) {
+    case "user":
+      return { text: "\u203A ", color: currentAccent(), bold: true };
+    case "assistant":
+      return { text: "\u25C6 ", color: currentAccent(), bold: true };
+    case "system":
+      return { text: "! ", color: "yellow", bold: true };
+    // An aside from the surface itself, e.g. a replayed turn's `✓ Done` line: no
+    // speaker, so no marker and no attention-seeking colour.
+    default:
+      return { text: "", dimColor: true };
+  }
+}
 var TOOL_MARK = {
   running: { text: "\u25CC ", color: "yellow" },
   ok: { text: "\u2713 ", color: "green" },
@@ -37500,7 +37593,7 @@ function messageLines(message, width = 80) {
       if (table) {
         table.lines.forEach((line, row) => out.push({
           ...line,
-          segments: [index === 0 && row === 0 ? ROLE_MARK[message.role] : { text: "  " }, ...line.segments]
+          segments: [index === 0 && row === 0 ? roleMark(message.role) : { text: "  " }, ...line.segments]
         }));
         index = table.end - 1;
         continue;
@@ -37521,7 +37614,7 @@ function messageLines(message, width = 80) {
         segments = [{ text: bullet[1] }, { text: "\u2022 ", color: "magenta" }, ...inlineSegments(bullet[2])];
       else segments = inlineSegments(raw);
     }
-    const mark = index === 0 ? ROLE_MARK[message.role] : { text: "  " };
+    const mark = index === 0 ? roleMark(message.role) : { text: "  " };
     out.push({ key, segments: [mark, ...segments] });
   }
   return out;
@@ -38084,14 +38177,24 @@ var STATUS_GLYPH = {
   done: "\u2713",
   error: "\u2717"
 };
-var STATUS_COLOR2 = {
-  current: "green",
-  idle: void 0,
-  queued: "yellow",
-  running: "cyan",
-  done: "green",
-  error: "red"
-};
+function statusColor(status) {
+  switch (status) {
+    case "current":
+      return currentAccent();
+    case "idle":
+      return void 0;
+    case "queued":
+      return "yellow";
+    case "running":
+      return "cyan";
+    case "done":
+      return "green";
+    case "error":
+      return "red";
+    default:
+      return void 0;
+  }
+}
 function agentStatusText(entry, now) {
   const parts = [entry.status];
   if (entry.status === "running" && entry.startedAt) {
@@ -38111,7 +38214,7 @@ function subagentRow(entry, now, origin) {
   return {
     key: `agent-${entry.agentId}`,
     glyph: STATUS_GLYPH[status] ?? AGENT_GLYPH,
-    color: STATUS_COLOR2[status],
+    color: statusColor(status),
     name: entry.name || "agent",
     // The model's own one-line title beats the brief it wrote for the child:
     // the brief is written for a machine, often in English, and is long.
@@ -38157,7 +38260,7 @@ function buildAgentRows({
     {
       key: "current",
       glyph: CURRENT_GLYPH,
-      color: STATUS_COLOR2.current,
+      color: statusColor("current"),
       name: currentLabel,
       task: "",
       status: "",
@@ -38454,52 +38557,6 @@ function shadowRow(width) {
   return "\u2591".repeat(Math.max(0, Math.floor(width)));
 }
 
-// src/layout/palette.ts
-var LAVENDER = { r: 221, g: 214, b: 254 };
-var VIOLET = { r: 167, g: 139, b: 250 };
-var DEEP_VIOLET = { r: 124, g: 58, b: 237 };
-var BASIC_RAMP = ["magentaBright", "magenta", "blue"];
-function colorMode(env3, isTTY) {
-  if (env3.NO_COLOR !== void 0 && env3.NO_COLOR !== "") return "none";
-  if (!isTTY) return "none";
-  const colorTerm = (env3.COLORTERM ?? "").toLowerCase();
-  if (colorTerm.includes("truecolor") || colorTerm.includes("24bit")) return "truecolor";
-  if ((env3.TERM ?? "").includes("direct")) return "truecolor";
-  return "basic";
-}
-function mix(from, to, amount) {
-  const at = Math.min(1, Math.max(0, amount));
-  return {
-    r: Math.round(from.r + (to.r - from.r) * at),
-    g: Math.round(from.g + (to.g - from.g) * at),
-    b: Math.round(from.b + (to.b - from.b) * at)
-  };
-}
-function toHex({ r, g, b }) {
-  return `#${[r, g, b].map((value) => value.toString(16).padStart(2, "0")).join("")}`;
-}
-function gradientAt(position) {
-  const at = Math.min(1, Math.max(0, position));
-  return at <= 0.5 ? mix(LAVENDER, VIOLET, at * 2) : mix(VIOLET, DEEP_VIOLET, (at - 0.5) * 2);
-}
-function gradientColors(rows, mode) {
-  const count2 = Math.max(1, Math.floor(rows));
-  if (mode === "none") return new Array(count2).fill(void 0);
-  if (mode === "basic") {
-    return Array.from({ length: count2 }, (_, row) => {
-      const index = Math.min(
-        BASIC_RAMP.length - 1,
-        Math.floor(row / Math.max(1, count2 - 1) * BASIC_RAMP.length)
-      );
-      return BASIC_RAMP[index];
-    });
-  }
-  return Array.from(
-    { length: count2 },
-    (_, row) => toHex(gradientAt(count2 === 1 ? 0 : row / (count2 - 1)))
-  );
-}
-
 // src/components/Logo.tsx
 var import_jsx_runtime2 = __toESM(require_jsx_runtime(), 1);
 var LOGO_COLLAPSE_ROWS = 24;
@@ -38631,7 +38688,6 @@ function shouldShowSlashPalette(draft, completions) {
 }
 
 // src/state/fileRefs.ts
-var THEME_ACCENT = "cyan";
 var TRAILING_PUNCT_CHARS = /* @__PURE__ */ new Set([".", ",", ";", ":", ")", "!", "?"]);
 function findAllFileRefs(text2) {
   const refs = [];
@@ -39134,7 +39190,7 @@ function SlashCommandPalette({
 }) {
   if (commands.length === 0) return null;
   const hasPreview = commands.some((command) => Boolean(command.preview));
-  return /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Box_default, { flexDirection: "column", borderStyle: "round", borderColor: "blue", paddingX: 1, children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Box_default, { flexDirection: "column", borderStyle: "round", borderColor: currentAccent(), paddingX: 1, children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
     ChoiceList,
     {
       options: commands.map((command) => ({
@@ -39143,7 +39199,7 @@ function SlashCommandPalette({
         preview: command.preview
       })),
       selectedIndex,
-      color: "blue",
+      color: currentAccent(),
       windowSize: maxRows,
       descriptionMode: "inline",
       hint: choiceHint({ enter: "select", digits: false, extra: ["Tab complete"] }),
@@ -39467,7 +39523,7 @@ function Chat({
     { isActive: !disabled }
   );
   const cursorEnd = (0, import_react30.useMemo)(() => right(editor).cursor, [editor]);
-  const promptColor = disabled ? "gray" : "green";
+  const promptColor = disabled ? "gray" : currentAccent();
   return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { flexDirection: "column", children: [
     showFilePopup && fileCompletions.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
       FilePalette,
@@ -39538,7 +39594,7 @@ function colorizeFileRefs(lines) {
         segments.push({
           ...segment,
           text: ref.raw,
-          color: THEME_ACCENT
+          color: currentAccent()
         });
         lastIndex = ref.end;
       }
@@ -39756,7 +39812,7 @@ function ConfirmMenu({
     {
       options: rows,
       selectedIndex: index,
-      color: "green",
+      color: currentAccent(),
       hint: choiceHint({ enter: "confirm" })
     }
   ) });
@@ -40066,7 +40122,7 @@ function QuestionPrompt({
         const said = question.secret === true && entry.selected.length === 0 ? maskSecret(entry.text) : plain;
         return /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(Box_default, { children: [
           /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { dimColor: true, children: `  ${question.header || `Q${index + 1}`}: ` }),
-          said ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { color: "green", children: said }) : /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { color: "yellow", children: NOT_ANSWERED })
+          said ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { color: currentAccent(), children: said }) : /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Text, { color: "yellow", children: NOT_ANSWERED })
         ] }, `${request.requestId}-r${index}`);
       }) }) : null,
       /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(Box_default, { marginTop: questions.length > 1 && last ? 0 : 1, children: [
@@ -40270,11 +40326,11 @@ function ModelPicker({
           label: option.label,
           description: option.detail,
           badge: option.current ? "\u2190 in use" : void 0,
-          badgeColor: "green",
+          badgeColor: currentAccent(),
           bold: option.current
         })),
         selectedIndex: index,
-        color: "green",
+        color: currentAccent(),
         windowSize: MODEL_PICKER_ROWS,
         descriptionMode: "inline",
         hint: choiceHint({ enter: "pick" })
@@ -40421,7 +40477,7 @@ function SkillCreateForm({
     /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { bold: true, color: "cyan", children: "New skill" }),
     /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)(Text, { dimColor: step !== "name", children: [
       "  name         ",
-      step === "name" ? /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { children: name }) : /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { color: "green", children: name }),
+      step === "name" ? /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { children: name }) : /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { color: currentAccent(), children: name }),
       step === "name" ? /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { inverse: true, children: " " }) : null
     ] }),
     step === "name" ? null : /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)(Text, { dimColor: step !== "description", children: [
@@ -40429,7 +40485,7 @@ function SkillCreateForm({
       step === "description" ? /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)(import_jsx_runtime21.Fragment, { children: [
         /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { children: description }),
         /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { inverse: true, children: " " })
-      ] }) : /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { color: "green", children: description })
+      ] }) : /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(Text, { color: currentAccent(), children: description })
     ] }),
     step === "scope" ? /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(
       ChoiceList,
@@ -40529,7 +40585,7 @@ function ToolChecklist({
           tools2.map((tool, at) => picked.has(tool.name) ? at : -1).filter((at) => at >= 0)
         ),
         multi: true,
-        color: "green",
+        color: currentAccent(),
         windowSize: CHECKLIST_ROWS,
         descriptionMode: "inline",
         hint: `${picked.size}/${tools2.length} chosen \xB7 ${hint}`
@@ -40742,7 +40798,7 @@ function McpAddForm({
     value,
     active ? /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { inverse: true, children: " " }) : null
   ] });
-  const done = (value) => /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { color: "green", children: value });
+  const done = (value) => /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { color: currentAccent(), children: value });
   return /* @__PURE__ */ (0, import_jsx_runtime23.jsxs)(Box_default, { flexDirection: "column", width, borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
     /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { bold: true, color: "cyan", children: "New MCP server" }),
     field("name", step === "name" ? /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { children: typed }) : done(draft.name), step === "name"),
@@ -40763,7 +40819,7 @@ function McpAddForm({
     step === "url" || isUrl && draft.url && step !== "name" && step !== "transport" ? field("url", step === "url" ? /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { children: typed }) : done(draft.url), step === "url") : null,
     collected.map((entry) => /* @__PURE__ */ (0, import_jsx_runtime23.jsxs)(Text, { dimColor: true, wrap: "truncate-end", children: [
       `  ${varLabel.padEnd(11)}`,
-      /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { color: "green", children: maskAssignment(entry.key) })
+      /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { color: currentAccent(), children: maskAssignment(entry.key) })
     ] }, `${varLabel}-${entry.key}`)),
     step === "vars" ? field(varLabel, /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(Text, { children: typed }), true) : null,
     step === "scope" ? /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(
@@ -40831,7 +40887,7 @@ function McpCatalogPicker({
           description: `${entry.description}${entry.needs.length > 0 ? `  needs ${entry.needs.join(", ")}` : ""}`
         })),
         selectedIndex: index,
-        color: "green",
+        color: currentAccent(),
         windowSize: CATALOG_ROWS,
         descriptionMode: "inline",
         hint: choiceHint({ enter: "fills the add form" })
@@ -40985,7 +41041,7 @@ function ToolSummary({ calls }) {
   if (calls.length === 0) return null;
   const lines = hiddenLines(calls);
   return /* @__PURE__ */ (0, import_jsx_runtime30.jsxs)(Box_default, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime30.jsx)(Text, { color: "green", children: `${SUMMARY_GLYPH} ` }),
+    /* @__PURE__ */ (0, import_jsx_runtime30.jsx)(Text, { color: currentAccentDim(), children: `${SUMMARY_GLYPH} ` }),
     /* @__PURE__ */ (0, import_jsx_runtime30.jsx)(Text, { children: summarizeCalls(calls) }),
     lines > 0 ? /* @__PURE__ */ (0, import_jsx_runtime30.jsx)(Text, { dimColor: true, children: ` (${lines} lines)` }) : null
   ] });
@@ -42784,7 +42840,7 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
   const bottomNode = /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)(import_jsx_runtime34.Fragment, { children: [
     /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(WorkingIndicator, { line: indicatorText }),
     delegation ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { color: delegation.known ? "magenta" : "yellow", wrap: "truncate-end", children: `[${delegationLabel(delegation)}]` }) : null,
-    skillChip ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { color: "green", wrap: "truncate-end", children: `[run /${skillChip}]` }) : null,
+    skillChip ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { color: currentAccent(), wrap: "truncate-end", children: `[run /${skillChip}]` }) : null,
     skillHint ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `${SKILL_HINT_TEXT} \xB7 Esc dismisses` }) : null,
     /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(QueuedPrompts, { queued: state.queued, width: contentWidth }),
     /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(AttachmentChips, { attachments, width: contentWidth }),
@@ -42949,16 +43005,20 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
     agents: state.subagents.filter((agent) => agent.status === "running").length
   });
   const statusNode = /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)(import_jsx_runtime34.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
-      Text,
-      {
-        color: summary.color,
-        dimColor: summary.dimColor && focus.zone !== "footer",
-        inverse: focus.zone === "footer",
-        wrap: "truncate-end",
-        children: `${summary.text}${focus.zone === "footer" ? " \xB7 Enter to choose mode" : ""}`
-      }
-    ),
+    /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)(Text, { inverse: focus.zone === "footer", wrap: "truncate-end", children: [
+      (summary.segments ?? [{ text: summary.text, color: summary.color, dimColor: summary.dimColor }]).map(
+        (segment, index) => /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+          Text,
+          {
+            color: segment.color,
+            dimColor: segment.dimColor && focus.zone !== "footer",
+            children: segment.text
+          },
+          `summary-${index}`
+        )
+      ),
+      focus.zone === "footer" ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { dimColor: true, children: " \xB7 Enter to choose mode" }) : null
+    ] }),
     shellsOpen ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(ShellList, { calls: state.toolCalls, now: clock, width: contentWidth }) : null,
     /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(SectionRule, { width: contentWidth }),
     /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(StatusHud, { rows: hudRows, width: contentWidth }),
@@ -43045,7 +43105,10 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
             model: state.model,
             lastSession
           }
-        ) : entry.kind === "stream-chunk" ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(RenderedLines, { lines: entry.lines }) : entry.kind === "tools" ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(ToolSummary, { calls: entry.calls }) : entry.kind === "note" ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Box_default, { marginBottom: 1, children: /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { color: entry.ok ? "green" : "red", dimColor: true, children: entry.text }) }) : /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+        ) : entry.kind === "stream-chunk" ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(RenderedLines, { lines: entry.lines }) : entry.kind === "tools" ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(ToolSummary, { calls: entry.calls }) : entry.kind === "note" ? /* @__PURE__ */ (0, import_jsx_runtime34.jsxs)(Box_default, { marginBottom: 1, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { color: entry.ok ? "green" : "red", children: entry.text[0] }),
+          /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { dimColor: true, children: entry.text.slice(1) })
+        ] }) : /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
           TimelineEntry,
           {
             state,

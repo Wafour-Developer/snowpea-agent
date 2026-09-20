@@ -9,6 +9,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Box, Text, useInput, useStdout } from "ink";
 
+import { currentAccent } from "../layout/palette.js";
 import type { CommandInfo } from "../rpc/sdk.js";
 import {
   agentQuery,
@@ -495,7 +496,7 @@ export function Chat({
   );
 
   const cursorEnd = useMemo(() => right(editor).cursor, [editor]);
-  const promptColor = disabled ? "gray" : "green";
+  const promptColor = disabled ? "gray" : currentAccent();
 
   return (
     <Box flexDirection="column">

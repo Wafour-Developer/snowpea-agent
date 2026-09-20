@@ -1,14 +1,18 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   findAllFileRefs,
   findFileRefToken,
   applyFileCompletion,
-  THEME_ACCENT,
   type FileRefToken,
 } from "../src/state/fileRefs.js";
 import { colorizeFileRefs } from "../src/components/MessageStream.js";
+import { accentColor, currentAccent, setColorModeForTests } from "../src/layout/palette.js";
 import type { Line } from "../src/layout/transcript.js";
+
+afterEach(() => {
+  setColorModeForTests(null);
+});
 
 describe("token detection table", () => {
   interface TestCase {
@@ -330,11 +334,13 @@ describe("apply/quote/dir-continue", () => {
 
 describe("MessageStream @ref coloring", () => {
   it("colorizes @refs with theme accent and ignores emails and escapes", () => {
+    setColorModeForTests("truecolor");
+    const accent = accentColor("truecolor");
     const lines: Line[] = [
       {
         key: "l1",
         segments: [
-          { text: "› ", color: "green", bold: true },
+          { text: "› ", color: accent, bold: true },
           { text: "check @src/a.py and @\"my file.txt\" but email user@host.com or \\@escaped." },
         ],
       },
@@ -344,13 +350,13 @@ describe("MessageStream @ref coloring", () => {
     const segments = colored[0].segments;
 
     // Role mark unchanged
-    expect(segments[0]).toEqual({ text: "› ", color: "green", bold: true });
+    expect(segments[0]).toEqual({ text: "› ", color: accent, bold: true });
 
-    // File refs colored with THEME_ACCENT
-    const accentSegments = segments.filter((s) => s.color === THEME_ACCENT);
-    expect(accentSegments).toHaveLength(2);
-    expect(accentSegments[0].text).toBe("@src/a.py");
-    expect(accentSegments[1].text).toBe('@"my file.txt"');
+    // File refs colored with the brand accent
+    const refSegments = segments.filter((s) => s.color === currentAccent() && s.text.startsWith("@"));
+    expect(refSegments).toHaveLength(2);
+    expect(refSegments[0].text).toBe("@src/a.py");
+    expect(refSegments[1].text).toBe('@"my file.txt"');
 
     // Email and escaped @ remained in plain uncolored text
     const plainText = segments

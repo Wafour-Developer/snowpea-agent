@@ -10,6 +10,7 @@
 import React, { useState } from "react";
 import { Box, Text } from "ink";
 
+import { currentAccent } from "../layout/palette.js";
 import { choiceHint, useChoiceKeys } from "../hooks/useChoiceKeys.js";
 import type { ModelOption } from "../state/models.js";
 import { ChoiceList } from "./ChoiceList.js";
@@ -67,11 +68,11 @@ export function ModelPicker({
             label: option.label,
             description: option.detail,
             badge: option.current ? "← in use" : undefined,
-            badgeColor: "green",
+            badgeColor: currentAccent(),
             bold: option.current,
           }))}
           selectedIndex={index}
-          color="green"
+          color={currentAccent()}
           windowSize={MODEL_PICKER_ROWS}
           descriptionMode="inline"
           hint={choiceHint({ enter: "pick" })}

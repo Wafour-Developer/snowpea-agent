@@ -2,7 +2,7 @@
  * The context warning, the summary line and the compaction divider.
  */
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   CONTEXT_ALERT_PERCENT,
@@ -14,7 +14,12 @@ import {
   contextWarning,
   summaryLine,
 } from "../src/layout/bottom.js";
+import { accentColor, setColorModeForTests } from "../src/layout/palette.js";
 import type { ContextUsage } from "../src/state/store.js";
+
+afterEach(() => {
+  setColorModeForTests(null);
+});
 
 const usage = (percent: number): ContextUsage => ({
   used: Math.round(1280 * percent),
@@ -77,11 +82,14 @@ describe("contextWarning", () => {
 
 describe("summaryLine", () => {
   it("leads with the mode chip", () => {
+    setColorModeForTests("truecolor");
     const auto = summaryLine({ mode: "auto", shells: 0, agents: 0 });
     expect(auto.text).toBe("⏵⏵ auto mode on · ⇧Tab change mode · Ctrl+P plan");
-    expect(auto.color).toBe("magenta");
-    expect(summaryLine({ mode: "accept", shells: 0, agents: 0 }).text).toContain(
-      "▶ accept mode · ⇧Tab change mode",
+    expect(auto.segments?.find((segment) => segment.text === "auto")?.color).toBe("yellow");
+    const accept = summaryLine({ mode: "accept", shells: 0, agents: 0 });
+    expect(accept.text).toContain("▶ accept mode · ⇧Tab change mode");
+    expect(accept.segments?.find((segment) => segment.text === "accept")?.color).toBe(
+      accentColor("truecolor"),
     );
     expect(summaryLine({ mode: "plan", shells: 0, agents: 0 }).text).toContain(
       "⏸ plan mode · ⇧Tab change mode",

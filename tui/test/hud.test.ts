@@ -2,7 +2,7 @@
  * The bottom HUD: what it says, and what it drops when the row runs out.
  */
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   MAX_HUD_ROWS,
@@ -17,6 +17,11 @@ import {
   type HudInput,
   type HudSegment,
 } from "../src/layout/hud.js";
+import { accentColor, setColorModeForTests } from "../src/layout/palette.js";
+
+afterEach(() => {
+  setColorModeForTests(null);
+});
 
 const base: HudInput = {
   status: "connected",
@@ -84,13 +89,14 @@ describe("buildHudSegments", () => {
   });
 
   it("carries model, mode, context, session and daemon", () => {
+    setColorModeForTests("truecolor");
     const segments = buildHudSegments(base);
     const byKey = Object.fromEntries(segments.map((s) => [s.key, s.text]));
     expect(byKey.model).toBe("Model: anthropic/claude-sonnet-5");
     expect(byKey.mode).toBe("Mode: ACCEPT");
-    expect(segments.find((s) => s.key === "mode")?.color).toBe("green");
+    expect(segments.find((s) => s.key === "mode")?.color).toBe(accentColor("truecolor"));
     expect(buildHudSegments({ ...base, mode: "auto" }).find((s) => s.key === "mode")?.color).toBe(
-      "magenta",
+      "yellow",
     );
     expect(byKey.tokens).toBe("tok 12.3k↑/1.2k↓");
     expect(byKey.cwd).toBe("/home/dev/src/snowpea");

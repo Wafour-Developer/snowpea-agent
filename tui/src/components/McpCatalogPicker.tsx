@@ -9,6 +9,7 @@
 import React, { useState } from "react";
 import { Box, Text } from "ink";
 
+import { currentAccent } from "../layout/palette.js";
 import { choiceHint, useChoiceKeys } from "../hooks/useChoiceKeys.js";
 import type { McpCatalogEntry } from "../state/mcp.js";
 import { ChoiceList } from "./ChoiceList.js";
@@ -64,7 +65,7 @@ export function McpCatalogPicker({
             description: `${entry.description}${entry.needs.length > 0 ? `  needs ${entry.needs.join(", ")}` : ""}`,
           }))}
           selectedIndex={index}
-          color="green"
+          color={currentAccent()}
           windowSize={CATALOG_ROWS}
           descriptionMode="inline"
           hint={choiceHint({ enter: "fills the add form" })}

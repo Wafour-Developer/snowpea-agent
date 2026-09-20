@@ -6,6 +6,7 @@
 import React from "react";
 import { Box } from "ink";
 
+import { currentAccent } from "../layout/palette.js";
 import { choiceHint } from "../hooks/useChoiceKeys.js";
 import type { SlashCompletion } from "../state/slash-completion.js";
 import { ChoiceList } from "./ChoiceList.js";
@@ -22,7 +23,7 @@ export function SlashCommandPalette({
   if (commands.length === 0) return null;
   const hasPreview = commands.some((command) => Boolean(command.preview));
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="blue" paddingX={1}>
+    <Box flexDirection="column" borderStyle="round" borderColor={currentAccent()} paddingX={1}>
       <ChoiceList
         options={commands.map((command) => ({
           label: `/${command.name}`,
@@ -30,7 +31,7 @@ export function SlashCommandPalette({
           preview: command.preview,
         }))}
         selectedIndex={selectedIndex}
-        color="blue"
+        color={currentAccent()}
         windowSize={maxRows}
         descriptionMode="inline"
         hint={choiceHint({ enter: "select", digits: false, extra: ["Tab complete"] })}
