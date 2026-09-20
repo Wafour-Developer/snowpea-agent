@@ -412,6 +412,36 @@ class SessionPromptParams(Payload):
     )
 
 
+class FileCompleteEntry(Payload):
+    path: str = Field(
+        description="Path relative to the workdir; directories end with '/'."
+    )
+    kind: Literal["file", "dir"] = Field(description="Whether the entry is a file or directory.")
+    size: int | None = Field(default=None, description="Byte size for files.")
+
+
+class FileCompleteParams(Payload):
+    sessionId: str | None = Field(
+        default=None, description="Session whose workdir to complete in."
+    )
+    workdir: str | None = Field(
+        default=None, description="Workdir to complete in when no session is set."
+    )
+    query: str = Field(default="", description="Partial path to match.")
+    limit: int | None = Field(
+        default=None, description="Maximum entries to return (default 30, max 200)."
+    )
+
+
+class FileCompleteResult(Payload):
+    entries: list[FileCompleteEntry] = Field(
+        default_factory=list, description="Matching paths, best first."
+    )
+    truncated: bool = Field(
+        default=False, description="True when more matches exist than returned."
+    )
+
+
 class TurnResult(Payload):
     turnId: str = Field(description="Id of the started turn; turn.done carries it back.")
 
@@ -1824,9 +1854,13 @@ class MessageUser(Payload):
     """
 
     kind: Literal["message.user"] = "message.user"
-    text: str = Field(description="Prompt text as the model received it.")
+    text: str = Field(description="Prompt text as the user typed it.")
     attachments: list[UserAttachment] = Field(
         default_factory=list, description="Files sent along with the prompt."
+    )
+    refs: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Resolved @ references (path, kind, lines, truncated).",
     )
     steered: bool = Field(
         default=False,
@@ -2956,6 +2990,12 @@ METHODS: dict[str, RpcMethod] = {
             TurnResult,
             "Send user text to a session and start a turn.",
         ),
+        _m(
+            "file.complete",
+            FileCompleteParams,
+            FileCompleteResult,
+            "Complete file and directory paths under a session workdir.",
+        ),
         _m("session.interrupt", SessionIdParams, Ok, "Stop the running turn as soon as possible."),
         _m(
             "session.compact",
@@ -3275,6 +3315,7 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "session.deleteSaved",
         "session.close",
         "session.prompt",
+        "file.complete",
         "session.interrupt",
         "session.compact",
         "session.setMode",

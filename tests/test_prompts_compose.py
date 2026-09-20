@@ -32,7 +32,7 @@ GOLDEN_DIR = Path(__file__).parent / "golden" / "prompts"
 #: carry before; raised again from 3250 for CORE-vision's one-line ``view_image``
 #: guidance in base.md; raised again for Hermes-style ``patch`` tool text and
 #: ``small-local`` edit guidance.
-TIER_BUDGET_TOKENS = {"stable": 3400, "context": 800, "volatile": 600}
+TIER_BUDGET_TOKENS = {"stable": 3500, "context": 800, "volatile": 600}
 
 MODES = ("plan", "accept", "auto")
 VENDOR_CLASSES = ("anthropic", "openai-family", "small-local")

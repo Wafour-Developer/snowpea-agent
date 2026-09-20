@@ -26,4 +26,6 @@ Against `docs/design/m3-providers-setup-contract.md` §2 and the CORE-vision bri
 
 12. **`view_image` is the on-disk counterpart to prompt attachments.** A pasted `/attach` image and a file the model opens with `view_image` both become the same `history_blocks` user message after the tool result; only vision-capable sessions get that second message, and non-vision models see a refusal with no image appended.
 
-13. **The loop appends the image block, not the tool registry.** Tool messages stay text on every provider; `agent/loop.py` inserts the user image turn immediately after a successful `view_image` call so the next provider request carries the picture without teaching every adapter a new tool-result shape.
+13. **The loop appends the image block, not the tool registry.** Tool messages stay text on every provider; `agent/loop.py` inserts the user image turn immediately after any successful tool result whose `meta` carries `image` or `images` (`append_tool_image_messages` in `tools/view_image.py`), including MCP tools, so the next provider request carries the picture without teaching every adapter a new tool-result shape.
+
+14. **Prompt `@` refs and bare image paths reuse the attachment pipeline.** `agent/prompt_refs.py` turns resolved image paths into the same `Attachment` objects as `/attach`; text refs inline with numbered lines and honour `read_before_write` when inlined whole. See `CORE-prompt-refs.md`.

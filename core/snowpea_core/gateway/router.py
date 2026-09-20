@@ -859,7 +859,20 @@ class GatewayRouter:
             self.core.commands.start(self.core, session, name, args, None)
             return
         session, _conn = await self._session_for(binding, message.channel_id)
-        agent_loop.start_turn(self.core, session, text, unattended=True)
+        from snowpea_core.agent.prompt_refs import prepare_prompt
+        from snowpea_core.server.session_handlers import _accept_attachments
+
+        prepared = prepare_prompt(
+            self.core, session, text, None, accept_wire=_accept_attachments, scope="workdir"
+        )
+        agent_loop.start_turn(
+            self.core,
+            session,
+            prepared.text,
+            unattended=True,
+            model_text=prepared.model_text,
+            refs=prepared.refs,
+        )
 
     async def _session_for(
         self, binding: Binding, channel_id: str

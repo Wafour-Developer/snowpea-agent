@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from snowpea_core.agent import loop as agent_loop
+from snowpea_core.agent.prompt_refs import prepare_prompt
 from snowpea_core.attachments import pending
 from snowpea_core.attachments.model import Attachment as FileAttachment
 from snowpea_core.attachments.model import AttachmentError
@@ -413,29 +414,32 @@ async def session_prompt_handler(
     await _refresh_settings(core)
     session = _session(core, params.sessionId)
     core.hub.subscribe(conn, session.id)
-    text = params.text
-    _stored, inline_text = _accept_attachments(core, session.id, params.attachments)
-    if inline_text:
-        text = f"{text}\n\n{inline_text}" if text else inline_text
-    # No marker is added to the text: the turn's content blocks carry one per
-    # attachment (``[image: shot.png]``), so history, resume and a text-only
-    # model all see it without the prompt being rewritten here.
-    parsed = core.commands.parse(text)
+    raw_text = params.text
+    parsed = core.commands.parse(raw_text)
     if parsed is not None:
         name, args = parsed
-        # A slash command is not a model turn; nothing would consume the bytes.
         pending.clear(session.id)
         return TurnResult(turnId=core.commands.start(core, session, name, args, conn))
-    delegate_match = _DELEGATE_PREFIX.match(text) if text else None
+    delegate_match = _DELEGATE_PREFIX.match(raw_text) if raw_text else None
     if delegate_match is not None and delegate_match.group(2) is not None:
-        # Same rewrite as ``/delegate <agent> <task>`` (CORE-us020): the daemon
-        # parses the prefix, not any one client, so the TUI, the SDK and a
-        # scheduled job all get the same reply-with-outcome behaviour.
         pending.clear(session.id)
         args = f"{delegate_match.group(1)} {delegate_match.group(2)}"
         return TurnResult(turnId=core.commands.start(core, session, "delegate", args, conn))
+    prepared = prepare_prompt(
+        core, session, raw_text, params.attachments, accept_wire=_accept_attachments
+    )
+    # No marker is added to the text: the turn's content blocks carry one per
+    # attachment (``[image: shot.png]``), so history, resume and a text-only
+    # model all see it without the prompt being rewritten here.
     unattended = session.origin_conn is None
-    turn_id = agent_loop.start_turn(core, session, text, unattended=unattended)
+    turn_id = agent_loop.start_turn(
+        core,
+        session,
+        prepared.text,
+        unattended=unattended,
+        model_text=prepared.model_text,
+        refs=prepared.refs,
+    )
     await core.sessions.announce_sessions_changed("prompt", session.id)
     return TurnResult(turnId=turn_id)
 

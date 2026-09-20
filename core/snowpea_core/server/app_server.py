@@ -569,6 +569,9 @@ def build_dispatcher(core: Core) -> RpcDispatcher:
     dispatcher.register("system.shutdown", shutdown_handler)
     dispatcher.register("system.reloadSettings", reload_settings_handler)
     register_session_handlers(dispatcher)
+    from snowpea_core.server.file_handlers import register_file_handlers
+
+    register_file_handlers(dispatcher)
     register_audio_handlers(dispatcher)
     register_skill_handlers(dispatcher)
     register_job_handlers(dispatcher)

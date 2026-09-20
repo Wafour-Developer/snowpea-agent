@@ -81,6 +81,17 @@ def _positive_int(args: dict[str, Any], key: str) -> int | None:
     return value if value > 0 else None
 
 
+def format_numbered_lines(content: str, *, start_line: int = 1) -> str:
+    """Numbered lines shared by ``read_file`` and ``@`` prompt references."""
+    lines = content.splitlines()
+    if not lines:
+        return ""
+    width = len(str(start_line + len(lines) - 1))
+    return "\n".join(
+        f"{index:>{width}}| {line}" for index, line in enumerate(lines, start=start_line)
+    )
+
+
 def _window(content: str, offset: int | None, limit: int | None) -> tuple[str, bool]:
     """``(text, complete)`` for an optional 1-based line window."""
     if offset is None and limit is None:

@@ -485,6 +485,33 @@ export interface CommandRunResult {
   turnId: string;
 }
 
+/** `file.complete` params. Complete file and directory paths under a session workdir. */
+export interface FileCompleteParams {
+  /** Maximum entries to return (default 30, max 200). */
+  limit?: number | null;
+  /** Partial path to match. */
+  query?: string;
+  /** Session whose workdir to complete in. */
+  sessionId?: string | null;
+  /** Workdir to complete in when no session is set. */
+  workdir?: string | null;
+}
+
+/** `file.complete` result. */
+export interface FileCompleteResult {
+  /** Matching paths, best first. */
+  entries?: ({
+    /** Whether the entry is a file or directory. */
+    kind: "file" | "dir";
+    /** Path relative to the workdir; directories end with '/'. */
+    path: string;
+    /** Byte size for files. */
+    size?: number | null;
+  })[];
+  /** True when more matches exist than returned. */
+  truncated?: boolean;
+}
+
 /** `gateway.bind` params. Attach the daemon to a chat platform channel. */
 export interface GatewayBindParams {
   /** Restrict the binding to one chat, channel or room. */
@@ -2588,9 +2615,11 @@ export interface MessageUserEventPayload {
     name?: string;
   })[];
   kind?: "message.user";
+  /** Resolved @ references (path, kind, lines, truncated). */
+  refs?: (Record<string, unknown>)[];
   /** True when this prompt was queued behind a running turn and then folded into that same turn before its next model call. */
   steered?: boolean;
-  /** Prompt text as the model received it. */
+  /** Prompt text as the user typed it. */
   text: string;
 }
 
@@ -2898,6 +2927,7 @@ export interface MethodMap {
   "backend.set": { params: BackendSetParams; result: BackendSetResult };
   "command.list": { params: CommandListParams; result: CommandListResult };
   "command.run": { params: CommandRunParams; result: CommandRunResult };
+  "file.complete": { params: FileCompleteParams; result: FileCompleteResult };
   "gateway.bind": { params: GatewayBindParams; result: GatewayBindResult };
   "gateway.list": { params: GatewayListParams; result: GatewayListResult };
   "gateway.sync": { params: GatewaySyncParams; result: GatewaySyncResult };
@@ -2988,6 +3018,7 @@ export type ClientMethod =
   | "backend.set"
   | "command.list"
   | "command.run"
+  | "file.complete"
   | "gateway.bind"
   | "gateway.list"
   | "gateway.sync"

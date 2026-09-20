@@ -72,6 +72,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`backend.set`](#backendset) | client → server | Choose where a session's tools execute: local, docker or ssh. |
 | [`command.list`](#commandlist) | client → server | List the slash commands available to a session. |
 | [`command.run`](#commandrun) | client → server | Run a slash command; the only execution path for them. |
+| [`file.complete`](#filecomplete) | client → server | Complete file and directory paths under a session workdir. |
 | [`gateway.bind`](#gatewaybind) | client → server | Attach the daemon to a chat platform channel. |
 | [`gateway.list`](#gatewaylist) | client → server | List live gateway bindings. |
 | [`gateway.sync`](#gatewaysync) | client → server | Reconcile the messenger bindings with settings.gateway. |
@@ -530,6 +531,28 @@ Run a slash command; the only execution path for them.
 | field | type | required | description |
 |---|---|---|---|
 | `turnId` | `string` | yes | Id of the started turn; turn.done carries it back. |
+
+### `file.complete`
+
+*Direction:* client → server
+
+Complete file and directory paths under a session workdir.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `limit` | `number \| null` | no | Maximum entries to return (default 30, max 200). |
+| `query` | `string` | no | Partial path to match. |
+| `sessionId` | `string \| null` | no | Session whose workdir to complete in. |
+| `workdir` | `string \| null` | no | Workdir to complete in when no session is set. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `entries` | `({ kind: "file" \| "dir"; path: string; size?: number \| null; })[]` | no | Matching paths, best first. |
+| `truncated` | `boolean` | no | True when more matches exist than returned. |
 
 ### `gateway.bind`
 
@@ -2103,8 +2126,9 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 |---|---|---|---|
 | `attachments` | `({ kind?: "file" \| "image" \| "text"; name?: string; })[]` | no | Files sent along with the prompt. |
 | `kind` | `"message.user"` | no |  |
+| `refs` | `(Record<string, unknown>)[]` | no | Resolved @ references (path, kind, lines, truncated). |
 | `steered` | `boolean` | no | True when this prompt was queued behind a running turn and then folded into that same turn before its next model call. |
-| `text` | `string` | yes | Prompt text as the model received it. |
+| `text` | `string` | yes | Prompt text as the user typed it. |
 
 ### kind `mode.changed`
 

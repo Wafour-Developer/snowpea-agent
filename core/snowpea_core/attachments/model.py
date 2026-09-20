@@ -41,6 +41,7 @@ _MAGIC: tuple[tuple[bytes, str], ...] = (
     (b"\xff\xd8\xff", "image/jpeg"),
     (b"GIF87a", "image/gif"),
     (b"GIF89a", "image/gif"),
+    (b"BM", "image/bmp"),
     (b"%PDF-", "application/pdf"),
 )
 
@@ -50,6 +51,7 @@ EXTENSIONS: dict[str, str] = {
     "image/jpeg": "jpg",
     "image/gif": "gif",
     "image/webp": "webp",
+    "image/bmp": "bmp",
     "application/pdf": "pdf",
     "text/plain": "txt",
     "text/markdown": "md",
@@ -57,7 +59,7 @@ EXTENSIONS: dict[str, str] = {
 }
 
 #: MIME types a vision model can look at.
-IMAGE_MIMES = frozenset({"image/png", "image/jpeg", "image/gif", "image/webp"})
+IMAGE_MIMES = frozenset({"image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp"})
 
 
 class AttachmentError(ValueError):

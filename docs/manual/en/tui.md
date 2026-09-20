@@ -392,6 +392,12 @@ It understands what a terminal actually delivers: one path, several at once, a p
 
 Files are sent as paths, so nothing is copied. What the model then does with them — and the 20MB limit, the downscaling, what happens on a model that cannot see — is in [Attachments and voice](voice.md).
 
+### Referencing files with `@`
+
+Type `@` in the prompt to name a file without pasting its whole contents. The editor offers completions from `file.complete` as you type; pick a path with `↑`/`↓` and `Enter` or `Tab`. Spaces need quotes: `@"docs/plan.md"`. An optional line range narrows a text file: `@src/app.py:10-40`.
+
+When you send the prompt, the daemon resolves each `@` reference: images become attachments the model can see; text files are inlined with line numbers (truncated past 60k characters per file); directories get a shallow listing; anything that does not resolve is left in the text unchanged. Your message keeps the `@` tokens verbatim so you can see what you asked for. The transcript shows that short text plus a `refs` list (path and kind), not the inlined file bodies. Image paths written without `@` are attached automatically when `agent.autoAttachImages` is true (the default). Korean particles glued to a path (`@src/a.py를`, `shot.png에서`) are trimmed automatically. Secret paths (`.env`, keys, anything under your snowpea home except pasted attachments) are refused and never sent to the model.
+
 ## Voice
 
 Voice needs a backend, and the daemon is the one that has them. `snowpea setup audio` configures them; [Attachments and voice](voice.md) lists what each one needs.
@@ -444,6 +450,7 @@ It costs less bandwidth over a slow link, because only the rows that changed are
 | Key | What it does |
 |---|---|
 | `Enter` | send, or confirm the highlighted option |
+| `@` | reference files (`@path` or `@"path with spaces"`) |
 | `Shift+Tab` | cycle mode |
 | `Ctrl+P` | toggle plan mode |
 | `↑` / `↓` | earlier prompts; `↓` past the newest moves into the panel |

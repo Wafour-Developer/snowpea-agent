@@ -132,6 +132,8 @@ class QueuedTurn:
     text: str
     unattended: bool
     attachments: list[Any]
+    model_text: str | None = None
+    refs: list[dict[str, Any]] | None = None
 
 
 def new_turn_id() -> str:
@@ -583,7 +585,15 @@ async def _model_turn(
     return attempt
 
 
-def start_turn(core: Core, session: Session, text: str, *, unattended: bool = False) -> str:
+def start_turn(
+    core: Core,
+    session: Session,
+    text: str,
+    *,
+    unattended: bool = False,
+    model_text: str | None = None,
+    refs: list[dict[str, Any]] | None = None,
+) -> str:
     """Schedule a turn, or queue it behind the session's active turn.
 
     A user can keep typing while tools or subagents are running.  Those
@@ -597,6 +607,8 @@ def start_turn(core: Core, session: Session, text: str, *, unattended: bool = Fa
         text=text,
         unattended=unattended,
         attachments=pending.take(session.id),
+        model_text=model_text,
+        refs=refs,
     )
     task = session.turn_task
     if task is not None and not task.done():
@@ -672,16 +684,20 @@ async def _steer_queued_turns(core: Core, session: Session) -> int:
             ChatMessage(
                 role="user",
                 content=(
-                    content_parts.history_blocks(queued.text, queued.attachments)
+                    content_parts.history_blocks(
+                        queued.model_text or queued.text, queued.attachments
+                    )
                     if queued.attachments
-                    else queued.text
+                    else (queued.model_text or queued.text)
                 ),
             )
         )
         session.history.compact()
         await core.hub.emit_event(
             session.id,
-            events.message_user(queued.text, queued.attachments, steered=True),
+            events.message_user(
+                queued.text, queued.attachments, steered=True, refs=queued.refs
+            ),
         )
         await core.hub.emit_event(
             session.id, events.turn_dequeued(queued.turn_id, "steered", remaining)
@@ -738,6 +754,8 @@ async def _drain_turns(core: Core, session: Session, first: QueuedTurn) -> None:
                 unattended=queued.unattended,
                 attachments=queued.attachments,
                 queued=waited,
+                model_text=queued.model_text,
+                refs=queued.refs,
             )
             # The queue is *not* re-flushed here.  ``session.interrupt`` already
             # emptied it synchronously, at the instant Stop was pressed; a
@@ -764,6 +782,8 @@ async def run_turn(
     unattended: bool = False,
     attachments: list[Any] | None = None,
     queued: bool = False,
+    model_text: str | None = None,
+    refs: list[dict[str, Any]] | None = None,
 ) -> str:
     """Run one full turn; returns its turn id once ``turn.done`` was emitted."""
     turn_id = turn_id or new_turn_id()
@@ -774,7 +794,16 @@ async def run_turn(
     # clock on the first delta it happens to overhear (IDE-PROGRESS D1).
     await hub.emit_event(session.id, events.turn_started(turn_id, text or None, queued=queued))
     try:
-        reason = await _drive(core, session, text, turn_id, unattended, attachments)
+        reason = await _drive(
+            core,
+            session,
+            text,
+            turn_id,
+            unattended,
+            attachments,
+            model_text=model_text,
+            refs=refs,
+        )
     except asyncio.CancelledError:
         # A shutdown in progress (``Daemon.stop`` -> ``SessionManager.close_all``,
         # CORE-session-race) cancels every in-flight turn task; by the time that
@@ -947,6 +976,9 @@ async def _drive(
     turn_id: str,
     unattended: bool,
     attachments: list[Any] | None = None,
+    *,
+    model_text: str | None = None,
+    refs: list[dict[str, Any]] | None = None,
 ) -> str:
     """The loop proper; emits ``turn.done`` itself and returns its reason."""
     hub = core.hub
@@ -964,11 +996,16 @@ async def _drive(
     # here (rather than passing it down) keeps an interrupted turn from leaking
     # its images into the next one (CORE-multimodal).
     attachments = pending.take(session.id) if attachments is None else attachments
-    if text or attachments:
+    history_text = model_text if model_text is not None else text
+    if history_text or attachments:
         session.history.append(
             ChatMessage(
                 role="user",
-                content=content_parts.history_blocks(text, attachments) if attachments else text,
+                content=(
+                    content_parts.history_blocks(history_text, attachments)
+                    if attachments
+                    else history_text
+                ),
             )
         )
         session.history.compact()
@@ -976,7 +1013,9 @@ async def _drive(
         # the event log, so a transcript rebuilt without this shows every answer
         # and none of the questions.  Once per prompt, and never for the
         # continuation nudge the loop appends to itself further down.
-        await hub.emit_event(session.id, events.message_user(text, attachments))
+        await hub.emit_event(
+            session.id, events.message_user(text, attachments, refs=refs)
+        )
     if session.is_subagent and _busy_policy(core) == "steer":
         from snowpea_core.agent.subagent import get_manager
 
@@ -1059,6 +1098,7 @@ async def _drive(
         rounds_left -= 1
         session.rounds_used += 1
         if session.interrupt.is_set():
+            view_image.flush_tool_image_messages(core, session, append=False)
             await finish_turn(core, session, turn_id, "interrupted")
             return "interrupted"
 
@@ -1127,11 +1167,17 @@ async def _drive(
                 if outcome == "denied":
                     denials += 1
                     if denials >= MAX_DENIALS_PER_TURN:
+                        view_image.flush_tool_image_messages(core, session)
                         await finish_turn(core, session, turn_id, "denied")
                         return "denied"
                     continue
                 if outcome is not None:
+                    if outcome == "interrupted":
+                        view_image.flush_tool_image_messages(core, session, append=False)
+                    else:
+                        view_image.flush_tool_image_messages(core, session)
                     return outcome
+        view_image.flush_tool_image_messages(core, session)
         session.history.compact()
         # A prompt typed during a long tool call is folded in before the next
         # model round starts.
@@ -1330,6 +1376,7 @@ async def _run_one_call(
             cacheable=tag not in UNPROMOTABLE,
         )
         if session.interrupt.is_set():
+            view_image.flush_tool_image_messages(core, session, append=False)
             await finish_turn(core, session, turn_id, "interrupted")
             return "interrupted"
         if not decision.allowed:
@@ -1436,9 +1483,12 @@ async def _run_one_call(
             name=call.name,
         )
     )
-    if call.name == "view_image" and result.ok:
-        view_image.append_view_image_message(session, result)
+    if result.ok and result.meta and (
+        result.meta.get("image") or result.meta.get("images")
+    ):
+        session.pending_tool_images.append((call.name, result))
     if was_interrupted or session.interrupt.is_set():
+        view_image.flush_tool_image_messages(core, session, append=False)
         await finish_turn(core, session, turn_id, "interrupted")
         return "interrupted"
     return None

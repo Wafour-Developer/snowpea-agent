@@ -150,7 +150,8 @@ def speech_caller(core: Core) -> tts_backends.SpeechCaller | None:
         if entry is None:  # pragma: no cover - configured() already checked
             raise AudioError("no_tts", "no snowpea-studio configuration")
         server = mcp_client.MANAGER.register(entry)
-        return await server.call(media_tools.FORWARDS[tool_name], args)
+        rendered = await server.call(media_tools.FORWARDS[tool_name], args)
+        return rendered.text
 
     return call
 

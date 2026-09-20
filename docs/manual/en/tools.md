@@ -6,7 +6,7 @@ snowpea addresses this with five coordinated mechanisms: a **repeat guard** that
 
 ## Images
 
-When the session model supports vision, use `view_image` to inspect a screenshot, diagram, or generated picture on disk. The tool validates the path inside the working directory, enforces the 20 MB size cap, and may downscale very large images before they are sent. The model receives the picture in a follow-up user message — the same block shape as a prompt attachment from `/attach` — while the tool result stays a short text summary. `read_file` on a `.png` or `.jpg` only returns a one-line hint pointing at `view_image`. On a model that cannot see images, `view_image` refuses with an error and nothing is appended to the history.
+When the session model supports vision, images reach the model in three ways: paste or `/attach`, an `@path` reference in the prompt, or `view_image` (and MCP tools that return image blocks). All of them use the same attachment store, 20 MB cap, and downscaling rules. After a successful `view_image` or MCP image result, the agent loop appends a user message carrying the picture — the tool line stays a short text summary (`image attached: …` or `N image(s) attached`), never base64. `read_file` on a `.png` or `.jpg` only returns a one-line hint pointing at `view_image`. On a model that cannot see images, `view_image` refuses with an error; `@` and MCP images fall back to a text marker in the outgoing request instead of an image block.
 
 ## Inspecting tools
 

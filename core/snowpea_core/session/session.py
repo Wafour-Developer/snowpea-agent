@@ -138,6 +138,8 @@ class Session:
     #: Prompts submitted while a turn is running.  They are drained FIFO by
     #: the same task so two turns never mutate one history concurrently.
     queued_turns: list[Any] = field(default_factory=list)
+    #: Images from tool results in the current tool round, flushed after the last call.
+    pending_tool_images: list[tuple[str, Any]] = field(default_factory=list)
     #: Steering prompts inherited from a parent turn.  They are injected at the
     #: same point as local busy-steer prompts, but have no queued turn id of
     #: their own.

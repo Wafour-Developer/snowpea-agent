@@ -272,6 +272,9 @@ class AgentSettings(_Model):
     pruneToolOutputs: bool = True
     #: Tool rounds whose results reach the provider in full.
     keepToolRounds: int = 6
+    #: When true, image paths written in a prompt without ``@`` are attached
+    #: automatically (CORE-prompt-refs).
+    autoAttachImages: bool = True
 
 
 class DaemonSettings(_Model):

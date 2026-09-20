@@ -53,6 +53,7 @@ def message_user(
     attachments: Sequence[Any] | None = None,
     *,
     steered: bool = False,
+    refs: Sequence[dict[str, Any]] | None = None,
 ) -> Event:
     """The prompt that opened this turn, as it entered the history.
 
@@ -65,7 +66,9 @@ def message_user(
         {"kind": getattr(item, "kind", "file") or "file", "name": getattr(item, "name", "") or ""}
         for item in (attachments or [])
     ]
-    return _pack(MessageUser(text=text, attachments=files, steered=steered))  # type: ignore[arg-type]
+    return _pack(
+        MessageUser(text=text, attachments=files, steered=steered, refs=list(refs or ()))  # type: ignore[arg-type]
+    )
 
 
 def message_delta(text: str) -> Event:
