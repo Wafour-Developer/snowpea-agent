@@ -402,9 +402,15 @@ class ProviderRegistry:
             return override
         resolved_model = self.model_for(vendor, model)
         base_url = self.base_url_for(vendor) or ""
-        hit, cached = context_windows.cache_get(vendor, base_url.rstrip("/"), resolved_model)
+        key_url = base_url.rstrip("/")
+        hit, cached = context_windows.cache_get(vendor, key_url, resolved_model)
         if hit:
             return cached
+        # Expired, not unknown: what the server said still beats the family
+        # default until it can be asked again.
+        known = context_windows.last_known(vendor, key_url, resolved_model)
+        if known is not None:
+            return known
         preset = self.preset_or_none(vendor)
         if preset is None:
             return None
@@ -560,8 +566,14 @@ class ProviderRegistry:
         discovered = await context_windows.discover_window(
             base_url, resolved_model, api_key=self.api_key_for(vendor)
         )
-        window = discovered if discovered is not None else static
-        context_windows.cache_put(vendor, base_url, resolved_model, window)
+        if discovered is not None:
+            context_windows.remember_discovered(vendor, base_url, resolved_model, discovered)
+            return discovered
+        # The server could not be asked this time. Keep what it said before if
+        # it ever answered; only a model never seen falls back to the table.
+        known = context_windows.last_known(vendor, base_url, resolved_model)
+        window = known if known is not None else static
+        context_windows.remember_failure(vendor, base_url, resolved_model, window)
         return window
 
     async def resolve_model(self, vendor: str, model: str | None = None) -> str:

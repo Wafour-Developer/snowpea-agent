@@ -143,10 +143,38 @@ OPENROUTER_SEPARATOR = "/"
 #: ``(vendor, base_url, model)`` -> ``(expires_at, window | None)``.
 _CACHE: dict[tuple[str, str, str], tuple[float, int | None]] = {}
 
+#: What a server last SAID, kept past the TTL.  The TTL only decides when to ask
+#: again; it must never turn a known 262k back into the static table's 131k.  A
+#: long session used to do exactly that: the entry expired after ten minutes and
+#: the turn-ending ``context`` event (which may not await a lookup) fell through
+#: to the family default, so the HUD halved and auto-compaction fired early.
+_LAST_KNOWN: dict[tuple[str, str, str], int] = {}
+
+#: A failed lookup is retried soon; a transient timeout should not pin the
+#: fallback for the full TTL.
+NEGATIVE_TTL_SEC = 60.0
+
 
 def cache_clear() -> None:
     """Drop every discovered window (tests, and ``/model --refresh``)."""
     _CACHE.clear()
+    _LAST_KNOWN.clear()
+
+
+def last_known(vendor: str, base_url: str, model: str) -> int | None:
+    """The window a server reported for this model, however long ago."""
+    return _LAST_KNOWN.get((vendor, base_url, model))
+
+
+def remember_discovered(vendor: str, base_url: str, model: str, window: int) -> None:
+    """Record a server's own answer: fresh for the TTL, remembered after it."""
+    _LAST_KNOWN[(vendor, base_url, model)] = window
+    cache_put(vendor, base_url, model, window)
+
+
+def remember_failure(vendor: str, base_url: str, model: str, fallback: int | None) -> None:
+    """Record that the server could not be asked; ``fallback`` is served meanwhile."""
+    _CACHE[(vendor, base_url, model)] = (time.monotonic() + NEGATIVE_TTL_SEC, fallback)
 
 
 def cache_get(vendor: str, base_url: str, model: str) -> tuple[bool, int | None]:
@@ -373,6 +401,9 @@ __all__ = [
     "cache_put",
     "clamp_output_tokens",
     "discover_window",
+    "last_known",
+    "remember_discovered",
+    "remember_failure",
     "max_output_tokens",
     "preset_window",
     "static_window",

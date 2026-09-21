@@ -698,3 +698,57 @@ async def test_a_known_family_served_larger_is_discovered_not_tabled() -> None:
         assert registry.context_window("local") == 262_144
     finally:
         server.close()
+
+
+@pytest.mark.asyncio
+async def test_a_discovered_window_never_decays_to_the_table_default(
+    vllm_server: WindowServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A long session: the cache entry expires, the turn-ending event may not await.
+
+    ``Qwen/Qwen3-32B`` is a family the static table knows (131k); this server
+    serves it at 40 960. After the TTL the synchronous lookup used to fall back
+    to the table, so the HUD jumped to 131k and auto-compaction used the wrong
+    size. What the server said has to survive the TTL.
+    """
+    from snowpea_core.providers import context_windows
+
+    settings = Settings.model_validate(
+        {"providers": {"local": {"base_url": vllm_server.base_url, "model": "Qwen/Qwen3-32B"}}}
+    )
+    registry = ProviderRegistry(settings)
+    assert await registry.resolve_context_window("local") == 40_960
+
+    # Ten minutes later: every entry is stale.
+    real = context_windows.time.monotonic
+    monkeypatch.setattr(
+        context_windows.time, "monotonic", lambda: real() + context_windows.CACHE_TTL_SEC + 1
+    )
+    assert registry.context_window("local") == 40_960  # not the table's 131 072
+
+    # The server is unreachable when asked again: the known answer is kept, and
+    # the failure is remembered only briefly so it is retried soon.
+    async def unreachable(*_args: object, **_kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr(context_windows, "discover_window", unreachable)
+    assert await registry.resolve_context_window("local") == 40_960
+    assert registry.context_window("local") == 40_960
+    assert context_windows.NEGATIVE_TTL_SEC < context_windows.CACHE_TTL_SEC
+
+
+@pytest.mark.asyncio
+async def test_a_model_never_seen_still_falls_back_to_the_table(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from snowpea_core.providers import context_windows
+
+    async def unreachable(*_args: object, **_kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr(context_windows, "discover_window", unreachable)
+    settings = Settings.model_validate(
+        {"providers": {"local": {"base_url": "http://127.0.0.1:9/v1", "model": "Qwen/Qwen3-32B"}}}
+    )
+    registry = ProviderRegistry(settings)
+    assert await registry.resolve_context_window("local") == 131_072
