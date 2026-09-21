@@ -80,6 +80,22 @@ async def cmd_update(ctx: CommandContext, args: str) -> None:
     )
 
 
+async def cmd_desktop(ctx: CommandContext, args: str) -> None:
+    """Launch an installed desktop app without downloading inside a chat turn."""
+    from snowpea_core import desktop_app
+
+    path = desktop_app.find_installed()
+    if path is None:
+        await ctx.say("snowpea desktop is not installed. Run `snowpea desktop`.")
+        return
+    try:
+        desktop_app.launch(path)
+    except desktop_app.DesktopError as exc:
+        await ctx.say(f"Could not launch snowpea desktop: {exc}")
+        return
+    await ctx.say("snowpea desktop launched.")
+
+
 async def cmd_compact(ctx: CommandContext, args: str) -> None:
     """Summarise the conversation so far and continue with the summary.
 
@@ -141,6 +157,12 @@ COMMANDS: tuple[Command, ...] = (
             },
         },
     ),
+    Command(
+        name="desktop",
+        summary="Launch snowpea desktop, or show the install command.",
+        run=cmd_desktop,
+        args_schema={"type": "object", "properties": {}},
+    ),
 )
 
 
@@ -153,6 +175,7 @@ __all__ = [
     "cmd_approvals",
     "cmd_busy",
     "cmd_compact",
+    "cmd_desktop",
     "cmd_help",
     "cmd_mode",
     "cmd_tools",

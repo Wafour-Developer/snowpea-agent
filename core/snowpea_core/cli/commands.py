@@ -21,6 +21,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Literal, cast
 
+from snowpea_core import desktop_app
 from snowpea_core.cli.daemon_client import (
     CALL_TIMEOUT_SEC,
     DaemonClient,
@@ -2930,6 +2931,22 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
     )
     update_parser.add_argument("--json", dest="sub_json", action="store_true", help="emit JSON")
 
+    desktop_parser = sub.add_parser("desktop", help="install or launch snowpea desktop")
+    desktop_parser.add_argument(
+        "--install-only", action="store_true", help="install without launching"
+    )
+    desktop_parser.add_argument(
+        "--reinstall", action="store_true", help="download and install even when present"
+    )
+    desktop_parser.add_argument(
+        "--check",
+        dest="check_only",
+        action="store_true",
+        help="report installed and latest versions only",
+    )
+    desktop_parser.add_argument("--yes", action="store_true", help="download without prompting")
+    desktop_parser.add_argument("--json", dest="sub_json", action="store_true", help="emit JSON")
+
     agents_parser = sub.add_parser("agents", help="list agent definitions and running subagents")
     agents_parser.add_argument("--json", dest="sub_json", action="store_true", help="emit JSON")
 
@@ -3166,6 +3183,14 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
     if subcommand == "update":
         return await update_cli(
             home, check_only=bool(getattr(args, "check_only", False)), as_json=as_json
+        )
+    if subcommand == "desktop":
+        return desktop_app.run_cli(
+            install_only=bool(getattr(args, "install_only", False)),
+            reinstall=bool(getattr(args, "reinstall", False)),
+            check=bool(getattr(args, "check_only", False)),
+            yes=bool(getattr(args, "yes", False)),
+            as_json=as_json,
         )
     if subcommand == "workers":
         if action in (None, "status"):

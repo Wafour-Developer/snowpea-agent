@@ -109,6 +109,16 @@ snowpea --version
 
 Stop the daemon after upgrading by hand. A running daemon keeps the old code in memory, and the next client to attach would negotiate against a protocol version that no longer matches the installed one.
 
+## Desktop app
+
+Install the desktop app for this operating system and CPU, then launch it:
+
+```bash
+snowpea desktop
+```
+
+If it is already installed, the command only launches it. Use `snowpea desktop --check` to compare the installed and newest available versions, `snowpea desktop --reinstall` to upgrade or reinstall, and `snowpea desktop --install-only` to install without launching. In scripts, add `--yes` to approve the download without an interactive prompt.
+
 ## Uninstalling
 
 ```bash
