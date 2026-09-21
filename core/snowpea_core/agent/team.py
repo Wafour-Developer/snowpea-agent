@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import shlex
 import uuid
 from dataclasses import dataclass, field
@@ -93,6 +94,48 @@ def _lead_guide_text(core: Core, session: Session) -> str:
     """The team guide for the planner; workers get theirs from the system prompt."""
     guide = guide_for_session(core, session)
     return render_team_guide(guide, audience="lead") if guide else ""
+
+
+#: What the planner is shown of the repository: it makes one provider call
+#: with no tools, so without this it splits the work blind — it named files
+#: that do not exist, and for "do what TASK.md says" it returned no tasks.
+PLAN_LISTING_MAX_FILES = 200
+PLAN_FILE_MAX_CHARS = 8000
+PLAN_FILES_MAX = 3
+_FILE_MENTION = re.compile(r"(?<![\w./-])([\w.-]+(?:/[\w.-]+)*\.[A-Za-z0-9]{1,8})(?![\w/-])")
+
+
+async def repo_context(workdir: Path, task: str, home: Path) -> str:
+    """The tracked file list, and the text of files the task names, for the planner."""
+    from snowpea_core.agent.prompt_refs import _is_secret_path
+
+    parts: list[str] = []
+    listing = await git(workdir, "ls-files")
+    files = [line for line in listing.stdout.splitlines() if line.strip()] if listing.ok else []
+    if files:
+        shown = files[:PLAN_LISTING_MAX_FILES]
+        more = f"\n… and {len(files) - len(shown)} more" if len(files) > len(shown) else ""
+        parts.append("Files in the repository:\n" + "\n".join(shown) + more)
+    root = workdir.resolve()
+    seen: set[Path] = set()
+    for match in _FILE_MENTION.finditer(task):
+        if len(seen) >= PLAN_FILES_MAX:
+            break
+        try:
+            target = (root / match.group(1)).resolve()
+            target.relative_to(root)
+        except (OSError, ValueError):
+            continue
+        if target in seen or not target.is_file() or _is_secret_path(target, home):
+            continue
+        try:
+            text = target.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        seen.add(target)
+        cut = "\n… (truncated)" if len(text) > PLAN_FILE_MAX_CHARS else ""
+        parts.append(f"Contents of {match.group(1)}:\n{text[:PLAN_FILE_MAX_CHARS]}{cut}")
+    return ("\n\n" + "\n\n".join(parts)) if parts else ""
 
 
 class TeamError(RuntimeError):
@@ -324,6 +367,7 @@ class TeamManager:
     async def plan(self, session: Session, task: str, workers: int) -> list[PlannedTask]:
         """Ask the session's provider for the task list."""
         provider = self.core.providers.get(session.provider, session.model)
+        context = await repo_context(Path(session.workdir), task, Path(self.core.paths.home))
         plan_system = PLAN_SYSTEM.replace("${TEAM_GUIDE}", _lead_guide_text(self.core, session))
         messages = [
             ChatMessage(role="system", content=plan_system),
@@ -332,6 +376,7 @@ class TeamManager:
                 content=(
                     f"Split this task for {workers} parallel agents working in the project at "
                     f"{session.workdir}. Reply with the JSON object only.\n\nTask: {task}"
+                    f"{context}"
                 ),
             ),
         ]
