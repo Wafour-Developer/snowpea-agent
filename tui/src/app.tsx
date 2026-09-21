@@ -2797,6 +2797,9 @@ export function App({
             { label: "Cancel", value: null },
           ]}
           escapeValue={null}
+          // Leave room for the HUD and the hint: the menu scrolls inside the
+          // rows that are left, however many sessions were saved.
+          windowSize={Math.max(5, usableRows(terminal.rows) - 10)}
           onChoose={(target) => {
             setResumeChoices(null);
             if (target) resumeSession(target, "main");

@@ -42,6 +42,12 @@ export interface ConfirmMenuProps<T> {
   /** Escape and Ctrl+C pick this one, when there is one. */
   escapeValue?: T;
   isActive?: boolean;
+  /**
+   * Rows drawn at once. Without it every option is drawn, which is right for a
+   * handful of choices and wrong for a list of saved sessions: past the height
+   * of the terminal the top of the menu scrolled away and could not be reached.
+   */
+  windowSize?: number;
 }
 
 /** Rows the menu occupies, so the full-screen layout can reserve them. */
@@ -55,6 +61,7 @@ export function ConfirmMenu<T>({
   initialIndex = 0,
   escapeValue,
   isActive = true,
+  windowSize,
 }: ConfirmMenuProps<T>): React.ReactElement {
   const [index, setIndex] = useState(() =>
     Math.min(Math.max(0, initialIndex), Math.max(0, options.length - 1)),
@@ -100,7 +107,11 @@ export function ConfirmMenu<T>({
         options={rows}
         selectedIndex={index}
         color={currentAccent()}
-        hint={choiceHint({ enter: "confirm" })}
+        windowSize={windowSize}
+        hint={choiceHint({
+          enter: "confirm",
+          extra: windowSize && rows.length > windowSize ? ["PgUp/PgDn page"] : [],
+        })}
       />
     </Box>
   );

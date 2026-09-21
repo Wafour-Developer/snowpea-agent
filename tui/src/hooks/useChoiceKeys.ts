@@ -16,6 +16,9 @@
 
 import { useInput, type Key } from "ink";
 
+/** Rows PageUp / PageDown move the cursor by. */
+export const PAGE_STEP = 10;
+
 export interface ChoiceKeyOptions {
   /** Rows the cursor can sit on. */
   count: number;
@@ -116,6 +119,17 @@ export function useChoiceKeys(options: ChoiceKeyOptions): void {
         }
         if (key.downArrow || (vim && typed === "j")) {
           onIndex((index + 1) % count);
+          return;
+        }
+        // A long list (dozens of saved sessions) is a chore one row at a time.
+        // Paging clamps at the ends instead of wrapping: landing on the first
+        // row after PageDown at the bottom would read as a bug.
+        if (key.pageDown) {
+          onIndex(Math.min(count - 1, index + PAGE_STEP));
+          return;
+        }
+        if (key.pageUp) {
+          onIndex(Math.max(0, index - PAGE_STEP));
           return;
         }
       }

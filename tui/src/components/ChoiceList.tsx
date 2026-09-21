@@ -99,6 +99,9 @@ export function ChoiceList({
   const size = windowSize ?? options.length;
   const start = windowStart(selectedIndex, options.length, Math.max(size, 1));
   const shown = options.slice(start, start + Math.max(size, 1));
+  // Rows the window hides, so a long list says that it goes on.
+  const hiddenAbove = start;
+  const hiddenBelow = Math.max(0, options.length - (start + shown.length));
   const preview = showPreview ? (options[selectedIndex]?.preview ?? "") : "";
   const other = otherRowIndex(options, allowOther);
 
@@ -148,7 +151,9 @@ export function ChoiceList({
     <Box flexDirection="column">
       <Box flexDirection="row">
         <Box flexDirection="column" flexGrow={1}>
+          {hiddenAbove > 0 ? <Text dimColor>{`   ↑ ${hiddenAbove} more`}</Text> : null}
           {shown.map((option, offset) => row(option, start + offset))}
+          {hiddenBelow > 0 ? <Text dimColor>{`   ↓ ${hiddenBelow} more`}</Text> : null}
           {allowOther ? (
             <Box>
               <Text color={selectedIndex === other ? color : undefined} bold={selectedIndex === other}>
