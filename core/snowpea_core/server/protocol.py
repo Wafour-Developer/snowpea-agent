@@ -1217,6 +1217,10 @@ class AgentInfo(Payload):
             "the pipeline at all."
         ),
     )
+    hasGuide: bool | None = Field(
+        default=None,
+        description="For kind='team': true when a team guide file exists for this team.",
+    )
 
 
 class AgentListResult(Payload):
@@ -1330,6 +1334,82 @@ class TeamStatusResult(Payload):
     worktrees: list[str] = Field(
         default_factory=list, description="Worker worktrees that exist right now."
     )
+
+
+class TeamRoutingRuleInfo(Payload):
+    when: str = Field(description="When to delegate to this agent.")
+    agent: str = Field(description="Agent name to delegate to.")
+    known: bool = Field(
+        default=True,
+        description="False when the agent is unknown or outside the team roster.",
+    )
+
+
+class TeamGuideInfo(Payload):
+    team: str = Field(description="Team name this guide applies to.")
+    description: str = Field(default="", description="One-line summary from the guide frontmatter.")
+    persona: str = Field(default="", description="Persona and house rules from the guide body.")
+    routing: list[TeamRoutingRuleInfo] = Field(
+        default_factory=list, description="Routing rules from the guide."
+    )
+    source: Literal["project", "global"] = Field(description="Where the guide was read from.")
+    path: str | None = Field(default=None, description="Absolute path to the guide file.")
+
+
+class TeamGuideWorkdirParams(Payload):
+    workdir: str | None = Field(default=None, description="Project directory.")
+    sessionId: str | None = Field(
+        default=None, description="Session whose workdir to use when workdir is omitted."
+    )
+
+
+class TeamGuideGetParams(TeamGuideWorkdirParams):
+    team: str | None = Field(
+        default=None,
+        description="Team to read; omit to use the effective team for this session.",
+    )
+
+
+class TeamGuideGetResult(Payload):
+    guide: TeamGuideInfo | None = Field(default=None, description="The guide, if one exists.")
+    effectiveTeam: str = Field(description="Team name the guide lookup used.")
+
+
+class TeamGuideRoutingInput(Payload):
+    when: str = Field(description="When to delegate to this agent.")
+    agent: str = Field(description="Agent name to delegate to.")
+
+
+class TeamGuideSetParams(TeamGuideWorkdirParams):
+    team: str = Field(description="Team name, or 'default' for sessions with no active team.")
+    scope: Literal["project", "global"] = Field(description="Where to write the guide.")
+    description: str | None = Field(default=None, description="One-line summary.")
+    persona: str = Field(description="Persona body to store.")
+    routing: list[TeamGuideRoutingInput] = Field(
+        default_factory=list, description="Routing rules to store."
+    )
+
+
+class TeamGuideSetResult(Payload):
+    guide: TeamGuideInfo = Field(description="The guide that was written.")
+
+
+class TeamGuideDeleteParams(TeamGuideWorkdirParams):
+    team: str = Field(description="Team name, or 'default'.")
+    scope: Literal["project", "global"] = Field(description="Which copy to delete.")
+
+
+class TeamGuideListParams(TeamGuideWorkdirParams):
+    pass
+
+
+class TeamGuideListResult(Payload):
+    guides: list[TeamGuideInfo] = Field(default_factory=list, description="Every visible guide.")
+
+
+class TeamsChangedNotification(Payload):
+    reason: str = Field(description="Why the guide list changed.")
+    team: str | None = Field(default=None, description="Team that changed, when known.")
 
 
 # --------------------------------------------------------------------------
@@ -3177,6 +3257,30 @@ METHODS: dict[str, RpcMethod] = {
         _m("team.start", TeamStartParams, TeamStartResult, "Split a task across parallel workers."),
         _m("team.status", TeamStatusParams, TeamStatusResult, "Inspect a team's task board."),
         _m(
+            "team.guide.get",
+            TeamGuideGetParams,
+            TeamGuideGetResult,
+            "Read a team guide for a project or session.",
+        ),
+        _m(
+            "team.guide.set",
+            TeamGuideSetParams,
+            TeamGuideSetResult,
+            "Write a team guide to the project or global home.",
+        ),
+        _m(
+            "team.guide.delete",
+            TeamGuideDeleteParams,
+            Ok,
+            "Delete a team guide from the project or global home.",
+        ),
+        _m(
+            "team.guide.list",
+            TeamGuideListParams,
+            TeamGuideListResult,
+            "List every team guide visible in a project.",
+        ),
+        _m(
             "job.schedule",
             JobScheduleParams,
             JobScheduleResult,
@@ -3276,6 +3380,7 @@ EVENTS: dict[str, type[BaseModel]] = {
     "provider.loginProgress": ProviderLoginProgressNotification,
     "settings.changed": SettingsChangedNotification,
     "mcp.changed": McpChangedNotification,
+    "teams.changed": TeamsChangedNotification,
     "audio.install.progress": AudioInstallProgressNotification,
 }
 

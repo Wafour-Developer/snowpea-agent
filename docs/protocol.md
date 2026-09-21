@@ -135,6 +135,10 @@ Server capabilities advertised in the `system.hello` result:
 | [`system.restart`](#systemrestart) | client → server | Shut the daemon down so the next launch runs the newly installed version. |
 | [`system.shutdown`](#systemshutdown) | client → server | Ask the daemon to shut down gracefully. |
 | [`system.update`](#systemupdate) | client → server | Upgrade snowpea in a detached subprocess and report progress. |
+| [`team.guide.delete`](#teamguidedelete) | client → server | Delete a team guide from the project or global home. |
+| [`team.guide.get`](#teamguideget) | client → server | Read a team guide for a project or session. |
+| [`team.guide.list`](#teamguidelist) | client → server | List every team guide visible in a project. |
+| [`team.guide.set`](#teamguideset) | client → server | Write a team guide to the project or global home. |
 | [`team.start`](#teamstart) | client → server | Split a task across parallel workers. |
 | [`team.status`](#teamstatus) | client → server | Inspect a team's task board. |
 | [`tool.list`](#toollist) | client → server | List the tools registered for a session. |
@@ -214,7 +218,7 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `agents` | `({ active?: boolean \| null; agentId?: string \| null; agents?: string[]; bindings?: string[]; channel?: string \| null; channels?: string[]; description?: string; jobs?: string[]; kind?: string; name: string; namespace?: string \| null; parentSessionId?: string \| null; path?: string \| null; sessionId?: string \| null; source?: string; stages?: Record<string, string>; status?: string \| null; task?: string \| null; })[]` | no | Defined named agents. |
+| `agents` | `({ active?: boolean \| null; agentId?: string \| null; agents?: string[]; bindings?: string[]; channel?: string \| null; channels?: string[]; description?: string; hasGuide?: boolean \| null; jobs?: string[]; kind?: string; name: string; namespace?: string \| null; parentSessionId?: string \| null; path?: string \| null; sessionId?: string \| null; source?: string; stages?: Record<string, string>; status?: string \| null; task?: string \| null; })[]` | no | Defined named agents. |
 
 ### `agent.spawn`
 
@@ -1811,6 +1815,91 @@ _No params (send `{}`)._
 | `log` | `string` | yes | Absolute path of the file the upgrade writes its output to. |
 | `started` | `boolean` | yes | True when the upgrade subprocess was spawned. |
 
+### `team.guide.delete`
+
+*Direction:* client → server
+
+Delete a team guide from the project or global home.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `scope` | `"project" \| "global"` | yes | Which copy to delete. |
+| `sessionId` | `string \| null` | no | Session whose workdir to use when workdir is omitted. |
+| `team` | `string` | yes | Team name, or 'default'. |
+| `workdir` | `string \| null` | no | Project directory. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ok` | `boolean` | no | True when the call succeeded. |
+
+### `team.guide.get`
+
+*Direction:* client → server
+
+Read a team guide for a project or session.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `sessionId` | `string \| null` | no | Session whose workdir to use when workdir is omitted. |
+| `team` | `string \| null` | no | Team to read; omit to use the effective team for this session. |
+| `workdir` | `string \| null` | no | Project directory. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `effectiveTeam` | `string` | yes | Team name the guide lookup used. |
+| `guide` | `{ description?: string; path?: string \| null; persona?: string; routing?: ({ agent: string; known?: boolean; when: string; })[]; source: "project" \| "global"; team: string; } \| null` | no | The guide, if one exists. |
+
+### `team.guide.list`
+
+*Direction:* client → server
+
+List every team guide visible in a project.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `sessionId` | `string \| null` | no | Session whose workdir to use when workdir is omitted. |
+| `workdir` | `string \| null` | no | Project directory. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `guides` | `({ description?: string; path?: string \| null; persona?: string; routing?: ({ agent: string; known?: boolean; when: string; })[]; source: "project" \| "global"; team: string; })[]` | no | Every visible guide. |
+
+### `team.guide.set`
+
+*Direction:* client → server
+
+Write a team guide to the project or global home.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `description` | `string \| null` | no | One-line summary. |
+| `persona` | `string` | yes | Persona body to store. |
+| `routing` | `({ agent: string; when: string; })[]` | no | Routing rules to store. |
+| `scope` | `"project" \| "global"` | yes | Where to write the guide. |
+| `sessionId` | `string \| null` | no | Session whose workdir to use when workdir is omitted. |
+| `team` | `string` | yes | Team name, or 'default' for sessions with no active team. |
+| `workdir` | `string \| null` | no | Project directory. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `guide` | `{ description?: string; path?: string \| null; persona?: string; routing?: ({ agent: string; known?: boolean; when: string; })[]; source: "project" \| "global"; team: string; }` | yes | The guide that was written. |
+
 ### `team.start`
 
 *Direction:* client → server
@@ -1985,6 +2074,13 @@ List the tools registered for a session.
 |---|---|---|---|
 | `message` | `string` | no | One line for humans. |
 | `phase` | `"started" \| "done" \| "failed"` | yes | Where the upgrade got to. |
+
+### `teams.changed`
+
+| field | type | required | description |
+|---|---|---|---|
+| `reason` | `string` | yes | Why the guide list changed. |
+| `team` | `string \| null` | no | Team that changed, when known. |
 
 ## `session.event` kinds
 

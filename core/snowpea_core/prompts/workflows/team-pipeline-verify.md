@@ -1,6 +1,5 @@
 ${BASE_RULES}
 ${LANGUAGE_RULE}
-
 Verify the team pipeline evidence for: ${TASK}
 
 Tests reported: ${TESTS}

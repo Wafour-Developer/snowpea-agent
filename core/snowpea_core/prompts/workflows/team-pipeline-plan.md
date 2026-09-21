@@ -11,3 +11,5 @@ Rules:
 - Two tasks must never claim the same file. There are no worktrees here: the agents edit the same checkout, and a file two of them both write is a file one of them loses. Put work on one file in one task.
 - Use "dependsOn" only when a task genuinely cannot start before another has landed, and only on the id of a task listed before it.
 - "brief" is read by an agent that sees nothing else of this conversation. Say what to change and how to tell it worked.
+
+${TEAM_GUIDE}

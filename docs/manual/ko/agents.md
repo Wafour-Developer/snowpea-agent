@@ -126,7 +126,57 @@ explore? -> plan -> implement -> test? -> verify? -> review? -> fix? -> review?
 
 `/team list`는 모든 팀과 출처, 각 구성원이 맡는 단계를 보여줍니다. 어느 단계에도 맞지 않는 구성원도 조용히 버리지 않고 이름을 알려줍니다. `/team use <name>`은 활성 팀을 바꾸고, `/team use none`은 활성 팀을 해제해 위임 제한을 없앱니다.
 
-같은 목록은 `agent.list`로도 옵니다. 팀마다 `kind: "team"` 행 하나에 `active`, `source`(`global`/`project`), `agents`, `stages`가 실립니다. implement 담당이 없는 팀은 `stages`가 빈 채로 나오므로, 선택 UI가 이유와 함께 보여줄 수 있습니다.
+같은 목록은 `agent.list`로도 옵니다. 팀마다 `kind: "team"` 행 하나에 `active`, `source`(`global`/`project`), `agents`, `stages`, 가이드가 있으면 `hasGuide`가 실립니다. implement 담당이 없는 팀은 `stages`가 빈 채로 나오므로, 선택 UI가 이유와 함께 보여줄 수 있습니다.
+
+### 팀 가이드: 페르소나와 라우팅
+
+**팀 가이드**는 이 팀이 어떻게 일하는지, 어떤 일을 어떤 에이전트에게 맡길지 적는 마크다운 파일입니다. 위치는 다음과 같고, 프로젝트 파일이 전역보다 우선합니다.
+
+```text
+<workdir>/.snowpea/teams/<team>.md
+~/.snowpea/teams/<team>.md
+```
+
+`default`는 활성 팀이 없을 때(`/team use none`)만 쓰입니다. 활성 팀에 가이드가 없으면 `default`로 **대체하지 않습니다**.
+
+예시:
+
+```markdown
+---
+description: 플랫폼 전달 팀
+---
+# Persona
+플랫폼 팀으로 일합니다. 작은 diff를 선호하고, 보고 전에 프로젝트 검사를 실행합니다.
+
+## Routing
+- DB 마이그레이션, SQL, 스키마 변경 -> sql-reviewer
+- UI, 스타일, 접근성 -> designer
+- 그 외 -> executor
+```
+
+명령:
+
+```bash
+/team guide
+/team guide <team>
+/team guide set <team|default> [--global] <persona...>
+/team guide route <team|default> [--global] <agent> <when...>
+/team guide unroute <team|default> [--global] <agent|index>
+/team guide delete <team|default> [--global]
+
+snowpea team guide show [team]
+snowpea team guide set <team> <persona...> [--global]
+snowpea team guide route <team|default> <agent> <when...> [--global]
+snowpea team guide unroute <team|default> <agent|index> [--global]
+snowpea team guide delete <team> [--global]
+```
+
+어디에 붙는지:
+
+- **리드**(메인 세션, pipeline의 explore/plan/review/verify)에는 페르소나와 **Who does what** 라우팅 표가 들어갑니다.
+- **워커**(위임된 자식, pipeline의 implement/test/fix)에는 페르소나와 팀 이름 한 줄만 들어가고 라우팅 표는 없습니다.
+
+`/team create` 후에는 `/team guide set <name> …`로 페르소나를 추가하세요. RPC는 `team.guide.get/set/delete/list`, 변경 시 `teams.changed` 이벤트를 씁니다.
 
 여기에는 worktree가 없으므로 작업을 파일 단위로 갈라놓아야 합니다. plan 단계가 각 태스크가 건드릴 파일을 적고, 같은 파일을 주장하는 태스크는 시작 전에 하나로 합쳐지며, 파일이 겹치지 않는 태스크만 `agents.max_concurrent`까지 함께 돕니다. 파일을 하나도 적지 않은 태스크는 혼자 실행됩니다.
 
@@ -242,4 +292,3 @@ snowpea agents --json
 - **루트 지시 파일만 제공**: 루트의 `AGENTS.md` 또는 `CLAUDE.md`만 사전에 로드되며, 중첩 지시 파일은 툴이 해당 디렉터리를 건드릴 때 온디맨드로 첨부됩니다.
 - **더 작은 eager 툴 세트**: 읽기 전용 자식(`explore`, `reviewer`)은 `read_file`, `grep`, `glob`, `tool_search`로 시작합니다. 그 외 툴은 지연(deferred)되어 필요 시 온디맨드로 로드됩니다.
 - **보존되는 요소**: 자식의 정의 프롬프트, 역할(role), 툴 라운드 예산 안내(`BUDGET_LINE`)는 항상 그대로 유지됩니다.
-

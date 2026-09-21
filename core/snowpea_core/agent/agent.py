@@ -318,6 +318,24 @@ def build_system_prompt(
             + ". Every delegate_task call must include one of those names in its agent field."
         )
         persona = f"{persona}\n\n{team_rule}".strip()
+    if core is not None:
+        from typing import Literal
+
+        from snowpea_core.agent.team_guide import guide_for_session, render_team_guide
+
+        is_child = bool(getattr(session, "is_subagent", False))
+        guide_session = session
+        audience: Literal["lead", "worker"] = "lead"
+        if is_child and session.parent_session_id:
+            parent = core.sessions.get(session.parent_session_id)
+            if parent is not None:
+                guide_session = parent
+                audience = "worker"
+        guide = guide_for_session(core, guide_session)
+        if guide is not None:
+            rendered = render_team_guide(guide, audience=audience)
+            if rendered:
+                persona = f"{persona}\n\n{rendered}".strip()
     return compose.build_system_prompt(
         mode=session.mode,
         vendor_class=compose.vendor_class_for(

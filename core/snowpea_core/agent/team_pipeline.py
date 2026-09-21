@@ -42,6 +42,7 @@ from snowpea_core.agent.definition import complete_text, parse_generated_json
 from snowpea_core.agent.subagent import SubagentManager, SubagentResult, get_manager
 from snowpea_core.agent.team import git
 from snowpea_core.agent.team_config import active_team, default_roster, teams_with_source
+from snowpea_core.agent.team_guide import guide_for_session, render_team_guide
 from snowpea_core.prompts.compose import workflow_brief
 from snowpea_core.prompts.loader import load
 from snowpea_core.providers.base import ChatMessage
@@ -659,7 +660,14 @@ class TeamPipeline:
         return text if result.ok else ""
 
     async def _plan(self, run: PipelineRun, findings: str) -> None:
-        system = load(PLAN_SYSTEM_NAME).replace("${MAX_TASKS}", str(self.max_tasks()))
+        # Only the planner reads the guide here: every stage that runs as a
+        # subagent already carries it in its system prompt.
+        guide = guide_for_session(self.core, self.session)
+        system = (
+            load(PLAN_SYSTEM_NAME)
+            .replace("${MAX_TASKS}", str(self.max_tasks()))
+            .replace("${TEAM_GUIDE}", render_team_guide(guide, audience="lead") if guide else "")
+        )
         instruction = (
             f"Plan this task for the project at {self.session.workdir}. "
             f"Reply with the JSON object only.\n\nTask: {run.task}"

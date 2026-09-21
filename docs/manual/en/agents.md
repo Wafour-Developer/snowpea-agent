@@ -126,7 +126,57 @@ The named team may be one of the project's own or a global one from your `settin
 
 `/team list` shows every team, where it came from, and the stage each member fills, so a roster is never just a list of names. A member matching no stage is named too, rather than quietly ignored. `/team use <name>` switches the active team and `/team use none` clears it, which puts delegation back to unrestricted.
 
-The same list reaches a client through `agent.list`: one row per team with `kind: "team"`, carrying `active`, `source` (`global` or `project`), `agents` and `stages`. A team with no implementer is listed with an empty `stages`, so a picker can show it and say why it cannot run.
+The same list reaches a client through `agent.list`: one row per team with `kind: "team"`, carrying `active`, `source` (`global` or `project`), `agents`, `stages`, and `hasGuide` when a guide file exists. A team with no implementer is listed with an empty `stages`, so a picker can show it and say why it cannot run.
+
+### Team guides: persona and routing
+
+A **team guide** is a markdown file with optional frontmatter that tells the lead how this team works and which agent to pick for which kind of work. Guides live at:
+
+```text
+<workdir>/.snowpea/teams/<team>.md     # project — wins on a name clash
+~/.snowpea/teams/<team>.md             # global
+```
+
+The reserved name `default` applies when the project has **no** active team (`/team use none`). It does **not** fall back when an active team has no guide of its own.
+
+Example:
+
+```markdown
+---
+description: Platform delivery team
+---
+# Persona
+You are the platform team. Prefer small, reviewable diffs and run the project's checks before you report done.
+
+## Routing
+- database migrations, SQL, schema changes -> sql-reviewer
+- UI work, styling, accessibility -> designer
+- everything else -> executor
+```
+
+Commands:
+
+```bash
+/team guide
+/team guide <team>
+/team guide set <team|default> [--global] <persona...>
+/team guide route <team|default> [--global] <agent> <when...>
+/team guide unroute <team|default> [--global] <agent|index>
+/team guide delete <team|default> [--global]
+
+snowpea team guide show [team]
+snowpea team guide set <team> <persona...> [--global]
+snowpea team guide route <team|default> <agent> <when...> [--global]
+snowpea team guide unroute <team|default> <agent|index> [--global]
+snowpea team guide delete <team> [--global]
+```
+
+Where the text lands:
+
+- **Lead** (the main session, and the pipeline's explore/plan/review/verify stages) gets the persona plus a **Who does what** routing table.
+- **Workers** (delegated children and the pipeline's implement/test/fix stages) get the persona and a one-line reminder of which team they are on — not the routing table, because they do not delegate.
+
+After `/team create`, add a persona with `/team guide set <name> …`. RPC clients use `team.guide.get`, `team.guide.set`, `team.guide.delete`, and `team.guide.list`; writes emit `teams.changed`.
 
 There are no worktrees here, so the plan has to keep the work apart by hand: the plan stage names the files each task owns, tasks claiming the same file are merged into one before anything runs, and tasks with disjoint files run together up to `agents.max_concurrent`. A task that names no file runs on its own.
 
@@ -241,4 +291,3 @@ In `"lean"` mode:
 - **Root instructions only**: only the root `AGENTS.md` or `CLAUDE.md` is loaded up front; nested instruction files attach on demand when a tool touches that directory.
 - **Smaller eager tool set**: read-only children (`explore`, `reviewer`) start with `read_file`, `grep`, `glob`, and `tool_search`. Other tools are deferred and loaded on demand.
 - **Preserved**: the child's definition prompt, role, and the tool round budget line (`BUDGET_LINE`) are always preserved.
-

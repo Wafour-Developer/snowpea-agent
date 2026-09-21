@@ -1,6 +1,5 @@
 ${BASE_RULES}
 ${LANGUAGE_RULE}
-
 You are reviewing one team task that has just been merged into the base branch at ${REPO}.
 Task ${TASK_ID}: ${TASK_TITLE}
 

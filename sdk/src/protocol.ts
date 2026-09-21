@@ -122,6 +122,8 @@ export interface AgentListResult {
     channels?: string[];
     /** What the agent is for. */
     description?: string;
+    /** For kind='team': true when a team guide file exists for this team. */
+    hasGuide?: boolean | null;
     /** For kind='named': ids of the scheduled jobs that run as this agent. */
     jobs?: string[];
     /** definition = an agents/<name>.md file, subagent = a running child, named = a persistent named instance, team = the active project team (a label only - it is not spawnable). */
@@ -2140,6 +2142,145 @@ export interface SystemUpdateResult {
   started: boolean;
 }
 
+/** `team.guide.delete` params. Delete a team guide from the project or global home. */
+export interface TeamGuideDeleteParams {
+  /** Which copy to delete. */
+  scope: "project" | "global";
+  /** Session whose workdir to use when workdir is omitted. */
+  sessionId?: string | null;
+  /** Team name, or 'default'. */
+  team: string;
+  /** Project directory. */
+  workdir?: string | null;
+}
+
+/** `team.guide.delete` result. */
+export interface TeamGuideDeleteResult {
+  /** True when the call succeeded. */
+  ok?: boolean;
+}
+
+/** `team.guide.get` params. Read a team guide for a project or session. */
+export interface TeamGuideGetParams {
+  /** Session whose workdir to use when workdir is omitted. */
+  sessionId?: string | null;
+  /** Team to read; omit to use the effective team for this session. */
+  team?: string | null;
+  /** Project directory. */
+  workdir?: string | null;
+}
+
+/** `team.guide.get` result. */
+export interface TeamGuideGetResult {
+  /** Team name the guide lookup used. */
+  effectiveTeam: string;
+  /** The guide, if one exists. */
+  guide?: {
+    /** One-line summary from the guide frontmatter. */
+    description?: string;
+    /** Absolute path to the guide file. */
+    path?: string | null;
+    /** Persona and house rules from the guide body. */
+    persona?: string;
+    /** Routing rules from the guide. */
+    routing?: ({
+      /** Agent name to delegate to. */
+      agent: string;
+      /** False when the agent is unknown or outside the team roster. */
+      known?: boolean;
+      /** When to delegate to this agent. */
+      when: string;
+    })[];
+    /** Where the guide was read from. */
+    source: "project" | "global";
+    /** Team name this guide applies to. */
+    team: string;
+  } | null;
+}
+
+/** `team.guide.list` params. List every team guide visible in a project. */
+export interface TeamGuideListParams {
+  /** Session whose workdir to use when workdir is omitted. */
+  sessionId?: string | null;
+  /** Project directory. */
+  workdir?: string | null;
+}
+
+/** `team.guide.list` result. */
+export interface TeamGuideListResult {
+  /** Every visible guide. */
+  guides?: ({
+    /** One-line summary from the guide frontmatter. */
+    description?: string;
+    /** Absolute path to the guide file. */
+    path?: string | null;
+    /** Persona and house rules from the guide body. */
+    persona?: string;
+    /** Routing rules from the guide. */
+    routing?: ({
+      /** Agent name to delegate to. */
+      agent: string;
+      /** False when the agent is unknown or outside the team roster. */
+      known?: boolean;
+      /** When to delegate to this agent. */
+      when: string;
+    })[];
+    /** Where the guide was read from. */
+    source: "project" | "global";
+    /** Team name this guide applies to. */
+    team: string;
+  })[];
+}
+
+/** `team.guide.set` params. Write a team guide to the project or global home. */
+export interface TeamGuideSetParams {
+  /** One-line summary. */
+  description?: string | null;
+  /** Persona body to store. */
+  persona: string;
+  /** Routing rules to store. */
+  routing?: ({
+    /** Agent name to delegate to. */
+    agent: string;
+    /** When to delegate to this agent. */
+    when: string;
+  })[];
+  /** Where to write the guide. */
+  scope: "project" | "global";
+  /** Session whose workdir to use when workdir is omitted. */
+  sessionId?: string | null;
+  /** Team name, or 'default' for sessions with no active team. */
+  team: string;
+  /** Project directory. */
+  workdir?: string | null;
+}
+
+/** `team.guide.set` result. */
+export interface TeamGuideSetResult {
+  /** The guide that was written. */
+  guide: {
+    /** One-line summary from the guide frontmatter. */
+    description?: string;
+    /** Absolute path to the guide file. */
+    path?: string | null;
+    /** Persona and house rules from the guide body. */
+    persona?: string;
+    /** Routing rules from the guide. */
+    routing?: ({
+      /** Agent name to delegate to. */
+      agent: string;
+      /** False when the agent is unknown or outside the team roster. */
+      known?: boolean;
+      /** When to delegate to this agent. */
+      when: string;
+    })[];
+    /** Where the guide was read from. */
+    source: "project" | "global";
+    /** Team name this guide applies to. */
+    team: string;
+  };
+}
+
 /** `team.start` params. Split a task across parallel workers. */
 export interface TeamStartParams {
   /** Number of workers to run in parallel. */
@@ -2437,6 +2578,14 @@ export interface SystemUpdateProgressPayload {
   message?: string;
   /** Where the upgrade got to. */
   phase: "started" | "done" | "failed";
+}
+
+/** `teams.changed` notification payload. */
+export interface TeamsChangedPayload {
+  /** Why the guide list changed. */
+  reason: string;
+  /** Team that changed, when known. */
+  team?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -2990,6 +3139,10 @@ export interface MethodMap {
   "system.restart": { params: SystemRestartParams; result: SystemRestartResult };
   "system.shutdown": { params: SystemShutdownParams; result: SystemShutdownResult };
   "system.update": { params: SystemUpdateParams; result: SystemUpdateResult };
+  "team.guide.delete": { params: TeamGuideDeleteParams; result: TeamGuideDeleteResult };
+  "team.guide.get": { params: TeamGuideGetParams; result: TeamGuideGetResult };
+  "team.guide.list": { params: TeamGuideListParams; result: TeamGuideListResult };
+  "team.guide.set": { params: TeamGuideSetParams; result: TeamGuideSetResult };
   "team.start": { params: TeamStartParams; result: TeamStartResult };
   "team.status": { params: TeamStatusParams; result: TeamStatusResult };
   "tool.list": { params: ToolListParams; result: ToolListResult };
@@ -3080,6 +3233,10 @@ export type ClientMethod =
   | "system.restart"
   | "system.shutdown"
   | "system.update"
+  | "team.guide.delete"
+  | "team.guide.get"
+  | "team.guide.list"
+  | "team.guide.set"
   | "team.start"
   | "team.status"
   | "tool.list";
@@ -3103,6 +3260,7 @@ export interface EventMap {
   "session.event": SessionEventPayload;
   "settings.changed": SettingsChangedPayload;
   "system.updateProgress": SystemUpdateProgressPayload;
+  "teams.changed": TeamsChangedPayload;
 }
 
 export type EventName = keyof EventMap;
@@ -3120,4 +3278,5 @@ export const EVENT_NAMES: readonly EventName[] = [
   "session.event",
   "settings.changed",
   "system.updateProgress",
+  "teams.changed",
 ];

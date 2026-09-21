@@ -84,9 +84,11 @@ def _team_rows(core: Core, workdir: Path, session: Session | None) -> list[Agent
     to understand why it is not offered.
     """
     from snowpea_core.agent.team_config import teams_with_source
+    from snowpea_core.agent.team_guide import guide_exists
     from snowpea_core.agent.team_pipeline import stages_map
 
     active = session.team if session is not None else None
+    home = core.paths.home
     rows: list[AgentInfo] = []
     for name, (members, origin) in sorted(teams_with_source(core.settings, workdir).items()):
         rows.append(
@@ -100,6 +102,7 @@ def _team_rows(core: Core, workdir: Path, session: Session | None) -> list[Agent
                 active=name == active,
                 agents=list(members),
                 stages=stages_map(core, workdir, members),
+                hasGuide=guide_exists(home, workdir, name),
             )
         )
     # The active team is what a client renders first, as it did before.

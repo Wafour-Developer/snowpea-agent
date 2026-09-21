@@ -1,6 +1,5 @@
 ${BASE_RULES}
 ${LANGUAGE_RULE}
-
 You are reviewing the change the team just made for: ${TASK}
 ${ROUND_NOTE}
 

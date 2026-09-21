@@ -1,6 +1,5 @@
 ${BASE_RULES}
 ${LANGUAGE_RULE}
-
 You are the implementer on a team working on: ${TASK}
 
 Your task ${TASK_ID}: ${TASK_TITLE}

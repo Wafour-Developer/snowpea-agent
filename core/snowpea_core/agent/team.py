@@ -40,6 +40,7 @@ from snowpea_core.agent import team_store
 from snowpea_core.agent.agent import reply_language
 from snowpea_core.agent.definition import complete_text, parse_generated_json
 from snowpea_core.agent.subagent import SharedBackend, get_manager
+from snowpea_core.agent.team_guide import guide_for_session, render_team_guide
 from snowpea_core.agent.team_store import TaskRow, TeamStore, get_store
 from snowpea_core.exec.local import LocalBackend
 from snowpea_core.prompts.compose import workflow_brief
@@ -86,6 +87,12 @@ MAX_REVIEW_DIFF_CHARS = 24000
 REQUEST_CHANGES = "REQUEST_CHANGES"
 
 PLAN_SYSTEM = load("workflows/team-plan")
+
+
+def _lead_guide_text(core: Core, session: Session) -> str:
+    """The team guide for the planner; workers get theirs from the system prompt."""
+    guide = guide_for_session(core, session)
+    return render_team_guide(guide, audience="lead") if guide else ""
 
 
 class TeamError(RuntimeError):
@@ -317,8 +324,9 @@ class TeamManager:
     async def plan(self, session: Session, task: str, workers: int) -> list[PlannedTask]:
         """Ask the session's provider for the task list."""
         provider = self.core.providers.get(session.provider, session.model)
+        plan_system = PLAN_SYSTEM.replace("${TEAM_GUIDE}", _lead_guide_text(self.core, session))
         messages = [
-            ChatMessage(role="system", content=PLAN_SYSTEM),
+            ChatMessage(role="system", content=plan_system),
             ChatMessage(
                 role="user",
                 content=(

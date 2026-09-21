@@ -25,6 +25,7 @@ from __future__ import annotations
 import logging
 import re
 import shlex
+from typing import Literal
 
 from snowpea_core.agent.team_pipeline import (
     PipelineError,
@@ -41,9 +42,18 @@ from snowpea_core.session import events
 
 log = logging.getLogger("snowpea.commands.team")
 
-USAGE = ('Usage: /team "<task>" | /team <name> "<task>" | '
-         '/team create <name> <agent...> | /team use <name>|none | /team list | '
-         '/team delete <name>')
+USAGE = (
+    'Usage: /team "<task>" | /team <name> "<task>" | '
+    "/team create <name> <agent...> | /team use <name>|none | /team list | "
+    "/team delete <name> | /team guide [show|set|route|unroute|delete ...]"
+)
+GUIDE_USAGE = (
+    "Usage: /team guide | /team guide <team> | "
+    "/team guide set <team|default> [--global] <persona...> | "
+    "/team guide route <team|default> [--global] <agent> <when...> | "
+    "/team guide unroute <team|default> [--global] <agent|index> | "
+    "/team guide delete <team|default> [--global]"
+)
 WORKERS_COMPAT_NOTE = "`/workers N` is the current spelling; forwarding this `/team N` request."
 
 #: ``/team <bareword> "<task>"`` — a leading name followed by a *quoted* task.
@@ -77,6 +87,9 @@ async def cmd_team(ctx: CommandContext, args: str) -> None:
         words = shlex.split(args)
     except ValueError:
         await ctx.say(USAGE)
+        return
+    if words and words[0] == "guide":
+        await _guide_team(ctx, words[1:])
         return
     if words and words[0] in {"create", "use", "list", "delete"}:
         await _configure_team(ctx, words)
@@ -187,6 +200,155 @@ def _has_a_roster(ctx: CommandContext) -> bool:
     return bool(roster_for(ctx.core, ctx.session)[0])
 
 
+def _guide_scope(words: list[str]) -> tuple[Literal["project", "global"], list[str]]:
+    scope: Literal["project", "global"] = "project"
+    rest = list(words)
+    while rest and rest[0] == "--global":
+        scope = "global"
+        rest = rest[1:]
+    return scope, rest
+
+
+async def _announce_guide_change(ctx: CommandContext, team: str, reason: str) -> None:
+    hub = getattr(ctx.core, "hub", None)
+    if hub is None:
+        return
+    from snowpea_core.server.protocol import TeamsChangedNotification
+
+    await hub.notify(
+        "teams.changed",
+        TeamsChangedNotification(reason=reason, team=team).model_dump(mode="json"),
+    )
+
+
+async def _show_guide(ctx: CommandContext, team: str | None) -> None:
+    from snowpea_core.agent.team_config import active_team
+    from snowpea_core.agent.team_guide import guide_for_session, load_guide, render_team_guide
+
+    if team:
+        guide = load_guide(ctx.core.paths.home, ctx.session.workdir, team, core=ctx.core)
+        effective = team
+    else:
+        guide = guide_for_session(ctx.core, ctx.session)
+        selected = active_team(ctx.core.settings, ctx.session.workdir)
+        effective = guide.team if guide is not None else (selected.name if selected else "default")
+    if guide is None:
+        if not team and effective != "default":
+            await ctx.say(
+                f"team {effective} has no guide — the default guide is NOT applied to a "
+                f"named team.\nCreate one with /team guide set {effective} <persona...>."
+            )
+            return
+        await ctx.say(
+            f"No team guide for '{effective}'. "
+            f"Create one with /team guide set {effective} <persona...> "
+            "or edit <workdir>/.snowpea/teams/<team>.md.\n\n"
+            "Example:\n# Persona\nShip small, verified changes.\n\n## Routing\n"
+            "- code review -> critic\n- implementation -> executor"
+        )
+        return
+    lines = [
+        f"Team guide: {guide.team} [{guide.source}]",
+        f"Path: {guide.path}" if guide.path else "Path: (unknown)",
+    ]
+    if guide.description:
+        lines.append(f"Description: {guide.description}")
+    if guide.persona.strip():
+        lines.append("")
+        lines.append(guide.persona.strip())
+    if guide.routing:
+        lines.append("")
+        lines.append("Routing:")
+        for rule in guide.routing:
+            flag = f" {rule.agent} (unknown agent — ignore this rule)" if not rule.known else ""
+            agent = rule.agent if rule.known else f"{rule.agent}{flag}"
+            lines.append(f"  - {rule.when} -> {agent}")
+    lead = render_team_guide(guide, audience="lead")
+    if lead and "### Who does what" in lead:
+        lines.append("")
+        lines.append("Lead prompt excerpt includes routing rules.")
+    await ctx.say("\n".join(lines))
+
+
+async def _guide_team(ctx: CommandContext, words: list[str]) -> None:
+    from snowpea_core.agent.definition import DefinitionError
+    from snowpea_core.agent.team_guide import (
+        delete_guide,
+        load_guide,
+        route_guide,
+        save_guide,
+        unroute_guide,
+    )
+
+    if not words:
+        await _show_guide(ctx, None)
+        return
+    if words[0] not in {"set", "route", "unroute", "delete"}:
+        await _show_guide(ctx, words[0])
+        return
+    action = words[0]
+    scope, rest = _guide_scope(words[1:])
+    if len(rest) < 1:
+        await ctx.say(GUIDE_USAGE)
+        return
+    team = rest[0]
+    tail = rest[1:]
+    home = ctx.core.paths.home
+    workdir = ctx.session.workdir
+    try:
+        if action == "set":
+            if not tail:
+                await ctx.say(GUIDE_USAGE)
+                return
+            persona = " ".join(tail).strip()
+            existing = load_guide(home, workdir, team, core=ctx.core)
+            routing = [(rule.when, rule.agent) for rule in existing.routing] if existing else []
+            description = existing.description if existing else ""
+            path = save_guide(
+                home,
+                workdir,
+                team,
+                scope=scope,
+                description=description,
+                persona=persona,
+                routing=routing,
+            )
+            await _announce_guide_change(ctx, team, "set")
+            await ctx.say(f"Team guide for '{team}' saved to {path}.")
+            return
+        if action == "route":
+            if len(tail) < 2:
+                await ctx.say(GUIDE_USAGE)
+                return
+            agent, when = tail[0], " ".join(tail[1:]).strip()
+            path = route_guide(home, workdir, team, scope=scope, agent=agent, when=when)
+            await _announce_guide_change(ctx, team, "set")
+            await ctx.say(f"Added routing rule for '{team}' in {path}.")
+            return
+        if action == "unroute":
+            if not tail:
+                await ctx.say(GUIDE_USAGE)
+                return
+            updated_path = unroute_guide(home, workdir, team, scope=scope, target=tail[0])
+            if updated_path is None:
+                await ctx.say(f"No team guide for '{team}'.")
+                return
+            await _announce_guide_change(ctx, team, "set")
+            await ctx.say(f"Updated routing for '{team}' in {updated_path}.")
+            return
+        if action == "delete":
+            if tail:
+                await ctx.say(GUIDE_USAGE)
+                return
+            if not delete_guide(home, workdir, team, scope=scope):
+                await ctx.say(f"No team guide for '{team}' in {scope} scope.")
+                return
+            await _announce_guide_change(ctx, team, "delete")
+            await ctx.say(f"Deleted team guide for '{team}' ({scope}).")
+    except DefinitionError as exc:
+        await ctx.say(f"team guide: {exc}")
+
+
 async def _configure_team(ctx: CommandContext, words: list[str]) -> None:
     """Manage the project roster without disturbing legacy team execution."""
     from snowpea_core.agent.team_config import teams_for, teams_with_source
@@ -254,13 +416,17 @@ async def _configure_team(ctx: CommandContext, words: list[str]) -> None:
             project.agents.activeTeam = None
     project.save(ctx.session.workdir)
     from snowpea_core.agent.team_config import active_team
+
     selected = active_team(ctx.core.settings, ctx.session.workdir)
     ctx.session.team = selected.name if selected else None
     ctx.session.team_agents = selected.agents if selected else ()
     if action == "delete":
         await ctx.say(f"Deleted team '{name}'. Active team: {ctx.session.team or 'none'}.")
     else:
-        await ctx.say(f"Active team '{ctx.session.team}': {', '.join(ctx.session.team_agents)}")
+        message = f"Active team '{ctx.session.team}': {', '.join(ctx.session.team_agents)}"
+        if action == "create":
+            message += f"\nAdd a persona with /team guide set {name} <persona...>."
+        await ctx.say(message)
 
 
 async def _fail(ctx: CommandContext, message: str) -> None:
@@ -276,9 +442,11 @@ async def _fail(ctx: CommandContext, message: str) -> None:
 COMMANDS: tuple[Command, ...] = (
     Command(
         name="team",
-        summary=('Run the project team by role: /team "<task>" | /team <name> "<task>", '
-                 'or manage the roster: /team create <name> <agent...> | /team use '
-                 '<name>|none | /team list | /team delete <name>.'),
+        summary=(
+            'Run the project team by role: /team "<task>" | /team <name> "<task>", '
+            "manage the roster: /team create|use|list|delete, or edit team guides: "
+            "/team guide [show|set|route|unroute|delete ...]."
+        ),
         run=cmd_team,
         args_schema=TEAM_ARGS_SCHEMA,
     ),

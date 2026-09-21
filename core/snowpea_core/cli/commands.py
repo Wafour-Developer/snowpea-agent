@@ -19,7 +19,7 @@ import sys
 import time
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast
 
 from snowpea_core.cli.daemon_client import (
     CALL_TIMEOUT_SEC,
@@ -288,6 +288,7 @@ async def model_assign(
     reference = (profile or "").strip() or None
 
     if project:
+
         def mutate(models: Any) -> None:
             if reference is None:
                 models.agents.pop(name, None)
@@ -296,8 +297,9 @@ async def model_assign(
 
         path, _ = await _write_project_models(workdir, mutate)
         if as_json:
-            _print_json({"scope": "project", "agent": name, "profile": reference,
-                         "path": str(path)})
+            _print_json(
+                {"scope": "project", "agent": name, "profile": reference, "path": str(path)}
+            )
             return EXIT_OK
         print(
             f"{name} now uses model profile {reference} in {path}"
@@ -339,6 +341,7 @@ async def model_default(
     reference = (profile or "").strip() or None
 
     if project:
+
         def mutate(models: Any) -> None:
             models.default = reference
 
@@ -473,8 +476,14 @@ async def team_create(
         project.agents.activeTeam = name
     path = project.save(directory)
     if as_json:
-        _print_json({"team": name, "agents": members, "active": project.agents.activeTeam,
-                     "path": str(path)})
+        _print_json(
+            {
+                "team": name,
+                "agents": members,
+                "active": project.agents.activeTeam,
+                "path": str(path),
+            }
+        )
         return EXIT_OK
     print(f"team '{name}': {', '.join(members)} ({path})")
     if project.agents.activeTeam == name:
@@ -483,7 +492,10 @@ async def team_create(
 
 
 async def team_use(
-    name: str, home: Path | str | None = None, *, workdir: str | None = None,
+    name: str,
+    home: Path | str | None = None,
+    *,
+    workdir: str | None = None,
     as_json: bool = False,
 ) -> int:
     """``snowpea team use <name>`` — set ``agents.activeTeam`` for this project."""
@@ -510,7 +522,10 @@ async def team_use(
 
 
 async def team_delete(
-    name: str, home: Path | str | None = None, *, workdir: str | None = None,
+    name: str,
+    home: Path | str | None = None,
+    *,
+    workdir: str | None = None,
     as_json: bool = False,
 ) -> int:
     """``snowpea team delete <name>`` — remove a *project* team definition."""
@@ -564,6 +579,204 @@ async def audio_install(
         f"could not install {result.get('engine', name)}" + (f": {hint}" if hint else ""),
         EXIT_USAGE,
     )
+
+
+async def team_guide_show(
+    team: str | None = None,
+    home: Path | str | None = None,
+    *,
+    workdir: str | None = None,
+    as_json: bool = False,
+) -> int:
+    """``snowpea team guide show [team]`` — print a team guide."""
+    directory = _team_workdir(workdir)
+    try:
+        payload = {"workdir": str(directory)}
+        if team:
+            payload["team"] = team
+        result = await _call(home, "team.guide.get", payload)
+    except DaemonError as exc:
+        return _fail(str(exc), EXIT_NO_DAEMON)
+    except RpcCallError as exc:
+        return _fail(f"team.guide.get failed ({exc.code}): {exc.message}", EXIT_USAGE)
+    guide = result.get("guide")
+    if as_json:
+        _print_json(result)
+        return EXIT_OK
+    if not guide:
+        print(f"no team guide for {result.get('effectiveTeam', team or 'default')}")
+        return EXIT_OK
+    print(f"team guide: {guide.get('team')} [{guide.get('source')}]")
+    if guide.get("path"):
+        print(f"path: {guide['path']}")
+    if guide.get("description"):
+        print(f"description: {guide['description']}")
+    if guide.get("persona"):
+        print(guide["persona"])
+    for row in guide.get("routing") or []:
+        flag = " (unknown agent)" if not row.get("known", True) else ""
+        print(f"  - {row.get('when')} -> {row.get('agent')}{flag}")
+    return EXIT_OK
+
+
+async def team_guide_set(
+    team: str,
+    persona: str,
+    home: Path | str | None = None,
+    *,
+    workdir: str | None = None,
+    scope: str = "project",
+    description: str | None = None,
+    as_json: bool = False,
+) -> int:
+    """``snowpea team guide set <team> <persona...>``."""
+    directory = _team_workdir(workdir)
+    try:
+        result = await _call(
+            home,
+            "team.guide.set",
+            {
+                "workdir": str(directory),
+                "team": team,
+                "scope": scope,
+                "persona": persona,
+                "description": description or "",
+                "routing": [],
+            },
+        )
+    except DaemonError as exc:
+        return _fail(str(exc), EXIT_NO_DAEMON)
+    except RpcCallError as exc:
+        return _fail(f"team.guide.set failed ({exc.code}): {exc.message}", EXIT_USAGE)
+    if as_json:
+        _print_json(result)
+        return EXIT_OK
+    guide = result.get("guide") or {}
+    print(f"saved team guide for {guide.get('team', team)}")
+    return EXIT_OK
+
+
+async def _known_guide_team(
+    team: str, home: Path | str | None, workdir: Path
+) -> tuple[bool, str | None]:
+    """Return whether a CLI guide target is ``default`` or a configured team."""
+    from snowpea_core.agent.definition import DefinitionError
+    from snowpea_core.agent.team_guide import guide_exists
+    from snowpea_core.config.project import ProjectSettings
+
+    try:
+        guide_exists(home, workdir, team)
+    except DefinitionError as exc:
+        return False, str(exc)
+    if team == "default" or team in ProjectSettings.load(workdir).agents.teams:
+        return True, None
+    try:
+        result = await _call(home, "settings.get", {"scope": "global"})
+    except (DaemonError, RpcCallError) as exc:
+        return False, str(exc)
+    global_teams = (((result.get("settings") or {}).get("agents")) or {}).get("teams") or {}
+    if team in global_teams:
+        return True, None
+    return False, f"unknown team: {team}; see snowpea team list"
+
+
+async def team_guide_route(
+    team: str,
+    agent: str,
+    when: str,
+    home: Path | str | None = None,
+    *,
+    workdir: str | None = None,
+    scope: str = "project",
+    as_json: bool = False,
+) -> int:
+    """``snowpea team guide route <team> <agent> <when...>``."""
+    from snowpea_core.agent.definition import DefinitionError
+    from snowpea_core.agent.team_guide import route_guide
+
+    directory = _team_workdir(workdir)
+    known, error = await _known_guide_team(team, home, directory)
+    if not known:
+        return _fail(error or f"unknown team: {team}", EXIT_USAGE)
+    try:
+        path = route_guide(
+            home,
+            directory,
+            team,
+            scope=cast(Literal["project", "global"], scope),
+            agent=agent,
+            when=when,
+        )
+    except DefinitionError as exc:
+        return _fail(f"team guide: {exc}", EXIT_USAGE)
+    if as_json:
+        _print_json({"team": team, "path": str(path), "agent": agent, "when": when})
+    else:
+        print(f"added routing rule for '{team}' in {path}")
+    return EXIT_OK
+
+
+async def team_guide_unroute(
+    team: str,
+    target: str,
+    home: Path | str | None = None,
+    *,
+    workdir: str | None = None,
+    scope: str = "project",
+    as_json: bool = False,
+) -> int:
+    """``snowpea team guide unroute <team> <agent|index>``."""
+    from snowpea_core.agent.definition import DefinitionError
+    from snowpea_core.agent.team_guide import unroute_guide
+
+    directory = _team_workdir(workdir)
+    known, error = await _known_guide_team(team, home, directory)
+    if not known:
+        return _fail(error or f"unknown team: {team}", EXIT_USAGE)
+    try:
+        path = unroute_guide(
+            home,
+            directory,
+            team,
+            scope=cast(Literal["project", "global"], scope),
+            target=target,
+        )
+    except DefinitionError as exc:
+        return _fail(f"team guide: {exc}", EXIT_USAGE)
+    if path is None:
+        return _fail(f"no team guide for {team!r}", EXIT_USAGE)
+    if as_json:
+        _print_json({"team": team, "path": str(path), "removed": target})
+    else:
+        print(f"updated routing for '{team}' in {path}")
+    return EXIT_OK
+
+
+async def team_guide_delete(
+    team: str,
+    home: Path | str | None = None,
+    *,
+    workdir: str | None = None,
+    scope: str = "project",
+    as_json: bool = False,
+) -> int:
+    """``snowpea team guide delete <team>``."""
+    directory = _team_workdir(workdir)
+    try:
+        result = await _call(
+            home,
+            "team.guide.delete",
+            {"workdir": str(directory), "team": team, "scope": scope},
+        )
+    except DaemonError as exc:
+        return _fail(str(exc), EXIT_NO_DAEMON)
+    except RpcCallError as exc:
+        return _fail(f"team.guide.delete failed ({exc.code}): {exc.message}", EXIT_USAGE)
+    if as_json:
+        _print_json(result)
+        return EXIT_OK
+    print(f"deleted team guide for {team}")
+    return EXIT_OK
 
 
 async def team_status(
@@ -890,9 +1103,7 @@ async def search_test(query: str, home: Path | str | None = None, *, as_json: bo
         "query": query,
         "configured": configured,
         "provider": answered["provider"] if answered else None,
-        "fallback_from": (
-            configured if answered and answered["provider"] != configured else None
-        ),
+        "fallback_from": (configured if answered and answered["provider"] != configured else None),
         "skipped": skipped,
         "results": answered["results"] if answered else [],
     }
@@ -1660,8 +1871,10 @@ async def mcp_command(
     """``snowpea mcp list|get|add|add-json|remove|test|configure|reload|catalog``."""
     workdir = str(Path.cwd())
     name = str(getattr(args, "name", "") or "")
-    scope = "global" if getattr(args, "scope_global", False) else str(
-        getattr(args, "scope", "project") or "project"
+    scope = (
+        "global"
+        if getattr(args, "scope_global", False)
+        else str(getattr(args, "scope", "project") or "project")
     )
     method: str
     params: dict[str, Any]
@@ -2289,9 +2502,7 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
     model_profiles_parser.add_argument(
         "--json", dest="sub_json", action="store_true", help="emit JSON"
     )
-    model_assign_parser = model_sub.add_parser(
-        "assign", help="route one agent to a model profile"
-    )
+    model_assign_parser = model_sub.add_parser("assign", help="route one agent to a model profile")
     model_assign_parser.add_argument("agent", help="agent name, e.g. executor")
     model_assign_parser.add_argument(
         "profile", nargs="?", default=None, help="profile id; omit to clear the assignment"
@@ -2546,9 +2757,7 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
 
     mcp_add = mcp_sub.add_parser("add", help="write a server into .mcp.json and start it")
     mcp_add.add_argument("name")
-    mcp_add.add_argument(
-        "rest", nargs="*", help="the command and its arguments, after a bare --"
-    )
+    mcp_add.add_argument("rest", nargs="*", help="the command and its arguments, after a bare --")
     _mcp_scope(mcp_add)
     _mcp_entry(mcp_add)
     mcp_add.add_argument("--preset", default=None, help="catalog id to start from")
@@ -2604,9 +2813,7 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
         action_parser = mcp_sub.add_parser(verb, help=help_text)
         action_parser.add_argument("name")
         _mcp_scope(action_parser)
-        action_parser.add_argument(
-            "--json", dest="sub_json", action="store_true", help="emit JSON"
-        )
+        action_parser.add_argument("--json", dest="sub_json", action="store_true", help="emit JSON")
 
     mcp_reload = mcp_sub.add_parser("reload", help="restart one server, or all of them")
     mcp_reload.add_argument("name", nargs="?", default="")
@@ -2707,9 +2914,7 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
             help="shorthand for --scope global",
         )
         memory_action.add_argument("--limit", type=int, default=100, help="maximum rows")
-        memory_action.add_argument(
-            "--json", dest="sub_json", action="store_true", help="emit JSON"
-        )
+        memory_action.add_argument("--json", dest="sub_json", action="store_true", help="emit JSON")
     memory_forget_parser = memory_sub.add_parser("forget", help="delete one memory by id")
     memory_forget_parser.add_argument("memory_id", help="memory id from `memory list`")
 
@@ -2794,6 +2999,59 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
     team_delete_parser.add_argument("name", help="team to delete")
     team_delete_parser.add_argument("--workdir", default=None, help="project to write it to")
     team_delete_parser.add_argument(
+        "--json", dest="sub_json", action="store_true", help="emit JSON"
+    )
+    team_guide_parser = team_sub.add_parser("guide", help="show or edit team persona guides")
+    team_guide_sub = team_guide_parser.add_subparsers(dest="guide_action", metavar="<action>")
+    team_guide_show_parser = team_guide_sub.add_parser("show", help="show a team guide")
+    team_guide_show_parser.add_argument("team", nargs="?", default=None, help="team name")
+    team_guide_show_parser.add_argument("--workdir", default=None, help="project directory")
+    team_guide_show_parser.add_argument(
+        "--json", dest="sub_json", action="store_true", help="emit JSON"
+    )
+    team_guide_set_parser = team_guide_sub.add_parser("set", help="replace a team guide persona")
+    team_guide_set_parser.add_argument("team", help="team name or default")
+    team_guide_set_parser.add_argument("persona", nargs="+", help="persona text")
+    team_guide_set_parser.add_argument("--workdir", default=None, help="project directory")
+    team_guide_set_parser.add_argument(
+        "--global", dest="scope", action="store_const", const="global", help="write globally"
+    )
+    team_guide_set_parser.set_defaults(scope="project")
+    team_guide_set_parser.add_argument("--description", default=None, help="one-line summary")
+    team_guide_set_parser.add_argument(
+        "--json", dest="sub_json", action="store_true", help="emit JSON"
+    )
+    team_guide_route_parser = team_guide_sub.add_parser("route", help="add a routing rule")
+    team_guide_route_parser.add_argument("team", help="team name or default")
+    team_guide_route_parser.add_argument("agent", help="agent to use")
+    team_guide_route_parser.add_argument("when", nargs="+", help="condition text")
+    team_guide_route_parser.add_argument("--workdir", default=None, help="project directory")
+    team_guide_route_parser.add_argument(
+        "--global", dest="scope", action="store_const", const="global", help="write globally"
+    )
+    team_guide_route_parser.set_defaults(scope="project")
+    team_guide_route_parser.add_argument(
+        "--json", dest="sub_json", action="store_true", help="emit JSON"
+    )
+    team_guide_unroute_parser = team_guide_sub.add_parser("unroute", help="remove routing rules")
+    team_guide_unroute_parser.add_argument("team", help="team name or default")
+    team_guide_unroute_parser.add_argument("target", help="agent name or one-based index")
+    team_guide_unroute_parser.add_argument("--workdir", default=None, help="project directory")
+    team_guide_unroute_parser.add_argument(
+        "--global", dest="scope", action="store_const", const="global", help="write globally"
+    )
+    team_guide_unroute_parser.set_defaults(scope="project")
+    team_guide_unroute_parser.add_argument(
+        "--json", dest="sub_json", action="store_true", help="emit JSON"
+    )
+    team_guide_delete_parser = team_guide_sub.add_parser("delete", help="delete a team guide")
+    team_guide_delete_parser.add_argument("team", help="team name or default")
+    team_guide_delete_parser.add_argument("--workdir", default=None, help="project directory")
+    team_guide_delete_parser.add_argument(
+        "--global", dest="scope", action="store_const", const="global", help="delete global copy"
+    )
+    team_guide_delete_parser.set_defaults(scope="project")
+    team_guide_delete_parser.add_argument(
         "--json", dest="sub_json", action="store_true", help="emit JSON"
     )
 
@@ -2925,9 +3183,7 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
         if action == "status":
             return await team_status(getattr(args, "team_id", None), home, as_json=as_json)
         if action == "list":
-            return await team_list(
-                home, workdir=getattr(args, "workdir", None), as_json=as_json
-            )
+            return await team_list(home, workdir=getattr(args, "workdir", None), as_json=as_json)
         if action == "create":
             return await team_create(
                 str(getattr(args, "name", "") or ""),
@@ -2951,9 +3207,65 @@ async def dispatch(args: argparse.Namespace, home: Path | str | None = None) -> 
                 workdir=getattr(args, "workdir", None),
                 as_json=as_json,
             )
+        if action == "guide":
+            guide_action = getattr(args, "guide_action", None)
+            if guide_action == "show":
+                return await team_guide_show(
+                    getattr(args, "team", None),
+                    home,
+                    workdir=getattr(args, "workdir", None),
+                    as_json=as_json,
+                )
+            if guide_action == "set":
+                persona = " ".join(getattr(args, "persona", []) or []).strip()
+                if not persona:
+                    return _fail("usage: snowpea team guide set <team> <persona...>", EXIT_USAGE)
+                return await team_guide_set(
+                    str(getattr(args, "team", "") or ""),
+                    persona,
+                    home,
+                    workdir=getattr(args, "workdir", None),
+                    scope=str(getattr(args, "scope", "project") or "project"),
+                    description=getattr(args, "description", None),
+                    as_json=as_json,
+                )
+            if guide_action == "route":
+                when = " ".join(getattr(args, "when", []) or []).strip()
+                return await team_guide_route(
+                    str(getattr(args, "team", "") or ""),
+                    str(getattr(args, "agent", "") or ""),
+                    when,
+                    home,
+                    workdir=getattr(args, "workdir", None),
+                    scope=str(getattr(args, "scope", "project") or "project"),
+                    as_json=as_json,
+                )
+            if guide_action == "unroute":
+                return await team_guide_unroute(
+                    str(getattr(args, "team", "") or ""),
+                    str(getattr(args, "target", "") or ""),
+                    home,
+                    workdir=getattr(args, "workdir", None),
+                    scope=str(getattr(args, "scope", "project") or "project"),
+                    as_json=as_json,
+                )
+            if guide_action == "delete":
+                return await team_guide_delete(
+                    str(getattr(args, "team", "") or ""),
+                    home,
+                    workdir=getattr(args, "workdir", None),
+                    scope=str(getattr(args, "scope", "project") or "project"),
+                    as_json=as_json,
+                )
+            return _fail(
+                "usage: snowpea team guide show [team] | set <team> <persona...>"
+                " | route <team> <agent> <when...> | unroute <team> <agent|index>"
+                " | delete <team>",
+                EXIT_USAGE,
+            )
         return _fail(
             "usage: snowpea team status [teamId] | list | create <name> <agent...>"
-            " | use <name> | delete <name>",
+            " | use <name> | delete <name> | guide show|set|route|unroute|delete ...",
             EXIT_USAGE,
         )
     if subcommand == "provider":

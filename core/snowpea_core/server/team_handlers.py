@@ -24,6 +24,7 @@ from snowpea_core.server.protocol import (
     TeamStatusResult,
 )
 from snowpea_core.server.rpc import RpcConnection, RpcDispatcher
+from snowpea_core.server.team_guide_handlers import register_team_guide_handlers
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.server.app_server import Core
@@ -62,6 +63,7 @@ def register_team_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
     """Register every method in :data:`HANDLED_METHODS`."""
     dispatcher.register("team.start", team_start_handler)
     dispatcher.register("team.status", team_status_handler)
+    register_team_guide_handlers(dispatcher)
     return dispatcher
 
 

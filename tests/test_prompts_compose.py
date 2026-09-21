@@ -509,6 +509,7 @@ def test_every_workflow_prompt_renders_with_no_placeholders_left() -> None:
             ROUND_NOTE="",
             MAX_TASKS=8,
             TESTS="PASS",
+            TEAM_GUIDE="",
         )
         assert "${" not in text, name
         assert text.strip(), name
