@@ -12,6 +12,7 @@
  */
 
 import type { KnownAgent } from "../layout/agents.js";
+import { rankCommandMatches } from "./slash-completion.js";
 import type { TeamTaskEntry } from "./store.js";
 
 /** One row of the completion list. */
@@ -29,7 +30,7 @@ export interface AgentCandidate {
 const COMMAND_PREFIXES: readonly string[] = ["/delegate ", "/agent spawn "];
 
 /** The `$name` form, anchored at the start of the draft. */
-const DOLLAR = /^\$([A-Za-z0-9][\w.-]*)?$/;
+const DOLLAR = /^\$([A-Za-z0-9][\w.:-]*)?$/;
 
 /**
  * Every agent worth offering, in the order a person would look for one.
@@ -117,7 +118,8 @@ export function filterAgents(
 ): AgentCandidate[] {
   if (prefix.length === 0) return [...candidates];
   const needle = prefix.toLowerCase();
-  return candidates.filter((candidate) => candidate.name.toLowerCase().startsWith(needle));
+  // `$arch` finds `architect` first, then a plugin's `oh-my-claudecode:architect`.
+  return rankCommandMatches(candidates, needle);
 }
 
 /** The draft and cursor after accepting a name. */

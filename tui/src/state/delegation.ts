@@ -20,7 +20,8 @@ export interface DelegationHint {
   rest: string;
 }
 
-const PREFIX = /^\$([A-Za-z0-9][\w.-]*)(\s+([\s\S]*))?$/;
+// A plugin's agent may be qualified: `$oh-my-claudecode:architect`.
+const PREFIX = /^\$([A-Za-z0-9][\w.-]*(?::[A-Za-z0-9][\w.-]*)?)(\s+([\s\S]*))?$/;
 
 /**
  * Read the delegation prefix out of a draft, or null when there is none.

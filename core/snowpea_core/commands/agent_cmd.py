@@ -147,8 +147,11 @@ def _without_shadowing(
     Code may not: a plugin that ships its own ``architect`` used to become
     snowpea's ``architect``, so the default team ran somebody else's prompt
     (and advertised "Opus" on a machine that has no such model). Such a
-    definition stays available as ``<plugin>-<name>``; with no plugin to name
-    it after, it is left out.
+    definition stays available as ``<plugin>:<name>`` — the spelling Claude Code
+    itself uses, and the one a clashing skill gets (``/<plugin>:<skill>``). The
+    colon never reaches the disk: a qualified name only ever comes from a
+    plugin's own file, it is not something snowpea writes. With no plugin to
+    name it after, the definition is left out.
     """
     if defn.name not in builtin_names or not defn.source.startswith("claude"):
         return defn
@@ -157,10 +160,8 @@ def _without_shadowing(
         log.info("agent %r (%s) is hidden by the built-in role", defn.name, defn.source)
         return None
     try:
-        qualified = validate_name(f"{plugin}-{defn.name}")
+        qualified = f"{validate_name(plugin)}:{defn.name}"
     except DefinitionError:
-        return None
-    if qualified in builtin_names:
         return None
     return replace(defn, name=qualified)
 

@@ -356,7 +356,7 @@ def test_a_claude_plugin_agent_never_replaces_a_builtin_role(tmp_path: Path) -> 
     assert definitions["architect"].source == "builtin"
     assert "Opus" not in definitions["architect"].description
     # The plugin's one is still there, under a name that says whose it is.
-    assert definitions["oh-my-claudecode-architect"].source == "claude-plugin"
+    assert definitions["oh-my-claudecode:architect"].source == "claude-plugin"
     # A name no built-in owns is untouched.
     assert definitions["analyst"].source == "claude-plugin"
 
@@ -367,3 +367,17 @@ def test_a_claude_plugin_agent_never_replaces_a_builtin_role(tmp_path: Path) -> 
     )
     definitions = {agent.name: agent for agent in definitions_for(core, workdir)}
     assert definitions["architect"].source == "project"
+
+
+def test_the_dollar_prefix_accepts_a_plugin_qualified_agent() -> None:
+    from snowpea_core.server.session_handlers import _DELEGATE_PREFIX
+
+    plain = _DELEGATE_PREFIX.match("$reviewer look at the diff")
+    assert plain is not None and plain.group(1) == "reviewer"
+    qualified = _DELEGATE_PREFIX.match("$oh-my-claudecode:architect design the cache")
+    assert qualified is not None
+    assert qualified.group(1) == "oh-my-claudecode:architect"
+    assert qualified.group(2) == "design the cache"
+    # A stray colon is not a name.
+    assert _DELEGATE_PREFIX.match("$:architect go") is None
+    assert _DELEGATE_PREFIX.match("$omc: go") is None

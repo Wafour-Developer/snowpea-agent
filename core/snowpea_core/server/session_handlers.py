@@ -113,7 +113,9 @@ _ATTACHMENT_CODES: dict[str, str] = {
 #: typed is exactly the shorthand the daemon rewrites once it is sent: the
 #: name needs a space after it to count, so a bare ``$foo`` with nothing typed
 #: yet does not misfire.
-_DELEGATE_PREFIX = re.compile(r"^\$([A-Za-z0-9][\w.-]*)(?:\s+([\s\S]*))?$")
+# ``$reviewer …`` or, for a plugin's agent that shares a built-in's name,
+# ``$oh-my-claudecode:architect …``.
+_DELEGATE_PREFIX = re.compile(r"^\$([A-Za-z0-9][\w.-]*(?::[A-Za-z0-9][\w.-]*)?)(?:\s+([\s\S]*))?$")
 
 #: Methods this module implements; the rest stay ``not_implemented`` at M1.
 HANDLED_METHODS: tuple[str, ...] = (
