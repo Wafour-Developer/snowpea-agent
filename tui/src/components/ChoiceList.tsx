@@ -114,15 +114,21 @@ export function ChoiceList({
           <Text color={here ? (option.danger ? "red" : color) : undefined} bold={here}>
             {here ? "❯ " : "  "}
           </Text>
-          <Text
-            inverse={here}
-            bold={here || option.bold}
-            color={rowColor}
-            dimColor={!here && !held && !option.danger}
-            wrap="truncate-end"
-          >
-            {` ${number}${mark}${option.label} `}
-          </Text>
+          {/* With an inline description the two share one row. The label is what
+              the user is choosing between, so it never gives up width: a long
+              summary used to squeeze `/oh-my-claudecode:ralph` down to
+              `/oh-my-claudecode:ra`, hiding the very part that was typed. */}
+          <Box flexShrink={descriptionMode === "inline" ? 0 : 1}>
+            <Text
+              inverse={here}
+              bold={here || option.bold}
+              color={rowColor}
+              dimColor={!here && !held && !option.danger}
+              wrap="truncate-end"
+            >
+              {` ${number}${mark}${option.label} `}
+            </Text>
+          </Box>
           {option.shortcut ? <Text dimColor>{`  (${option.shortcut})`}</Text> : null}
           {option.description && descriptionMode === "inline" ? (
             <Text dimColor wrap="truncate-end">{`  ${option.description}`}</Text>
