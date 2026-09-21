@@ -37432,7 +37432,7 @@ function recordingLabel(startedAt, now) {
 }
 
 // src/version.ts
-var TUI_VERSION = "0.2.11";
+var TUI_VERSION = "0.2.12";
 
 // src/layout/transcript.ts
 var TOOL_OUTPUT_LINES = 12;
@@ -42980,7 +42980,7 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
           { label: "Cancel", value: null }
         ],
         escapeValue: null,
-        windowSize: Math.max(5, usableRows(terminal.rows) - 10),
+        windowSize: Math.max(5, terminal.rows - 17),
         onChoose: (target) => {
           setResumeChoices(null);
           if (target) resumeSession(target, "main");
