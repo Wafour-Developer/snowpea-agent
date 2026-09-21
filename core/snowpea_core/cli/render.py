@@ -190,6 +190,8 @@ class TurnTracker:
         self.root_session_id: str | None = None
         #: Child sessions that had at least one denied tool call.
         self._child_denied: set[str] = set()
+        #: The root turn had an approval denied before the turn finished.
+        self._root_denial_pending = False
         #: Body of the most recent ``context`` event, reported by --json.
         self.context: dict[str, Any] | None = None
         #: When false, a completed turn with only soft approval denials exits 0.
@@ -202,6 +204,8 @@ class TurnTracker:
         if not sid or sid == self.root_session_id:
             if self.strict_approvals:
                 self.denied = True
+            else:
+                self._root_denial_pending = True
             return
         self._child_denied.add(sid)
 
@@ -231,6 +235,12 @@ class TurnTracker:
         elif kind == "turn.done":
             self.reason = str(payload.get("reason", "complete"))
             self.turn_id = payload.get("turnId")
+            if self._root_denial_pending:
+                if str(self.reason or "").lower() == "denied":
+                    self.denied = True
+                elif str(self.reason or "").lower() == "complete":
+                    self.denied = True
+                self._root_denial_pending = False
 
     @property
     def done(self) -> bool:

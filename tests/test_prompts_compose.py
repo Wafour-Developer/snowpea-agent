@@ -497,6 +497,7 @@ def test_every_workflow_prompt_renders_with_no_placeholders_left() -> None:
             AGENTS_PATH="/tmp/AGENTS.md",
             AGENTS_STATUS="absent",
             SETTINGS_NOTE="",
+            DIRECTORY_SUMMARIES="",
             WORKDIR="/tmp/project",
             REPO="/tmp/project",
             FOCUS="",

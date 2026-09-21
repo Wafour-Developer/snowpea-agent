@@ -769,7 +769,7 @@ def test_the_stage_sequence_matches_what_the_engine_actually_does() -> None:
     assert audio_install.stages_for("supertonic") == (
         audio_install.STAGE_RESOLVE,
         audio_install.STAGE_RUNTIME,
-        *audio_install.STAGES_PACKAGE[1:],
+        *audio_install.STAGES_SUPERTONIC[1:],
     )
     # A catalog id resolves to its engine's sequence, not to a default.
     assert audio_install.stages_for("local-whisper") == audio_install.STAGES_PACKAGE

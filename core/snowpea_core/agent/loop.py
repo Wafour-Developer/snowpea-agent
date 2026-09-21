@@ -12,6 +12,7 @@ interrupts and bugs all end in ``turn.done`` with the matching reason.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import re
 import uuid
@@ -434,19 +435,25 @@ async def _stream_once(
     # Stop so the provider request is torn down immediately.
     stream = provider.stream(messages, specs, max_tokens=max_tokens, **extra)
     interrupt_watcher = asyncio.ensure_future(session.interrupt.wait())
+    next_event: asyncio.Task[Any] | None = None
     try:
         while True:
             next_event = asyncio.ensure_future(stream.__anext__())
-            done, _ = await asyncio.wait(
-                {next_event, interrupt_watcher},
-                return_when=asyncio.FIRST_COMPLETED,
-            )
+            try:
+                done, _ = await asyncio.wait(
+                    {next_event, interrupt_watcher},
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+            except asyncio.CancelledError:
+                next_event.cancel()
+                with contextlib.suppress(asyncio.CancelledError, StopAsyncIteration):
+                    await next_event
+                attempt.interrupted = True
+                raise
             if interrupt_watcher in done and session.interrupt.is_set():
                 next_event.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError, StopAsyncIteration):
                     await next_event
-                except (asyncio.CancelledError, StopAsyncIteration):
-                    pass
                 attempt.interrupted = True
                 break
             if next_event in done:
@@ -459,11 +466,14 @@ async def _stream_once(
     finally:
         if not interrupt_watcher.done():
             interrupt_watcher.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await interrupt_watcher
-            except asyncio.CancelledError:
-                pass
-        await stream.aclose()
+        if next_event is not None and not next_event.done():
+            next_event.cancel()
+            with contextlib.suppress(asyncio.CancelledError, StopAsyncIteration):
+                await next_event
+        with contextlib.suppress(RuntimeError):
+            await stream.aclose()
     # Nothing thought is dropped, including by an interrupt: the last window is
     # always published, so the totals a surface shows match what was counted.
     await flush_reasoning()

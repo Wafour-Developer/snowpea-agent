@@ -48,6 +48,13 @@ class SessionManager:
         #: Coroutines run with the session id when a session closes, so a tool
         #: that holds per-session state (a browser context, say) can release it.
         self.on_close: list[Any] = []
+        #: ``(agent_name, workdir) -> the definition's ``model:`` field``.
+        #: Injected by ``wire_core`` because resolving a definition needs the
+        #: plugin loader, which lives on ``Core``.  Three of the five session
+        #: creators used to forget to pass ``definition_model`` by hand; making
+        #: it derived here is what stops that from happening again
+        #: (CORE-model-assignment B-P2-1).
+        self.definition_model_for: Any = None
 
     async def announce_sessions_changed(self, reason: str, session_id: str) -> None:
         """Tell every authenticated client the session list just moved.
@@ -65,13 +72,6 @@ class SessionManager:
             )
         except Exception:  # noqa: BLE001 - a dead socket must not fail create/close
             log.debug("could not broadcast sessions.changed", exc_info=True)
-        #: ``(agent_name, workdir) -> the definition's ``model:`` field``.
-        #: Injected by ``wire_core`` because resolving a definition needs the
-        #: plugin loader, which lives on ``Core``.  Three of the five session
-        #: creators used to forget to pass ``definition_model`` by hand; making
-        #: it derived here is what stops that from happening again
-        #: (CORE-model-assignment B-P2-1).
-        self.definition_model_for: Any = None
 
     def bind(self, store: Store, settings: Settings, hub: EventHub) -> None:
         """Late wiring from ``app_server`` once ``Core`` exists."""

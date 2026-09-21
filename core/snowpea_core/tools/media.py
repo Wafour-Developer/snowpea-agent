@@ -126,6 +126,7 @@ async def _forward(ctx: ToolContext, tool_name: str, args: dict[str, Any]) -> To
         return ToolResult(ok=False, error=f"{tool_name} timed out")
     except Exception as exc:  # noqa: BLE001 - the studio server can raise anything
         return ToolResult(ok=False, error=f"{type(exc).__name__}: {exc}")
+    rendered = mcp_client.as_rendered(rendered)
     meta = {"images": list(rendered.images)} if rendered.images else None
     return ToolResult(ok=True, output=rendered.text, meta=meta)
 

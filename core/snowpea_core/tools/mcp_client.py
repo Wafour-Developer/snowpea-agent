@@ -484,6 +484,13 @@ def _decode_image_block(block: Any) -> dict[str, Any] | None:
     return {"mime": mime, "bytes_b64": base64.b64encode(raw).decode("ascii"), "name": name}
 
 
+def as_rendered(value: str | RenderedMcpContent) -> RenderedMcpContent:
+    """Accept either a plain tool string or a rendered MCP payload."""
+    if isinstance(value, RenderedMcpContent):
+        return value
+    return RenderedMcpContent(text=str(value))
+
+
 def render_content(result: Any) -> RenderedMcpContent:
     """Flatten an MCP ``CallToolResult`` into text and optional image metadata."""
     blocks = getattr(result, "content", None) or []
@@ -613,6 +620,7 @@ def _make_runner(server_name: str, tool: str) -> Any:
             return ToolResult(ok=False, error=f"{server_name}.{tool} timed out")
         except Exception as exc:  # noqa: BLE001 - a server can raise anything
             return ToolResult(ok=False, error=f"{type(exc).__name__}: {exc}")
+        rendered = as_rendered(rendered)
         meta = {"images": list(rendered.images)} if rendered.images else None
         return ToolResult(ok=True, output=rendered.text, meta=meta)
 
@@ -794,6 +802,7 @@ __all__ = [
     "permission_for",
     "register_config",
     "RenderedMcpContent",
+    "as_rendered",
     "render_content",
     "render_listing",
     "sync_tools",
