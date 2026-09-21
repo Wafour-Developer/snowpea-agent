@@ -2797,9 +2797,11 @@ export function App({
             { label: "Cancel", value: null },
           ]}
           escapeValue={null}
-          // Leave room for the HUD and the hint: the menu scrolls inside the
-          // rows that are left, however many sessions were saved.
-          windowSize={Math.max(5, usableRows(terminal.rows) - 10)}
+          // The menu shares the screen with the mode line, the HUD, the agent
+          // panel and its own two "more" lines and hint — seventeen rows in
+          // all. Anything taller pushes the top of the menu, cursor included,
+          // off the screen, which is the bug this window exists to prevent.
+          windowSize={Math.max(5, terminal.rows - 17)}
           onChoose={(target) => {
             setResumeChoices(null);
             if (target) resumeSession(target, "main");
