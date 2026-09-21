@@ -373,3 +373,55 @@ async def test_skill_install_notes_when_already_available_in_claude_plugin_cache
         in result.output
     )
     assert "installed frontend-design" in result.output
+
+
+async def test_a_plugin_skill_never_replaces_a_core_command(
+    ctx: ToolContext, tmp_path: Path
+) -> None:
+    """A Claude Code plugin ships ``ralph`` and ``notes``; snowpea ships ``/ralph``.
+
+    Before the guard the skill silently took over ``/ralph`` — the prompt went to
+    the model as "Follow these instructions for /ralph…" and the loop never ran —
+    and the next rescan unregistered the name, deleting the core command.
+    """
+    from snowpea_core.commands.registry import register_builtin_commands
+
+    registry = ctx.core.commands
+    register_builtin_commands(registry)
+    core_ralph = registry.get("ralph")
+    assert core_ralph is not None and "ralph" in registry.protected
+
+    bundle = tmp_path / "claude_cache" / "omc"
+    (bundle / ".claude-plugin").mkdir(parents=True)
+    (bundle / ".claude-plugin" / "plugin.json").write_text(
+        json.dumps({"name": "omc", "version": "1.0.0"}), encoding="utf-8"
+    )
+    for name in ("ralph", "notes"):
+        (bundle / "skills" / name).mkdir(parents=True)
+        (bundle / "skills" / name / "SKILL.md").write_text(
+            f"---\nname: {name}\ndescription: plugin {name}\n---\n\nBody.\n", encoding="utf-8"
+        )
+    installed = ctx.core.paths.home / ".claude" / "plugins" / "installed_plugins.json"
+    installed.parent.mkdir(parents=True, exist_ok=True)
+    installed.write_text(
+        json.dumps(
+            {
+                "version": 2,
+                "plugins": {"omc@market": [{"scope": "user", "installPath": str(bundle)}]},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    loader = ctx.core.skills
+    await loader.reload()
+    # The core command is untouched; the plugin's skill is reachable qualified.
+    assert registry.get("ralph") is core_ralph
+    assert registry.get("omc:ralph") is not None
+    # A name nothing in the core owns is registered plainly, as before.
+    assert registry.get("notes") is not None
+
+    # A second scan must not delete the core command either.
+    await loader.reload()
+    assert registry.get("ralph") is core_ralph
+    assert registry.get("omc:ralph") is not None

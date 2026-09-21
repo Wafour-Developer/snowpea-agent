@@ -29,7 +29,7 @@ import logging
 import os
 import shutil
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -575,11 +575,23 @@ class SkillLoader:
         for name in self._registered:
             registry.unregister(name)
         self._registered = set()
+        protected: frozenset[str] = getattr(registry, "protected", frozenset())
         for skill in self.skills.values():
             if not skill.doc.user_invocable:
                 continue
-            registry.register(self._command_for(skill))
-            self._registered.add(skill.name)
+            name = skill.name
+            if name in protected:
+                # A core command keeps its name. The skill stays reachable the
+                # way Claude Code spells it, ``/<plugin>:<skill>``; one with no
+                # plugin to qualify it is left out, and said so.
+                if not skill.plugin:
+                    log.info(
+                        "skill %r (%s) is hidden by the built-in /%s", name, skill.source, name
+                    )
+                    continue
+                name = f"{skill.plugin}:{skill.name}"
+            registry.register(replace(self._command_for(skill), name=name))
+            self._registered.add(name)
 
     def _command_for(self, skill: LoadedSkill) -> Command:
         doc = skill.doc

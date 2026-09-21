@@ -81,6 +81,11 @@ class CommandRegistry:
 
     def __init__(self) -> None:
         self._commands: dict[str, Command] = {}
+        #: Names of the commands the core itself ships (``/ralph``, ``/team``,
+        #: ``/plan`` …). A skill may never take one of these: a user who has a
+        #: Claude Code plugin with a ``ralph`` skill must still get snowpea's
+        #: ``/ralph``. Filled in by :func:`register_builtin_commands`.
+        self.protected: frozenset[str] = frozenset()
 
     def register(self, command: Command) -> Command:
         self._commands[command.name] = command
@@ -216,6 +221,7 @@ def register_builtin_commands(registry: CommandRegistry) -> CommandRegistry:
         *workers_cmd.COMMANDS,
     ):
         registry.register(command)
+    registry.protected = frozenset(command.name for command in registry.commands())
     return registry
 
 

@@ -41,6 +41,8 @@ FIXTURE_REPO="$E2E_ROOT/snowpea-fixture"
 E2E_HOME="$E2E_ROOT/snowpea-e2e-home"
 TOOL_ROOT="$E2E_ROOT/snowpea-e2e-tools"
 FAKE_SCRIPT="$REPO_ROOT/tests/fixtures/providers/fake/e2e.json"
+# The version the checkout declares; the installed CLI must report exactly this.
+EXPECTED_VERSION="$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' "$REPO_ROOT/core/snowpea_core/__init__.py")"
 SAMPLE_PLUGIN="$REPO_ROOT/tests/fixtures/plugins/sample-plugin"
 INSTALL_URL="https://raw.githubusercontent.com/Wafour-Developer/snowpea-agent/main/installer/install.sh"
 
@@ -162,10 +164,10 @@ version_out="$(sn --version 2>&1)"
 if [ "$install_rc" -ne 0 ]; then
   fail_step 1 "the installer exited $install_rc"
   note "$(printf '%s' "$install_log" | tail -5)"
-elif printf '%s' "$version_out" | grep -Eq '^snowpea 0\.1\.'; then
+elif [ "$version_out" = "snowpea $EXPECTED_VERSION" ]; then
   pass_step 1 "installed; $version_out"
 else
-  fail_step 1 "snowpea --version printed '$version_out', expected 'snowpea 0.1.x'"
+  fail_step 1 "snowpea --version printed '$version_out', expected 'snowpea $EXPECTED_VERSION'"
 fi
 
 if [ ! -x "$SNOWPEA" ]; then
@@ -362,17 +364,21 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 13 — plan mode denies a write
+# 13 — plan mode denies a write to CODE
+#
+# Plan mode may write documents (markdown, text, docs/, plan files — see
+# permissions/plan_paths.py), so a .txt is allowed by design. What it must
+# never do is touch source: that is what this step asserts.
 # ---------------------------------------------------------------------------
 
-rm -f "$FIXTURE_REPO/foo.txt"
-sn --mode plan -c "write foo.txt" --cwd "$FIXTURE_REPO" >/dev/null 2>&1
+rm -f "$FIXTURE_REPO/foo.py"
+sn --mode plan -c "write foo.py" --cwd "$FIXTURE_REPO" >/dev/null 2>&1
 plan_rc=$?
-if [ "$plan_rc" -eq 4 ] && [ ! -e "$FIXTURE_REPO/foo.txt" ]; then
-  pass_step 13 "plan mode denied the write (exit 4, no file)"
+if [ "$plan_rc" -eq 4 ] && [ ! -e "$FIXTURE_REPO/foo.py" ]; then
+  pass_step 13 "plan mode denied the write to source (exit 4, no file)"
 else
   created="no"
-  [ -e "$FIXTURE_REPO/foo.txt" ] && created="yes"
+  [ -e "$FIXTURE_REPO/foo.py" ] && created="yes"
   fail_step 13 "exit $plan_rc, file created: $created (wanted exit 4 and no file)"
 fi
 
