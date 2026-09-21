@@ -6,6 +6,7 @@
  */
 
 import type { CommandInfo } from "../rpc/sdk.js";
+import { rankCommandMatches } from "../state/slash-completion.js";
 
 const SURFACE_COMMANDS: CommandInfo[] = [
   {
@@ -146,7 +147,7 @@ export class SlashRegistry {
     if (body.includes(" ")) return [];
     const needle = body.split(/\s/)[0] ?? "";
     if (needle.length === 0) return this.commands;
-    return this.commands.filter((c) => c.name.startsWith(needle));
+    return rankCommandMatches(this.commands, needle);
   }
 
   /**

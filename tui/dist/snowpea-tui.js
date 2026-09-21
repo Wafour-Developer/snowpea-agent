@@ -34358,6 +34358,44 @@ async function connect(options) {
   return client;
 }
 
+// src/state/slash-completion.ts
+function commandNameMatches(name, typed) {
+  const needle = typed.toLowerCase();
+  const full = name.toLowerCase();
+  if (full.startsWith(needle)) return true;
+  const colon = full.lastIndexOf(":");
+  return colon >= 0 && full.slice(colon + 1).startsWith(needle);
+}
+function rankCommandMatches(rows, typed) {
+  const needle = typed.toLowerCase();
+  const direct = rows.filter((row) => row.name.toLowerCase().startsWith(needle));
+  const qualified = rows.filter(
+    (row) => !row.name.toLowerCase().startsWith(needle) && commandNameMatches(row.name, needle)
+  );
+  return [...direct, ...qualified];
+}
+function slashCommandText(name) {
+  return `/${name}`;
+}
+function shouldShowSlashPalette(draft, completions) {
+  if (!draft.startsWith("/") || completions.length === 0) return false;
+  const trimmed = draft.trimEnd();
+  if (draft.endsWith(" ") && completions.some((row) => slashCommandText(row.name) === trimmed)) {
+    return false;
+  }
+  return completions.some((row) => {
+    const full = slashCommandText(row.name);
+    if (trimmed.length < full.length && full.startsWith(trimmed)) return true;
+    if (!trimmed.includes(" ") && commandNameMatches(row.name, trimmed.slice(1))) return true;
+    if (trimmed === full && !draft.endsWith(" ")) return true;
+    if (full.startsWith(trimmed) && trimmed !== full) return true;
+    if (trimmed.startsWith(`${full} `)) {
+      return full.startsWith(trimmed) || trimmed.startsWith(full);
+    }
+    return false;
+  });
+}
+
 // src/slash/registry.ts
 var SURFACE_COMMANDS = [
   {
@@ -34458,7 +34496,7 @@ var SlashRegistry = class {
     if (body.includes(" ")) return [];
     const needle = body.split(/\s/)[0] ?? "";
     if (needle.length === 0) return this.commands;
-    return this.commands.filter((c) => c.name.startsWith(needle));
+    return rankCommandMatches(this.commands, needle);
   }
   /**
    * Run a `/...` line. Returns null when the input is not a slash command, so
@@ -38664,28 +38702,6 @@ function FullscreenLayout({
 
 // src/components/Chat.tsx
 var import_react30 = __toESM(require_react(), 1);
-
-// src/state/slash-completion.ts
-function slashCommandText(name) {
-  return `/${name}`;
-}
-function shouldShowSlashPalette(draft, completions) {
-  if (!draft.startsWith("/") || completions.length === 0) return false;
-  const trimmed = draft.trimEnd();
-  if (draft.endsWith(" ") && completions.some((row) => slashCommandText(row.name) === trimmed)) {
-    return false;
-  }
-  return completions.some((row) => {
-    const full = slashCommandText(row.name);
-    if (trimmed.length < full.length && full.startsWith(trimmed)) return true;
-    if (trimmed === full && !draft.endsWith(" ")) return true;
-    if (full.startsWith(trimmed) && trimmed !== full) return true;
-    if (trimmed.startsWith(`${full} `)) {
-      return full.startsWith(trimmed) || trimmed.startsWith(full);
-    }
-    return false;
-  });
-}
 
 // src/state/fileRefs.ts
 var TRAILING_PUNCT_CHARS = /* @__PURE__ */ new Set([".", ",", ";", ":", ")", "!", "?"]);
