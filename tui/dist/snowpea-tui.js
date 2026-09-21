@@ -36480,6 +36480,14 @@ function resumeRows(entries, workdir) {
   const elsewhere = kept.filter((entry) => entry.workdir !== workdir);
   return [...here, ...elsewhere];
 }
+var RESUME_ELSEWHERE = "__elsewhere__";
+function resumeView(rows, workdir, showElsewhere) {
+  if (!workdir) return { rows, hiddenElsewhere: 0 };
+  const here = rows.filter((entry) => entry.workdir === workdir);
+  const elsewhere = rows.length - here.length;
+  if (showElsewhere || here.length === 0) return { rows, hiddenElsewhere: 0 };
+  return { rows: here, hiddenElsewhere: elsewhere };
+}
 function resumeLabel(entry, promptChars = 48, workdir) {
   const prompt = entry.firstPrompt.length > promptChars ? `${entry.firstPrompt.slice(0, promptChars - 1)}\u2026` : entry.firstPrompt;
   const where = workdir && entry.workdir !== workdir ? `[${entry.workdir.split("/").pop() || entry.workdir}] ` : "";
@@ -37432,7 +37440,7 @@ function recordingLabel(startedAt, now) {
 }
 
 // src/version.ts
-var TUI_VERSION = "0.2.12";
+var TUI_VERSION = "0.2.13";
 
 // src/layout/transcript.ts
 var TOOL_OUTPUT_LINES = 12;
@@ -41384,6 +41392,7 @@ function App2({
   const [shellsOpen, setShellsOpen] = (0, import_react45.useState)(false);
   const [openAgent, setOpenAgent] = (0, import_react45.useState)(null);
   const [resumeChoices, setResumeChoices] = (0, import_react45.useState)(null);
+  const [resumeElsewhere, setResumeElsewhere] = (0, import_react45.useState)(false);
   const [modePicker, setModePicker] = (0, import_react45.useState)(false);
   const [agentScroll, setAgentScroll] = (0, import_react45.useState)(0);
   const [pastPrompts] = (0, import_react45.useState)(() => {
@@ -42256,6 +42265,7 @@ function App2({
         showToast("no saved sessions for this directory");
         return;
       }
+      setResumeElsewhere(false);
       setResumeChoices(rows);
     }).catch(
       (error) => dispatch({ type: "error", message: `could not list saved sessions: ${String(error)}` })
@@ -42972,20 +42982,34 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
     ) : resumeChoices ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
       ConfirmMenu,
       {
-        options: [
-          ...resumeChoices.map((entry) => ({
-            label: resumeLabel(entry, 48, workdir),
-            value: entry.sessionId
-          })),
-          { label: "Cancel", value: null }
-        ],
+        options: (() => {
+          const view = resumeView(resumeChoices, workdir, resumeElsewhere);
+          return [
+            ...view.rows.map((entry) => ({
+              label: resumeLabel(entry, 48, workdir),
+              value: entry.sessionId
+            })),
+            ...view.hiddenElsewhere > 0 ? [
+              {
+                label: `\u25B8 Sessions from other directories (${view.hiddenElsewhere})\u2026`,
+                value: RESUME_ELSEWHERE
+              }
+            ] : [],
+            { label: "Cancel", value: null }
+          ];
+        })(),
         escapeValue: null,
         windowSize: Math.max(5, terminal.rows - 17),
         onChoose: (target) => {
+          if (target === RESUME_ELSEWHERE) {
+            setResumeElsewhere(true);
+            return;
+          }
           setResumeChoices(null);
           if (target) resumeSession(target, "main");
         }
-      }
+      },
+      resumeElsewhere ? "resume-all" : "resume-here"
     ) : /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
       Chat,
       {
