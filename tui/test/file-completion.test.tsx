@@ -167,9 +167,12 @@ describe("file completion popup keys", () => {
       await sleep(50);
 
       stdin.write("\r");
-      await sleep(40);
-
-      expect(onSubmit).toHaveBeenCalledWith("@nonexistent");
+      // Wait for the submit instead of a fixed 40 ms: on a busy machine the key
+      // had not been processed yet and the same assertion failed at random.
+      await vi.waitFor(() => expect(onSubmit).toHaveBeenCalledWith("@nonexistent"), {
+        timeout: 2000,
+        interval: 20,
+      });
     } finally {
       instance.unmount();
     }
