@@ -62,7 +62,13 @@ import { useSpinner } from "./hooks/useSpinner.js";
 import { useKnownAgents } from "./hooks/useKnownAgents.js";
 import { clampFocus, focusDown, focusUp, isInput, INPUT_FOCUS, type Focus } from "./state/focus.js";
 import { mouseReports, panelRowAt } from "./input/mouse.js";
-import { offerSession, resumeLabel, resumeRows } from "./state/history.js";
+import {
+  RESUME_ELSEWHERE,
+  offerSession,
+  resumeLabel,
+  resumeRows,
+  resumeView,
+} from "./state/history.js";
 import {
   beginRecording,
   endRecording,
@@ -613,6 +619,8 @@ export function App({
   const [openAgent, setOpenAgent] = useState<{ sessionId: string; name: string } | null>(null);
   /** Saved sessions offered after a bare `/resume`. */
   const [resumeChoices, setResumeChoices] = useState<SessionRecord[] | null>(null);
+  /** `/resume` opens on this directory's sessions; this reveals the rest. */
+  const [resumeElsewhere, setResumeElsewhere] = useState(false);
   const [modePicker, setModePicker] = useState(false);
   /** Lines the open agent's transcript is scrolled back from its newest line. */
   const [agentScroll, setAgentScroll] = useState(0);
@@ -1867,6 +1875,7 @@ export function App({
         showToast("no saved sessions for this directory");
         return;
       }
+      setResumeElsewhere(false);
       setResumeChoices(rows);
     }).catch((error: unknown) =>
       dispatch({ type: "error", message: `could not list saved sessions: ${String(error)}` }),
@@ -2789,13 +2798,26 @@ export function App({
         />
       ) : resumeChoices ? (
         <ConfirmMenu<string | null>
-          options={[
-            ...resumeChoices.map((entry) => ({
-              label: resumeLabel(entry, 48, workdir),
-              value: entry.sessionId,
-            })),
-            { label: "Cancel", value: null },
-          ]}
+          // Re-mounted when the rest is revealed, so the cursor starts at the top.
+          key={resumeElsewhere ? "resume-all" : "resume-here"}
+          options={(() => {
+            const view = resumeView(resumeChoices, workdir, resumeElsewhere);
+            return [
+              ...view.rows.map((entry) => ({
+                label: resumeLabel(entry, 48, workdir),
+                value: entry.sessionId,
+              })),
+              ...(view.hiddenElsewhere > 0
+                ? [
+                    {
+                      label: `▸ Sessions from other directories (${view.hiddenElsewhere})…`,
+                      value: RESUME_ELSEWHERE,
+                    },
+                  ]
+                : []),
+              { label: "Cancel", value: null },
+            ];
+          })()}
           escapeValue={null}
           // The menu shares the screen with the mode line, the HUD, the agent
           // panel and its own two "more" lines and hint — seventeen rows in
@@ -2803,6 +2825,10 @@ export function App({
           // off the screen, which is the bug this window exists to prevent.
           windowSize={Math.max(5, terminal.rows - 17)}
           onChoose={(target) => {
+            if (target === RESUME_ELSEWHERE) {
+              setResumeElsewhere(true);
+              return;
+            }
             setResumeChoices(null);
             if (target) resumeSession(target, "main");
           }}

@@ -78,6 +78,30 @@ export function resumeRows(entries: SessionRecord[], workdir?: string): SessionR
   return [...here, ...elsewhere];
 }
 
+/** Value of the picker row that reveals the sessions of other directories. */
+export const RESUME_ELSEWHERE = "__elsewhere__";
+
+/**
+ * What the `/resume` picker shows.
+ *
+ * It opens on this directory's own sessions only: that is what a person
+ * resuming here wants, and a machine that also ran benchmarks or scripts has
+ * dozens of unrelated ones. The rest sit behind one row that says how many
+ * there are. With nothing saved for this directory there is nothing to hide,
+ * so everything is shown at once.
+ */
+export function resumeView(
+  rows: SessionRecord[],
+  workdir: string | undefined,
+  showElsewhere: boolean,
+): { rows: SessionRecord[]; hiddenElsewhere: number } {
+  if (!workdir) return { rows, hiddenElsewhere: 0 };
+  const here = rows.filter((entry) => entry.workdir === workdir);
+  const elsewhere = rows.length - here.length;
+  if (showElsewhere || here.length === 0) return { rows, hiddenElsewhere: 0 };
+  return { rows: here, hiddenElsewhere: elsewhere };
+}
+
 export function resumeLabel(entry: SessionRecord, promptChars = 48, workdir?: string): string {
   const prompt =
     entry.firstPrompt.length > promptChars
