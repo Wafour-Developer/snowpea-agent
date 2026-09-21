@@ -37432,7 +37432,7 @@ function recordingLabel(startedAt, now) {
 }
 
 // src/version.ts
-var TUI_VERSION = "0.2.7";
+var TUI_VERSION = "0.2.8";
 
 // src/layout/transcript.ts
 var TOOL_OUTPUT_LINES = 12;
@@ -39111,7 +39111,7 @@ function ChoiceList({
     return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexDirection: "column", children: [
       /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { children: [
         /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { color: here ? option.danger ? "red" : color : void 0, bold: here, children: here ? "\u276F " : "  " }),
-        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Box_default, { flexShrink: descriptionMode === "inline" ? 0 : 1, children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
           Text,
           {
             inverse: here,
@@ -39121,7 +39121,7 @@ function ChoiceList({
             wrap: "truncate-end",
             children: ` ${number}${mark}${option.label} `
           }
-        ),
+        ) }),
         option.shortcut ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { dimColor: true, children: `  (${option.shortcut})` }) : null,
         option.description && descriptionMode === "inline" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `  ${option.description}` }) : null,
         option.badge ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { color: option.badgeColor ?? color, children: `  ${option.badge}` }) : null
