@@ -61,6 +61,9 @@ ALL_TOOLS = "*"
 
 DEFAULT_MAX_TOKENS = 2048
 
+#: Extra attempts `complete_text` makes when the model answers with nothing.
+EMPTY_REPLY_RETRIES = 2
+
 
 class DefinitionError(ValueError):
     """A definition could not be parsed, generated or validated."""
@@ -526,12 +529,25 @@ def parse_generated_json(text: str) -> dict[str, Any]:
 async def complete_text(
     provider: Any, messages: list[ChatMessage], *, max_tokens: int = DEFAULT_MAX_TOKENS
 ) -> str:
-    """Run one non-tool provider turn and return the concatenated text."""
-    chunks: list[str] = []
-    async for event in provider.stream(messages, [], max_tokens=max_tokens):
-        if event.kind == "text_delta" and event.text:
-            chunks.append(event.text)
-    return "".join(chunks)
+    """Run one non-tool provider turn and return the concatenated text.
+
+    An empty reply is asked for again, up to :data:`EMPTY_REPLY_RETRIES` times.
+    A reasoning model now and then stops after its thinking with no answer at
+    all (``finish_reason: stop``, zero content) — measured at one in three for
+    the ``/team`` planner's prompt on a local Qwen. Every caller here parses the
+    text as JSON, so that one flake used to fail a whole ``/team``, ``/ralph`` or
+    agent generation outright.
+    """
+    text = ""
+    for _attempt in range(1 + EMPTY_REPLY_RETRIES):
+        chunks: list[str] = []
+        async for event in provider.stream(messages, [], max_tokens=max_tokens):
+            if event.kind == "text_delta" and event.text:
+                chunks.append(event.text)
+        text = "".join(chunks)
+        if text.strip():
+            break
+    return text
 
 
 def definition_from_payload(data: dict[str, Any], description: str) -> AgentDefinition:
