@@ -36904,7 +36904,7 @@ function modelSource(session) {
 }
 
 // src/state/delegation.ts
-var PREFIX = /^\$([A-Za-z0-9][\w.-]*)(\s+([\s\S]*))?$/;
+var PREFIX = /^\$([A-Za-z0-9][\w.-]*(?::[A-Za-z0-9][\w.-]*)?)(\s+([\s\S]*))?$/;
 function delegationHint(draft, agents = []) {
   const match = PREFIX.exec(draft);
   if (!match) return null;
@@ -36922,7 +36922,7 @@ function delegationLabel(hint) {
 
 // src/state/agent-completion.ts
 var COMMAND_PREFIXES = ["/delegate ", "/agent spawn "];
-var DOLLAR = /^\$([A-Za-z0-9][\w.-]*)?$/;
+var DOLLAR = /^\$([A-Za-z0-9][\w.:-]*)?$/;
 function agentCandidates({
   known = [],
   teamTasks = [],
@@ -36968,7 +36968,7 @@ function agentQuery(draft, cursor = draft.length) {
 function filterAgents(candidates, prefix) {
   if (prefix.length === 0) return [...candidates];
   const needle = prefix.toLowerCase();
-  return candidates.filter((candidate) => candidate.name.toLowerCase().startsWith(needle));
+  return rankCommandMatches(candidates, needle);
 }
 function applyAgentCompletion(draft, query, name) {
   const inserted = `${name} `;
@@ -37432,7 +37432,7 @@ function recordingLabel(startedAt, now) {
 }
 
 // src/version.ts
-var TUI_VERSION = "0.2.8";
+var TUI_VERSION = "0.2.9";
 
 // src/layout/transcript.ts
 var TOOL_OUTPUT_LINES = 12;
