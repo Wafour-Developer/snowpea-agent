@@ -37432,7 +37432,7 @@ function recordingLabel(startedAt, now) {
 }
 
 // src/version.ts
-var TUI_VERSION = "0.2.10";
+var TUI_VERSION = "0.2.11";
 
 // src/layout/transcript.ts
 var TOOL_OUTPUT_LINES = 12;
@@ -38968,6 +38968,7 @@ function AgentPalette({
 }
 
 // src/hooks/useChoiceKeys.ts
+var PAGE_STEP = 10;
 function useChoiceKeys(options) {
   const {
     count: count2,
@@ -39025,6 +39026,14 @@ function useChoiceKeys(options) {
         }
         if (key.downArrow || vim && typed === "j") {
           onIndex((index + 1) % count2);
+          return;
+        }
+        if (key.pageDown) {
+          onIndex(Math.min(count2 - 1, index + PAGE_STEP));
+          return;
+        }
+        if (key.pageUp) {
+          onIndex(Math.max(0, index - PAGE_STEP));
           return;
         }
       }
@@ -39100,6 +39109,8 @@ function ChoiceList({
   const size = windowSize ?? options.length;
   const start = windowStart(selectedIndex, options.length, Math.max(size, 1));
   const shown = options.slice(start, start + Math.max(size, 1));
+  const hiddenAbove = start;
+  const hiddenBelow = Math.max(0, options.length - (start + shown.length));
   const preview = showPreview ? options[selectedIndex]?.preview ?? "" : "";
   const other = otherRowIndex(options, allowOther);
   const row = (option, index) => {
@@ -39132,7 +39143,9 @@ function ChoiceList({
   return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexDirection: "column", children: [
     /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexDirection: "row", children: [
       /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexDirection: "column", flexGrow: 1, children: [
+        hiddenAbove > 0 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { dimColor: true, children: `   \u2191 ${hiddenAbove} more` }) : null,
         shown.map((option, offset) => row(option, start + offset)),
+        hiddenBelow > 0 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { dimColor: true, children: `   \u2193 ${hiddenBelow} more` }) : null,
         allowOther ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { children: [
           /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { color: selectedIndex === other ? color : void 0, bold: selectedIndex === other, children: selectedIndex === other ? "\u276F " : "  " }),
           /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
@@ -39787,7 +39800,8 @@ function ConfirmMenu({
   onChoose,
   initialIndex = 0,
   escapeValue,
-  isActive = true
+  isActive = true,
+  windowSize
 }) {
   const [index, setIndex] = (0, import_react31.useState)(
     () => Math.min(Math.max(0, initialIndex), Math.max(0, options.length - 1))
@@ -39829,7 +39843,11 @@ function ConfirmMenu({
       options: rows,
       selectedIndex: index,
       color: currentAccent(),
-      hint: choiceHint({ enter: "confirm" })
+      windowSize,
+      hint: choiceHint({
+        enter: "confirm",
+        extra: windowSize && rows.length > windowSize ? ["PgUp/PgDn page"] : []
+      })
     }
   ) });
 }
@@ -42962,6 +42980,7 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
           { label: "Cancel", value: null }
         ],
         escapeValue: null,
+        windowSize: Math.max(5, usableRows(terminal.rows) - 10),
         onChoose: (target) => {
           setResumeChoices(null);
           if (target) resumeSession(target, "main");
