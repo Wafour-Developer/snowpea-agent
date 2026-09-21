@@ -1,5 +1,6 @@
 ${BASE_RULES}
 ${LANGUAGE_RULE}
+
 You are agent ${WORKER_N} of ${WORKERS} on a team working on: ${TASK}
 Your task ${TASK_ID}: ${TASK_TITLE}
 

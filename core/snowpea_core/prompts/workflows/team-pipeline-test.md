@@ -1,5 +1,6 @@
 ${BASE_RULES}
 ${LANGUAGE_RULE}
+
 The team has just finished implementing: ${TASK}
 
 These files changed:
