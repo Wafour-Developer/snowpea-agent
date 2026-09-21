@@ -319,3 +319,51 @@ async def test_learned_skill_becomes_a_command(
     assert "notes" in {command["name"] for command in result["commands"]}
 
     await client.stop()
+
+
+def test_a_claude_plugin_agent_never_replaces_a_builtin_role(tmp_path: Path) -> None:
+    """A Claude Code plugin ships ``architect`` and ``analyst``; snowpea ships ``architect``.
+
+    The plugin's ``architect`` used to become snowpea's: the default team then ran
+    that prompt and listed "(Opus, READ-ONLY)" on a machine with no such model.
+    """
+    from snowpea_core.commands.agent_cmd import definitions_for
+
+    workdir = project(tmp_path)
+    home = tmp_path / "home"
+    home.mkdir()
+    cache = home / ".claude" / "plugins" / "cache"
+    agents_dir = cache / "omc" / "oh-my-claudecode" / "5.4.0" / "agents"
+    agents_dir.mkdir(parents=True)
+    for name, description in (
+        ("architect", "Strategic Architecture & Debugging Advisor (Opus, READ-ONLY)"),
+        ("analyst", "Pre-planning consultant for requirements analysis (Opus)"),
+    ):
+        (agents_dir / f"{name}.md").write_text(
+            f"---\nname: {name}\ndescription: {description}\n---\n\nPlugin prompt.\n",
+            encoding="utf-8",
+        )
+    loaded = [
+        SimpleNamespace(path=agents_dir / f"{name}.md", source="claude-plugin")
+        for name in ("architect", "analyst")
+    ]
+    core = SimpleNamespace(
+        paths=SimpleNamespace(home=home), skills=SimpleNamespace(agents=loaded)
+    )
+
+    definitions = {agent.name: agent for agent in definitions_for(core, workdir)}
+    # The built-in role keeps its name and its own description.
+    assert definitions["architect"].source == "builtin"
+    assert "Opus" not in definitions["architect"].description
+    # The plugin's one is still there, under a name that says whose it is.
+    assert definitions["oh-my-claudecode-architect"].source == "claude-plugin"
+    # A name no built-in owns is untouched.
+    assert definitions["analyst"].source == "claude-plugin"
+
+    # A definition the user wrote for snowpea may still replace a built-in on purpose.
+    write_definition(
+        AgentDefinition(name="architect", description="Mine.", prompt="Project architect."),
+        workdir,
+    )
+    definitions = {agent.name: agent for agent in definitions_for(core, workdir)}
+    assert definitions["architect"].source == "project"

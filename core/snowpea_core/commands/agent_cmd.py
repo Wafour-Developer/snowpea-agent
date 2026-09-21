@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import shlex
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -20,6 +21,7 @@ from snowpea_core.agent.definition import (
     discover_definitions,
     generate_definition,
     parse_agent_md,
+    validate_name,
     write_definition,
 )
 from snowpea_core.commands.registry import Command, CommandContext
@@ -126,11 +128,52 @@ def definitions_for(core: Core, workdir: Path | str | None) -> list[AgentDefinit
     by_name: dict[str, AgentDefinition] = {}
     for defn in builtin_agent_definitions():
         by_name[defn.name] = defn
-    for defn in _from_loader(core):
-        by_name[defn.name] = defn
-    for defn in discover_definitions(workdir, _home(core)):
-        by_name[defn.name] = defn
+    builtin_names = frozenset(by_name)
+    for source_defns in (_from_loader(core), discover_definitions(workdir, _home(core))):
+        for defn in source_defns:
+            placed = _without_shadowing(defn, builtin_names)
+            if placed is not None:
+                by_name[placed.name] = placed
     return sorted(by_name.values(), key=lambda d: d.name)
+
+
+def _without_shadowing(
+    defn: AgentDefinition, builtin_names: frozenset[str]
+) -> AgentDefinition | None:
+    """``defn`` under a name that does not take a built-in role away.
+
+    A definition the user wrote for snowpea (global, project, a snowpea plugin)
+    may replace a built-in on purpose. One that merely came along with Claude
+    Code may not: a plugin that ships its own ``architect`` used to become
+    snowpea's ``architect``, so the default team ran somebody else's prompt
+    (and advertised "Opus" on a machine that has no such model). Such a
+    definition stays available as ``<plugin>-<name>``; with no plugin to name
+    it after, it is left out.
+    """
+    if defn.name not in builtin_names or not defn.source.startswith("claude"):
+        return defn
+    plugin = _claude_plugin_name(defn.path)
+    if plugin is None:
+        log.info("agent %r (%s) is hidden by the built-in role", defn.name, defn.source)
+        return None
+    try:
+        qualified = validate_name(f"{plugin}-{defn.name}")
+    except DefinitionError:
+        return None
+    if qualified in builtin_names:
+        return None
+    return replace(defn, name=qualified)
+
+
+def _claude_plugin_name(path: Path | None) -> str | None:
+    """``oh-my-claudecode`` from ``…/plugins/cache/<market>/<plugin>/<version>/agents/x.md``."""
+    if path is None:
+        return None
+    parts = path.parts
+    if "cache" not in parts:
+        return None
+    index = len(parts) - 1 - parts[::-1].index("cache")
+    return parts[index + 2] if len(parts) > index + 2 else None
 
 
 async def _maybe_await(value: Any) -> None:
