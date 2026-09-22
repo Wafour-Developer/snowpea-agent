@@ -260,6 +260,42 @@ def _record_from_file(path: Path, source: Path) -> None:
     _write_record(path, version=match.group(1) if match else "unknown", sha256=digest)
 
 
+#: The window class the packaged Electron app reports on Linux; the launcher
+#: entry names it so the taskbar pairs the running window with the entry's icon.
+APPIMAGE_WM_CLASS = "snowpea-ide"
+_APPIMAGE_ICON_GLOB = "usr/share/icons/hicolor/*/apps/*.png"
+
+
+def _extract_appimage_icon(appimage: Path) -> Path | None:
+    """Copy the largest icon the AppImage carries next to it, for the launcher entry.
+
+    Without it the entry has no picture: an AppImage is one file, and the
+    desktop cannot look inside it.
+    """
+    with tempfile.TemporaryDirectory(prefix="snowpea-icon-", dir=appimage.parent) as tmp:
+        try:
+            subprocess.run(
+                [str(appimage), "--appimage-extract", _APPIMAGE_ICON_GLOB],
+                cwd=tmp,
+                capture_output=True,
+                timeout=60,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        found = sorted(
+            Path(tmp).glob("squashfs-root/" + _APPIMAGE_ICON_GLOB), key=lambda p: p.stat().st_size
+        )
+        if not found:
+            return None
+        icon = appimage.parent / "snowpea-desktop.png"
+        try:
+            shutil.copyfile(found[-1], icon)
+        except OSError:
+            return None
+        return icon
+
+
 def install(platform: Platform, file: Path) -> Path:
     """Install a verified asset and return the fixed executable/application path."""
     if platform == "linux":
@@ -272,11 +308,14 @@ def install(platform: Platform, file: Path) -> Path:
         applications = (
             Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / "applications"
         )
+        icon = _extract_appimage_icon(target)
         try:
             applications.mkdir(parents=True, exist_ok=True)
             (applications / "snowpea-desktop.desktop").write_text(
                 "[Desktop Entry]\nType=Application\nName=snowpea desktop\n"
-                f"Exec={target} %U\nTerminal=false\nCategories=Development;\n",
+                f"Exec={target} %U\nTerminal=false\nCategories=Development;\n"
+                + (f"Icon={icon}\n" if icon else "")
+                + f"StartupWMClass={APPIMAGE_WM_CLASS}\n",
                 encoding="utf-8",
             )
         except OSError:

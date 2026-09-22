@@ -171,7 +171,15 @@ def test_linux_install_record_and_desktop_entry(
     monkeypatch.setenv("SNOWPEA_HOME", str(home))
     monkeypatch.setenv("XDG_DATA_HOME", str(xdg))
     source = tmp_path / "snowpea-1.2.3.AppImage"
-    source.write_bytes(b"app")
+    # A stand-in AppImage: `--appimage-extract <glob>` writes the icon the
+    # real one carries under squashfs-root/, which the installer then copies.
+    source.write_text(
+        "#!/bin/sh\n"
+        'd=squashfs-root/usr/share/icons/hicolor/512x512/apps; mkdir -p "$d"; '
+        'printf PNG > "$d/snowpea-ide.png"\n',
+        encoding="utf-8",
+    )
+    source.chmod(0o755)
     installed = desktop_app.install("linux", source)
     assert installed == home / "desktop" / "snowpea-desktop.AppImage"
     assert stat.S_IMODE(installed.stat().st_mode) == 0o755
@@ -179,6 +187,9 @@ def test_linux_install_record_and_desktop_entry(
     assert record["version"] == "1.2.3" and record["path"] == str(installed)
     entry = (xdg / "applications" / "snowpea-desktop.desktop").read_text()
     assert "Name=snowpea desktop" in entry and f"Exec={installed} %U" in entry
+    icon = home / "desktop" / "snowpea-desktop.png"
+    assert icon.read_text() == "PNG" and f"Icon={icon}" in entry
+    assert "StartupWMClass=snowpea-ide" in entry
 
 
 def test_installed_launch_does_not_download_asset(
