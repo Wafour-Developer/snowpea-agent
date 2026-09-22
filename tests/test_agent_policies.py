@@ -101,18 +101,16 @@ def _clean_registry() -> Iterator[None]:
     file_state.REGISTRY.clear()
 
 
-async def test_a_file_never_read_may_not_be_edited(tmp_path: Path) -> None:
+async def test_a_file_never_read_is_edited_with_a_note(tmp_path: Path) -> None:
+    """Hermes warns and proceeds; snowpea used to refuse and cost a re-read round."""
     (tmp_path / "a.txt").write_text("hello\n", encoding="utf-8")
     ctx = _ctx(tmp_path, "s-1")
 
     result = await fs.patch(ctx, {"path": "a.txt", "old_string": "hello", "new_string": "bye"})
 
-    assert result.ok is False
-    assert result.error is not None
-    assert result.error.startswith("stale_file:")
-    assert "has not been read" in result.error
-    assert "recovery:" in result.error
-    assert (tmp_path / "a.txt").read_text(encoding="utf-8") == "hello\n"
+    assert result.ok is True, result.error
+    assert "note: " in (result.output or "") and "has not been read" in (result.output or "")
+    assert (tmp_path / "a.txt").read_text(encoding="utf-8") == "bye\n"
 
 
 async def test_a_full_read_unlocks_the_edit(tmp_path: Path) -> None:
@@ -126,7 +124,7 @@ async def test_a_full_read_unlocks_the_edit(tmp_path: Path) -> None:
     assert (tmp_path / "a.txt").read_text(encoding="utf-8") == "bye\n"
 
 
-async def test_a_partial_read_does_not_unlock_the_write(tmp_path: Path) -> None:
+async def test_a_partial_read_is_noted_on_the_write(tmp_path: Path) -> None:
     (tmp_path / "a.txt").write_text("one\ntwo\nthree\nfour\n", encoding="utf-8")
     ctx = _ctx(tmp_path, "s-1")
 
@@ -134,15 +132,15 @@ async def test_a_partial_read_does_not_unlock_the_write(tmp_path: Path) -> None:
     assert windowed.output == "two\nthree\n"
 
     result = await fs.write_file(ctx, {"path": "a.txt", "content": "new\n"})
-    assert result.ok is False
-    assert result.error is not None
-    assert "only read in part" in result.error
+    assert result.ok is True
+    assert "only read in part" in (result.output or "")
 
     assert (await fs.read_file(ctx, {"path": "a.txt"})).ok is True
-    assert (await fs.write_file(ctx, {"path": "a.txt", "content": "new\n"})).ok is True
+    again = await fs.write_file(ctx, {"path": "a.txt", "content": "newer\n"})
+    assert again.ok is True and "note:" not in (again.output or "")
 
 
-async def test_a_sibling_write_makes_the_other_child_stale(tmp_path: Path) -> None:
+async def test_a_finished_siblings_write_is_noted_not_refused(tmp_path: Path) -> None:
     (tmp_path / "a.txt").write_text("hello\n", encoding="utf-8")
     first = _ctx(tmp_path, "s-child-1", parent="s-parent")
     second = _ctx(tmp_path, "s-child-2", parent="s-parent")
@@ -151,15 +149,19 @@ async def test_a_sibling_write_makes_the_other_child_stale(tmp_path: Path) -> No
     assert (await fs.read_file(second, {"path": "a.txt"})).ok is True
     assert (await fs.write_file(second, {"path": "a.txt", "content": "from two\n"})).ok is True
 
-    blocked = await fs.patch(first, {"path": "a.txt", "old_string": "hello", "new_string": "from one"})
-    assert blocked.ok is False
-    assert blocked.error is not None
-    assert "s-child-2" in blocked.error
-    assert (tmp_path / "a.txt").read_text(encoding="utf-8") == "from two\n"
+    # The sibling has finished: like Hermes, the edit goes through with a note
+    # naming who wrote the file in between (a *running* sibling is refused —
+    # see tests/test_delegation_policy.py).
+    edited = await fs.patch(
+        first, {"path": "a.txt", "old_string": "from two", "new_string": "from one"}
+    )
+    assert edited.ok is True, edited.error
+    assert "s-child-2" in (edited.output or "")
+    assert (tmp_path / "a.txt").read_text(encoding="utf-8") == "from one\n"
 
     assert (await fs.read_file(first, {"path": "a.txt"})).ok is True
-    again = await fs.write_file(first, {"path": "a.txt", "content": "from one\n"})
-    assert again.ok is True
+    again = await fs.write_file(first, {"path": "a.txt", "content": "from one again\n"})
+    assert again.ok is True and "note:" not in (again.output or "")
 
 
 async def test_an_unrelated_session_is_not_a_sibling(tmp_path: Path) -> None:

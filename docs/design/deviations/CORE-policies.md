@@ -46,11 +46,16 @@ The exploration-routing rule in `execution.md` comes from **opencode**
    `Session.parent_session_id or Session.id`, so a fan-out of subagents shares
    one view of the tree and a human's session is a group of one.
 
-5. **A stale write is refused, not warned about.** Hermes' `check_stale` returns
-   a model-facing warning string that the caller may ignore. M15 §A3 says
-   "refuse", so `edit_file` and `write_file` return `ok=False` with
-   `stale_file: <reason>`. `tools.readBeforeWrite: false` turns the guard off
-   entirely.
+5. **A stale write is warned about, as in Hermes — except a sibling's file.**
+   Hermes' `check_stale` returns a model-facing warning and the write goes
+   through. snowpea refused instead at first (M15 §A3 said "refuse"), and a
+   model that had looked at the file with grep or a shell command rather than
+   `read_file` paid a re-read round for every edit — the owner saw
+   `stale_file` on most patches. Since 2026-09-22 `patch` and `write_file`
+   proceed and append `note: <reason>` to their output; only a file a sibling
+   subagent wrote after this session's read is still refused (`owned_by`,
+   M15 §C3), because there the fix is to report, not to re-read.
+   `tools.readBeforeWrite: false` turns the notes off entirely.
 
 6. **`read_file` gained `offset` and `limit`.** "read only partially" needs a
    partial read to exist. It also makes the §A4 spill pointer a real call rather

@@ -170,8 +170,8 @@ async def write_file(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     existing = await _read_existing(ctx, path)
     before = existing or ""
     stale = file_state.check_stale(ctx.core, ctx.session, path, exists=existing is not None)
-    if stale is not None:
-        return ToolResult(ok=False, error=file_state.refusal(stale))
+    if stale_is_owned(stale):
+        return ToolResult(ok=False, error=file_state.refusal(stale or ""))
     try:
         await ctx.backend.write_file(path, content)
     except OSError as exc:
@@ -181,7 +181,7 @@ async def write_file(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         ctx,
         ToolResult(
             ok=True,
-            output=f"wrote {len(content)} characters to {path}",
+            output=stale_note(f"wrote {len(content)} characters to {path}", stale),
             diff=unified_diff(path, before, content) or None,
             path=path,
         ),
@@ -200,11 +200,11 @@ async def _replace_in_file(ctx: ToolContext, args: dict[str, Any]) -> ToolResult
     before = await _read_existing(ctx, path)
     if before is None:
         return ToolResult(ok=False, error=f"no such file: {path}")
-    stale = file_state.check_stale(ctx.core, ctx.session, path, exists=True)
-    if stale is not None:
-        return ToolResult(ok=False, error=file_state.refusal(stale))
     occurrences = before.count(old)
     replace_all = bool(args.get("replaceAll", False))
+    stale = file_state.check_stale(ctx.core, ctx.session, path, exists=True)
+    if stale_is_owned(stale):
+        return ToolResult(ok=False, error=file_state.refusal(stale or ""))
     if occurrences == 0:
         # The model's whitespace or indentation often drifts from the file;
         # the vendored fuzzy matcher recovers the intended span or explains why
@@ -236,6 +236,7 @@ async def _replace_in_file(ctx: ToolContext, args: dict[str, Any]) -> ToolResult
         )
     else:
         output = f"replaced {replaced} occurrence(s) in {path}"
+    output = stale_note(output, stale)
     return await _with_diagnostics(
         ctx,
         ToolResult(
@@ -266,13 +267,35 @@ def _fuzzy_replace(
     matched_lines = removed_lines // matches
     allowed_extra = max(3, old_lines * 0.4)
     if matched_lines - old_lines > allowed_extra:
-        return None, strategy, (
-            "old_string matched approximately but the match spans "
-            f"{matched_lines} lines where old_string has {old_lines}; re-read the file "
-            "and pass the exact current text"
+        return (
+            None,
+            strategy,
+            (
+                "old_string matched approximately but the match spans "
+                f"{matched_lines} lines where old_string has {old_lines}; re-read the file "
+                "and pass the exact current text"
+            ),
         )
     log.info("patch matched fuzzily via %s (%d match(es))", strategy, matches)
     return updated, strategy, None
+
+
+def stale_is_owned(stale: str | None) -> bool:
+    """True when the guard names a sibling subagent still writing the file."""
+    return bool(stale) and str(stale).startswith(file_state.OWNED_CODE)
+
+
+def stale_note(output: str, stale: str | None) -> str:
+    """Append the read-before-write warning to a successful write, Hermes-style.
+
+    Hermes' ``check_stale`` warns and lets the write through; snowpea used to
+    refuse instead, and a model that had looked at the file with grep or a
+    shell command — not ``read_file`` — paid a re-read round for every edit.
+    Only a file a sibling subagent is still writing is refused (M15 §C3).
+    """
+    if not stale:
+        return output
+    return f"{output}\nnote: {stale}"
 
 
 async def patch(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
@@ -357,7 +380,8 @@ TOOLS: tuple[Tool, ...] = (
                 "replace_all": {
                     "type": "boolean",
                     "description": (
-                        "Replace all occurrences instead of requiring a unique match (default: false)"
+                        "Replace all occurrences instead of requiring a unique match "
+                        "(default: false)"
                     ),
                     "default": False,
                 },

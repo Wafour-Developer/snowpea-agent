@@ -209,13 +209,13 @@ async def test_a_running_sibling_owns_the_file_it_wrote(tmp_path: Path) -> None:
     assert "Rename one" in blocked.error
     assert "report instead of editing" in blocked.error
 
-    # Once that sibling has finished, the collision is an ordinary staleness
-    # refusal again: re-read and carry on.
+    # Once that sibling has finished, the collision is ordinary staleness:
+    # the edit goes through with a note naming the other writer (Hermes warns
+    # the same way rather than refusing).
     record.status = subagent.DONE
-    stale = await fs.patch(two, {"path": "shared.py", "old_string": "one", "new_string": "two"})
-    assert stale.ok is False
-    assert stale.error is not None
-    assert stale.error.startswith(f"{file_state.STALE_CODE}:")
+    noted = await fs.patch(two, {"path": "shared.py", "old_string": "one", "new_string": "two"})
+    assert noted.ok is True, noted.error
+    assert "note: " in (noted.output or "") and "s-child-1" in (noted.output or "")
 
 
 async def test_the_ownership_guard_follows_read_before_write_setting(tmp_path: Path) -> None:
