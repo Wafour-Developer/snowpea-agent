@@ -143,6 +143,14 @@ class CommandRegistry:
             await core.hub.emit_event(session.id, events.turn_done(turn_id, "error"))
             return turn_id
         ctx = CommandContext(core=core, session=session, turn_id=turn_id, conn=conn)
+        # A command is a turn: it ends with ``turn.done`` below, so it opens
+        # with ``turn.started`` too, carrying the line that was typed. That
+        # line is what ``session.list`` shows for a session used only through
+        # commands — one initialised with ``/deepinit`` and nothing else had
+        # no prompt at all and the pickers dropped it as unprompted.
+        await core.hub.emit_event(
+            session.id, events.turn_started(turn_id, f"/{name} {args}".strip())
+        )
         try:
             await command.run(ctx, args)
         except asyncio.CancelledError:

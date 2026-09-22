@@ -54,6 +54,7 @@ def message_user(
     *,
     steered: bool = False,
     refs: Sequence[dict[str, Any]] | None = None,
+    expansion: dict[str, Any] | None = None,
 ) -> Event:
     """The prompt that opened this turn, as it entered the history.
 
@@ -67,7 +68,13 @@ def message_user(
         for item in (attachments or [])
     ]
     return _pack(
-        MessageUser(text=text, attachments=files, steered=steered, refs=list(refs or ()))  # type: ignore[arg-type]
+        MessageUser(
+            text=text,
+            attachments=files,  # type: ignore[arg-type]
+            steered=steered,
+            refs=list(refs or ()),
+            expansion=expansion,  # type: ignore[arg-type]
+        )
     )
 
 
@@ -281,9 +288,7 @@ def job_done(job_id: str, session_id: str | None, status: str = "ok", text: str 
     return _pack(JobDone(jobId=job_id, sessionId=session_id, status=status, text=text))
 
 
-def job_failed(
-    job_id: str, session_id: str | None, status: str = "error", text: str = ""
-) -> Event:
+def job_failed(job_id: str, session_id: str | None, status: str = "error", text: str = "") -> Event:
     """A scheduled job the originating thread created ended without an answer."""
     return _pack(JobFailed(jobId=job_id, sessionId=session_id, status=status, text=text))
 

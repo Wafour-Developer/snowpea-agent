@@ -111,7 +111,15 @@ export function settledCount(
   // the inline layout has left for the live region; entries past it are
   // released early, at the cost of an extra summary line and a diagnostics
   // badge on an edit that has already scrolled away.
-  if (state.turnActive) {
+  //
+  // The entry right after the run settles the question early: once the model
+  // has started its reply, no call is going to join that run. Holding the
+  // cards past that point pinned them above the streaming reply, which then
+  // scrolled inside whatever rows were left — the reply hidden behind its own
+  // tool calls.
+  const next = count < total ? state.timeline[count] : undefined;
+  const runIsOver = next !== undefined && next.kind !== "tool" && next.kind !== "diff";
+  if (state.turnActive && !runIsOver) {
     let rows = 0;
     while (count > start) {
       const item = state.timeline[count - 1];

@@ -1924,6 +1924,14 @@ class UserAttachment(Payload):
     name: str = Field(default="", description="Display name shown under the prompt.")
 
 
+class PromptExpansion(Payload):
+    """What a slash command put in front of the model in place of the typed line."""
+
+    kind: Literal["skill"] = "skill"
+    name: str = Field(description="The skill the command ran, e.g. `ralph` or `omc:ralph`.")
+    text: str = Field(description="The full instruction the model received.")
+
+
 class MessageUser(Payload):
     """The prompt that opened a turn, at the moment it joined the history.
 
@@ -1947,6 +1955,13 @@ class MessageUser(Payload):
         description=(
             "True when this prompt was queued behind a running turn and then "
             "folded into that same turn before its next model call."
+        ),
+    )
+    expansion: PromptExpansion | None = Field(
+        default=None,
+        description=(
+            "Set when `text` is a skill command: the skill body the model was "
+            "given instead. Surfaces show it folded, like a tool call, not inline."
         ),
     )
 

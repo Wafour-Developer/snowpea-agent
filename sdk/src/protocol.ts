@@ -2763,6 +2763,14 @@ export interface MessageUserEventPayload {
     /** Display name shown under the prompt. */
     name?: string;
   })[];
+  /** Set when `text` is a skill command: the skill body the model was given instead. Surfaces show it folded, like a tool call, not inline. */
+  expansion?: {
+    kind?: "skill";
+    /** The skill the command ran, e.g. `ralph` or `omc:ralph`. */
+    name: string;
+    /** The full instruction the model received. */
+    text: string;
+  } | null;
   kind?: "message.user";
   /** Resolved @ references (path, kind, lines, truncated). */
   refs?: (Record<string, unknown>)[];

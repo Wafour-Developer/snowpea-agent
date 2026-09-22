@@ -10,6 +10,7 @@ the ``job.done`` event the originating thread now receives.
 
 from __future__ import annotations
 
+import asyncio
 import sqlite3
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -209,3 +210,23 @@ async def test_a_scheduled_run_is_tagged_and_tells_the_thread_that_asked(
     assert done["payload"]["sessionId"] == runs[0]["id"]
     assert done["payload"]["status"] == "ok"
     await client.stop()
+
+
+async def test_a_session_used_only_through_a_slash_command_still_lists_a_prompt(
+    daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path
+) -> None:
+    """``/help`` alone appends no user message; the typed line is the prompt shown.
+
+    The pickers drop sessions with no prompt as noise, so a session used only
+    for ``/deepinit`` vanished from ``/resume`` and the desktop list.
+    """
+    client = await connect(http, daemon, timeout=TIMEOUT)
+    chat = await client.ok("session.create", {"workdir": str(tmp_path)})
+    await client.ok("session.prompt", {"sessionId": chat["sessionId"], "text": "/help"})
+    for _ in range(50):
+        listing = await client.ok("session.list", {"workdir": str(tmp_path)})
+        row = next(r for r in listing["sessions"] if r["sessionId"] == chat["sessionId"])
+        if row.get("lastPrompt"):
+            break
+        await asyncio.sleep(0.05)
+    assert row["lastPrompt"] == "/help"

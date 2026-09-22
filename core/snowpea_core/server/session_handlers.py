@@ -341,11 +341,30 @@ async def collect_sessions(core: Core, params: SessionListParams) -> list[Sessio
             prompt = (
                 message_text(message_from_json("user", latest["content"]))
                 if latest is not None
-                else None
+                else await _last_command_line(core, row.sessionId)
             )
             enriched.append(row.model_copy(update={"lastPrompt": prompt}))
         rows = enriched
     return sorted(rows, key=lambda row: row.createdAt, reverse=True)
+
+
+async def _last_command_line(core: Core, session_id: str) -> str | None:
+    """The newest ``/command`` typed into a session that holds no user message.
+
+    A slash command such as ``/deepinit`` runs without appending a user message
+    to the history, so a session used only that way had no prompt to show and
+    the pickers, which drop unprompted sessions as noise, hid it. The typed line
+    is on the ``turn.started`` events, so it is read from there.
+    """
+    if core.store is None:
+        return None
+    for event in reversed(await core.store.events_after(session_id)):
+        if event["kind"] != "turn.started":
+            continue
+        prompt = event["payload"].get("prompt")
+        if isinstance(prompt, str) and prompt.strip():
+            return prompt
+    return None
 
 
 async def session_delete_saved_handler(

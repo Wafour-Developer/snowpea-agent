@@ -425,3 +425,41 @@ async def test_a_plugin_skill_never_replaces_a_core_command(
     await loader.reload()
     assert registry.get("ralph") is core_ralph
     assert registry.get("omc:ralph") is not None
+
+
+@pytest.mark.asyncio
+async def test_a_skill_command_keeps_the_typed_line_and_folds_the_body(
+    ctx: ToolContext, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``/notes today`` shows as typed; the skill body reaches the model only.
+
+    The body used to be the prompt itself, so a page of instructions was
+    pasted into the transcript as if the user had written it.
+    """
+    from snowpea_core.agent import loop as agent_loop
+    from snowpea_core.commands.registry import CommandContext
+
+    skills = ctx.core.paths.home / "skills" / "notes"
+    skills.mkdir(parents=True)
+    (skills / "SKILL.md").write_text(
+        "---\nname: notes\ndescription: daily notes\n---\n\nWrite the notes for $ARGUMENTS.\n",
+        encoding="utf-8",
+    )
+    await ctx.core.skills.reload()
+    command = ctx.core.commands.get("notes")
+    assert command is not None
+
+    seen: dict[str, Any] = {}
+
+    async def fake_run_turn(core: Any, session: Any, text: str, **kwargs: Any) -> str:
+        seen.update(kwargs, text=text)
+        return "t-1"
+
+    monkeypatch.setattr(agent_loop, "run_turn", fake_run_turn)
+    await command.run(CommandContext(core=ctx.core, session=ctx.session, turn_id="t-1"), "today")
+
+    assert seen["text"] == "/notes today"
+    assert "Write the notes for today" in seen["model_text"]
+    assert seen["expansion"]["kind"] == "skill"
+    assert seen["expansion"]["name"] == "notes"
+    assert seen["expansion"]["text"] == seen["model_text"]

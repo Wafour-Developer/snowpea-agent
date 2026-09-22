@@ -53,6 +53,7 @@ async def test_prompts_submitted_during_a_turn_are_delivered_fifo(
         queued: bool = False,
         model_text: str | None = None,
         refs: list[dict[str, Any]] | None = None,
+        expansion: dict[str, Any] | None = None,
     ) -> str:
         nonlocal active, peak_active
         active += 1

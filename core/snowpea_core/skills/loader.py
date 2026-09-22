@@ -590,11 +590,12 @@ class SkillLoader:
                     )
                     continue
                 name = f"{skill.plugin}:{skill.name}"
-            registry.register(replace(self._command_for(skill), name=name))
+            registry.register(replace(self._command_for(skill, name), name=name))
             self._registered.add(name)
 
-    def _command_for(self, skill: LoadedSkill) -> Command:
+    def _command_for(self, skill: LoadedSkill, command_name: str | None = None) -> Command:
         doc = skill.doc
+        command_name = command_name or doc.name
         summary = doc.description or f"{skill.kind} {doc.name}"
         if doc.argument_hint:
             summary = f"{summary} {doc.argument_hint}".strip()
@@ -607,9 +608,20 @@ class SkillLoader:
             if doc.allowed_tools:
                 session.allowed_tools = set(doc.allowed_tools)
             ctx.handled_turn = True
+            # The transcript keeps the line the user typed; the skill body
+            # travels to the model as the history text and to the surfaces
+            # as a folded expansion, so a page of instructions is not pasted
+            # into the chat as if the user had written it.
+            body = instruction(doc, args)
+            typed = f"/{command_name} {args}".strip()
             try:
                 await agent_loop.run_turn(
-                    ctx.core, session, instruction(doc, args), turn_id=ctx.turn_id
+                    ctx.core,
+                    session,
+                    typed,
+                    turn_id=ctx.turn_id,
+                    model_text=body,
+                    expansion={"kind": "skill", "name": command_name, "text": body},
                 )
             finally:
                 session.allowed_tools = previous

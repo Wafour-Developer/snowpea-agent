@@ -135,6 +135,7 @@ class QueuedTurn:
     attachments: list[Any]
     model_text: str | None = None
     refs: list[dict[str, Any]] | None = None
+    expansion: dict[str, Any] | None = None
 
 
 def new_turn_id() -> str:
@@ -603,6 +604,7 @@ def start_turn(
     unattended: bool = False,
     model_text: str | None = None,
     refs: list[dict[str, Any]] | None = None,
+    expansion: dict[str, Any] | None = None,
 ) -> str:
     """Schedule a turn, or queue it behind the session's active turn.
 
@@ -619,6 +621,7 @@ def start_turn(
         attachments=pending.take(session.id),
         model_text=model_text,
         refs=refs,
+        expansion=expansion,
     )
     task = session.turn_task
     if task is not None and not task.done():
@@ -706,7 +709,11 @@ async def _steer_queued_turns(core: Core, session: Session) -> int:
         await core.hub.emit_event(
             session.id,
             events.message_user(
-                queued.text, queued.attachments, steered=True, refs=queued.refs
+                queued.text,
+                queued.attachments,
+                steered=True,
+                refs=queued.refs,
+                expansion=queued.expansion,
             ),
         )
         await core.hub.emit_event(
@@ -766,6 +773,7 @@ async def _drain_turns(core: Core, session: Session, first: QueuedTurn) -> None:
                 queued=waited,
                 model_text=queued.model_text,
                 refs=queued.refs,
+                expansion=queued.expansion,
             )
             # The queue is *not* re-flushed here.  ``session.interrupt`` already
             # emptied it synchronously, at the instant Stop was pressed; a
@@ -794,6 +802,7 @@ async def run_turn(
     queued: bool = False,
     model_text: str | None = None,
     refs: list[dict[str, Any]] | None = None,
+    expansion: dict[str, Any] | None = None,
 ) -> str:
     """Run one full turn; returns its turn id once ``turn.done`` was emitted."""
     turn_id = turn_id or new_turn_id()
@@ -813,6 +822,7 @@ async def run_turn(
             attachments,
             model_text=model_text,
             refs=refs,
+            expansion=expansion,
         )
     except asyncio.CancelledError:
         # A shutdown in progress (``Daemon.stop`` -> ``SessionManager.close_all``,
@@ -989,6 +999,7 @@ async def _drive(
     *,
     model_text: str | None = None,
     refs: list[dict[str, Any]] | None = None,
+    expansion: dict[str, Any] | None = None,
 ) -> str:
     """The loop proper; emits ``turn.done`` itself and returns its reason."""
     hub = core.hub
@@ -1024,7 +1035,8 @@ async def _drive(
         # and none of the questions.  Once per prompt, and never for the
         # continuation nudge the loop appends to itself further down.
         await hub.emit_event(
-            session.id, events.message_user(text, attachments, refs=refs)
+            session.id,
+            events.message_user(text, attachments, refs=refs, expansion=expansion),
         )
     if session.is_subagent and _busy_policy(core) == "steer":
         from snowpea_core.agent.subagent import get_manager
