@@ -32,7 +32,9 @@ SessionKind = Literal["chat", "scheduled", "subagent", "agent"]
 #: ``config`` marks a call that changes snowpea's own settings, credentials or
 #: state.  It is never a silent ``allow``: plan denies it, accept and auto both
 #: ask, and the allowlist may not promote it (CORE-search-fix).
-PermissionTag = Literal["read", "write", "exec", "network", "send", "config", "delegate"]
+PermissionTag = Literal[
+    "read", "write", "exec", "network", "send", "config", "delegate", "secret"
+]
 ToolState = Literal["active", "inactive"]
 #: ``builtin``, ``global``, ``project``, ``skill`` or ``plugin:<plugin name>``;
 #: a free string because a plugin names itself (M6 contract §1).

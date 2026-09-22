@@ -58,6 +58,11 @@ EXPECTED: dict[tuple[str, str], str] = {
     ("auto", "exec"): "allow",
     ("auto", "network"): "allow",
     ("auto", "send"): "allow",
+    # A read of a credential or key location is asked for, never refused,
+    # and just happens in auto mode.
+    ("plan", "secret"): "ask",
+    ("accept", "secret"): "ask",
+    ("auto", "secret"): "allow",
 }
 
 

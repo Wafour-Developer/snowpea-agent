@@ -105,8 +105,8 @@ def _ref_entry(
     return entry
 
 
-def _is_secret_path(resolved: Path, home: Path) -> bool:
-    """True when ``resolved`` must never be inlined or attached."""
+def is_secret_pattern(resolved: Path) -> bool:
+    """True when the path itself says "credential": .ssh/.gnupg/.aws, .env*, keys."""
     parts = resolved.parts
     if any(part in _SECRET_DIR_PARTS for part in parts):
         return True
@@ -116,7 +116,12 @@ def _is_secret_path(resolved: Path, home: Path) -> bool:
         return True
     if lower.endswith(".pem") or lower.endswith(".key"):
         return True
-    if name.startswith("id_rsa") or name.startswith("id_ed25519"):
+    return name.startswith("id_rsa") or name.startswith("id_ed25519")
+
+
+def _is_secret_path(resolved: Path, home: Path) -> bool:
+    """True when ``resolved`` must never be inlined or attached."""
+    if is_secret_pattern(resolved):
         return True
     home_resolved = home.resolve()
     try:

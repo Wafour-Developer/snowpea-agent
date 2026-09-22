@@ -846,7 +846,7 @@ Write an MCP server into the project or global .mcp.json and start it.
 | `force` | `boolean` | no | Overwrite an existing entry and accept the security findings. |
 | `headers` | `Record<string, string> \| null` | no | HTTP headers sent with every request. |
 | `name` | `string` | yes | Server name; ^[a-zA-Z0-9_-]{1,64}$. |
-| `permission` | `"read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| null` | no | Permission tag for the server's tools; stored in settings. |
+| `permission` | `"read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret" \| null` | no | Permission tag for the server's tools; stored in settings. |
 | `preset` | `string \| null` | no | Catalog id copied before the explicit fields are applied. |
 | `scope` | `"project" \| "global"` | no | Which file to write. |
 | `sessionId` | `string \| null` | no | Session whose workdir to use. |
@@ -903,7 +903,7 @@ List every configured MCP server with its scope, state and tools.
 
 | field | type | required | description |
 |---|---|---|---|
-| `servers` | `({ args?: string[]; command?: string \| null; cwd?: string \| null; disabled?: boolean; envKeys?: string[]; error?: string \| null; headerKeys?: string[]; name: string; permission?: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate"; plugin?: string \| null; scope: "project" \| "global" \| "plugin" \| "settings"; state?: "stopped" \| "starting" \| "ready" \| "error"; timeoutSec?: number \| null; toolCount?: number; toolTimeoutSec?: number \| null; tools?: ({ description?: string; name: string; })[]; toolsExclude?: string[]; toolsInclude?: string[]; transport: "stdio" \| "http" \| "sse"; url?: string \| null; })[]` | no | One row per configured server, project entries winning. |
+| `servers` | `({ args?: string[]; command?: string \| null; cwd?: string \| null; disabled?: boolean; envKeys?: string[]; error?: string \| null; headerKeys?: string[]; name: string; permission?: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret"; plugin?: string \| null; scope: "project" \| "global" \| "plugin" \| "settings"; state?: "stopped" \| "starting" \| "ready" \| "error"; timeoutSec?: number \| null; toolCount?: number; toolTimeoutSec?: number \| null; tools?: ({ description?: string; name: string; })[]; toolsExclude?: string[]; toolsInclude?: string[]; transport: "stdio" \| "http" \| "sse"; url?: string \| null; })[]` | no | One row per configured server, project entries winning. |
 
 ### `mcp.reload`
 
@@ -964,7 +964,7 @@ Probe a saved MCP server or an unsaved draft and report its tools.
 | `env` | `Record<string, string> \| null` | no | Environment for the child process. |
 | `headers` | `Record<string, string> \| null` | no | HTTP headers sent with every request. |
 | `name` | `string \| null` | no | Saved server to probe. |
-| `permission` | `"read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| null` | no | Permission tag for the server's tools; stored in settings. |
+| `permission` | `"read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret" \| null` | no | Permission tag for the server's tools; stored in settings. |
 | `scope` | `"project" \| "global" \| "plugin" \| "settings" \| null` | no | Scope of the saved server. |
 | `sessionId` | `string \| null` | no | Session whose workdir to use. |
 | `timeoutSec` | `number \| null` | no | Startup cap, in seconds. |
@@ -996,7 +996,7 @@ Merge a patch into an existing MCP server entry.
 | field | type | required | description |
 |---|---|---|---|
 | `name` | `string` | yes | Server name. |
-| `patch` | `{ args?: string[] \| null; command?: string \| null; cwd?: string \| null; disabled?: boolean \| null; env?: Record<string, string> \| null; headers?: Record<string, string> \| null; permission?: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| null; timeoutSec?: number \| null; toolTimeoutSec?: number \| null; toolsExclude?: string[] \| null; toolsInclude?: string[] \| null; type?: "stdio" \| "http" \| "sse" \| null; url?: string \| null; }` | no | Keys to change; anything absent is kept. |
+| `patch` | `{ args?: string[] \| null; command?: string \| null; cwd?: string \| null; disabled?: boolean \| null; env?: Record<string, string> \| null; headers?: Record<string, string> \| null; permission?: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret" \| null; timeoutSec?: number \| null; toolTimeoutSec?: number \| null; toolsExclude?: string[] \| null; toolsInclude?: string[] \| null; type?: "stdio" \| "http" \| "sse" \| null; url?: string \| null; }` | no | Keys to change; anything absent is kept. |
 | `scope` | `"project" \| "global"` | no | Which file to rewrite. |
 | `sessionId` | `string \| null` | no | Session whose workdir to use. |
 | `workdir` | `string \| null` | no | Project directory for scope=project. |
@@ -2047,7 +2047,7 @@ List the tools registered for a session.
 
 | field | type | required | description |
 |---|---|---|---|
-| `tools` | `({ category: string; deferred?: boolean; description?: string; name: string; permissionTag: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate"; provider?: string; reason?: string; server?: string; source?: string; state?: "active" \| "inactive"; })[]` | no | Registered tools. |
+| `tools` | `({ category: string; deferred?: boolean; description?: string; name: string; permissionTag: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret"; provider?: string; reason?: string; server?: string; source?: string; state?: "active" \| "inactive"; })[]` | no | Registered tools. |
 
 ## Notifications
 

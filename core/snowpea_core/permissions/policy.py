@@ -28,7 +28,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Literal
 
 Mode = Literal["plan", "accept", "auto"]
-PermissionTag = Literal["read", "write", "exec", "network", "send", "config", "delegate"]
+PermissionTag = Literal[
+    "read", "write", "exec", "network", "send", "config", "delegate", "secret"
+]
 Verdict = Literal["allow", "deny", "ask"]
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -53,6 +55,10 @@ MODE_MATRIX: dict[str, dict[str, str]] = {
         # A child inherits the session's mode, so delegating cannot do more
         # than the parent may; the child's own calls are what get asked.
         "delegate": "allow",
+        # Reading a credential or key file is never refused outright — the
+        # owner may want an icon under ~/.ssh or the .env for a real reason —
+        # but it is asked for, except in auto mode.
+        "secret": "ask",
     },
     "accept": {
         "read": "allow",
@@ -61,6 +67,7 @@ MODE_MATRIX: dict[str, dict[str, str]] = {
         "network": "ask",
         "send": "ask",
         "config": "ask",
+        "secret": "ask",
         "delegate": "allow",
     },
     "auto": {
@@ -71,11 +78,12 @@ MODE_MATRIX: dict[str, dict[str, str]] = {
         "send": "allow",
         "config": "ask",
         "delegate": "allow",
+        "secret": "allow",
     },
 }
 
 #: Tags the allowlist may never promote from ``ask`` to ``allow``.
-UNPROMOTABLE: frozenset[str] = frozenset({"config"})
+UNPROMOTABLE: frozenset[str] = frozenset({"config", "secret"})
 
 #: Tools the plan-mode document exception applies to.  Only these two take a
 #: ``path``; no other ``write``-tagged tool is loosened by it.
@@ -93,10 +101,14 @@ RISK_BY_TAG: dict[str, str] = {
     "exec": "high",
     "config": "high",
     "delegate": "low",
+    "secret": "high",
 }
 
 #: Extra sentence shown with the approval prompt for a tag that needs one.
-NOTE_BY_TAG: dict[str, str] = {"config": "modifies snowpea configuration"}
+NOTE_BY_TAG: dict[str, str] = {
+    "config": "modifies snowpea configuration",
+    "secret": "reads a credential or key file",
+}
 
 
 class PermissionPolicy:

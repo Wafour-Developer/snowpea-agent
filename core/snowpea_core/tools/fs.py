@@ -14,7 +14,7 @@ from typing import Any
 
 from snowpea_core.prompts import tool_descriptions as descriptions
 from snowpea_core.tools import file_state
-from snowpea_core.tools.config_guard import permission_for_write
+from snowpea_core.tools.config_guard import permission_for_read, permission_for_write
 from snowpea_core.tools.registry import Tool, ToolContext, ToolResult
 from snowpea_core.tools.view_image import IMAGE_SUFFIXES, image_dimensions, resolve_image_path
 from snowpea_core.vendor.hermes.tools.binary_extensions import (
@@ -329,6 +329,7 @@ TOOLS: tuple[Tool, ...] = (
             "required": ["path"],
         },
         permission="read",
+        permission_for=permission_for_read,
         run=read_file,
     ),
     Tool(

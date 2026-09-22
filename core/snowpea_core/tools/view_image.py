@@ -17,6 +17,7 @@ from snowpea_core.attachments.model import (
 from snowpea_core.prompts import tool_descriptions as descriptions
 from snowpea_core.providers import content as content_parts
 from snowpea_core.providers.base import ChatMessage
+from snowpea_core.tools.config_guard import permission_for_read
 from snowpea_core.tools.registry import Tool, ToolContext, ToolResult
 
 #: Supported image extensions (the MIME sniff is authoritative).
@@ -27,7 +28,15 @@ LOW_DETAIL_EDGE = 768
 
 
 def resolve_image_path(ctx: ToolContext, raw: str) -> tuple[Path | None, str | None]:
-    """Resolve ``raw`` inside the session workdir, or ``(None, error)``."""
+    """Resolve ``raw`` the way ``read_file`` does, or ``(None, error)``.
+
+    Any readable image goes, inside the workdir or not — a screenshot on the
+    desktop, an icon in another project. It used to be jailed to the workdir
+    while ``read_file`` was not, so an absolute path the user pasted failed
+    in every mode, approval or no approval.
+    A secret location is not refused here: the permission hook tags the call
+    ``secret`` and the mode decides whether to ask.
+    """
     path = str(raw or "").strip()
     if not path:
         return None, "path is required"
@@ -36,11 +45,6 @@ def resolve_image_path(ctx: ToolContext, raw: str) -> tuple[Path | None, str | N
         resolved = resolved.resolve()
     except OSError as exc:
         return None, f"{type(exc).__name__}: {exc}"
-    workdir = Path(ctx.session.workdir).resolve()
-    try:
-        resolved.relative_to(workdir)
-    except ValueError:
-        return None, f"path is outside the session working directory: {path}"
     if not resolved.is_file():
         return None, f"no such file: {path}"
     return resolved, None
@@ -283,6 +287,7 @@ TOOLS: tuple[Tool, ...] = (
             "required": ["path"],
         },
         permission="read",
+        permission_for=permission_for_read,
         run=view_image,
     ),
 )

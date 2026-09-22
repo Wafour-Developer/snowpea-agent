@@ -850,7 +850,7 @@ export interface McpAddParams {
   /** Server name; ^[a-zA-Z0-9_-]{1,64}$. */
   name: string;
   /** Permission tag for the server's tools; stored in settings. */
-  permission?: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate" | null;
+  permission?: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate" | "secret" | null;
   /** Catalog id copied before the explicit fields are applied. */
   preset?: string | null;
   /** Which file to write. */
@@ -949,7 +949,7 @@ export interface McpListResult {
     /** Server name; the key under mcpServers. */
     name: string;
     /** Permission tag every tool of this server is judged by. */
-    permission?: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate";
+    permission?: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate" | "secret";
     /** Plugin that brings a plugin-scoped entry. */
     plugin?: string | null;
     /** project, global, plugin or settings. */
@@ -1033,7 +1033,7 @@ export interface McpTestParams {
   /** Saved server to probe. */
   name?: string | null;
   /** Permission tag for the server's tools; stored in settings. */
-  permission?: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate" | null;
+  permission?: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate" | "secret" | null;
   /** Scope of the saved server. */
   scope?: "project" | "global" | "plugin" | "settings" | null;
   /** Session whose workdir to use. */
@@ -1092,7 +1092,7 @@ export interface McpUpdateParams {
     /** HTTP headers sent with every request. */
     headers?: Record<string, string> | null;
     /** Permission tag for the server's tools; stored in settings. */
-    permission?: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate" | null;
+    permission?: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate" | "secret" | null;
     /** Startup cap, in seconds. */
     timeoutSec?: number | null;
     /** Per-call cap, in seconds. */
@@ -2483,7 +2483,7 @@ export interface ToolListResult {
     /** Tool name as the model calls it. */
     name: string;
     /** Permission class checked against the mode. */
-    permissionTag: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate";
+    permissionTag: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate" | "secret";
     /** Backing provider for tools that have one, e.g. the web-search provider id; reads "configured → answering" when the configured one cannot run. */
     provider?: string;
     /** Why an inactive tool is inactive, e.g. "lsp.enabled is false". */

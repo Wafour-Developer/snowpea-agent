@@ -95,6 +95,38 @@ def permission_for_write(
     return "config" if is_config_path(path, workdir=workdir, home=home_of(core)) else "write"
 
 
+def permission_for_read(
+    args: dict[str, Any], session: Any = None, core: Any = None
+) -> PermissionTag:
+    """``secret`` when the call's ``path`` is a credential or key location, else ``read``.
+
+    The read is never refused outright — the owner may want an icon under
+    ~/.ssh or the .env for a real reason — but outside auto mode it is asked
+    for first, the way ``config`` guards writes to snowpea's own settings.
+    """
+    from snowpea_core.agent.prompt_refs import is_secret_pattern
+
+    raw = str(args.get("path", "") or "")
+    if not raw:
+        return "read"
+    backend = getattr(session, "backend", None)
+    try:
+        candidate = Path(backend.resolve(raw)) if backend is not None else Path(raw).expanduser()
+        resolved = candidate.resolve()
+    except (OSError, RuntimeError):
+        return "read"
+    # The pattern rules (.ssh/.gnupg/.aws, .env*, *.pem/*.key, id_rsa*) plus
+    # snowpea's own credentials and token; settings.json stays an ordinary read.
+    if is_secret_pattern(resolved):
+        return "secret"
+    home = home_of(core)
+    if home:
+        base = Path(home)
+        if resolved in {(base / "credentials.json").resolve(), (base / "token").resolve()}:
+            return "secret"
+    return "read"
+
+
 __all__ = [
     "CONFIG_NOTE",
     "HOME_WORKING_DIRS",
@@ -102,5 +134,6 @@ __all__ = [
     "PROJECT_FILES",
     "home_of",
     "is_config_path",
+    "permission_for_read",
     "permission_for_write",
 ]

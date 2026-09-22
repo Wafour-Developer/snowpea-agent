@@ -89,12 +89,38 @@ async def test_oversized_image_is_refused(ctx: ToolContext, workdir: Path) -> No
 
 
 @pytest.mark.asyncio
-async def test_path_outside_workdir_is_refused(ctx: ToolContext, tmp_path: Path) -> None:
+async def test_path_outside_workdir_is_read_like_any_file(ctx: ToolContext, tmp_path: Path) -> None:
+    """An absolute path elsewhere works, as it does for read_file.
+
+    It used to be refused in every mode — the owner pasted an icon path from
+    another project and got 'outside the session working directory'.
+    """
     outside = tmp_path / "outside.png"
     write_png(outside)
     result = await run(ctx, "view_image", path=str(outside))
-    assert not result.ok
-    assert "outside the session working directory" in (result.error or "")
+    assert result.ok, result.error
+
+
+async def test_secret_locations_are_tagged_secret_not_refused(
+    ctx: ToolContext, tmp_path: Path
+) -> None:
+    """A key under .ssh is readable, but the call is judged as ``secret``:
+    asked for in plan and accept mode, allowed in auto."""
+    from snowpea_core.permissions.policy import PermissionPolicy
+    from snowpea_core.tools.registry import effective_permission
+
+    secret = tmp_path / ".ssh" / "key.png"
+    secret.parent.mkdir()
+    write_png(secret)
+    tool = ctx.core.tools.get("view_image")
+    tag = effective_permission(tool, {"path": str(secret)}, ctx.session, ctx.core)
+    assert tag == "secret"
+    policy = PermissionPolicy()
+    assert policy.decide("accept", tag, tool) == "ask"
+    assert policy.decide("plan", tag, tool) == "ask"
+    assert policy.decide("auto", tag, tool) == "allow"
+    result = await run(ctx, "view_image", path=str(secret))
+    assert result.ok, result.error
 
 
 @pytest.mark.asyncio
