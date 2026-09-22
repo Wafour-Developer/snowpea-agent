@@ -307,3 +307,61 @@ describe("a prompt queued while the answer is streaming", () => {
     expect(interrupted.messages.filter((m) => m.streaming)).toHaveLength(0);
   });
 });
+
+describe("skill expansion on slash prompts", () => {
+  it("holds a slash prompt until its skill expansion lands", () => {
+    let state = reducer(initialState, {
+      type: "user/message",
+      text: "/ralph hello",
+      expectEvent: false,
+    });
+    expect(settledCount(state)).toBe(0);
+    state = apply(
+      state,
+      event(1, "message.user", {
+        text: "/ralph hello",
+        expansion: { kind: "skill", name: "ralph", text: "line one\nline two" },
+      }),
+    );
+    expect(settledCount(state)).toBe(1);
+  });
+
+  it("releases a core command's line as soon as the command does anything", () => {
+    // `/ralph` is a core command: no `message.user` ever comes for it, and a
+    // turn of it runs for minutes. Holding the typed line that long kept every
+    // later card live with it, which is the flicker the scrollback exists to end.
+    let state = reducer(initialState, {
+      type: "user/message",
+      text: "/ralph fix the build",
+      expectEvent: false,
+    });
+    expect(settledCount(state)).toBe(0);
+    state = apply(
+      state,
+      event(1, "tool.call", { callId: "c1", name: "read_file", args: { path: "a.py" } }),
+    );
+    expect(state.turnActive).toBe(true);
+    expect(settledCount(state)).toBe(1);
+  });
+
+  it("releases a core command's line when it answers in text", () => {
+    let state = reducer(initialState, {
+      type: "user/message",
+      text: "/help",
+      expectEvent: false,
+    });
+    state = apply(state, event(1, "message.delta", { text: "Commands:" }));
+    expect(settledCount(state)).toBe(1);
+  });
+
+  it("releases a slash prompt once the turn ends without an expansion", () => {
+    let state = reducer(initialState, {
+      type: "user/message",
+      text: "/help",
+      expectEvent: false,
+    });
+    expect(settledCount(state)).toBe(0);
+    state = apply(state, event(1, "turn.done", { turnId: "t-1", reason: "complete" }));
+    expect(settledCount(state)).toBe(1);
+  });
+});

@@ -3,9 +3,40 @@ import React from "react";
 import { Box, Text } from "ink";
 import type { Message } from "../state/store.js";
 import { messageLines, wrapLine, type Line, type Segment } from "../layout/transcript.js";
-import { currentAccent } from "../layout/palette.js";
+import { currentAccent, currentAccentDim } from "../layout/palette.js";
 import { findAllFileRefs } from "../state/fileRefs.js";
 import { RenderedLines } from "./RenderedLines.js";
+import { SUMMARY_GLYPH } from "./ToolSummary.js";
+
+/** One-line fold label for a skill expansion, truncated to the message width. */
+export function skillExpansionLabel(
+  expansion: NonNullable<Message["expansion"]>,
+  width: number,
+): string {
+  const suffix = ` · ${expansion.lines} lines`;
+  const prefix = "skill ";
+  const budget = Math.max(1, width - SUMMARY_GLYPH.length - 1 - prefix.length - suffix.length);
+  let name = expansion.name;
+  if (name.length > budget) {
+    name = budget > 1 ? `${name.slice(0, budget - 1)}…` : name.slice(0, budget);
+  }
+  return `${prefix}${name}${suffix}`;
+}
+
+function SkillExpansionLine({
+  expansion,
+  width,
+}: {
+  expansion: NonNullable<Message["expansion"]>;
+  width: number;
+}): React.ReactElement {
+  return (
+    <Box>
+      <Text color={currentAccentDim()}>{`${SUMMARY_GLYPH} `}</Text>
+      <Text dimColor>{skillExpansionLabel(expansion, width)}</Text>
+    </Box>
+  );
+}
 
 /** Colorize '@' file references with the theme's accent color. */
 export function colorizeFileRefs(lines: Line[]): Line[] {
@@ -74,6 +105,9 @@ export function MessageView({
   return (
     <Box flexDirection="column" marginBottom={1}>
       <RenderedLines lines={lines} />
+      {message.expansion ? (
+        <SkillExpansionLine expansion={message.expansion} width={width} />
+      ) : null}
       {(message.attachments ?? []).map((attachment) => (
         <Text key={`${message.id}-${attachment.name}`} dimColor wrap="truncate-end">
           {`  📎 ${attachment.name}`}

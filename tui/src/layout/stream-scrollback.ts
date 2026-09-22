@@ -49,6 +49,8 @@ export function commitStreamingPrefixes(
     if (item.kind !== "message") continue;
     const message = state.messages.find((entry) => entry.id === item.id);
     if (!message) continue;
+    // A skill prompt waits for its `message.user` (the fold line) first.
+    if (message.awaitingFold) continue;
     const lines = wrappedMessageLines(message, width);
     const previous = next.get(message.id) ?? 0;
     const target = streamingCommitTarget(lines.length, tailRows, message.streaming);
@@ -69,6 +71,7 @@ export function messageFullyCommitted(
   width: number,
   committed: ReadonlyMap<string, number>,
 ): boolean {
+  if (message.awaitingFold) return false;
   const total = wrappedMessageLines(message, width).length;
   return total > 0 && (committed.get(message.id) ?? 0) >= total;
 }

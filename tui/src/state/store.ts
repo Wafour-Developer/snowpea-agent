@@ -37,6 +37,15 @@ export interface Message {
   streaming: boolean;
   /** Files sent with the prompt, shown under it in the transcript. */
   attachments?: { name: string; mime?: string; size?: number }[];
+  /** Skill body folded under the typed slash command; full text is never kept. */
+  expansion?: { kind: "skill"; name: string; chars: number; lines: number };
+  /**
+   * A slash prompt drawn locally whose `message.user` has not arrived: a skill
+   * command's fold line comes with that event, so the line waits for it. It
+   * is cleared by the event, or by anything that proves no fold is coming — a
+   * core command answers with tool calls or text and never sends the event.
+   */
+  awaitingFold?: boolean;
 }
 
 export type ToolCallState = "running" | "ok" | "error";
@@ -542,6 +551,29 @@ interface ApplyOptions {
   turnStartedAt?: string | null;
 }
 
+/** Every slash prompt has now heard back: nothing is waiting for a fold line. */
+function settleFolds(messages: Message[]): Message[] {
+  if (!messages.some((m) => m.awaitingFold)) return messages;
+  return messages.map((m) => {
+    if (!m.awaitingFold) return m;
+    const { awaitingFold: _, ...rest } = m;
+    return rest;
+  });
+}
+
+function parseSkillExpansion(payload: Record<string, unknown>): Message["expansion"] | undefined {
+  const raw = payload.expansion;
+  if (!raw || typeof raw !== "object") return undefined;
+  const text = (raw as { text?: unknown }).text;
+  if (typeof text !== "string") return undefined;
+  return {
+    kind: "skill",
+    name: String((raw as { name?: unknown }).name ?? ""),
+    chars: text.length,
+    lines: text.split("\n").length,
+  };
+}
+
 function applySessionEvent(
   state: State,
   event: SessionEvent,
@@ -555,7 +587,7 @@ function applySessionEvent(
   if (typeof event.seq === "number" && state.lastSeq > 0 && event.seq <= state.lastSeq) {
     return state;
   }
-  const base: State =
+  let base: State =
     typeof event.seq === "number" && event.seq > state.lastSeq
       ? { ...state, lastSeq: event.seq }
       : state;
@@ -565,12 +597,29 @@ function applySessionEvent(
     // replay it is the only record of what was asked.
     case "message.user": {
       const text = String(payload.text ?? "");
+      const expansion = parseSkillExpansion(payload);
+      const attachExpansion = (messages: Message[]): Message[] | null => {
+        if (!expansion) return null;
+        for (let index = messages.length - 1; index >= 0; index -= 1) {
+          const entry = messages[index];
+          if (entry.role === "user" && entry.text === text && !entry.expansion) {
+            const next = messages.slice();
+            const { awaitingFold: _, ...rest } = entry;
+            next[index] = { ...rest, expansion };
+            return next;
+          }
+        }
+        return null;
+      };
       const echo = base.pendingEchoes.indexOf(text);
       if (echo !== -1) {
         const pendingEchoes = base.pendingEchoes.slice();
         pendingEchoes.splice(echo, 1);
-        return { ...base, pendingEchoes };
+        const messages = settleFolds(attachExpansion(base.messages) ?? base.messages);
+        return { ...base, pendingEchoes, messages };
       }
+      const merged = attachExpansion(base.messages);
+      if (merged) return { ...base, messages: settleFolds(merged) };
       const files = Array.isArray(payload.attachments)
         ? payload.attachments
           .map((entry: any) => ({ name: String(entry?.name ?? "") }))
@@ -582,6 +631,7 @@ function applySessionEvent(
         text,
         streaming: false,
         attachments: files.length > 0 ? files : undefined,
+        expansion,
       };
       return {
         ...base,
@@ -592,7 +642,8 @@ function applySessionEvent(
 
     case "message.delta": {
       const text = String(payload.text ?? "");
-      return { ...appendDelta(base, text), streamedChars: base.streamedChars + text.length };
+      const settled = { ...base, messages: settleFolds(base.messages) };
+      return { ...appendDelta(settled, text), streamedChars: base.streamedChars + text.length };
     }
 
     // Thinking, not an answer: counted for the working line, never appended.
@@ -603,6 +654,7 @@ function applySessionEvent(
       return flushDeferred(finishMessage(base, payload));
 
     case "tool.call": {
+      base = { ...base, messages: settleFolds(base.messages) };
       const entry: ToolCallEntry = {
         callId: String(payload.callId ?? nextId("call")),
         name: String(payload.name ?? "unknown"),
@@ -925,6 +977,7 @@ function applySessionEvent(
     }
 
     case "turn.done": {
+      base = { ...base, messages: settleFolds(base.messages) };
       const finished = String(payload.turnId ?? "");
       const promptTexts = { ...base.promptTexts };
       if (finished) delete promptTexts[finished];
@@ -1057,6 +1110,7 @@ export function reducer(state: State, action: Action): State {
         text: action.text,
         streaming: false,
         attachments: action.attachments?.length ? action.attachments : undefined,
+        ...(action.text.startsWith("/") ? { awaitingFold: true } : {}),
       };
       // The daemon will publish this same prompt as `message.user` when the
       // turn reaches the model; that copy is for a resume, and is dropped here.

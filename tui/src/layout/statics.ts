@@ -57,6 +57,10 @@ export function entryRows(state: State, item: TimelineItem): number {
     const diff = state.diffs.find((d) => d.id === item.id);
     return diff ? diffLines(diff).length + ENTRY_CHROME_ROWS : UNKNOWN_ENTRY_ROWS;
   }
+  if (item.kind === "message") {
+    const message = state.messages.find((m) => m.id === item.id);
+    return message?.expansion ? UNKNOWN_ENTRY_ROWS + 1 : UNKNOWN_ENTRY_ROWS;
+  }
   return UNKNOWN_ENTRY_ROWS;
 }
 
@@ -64,7 +68,14 @@ export function entryRows(state: State, item: TimelineItem): number {
 export function isSettled(state: State, item: TimelineItem): boolean {
   if (item.kind === "message") {
     const message = state.messages.find((m) => m.id === item.id);
-    return message ? !message.streaming : false;
+    if (!message) return false;
+    if (message.streaming) return false;
+    // A skill prompt's fold line arrives with its `message.user`; releasing
+    // the typed line to `<Static>` before that would freeze it without the
+    // fold. The flag clears on that event, or on the first thing a core
+    // command does instead, so a long `/ralph` turn holds nothing.
+    if (message.awaitingFold) return false;
+    return true;
   }
   if (item.kind === "tool") {
     const call = state.toolCalls.find((c) => c.callId === item.id);
