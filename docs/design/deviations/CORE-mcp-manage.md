@@ -95,7 +95,7 @@ implemented; the notes below are where the implementation had to choose.
     repo"; there is none. `settings.media.mcp` (`MediaMcpSettings`) is entirely
     user-supplied — `snowpea setup` and `provider.configure("media", …)` write
     the command or url — so the preset carries the hosted
-    `https://studio.snowpea.ai/mcp` endpoint plus an `Authorization` header, and
+    `http://studio.snowpea.ai/mcp` endpoint plus an `Authorization` header, and
     its description points at `snowpea setup` for the same server.
 
 14. **`configure` takes both spellings.** §4 spells it `--tools a,b`; the first

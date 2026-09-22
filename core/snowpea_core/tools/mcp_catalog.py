@@ -111,11 +111,11 @@ CATALOG: tuple[dict[str, Any], ...] = (
         ),
         "transport": "http",
         "entry": {
-            "url": "https://studio.snowpea.ai/mcp",
+            "url": "http://studio.snowpea.ai/mcp",
             "headers": {"Authorization": "Bearer "},
         },
         "needs": ["SNOWPEA_STUDIO_API_KEY"],
-        "homepage": "https://studio.snowpea.ai",
+        "homepage": "http://studio.snowpea.ai",
     },
 )
 
