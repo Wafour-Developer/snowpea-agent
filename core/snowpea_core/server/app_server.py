@@ -39,6 +39,7 @@ from snowpea_core.server import errors
 from snowpea_core.server.agent_handlers import register_agent_handlers
 from snowpea_core.server.audio_handlers import register_audio_handlers
 from snowpea_core.server.auth import ensure_token, write_token
+from snowpea_core.server.checkpoint_handlers import register_checkpoint_handlers
 from snowpea_core.server.errors import RpcError
 from snowpea_core.server.gateway_handlers import register_gateway_handlers
 from snowpea_core.server.job_handlers import register_job_handlers
@@ -86,6 +87,7 @@ from snowpea_core.server.transport_http import (
 )
 from snowpea_core.server.transport_ws import hello_handler
 from snowpea_core.server.update_handlers import register_update_handlers
+from snowpea_core.session.checkpoints import CheckpointStore
 from snowpea_core.session.manager import EventHub, SessionManager
 from snowpea_core.session.questions import QuestionQueue
 from snowpea_core.tools.registry import ToolRegistry
@@ -107,6 +109,7 @@ class Core:
     paths: Paths
     token: str
     store: Any = None
+    checkpoints: Any = None
     #: Chat gateway router (US-016); ``Daemon.start`` builds and wires it.
     gateway: Any = None
     #: Long-term memory services (US-014); ``wire_core`` builds them.
@@ -583,6 +586,7 @@ def build_dispatcher(core: Core) -> RpcDispatcher:
     register_lsp_handlers(dispatcher)
     register_mcp_handlers(dispatcher)
     register_update_handlers(dispatcher)
+    register_checkpoint_handlers(dispatcher)
     dispatcher.register("provider.configure", provider_configure_handler)
     dispatcher.register("provider.remove", provider_remove_handler)
     dispatcher.register("provider.loginWeb", provider_login_web_handler)
@@ -638,6 +642,7 @@ class Daemon:
             write_token(paths, self._preissued_token)
         token = ensure_token(paths)
         core = Core(settings=settings, paths=paths, token=token)
+        core.checkpoints = CheckpointStore(paths, settings)
         core.settings_stamp = hot_reload.stamp(paths.settings_json)
         core.allowlist.bind(paths, settings)
         core.policy.bind(core.allowlist)
@@ -674,6 +679,11 @@ class Daemon:
             else:
                 if repaired:
                     log.info("closed %d turn(s) a previous run left open", len(repaired))
+            try:
+                stored_sessions = await core.store.list_sessions(include_closed=True)
+                core.checkpoints.cleanup_orphans({str(row["id"]) for row in stored_sessions})
+            except Exception:  # noqa: BLE001 - cleanup must not stop startup
+                log.warning("could not clean orphaned checkpoints", exc_info=True)
         # Before the gateway: a binding that targets a named agent's session
         # needs that session to exist again (M7 contract §6).
         await core.named_agents.restore()

@@ -167,6 +167,21 @@ class LocalBackend:
 
         await asyncio.to_thread(_write)
 
+    async def read_bytes(self, path: str) -> bytes:
+        return await asyncio.to_thread(self.resolve(path).read_bytes)
+
+    async def write_bytes(self, path: str, content: bytes) -> None:
+        target = self.resolve(path)
+
+        def _write() -> None:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(content)
+
+        await asyncio.to_thread(_write)
+
+    async def remove_file(self, path: str) -> None:
+        await asyncio.to_thread(self.resolve(path).unlink, missing_ok=True)
+
     async def exists(self, path: str) -> bool:
         target = self.resolve(path)
         return await asyncio.to_thread(target.exists)

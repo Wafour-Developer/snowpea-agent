@@ -8,6 +8,7 @@ so paths a model saw locally keep working.  ``close()`` removes it.
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import logging
 import shlex
@@ -207,6 +208,29 @@ class DockerBackend:
         result = await self._exec(script, stdin=content.encode("utf-8"))
         if not result.ok:
             raise OSError(result.stderr.strip() or f"cannot write {target}")
+
+    async def read_bytes(self, path: str) -> bytes:
+        target = self.resolve(path)
+        result = await self._exec(f"base64 < {shlex.quote(str(target))} | tr -d '\\n'")
+        if not result.ok:
+            raise FileNotFoundError(result.stderr.strip() or f"cannot read {target}")
+        return base64.b64decode(result.stdout)
+
+    async def write_bytes(self, path: str, content: bytes) -> None:
+        target = self.resolve(path)
+        script = (
+            f"mkdir -p -- {shlex.quote(str(target.parent))} && "
+            f"base64 -d > {shlex.quote(str(target))}"
+        )
+        result = await self._exec(script, stdin=base64.b64encode(content))
+        if not result.ok:
+            raise OSError(result.stderr.strip() or f"cannot write {target}")
+
+    async def remove_file(self, path: str) -> None:
+        target = self.resolve(path)
+        result = await self._exec(f"rm -f -- {shlex.quote(str(target))}")
+        if not result.ok:
+            raise OSError(result.stderr.strip() or f"cannot remove {target}")
 
     async def exists(self, path: str) -> bool:
         target = self.resolve(path)

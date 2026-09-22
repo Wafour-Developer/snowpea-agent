@@ -77,6 +77,10 @@ def rebind(core: Any, settings: Settings) -> None:
     if approvals is not None:
         approvals.settings = settings
 
+    checkpoints = getattr(core, "checkpoints", None)
+    if checkpoints is not None:
+        checkpoints.settings = settings
+
     # The tool registry reads ``tools.deferred`` / ``tools.eager`` when it
     # builds a round's specs, so a reload that flips either must reach it.
     tools = getattr(core, "tools", None)

@@ -326,6 +326,15 @@ class ToolsSettings(_Model):
     eager: list[str] = Field(default_factory=list)
 
 
+class CheckpointsSettings(_Model):
+    """Per-turn filesystem checkpoint retention and shell scanning."""
+
+    enabled: bool = True
+    maxTurns: int = 100
+    maxBytes: int = 500 * 1024 * 1024
+    scanShellWrites: bool = True
+
+
 class MediaMcpSettings(_Model):
     """How to reach the snowpea-studio MCP server (M2 contract §5)."""
 
@@ -546,6 +555,7 @@ class Settings(_Model):
     search: SearchSettings = Field(default_factory=SearchSettings)
     browser: BrowserSettings = Field(default_factory=BrowserSettings)
     tools: ToolsSettings = Field(default_factory=ToolsSettings)
+    checkpoints: CheckpointsSettings = Field(default_factory=CheckpointsSettings)
     media: MediaSettings = Field(default_factory=MediaSettings)
     audio: AudioSettings = Field(default_factory=AudioSettings)
     mcp: McpSettings = Field(default_factory=McpSettings)

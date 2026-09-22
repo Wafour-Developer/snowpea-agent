@@ -172,6 +172,27 @@ class SshBackend:
         async with sftp.open(str(target), "wb") as handle:
             await handle.write(content.encode("utf-8"))
 
+    async def read_bytes(self, path: str) -> bytes:
+        sftp = await self._sftp_client()
+        async with sftp.open(str(self.resolve(path)), "rb") as handle:
+            raw = await handle.read()
+        return raw if isinstance(raw, bytes) else str(raw).encode("utf-8")
+
+    async def write_bytes(self, path: str, content: bytes) -> None:
+        sftp = await self._sftp_client()
+        target = self.resolve(path)
+        parent = str(target.parent)
+        if not await sftp.isdir(parent):
+            await sftp.makedirs(parent, exist_ok=True)
+        async with sftp.open(str(target), "wb") as handle:
+            await handle.write(content)
+
+    async def remove_file(self, path: str) -> None:
+        sftp = await self._sftp_client()
+        target = str(self.resolve(path))
+        if await sftp.exists(target):
+            await sftp.remove(target)
+
     async def exists(self, path: str) -> bool:
         sftp = await self._sftp_client()
         return bool(await sftp.exists(str(self.resolve(path))))

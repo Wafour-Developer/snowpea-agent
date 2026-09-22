@@ -153,6 +153,10 @@ snowpea session clear --all
 
 `session list` prints the live sessions, and with `--include-closed` the saved ones too — id, mode, creation time, working directory and the last prompt each saw. `session delete` and `session clear` remove saved sessions along with their attachments and speech files; a live session is never deleted, so close it first. Pick an id out of `session list` and continue it with `snowpea -c "…" --resume <id>`.
 
+### Checkpoints
+
+Snowpea records per-turn checkpoints so a client can offer "restore to before this turn." Tool writes to ordinary files under the session workdir are captured before the first write in a turn, and shell-side changes are detected only when the workdir is a git repository. It does not track files outside the workdir, `.git/`, `node_modules/`, `.snowpea/`, `__pycache__/`, `dist/`, `out/`, or files larger than 5 MB. Deleting a saved session removes its checkpoints too.
+
 ### Model profiles
 
 ```bash

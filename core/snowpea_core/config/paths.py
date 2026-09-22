@@ -113,6 +113,11 @@ class Paths:
         return self.home / "cache"
 
     @property
+    def checkpoints_dir(self) -> Path:
+        """Content-addressed per-turn filesystem checkpoints."""
+        return self.home / "checkpoints"
+
+    @property
     def daemon_log(self) -> Path:
         return self.logs_dir / "daemon.log"
 

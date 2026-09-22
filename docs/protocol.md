@@ -41,6 +41,7 @@ Server capabilities advertised in the `system.hello` result:
 
 - `approvals`
 - `audio`
+- `checkpoints`
 - `commands`
 - `lsp`
 - `mcp`
@@ -70,6 +71,10 @@ Server capabilities advertised in the `system.hello` result:
 | [`audio.transcribe`](#audiotranscribe) | client → server | Transcribe recorded audio to text. |
 | [`audio.voices`](#audiovoices) | client → server | List the voices one speech engine offers here. |
 | [`backend.set`](#backendset) | client → server | Choose where a session's tools execute: local, docker or ssh. |
+| [`checkpoint.delete`](#checkpointdelete) | client → server | Delete one checkpoint, or all checkpoints for a session. |
+| [`checkpoint.diff`](#checkpointdiff) | client → server | Show what restoring a checkpoint would change from the current workdir. |
+| [`checkpoint.list`](#checkpointlist) | client → server | List restore checkpoints for a session, newest first. |
+| [`checkpoint.restore`](#checkpointrestore) | client → server | Restore files to their before-turn state, optionally through later turns. |
 | [`command.list`](#commandlist) | client → server | List the slash commands available to a session. |
 | [`command.run`](#commandrun) | client → server | Run a slash command; the only execution path for them. |
 | [`file.complete`](#filecomplete) | client → server | Complete file and directory paths under a session workdir. |
@@ -497,6 +502,89 @@ Choose where a session's tools execute: local, docker or ssh.
 | field | type | required | description |
 |---|---|---|---|
 | `ok` | `boolean` | no | True when the call succeeded. |
+
+### `checkpoint.delete`
+
+*Direction:* client → server
+
+Delete one checkpoint, or all checkpoints for a session.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `id` | `string \| null` | no | Checkpoint to delete; omitted deletes the whole session set. |
+| `sessionId` | `string` | yes | Session whose checkpoints are deleted. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ok` | `boolean` | no | True when the call succeeded. |
+
+### `checkpoint.diff`
+
+*Direction:* client → server
+
+Show what restoring a checkpoint would change from the current workdir.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `id` | `string` | yes | Checkpoint id. |
+| `paths` | `string[] \| null` | no | Optional subset of relative paths to diff. |
+| `sessionId` | `string` | yes | Session whose checkpoint is inspected. |
+| `through` | `boolean` | no | True means restore to before this turn, considering this and all later turns in the session. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `files` | `({ binary?: boolean; changedSince?: boolean; patch: string; path: string; restorable?: boolean; })[]` | no | Per-file diffs. |
+
+### `checkpoint.list`
+
+*Direction:* client → server
+
+List restore checkpoints for a session, newest first.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `sessionId` | `string` | yes | Session whose checkpoints are listed. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `checkpoints` | `({ createdAt: string; files?: ({ afterSha?: string \| null; beforeSha?: string \| null; path: string; restorable?: boolean; size?: number; skipped?: "too_large" \| "excluded" \| "unreadable" \| null; source: "tool" \| "shell"; status: "modified" \| "created" \| "deleted"; })[]; id: string; kind: "turn" \| "restore"; prompt?: string; sessionId: string; turnId?: string \| null; workdir: string; })[]` | no | Checkpoints, newest first. |
+
+### `checkpoint.restore`
+
+*Direction:* client → server
+
+Restore files to their before-turn state, optionally through later turns.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `dryRun` | `boolean` | no | Report what would happen without writing files. |
+| `force` | `boolean` | no | Restore even when a file changed since capture. |
+| `id` | `string` | yes | Checkpoint id. |
+| `paths` | `string[] \| null` | no | Optional subset of relative paths to diff. |
+| `sessionId` | `string` | yes | Session whose checkpoint is inspected. |
+| `through` | `boolean` | no | True means restore to before this turn, considering this and all later turns in the session. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `checkpointId` | `string \| null` | no | Restore checkpoint id, null for dry-run or no writes. |
+| `restored` | `string[]` | no | Paths restored. |
+| `skipped` | `({ path: string; reason: "changed_since" \| "not_restorable" \| "missing_blob" \| "excluded"; })[]` | no | Paths that were not restored and why. |
 
 ### `command.list`
 
@@ -2105,6 +2193,22 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | `backend` | `"local" \| "docker" \| "ssh"` | yes | Where tools now execute. |
 | `kind` | `"backend.changed"` | no |  |
 
+### kind `checkpoint.restored`
+
+| field | type | required | description |
+|---|---|---|---|
+| `checkpointId` | `string \| null` | no | Undo checkpoint for the restore, null when none was written. |
+| `kind` | `"checkpoint.restored"` | no |  |
+| `restored` | `string[]` | no | Paths restored. |
+| `skipped` | `({ path: string; reason: "changed_since" \| "not_restorable" \| "missing_blob" \| "excluded"; })[]` | no | Paths skipped and their reasons. |
+
+### kind `checkpoint.updated`
+
+| field | type | required | description |
+|---|---|---|---|
+| `checkpoint` | `{ createdAt: string; files?: ({ afterSha?: string \| null; beforeSha?: string \| null; path: string; restorable?: boolean; size?: number; skipped?: "too_large" \| "excluded" \| "unreadable" \| null; source: "tool" \| "shell"; status: "modified" \| "created" \| "deleted"; })[]; id: string; kind: "turn" \| "restore"; prompt?: string; sessionId: string; turnId?: string \| null; workdir: string; }` | yes | The whole checkpoint manifest so far. |
+| `kind` | `"checkpoint.updated"` | no |  |
+
 ### kind `compaction`
 
 | field | type | required | description |
@@ -2400,5 +2504,6 @@ Returned as the string `error.data.code` of a JSON-RPC error response.
 | `not_found` | No such session, request, job, or agent. |
 | `not_implemented` | Defined in the schema but not implemented in this milestone. |
 | `protocol_incompatible` | Client and server protocol majors differ. |
+| `session_busy` |  |
 | `tool_inactive` | The tool exists but is disabled for this session. |
 | `unauthorized` | Missing or invalid token, or a call before `system.hello`. |

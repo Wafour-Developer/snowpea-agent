@@ -18,6 +18,7 @@ APPROVAL_DENIED = "approval_denied"
 APPROVAL_TIMEOUT = "approval_timeout"
 TOOL_INACTIVE = "tool_inactive"
 NOT_IMPLEMENTED = "not_implemented"
+SESSION_BUSY = "session_busy"
 LOGIN_UNSUPPORTED = "login_unsupported"
 #: A stored OAuth session expired and could not be refreshed; the user has to
 #: sign in again.  Distinct from ``invalid_params`` so a surface can offer the
@@ -43,6 +44,7 @@ ERROR_CODES: tuple[str, ...] = (
     APPROVAL_TIMEOUT,
     TOOL_INACTIVE,
     NOT_IMPLEMENTED,
+    SESSION_BUSY,
     LOGIN_UNSUPPORTED,
     AUTH_EXPIRED,
     MCP_EXISTS,
@@ -114,6 +116,7 @@ __all__ = [
     "NOT_IMPLEMENTED",
     "PROTOCOL_INCOMPATIBLE",
     "SERVER_ERROR",
+    "SESSION_BUSY",
     "TOOL_INACTIVE",
     "UNAUTHORIZED",
     "INVALID_PARAMS",

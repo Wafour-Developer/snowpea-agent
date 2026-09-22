@@ -1,0 +1,17 @@
+{
+  "steps": [
+    {
+      "match": "make checkpoint changes",
+      "text": "editing",
+      "tool_calls": [
+        {"name": "write_file", "arguments": {"path": "a.txt", "content": "middle\n"}},
+        {"name": "write_file", "arguments": {"path": "a.txt", "content": "after\n"}},
+        {"name": "patch", "arguments": {"path": "b.txt", "old_string": "before", "new_string": "patched"}}
+      ]
+    },
+    {"after_tool": "patch", "text": "done"},
+    {"after_tool": "write_file", "text": "done"},
+    {"match": "slow checkpoint", "delaySec": 2, "text": "done"}
+  ],
+  "default": {"text": "done"}
+}

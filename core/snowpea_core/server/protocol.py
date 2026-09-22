@@ -93,6 +93,13 @@ UpdatePhase = Literal["started", "done", "failed"]
 LoginProgressPhase = Literal["started", "await_user", "polling", "done", "failed"]
 #: ``provider.loginWeb`` result status once the device code/PKCE URL is known.
 LoginWebStatus = Literal["await_user", "done", "failed"]
+CheckpointKind = Literal["turn", "restore"]
+CheckpointFileStatus = Literal["modified", "created", "deleted"]
+CheckpointFileSource = Literal["tool", "shell"]
+CheckpointSkipped = Literal["too_large", "excluded", "unreadable"]
+CheckpointRestoreSkipReason = Literal[
+    "changed_since", "not_restorable", "missing_blob", "excluded"
+]
 
 
 class Payload(BaseModel):
@@ -1148,6 +1155,123 @@ class BackendSetParams(Payload):
 
 
 # --------------------------------------------------------------------------
+# checkpoint.*
+# --------------------------------------------------------------------------
+
+
+class CheckpointFile(Payload):
+    """One file entry in a checkpoint manifest."""
+
+    path: str = Field(description="Path relative to the session workdir.")
+    status: CheckpointFileStatus = Field(description="How the turn changed the file.")
+    beforeSha: str | None = Field(
+        default=None,
+        description="Content-addressed blob sha before the turn, null for created files.",
+    )
+    afterSha: str | None = Field(
+        default=None,
+        description="Content-addressed blob sha after the turn, null for deleted files.",
+    )
+    size: int = Field(default=0, description="Size in bytes of the saved before-state.")
+    source: CheckpointFileSource = Field(description="'tool' or 'shell'.")
+    restorable: bool = Field(
+        default=True, description="False when the daemon cannot safely restore this file."
+    )
+    skipped: CheckpointSkipped | None = Field(
+        default=None, description="Why bytes were not captured, null when captured."
+    )
+
+
+class CheckpointInfo(Payload):
+    """A per-turn or restore checkpoint manifest."""
+
+    id: str = Field(description="Checkpoint id.")
+    turnId: str | None = Field(
+        default=None,
+        description="Turn id this checkpoint belongs to, when different clients need it.",
+    )
+    sessionId: str = Field(description="Session this checkpoint belongs to.")
+    workdir: str = Field(description="Workdir the paths are relative to.")
+    createdAt: str = Field(description="UTC ISO-8601 timestamp.")
+    prompt: str = Field(default="", description="Prompt text, truncated to 200 chars.")
+    kind: CheckpointKind = Field(
+        description="'turn' for agent work, 'restore' for undoable restore."
+    )
+    files: list[CheckpointFile] = Field(default_factory=list, description="Files in the manifest.")
+
+
+class CheckpointListParams(Payload):
+    sessionId: str = Field(description="Session whose checkpoints are listed.")
+
+
+class CheckpointListResult(Payload):
+    checkpoints: list[CheckpointInfo] = Field(
+        default_factory=list, description="Checkpoints, newest first."
+    )
+
+
+class CheckpointDiffParams(Payload):
+    sessionId: str = Field(description="Session whose checkpoint is inspected.")
+    id: str = Field(description="Checkpoint id.")
+    paths: list[str] | None = Field(
+        default=None, description="Optional subset of relative paths to diff."
+    )
+    through: bool = Field(
+        default=False,
+        description=(
+            "True means restore to before this turn, considering this and all later "
+            "turns in the session."
+        ),
+    )
+
+
+class CheckpointDiffFile(Payload):
+    path: str = Field(description="Relative file path.")
+    patch: str = Field(description="Unified diff from current disk content to the before-state.")
+    binary: bool = Field(default=False, description="True when no text patch can be shown.")
+    changedSince: bool = Field(
+        default=False,
+        description="True when current disk content differs from the last recorded afterSha.",
+    )
+    restorable: bool = Field(default=True, description="False when restore cannot apply this file.")
+
+
+class CheckpointDiffResult(Payload):
+    files: list[CheckpointDiffFile] = Field(default_factory=list, description="Per-file diffs.")
+
+
+class CheckpointRestoreParams(CheckpointDiffParams):
+    force: bool = Field(
+        default=False, description="Restore even when a file changed since capture."
+    )
+    dryRun: bool = Field(
+        default=False, description="Report what would happen without writing files."
+    )
+
+
+class CheckpointRestoreSkipped(Payload):
+    path: str = Field(description="Relative file path.")
+    reason: CheckpointRestoreSkipReason = Field(description="Why the file was not restored.")
+
+
+class CheckpointRestoreResult(Payload):
+    restored: list[str] = Field(default_factory=list, description="Paths restored.")
+    skipped: list[CheckpointRestoreSkipped] = Field(
+        default_factory=list, description="Paths that were not restored and why."
+    )
+    checkpointId: str | None = Field(
+        default=None, description="Restore checkpoint id, null for dry-run or no writes."
+    )
+
+
+class CheckpointDeleteParams(Payload):
+    sessionId: str = Field(description="Session whose checkpoints are deleted.")
+    id: str | None = Field(
+        default=None, description="Checkpoint to delete; omitted deletes the whole session set."
+    )
+
+
+# --------------------------------------------------------------------------
 # agent.* / team.*
 # --------------------------------------------------------------------------
 
@@ -2066,6 +2190,26 @@ class DiffEvent(Payload):
     patch: str = Field(description="Unified diff of the change.")
 
 
+class CheckpointUpdated(Payload):
+    """A turn checkpoint was created or updated."""
+
+    kind: Literal["checkpoint.updated"] = "checkpoint.updated"
+    checkpoint: CheckpointInfo = Field(description="The whole checkpoint manifest so far.")
+
+
+class CheckpointRestored(Payload):
+    """A restore checkpoint operation finished."""
+
+    kind: Literal["checkpoint.restored"] = "checkpoint.restored"
+    checkpointId: str | None = Field(
+        default=None, description="Undo checkpoint for the restore, null when none was written."
+    )
+    restored: list[str] = Field(default_factory=list, description="Paths restored.")
+    skipped: list[CheckpointRestoreSkipped] = Field(
+        default_factory=list, description="Paths skipped and their reasons."
+    )
+
+
 #: Lifecycle of one delegated subagent run (M7 contract §3).
 SubagentStatus = Literal["queued", "running", "done", "error", "interrupted"]
 
@@ -2442,6 +2586,8 @@ SessionEventPayload = Annotated[
     | ToolResultEvent
     | ToolProgress
     | DiffEvent
+    | CheckpointUpdated
+    | CheckpointRestored
     | SubagentSpawn
     | SubagentUpdate
     | SubagentDone
@@ -2476,6 +2622,8 @@ SESSION_EVENT_MODELS: dict[str, type[BaseModel]] = {
     "tool.result": ToolResultEvent,
     "tool.progress": ToolProgress,
     "diff": DiffEvent,
+    "checkpoint.updated": CheckpointUpdated,
+    "checkpoint.restored": CheckpointRestored,
     "subagent.spawn": SubagentSpawn,
     "subagent.update": SubagentUpdate,
     "subagent.done": SubagentDone,
@@ -3254,6 +3402,30 @@ METHODS: dict[str, RpcMethod] = {
             Ok,
             "Choose where a session's tools execute: local, docker or ssh.",
         ),
+        _m(
+            "checkpoint.list",
+            CheckpointListParams,
+            CheckpointListResult,
+            "List restore checkpoints for a session, newest first.",
+        ),
+        _m(
+            "checkpoint.diff",
+            CheckpointDiffParams,
+            CheckpointDiffResult,
+            "Show what restoring a checkpoint would change from the current workdir.",
+        ),
+        _m(
+            "checkpoint.restore",
+            CheckpointRestoreParams,
+            CheckpointRestoreResult,
+            "Restore files to their before-turn state, optionally through later turns.",
+        ),
+        _m(
+            "checkpoint.delete",
+            CheckpointDeleteParams,
+            Ok,
+            "Delete one checkpoint, or all checkpoints for a session.",
+        ),
         _m("agent.list", Empty, AgentListResult, "List the named agents that are defined."),
         _m(
             "agent.create",
@@ -3410,6 +3582,7 @@ CAPABILITIES: list[str] = [
     "settings",
     "setup",
     "update",
+    "checkpoints",
 ]
 
 #: Where the daemon listens; mirrored into the schema dump for the SDK.
@@ -3461,6 +3634,10 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "provider.remove",
         "provider.loginWeb",
         "backend.set",
+        "checkpoint.list",
+        "checkpoint.diff",
+        "checkpoint.restore",
+        "checkpoint.delete",
         "memory.search",
         "memory.write",
         "memory.list",

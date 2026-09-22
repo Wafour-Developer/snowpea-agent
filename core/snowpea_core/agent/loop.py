@@ -167,6 +167,14 @@ async def finish_turn(core: Core, session: Session, turn_id: str, reason: str) -
             await compaction.emit_context(core, session, discover=False)
         except Exception:  # noqa: BLE001 - accounting must not fail a turn
             log.debug("could not emit the context event for %s", session.id, exc_info=True)
+    checkpoints = getattr(core, "checkpoints", None)
+    if checkpoints is not None:
+        try:
+            checkpoint = await checkpoints.finalize_turn(session, turn_id)
+            if checkpoint is not None:
+                await core.hub.emit_event(session.id, events.checkpoint_updated(checkpoint))
+        except Exception:  # noqa: BLE001 - checkpoints must never fail a turn
+            log.warning("could not finalize checkpoint for %s", turn_id, exc_info=True)
     await core.hub.emit_event(session.id, events.turn_done(turn_id, reason))
     if (
         reason == "interrupted"
@@ -1434,10 +1442,26 @@ async def _run_one_call(
     # every surface sees a ``tool.result`` either way.
     repeated = repeat_guard.check(core, session, call.name, dict(call.arguments))
     was_interrupted = False
+    shell_scan = call.name in {"shell", "execute_code"} or call.name.startswith("process_")
+    shell_baseline: dict[str, str] | None = None
     try:
         if repeated is not None:
             result = repeated.as_result()
         else:
+            if tag in {"write", "config"} and isinstance(call.arguments.get("path"), str):
+                try:
+                    checkpoint, first = await core.checkpoints.before_write(
+                        session, turn_id, call.arguments["path"], source="tool"
+                    )
+                    if first and checkpoint is not None:
+                        await hub.emit_event(session.id, events.checkpoint_updated(checkpoint))
+                except Exception:  # noqa: BLE001 - checkpoints are best effort
+                    log.warning("could not checkpoint %s", call.arguments["path"], exc_info=True)
+            if shell_scan:
+                try:
+                    shell_baseline = await core.checkpoints.begin_shell(session)
+                except Exception:  # noqa: BLE001 - shell execution must proceed
+                    log.debug("could not begin shell checkpoint scan", exc_info=True)
             tool_task: asyncio.Task[ToolResult] = asyncio.ensure_future(
                 tool.run(ctx, dict(call.arguments))
             )
@@ -1470,6 +1494,14 @@ async def _run_one_call(
     except Exception as exc:  # noqa: BLE001 - a broken tool is a failed call
         log.exception("tool %s raised", tool.name)
         result = ToolResult(ok=False, error=f"{type(exc).__name__}: {exc}")
+    if repeated is None:
+        try:
+            if result.ok and result.path:
+                await core.checkpoints.note_after(session, turn_id, result.path)
+            if shell_scan:
+                await core.checkpoints.end_shell(session, turn_id, shell_baseline)
+        except Exception:  # noqa: BLE001 - checkpoints must never break a tool
+            log.warning("could not finish checkpoint observation for %s", call.name, exc_info=True)
     await plugin_hooks.post_tool_use(core, session, call.name, dict(call.arguments))
     result = _spill_long_result(core, call.name, result)
     if repeated is None and not was_interrupted:

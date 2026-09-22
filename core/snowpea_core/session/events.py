@@ -14,6 +14,10 @@ from snowpea_core.server.protocol import (
     SESSION_EVENT_MODELS,
     AudioSpoken,
     BackendChanged,
+    CheckpointInfo,
+    CheckpointRestored,
+    CheckpointRestoreSkipped,
+    CheckpointUpdated,
     CompactionEvent,
     CompactionStarted,
     ContextEvent,
@@ -147,6 +151,24 @@ def tool_progress(
 
 def diff(path: str, patch: str) -> Event:
     return _pack(DiffEvent(path=path, patch=patch))
+
+
+def checkpoint_updated(checkpoint: CheckpointInfo | dict[str, Any]) -> Event:
+    return _pack(CheckpointUpdated(checkpoint=checkpoint))  # type: ignore[arg-type]
+
+
+def checkpoint_restored(
+    checkpoint_id: str | None,
+    restored: Sequence[str],
+    skipped: Sequence[CheckpointRestoreSkipped | dict[str, Any]],
+) -> Event:
+    return _pack(
+        CheckpointRestored(
+            checkpointId=checkpoint_id,
+            restored=list(restored),
+            skipped=list(skipped),  # type: ignore[arg-type]
+        )
+    )
 
 
 def mode_changed(mode: str) -> Event:

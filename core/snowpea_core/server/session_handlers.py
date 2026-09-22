@@ -418,6 +418,13 @@ def _purge_session_files(core: Core, session_id: str) -> None:
             shutil.rmtree(audio, ignore_errors=True)
     except OSError:  # pragma: no cover - rmtree already ignores errors
         log.warning("could not purge audio for %s", session_id, exc_info=True)
+    checkpoints = getattr(core, "checkpoints", None)
+    purge = getattr(checkpoints, "delete_session", None) or getattr(checkpoints, "delete", None)
+    if purge is not None:
+        try:
+            purge(session_id)
+        except OSError:
+            log.warning("could not purge checkpoints for %s", session_id, exc_info=True)
 
 
 async def session_close_handler(_conn: RpcConnection, params: SessionIdParams, core: Core) -> Ok:

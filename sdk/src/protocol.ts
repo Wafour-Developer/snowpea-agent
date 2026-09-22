@@ -28,6 +28,7 @@ export type ErrorCode =
   | "not_found"
   | "not_implemented"
   | "protocol_incompatible"
+  | "session_busy"
   | "tool_inactive"
   | "unauthorized";
 export const ERROR_CODES: readonly ErrorCode[] = [
@@ -47,6 +48,7 @@ export const ERROR_CODES: readonly ErrorCode[] = [
   "not_found",
   "not_implemented",
   "protocol_incompatible",
+  "session_busy",
   "tool_inactive",
   "unauthorized",
 ];
@@ -448,6 +450,126 @@ export interface BackendSetParams {
 export interface BackendSetResult {
   /** True when the call succeeded. */
   ok?: boolean;
+}
+
+/** `checkpoint.delete` params. Delete one checkpoint, or all checkpoints for a session. */
+export interface CheckpointDeleteParams {
+  /** Checkpoint to delete; omitted deletes the whole session set. */
+  id?: string | null;
+  /** Session whose checkpoints are deleted. */
+  sessionId: string;
+}
+
+/** `checkpoint.delete` result. */
+export interface CheckpointDeleteResult {
+  /** True when the call succeeded. */
+  ok?: boolean;
+}
+
+/** `checkpoint.diff` params. Show what restoring a checkpoint would change from the current workdir. */
+export interface CheckpointDiffParams {
+  /** Checkpoint id. */
+  id: string;
+  /** Optional subset of relative paths to diff. */
+  paths?: string[] | null;
+  /** Session whose checkpoint is inspected. */
+  sessionId: string;
+  /** True means restore to before this turn, considering this and all later turns in the session. */
+  through?: boolean;
+}
+
+/** `checkpoint.diff` result. */
+export interface CheckpointDiffResult {
+  /** Per-file diffs. */
+  files?: ({
+    /** True when no text patch can be shown. */
+    binary?: boolean;
+    /** True when current disk content differs from the last recorded afterSha. */
+    changedSince?: boolean;
+    /** Unified diff from current disk content to the before-state. */
+    patch: string;
+    /** Relative file path. */
+    path: string;
+    /** False when restore cannot apply this file. */
+    restorable?: boolean;
+  })[];
+}
+
+/** `checkpoint.list` params. List restore checkpoints for a session, newest first. */
+export interface CheckpointListParams {
+  /** Session whose checkpoints are listed. */
+  sessionId: string;
+}
+
+/** `checkpoint.list` result. */
+export interface CheckpointListResult {
+  /** Checkpoints, newest first. */
+  checkpoints?: ({
+    /** UTC ISO-8601 timestamp. */
+    createdAt: string;
+    /** Files in the manifest. */
+    files?: ({
+      /** Content-addressed blob sha after the turn, null for deleted files. */
+      afterSha?: string | null;
+      /** Content-addressed blob sha before the turn, null for created files. */
+      beforeSha?: string | null;
+      /** Path relative to the session workdir. */
+      path: string;
+      /** False when the daemon cannot safely restore this file. */
+      restorable?: boolean;
+      /** Size in bytes of the saved before-state. */
+      size?: number;
+      /** Why bytes were not captured, null when captured. */
+      skipped?: "too_large" | "excluded" | "unreadable" | null;
+      /** 'tool' or 'shell'. */
+      source: "tool" | "shell";
+      /** How the turn changed the file. */
+      status: "modified" | "created" | "deleted";
+    })[];
+    /** Checkpoint id. */
+    id: string;
+    /** 'turn' for agent work, 'restore' for undoable restore. */
+    kind: "turn" | "restore";
+    /** Prompt text, truncated to 200 chars. */
+    prompt?: string;
+    /** Session this checkpoint belongs to. */
+    sessionId: string;
+    /** Turn id this checkpoint belongs to, when different clients need it. */
+    turnId?: string | null;
+    /** Workdir the paths are relative to. */
+    workdir: string;
+  })[];
+}
+
+/** `checkpoint.restore` params. Restore files to their before-turn state, optionally through later turns. */
+export interface CheckpointRestoreParams {
+  /** Report what would happen without writing files. */
+  dryRun?: boolean;
+  /** Restore even when a file changed since capture. */
+  force?: boolean;
+  /** Checkpoint id. */
+  id: string;
+  /** Optional subset of relative paths to diff. */
+  paths?: string[] | null;
+  /** Session whose checkpoint is inspected. */
+  sessionId: string;
+  /** True means restore to before this turn, considering this and all later turns in the session. */
+  through?: boolean;
+}
+
+/** `checkpoint.restore` result. */
+export interface CheckpointRestoreResult {
+  /** Restore checkpoint id, null for dry-run or no writes. */
+  checkpointId?: string | null;
+  /** Paths restored. */
+  restored?: string[];
+  /** Paths that were not restored and why. */
+  skipped?: ({
+    /** Relative file path. */
+    path: string;
+    /** Why the file was not restored. */
+    reason: "changed_since" | "not_restorable" | "missing_blob" | "excluded";
+  })[];
 }
 
 /** `command.list` params. List the slash commands available to a session. */
@@ -2616,6 +2738,63 @@ export interface BackendChangedEventPayload {
   kind?: "backend.changed";
 }
 
+/** Payload of `session.event` with kind `checkpoint.restored`. */
+export interface CheckpointRestoredEventPayload {
+  /** Undo checkpoint for the restore, null when none was written. */
+  checkpointId?: string | null;
+  kind?: "checkpoint.restored";
+  /** Paths restored. */
+  restored?: string[];
+  /** Paths skipped and their reasons. */
+  skipped?: ({
+    /** Relative file path. */
+    path: string;
+    /** Why the file was not restored. */
+    reason: "changed_since" | "not_restorable" | "missing_blob" | "excluded";
+  })[];
+}
+
+/** Payload of `session.event` with kind `checkpoint.updated`. */
+export interface CheckpointUpdatedEventPayload {
+  /** The whole checkpoint manifest so far. */
+  checkpoint: {
+    /** UTC ISO-8601 timestamp. */
+    createdAt: string;
+    /** Files in the manifest. */
+    files?: ({
+      /** Content-addressed blob sha after the turn, null for deleted files. */
+      afterSha?: string | null;
+      /** Content-addressed blob sha before the turn, null for created files. */
+      beforeSha?: string | null;
+      /** Path relative to the session workdir. */
+      path: string;
+      /** False when the daemon cannot safely restore this file. */
+      restorable?: boolean;
+      /** Size in bytes of the saved before-state. */
+      size?: number;
+      /** Why bytes were not captured, null when captured. */
+      skipped?: "too_large" | "excluded" | "unreadable" | null;
+      /** 'tool' or 'shell'. */
+      source: "tool" | "shell";
+      /** How the turn changed the file. */
+      status: "modified" | "created" | "deleted";
+    })[];
+    /** Checkpoint id. */
+    id: string;
+    /** 'turn' for agent work, 'restore' for undoable restore. */
+    kind: "turn" | "restore";
+    /** Prompt text, truncated to 200 chars. */
+    prompt?: string;
+    /** Session this checkpoint belongs to. */
+    sessionId: string;
+    /** Turn id this checkpoint belongs to, when different clients need it. */
+    turnId?: string | null;
+    /** Workdir the paths are relative to. */
+    workdir: string;
+  };
+  kind?: "checkpoint.updated";
+}
+
 /** Payload of `session.event` with kind `compaction`. */
 export interface CompactionEventPayload {
   /** Estimated tokens the history holds now. */
@@ -2998,6 +3177,8 @@ export interface UsageEventPayload {
 export interface SessionEventKindMap {
   "audio.spoken": AudioSpokenEventPayload;
   "backend.changed": BackendChangedEventPayload;
+  "checkpoint.restored": CheckpointRestoredEventPayload;
+  "checkpoint.updated": CheckpointUpdatedEventPayload;
   "compaction": CompactionEventPayload;
   "compaction.started": CompactionStartedEventPayload;
   "context": ContextEventPayload;
@@ -3031,6 +3212,8 @@ export type SessionEventKind = keyof SessionEventKindMap;
 export const SESSION_EVENT_KINDS: readonly SessionEventKind[] = [
   "audio.spoken",
   "backend.changed",
+  "checkpoint.restored",
+  "checkpoint.updated",
   "compaction",
   "compaction.started",
   "context",
@@ -3082,6 +3265,10 @@ export interface MethodMap {
   "audio.transcribe": { params: AudioTranscribeParams; result: AudioTranscribeResult };
   "audio.voices": { params: AudioVoicesParams; result: AudioVoicesResult };
   "backend.set": { params: BackendSetParams; result: BackendSetResult };
+  "checkpoint.delete": { params: CheckpointDeleteParams; result: CheckpointDeleteResult };
+  "checkpoint.diff": { params: CheckpointDiffParams; result: CheckpointDiffResult };
+  "checkpoint.list": { params: CheckpointListParams; result: CheckpointListResult };
+  "checkpoint.restore": { params: CheckpointRestoreParams; result: CheckpointRestoreResult };
   "command.list": { params: CommandListParams; result: CommandListResult };
   "command.run": { params: CommandRunParams; result: CommandRunResult };
   "file.complete": { params: FileCompleteParams; result: FileCompleteResult };
@@ -3177,6 +3364,10 @@ export type ClientMethod =
   | "audio.transcribe"
   | "audio.voices"
   | "backend.set"
+  | "checkpoint.delete"
+  | "checkpoint.diff"
+  | "checkpoint.list"
+  | "checkpoint.restore"
   | "command.list"
   | "command.run"
   | "file.complete"
