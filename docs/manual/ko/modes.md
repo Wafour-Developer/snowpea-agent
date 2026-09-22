@@ -6,7 +6,7 @@
 |---|---|
 | `read` | `read_file`, `list_dir`, `glob`, `grep`, `git_status`, `git_diff`, `git_log`, `process_list`, `memory_search`, `transcribe_audio`, `skill_search`, `skill_list`, `ask_user`, `set_mode` |
 | `write` | `write_file`, `edit_file`, `git_commit`, `memory_write` |
-| `exec` | `shell`, `process_kill`, `skill_install`, `skill_remove` |
+| `exec` | `shell`, `execute_code`, `process_kill`, `skill_install`, `skill_remove` |
 | `delegate` | `delegate_task` — 자식은 세션의 모드를 물려받으므로 위임 자체는 부모보다 더 할 수 없고, 승인은 자식의 개별 호출에서 묻습니다 |
 | `network` | `web_search`, `web_extract`, `browser_*`, 미디어 툴, `text_to_speech`, 기본적으로 MCP 서버 |
 | `send` | `schedule_create`, `schedule_list`, `schedule_cancel` |

@@ -36,6 +36,7 @@ EAGER_TOOLS: frozenset[str] = frozenset(
         "write_file",
         "patch",
         "shell",
+        "execute_code",
         "grep",
         "glob",
         "ask_user",

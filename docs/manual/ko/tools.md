@@ -4,6 +4,13 @@
 
 snowpea는 이를 해결하기 위해 다섯 가지 협력 메커니즘을 제공합니다: 루프와 중복 읽기를 차단하는 **반복 방지(repeat guard)**, 나가는 요청에서 오래된 툴 결과를 줄이는 **출력 정리(pruning)**, `tool_search`를 통해 필요할 때 스키마를 로드하는 **지연 로딩 툴(deferred tools)**, 위임된 서브에이전트를 위한 **자식 컨텍스트 다이어트**, 그리고 **계층적 컨텍스트 파일 한도**.
 
+## 핵심 실행 툴
+
+| 툴 | 용도 |
+|---|---|
+| `shell` | 빌드, 설치, Git 명령, 기존 테스트 스위트를 실행합니다. |
+| `execute_code` | 테스트 파일을 남기지 않고 동작을 확인하는 짧은 임시 Python 프로그램을 실행합니다. |
+
 ## 이미지
 
 세션 모델이 비전을 지원할 때 이미지는 세 가지 경로로 전달됩니다: 붙여넣기·`/attach`, 프롬프트의 `@경로` 참조, `view_image`(및 이미지 블록을 돌려주는 MCP 툴). 모두 같은 첨부 저장소·20MB 한도·축소 규칙을 씁니다. `view_image`나 MCP 이미지가 성공하면 에이전트 루프가 사진을 실은 사용자 메시지를 추가하고, 툴 줄은 짧은 텍스트 요약(`image attached: …` 또는 `N image(s) attached`)만 남기며 base64는 넣지 않습니다. `.png`·`.jpg`에 `read_file`을 쓰면 `view_image` 안내 한 줄만 돌아옵니다. 이미지를 볼 수 없는 모델에서는 `view_image`가 거부되고, `@`·MCP 이미지는 이미지 블록 대신 나가는 요청에 텍스트 표시로 대체됩니다.
@@ -78,7 +85,7 @@ snowpea는 툴을 매 라운드 전송하는 **즉시 전송(eager)** 세트와 
 
 코딩 에이전트의 핵심 작업에 필수적인 툴들로 구성됩니다:
 
-- 핵심 툴: `read_file`, `view_image`, `write_file`, `edit_file`, `shell`, `grep`, `glob`, `ask_user`, `delegate_task`, `skill_view`, `set_mode`, 그리고 `tool_search` 자체.
+- 핵심 툴: `read_file`, `view_image`, `write_file`, `edit_file`, `shell`, `execute_code`, `grep`, `glob`, `ask_user`, `delegate_task`, `skill_view`, `set_mode`, 그리고 `tool_search` 자체.
 - 읽기 전용 자식 세션(쓰기 권한이 없는 `explore`나 `reviewer` 정의): `read_file`, `grep`, `glob`, `shell`, `tool_search`로 좁혀집니다.
 - 세션 모드나 역할이 명시적으로 요구하는 툴(`allowed_tools`) 또는 `tools.eager`에 지정된 툴.
 

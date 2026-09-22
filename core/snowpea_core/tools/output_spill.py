@@ -103,7 +103,9 @@ def spill(
 
 
 #: Tools whose results the agent loop runs through :func:`spill`.
-SPILLED_TOOLS: frozenset[str] = frozenset({"shell", "grep", "glob", "list_dir"})
+SPILLED_TOOLS: frozenset[str] = frozenset(
+    {"shell", "execute_code", "grep", "glob", "list_dir"}
+)
 
 
 def max_result_lines(core: object) -> int:

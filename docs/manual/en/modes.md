@@ -6,7 +6,7 @@ Every tool carries one permission tag. The mode decides what happens to each tag
 |---|---|
 | `read` | `read_file`, `list_dir`, `glob`, `grep`, `git_status`, `git_diff`, `git_log`, `process_list`, `memory_search`, `transcribe_audio`, `skill_search`, `skill_list`, `ask_user`, `set_mode` |
 | `write` | `write_file`, `edit_file`, `git_commit`, `memory_write` |
-| `exec` | `shell`, `process_kill`, `skill_install`, `skill_remove` |
+| `exec` | `shell`, `execute_code`, `process_kill`, `skill_install`, `skill_remove` |
 | `delegate` | `delegate_task` — the child inherits the session's mode, so delegating can never do more than the parent may; the child's own calls are what get asked |
 | `network` | `web_search`, `web_extract`, `browser_*`, media tools, `text_to_speech`, MCP servers by default |
 | `send` | `schedule_create`, `schedule_list`, `schedule_cancel` |

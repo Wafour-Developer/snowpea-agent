@@ -531,7 +531,7 @@ snowpea tools list --json
 | 설정 | 기본값 | 하는 일 |
 |---|---|---|
 | `tools.readBeforeWrite` | `true` | 이번 세션에서 전체를 읽지 않은 파일, 또는 읽은 뒤 형제 서브에이전트가 쓴 파일에 대해 `edit_file`·`write_file`이 거부합니다. 거부는 이유를 담은 `stale_file` 오류입니다. 새 파일 생성은 언제나 허용됩니다. `false`로 두면 가드가 꺼집니다. |
-| `tools.maxResultLines` | `400` | 이 줄 수를 넘으면 `shell`·`grep`·`glob`·`list_dir` 결과는 앞뒤만 남기고, 가운데는 `$SNOWPEA_HOME/cache/tool-output/`으로 빠집니다. 결과에는 그것을 다시 읽을 offset·limit이 적힌 `read_file` 포인터가 남습니다. |
+| `tools.maxResultLines` | `400` | 이 줄 수를 넘으면 `shell`·`execute_code`·`grep`·`glob`·`list_dir` 결과는 앞뒤만 남기고, 가운데는 `$SNOWPEA_HOME/cache/tool-output/`으로 빠집니다. 결과에는 그것을 다시 읽을 offset·limit이 적힌 `read_file` 포인터가 남습니다. |
 | `tools.repeatGuard` | `true` | 같은 답에 두 번 값을 치르지 않게 합니다. 이번 세션에서 이미 읽었고 그 뒤로 내용이 바뀌지 않은 `read_file`은 한 줄 요약으로 돌아오고, 그런 요약이 두 번 나간 뒤의 반복은 `repeat_blocked` 오류로 거부됩니다. 어떤 툴이든 같은 인자로 연달아 세 번 부르면 결과에 경고가 붙고 네 번째는 거부되며, `shell`·`grep`·`glob`·`list_dir`·MCP 호출의 출력이 직전과 같으면 요약으로 바뀝니다. 해당 경로에 쓰기가 일어나거나 사이에 다른 툴 호출이 끼면 해당 카운터는 초기화됩니다. `false`로 두면 전부 꺼집니다. |
 | `tools.deferred` | `true` | 매 라운드마다 핵심 툴 스키마만 온전히 보내고 나머지는 그룹별 한 줄로 이름만 제공하며 필요 시 `tool_search`로 로드합니다. `false`로 두면 매 라운드 모든 툴 스키마를 보냅니다. |
 | `tools.eager` | `[]` | 기본 설정과 무관하게 언제나 전체 스키마를 보낼 툴 이름 목록. |

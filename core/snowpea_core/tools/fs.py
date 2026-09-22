@@ -209,7 +209,7 @@ async def _replace_in_file(ctx: ToolContext, args: dict[str, Any]) -> ToolResult
         # The model's whitespace or indentation often drifts from the file;
         # the vendored fuzzy matcher recovers the intended span or explains why
         # it could not (contract §7, hermes tools/fuzzy_match.py).
-        fuzzy, error = _fuzzy_replace(before, old, new, replace_all)
+        fuzzy, strategy, error = _fuzzy_replace(before, old, new, replace_all)
         if fuzzy is None:
             return ToolResult(ok=False, error=error or f"old string not found in {path}")
         after = fuzzy
@@ -229,11 +229,18 @@ async def _replace_in_file(ctx: ToolContext, args: dict[str, Any]) -> ToolResult
         return ToolResult(ok=False, error=f"{type(exc).__name__}: {exc}")
     file_state.note_write(ctx.core, ctx.session, path, after)
     replaced = occurrences if replace_all and occurrences else 1
+    if occurrences == 0:
+        output = (
+            f"matched approximately (strategy: {strategy}); replaced {replaced} occurrence"
+            f"{'s' if replaced != 1 else ''} — re-read the region if the change looks wrong"
+        )
+    else:
+        output = f"replaced {replaced} occurrence(s) in {path}"
     return await _with_diagnostics(
         ctx,
         ToolResult(
             ok=True,
-            output=f"replaced {replaced} occurrence(s) in {path}",
+            output=output,
             diff=unified_diff(path, before, after) or None,
             path=path,
         ),
@@ -242,8 +249,8 @@ async def _replace_in_file(ctx: ToolContext, args: dict[str, Any]) -> ToolResult
 
 def _fuzzy_replace(
     content: str, old: str, new: str, replace_all: bool
-) -> tuple[str | None, str | None]:
-    """Try the vendored fuzzy matcher; return ``(new content, error)``.
+) -> tuple[str | None, str | None, str | None]:
+    """Try the vendored fuzzy matcher; return ``(content, strategy, error)``.
 
     Upstream returns ``(content, match_count, strategy, error)`` and never
     raises, reporting failure as a zero match count plus a message.
@@ -252,9 +259,20 @@ def _fuzzy_replace(
         content, old, new, replace_all
     )
     if error or not matches or updated == content:
-        return None, error
+        return None, strategy, error
+    old_lines = old.count("\n") + 1
+    new_lines = new.count("\n") + 1
+    removed_lines = content.count("\n") - updated.count("\n") + matches * new_lines
+    matched_lines = removed_lines // matches
+    allowed_extra = max(3, old_lines * 0.4)
+    if matched_lines - old_lines > allowed_extra:
+        return None, strategy, (
+            "old_string matched approximately but the match spans "
+            f"{matched_lines} lines where old_string has {old_lines}; re-read the file "
+            "and pass the exact current text"
+        )
     log.info("patch matched fuzzily via %s (%d match(es))", strategy, matches)
-    return updated, None
+    return updated, strategy, None
 
 
 async def patch(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:

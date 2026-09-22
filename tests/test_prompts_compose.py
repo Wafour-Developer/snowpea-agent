@@ -31,8 +31,8 @@ GOLDEN_DIR = Path(__file__).parent / "golden" / "prompts"
 #: memory-guidance fragment, which is twelve lines the stable tier did not
 #: carry before; raised again from 3250 for CORE-vision's one-line ``view_image``
 #: guidance in base.md; raised again for Hermes-style ``patch`` tool text and
-#: ``small-local`` edit guidance.
-TIER_BUDGET_TOKENS = {"stable": 3500, "context": 800, "volatile": 600}
+#: ``small-local`` edit guidance; raised for the execute_code verification rule.
+TIER_BUDGET_TOKENS = {"stable": 3600, "context": 800, "volatile": 600}
 
 MODES = ("plan", "accept", "auto")
 VENDOR_CLASSES = ("anthropic", "openai-family", "small-local")
@@ -56,6 +56,7 @@ TOOLS = (
     FakeSpec("read_file", tool_descriptions.READ_FILE),
     FakeSpec("patch", tool_descriptions.PATCH),
     FakeSpec("shell", tool_descriptions.SHELL),
+    FakeSpec("execute_code", tool_descriptions.EXECUTE_CODE),
 )
 
 MEMORY_BLOCK = (

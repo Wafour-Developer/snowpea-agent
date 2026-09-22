@@ -48,4 +48,49 @@ async def test_patch_replace_mode_edits_file(tmp_path: Path) -> None:
         {"path": "a.txt", "old_string": "hello", "new_string": "bye"},
     )
     assert result.ok is True
+    assert result.output == "replaced 1 occurrence(s) in a.txt"
     assert (tmp_path / "a.txt").read_text(encoding="utf-8") == "bye\n"
+
+
+async def test_fuzzy_patch_reports_strategy(tmp_path: Path) -> None:
+    (tmp_path / "a.txt").write_text("  hello\n  world\n", encoding="utf-8")
+    core = type("Core", (), {"settings": Settings()})()
+    session = Session(id="s-2", workdir=tmp_path)
+    ctx = ToolContext(session=session, core=core, backend=_Backend(tmp_path))  # type: ignore[arg-type]
+    assert (await fs.read_file(ctx, {"path": "a.txt"})).ok is True
+
+    result = await fs.patch(
+        ctx, {"path": "a.txt", "old_string": "hello\nworld", "new_string": "bye"}
+    )
+
+    assert result.ok is True
+    assert result.output == (
+        "matched approximately (strategy: line_trimmed); replaced 1 occurrence — "
+        "re-read the region if the change looks wrong"
+    )
+    assert (tmp_path / "a.txt").read_text(encoding="utf-8") == "  bye\n"
+
+
+async def test_oversized_fuzzy_patch_is_refused_without_writing(tmp_path: Path) -> None:
+    before = "start\na\nb\nc\nd\nend\n"
+    (tmp_path / "a.txt").write_text(before, encoding="utf-8")
+    core = type("Core", (), {"settings": Settings()})()
+    session = Session(id="s-3", workdir=tmp_path)
+    ctx = ToolContext(session=session, core=core, backend=_Backend(tmp_path))  # type: ignore[arg-type]
+    assert (await fs.read_file(ctx, {"path": "a.txt"})).ok is True
+
+    result = await fs.patch(
+        ctx,
+        {
+            "path": "a.txt",
+            "old_string": r"start\na\nb\nc\nd\nend",
+            "new_string": "replacement",
+        },
+    )
+
+    assert result.ok is False
+    assert result.error == (
+        "old_string matched approximately but the match spans 6 lines where old_string has 1; "
+        "re-read the file and pass the exact current text"
+    )
+    assert (tmp_path / "a.txt").read_text(encoding="utf-8") == before

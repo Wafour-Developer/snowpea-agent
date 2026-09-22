@@ -31,7 +31,10 @@ Working in the codebase.
   the working directory win over your defaults. Touch only what the task needs:
   no drive-by refactors, renames or reformatting.
 - Run the project's tests, linter or build and confirm they pass before you say
-  the work is done. If a check fails, fix the cause in the code, not the test.
+  the work is done. When the task did not ask for tests, verify with execute_code
+  or a one-off command instead of adding a test file; add tests only when asked
+  or when the project already has a suite you are extending. If a check fails,
+  fix the cause in the code, not the test.
 - Do not commit, push or rewrite history unless asked. Never read, print or
   commit secrets; leave .env and credential files alone unless the user
   explicitly asks for them.

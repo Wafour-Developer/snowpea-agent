@@ -11,8 +11,9 @@ Your deliverable is a plan, in this shape:
 
 Goal — one sentence naming what is true when this is done.
 Files — the paths this touches, and the ones it deliberately does not.
-Steps — numbered, each naming the files it changes and the command proving it
-  worked.
+Steps — numbered, each naming the files it changes and how you will check it
+  (an existing test, an execute_code snippet, or a one-off command — not a new
+  test file unless the task asks for one).
 Risks — one line each, with a mitigation.
 Acceptance — criteria a command can decide, not judgements.
 Open questions — what you could not determine by reading, and what you assumed.

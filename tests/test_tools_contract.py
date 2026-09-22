@@ -51,6 +51,7 @@ CATALOG: dict[str, tuple[str, str]] = {
     "glob": ("file", "read"),
     "grep": ("file", "read"),
     "shell": ("terminal", "exec"),
+    "execute_code": ("terminal", "exec"),
     "process_list": ("terminal", "read"),
     "process_kill": ("terminal", "exec"),
     "git_status": ("git", "read"),

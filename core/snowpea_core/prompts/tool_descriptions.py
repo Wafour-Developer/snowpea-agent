@@ -53,6 +53,15 @@ SHELL = (
     "command rather than sleeping."
 )
 
+EXECUTE_CODE = (
+    "Run a short Python program in the project and return what it printed. Use it to "
+    "check behaviour without leaving files behind: build inputs in memory or in a temp "
+    "dir, call the code under test, print the results, and let the snippet clean up. "
+    "Prefer it over writing a test file when the task did not ask for tests. Relative "
+    "paths resolve against the working directory. Use shell for builds, installs, git "
+    "and existing test suites."
+)
+
 GREP = (
     "Search file contents by regular expression. Use this rather than grep, rg or "
     "find in shell. Prefer it over reading whole files when you are looking for one "

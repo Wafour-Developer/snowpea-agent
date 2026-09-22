@@ -4,6 +4,13 @@ Every model round re-sends the session's prompt: the system instructions, the to
 
 snowpea addresses this with five coordinated mechanisms: a **repeat guard** that stops loops and redundant reads, **output pruning** that trims old tool results before sending requests, **deferred tools** that load schemas on demand via `tool_search`, **lean child context** for delegated subagents, and **hierarchical context file caps**.
 
+## Core execution tools
+
+| Tool | Use |
+|---|---|
+| `shell` | Run builds, installs, git commands, and existing test suites. |
+| `execute_code` | Run a short temporary Python program to check behavior without leaving a test file behind. |
+
 ## Images
 
 When the session model supports vision, images reach the model in three ways: paste or `/attach`, an `@path` reference in the prompt, or `view_image` (and MCP tools that return image blocks). All of them use the same attachment store, 20 MB cap, and downscaling rules. After a successful `view_image` or MCP image result, the agent loop appends a user message carrying the picture — the tool line stays a short text summary (`image attached: …` or `N image(s) attached`), never base64. `read_file` on a `.png` or `.jpg` only returns a one-line hint pointing at `view_image`. On a model that cannot see images, `view_image` refuses with an error; `@` and MCP images fall back to a text marker in the outgoing request instead of an image block.
@@ -78,7 +85,7 @@ snowpea divides tools into an **eager** set (sent in full every round) and a **d
 
 The eager set contains tools fundamental to core agent workflows:
 
-- Core tools: `read_file`, `view_image`, `write_file`, `edit_file`, `shell`, `grep`, `glob`, `ask_user`, `delegate_task`, `skill_view`, `set_mode`, plus `tool_search` itself.
+- Core tools: `read_file`, `view_image`, `write_file`, `edit_file`, `shell`, `execute_code`, `grep`, `glob`, `ask_user`, `delegate_task`, `skill_view`, `set_mode`, plus `tool_search` itself.
 - For read-only child sessions (such as `explore` or `reviewer` definitions without write tools), the eager set is narrowed to: `read_file`, `grep`, `glob`, `shell`, and `tool_search`.
 - Any tools explicitly required by session mode or role (`allowed_tools`), or added to `tools.eager`.
 
