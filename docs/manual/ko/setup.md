@@ -12,7 +12,7 @@ snowpea setup --blank    # asks nothing, writes the defaults
 
 ## 화면들
 
-`--full`은 다섯 화면과 요약 화면을 거칩니다. 모든 화면은 **Skip — keep defaults**로 끝나고, 모든 화면에는 명령줄 플래그가 있어서 대화형으로 진행할 필요가 전혀 없습니다.
+`--full`은 다섯 화면과 요약 화면을 거칩니다. 모든 화면은 선택이 있으면 **Done — keep X**, 없으면 **Skip — decide later**로 끝나고, 모든 화면에는 명령줄 플래그가 있어서 대화형으로 진행할 필요가 전혀 없습니다.
 
 | 화면 | 선택 | 플래그 |
 |---|---|---|
@@ -670,7 +670,7 @@ snowpea audio install edge-tts
 Recommended: SenseVoiceSmall (CPU) — Install     ← 아무것도 설치되지 않았을 때만
 Install Piper…
 Choose a specific engine…
-Skip — keep defaults
+Skip — decide later
 ```
 
 아무것도 없으면 권장 엔진이 맨 위에 오고 미리 선택되어 있습니다. 설치가 도움이 되는 유일한 동작이기 때문입니다. 엔진이 하나라도 생기면 권장 행은 사라지고, 더 정확한 문장이 그 자리를 대신합니다. **Automatic will use espeak-ng.**

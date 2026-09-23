@@ -12,7 +12,7 @@ Quick is the right answer the first time. Full is worth one pass once you know w
 
 ## The screens
 
-`--full` walks five screens and a summary. Every screen ends with **Skip — keep defaults**, and every screen has a command-line flag so you never have to be interactive.
+`--full` walks five screens and a summary. Every screen ends with **Done — keep X** (what is selected) or **Skip — decide later** when nothing is, and every screen has a command-line flag so you never have to be interactive.
 
 | Screen | Choice | Flag |
 |---|---|---|
@@ -696,7 +696,7 @@ The setup wizard's two voice screens are **action-first**: the rows are things t
 Recommended: SenseVoiceSmall (CPU) — Install     ← only while nothing is installed
 Install Piper…
 Choose a specific engine…
-Skip — keep defaults
+Skip — decide later
 ```
 
 With nothing installed, the recommended engine leads and is pre-selected, because installing it is the one move that helps. Once you have an engine the recommendation gives way to a status line that says something truer: **Automatic will use espeak-ng.**

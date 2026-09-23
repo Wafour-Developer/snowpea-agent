@@ -21,7 +21,7 @@ from snowpea_core.cli import commands as cli_commands
 from snowpea_core.config.paths import Paths
 from snowpea_core.config.settings import Settings
 from snowpea_core.setup import catalog, ui, wizard
-from snowpea_core.setup.screens import SKIP, Screen, ScreenItem
+from snowpea_core.setup.screens import SKIP, Screen, ScreenItem, skip_item
 from snowpea_core.setup.screens import browser as browser_screen
 from snowpea_core.setup.screens import gateway as gateway_screen
 from snowpea_core.setup.screens import providers as providers_screen
@@ -258,7 +258,12 @@ def test_every_screen_ends_with_skip() -> None:
     ):
         screen = module.build(state)
         assert screen.items[-1].id == SKIP
+        # Drawn from state: "Done — keep X" with a selection, "Skip — decide
+        # later" without one; the static label is only the placeholder.
         assert screen.items[-1].label == "Skip — keep defaults"
+        body = "\n".join(ui.render_lines(screen))
+        assert ("Done — keep " in body) or ("Skip — decide later" in body)
+        assert "Skip — keep defaults" not in body
 
 
 def test_search_screen_apply_sets_the_provider() -> None:
@@ -325,7 +330,7 @@ def test_render_shows_tags_the_star_and_the_radio() -> None:
     assert "★" in body
     assert "[free · no key]" in body
     assert "(●)" in body and "(○)" in body
-    assert "Skip — keep defaults" in body
+    assert "Done — keep " in body
 
 
 def test_render_multi_select_uses_checkboxes() -> None:
@@ -1474,3 +1479,37 @@ def test_ctrl_c_on_a_screen_cancels_the_run(tmp_path, monkeypatch):
     result = wizard.run("quick", home=tmp_path, interactive=True, ask=interrupted)
     assert result.cancelled is True
     assert not (tmp_path / "settings.json").exists()
+
+
+def test_the_last_row_reads_done_with_a_selection_and_skip_without() -> None:
+    from snowpea_core.setup.screens import last_row_label
+
+    picked = Screen(
+        title="t",
+        items=(ScreenItem("a", "Alpha", (), True, True), skip_item()),
+        multi=False,
+    )
+    assert last_row_label(picked, {"a"}) == "Done — keep Alpha"
+    assert last_row_label(picked, set()) == "Skip — decide later"
+    boxes = Screen(
+        title="t",
+        items=(ScreenItem("a", "A", (), True, False), ScreenItem("b", "B", (), True, False), skip_item()),
+        multi=True,
+    )
+    assert last_row_label(boxes, {"a", "b"}) == "Done — keep these 2"
+
+
+def test_done_in_a_multi_select_keeps_what_was_ticked(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ticking boxes and then pressing Enter on the last row used to return the
+    defaults, throwing the ticks away."""
+    screen = Screen(
+        title="t",
+        items=(
+            ScreenItem("a", "A", (), True, False),
+            ScreenItem("b", "B", (), False, False),
+            skip_item(),
+        ),
+        multi=True,
+    )
+    # Tick b, move to the last row, confirm.
+    assert _pick(monkeypatch, screen, "2", "3", "enter") == {"a", "b"}

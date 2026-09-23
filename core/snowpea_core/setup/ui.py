@@ -3,7 +3,7 @@
 Single-select screens draw ``(●)``/``(○)`` rows and move with ↑↓/Enter;
 multi-select screens draw ``[✓]``/``[ ]`` and toggle with Space.  Tags print as
 ``[free · no key]`` and ``[active]``, the default row carries ``★``, and the
-last row is always ``Skip — keep defaults``.
+last row is ``Done — keep X`` (what is selected) or ``Skip — decide later``.
 
 When stdin is not a TTY — CI, a pipe, ``snowpea setup < /dev/null`` — nothing
 is drawn and :func:`ask` returns the screen's defaults straight away.  The
@@ -20,7 +20,7 @@ from typing import IO
 from rich.console import Console
 from rich.text import Text
 
-from snowpea_core.setup.screens import SKIP, Screen, ScreenItem
+from snowpea_core.setup.screens import SKIP, Screen, ScreenItem, last_row_label
 
 STAR = "★"
 
@@ -136,7 +136,7 @@ def screen_lines(screen: Screen, *, cursor: int, chosen: set[str]) -> list[Text]
     lines.append(Text(""))
     lines.extend(
         render_item(
-            item,
+            item if item.id != SKIP else item._replace(label=last_row_label(screen, chosen)),
             multi=screen.multi,
             selected=item.id in chosen,
             cursor=index == cursor,
@@ -283,10 +283,12 @@ def ask(
                 if screen.multi and target.id != SKIP:
                     chosen.symmetric_difference_update({target.id})
             elif key == "enter":
+                if screen.multi:
+                    # Done keeps what is ticked — including what was ticked
+                    # on the way to the last row; it is not a discard.
+                    return {entry for entry in chosen if entry != SKIP}
                 if item.id == SKIP:
                     return screen.default_choice
-                if screen.multi:
-                    return chosen
                 return item.id
     finally:
         _emit(console, CURSOR_SHOW)

@@ -52,8 +52,41 @@ class Screen(NamedTuple):
 
 
 def skip_item() -> ScreenItem:
-    """The ``Skip — keep defaults`` row every screen ends with."""
+    """The last row of every screen: confirm what is selected, or skip.
+
+    Its label is drawn from the screen's state (:func:`last_row_label`):
+    "Done — keep X" when a row is selected, "Skip — decide later" when nothing
+    is. The id is :data:`SKIP` either way, because both mean "leave the
+    setting as the screen shows it". The static label is what a screen built
+    without state reads; an install that came back to a screen still saying
+    Skip is what this replaces.
+    """
     return ScreenItem(id=SKIP, label=SKIP_LABEL, tags=(), selected=False, default=False)
 
 
-__all__ = ["SKIP", "SKIP_LABEL", "Screen", "ScreenItem", "skip_item"]
+DONE_LABEL = "Done — keep {label}"
+DONE_MULTI_LABEL = "Done — keep these {count}"
+SKIP_LATER_LABEL = "Skip — decide later"
+
+
+def last_row_label(screen: Screen, chosen: set[str]) -> str:
+    """What the SKIP row says given what is chosen right now."""
+    picked = [item for item in screen.items if item.id in chosen and item.id != SKIP]
+    if not picked:
+        return SKIP_LATER_LABEL
+    if screen.multi:
+        return DONE_MULTI_LABEL.format(count=len(picked))
+    return DONE_LABEL.format(label=picked[0].label)
+
+
+__all__ = [
+    "DONE_LABEL",
+    "DONE_MULTI_LABEL",
+    "SKIP",
+    "SKIP_LABEL",
+    "SKIP_LATER_LABEL",
+    "Screen",
+    "ScreenItem",
+    "last_row_label",
+    "skip_item",
+]
