@@ -255,6 +255,12 @@ class McpServer:
                 raise McpError(f"{self.config.name}: the server is disabled")
             self._stop = asyncio.Event()
             self._ready = asyncio.get_running_loop().create_future()
+            # Nobody awaits the future once `start` has given up on it, so its
+            # late error (a connect timeout) is retrieved here or asyncio
+            # prints "Future exception was never retrieved" at exit.
+            self._ready.add_done_callback(
+                lambda f: None if f.cancelled() else f.exception()
+            )
             self._set_state("starting")
             self._task = asyncio.create_task(self._supervise(), name=f"mcp:{self.config.name}")
             try:
@@ -374,10 +380,20 @@ class McpServer:
         task = self._task
         self._task = None
         if task is not None and not task.done():
+            # A server that is up gets a moment to say goodbye; one still
+            # connecting has nothing to close and is cancelled outright — waiting
+            # the full grace for it held every `daemon stop` for ten seconds
+            # while one HTTP entry was unreachable.
+            grace = 2.0 if self.state == "ready" else 0.0
             try:
-                await asyncio.wait_for(task, 10.0)
+                if grace:
+                    await asyncio.wait_for(asyncio.shield(task), grace)
             except (TimeoutError, asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
+            if not task.done():
                 task.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await task
         self._session = None
         self._set_state("stopped")
 
@@ -713,7 +729,18 @@ async def sync_tools_bounded(
         log.info("mcp servers still starting after %gs; the session opens without them", wait)
         _BACKGROUND_SYNCS.add(task)
         task.add_done_callback(_BACKGROUND_SYNCS.discard)
+        task.add_done_callback(_log_background_sync)
         return []
+
+
+def _log_background_sync(task: asyncio.Task[list[str]]) -> None:
+    if task.cancelled():
+        return
+    error = task.exception()
+    if error is not None:
+        log.info("background mcp sync failed: %s", error)
+    else:
+        log.info("mcp servers finished starting in the background: %s", task.result())
 
 
 async def sync_tools(core: Core, workdir: Path | str | None = None) -> list[str]:
