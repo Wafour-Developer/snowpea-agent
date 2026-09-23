@@ -172,3 +172,33 @@ describe("formatSize", () => {
     expect(formatSize(-1)).toBe("0B");
   });
 });
+
+
+describe("a paste that is prose about a file", () => {
+  it("is not turned into chips or a refusal, so the text reaches the input", () => {
+    // A wine log: the second word resolves to a real .exe in the workdir.
+    const probe = probeOf({ "/work/StarCraft.exe": 10 });
+    const scan = scanAttachments(
+      "wine StarCraft.exe\n0734:fixme:ntdll:NtQuerySystemInformation info_class\n",
+      probe,
+    );
+    expect(scan.attachments).toEqual([]);
+    expect(scan.rejected).toEqual([]);
+    expect(scan.textLines).toBe(2);
+  });
+
+  it("still takes a line that is one path, and a drop of several", () => {
+    const probe = probeOf({ "/w/a.png": 10, "/w/b.png": 10 });
+    expect(scanAttachments("/w/a.png", probe).textLines).toBe(0);
+    const drop = scanAttachments("/w/a.png /w/b.png", probe);
+    expect(drop.attachments.map((entry) => entry.path)).toEqual(["/w/a.png", "/w/b.png"]);
+    expect(drop.textLines).toBe(0);
+  });
+
+  it("counts a line that mixes a path with words as text", () => {
+    const probe = probeOf({ "/w/a.png": 10 });
+    const scan = scanAttachments("look at /w/a.png please", probe);
+    expect(scan.attachments).toEqual([]);
+    expect(scan.textLines).toBe(1);
+  });
+});

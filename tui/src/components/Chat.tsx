@@ -6,6 +6,7 @@
  * to avoid pulling another dependency into the bundled artifact.
  */
 
+import { stripPasteMarkers } from "../state/attachments.js";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Box, Text, useInput, useStdout } from "ink";
 
@@ -461,7 +462,9 @@ export function Chat({
       }
 
       if (key.ctrl || key.meta || input.length === 0) return;
-      const typed = input.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+      // A terminal that brackets its pastes (tmux does) wraps the text in
+      // markers; they are not part of what was pasted.
+      const typed = stripPasteMarkers(input.replace(/\r\n/g, "\n").replace(/\r/g, "\n"));
       // A paste arrives as one chunk: if it names files, it becomes chips
       // rather than a wall of text in the draft.
       if (typed.length > 1 && onPaste?.(typed)) return;

@@ -1612,7 +1612,10 @@ export function App({
   const takePaste = useCallback(
     (text: string): boolean => {
       if (!probe) return false;
-      const { attachments: found, rejected } = scanAttachments(text, probe);
+      const { attachments: found, rejected, textLines } = scanAttachments(text, probe);
+      // Prose that names a file is still prose: it goes into the input as
+      // typed. Only a paste made of paths becomes chips (or a refusal).
+      if (textLines > 0) return false;
       for (const entry of rejected) showToast(`${entry.path}: ${entry.reason}`);
       if (found.length === 0) return rejected.length > 0;
       setAttachments((current) => addAttachments(current, found));

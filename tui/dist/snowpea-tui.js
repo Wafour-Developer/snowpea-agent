@@ -37322,23 +37322,29 @@ function normalizePath(text2) {
   const bare = unquote(text2).replace(/\\ /g, " ");
   return bare.startsWith("file://") ? fromFileUrl(bare) : bare;
 }
-function pathCandidates(text2) {
-  const out = [];
-  for (const line of stripPasteMarkers(text2).split(/[\r\n]+/)) {
-    const trimmed = line.trim();
-    if (trimmed.length === 0) continue;
-    out.push(normalizePath(trimmed));
-    const pieces = trimmed.split(/(?<!\\)\s+/).filter((piece) => piece.length > 0);
-    if (pieces.length > 1) for (const piece of pieces) out.push(normalizePath(piece));
-  }
-  return [...new Set(out)].sort((a, b) => b.length - a.length);
-}
 var counter2 = 0;
 function scanAttachments(text2, probe) {
   const attachments = [];
   const rejected = [];
   const seen = /* @__PURE__ */ new Set();
-  for (const candidate of pathCandidates(text2)) {
+  let textLines = 0;
+  const candidates = [];
+  for (const line of stripPasteMarkers(text2).split(/[\r\n]+/)) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) continue;
+    const whole = normalizePath(trimmed);
+    if (probe.size(probe.resolve(whole)) !== null) {
+      candidates.push(whole);
+      continue;
+    }
+    const pieces = trimmed.split(/(?<!\\)\s+/).filter((piece) => piece.length > 0).map(normalizePath);
+    if (pieces.length > 1 && pieces.every((piece) => probe.size(probe.resolve(piece)) !== null)) {
+      candidates.push(...pieces);
+      continue;
+    }
+    textLines += 1;
+  }
+  for (const candidate of candidates) {
     const path = probe.resolve(candidate);
     if (seen.has(path)) continue;
     const size = probe.size(path);
@@ -37362,7 +37368,7 @@ function scanAttachments(text2, probe) {
       size
     });
   }
-  return { attachments, rejected };
+  return { attachments, rejected, textLines };
 }
 function addAttachments(current2, incoming) {
   const paths = new Set(current2.map((attachment) => attachment.path));
@@ -39587,7 +39593,7 @@ function Chat({
         return;
       }
       if (key.ctrl || key.meta || input.length === 0) return;
-      const typed = input.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+      const typed = stripPasteMarkers(input.replace(/\r\n/g, "\n").replace(/\r/g, "\n"));
       if (typed.length > 1 && onPaste?.(typed)) return;
       if ((typed === "R" || typed === "r") && onStartDaemon) {
         onStartDaemon();
@@ -42131,7 +42137,8 @@ function App2({
   const takePaste = (0, import_react45.useCallback)(
     (text2) => {
       if (!probe) return false;
-      const { attachments: found, rejected } = scanAttachments(text2, probe);
+      const { attachments: found, rejected, textLines } = scanAttachments(text2, probe);
+      if (textLines > 0) return false;
       for (const entry of rejected) showToast(`${entry.path}: ${entry.reason}`);
       if (found.length === 0) return rejected.length > 0;
       setAttachments((current2) => addAttachments(current2, found));

@@ -157,6 +157,13 @@ export function __resetAttachmentIds(): void {
 export interface AttachmentScan {
   attachments: Attachment[];
   rejected: RejectedAttachment[];
+  /**
+   * Non-empty lines that were not a path (or a whole drop of paths). When
+   * there are any, the paste was prose that happened to name a file, and the
+   * text must reach the input — a wine log that says `StarCraft.exe` used to
+   * vanish into "unsupported file type".
+   */
+  textLines: number;
 }
 
 /**
@@ -170,8 +177,32 @@ export function scanAttachments(text: string, probe: FileProbe): AttachmentScan 
   const attachments: Attachment[] = [];
   const rejected: RejectedAttachment[] = [];
   const seen = new Set<string>();
+  let textLines = 0;
 
-  for (const candidate of pathCandidates(text)) {
+  // A line is a path when the whole line is one, or when every whitespace-
+  // separated piece is one (a multi-file drop). A line with a path in the
+  // middle of other words is prose about that file, not the file.
+  const candidates: string[] = [];
+  for (const line of stripPasteMarkers(text).split(/[\r\n]+/)) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) continue;
+    const whole = normalizePath(trimmed);
+    if (probe.size(probe.resolve(whole)) !== null) {
+      candidates.push(whole);
+      continue;
+    }
+    const pieces = trimmed
+      .split(/(?<!\\)\s+/)
+      .filter((piece) => piece.length > 0)
+      .map(normalizePath);
+    if (pieces.length > 1 && pieces.every((piece) => probe.size(probe.resolve(piece)) !== null)) {
+      candidates.push(...pieces);
+      continue;
+    }
+    textLines += 1;
+  }
+
+  for (const candidate of candidates) {
     const path = probe.resolve(candidate);
     if (seen.has(path)) continue;
     const size = probe.size(path);
@@ -196,7 +227,7 @@ export function scanAttachments(text: string, probe: FileProbe): AttachmentScan 
     });
   }
 
-  return { attachments, rejected };
+  return { attachments, rejected, textLines };
 }
 
 /** Add attachments to the draft, ignoring ones already on it. */
