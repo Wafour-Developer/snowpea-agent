@@ -190,15 +190,69 @@ def _prefix_entries(workdir: Path, query: str, limit: int) -> tuple[list[Complet
     return entries[:limit], truncated
 
 
+def _absolute_entries(query: str, limit: int) -> tuple[list[CompleteEntry], bool]:
+    """Complete ``/abs/…`` and ``~/…`` the way a shell does, outside the workdir.
+
+    Entries come back spelled the way the query started (``~/`` stays ``~/``),
+    so the picker can drop them in as typed. Credential locations (.ssh, .env,
+    keys) are left out of the listing; the read itself is the tools' business.
+    """
+    from snowpea_core.agent.prompt_refs import is_secret_pattern
+
+    tilde = query.startswith("~")
+    expanded = str(Path(query).expanduser()) if tilde else query
+    if query.endswith("/"):
+        dir_text, prefix = expanded, ""
+    else:
+        dir_text, _, prefix = expanded.rpartition("/")
+        dir_text = dir_text or "/"
+    dir_path = Path(dir_text)
+    if not dir_path.is_absolute() or not dir_path.is_dir():
+        return [], False
+    home = str(Path.home())
+    try:
+        children = sorted(dir_path.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
+    except OSError:
+        return [], False
+    show_hidden = _show_hidden(prefix)
+    entries: list[CompleteEntry] = []
+    for child in children:
+        if child.name in SKIP_NAMES or is_secret_pattern(child):
+            continue
+        if not show_hidden and child.name.startswith("."):
+            continue
+        if prefix and not child.name.lower().startswith(prefix.lower()):
+            continue
+        shown = str(child)
+        if tilde and shown.startswith(home):
+            shown = "~" + shown[len(home) :]
+        try:
+            is_dir = child.is_dir()
+        except OSError:
+            continue
+        if is_dir:
+            entries.append(CompleteEntry(path=shown + "/", kind="dir"))
+        else:
+            try:
+                size = child.stat().st_size
+            except OSError:
+                size = None
+            entries.append(CompleteEntry(path=shown, kind="file", size=size))
+    truncated = len(entries) > limit
+    return entries[:limit], truncated
+
+
 def complete_paths(
     workdir: Path, query: str, *, limit: int = DEFAULT_LIMIT
 ) -> tuple[list[CompleteEntry], bool]:
-    """Return matching entries relative to ``workdir``."""
+    """Return matching entries relative to ``workdir``, or absolute for ``/``/``~`` queries."""
     workdir = workdir.resolve()
     limit = max(1, min(limit, MAX_LIMIT))
     query = query.replace("\\", "/")
     if ".." in query.split("/"):
         return [], False
+    if query.startswith("/") or query.startswith("~"):
+        return _absolute_entries(query, limit)
     if not query:
         git_paths = _git_paths(workdir)
         if git_paths is not None:

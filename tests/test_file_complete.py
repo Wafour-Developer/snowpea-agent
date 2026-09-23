@@ -182,3 +182,31 @@ def test_refuse_escape_unit(tmp_path: Path) -> None:
     workdir.mkdir()
     assert file_complete.refuse_escape(workdir, "../etc") is True
     assert file_complete.refuse_escape(workdir, "/etc/passwd") is False
+
+
+def test_absolute_and_home_queries_complete_outside_the_workdir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``@/abs/…`` and ``@~/…`` list that directory, spelled the way they were typed."""
+    workdir = tmp_path / "w"
+    workdir.mkdir()
+    elsewhere = tmp_path / "elsewhere"
+    (elsewhere / "pics").mkdir(parents=True)
+    (elsewhere / "notes.md").write_text("x", encoding="utf-8")
+    (elsewhere / "id_rsa").write_text("secret", encoding="utf-8")
+    (elsewhere / ".hidden").write_text("h", encoding="utf-8")
+
+    entries, _ = file_complete.complete_paths(workdir, f"{elsewhere}/")
+    paths = [e.path for e in entries]
+    assert paths == [f"{elsewhere}/pics/", f"{elsewhere}/notes.md"]  # no key, no dotfile
+
+    entries, _ = file_complete.complete_paths(workdir, f"{elsewhere}/no")
+    assert [e.path for e in entries] == [f"{elsewhere}/notes.md"]
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    entries, _ = file_complete.complete_paths(workdir, "~/else")
+    assert [e.path for e in entries] == ["~/elsewhere/"]
+    entries, _ = file_complete.complete_paths(workdir, "~/elsewhere/.h")
+    assert [e.path for e in entries] == ["~/elsewhere/.hidden"]
+
+    assert file_complete.complete_paths(workdir, "/no/such/dir/")[0] == []
