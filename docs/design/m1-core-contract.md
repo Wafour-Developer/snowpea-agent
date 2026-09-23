@@ -280,7 +280,7 @@ class CommandRegistry: register(cmd); list(session=None); parse(text) -> (name, 
 8. **승인 scope 캐시.** `session`·`project`·`always`로 허용하면 `(sessionId, tool)` 조합이 세션 메모리에 캐시되어 다시 묻지 않는다. 세 scope는 M1에서 동작이 같고 `logs/approvals.jsonl`에는 요청된 scope 그대로 기록된다. 영속 allowlist는 M4.
 9. **`unattended` 판정.** `session.prompt`는 세션에 `origin_conn`이 없을 때만 `unattended=True`로 턴을 돌린다. M1에서 WS 클라이언트가 만든 세션은 항상 대화형이다. 무인 승인 요청은 인증된 아무 연결이나 `approval.respond`로 답할 수 있고, 대화형 요청은 원본 연결만 답할 수 있다(그 외에는 `unauthorized`).
 10. **프로바이더 인스턴스는 턴 단위.** `ProviderRegistry.get()`을 턴마다 호출한다. 스크립트 프로바이더의 "스텝 1회 소비" 의미가 턴 안에서만 유지되고 턴이 바뀌면 리셋된다 — 테스트 픽스처를 짤 때 전제.
-11. **히스토리 압축은 자리만.** `History.compact()`는 `max_messages`(기본 200)를 넘으면 오래된 메시지를 버리되 tool 결과가 그 호출과 떨어지지 않게만 한다. 요약 압축은 메모리 작업과 함께 온다.
+11. **히스토리 압축은 자리만.** `History.compact()`는 `max_messages`(기본 600)를 넘으면 오래된 메시지를 버리되, 세션의 첫 사용자 메시지는 남기고 tool 결과가 그 호출과 떨어지지 않게만 한다. 요약 압축은 메모리 작업과 함께 온다.
 12. **`session.resume`의 원본 승계.** 원본 연결이 없거나 닫혔으면 resume 한 연결이 `origin_conn`·`originSurface`를 넘겨받는다. 재접속한 TUI가 승인 프롬프트를 다시 받을 수 있게 하기 위함이다.
 13. **테스트 픽스처 추가.** `tests/fixtures/providers/fake/session.json` (write/edit/shell 시나리오). `basic.json`은 US-006이 쓰고 있어 건드리지 않았다.
 

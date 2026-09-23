@@ -752,3 +752,36 @@ async def test_a_model_never_seen_still_falls_back_to_the_table(
     )
     registry = ProviderRegistry(settings)
     assert await registry.resolve_context_window("local") == 131_072
+
+
+def test_the_mechanical_trim_keeps_the_opening_request() -> None:
+    """The first user message survives the count cap; the rest ages out oldest-first.
+
+    A session's brief — paths, constraints, what done means — is in that
+    message. The owner's opening line naming an Android project was gone by
+    the afternoon: 677 messages at a quarter of a 262k window, and the cap
+    dropped it with no summary.
+    """
+    history = History(max_messages=6)
+    history.append(ChatMessage(role="user", content="the app lives at ~/AndroidStudioProjects/x"))
+    for n in range(10):
+        history.append(ChatMessage(role="assistant", content=f"step {n}"))
+    assert history.compact() is True
+    assert len(history.messages) == 7  # the cap plus the pinned brief
+    assert history.messages[0].role == "user"
+    assert "AndroidStudioProjects" in str(history.messages[0].content)
+    assert str(history.messages[-1].content) == "step 9"
+    assert history.compactions == 1
+    # A second trim keeps it once, not twice.
+    history.append(ChatMessage(role="assistant", content="step 10"))
+    history.compact()
+    assert [m.role for m in history.messages].count("user") == 1
+    assert history.messages[0] is history.messages[0]
+
+
+def test_the_mechanical_trim_below_the_cap_is_a_no_op() -> None:
+    history = History(max_messages=3)
+    history.append(ChatMessage(role="user", content="brief"))
+    history.append(ChatMessage(role="assistant", content="ok"))
+    assert history.compact() is False
+    assert len(history.messages) == 2

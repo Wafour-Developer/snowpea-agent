@@ -26,7 +26,10 @@ from typing import Any
 from snowpea_core.providers.base import ChatMessage, ToolCall
 
 #: Messages kept before :meth:`History.compact` starts dropping the oldest.
-DEFAULT_MAX_MESSAGES = 200
+#: A safety net behind the token-based, summarising compaction: 200 was hit
+#: by a normal afternoon of work at a quarter of a 262k window, and the
+#: opening request went with the oldest messages.
+DEFAULT_MAX_MESSAGES = 600
 
 #: Characters per token when no tokenizer is available.
 CHARS_PER_TOKEN = 4
@@ -173,10 +176,18 @@ class History:
         """
         if len(self.messages) <= self.max_messages:
             return False
+        # The first user message is the session's brief — the paths, the
+        # constraints, what "done" means — and stays whatever is dropped
+        # after it (Hermes protects the same head). The owner's opening line
+        # naming an Android project was gone by the afternoon without this.
+        head = next((m for m in self.messages if m.role == "user"), None)
         drop = len(self.messages) - self.max_messages
         while drop < len(self.messages) and self.messages[drop].role == "tool":
             drop += 1
-        self.messages = self.messages[drop:]
+        kept = self.messages[drop:]
+        if head is not None and head not in kept:
+            kept = [head, *kept]
+        self.messages = kept
         self.compactions += 1
         return True
 
