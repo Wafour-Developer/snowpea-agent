@@ -687,6 +687,35 @@ def warn_on_injection(server: str, tool: str, description: str) -> list[str]:
     return found
 
 
+#: How long a session waits for its MCP servers before it opens anyway.
+SESSION_SYNC_WAIT = 5.0
+
+#: Syncs still starting servers after a session stopped waiting for them.
+_BACKGROUND_SYNCS: set[asyncio.Task[list[str]]] = set()
+
+
+async def sync_tools_bounded(
+    core: Core, workdir: Path | str | None = None, *, wait: float = SESSION_SYNC_WAIT
+) -> list[str]:
+    """``sync_tools`` that gives a session back after ``wait`` seconds at most.
+
+    A server that will not come up costs its whole start timeout (30 s), and
+    a session that waited for it hit the surfaces' own 30 s ``session.create``
+    timeout — the TUI showed "cannot connect to daemon" because one MCP entry
+    was down. The sync keeps running in the background; tools it registers
+    late are picked up at the session's next turn, since the tool list is read
+    per call.
+    """
+    task = asyncio.ensure_future(sync_tools(core, workdir))
+    try:
+        return await asyncio.wait_for(asyncio.shield(task), wait)
+    except TimeoutError:
+        log.info("mcp servers still starting after %gs; the session opens without them", wait)
+        _BACKGROUND_SYNCS.add(task)
+        task.add_done_callback(_BACKGROUND_SYNCS.discard)
+        return []
+
+
 async def sync_tools(core: Core, workdir: Path | str | None = None) -> list[str]:
     """Discover servers, start them and (re)register their tools.
 

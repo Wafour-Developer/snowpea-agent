@@ -255,7 +255,7 @@ async def session_create_handler(
     core.hub.subscribe(conn, session.id)
     _count_sessions(core)
     await _load_project_skills(core, session.workdir)
-    await mcp_client.sync_tools(core, session.workdir)
+    await mcp_client.sync_tools_bounded(core, session.workdir)
     return SessionCreateResult(sessionId=session.id)
 
 

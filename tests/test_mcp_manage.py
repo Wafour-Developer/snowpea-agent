@@ -7,6 +7,7 @@ so nothing here reaches the network or installs a package.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import sys
 from collections.abc import AsyncIterator
@@ -816,3 +817,45 @@ async def test_cli_mcp_catalog_lists_presets(
     assert await run_cli(daemon, "mcp", "catalog", "--json") == 0
     payload = json.loads(capfd.readouterr().out)
     assert {row["id"] for row in payload["entries"]} >= {"github", "filesystem"}
+
+
+# ---------------------------------------------------------------------------
+# a server that never comes up must not hold a session open
+# ---------------------------------------------------------------------------
+
+
+async def test_a_session_stops_waiting_for_a_server_that_will_not_start(
+    core: Core, workdir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A down MCP entry used to cost every new session its full 30 s start timeout."""
+    import asyncio
+    import json
+    import time
+
+    from snowpea_core.tools import mcp_client
+
+    # A "server" that reads stdin forever and never speaks the protocol.
+    (workdir / ".mcp.json").write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "sleepy": {
+                        "command": sys.executable,
+                        "args": ["-c", "import sys; sys.stdin.read()"],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    started = time.monotonic()
+    names = await mcp_client.sync_tools_bounded(core, workdir, wait=0.5)
+    elapsed = time.monotonic() - started
+    assert names == []
+    assert elapsed < 5.0, f"waited {elapsed:.1f}s for a server that never starts"
+    # The sync itself carries on in the background rather than being cancelled.
+    assert mcp_client._BACKGROUND_SYNCS
+    for task in list(mcp_client._BACKGROUND_SYNCS):
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await task
