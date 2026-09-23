@@ -697,8 +697,11 @@ class Daemon:
         # own ``.mcp.json`` still starts at ``session.create`` (M15 §B5e).
         from snowpea_core.tools import mcp_client
 
+        # Bounded: a server that will not come up must not hold the daemon's
+        # start — or a `daemon stop` sent meanwhile — for its whole start
+        # timeout. The sync carries on in the background.
         try:
-            await mcp_client.sync_tools(core, None)
+            await mcp_client.sync_tools_bounded(core, None)
         except Exception:  # noqa: BLE001 - one bad server must not stop the daemon
             log.warning("could not start global MCP servers", exc_info=True)
         core.lifecycle.start()
