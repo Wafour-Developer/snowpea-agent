@@ -387,8 +387,8 @@ def test_the_choose_row_opens_the_submenu_and_pins_what_it_answers(
     )
 
     assert audio_screen.CHOOSE_TITLE in seen, "the submenu was never shown"
-    # The screen it came from is shown again, so Choose reads as a detour.
-    assert seen.count(audio_screen.TITLE) >= 2
+    # Picking in the submenu settles the question: the screen is not asked again.
+    assert seen.count(audio_screen.TITLE) == 1
     assert result.state.stt_provider == "local-whisper"
 
 
@@ -414,7 +414,7 @@ def test_declining_the_submenu_pins_nothing_and_comes_back(
     assert result.state.stt_provider == before
 
 
-def test_an_install_row_still_installs_and_shows_the_screen_again(
+def test_an_install_row_installs_and_pins(
     only_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     installed: list[str] = []
@@ -429,10 +429,14 @@ def test_an_install_row_still_installs_and_shows_the_screen_again(
             return f"{audio_screen.INSTALL_PREFIX}{catalog.RECOMMENDED_STT}"
         return SKIP
 
-    wizard.run("full", home=tmp_path / "home", interactive=True, ask=ask, section="audio")
+    result = wizard.run(
+        "full", home=tmp_path / "home", interactive=True, ask=ask, section="audio"
+    )
 
     assert installed == [f"{audio_screen.INSTALL_PREFIX}{catalog.RECOMMENDED_STT}"]
-    assert seen.count(audio_screen.TITLE) >= 2
+    # The install pins the engine and the screen does not come back.
+    assert seen.count(audio_screen.TITLE) == 1
+    assert result.state.stt_provider == catalog.RECOMMENDED_STT
 
 
 # ---------------------------------------------------------------------------
@@ -531,8 +535,12 @@ def test_a_custom_command_is_checked_before_it_is_saved(
         assert result is not None and problem in result
 
 
-def test_installing_does_not_pin(only_path: Path, tmp_path: Path, monkeypatch) -> None:
-    """Install and configure are separate steps; the status line says so."""
+def test_installing_pins_the_engine_and_moves_on(
+    only_path: Path, tmp_path: Path, monkeypatch
+) -> None:
+    """Picking "Install X" means X: once installed it is selected and the
+    screen does not come back (it used to, with Skip still on it, which read
+    as the install having failed)."""
     monkeypatch.setattr(audio_screen, "run_install", lambda choice, home, out=None: True)
     seen: list[str] = []
     said: list[str] = []
@@ -553,8 +561,10 @@ def test_installing_does_not_pin(only_path: Path, tmp_path: Path, monkeypatch) -
         console=SimpleNamespace(print=lambda text="", **kw: said.append(str(text))),
     )
 
-    assert result.state.tts_provider is None, "an install is not a choice"
-    assert any("pick it to use it" in line for line in said), said
+    assert result.state.tts_provider == catalog.RECOMMENDED_TTS
+    assert any("installed and selected" in line for line in said), said
+    # The voice-out screen was asked once: the install settled it.
+    assert seen.count(audio_screen.TTS_TITLE) == 1
 
 
 def test_run_install_works_under_a_running_loop(monkeypatch, tmp_path):

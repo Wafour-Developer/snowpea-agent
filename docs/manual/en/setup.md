@@ -703,7 +703,7 @@ With nothing installed, the recommended engine leads and is pre-selected, becaus
 
 Automatic is still the setting and still the default. It is no longer a *row*, because it is not an action: with nothing installed it is a promise the machine cannot keep, and with something installed the screen can simply tell you what it will use.
 
-`Choose a specific engine…` opens a submenu that pins one on purpose — every engine, the installed ones first and the rest listed and marked, then Off, a custom command, and the one that needs an account. Esc goes back rather than abandoning the question, and the row then says what is pinned. Install rows run the install and show the screen again, so you land where you were with the engine now working.
+`Choose a specific engine…` opens a submenu that pins one on purpose — every engine, the installed ones first and the rest listed and marked, then Off, a custom command, and the one that needs an account. Esc goes back rather than abandoning the question, and the row then says what is pinned. Install rows run the install and select that engine, so the wizard moves on to the next question.
 
 `espeak-ng`, `say` and `powershell` are system packages, and the daemon will not run a package manager as root for you. Asking for one prints the command for your platform instead:
 

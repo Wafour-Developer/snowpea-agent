@@ -178,7 +178,7 @@ def run(
         # now installed; the Choose row opens the submenu and comes back here
         # when it is declined, so Esc means "back" rather than "give up".
         while name == "audio" and interactive and _voice_detour(choice):
-            _run_voice_detour(
+            settled = _run_voice_detour(
                 state,
                 choice,
                 asker,
@@ -187,6 +187,8 @@ def run(
                 console=console,
                 interactive=interactive,
             )
+            if settled:
+                break
             screen = module.build(state)
             choice = asker(screen, console=console, interactive=interactive)
         module.apply(state, choice)
@@ -903,7 +905,7 @@ def _ask_for_audio(
     out = console.print if console is not None else print
     choice = asker(audio_screen.build_tts(state), console=console, interactive=interactive)
     while _voice_detour(choice):
-        _run_voice_detour(
+        settled = _run_voice_detour(
             state,
             choice,
             asker,
@@ -914,6 +916,8 @@ def _ask_for_audio(
             apply_choice=audio_screen.apply_tts,
             direction="tts",
         )
+        if settled:
+            break
         choice = asker(audio_screen.build_tts(state), console=console, interactive=interactive)
     audio_screen.apply_tts(state, choice)
     if state.stt_provider == "command":
@@ -967,28 +971,42 @@ def _run_voice_detour(
     interactive: bool = True,
     apply_choice: Any = None,
     direction: str = "stt",
-) -> None:
+) -> bool:
     """Run what an Install row or the submenu asked for.
 
+    Returns True when the question is settled — an engine got installed and
+    pinned — so the caller moves on instead of asking the same screen again.
     Declining the submenu (Esc, or Skip) pins nothing and returns to the screen
     it came from, which is what makes Esc read as "back" rather than "never
     mind the whole question".
     """
     out = console.print if console is not None else print
     if _install_chosen(choice):
-        # Installing is not choosing: it puts the engine on the machine and
-        # sends the user back to a list where it is now active, one Enter from
-        # being pinned.  Pinning it for them would decide a thing they came
-        # here to decide.
+        # Someone who picks "Install X" wants X: once it is on the machine it
+        # is pinned and the wizard moves on. Sending them back to the same
+        # screen — with Skip still on it — read as the install having failed.
         target = _one(choice)
-        if audio_screen.run_install(target, home, out):
-            out(f"{audio_screen.install_target(target)} installed — pick it to use it")
-        return
+        engine = audio_screen.install_target(target) or ""
+        if not audio_screen.run_install(target, home, out):
+            return False
+        if apply_choice is not None:
+            apply_choice(state, engine)
+        elif direction == "tts":
+            audio_screen.apply_tts(state, engine)
+        else:
+            audio_screen.apply(state, engine)
+        out(f"{engine} installed and selected")
+        return True
     picked = asker(build_submenu(state), console=console, interactive=interactive)
     name = _one(picked)
     if not _picked(picked):
-        return
+        return False
+    before = state.tts_provider if direction == "tts" else state.stt_provider
     _follow_up(state, name, home, out, direction=direction, apply_choice=apply_choice)
+    after = state.tts_provider if direction == "tts" else state.stt_provider
+    # A follow-up that pinned nothing (an explained system package, a failed
+    # install) leaves the question open and the screen comes back.
+    return after != before and after is not None
 
 
 def _follow_up(

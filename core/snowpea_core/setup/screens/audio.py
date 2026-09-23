@@ -60,8 +60,8 @@ CHOOSE_HELP = (
 )
 
 #: Prefix marking a row that installs an engine instead of selecting one.
-#: The wizard runs the install and shows the screen again, so the user lands
-#: back where they were with the engine now active.
+#: The wizard runs the install, pins the engine and moves on: someone who
+#: chose "Install X" wants X.
 INSTALL_PREFIX = "install:"
 
 #: The row that opens the submenu.  Not a provider id, so ``apply`` knows to
@@ -91,7 +91,7 @@ def is_choose(choice: str | set[str]) -> bool:
 
 #: What picking a row does.  Every row has one: a list where some entries do
 #: nothing when you choose them is a list that lies about being a choice.
-ACTION_INSTALL = "install"   # fetch it, then come back with it active
+ACTION_INSTALL = "install"   # fetch it, pin it, move on
 ACTION_SYSTEM = "system"     # show the platform command, offer to run it
 ACTION_COMMAND = "command"   # ask for the template, validate, self-test, pin
 ACTION_KEY = "key"           # ask for the API key, pin
