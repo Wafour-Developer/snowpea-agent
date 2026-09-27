@@ -143,6 +143,7 @@ def test_wizard_provider_prompt_accepts_remote_oauth_token(
     # 3=gcloud ADC (headless), 4=OAuth token].
     answers = iter(["4", "ya29.remote"])
     monkeypatch.setattr(ui, "ask_text", lambda *a, **kw: next(answers))
+    monkeypatch.setattr(wizard, "_probe_token", lambda vendor, token: None)
     state = WizardState.from_settings(Settings())
     state.select_vendor("gemini")
     wizard._ask_for_key(state, interactive=True)  # noqa: SLF001
@@ -458,9 +459,7 @@ def _three(multi: bool = False) -> Screen:
 
 
 def test_hint_names_exactly_the_keys_the_screen_takes() -> None:
-    assert ui.choice_hint(multi=False) == (
-        "↑↓ move · Enter confirm · 1-9 pick · Esc cancel"
-    )
+    assert ui.choice_hint(multi=False) == ("↑↓ move · Enter confirm · 1-9 pick · Esc cancel")
     assert ui.choice_hint(multi=True) == (
         "↑↓ move · Space toggle · Enter confirm · 1-9 toggle · Esc cancel"
     )
@@ -523,6 +522,134 @@ def test_screen_height_is_stable_across_cursor_moves() -> None:
         for index in range(len(screen.items))
     }
     assert len(heights) == 1
+
+
+def test_finding_5_escape_never_removes_a_local_server(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = Settings()
+    settings.providers["local"] = {"preset": "local", "base_url": "http://one/v1"}
+    state = WizardState.from_settings(settings)
+    monkeypatch.setattr(ui, "is_interactive", lambda *args: True)
+    monkeypatch.setattr(ui, "read_key", lambda *args: "escape")
+    wizard._remove_local_server(state, ["local"])  # noqa: SLF001
+    assert "local" in state.provider_configs
+
+
+def test_finding_6_menu_escape_is_distinct_from_the_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(ui, "read_key", lambda *args: "escape")
+    assert (
+        wizard._menu_pick(  # noqa: SLF001
+            "pick", [("first", "First", ())], default_id="first", interactive=True
+        )
+        is None
+    )
+
+
+def test_finding_7_done_escape_cancels_without_writing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from snowpea_core.setup.screens import done as done_screen
+
+    monkeypatch.setattr(ui, "read_key", lambda *args: "escape")
+    choice = ui.ask(
+        done_screen.build(WizardState()),
+        console=_console(),
+        interactive=True,
+        cancel_value=done_screen.CANCEL,
+    )
+    assert choice == done_screen.CANCEL
+    assert "Esc cancels without writing" in done_screen.HELP
+
+
+def test_finding_8_summary_rows_are_inert_and_models_registry_revisit() -> None:
+    from snowpea_core.setup.screens import done as done_screen
+
+    screen = done_screen.build(WizardState())
+    ids = {item.id for item in screen.items}
+    assert "section:models" in ids and "section:registry" in ids
+    note_state = WizardState(notes=["warning note"])
+    note = next(
+        item for item in done_screen.build(note_state).items if item.id.startswith("summary:")
+    )
+    assert "(○)" not in ui.render_item(note, multi=False, selected=False, cursor=False).plain
+
+
+def test_finding_11_saved_active_vendor_is_not_asked_again(capsys) -> None:
+    settings = Settings()
+    settings.providers["openai"] = {"api_key": "saved"}
+    settings.providers["default"] = "openai"
+    state = WizardState.from_settings(settings)
+    wizard._ask_for_key(state, interactive=True)  # noqa: SLF001
+    assert capsys.readouterr().out.strip() == "openai: using the saved credential"
+
+
+def test_finding_12_credential_rows_reflect_this_run() -> None:
+    state = WizardState()
+    state.set_search_key("tavily", "t")
+    state.set_browser_key("browserbase", "b")
+    state.gateways["telegram"] = {"enabled": True, "token": "g"}
+    search = {item.id: item for item in search_screen.build(state).items}["tavily"]
+    browser = {item.id: item for item in browser_screen.build(state).items}["browserbase"]
+    gateway = {item.id: item for item in gateway_screen.build(state).items}["telegram"]
+    assert all(ui.CONFIGURED in item.tags and item.active for item in (search, browser, gateway))
+
+
+def test_finding_13_inactive_tool_categories_are_not_preselected() -> None:
+    rows = {item.id: item for item in tools_screen.build(WizardState()).items}
+    assert all(not rows[cid].selected for cid in ("media-image", "media-video", "media-tts"))
+
+
+def test_finding_14_disabled_gateway_keeps_its_token(home: Path) -> None:
+    settings = Settings()
+    settings.gateway = {"telegram": {"enabled": True, "token": "keep-me"}}
+    state = WizardState.from_settings(settings)
+    gateway_screen.apply(state, set())
+    state.write(Paths(home=home), settings)
+    assert _json(home)["gateway"]["telegram"] == {"enabled": False, "token": "keep-me"}
+
+
+def test_finding_14b_missing_gateway_token_warns(monkeypatch: pytest.MonkeyPatch) -> None:
+    state = WizardState(gateways={"telegram": {"enabled": True}})
+    monkeypatch.setattr(ui, "ask_text", lambda *args, **kwargs: "")
+    wizard._ask_for_gateway(state, interactive=True)  # noqa: SLF001
+    assert "telegram: no bot token — it will not start" in state.notes
+
+
+def test_finding_16_missing_search_note_is_idempotent() -> None:
+    from snowpea_core.tools import search_providers
+
+    state = WizardState(search_provider="tavily")
+    wizard._note_missing_search_key(state, search_providers)  # noqa: SLF001
+    wizard._note_missing_search_key(state, search_providers)  # noqa: SLF001
+    assert len(state.notes) == 1
+
+
+def test_finding_17_quick_mode_skips_model_configuration(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    called: list[bool] = []
+    monkeypatch.setattr(wizard, "_configure_models", lambda *args, **kwargs: called.append(True))
+    wizard.run("quick", home=home, interactive=False)
+    assert called == []
+
+
+def test_finding_18_menu_honours_interactive_and_injected_asker() -> None:
+    seen: list[bool] = []
+
+    def asker(screen: Screen, **kwargs: Any) -> str:
+        seen.append(kwargs["interactive"])
+        return "second"
+
+    choice = wizard._menu_pick(  # noqa: SLF001
+        "pick",
+        [("first", "First", ()), ("second", "Second", ())],
+        interactive=True,
+        asker=asker,
+    )
+    assert choice == "second" and seen == [True]
 
 
 # ---------------------------------------------------------------------------
@@ -820,8 +947,7 @@ def test_parser_accepts_every_documented_flag() -> None:
 
 
 def test_search_key_flag_is_saved_under_the_provider(home: Path) -> None:
-    wizard.run("full", home=home, search_provider="exa", search_key="exa-secret",
-               interactive=False)
+    wizard.run("full", home=home, search_provider="exa", search_key="exa-secret", interactive=False)
     settings = _settings(home)
     assert settings.search.provider == "exa"
     assert settings.search.credentials["exa"]["api_key"] == "exa-secret"
@@ -906,9 +1032,7 @@ def test_a_key_required_provider_without_a_key_warns_in_the_summary(home: Path) 
     assert "EXA_API_KEY" in notes
 
 
-def test_the_search_screen_prompts_for_the_key(
-    home: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_the_search_screen_prompts_for_the_key(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Choosing a key-required provider asks for the key, masked."""
     asked: list[tuple[str, bool]] = []
 
@@ -948,9 +1072,7 @@ def test_a_keyless_provider_is_never_asked_for_a_key(
     home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     asked: list[str] = []
-    monkeypatch.setattr(
-        ui, "ask_text", lambda prompt, *, secret=False: asked.append(prompt) or ""
-    )
+    monkeypatch.setattr(ui, "ask_text", lambda prompt, *, secret=False: asked.append(prompt) or "")
 
     def asker(screen: Screen, console=None, interactive=True):  # type: ignore[no-untyped-def]
         return "ddgs" if screen.title == search_screen.TITLE else SKIP
@@ -1027,6 +1149,9 @@ def test_a_browser_login_clears_the_api_key_it_replaces(
     state = WizardState.from_settings(Settings())
     state.provider_configs["openai"] = {"api_key": "sk-old", "model": "gpt-4.1"}
     state.select_vendor("openai")
+    # This test exercises an explicit re-authentication path. Normal setup now
+    # keeps an active saved credential without asking again (finding 11).
+    state.has_saved_key = False
 
     wizard._ask_for_key(state, interactive=True)  # noqa: SLF001
     state.remember_current_provider()
@@ -1234,13 +1359,12 @@ def test_picking_a_paid_browser_provider_asks_for_its_key(
         "full",
         home=home,
         interactive=True,
-        ask=lambda screen, **kwargs: (
-            "firecrawl_cloud" if screen.title.startswith("③") else SKIP
-        ),
+        ask=lambda screen, **kwargs: "firecrawl_cloud" if screen.title.startswith("③") else SKIP,
     )
 
-    assert any("Firecrawl" in prompt and "API key" in prompt and secret
-               for prompt, secret in asked), asked
+    assert any(
+        "Firecrawl" in prompt and "API key" in prompt and secret for prompt, secret in asked
+    ), asked
     settings = _settings(home)
     assert settings.browser.provider == "firecrawl_cloud"
     assert settings.browser.credentials["firecrawl_cloud"]["api_key"] == "fc-secret"
@@ -1268,9 +1392,7 @@ def test_a_provider_needing_two_values_is_asked_for_both(
 
     assert any("BROWSERBASE_PROJECT_ID" in prompt for prompt, _ in asked), asked
     # The project id is an identifier, not a secret, so it is not masked.
-    assert all(
-        not secret for prompt, secret in asked if "BROWSERBASE_PROJECT_ID" in prompt
-    )
+    assert all(not secret for prompt, secret in asked if "BROWSERBASE_PROJECT_ID" in prompt)
     block = _settings(home).browser.credentials["browserbase"]
     assert block["api_key"] == "bb-key"
     assert block["browserbase_project_id"] == "proj-123"
@@ -1280,17 +1402,13 @@ def test_a_keyless_browser_provider_is_never_asked_for_one(
     home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     asked: list[str] = []
-    monkeypatch.setattr(
-        ui, "ask_text", lambda prompt, *, secret=False: asked.append(prompt) or ""
-    )
+    monkeypatch.setattr(ui, "ask_text", lambda prompt, *, secret=False: asked.append(prompt) or "")
 
     wizard.run(
         "full",
         home=home,
         interactive=True,
-        ask=lambda screen, **kwargs: (
-            "local_chromium" if screen.title.startswith("③") else SKIP
-        ),
+        ask=lambda screen, **kwargs: "local_chromium" if screen.title.startswith("③") else SKIP,
     )
 
     assert not any("API key" in prompt and "Chromium" in prompt for prompt in asked)
@@ -1318,9 +1436,7 @@ def test_enter_keeps_an_already_saved_browser_key(
         "full",
         home=home,
         interactive=True,
-        ask=lambda screen, **kwargs: (
-            "firecrawl_cloud" if screen.title.startswith("③") else SKIP
-        ),
+        ask=lambda screen, **kwargs: "firecrawl_cloud" if screen.title.startswith("③") else SKIP,
     )
 
     assert any("saved — Enter to keep" in prompt for prompt in prompts), prompts
@@ -1338,9 +1454,7 @@ def test_an_empty_answer_with_nothing_saved_is_refused_in_words(
         home=home,
         interactive=True,
         console=SimpleNamespace(print=lambda text="", **kw: said.append(str(text))),
-        ask=lambda screen, **kwargs: (
-            "firecrawl_cloud" if screen.title.startswith("③") else SKIP
-        ),
+        ask=lambda screen, **kwargs: "firecrawl_cloud" if screen.title.startswith("③") else SKIP,
     )
 
     assert any("a key is required" in line for line in said), said
@@ -1407,9 +1521,7 @@ def test_a_paid_browser_provider_without_a_key_warns_in_the_summary(home: Path) 
     assert "BROWSERBASE_API_KEY" in notes
 
 
-def test_a_failing_probe_warns_but_still_saves(
-    home: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_failing_probe_warns_but_still_saves(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A probe is a courtesy: an offline machine must not lose the key."""
     said: list[str] = []
     monkeypatch.setattr(
@@ -1424,9 +1536,7 @@ def test_a_failing_probe_warns_but_still_saves(
         home=home,
         interactive=True,
         console=SimpleNamespace(print=lambda text="", **kw: said.append(str(text))),
-        ask=lambda screen, **kwargs: (
-            "firecrawl_cloud" if screen.title.startswith("③") else SKIP
-        ),
+        ask=lambda screen, **kwargs: "firecrawl_cloud" if screen.title.startswith("③") else SKIP,
     )
 
     assert any("warning:" in line and "401" in line for line in said), said
@@ -1493,7 +1603,11 @@ def test_the_last_row_reads_done_with_a_selection_and_skip_without() -> None:
     assert last_row_label(picked, set()) == "Skip — decide later"
     boxes = Screen(
         title="t",
-        items=(ScreenItem("a", "A", (), True, False), ScreenItem("b", "B", (), True, False), skip_item()),
+        items=(
+            ScreenItem("a", "A", (), True, False),
+            ScreenItem("b", "B", (), True, False),
+            skip_item(),
+        ),
         multi=True,
     )
     assert last_row_label(boxes, {"a", "b"}) == "Done — keep these 2"

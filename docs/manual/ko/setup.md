@@ -3,7 +3,7 @@
 `snowpea setup`은 `$SNOWPEA_HOME/settings.json`을 씁니다. 형태는 세 가지입니다.
 
 ```bash
-snowpea setup            # quick: configure LLM models; defaults for other sections
+snowpea setup            # quick: LLM 벤더 하나와 자격 증명, 모델을 선택합니다
 snowpea setup --full     # every screen, in order
 snowpea setup --blank    # asks nothing, writes the defaults
 ```
@@ -12,7 +12,7 @@ snowpea setup --blank    # asks nothing, writes the defaults
 
 ## 화면들
 
-`--full`은 다섯 화면과 요약 화면을 거칩니다. 모든 화면은 선택이 있으면 **Done — keep X**, 없으면 **Skip — decide later**로 끝나고, 모든 화면에는 명령줄 플래그가 있어서 대화형으로 진행할 필요가 전혀 없습니다.
+`--full`은 여섯 화면과 요약 화면을 거칩니다. 일반 화면은 선택이 있으면 **Done — keep X**, 없으면 **Skip — decide later**로 끝납니다. 음성 엔진이 고정되지 않은 음성 화면에는 **Skip — leave voice off**가 표시됩니다. 하위 메뉴에서 Esc를 누르면 기본 항목을 선택하지 않고 취소하며, 마지막 요약 화면에서 Esc를 누르면 아무것도 쓰지 않고 실행을 취소합니다. Models와 Registry를 포함한 섹션 행에서 Enter를 누르면 해당 화면으로 돌아가고, 경고와 메모 행은 읽기 전용입니다.
 
 | 화면 | 선택 | 플래그 |
 |---|---|---|
@@ -670,12 +670,12 @@ snowpea audio install edge-tts
 Recommended: SenseVoiceSmall (CPU) — Install     ← 아무것도 설치되지 않았을 때만
 Install Piper…
 Choose a specific engine…
-Skip — decide later
+Skip — leave voice off
 ```
 
-아무것도 없으면 권장 엔진이 맨 위에 오고 미리 선택되어 있습니다. 설치가 도움이 되는 유일한 동작이기 때문입니다. 엔진이 하나라도 생기면 권장 행은 사라지고, 더 정확한 문장이 그 자리를 대신합니다. **Automatic will use espeak-ng.**
+아무것도 없으면 권장 엔진이 맨 위에 보이지만, 선택된 값이 아니라 동작입니다. 따라서 비대화형 실행은 음성을 꺼 둡니다. 엔진이 하나라도 생기면 권장 행은 사라지고, 설치됐지만 아직 선택되지 않았다는 더 정확한 문장이 그 자리를 대신합니다.
 
-자동(Automatic)은 여전히 설정이고 여전히 기본값입니다. 다만 더 이상 *행*이 아닙니다. 동작이 아니기 때문입니다. 설치된 게 없으면 지킬 수 없는 약속이고, 있으면 화면이 무엇을 쓸지 그냥 알려주면 됩니다.
+암묵적인 자동(Automatic) 선택은 없습니다. 엔진을 고정할 때까지 음성을 꺼 두므로, 화면이 이 기계에서 쓸 수 없는 백엔드를 약속하지 않습니다.
 
 `Choose a specific engine…`는 엔진을 직접 고정하는 하위 메뉴를 엽니다. 설치된 것부터, 나머지도 표시와 함께 모두 나열하고, 그 뒤에 Off, 사용자 명령, 계정이 필요한 것 순입니다. Esc는 질문을 포기하는 게 아니라 뒤로 가기이며, 고정한 뒤에는 그 행이 무엇이 고정됐는지 알려줍니다. Install 행은 설치를 실행하고 그 엔진을 바로 선택하므로, 마법사는 다음 질문으로 넘어갑니다.
 

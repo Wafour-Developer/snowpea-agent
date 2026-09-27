@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from snowpea_core.setup import ui
 from snowpea_core.setup.catalog import CatalogItem, gateway_catalog
 from snowpea_core.setup.screens import Screen, ScreenItem, skip_item
 from snowpea_core.setup.state import SKIP, WizardState
@@ -27,16 +28,21 @@ def build(state: WizardState, catalog: Sequence[CatalogItem] | None = None) -> S
         ScreenItem(
             id=item.id,
             label=item.label,
-            tags=item.tags,
+            tags=tuple(tag for tag in item.tags if tag not in {"active", "inactive"})
+            + (("active", ui.CONFIGURED) if _active(state, item.id) else ("inactive",)),
             selected=bool((state.gateways.get(item.id) or {}).get("enabled")),
             default=item.default,
-            active=bool((state.gateways.get(item.id) or {}).get("token")),
+            active=_active(state, item.id),
             # NOTE: ``active`` means "already has a token"; the wizard asks for
             # the token and the approver user id right after this screen.
         )
         for item in items
     ]
     return Screen(title=TITLE, items=(*rows, skip_item()), multi=True, help=HELP)
+
+
+def _active(state: WizardState, item_id: str) -> bool:
+    return bool((state.gateways.get(item_id) or {}).get("token"))
 
 
 def apply(state: WizardState, choice: str | set[str]) -> WizardState:

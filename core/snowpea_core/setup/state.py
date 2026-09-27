@@ -460,7 +460,7 @@ class WizardState:
         }
         settings.gateway = {
             **switches,
-            **{gid: block for gid, block in self.gateways.items() if block.get("enabled")},
+            **{gid: block for gid, block in self.gateways.items()},
         }
         # ``Settings`` allows extra keys, so the audio block round-trips through
         # settings.json before the typed model for it exists.
@@ -479,7 +479,8 @@ class WizardState:
         lines = [
             f"provider   {self.vendor or '(none configured)'}"
             + (f"  model {self.model}" if self.model else ""),
-            f"models     {profile_count} profile" + ("s" if profile_count != 1 else "")
+            f"models     {profile_count} profile"
+            + ("s" if profile_count != 1 else "")
             + f" · default {default}"
             + (
                 f" · {assigned} agent assignment" + ("s" if assigned != 1 else "")

@@ -10,8 +10,13 @@ from snowpea_core.setup.state import WizardState
 
 TITLE = "⑥ Done"
 #: Summary rows that can be revisited by selecting them.
-SECTION_ROWS = frozenset({"providers", "search", "browser", "audio", "tools", "gateway"})
-HELP = "Enter on a row revisits that section · Save writes settings.json · Cancel discards."
+SECTION_ROWS = frozenset(
+    {"providers", "models", "search", "browser", "audio", "tools", "registry", "gateway"}
+)
+HELP = (
+    "Enter on a section revisits it · Save writes settings.json · "
+    "Cancel or Esc cancels without writing."
+)
 SAVE = "action:save"
 CANCEL = "action:cancel"
 
@@ -24,9 +29,7 @@ def build(state: WizardState, catalog: Sequence[CatalogItem] | None = None) -> S
         section = {"provider": "providers", "messenger": "gateway"}.get(section, section)
         row_id = f"section:{section}" if section in SECTION_ROWS else f"summary:{index}"
         rows.append(
-            ScreenItem(
-                id=row_id, label=line, tags=(), selected=False, default=False, active=True
-            )
+            ScreenItem(id=row_id, label=line, tags=(), selected=False, default=False, active=True)
         )
     actions = (
         ScreenItem(

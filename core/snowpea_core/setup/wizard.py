@@ -169,10 +169,14 @@ def run(
     elif mode == "quick":
         order = QUICK_ORDER
     by_name = {name: module for name, module in FULL_ORDER}
+    by_name.update({"models": providers_screen, "registry": tools_screen})
 
     def _show(name: str, module: Any) -> Any:
         screen: Screen = module.build(state)
-        choice = asker(screen, console=console, interactive=interactive)
+        ask_kwargs: dict[str, Any] = {"console": console, "interactive": interactive}
+        if name == "done" and asker is ui.ask:
+            ask_kwargs["cancel_value"] = done_screen.CANCEL
+        choice = asker(screen, **ask_kwargs)
         # The voice screens are action-first (M3 §5): an Install row fetches an
         # engine and asks again, so the user lands back on a screen where it is
         # now installed; the Choose row opens the submenu and comes back here
@@ -197,7 +201,8 @@ def run(
             _ask_for_key(state, interactive=interactive)
         if name == "providers" and state.vendor:
             _ask_for_model(state, interactive=interactive, console=console, home=paths.home)
-            _configure_models(state, interactive=interactive, console=console, home=paths.home)
+            if mode == "full":
+                _configure_models(state, interactive=interactive, console=console, home=paths.home)
         if name == "search":
             _ask_for_search_key(state, interactive=interactive, console=console)
         if name == "browser":
@@ -212,9 +217,7 @@ def run(
                 interactive=interactive,
                 reply_language=_configured_reply_language(settings),
             )
-            _ask_for_audio(
-                state, asker, interactive=interactive, console=console, home=paths.home
-            )
+            _ask_for_audio(state, asker, interactive=interactive, console=console, home=paths.home)
         if name == "gateway":
             _ask_for_gateway(state, interactive=interactive)
         return choice
@@ -236,14 +239,17 @@ def run(
             if name in answered:
                 continue
             choice = _show(name, module)
-        # The summary lets the user pick a row to revisit that section (Hermes-style);
-        # Save writes and finishes, Cancel discards everything.
+            # The summary lets the user pick a row to revisit that section (Hermes-style);
+            # Save writes and finishes, Cancel discards everything.
             while (
                 interactive
                 and name == "done"
                 and isinstance(choice, str)
-                and choice.startswith("section:")
+                and (choice.startswith("section:") or choice.startswith("summary:"))
             ):
+                if choice.startswith("summary:"):
+                    choice = _show("done", done_screen)
+                    continue
                 target = choice.split(":", 1)[1]
                 if target in by_name:
                     _show(target, by_name[target])
@@ -274,6 +280,11 @@ def _ask_for_key(state: WizardState, *, interactive: bool) -> None:
     """
     if not interactive or not state.vendor:
         return
+    from snowpea_core.providers.registry import ProviderRegistry
+
+    if state.has_saved_key and ProviderRegistry(state.as_settings()).is_configured(state.vendor):
+        print(f"{state.vendor}: using the saved credential")
+        return
     if state.is_local_server(state.vendor):
         _ask_for_local_server(state)
         return
@@ -301,7 +312,12 @@ def _ask_for_key(state: WizardState, *, interactive: bool) -> None:
                     [(str(i), label, ()) for i, (label, _) in enumerate(choices)],
                     default_id="0",
                 )
-                picked = menu if menu is not None else ui.ask_text(prompt).strip()
+                if menu is None:
+                    if ui.is_interactive():
+                        return
+                    picked = ui.ask_text(prompt).strip()
+                else:
+                    picked = menu
             except (KeyboardInterrupt, EOFError):
                 state.notes.append(f"{state.vendor}: login cancelled — left unconfigured")
                 return
@@ -363,7 +379,6 @@ def _ask_for_key(state: WizardState, *, interactive: bool) -> None:
         state.api_key = entered
 
 
-
 #: Menu ids the local-server list adds below the configured servers.
 ADD_LOCAL = "__add_local__"
 REMOVE_LOCAL = "__remove_local__"
@@ -397,11 +412,18 @@ def _ask_for_local_server(state: WizardState) -> None:
         rows.append((ADD_LOCAL, "Add another server…", ()))
         rows.append((REMOVE_LOCAL, "Remove a server…", ()))
         chosen = _menu_pick(
-            "Local / OpenAI-compatible servers", rows, default_id=current or ADD_LOCAL
+            "Local / OpenAI-compatible servers",
+            rows,
+            default_id=current or ADD_LOCAL,
         )
-        # Off a TTY there is no menu: configure the server already selected,
-        # which is what the single-server wizard always did.
-        picked = chosen if chosen is not None else (current or ADD_LOCAL)
+        # Esc in the menu is a cancel. Off a TTY there is no menu: configure
+        # the server already selected, which is what the single-server wizard
+        # always did.
+        if chosen is None:
+            if ui.is_interactive():
+                return
+            chosen = current or ADD_LOCAL
+        picked = chosen
     if picked == REMOVE_LOCAL:
         _remove_local_server(state, servers)
         return
@@ -442,8 +464,12 @@ def _remove_local_server(state: WizardState, servers: Sequence[str]) -> None:
     if not servers:
         return
     rows = [(vendor, f"Remove {_local_label(state, vendor)}", ()) for vendor in servers]
-    picked = _menu_pick("remove a server", rows, default_id=servers[0], finish="Keep them all")
+    picked = _menu_pick("remove a server", rows, default_id=None, finish="Keep them all")
     if picked is None:
+        # Esc or "Keep them all" in the menu removes nothing. Off a TTY the
+        # name is typed, and an empty answer keeps them all too.
+        if ui.is_interactive():
+            return
         typed = ui.ask_text("remove which server (Enter to keep them all): ").strip()
         if not typed:
             return
@@ -462,16 +488,18 @@ def _ask_for_local_details(state: WizardState) -> None:
     vendor = state.vendor or "local"
     variants = list(LOCAL_VARIANTS)
     saved_idx = variants.index(state.variant) + 1 if state.variant in variants else 1
-    labels = ", ".join(f"{i + 1}={LOCAL_VARIANTS[v].label}" for i, v in enumerate(variants))
     picked = _menu_pick(
         f"{vendor}: server type",
         [(v, LOCAL_VARIANTS[v].label, ()) for v in variants],
         default_id=variants[saved_idx - 1],
     )
-    if picked is not None:
-        picked = str(variants.index(picked) + 1)
+    if picked is None:
+        if ui.is_interactive():
+            return
+        labels = ", ".join(f"{i + 1}={LOCAL_VARIANTS[v].label}" for i, v in enumerate(variants))
+        picked = ui.ask_text(f"local server type [{labels}] (Enter={saved_idx}): ").strip()
     else:
-        picked = ui.ask_text(f"local server type [{labels}] (Enter={saved_idx}): ")
+        picked = str(variants.index(picked) + 1)
     try:
         variant = variants[int(picked) - 1] if picked else variants[saved_idx - 1]
     except (ValueError, IndexError):
@@ -645,6 +673,8 @@ def _ask_for_model(
     if menu is not None:
         state.model = menu
         return
+    if ui.is_interactive():
+        return
     picked = ui.ask_text(f"model (Enter={default_idx}: {shown[default_idx - 1]}): ")
     if not picked:
         state.model = shown[default_idx - 1]
@@ -654,9 +684,7 @@ def _ask_for_model(
         state.model = picked
 
 
-def _vision_badges(
-    state: WizardState, preset: Any, models: Sequence[str]
-) -> dict[str, str]:
+def _vision_badges(state: WizardState, preset: Any, models: Sequence[str]) -> dict[str, str]:
     """``{model: "  👁"}`` for the models known to take images.
 
     Resolved through the same registry chain a turn uses, so the wizard cannot
@@ -685,6 +713,8 @@ def _menu_pick(
     finish: str | None = None,
     help_text: str = "↑↓ to move, Enter to choose.",
     console: Console | None = None,
+    interactive: bool | None = None,
+    asker: Callable[..., Any] = ui.ask,
 ) -> str | None:
     """Offer ``options`` as an arrow-key menu; ``None`` when the terminal is not a TTY.
 
@@ -692,7 +722,9 @@ def _menu_pick(
     row ends the menu and returns ``None`` too, so callers fall through to
     their text prompt (scripted runs, tests) or treat ``None`` as "done".
     """
-    if not ui.is_interactive() or not options:
+    if interactive is None:
+        interactive = ui.is_interactive()
+    if not interactive or not options:
         return None
     items = [
         ScreenItem(id=oid, label=label, tags=tuple(tags), selected=False, default=oid == default_id)
@@ -701,8 +733,9 @@ def _menu_pick(
     if finish:
         items.append(ScreenItem(id=SKIP, label=finish, tags=(), selected=False, default=False))
     screen = Screen(title=title, items=tuple(items), multi=False, help=help_text)
-    choice = ui.ask(screen, console=console, interactive=True)
-    if not isinstance(choice, str) or choice == SKIP:
+    cancel = object()
+    choice = asker(screen, console=console, interactive=interactive, cancel_value=cancel)
+    if choice is cancel or not isinstance(choice, str) or choice == SKIP:
         return None
     if finish and choice == screen.default_choice and default_id is None:
         return None
@@ -783,7 +816,10 @@ def _configure_models(
         options = _vendor_options(state, home)
         if ui.is_interactive():
             vendor = _menu_pick(
-                "add another model", options, finish="Done — no more models", console=console
+                "add another model",
+                options,
+                finish="Done — no more models",
+                console=console,
             )
             if vendor is None:
                 break
@@ -818,9 +854,14 @@ def _configure_models(
         default_id=profiles[default_idx - 1],
         console=console,
     )
-    picked = menu if menu is not None else ui.ask_text(
-        f"default model (Enter={default_idx}: {profiles[default_idx - 1]}): "
-    ).strip()
+    if menu is None:
+        if ui.is_interactive():
+            return
+        picked = ui.ask_text(
+            f"default model (Enter={default_idx}: {profiles[default_idx - 1]}): "
+        ).strip()
+    else:
+        picked = menu
     if picked.isdigit() and 1 <= int(picked) <= len(profiles):
         state.set_default_model(profiles[int(picked) - 1])
     elif picked in state.model_profiles:
@@ -849,7 +890,6 @@ def _configure_models(
             if not agent:
                 break
         current = state.agent_models.get(agent)
-        hint = f"; Enter uses default{f' (currently {current})' if current else ''}"
         choice = _menu_pick(
             f"profile for {agent}",
             [("", "default (inherit)", ())] + [(name, name, ()) for name in profiles],
@@ -857,7 +897,9 @@ def _configure_models(
             console=console,
         )
         if choice is None:
-            choice = ui.ask_text(f"profile for {agent} [1-{len(profiles)}{hint}]: ").strip()
+            if ui.is_interactive():
+                continue
+            choice = ui.ask_text(f"profile for {agent} [1-{len(profiles)}]: ").strip()
         if not choice:
             state.assign_agent_model(agent, None)
         elif choice.isdigit() and 1 <= int(choice) <= len(profiles):
@@ -878,11 +920,13 @@ def _note_missing_search_key(state: WizardState, search_providers: Any) -> None:
     if not search_providers.needs_key(pid) or state.has_search_key(pid):
         return
     env = search_providers.credential_env(pid)
-    state.notes.append(
+    note = (
         f"{pid}: no API key — web_search will fall back to another provider until you set "
         + (f"${env} or " if env else "")
         + f"search.credentials.{pid}.api_key"
     )
+    if note not in state.notes:
+        state.notes.append(note)
 
 
 def _ask_for_audio(
@@ -920,7 +964,7 @@ def _ask_for_audio(
             break
         choice = asker(audio_screen.build_tts(state), console=console, interactive=interactive)
     audio_screen.apply_tts(state, choice)
-    if state.stt_provider == "command":
+    if state.stt_provider == "command" and not state.stt_command:
         entered = ui.ask_text("speech-to-text command (must contain {path}): ")
         if entered:
             state.stt_command = entered
@@ -930,7 +974,7 @@ def _ask_for_audio(
     # three more questions has not listened.
     if not _picked(choice) or state.tts_provider == AUDIO_OFF:
         return
-    if state.tts_provider == "command":
+    if state.tts_provider == "command" and not state.tts_command:
         entered = ui.ask_text("text-to-speech command (use {text} and {out}): ")
         if entered:
             state.tts_command = entered
@@ -1040,10 +1084,12 @@ def _follow_up(
 
     if action == audio_screen.ACTION_INSTALL:
         if audio_screen.run_install(f"{audio_screen.INSTALL_PREFIX}{name}", home, out):
-            out(f"{name} installed — pick it to use it")
+            apply_it(state, name)
+            out(f"{name} installed and selected")
         return
     if action == audio_screen.ACTION_SYSTEM:
-        _offer_system_install(name, item, out)
+        if _offer_system_install(name, item, out):
+            apply_it(state, name)
         return
     if action == audio_screen.ACTION_COMMAND:
         if not _ask_for_voice_command(state, direction, out):
@@ -1053,7 +1099,7 @@ def _follow_up(
     apply_it(state, name)
 
 
-def _offer_system_install(name: str, item: Any, out: Any) -> None:
+def _offer_system_install(name: str, item: Any, out: Any) -> bool:
     """Show the platform's own command for a system package, and offer to run it.
 
     We will not run a package manager as root behind someone's back, but making
@@ -1065,7 +1111,7 @@ def _offer_system_install(name: str, item: Any, out: Any) -> None:
     out(hint)
     if not _ask_yes_no(f"run `{hint}` now?", default=False):
         out(f"{name} is not installed; run it yourself and pick {name} again")
-        return
+        return False
     import shlex
     import subprocess
 
@@ -1073,13 +1119,15 @@ def _offer_system_install(name: str, item: Any, out: Any) -> None:
         result = subprocess.run(shlex.split(hint), check=False)  # noqa: S603
     except (OSError, ValueError) as exc:
         out(f"could not run it: {exc}")
-        return
+        return False
     import shutil
 
     if result.returncode == 0 and shutil.which(name):
-        out(f"{name} installed — pick it to use it")
+        out(f"{name} installed and selected")
+        return True
     else:
         out(f"{name} still is not on PATH; pick it again once it is")
+        return False
 
 
 def _ask_for_voice_command(state: WizardState, direction: str, out: Any) -> bool:
@@ -1142,7 +1190,10 @@ def _ask_for_voice_key(state: WizardState, out: Any) -> bool:
         state.api_key = entered
         return True
     out("no key entered — OpenAI voice cannot run until one is set")
-    return True
+    note = "openai voice: no key entered — not selected"
+    if note not in state.notes:
+        state.notes.append(note)
+    return False
 
 
 def _ask_for_voices(
@@ -1342,11 +1393,11 @@ def _test_voice(state: WizardState, out: Any) -> None:
         out("no speech backend is available here; nothing was tested")
         return
     try:
+        language = state.stt_language or "*"
+        voice = state.tts_voices.get(language) or state.tts_voices.get("*") or state.tts_voice
         with tempfile.TemporaryDirectory(prefix="snowpea-voice-") as tmp:
             speech = _run_sync(
-                provider.synthesize(
-                    TEST_PHRASE, out_dir=Path(tmp), voice=state.tts_voice, stem="test"
-                )
+                provider.synthesize(TEST_PHRASE, out_dir=Path(tmp), voice=voice, stem="test")
             )
             out(f"{provider.name} wrote {speech.path.name}")
             _run_sync(player.play(speech.path))
@@ -1484,9 +1535,7 @@ def _note_missing_browser_key(state: WizardState) -> None:
     if not browser_providers.needs_key(pid):
         return
     block = state.browser_credentials.get(pid) or {}
-    missing = [
-        name for name in browser_providers.extra_envs(pid) if not block.get(name.lower())
-    ]
+    missing = [name for name in browser_providers.extra_envs(pid) if not block.get(name.lower())]
     if not block.get("api_key"):
         env = browser_providers.credential_env(pid)
         state.notes.append(
@@ -1519,16 +1568,19 @@ def _ask_for_gateway(state: WizardState, *, interactive: bool) -> None:
         if not state.gateway_needs_answers(gid):
             continue
         block = state.gateways.get(gid) or {}
-        token = block.get("token") or ui.ask_text(f"{gid} bot token: ", secret=True)
-        hint = USER_ID_HINT.get(gid, "your account id on that platform")
-        entered_id = block.get("allowed_user_id") or ui.ask_text(
-            f"your {gid} user id ({hint}): "
-        )
-        state.enable_gateway(gid, token or None, entered_id or None)
-        if not entered_id:
-            state.notes.append(
-                f"{gid}: no user id — chat approvals stay blocked until you set one"
+        try:
+            token = block.get("token") or ui.ask_text(f"{gid} bot token: ", secret=True)
+            hint = USER_ID_HINT.get(gid, "your account id on that platform")
+            entered_id = block.get("allowed_user_id") or ui.ask_text(
+                f"your {gid} user id ({hint}): "
             )
+        except (KeyboardInterrupt, EOFError):
+            continue
+        state.enable_gateway(gid, token or None, entered_id or None)
+        if not token:
+            state.notes.append(f"{gid}: no bot token — it will not start")
+        if not entered_id:
+            state.notes.append(f"{gid}: no user id — chat approvals stay blocked until you set one")
 
 
 def _apply_flags(state: WizardState, **flags: Any) -> set[str]:

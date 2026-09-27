@@ -36,6 +36,7 @@ class Screen(NamedTuple):
     items: tuple[ScreenItem, ...]
     multi: bool
     help: str = ""
+    skip_label: str | None = None
 
     @property
     def default_choice(self) -> str | set[str]:
@@ -43,12 +44,16 @@ class Screen(NamedTuple):
         if self.multi:
             return {item.id for item in self.items if item.selected and item.id != SKIP}
         for item in self.items:
-            if item.selected and item.id != SKIP:
+            if item.selected and not _is_action(item.id):
                 return item.id
         for item in self.items:
-            if item.default:
+            if item.default and not _is_action(item.id):
                 return item.id
         return SKIP
+
+
+def _is_action(item_id: str) -> bool:
+    return item_id == SKIP or item_id == "choose" or item_id.startswith(("action:", "install:"))
 
 
 def skip_item() -> ScreenItem:
@@ -71,9 +76,9 @@ SKIP_LATER_LABEL = "Skip — decide later"
 
 def last_row_label(screen: Screen, chosen: set[str]) -> str:
     """What the SKIP row says given what is chosen right now."""
-    picked = [item for item in screen.items if item.id in chosen and item.id != SKIP]
+    picked = [item for item in screen.items if item.id in chosen and not _is_action(item.id)]
     if not picked:
-        return SKIP_LATER_LABEL
+        return screen.skip_label or SKIP_LATER_LABEL
     if screen.multi:
         return DONE_MULTI_LABEL.format(count=len(picked))
     return DONE_LABEL.format(label=picked[0].label)

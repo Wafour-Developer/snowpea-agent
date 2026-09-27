@@ -3,7 +3,7 @@
 `snowpea setup` writes `$SNOWPEA_HOME/settings.json`. It has three shapes.
 
 ```bash
-snowpea setup            # quick: configure LLM models; defaults for other sections
+snowpea setup            # quick: choose one LLM vendor, credential and model
 snowpea setup --full     # every screen, in order
 snowpea setup --blank    # asks nothing, writes the defaults
 ```
@@ -12,7 +12,7 @@ Quick is the right answer the first time. Full is worth one pass once you know w
 
 ## The screens
 
-`--full` walks five screens and a summary. Every screen ends with **Done — keep X** (what is selected) or **Skip — decide later** when nothing is, and every screen has a command-line flag so you never have to be interactive.
+`--full` walks six screens and a summary. Every ordinary screen ends with **Done — keep X** (what is selected) or **Skip — decide later** when nothing is. The voice screens say **Skip — leave voice off** when no engine is pinned. Esc cancels a submenu without selecting its default; on the final summary, Esc cancels the run without writing. Enter on a section row revisits it, including Models and Registry, while warning/note rows are read-only.
 
 | Screen | Choice | Flag |
 |---|---|---|
@@ -696,12 +696,12 @@ The setup wizard's two voice screens are **action-first**: the rows are things t
 Recommended: SenseVoiceSmall (CPU) — Install     ← only while nothing is installed
 Install Piper…
 Choose a specific engine…
-Skip — decide later
+Skip — leave voice off
 ```
 
-With nothing installed, the recommended engine leads and is pre-selected, because installing it is the one move that helps. Once you have an engine the recommendation gives way to a status line that says something truer: **Automatic will use espeak-ng.**
+With nothing installed, the recommended engine leads visually, but it is an action rather than a selected value; a non-interactive run therefore leaves voice off. Once you have an engine the recommendation gives way to a status line that says it is installed but not selected.
 
-Automatic is still the setting and still the default. It is no longer a *row*, because it is not an action: with nothing installed it is a promise the machine cannot keep, and with something installed the screen can simply tell you what it will use.
+There is no implicit Automatic selection. Voice remains off until an engine is pinned, so the screen never promises a backend the machine cannot use.
 
 `Choose a specific engine…` opens a submenu that pins one on purpose — every engine, the installed ones first and the rest listed and marked, then Off, a custom command, and the one that needs an account. Esc goes back rather than abandoning the question, and the row then says what is pinned. Install rows run the install and select that engine, so the wizard moves on to the next question.
 

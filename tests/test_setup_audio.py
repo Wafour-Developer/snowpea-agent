@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 
 from snowpea_core.config.settings import Settings
-from snowpea_core.setup import catalog, wizard
+from snowpea_core.setup import catalog, ui, wizard
 from snowpea_core.setup.screens import audio as audio_screen
 from snowpea_core.setup.state import SKIP, WizardState
 
@@ -297,9 +297,7 @@ def test_picking_a_voice_asks_for_the_details(
             return "espeak-ng"
         return SKIP
 
-    result = wizard.run(
-        "full", home=tmp_path / "home", section="audio", interactive=True, ask=ask
-    )
+    result = wizard.run("full", home=tmp_path / "home", section="audio", interactive=True, ask=ask)
     # The voice is a screen now, not a text prompt: one engine can sound like
     # a different person per language, which a single line cannot express.
     assert [prompt.split()[0] for prompt in asked] == ["read", "test"]
@@ -356,9 +354,7 @@ def test_the_voice_test_reports_a_failure_without_stopping_setup(
     state = WizardState()
     wizard._test_voice(state, printed.append)
     assert printed  # it said something rather than raising
-    result = wizard.run(
-        "full", home=tmp_path / "home", section="audio", interactive=True, ask=ask
-    )
+    result = wizard.run("full", home=tmp_path / "home", section="audio", interactive=True, ask=ask)
     assert result.settings.audio.tts.provider == "espeak-ng"
 
 
@@ -382,9 +378,7 @@ def test_the_choose_row_opens_the_submenu_and_pins_what_it_answers(
             return "local-whisper"
         return SKIP
 
-    result = wizard.run(
-        "full", home=tmp_path / "home", interactive=True, ask=ask, section="audio"
-    )
+    result = wizard.run("full", home=tmp_path / "home", interactive=True, ask=ask, section="audio")
 
     assert audio_screen.CHOOSE_TITLE in seen, "the submenu was never shown"
     # Picking in the submenu settles the question: the screen is not asked again.
@@ -392,9 +386,7 @@ def test_the_choose_row_opens_the_submenu_and_pins_what_it_answers(
     assert result.state.stt_provider == "local-whisper"
 
 
-def test_declining_the_submenu_pins_nothing_and_comes_back(
-    only_path: Path, tmp_path: Path
-) -> None:
+def test_declining_the_submenu_pins_nothing_and_comes_back(only_path: Path, tmp_path: Path) -> None:
     """Esc in the submenu means "back", not "never mind the whole question"."""
     seen: list[str] = []
 
@@ -405,9 +397,7 @@ def test_declining_the_submenu_pins_nothing_and_comes_back(
         return SKIP
 
     before = WizardState().stt_provider
-    result = wizard.run(
-        "full", home=tmp_path / "home", interactive=True, ask=ask, section="audio"
-    )
+    result = wizard.run("full", home=tmp_path / "home", interactive=True, ask=ask, section="audio")
 
     assert audio_screen.CHOOSE_TITLE in seen
     assert seen.count(audio_screen.TITLE) >= 2, "it came back to the screen it left"
@@ -429,9 +419,7 @@ def test_an_install_row_installs_and_pins(
             return f"{audio_screen.INSTALL_PREFIX}{catalog.RECOMMENDED_STT}"
         return SKIP
 
-    result = wizard.run(
-        "full", home=tmp_path / "home", interactive=True, ask=ask, section="audio"
-    )
+    result = wizard.run("full", home=tmp_path / "home", interactive=True, ask=ask, section="audio")
 
     assert installed == [f"{audio_screen.INSTALL_PREFIX}{catalog.RECOMMENDED_STT}"]
     # The install pins the engine and the screen does not come back.
@@ -478,9 +466,7 @@ def test_each_row_does_the_right_thing(only_path: Path, engine: str, expected: s
 
 def test_an_installed_engine_is_pinned_by_picking_it(only_path: Path) -> None:
     write_script(only_path, "espeak-ng")
-    item = next(
-        item for item in catalog.tts_catalog(["espeak-ng"]) if item.id == "espeak-ng"
-    )
+    item = next(item for item in catalog.tts_catalog(["espeak-ng"]) if item.id == "espeak-ng")
     assert audio_screen.row_action(item) == audio_screen.ACTION_PIN
 
 
@@ -591,3 +577,94 @@ def test_run_install_works_under_a_running_loop(monkeypatch, tmp_path):
 
     assert asyncio.run(inside_loop()) is True
     assert said == ["  downloading"]
+
+
+def test_finding_1_submenu_install_pins_and_reports(only_path, monkeypatch) -> None:
+    state = WizardState()
+    said: list[str] = []
+    monkeypatch.setattr(audio_screen, "run_install", lambda *args, **kwargs: True)
+    wizard._follow_up(
+        state, "piper", only_path, said.append, direction="tts", apply_choice=audio_screen.apply_tts
+    )
+    assert state.tts_provider == "piper"
+    assert said[-1] == "piper installed and selected"
+
+
+def test_finding_2_system_install_pins_when_binary_lands(only_path, monkeypatch) -> None:
+    state = WizardState()
+    monkeypatch.setattr(wizard, "_offer_system_install", lambda *args: True)
+    wizard._follow_up(
+        state,
+        "espeak-ng",
+        only_path,
+        lambda text: None,
+        direction="tts",
+        apply_choice=audio_screen.apply_tts,
+    )
+    assert state.tts_provider == "espeak-ng"
+
+
+def test_finding_3_validated_custom_commands_are_not_asked_twice(monkeypatch) -> None:
+    state = WizardState(
+        stt_provider="command",
+        stt_command="stt {path}",
+        tts_provider="command",
+        tts_command="tts {text} {out}",
+    )
+    asked: list[str] = []
+    monkeypatch.setattr(ui, "ask_text", lambda prompt, **kwargs: asked.append(prompt) or "")
+    monkeypatch.setattr(wizard, "_ask_for_voices", lambda *args, **kwargs: None)
+    monkeypatch.setattr(wizard, "_ask_yes_no", lambda *args, **kwargs: False)
+    wizard._ask_for_audio(state, lambda screen, **kwargs: "command", interactive=True)
+    assert not any("command (" in prompt for prompt in asked)
+
+
+def test_finding_4_missing_voice_key_does_not_pin(monkeypatch) -> None:
+    state = WizardState()
+    monkeypatch.setattr(ui, "ask_text", lambda *args, **kwargs: "")
+    assert wizard._ask_for_voice_key(state, lambda text: None) is False
+    assert state.notes == ["openai voice: no key entered — not selected"]
+
+
+def test_finding_9_audio_actions_have_no_radio_marker(only_path) -> None:
+    rows = audio_screen.build(WizardState()).items
+    for row in rows:
+        if row.id.startswith("install:") or row.id == audio_screen.CHOOSE_ID:
+            plain = ui.render_item(row, multi=False, selected=True, cursor=False).plain
+            assert "(●)" not in plain and "(○)" not in plain
+
+
+def test_finding_10_audio_skip_says_voice_stays_off(only_path) -> None:
+    body = "\n".join(ui.render_lines(audio_screen.build(WizardState())))
+    assert "Skip — leave voice off" in body
+
+
+def test_finding_15_voice_test_uses_language_choice(monkeypatch, tmp_path) -> None:
+    seen: list[str | None] = []
+    provider = SimpleNamespace(
+        name="fake",
+        synthesize=lambda text, **kwargs: _capture_voice(seen, kwargs["voice"], tmp_path),
+    )
+    from snowpea_core.audio import player
+    from snowpea_core.audio import tts as tts_backends
+
+    monkeypatch.setattr(tts_backends, "resolve_provider", lambda *args, **kwargs: provider)
+    monkeypatch.setattr(player, "play", lambda path: _done())
+    state = WizardState(tts_provider="fake", stt_language="ko", tts_voices={"ko": "ko-voice"})
+    wizard._test_voice(state, lambda text: None)
+    assert seen == ["ko-voice"]
+
+
+async def _capture_voice(seen, voice, tmp_path):
+    seen.append(voice)
+    path = tmp_path / "voice.wav"
+    path.write_bytes(b"wav")
+    return SimpleNamespace(path=path)
+
+
+async def _done():
+    return None
+
+
+def test_finding_18_noninteractive_audio_default_skips_actions(only_path) -> None:
+    assert audio_screen.build(WizardState()).default_choice == SKIP

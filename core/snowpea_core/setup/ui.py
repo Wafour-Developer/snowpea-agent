@@ -15,7 +15,7 @@ from __future__ import annotations
 import io
 import os
 import sys
-from typing import IO
+from typing import IO, Any
 
 from rich.console import Console
 from rich.text import Text
@@ -23,6 +23,7 @@ from rich.text import Text
 from snowpea_core.setup.screens import SKIP, Screen, ScreenItem, last_row_label
 
 STAR = "★"
+_UNSET = object()
 
 #: Terminal control codes used by the in-place repaint.  ``ask`` hides the
 #: cursor for as long as a menu is open and always puts it back, including on
@@ -98,7 +99,11 @@ def render_item(
     rather than folklore; rows past the ninth get the same indent and no
     number, because ``1-9`` is what the key map promises.
     """
-    if item.id == SKIP or item.id.startswith("action:"):
+    if (
+        item.id == SKIP
+        or item.id == "choose"
+        or item.id.startswith(("action:", "install:", "summary:"))
+    ):
         marker = "   "
     elif multi:
         marker = "[✓]" if selected else "[ ]"
@@ -233,7 +238,8 @@ def ask(
     console: Console | None = None,
     interactive: bool | None = None,
     keys: IO[str] | None = None,
-) -> str | set[str]:
+    cancel_value: Any = _UNSET,
+) -> Any:
     """Run one screen and return its answer.
 
     Non-interactive runs return :attr:`Screen.default_choice` without drawing
@@ -272,7 +278,7 @@ def ask(
             elif key in ("quit", "escape"):
                 # Esc and q both decline; declining is the screen's default,
                 # never a silent "yes to everything".
-                return screen.default_choice
+                return screen.default_choice if cancel_value is _UNSET else cancel_value
             elif key == "space" and screen.multi and item.id != SKIP:
                 chosen.symmetric_difference_update({item.id})
             elif row is not None and row < len(screen.items):

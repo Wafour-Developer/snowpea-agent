@@ -19,7 +19,7 @@ def build(state: WizardState, catalog: Sequence[CatalogItem] | None = None) -> S
             id=item.id,
             label=item.label,
             tags=item.tags,
-            selected=state.tool_categories.get(item.id, item.default),
+            selected=state.tool_categories.get(item.id, item.default and item.active),
             default=item.default,
             active=item.active,
         )

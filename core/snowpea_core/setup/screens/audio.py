@@ -79,7 +79,7 @@ INSTALLED_LINE = "{engine} is installed, not selected — pick it to use it."
 def install_target(choice: str) -> str | None:
     """The engine an ``install:`` row names, or ``None`` for a normal row."""
     text = str(choice or "")
-    return text[len(INSTALL_PREFIX):] or None if text.startswith(INSTALL_PREFIX) else None
+    return text[len(INSTALL_PREFIX) :] or None if text.startswith(INSTALL_PREFIX) else None
 
 
 def is_choose(choice: str | set[str]) -> bool:
@@ -91,12 +91,12 @@ def is_choose(choice: str | set[str]) -> bool:
 
 #: What picking a row does.  Every row has one: a list where some entries do
 #: nothing when you choose them is a list that lies about being a choice.
-ACTION_INSTALL = "install"   # fetch it, pin it, move on
-ACTION_SYSTEM = "system"     # show the platform command, offer to run it
-ACTION_COMMAND = "command"   # ask for the template, validate, self-test, pin
-ACTION_KEY = "key"           # ask for the API key, pin
-ACTION_OFF = "off"           # unset: that direction of voice is off
-ACTION_PIN = "pin"           # it works here; pin it
+ACTION_INSTALL = "install"  # fetch it, pin it, move on
+ACTION_SYSTEM = "system"  # show the platform command, offer to run it
+ACTION_COMMAND = "command"  # ask for the template, validate, self-test, pin
+ACTION_KEY = "key"  # ask for the API key, pin
+ACTION_OFF = "off"  # unset: that direction of voice is off
+ACTION_PIN = "pin"  # it works here; pin it
 
 
 def row_action(item: CatalogItem) -> str:
@@ -169,7 +169,8 @@ def _install_rows(items: Sequence[CatalogItem]) -> list[ScreenItem]:
             ScreenItem(
                 id=f"{INSTALL_PREFIX}{item.id}",
                 label=(
-                    f"Recommended: {item.label} — Install" if recommended
+                    f"Recommended: {item.label} — Install"
+                    if recommended
                     else f"Install {item.label}…"
                 ),
                 tags=("recommended", "installs now") if recommended else ("installs now",),
@@ -204,7 +205,13 @@ def _action_screen(
     installs = _install_rows(items)
     rows = (*installs, _choose_row(items, pinned), skip_item())
     status = status_line(items, detected, pinned)
-    return Screen(title=title, items=rows, multi=False, help=f"{help_text}\n{status}")
+    return Screen(
+        title=title,
+        items=rows,
+        multi=False,
+        help=f"{help_text}\n{status}",
+        skip_label="Skip — leave voice off" if not pinned else None,
+    )
 
 
 def _choose_screen(
@@ -217,6 +224,7 @@ def _choose_screen(
     installed is still listed and still marked, because "why can't I use piper"
     deserves an answer on screen.
     """
+
     def rank(item: CatalogItem) -> tuple[int, int]:
         if item.id == AUDIO_OFF:
             return (1, 0)
@@ -240,19 +248,21 @@ def _choose_screen(
         )
         for item in sorted(listed, key=rank)
     ]
-    return Screen(
-        title=title, items=(*rows, skip_item()), multi=False, help=CHOOSE_HELP
-    )
+    return Screen(title=title, items=(*rows, skip_item()), multi=False, help=CHOOSE_HELP)
 
 
-def _config(state: WizardState, home: Path | str | None = None) -> AudioConfig:
+def _config(
+    state: WizardState, home: Path | str | None = None, *, language: str | None = None
+) -> AudioConfig:
     """What the state says, as the audio package's own config object."""
     return AudioConfig(
         stt_provider=state.stt_provider,
         stt_command=state.stt_command,
         tts_provider=state.tts_provider,
         tts_command=state.tts_command,
-        voice=state.tts_voice,
+        voice=(state.tts_voices.get(language) if language else None)
+        or state.tts_voices.get("*")
+        or state.tts_voice,
         home=resolve_home(home),
     )
 
@@ -269,9 +279,7 @@ def detected_stt(state: WizardState, home: Path | str | None = None) -> list[str
 
 def detected_tts(state: WizardState, home: Path | str | None = None) -> list[str]:
     """Speech backends that would work on this machine."""
-    return tts_backends.available_providers(
-        command=state.tts_command, home=resolve_home(home)
-    )
+    return tts_backends.available_providers(command=state.tts_command, home=resolve_home(home))
 
 
 def build(state: WizardState, catalog: Sequence[CatalogItem] | None = None) -> Screen:
@@ -437,14 +445,10 @@ def build_language(
             active=True,
         )
     )
-    return Screen(
-        title=LANGUAGE_TITLE, items=(*rows, skip_item()), multi=False, help=LANGUAGE_HELP
-    )
+    return Screen(title=LANGUAGE_TITLE, items=(*rows, skip_item()), multi=False, help=LANGUAGE_HELP)
 
 
-def build_voices(
-    voices: Sequence[Any], language: str, pinned: str | None = None
-) -> Screen:
+def build_voices(voices: Sequence[Any], language: str, pinned: str | None = None) -> Screen:
     """One language's voices for the pinned engine, installed ones first."""
     rows = [
         ScreenItem(
@@ -491,9 +495,7 @@ def run_install(choice: str, home: Any, out: Any = None) -> bool:
         say(f"  {line}")
 
     async def go() -> audio_install.InstallResult:
-        return await audio_install.install(
-            target, home=Path(home), progress=progress
-        )
+        return await audio_install.install(target, home=Path(home), progress=progress)
 
     try:
         result = run_sync(go())
