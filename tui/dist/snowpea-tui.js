@@ -28167,10 +28167,10 @@ var require_react_jsx_runtime_development = __commonJS({
           }
         }
         var jsx36 = jsxWithValidationDynamic;
-        var jsxs28 = jsxWithValidationStatic;
+        var jsxs29 = jsxWithValidationStatic;
         exports.Fragment = REACT_FRAGMENT_TYPE;
         exports.jsx = jsx36;
-        exports.jsxs = jsxs28;
+        exports.jsxs = jsxs29;
       })();
     }
   }
@@ -34922,10 +34922,20 @@ function accentDimColor(mode) {
   if (mode === "truecolor") return toHex(DEEP_VIOLET);
   return "magenta";
 }
+function inputBackgroundColor(mode, env3 = process.env) {
+  const override = (env3.SNOWPEA_TUI_INPUT_BG ?? "").trim();
+  if (override) return override.toLowerCase() === "none" ? void 0 : override;
+  if (mode === "none") return void 0;
+  const background = Number((env3.COLORFGBG ?? "").split(";").pop());
+  const light = background === 7 || background === 15;
+  if (mode === "truecolor") return light ? "#ece9f3" : "#26232e";
+  return light ? "white" : "blackBright";
+}
 var testColorMode = null;
 var cachedMode = null;
 var cachedAccent = null;
 var cachedAccentDim = null;
+var cachedInputBackground = null;
 function resolvedColorMode() {
   if (testColorMode !== null) return testColorMode;
   if (cachedMode === null) {
@@ -34940,6 +34950,12 @@ function currentAccent() {
 function currentAccentDim() {
   if (cachedAccentDim === null) cachedAccentDim = accentDimColor(resolvedColorMode());
   return cachedAccentDim;
+}
+function currentInputBackground() {
+  if (cachedInputBackground === null) {
+    cachedInputBackground = inputBackgroundColor(resolvedColorMode());
+  }
+  return cachedInputBackground;
 }
 
 // src/layout/bottom.ts
@@ -38029,18 +38045,30 @@ function messageFullyCommitted(message, width, committed) {
 
 // src/components/RenderedLines.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
-function RenderedLines({ lines }) {
-  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: lines.map((line) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Text, { children: line.segments.map((segment, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-    Text,
-    {
-      color: segment.color,
-      dimColor: segment.dimColor,
-      bold: segment.bold,
-      italic: segment.italic,
-      children: segment.text
-    },
-    index
-  )) }, line.key)) });
+function RenderedLines({
+  lines,
+  background,
+  width
+}) {
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: lines.map((line) => {
+    const used = background && width ? line.segments.reduce((sum, segment) => sum + textWidth(segment.text), 0) : 0;
+    const pad = background && width ? Math.max(0, width - used) : 0;
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Text, { children: [
+      line.segments.map((segment, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        Text,
+        {
+          color: segment.color,
+          backgroundColor: background,
+          dimColor: segment.dimColor,
+          bold: segment.bold,
+          italic: segment.italic,
+          children: segment.text
+        },
+        index
+      )),
+      pad > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Text, { backgroundColor: background, children: " ".repeat(pad) }) : null
+    ] }, line.key);
+  }) });
 }
 
 // src/layout/summary.ts
@@ -39620,6 +39648,7 @@ function Chat({
   );
   const cursorEnd = (0, import_react30.useMemo)(() => right(editor).cursor, [editor]);
   const promptColor = disabled ? "gray" : currentAccent();
+  const band = currentInputBackground();
   return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { flexDirection: "column", children: [
     showFilePopup && fileCompletions.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
       FilePalette,
@@ -39638,16 +39667,19 @@ function Chat({
       }
     ) : null,
     showPalette ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(SlashCommandPalette, { commands: completions, selectedIndex: selected }) : null,
-    value.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { color: promptColor, children: "> " }),
-      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { dimColor: true, children: placeholder }),
-      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { inverse: true, children: " " })
+    value.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { flexWrap: "nowrap", overflow: "hidden", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { color: promptColor, backgroundColor: band, children: "> " }),
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { dimColor: true, backgroundColor: band, wrap: "truncate-end", children: placeholder }),
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { inverse: true, children: " " }),
+      band ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { backgroundColor: band, children: " ".repeat(Math.max(0, wrapWidth - textWidth(placeholder) - 1)) }) : null
     ] }) : /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Box_default, { flexDirection: "column", children: draft.lines.map((line, row) => {
       const prefix = row === 0 ? "> " : "  ";
       if (row !== draft.cursorRow) {
+        const text2 = value.slice(line.start, line.end);
         return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { flexWrap: "nowrap", overflow: "hidden", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { color: promptColor, children: prefix }),
-          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { wrap: "truncate-end", children: value.slice(line.start, line.end) })
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { color: promptColor, backgroundColor: band, children: prefix }),
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { wrap: "truncate-end", backgroundColor: band, children: text2 }),
+          band ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { backgroundColor: band, children: " ".repeat(Math.max(0, wrapWidth - textWidth(text2))) }) : null
         ] }, `draft-${row}`);
       }
       const hasCursorText = cursor >= line.start && cursor < line.end && cursorEnd > cursor;
@@ -39655,10 +39687,13 @@ function Chat({
       const mark = hasCursorText ? value.slice(cursor, cursorEnd) : " ";
       const after = hasCursorText ? value.slice(cursorEnd, line.end) : value.slice(cursor, line.end);
       return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { flexWrap: "nowrap", overflow: "hidden", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { color: promptColor, children: prefix }),
-        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { children: before }),
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { color: promptColor, backgroundColor: band, children: prefix }),
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { backgroundColor: band, children: before }),
         /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { inverse: true, children: mark }),
-        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { wrap: "truncate-end", children: after })
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { wrap: "truncate-end", backgroundColor: band, children: after }),
+        band ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { backgroundColor: band, children: " ".repeat(
+          Math.max(0, wrapWidth - textWidth(before) - textWidth(mark) - textWidth(after))
+        ) }) : null
       ] }, `draft-${row}`);
     }) })
   ] });
@@ -39736,6 +39771,9 @@ function colorizeFileRefs(lines) {
     return { ...line, segments };
   });
 }
+function padCells(text2, width) {
+  return text2 + " ".repeat(Math.max(0, width - textWidth(text2)));
+}
 function MessageView({
   message,
   width = 80,
@@ -39750,10 +39788,20 @@ function MessageView({
     const cap = Math.max(1, Math.floor(maxRows));
     if (lines.length > cap) lines = lines.slice(lines.length - cap);
   }
+  const band = message.role === "user" ? currentInputBackground() : void 0;
   return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(Box_default, { flexDirection: "column", marginBottom: 1, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(RenderedLines, { lines }),
+    /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(RenderedLines, { lines, background: band, width: band ? width : void 0 }),
     message.expansion ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(SkillExpansionLine, { expansion: message.expansion, width }) : null,
-    (message.attachments ?? []).map((attachment) => /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `  \u{1F4CE} ${attachment.name}` }, `${message.id}-${attachment.name}`))
+    (message.attachments ?? []).map((attachment) => /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
+      Text,
+      {
+        dimColor: true,
+        wrap: "truncate-end",
+        backgroundColor: band,
+        children: band ? padCells(`  \u{1F4CE} ${attachment.name}`, width) : `  \u{1F4CE} ${attachment.name}`
+      },
+      `${message.id}-${attachment.name}`
+    ))
   ] });
 }
 

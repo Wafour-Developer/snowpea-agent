@@ -7,10 +7,11 @@
  */
 
 import { stripPasteMarkers } from "../state/attachments.js";
+import { textWidth } from "../layout/text-width.js";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Box, Text, useInput, useStdout } from "ink";
 
-import { currentAccent } from "../layout/palette.js";
+import { currentAccent, currentInputBackground } from "../layout/palette.js";
 import type { CommandInfo } from "../rpc/sdk.js";
 import {
   agentQuery,
@@ -500,6 +501,10 @@ export function Chat({
 
   const cursorEnd = useMemo(() => right(editor).cursor, [editor]);
   const promptColor = disabled ? "gray" : currentAccent();
+  // The input sits on a band of its own colour, full width, as the prompts
+  // already sent do in the transcript: what you write reads apart from what
+  // the agent answers.
+  const band = currentInputBackground();
 
   return (
     <Box flexDirection="column">
@@ -521,20 +526,31 @@ export function Chat({
         <SlashCommandPalette commands={completions} selectedIndex={selected} />
       ) : null}
       {value.length === 0 ? (
-        <Box>
-          <Text color={promptColor}>{"> "}</Text>
-          <Text dimColor>{placeholder}</Text>
+        <Box flexWrap="nowrap" overflow="hidden">
+          <Text color={promptColor} backgroundColor={band}>{"> "}</Text>
+          <Text dimColor backgroundColor={band} wrap="truncate-end">{placeholder}</Text>
           <Text inverse>{" "}</Text>
+          {band ? (
+            <Text backgroundColor={band}>
+              {" ".repeat(Math.max(0, wrapWidth - textWidth(placeholder) - 1))}
+            </Text>
+          ) : null}
         </Box>
       ) : (
         <Box flexDirection="column">
           {draft.lines.map((line, row) => {
             const prefix = row === 0 ? "> " : "  ";
             if (row !== draft.cursorRow) {
+              const text = value.slice(line.start, line.end);
               return (
                 <Box key={`draft-${row}`} flexWrap="nowrap" overflow="hidden">
-                  <Text color={promptColor}>{prefix}</Text>
-                  <Text wrap="truncate-end">{value.slice(line.start, line.end)}</Text>
+                  <Text color={promptColor} backgroundColor={band}>{prefix}</Text>
+                  <Text wrap="truncate-end" backgroundColor={band}>{text}</Text>
+                  {band ? (
+                    <Text backgroundColor={band}>
+                      {" ".repeat(Math.max(0, wrapWidth - textWidth(text)))}
+                    </Text>
+                  ) : null}
                 </Box>
               );
             }
@@ -549,10 +565,17 @@ export function Chat({
             // a row the model does not know about.
             return (
               <Box key={`draft-${row}`} flexWrap="nowrap" overflow="hidden">
-                <Text color={promptColor}>{prefix}</Text>
-                <Text>{before}</Text>
+                <Text color={promptColor} backgroundColor={band}>{prefix}</Text>
+                <Text backgroundColor={band}>{before}</Text>
                 <Text inverse>{mark}</Text>
-                <Text wrap="truncate-end">{after}</Text>
+                <Text wrap="truncate-end" backgroundColor={band}>{after}</Text>
+                {band ? (
+                  <Text backgroundColor={band}>
+                    {" ".repeat(
+                      Math.max(0, wrapWidth - textWidth(before) - textWidth(mark) - textWidth(after)),
+                    )}
+                  </Text>
+                ) : null}
               </Box>
             );
           })}

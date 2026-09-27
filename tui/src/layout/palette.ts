@@ -105,10 +105,32 @@ export function accentDimColor(mode: ColorMode): string {
   return "magenta";
 }
 
+/**
+ * The band behind the input box and behind every prompt you sent, so what you
+ * wrote reads apart from what the agent answered (the way Cursor's agent CLI
+ * sets it off). A terminal does not say whether its background is dark, so
+ * `COLORFGBG` (set by rxvt, Konsole, iTerm2 and others) decides, dark by
+ * default; `SNOWPEA_TUI_INPUT_BG` overrides it with any colour Ink takes, or
+ * `none` to turn the band off.
+ */
+export function inputBackgroundColor(
+  mode: ColorMode,
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  const override = (env.SNOWPEA_TUI_INPUT_BG ?? "").trim();
+  if (override) return override.toLowerCase() === "none" ? undefined : override;
+  if (mode === "none") return undefined;
+  const background = Number((env.COLORFGBG ?? "").split(";").pop());
+  const light = background === 7 || background === 15;
+  if (mode === "truecolor") return light ? "#ece9f3" : "#26232e";
+  return light ? "white" : "blackBright";
+}
+
 let testColorMode: ColorMode | null = null;
 let cachedMode: ColorMode | null = null;
 let cachedAccent: string | null = null;
 let cachedAccentDim: string | null = null;
+let cachedInputBackground: string | undefined | null = null;
 
 /** Test-only override for `currentAccent` / `currentAccentDim`. */
 export function setColorModeForTests(mode: ColorMode | null): void {
@@ -116,6 +138,7 @@ export function setColorModeForTests(mode: ColorMode | null): void {
   cachedMode = null;
   cachedAccent = null;
   cachedAccentDim = null;
+  cachedInputBackground = null;
 }
 
 function resolvedColorMode(): ColorMode {
@@ -136,4 +159,12 @@ export function currentAccent(): string {
 export function currentAccentDim(): string {
   if (cachedAccentDim === null) cachedAccentDim = accentDimColor(resolvedColorMode());
   return cachedAccentDim;
+}
+
+/** Memoised input/prompt band for the running process; `undefined` = none. */
+export function currentInputBackground(): string | undefined {
+  if (cachedInputBackground === null) {
+    cachedInputBackground = inputBackgroundColor(resolvedColorMode());
+  }
+  return cachedInputBackground;
 }

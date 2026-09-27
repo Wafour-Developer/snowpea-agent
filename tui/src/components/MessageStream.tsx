@@ -3,9 +3,10 @@ import React from "react";
 import { Box, Text } from "ink";
 import type { Message } from "../state/store.js";
 import { messageLines, wrapLine, type Line, type Segment } from "../layout/transcript.js";
-import { currentAccent, currentAccentDim } from "../layout/palette.js";
+import { currentAccent, currentInputBackground, currentAccentDim } from "../layout/palette.js";
 import { findAllFileRefs } from "../state/fileRefs.js";
 import { RenderedLines } from "./RenderedLines.js";
+import { textWidth } from "../layout/text-width.js";
 import { SUMMARY_GLYPH } from "./ToolSummary.js";
 
 /** One-line fold label for a skill expansion, truncated to the message width. */
@@ -78,6 +79,11 @@ export function colorizeFileRefs(lines: Line[]): Line[] {
   });
 }
 
+/** `text` padded with spaces to `width` terminal cells (never cut). */
+function padCells(text: string, width: number): string {
+  return text + " ".repeat(Math.max(0, width - textWidth(text)));
+}
+
 export function MessageView({
   message,
   width = 80,
@@ -102,15 +108,21 @@ export function MessageView({
     const cap = Math.max(1, Math.floor(maxRows));
     if (lines.length > cap) lines = lines.slice(lines.length - cap);
   }
+  const band = message.role === "user" ? currentInputBackground() : undefined;
   return (
     <Box flexDirection="column" marginBottom={1}>
-      <RenderedLines lines={lines} />
+      <RenderedLines lines={lines} background={band} width={band ? width : undefined} />
       {message.expansion ? (
         <SkillExpansionLine expansion={message.expansion} width={width} />
       ) : null}
       {(message.attachments ?? []).map((attachment) => (
-        <Text key={`${message.id}-${attachment.name}`} dimColor wrap="truncate-end">
-          {`  📎 ${attachment.name}`}
+        <Text
+          key={`${message.id}-${attachment.name}`}
+          dimColor
+          wrap="truncate-end"
+          backgroundColor={band}
+        >
+          {band ? padCells(`  📎 ${attachment.name}`, width) : `  📎 ${attachment.name}`}
         </Text>
       ))}
     </Box>
