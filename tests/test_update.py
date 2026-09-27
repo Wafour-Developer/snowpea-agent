@@ -740,3 +740,34 @@ def test_the_registry_carries_update() -> None:
 
     registry = register_builtin_commands(CommandRegistry())
     assert registry.get("update") is not None
+
+
+def test_the_restart_handoff_stops_a_daemon_that_outlives_the_drain(monkeypatch) -> None:
+    """A relaunch that found the old daemon still draining talked to the old
+    version ("Update available v0.2.15 (current v0.2.14)" right after updating).
+    Past the drain the old pid is terminated, and only that pid."""
+    import subprocess
+    import sys
+    from types import SimpleNamespace
+
+    from snowpea_core.cli import main as cli_main
+
+    old = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        monkeypatch.setattr(cli_main, "read_daemon_json", lambda home: SimpleNamespace(pid=old.pid))
+        cli_main.wait_for_daemon_exit(None, timeout=0.3, term_timeout=3.0)
+        assert old.wait(timeout=5) is not None
+    finally:
+        if old.poll() is None:
+            old.kill()
+
+
+def test_the_restart_handoff_returns_at_once_when_the_daemon_is_gone(monkeypatch) -> None:
+    import time
+
+    from snowpea_core.cli import main as cli_main
+
+    monkeypatch.setattr(cli_main, "read_daemon_json", lambda home: None)
+    started = time.monotonic()
+    cli_main.wait_for_daemon_exit(None, timeout=5.0)
+    assert time.monotonic() - started < 1.0

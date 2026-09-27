@@ -122,3 +122,21 @@ describe("/update dispatch", () => {
     });
   });
 });
+
+describe("update state: a banner answered by a replaced daemon", () => {
+  it("comes down when a later check says this version is current", () => {
+    // The relaunched TUI briefly talked to the old daemon (0.2.14) and showed
+    // the banner; the new daemon (0.2.15) says there is nothing newer.
+    const shown = fromCheck(initialUpdateState, check({ current: "0.2.14", latest: "0.2.15" }));
+    expect(bannerText(shown)).toContain("current v0.2.14");
+    const settled = fromCheck(shown, check({ current: "0.2.15", latest: "0.2.15", available: false }));
+    expect(bannerText(settled)).toBeNull();
+    expect(settled.current).toBe("0.2.15");
+  });
+
+  it("stays up when the later check merely failed", () => {
+    const shown = fromCheck(initialUpdateState, check({ current: "0.2.14", latest: "0.2.15" }));
+    const failed = fromCheck(shown, check({ available: false, error: "offline" }));
+    expect(bannerText(failed)).toContain("Update available");
+  });
+});

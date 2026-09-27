@@ -44,10 +44,16 @@ export const initialUpdateState: UpdateState = {
 export function fromCheck(state: UpdateState, check: UpdateCheck): UpdateState {
   const current = check.current ?? state.current;
   const latest = check.latest ?? state.latest;
-  // An error or an up-to-date answer leaves the banner off; a check that
-  // arrives while an upgrade is already running must not rewind it.
-  if (!check.available || check.error || state.phase === "running" || state.phase === "done" || state.phase === "confirm") {
+  // A check that arrives while an upgrade is under way must not rewind it.
+  if (state.phase === "running" || state.phase === "done" || state.phase === "confirm") {
     return { ...state, current, latest };
+  }
+  // An up-to-date answer takes a showing banner down: a check answered by a
+  // daemon that was already replaced left "Update available" up after the
+  // update had gone through. An error leaves whatever was shown alone.
+  if (!check.available || check.error) {
+    const stale = state.phase === "available" && !check.error && !check.available;
+    return { ...state, phase: stale ? "idle" : state.phase, current, latest };
   }
   return { ...state, phase: state.dismissed ? "idle" : "available", current, latest };
 }

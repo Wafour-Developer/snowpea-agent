@@ -875,6 +875,12 @@ export function App({
         }
         showToast("daemon restarted — session resumed");
         dispatch({ type: "session/reconnected" });
+        // A restarted daemon may be a different version: ask it, so a banner
+        // raised by the one it replaced does not outlive it.
+        void client.checkUpdate(false).then((check) => {
+          setUpdateAvailable(Boolean(check.available) && !check.error);
+          setUpdate((current) => fromCheck(current, check));
+        }).catch(() => { /* the banner stays as it was */ });
       },
       // An unattended turn raised a request the daemon broadcast to every
       // surface; the queue is re-read rather than trusted from the payload.

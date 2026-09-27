@@ -215,14 +215,46 @@ def launch_tui(args: argparse.Namespace, home: str | None) -> int:
     return code
 
 
-def wait_for_daemon_exit(home: str | None, timeout: float = RESTART_DRAIN_SEC) -> None:
-    """Give the daemon the TUI just shut down time to release its port."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        info = read_daemon_json(home)
-        if info is None or not pid_alive(info.pid):
+#: After the drain, how long a SIGTERM gets before the old daemon is killed.
+RESTART_TERM_SEC = 5.0
+
+
+def wait_for_daemon_exit(
+    home: str | None,
+    timeout: float = RESTART_DRAIN_SEC,
+    term_timeout: float = RESTART_TERM_SEC,
+) -> None:
+    """Make sure the daemon the TUI just shut down is gone before relaunching.
+
+    It used to wait and then give up quietly: an old daemon still draining
+    after the timeout was found again by the relaunched TUI, which then talked
+    to the *old* version — "Update available v0.2.15 (current v0.2.14)" right
+    after updating. The pid is taken once, up front, so a daemon that a
+    relaunch has already replaced is never the one signalled.
+    """
+    info = read_daemon_json(home)
+    if info is None:
+        return
+    pid = info.pid
+
+    def gone(limit: float) -> bool:
+        deadline = time.monotonic() + limit
+        while time.monotonic() < deadline:
+            if not pid_alive(pid):
+                return True
+            time.sleep(0.2)
+        return not pid_alive(pid)
+
+    if gone(timeout):
+        return
+    import signal
+
+    kill = getattr(signal, "SIGKILL", signal.SIGTERM)
+    for sig, limit in ((signal.SIGTERM, term_timeout), (kill, 2.0)):
+        with contextlib.suppress(OSError):
+            os.kill(pid, sig)
+        if gone(limit):
             return
-        time.sleep(0.2)
 
 
 def relaunch(home: str | None = None) -> int:

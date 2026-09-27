@@ -34524,8 +34524,12 @@ var initialUpdateState = {
 function fromCheck(state, check) {
   const current2 = check.current ?? state.current;
   const latest = check.latest ?? state.latest;
-  if (!check.available || check.error || state.phase === "running" || state.phase === "done" || state.phase === "confirm") {
+  if (state.phase === "running" || state.phase === "done" || state.phase === "confirm") {
     return { ...state, current: current2, latest };
+  }
+  if (!check.available || check.error) {
+    const stale = state.phase === "available" && !check.error && !check.available;
+    return { ...state, phase: stale ? "idle" : state.phase, current: current2, latest };
   }
   return { ...state, phase: state.dismissed ? "idle" : "available", current: current2, latest };
 }
@@ -41666,6 +41670,11 @@ function App2({
         }
         showToast("daemon restarted \u2014 session resumed");
         dispatch({ type: "session/reconnected" });
+        void client.checkUpdate(false).then((check) => {
+          setUpdateAvailable(Boolean(check.available) && !check.error);
+          setUpdate((current2) => fromCheck(current2, check));
+        }).catch(() => {
+        });
       },
       // An unattended turn raised a request the daemon broadcast to every
       // surface; the queue is re-read rather than trusted from the payload.
