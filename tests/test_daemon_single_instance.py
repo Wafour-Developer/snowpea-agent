@@ -119,3 +119,24 @@ async def test_ensure_daemon_stops_a_dead_to_the_world_daemon_before_replacing_i
     with pytest.raises(Spawned):
         await daemon_client.ensure_daemon(tmp_path)
     assert order == ["stop 4242", "spawn"]
+
+
+async def test_stopping_daemon_leaves_a_successors_daemon_json_alone(tmp_path: Path) -> None:
+    import json
+
+    from snowpea_core.server.app_server import Daemon
+
+    daemon = Daemon(port=0, home=tmp_path)
+    await daemon.start()
+    try:
+        advert = tmp_path / "daemon.json"
+        successor = json.loads(advert.read_text()) | {"pid": 999_999, "port": 1}
+        advert.write_text(json.dumps(successor))
+    finally:
+        await daemon.stop()
+    assert json.loads(advert.read_text())["pid"] == 999_999
+
+    own = Daemon(port=0, home=tmp_path)
+    await own.start()
+    await own.stop()
+    assert not advert.exists()

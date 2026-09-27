@@ -742,8 +742,14 @@ class Daemon:
     def _remove_daemon_json(self) -> None:
         if self.core is None:
             return
+        path = self.core.paths.daemon_json
+        # Only our own advert: a daemon that is shutting down must not take
+        # the address of the one that already replaced it off the map.
+        with contextlib.suppress(OSError, ValueError):
+            if json.loads(path.read_text(encoding="utf-8")).get("pid") != self.core.pid:
+                return
         with contextlib.suppress(OSError):
-            self.core.paths.daemon_json.unlink()
+            path.unlink()
 
     async def _on_idle(self) -> None:
         self.request_shutdown("idle")
