@@ -152,6 +152,28 @@ def _spawn_daemon(home: Path) -> subprocess.Popen[bytes]:
         raise DaemonError(f"could not start the daemon ({command[0]}): {exc}") from exc
 
 
+#: Health probes a live but slow daemon gets before it is replaced.
+HEALTH_RETRIES = 5
+
+#: ``snowpea_core.server.app_server.HOME_LOCKED_EXIT`` (kept literal: the
+#: client must not import the server).
+HOME_LOCKED_EXIT = 73
+
+
+def _stop_unresponsive(pid: int) -> None:
+    """SIGTERM a daemon that is alive but will not answer, then SIGKILL it."""
+    import signal
+
+    for sig, wait in ((signal.SIGTERM, 5.0), (getattr(signal, "SIGKILL", signal.SIGTERM), 2.0)):
+        with contextlib.suppress(OSError):
+            os.kill(pid, sig)
+        deadline = time.monotonic() + wait
+        while time.monotonic() < deadline:
+            if not pid_alive(pid):
+                return
+            time.sleep(0.1)
+
+
 async def ensure_daemon(home: Path | str | None = None) -> DaemonInfo:
     """Return a live daemon, starting one if needed.
 
@@ -160,8 +182,15 @@ async def ensure_daemon(home: Path | str | None = None) -> DaemonInfo:
     """
     resolved = resolve_home(home)
     existing = read_daemon_json(resolved)
-    if existing is not None and pid_alive(existing.pid) and await health_ok(existing.port):
-        return existing
+    if existing is not None and pid_alive(existing.pid):
+        # A live daemon that is slow to answer is still the daemon: starting a
+        # second one beside it left orphans that ran forever. Give it a few
+        # tries, and if it really does not answer, stop it before replacing it.
+        for _attempt in range(HEALTH_RETRIES):
+            if await health_ok(existing.port):
+                return existing
+            await asyncio.sleep(POLL_INTERVAL_SEC)
+        _stop_unresponsive(existing.pid)
 
     # Stale advert: drop it so we can tell the new daemon's file apart.
     stale = Paths(home=resolved).daemon_json
@@ -174,6 +203,11 @@ async def ensure_daemon(home: Path | str | None = None) -> DaemonInfo:
         info = read_daemon_json(resolved)
         if info is not None and await health_ok(info.port):
             return info
+        if process.poll() == HOME_LOCKED_EXIT:
+            # Another CLI started a daemon a moment earlier; wait for its
+            # daemon.json rather than failing.
+            await asyncio.sleep(POLL_INTERVAL_SEC)
+            continue
         if process.poll() is not None:
             raise DaemonError(
                 f"the daemon exited immediately with status {process.returncode}; "

@@ -636,6 +636,11 @@ class Daemon:
     async def start(self) -> Core:
         """Bind the socket, publish ``daemon.json`` and start the idle timer."""
         paths = Paths.create(self._home)
+        # One daemon per home. Two used to run side by side — a CLI that
+        # found the first slow to answer started a second and forgot the
+        # first — and both polled the same Telegram bot (409 Conflict), ran
+        # the same schedules and wrote the same state.db.
+        self._lock = acquire_home_lock(paths.home)
         _configure_logging(paths)
         settings = Settings.load(paths)
         if self._preissued_token:
@@ -754,6 +759,14 @@ class Daemon:
         await self._closed.wait()
 
     async def stop(self) -> None:
+        """Close sockets, drop ``daemon.json``, release the port and the home lock."""
+        try:
+            await self._stop_inner()
+        finally:
+            release_home_lock(getattr(self, "_lock", None))
+            self._lock = None
+
+    async def _stop_inner(self) -> None:
         """Close sockets, drop ``daemon.json`` and release the port."""
         self.request_shutdown(self.shutdown_reason or "requested")
         if self.core is not None:
@@ -850,6 +863,53 @@ def _configure_logging(paths: Paths) -> None:
     logger.setLevel(logging.INFO)
 
 
+class HomeLocked(RuntimeError):
+    """Another daemon already holds this home's lock."""
+
+
+#: Exit status of a daemon that found its home locked (EX_CANTCREAT).
+HOME_LOCKED_EXIT = 73
+
+
+def acquire_home_lock(home: Path) -> Any:
+    """Hold ``<home>/daemon.lock`` for this process's lifetime, or raise :class:`HomeLocked`.
+
+    An advisory ``flock``: the kernel drops it when the process dies, however
+    it dies, so a crashed daemon never leaves a stale lock behind. Where
+    ``fcntl`` does not exist (Windows) this is a no-op.
+    """
+    try:
+        import fcntl
+    except ImportError:  # pragma: no cover - Windows
+        return None
+    handle = open(Path(home) / "daemon.lock", "a+")  # noqa: SIM115 - held for the process
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as exc:
+        handle.seek(0)
+        holder = handle.read().strip()
+        handle.close()
+        raise HomeLocked(
+            f"another snowpea daemon{f' (pid {holder})' if holder else ''} is running on {home}"
+        ) from exc
+    handle.seek(0)
+    handle.truncate()
+    handle.write(str(os.getpid()))
+    handle.flush()
+    return handle
+
+
+def release_home_lock(handle: Any) -> None:
+    if handle is None:
+        return
+    with contextlib.suppress(Exception):
+        import fcntl
+
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    with contextlib.suppress(Exception):
+        handle.close()
+
+
 def _install_signal_handlers(daemon: Daemon) -> None:
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
@@ -871,8 +931,10 @@ async def run_daemon(
 
 
 __all__ = [
+    "HOME_LOCKED_EXIT",
     "HOST",
     "Core",
+    "HomeLocked",
     "Daemon",
     "build_dispatcher",
     "register_gateway_handlers",
