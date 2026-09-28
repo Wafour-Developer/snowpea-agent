@@ -58,6 +58,10 @@ async def tool_search(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     except (TypeError, ValueError):
         count = deferred.MAX_RESULTS
     catalogue = registry.all_specs(ctx.session)
+    allowed = getattr(ctx.session, "allowed_tools", None)
+    if allowed is not None:
+        # Under a skill's allowed-tools, only what the skill may call is found.
+        catalogue = [spec for spec in catalogue if spec.name in allowed]
     matches = deferred.search(catalogue, query, min(max(1, count), deferred.MAX_RESULTS))
     if not matches:
         return ToolResult(ok=True, output=NO_MATCH.format(query=query))

@@ -311,3 +311,25 @@ async def test_consecutive_rounds_produce_byte_identical_system_prompts_via_prov
     assert len(captured_prompts) == 2
     assert captured_prompts[0] == captured_prompts[1]
     assert captured_prompts[0].encode("utf-8") == captured_prompts[1].encode("utf-8")
+
+
+async def test_under_a_skills_allowed_tools_tool_search_finds_only_allowed_tools(
+    core: Core, session: Session, workdir: Path
+) -> None:
+    """Seen live: a deep-research child (allowed-tools: web_search, web_extract, …)
+    had tool_search refused five times before it tried web_search directly."""
+    from snowpea_core.agent import loop
+
+    session.allowed_tools = {"web_search", "web_extract"}
+    tool = core.tools.get("tool_search")
+    assert tool is not None
+    result = await tool.run(
+        ctx_for(core, session, workdir), {"query": "select:web_search,git_commit"}
+    )
+    assert result.ok, result.error
+    assert result.meta == {"loaded": ["web_search"]}
+
+    # The loop lets the call through instead of refusing it as outside allowed-tools.
+    assert not loop.skill_refuses(session, "tool_search")
+    assert loop.skill_refuses(session, "shell")
+    assert not loop.skill_refuses(session, "web_search")

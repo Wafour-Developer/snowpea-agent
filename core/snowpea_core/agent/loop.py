@@ -1342,6 +1342,18 @@ async def _ask_to_continue(core: Core, session: Session, config: AgentConfig) ->
     )
 
 
+def skill_refuses(session: Session, name: str) -> bool:
+    """True when the session's skill allowed-tools exclude the tool ``name``.
+
+    tool_search is always let through: it only loads schemas, and it lists
+    allowed tools only, so allowed-tools cannot be widened through it. Refusing
+    it left a deep-research child spending five rounds failing to load
+    web_search.
+    """
+    allowed = getattr(session, "allowed_tools", None)
+    return allowed is not None and name not in allowed and name != "tool_search"
+
+
 async def _run_one_call(
     core: Core,
     session: Session,
@@ -1366,8 +1378,7 @@ async def _run_one_call(
         await hub.emit_event(session.id, events.tool_call(call.id, call.name, call.arguments))
         await _fail_call(core, session, call, f"tool {call.name} is inactive")
         return None
-    allowed = getattr(session, "allowed_tools", None)
-    if allowed is not None and call.name not in allowed:
+    if skill_refuses(session, call.name):
         await hub.emit_event(session.id, events.tool_call(call.id, call.name, call.arguments))
         await _fail_call(core, session, call, f"{call.name} is not in this skill's allowed-tools")
         return None
