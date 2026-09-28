@@ -512,6 +512,23 @@ function finishMessage(state: State, payload: Record<string, unknown>): State {
  * Called wherever a message stops streaming, so the user's line lands after the
  * message it interrupted rather than inside it.
  */
+/**
+ * Close every tool call still marked running.
+ *
+ * A call only stops running when its `tool.result` arrives. A turn that ends
+ * without one — interrupted, failed, or cut off by a daemon restart the TUI
+ * was not connected for — used to leave the card running for good, and since
+ * `<Static>` releases entries in timeline order, everything after it (every
+ * later prompt and reply) stayed pinned in the live region. Once that region
+ * outgrew the terminal the replies flashed past and were gone.
+ */
+function settleRunningCalls(toolCalls: ToolCallEntry[], why: string): ToolCallEntry[] {
+  if (!toolCalls.some((call) => call.state === "running")) return toolCalls;
+  return toolCalls.map((call) =>
+    call.state === "running" ? { ...call, state: "error" as ToolCallState, error: call.error ?? why } : call,
+  );
+}
+
 function flushDeferred(state: State): State {
   if (state.deferredPrompts.length === 0) return state;
   let next: State = { ...state, deferredPrompts: [] };
@@ -984,8 +1001,10 @@ function applySessionEvent(
       const messages = base.messages.map((m) => (m.streaming ? { ...m, streaming: false } : m));
       // Nothing may be left stranded by a turn that ended without a final
       // message — an interrupt, or an error.
+      const reason = String(payload.reason ?? "complete");
       const settled = {
         ...flushDeferred({ ...base, messages }),
+        toolCalls: settleRunningCalls(base.toolCalls, `stopped: the turn ended (${reason})`),
         promptTexts,
         turnActive: false,
         turnStartedAt: null,
@@ -1150,6 +1169,9 @@ export function reducer(state: State, action: Action): State {
       const messages = state.messages.map((m) => (m.streaming ? { ...m, streaming: false } : m));
       return {
         ...flushDeferred({ ...state, messages }),
+        // The daemon that was running these calls is gone; their results
+        // are not coming.
+        toolCalls: settleRunningCalls(state.toolCalls, "stopped: the daemon restarted"),
         turnActive: false,
         turnStartedAt: null,
         turnWaited: false,

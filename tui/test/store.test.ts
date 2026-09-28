@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { SessionEvent } from "../src/rpc/sdk.js";
 import { resetUiLanguage, setUiLanguage } from "../src/layout/language.js";
 import { __resetIdCounter, initialState, reducer, type State } from "../src/state/store.js";
+import { settledCount } from "../src/layout/statics.js";
 
 function event(seq: number, kind: string, payload: Record<string, unknown>): SessionEvent {
   return { sessionId: "sess-1", seq, kind, payload };
@@ -324,6 +325,36 @@ describe("interrupted turns and post-stop note", () => {
     } finally {
       resetUiLanguage();
     }
+  });
+
+  it("a turn that ends without a tool result closes the running call", () => {
+    const state = apply(
+      initialState,
+      event(1, "turn.started", { turnId: "t1" }),
+      event(2, "tool.call", { callId: "c1", name: "shell", args: { command: "pip install" } }),
+      event(3, "turn.done", { turnId: "t1", reason: "interrupted" }),
+    );
+    expect(state.toolCalls[0]).toMatchObject({ state: "error", error: "stopped: the turn ended (interrupted)" });
+    // Settled, so it and everything after it can reach the scrollback.
+    expect(settledCount(state)).toBe(state.timeline.length);
+  });
+
+  it("a daemon restart mid-call closes the call, so later replies are not pinned behind it", () => {
+    let state = apply(
+      initialState,
+      event(1, "turn.started", { turnId: "t1" }),
+      event(2, "tool.call", { callId: "c1", name: "shell", args: { command: "sleep 30" } }),
+    );
+    state = reducer(state, { type: "session/reconnected" });
+    expect(state.toolCalls[0]).toMatchObject({ state: "error", error: "stopped: the daemon restarted" });
+    state = apply(
+      state,
+      event(10, "turn.started", { turnId: "t2" }),
+      event(11, "message.delta", { text: "the reply" }),
+      event(12, "message.done", { text: "the reply" }),
+      event(13, "turn.done", { turnId: "t2", reason: "complete" }),
+    );
+    expect(settledCount(state)).toBe(state.timeline.length);
   });
 
   it("reconnect event clears stuck turn and dangling streaming messages", () => {
