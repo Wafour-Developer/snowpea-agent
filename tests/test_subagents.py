@@ -961,6 +961,27 @@ async def test_an_unresolvable_delegation_model_is_refused(
     assert result.error is not None and "unknown model" in result.error
 
 
+async def test_a_delegation_model_on_an_unconfigured_vendor_is_refused_with_choices(
+    daemon: Daemon, workdir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Seen live: 'anthropic:efficient' on a machine with no Anthropic key reached
+    the child, which died with no message, and the parent re-delegated blind."""
+    monkeypatch.delenv("SNOWPEA_PROVIDER", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    core = daemon.core
+    assert core is not None
+    core.providers._providers.pop("anthropic", None)
+    core.settings.models.profiles = {"local-fast": ModelProfile(provider="openai", model="x")}
+    session = await open_session(core, workdir)
+    result = await get_manager(core).run(
+        session, "do a thing", agent="executor", model="anthropic:efficient"
+    )
+    assert not result.ok
+    assert result.error is not None
+    assert "'anthropic' is not configured" in result.error
+    assert "local-fast" in result.error
+
+
 async def test_a_child_inherits_the_parents_pin_when_nothing_else_applies(
     daemon: Daemon, workdir: Path
 ) -> None:

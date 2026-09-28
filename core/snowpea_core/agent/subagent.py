@@ -828,6 +828,17 @@ class SubagentManager:
                 await self.emit_spawn(record)
                 await self.emit_done(record)
                 return self._result(record)
+            unusable = self._unusable_vendor(route.provider, route.model)
+            if unusable:
+                # A well-formed 'vendor:model' for a vendor this machine has no
+                # credential for used to reach the child and fail there with no
+                # message; the parent then re-delegated blind.
+                record.status = ERROR
+                record.error = unusable
+                record.reason = ERROR
+                await self.emit_spawn(record)
+                await self.emit_done(record)
+                return self._result(record)
             record.provider_override, record.model_override = route.provider, route.model
         if agent:
             record.name = agent
@@ -885,6 +896,26 @@ class SubagentManager:
             record.status = DONE
         await self.emit_done(record)
         return self._result(record)
+
+    def _unusable_vendor(self, vendor: str | None, model: str | None = None) -> str | None:
+        """Why ``vendor`` cannot run a delegation here, or ``None`` when it can."""
+        registry = getattr(self.core, "providers", None)
+        if not vendor or registry is None:
+            return None
+        try:
+            # Building the provider is the real test: it honours a forced
+            # provider (tests, SNOWPEA_PROVIDER) and fails exactly when the
+            # child would.
+            registry.get(vendor, model)
+            return None
+        except Exception:
+            pass
+        profiles = sorted(self.core.settings.models.profiles)
+        choices = ", ".join(profiles) if profiles else "(no model profiles)"
+        return (
+            f"model vendor {vendor!r} is not configured on this machine; "
+            f"use one of: {choices}, or omit model to use the agent's own assignment"
+        )
 
     def _result(self, record: SubagentRecord) -> SubagentResult:
         """One place that turns a record into what the caller reads."""

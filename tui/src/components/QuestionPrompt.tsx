@@ -155,7 +155,10 @@ export function QuestionPrompt({
       if (!typing) return;
       if (key.return) {
         const text = draft.trim();
-        patch({ selected: answer.selected, text: text.length > 0 ? text : null });
+        // Single-select: the typed answer replaces the picked option, as picking
+        // an option clears the typed one. Sending both told the model two things.
+        const keep = multi || text.length === 0 ? answer.selected : [];
+        patch({ selected: keep, text: text.length > 0 ? text : null });
         setTyping(false);
         setDraft("");
         setCursor(confirmRow);

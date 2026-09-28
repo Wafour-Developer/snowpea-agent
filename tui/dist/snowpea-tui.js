@@ -40217,7 +40217,8 @@ function QuestionPrompt({
       if (!typing) return;
       if (key.return) {
         const text2 = draft.trim();
-        patch({ selected: answer.selected, text: text2.length > 0 ? text2 : null });
+        const keep = multi || text2.length === 0 ? answer.selected : [];
+        patch({ selected: keep, text: text2.length > 0 ? text2 : null });
         setTyping(false);
         setDraft("");
         setCursor(confirmRow);

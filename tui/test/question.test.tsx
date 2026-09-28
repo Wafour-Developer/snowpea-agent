@@ -187,6 +187,18 @@ describe("question picker", () => {
     expect(result.answers).toEqual([{ selected: [], text: "babylon.js" }]);
   });
 
+  it("a typed Other answer replaces a picked option in a single-select question", async () => {
+    const { stdin, instance, answer } = await openPicker();
+    // Pick the first option (the cursor jumps to Confirm), go back up to
+    // Other and type instead: the answer is the text alone, not both.
+    await press(stdin, ENTER, "\u001b[A", ENTER);
+    await press(stdin, "babylon.js");
+    await press(stdin, ENTER, ENTER);
+    const result = await answer;
+    instance.unmount();
+    expect(result.answers).toEqual([{ selected: [], text: "babylon.js" }]);
+  });
+
   it("reports Esc as an empty answer set, so the tool can say declined", async () => {
     const { stdin, instance, answer } = await openPicker();
     await press(stdin, ESC);
