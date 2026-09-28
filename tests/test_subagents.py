@@ -1112,3 +1112,26 @@ async def test_parent_interrupt_cascades_to_slow_child(
     assert any(p.get("status") == "interrupted" for p in subagent_done)
 
     assert not unrelated_session.interrupt.is_set()
+
+
+async def test_a_child_whose_turn_errors_reports_the_error_not_an_empty_success(
+    daemon: Daemon,
+) -> None:
+    """Seen live: a /team plan stage routed to a vendor the daemon did not know
+    came back ok with an empty summary and read as 'the model returned nothing'."""
+    from snowpea_core.agent.subagent import DONE, SubagentRecord, _ChildWatcher
+
+    core = daemon.core
+    assert core is not None
+    manager = get_manager(core)
+    record = SubagentRecord(agent_id="a-1", name="architect", task="plan", parent_session_id="p")
+    watcher = _ChildWatcher(manager, record)
+    await watcher.notify(
+        "session.event",
+        {"kind": "error", "payload": {"message": "unknown provider vendor: hon2"}},
+    )
+    await watcher.notify("session.event", {"kind": "turn.done", "payload": {"reason": "error"}})
+    record.status = DONE
+    result = manager._result(record)
+    assert not result.ok
+    assert result.error == "unknown provider vendor: hon2"

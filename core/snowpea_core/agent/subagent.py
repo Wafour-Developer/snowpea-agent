@@ -380,6 +380,14 @@ class _ChildWatcher:
         if kind == "turn.done":
             record.reason = str(payload.get("reason") or COMPLETE)
             return
+        if kind == "error":
+            # The child's own failure ("unknown provider vendor: hon2") is the
+            # only explanation the parent will get; without it an errored turn
+            # read as an empty success and the lead re-delegated blind.
+            message = str(payload.get("message") or "").strip()
+            if message:
+                record.error = message
+            return
         if kind == "tool.result":
             if _is_denied_tool_result(payload):
                 record.denied_tools.append(str(payload.get("name") or "tool"))
@@ -920,12 +928,13 @@ class SubagentManager:
     def _result(self, record: SubagentRecord) -> SubagentResult:
         """One place that turns a record into what the caller reads."""
         reason = record.reason or (COMPLETE if record.ok else ERROR)
+        failed = reason == ERROR and not record.summary.strip()
         return SubagentResult(
             agent_id=record.agent_id,
-            ok=record.ok if reason != PARENT else True,
+            ok=False if failed else (record.ok if reason != PARENT else True),
             summary=record.summary,
             status=record.status,
-            error=record.error,
+            error=record.error or ("the sub-agent's turn ended in an error" if failed else None),
             session_id=record.session_id,
             usage=record.usage(),
             reason=reason,
