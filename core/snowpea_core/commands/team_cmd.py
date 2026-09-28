@@ -185,7 +185,9 @@ def _pipeline_report_failed(report: str) -> bool:
         return True
     if "verify=" in stages and verify != "VERIFY: PASS":
         return True
-    return "review=" in stages and review != "APPROVE"
+    # The verdict is the first word: "APPROVE (budget exhausted: 16/16 rounds)"
+    # is an approval that says what it cost, not a missing one.
+    return "review=" in stages and review.split(" ", 1)[0] != "APPROVE"
 
 
 def _report_value(lines: list[str], key: str) -> str:

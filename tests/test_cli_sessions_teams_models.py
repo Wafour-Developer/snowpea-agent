@@ -228,6 +228,19 @@ async def test_team_pipeline_report_failure_detection_tracks_evidence() -> None:
         "review: APPROVE\n\n"
         "Nothing was left unfinished."
     )
+    # Seen live: an APPROVE given on the critic's last round carries a note and
+    # used to fail the whole run after tests and verify had passed.
+    assert not team_cmd._pipeline_report_failed(
+        "stages: implement=executor, test=test-engineer, verify=verifier, review=critic\n"
+        "tasks: 1/1 finished\n"
+        "tests: TESTS: PASS\n"
+        "verify: VERIFY: PASS\n"
+        "review: APPROVE (budget exhausted: 16/16 rounds)\n\n"
+        "Nothing was left unfinished."
+    )
+    assert team_cmd._pipeline_report_failed(
+        "stages: review=critic\ntasks: 1/1 finished\nreview: APPROVED_BY_NOBODY\n"
+    )
     assert team_cmd._pipeline_report_failed(
         "stages: implement=executor, test=test-engineer, review=critic\n"
         "tasks: 1/1 finished\n"
