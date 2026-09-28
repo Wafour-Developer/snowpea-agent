@@ -35176,6 +35176,9 @@ function buildHudSegments(input) {
     color: modeColor2(input.mode),
     priority: 2
   });
+  if (input.delegation) {
+    segments.push({ key: "delegation", text: "\u21C4 team", color: modeColor2(input.mode), priority: 2 });
+  }
   const context = contextSegment(input.context ?? null);
   if (context) {
     segments.push({ key: "ctx", ...context, priority: 1 });
@@ -35534,6 +35537,7 @@ var initialState = {
   modelSource: null,
   effort: null,
   effortSource: null,
+  delegation: false,
   messages: [],
   toolCalls: [],
   diffs: [],
@@ -35634,6 +35638,12 @@ function finishMessage(state, payload) {
       timeline: pushTimeline(state, { kind: "message", id: message.id })
     },
     payload
+  );
+}
+function settleRunningCalls(toolCalls, why) {
+  if (!toolCalls.some((call) => call.state === "running")) return toolCalls;
+  return toolCalls.map(
+    (call) => call.state === "running" ? { ...call, state: "error", error: call.error ?? why } : call
   );
 }
 function flushDeferred(state) {
@@ -35847,7 +35857,11 @@ function applySessionEvent(state, event, options = {}) {
       return { ...base, model, provider, modelSource: source, effort, effortSource };
     }
     case "mode.changed":
-      return { ...base, mode: payload.mode ?? base.mode };
+      return {
+        ...base,
+        mode: payload.mode ?? base.mode,
+        delegation: typeof payload.delegation === "boolean" ? payload.delegation : base.delegation
+      };
     case "usage":
       return {
         ...base,
@@ -35997,8 +36011,10 @@ function applySessionEvent(state, event, options = {}) {
       const promptTexts = { ...base.promptTexts };
       if (finished) delete promptTexts[finished];
       const messages = base.messages.map((m) => m.streaming ? { ...m, streaming: false } : m);
+      const reason = String(payload.reason ?? "complete");
       const settled = {
         ...flushDeferred({ ...base, messages }),
+        toolCalls: settleRunningCalls(base.toolCalls, `stopped: the turn ended (${reason})`),
         promptTexts,
         turnActive: false,
         turnStartedAt: null,
@@ -36048,8 +36064,11 @@ function reducer(state, action) {
         sessionId: action.sessionId,
         mode: action.mode,
         provider: action.provider ?? state.provider,
-        model: action.model ?? state.model
+        model: action.model ?? state.model,
+        delegation: action.delegation ?? state.delegation
       };
+    case "delegation":
+      return { ...state, delegation: action.on };
     case "status":
       return { ...state, status: action.status };
     case "mode":
@@ -36124,6 +36143,9 @@ function reducer(state, action) {
       const messages = state.messages.map((m) => m.streaming ? { ...m, streaming: false } : m);
       return {
         ...flushDeferred({ ...state, messages }),
+        // The daemon that was running these calls is gone; their results
+        // are not coming.
+        toolCalls: settleRunningCalls(state.toolCalls, "stopped: the daemon restarted"),
         turnActive: false,
         turnStartedAt: null,
         turnWaited: false
@@ -41444,6 +41466,7 @@ function App2({
   workdir,
   provider,
   model,
+  initialDelegation,
   fullscreen = false,
   onRestart,
   history,
@@ -41600,7 +41623,16 @@ function App2({
     });
   }, [client, sessionId]);
   (0, import_react45.useEffect)(() => {
-    dispatch({ type: "session/ready", sessionId, mode, provider, model });
+    dispatch({
+      type: "session/ready",
+      sessionId,
+      mode,
+      provider,
+      model,
+      // What session.create said applies to that session only; a resumed one
+      // takes it from session.resume.
+      delegation: sessionId === initialSessionId ? initialDelegation : void 0
+    });
     dispatch({ type: "status", status: client.getStatus() });
     const childEvents = createChildEventBuffer(
       (childSession, event) => dispatch({ type: "child/event", sessionId: childSession, event })
@@ -41764,6 +41796,8 @@ function App2({
     mode,
     provider,
     model,
+    initialDelegation,
+    initialSessionId,
     refreshApprovals,
     refreshCapabilities,
     refreshLsp,
@@ -41898,6 +41932,9 @@ function App2({
           setSessionId(target);
           sessions?.remember({ sessionId: target, workdir, firstPrompt: "", at: Date.now() });
         }
+        if (into === "main" && typeof result?.delegation === "boolean") {
+          dispatch({ type: "delegation", on: result.delegation });
+        }
         const events = Array.isArray(result?.events) ? result.events : [];
         if (events.length > 0) {
           if (into === "child") dispatch({ type: "child/replay", sessionId: target, events });
@@ -41957,6 +41994,7 @@ function App2({
       model: state.model,
       modelSource: state.modelSource ?? sessionModelSource,
       effort: state.effort,
+      delegation: state.delegation,
       mode: state.mode,
       usage: state.usage,
       context: state.context,
@@ -43722,12 +43760,16 @@ var TuiClient = class {
     return untyped(method, params);
   }
   async createSession(options) {
+    return (await this.createSessionInfo(options)).sessionId;
+  }
+  /** `session.create`, with what the daemon said about the new session. */
+  async createSessionInfo(options) {
     const result = await this.call("session.create", {
       workdir: options.workdir,
       ...options.mode ? { mode: options.mode } : {},
       originSurface: options.originSurface ?? "tui"
     });
-    return result.sessionId;
+    return { sessionId: result.sessionId, delegation: result.delegation === true };
   }
   /**
    * `session.prompt`, with whatever the input had attached.
@@ -43929,13 +43971,14 @@ async function main(argv = process.argv.slice(2)) {
     clientVersion: CLIENT_VERSION
   });
   let sessionId;
+  let delegation = false;
   try {
     await client.connect();
-    sessionId = await client.createSession({
+    ({ sessionId, delegation } = await client.createSessionInfo({
       workdir: args.cwd,
       mode: args.mode,
       originSurface: "tui"
-    });
+    }));
   } catch (error) {
     process.stderr.write(`snowpea-tui: cannot connect to daemon: ${error.message}
 `);
@@ -43983,6 +44026,7 @@ async function main(argv = process.argv.slice(2)) {
       {
         client,
         sessionId,
+        initialDelegation: delegation,
         mode: args.mode ?? "accept",
         workdir: args.cwd,
         fullscreen: args.fullscreen,

@@ -231,6 +231,7 @@ class SessionManager:
             kind=cast(SessionKind, row.get("kind") or "chat"),
             job_id=row.get("job_id"),
             effort=effort_scale.normalize(row.get("effort")),
+            delegation=None if row.get("delegation") is None else bool(row.get("delegation")),
             max_concurrent=self.max_concurrent(workdir),
             history=history,
             seq=await self.store.max_seq(session_id),
@@ -313,6 +314,29 @@ class SessionManager:
         if self.store is not None:
             await self.store.update_effort(session.id, session.effort)
         return session.effort
+
+    async def set_delegation(self, session: Session, value: str | bool | None) -> bool | None:
+        """Pin whether ``session`` delegates by default, or clear the pin.
+
+        ``on``/``off`` pin it; ``auto`` (or ``None``) goes back to
+        ``agents.delegateByDefault``.  Returns the pin now stored.
+        """
+        if isinstance(value, bool) or value is None:
+            pin = value
+        else:
+            text = value.strip().lower()
+            if text in ("on", "true", "yes", "1"):
+                pin = True
+            elif text in ("off", "false", "no", "0"):
+                pin = False
+            elif text in ("auto", ""):
+                pin = None
+            else:
+                raise ValueError(f"unknown delegation {text!r}: one of on, off, auto")
+        session.delegation = pin
+        if self.store is not None:
+            await self.store.update_delegation(session.id, pin)
+        return pin
 
     async def close(self, session_id: str) -> bool:
         """Close a session, cancelling any in-flight turn."""

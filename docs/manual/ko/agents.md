@@ -67,6 +67,19 @@ VERDICT: NEEDS_MORE_EVIDENCE
 
 근거 없는 지적은 의견일 뿐이므로, 지적마다 위치와 무엇이 잘못되는지와 그것이 터지는 조건이 함께 붙습니다.
 
+## 위임 모드
+
+기본적으로 에이전트는 작업을 직접 하고, 맡길 가치가 있다고 판단할 때만 위임합니다. 위임 모드를 켜면 세션의 에이전트가 리드가 됩니다. 계획을 세우거나(plan 모드에서 쓴 계획을 따르고), 구현은 `executor`, 테스트는 `test-engineer`, 설계 판단은 `architect`, 넓은 탐색은 `explorer`에게 맡기며, 완료를 보고하기 전에 `verifier`가 결과를 확인하게 합니다. 사소한 수정이나 명령 하나는 여전히 직접 합니다.
+
+```text
+/delegation          # 지금 무엇이 적용되는지와 그 이유
+/delegation on       # 이 세션은 위임 (재개해도 유지)
+/delegation off      # 이 세션은 직접 수행
+/delegation auto     # 다시 agents.delegateByDefault 를 따름
+```
+
+팀은 세션의 활성 팀(`/team use`), 없으면 `agents.default_team` 명단, 그것도 없으면 내장 역할입니다. 새 세션이 모두 위임 모드로 시작하게 하려면 `settings.json` 에 `"agents": {"delegateByDefault": true}` 를 넣으세요. 켜져 있는 동안 터미널 UI는 모드 옆에 `⇄ team` 을 표시합니다.
+
 ## 리뷰는 요청할 때만 돕니다
 
 스스로 리뷰를 시작하는 것은 없습니다. `/review`는 작업 트리에 커밋되지 않은 변경을 대상으로 한 번 돌고 판정을 전달합니다.

@@ -67,6 +67,19 @@ VERDICT: NEEDS_MORE_EVIDENCE
 
 Findings without evidence are opinions, so each finding names a location, what goes wrong, and the condition that triggers it.
 
+## Delegation mode
+
+By default the agent does the work itself and delegates only when it judges a task worth it. Delegation mode turns the session's agent into a lead: it plans (or follows the plan it wrote in plan mode), hands implementation to `executor`, tests to `test-engineer`, design questions to `architect` and broad searches to `explorer`, and has `verifier` check the result before it reports the work as done. Trivial edits and single commands it still does itself.
+
+```text
+/delegation          # what is in force, and why
+/delegation on       # this session delegates (kept across a resume)
+/delegation off      # this session does the work itself
+/delegation auto     # follow agents.delegateByDefault again
+```
+
+The team is the session's active team (`/team use`), else the `agents.default_team` roster, else the built-in roles. To make every new session start delegating, set `"agents": {"delegateByDefault": true}` in `settings.json`. While it is on, the terminal UI shows `⇄ team` beside the mode.
+
 ## Reviews happen when you ask for them
 
 Nothing starts a review on its own. `/review` runs one over whatever is uncommitted in your working tree, and relays the verdict:

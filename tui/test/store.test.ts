@@ -379,3 +379,16 @@ describe("interrupted turns and post-stop note", () => {
   });
 });
 
+describe("delegation mode", () => {
+  it("follows mode.changed only when it carries the flag", () => {
+    let state = reducer(initialState, { type: "session/ready", sessionId: "s", mode: "auto", delegation: true });
+    expect(state.delegation).toBe(true);
+    // A plain mode change sends null: delegation stays as it was.
+    state = apply(state, event(1, "mode.changed", { mode: "plan", delegation: null }));
+    expect(state).toMatchObject({ mode: "plan", delegation: true });
+    state = apply(state, event(2, "mode.changed", { mode: "plan", delegation: false }));
+    expect(state.delegation).toBe(false);
+    state = reducer(state, { type: "delegation", on: true });
+    expect(state.delegation).toBe(true);
+  });
+});

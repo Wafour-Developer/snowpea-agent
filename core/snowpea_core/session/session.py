@@ -56,6 +56,11 @@ class Session:
     #: — what ``/effort`` and ``session.setEffort`` pin.  ``None`` falls back
     #: to ``agent.effortBy`` and then ``agent.effort`` (CORE-effort).
     effort: str | None = None
+    #: ``True``/``False`` for this session only — what ``/delegation on|off``
+    #: pins.  ``None`` follows ``agents.delegateByDefault``.  On, the lead
+    #: hands implementation, tests and verification to the team's agents
+    #: instead of doing them itself.
+    delegation: bool | None = None
     #: Tool-round budget for this session only — an agent definition's
     #: ``tool_rounds:``.  ``None`` falls back to ``agents.toolRounds`` and then
     #: to the default for the session's kind (CORE-subagent-budget).

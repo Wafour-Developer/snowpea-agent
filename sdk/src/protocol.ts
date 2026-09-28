@@ -1520,6 +1520,8 @@ export interface SessionCreateParams {
 
 /** `session.create` result. */
 export interface SessionCreateResult {
+  /** Whether the session starts in delegation mode (the lead hands the work to its team): the session pin, else agents.delegateByDefault. */
+  delegation?: boolean;
   /** Id of the new session. */
   sessionId: string;
 }
@@ -1643,6 +1645,8 @@ export interface SessionResumeParams {
 
 /** `session.resume` result. */
 export interface SessionResumeResult {
+  /** Whether delegation mode is in force: the session pin, else the default. */
+  delegation?: boolean;
   /** Reasoning effort pinned on the session. */
   effort?: string | null;
   /** Missed events in seq order. */
@@ -2961,6 +2965,8 @@ export interface MessageUserEventPayload {
 
 /** Payload of `session.event` with kind `mode.changed`. */
 export interface ModeChangedEventPayload {
+  /** Whether delegation mode is now in force, sent when /delegation changes it; absent when only the permission mode moved. */
+  delegation?: boolean | null;
   kind?: "mode.changed";
   /** Mode now in effect. */
   mode: "plan" | "accept" | "auto";

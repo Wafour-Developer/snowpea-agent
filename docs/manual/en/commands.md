@@ -28,6 +28,7 @@ That prints the live registry, including commands contributed by installed plugi
 | `/backend [local\|docker\|ssh] [json]` | show or change where tools execute |
 | `/delegate <agent> <task>` | delegate one task to a named agent, inside a normal turn: the turn calls `delegate_task` for you, waits, and answers with the outcome |
 | `$<agent> <task>` | shorthand for `/delegate <agent> <task>`; the daemon parses the prefix, so it behaves the same from any client, not only the terminal UI |
+| `/delegation` | show whether delegation mode is on; `/delegation on` makes the agent hand implementation, tests and verification to its team for this session (persisted), `/delegation off` has it do the work itself, `/delegation auto` follows `agents.delegateByDefault`. See [Delegation mode](agents.md#delegation-mode) |
 
 ### Terminal UI
 

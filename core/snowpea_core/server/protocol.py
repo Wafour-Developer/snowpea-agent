@@ -279,6 +279,13 @@ class SessionCreateParams(Payload):
 
 class SessionCreateResult(Payload):
     sessionId: str = Field(description="Id of the new session.")
+    delegation: bool = Field(
+        default=False,
+        description=(
+            "Whether the session starts in delegation mode (the lead hands the work "
+            "to its team): the session pin, else agents.delegateByDefault."
+        ),
+    )
 
 
 class SessionEvent(Payload):
@@ -308,6 +315,10 @@ class SessionResumeResult(Payload):
     provider: str | None = Field(default=None, description="Chat provider vendor in use.")
     model: str | None = Field(default=None, description="Model id in use.")
     effort: str | None = Field(default=None, description="Reasoning effort pinned on the session.")
+    delegation: bool = Field(
+        default=False,
+        description="Whether delegation mode is in force: the session pin, else the default.",
+    )
     events: list[SessionEvent] = Field(
         default_factory=list, description="Missed events in seq order."
     )
@@ -2330,6 +2341,13 @@ class ModeChanged(Payload):
 
     kind: Literal["mode.changed"] = "mode.changed"
     mode: Mode = Field(description="Mode now in effect.")
+    delegation: bool | None = Field(
+        default=None,
+        description=(
+            "Whether delegation mode is now in force, sent when /delegation changes it; "
+            "absent when only the permission mode moved."
+        ),
+    )
 
 
 class BackendChanged(Payload):

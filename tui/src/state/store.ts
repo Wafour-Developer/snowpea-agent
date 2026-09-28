@@ -205,6 +205,8 @@ export interface State {
   effort: string | null;
   /** Which rule set it: session | model | vendor | default. */
   effortSource: string | null;
+  /** Delegation mode: the lead hands the work to its team (`/delegation`). */
+  delegation: boolean;
   messages: Message[];
   toolCalls: ToolCallEntry[];
   diffs: DiffEntry[];
@@ -316,6 +318,7 @@ export const initialState: State = {
   modelSource: null,
   effort: null,
   effortSource: null,
+  delegation: false,
   messages: [],
   toolCalls: [],
   diffs: [],
@@ -350,7 +353,15 @@ export const initialState: State = {
 };
 
 export type Action =
-  | { type: "session/ready"; sessionId: string; mode: Mode; provider?: string; model?: string }
+  | {
+      type: "session/ready";
+      sessionId: string;
+      mode: Mode;
+      provider?: string;
+      model?: string;
+      delegation?: boolean;
+    }
+  | { type: "delegation"; on: boolean }
   | { type: "status"; status: ConnectionStatus }
   | { type: "mode"; mode: Mode }
   | { type: "commands"; commands: CommandInfo[] }
@@ -818,7 +829,13 @@ function applySessionEvent(
     }
 
     case "mode.changed":
-      return { ...base, mode: (payload.mode ?? base.mode) as Mode };
+      // `delegation` rides along only when /delegation moved it; a plain
+      // mode change sends null, which leaves it as it was.
+      return {
+        ...base,
+        mode: (payload.mode ?? base.mode) as Mode,
+        delegation: typeof payload.delegation === "boolean" ? payload.delegation : base.delegation,
+      };
 
     case "usage":
       // The daemon's count replaces the estimate the stream built up.
@@ -1073,7 +1090,11 @@ export function reducer(state: State, action: Action): State {
         mode: action.mode,
         provider: action.provider ?? state.provider,
         model: action.model ?? state.model,
+        delegation: action.delegation ?? state.delegation,
       };
+
+    case "delegation":
+      return { ...state, delegation: action.on };
 
     case "status":
       return { ...state, status: action.status };

@@ -80,6 +80,14 @@ describe("buildHudSegments", () => {
     );
   });
 
+  it("draws the team chip right after the mode only while delegation is on", () => {
+    expect(buildHudSegments(base).find((s) => s.key === "delegation")).toBeUndefined();
+    const segments = buildHudSegments({ ...base, delegation: true });
+    const keys = segments.map((s) => s.key);
+    expect(segments.find((s) => s.key === "delegation")?.text).toBe("⇄ team");
+    expect(keys.indexOf("delegation")).toBe(keys.indexOf("mode") + 1);
+  });
+
   it("draws the effort beside the model, and nothing when it is unknown", () => {
     expect(buildHudSegments(base).find((s) => s.key === "effort")).toBeUndefined();
     const segments = buildHudSegments({ ...base, effort: "high" });

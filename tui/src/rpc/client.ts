@@ -248,12 +248,19 @@ export class TuiClient {
   }
 
   async createSession(options: CreateSessionOptions): Promise<string> {
+    return (await this.createSessionInfo(options)).sessionId;
+  }
+
+  /** `session.create`, with what the daemon said about the new session. */
+  async createSessionInfo(
+    options: CreateSessionOptions,
+  ): Promise<{ sessionId: string; delegation: boolean }> {
     const result = await this.call("session.create", {
       workdir: options.workdir,
       ...(options.mode ? { mode: options.mode } : {}),
       originSurface: options.originSurface ?? "tui",
     });
-    return result.sessionId as string;
+    return { sessionId: result.sessionId as string, delegation: result.delegation === true };
   }
 
   /**

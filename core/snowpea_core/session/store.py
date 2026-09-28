@@ -34,7 +34,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     parent_session_id TEXT,
     kind           TEXT NOT NULL DEFAULT 'chat',
     job_id         TEXT,
-    effort         TEXT
+    effort         TEXT,
+    delegation     INTEGER
 );
 CREATE TABLE IF NOT EXISTS events (
     session_id   TEXT NOT NULL,
@@ -63,6 +64,7 @@ SESSION_COLUMNS: tuple[tuple[str, str], ...] = (
     ("kind", "TEXT NOT NULL DEFAULT 'chat'"),
     ("job_id", "TEXT"),
     ("effort", "TEXT"),
+    ("delegation", "INTEGER"),
 )
 
 SQLITE_RETRY_ATTEMPTS = 5
@@ -217,6 +219,14 @@ class Store:
             self._execute,
             "UPDATE sessions SET effort = ? WHERE id = ?",
             (effort, session_id),
+        )
+
+    async def update_delegation(self, session_id: str, delegation: bool | None) -> None:
+        """Persist the session's delegation pin so it survives a resume."""
+        await asyncio.to_thread(
+            self._execute,
+            "UPDATE sessions SET delegation = ? WHERE id = ?",
+            (None if delegation is None else int(delegation), session_id),
         )
 
     async def update_mode(self, session_id: str, mode: str) -> None:

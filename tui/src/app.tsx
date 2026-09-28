@@ -311,6 +311,8 @@ export interface AppProps {
   workdir: string;
   provider?: string;
   model?: string;
+  /** Delegation mode as `session.create` reported it. */
+  initialDelegation?: boolean;
   /**
    * Draw as a full-screen app on the alternate screen buffer. `index.tsx`
    * turns this off for `--no-fullscreen` and `SNOWPEA_TUI_INLINE=1`, which
@@ -501,6 +503,7 @@ export function App({
   workdir,
   provider,
   model,
+  initialDelegation,
   fullscreen = false,
   onRestart,
   history,
@@ -793,7 +796,16 @@ export function App({
   }, [client, sessionId]);
 
   useEffect(() => {
-    dispatch({ type: "session/ready", sessionId, mode, provider, model });
+    dispatch({
+      type: "session/ready",
+      sessionId,
+      mode,
+      provider,
+      model,
+      // What session.create said applies to that session only; a resumed one
+      // takes it from session.resume.
+      delegation: sessionId === initialSessionId ? initialDelegation : undefined,
+    });
     dispatch({ type: "status", status: client.getStatus() });
 
     // A delegate's tokens arrive as fast as its endpoint produces them, and
@@ -1006,6 +1018,8 @@ export function App({
     mode,
     provider,
     model,
+    initialDelegation,
+    initialSessionId,
     refreshApprovals,
     refreshCapabilities,
     refreshLsp,
@@ -1193,6 +1207,9 @@ export function App({
           // whole reconstructed transcript lands in a single render. The end of
           // the array is the end of the replay — the daemon needs to say
           // nothing extra.
+          if (into === "main" && typeof result?.delegation === "boolean") {
+            dispatch({ type: "delegation", on: result.delegation });
+          }
           const events = Array.isArray(result?.events) ? result.events : [];
           if (events.length > 0) {
             if (into === "child") dispatch({ type: "child/replay", sessionId: target, events });
@@ -1276,6 +1293,7 @@ export function App({
         model: state.model,
         modelSource: state.modelSource ?? sessionModelSource,
         effort: state.effort,
+        delegation: state.delegation,
         mode: state.mode,
         usage: state.usage,
         context: state.context,

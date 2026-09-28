@@ -1363,6 +1363,7 @@ Open a session rooted at a working directory.
 
 | field | type | required | description |
 |---|---|---|---|
+| `delegation` | `boolean` | no | Whether the session starts in delegation mode (the lead hands the work to its team): the session pin, else agents.delegateByDefault. |
 | `sessionId` | `string` | yes | Id of the new session. |
 
 ### `session.deleteSaved`
@@ -1460,6 +1461,7 @@ Replay the events a disconnected client missed.
 
 | field | type | required | description |
 |---|---|---|---|
+| `delegation` | `boolean` | no | Whether delegation mode is in force: the session pin, else the default. |
 | `effort` | `string \| null` | no | Reasoning effort pinned on the session. |
 | `events` | `({ kind: string; payload?: Record<string, unknown>; seq: number; sessionId: string; ts: string; })[]` | no | Missed events in seq order. |
 | `mode` | `"plan" \| "accept" \| "auto" \| null` | no | The session's permission mode as restored, so a surface that resumes adopts it instead of keeping the mode it launched with. |
@@ -2335,6 +2337,7 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 
 | field | type | required | description |
 |---|---|---|---|
+| `delegation` | `boolean \| null` | no | Whether delegation mode is now in force, sent when /delegation changes it; absent when only the permission mode moved. |
 | `kind` | `"mode.changed"` | no |  |
 | `mode` | `"plan" \| "accept" \| "auto"` | yes | Mode now in effect. |
 

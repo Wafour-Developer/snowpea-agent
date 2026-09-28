@@ -124,6 +124,11 @@ class AgentsSettings(_Model):
     #: bounded to the built-in roles instead of every custom definition.
     teams: dict[str, list[str]] = Field(default_factory=dict)
     default_team: str | None = None
+    #: Whether a new session starts in delegation mode: the lead hands
+    #: implementation, tests and verification to the team's agents instead of
+    #: doing them itself.  Off by default; ``/delegation on|off`` pins one
+    #: session either way.
+    delegateByDefault: bool = False
     #: How much of the parent's context a delegated child starts with.
     #: ``"lean"`` drops the memory recall block, the skills index and the
     #: nested instruction files, and narrows a read-only child's eager tool

@@ -253,13 +253,14 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   });
 
   let sessionId: string;
+  let delegation = false;
   try {
     await client.connect();
-    sessionId = await client.createSession({
+    ({ sessionId, delegation } = await client.createSessionInfo({
       workdir: args.cwd,
       mode: args.mode,
       originSurface: "tui",
-    });
+    }));
   } catch (error) {
     process.stderr.write(`snowpea-tui: cannot connect to daemon: ${(error as Error).message}\n`);
     await client.close().catch(() => undefined);
@@ -326,6 +327,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     <App
       client={client}
       sessionId={sessionId}
+      initialDelegation={delegation}
       mode={args.mode ?? "accept"}
       workdir={args.cwd}
       fullscreen={args.fullscreen}

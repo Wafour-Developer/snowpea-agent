@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from snowpea_core.agent import loop as agent_loop
+from snowpea_core.agent.delegation import effective_delegation
 from snowpea_core.agent.prompt_refs import prepare_prompt
 from snowpea_core.attachments import pending
 from snowpea_core.attachments.model import Attachment as FileAttachment
@@ -256,7 +257,9 @@ async def session_create_handler(
     _count_sessions(core)
     await _load_project_skills(core, session.workdir)
     await mcp_client.sync_tools_bounded(core, session.workdir)
-    return SessionCreateResult(sessionId=session.id)
+    return SessionCreateResult(
+        sessionId=session.id, delegation=effective_delegation(core, session)[0]
+    )
 
 
 async def session_resume_handler(
@@ -287,6 +290,7 @@ async def session_resume_handler(
         provider=session.provider,
         model=session.model,
         effort=getattr(session, "effort", None),
+        delegation=effective_delegation(core, session)[0],
         events=[SessionEvent.model_validate(e) for e in stored],
     )
 

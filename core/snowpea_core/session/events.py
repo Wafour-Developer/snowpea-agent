@@ -171,8 +171,8 @@ def checkpoint_restored(
     )
 
 
-def mode_changed(mode: str) -> Event:
-    return _pack(ModeChanged(mode=mode))  # type: ignore[arg-type]
+def mode_changed(mode: str, delegation: bool | None = None) -> Event:
+    return _pack(ModeChanged(mode=mode, delegation=delegation))  # type: ignore[arg-type]
 
 
 def model_changed(

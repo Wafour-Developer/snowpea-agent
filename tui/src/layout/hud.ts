@@ -106,6 +106,8 @@ export interface HudInput {
   modelSource?: string | null;
   /** How hard the model may think: low | medium | high | max. */
   effort?: string | null;
+  /** Delegation mode on: the lead hands the work to its team. */
+  delegation?: boolean;
   mode: Mode;
   usage: { inputTokens: number; outputTokens: number };
   /** Context-window usage; the segment is hidden until the daemon reports it. */
@@ -206,6 +208,11 @@ export function buildHudSegments(input: HudInput): HudSegment[] {
     color: modeColor(input.mode),
     priority: 2,
   });
+  // Beside the mode because it changes who does the work, just as the mode
+  // changes what may run. Only drawn when on: off is the default.
+  if (input.delegation) {
+    segments.push({ key: "delegation", text: "⇄ team", color: modeColor(input.mode), priority: 2 });
+  }
 
   // How full the model's context window is — the number that decides whether
   // the user needs to run /compact — ranks above the running token total.

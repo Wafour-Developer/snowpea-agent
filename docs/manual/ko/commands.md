@@ -28,6 +28,7 @@ snowpea commands list --json
 | `/backend [local\|docker\|ssh] [json]` | 툴이 실행되는 곳을 보거나 바꿈 |
 | `/delegate <에이전트> <task>` | 태스크 하나를 지정한 에이전트에게 위임 — 평범한 턴 안에서 `delegate_task`를 직접 호출하고, 기다린 뒤 결과를 답으로 알려줌 |
 | `$<에이전트> <task>` | `/delegate <에이전트> <task>`의 축약형. 데몬이 이 접두사를 직접 해석하므로 터미널 UI뿐 아니라 어떤 클라이언트에서도 동일하게 동작 |
+| `/delegation` | 위임 모드가 켜져 있는지 보여 줌. `/delegation on` 은 이 세션에서 구현·테스트·검증을 팀 에이전트에게 맡기게 하고(저장됨), `/delegation off` 는 직접 하게 하며, `/delegation auto` 는 `agents.delegateByDefault` 를 따름. [위임 모드](agents.md#위임-모드) 참고 |
 
 ### 터미널 UI
 

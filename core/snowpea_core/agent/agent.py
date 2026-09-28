@@ -336,6 +336,11 @@ def build_system_prompt(
             rendered = render_team_guide(guide, audience=audience)
             if rendered:
                 persona = f"{persona}\n\n{rendered}".strip()
+    from snowpea_core.agent.delegation import delegation_prompt
+
+    delegating = delegation_prompt(core, session)
+    if delegating:
+        persona = f"{persona}\n\n{delegating}".strip()
     return compose.build_system_prompt(
         mode=session.mode,
         vendor_class=compose.vendor_class_for(
