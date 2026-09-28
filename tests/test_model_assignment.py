@@ -326,3 +326,29 @@ def test_null_deletes_a_key_in_a_settings_patch() -> None:
     # the field's default, which for every optional field here is None.
     assert deep_merge(base, {"nothing": None}) == base
     assert "default" not in deep_merge(base, {"models": {"default": None}})["models"]
+
+
+async def test_a_profile_on_an_unregistered_vendor_is_refused(tmp_path: Path) -> None:
+    """Seen live: a hand-written 'hon2' block was not a registered server, the
+    assignment went through anyway, and every /team stage routed to it failed."""
+    import aiohttp
+    from _support import connect, make_daemon
+
+    daemon = await make_daemon(tmp_path / "home")
+    try:
+        async with aiohttp.ClientSession() as http:
+            client = await connect(http, daemon)
+            patch = {
+                "models": {"profiles": {"deep": {"provider": "hon2", "model": "qwen"}}},
+                "agents": {"models": {"architect": "deep"}},
+            }
+            frame = await client.call("settings.set", {"scope": "global", "patch": patch})
+            assert frame["error"]["data"]["code"] == "invalid_params"
+            assert "provider add-local hon2" in frame["error"]["message"]
+
+            ok = {"models": {"profiles": {"fast": {"provider": "openai", "model": "gpt-x"}}},
+                  "agents": {"models": {"architect": "fast"}}}
+            await client.ok("settings.set", {"scope": "global", "patch": ok})
+            await client.stop()
+    finally:
+        await daemon.stop()

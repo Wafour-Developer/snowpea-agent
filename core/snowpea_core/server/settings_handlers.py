@@ -11,7 +11,7 @@ a corrupt file), then persisted and echoed back with secrets masked.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
@@ -115,6 +115,9 @@ async def settings_set_handler(
         updated_settings = Settings.model_validate(merged_global)
     except ValidationError as exc:
         raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
+    unknown = _unknown_profile_vendors(params.patch, updated_settings)
+    if unknown:
+        raise RpcError(errors.INVALID_PARAMS, unknown)
     updated_settings.save(core.paths)
     # The daemon holds the old document in half a dozen places; rebinding here
     # is what makes settings.get and the next turn agree without a restart
@@ -123,6 +126,41 @@ async def settings_set_handler(
     await core.adopt_settings(updated_settings, changed)
     await _sync_gateways(core)
     return SettingsResult(settings=_mask_secrets(updated_settings.model_dump(mode="json")))
+
+
+def _unknown_profile_vendors(patch: dict[str, Any], settings: Settings) -> str | None:
+    """Why a profile this patch points at cannot run, or ``None`` when every one can.
+
+    Only what the patch touches is checked — a profile it adds, an agent it
+    assigns, the default it sets — so an old hand-edited entry elsewhere does
+    not block an unrelated write.  Seen live: ``deep-a6000`` -> ``hon2`` was
+    accepted while ``hon2`` was not a registered server, and every stage
+    routed to it failed with "unknown provider vendor".
+    """
+    from snowpea_core.providers.presets import PRESETS, local_vendor_ids
+
+    raw_models = patch.get("models")
+    raw_agents = patch.get("agents")
+    models: dict[str, Any] = raw_models if isinstance(raw_models, dict) else {}
+    agents: dict[str, Any] = raw_agents if isinstance(raw_agents, dict) else {}
+    touched: set[str] = set()
+    if isinstance(models.get("profiles"), dict):
+        touched.update(k for k, v in models["profiles"].items() if v is not None)
+    if isinstance(models.get("default"), str):
+        touched.add(models["default"])
+    if isinstance(agents.get("models"), dict):
+        touched.update(v for v in agents["models"].values() if isinstance(v, str))
+    known = set(PRESETS) | set(local_vendor_ids(settings.providers))
+    for profile_id in sorted(touched):
+        profile = settings.models.profiles.get(profile_id)
+        if profile is None or profile.provider in known:
+            continue
+        return (
+            f"model profile {profile_id!r} uses vendor {profile.provider!r}, which is neither "
+            f"a built-in vendor nor a registered server; add it first with "
+            f"`snowpea provider add-local {profile.provider} --url <base-url>`"
+        )
+    return None
 
 
 async def _sync_gateways(core: Core) -> None:
