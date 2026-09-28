@@ -101,6 +101,19 @@ def test_preview_survives() -> None:
     assert question.options[0].preview.startswith("+--+")
 
 
+def test_options_sent_as_a_json_string_are_read_as_a_list() -> None:
+    # Seen live from a local model in plan mode: the array arrived as a string
+    # and "false" as a string, which bool() used to read as True.
+    options = [{"label": "JWT (recommended)"}, {"label": "Session cookie"}]
+    [question] = _questions(
+        {"question": "Which auth?", "options": json.dumps(options), "multiSelect": "false"}
+    )
+    assert [option.label for option in question.options] == ["JWT (recommended)", "Session cookie"]
+    assert question.multi is False
+    [many] = _questions({"questions": json.dumps([{"question": "Scope?", "multiSelect": "true"}])})
+    assert many.multi is True
+
+
 @pytest.mark.parametrize(
     "args",
     [
@@ -108,6 +121,7 @@ def test_preview_survives() -> None:
         {"question": "Which?", "options": [{"label": "only one"}]},
         {"question": "Which?", "options": [{"label": str(n)} for n in range(9)]},
         {"questions": [{"question": f"q{n}"} for n in range(6)]},
+        {"question": "Which?", "options": "JWT or cookie"},
     ],
 )
 def test_malformed_calls_are_refused(args: dict[str, Any]) -> None:

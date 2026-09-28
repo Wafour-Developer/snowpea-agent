@@ -606,3 +606,21 @@ def test_no_stale_snapshots(update_golden: bool) -> None:
             (GOLDEN_DIR / name).unlink()
         return
     assert found == expected
+
+
+def test_plan_mode_asks_before_it_writes() -> None:
+    plan = loader.load("modes/plan")
+    explore, ask, write = (plan.index(f"{n}. ") for n in (1, 2, 3))
+    assert explore < ask < write
+    assert "call ask_user" in plan
+    # Unknowns are asked, not quietly assumed into the plan.
+    assert "Never use this section instead of asking." in plan
+    assert "what you assumed" not in plan
+
+
+def test_ask_user_counts_the_users_intent_as_something_to_ask() -> None:
+    from snowpea_core.prompts import tool_descriptions
+
+    assert "what the user wants (scope, priorities, which approach) you cannot" in (
+        tool_descriptions.ASK_USER
+    )

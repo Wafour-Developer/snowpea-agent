@@ -143,7 +143,9 @@ ASK_USER = (
     "be true at once. A free-text \"Other\" row is added for you. Several related questions "
     "belong in one call: the client shows them as tabs the user can walk back through and "
     "change their mind in before confirming, and you get every answer at once. The tool "
-    "blocks, so ask only what you cannot work out yourself, and read the result: a declined "
+    "blocks, so ask only what you cannot work out yourself — facts in the code you can; "
+    "what the user wants (scope, priorities, which approach) you cannot — and read the "
+    "result: a declined "
     "or timed-out question is not agreement."
 )
 

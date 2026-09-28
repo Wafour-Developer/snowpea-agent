@@ -36,6 +36,7 @@ history.  Queued, not run inline, and the difference is why.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from snowpea_core.prompts import tool_descriptions as descriptions
@@ -70,6 +71,27 @@ def _option(raw: Any) -> QuestionOption:
     )
 
 
+def _as_list(value: Any, name: str) -> list[Any]:
+    """A list, or a JSON array some models send as a string instead of a list."""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            raise AskUserError(f"'{name}' must be a list, not a string") from None
+    if not isinstance(value, list):
+        raise AskUserError(f"'{name}' must be a list")
+    return value
+
+
+def _flag(value: Any, default: bool) -> bool:
+    """A boolean, reading "false"/"no"/"0" as False the way a model means them."""
+    if value is None:
+        return default
+    if isinstance(value, str):
+        return value.strip().lower() not in ("", "false", "no", "0", "off")
+    return bool(value)
+
+
 def _first(raw: dict[str, Any], *keys: str, default: Any = None) -> Any:
     """The first key that is actually present; the shapes spell things differently."""
     for key in keys:
@@ -87,9 +109,7 @@ class _Question:
             raise AskUserError("every question needs a non-empty 'question'")
         self.text = text
         self.header = str(_first(raw, "header", "title", default="") or "").strip()[:24]
-        raw_options = _first(raw, "options", "choices", default=[]) or []
-        if not isinstance(raw_options, list):
-            raise AskUserError("'options' must be a list")
+        raw_options = _as_list(_first(raw, "options", "choices", default=[]) or [], "options")
         self.options = [_option(item) for item in raw_options]
         if self.options and not MIN_OPTIONS <= len(self.options) <= MAX_OPTIONS:
             raise AskUserError(
@@ -97,9 +117,9 @@ class _Question:
                 f"{MAX_OPTIONS} of them; got {len(self.options)}. "
                 "Ask a narrower question, or leave options out for free text."
             )
-        self.multi = bool(_first(raw, "multi", "multiSelect", "multi_select", default=False))
-        self.allow_other = bool(
-            _first(raw, "allow_other", "allowOther", "allow_free_text", default=True)
+        self.multi = _flag(_first(raw, "multi", "multiSelect", "multi_select"), False)
+        self.allow_other = _flag(
+            _first(raw, "allow_other", "allowOther", "allow_free_text"), True
         )
 
     def item(self) -> QuestionItem:
@@ -116,6 +136,8 @@ class _Question:
 def _questions(args: dict[str, Any]) -> list[_Question]:
     """Every question this call asks, flat shape or ``questions[]``."""
     batch = args.get("questions")
+    if isinstance(batch, str) and batch.strip().startswith("["):
+        batch = _as_list(batch, "questions")
     if isinstance(batch, list) and batch:
         if len(batch) > MAX_QUESTIONS:
             raise AskUserError(f"at most {MAX_QUESTIONS} questions per call; got {len(batch)}")
