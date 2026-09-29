@@ -154,7 +154,7 @@ BLOCK_TYPES = frozenset({"text", "image", "file"})
 def history_blocks(text: str, attachments: Sequence[Attachment] = ()) -> list[dict[str, Any]]:
     """The ``ChatMessage.content`` for a user turn that carried attachments.
 
-    Deliberately *not* the base64: a block keeps the attachment's path, name,
+    Deliberately *not* the base64 when a file backs it: a block keeps the path, name,
     type and hash, and the bytes are re-read when a request is built.  That is
     what keeps the session store small, lets a resumed session still send the
     image, and makes the stored turn readable — each block also carries a
@@ -175,6 +175,10 @@ def history_blocks(text: str, attachments: Sequence[Attachment] = ()) -> list[di
         }
         if item.path is not None:
             block["path"] = str(item.path)
+        elif item.data is not None:
+            # An inline attachment (a downscaled screenshot, a pasted image) has
+            # no file to re-read, so its bytes ride in the block.
+            block["data"] = item.to_base64()
         blocks.append(block)
     return blocks
 

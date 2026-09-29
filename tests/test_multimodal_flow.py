@@ -172,3 +172,12 @@ def test_a_text_only_turn_is_unchanged_everywhere() -> None:
         {"role": "user", "content": "hello"},
     ]
     assert messages_to_gemini(messages) == ("sys", [{"role": "user", "parts": [{"text": "hello"}]}])
+
+
+def test_an_inline_image_keeps_its_bytes_in_the_block() -> None:
+    """A downscaled view_image capture has no file behind it; it must still be sent."""
+    inline = Attachment.from_bytes("slide.png", PNG)
+    blocks = content.history_blocks("(image from view_image: slide.png)", [inline])
+    parts = content.parts_from_blocks(blocks)
+    assert not any("no longer on disk" in getattr(p, "text", "") for p in parts)
+    assert any(isinstance(p, content.ImagePart) and p.base64 == PNG_B64 for p in parts)
