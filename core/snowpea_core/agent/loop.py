@@ -38,7 +38,7 @@ from snowpea_core.prompts import environment as prompt_env
 from snowpea_core.providers import content as content_parts
 from snowpea_core.providers import context_windows
 from snowpea_core.providers import effort as effort_scale
-from snowpea_core.providers.base import ChatMessage, ProviderError, ToolCall
+from snowpea_core.providers.base import REDACTED, ChatMessage, ProviderError, ToolCall
 from snowpea_core.server import errors
 from snowpea_core.session import compaction, events
 from snowpea_core.session.manager import persist_history
@@ -154,6 +154,11 @@ async def finish_turn(core: Core, session: Session, turn_id: str, reason: str) -
     shutdown has begun, for the same reason the final write is skipped in
     :func:`run_turn` (CORE-session-race).
     """
+    # Sensitive host results served this turn; from here on (memory, the next
+    # turn, compaction) they are only a marker.
+    for message in session.history.messages:
+        if message.sensitive:
+            message.content = REDACTED
     if not getattr(core, "stopping", False):
         # Written whether or not the turn was already closed for us: the
         # prompt it began with must survive an interruption (CORE-dangling-turns).
@@ -684,6 +689,15 @@ def _busy_policy(core: Core) -> str:
 
 async def _steer_queued_turns(core: Core, session: Session) -> int:
     """Fold queued prompts into the running turn as fresh user messages."""
+    rpc_injected = 0
+    while session.rpc_steers:
+        # ``session.steer`` is an explicit request, so it ignores agent.busy.
+        text = session.rpc_steers.pop(0)
+        if await _inject_external_steer(core, session, f"steer:{uuid.uuid4().hex}", text):
+            rpc_injected += 1
+    if rpc_injected and _busy_policy(core) != "steer":
+        session.steered_prompts.clear()
+        return rpc_injected
     if _busy_policy(core) != "steer":
         session.steered_prompts.clear()
         return 0
@@ -1140,7 +1154,7 @@ async def _drive(
         specs = core.tools.specs(session)
         messages = build_messages(session, specs, memory_block, core=core)
         attempt = await _model_turn(core, session, provider, messages, specs, config)
-        calls = _repair_calls(core, attempt.calls)
+        calls = _repair_calls(core, session, attempt.calls)
 
         if attempt.interrupted:
             await finish_turn(core, session, turn_id, "interrupted")
@@ -1345,20 +1359,20 @@ async def _ask_to_continue(core: Core, session: Session, config: AgentConfig) ->
     )
 
 
-def _repair_calls(core: Core, calls: list[ToolCall]) -> list[ToolCall]:
+def _repair_calls(core: Core, session: Session, calls: list[ToolCall]) -> list[ToolCall]:
     """Resolve aliased or mangled tool names and decode stringly-typed arguments.
 
     Done before the calls enter history, so the transcript the model reads
     next shows the call that actually ran.
     """
-    known = core.tools.names()
+    known = [tool.name for tool in core.tools.active(session)]
     for call in calls:
-        tool = core.tools.get(call.name)
+        tool = core.tools.get(call.name, session)
         if tool is None:
             resolved = call_fixups.resolve_name(call.name, known)
             if resolved is not None:
                 call.name = resolved
-                tool = core.tools.get(resolved)
+                tool = core.tools.get(resolved, session)
         if tool is not None:
             call.arguments = call_fixups.coerce_arguments(call.arguments, tool.input_schema)
     return calls
@@ -1397,7 +1411,7 @@ async def _run_one_call(
     call ended it (a denial).
     """
     hub = core.hub
-    tool: Tool | None = core.tools.get(call.name)
+    tool: Tool | None = core.tools.get(call.name, session)
     if tool is None:
         await hub.emit_event(session.id, events.tool_call(call.id, call.name, call.arguments))
         close = call_fixups.suggestions(call.name, core.tools.names())
@@ -1549,7 +1563,9 @@ async def _run_one_call(
         except Exception:  # noqa: BLE001 - checkpoints must never break a tool
             log.warning("could not finish checkpoint observation for %s", call.name, exc_info=True)
     await plugin_hooks.post_tool_use(core, session, call.name, dict(call.arguments))
-    result = _spill_long_result(core, call.name, result)
+    result = _spill_long_result(
+        core, call.name, result, host=str(getattr(tool, "source", "")).startswith("host:")
+    )
     if repeated is None and not was_interrupted:
         result = await repeat_guard.record(
             core, session, call.name, dict(call.arguments), result
@@ -1569,9 +1585,16 @@ async def _run_one_call(
             limit=prompt_env.context_file_max_chars(session.context_window, override),
         )
 
+    sensitive = bool(result.meta and result.meta.get("sensitive"))
     await hub.emit_event(
         session.id,
-        events.tool_result(call.id, call.name, result.ok, result.output, result.error),
+        events.tool_result(
+            call.id,
+            call.name,
+            result.ok,
+            REDACTED if sensitive else result.output,
+            REDACTED if sensitive and result.error else result.error,
+        ),
     )
     if result.diff:
         await hub.emit_event(session.id, events.diff(result.path or "", result.diff))
@@ -1581,6 +1604,7 @@ async def _run_one_call(
             content=result.output if result.ok else (result.error or "tool failed"),
             tool_call_id=call.id,
             name=call.name,
+            sensitive=sensitive,
         )
     )
     if result.ok and result.meta and (
@@ -1594,14 +1618,18 @@ async def _run_one_call(
     return None
 
 
-def _spill_long_result(core: Core, name: str, result: ToolResult) -> ToolResult:
+def _spill_long_result(
+    core: Core, name: str, result: ToolResult, *, host: bool = False
+) -> ToolResult:
     """Head/tail trim a scanning tool's output past ``tools.maxResultLines``.
 
     The full text is written to ``$SNOWPEA_HOME/cache/tool-output`` and the
     result carries a ``read_file`` pointer to it (M15 §A4), so nothing is lost
     and the conversation stops paying for the middle on every later turn.
     """
-    if not result.ok or name not in output_spill.SPILLED_TOOLS or not result.output:
+    # A host tool's output is spilled too: a browser REPL can print a page.
+    spilled_tool = name in output_spill.SPILLED_TOOLS or host
+    if not result.ok or not spilled_tool or not result.output:
         return result
     budget = output_spill.max_result_lines(core)
     if result.output.count("\n") < budget:

@@ -32,6 +32,9 @@ class AllowlistEntry(BaseModel):
     id: str = Field(default_factory=lambda: f"al-{uuid.uuid4().hex[:12]}")
     pattern: str
     target: str = "shell"
+    #: ``scheme://host`` the entry is limited to (an approval answered with the
+    #: ``site`` scope, 1.6.0); ``None`` matches everywhere.
+    origin: str | None = None
 
 
 def _coerce_allowlist(value: Any) -> Any:

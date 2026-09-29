@@ -48,6 +48,9 @@ async def hello_handler(conn: RpcConnection, params: HelloParams, core: Core) ->
         raise RpcError(errors.UNAUTHORIZED, "invalid token")
     conn.authenticated = True
     conn.client_version = params.clientVersion
+    from snowpea_core.server.host_handlers import adopt_hello
+
+    adopt_hello(core, conn, params)
     # Authenticated surfaces share the unattended approval queue (M5 §4), so
     # they receive its notifications whether or not they own a session.
     hub = getattr(core, "hub", None)

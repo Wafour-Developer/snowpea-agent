@@ -24,6 +24,8 @@ import json
 import logging
 import os
 import re
+import shlex
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -39,6 +41,9 @@ EVENTS: tuple[str, ...] = ("PreToolUse", "PostToolUse", "Stop")
 
 #: Exit status a ``PreToolUse`` hook uses to refuse the call.
 BLOCK_EXIT_CODE = 2
+
+#: What :func:`run_hook` reports for a hook that could not start or timed out.
+HOOK_FAILED = -1
 
 DEFAULT_TIMEOUT_SEC = 30.0
 
@@ -56,6 +61,9 @@ class Hook:
     plugin: str = ""
     root: Path | None = None
     timeout: float = DEFAULT_TIMEOUT_SEC
+    #: A ``PreToolUse`` hook with ``failClosed: true`` blocks the call when it
+    #: cannot start, crashes or times out, instead of letting it through.
+    fail_closed: bool = False
 
     def matches(self, tool_name: str) -> bool:
         pattern = (self.matcher or "").strip()
@@ -129,14 +137,33 @@ class HookRegistry:
                             plugin=plugin,
                             root=root,
                             timeout=float(timeout) if timeout else DEFAULT_TIMEOUT_SEC,
+                            fail_closed=bool(spec.get("failClosed")),
                         )
                     )
                     added += 1
         return added
 
 
+def python_command() -> str:
+    """How a hook runs a ``.py`` file with the core's own interpreter.
+
+    ``python "<exe>"`` from source; a frozen core runs it through its
+    ``--run-hook`` entry, since it has no interpreter binary to hand out.
+    """
+    exe = shlex.quote(sys.executable)
+    return f"{exe} --run-hook" if getattr(sys, "frozen", False) else exe
+
+
 def expand(text: str, root: Path | None) -> str:
-    """Substitute the plugin-root placeholders a Claude Code hook may use."""
+    """Substitute the placeholders a hook command may use.
+
+    ``${CLAUDE_PLUGIN_ROOT}``/``${SNOWPEA_PLUGIN_ROOT}`` become the plugin's
+    directory and ``${SNOWPEA_PYTHON}`` the core's interpreter
+    (:func:`python_command`), so ``${SNOWPEA_PYTHON} hooks/x.py`` works
+    without a ``python3`` on PATH.
+    """
+    python = python_command()
+    text = text.replace("${SNOWPEA_PYTHON}", python).replace("$SNOWPEA_PYTHON", python)
     if root is None:
         return text
     value = str(root)
@@ -149,6 +176,7 @@ def _env(home: Path | str, tool_name: str, root: Path | None) -> dict[str, str]:
     env = dict(os.environ)
     env["SNOWPEA_HOME"] = str(home)
     env["SNOWPEA_TOOL_NAME"] = tool_name
+    env["SNOWPEA_PYTHON"] = python_command()
     if root is not None:
         env["CLAUDE_PLUGIN_ROOT"] = str(root)
         env["SNOWPEA_PLUGIN_ROOT"] = str(root)
@@ -176,13 +204,13 @@ async def run_hook(
         )
     except OSError as exc:
         log.info("hook %s could not start: %s", hook.command, exc)
-        return 0, ""
+        return HOOK_FAILED, f"could not start: {exc}"
     try:
         _, err = await asyncio.wait_for(process.communicate(body), hook.timeout)
     except TimeoutError:
         process.kill()
         log.info("hook %s timed out after %.0fs", hook.command, hook.timeout)
-        return 0, ""
+        return HOOK_FAILED, f"timed out after {hook.timeout:g}s"
     return int(process.returncode or 0), (err or b"").decode("utf-8", "replace").strip()
 
 
@@ -222,6 +250,16 @@ async def run_event(
             outcome.blocked = True
             outcome.message = err or f"{tool_name} was blocked by a {hook.plugin or 'plugin'} hook"
             return outcome
+        if code != 0 and code != BLOCK_EXIT_CODE:
+            log.warning("hook %s failed (exit %s): %s", hook.command, code, err[:200])
+            if event == "PreToolUse" and hook.fail_closed:
+                # A guard that did not run must not let the call through.
+                outcome.blocked = True
+                outcome.message = (
+                    f"{tool_name} was blocked: the {hook.plugin or 'plugin'} guard hook "
+                    f"failed ({err[:200] or f'exit {code}'})"
+                )
+                return outcome
     return outcome
 
 

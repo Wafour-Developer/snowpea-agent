@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.5.0";
+export const PROTOCOL_VERSION = "1.6.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -169,6 +169,38 @@ export interface AgentSpawnResult {
   agentId: string;
 }
 
+/** `approval.ask` params. Escalate one host action through the approval pipeline. */
+export interface ApprovalAskParams {
+  /** Action details to show. */
+  args?: Record<string, unknown>;
+  /** The tool.invoke callId, if any. */
+  callId?: string | null;
+  /** What the running code is about to do, e.g. {origin, element, action}; shown with the approval and merged into its args. */
+  detail?: Record<string, unknown> | null;
+  /** Permission class of the escalated action. */
+  permission: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate" | "secret";
+  /** What will happen, shown to the person approving. */
+  reason: string;
+  /** Risk hint; default from the permission. */
+  risk?: string | null;
+  /** Session whose tool call is running. */
+  sessionId: string;
+  /** Origin of the page, e.g. https://github.com; derived from detail.origin or args.url if omitted. */
+  site?: string | null;
+  /** Host tool asking; the allowlist is keyed by it. */
+  tool: string;
+}
+
+/** `approval.ask` result. */
+export interface ApprovalAskResult {
+  /** Who decided: mode, allowlist, origin, timeout, ... */
+  by?: string;
+  /** allow or deny. */
+  decision: "allow" | "deny";
+  /** Scope the answer applies to. */
+  scope?: "once" | "session" | "project" | "always" | "site";
+}
+
 /** `approval.list` params. List tool calls still waiting for a decision. */
 export interface ApprovalListParams {
   /** Scope the listing to one session; omit for the global set. */
@@ -188,9 +220,11 @@ export interface ApprovalListResult {
     /** Risk hint for the UI. */
     risk?: string;
     /** Scope the UI should preselect. */
-    scopeHint?: "once" | "session" | "project" | "always";
+    scopeHint?: "once" | "session" | "project" | "always" | "site";
     /** Session whose turn is blocked. */
     sessionId: string;
+    /** Origin (scheme://host) a 'site' scope would store the answer for (1.6.0). */
+    site?: string | null;
     /** Seconds before the request auto-denies. */
     timeoutSec?: number;
     /** Tool the model wants to run. */
@@ -209,9 +243,11 @@ export interface ApprovalRequestParams {
   /** Risk hint for the UI. */
   risk?: string;
   /** Scope the UI should preselect. */
-  scopeHint?: "once" | "session" | "project" | "always";
+  scopeHint?: "once" | "session" | "project" | "always" | "site";
   /** Session whose turn is blocked. */
   sessionId: string;
+  /** Origin (scheme://host) a 'site' scope would store the answer for (1.6.0). */
+  site?: string | null;
   /** Seconds before the request auto-denies. */
   timeoutSec?: number;
   /** Tool the model wants to run. */
@@ -225,7 +261,7 @@ export interface ApprovalRequestResult {
   /** Why the human refused; quoted back to the model as the tool's refusal so the next turn can answer it (M15b §1). */
   reason?: string;
   /** How long the decision applies. */
-  scope?: "once" | "session" | "project" | "always";
+  scope?: "once" | "session" | "project" | "always" | "site";
 }
 
 /** `approval.respond` params. Answer a pending approval and unblock the turn. */
@@ -237,7 +273,7 @@ export interface ApprovalRespondParams {
   /** Request being answered. */
   requestId: string;
   /** How long the decision applies. */
-  scope?: "once" | "session" | "project" | "always";
+  scope?: "once" | "session" | "project" | "always" | "site";
 }
 
 /** `approval.respond` result. */
@@ -1363,6 +1399,32 @@ export interface ProviderRemoveResult {
   ok?: boolean;
 }
 
+/** `provider.test` params. Send one short completion to check a provider and model. */
+export interface ProviderTestParams {
+  /** Model; defaults to the vendor's default. */
+  model?: string | null;
+  /** Vendor to test. */
+  provider: string;
+}
+
+/** `provider.test` result. */
+export interface ProviderTestResult {
+  /** Why it failed. */
+  error?: string | null;
+  /** Round-trip time of the test call. */
+  latencyMs?: number;
+  /** Model the request used. */
+  model?: string;
+  /** Model name the server reported, when it did. */
+  modelEcho?: string | null;
+  /** True when a one-line completion came back. */
+  ok: boolean;
+  /** Vendor tested. */
+  provider: string;
+  /** The model's reply, trimmed. */
+  reply?: string | null;
+}
+
 /** `question.list` params. List questions the agent is still waiting on. */
 export interface QuestionListParams {
   /** Scope the listing to one session; omit for the global set. */
@@ -1466,6 +1528,20 @@ export interface QuestionRespondResult {
   ok?: boolean;
 }
 
+/** `session.attach` params. Make this connection the origin of a session (approvals, host tools). */
+export interface SessionAttachParams {
+  /** Session this connection becomes the origin of (1.6.0). */
+  sessionId: string;
+}
+
+/** `session.attach` result. */
+export interface SessionAttachResult {
+  /** Host tools the session now sees. */
+  hostTools?: string[];
+  /** The attached session. */
+  sessionId: string;
+}
+
 /** `session.close` params. Close a session and release its resources. */
 export interface SessionCloseParams {
   /** Target session. */
@@ -1504,6 +1580,8 @@ export interface SessionCreateParams {
   denyExec?: boolean | null;
   /** Reasoning effort for this session; null follows the settings. */
   effort?: "low" | "medium" | "high" | "max" | null;
+  /** Whose host tools this session sees: a connection's clientId (or surface id). Default: the creating connection (1.6.0). */
+  hostToolsFrom?: string | null;
   /** Override for concurrent subagents. */
   maxConcurrent?: number | null;
   /** Starting mode; defaults to the project setting. */
@@ -1611,17 +1689,25 @@ export interface SessionPromptParams {
     /** Base64 (or data-URI) content, for a pasted image. */
     data?: string | null;
     /** Attachment flavour. */
-    kind?: "file" | "image" | "text";
+    kind?: "file" | "image" | "text" | "page";
     /** Media type when known. */
     mimeType?: string | null;
     /** Display name; defaults to the file's basename. */
     name?: string | null;
     /** Absolute path, for 'file' and 'image'. */
     path?: string | null;
+    /** Text the user selected on the page, for 'page'. */
+    selection?: string | null;
     /** Byte size the client measured. */
     size?: number | null;
+    /** Page text or accessibility snapshot, for 'page'. */
+    snapshot?: string | null;
     /** Inline content, for 'text'. */
     text?: string | null;
+    /** Page title, for 'page'. */
+    title?: string | null;
+    /** Page address, for 'page'. */
+    url?: string | null;
   })[] | null;
   /** Session to prompt. */
   sessionId: string;
@@ -1724,6 +1810,22 @@ export interface SessionSetModelResult {
   provider?: string | null;
 }
 
+/** `session.steer` params. Inject a user message into a running turn at its next tool round. */
+export interface SessionSteerParams {
+  /** Session with a running turn. */
+  sessionId: string;
+  /** User message injected at the running turn's next tool-round boundary; with no turn running it starts one like session.prompt (1.6.0). */
+  text: string;
+}
+
+/** `session.steer` result. */
+export interface SessionSteerResult {
+  /** True when accepted. */
+  ok?: boolean;
+  /** True when no turn was running and a new one started. */
+  started?: boolean;
+}
+
 /** `settings.get` params. Read global or project settings, with secrets masked. */
 export interface SettingsGetParams {
   /** "global" reads $SNOWPEA_HOME/settings.json; "project" reads <workdir>/.snowpea/settings.json. */
@@ -1752,6 +1854,47 @@ export interface SettingsSetParams {
 export interface SettingsSetResult {
   /** The effective settings document. Fields named api_key, token, refresh_token or password are masked as '***'. */
   settings: Record<string, unknown>;
+}
+
+/** `setup.applyDefaults` params. Apply the profile's defaults for everything optional; idempotent. */
+export interface SetupApplyDefaultsParams {
+  /** Which defaults to apply. */
+  profile?: "default" | "browser";
+}
+
+/** `setup.applyDefaults` result. */
+export interface SetupApplyDefaultsResult {
+  /** Setting keys this call changed; empty when all set. */
+  applied?: string[];
+  /** setup.status after applying. */
+  status: {
+    /** Vendors with credentials or a local endpoint. */
+    configuredProviders?: string[];
+    /** True when this home already has a configured provider from an earlier setup. */
+    existingInstall?: boolean;
+    /** Items with a usable default. */
+    optional?: ({
+      /** For optional items: true when the value is the default. */
+      defaultApplied?: boolean | null;
+      /** True when the item is satisfied. */
+      done: boolean;
+      /** Stable item id, e.g. 'provider', 'search', 'memory'. */
+      id: string;
+      /** What the item is, for the wizard. */
+      title: string;
+    })[];
+    /** Items that must be done before first use. */
+    required?: ({
+      /** For optional items: true when the value is the default. */
+      defaultApplied?: boolean | null;
+      /** True when the item is satisfied. */
+      done: boolean;
+      /** Stable item id, e.g. 'provider', 'search', 'memory'. */
+      id: string;
+      /** What the item is, for the wizard. */
+      title: string;
+    })[];
+  };
 }
 
 /** `setup.catalog` params. The setup wizard's vendor, search, browser, tools and gateway catalogs. */
@@ -1964,6 +2107,42 @@ export interface SetupCatalogResult {
   })[];
 }
 
+/** `setup.status` params. What setup still needs; for the browser profile only a tested provider is required. */
+export interface SetupStatusParams {
+  /** Which setup flow is asking (1.6.0). */
+  profile?: "default" | "browser";
+}
+
+/** `setup.status` result. */
+export interface SetupStatusResult {
+  /** Vendors with credentials or a local endpoint. */
+  configuredProviders?: string[];
+  /** True when this home already has a configured provider from an earlier setup. */
+  existingInstall?: boolean;
+  /** Items with a usable default. */
+  optional?: ({
+    /** For optional items: true when the value is the default. */
+    defaultApplied?: boolean | null;
+    /** True when the item is satisfied. */
+    done: boolean;
+    /** Stable item id, e.g. 'provider', 'search', 'memory'. */
+    id: string;
+    /** What the item is, for the wizard. */
+    title: string;
+  })[];
+  /** Items that must be done before first use. */
+  required?: ({
+    /** For optional items: true when the value is the default. */
+    defaultApplied?: boolean | null;
+    /** True when the item is satisfied. */
+    done: boolean;
+    /** Stable item id, e.g. 'provider', 'search', 'memory'. */
+    id: string;
+    /** What the item is, for the wizard. */
+    title: string;
+  })[];
+}
+
 /** `skill.create` params. Write a new SKILL.md, generated from a brief or supplied verbatim. */
 export interface SkillCreateParams {
   /** A complete SKILL.md body. When given, it is validated and written directly — no model turn runs. */
@@ -2170,8 +2349,16 @@ export interface SystemHealthResult {
 
 /** `system.hello` params. Authenticate a connection and agree on the protocol version. */
 export interface SystemHelloParams {
+  /** Id stable across restarts of this client install (1.6.0). Sessions a previous connection with the same clientId started re-bind to this one. */
+  clientId?: string | null;
+  /** What the client is, e.g. "tui", "desktop", "browser" (1.6.0). */
+  clientKind?: string | null;
   /** Version string of the connecting client. */
   clientVersion: string;
+  /** Id of this run of the client (1.6.0). */
+  instanceId?: string | null;
+  /** Keep the daemon from its idle shutdown while this client is connected (1.6.0). */
+  keepAlive?: boolean;
   /** Protocol semver the client speaks; major must match. */
   protocolVersion: string;
   /** Shared secret read from $SNOWPEA_HOME/token or daemon.json. */
@@ -2468,6 +2655,47 @@ export interface TeamStatusResult {
   worktrees?: string[];
 }
 
+/** `tool.invoke` params. Ask the client to run one of its host tools. */
+export interface ToolInvokeParams {
+  /** Arguments from the model. */
+  args?: Record<string, unknown>;
+  /** Id of the tool call; tool.progress refers to it. */
+  callId: string;
+  /** The session's mode. A code-running tool registered as 'read' must refuse mutations in plan mode itself and escalate the rest with approval.ask. */
+  mode?: "plan" | "accept" | "auto";
+  /** Host tool name. */
+  name: string;
+  /** Session whose turn called the tool. */
+  sessionId: string;
+  /** Turn the call belongs to. */
+  turnId?: string;
+  /** Directory the session works in (its workdir). */
+  workspaceDir?: string;
+}
+
+/** `tool.invoke` result. */
+export interface ToolInvokeResult {
+  /** Rich result blocks. Images reach vision models as image input; text blocks are appended to output. */
+  content?: ({
+    /** Base64 bytes, for 'image'. */
+    data?: string | null;
+    /** e.g. image/png, for 'image'. */
+    mediaType?: string | null;
+    /** Text, for 'text'. */
+    text?: string | null;
+    /** Block kind. */
+    type: "text" | "image";
+  })[] | null;
+  /** Error text when ok is false. */
+  error?: string | null;
+  /** Extra facts. meta.sensitive=true keeps the output out of the session store ([redacted]), memory and compaction summaries. */
+  meta?: Record<string, unknown> | null;
+  /** False reports the call as a tool error. */
+  ok: boolean;
+  /** Text result the model reads. */
+  output?: string;
+}
+
 /** `tool.list` params. List the tools registered for a session. */
 export interface ToolListParams {
   /** Scope the listing to one session; omit for the global set. */
@@ -2501,6 +2729,57 @@ export interface ToolListResult {
   })[];
 }
 
+/** `tool.progress` params. Notification: progress of a running tool.invoke, re-emitted as tool.progress. */
+export interface ToolProgressParams {
+  /** The tool.invoke callId this progress belongs to. */
+  callId: string;
+  /** Progress text; re-emitted as session.event tool.progress. */
+  message: string;
+}
+
+/** `tool.progress` result. */
+export interface ToolProgressResult {
+  /** True when the call succeeded. */
+  ok?: boolean;
+}
+
+/** `tool.register` params. Register tools this connection runs itself (host tools). */
+export interface ToolRegisterParams {
+  /** Tools to add or replace for this connection; all-or-nothing. */
+  tools: ({
+    /** UI grouping; defaults to "host". */
+    category?: string | null;
+    /** What the model reads about the tool. */
+    description: string;
+    /** JSON Schema of the arguments. */
+    inputSchema?: Record<string, unknown>;
+    /** Tool name, [A-Za-z][A-Za-z0-9_-]{0,63}. May not collide with a daemon tool except the built-in browser_* tools, which it shadows for the sessions that see this connection's tools. */
+    name: string;
+    /** Permission class checked against the mode. */
+    permission: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate" | "secret";
+    /** How long tool.invoke may take; default 120000. */
+    timeoutMs?: number | null;
+  })[];
+}
+
+/** `tool.register` result. */
+export interface ToolRegisterResult {
+  /** Names now registered. */
+  registered?: string[];
+}
+
+/** `tool.unregister` params. Remove some of this connection's host tools. */
+export interface ToolUnregisterParams {
+  /** This connection's tools to remove. */
+  names: string[];
+}
+
+/** `tool.unregister` result. */
+export interface ToolUnregisterResult {
+  /** Names actually removed. */
+  removed?: string[];
+}
+
 // ---------------------------------------------------------------------------
 // Event payloads
 // ---------------------------------------------------------------------------
@@ -2518,9 +2797,11 @@ export interface ApprovalPendingPayload {
     /** Risk hint for the UI. */
     risk?: string;
     /** Scope the UI should preselect. */
-    scopeHint?: "once" | "session" | "project" | "always";
+    scopeHint?: "once" | "session" | "project" | "always" | "site";
     /** Session whose turn is blocked. */
     sessionId: string;
+    /** Origin (scheme://host) a 'site' scope would store the answer for (1.6.0). */
+    site?: string | null;
     /** Seconds before the request auto-denies. */
     timeoutSec?: number;
     /** Tool the model wants to run. */
@@ -2712,6 +2993,14 @@ export interface TeamsChangedPayload {
   reason: string;
   /** Team that changed, when known. */
   team?: string | null;
+}
+
+/** `tool.cancel` notification payload. */
+export interface ToolCancelPayload {
+  /** The tool.invoke callId to stop. */
+  callId: string;
+  /** Session whose turn was interrupted. */
+  sessionId: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -3260,6 +3549,7 @@ export interface MethodMap {
   "agent.delete": { params: AgentDeleteParams; result: AgentDeleteResult };
   "agent.list": { params: AgentListParams; result: AgentListResult };
   "agent.spawn": { params: AgentSpawnParams; result: AgentSpawnResult };
+  "approval.ask": { params: ApprovalAskParams; result: ApprovalAskResult };
   "approval.list": { params: ApprovalListParams; result: ApprovalListResult };
   "approval.request": { params: ApprovalRequestParams; result: ApprovalRequestResult };
   "approval.respond": { params: ApprovalRespondParams; result: ApprovalRespondResult };
@@ -3307,9 +3597,11 @@ export interface MethodMap {
   "provider.loginWeb": { params: ProviderLoginWebParams; result: ProviderLoginWebResult };
   "provider.models": { params: ProviderModelsParams; result: ProviderModelsResult };
   "provider.remove": { params: ProviderRemoveParams; result: ProviderRemoveResult };
+  "provider.test": { params: ProviderTestParams; result: ProviderTestResult };
   "question.list": { params: QuestionListParams; result: QuestionListResult };
   "question.request": { params: QuestionRequestParams; result: QuestionRequestResult };
   "question.respond": { params: QuestionRespondParams; result: QuestionRespondResult };
+  "session.attach": { params: SessionAttachParams; result: SessionAttachResult };
   "session.close": { params: SessionCloseParams; result: SessionCloseResult };
   "session.compact": { params: SessionCompactParams; result: SessionCompactResult };
   "session.create": { params: SessionCreateParams; result: SessionCreateResult };
@@ -3321,9 +3613,12 @@ export interface MethodMap {
   "session.setEffort": { params: SessionSetEffortParams; result: SessionSetEffortResult };
   "session.setMode": { params: SessionSetModeParams; result: SessionSetModeResult };
   "session.setModel": { params: SessionSetModelParams; result: SessionSetModelResult };
+  "session.steer": { params: SessionSteerParams; result: SessionSteerResult };
   "settings.get": { params: SettingsGetParams; result: SettingsGetResult };
   "settings.set": { params: SettingsSetParams; result: SettingsSetResult };
+  "setup.applyDefaults": { params: SetupApplyDefaultsParams; result: SetupApplyDefaultsResult };
   "setup.catalog": { params: SetupCatalogParams; result: SetupCatalogResult };
+  "setup.status": { params: SetupStatusParams; result: SetupStatusResult };
   "skill.create": { params: SkillCreateParams; result: SkillCreateResult };
   "skill.install": { params: SkillInstallParams; result: SkillInstallResult };
   "skill.list": { params: SkillListParams; result: SkillListResult };
@@ -3346,7 +3641,11 @@ export interface MethodMap {
   "team.guide.set": { params: TeamGuideSetParams; result: TeamGuideSetResult };
   "team.start": { params: TeamStartParams; result: TeamStartResult };
   "team.status": { params: TeamStatusParams; result: TeamStatusResult };
+  "tool.invoke": { params: ToolInvokeParams; result: ToolInvokeResult };
   "tool.list": { params: ToolListParams; result: ToolListResult };
+  "tool.progress": { params: ToolProgressParams; result: ToolProgressResult };
+  "tool.register": { params: ToolRegisterParams; result: ToolRegisterResult };
+  "tool.unregister": { params: ToolUnregisterParams; result: ToolUnregisterResult };
 }
 
 export type MethodName = keyof MethodMap;
@@ -3360,6 +3659,7 @@ export type ClientMethod =
   | "agent.delete"
   | "agent.list"
   | "agent.spawn"
+  | "approval.ask"
   | "approval.list"
   | "approval.respond"
   | "audio.capabilities"
@@ -3406,8 +3706,10 @@ export type ClientMethod =
   | "provider.loginWeb"
   | "provider.models"
   | "provider.remove"
+  | "provider.test"
   | "question.list"
   | "question.respond"
+  | "session.attach"
   | "session.close"
   | "session.compact"
   | "session.create"
@@ -3419,9 +3721,12 @@ export type ClientMethod =
   | "session.setEffort"
   | "session.setMode"
   | "session.setModel"
+  | "session.steer"
   | "settings.get"
   | "settings.set"
+  | "setup.applyDefaults"
   | "setup.catalog"
+  | "setup.status"
   | "skill.create"
   | "skill.install"
   | "skill.list"
@@ -3444,11 +3749,15 @@ export type ClientMethod =
   | "team.guide.set"
   | "team.start"
   | "team.status"
-  | "tool.list";
+  | "tool.list"
+  | "tool.progress"
+  | "tool.register"
+  | "tool.unregister";
 /** Methods the server calls on the client (bidirectional JSON-RPC). */
 export type ServerMethod =
   | "approval.request"
-  | "question.request";
+  | "question.request"
+  | "tool.invoke";
 
 /** Every server→client notification, with its payload type. */
 export interface EventMap {
@@ -3466,6 +3775,7 @@ export interface EventMap {
   "settings.changed": SettingsChangedPayload;
   "system.updateProgress": SystemUpdateProgressPayload;
   "teams.changed": TeamsChangedPayload;
+  "tool.cancel": ToolCancelPayload;
 }
 
 export type EventName = keyof EventMap;
@@ -3484,4 +3794,5 @@ export const EVENT_NAMES: readonly EventName[] = [
   "settings.changed",
   "system.updateProgress",
   "teams.changed",
+  "tool.cancel",
 ];

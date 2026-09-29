@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.5.0` (semver)
+- **Protocol version:** `1.6.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.5.0"
+    "protocolVersion": "1.6.0"
   }
 }
 ```
@@ -43,6 +43,7 @@ Server capabilities advertised in the `system.hello` result:
 - `audio`
 - `checkpoints`
 - `commands`
+- `hostTools`
 - `lsp`
 - `mcp`
 - `sessions`
@@ -60,6 +61,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`agent.delete`](#agentdelete) | client → server | Delete a named agent. |
 | [`agent.list`](#agentlist) | client → server | List the named agents that are defined. |
 | [`agent.spawn`](#agentspawn) | client → server | Run a named agent on a task. |
+| [`approval.ask`](#approvalask) | client → server | Escalate one host action through the approval pipeline. |
 | [`approval.list`](#approvallist) | client → server | List tool calls still waiting for a decision. |
 | [`approval.request`](#approvalrequest) | server → client | Ask the client to approve a tool call. |
 | [`approval.respond`](#approvalrespond) | client → server | Answer a pending approval and unblock the turn. |
@@ -107,9 +109,11 @@ Server capabilities advertised in the `system.hello` result:
 | [`provider.loginWeb`](#providerloginweb) | client → server | Start a browser-based login flow for a provider. |
 | [`provider.models`](#providermodels) | client → server | Ask a vendor's endpoint which models it serves. |
 | [`provider.remove`](#providerremove) | client → server | Forget a configured provider, typically a named local server. |
+| [`provider.test`](#providertest) | client → server | Send one short completion to check a provider and model. |
 | [`question.list`](#questionlist) | client → server | List questions the agent is still waiting on. |
 | [`question.request`](#questionrequest) | server → client | Ask the client to put a question to the human. |
 | [`question.respond`](#questionrespond) | client → server | Answer a pending question and unblock the turn. |
+| [`session.attach`](#sessionattach) | client → server | Make this connection the origin of a session (approvals, host tools). |
 | [`session.close`](#sessionclose) | client → server | Close a session and release its resources. |
 | [`session.compact`](#sessioncompact) | client → server | Summarise the conversation so far and replace the history with it. |
 | [`session.create`](#sessioncreate) | client → server | Open a session rooted at a working directory. |
@@ -121,9 +125,12 @@ Server capabilities advertised in the `system.hello` result:
 | [`session.setEffort`](#sessionseteffort) | client → server | Pin how hard a session's model may think, or clear the pin. |
 | [`session.setMode`](#sessionsetmode) | client → server | Switch a session between plan, accept and auto. |
 | [`session.setModel`](#sessionsetmodel) | client → server | Pin a session to a model profile, or clear the pin. |
+| [`session.steer`](#sessionsteer) | client → server | Inject a user message into a running turn at its next tool round. |
 | [`settings.get`](#settingsget) | client → server | Read global or project settings, with secrets masked. |
 | [`settings.set`](#settingsset) | client → server | Deep-merge a patch into global or project settings and persist it. |
+| [`setup.applyDefaults`](#setupapplydefaults) | client → server | Apply the profile's defaults for everything optional; idempotent. |
 | [`setup.catalog`](#setupcatalog) | client → server | The setup wizard's vendor, search, browser, tools and gateway catalogs. |
+| [`setup.status`](#setupstatus) | client → server | What setup still needs; for the browser profile only a tested provider is required. |
 | [`skill.create`](#skillcreate) | client → server | Write a new SKILL.md, generated from a brief or supplied verbatim. |
 | [`skill.install`](#skillinstall) | client → server | Install a skill from a path, URL or registry. |
 | [`skill.list`](#skilllist) | client → server | List installed skills. |
@@ -146,7 +153,11 @@ Server capabilities advertised in the `system.hello` result:
 | [`team.guide.set`](#teamguideset) | client → server | Write a team guide to the project or global home. |
 | [`team.start`](#teamstart) | client → server | Split a task across parallel workers. |
 | [`team.status`](#teamstatus) | client → server | Inspect a team's task board. |
+| [`tool.invoke`](#toolinvoke) | server → client | Ask the client to run one of its host tools. |
 | [`tool.list`](#toollist) | client → server | List the tools registered for a session. |
+| [`tool.progress`](#toolprogress) | client → server | Notification: progress of a running tool.invoke, re-emitted as tool.progress. |
+| [`tool.register`](#toolregister) | client → server | Register tools this connection runs itself (host tools). |
+| [`tool.unregister`](#toolunregister) | client → server | Remove some of this connection's host tools. |
 
 ## Methods
 
@@ -246,6 +257,34 @@ Run a named agent on a task.
 |---|---|---|---|
 | `agentId` | `string` | yes | Id correlating the subagent.* events. |
 
+### `approval.ask`
+
+*Direction:* client → server
+
+Escalate one host action through the approval pipeline.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `args` | `Record<string, unknown>` | no | Action details to show. |
+| `callId` | `string \| null` | no | The tool.invoke callId, if any. |
+| `detail` | `Record<string, unknown> \| null` | no | What the running code is about to do, e.g. {origin, element, action}; shown with the approval and merged into its args. |
+| `permission` | `"read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret"` | yes | Permission class of the escalated action. |
+| `reason` | `string` | yes | What will happen, shown to the person approving. |
+| `risk` | `string \| null` | no | Risk hint; default from the permission. |
+| `sessionId` | `string` | yes | Session whose tool call is running. |
+| `site` | `string \| null` | no | Origin of the page, e.g. https://github.com; derived from detail.origin or args.url if omitted. |
+| `tool` | `string` | yes | Host tool asking; the allowlist is keyed by it. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `by` | `string` | no | Who decided: mode, allowlist, origin, timeout, ... |
+| `decision` | `"allow" \| "deny"` | yes | allow or deny. |
+| `scope` | `"once" \| "session" \| "project" \| "always" \| "site"` | no | Scope the answer applies to. |
+
 ### `approval.list`
 
 *Direction:* client → server
@@ -262,7 +301,7 @@ List tool calls still waiting for a decision.
 
 | field | type | required | description |
 |---|---|---|---|
-| `requests` | `({ args?: Record<string, unknown>; note?: string; requestId: string; risk?: string; scopeHint?: "once" \| "session" \| "project" \| "always"; sessionId: string; timeoutSec?: number; tool: string; })[]` | no | Approvals still pending. |
+| `requests` | `({ args?: Record<string, unknown>; note?: string; requestId: string; risk?: string; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; })[]` | no | Approvals still pending. |
 
 ### `approval.request`
 
@@ -278,8 +317,9 @@ Ask the client to approve a tool call.
 | `note` | `string` | no | Extra warning shown with the prompt, e.g. "modifies snowpea configuration". |
 | `requestId` | `string` | yes | Id to answer with approval.respond. |
 | `risk` | `string` | no | Risk hint for the UI. |
-| `scopeHint` | `"once" \| "session" \| "project" \| "always"` | no | Scope the UI should preselect. |
+| `scopeHint` | `"once" \| "session" \| "project" \| "always" \| "site"` | no | Scope the UI should preselect. |
 | `sessionId` | `string` | yes | Session whose turn is blocked. |
+| `site` | `string \| null` | no | Origin (scheme://host) a 'site' scope would store the answer for (1.6.0). |
 | `timeoutSec` | `number` | no | Seconds before the request auto-denies. |
 | `tool` | `string` | yes | Tool the model wants to run. |
 
@@ -289,7 +329,7 @@ Ask the client to approve a tool call.
 |---|---|---|---|
 | `decision` | `"allow" \| "deny"` | yes | The human's decision. |
 | `reason` | `string` | no | Why the human refused; quoted back to the model as the tool's refusal so the next turn can answer it (M15b §1). |
-| `scope` | `"once" \| "session" \| "project" \| "always"` | no | How long the decision applies. |
+| `scope` | `"once" \| "session" \| "project" \| "always" \| "site"` | no | How long the decision applies. |
 
 ### `approval.respond`
 
@@ -304,7 +344,7 @@ Answer a pending approval and unblock the turn.
 | `decision` | `"allow" \| "deny"` | yes | allow runs the tool, deny ends the turn. |
 | `reason` | `string` | no | Why the human refused; quoted back to the model as the tool's refusal so the next turn can answer it (M15b §1). |
 | `requestId` | `string` | yes | Request being answered. |
-| `scope` | `"once" \| "session" \| "project" \| "always"` | no | How long the decision applies. |
+| `scope` | `"once" \| "session" \| "project" \| "always" \| "site"` | no | How long the decision applies. |
 
 **Result**
 
@@ -1242,6 +1282,31 @@ Forget a configured provider, typically a named local server.
 |---|---|---|---|
 | `ok` | `boolean` | no | True when the call succeeded. |
 
+### `provider.test`
+
+*Direction:* client → server
+
+Send one short completion to check a provider and model.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `model` | `string \| null` | no | Model; defaults to the vendor's default. |
+| `provider` | `string` | yes | Vendor to test. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `error` | `string \| null` | no | Why it failed. |
+| `latencyMs` | `number` | no | Round-trip time of the test call. |
+| `model` | `string` | no | Model the request used. |
+| `modelEcho` | `string \| null` | no | Model name the server reported, when it did. |
+| `ok` | `boolean` | yes | True when a one-line completion came back. |
+| `provider` | `string` | yes | Vendor tested. |
+| `reply` | `string \| null` | no | The model's reply, trimmed. |
+
 ### `question.list`
 
 *Direction:* client → server
@@ -1300,6 +1365,25 @@ Answer a pending question and unblock the turn.
 |---|---|---|---|
 | `ok` | `boolean` | no | True when the call succeeded. |
 
+### `session.attach`
+
+*Direction:* client → server
+
+Make this connection the origin of a session (approvals, host tools).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `sessionId` | `string` | yes | Session this connection becomes the origin of (1.6.0). |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `hostTools` | `string[]` | no | Host tools the session now sees. |
+| `sessionId` | `string` | yes | The attached session. |
+
 ### `session.close`
 
 *Direction:* client → server
@@ -1352,6 +1436,7 @@ Open a session rooted at a working directory.
 | `agent` | `string \| null` | no | Named agent whose persona to load. |
 | `denyExec` | `boolean \| null` | no | When true, refuse exec-tagged tools without prompting (headless CI). |
 | `effort` | `"low" \| "medium" \| "high" \| "max" \| null` | no | Reasoning effort for this session; null follows the settings. |
+| `hostToolsFrom` | `string \| null` | no | Whose host tools this session sees: a connection's clientId (or surface id). Default: the creating connection (1.6.0). |
 | `maxConcurrent` | `number \| null` | no | Override for concurrent subagents. |
 | `mode` | `"plan" \| "accept" \| "auto" \| null` | no | Starting mode; defaults to the project setting. |
 | `model` | `string \| null` | no | Model id; defaults to the provider's default. |
@@ -1434,7 +1519,7 @@ Send user text to a session and start a turn.
 
 | field | type | required | description |
 |---|---|---|---|
-| `attachments` | `({ data?: string \| null; kind?: "file" \| "image" \| "text"; mimeType?: string \| null; name?: string \| null; path?: string \| null; size?: number \| null; text?: string \| null; })[] \| null` | no | Files or images to include. |
+| `attachments` | `({ data?: string \| null; kind?: "file" \| "image" \| "text" \| "page"; mimeType?: string \| null; name?: string \| null; path?: string \| null; selection?: string \| null; size?: number \| null; snapshot?: string \| null; text?: string \| null; title?: string \| null; url?: string \| null; })[] \| null` | no | Files or images to include. |
 | `sessionId` | `string` | yes | Session to prompt. |
 | `text` | `string` | yes | User text; a leading '/' is parsed as a slash command. |
 
@@ -1531,6 +1616,26 @@ Pin a session to a model profile, or clear the pin.
 | `pinned` | `boolean` | no | False when the pin was cleared. |
 | `provider` | `string \| null` | no | Vendor now in effect. |
 
+### `session.steer`
+
+*Direction:* client → server
+
+Inject a user message into a running turn at its next tool round.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `sessionId` | `string` | yes | Session with a running turn. |
+| `text` | `string` | yes | User message injected at the running turn's next tool-round boundary; with no turn running it starts one like session.prompt (1.6.0). |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ok` | `boolean` | no | True when accepted. |
+| `started` | `boolean` | no | True when no turn was running and a new one started. |
+
 ### `settings.get`
 
 *Direction:* client → server
@@ -1570,6 +1675,25 @@ Deep-merge a patch into global or project settings and persist it.
 |---|---|---|---|
 | `settings` | `Record<string, unknown>` | yes | The effective settings document. Fields named api_key, token, refresh_token or password are masked as '***'. |
 
+### `setup.applyDefaults`
+
+*Direction:* client → server
+
+Apply the profile's defaults for everything optional; idempotent.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `profile` | `"default" \| "browser"` | no | Which defaults to apply. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `applied` | `string[]` | no | Setting keys this call changed; empty when all set. |
+| `status` | `{ configuredProviders?: string[]; existingInstall?: boolean; optional?: ({ defaultApplied?: boolean \| null; done: boolean; id: string; title: string; })[]; required?: ({ defaultApplied?: boolean \| null; done: boolean; id: string; title: string; })[]; }` | yes | setup.status after applying. |
+
 ### `setup.catalog`
 
 *Direction:* client → server
@@ -1591,6 +1715,27 @@ _No params (send `{}`)._
 | `tools` | `({ active?: boolean; default?: boolean; defaultModel?: string; defaultModelSource?: string; description?: string; id: string; installHint?: string \| null; installable?: boolean; key: string; label: string; recommended?: boolean; tags?: string[]; tier: string; })[]` | no | Tool categories and their default on/off state. |
 | `tts` | `({ active?: boolean; default?: boolean; defaultModel?: string; defaultModelSource?: string; description?: string; id: string; installHint?: string \| null; installable?: boolean; key: string; label: string; recommended?: boolean; tags?: string[]; tier: string; })[]` | no | Text-to-speech choices; active reflects what is usable on this machine. |
 | `vendors` | `({ active?: boolean; default?: boolean; defaultModel?: string; defaultModelSource?: string; description?: string; id: string; installHint?: string \| null; installable?: boolean; key: string; label: string; recommended?: boolean; tags?: string[]; tier: string; })[]` | no | LLM vendors. |
+
+### `setup.status`
+
+*Direction:* client → server
+
+What setup still needs; for the browser profile only a tested provider is required.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `profile` | `"default" \| "browser"` | no | Which setup flow is asking (1.6.0). |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `configuredProviders` | `string[]` | no | Vendors with credentials or a local endpoint. |
+| `existingInstall` | `boolean` | no | True when this home already has a configured provider from an earlier setup. |
+| `optional` | `({ defaultApplied?: boolean \| null; done: boolean; id: string; title: string; })[]` | no | Items with a usable default. |
+| `required` | `({ defaultApplied?: boolean \| null; done: boolean; id: string; title: string; })[]` | no | Items that must be done before first use. |
 
 ### `skill.create`
 
@@ -1801,7 +1946,11 @@ Authenticate a connection and agree on the protocol version.
 
 | field | type | required | description |
 |---|---|---|---|
+| `clientId` | `string \| null` | no | Id stable across restarts of this client install (1.6.0). Sessions a previous connection with the same clientId started re-bind to this one. |
+| `clientKind` | `string \| null` | no | What the client is, e.g. "tui", "desktop", "browser" (1.6.0). |
 | `clientVersion` | `string` | yes | Version string of the connecting client. |
+| `instanceId` | `string \| null` | no | Id of this run of the client (1.6.0). |
+| `keepAlive` | `boolean` | no | Keep the daemon from its idle shutdown while this client is connected (1.6.0). |
 | `protocolVersion` | `string` | yes | Protocol semver the client speaks; major must match. |
 | `token` | `string` | yes | Shared secret read from $SNOWPEA_HOME/token or daemon.json. |
 
@@ -2033,6 +2182,34 @@ Inspect a team's task board.
 | `workers` | `number` | no | How many workers the run was started with. |
 | `worktrees` | `string[]` | no | Worker worktrees that exist right now. |
 
+### `tool.invoke`
+
+*Direction:* server → client
+
+Ask the client to run one of its host tools.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `args` | `Record<string, unknown>` | no | Arguments from the model. |
+| `callId` | `string` | yes | Id of the tool call; tool.progress refers to it. |
+| `mode` | `"plan" \| "accept" \| "auto"` | no | The session's mode. A code-running tool registered as 'read' must refuse mutations in plan mode itself and escalate the rest with approval.ask. |
+| `name` | `string` | yes | Host tool name. |
+| `sessionId` | `string` | yes | Session whose turn called the tool. |
+| `turnId` | `string` | no | Turn the call belongs to. |
+| `workspaceDir` | `string` | no | Directory the session works in (its workdir). |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `content` | `({ data?: string \| null; mediaType?: string \| null; text?: string \| null; type: "text" \| "image"; })[] \| null` | no | Rich result blocks. Images reach vision models as image input; text blocks are appended to output. |
+| `error` | `string \| null` | no | Error text when ok is false. |
+| `meta` | `Record<string, unknown> \| null` | no | Extra facts. meta.sensitive=true keeps the output out of the session store ([redacted]), memory and compaction summaries. |
+| `ok` | `boolean` | yes | False reports the call as a tool error. |
+| `output` | `string` | no | Text result the model reads. |
+
 ### `tool.list`
 
 *Direction:* client → server
@@ -2051,13 +2228,68 @@ List the tools registered for a session.
 |---|---|---|---|
 | `tools` | `({ category: string; deferred?: boolean; description?: string; name: string; permissionTag: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret"; provider?: string; reason?: string; server?: string; source?: string; state?: "active" \| "inactive"; })[]` | no | Registered tools. |
 
+### `tool.progress`
+
+*Direction:* client → server
+
+Notification: progress of a running tool.invoke, re-emitted as tool.progress.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `callId` | `string` | yes | The tool.invoke callId this progress belongs to. |
+| `message` | `string` | yes | Progress text; re-emitted as session.event tool.progress. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ok` | `boolean` | no | True when the call succeeded. |
+
+### `tool.register`
+
+*Direction:* client → server
+
+Register tools this connection runs itself (host tools).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `tools` | `({ category?: string \| null; description: string; inputSchema?: Record<string, unknown>; name: string; permission: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret"; timeoutMs?: number \| null; })[]` | yes | Tools to add or replace for this connection; all-or-nothing. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `registered` | `string[]` | no | Names now registered. |
+
+### `tool.unregister`
+
+*Direction:* client → server
+
+Remove some of this connection's host tools.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `names` | `string[]` | yes | This connection's tools to remove. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `removed` | `string[]` | no | Names actually removed. |
+
 ## Notifications
 
 ### `approval.pending`
 
 | field | type | required | description |
 |---|---|---|---|
-| `request` | `{ args?: Record<string, unknown>; note?: string; requestId: string; risk?: string; scopeHint?: "once" \| "session" \| "project" \| "always"; sessionId: string; timeoutSec?: number; tool: string; }` | yes | The request now in the shared queue. |
+| `request` | `{ args?: Record<string, unknown>; note?: string; requestId: string; risk?: string; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; }` | yes | The request now in the shared queue. |
 
 ### `approval.resolved`
 
@@ -2171,6 +2403,13 @@ List the tools registered for a session.
 |---|---|---|---|
 | `reason` | `string` | yes | Why the guide list changed. |
 | `team` | `string \| null` | no | Team that changed, when known. |
+
+### `tool.cancel`
+
+| field | type | required | description |
+|---|---|---|---|
+| `callId` | `string` | yes | The tool.invoke callId to stop. |
+| `sessionId` | `string` | yes | Session whose turn was interrupted. |
 
 ## `session.event` kinds
 

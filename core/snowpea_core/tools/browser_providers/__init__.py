@@ -24,6 +24,7 @@ PROVIDER_ORDER: tuple[str, ...] = (
     "browser_use_local",
     "browserbase",
     "firecrawl_cloud",
+    "host",
 )
 
 
@@ -67,8 +68,11 @@ class ThinBrowserProvider:
 
 
 def _build() -> dict[str, BrowserProvider]:
+    from snowpea_core.tools.browser_providers.host import HOST_BROWSER
+
     providers: list[BrowserProvider] = [
         LocalChromiumProvider(),
+        HOST_BROWSER,
         ThinBrowserProvider(
             BrowserProviderMeta(
                 id="camoufox",

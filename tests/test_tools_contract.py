@@ -531,8 +531,11 @@ def test_browser_catalog_ids_and_tags() -> None:
         "browser_use_local",
         "browserbase",
         "firecrawl_cloud",
+        "host",
     ]
     assert metas["local_chromium"].default is True
+    # The connected browser (protocol 1.6.0) needs no key and is never the default.
+    assert metas["host"].key == "no key" and metas["host"].default is False
     assert metas["local_chromium"].tier == "free"
     assert metas["browserbase"].tier == "paid"
     assert metas["firecrawl_cloud"].key == "key required"

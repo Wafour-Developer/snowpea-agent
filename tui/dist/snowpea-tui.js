@@ -33831,7 +33831,7 @@ import { basename as basename2, isAbsolute, join as join2, resolve } from "node:
 var import_react45 = __toESM(require_react(), 1);
 
 // ../sdk/dist/protocol.js
-var PROTOCOL_VERSION = "1.5.0";
+var PROTOCOL_VERSION = "1.6.0";
 var WS_PATH = "/ws";
 
 // ../sdk/dist/client.js
@@ -33932,7 +33932,11 @@ var Client = class {
       reconnectMaxAttempts: options.reconnectMaxAttempts ?? Number.POSITIVE_INFINITY,
       callTimeoutMs: options.callTimeoutMs ?? 3e4,
       reconnectWaitMs: options.reconnectWaitMs ?? 3e4,
-      resolveEndpoint: options.resolveEndpoint ?? defaultResolveEndpoint
+      resolveEndpoint: options.resolveEndpoint ?? defaultResolveEndpoint,
+      clientKind: options.clientKind,
+      clientId: options.clientId,
+      instanceId: options.instanceId,
+      keepAlive: options.keepAlive
     };
   }
   get url() {
@@ -34151,7 +34155,11 @@ var Client = class {
     const result = await this.rawCall("system.hello", {
       token: this.options.token,
       clientVersion: this.options.clientVersion,
-      protocolVersion: this.options.protocolVersion ?? PROTOCOL_VERSION
+      protocolVersion: this.options.protocolVersion ?? PROTOCOL_VERSION,
+      ...this.options.clientKind ? { clientKind: this.options.clientKind } : {},
+      ...this.options.clientId ? { clientId: this.options.clientId } : {},
+      ...this.options.instanceId ? { instanceId: this.options.instanceId } : {},
+      ...this.options.keepAlive ? { keepAlive: true } : {}
     }, HELLO_TIMEOUT_MS);
     this.serverProtocolVersion = result.protocolVersion ?? "";
     this.serverVersion = result.serverVersion ?? "";

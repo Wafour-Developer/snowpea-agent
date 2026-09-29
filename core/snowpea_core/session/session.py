@@ -153,6 +153,15 @@ class Session:
     #: same point as local busy-steer prompts, but have no queued turn id of
     #: their own.
     steered_prompts: list[tuple[str, str]] = field(default_factory=list)
+    #: ``session.steer`` texts waiting for the running turn's next tool round;
+    #: injected whatever ``agent.busy`` says (1.6.0).
+    rpc_steers: list[str] = field(default_factory=list)
+    #: Whose host tools this session sees: a clientId or surface id from
+    #: ``session.create {hostToolsFrom}``; ``None`` means the origin connection.
+    host_tools_from: str | None = None
+    #: ``system.hello`` clientId of the connection that created the session, so
+    #: a restarted client re-binds as its origin (1.6.0).
+    origin_client_id: str | None = None
     #: Tokens the current prompt occupies, provider-reported when
     #: :attr:`context_estimated` is False (CORE-context).
     context_used: int = 0

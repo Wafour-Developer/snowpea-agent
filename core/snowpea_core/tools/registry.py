@@ -169,8 +169,24 @@ class ToolRegistry:
         self._tools[tool.name] = tool
         return tool
 
-    def get(self, name: str) -> Tool | None:
+    def get(self, name: str, session: Any | None = None) -> Tool | None:
+        """``name``'s tool; for a session, a host tool of that name wins."""
+        if session is not None:
+            host = _host_tools(session).get(name)
+            if host is not None:
+                return host
         return self._tools.get(name)
+
+    def _view(self, session: Any | None) -> dict[str, Tool]:
+        """Daemon tools with the session's host tools laid over them."""
+        if session is None:
+            return self._tools
+        host = _host_tools(session)
+        if not host:
+            return self._tools
+        merged = dict(self._tools)
+        merged.update(host)
+        return merged
 
     def unregister(self, name: str) -> Tool | None:
         """Drop a tool; used when an MCP server goes away."""
@@ -206,7 +222,7 @@ class ToolRegistry:
                 session, deferred_tools.forced_eager(self.settings)
             )
         infos: ToolInfos = []
-        for tool in self._tools.values():
+        for tool in self._view(session).values():
             info = tool.info()
             if eager is not None:
                 info.deferred = tool.name not in eager
@@ -227,7 +243,7 @@ class ToolRegistry:
         )
         return [
             tool
-            for tool in self._tools.values()
+            for tool in self._view(session).values()
             if tool.state == "active" and (allowed is None or tool.name in allowed)
         ]
 
@@ -256,6 +272,12 @@ class ToolRegistry:
 
     def __len__(self) -> int:
         return len(self._tools)
+
+
+def _host_tools(session: Any) -> dict[str, Tool]:
+    from snowpea_core.tools.host_tools import HOST_TOOLS
+
+    return HOST_TOOLS.for_session(session)
 
 
 def _wrap_deferred_run(tool: Tool) -> Tool:

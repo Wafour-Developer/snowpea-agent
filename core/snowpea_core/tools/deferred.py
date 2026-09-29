@@ -159,6 +159,10 @@ def eager_names(session: Any = None, extra: Iterable[str] = ()) -> frozenset[str
     base.add(TOOL_SEARCH)
     base.update(str(name) for name in extra)
     base.update(loaded(session))
+    # A host's tools are why it attached (a browser's page actions): sent in full.
+    from snowpea_core.tools.host_tools import HOST_TOOLS
+
+    base.update(HOST_TOOLS.names_for(session))
     return frozenset(base)
 
 

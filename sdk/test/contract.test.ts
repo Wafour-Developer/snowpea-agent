@@ -23,6 +23,7 @@ import {
   createSession,
   listAgents,
   prompt,
+  registerTools,
   spawnAgent,
   SDK_VERSION,
   type Client,
@@ -34,6 +35,8 @@ const REPO_ROOT = path.resolve(HERE, "..", "..");
 const FAKE_SCRIPT = path.join(HERE, "fixtures", "fake-basic.json");
 /** Drives the M7 subagent lane: a parent that delegates, a child that answers. */
 const SUBAGENT_SCRIPT = path.join(HERE, "fixtures", "fake-subagent.json");
+/** Calls host tools a client registered (protocol 1.6.0). */
+const HOST_SCRIPT = path.join(REPO_ROOT, "tests", "fixtures", "providers", "fake", "host_tools.json");
 
 type DaemonProcess = ChildProcessByStdio<null, Readable, Readable>;
 
@@ -390,6 +393,66 @@ describe("subagent contract (AC-15b)", function () {
       assert.equal((log.find("subagent.done")!.payload as { agentId?: string }).agentId, agentId);
     } finally {
       log.stop();
+    }
+  });
+});
+
+describe("host tools contract (1.6.0)", function () {
+  this.timeout(120_000);
+
+  let daemon: DaemonHandle | undefined;
+  let client: Client | undefined;
+
+  before(async function () {
+    daemon = await startDaemon(HOST_SCRIPT);
+    client = await connect({
+      port: daemon.port,
+      token: daemon.token,
+      clientVersion: SDK_VERSION,
+      clientKind: "browser",
+      clientId: "sdk-contract",
+    });
+  });
+
+  after(async function () {
+    await client?.close();
+    await stopDaemon(daemon);
+  });
+
+  it("host: registerTools answers tool.invoke and reports progress", async function () {
+    const calls: string[] = [];
+    const host = await registerTools(
+      client!,
+      [
+        {
+          name: "host_echo",
+          description: "Echo text from the host",
+          inputSchema: { type: "object", properties: { text: { type: "string" } } },
+          permission: "read",
+        },
+      ],
+      async (request, progress) => {
+        calls.push(request.name);
+        progress("working");
+        return { ok: true, output: `host says ${String(request.args.text)}` };
+      },
+    );
+    assert.deepEqual(host.registered, ["host_echo"]);
+    const { sessionId } = await createSession(client!, { workdir: daemon!.home, mode: "accept" });
+    const log = new EventLog(client!, sessionId);
+    try {
+      await prompt(client!, sessionId, "use host echo");
+      const done = await log.waitFor("turn.done");
+      assert.equal((done.payload as { reason?: string }).reason, "complete");
+      assert.deepEqual(calls, ["host_echo"]);
+      const result = log.events.find(
+        (e) => e.kind === "tool.result" && (e.payload as { name?: string }).name === "host_echo",
+      );
+      assert.equal((result!.payload as { output?: string }).output, "host says hi");
+      assert.ok(log.find("tool.progress"), "tool.progress must be re-emitted as a session event");
+    } finally {
+      log.stop();
+      await host.dispose();
     }
   });
 });

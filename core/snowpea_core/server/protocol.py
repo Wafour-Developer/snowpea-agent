@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.5.0"
+PROTOCOL_VERSION = "1.6.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -40,7 +40,9 @@ ToolState = Literal["active", "inactive"]
 #: a free string because a plugin names itself (M6 contract §1).
 CommandSource = str
 Decision = Literal["allow", "deny"]
-ApprovalScope = Literal["once", "session", "project", "always"]
+#: ``site`` (1.6.0) stores an allowlist entry keyed by the tool *and* the
+#: site's origin ("always allow on github.com").
+ApprovalScope = Literal["once", "session", "project", "always", "site"]
 AllowlistScope = Literal["session", "project", "always"]
 BackendKind = Literal["local", "docker", "ssh"]
 #: How hard a reasoning model may think; one scale for every vendor.
@@ -127,6 +129,25 @@ class HelloParams(Payload):
     token: str = Field(description="Shared secret read from $SNOWPEA_HOME/token or daemon.json.")
     clientVersion: str = Field(description="Version string of the connecting client.")
     protocolVersion: str = Field(description="Protocol semver the client speaks; major must match.")
+    clientKind: str | None = Field(
+        default=None, description='What the client is, e.g. "tui", "desktop", "browser" (1.6.0).'
+    )
+    clientId: str | None = Field(
+        default=None,
+        description=(
+            "Id stable across restarts of this client install (1.6.0). Sessions a "
+            "previous connection with the same clientId started re-bind to this one."
+        ),
+    )
+    instanceId: str | None = Field(
+        default=None, description="Id of this run of the client (1.6.0)."
+    )
+    keepAlive: bool = Field(
+        default=False,
+        description=(
+            "Keep the daemon from its idle shutdown while this client is connected (1.6.0)."
+        ),
+    )
 
 
 class HelloResult(Payload):
@@ -227,16 +248,26 @@ class UpdateResult(Payload):
 
 
 class Attachment(Payload):
-    """A file, image or inline text sent along with a prompt.
+    """A file, image, inline text or web page sent along with a prompt.
 
     Exactly one of ``path``, ``data`` and ``text`` carries the content.  The
     daemon sniffs the real media type from the bytes, so ``mimeType`` is a
     hint it may overrule; anything over 20MB is refused with
-    ``invalid_params``.
+    ``invalid_params``.  A ``page`` (1.6.0) carries ``url`` plus optional
+    ``title``, ``selection`` and ``snapshot``; it reaches the model as
+    delimited, untrusted page content.
     """
 
-    kind: Literal["file", "image", "text"] = Field(
+    kind: Literal["file", "image", "text", "page"] = Field(
         default="file", description="Attachment flavour."
+    )
+    url: str | None = Field(default=None, description="Page address, for 'page'.")
+    title: str | None = Field(default=None, description="Page title, for 'page'.")
+    selection: str | None = Field(
+        default=None, description="Text the user selected on the page, for 'page'."
+    )
+    snapshot: str | None = Field(
+        default=None, description="Page text or accessibility snapshot, for 'page'."
     )
     name: str | None = Field(
         default=None, description="Display name; defaults to the file's basename."
@@ -274,6 +305,41 @@ class SessionCreateParams(Payload):
     denyExec: bool | None = Field(
         default=None,
         description="When true, refuse exec-tagged tools without prompting (headless CI).",
+    )
+    hostToolsFrom: str | None = Field(
+        default=None,
+        description=(
+            "Whose host tools this session sees: a connection's clientId (or surface "
+            "id). Default: the creating connection (1.6.0)."
+        ),
+    )
+
+
+class SessionAttachParams(Payload):
+    sessionId: str = Field(description="Session this connection becomes the origin of (1.6.0).")
+
+
+class SessionAttachResult(Payload):
+    sessionId: str = Field(description="The attached session.")
+    hostTools: list[str] = Field(
+        default_factory=list, description="Host tools the session now sees."
+    )
+
+
+class SessionSteerParams(Payload):
+    sessionId: str = Field(description="Session with a running turn.")
+    text: str = Field(
+        description=(
+            "User message injected at the running turn's next tool-round boundary; "
+            "with no turn running it starts one like session.prompt (1.6.0)."
+        )
+    )
+
+
+class SessionSteerResult(Payload):
+    ok: bool = Field(default=True, description="True when accepted.")
+    started: bool = Field(
+        default=False, description="True when no turn was running and a new one started."
     )
 
 
@@ -793,6 +859,113 @@ class ToolListResult(Payload):
     tools: list[ToolInfo] = Field(default_factory=list, description="Registered tools.")
 
 
+class HostToolSpec(Payload):
+    """One tool a client runs itself (``tool.register``, 1.6.0)."""
+
+    name: str = Field(
+        description=(
+            "Tool name, [A-Za-z][A-Za-z0-9_-]{0,63}. May not collide with a daemon tool "
+            "except the built-in browser_* tools, which it shadows for the sessions "
+            "that see this connection's tools."
+        )
+    )
+    description: str = Field(description="What the model reads about the tool.")
+    inputSchema: dict[str, Any] = Field(
+        default_factory=lambda: {"type": "object", "properties": {}},
+        description="JSON Schema of the arguments.",
+    )
+    permission: PermissionTag = Field(description="Permission class checked against the mode.")
+    category: str | None = Field(default=None, description='UI grouping; defaults to "host".')
+    timeoutMs: int | None = Field(
+        default=None, description="How long tool.invoke may take; default 120000."
+    )
+
+
+class ToolRegisterParams(Payload):
+    tools: list[HostToolSpec] = Field(
+        description="Tools to add or replace for this connection; all-or-nothing."
+    )
+
+
+class ToolRegisterResult(Payload):
+    registered: list[str] = Field(default_factory=list, description="Names now registered.")
+
+
+class ToolUnregisterParams(Payload):
+    names: list[str] = Field(description="This connection's tools to remove.")
+
+
+class ToolUnregisterResult(Payload):
+    removed: list[str] = Field(default_factory=list, description="Names actually removed.")
+
+
+class ToolContentBlock(Payload):
+    """One block of a rich host-tool result."""
+
+    type: Literal["text", "image"] = Field(description="Block kind.")
+    text: str | None = Field(default=None, description="Text, for 'text'.")
+    mediaType: str | None = Field(default=None, description="e.g. image/png, for 'image'.")
+    data: str | None = Field(default=None, description="Base64 bytes, for 'image'.")
+
+
+class ToolInvokeRequest(Payload):
+    """Server -> client: run one of the client's host tools."""
+
+    sessionId: str = Field(description="Session whose turn called the tool.")
+    turnId: str = Field(default="", description="Turn the call belongs to.")
+    callId: str = Field(description="Id of the tool call; tool.progress refers to it.")
+    name: str = Field(description="Host tool name.")
+    args: dict[str, Any] = Field(default_factory=dict, description="Arguments from the model.")
+    mode: Mode = Field(
+        default="accept",
+        description=(
+            "The session's mode. A code-running tool registered as 'read' must refuse "
+            "mutations in plan mode itself and escalate the rest with approval.ask."
+        ),
+    )
+    workspaceDir: str = Field(
+        default="", description="Directory the session works in (its workdir)."
+    )
+
+
+class ToolInvokeResult(Payload):
+    ok: bool = Field(description="False reports the call as a tool error.")
+    output: str = Field(default="", description="Text result the model reads.")
+    error: str | None = Field(default=None, description="Error text when ok is false.")
+    content: list[ToolContentBlock] | None = Field(
+        default=None,
+        description=(
+            "Rich result blocks. Images reach vision models as image input; "
+            "text blocks are appended to output."
+        ),
+    )
+    meta: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Extra facts. meta.sensitive=true keeps the output out of the session "
+            "store ([redacted]), memory and compaction summaries."
+        ),
+    )
+
+
+class ToolCancelNotification(Payload):
+    """Server -> client notification: stop a running tool.invoke (the turn was interrupted).
+
+    The daemon does not wait for an answer; the call already ended as an
+    interrupted tool error.
+    """
+
+    sessionId: str = Field(description="Session whose turn was interrupted.")
+    callId: str = Field(description="The tool.invoke callId to stop.")
+
+
+class ToolProgressParams(Payload):
+    """Client -> server notification during a tool.invoke."""
+
+    callId: str = Field(description="The tool.invoke callId this progress belongs to.")
+    message: str = Field(description="Progress text; re-emitted as session.event tool.progress.")
+
+
 # --------------------------------------------------------------------------
 # approval.* / permission.*
 # --------------------------------------------------------------------------
@@ -814,6 +987,48 @@ class ApprovalRequest(Payload):
             "Extra warning shown with the prompt, e.g. \"modifies snowpea configuration\"."
         ),
     )
+    site: str | None = Field(
+        default=None,
+        description="Origin (scheme://host) a 'site' scope would store the answer for (1.6.0).",
+    )
+
+
+class ApprovalAskParams(Payload):
+    """Client -> server, during a tool.invoke: escalate one action (1.6.0).
+
+    The host asks before an action it judges riskier than the tool's own tag
+    (a click on "Pay"). The answer goes through the normal pipeline: mode
+    matrix, allowlist (tool + site), then the session's approver; a timeout
+    denies.
+    """
+
+    sessionId: str = Field(description="Session whose tool call is running.")
+    callId: str | None = Field(default=None, description="The tool.invoke callId, if any.")
+    tool: str = Field(description="Host tool asking; the allowlist is keyed by it.")
+    permission: PermissionTag = Field(description="Permission class of the escalated action.")
+    reason: str = Field(description="What will happen, shown to the person approving.")
+    args: dict[str, Any] = Field(default_factory=dict, description="Action details to show.")
+    site: str | None = Field(
+        default=None,
+        description=(
+            "Origin of the page, e.g. https://github.com; derived from detail.origin or "
+            "args.url if omitted."
+        ),
+    )
+    risk: str | None = Field(default=None, description="Risk hint; default from the permission.")
+    detail: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "What the running code is about to do, e.g. {origin, element, action}; shown "
+            "with the approval and merged into its args."
+        ),
+    )
+
+
+class ApprovalAskResult(Payload):
+    decision: Decision = Field(description="allow or deny.")
+    scope: ApprovalScope = Field(default="once", description="Scope the answer applies to.")
+    by: str = Field(default="", description="Who decided: mode, allowlist, origin, timeout, ...")
 
 
 class ApprovalListResult(Payload):
@@ -2019,6 +2234,67 @@ class SetupCatalogItem(Payload):
             "for the account's own answer."
         ),
     )
+
+
+class SetupItem(Payload):
+    id: str = Field(description="Stable item id, e.g. 'provider', 'search', 'memory'.")
+    title: str = Field(description="What the item is, for the wizard.")
+    done: bool = Field(description="True when the item is satisfied.")
+    defaultApplied: bool | None = Field(
+        default=None, description="For optional items: true when the value is the default."
+    )
+
+
+class SetupStatusParams(Payload):
+    profile: Literal["default", "browser"] = Field(
+        default="default", description="Which setup flow is asking (1.6.0)."
+    )
+
+
+class SetupStatusResult(Payload):
+    required: list[SetupItem] = Field(
+        default_factory=list, description="Items that must be done before first use."
+    )
+    optional: list[SetupItem] = Field(
+        default_factory=list, description="Items with a usable default."
+    )
+    existingInstall: bool = Field(
+        default=False,
+        description="True when this home already has a configured provider from an earlier setup.",
+    )
+    configuredProviders: list[str] = Field(
+        default_factory=list, description="Vendors with credentials or a local endpoint."
+    )
+
+
+class SetupApplyDefaultsParams(Payload):
+    profile: Literal["default", "browser"] = Field(
+        default="browser", description="Which defaults to apply."
+    )
+
+
+class SetupApplyDefaultsResult(Payload):
+    applied: list[str] = Field(
+        default_factory=list, description="Setting keys this call changed; empty when all set."
+    )
+    status: SetupStatusResult = Field(description="setup.status after applying.")
+
+
+class ProviderTestParams(Payload):
+    provider: str = Field(description="Vendor to test.")
+    model: str | None = Field(default=None, description="Model; defaults to the vendor's default.")
+
+
+class ProviderTestResult(Payload):
+    ok: bool = Field(description="True when a one-line completion came back.")
+    provider: str = Field(description="Vendor tested.")
+    model: str = Field(default="", description="Model the request used.")
+    modelEcho: str | None = Field(
+        default=None, description="Model name the server reported, when it did."
+    )
+    latencyMs: int = Field(default=0, description="Round-trip time of the test call.")
+    reply: str | None = Field(default=None, description="The model's reply, trimmed.")
+    error: str | None = Field(default=None, description="Why it failed.")
 
 
 class SetupCatalogResult(Payload):
@@ -3571,6 +3847,67 @@ METHODS: dict[str, RpcMethod] = {
             "Ask the client to put a question to the human.",
             "s2c",
         ),
+        _m(
+            "tool.register",
+            ToolRegisterParams,
+            ToolRegisterResult,
+            "Register tools this connection runs itself (host tools).",
+        ),
+        _m(
+            "tool.unregister",
+            ToolUnregisterParams,
+            ToolUnregisterResult,
+            "Remove some of this connection's host tools.",
+        ),
+        _m(
+            "tool.progress",
+            ToolProgressParams,
+            Ok,
+            "Notification: progress of a running tool.invoke, re-emitted as tool.progress.",
+        ),
+        _m(
+            "tool.invoke",
+            ToolInvokeRequest,
+            ToolInvokeResult,
+            "Ask the client to run one of its host tools.",
+            "s2c",
+        ),
+        _m(
+            "approval.ask",
+            ApprovalAskParams,
+            ApprovalAskResult,
+            "Escalate one host action through the approval pipeline.",
+        ),
+        _m(
+            "session.attach",
+            SessionAttachParams,
+            SessionAttachResult,
+            "Make this connection the origin of a session (approvals, host tools).",
+        ),
+        _m(
+            "session.steer",
+            SessionSteerParams,
+            SessionSteerResult,
+            "Inject a user message into a running turn at its next tool round.",
+        ),
+        _m(
+            "setup.status",
+            SetupStatusParams,
+            SetupStatusResult,
+            "What setup still needs; for the browser profile only a tested provider is required.",
+        ),
+        _m(
+            "setup.applyDefaults",
+            SetupApplyDefaultsParams,
+            SetupApplyDefaultsResult,
+            "Apply the profile's defaults for everything optional; idempotent.",
+        ),
+        _m(
+            "provider.test",
+            ProviderTestParams,
+            ProviderTestResult,
+            "Send one short completion to check a provider and model.",
+        ),
     )
 }
 
@@ -3589,6 +3926,7 @@ EVENTS: dict[str, type[BaseModel]] = {
     "mcp.changed": McpChangedNotification,
     "teams.changed": TeamsChangedNotification,
     "audio.install.progress": AudioInstallProgressNotification,
+    "tool.cancel": ToolCancelNotification,
 }
 
 CAPABILITIES: list[str] = [
@@ -3603,6 +3941,7 @@ CAPABILITIES: list[str] = [
     "setup",
     "update",
     "checkpoints",
+    "hostTools",
 ]
 
 #: Where the daemon listens; mirrored into the schema dump for the SDK.
@@ -3696,6 +4035,15 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "mcp.test",
         "mcp.reload",
         "mcp.catalog",
+        "tool.register",
+        "tool.unregister",
+        "tool.progress",
+        "approval.ask",
+        "session.attach",
+        "session.steer",
+        "setup.status",
+        "setup.applyDefaults",
+        "provider.test",
     }
 )
 

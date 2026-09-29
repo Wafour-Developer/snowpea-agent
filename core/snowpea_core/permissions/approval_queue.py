@@ -34,6 +34,7 @@ from snowpea_core.permissions.allowlist import (
     first_token,
     pattern_for_command,
     pattern_for_tool,
+    site_of,
     tool_target,
 )
 from snowpea_core.permissions.allowlist import (
@@ -54,10 +55,12 @@ log = logging.getLogger("snowpea.approvals")
 ApprovalRequests = list[ApprovalRequest]
 
 #: Scopes that cache an "allow" for the rest of the session.
+#: ``site`` is not here: the session cache is keyed by tool, so caching a site
+#: answer would allow that tool on every site; its allowlist entry is enough.
 CACHING_SCOPES: frozenset[str] = frozenset({"session", "project", "always"})
 
 #: Scopes that also persist an allowlist entry, and the store each one uses.
-PERSISTING_SCOPES: dict[str, str] = {"project": "project", "always": "global"}
+PERSISTING_SCOPES: dict[str, str] = {"project": "project", "always": "global", "site": "global"}
 
 #: Extra seconds the outer wait gives the origin call to report its own timeout.
 GRACE_SECONDS = 2.0
@@ -182,6 +185,7 @@ class ApprovalQueue:
         cancel_event: asyncio.Event | None = None,
         note: str = "",
         cacheable: bool = True,
+        site: str | None = None,
     ) -> Decision:
         """Ask for permission to run ``tool``; block until answered or denied.
 
@@ -202,6 +206,7 @@ class ApprovalQueue:
             timeoutSec=timeout,
             scopeHint=scope_hint,  # type: ignore[arg-type]
             note=note,
+            site=site,
         )
         loop = asyncio.get_running_loop()
         origin = None if unattended else getattr(session, "origin_conn", None)
@@ -365,13 +370,20 @@ class ApprovalQueue:
         if store == "project" and workdir is None:
             log.warning("cannot store a project allowlist entry without a workdir")
             return
+        origin = None
+        if scope == "site":
+            # "Always allow on this site": the tool, limited to the page's origin.
+            origin = site_of(request.args, request.site)
+            if origin is None:
+                log.warning("a site-scoped approval for %s had no site; not stored", request.tool)
+                return
         command = command_of(request.args)
-        if command:
+        if command and origin is None:
             pattern, target = pattern_for_command(command), SHELL_TARGET
         else:
             pattern, target = pattern_for_tool(request.tool), tool_target(request.tool)
         try:
-            self.allowlist.add(pattern, store, target, workdir=workdir)
+            self.allowlist.add(pattern, store, target, workdir=workdir, origin=origin)
         except (OSError, ValueError):  # pragma: no cover - a bad store never breaks a turn
             log.warning("could not store allowlist entry %r", pattern, exc_info=True)
 

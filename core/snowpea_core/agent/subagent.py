@@ -1049,6 +1049,10 @@ class SubagentManager:
         )
         child.unattended = parent.unattended
         child.memory_namespace = parent.memory_namespace
+        # A browser session's children run the browser's host tools too, and
+        # re-bind with it when the browser reconnects (1.6.0).
+        child.host_tools_from = getattr(parent, "host_tools_from", None)
+        child.origin_client_id = getattr(parent, "origin_client_id", None)
         child.backend = SharedBackend(parent.backend)  # type: ignore[assignment]
         return child
 

@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING, Any
 from snowpea_core.agent.agent import build_messages
 from snowpea_core.prompts.loader import load
 from snowpea_core.providers import content
-from snowpea_core.providers.base import ChatMessage, ProviderError
+from snowpea_core.providers.base import REDACTED, ChatMessage, ProviderError
 from snowpea_core.session import events
 from snowpea_core.session.history import estimate_messages
 
@@ -339,7 +339,7 @@ def render_conversation(messages: list[ChatMessage]) -> str:
 
     lines: list[str] = []
     for message in messages:
-        body = message_text(message).strip()
+        body = REDACTED if message.sensitive else message_text(message).strip()
         if not body:
             continue
         label = message.role.upper()

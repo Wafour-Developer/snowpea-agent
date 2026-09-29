@@ -1,0 +1,109 @@
+{
+  "steps": [
+    {
+      "match": "use host echo",
+      "text": "calling",
+      "repeat": true,
+      "tool_calls": [
+        {
+          "name": "host_echo",
+          "arguments": {
+            "text": "hi"
+          }
+        }
+      ]
+    },
+    {
+      "after_tool": "host_echo",
+      "text": "echo done",
+      "repeat": true
+    },
+    {
+      "match": "use host slow",
+      "text": "calling",
+      "repeat": true,
+      "tool_calls": [
+        {
+          "name": "host_slow",
+          "arguments": {}
+        }
+      ]
+    },
+    {
+      "after_tool": "host_slow",
+      "text": "slow done",
+      "repeat": true
+    },
+    {
+      "match": "use host pay",
+      "text": "calling",
+      "repeat": true,
+      "tool_calls": [
+        {
+          "name": "host_pay",
+          "arguments": {
+            "url": "https://shop.example/checkout"
+          }
+        }
+      ]
+    },
+    {
+      "after_tool": "host_pay",
+      "text": "pay done",
+      "repeat": true
+    },
+    {
+      "match": "use host shot",
+      "text": "calling",
+      "repeat": true,
+      "tool_calls": [
+        {
+          "name": "host_shot",
+          "arguments": {}
+        }
+      ]
+    },
+    {
+      "after_tool": "host_shot",
+      "text": "shot done",
+      "repeat": true
+    },
+    {
+      "match": "use host secret",
+      "text": "calling",
+      "repeat": true,
+      "tool_calls": [
+        {
+          "name": "host_secret",
+          "arguments": {}
+        }
+      ]
+    },
+    {
+      "after_tool": "host_secret",
+      "text": "secret done",
+      "repeat": true
+    },
+    {
+      "match": "use browser",
+      "text": "calling",
+      "repeat": true,
+      "tool_calls": [
+        {
+          "name": "browser_navigate",
+          "arguments": {
+            "url": "https://example.com"
+          }
+        }
+      ]
+    },
+    {
+      "after_tool": "browser_navigate",
+      "text": "nav done",
+      "repeat": true
+    }
+  ],
+  "default": {
+    "text": "ok"
+  }
+}

@@ -23,7 +23,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
-from snowpea_core.providers.base import ChatMessage, ToolCall
+from snowpea_core.providers.base import REDACTED, ChatMessage, ToolCall
 
 #: Messages kept before :meth:`History.compact` starts dropping the oldest.
 #: A safety net behind the token-based, summarising compaction: 200 was hit
@@ -106,7 +106,7 @@ def estimate_messages(messages: list[ChatMessage]) -> int:
 def message_to_json(message: ChatMessage) -> dict[str, Any]:
     """Serialisable form of a chat message (what goes into ``messages``)."""
     return {
-        "content": message.content,
+        "content": REDACTED if message.sensitive else message.content,
         "tool_call_id": message.tool_call_id,
         "name": message.name,
         "tool_calls": [

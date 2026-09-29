@@ -87,6 +87,14 @@ export interface ConnectOptions {
   reconnectWaitMs?: number;
   /** Custom endpoint resolver called before each reconnect attempt. */
   resolveEndpoint?: EndpointResolver;
+  /** What this client is, e.g. `"browser"` (protocol 1.6.0). */
+  clientKind?: string;
+  /** Stable per install: sessions it started re-bind to it after a reconnect (1.6.0). */
+  clientId?: string;
+  /** Id of this run of the client (1.6.0). */
+  instanceId?: string;
+  /** Keep the daemon from its idle shutdown while connected (1.6.0). */
+  keepAlive?: boolean;
 }
 
 /** A JSON-RPC error response. `code` is the protocol's string code. */
@@ -183,8 +191,16 @@ export function defaultResolveEndpoint(): EndpointInfo | null {
 }
 
 export class Client {
-  readonly options: Required<Omit<ConnectOptions, "host" | "path" | "protocolVersion">> &
-    Pick<ConnectOptions, "host" | "path" | "protocolVersion">;
+  readonly options: Required<
+    Omit<
+      ConnectOptions,
+      "host" | "path" | "protocolVersion" | "clientKind" | "clientId" | "instanceId" | "keepAlive"
+    >
+  > &
+    Pick<
+      ConnectOptions,
+      "host" | "path" | "protocolVersion" | "clientKind" | "clientId" | "instanceId" | "keepAlive"
+    >;
 
   /** Filled in by the `system.hello` result. */
   serverVersion = "";
@@ -222,6 +238,10 @@ export class Client {
       callTimeoutMs: options.callTimeoutMs ?? 30_000,
       reconnectWaitMs: options.reconnectWaitMs ?? 30_000,
       resolveEndpoint: options.resolveEndpoint ?? defaultResolveEndpoint,
+      clientKind: options.clientKind,
+      clientId: options.clientId,
+      instanceId: options.instanceId,
+      keepAlive: options.keepAlive,
     };
   }
 
@@ -470,6 +490,10 @@ export class Client {
         token: this.options.token,
         clientVersion: this.options.clientVersion,
         protocolVersion: this.options.protocolVersion ?? PROTOCOL_VERSION,
+        ...(this.options.clientKind ? { clientKind: this.options.clientKind } : {}),
+        ...(this.options.clientId ? { clientId: this.options.clientId } : {}),
+        ...(this.options.instanceId ? { instanceId: this.options.instanceId } : {}),
+        ...(this.options.keepAlive ? { keepAlive: true } : {}),
       },
       HELLO_TIMEOUT_MS,
     )) as { protocolVersion?: string; serverVersion?: string; capabilities?: string[] };

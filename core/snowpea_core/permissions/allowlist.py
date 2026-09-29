@@ -36,6 +36,21 @@ Scope = Literal["project", "global"]
 #: ``target`` value for entries matched against a shell command line.
 SHELL_TARGET = "shell"
 
+def site_of(args: Any, site: str | None = None) -> str | None:
+    """``scheme://host`` of an explicit site, or of ``args["url"]``/``args["origin"]``."""
+    from urllib.parse import urlsplit
+
+    for candidate in (site, *(
+        args.get(key) for key in ("origin", "url") if isinstance(args, dict)
+    )):
+        if not isinstance(candidate, str) or not candidate.strip():
+            continue
+        parts = urlsplit(candidate.strip())
+        if parts.scheme and parts.netloc:
+            return f"{parts.scheme.lower()}://{parts.netloc.lower()}"
+    return None
+
+
 #: Tools whose call is a shell command line even without the ``exec`` tag.
 SHELL_TOOLS: frozenset[str] = frozenset({"shell", "bash", "run_command"})
 
@@ -94,6 +109,7 @@ class AllowlistItem:
     pattern: str
     target: str
     scope: Scope
+    origin: str | None = None
 
 
 class Allowlist:
@@ -113,10 +129,16 @@ class Allowlist:
         if workdir is None:
             return []
         project = ProjectSettings.load(workdir)
-        return [AllowlistItem(e.id, e.pattern, e.target, "project") for e in project.allowlist]
+        return [
+            AllowlistItem(e.id, e.pattern, e.target, "project", e.origin)
+            for e in project.allowlist
+        ]
 
     def _global_items(self) -> list[AllowlistItem]:
-        return [AllowlistItem(e.id, e.pattern, e.target, "global") for e in self.settings.allowlist]
+        return [
+            AllowlistItem(e.id, e.pattern, e.target, "global", getattr(e, "origin", None))
+            for e in self.settings.allowlist
+        ]
 
     # -- queries -------------------------------------------------------
     def list(
@@ -131,9 +153,19 @@ class Allowlist:
         return items
 
     def matches(
-        self, tool: Any, args: dict[str, Any] | None = None, *, workdir: Path | str | None = None
+        self,
+        tool: Any,
+        args: dict[str, Any] | None = None,
+        *,
+        workdir: Path | str | None = None,
+        site: str | None = None,
     ) -> bool:
-        """True when some stored pattern covers this call."""
+        """True when some stored pattern covers this call.
+
+        An entry with an ``origin`` only covers calls on that site (``site``,
+        else the origin of ``args["url"]``).
+        """
+        call_site = site_of(args or {}, site)
         name = tool if isinstance(tool, str) else str(getattr(tool, "name", ""))
         if not name:
             return False
@@ -148,6 +180,8 @@ class Allowlist:
             elif item.target == wanted_tool_target:
                 subject = name
             else:
+                continue
+            if item.origin and item.origin != call_site:
                 continue
             if subject is not None and _matches_pattern(item.pattern, subject):
                 return True
@@ -169,6 +203,7 @@ class Allowlist:
         target: str = SHELL_TARGET,
         *,
         workdir: Path | str | None = None,
+        origin: str | None = None,
     ) -> str:
         """Store ``pattern`` and return its id (existing duplicates are reused)."""
         pattern = pattern.strip()
@@ -176,9 +211,9 @@ class Allowlist:
             raise ValueError("an allowlist pattern may not be empty")
         re.compile(pattern)  # fail loudly rather than storing a dead pattern
         for item in self.list(scope, workdir=workdir):
-            if item.pattern == pattern and item.target == target:
+            if item.pattern == pattern and item.target == target and item.origin == origin:
                 return item.id
-        entry = AllowlistEntry(id=new_id(), pattern=pattern, target=target)
+        entry = AllowlistEntry(id=new_id(), pattern=pattern, target=target, origin=origin)
         if scope == "project":
             if workdir is None:
                 raise ValueError("a project allowlist entry needs a workdir")

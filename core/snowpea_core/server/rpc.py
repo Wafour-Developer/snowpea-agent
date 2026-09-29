@@ -48,6 +48,14 @@ class RpcConnection:
         self._pending: dict[str, asyncio.Future[dict[str, Any]]] = {}
         self._ids = itertools.count(1)
         self._tasks: set[asyncio.Task[None]] = set()
+        #: From ``system.hello`` (protocol 1.6.0): what kind of client this is,
+        #: its id stable across restarts, and this run's instance id.
+        self.client_kind: str | None = None
+        self.client_id: str | None = None
+        self.instance_id: str | None = None
+        self.keep_alive: bool = False
+        #: Called with this connection once it closes (host tools, keep-alive).
+        self.on_close: list[Callable[[RpcConnection], Any]] = []
 
     # -- outgoing -----------------------------------------------------
     async def send_json(self, obj: dict[str, Any]) -> None:
@@ -105,7 +113,16 @@ class RpcConnection:
 
     async def close(self) -> None:
         """Cancel in-flight handlers and fail outstanding server->client calls."""
+        if self.closed:
+            return
         self.closed = True
+        for callback in list(self.on_close):
+            try:
+                outcome = callback(self)
+                if asyncio.iscoroutine(outcome):
+                    await outcome
+            except Exception:  # noqa: BLE001 - one cleanup must not stop the rest
+                log.exception("on_close callback failed for %s", self.surface_id)
         for future in list(self._pending.values()):
             if not future.done():
                 future.set_exception(RpcError(errors.INTERNAL, "connection closed"))

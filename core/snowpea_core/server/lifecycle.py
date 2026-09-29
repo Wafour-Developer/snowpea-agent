@@ -14,7 +14,13 @@ from typing import Any
 
 log = logging.getLogger("snowpea.lifecycle")
 
-COUNTERS: tuple[str, ...] = ("sessions", "jobs", "gateway_bindings", "named_agents")
+COUNTERS: tuple[str, ...] = (
+    "sessions",
+    "jobs",
+    "gateway_bindings",
+    "named_agents",
+    "keepalive_clients",
+)
 TICK_SECONDS = 1.0
 
 #: Singular/plural wording for the keepalive reasons (plan §2.6), in the order
@@ -24,6 +30,9 @@ COUNTER_LABELS: dict[str, tuple[str, str]] = {
     "gateway_bindings": ("gateway binding", "gateway bindings"),
     "jobs": ("job", "jobs"),
     "named_agents": ("named agent", "named agents"),
+    # A client that said ``keepAlive`` in ``system.hello`` (a browser that
+    # hosts tools) keeps the daemon up while it is connected.
+    "keepalive_clients": ("keep-alive client", "keep-alive clients"),
 }
 
 

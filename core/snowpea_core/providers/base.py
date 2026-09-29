@@ -46,6 +46,14 @@ class ChatMessage:
     tool_call_id: str | None = None
     tool_calls: list[ToolCall] | None = None
     name: str | None = None
+    #: A host tool result marked ``meta.sensitive`` (1.6.0): the model reads it
+    #: during its turn, but it is stored, summarised and remembered as
+    #: :data:`REDACTED` only.
+    sensitive: bool = False
+
+
+#: What a sensitive message's content becomes outside the running turn.
+REDACTED = "[redacted]"
 
 
 @dataclass

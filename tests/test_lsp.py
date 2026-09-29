@@ -691,7 +691,8 @@ def test_the_protocol_declares_lsp_status_and_the_event() -> None:
         SESSION_EVENT_KINDS,
     )
 
-    assert PROTOCOL_VERSION == "1.5.0"
+    # lsp.* arrived in 1.5.0; later versions keep it.
+    assert tuple(int(part) for part in PROTOCOL_VERSION.split(".")) >= (1, 5, 0)
     assert "lsp.status" in METHODS
     assert "lsp.status" in IMPLEMENTED_METHODS
     assert "lsp.catalog" in METHODS

@@ -190,6 +190,10 @@ class SessionManager:
     def get(self, session_id: str) -> Session | None:
         return self._sessions.get(session_id)
 
+    def all(self) -> list[Session]:
+        """Every open session object (``list`` returns summaries)."""
+        return [s for s in self._sessions.values() if s.closed_at is None]
+
     async def restore(self, session_id: str, *, origin_conn: Any = None) -> Session | None:
         """Rehydrate a persisted conversation after a daemon restart."""
         live = self.get(session_id)
