@@ -743,12 +743,56 @@ def _log_background_sync(task: asyncio.Task[list[str]]) -> None:
         log.info("mcp servers finished starting in the background: %s", task.result())
 
 
+#: The ``.mcp.json`` files each workdir was last synced against, by stat.
+_SEEN_CONFIGS: dict[str, tuple[tuple[int, int] | None, ...]] = {}
+
+
+def _config_signature(
+    core: Core, workdir: Path | str | None
+) -> tuple[tuple[int, int] | None, ...]:
+    """``(mtime, size)`` of the home and workdir ``.mcp.json``; ``None`` when absent."""
+    signature: list[tuple[int, int] | None] = []
+    for base in (core.paths.home, workdir):
+        if base is None:
+            signature.append(None)
+            continue
+        try:
+            stat = (Path(base).expanduser() / CONFIG_NAME).stat()
+        except OSError:
+            signature.append(None)
+        else:
+            signature.append((stat.st_mtime_ns, stat.st_size))
+    return tuple(signature)
+
+
+async def resync_if_changed(core: Core, workdir: Path | str | None) -> list[str]:
+    """Sync again when a ``.mcp.json`` changed since this workdir was last synced.
+
+    A server the agent adds by writing ``.mcp.json`` mid-conversation used to
+    stay invisible until the next session: servers were only synced when a
+    session opened.  The loop calls this before every model round, so the new
+    server's tools are there from the very next round.  Two ``stat`` calls when
+    nothing changed.
+    """
+    key = str(workdir)
+    signature = _config_signature(core, workdir)
+    previous = _SEEN_CONFIGS.get(key)
+    if previous is None:
+        _SEEN_CONFIGS[key] = signature
+        return []
+    if previous == signature:
+        return []
+    log.info("mcp config changed under %s; syncing servers again", workdir)
+    return await sync_tools_bounded(core, workdir)
+
+
 async def sync_tools(core: Core, workdir: Path | str | None = None) -> list[str]:
     """Discover servers, start them and (re)register their tools.
 
     Returns the tool names now registered.  A server that fails to start is
     logged and skipped, so one broken entry never costs the others.
     """
+    _SEEN_CONFIGS[str(workdir)] = _config_signature(core, workdir)
     settings_mcp = getattr(core.settings, "mcp", None)
     if settings_mcp is not None and not getattr(settings_mcp, "enabled", True):
         return []
@@ -857,6 +901,7 @@ __all__ = [
     "drop_tools",
     "permission_for",
     "register_config",
+    "resync_if_changed",
     "RenderedMcpContent",
     "as_rendered",
     "render_content",

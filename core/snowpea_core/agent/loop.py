@@ -43,7 +43,7 @@ from snowpea_core.server import errors
 from snowpea_core.session import compaction, events
 from snowpea_core.session.manager import persist_history
 from snowpea_core.skills import hooks as plugin_hooks
-from snowpea_core.tools import output_spill, repeat_guard, view_image
+from snowpea_core.tools import mcp_client, output_spill, repeat_guard, view_image
 from snowpea_core.tools.registry import (
     ProgressEmitter,
     Tool,
@@ -1134,6 +1134,8 @@ async def _drive(
 
         # Busy follow-ups become new user messages for the next model call.
         await _steer_queued_turns(core, session)
+        # A server added to ``.mcp.json`` during the turn is usable next round.
+        await mcp_client.resync_if_changed(core, session.workdir)
         specs = core.tools.specs(session)
         messages = build_messages(session, specs, memory_block, core=core)
         attempt = await _model_turn(core, session, provider, messages, specs, config)

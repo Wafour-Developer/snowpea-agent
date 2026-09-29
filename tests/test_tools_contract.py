@@ -570,6 +570,10 @@ async def test_local_chromium_navigates_and_snapshots(
         assert snapshot.ok and "Snowpea test page" in snapshot.output
     finally:
         await browser_providers.close_all_sessions(ctx.session.id)
+        # The browser and the Playwright driver outlive a session by design; a
+        # test that leaves them up hangs pytest's loop teardown on the driver.
+        for provider in browser_providers.all_providers():
+            await provider.close()
 
 
 # ---------------------------------------------------------------------------
@@ -746,3 +750,30 @@ def test_wire_core_registers_the_browser_close_hook(tmp_path: Path) -> None:
     finally:
         if built.store is not None:
             built.store.close()
+
+
+async def test_a_server_added_mid_session_is_picked_up_next_round(
+    core: Core, workdir: Path
+) -> None:
+    """Writing ``.mcp.json`` during a turn makes the server usable without a new session."""
+    try:
+        await mcp_client.sync_tools(core, workdir)
+        assert await mcp_client.resync_if_changed(core, workdir) == []
+        assert core.tools.get("mcp__fixture-echo__echo") is None
+
+        (workdir / ".mcp.json").write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "fixture-echo": {"command": sys.executable, "args": [str(FIXTURE_ECHO)]}
+                    }
+                }
+            )
+        )
+        registered = await mcp_client.resync_if_changed(core, workdir)
+        assert "mcp__fixture-echo__echo" in registered
+        assert core.tools.get("mcp__fixture-echo__echo") is not None
+        # Unchanged file: no second sync.
+        assert await mcp_client.resync_if_changed(core, workdir) == []
+    finally:
+        await mcp_client.MANAGER.close_all()
