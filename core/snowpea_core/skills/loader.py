@@ -604,9 +604,11 @@ class SkillLoader:
             from snowpea_core.agent import loop as agent_loop
 
             session = ctx.session
-            previous = getattr(session, "allowed_tools", None)
+            # ``allowed-tools`` pre-approves those tools for the skill's turn,
+            # as it does in Claude Code; it does not hide the others.
+            previous = getattr(session, "skill_approved_tools", None)
             if doc.allowed_tools:
-                session.allowed_tools = set(doc.allowed_tools)
+                session.skill_approved_tools = set(doc.allowed_tools)
             ctx.handled_turn = True
             # The transcript keeps the line the user typed; the skill body
             # travels to the model as the history text and to the surfaces
@@ -624,7 +626,7 @@ class SkillLoader:
                     expansion={"kind": "skill", "name": command_name, "text": body},
                 )
             finally:
-                session.allowed_tools = previous
+                session.skill_approved_tools = previous
 
         return Command(
             name=doc.name,

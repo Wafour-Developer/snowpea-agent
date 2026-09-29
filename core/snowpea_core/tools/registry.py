@@ -187,6 +187,10 @@ class ToolRegistry:
             tool.state = state
         return tool
 
+    def names(self) -> list[str]:
+        """Every registered tool name, active or not."""
+        return list(self._tools)
+
     def list(self, session: Any | None = None) -> ToolInfos:
         """Every registered tool as protocol ``ToolInfo`` (``tool.list``).
 
@@ -218,9 +222,9 @@ class ToolRegistry:
         """
         from snowpea_core.tools import deferred as deferred_tools
 
-        allowed = getattr(session, "allowed_tools", None) if session is not None else None
-        if allowed is not None and deferred_tools.enabled(self.settings):
-            allowed = set(allowed) | {deferred_tools.TOOL_SEARCH}
+        allowed = deferred_tools.narrowed(
+            getattr(session, "allowed_tools", None) if session is not None else None
+        )
         return [
             tool
             for tool in self._tools.values()

@@ -28,7 +28,12 @@ READ_FILE = (
 WRITE_FILE = (
     "Create a file, or replace an existing file's contents entirely. Use patch "
     "for a targeted change; this tool destroys everything the file currently holds. "
-    "Prefer it over an echo or heredoc in shell."
+    "Prefer it over an echo or heredoc in shell. `path` and `content` are both "
+    "required. Read an existing file before you overwrite it. Keep one call under "
+    "roughly 20,000 characters: a longer file can be cut off by the output limit, "
+    "which leaves its arguments unreadable and writes nothing. Write a long file in "
+    "parts instead: the first part with write_file, then the rest appended in "
+    "further steps."
 )
 
 PATCH = (
@@ -37,7 +42,9 @@ PATCH = (
     "not break it. Returns a unified diff. Finds a unique string and replaces it "
     "unless replace_all is true. Include a line or two of surrounding context to make "
     "the match unique. If it fails, re-read the file rather than retrying the same "
-    "text. You may batch read_file and patch for the same path in one response — read "
+    "text. old_string must be copied from the file as it is now, so read the file "
+    "first unless you wrote it this turn. You may batch read_file and patch for the "
+    "same path in one response — read "
     "runs before patch in the same turn. Batch several patch calls in one turn when "
     "several files need the same kind of change."
 )
@@ -65,7 +72,9 @@ EXECUTE_CODE = (
 GREP = (
     "Search file contents by regular expression. Use this rather than grep, rg or "
     "find in shell. Prefer it over reading whole files when you are looking for one "
-    "symbol."
+    "symbol. `path` may be a directory or a single file and defaults to the working "
+    "directory; narrow by extension with `glob` (for example `*.py`). A path that "
+    "does not exist is an error, so glob for the file first when you are unsure."
 )
 
 GLOB = (

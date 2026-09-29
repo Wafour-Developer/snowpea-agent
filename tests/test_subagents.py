@@ -418,7 +418,7 @@ async def test_a_narrowed_child_cannot_reach_other_tools(daemon: Daemon, workdir
     ]
     assert refusals, f"the child should have tried the shell; saw {everything.kinds()}"
     assert refusals[0]["ok"] is False
-    assert "allowed-tools" in refusals[0]["error"]
+    assert "not available to this agent" in refusals[0]["error"]
     assert result.ok
 
 

@@ -122,9 +122,13 @@ class Session:
     #: view of an unchanged skill returns a one-line stub rather than the body
     #: again (M15 §B2).
     skill_views: dict[str, str] = field(default_factory=dict)
-    #: Tool names a skill command restricts the current turn to
-    #: (``allowed-tools`` in its front matter); ``None`` means every tool.
+    #: Tool names this agent is narrowed to (``delegate_task(tools=...)`` or an
+    #: agent definition); ``None`` means every tool.
     allowed_tools: set[str] | None = None
+    #: Tools a running skill command may call without asking: its front
+    #: matter's ``allowed-tools``, which is a pre-approval as in Claude Code,
+    #: not a restriction.
+    skill_approved_tools: set[str] | None = None
     #: Deferred tools whose schemas this session has already loaded, by
     #: ``tool_search`` or by calling one of them outright.  They join the tool
     #: list from the next round on and stay there (CORE-round-cost).

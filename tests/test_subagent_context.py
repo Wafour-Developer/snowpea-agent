@@ -139,7 +139,7 @@ def test_a_lean_child_can_still_reach_a_skill_by_name(core: Core, workdir: Path)
 # ---------------------------------------------------------------------------
 
 
-def test_a_read_only_child_starts_with_four_tools_and_tool_search(
+def test_a_read_only_child_starts_with_its_read_tools_and_tool_search(
     core: Core, workdir: Path
 ) -> None:
     session = child_session(workdir)
@@ -155,7 +155,8 @@ def test_a_read_only_child_starts_with_four_tools_and_tool_search(
         "web_search",
     }
     sent = {spec.name for spec in core.tools.specs(session)}
-    assert sent == {"read_file", "glob", "grep", "tool_search"}
+    # view_image joins: reading tools survive any narrowing (deferred.ALWAYS_ALLOWED).
+    assert sent == {"read_file", "view_image", "glob", "grep", "tool_search"}
 
     hidden = {spec.name for spec in core.tools.deferred_specs(session)}
     assert "lsp_symbols" in hidden
@@ -169,4 +170,6 @@ def test_a_child_that_may_write_is_not_read_only(core: Core, workdir: Path) -> N
     session.allowed_tools = {"read_file", "write_file", "shell", "grep"}
     assert deferred.is_readonly_child(session) is False
     sent = {spec.name for spec in core.tools.specs(session)}
-    assert sent == {"read_file", "write_file", "shell", "grep", "tool_search"}
+    assert sent == {
+        "read_file", "view_image", "glob", "grep", "write_file", "shell", "tool_search"
+    }

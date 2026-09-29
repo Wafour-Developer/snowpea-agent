@@ -13,7 +13,6 @@ completed ``tool_use`` block, then ``usage`` and ``done``.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 from collections.abc import AsyncIterator
@@ -30,6 +29,7 @@ from snowpea_core.providers.base import (
     ToolSpec,
     Usage,
 )
+from snowpea_core.providers.normalize import parse_arguments
 
 log = logging.getLogger("snowpea.providers.anthropic")
 
@@ -254,13 +254,7 @@ class AnthropicProvider:
 
 
 def _parse_json(raw: str) -> dict[str, Any]:
-    if not raw.strip():
-        return {}
-    try:
-        value = json.loads(raw)
-    except ValueError:
-        return {}
-    return value if isinstance(value, dict) else {}
+    return parse_arguments(raw)
 
 
 __all__ = [

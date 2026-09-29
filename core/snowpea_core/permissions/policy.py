@@ -185,7 +185,12 @@ class PermissionPolicy:
         session: Any = None,
     ) -> str:
         """Promote ``ask`` to ``allow`` when the allowlist covers this call."""
-        if verdict != "ask" or self.allowlist is None or tool is None:
+        if verdict != "ask" or tool is None:
+            return verdict
+        approved = getattr(session, "skill_approved_tools", None)
+        if approved and tool.name in approved:
+            return "allow"
+        if self.allowlist is None:
             return verdict
         workdir = getattr(session, "workdir", None)
         if self.allowlist.matches(tool, args or {}, workdir=workdir):

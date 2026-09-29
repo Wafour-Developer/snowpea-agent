@@ -21,7 +21,7 @@ from time import monotonic
 from typing import TYPE_CHECKING, Any
 
 from snowpea_core.agent import agent as agent_mod
-from snowpea_core.agent import context_files
+from snowpea_core.agent import call_fixups, context_files
 from snowpea_core.agent.agent import AgentConfig, build_messages
 from snowpea_core.agent.tool_batch import plan_tool_batch_segments
 from snowpea_core.attachments import pending
@@ -43,6 +43,7 @@ from snowpea_core.server import errors
 from snowpea_core.session import compaction, events
 from snowpea_core.session.manager import persist_history
 from snowpea_core.skills import hooks as plugin_hooks
+from snowpea_core.tools import deferred as deferred_tools
 from snowpea_core.tools import mcp_client, output_spill, repeat_guard, view_image
 from snowpea_core.tools.registry import (
     ProgressEmitter,
@@ -1139,7 +1140,7 @@ async def _drive(
         specs = core.tools.specs(session)
         messages = build_messages(session, specs, memory_block, core=core)
         attempt = await _model_turn(core, session, provider, messages, specs, config)
-        calls = attempt.calls
+        calls = _repair_calls(core, attempt.calls)
 
         if attempt.interrupted:
             await finish_turn(core, session, turn_id, "interrupted")
@@ -1344,16 +1345,41 @@ async def _ask_to_continue(core: Core, session: Session, config: AgentConfig) ->
     )
 
 
-def skill_refuses(session: Session, name: str) -> bool:
-    """True when the session's skill allowed-tools exclude the tool ``name``.
+def _repair_calls(core: Core, calls: list[ToolCall]) -> list[ToolCall]:
+    """Resolve aliased or mangled tool names and decode stringly-typed arguments.
 
-    tool_search is always let through: it only loads schemas, and it lists
-    allowed tools only, so allowed-tools cannot be widened through it. Refusing
-    it left a deep-research child spending five rounds failing to load
-    web_search.
+    Done before the calls enter history, so the transcript the model reads
+    next shows the call that actually ran.
     """
-    allowed = getattr(session, "allowed_tools", None)
-    return allowed is not None and name not in allowed and name != "tool_search"
+    known = core.tools.names()
+    for call in calls:
+        tool = core.tools.get(call.name)
+        if tool is None:
+            resolved = call_fixups.resolve_name(call.name, known)
+            if resolved is not None:
+                call.name = resolved
+                tool = core.tools.get(resolved)
+        if tool is not None:
+            call.arguments = call_fixups.coerce_arguments(call.arguments, tool.input_schema)
+    return calls
+
+
+def skill_refuses(session: Session, name: str) -> bool:
+    """True when the session's narrowed tool list excludes the tool ``name``.
+
+    The list comes from ``delegate_task(tools=...)`` or an agent definition.
+    Reading tools and tool_search are always let through
+    (:data:`deferred.ALWAYS_ALLOWED`): refusing tool_search left a
+    deep-research child spending five rounds failing to load web_search.
+    """
+    allowed = deferred_tools.narrowed(getattr(session, "allowed_tools", None))
+    return allowed is not None and name not in allowed
+
+
+def _narrowed_refusal(session: Session, name: str) -> str:
+    """The refusal a narrowed agent reads, naming what it can call instead."""
+    allowed = sorted(deferred_tools.narrowed(getattr(session, "allowed_tools", None)) or ())
+    return f"{name} is not available to this agent; its tools are: {', '.join(allowed)}"
 
 
 async def _run_one_call(
@@ -1374,7 +1400,14 @@ async def _run_one_call(
     tool: Tool | None = core.tools.get(call.name)
     if tool is None:
         await hub.emit_event(session.id, events.tool_call(call.id, call.name, call.arguments))
-        await _fail_call(core, session, call, f"unknown tool: {call.name}")
+        close = call_fixups.suggestions(call.name, core.tools.names())
+        hint = f"; did you mean {', '.join(close)}?" if close else ""
+        await _fail_call(core, session, call, f"unknown tool: {call.name}{hint}")
+        return None
+    unparsed = call_fixups.unparsed_message(call.name, call.arguments)
+    if unparsed is not None:
+        await hub.emit_event(session.id, events.tool_call(call.id, call.name, {}))
+        await _fail_call(core, session, call, unparsed)
         return None
     if tool.state != "active":
         await hub.emit_event(session.id, events.tool_call(call.id, call.name, call.arguments))
@@ -1382,7 +1415,7 @@ async def _run_one_call(
         return None
     if skill_refuses(session, call.name):
         await hub.emit_event(session.id, events.tool_call(call.id, call.name, call.arguments))
-        await _fail_call(core, session, call, f"{call.name} is not in this skill's allowed-tools")
+        await _fail_call(core, session, call, _narrowed_refusal(session, call.name))
         return None
 
     # A write that lands on snowpea's own settings is judged as ``config``,

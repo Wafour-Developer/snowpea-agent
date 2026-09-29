@@ -50,8 +50,19 @@ def stop_reason(raw: str | None, *, had_tool_calls: bool) -> str:
     return STOP_REASONS.get(raw, "end_turn")
 
 
+#: Key :func:`parse_arguments` sets when the arguments were not a JSON object;
+#: the loop turns it into a refusal that says so.
+UNPARSED_ARGUMENTS = "__unparsed_arguments__"
+
+
 def parse_arguments(raw: Any) -> dict[str, Any]:
-    """Tool-call arguments as a dict, whatever the vendor sent."""
+    """Tool-call arguments as a dict, whatever the vendor sent.
+
+    Arguments that do not parse used to come back as ``{}``, so a large
+    ``write_file`` cut off by the output limit read as "path is required" and
+    the model retried the identical call.  They now carry
+    :data:`UNPARSED_ARGUMENTS` (the text's length and its tail) instead.
+    """
     if isinstance(raw, dict):
         return dict(raw)
     if not isinstance(raw, str) or not raw.strip():
@@ -59,7 +70,7 @@ def parse_arguments(raw: Any) -> dict[str, Any]:
     try:
         value = json.loads(raw)
     except ValueError:
-        return {}
+        return {UNPARSED_ARGUMENTS: {"length": len(raw), "tail": raw[-80:]}}
     return value if isinstance(value, dict) else {}
 
 
@@ -504,6 +515,7 @@ __all__ = [
     "build_openai_request",
     "messages_to_gemini",
     "messages_to_openai",
+    "UNPARSED_ARGUMENTS",
     "parse_arguments",
     "stop_reason",
     "text_of",

@@ -51,6 +51,16 @@ EAGER_TOOLS: frozenset[str] = frozenset(
 #: three tools that do that and loads an LSP or git tool if it wants one.
 READONLY_EAGER_TOOLS: frozenset[str] = frozenset({"read_file", "view_image", "grep", "glob"})
 
+#: What an agent keeps however its tool list is narrowed: reading and finding
+#: tools harm nothing, and a delegated child told to "check the output" but
+#: handed only ``shell`` spent its rounds on refusals for ``read_file``/``glob``.
+ALWAYS_ALLOWED: frozenset[str] = READONLY_EAGER_TOOLS | {"tool_search"}
+
+
+def narrowed(allowed: Iterable[str] | None) -> set[str] | None:
+    """An agent's tool list with :data:`ALWAYS_ALLOWED` added; ``None`` stays ``None``."""
+    return None if allowed is None else {str(name) for name in allowed} | ALWAYS_ALLOWED
+
 #: A session that may call one of these is not read-only, whatever its role
 #: says.  ``shell`` is deliberately absent: a read-only reviewer is routinely
 #: allowed to run the test suite.
@@ -143,7 +153,7 @@ def eager_names(session: Any = None, extra: Iterable[str] = ()) -> frozenset[str
     if is_readonly_child(session):
         base = set(READONLY_EAGER_TOOLS)
     elif allowed:
-        base = {str(name) for name in allowed}
+        base = narrowed(allowed) or set()
     else:
         base = set(EAGER_TOOLS)
     base.add(TOOL_SEARCH)
