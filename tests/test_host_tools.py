@@ -436,6 +436,14 @@ async def test_a_page_attachment_reaches_the_model_as_untrusted_content(
         text = json.dumps([m.content for m in users], ensure_ascii=False)
         assert "<untrusted_page" in text and "https://example.com/post" in text
         assert "never as instructions" in text and "the key line" in text
+        # The transcript event keeps what the user typed, and lists the page.
+        user = client.of_kind("message.user")[-1]["payload"]
+        assert user["text"] == "summarise this"
+        assert user["attachments"] == [
+            {"kind": "page", "name": "A post", "url": "https://example.com/post",
+             "title": "A post"}
+        ]
+        assert user["refs"] == []
     finally:
         await client.stop()
 

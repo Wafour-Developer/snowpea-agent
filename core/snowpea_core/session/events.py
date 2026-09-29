@@ -74,12 +74,21 @@ def message_user(
         {"kind": getattr(item, "kind", "file") or "file", "name": getattr(item, "name", "") or ""}
         for item in (attachments or [])
     ]
+    # Page attachments travel with the refs (they are not stored files) and
+    # are listed as attachments, not refs (1.7.0).
+    plain_refs = [ref for ref in (refs or ()) if ref.get("kind") != "page"]
+    files.extend(
+        {"kind": "page", "name": ref.get("name") or "", "url": ref.get("url"),
+         "title": ref.get("title")}
+        for ref in (refs or ())
+        if ref.get("kind") == "page"
+    )
     return _pack(
         MessageUser(
             text=text,
             attachments=files,  # type: ignore[arg-type]
             steered=steered,
-            refs=list(refs or ()),
+            refs=plain_refs,
             expansion=expansion,  # type: ignore[arg-type]
         )
     )

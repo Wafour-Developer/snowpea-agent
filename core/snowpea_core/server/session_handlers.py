@@ -13,6 +13,7 @@ import logging
 import re
 import shutil
 from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -485,6 +486,19 @@ async def session_prompt_handler(
     prepared = prepare_prompt(
         core, session, raw_text, params.attachments, accept_wire=_accept_attachments
     )
+    # A page reaches the model only; the transcript keeps what the user typed
+    # plus a structured {kind: page} attachment.
+    rendered_pages, page_refs = page_parts(params.attachments)
+    if rendered_pages:
+        prepared = replace(
+            prepared,
+            model_text=(
+                f"{prepared.model_text}\n\n{rendered_pages}"
+                if prepared.model_text
+                else rendered_pages
+            ),
+            refs=[*prepared.refs, *page_refs],
+        )
     # No marker is added to the text: the turn's content blocks carry one per
     # attachment (``[image: shot.png]``), so history, resume and a text-only
     # model all see it without the prompt being rewritten here.
@@ -534,6 +548,24 @@ def render_page_attachment(entry: Attachment) -> str:
     return "\n".join(parts)
 
 
+def page_parts(
+    attachments: Sequence[Attachment] | None,
+) -> tuple[str, list[dict[str, Any]]]:
+    """``(model-only rendered pages, page refs for message.user)``."""
+    pages = [entry for entry in attachments or () if entry.kind == "page"]
+    rendered = "\n\n".join(render_page_attachment(entry) for entry in pages)
+    refs = [
+        {
+            "kind": "page",
+            "name": entry.title or entry.url or "page",
+            "url": entry.url,
+            "title": entry.title,
+        }
+        for entry in pages
+    ]
+    return rendered, refs
+
+
 def _accept_attachments(
     core: Core, session_id: str, attachments: Sequence[Attachment] | None
 ) -> tuple[list[FileAttachment], str]:
@@ -552,8 +584,7 @@ def _accept_attachments(
     inline: list[str] = []
     for entry in attachments:
         if entry.kind == "page":
-            inline.append(render_page_attachment(entry))
-            continue
+            continue  # model-only; prepare_prompt renders it (see page_parts)
         if entry.kind == "text" or (entry.text and not entry.path and not entry.data):
             if entry.text:
                 label = f"[{entry.name}]\n" if entry.name else ""

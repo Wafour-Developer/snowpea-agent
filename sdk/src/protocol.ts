@@ -1785,7 +1785,7 @@ export interface SessionNoticeResult {
   ok?: boolean;
 }
 
-/** `session.prompt` params. Send user text to a session and start a turn. Events: turn.started {turnId, text}, then message.user {text, attachments, refs, steered: false}, then the model's output. A steered prompt emits message.user {steered: true} + turn.dequeued {reason: steered}; a queued one emits turn.queued first. */
+/** `session.prompt` params. Send user text to a session and start a turn. Events: turn.started {turnId, prompt, queued}, then message.user {text, attachments, refs, steered: false}, then the model's output. message.user.text is what the user typed; a page attachment is listed as {kind: page, name, url, title} and only the model sees the rendered page. A steered prompt emits message.user {steered: true} + turn.dequeued {reason: steered}; a queued one emits turn.queued first. */
 export interface SessionPromptParams {
   /** Files or images to include. */
   attachments?: ({
@@ -3422,9 +3422,13 @@ export interface MessageUserEventPayload {
   /** Files sent along with the prompt. */
   attachments?: ({
     /** Attachment flavour. */
-    kind?: "file" | "image" | "text";
+    kind?: "file" | "image" | "text" | "page";
     /** Display name shown under the prompt. */
     name?: string;
+    /** Page title, for 'page' (1.7.0). */
+    title?: string | null;
+    /** Page address, for 'page' (1.7.0). */
+    url?: string | null;
   })[];
   /** Set when `text` is a skill command: the skill body the model was given instead. Surfaces show it folded, like a tool call, not inline. */
   expansion?: {

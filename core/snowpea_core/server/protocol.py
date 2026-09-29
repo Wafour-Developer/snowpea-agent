@@ -2517,10 +2517,12 @@ class SetupCatalogResult(Payload):
 class UserAttachment(Payload):
     """A file that came with a prompt, as the transcript names it."""
 
-    kind: Literal["file", "image", "text"] = Field(
+    kind: Literal["file", "image", "text", "page"] = Field(
         default="file", description="Attachment flavour."
     )
     name: str = Field(default="", description="Display name shown under the prompt.")
+    url: str | None = Field(default=None, description="Page address, for 'page' (1.7.0).")
+    title: str | None = Field(default=None, description="Page title, for 'page' (1.7.0).")
 
 
 class PromptExpansion(Payload):
@@ -3739,8 +3741,10 @@ METHODS: dict[str, RpcMethod] = {
             TurnResult,
             (
                 "Send user text to a session and start a turn. Events: turn.started "
-                "{turnId, text}, then message.user {text, attachments, refs, steered: "
-                "false}, then the model's output. A steered prompt emits message.user "
+                "{turnId, prompt, queued}, then message.user {text, attachments, refs, "
+                "steered: false}, then the model's output. message.user.text is what the "
+                "user typed; a page attachment is listed as {kind: page, name, url, title} "
+                "and only the model sees the rendered page. A steered prompt emits message.user "
                 "{steered: true} + turn.dequeued {reason: steered}; a queued one emits "
                 "turn.queued first."
             ),
