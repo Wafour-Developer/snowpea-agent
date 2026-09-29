@@ -37530,7 +37530,7 @@ function recordingLabel(startedAt, now) {
 }
 
 // src/version.ts
-var TUI_VERSION = "0.2.16";
+var TUI_VERSION = "0.2.17";
 
 // src/layout/transcript.ts
 var TOOL_OUTPUT_LINES = 12;
