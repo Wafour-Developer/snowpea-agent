@@ -61,7 +61,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`agent.delete`](#agentdelete) | client → server | Delete a named agent. |
 | [`agent.list`](#agentlist) | client → server | List the named agents that are defined. |
 | [`agent.spawn`](#agentspawn) | client → server | Run a named agent on a task. |
-| [`approval.ask`](#approvalask) | client → server | Escalate one host action through the approval pipeline. |
+| [`approval.ask`](#approvalask) | client → server | Escalate one host action through the approval pipeline. The approver's approval.request carries tool, args with detail nested under args.detail and the site under args.site, note = reason, site, and scopeHint 'site' when a site is known. |
 | [`approval.list`](#approvallist) | client → server | List tool calls still waiting for a decision. |
 | [`approval.request`](#approvalrequest) | server → client | Ask the client to approve a tool call. |
 | [`approval.respond`](#approvalrespond) | client → server | Answer a pending approval and unblock the turn. |
@@ -123,7 +123,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`session.interrupt`](#sessioninterrupt) | client → server | Stop the running turn as soon as possible. |
 | [`session.list`](#sessionlist) | client → server | List live or saved sessions. |
 | [`session.notice`](#sessionnotice) | client → server | Queue a [system] line for the model's next call. |
-| [`session.prompt`](#sessionprompt) | client → server | Send user text to a session and start a turn. |
+| [`session.prompt`](#sessionprompt) | client → server | Send user text to a session and start a turn. Events: turn.started {turnId, text}, then message.user {text, attachments, refs, steered: false}, then the model's output. A steered prompt emits message.user {steered: true} + turn.dequeued {reason: steered}; a queued one emits turn.queued first. |
 | [`session.rename`](#sessionrename) | client → server | Set a session's title. |
 | [`session.resume`](#sessionresume) | client → server | Replay the events a disconnected client missed. |
 | [`session.setEffort`](#sessionseteffort) | client → server | Pin how hard a session's model may think, or clear the pin. |
@@ -267,7 +267,7 @@ Run a named agent on a task.
 
 *Direction:* client → server
 
-Escalate one host action through the approval pipeline.
+Escalate one host action through the approval pipeline. The approver's approval.request carries tool, args with detail nested under args.detail and the site under args.site, note = reason, site, and scopeHint 'site' when a site is known.
 
 **Params**
 
@@ -1584,7 +1584,7 @@ Queue a [system] line for the model's next call.
 
 *Direction:* client → server
 
-Send user text to a session and start a turn.
+Send user text to a session and start a turn. Events: turn.started {turnId, text}, then message.user {text, attachments, refs, steered: false}, then the model's output. A steered prompt emits message.user {steered: true} + turn.dequeued {reason: steered}; a queued one emits turn.queued first.
 
 **Params**
 

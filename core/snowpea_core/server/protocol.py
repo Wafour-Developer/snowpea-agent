@@ -592,6 +592,15 @@ class SessionIdParams(Payload):
 
 
 class SessionPromptParams(Payload):
+    """Start a turn (or queue/steer one while a turn runs).
+
+    Events, in order: ``turn.started {turnId, text}`` then ``message.user
+    {text, attachments, refs, steered: false}`` for the prompt, then the model's
+    output. A prompt folded into a running turn (``whenBusy: "steer"``) emits
+    ``message.user {steered: true}`` and ``turn.dequeued {reason: "steered"}``;
+    a queued one emits ``turn.queued`` first and the pair above when it starts.
+    """
+
     sessionId: str = Field(description="Session to prompt.")
     text: str = Field(description="User text; a leading '/' is parsed as a slash command.")
     attachments: list[Attachment] | None = Field(
@@ -1115,6 +1124,15 @@ class ApprovalAskParams(Payload):
     (a click on "Pay"). The answer goes through the normal pipeline: mode
     matrix, allowlist (tool + site), then the session's approver; a timeout
     denies.
+
+    The ``approval.request`` the approver receives carries ``tool``, the
+    host's ``args`` with ``detail`` nested under ``args.detail`` and the site
+    under ``args.site``, ``note`` = ``reason``, ``site`` and
+    ``scopeHint: "site"`` (when a site is known). Example:
+    ``{"tool": "repl", "args": {"detail": {"origin": "https://shop.example",
+    "element": "button#submit", "action": "click"}, "site":
+    "https://shop.example"}, "note": "The code clicks 'Submit order'", "site":
+    "https://shop.example", "scopeHint": "site"}``.
     """
 
     sessionId: str = Field(description="Session whose tool call is running.")
@@ -3719,7 +3737,13 @@ METHODS: dict[str, RpcMethod] = {
             "session.prompt",
             SessionPromptParams,
             TurnResult,
-            "Send user text to a session and start a turn.",
+            (
+                "Send user text to a session and start a turn. Events: turn.started "
+                "{turnId, text}, then message.user {text, attachments, refs, steered: "
+                "false}, then the model's output. A steered prompt emits message.user "
+                "{steered: true} + turn.dequeued {reason: steered}; a queued one emits "
+                "turn.queued first."
+            ),
         ),
         _m(
             "file.complete",
@@ -4068,7 +4092,12 @@ METHODS: dict[str, RpcMethod] = {
             "approval.ask",
             ApprovalAskParams,
             ApprovalAskResult,
-            "Escalate one host action through the approval pipeline.",
+            (
+                "Escalate one host action through the approval pipeline. The approver's "
+                "approval.request carries tool, args with detail nested under "
+                "args.detail and the site under args.site, note = reason, site, and "
+                "scopeHint 'site' when a site is known."
+            ),
         ),
         _m(
             "session.attach",

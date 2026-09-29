@@ -169,7 +169,7 @@ export interface AgentSpawnResult {
   agentId: string;
 }
 
-/** `approval.ask` params. Escalate one host action through the approval pipeline. */
+/** `approval.ask` params. Escalate one host action through the approval pipeline. The approver's approval.request carries tool, args with detail nested under args.detail and the site under args.site, note = reason, site, and scopeHint 'site' when a site is known. */
 export interface ApprovalAskParams {
   /** Action details to show. */
   args?: Record<string, unknown>;
@@ -1783,7 +1783,7 @@ export interface SessionNoticeResult {
   ok?: boolean;
 }
 
-/** `session.prompt` params. Send user text to a session and start a turn. */
+/** `session.prompt` params. Send user text to a session and start a turn. Events: turn.started {turnId, text}, then message.user {text, attachments, refs, steered: false}, then the model's output. A steered prompt emits message.user {steered: true} + turn.dequeued {reason: steered}; a queued one emits turn.queued first. */
 export interface SessionPromptParams {
   /** Files or images to include. */
   attachments?: ({

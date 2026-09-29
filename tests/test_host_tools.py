@@ -821,3 +821,19 @@ async def test_usage_summary_groups_stored_usage(
         assert future["rows"] == []
     finally:
         await client.stop()
+
+
+async def test_a_prompt_emits_turn_started_then_message_user(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    """The documented order the browser UI relies on."""
+    client = await open_client(http, daemon)
+    try:
+        session_id = await new_session(client, tmp_path / "w")
+        await run_turn(client, session_id, "hello there")
+        kinds = client.kinds()
+        assert kinds.index("turn.started") < kinds.index("message.user")
+        user = client.of_kind("message.user")[0]["payload"]
+        assert user["text"] == "hello there" and user["steered"] is False
+    finally:
+        await client.stop()
