@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.6.0` (semver)
+- **Protocol version:** `1.7.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.6.0"
+    "protocolVersion": "1.7.0"
   }
 }
 ```
@@ -98,6 +98,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`mcp.test`](#mcptest) | client → server | Probe a saved MCP server or an unsaved draft and report its tools. |
 | [`mcp.update`](#mcpupdate) | client → server | Merge a patch into an existing MCP server entry. |
 | [`memory.delete`](#memorydelete) | client → server | Forget one stored memory. |
+| [`memory.ingest`](#memoryingest) | client → server | Remember visited pages in the browser namespace, once per url and text. |
 | [`memory.list`](#memorylist) | client → server | List stored memories by scope, newest first. |
 | [`memory.search`](#memorysearch) | client → server | Recall stored memories matching a query. |
 | [`memory.write`](#memorywrite) | client → server | Store a memory with tags. |
@@ -113,6 +114,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`question.list`](#questionlist) | client → server | List questions the agent is still waiting on. |
 | [`question.request`](#questionrequest) | server → client | Ask the client to put a question to the human. |
 | [`question.respond`](#questionrespond) | client → server | Answer a pending question and unblock the turn. |
+| [`session.artifacts`](#sessionartifacts) | client → server | Files the session saved for the user under its workspace's artifacts/. |
 | [`session.attach`](#sessionattach) | client → server | Make this connection the origin of a session (approvals, host tools). |
 | [`session.close`](#sessionclose) | client → server | Close a session and release its resources. |
 | [`session.compact`](#sessioncompact) | client → server | Summarise the conversation so far and replace the history with it. |
@@ -120,12 +122,15 @@ Server capabilities advertised in the `system.hello` result:
 | [`session.deleteSaved`](#sessiondeletesaved) | client → server | Delete saved sessions. |
 | [`session.interrupt`](#sessioninterrupt) | client → server | Stop the running turn as soon as possible. |
 | [`session.list`](#sessionlist) | client → server | List live or saved sessions. |
+| [`session.notice`](#sessionnotice) | client → server | Queue a [system] line for the model's next call. |
 | [`session.prompt`](#sessionprompt) | client → server | Send user text to a session and start a turn. |
+| [`session.rename`](#sessionrename) | client → server | Set a session's title. |
 | [`session.resume`](#sessionresume) | client → server | Replay the events a disconnected client missed. |
 | [`session.setEffort`](#sessionseteffort) | client → server | Pin how hard a session's model may think, or clear the pin. |
 | [`session.setMode`](#sessionsetmode) | client → server | Switch a session between plan, accept and auto. |
 | [`session.setModel`](#sessionsetmodel) | client → server | Pin a session to a model profile, or clear the pin. |
 | [`session.steer`](#sessionsteer) | client → server | Inject a user message into a running turn at its next tool round. |
+| [`session.toolContent`](#sessiontoolcontent) | client → server | A host tool result's content blocks with image bytes (recent calls only). |
 | [`settings.get`](#settingsget) | client → server | Read global or project settings, with secrets masked. |
 | [`settings.set`](#settingsset) | client → server | Deep-merge a patch into global or project settings and persist it. |
 | [`setup.applyDefaults`](#setupapplydefaults) | client → server | Apply the profile's defaults for everything optional; idempotent. |
@@ -158,6 +163,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`tool.progress`](#toolprogress) | client → server | Notification: progress of a running tool.invoke, re-emitted as tool.progress. |
 | [`tool.register`](#toolregister) | client → server | Register tools this connection runs itself (host tools). |
 | [`tool.unregister`](#toolunregister) | client → server | Remove some of this connection's host tools. |
+| [`usage.summary`](#usagesummary) | client → server | Token totals from stored usage events, grouped by provider, model, session or day. |
 
 ## Methods
 
@@ -825,6 +831,7 @@ Schedule a prompt to run unattended.
 | `agent` | `string \| null` | no | Named agent that runs the task. |
 | `channel` | `string \| null` | no | Gateway channel that receives the output. |
 | `mode` | `"plan" \| "accept" \| "auto"` | no | Permission mode for the unattended run. |
+| `sessionTemplate` | `{ agent?: string \| null; hostToolsFrom?: string \| null; hostWaitSec?: number; mode?: "plan" \| "accept" \| "auto" \| null; } \| null` | no | Session setup for each run, incl. host tools (1.7.0). |
 | `spec` | `string` | yes | Cron expression or natural-language schedule. |
 | `task` | `string` | yes | Prompt run on each firing. |
 | `workdir` | `string \| null` | no | Working directory for the run; defaults to the daemon's home. |
@@ -1057,13 +1064,37 @@ Forget one stored memory.
 
 | field | type | required | description |
 |---|---|---|---|
-| `id` | `string` | yes | Memory id to forget. |
+| `before` | `string \| null` | no | With source: UTC ISO time; forget visits before it. |
+| `id` | `string \| null` | no | Memory id to forget. |
+| `source` | `"browser" \| null` | no | "browser" forgets browsing memories instead: those of url (a page, or a whole site when it has no path), those visited before `before`, or all (1.7.0). |
+| `url` | `string \| null` | no | With source: the page or site. |
 
 **Result**
 
 | field | type | required | description |
 |---|---|---|---|
 | `ok` | `boolean` | no | True when the call succeeded. |
+
+### `memory.ingest`
+
+*Direction:* client → server
+
+Remember visited pages in the browser namespace, once per url and text.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `items` | `({ text?: string; title?: string; url: string; visitedAt?: string \| null; })[]` | yes | Visited pages to remember. |
+| `sessionId` | `string \| null` | no | Session they came from, if any. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `added` | `number` | no | Pages stored. |
+| `removed` | `number` | no | For memory.delete by source: how many. |
+| `skipped` | `number` | no | Pages already stored (same url and text). |
 
 ### `memory.list`
 
@@ -1365,6 +1396,25 @@ Answer a pending question and unblock the turn.
 |---|---|---|---|
 | `ok` | `boolean` | no | True when the call succeeded. |
 
+### `session.artifacts`
+
+*Direction:* client → server
+
+Files the session saved for the user under its workspace's artifacts/.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `sessionId` | `string` | yes | Target session. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `artifacts` | `({ mimeType?: string \| null; modifiedAt: string; name: string; path: string; size: number; })[]` | no | Files under artifacts/, newest first. |
+| `workspaceDir` | `string` | yes | The session workspace. |
+
 ### `session.attach`
 
 *Direction:* client → server
@@ -1434,6 +1484,7 @@ Open a session rooted at a working directory.
 | field | type | required | description |
 |---|---|---|---|
 | `agent` | `string \| null` | no | Named agent whose persona to load. |
+| `browserMemory` | `boolean \| null` | no | Recall also searches pages the browser ingested. Default: on when a browser client (clientKind 'browser') creates the session (1.7.0). |
 | `denyExec` | `boolean \| null` | no | When true, refuse exec-tagged tools without prompting (headless CI). |
 | `effort` | `"low" \| "medium" \| "high" \| "max" \| null` | no | Reasoning effort for this session; null follows the settings. |
 | `hostToolsFrom` | `string \| null` | no | Whose host tools this session sees: a connection's clientId (or surface id). Default: the creating connection (1.6.0). |
@@ -1450,6 +1501,7 @@ Open a session rooted at a working directory.
 |---|---|---|---|
 | `delegation` | `boolean` | no | Whether the session starts in delegation mode (the lead hands the work to its team): the session pin, else agents.delegateByDefault. |
 | `sessionId` | `string` | yes | Id of the new session. |
+| `workspaceDir` | `string \| null` | no | Session workspace with tmp/ and artifacts/ (1.7.0). |
 
 ### `session.deleteSaved`
 
@@ -1507,7 +1559,26 @@ List live or saved sessions.
 
 | field | type | required | description |
 |---|---|---|---|
-| `sessions` | `({ agent?: string \| null; contextUsed?: number; contextWindow?: number \| null; createdAt: string; effort?: "low" \| "medium" \| "high" \| "max" \| null; jobId?: string \| null; kind?: "chat" \| "scheduled" \| "subagent" \| "agent"; lastPrompt?: string \| null; mode: "plan" \| "accept" \| "auto"; model?: string \| null; originSurface?: string \| null; parentSessionId?: string \| null; provider?: string \| null; running?: boolean; seq?: number; sessionId: string; workdir: string; })[]` | no | Every live session. |
+| `sessions` | `({ agent?: string \| null; contextUsed?: number; contextWindow?: number \| null; createdAt: string; effort?: "low" \| "medium" \| "high" \| "max" \| null; jobId?: string \| null; kind?: "chat" \| "scheduled" \| "subagent" \| "agent"; lastActivityAt?: string \| null; lastPrompt?: string \| null; mode: "plan" \| "accept" \| "auto"; model?: string \| null; originSurface?: string \| null; parentSessionId?: string \| null; pendingApprovals?: number; pendingQuestions?: number; provider?: string \| null; running?: boolean; seq?: number; sessionId: string; status?: "idle" \| "running" \| "awaiting_approval" \| "awaiting_question" \| "error"; title?: string \| null; turnStartedAt?: string \| null; workdir: string; workspaceDir?: string \| null; })[]` | no | Every live session. |
+
+### `session.notice`
+
+*Direction:* client → server
+
+Queue a [system] line for the model's next call.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `sessionId` | `string` | yes | Session to tell. |
+| `text` | `string` | yes | Something that happened outside a tool call (a popup opened, a download finished). Reaches the model as a [system] line before its next call; it starts no turn (1.7.0). |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ok` | `boolean` | no | True when the call succeeded. |
 
 ### `session.prompt`
 
@@ -1522,12 +1593,32 @@ Send user text to a session and start a turn.
 | `attachments` | `({ data?: string \| null; kind?: "file" \| "image" \| "text" \| "page"; mimeType?: string \| null; name?: string \| null; path?: string \| null; selection?: string \| null; size?: number \| null; snapshot?: string \| null; text?: string \| null; title?: string \| null; url?: string \| null; })[] \| null` | no | Files or images to include. |
 | `sessionId` | `string` | yes | Session to prompt. |
 | `text` | `string` | yes | User text; a leading '/' is parsed as a slash command. |
+| `whenBusy` | `"queue" \| "steer" \| null` | no | If a turn is running: 'queue' waits for it, 'steer' folds this prompt into it at the next tool round. Default: the agent.busy setting (1.7.0). |
 
 **Result**
 
 | field | type | required | description |
 |---|---|---|---|
 | `turnId` | `string` | yes | Id of the started turn; turn.done carries it back. |
+
+### `session.rename`
+
+*Direction:* client → server
+
+Set a session's title.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `sessionId` | `string` | yes | Session to rename. |
+| `title` | `string` | yes | New title; empty clears it (1.7.0). |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ok` | `boolean` | no | True when the call succeeded. |
 
 ### `session.resume`
 
@@ -1635,6 +1726,26 @@ Inject a user message into a running turn at its next tool round.
 |---|---|---|---|
 | `ok` | `boolean` | no | True when accepted. |
 | `started` | `boolean` | no | True when no turn was running and a new one started. |
+
+### `session.toolContent`
+
+*Direction:* client → server
+
+A host tool result's content blocks with image bytes (recent calls only).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `callId` | `string` | yes | tool.result callId whose content to fetch. |
+| `sessionId` | `string` | yes | Session the tool ran in. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `callId` | `string` | yes | The call. |
+| `content` | `({ contentRef?: string \| null; data?: string \| null; mediaType?: string \| null; text?: string \| null; type: "text" \| "image"; })[]` | no | The content blocks, images with their bytes. |
 
 ### `settings.get`
 
@@ -2204,7 +2315,7 @@ Ask the client to run one of its host tools.
 
 | field | type | required | description |
 |---|---|---|---|
-| `content` | `({ data?: string \| null; mediaType?: string \| null; text?: string \| null; type: "text" \| "image"; })[] \| null` | no | Rich result blocks. Images reach vision models as image input; text blocks are appended to output. |
+| `content` | `({ contentRef?: string \| null; data?: string \| null; mediaType?: string \| null; text?: string \| null; type: "text" \| "image"; })[] \| null` | no | Rich result blocks. Images reach vision models as image input; text blocks are appended to output. |
 | `error` | `string \| null` | no | Error text when ok is false. |
 | `meta` | `Record<string, unknown> \| null` | no | Extra facts. meta.sensitive=true keeps the output out of the session store ([redacted]), memory and compaction summaries. |
 | `ok` | `boolean` | yes | False reports the call as a tool error. |
@@ -2282,6 +2393,29 @@ Remove some of this connection's host tools.
 | field | type | required | description |
 |---|---|---|---|
 | `removed` | `string[]` | no | Names actually removed. |
+
+### `usage.summary`
+
+*Direction:* client → server
+
+Token totals from stored usage events, grouped by provider, model, session or day.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `groupBy` | `"provider" \| "model" \| "session" \| "day"` | no | How to group the totals. |
+| `since` | `string \| null` | no | UTC ISO start (inclusive). |
+| `until` | `string \| null` | no | UTC ISO end (exclusive). |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `groupBy` | `string` | yes | The grouping used. |
+| `inputTokens` | `number` | no | Sum over all rows. |
+| `outputTokens` | `number` | no | Sum over all rows. |
+| `rows` | `({ calls?: number; inputTokens?: number; key: string; outputTokens?: number; })[]` | no | Totals, largest first. |
 
 ## Notifications
 
@@ -2382,6 +2516,15 @@ Remove some of this connection's host tools.
 | `seq` | `number` | yes | Monotonic per-session sequence number. |
 | `sessionId` | `string` | yes | Session the event belongs to. |
 | `ts` | `string` | yes | UTC ISO-8601 timestamp. |
+
+### `sessions.changed`
+
+| field | type | required | description |
+|---|---|---|---|
+| `reason` | `string` | yes | create, prompt, turn, renamed, close, ... |
+| `sessionId` | `string` | yes | Session that changed. |
+| `status` | `string \| null` | no | Its status now, when known. |
+| `title` | `string \| null` | no | Its title, when it has one. |
 
 ### `settings.changed`
 
@@ -2648,6 +2791,13 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | `taskId` | `string` | yes | Task that changed. |
 | `teamId` | `string` | yes | Team the task belongs to. |
 
+### kind `todos.updated`
+
+| field | type | required | description |
+|---|---|---|---|
+| `kind` | `"todos.updated"` | no |  |
+| `todos` | `({ content: string; id: string; status: "pending" \| "in_progress" \| "completed"; })[]` | no | The whole list, in order. |
+
 ### kind `tool.call`
 
 | field | type | required | description |
@@ -2674,6 +2824,7 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | field | type | required | description |
 |---|---|---|---|
 | `callId` | `string` | yes | Id of the matching tool.call. |
+| `content` | `({ contentRef?: string \| null; data?: string \| null; mediaType?: string \| null; text?: string \| null; type: "text" \| "image"; })[] \| null` | no | A host tool's content blocks: text inline, images as contentRef (session.toolContent). Absent for sensitive results (1.7.0). |
 | `error` | `string \| null` | no | Failure detail when ok is false. |
 | `kind` | `"tool.result"` | no |  |
 | `name` | `string` | yes | Tool that ran. |
@@ -2722,7 +2873,9 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 |---|---|---|---|
 | `inputTokens` | `number` | no | Prompt tokens consumed. |
 | `kind` | `"usage"` | no |  |
+| `model` | `string \| null` | no | Model that served the call (1.7.0). |
 | `outputTokens` | `number` | no | Completion tokens produced. |
+| `provider` | `string \| null` | no | Vendor that served the call (1.7.0). |
 
 ## Error codes
 

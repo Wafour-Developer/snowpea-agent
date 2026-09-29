@@ -607,6 +607,8 @@ class Environment:
     model: str | None = None
     mode: str | None = None
     backend: str = "local"
+    #: The session workspace (``tmp/``, ``artifacts/``), when it has one.
+    workspace: str | None = None
     git: GitSnapshot | None = None
     #: The project's own instruction files, already discovered and clipped.
     project_context: ProjectContext = field(default_factory=ProjectContext)
@@ -643,6 +645,7 @@ def collect(
     model: str | None = None,
     mode: str | None = None,
     backend: str = "local",
+    workspace: str | None = None,
 ) -> Environment:
     """Gather the environment, taking anything injected over anything probed."""
     moment = now or datetime.now().astimezone()
@@ -669,6 +672,7 @@ def collect(
         model=model,
         mode=mode,
         backend=backend,
+        workspace=workspace,
         git=snapshot,
         project_context=project,
     )
@@ -686,6 +690,11 @@ def environment_lines(env: Environment) -> str:
         shell = f", shell {env.shell}" if env.shell else ""
         lines.append(f"- Platform: {env.platform}{shell}")
     lines.append(f"- Working directory: {env.workdir}")
+    if env.workspace:
+        lines.append(
+            f"- Session workspace: {env.workspace} (save files the user should get in "
+            "artifacts/, scratch files in tmp/)"
+        )
     if env.home:
         lines.append(f"- Home: {env.home}")
     if env.today:

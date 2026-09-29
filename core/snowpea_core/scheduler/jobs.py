@@ -18,6 +18,7 @@ Like :class:`snowpea_core.session.store.Store`, every public method is
 from __future__ import annotations
 
 import asyncio
+import json
 import sqlite3
 import threading
 import uuid
@@ -52,7 +53,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     state        TEXT NOT NULL DEFAULT 'scheduled',
     last_run     TEXT,
     last_status  TEXT,
-    created_at   TEXT NOT NULL
+    created_at   TEXT NOT NULL,
+    options      TEXT
 );
 CREATE INDEX IF NOT EXISTS jobs_next_run ON jobs (enabled, next_run);
 CREATE TABLE IF NOT EXISTS job_runs (
@@ -114,6 +116,11 @@ class Job(BaseModel):
     last_run: datetime | None = None
     last_status: JobStatus | None = None
     created_at: datetime = Field(default_factory=utc_now)
+    #: Run with this client's host tools (a clientKind such as "browser", a
+    #: clientId or a surface id), waiting up to ``host_wait_sec`` for it to
+    #: connect before failing with ``host_unavailable`` (1.7.0).
+    host_tools_from: str | None = None
+    host_wait_sec: int = 300
 
     @classmethod
     def from_spec(
@@ -189,6 +196,14 @@ class Job(BaseModel):
             iso(self.last_run),
             self.last_status,
             iso(self.created_at),
+            self._options(),
+        )
+
+    def _options(self) -> str | None:
+        if not self.host_tools_from:
+            return None
+        return json.dumps(
+            {"hostToolsFrom": self.host_tools_from, "hostWaitSec": self.host_wait_sec}
         )
 
     @classmethod
@@ -211,7 +226,22 @@ class Job(BaseModel):
             last_run=parse_iso(row["last_run"]),
             last_status=row["last_status"],
             created_at=parse_iso(row["created_at"]) or utc_now(),
+            **_options_of(row),
         )
+
+
+def _options_of(row: sqlite3.Row) -> dict[str, Any]:
+    raw = row["options"] if "options" in row.keys() else None
+    try:
+        data = json.loads(raw) if raw else {}
+    except ValueError:
+        return {}
+    if not isinstance(data, dict) or not data.get("hostToolsFrom"):
+        return {}
+    return {
+        "host_tools_from": str(data["hostToolsFrom"]),
+        "host_wait_sec": int(data.get("hostWaitSec") or 300),
+    }
 
 
 #: Aliases so the annotations below still mean the builtin ``list`` even
@@ -221,9 +251,9 @@ Rows = list[dict[str, Any]]
 
 _COLUMNS = (
     "id, spec, kind, cron, interval_sec, next_run, task, mode, channel, origin_session_id, agent,"
-    " workdir, enabled, state, last_run, last_status, created_at"
+    " workdir, enabled, state, last_run, last_status, created_at, options"
 )
-_PLACEHOLDERS = ", ".join("?" * 17)
+_PLACEHOLDERS = ", ".join("?" * 18)
 
 
 class JobStore:
@@ -242,6 +272,8 @@ class JobStore:
             }
             if "origin_session_id" not in columns:
                 self._conn.execute("ALTER TABLE jobs ADD COLUMN origin_session_id TEXT")
+            if "options" not in columns:
+                self._conn.execute("ALTER TABLE jobs ADD COLUMN options TEXT")
             self._conn.commit()
 
     @classmethod

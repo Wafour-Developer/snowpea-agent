@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -38,6 +39,9 @@ if TYPE_CHECKING:
     from snowpea_core.server.app_server import Core
 
 log = logging.getLogger(__name__)
+
+#: Host results whose content blocks ``session.toolContent`` can still return.
+CONTENT_CACHE_SIZE = 200
 
 #: Default wait for a ``tool.invoke`` answer.
 DEFAULT_TIMEOUT_MS = 120_000
@@ -79,6 +83,9 @@ class HostTools:
         self._hosts: dict[str, _Host] = {}
         #: ``callId -> call`` for ``tool.progress`` routing.
         self._inflight: dict[str, _InFlight] = {}
+        #: ``(session, callId) -> content blocks`` of recent host results, for
+        #: ``session.toolContent``; images are kept here, not in stored events.
+        self._content: OrderedDict[tuple[str, str], list[dict[str, Any]]] = OrderedDict()
         #: ``tool.cancel`` sends still in flight, held so they are not collected.
         self._cancels: set[asyncio.Task[None]] = set()
 
@@ -161,10 +168,12 @@ class HostTools:
             explicit = str(explicit)
             if explicit in self._hosts:
                 return explicit
-            # A clientId: whichever live connection that client is on now.
-            for surface_id, host in self._hosts.items():
-                if getattr(host.conn, "client_id", None) == explicit:
-                    return surface_id
+            # A clientId: whichever live connection that client is on now; then
+            # a clientKind ("browser"): the first such host with tools.
+            for field_name in ("client_id", "client_kind"):
+                for surface_id, host in self._hosts.items():
+                    if host.tools and getattr(host.conn, field_name, None) == explicit:
+                        return surface_id
             return explicit
         conn = getattr(session, "origin_conn", None)
         return getattr(conn, "surface_id", None) if conn is not None else None
@@ -215,7 +224,9 @@ class HostTools:
             # A code-running host tool (a REPL) registered as ``read`` enforces
             # the mode itself: no page mutations in plan (addendum 3 §S).
             "mode": getattr(session, "mode", "accept"),
-            "workspaceDir": str(getattr(session, "workdir", "") or ""),
+            "workspaceDir": str(
+                getattr(session, "workspace_dir", None) or getattr(session, "workdir", "") or ""
+            ),
         }
         try:
             answer = await self._call_or_cancel(conn, session, params, timeout)
@@ -278,6 +289,30 @@ class HostTools:
         self._cancels.add(task)
         task.add_done_callback(self._cancels.discard)
 
+    def keep_content(
+        self, session_id: str, call_id: str, blocks: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Remember a result's blocks; return them as a tool.result event carries them."""
+        self._content[(session_id, call_id)] = blocks
+        while len(self._content) > CONTENT_CACHE_SIZE:
+            self._content.popitem(last=False)
+        event_blocks: list[dict[str, Any]] = []
+        for index, block in enumerate(blocks):
+            if block.get("type") == "image":
+                event_blocks.append(
+                    {
+                        "type": "image",
+                        "mediaType": block.get("mediaType") or "image/png",
+                        "contentRef": f"{call_id}:{index}",
+                    }
+                )
+            elif block.get("type") == "text":
+                event_blocks.append({"type": "text", "text": str(block.get("text") or "")})
+        return event_blocks
+
+    def content(self, session_id: str, call_id: str) -> list[dict[str, Any]] | None:
+        return self._content.get((session_id, call_id))
+
     async def progress(self, conn: Any, call_id: str, message: str) -> bool:
         """Re-emit a client's ``tool.progress`` as a session event.
 
@@ -320,6 +355,9 @@ def result_from_answer(name: str, answer: dict[str, Any]) -> ToolResult:
             )
     if texts:
         output = "\n\n".join([output, *texts]) if output else "\n\n".join(texts)
+    blocks = [block for block in answer.get("content") or [] if isinstance(block, dict)]
+    if blocks:
+        meta["content"] = blocks
     if images:
         meta["images"] = images
         if not output:

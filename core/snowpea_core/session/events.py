@@ -33,7 +33,10 @@ from snowpea_core.server.protocol import (
     MessageUser,
     ModeChanged,
     ModelChanged,
+    TodoItem,
+    TodosUpdated,
     ToolCallEvent,
+    ToolContentBlock,
     ToolProgress,
     ToolResultEvent,
     TurnDequeued,
@@ -119,9 +122,23 @@ def tool_call(call_id: str, name: str, args: dict[str, Any]) -> Event:
 
 
 def tool_result(
-    call_id: str, name: str, ok: bool, output: str = "", error: str | None = None
+    call_id: str,
+    name: str,
+    ok: bool,
+    output: str = "",
+    error: str | None = None,
+    content: Sequence[dict[str, Any]] | None = None,
 ) -> Event:
-    return _pack(ToolResultEvent(callId=call_id, name=name, ok=ok, output=output, error=error))
+    return _pack(
+        ToolResultEvent(
+            callId=call_id,
+            name=name,
+            ok=ok,
+            output=output,
+            error=error,
+            content=[ToolContentBlock(**block) for block in content] if content else None,
+        )
+    )
 
 
 def tool_progress(
@@ -151,6 +168,10 @@ def tool_progress(
 
 def diff(path: str, patch: str) -> Event:
     return _pack(DiffEvent(path=path, patch=patch))
+
+
+def todos_updated(todos: Sequence[dict[str, Any]]) -> Event:
+    return _pack(TodosUpdated(todos=[TodoItem(**todo) for todo in todos]))
 
 
 def checkpoint_updated(checkpoint: CheckpointInfo | dict[str, Any]) -> Event:
@@ -201,8 +222,18 @@ def backend_changed(backend: str) -> Event:
     return _pack(BackendChanged(backend=backend))  # type: ignore[arg-type]
 
 
-def usage(input_tokens: int, output_tokens: int) -> Event:
-    return _pack(UsageEvent(inputTokens=input_tokens, outputTokens=output_tokens))
+def usage(
+    input_tokens: int,
+    output_tokens: int,
+    *,
+    provider: str | None = None,
+    model: str | None = None,
+) -> Event:
+    return _pack(
+        UsageEvent(
+            inputTokens=input_tokens, outputTokens=output_tokens, provider=provider, model=model
+        )
+    )
 
 
 def context(

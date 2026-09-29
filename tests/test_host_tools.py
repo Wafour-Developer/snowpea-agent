@@ -156,7 +156,8 @@ async def test_a_host_tool_runs_in_the_client_and_reports_progress(
         call = host.invocations[-1]
         assert call["sessionId"] == session_id and call["args"] == {"text": "hi"}
         assert call["mode"] == daemon.core.sessions.get(session_id).mode
-        assert call["workspaceDir"] == str(tmp_path / "w")
+        workspace = daemon.core.sessions.get(session_id).workspace_dir
+        assert workspace and call["workspaceDir"] == workspace
         assert call["callId"] and call["turnId"]
         assert results_for(host, "host_echo")[-1]["output"] == "echo hi"
         progress = [
@@ -557,3 +558,266 @@ async def test_approval_detail_origin_names_the_site(
         assert request["args"]["detail"]["element"] == "button#submit"
     finally:
         await host.stop()
+
+
+# ---------------------------------------------------------------------------
+# 1.7.0: content in tool.result events, whenBusy per prompt
+# ---------------------------------------------------------------------------
+
+
+async def test_tool_result_events_carry_content_with_image_refs(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    host = await open_client(http, daemon)
+    try:
+        await host.ok("tool.register", {"tools": [spec("host_shot"), spec("host_secret")]})
+        host.handlers["host_shot"] = lambda p: {
+            "ok": True,
+            "output": "",
+            "content": [
+                {"type": "text", "text": "the page"},
+                {"type": "image", "mediaType": "image/png", "data": PNG},
+            ],
+        }
+        host.handlers["host_secret"] = lambda p: {
+            "ok": True,
+            "output": "x",
+            "content": [{"type": "image", "mediaType": "image/png", "data": PNG}],
+            "meta": {"sensitive": True},
+        }
+        session_id = await new_session(host, tmp_path / "w")
+        await run_turn(host, session_id, "use host shot")
+        result = results_for(host, "host_shot")[-1]
+        text, image = result["content"]
+        assert text["type"] == "text" and text["text"] == "the page"
+        assert image["contentRef"] and not image.get("data")
+        fetched = await host.ok(
+            "session.toolContent", {"sessionId": session_id, "callId": result["callId"]}
+        )
+        assert fetched["content"][1]["data"] == PNG
+
+        await run_turn(host, session_id, "use host secret")
+        assert not results_for(host, "host_secret")[-1].get("content")
+    finally:
+        await host.stop()
+
+
+async def test_when_busy_overrides_agent_busy_per_prompt(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    host = await open_client(http, daemon)
+    try:
+        await host.ok("settings.set", {"patch": {"agent": {"busy": "queue"}}})
+        await host.ok("tool.register", {"tools": [spec("host_slow", timeoutMs=1500)]})
+        host.handlers["host_slow"] = lambda p: None
+        session_id = await new_session(host, tmp_path / "w")
+        first = await host.ok("session.prompt", {"sessionId": session_id, "text": "use host slow"})
+        for _ in range(100):
+            if host.invocations:
+                break
+            await asyncio.sleep(0.02)
+        queued = await host.ok(
+            "session.prompt", {"sessionId": session_id, "text": "later please"}
+        )
+        steered = await host.ok(
+            "session.prompt",
+            {"sessionId": session_id, "text": "also check the footer", "whenBusy": "steer"},
+        )
+        assert await host.wait_turn(first["turnId"], timeout=15) == "complete"
+        dequeued = [e["payload"] for e in host.of_kind("turn.dequeued")]
+        assert any(
+            d["turnId"] == steered["turnId"] and d["reason"] == "steered" for d in dequeued
+        )
+        assert await host.wait_turn(queued["turnId"], timeout=15) == "complete"
+    finally:
+        await host.stop()
+
+
+async def test_each_session_gets_a_workspace_and_lists_its_artifacts(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    client = await open_client(http, daemon)
+    try:
+        (tmp_path / "w").mkdir()
+        created = await client.ok("session.create", {"workdir": str(tmp_path / "w")})
+        workspace = Path(created["workspaceDir"])
+        assert workspace.parent == daemon.paths.home / "sessions"
+        assert workspace.name.endswith(created["sessionId"])
+        assert (workspace / "tmp").is_dir() and (workspace / "artifacts").is_dir()
+        (workspace / "artifacts" / "report.md").write_text("# done", encoding="utf-8")
+        listed = await client.ok("session.artifacts", {"sessionId": created["sessionId"]})
+        assert listed["workspaceDir"] == str(workspace)
+        assert [a["name"] for a in listed["artifacts"]] == ["report.md"]
+        assert listed["artifacts"][0]["mimeType"] == "text/markdown"
+        sessions = await client.ok("session.list", {})
+        row = next(r for r in sessions["sessions"] if r["sessionId"] == created["sessionId"])
+        assert row["workspaceDir"] == str(workspace)
+    finally:
+        await client.stop()
+
+
+async def test_task_list_status_titles_rename_and_broadcast(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    host = await open_client(http, daemon, approval_mode="ignore")
+    watcher = await open_client(http, daemon)
+    try:
+        await host.ok("tool.register", {"tools": [spec("host_pay", "send")]})
+        session_id = await new_session(host, tmp_path / "w", mode="accept")
+        turn = await host.ok(
+            "session.prompt", {"sessionId": session_id, "text": "use host pay for the order"}
+        )
+        for _ in range(250):
+            if host.approval_requests:
+                break
+            await asyncio.sleep(0.02)
+        listed = await watcher.ok("session.list", {})
+        row = next(r for r in listed["sessions"] if r["sessionId"] == session_id)
+        assert row["status"] == "awaiting_approval" and row["pendingApprovals"] == 1
+        assert row["title"] == "use host pay for the order" and row["turnStartedAt"]
+        statuses = [
+            n["params"].get("status")
+            for n in watcher.notifications
+            if n["method"] == "sessions.changed" and n["params"]["sessionId"] == session_id
+        ]
+        assert "running" in statuses and "awaiting_approval" in statuses
+
+        await host.ok("session.interrupt", {"sessionId": session_id})
+        await host.wait_turn(turn["turnId"], timeout=10)
+        await host.ok("session.rename", {"sessionId": session_id, "title": "Checkout"})
+        renamed = await watcher.wait_notification("sessions.changed", timeout=2)
+        assert renamed["sessionId"] == session_id
+        listed = await watcher.ok("session.list", {})
+        row = next(r for r in listed["sessions"] if r["sessionId"] == session_id)
+        assert row["title"] == "Checkout" and row["status"] == "idle"
+        assert row["lastActivityAt"] and row["turnStartedAt"] is None
+    finally:
+        await watcher.stop()
+        await host.stop()
+
+
+async def test_a_routine_runs_with_the_browsers_host_tools_or_fails_without_one(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    watcher = await open_client(http, daemon)
+    try:
+        (tmp_path / "w").mkdir()
+        job = await watcher.ok(
+            "job.schedule",
+            {
+                "spec": "every 1 hour",
+                "task": "use host echo",
+                "workdir": str(tmp_path / "w"),
+                "sessionTemplate": {"hostToolsFrom": "browser", "hostWaitSec": 1},
+            },
+        )
+        await watcher.ok("job.runNow", {"jobId": job["jobId"]})
+        failed = None
+        for _ in range(200):
+            failed = next(
+                (
+                    n["params"] for n in watcher.notifications
+                    if n["method"] == "job.event" and n["params"]["kind"] == "failed"
+                ),
+                None,
+            )
+            if failed:
+                break
+            await asyncio.sleep(0.05)
+        assert failed and "host_unavailable" in failed["payload"]["text"]
+
+        host = await open_client(http, daemon)  # clientKind "browser"
+        try:
+            await host.ok("tool.register", {"tools": [spec("host_echo")]})
+            host.handlers["host_echo"] = lambda p: {"ok": True, "output": "routine echo"}
+            await watcher.ok("job.runNow", {"jobId": job["jobId"]})
+            for _ in range(300):
+                if host.invocations:
+                    break
+                await asyncio.sleep(0.05)
+            assert host.invocations and host.invocations[-1]["name"] == "host_echo"
+        finally:
+            await host.stop()
+    finally:
+        await watcher.stop()
+
+
+async def test_a_notice_reaches_the_model_on_its_next_call(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    client = await open_client(http, daemon)
+    try:
+        session_id = await new_session(client, tmp_path / "w")
+        await client.ok(
+            "session.notice", {"sessionId": session_id, "text": "a download finished: a.pdf"}
+        )
+        session = daemon.core.sessions.get(session_id)
+        assert session.pending_notices == ["a download finished: a.pdf"]
+        await run_turn(client, session_id, "hello")
+        notes = [m.content for m in session.history.messages if m.role == "user"]
+        assert "[system] a download finished: a.pdf" in notes
+        assert session.pending_notices == []
+    finally:
+        await client.stop()
+
+
+async def test_browsing_memory_ingest_dedupe_recall_and_forget(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    from snowpea_core.memory import services as memory_services
+    from snowpea_core.memory.browser import BROWSER_NAMESPACE
+    from snowpea_core.memory.retrieval import namespaces_for
+
+    client = await open_client(http, daemon)  # clientKind "browser"
+    try:
+        items = [
+            {"url": "https://github.com/a/b", "title": "b repo", "text": "snowpea core",
+             "visitedAt": "2026-09-01T00:00:00Z"},
+            {"url": "https://example.com/x", "title": "x", "text": "hello",
+             "visitedAt": "2026-09-20T00:00:00Z"},
+        ]
+        first = await client.ok("memory.ingest", {"items": items})
+        assert first == {"added": 2, "skipped": 0, "removed": 0}
+        again = await client.ok("memory.ingest", {"items": items[:1]})
+        assert again["added"] == 0 and again["skipped"] == 1
+
+        session_id = await new_session(client, tmp_path / "w")
+        session = daemon.core.sessions.get(session_id)
+        assert session.browser_memory is True
+        assert BROWSER_NAMESPACE in namespaces_for(session)
+        other = await new_session(client, tmp_path / "o", browserMemory=False)
+        assert BROWSER_NAMESPACE not in namespaces_for(daemon.core.sessions.get(other))
+
+        store = memory_services(daemon.core).store
+        await client.ok("memory.delete", {"source": "browser", "url": "https://github.com"})
+        left = await store.list(namespace=BROWSER_NAMESPACE)
+        assert [e.text for e in left if "github" in e.text] == []
+        await client.ok("memory.delete", {"source": "browser", "before": "2026-09-30T00:00:00Z"})
+        assert await store.list(namespace=BROWSER_NAMESPACE) == []
+    finally:
+        await client.stop()
+
+
+async def test_usage_summary_groups_stored_usage(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    from snowpea_core.session import events
+
+    client = await open_client(http, daemon)
+    try:
+        session_id = await new_session(client, tmp_path / "w")
+        await daemon.core.hub.emit_event(
+            session_id, events.usage(1000, 50, provider="local", model="qwen")
+        )
+        await daemon.core.hub.emit_event(
+            session_id, events.usage(500, 25, provider="local", model="qwen")
+        )
+        by_model = await client.ok("usage.summary", {"groupBy": "model"})
+        row = next(r for r in by_model["rows"] if r["key"] == "local:qwen")
+        assert row["inputTokens"] >= 1500 and row["outputTokens"] >= 75 and row["calls"] >= 2
+        by_session = await client.ok("usage.summary", {"groupBy": "session"})
+        assert any(r["key"] == session_id for r in by_session["rows"])
+        future = await client.ok("usage.summary", {"since": "2999-01-01T00:00:00Z"})
+        assert future["rows"] == []
+    finally:
+        await client.stop()

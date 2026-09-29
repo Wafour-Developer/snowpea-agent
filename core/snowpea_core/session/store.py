@@ -65,6 +65,7 @@ SESSION_COLUMNS: tuple[tuple[str, str], ...] = (
     ("job_id", "TEXT"),
     ("effort", "TEXT"),
     ("delegation", "INTEGER"),
+    ("title", "TEXT"),
 )
 
 SQLITE_RETRY_ATTEMPTS = 5
@@ -221,6 +222,12 @@ class Store:
             (effort, session_id),
         )
 
+    async def update_title(self, session_id: str, title: str | None) -> None:
+        """Persist the session's title (auto or ``session.rename``, 1.7.0)."""
+        await asyncio.to_thread(
+            self._execute, "UPDATE sessions SET title = ? WHERE id = ?", (title, session_id)
+        )
+
     async def update_delegation(self, session_id: str, delegation: bool | None) -> None:
         """Persist the session's delegation pin so it survives a resume."""
         await asyncio.to_thread(
@@ -240,6 +247,25 @@ class Store:
             "UPDATE sessions SET closed_at = ? WHERE id = ?",
             (closed_at, session_id),
         )
+
+    async def usage_events(
+        self, since: str | None = None, until: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Stored ``usage`` events with their session's provider/model (1.7.0)."""
+        sql = (
+            "SELECT e.session_id, e.ts, e.payload_json, s.provider, s.model"
+            " FROM events e LEFT JOIN sessions s ON s.id = e.session_id"
+            " WHERE e.kind = 'usage'"
+        )
+        params: list[Any] = []
+        if since:
+            sql += " AND e.ts >= ?"
+            params.append(since)
+        if until:
+            sql += " AND e.ts < ?"
+            params.append(until)
+        rows = await asyncio.to_thread(self._query, sql, tuple(params))
+        return [dict(row) for row in rows]
 
     async def list_sessions(self, *, include_closed: bool = False) -> list[dict[str, Any]]:
         sql = "SELECT * FROM sessions"

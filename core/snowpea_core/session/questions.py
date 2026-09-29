@@ -85,6 +85,18 @@ class QuestionQueue:
         self.hub = hub
 
     # -- queries -------------------------------------------------------
+    def count(self, session_id: str) -> int:
+        return sum(1 for e in self._pending.values() if e.request.sessionId == session_id)
+
+    async def _announce_status(self, session_id: str, status: str) -> None:
+        if self.hub is None:
+            return
+        with contextlib.suppress(Exception):
+            await self.hub.notify(
+                "sessions.changed",
+                {"reason": "question", "sessionId": session_id, "status": status},
+            )
+
     def list(self, session_id: str | None = None, conn: Any = None) -> QuestionRequests:
         """Pending questions: the unattended ones, plus ``conn``'s own.
 
@@ -136,6 +148,7 @@ class QuestionQueue:
         origin = getattr(session, "origin_conn", None)
         entry = _Pending(request=request, future=loop.create_future(), origin_conn=origin)
         self._pending[request.requestId] = entry
+        await self._announce_status(session.id, "awaiting_question")
         await self._broadcast_pending(request, exclude=origin)
         if origin is not None:
             entry.task = asyncio.ensure_future(self._ask_origin(entry))
@@ -151,6 +164,8 @@ class QuestionQueue:
                 entry.task.cancel()
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await entry.task
+        if not self.count(session.id):
+            await self._announce_status(session.id, "running")
         await self._resolve(request, answers)
         return _padded(answers, len(questions))
 

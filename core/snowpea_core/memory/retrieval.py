@@ -208,6 +208,10 @@ def namespaces_for(session: Session | Any) -> list[str]:
     over all of them at once.
     """
     found = [project_namespace_of(session), GLOBAL_NAMESPACE, agent_namespace_of(session)]
+    if getattr(session, "browser_memory", False):
+        from snowpea_core.memory.browser import BROWSER_NAMESPACE
+
+        found.append(BROWSER_NAMESPACE)
     return [namespace for namespace in found if namespace]
 
 

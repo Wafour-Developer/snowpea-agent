@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.6.0"
+PROTOCOL_VERSION = "1.7.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -313,6 +313,13 @@ class SessionCreateParams(Payload):
             "id). Default: the creating connection (1.6.0)."
         ),
     )
+    browserMemory: bool | None = Field(
+        default=None,
+        description=(
+            "Recall also searches pages the browser ingested. Default: on when a "
+            "browser client (clientKind 'browser') creates the session (1.7.0)."
+        ),
+    )
 
 
 class SessionAttachParams(Payload):
@@ -323,6 +330,80 @@ class SessionAttachResult(Payload):
     sessionId: str = Field(description="The attached session.")
     hostTools: list[str] = Field(
         default_factory=list, description="Host tools the session now sees."
+    )
+
+
+class SessionToolContentParams(Payload):
+    sessionId: str = Field(description="Session the tool ran in.")
+    callId: str = Field(description="tool.result callId whose content to fetch.")
+
+
+class SessionToolContentResult(Payload):
+    callId: str = Field(description="The call.")
+    content: list[ToolContentBlock] = Field(
+        default_factory=list, description="The content blocks, images with their bytes."
+    )
+
+
+class SessionArtifact(Payload):
+    path: str = Field(description="Absolute path.")
+    name: str = Field(description="Path relative to artifacts/.")
+    size: int = Field(description="Bytes.")
+    modifiedAt: str = Field(description="UTC ISO-8601 time of the last change.")
+    mimeType: str | None = Field(default=None, description="Guessed from the name.")
+
+
+class SessionArtifactsResult(Payload):
+    workspaceDir: str = Field(description="The session workspace.")
+    artifacts: list[SessionArtifact] = Field(
+        default_factory=list, description="Files under artifacts/, newest first."
+    )
+
+
+class SessionRenameParams(Payload):
+    sessionId: str = Field(description="Session to rename.")
+    title: str = Field(description="New title; empty clears it (1.7.0).")
+
+
+class SessionsChangedNotification(Payload):
+    """Broadcast to every authenticated connection when the session list moves."""
+
+    reason: str = Field(description="create, prompt, turn, renamed, close, ...")
+    sessionId: str = Field(description="Session that changed.")
+    status: str | None = Field(default=None, description="Its status now, when known.")
+    title: str | None = Field(default=None, description="Its title, when it has one.")
+
+
+class UsageSummaryParams(Payload):
+    since: str | None = Field(default=None, description="UTC ISO start (inclusive).")
+    until: str | None = Field(default=None, description="UTC ISO end (exclusive).")
+    groupBy: Literal["provider", "model", "session", "day"] = Field(
+        default="day", description="How to group the totals."
+    )
+
+
+class UsageRow(Payload):
+    key: str = Field(description="Group value: vendor, vendor:model, session id or YYYY-MM-DD.")
+    inputTokens: int = Field(default=0, description="Prompt tokens.")
+    outputTokens: int = Field(default=0, description="Completion tokens.")
+    calls: int = Field(default=0, description="Provider calls counted.")
+
+
+class UsageSummaryResult(Payload):
+    groupBy: str = Field(description="The grouping used.")
+    rows: list[UsageRow] = Field(default_factory=list, description="Totals, largest first.")
+    inputTokens: int = Field(default=0, description="Sum over all rows.")
+    outputTokens: int = Field(default=0, description="Sum over all rows.")
+
+
+class SessionNoticeParams(Payload):
+    sessionId: str = Field(description="Session to tell.")
+    text: str = Field(
+        description=(
+            "Something that happened outside a tool call (a popup opened, a download "
+            "finished). Reaches the model as a [system] line before its next call; "
+            "it starts no turn (1.7.0)."
+        )
     )
 
 
@@ -345,6 +426,10 @@ class SessionSteerResult(Payload):
 
 class SessionCreateResult(Payload):
     sessionId: str = Field(description="Id of the new session.")
+    workspaceDir: str | None = Field(
+        default=None,
+        description="Session workspace with tmp/ and artifacts/ (1.7.0).",
+    )
     delegation: bool = Field(
         default=False,
         description=(
@@ -442,6 +527,22 @@ class SessionSummary(Payload):
             "turn.started (CORE-dangling-turns)."
         ),
     )
+    workspaceDir: str | None = Field(
+        default=None,
+        description="Session workspace with tmp/ and artifacts/ (1.7.0).",
+    )
+    title: str | None = Field(default=None, description="Short label (auto or renamed).")
+    status: Literal[
+        "idle", "running", "awaiting_approval", "awaiting_question", "error"
+    ] = Field(default="idle", description="What the session is doing now (1.7.0).")
+    lastActivityAt: str | None = Field(
+        default=None, description="UTC ISO time of the last prompt or turn end."
+    )
+    turnStartedAt: str | None = Field(
+        default=None, description="UTC ISO start of the running turn."
+    )
+    pendingApprovals: int = Field(default=0, description="Approvals waiting on a person.")
+    pendingQuestions: int = Field(default=0, description="Questions waiting on a person.")
 
 
 class SessionCompactParams(Payload):
@@ -495,6 +596,13 @@ class SessionPromptParams(Payload):
     text: str = Field(description="User text; a leading '/' is parsed as a slash command.")
     attachments: list[Attachment] | None = Field(
         default=None, description="Files or images to include."
+    )
+    whenBusy: Literal["queue", "steer"] | None = Field(
+        default=None,
+        description=(
+            "If a turn is running: 'queue' waits for it, 'steer' folds this prompt "
+            "into it at the next tool round. Default: the agent.busy setting (1.7.0)."
+        ),
     )
 
 
@@ -906,6 +1014,13 @@ class ToolContentBlock(Payload):
     text: str | None = Field(default=None, description="Text, for 'text'.")
     mediaType: str | None = Field(default=None, description="e.g. image/png, for 'image'.")
     data: str | None = Field(default=None, description="Base64 bytes, for 'image'.")
+    contentRef: str | None = Field(
+        default=None,
+        description=(
+            "In a tool.result event, an image is sent as a reference instead of its "
+            "bytes; fetch them with session.toolContent (1.7.0)."
+        ),
+    )
 
 
 class ToolInvokeRequest(Payload):
@@ -1780,6 +1895,30 @@ class JobScheduleParams(Payload):
     workdir: str | None = Field(
         default=None, description="Working directory for the run; defaults to the daemon's home."
     )
+    sessionTemplate: JobSessionTemplate | None = Field(
+        default=None, description="Session setup for each run, incl. host tools (1.7.0)."
+    )
+
+
+class JobSessionTemplate(Payload):
+    """How a routine's session is set up (1.7.0)."""
+
+    agent: str | None = Field(default=None, description="Named agent that runs the task.")
+    mode: Mode | None = Field(default=None, description="Permission mode for the run.")
+    hostToolsFrom: str | None = Field(
+        default=None,
+        description=(
+            'Run with a connected client\'s host tools: a clientKind ("browser"), a '
+            "clientId or a surface id."
+        ),
+    )
+    hostWaitSec: int = Field(
+        default=300,
+        description=(
+            "How long a firing waits for that host to connect; then the run fails with "
+            "host_unavailable (job.event)."
+        ),
+    )
 
 
 class JobScheduleResult(Payload):
@@ -1990,7 +2129,36 @@ class MemoryListResult(Payload):
 
 
 class MemoryDeleteParams(Payload):
-    id: str = Field(description="Memory id to forget.")
+    id: str | None = Field(default=None, description="Memory id to forget.")
+    source: Literal["browser"] | None = Field(
+        default=None,
+        description=(
+            '"browser" forgets browsing memories instead: those of url (a page, or a '
+            "whole site when it has no path), those visited before `before`, or all (1.7.0)."
+        ),
+    )
+    url: str | None = Field(default=None, description="With source: the page or site.")
+    before: str | None = Field(
+        default=None, description="With source: UTC ISO time; forget visits before it."
+    )
+
+
+class MemoryIngestItem(Payload):
+    url: str = Field(description="Page address.")
+    title: str = Field(default="", description="Page title.")
+    text: str = Field(default="", description="Page text (first 4000 chars are kept).")
+    visitedAt: str | None = Field(default=None, description="UTC ISO time of the visit.")
+
+
+class MemoryIngestParams(Payload):
+    items: list[MemoryIngestItem] = Field(description="Visited pages to remember.")
+    sessionId: str | None = Field(default=None, description="Session they came from, if any.")
+
+
+class MemoryIngestResult(Payload):
+    added: int = Field(default=0, description="Pages stored.")
+    skipped: int = Field(default=0, description="Pages already stored (same url and text).")
+    removed: int = Field(default=0, description="For memory.delete by source: how many.")
 
 
 class SkillSearchParams(Payload):
@@ -2442,6 +2610,13 @@ class ToolResultEvent(Payload):
     ok: bool = Field(description="False when the tool failed.")
     output: str = Field(default="", description="Output handed back to the model.")
     error: str | None = Field(default=None, description="Failure detail when ok is false.")
+    content: list[ToolContentBlock] | None = Field(
+        default=None,
+        description=(
+            "A host tool's content blocks: text inline, images as contentRef "
+            "(session.toolContent). Absent for sensitive results (1.7.0)."
+        ),
+    )
 
 
 class ToolProgress(Payload):
@@ -2469,6 +2644,19 @@ class ToolProgress(Payload):
         default=False,
         description="True on the final progress when the byte cap stopped the tail.",
     )
+
+
+class TodoItem(Payload):
+    id: str = Field(description="Stable id within the list.")
+    content: str = Field(description="What the step is.")
+    status: Literal["pending", "in_progress", "completed"] = Field(description="Progress.")
+
+
+class TodosUpdated(Payload):
+    """The agent changed its task list (``write_todos``, 1.7.0)."""
+
+    kind: Literal["todos.updated"] = "todos.updated"
+    todos: list[TodoItem] = Field(default_factory=list, description="The whole list, in order.")
 
 
 class DiffEvent(Payload):
@@ -2639,6 +2827,8 @@ class UsageEvent(Payload):
     kind: Literal["usage"] = "usage"
     inputTokens: int = Field(default=0, description="Prompt tokens consumed.")
     outputTokens: int = Field(default=0, description="Completion tokens produced.")
+    provider: str | None = Field(default=None, description="Vendor that served the call (1.7.0).")
+    model: str | None = Field(default=None, description="Model that served the call (1.7.0).")
 
 
 class ContextEvent(Payload):
@@ -2882,6 +3072,7 @@ SessionEventPayload = Annotated[
     | ToolResultEvent
     | ToolProgress
     | DiffEvent
+    | TodosUpdated
     | CheckpointUpdated
     | CheckpointRestored
     | SubagentSpawn
@@ -2918,6 +3109,7 @@ SESSION_EVENT_MODELS: dict[str, type[BaseModel]] = {
     "tool.result": ToolResultEvent,
     "tool.progress": ToolProgress,
     "diff": DiffEvent,
+    "todos.updated": TodosUpdated,
     "checkpoint.updated": CheckpointUpdated,
     "checkpoint.restored": CheckpointRestored,
     "subagent.spawn": SubagentSpawn,
@@ -3885,6 +4077,42 @@ METHODS: dict[str, RpcMethod] = {
             "Make this connection the origin of a session (approvals, host tools).",
         ),
         _m(
+            "usage.summary",
+            UsageSummaryParams,
+            UsageSummaryResult,
+            "Token totals from stored usage events, grouped by provider, model, session or day.",
+        ),
+        _m(
+            "memory.ingest",
+            MemoryIngestParams,
+            MemoryIngestResult,
+            "Remember visited pages in the browser namespace, once per url and text.",
+        ),
+        _m(
+            "session.notice",
+            SessionNoticeParams,
+            Ok,
+            "Queue a [system] line for the model's next call.",
+        ),
+        _m(
+            "session.rename",
+            SessionRenameParams,
+            Ok,
+            "Set a session's title.",
+        ),
+        _m(
+            "session.artifacts",
+            SessionIdParams,
+            SessionArtifactsResult,
+            "Files the session saved for the user under its workspace's artifacts/.",
+        ),
+        _m(
+            "session.toolContent",
+            SessionToolContentParams,
+            SessionToolContentResult,
+            "A host tool result's content blocks with image bytes (recent calls only).",
+        ),
+        _m(
             "session.steer",
             SessionSteerParams,
             SessionSteerResult,
@@ -3927,6 +4155,7 @@ EVENTS: dict[str, type[BaseModel]] = {
     "teams.changed": TeamsChangedNotification,
     "audio.install.progress": AudioInstallProgressNotification,
     "tool.cancel": ToolCancelNotification,
+    "sessions.changed": SessionsChangedNotification,
 }
 
 CAPABILITIES: list[str] = [
@@ -4041,6 +4270,12 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "approval.ask",
         "session.attach",
         "session.steer",
+        "session.toolContent",
+        "session.artifacts",
+        "session.rename",
+        "session.notice",
+        "memory.ingest",
+        "usage.summary",
         "setup.status",
         "setup.applyDefaults",
         "provider.test",

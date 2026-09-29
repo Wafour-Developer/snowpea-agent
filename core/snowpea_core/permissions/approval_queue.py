@@ -143,6 +143,20 @@ class ApprovalQueue:
             and (session_id is None or entry.request.sessionId == session_id)
         ]
 
+    def count(self, session_id: str) -> int:
+        """Every pending request of ``session_id``, interactive ones included."""
+        return sum(1 for e in self._pending.values() if e.request.sessionId == session_id)
+
+    async def _announce_status(self, session_id: str, status: str) -> None:
+        """``sessions.changed`` with the session's new status (1.7.0 task list)."""
+        if self.hub is None:
+            return
+        with contextlib.suppress(Exception):
+            await self.hub.notify(
+                "sessions.changed",
+                {"reason": "approval", "sessionId": session_id, "status": status},
+            )
+
     def unattended(self, session_id: str | None = None) -> ApprovalRequests:
         """Pending requests with no interactive surface to answer them."""
         return [
@@ -219,6 +233,7 @@ class ApprovalQueue:
             cacheable=cacheable,
         )
         self._pending[request.requestId] = entry
+        await self._announce_status(session.id, "awaiting_approval")
         if origin is not None:
             entry.task = asyncio.ensure_future(self._ask_origin(entry))
         else:
@@ -234,6 +249,8 @@ class ApprovalQueue:
                 entry.task.cancel()
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await entry.task
+        if not self.count(session.id):
+            await self._announce_status(session.id, "running")
         await self._resolve(
             request,
             decision,

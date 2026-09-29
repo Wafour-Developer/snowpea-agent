@@ -22,25 +22,39 @@ from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import (
     ApprovalAskParams,
     ApprovalAskResult,
+    MemoryIngestParams,
+    MemoryIngestResult,
     Ok,
     ProviderTestParams,
     ProviderTestResult,
+    SessionArtifact,
+    SessionArtifactsResult,
     SessionAttachParams,
     SessionAttachResult,
+    SessionIdParams,
+    SessionNoticeParams,
+    SessionRenameParams,
     SessionSteerParams,
     SessionSteerResult,
+    SessionToolContentParams,
+    SessionToolContentResult,
     SettingsSetParams,
     SetupApplyDefaultsParams,
     SetupApplyDefaultsResult,
     SetupItem,
     SetupStatusParams,
     SetupStatusResult,
+    ToolContentBlock,
     ToolProgressParams,
     ToolRegisterParams,
     ToolRegisterResult,
     ToolUnregisterParams,
     ToolUnregisterResult,
+    UsageRow,
+    UsageSummaryParams,
+    UsageSummaryResult,
 )
+from snowpea_core.session.workspace import ensure_workspace, list_artifacts
 from snowpea_core.tools.host_tools import HOST_TOOLS, HostToolError
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -201,6 +215,121 @@ async def session_attach_handler(
         session.origin_client_id = conn.client_id
     core.hub.subscribe(conn, session.id)
     return SessionAttachResult(sessionId=session.id, hostTools=HOST_TOOLS.names_for(session))
+
+
+#: Longest ``session.notice`` text kept; notices beyond this many are dropped.
+NOTICE_CHARS = 2000
+MAX_NOTICES = 20
+
+
+async def usage_summary_handler(
+    _conn: RpcConnection, params: UsageSummaryParams, core: Core
+) -> UsageSummaryResult:
+    """``usage.summary`` — token totals from stored usage events.
+
+    Events stored before 1.7.0 carry no provider/model; they are counted under
+    the session's current one.
+    """
+    if core.store is None:
+        return UsageSummaryResult(groupBy=params.groupBy)
+    totals: dict[str, list[int]] = {}
+    for row in await core.store.usage_events(params.since, params.until):
+        try:
+            payload = json.loads(row["payload_json"])
+        except (TypeError, ValueError):
+            continue
+        provider = payload.get("provider") or row.get("provider") or "unknown"
+        model = payload.get("model") or row.get("model") or "unknown"
+        key = {
+            "provider": provider,
+            "model": f"{provider}:{model}",
+            "session": str(row["session_id"]),
+            "day": str(row["ts"])[:10],
+        }[params.groupBy]
+        bucket = totals.setdefault(key, [0, 0, 0])
+        bucket[0] += int(payload.get("inputTokens") or 0)
+        bucket[1] += int(payload.get("outputTokens") or 0)
+        bucket[2] += 1
+    rows = sorted(
+        (
+            UsageRow(key=key, inputTokens=i, outputTokens=o, calls=c)
+            for key, (i, o, c) in totals.items()
+        ),
+        key=lambda r: r.inputTokens + r.outputTokens,
+        reverse=True,
+    )
+    return UsageSummaryResult(
+        groupBy=params.groupBy,
+        rows=rows,
+        inputTokens=sum(r.inputTokens for r in rows),
+        outputTokens=sum(r.outputTokens for r in rows),
+    )
+
+
+async def memory_ingest_handler(
+    _conn: RpcConnection, params: MemoryIngestParams, core: Core
+) -> MemoryIngestResult:
+    """``memory.ingest`` — remember visited pages (browser namespace)."""
+    from snowpea_core.memory import services as memory_services
+    from snowpea_core.memory.browser import ingest
+
+    counts = await ingest(
+        memory_services(core).store,
+        [item.model_dump() for item in params.items],
+        params.sessionId,
+    )
+    return MemoryIngestResult(**counts)
+
+
+async def session_notice_handler(
+    _conn: RpcConnection, params: SessionNoticeParams, core: Core
+) -> Ok:
+    """``session.notice`` — queue a [system] line for the next model call."""
+    session = _session(core, params.sessionId)
+    text = " ".join(params.text.split())[:NOTICE_CHARS]
+    if not text:
+        raise RpcError(errors.INVALID_PARAMS, "text is empty")
+    if len(session.pending_notices) < MAX_NOTICES:
+        session.pending_notices.append(text)
+    return Ok(ok=True)
+
+
+async def session_rename_handler(
+    _conn: RpcConnection, params: SessionRenameParams, core: Core
+) -> Ok:
+    """``session.rename`` — set (or clear) the title, persist it, tell every client."""
+    session = _session(core, params.sessionId)
+    title = params.title.strip()[:200] or None
+    session.title = title
+    if core.store is not None:
+        await core.store.update_title(session.id, title)
+    await core.sessions.announce_sessions_changed("renamed", session.id)
+    return Ok(ok=True)
+
+
+async def session_artifacts_handler(
+    _conn: RpcConnection, params: SessionIdParams, core: Core
+) -> SessionArtifactsResult:
+    """``session.artifacts`` — what the session saved for the user."""
+    session = _session(core, params.sessionId)
+    root = ensure_workspace(core.paths.home, session)
+    return SessionArtifactsResult(
+        workspaceDir=str(root),
+        artifacts=[SessionArtifact(**row) for row in list_artifacts(root)],
+    )
+
+
+async def session_tool_content_handler(
+    _conn: RpcConnection, params: SessionToolContentParams, core: Core
+) -> SessionToolContentResult:
+    """``session.toolContent`` — a recent host result's blocks, images included."""
+    _session(core, params.sessionId)
+    blocks = HOST_TOOLS.content(params.sessionId, params.callId)
+    if blocks is None:
+        raise RpcError(errors.NOT_FOUND, f"no content kept for {params.callId}")
+    return SessionToolContentResult(
+        callId=params.callId, content=[ToolContentBlock(**block) for block in blocks]
+    )
 
 
 async def session_steer_handler(
@@ -421,6 +550,12 @@ def register_host_handlers(dispatcher: RpcDispatcher) -> None:
     dispatcher.register("approval.ask", approval_ask_handler)
     dispatcher.register("session.attach", session_attach_handler)
     dispatcher.register("session.steer", session_steer_handler)
+    dispatcher.register("session.toolContent", session_tool_content_handler)
+    dispatcher.register("session.artifacts", session_artifacts_handler)
+    dispatcher.register("session.rename", session_rename_handler)
+    dispatcher.register("session.notice", session_notice_handler)
+    dispatcher.register("memory.ingest", memory_ingest_handler)
+    dispatcher.register("usage.summary", usage_summary_handler)
     dispatcher.register("setup.status", setup_status_handler)
     dispatcher.register("setup.applyDefaults", setup_apply_defaults_handler)
     dispatcher.register("provider.test", provider_test_handler)

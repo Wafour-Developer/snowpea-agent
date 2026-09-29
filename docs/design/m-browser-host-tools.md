@@ -147,14 +147,89 @@ which is keyed by tool only.
 and returns `{registered, dispose}`. `connect()` takes `clientKind`, `clientId`,
 `instanceId` and `keepAlive`.
 
-## 8. Not in 1.6.0 (planned for 1.7.0)
+## 8. Protocol 1.7.0 additions
 
-From addendum 1: E (session status fields, `sessions.changed` to all, titles,
-`session.rename`), F (routines with `hostToolsFrom`, `host_unavailable`), G
-(browser memory scope, `memory.ingest`), H (sharing a home with the CLI
-daemon: the home lock allows one daemon per home, so a browser should connect
-to the running daemon of `~/.snowpea` rather than start a second one), I
-(`usage.summary`).
+**Agent tools**
 
-From addendum 2: N (session workspace), O (`write_todos`, background delegation,
-`subagent_wait`, `get_time`), P (skill `autoInject`), Q (`session.notice`).
+* `write_todos {todos:[{id, content, status: pending|in_progress|completed}], merge?}`
+  keeps the session's task list. At most one item may be `in_progress`.
+  `merge: true` updates items by id. Every change emits the session event
+  `todos.updated {todos}`.
+* `delegate_task` gains three parameters:
+  * `run_in_background: true`: returns a `task_id` at once.
+  * `profile: default|fork_self`: `fork_self` starts the child from a copy of
+    the parent's conversation, without the unanswered delegate call and with
+    sensitive output redacted.
+  * `model_category: standard|fast`: resolved through the setting
+    `models.categories {fast: "<profile|vendor:model|vendor>", …}`. An unset
+    category uses the child's usual model.
+* `subagent_wait {task_ids, timeout?}` returns the reports of background
+  delegations. It returns early on an interrupt and reports tasks that are
+  still running. Only the session that started a task may wait on it.
+* `get_time` returns the local and UTC time.
+
+**Skills.** SKILL.md front matter
+`autoInject: {keywords: [gmail, 지메일]}` (inline, or nested under
+`autoInject:` as `keywords: [...]` or a `- item` list). A user turn that
+contains a keyword (case-insensitive, any script) brings the skill in once per
+session, as a user-role note after the prompt. The note holds the body when it
+is at most 8,000 characters, and otherwise a pointer to `skill_view`.
+
+**Workspace.**
+
+* Each session gets `$SNOWPEA_HOME/sessions/<YYYY-MM-DD>_<id>/{tmp,artifacts}`.
+  It is returned by `session.create` and `session.list` (`workspaceDir`), named
+  in the system prompt's environment block, and passed to hosts as
+  `tool.invoke.workspaceDir`. Subagents share their parent's.
+* `session.artifacts {sessionId}` → `{workspaceDir, artifacts: [{path, name,
+  size, modifiedAt, mimeType}]}`, newest first.
+
+**Task list.**
+
+* New `session.list` fields:
+  * `title`: the opening words of the first prompt, or `session.rename`.
+    Persisted.
+  * `status`: `idle|running|awaiting_approval|awaiting_question|error`.
+  * `lastActivityAt`, `turnStartedAt`, `pendingApprovals`, `pendingQuestions`.
+* `sessions.changed {reason, sessionId, status?, title?}` is broadcast to every
+  authenticated connection on turn start and end, approval and question
+  waits, create, close and rename.
+* `session.rename {sessionId, title}`.
+
+**Busy behaviour per prompt.** `session.prompt {whenBusy: "queue"|"steer"}`
+overrides `agent.busy` for that prompt only (Enter = queue, Ctrl+Enter = steer).
+
+**Tool result content.** `session.event tool.result` carries a host result's
+`content`:
+
+* Text blocks are inline.
+* Images are `{type: "image", mediaType, contentRef}` without bytes.
+  `session.toolContent {sessionId, callId}` returns the blocks with their bytes
+  for the last 200 host results; they are kept in memory, not in state.db.
+* A sensitive result has no `content`.
+
+**Routines.**
+`job.schedule {…, sessionTemplate: {agent?, mode?, hostToolsFrom, hostWaitSec=300}}`.
+At each firing the job waits for a host matching `hostToolsFrom`. That is a
+clientKind such as `"browser"`, a clientId or a surface id. The session then
+runs with that host's tools. If no such host connects in time, the run fails
+with `job.event failed` whose text starts with `host_unavailable`.
+
+**Notices.** `session.notice {sessionId, text}` queues a `[system] …` line that
+reaches the model before its next call. It starts no turn. Up to 20 notices are
+kept.
+
+**Browsing memory.**
+
+* `memory.ingest {items: [{url, title, text, visitedAt}], sessionId?}` →
+  `{added, skipped}`. Pages go to the `browser` namespace, deduplicated by
+  url + text hash, keeping the first 4,000 characters.
+* `memory.delete {source: "browser", url?, before?}` forgets a page, a whole
+  site (a url without a path), visits before a time, or everything.
+* `session.create {browserMemory}` opts recall in or out. It defaults to on
+  for a browser client.
+
+**Usage.** `usage.summary {since?, until?, groupBy: provider|model|session|day}`
+→ `{rows: [{key, inputTokens, outputTokens, calls}], inputTokens,
+outputTokens}`. Usage events now carry `provider` and `model`; older events are
+counted under their session's model.

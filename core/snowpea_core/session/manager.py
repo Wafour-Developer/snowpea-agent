@@ -56,7 +56,9 @@ class SessionManager:
         #: (CORE-model-assignment B-P2-1).
         self.definition_model_for: Any = None
 
-    async def announce_sessions_changed(self, reason: str, session_id: str) -> None:
+    async def announce_sessions_changed(
+        self, reason: str, session_id: str, *, status: str | None = None
+    ) -> None:
         """Tell every authenticated client the session list just moved.
 
         The IDE listens for ``sessions.changed`` and re-reads ``session.list``;
@@ -66,10 +68,13 @@ class SessionManager:
         if self.hub is None:
             return
         try:
-            await self.hub.notify(
-                "sessions.changed",
-                {"reason": reason, "sessionId": session_id},
-            )
+            session = self._sessions.get(session_id)
+            payload: dict[str, Any] = {"reason": reason, "sessionId": session_id}
+            if status is not None:
+                payload["status"] = status
+            if session is not None and session.title:
+                payload["title"] = session.title
+            await self.hub.notify("sessions.changed", payload)
         except Exception:  # noqa: BLE001 - a dead socket must not fail create/close
             log.debug("could not broadcast sessions.changed", exc_info=True)
 
@@ -237,6 +242,7 @@ class SessionManager:
             effort=effort_scale.normalize(row.get("effort")),
             delegation=None if row.get("delegation") is None else bool(row.get("delegation")),
             max_concurrent=self.max_concurrent(workdir),
+            title=row.get("title"),
             history=history,
             seq=await self.store.max_seq(session_id),
             context_used=history.estimate_tokens(),

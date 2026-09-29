@@ -11,12 +11,21 @@ sees the same tool simply become ``active``.
 
 from __future__ import annotations
 
+import asyncio
+import uuid
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from snowpea_core.agent.agent import reply_language
 from snowpea_core.agent.definition import builtin_agent_definitions
-from snowpea_core.agent.subagent import BUDGET, COMPLETE, SubagentResult, get_manager
 from snowpea_core.agent.role_pick import PARENT
+from snowpea_core.agent.subagent import (
+    BUDGET,
+    COMPLETE,
+    BackgroundRun,
+    SubagentResult,
+    get_manager,
+)
 from snowpea_core.prompts import tool_descriptions as descriptions
 from snowpea_core.prompts.compose import language_name
 from snowpea_core.session.history import message_text
@@ -212,29 +221,81 @@ def render_report(result: SubagentResult) -> str:
     return "\n\n".join(parts)
 
 
+#: ``delegate_task(profile=…)`` values.
+PROFILES = ("default", "fork_self")
+
+#: ``delegate_task(model_category=…)`` values, resolved via ``models.categories``.
+MODEL_CATEGORIES = ("standard", "fast")
+
+#: Longest ``subagent_wait`` the model may ask for, in seconds.
+MAX_WAIT = 1800.0
+
+
+def _category_model(ctx: ToolContext, category: str) -> str | None:
+    """The model reference ``models.categories[category]`` names, if any."""
+    models = getattr(getattr(ctx.core, "settings", None), "models", None)
+    categories = getattr(models, "categories", None) or {}
+    value = categories.get(category) if isinstance(categories, dict) else None
+    return str(value).strip() or None if value else None
+
+
 async def delegate_task(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
-    """Run one subagent and report what it answered."""
+    """Run one subagent and report what it answered, or start it in the background."""
     task = str(args.get("task", "") or "").strip()
     if not task:
         return ToolResult(ok=False, error="task is required")
     agent = str(args.get("agent", "") or "").strip() or None
+    profile = str(args.get("profile", "") or "default").strip() or "default"
+    if profile not in PROFILES:
+        return ToolResult(ok=False, error=f"profile must be one of {', '.join(PROFILES)}")
+    model = str(args.get("model", "") or "").strip() or None
+    category = str(args.get("model_category", "") or "").strip()
+    if category and model is None:
+        if category not in MODEL_CATEGORIES:
+            return ToolResult(
+                ok=False, error=f"model_category must be one of {', '.join(MODEL_CATEGORIES)}"
+            )
+        model = _category_model(ctx, category)
     # The model is told to write briefs in whatever language suits it; the
     # output language is not left to chance, because the parent has to relay
     # the report to a user who may read neither.
     task = f"{task}\n\n{language_line(delegation_language(ctx))}"
-    result = await get_manager(ctx.core).run(
+    title = str(args.get("title", "") or "").strip()
+    manager = get_manager(ctx.core)
+    background = bool(args.get("run_in_background", False))
+    coro = manager.run(
         ctx.session,
         task,
         agent=agent,
-        title=str(args.get("title", "") or "").strip(),
+        title=title,
         tools=_tool_list(args.get("tools")),
         timeout=_timeout(args.get("timeout")),
-        model=str(args.get("model", "") or "").strip() or None,
+        model=model,
         force=bool(args.get("force", False)),
         # A delegation can run for minutes with nothing to show; the child's
         # own progress is republished on this call (IDE-PROGRESS D2).
-        progress=ctx.progress,
+        progress=None if background else ctx.progress,
+        fork=profile == "fork_self",
     )
+    if background:
+        task_id = f"bg-{uuid.uuid4().hex[:10]}"
+        manager.background[task_id] = BackgroundRun(
+            task_id=task_id,
+            parent_session_id=ctx.session.id,
+            title=title,
+            task=asyncio.ensure_future(coro),
+        )
+        return ToolResult(
+            ok=True,
+            output=(
+                f"started in the background as task_id {task_id}"
+                + (f" ({title})" if title else "")
+                + ". Keep working; call subagent_wait with this task_id to collect "
+                "its report."
+            ),
+            meta={"task_id": task_id},
+        )
+    result = await coro
     report = render_report(result)
     if not result.ok and result.reason != BUDGET:
         return ToolResult(
@@ -243,6 +304,67 @@ async def delegate_task(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             error=result.error or "the subagent did not finish",
         )
     return ToolResult(ok=True, output=report)
+
+
+async def subagent_wait(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
+    """Wait for background delegations and return their reports."""
+    raw = args.get("task_ids") or []
+    ids = [str(item) for item in raw] if isinstance(raw, list) else [str(raw)]
+    if not ids:
+        return ToolResult(ok=False, error="task_ids is required")
+    manager = get_manager(ctx.core)
+    runs = []
+    for task_id in ids:
+        run = manager.background.get(task_id)
+        if run is None or run.parent_session_id != ctx.session.id:
+            return ToolResult(ok=False, error=f"no background task {task_id} in this session")
+        runs.append(run)
+    try:
+        timeout = min(float(args.get("timeout") or MAX_WAIT), MAX_WAIT)
+    except (TypeError, ValueError):
+        timeout = MAX_WAIT
+    pending = [run.task for run in runs if not run.task.done()]
+    if pending:
+        interrupt = asyncio.ensure_future(ctx.session.interrupt.wait())
+        try:
+            await asyncio.wait(
+                [asyncio.gather(*pending, return_exceptions=True), interrupt],
+                timeout=timeout,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        finally:
+            interrupt.cancel()
+    sections: list[str] = []
+    for run in runs:
+        head = f"## {run.task_id}" + (f" — {run.title}" if run.title else "")
+        if not run.task.done():
+            sections.append(f"{head}\nstill running; call subagent_wait again later.")
+            continue
+        run.collected = True
+        error = run.task.exception() if not run.task.cancelled() else None
+        if run.task.cancelled() or error is not None:
+            sections.append(f"{head}\nfailed: {error or 'cancelled'}")
+            continue
+        result = run.task.result()
+        sections.append(f"{head}\n{render_report(result)}")
+    return ToolResult(ok=True, output="\n\n".join(sections))
+
+
+def get_time(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
+    """The current date and time, local and UTC."""
+    now = datetime.now().astimezone()
+    utc = now.astimezone(UTC)
+    return ToolResult(
+        ok=True,
+        output=(
+            f"local: {now.isoformat(timespec='seconds')} ({now.strftime('%A')}, "
+            f"{now.tzname()})\nutc: {utc.isoformat(timespec='seconds')}"
+        ),
+    )
+
+
+async def _get_time(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
+    return get_time(ctx, args)
 
 
 TOOLS: tuple[Tool, ...] = (
@@ -301,11 +423,69 @@ TOOLS: tuple[Tool, ...] = (
                         "Outranks the agent's own assignment; omit it to use that."
                     ),
                 },
+                "model_category": {
+                    "type": "string",
+                    "enum": list(MODEL_CATEGORIES),
+                    "description": (
+                        "'fast' for mechanical work, 'standard' otherwise; mapped to a "
+                        "model by the user's settings. Ignored when model is given."
+                    ),
+                },
+                "profile": {
+                    "type": "string",
+                    "enum": list(PROFILES),
+                    "description": (
+                        "'fork_self' starts the child from a copy of this conversation, "
+                        "so the brief can be short; 'default' gives it only the brief."
+                    ),
+                },
+                "run_in_background": {
+                    "type": "boolean",
+                    "description": (
+                        "Return a task_id at once and keep working; collect the report "
+                        "later with subagent_wait. Use it for independent work that can "
+                        "run while you do something else."
+                    ),
+                },
             },
             "required": ["task"],
         },
         permission="delegate",
         run=delegate_task,
+    ),
+    Tool(
+        name="subagent_wait",
+        category="delegate",
+        description=(
+            "Wait for delegations started with run_in_background and return their "
+            "reports. Returns early when the user interrupts; a task still running "
+            "after the timeout is reported as such."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "task_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "task_id values delegate_task returned.",
+                },
+                "timeout": {
+                    "type": "number",
+                    "description": "Seconds to wait at most (default and cap 1800).",
+                },
+            },
+            "required": ["task_ids"],
+        },
+        permission="delegate",
+        run=subagent_wait,
+    ),
+    Tool(
+        name="get_time",
+        category="interaction",
+        description="The current date and time, in local time and UTC.",
+        input_schema={"type": "object", "properties": {}},
+        permission="read",
+        run=_get_time,
     ),
 )
 
@@ -321,6 +501,8 @@ __all__ = [
     "PARTIAL_REASONS",
     "TOOLS",
     "delegate_task",
+    "get_time",
+    "subagent_wait",
     "delegation_language",
     "detected_language",
     "language_line",

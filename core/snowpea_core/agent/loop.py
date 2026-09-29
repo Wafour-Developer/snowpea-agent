@@ -17,6 +17,7 @@ import logging
 import re
 import uuid
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from time import monotonic
 from typing import TYPE_CHECKING, Any
 
@@ -45,6 +46,7 @@ from snowpea_core.session.manager import persist_history
 from snowpea_core.skills import hooks as plugin_hooks
 from snowpea_core.tools import deferred as deferred_tools
 from snowpea_core.tools import mcp_client, output_spill, repeat_guard, view_image
+from snowpea_core.tools.host_tools import HOST_TOOLS
 from snowpea_core.tools.registry import (
     ProgressEmitter,
     Tool,
@@ -137,10 +139,61 @@ class QueuedTurn:
     model_text: str | None = None
     refs: list[dict[str, Any]] | None = None
     expansion: dict[str, Any] | None = None
+    #: ``session.prompt {whenBusy}``: ``queue``/``steer`` for this prompt only,
+    #: ``None`` to follow ``agent.busy`` (1.7.0).
+    when_busy: str | None = None
 
 
 def new_turn_id() -> str:
     return f"t-{uuid.uuid4().hex[:12]}"
+
+
+#: Longest automatic session title.
+TITLE_CHARS = 60
+
+
+def auto_title(text: str) -> str | None:
+    """A session title from its first prompt: the opening words of the first line."""
+    line = next((part.strip() for part in (text or "").splitlines() if part.strip()), "")
+    if not line or line.startswith("/"):
+        return None
+    if len(line) <= TITLE_CHARS:
+        return line
+    cut = line[:TITLE_CHARS].rsplit(" ", 1)[0] or line[:TITLE_CHARS]
+    return cut.rstrip(" ,.;:") + "…"
+
+
+def _utc_now() -> str:
+    return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+async def _mark_turn_started(core: Core, session: Session, text: str | None) -> None:
+    """Task-list bookkeeping for a starting turn (1.7.0): times, title, status."""
+    now = _utc_now()
+    session.turn_started_at = now
+    session.last_activity_at = now
+    if session.title is None and not session.is_subagent:
+        title = auto_title(text or "")
+        if title:
+            session.title = title
+            store = getattr(core, "store", None)
+            if store is not None and hasattr(store, "update_title"):
+                with contextlib.suppress(Exception):
+                    await store.update_title(session.id, title)
+    sessions = getattr(core, "sessions", None)
+    if sessions is not None and hasattr(sessions, "announce_sessions_changed"):
+        await sessions.announce_sessions_changed("turn", session.id, status="running")
+
+
+async def _mark_turn_finished(core: Core, session: Session, reason: str) -> None:
+    session.turn_started_at = None
+    session.last_turn_reason = reason
+    session.last_activity_at = _utc_now()
+    sessions = getattr(core, "sessions", None)
+    if sessions is not None and hasattr(sessions, "announce_sessions_changed"):
+        await sessions.announce_sessions_changed(
+            "turn", session.id, status="error" if reason == "error" else "idle"
+        )
 
 
 async def finish_turn(core: Core, session: Session, turn_id: str, reason: str) -> str:
@@ -154,6 +207,7 @@ async def finish_turn(core: Core, session: Session, turn_id: str, reason: str) -
     shutdown has begun, for the same reason the final write is skipped in
     :func:`run_turn` (CORE-session-race).
     """
+    await _mark_turn_finished(core, session, reason)
     # Sensitive host results served this turn; from here on (memory, the next
     # turn, compaction) they are only a marker.
     for message in session.history.messages:
@@ -435,7 +489,12 @@ async def _stream_once(
             compaction.record_provider_usage(session, event.usage.input_tokens)
             await hub.emit_event(
                 session.id,
-                events.usage(event.usage.input_tokens, event.usage.output_tokens),
+                events.usage(
+                    event.usage.input_tokens,
+                    event.usage.output_tokens,
+                    provider=getattr(provider, "vendor", None) or session.provider,
+                    model=getattr(provider, "model", None) or session.model,
+                ),
             )
         elif event.kind == "done":
             if event.error:
@@ -619,6 +678,7 @@ def start_turn(
     model_text: str | None = None,
     refs: list[dict[str, Any]] | None = None,
     expansion: dict[str, Any] | None = None,
+    when_busy: str | None = None,
 ) -> str:
     """Schedule a turn, or queue it behind the session's active turn.
 
@@ -636,6 +696,7 @@ def start_turn(
         model_text=model_text,
         refs=refs,
         expansion=expansion,
+        when_busy=when_busy if when_busy in ("queue", "steer") else None,
     )
     task = session.turn_task
     if task is not None and not task.done():
@@ -644,7 +705,7 @@ def start_turn(
         # has no way to tell it from a dropped keystroke (CORE-fixes-v017 R5).
         waiting = len(session.queued_turns)
         _emit_soon(core, session, events.turn_queued(turn_id, waiting, waiting))
-        if _busy_policy(core) == "steer":
+        if (queued.when_busy or _busy_policy(core)) == "steer":
             asyncio.ensure_future(_propagate_steer(core, session, turn_id, text))
         return turn_id
     session.turn_task = asyncio.ensure_future(_drain_turns(core, session, queued))
@@ -687,33 +748,49 @@ def _busy_policy(core: Core) -> str:
     return value if value in {"steer", "queue"} else "steer"
 
 
+async def _flush_notices(session: Session) -> int:
+    """Hand ``session.notice`` lines to the model before its next call (1.7.0)."""
+    if not session.pending_notices:
+        return 0
+    lines = [f"[system] {text}" for text in session.pending_notices]
+    session.pending_notices.clear()
+    session.history.append(ChatMessage(role="user", content="\n".join(lines)))
+    return len(lines)
+
+
 async def _steer_queued_turns(core: Core, session: Session) -> int:
     """Fold queued prompts into the running turn as fresh user messages."""
+    await _flush_notices(session)
     rpc_injected = 0
     while session.rpc_steers:
         # ``session.steer`` is an explicit request, so it ignores agent.busy.
         text = session.rpc_steers.pop(0)
         if await _inject_external_steer(core, session, f"steer:{uuid.uuid4().hex}", text):
             rpc_injected += 1
-    if rpc_injected and _busy_policy(core) != "steer":
-        session.steered_prompts.clear()
-        return rpc_injected
-    if _busy_policy(core) != "steer":
-        session.steered_prompts.clear()
-        return 0
-    injected = 0
-    for item in list(getattr(session, "steered_prompts", [])):
-        if isinstance(item, tuple):
-            source_turn_id, steer_text = item
-        else:
-            source_turn_id, steer_text = f"legacy:{len(session.propagated_steers)}", str(item)
-        if await _inject_external_steer(core, session, str(source_turn_id), str(steer_text)):
-            injected += 1
+    policy = _busy_policy(core)
+    injected = rpc_injected
+    if policy == "steer":
+        for item in list(getattr(session, "steered_prompts", [])):
+            if isinstance(item, tuple):
+                source_turn_id, steer_text = item
+            else:
+                source_turn_id, steer_text = (
+                    f"legacy:{len(session.propagated_steers)}",
+                    str(item),
+                )
+            if await _inject_external_steer(core, session, str(source_turn_id), str(steer_text)):
+                injected += 1
     session.steered_prompts.clear()
     if not session.queued_turns:
         return injected
-    steered = list(session.queued_turns)
-    session.queued_turns.clear()
+    # Each queued prompt follows its own whenBusy, else agent.busy: "steer"
+    # ones fold into this turn, "queue" ones wait for their own.
+    steered = [q for q in session.queued_turns if (q.when_busy or policy) == "steer"]
+    if not steered:
+        return injected
+    session.queued_turns[:] = [
+        q for q in session.queued_turns if (q.when_busy or policy) != "steer"
+    ]
     for index, queued in enumerate(steered):
         remaining = len(steered) - index - 1
         session.history.append(
@@ -831,6 +908,7 @@ async def run_turn(
     turn_id = turn_id or new_turn_id()
     session.current_turn = turn_id
     hub = core.hub
+    await _mark_turn_started(core, session, text)
     # The turn is running *now* — after whatever wait it did in the FIFO, and
     # before anything it produces.  Without this a surface has to start its
     # clock on the first delta it happens to overhear (IDE-PROGRESS D1).
@@ -1068,6 +1146,7 @@ async def _drive(
             await _inject_external_steer(core, session, source_turn_id, steer_text)
 
     # Recall once per turn, on the user's own words (M5 contract §1).
+    await _auto_inject_skills(core, session, text)
     memory_block = await context_for_turn(core, session, text)
     denials = 0
 
@@ -1359,6 +1438,47 @@ async def _ask_to_continue(core: Core, session: Session, config: AgentConfig) ->
     )
 
 
+#: A skill body longer than this is injected as a pointer to skill_view instead.
+AUTO_INJECT_BODY_LIMIT = 8000
+
+
+async def _auto_inject_skills(core: Core, session: Session, text: str) -> list[str]:
+    """Bring in skills whose ``autoInject`` keywords appear in the user's words.
+
+    Each skill comes in once per session, as a user-role note right after the
+    prompt: its body when short, else a pointer to ``skill_view``
+    (addendum 2 §P). Matching is a case-insensitive substring test, so
+    "구글" and "Google" both work.
+    """
+    loader = getattr(core, "skills", None)
+    skills = getattr(loader, "skills", None)
+    if not text or not isinstance(skills, dict):
+        return []
+    folded = text.casefold()
+    injected: list[str] = []
+    done = session.auto_injected_skills
+    for skill in skills.values():
+        doc = skill.doc
+        if not doc.auto_inject or doc.name in done:
+            continue
+        hit = next((word for word in doc.auto_inject if word.casefold() in folded), None)
+        if hit is None:
+            continue
+        done.add(doc.name)
+        if len(doc.body) <= AUTO_INJECT_BODY_LIMIT:
+            note = (
+                f"[skill {doc.name} applies here (matched “{hit}”); follow it]\n\n{doc.body}"
+            )
+        else:
+            note = (
+                f"[skill {doc.name} applies here (matched “{hit}”). Read it with "
+                f'skill_view("{doc.name}") before you act.]'
+            )
+        session.history.append(ChatMessage(role="user", content=note))
+        injected.append(doc.name)
+    return injected
+
+
 def _repair_calls(core: Core, session: Session, calls: list[ToolCall]) -> list[ToolCall]:
     """Resolve aliased or mangled tool names and decode stringly-typed arguments.
 
@@ -1586,6 +1706,12 @@ async def _run_one_call(
         )
 
     sensitive = bool(result.meta and result.meta.get("sensitive"))
+    raw_content = (result.meta or {}).get("content") if not sensitive else None
+    event_content = (
+        HOST_TOOLS.keep_content(session.id, call.id, raw_content)
+        if isinstance(raw_content, list) and raw_content
+        else None
+    )
     await hub.emit_event(
         session.id,
         events.tool_result(
@@ -1594,6 +1720,7 @@ async def _run_one_call(
             result.ok,
             REDACTED if sensitive else result.output,
             REDACTED if sensitive and result.error else result.error,
+            content=event_content,
         ),
     )
     if result.diff:

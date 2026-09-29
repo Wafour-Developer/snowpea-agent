@@ -48,14 +48,17 @@ async def job_schedule_handler(
     """``job.schedule`` — parse the spec, store the job, report its first firing."""
     from snowpea_core.scheduler.jobs import iso
 
+    template = params.sessionTemplate
     try:
         job = await services(core).schedule(
             params.spec,
             params.task,
-            mode=params.mode,
+            mode=(template.mode if template and template.mode else params.mode),
             channel=params.channel,
-            agent=params.agent,
+            agent=(template.agent if template and template.agent else params.agent),
             workdir=params.workdir,
+            host_tools_from=template.hostToolsFrom if template else None,
+            host_wait_sec=template.hostWaitSec if template else None,
         )
     except ValueError as exc:
         raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc

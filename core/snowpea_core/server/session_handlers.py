@@ -14,7 +14,7 @@ import re
 import shutil
 from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from snowpea_core.agent import loop as agent_loop
 from snowpea_core.agent.delegation import effective_delegation
@@ -88,6 +88,7 @@ from snowpea_core.server.rpc import RpcConnection, RpcDispatcher
 from snowpea_core.session import events
 from snowpea_core.session.history import message_from_json, message_text
 from snowpea_core.session.store import Store
+from snowpea_core.session.workspace import ensure_workspace
 from snowpea_core.skills.loader import SkillLoader
 from snowpea_core.tools import audio_tools, browser_providers, mcp_client, web
 from snowpea_core.tools import media as media_tools
@@ -255,12 +256,20 @@ async def session_create_handler(
     )
     session.host_tools_from = params.hostToolsFrom
     session.origin_client_id = getattr(conn, "client_id", None)
+    session.browser_memory = (
+        params.browserMemory
+        if params.browserMemory is not None
+        else getattr(conn, "client_kind", None) == "browser"
+    )
+    ensure_workspace(core.paths.home, session)
     core.hub.subscribe(conn, session.id)
     _count_sessions(core)
     await _load_project_skills(core, session.workdir)
     await mcp_client.sync_tools_bounded(core, session.workdir)
     return SessionCreateResult(
-        sessionId=session.id, delegation=effective_delegation(core, session)[0]
+        sessionId=session.id,
+        delegation=effective_delegation(core, session)[0],
+        workspaceDir=session.workspace_dir,
     )
 
 
@@ -274,6 +283,7 @@ async def session_resume_handler(
     if session is None:
         raise RpcError(errors.NOT_FOUND, f"no such session: {params.sessionId}")
     await _load_project_skills(core, session.workdir)
+    ensure_workspace(core.paths.home, session)
     core.hub.subscribe(conn, session.id)
     if session.origin_conn is None or getattr(session.origin_conn, "closed", False):
         session.origin_conn = conn
@@ -351,7 +361,20 @@ async def collect_sessions(core: Core, params: SessionListParams) -> list[Sessio
             )
             enriched.append(row.model_copy(update={"lastPrompt": prompt}))
         rows = enriched
+    rows = [_with_waits(core, row) for row in rows]
     return sorted(rows, key=lambda row: row.createdAt, reverse=True)
+
+
+def _with_waits(core: Core, row: SessionSummary) -> SessionSummary:
+    """Pending approval/question counts, and the status they imply (1.7.0)."""
+    approvals = core.approvals.count(row.sessionId) if hasattr(core.approvals, "count") else 0
+    questions = core.questions.count(row.sessionId) if hasattr(core.questions, "count") else 0
+    update: dict[str, Any] = {"pendingApprovals": approvals, "pendingQuestions": questions}
+    if approvals:
+        update["status"] = "awaiting_approval"
+    elif questions:
+        update["status"] = "awaiting_question"
+    return row.model_copy(update=update)
 
 
 async def _last_command_line(core: Core, session_id: str) -> str | None:
@@ -473,6 +496,7 @@ async def session_prompt_handler(
         unattended=unattended,
         model_text=prepared.model_text,
         refs=prepared.refs,
+        when_busy=params.whenBusy,
     )
     await core.sessions.announce_sessions_changed("prompt", session.id)
     return TurnResult(turnId=turn_id)
@@ -936,8 +960,13 @@ async def memory_list_handler(
 async def memory_delete_handler(
     _conn: RpcConnection, params: MemoryDeleteParams, core: Core
 ) -> Ok:
-    """``memory.delete`` — forget one memory by id."""
-    memory_id = params.id.strip()
+    """``memory.delete`` — forget one memory by id, or browsing memories by source."""
+    if params.source == "browser":
+        from snowpea_core.memory.browser import forget
+
+        await forget(memory_services(core).store, url=params.url, before=params.before)
+        return Ok(ok=True)
+    memory_id = (params.id or "").strip()
     if not memory_id:
         raise RpcError(errors.INVALID_PARAMS, "memory.delete needs an id")
     removed = await memory_services(core).store.delete(memory_id)

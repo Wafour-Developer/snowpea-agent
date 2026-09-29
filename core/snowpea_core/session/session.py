@@ -156,6 +156,24 @@ class Session:
     #: ``session.steer`` texts waiting for the running turn's next tool round;
     #: injected whatever ``agent.busy`` says (1.6.0).
     rpc_steers: list[str] = field(default_factory=list)
+    #: Recall also searches pages a browser host ingested (1.7.0).
+    browser_memory: bool = False
+    #: ``session.notice`` lines waiting for the next model call (1.7.0).
+    pending_notices: list[str] = field(default_factory=list)
+    #: ``write_todos`` list: ``[{id, content, status}]`` (1.7.0).
+    todos: list[dict[str, str]] = field(default_factory=list)
+    #: Short label: the first prompt's opening words, or ``session.rename``.
+    title: str | None = None
+    #: UTC ISO times for the task list (1.7.0): last prompt/turn end, and the
+    #: start of the running turn.
+    last_activity_at: str | None = None
+    turn_started_at: str | None = None
+    #: ``turn.done`` reason of the last finished turn (``error`` shows as such).
+    last_turn_reason: str | None = None
+    #: ``$SNOWPEA_HOME/sessions/<date>_<id>`` with ``tmp/`` and ``artifacts/``.
+    workspace_dir: str | None = None
+    #: Skills ``autoInject`` already brought into this session.
+    auto_injected_skills: set[str] = field(default_factory=set)
     #: Whose host tools this session sees: a clientId or surface id from
     #: ``session.create {hostToolsFrom}``; ``None`` means the origin connection.
     host_tools_from: str | None = None
@@ -226,6 +244,13 @@ class Session:
             jobId=self.job_id,
             agent=self.agent,
             running=self.current_turn is not None,
+            workspaceDir=self.workspace_dir,
+            title=self.title,
+            status="running" if self.current_turn is not None else (
+                "error" if self.last_turn_reason == "error" else "idle"
+            ),
+            lastActivityAt=self.last_activity_at,
+            turnStartedAt=self.turn_started_at,
         )
 
 

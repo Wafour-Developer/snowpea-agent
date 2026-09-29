@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.6.0";
+export const PROTOCOL_VERSION = "1.7.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -809,6 +809,17 @@ export interface JobScheduleParams {
   channel?: string | null;
   /** Permission mode for the unattended run. */
   mode?: "plan" | "accept" | "auto";
+  /** Session setup for each run, incl. host tools (1.7.0). */
+  sessionTemplate?: {
+    /** Named agent that runs the task. */
+    agent?: string | null;
+    /** Run with a connected client's host tools: a clientKind ("browser"), a clientId or a surface id. */
+    hostToolsFrom?: string | null;
+    /** How long a firing waits for that host to connect; then the run fails with host_unavailable (job.event). */
+    hostWaitSec?: number;
+    /** Permission mode for the run. */
+    mode?: "plan" | "accept" | "auto" | null;
+  } | null;
   /** Cron expression or natural-language schedule. */
   spec: string;
   /** Prompt run on each firing. */
@@ -1158,14 +1169,47 @@ export interface McpUpdateResult {
 
 /** `memory.delete` params. Forget one stored memory. */
 export interface MemoryDeleteParams {
+  /** With source: UTC ISO time; forget visits before it. */
+  before?: string | null;
   /** Memory id to forget. */
-  id: string;
+  id?: string | null;
+  /** "browser" forgets browsing memories instead: those of url (a page, or a whole site when it has no path), those visited before `before`, or all (1.7.0). */
+  source?: "browser" | null;
+  /** With source: the page or site. */
+  url?: string | null;
 }
 
 /** `memory.delete` result. */
 export interface MemoryDeleteResult {
   /** True when the call succeeded. */
   ok?: boolean;
+}
+
+/** `memory.ingest` params. Remember visited pages in the browser namespace, once per url and text. */
+export interface MemoryIngestParams {
+  /** Visited pages to remember. */
+  items: ({
+    /** Page text (first 4000 chars are kept). */
+    text?: string;
+    /** Page title. */
+    title?: string;
+    /** Page address. */
+    url: string;
+    /** UTC ISO time of the visit. */
+    visitedAt?: string | null;
+  })[];
+  /** Session they came from, if any. */
+  sessionId?: string | null;
+}
+
+/** `memory.ingest` result. */
+export interface MemoryIngestResult {
+  /** Pages stored. */
+  added?: number;
+  /** For memory.delete by source: how many. */
+  removed?: number;
+  /** Pages already stored (same url and text). */
+  skipped?: number;
 }
 
 /** `memory.list` params. List stored memories by scope, newest first. */
@@ -1528,6 +1572,31 @@ export interface QuestionRespondResult {
   ok?: boolean;
 }
 
+/** `session.artifacts` params. Files the session saved for the user under its workspace's artifacts/. */
+export interface SessionArtifactsParams {
+  /** Target session. */
+  sessionId: string;
+}
+
+/** `session.artifacts` result. */
+export interface SessionArtifactsResult {
+  /** Files under artifacts/, newest first. */
+  artifacts?: ({
+    /** Guessed from the name. */
+    mimeType?: string | null;
+    /** UTC ISO-8601 time of the last change. */
+    modifiedAt: string;
+    /** Path relative to artifacts/. */
+    name: string;
+    /** Absolute path. */
+    path: string;
+    /** Bytes. */
+    size: number;
+  })[];
+  /** The session workspace. */
+  workspaceDir: string;
+}
+
 /** `session.attach` params. Make this connection the origin of a session (approvals, host tools). */
 export interface SessionAttachParams {
   /** Session this connection becomes the origin of (1.6.0). */
@@ -1576,6 +1645,8 @@ export interface SessionCompactResult {
 export interface SessionCreateParams {
   /** Named agent whose persona to load. */
   agent?: string | null;
+  /** Recall also searches pages the browser ingested. Default: on when a browser client (clientKind 'browser') creates the session (1.7.0). */
+  browserMemory?: boolean | null;
   /** When true, refuse exec-tagged tools without prompting (headless CI). */
   denyExec?: boolean | null;
   /** Reasoning effort for this session; null follows the settings. */
@@ -1602,6 +1673,8 @@ export interface SessionCreateResult {
   delegation?: boolean;
   /** Id of the new session. */
   sessionId: string;
+  /** Session workspace with tmp/ and artifacts/ (1.7.0). */
+  workspaceDir?: string | null;
 }
 
 /** `session.deleteSaved` params. Delete saved sessions. */
@@ -1659,6 +1732,8 @@ export interface SessionListResult {
     jobId?: string | null;
     /** What opened the session: a human (chat), a scheduled job, a spawned subagent, or a persistent named agent (CORE-session-kind). */
     kind?: "chat" | "scheduled" | "subagent" | "agent";
+    /** UTC ISO time of the last prompt or turn end. */
+    lastActivityAt?: string | null;
     /** Latest saved user input. */
     lastPrompt?: string | null;
     /** Current permission mode. */
@@ -1669,6 +1744,10 @@ export interface SessionListResult {
     originSurface?: string | null;
     /** Session that caused this one: the thread that scheduled the job, or the parent that spawned the subagent. */
     parentSessionId?: string | null;
+    /** Approvals waiting on a person. */
+    pendingApprovals?: number;
+    /** Questions waiting on a person. */
+    pendingQuestions?: number;
     /** Chat provider vendor in use. */
     provider?: string | null;
     /** True while the daemon has a turn in flight for this session. Always false for a stored row, which by definition has no live turn — a client should trust this rather than infer a running turn from a replay that ends on turn.started (CORE-dangling-turns). */
@@ -1677,9 +1756,31 @@ export interface SessionListResult {
     seq?: number;
     /** Session id. */
     sessionId: string;
+    /** What the session is doing now (1.7.0). */
+    status?: "idle" | "running" | "awaiting_approval" | "awaiting_question" | "error";
+    /** Short label (auto or renamed). */
+    title?: string | null;
+    /** UTC ISO start of the running turn. */
+    turnStartedAt?: string | null;
     /** Absolute working directory. */
     workdir: string;
+    /** Session workspace with tmp/ and artifacts/ (1.7.0). */
+    workspaceDir?: string | null;
   })[];
+}
+
+/** `session.notice` params. Queue a [system] line for the model's next call. */
+export interface SessionNoticeParams {
+  /** Session to tell. */
+  sessionId: string;
+  /** Something that happened outside a tool call (a popup opened, a download finished). Reaches the model as a [system] line before its next call; it starts no turn (1.7.0). */
+  text: string;
+}
+
+/** `session.notice` result. */
+export interface SessionNoticeResult {
+  /** True when the call succeeded. */
+  ok?: boolean;
 }
 
 /** `session.prompt` params. Send user text to a session and start a turn. */
@@ -1713,12 +1814,28 @@ export interface SessionPromptParams {
   sessionId: string;
   /** User text; a leading '/' is parsed as a slash command. */
   text: string;
+  /** If a turn is running: 'queue' waits for it, 'steer' folds this prompt into it at the next tool round. Default: the agent.busy setting (1.7.0). */
+  whenBusy?: "queue" | "steer" | null;
 }
 
 /** `session.prompt` result. */
 export interface SessionPromptResult {
   /** Id of the started turn; turn.done carries it back. */
   turnId: string;
+}
+
+/** `session.rename` params. Set a session's title. */
+export interface SessionRenameParams {
+  /** Session to rename. */
+  sessionId: string;
+  /** New title; empty clears it (1.7.0). */
+  title: string;
+}
+
+/** `session.rename` result. */
+export interface SessionRenameResult {
+  /** True when the call succeeded. */
+  ok?: boolean;
 }
 
 /** `session.resume` params. Replay the events a disconnected client missed. */
@@ -1824,6 +1941,33 @@ export interface SessionSteerResult {
   ok?: boolean;
   /** True when no turn was running and a new one started. */
   started?: boolean;
+}
+
+/** `session.toolContent` params. A host tool result's content blocks with image bytes (recent calls only). */
+export interface SessionToolContentParams {
+  /** tool.result callId whose content to fetch. */
+  callId: string;
+  /** Session the tool ran in. */
+  sessionId: string;
+}
+
+/** `session.toolContent` result. */
+export interface SessionToolContentResult {
+  /** The call. */
+  callId: string;
+  /** The content blocks, images with their bytes. */
+  content?: ({
+    /** In a tool.result event, an image is sent as a reference instead of its bytes; fetch them with session.toolContent (1.7.0). */
+    contentRef?: string | null;
+    /** Base64 bytes, for 'image'. */
+    data?: string | null;
+    /** e.g. image/png, for 'image'. */
+    mediaType?: string | null;
+    /** Text, for 'text'. */
+    text?: string | null;
+    /** Block kind. */
+    type: "text" | "image";
+  })[];
 }
 
 /** `settings.get` params. Read global or project settings, with secrets masked. */
@@ -2677,6 +2821,8 @@ export interface ToolInvokeParams {
 export interface ToolInvokeResult {
   /** Rich result blocks. Images reach vision models as image input; text blocks are appended to output. */
   content?: ({
+    /** In a tool.result event, an image is sent as a reference instead of its bytes; fetch them with session.toolContent (1.7.0). */
+    contentRef?: string | null;
     /** Base64 bytes, for 'image'. */
     data?: string | null;
     /** e.g. image/png, for 'image'. */
@@ -2778,6 +2924,37 @@ export interface ToolUnregisterParams {
 export interface ToolUnregisterResult {
   /** Names actually removed. */
   removed?: string[];
+}
+
+/** `usage.summary` params. Token totals from stored usage events, grouped by provider, model, session or day. */
+export interface UsageSummaryParams {
+  /** How to group the totals. */
+  groupBy?: "provider" | "model" | "session" | "day";
+  /** UTC ISO start (inclusive). */
+  since?: string | null;
+  /** UTC ISO end (exclusive). */
+  until?: string | null;
+}
+
+/** `usage.summary` result. */
+export interface UsageSummaryResult {
+  /** The grouping used. */
+  groupBy: string;
+  /** Sum over all rows. */
+  inputTokens?: number;
+  /** Sum over all rows. */
+  outputTokens?: number;
+  /** Totals, largest first. */
+  rows?: ({
+    /** Provider calls counted. */
+    calls?: number;
+    /** Prompt tokens. */
+    inputTokens?: number;
+    /** Group value: vendor, vendor:model, session id or YYYY-MM-DD. */
+    key: string;
+    /** Completion tokens. */
+    outputTokens?: number;
+  })[];
 }
 
 // ---------------------------------------------------------------------------
@@ -2969,6 +3146,18 @@ export interface SessionEventPayload {
   sessionId: string;
   /** UTC ISO-8601 timestamp. */
   ts: string;
+}
+
+/** `sessions.changed` notification payload. */
+export interface SessionsChangedPayload {
+  /** create, prompt, turn, renamed, close, ... */
+  reason: string;
+  /** Session that changed. */
+  sessionId: string;
+  /** Its status now, when known. */
+  status?: string | null;
+  /** Its title, when it has one. */
+  title?: string | null;
 }
 
 /** `settings.changed` notification payload. */
@@ -3372,6 +3561,20 @@ export interface TeamTaskUpdateEventPayload {
   teamId: string;
 }
 
+/** Payload of `session.event` with kind `todos.updated`. */
+export interface TodosUpdatedEventPayload {
+  kind?: "todos.updated";
+  /** The whole list, in order. */
+  todos?: ({
+    /** What the step is. */
+    content: string;
+    /** Stable id within the list. */
+    id: string;
+    /** Progress. */
+    status: "pending" | "in_progress" | "completed";
+  })[];
+}
+
 /** Payload of `session.event` with kind `tool.call`. */
 export interface ToolCallEventPayload {
   /** Arguments supplied. */
@@ -3404,6 +3607,19 @@ export interface ToolProgressEventPayload {
 export interface ToolResultEventPayload {
   /** Id of the matching tool.call. */
   callId: string;
+  /** A host tool's content blocks: text inline, images as contentRef (session.toolContent). Absent for sensitive results (1.7.0). */
+  content?: ({
+    /** In a tool.result event, an image is sent as a reference instead of its bytes; fetch them with session.toolContent (1.7.0). */
+    contentRef?: string | null;
+    /** Base64 bytes, for 'image'. */
+    data?: string | null;
+    /** e.g. image/png, for 'image'. */
+    mediaType?: string | null;
+    /** Text, for 'text'. */
+    text?: string | null;
+    /** Block kind. */
+    type: "text" | "image";
+  })[] | null;
   /** Failure detail when ok is false. */
   error?: string | null;
   kind?: "tool.result";
@@ -3464,8 +3680,12 @@ export interface UsageEventPayload {
   /** Prompt tokens consumed. */
   inputTokens?: number;
   kind?: "usage";
+  /** Model that served the call (1.7.0). */
+  model?: string | null;
   /** Completion tokens produced. */
   outputTokens?: number;
+  /** Vendor that served the call (1.7.0). */
+  provider?: string | null;
 }
 
 /** Maps every `session.event` kind to its payload type. */
@@ -3493,6 +3713,7 @@ export interface SessionEventKindMap {
   "subagent.spawn": SubagentSpawnEventPayload;
   "subagent.update": SubagentUpdateEventPayload;
   "team.task.update": TeamTaskUpdateEventPayload;
+  "todos.updated": TodosUpdatedEventPayload;
   "tool.call": ToolCallEventPayload;
   "tool.progress": ToolProgressEventPayload;
   "tool.result": ToolResultEventPayload;
@@ -3528,6 +3749,7 @@ export const SESSION_EVENT_KINDS: readonly SessionEventKind[] = [
   "subagent.spawn",
   "subagent.update",
   "team.task.update",
+  "todos.updated",
   "tool.call",
   "tool.progress",
   "tool.result",
@@ -3586,6 +3808,7 @@ export interface MethodMap {
   "mcp.test": { params: McpTestParams; result: McpTestResult };
   "mcp.update": { params: McpUpdateParams; result: McpUpdateResult };
   "memory.delete": { params: MemoryDeleteParams; result: MemoryDeleteResult };
+  "memory.ingest": { params: MemoryIngestParams; result: MemoryIngestResult };
   "memory.list": { params: MemoryListParams; result: MemoryListResult };
   "memory.search": { params: MemorySearchParams; result: MemorySearchResult };
   "memory.write": { params: MemoryWriteParams; result: MemoryWriteResult };
@@ -3601,6 +3824,7 @@ export interface MethodMap {
   "question.list": { params: QuestionListParams; result: QuestionListResult };
   "question.request": { params: QuestionRequestParams; result: QuestionRequestResult };
   "question.respond": { params: QuestionRespondParams; result: QuestionRespondResult };
+  "session.artifacts": { params: SessionArtifactsParams; result: SessionArtifactsResult };
   "session.attach": { params: SessionAttachParams; result: SessionAttachResult };
   "session.close": { params: SessionCloseParams; result: SessionCloseResult };
   "session.compact": { params: SessionCompactParams; result: SessionCompactResult };
@@ -3608,12 +3832,15 @@ export interface MethodMap {
   "session.deleteSaved": { params: SessionDeleteSavedParams; result: SessionDeleteSavedResult };
   "session.interrupt": { params: SessionInterruptParams; result: SessionInterruptResult };
   "session.list": { params: SessionListParams; result: SessionListResult };
+  "session.notice": { params: SessionNoticeParams; result: SessionNoticeResult };
   "session.prompt": { params: SessionPromptParams; result: SessionPromptResult };
+  "session.rename": { params: SessionRenameParams; result: SessionRenameResult };
   "session.resume": { params: SessionResumeParams; result: SessionResumeResult };
   "session.setEffort": { params: SessionSetEffortParams; result: SessionSetEffortResult };
   "session.setMode": { params: SessionSetModeParams; result: SessionSetModeResult };
   "session.setModel": { params: SessionSetModelParams; result: SessionSetModelResult };
   "session.steer": { params: SessionSteerParams; result: SessionSteerResult };
+  "session.toolContent": { params: SessionToolContentParams; result: SessionToolContentResult };
   "settings.get": { params: SettingsGetParams; result: SettingsGetResult };
   "settings.set": { params: SettingsSetParams; result: SettingsSetResult };
   "setup.applyDefaults": { params: SetupApplyDefaultsParams; result: SetupApplyDefaultsResult };
@@ -3646,6 +3873,7 @@ export interface MethodMap {
   "tool.progress": { params: ToolProgressParams; result: ToolProgressResult };
   "tool.register": { params: ToolRegisterParams; result: ToolRegisterResult };
   "tool.unregister": { params: ToolUnregisterParams; result: ToolUnregisterResult };
+  "usage.summary": { params: UsageSummaryParams; result: UsageSummaryResult };
 }
 
 export type MethodName = keyof MethodMap;
@@ -3695,6 +3923,7 @@ export type ClientMethod =
   | "mcp.test"
   | "mcp.update"
   | "memory.delete"
+  | "memory.ingest"
   | "memory.list"
   | "memory.search"
   | "memory.write"
@@ -3709,6 +3938,7 @@ export type ClientMethod =
   | "provider.test"
   | "question.list"
   | "question.respond"
+  | "session.artifacts"
   | "session.attach"
   | "session.close"
   | "session.compact"
@@ -3716,12 +3946,15 @@ export type ClientMethod =
   | "session.deleteSaved"
   | "session.interrupt"
   | "session.list"
+  | "session.notice"
   | "session.prompt"
+  | "session.rename"
   | "session.resume"
   | "session.setEffort"
   | "session.setMode"
   | "session.setModel"
   | "session.steer"
+  | "session.toolContent"
   | "settings.get"
   | "settings.set"
   | "setup.applyDefaults"
@@ -3752,7 +3985,8 @@ export type ClientMethod =
   | "tool.list"
   | "tool.progress"
   | "tool.register"
-  | "tool.unregister";
+  | "tool.unregister"
+  | "usage.summary";
 /** Methods the server calls on the client (bidirectional JSON-RPC). */
 export type ServerMethod =
   | "approval.request"
@@ -3772,6 +4006,7 @@ export interface EventMap {
   "question.pending": QuestionPendingPayload;
   "question.resolved": QuestionResolvedPayload;
   "session.event": SessionEventPayload;
+  "sessions.changed": SessionsChangedPayload;
   "settings.changed": SettingsChangedPayload;
   "system.updateProgress": SystemUpdateProgressPayload;
   "teams.changed": TeamsChangedPayload;
@@ -3791,6 +4026,7 @@ export const EVENT_NAMES: readonly EventName[] = [
   "question.pending",
   "question.resolved",
   "session.event",
+  "sessions.changed",
   "settings.changed",
   "system.updateProgress",
   "teams.changed",

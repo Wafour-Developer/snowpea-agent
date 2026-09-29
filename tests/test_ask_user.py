@@ -328,7 +328,11 @@ async def test_a_pending_question_is_announced_and_then_resolved() -> None:
     hub = core.questions.hub
     origin = _Origin([{"selected": ["Raw WebGL2"], "text": None}])
     await ask_user(_ctx(core, _session(origin)), dict(RENDERER))
-    assert [method for method, _ in hub.sent] == ["question.pending", "question.resolved"]
+    question_events = [method for method, _ in hub.sent if method.startswith("question.")]
+    assert question_events == ["question.pending", "question.resolved"]
+    # The task list hears the wait too (1.7.0).
+    statuses = [p.get("status") for m, p in hub.sent if m == "sessions.changed"]
+    assert statuses == ["awaiting_question", "running"]
 
 
 # ---------------------------------------------------------------------------

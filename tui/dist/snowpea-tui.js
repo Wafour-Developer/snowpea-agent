@@ -33831,7 +33831,7 @@ import { basename as basename2, isAbsolute, join as join2, resolve } from "node:
 var import_react45 = __toESM(require_react(), 1);
 
 // ../sdk/dist/protocol.js
-var PROTOCOL_VERSION = "1.6.0";
+var PROTOCOL_VERSION = "1.7.0";
 var WS_PATH = "/ws";
 
 // ../sdk/dist/client.js

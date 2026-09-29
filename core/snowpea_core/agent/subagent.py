@@ -27,7 +27,7 @@ import asyncio
 import json
 import logging
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
 from snowpea_core.agent.definition import AgentDefinition
@@ -35,6 +35,7 @@ from snowpea_core.agent.role_pick import PARENT, missing_role_policy, pick_agent
 from snowpea_core.config.model_routing import ModelRoute, model_config_for, resolve_reference
 from snowpea_core.config.settings import THINKING_CHOICES
 from snowpea_core.prompts.loader import PromptNotFound, load
+from snowpea_core.providers.base import REDACTED, ChatMessage
 from snowpea_core.server.protocol import AgentInfo
 from snowpea_core.session import events
 from snowpea_core.tools.registry import ProgressEmitter
@@ -244,6 +245,45 @@ class SharedBackend:
 
 
 @dataclass
+class BackgroundRun:
+    """One delegation running in the background; ``subagent_wait`` collects it."""
+
+    task_id: str
+    parent_session_id: str
+    title: str
+    task: asyncio.Task[SubagentResult]
+    collected: bool = False
+
+
+def fork_history(parent: Session) -> list[ChatMessage]:
+    """The parent's conversation as a ``fork_self`` child starts from it.
+
+    The trailing assistant message whose tool calls are still unanswered (the
+    ``delegate_task`` call that is spawning this child, and any sibling calls)
+    is left out with everything after it, so the copy ends on a state a
+    provider accepts.  Sensitive tool output is not copied.
+    """
+    messages = list(parent.history.messages)
+    answered: set[str] = {
+        str(message.tool_call_id) for message in messages if message.role == "tool"
+    }
+    cut = len(messages)
+    for index in range(len(messages) - 1, -1, -1):
+        message = messages[index]
+        if message.role == "assistant" and message.tool_calls:
+            if any(call.id not in answered for call in message.tool_calls):
+                cut = index
+            break
+    copied: list[ChatMessage] = []
+    for message in messages[:cut]:
+        clone = replace(message)
+        if clone.sensitive:
+            clone.content = REDACTED
+        copied.append(clone)
+    return copied
+
+
+@dataclass
 class SubagentRecord:
     """One delegated run, from ``queued`` to ``done``/``error``."""
 
@@ -257,6 +297,9 @@ class SubagentRecord:
     title: str = ""
     status: str = QUEUED
     session_id: str | None = None
+    #: ``fork_self``: the child starts from a copy of the parent's
+    #: conversation instead of only the brief (1.7.0).
+    fork: bool = False
     summary: str = ""
     error: str | None = None
     input_tokens: int = 0
@@ -419,6 +462,8 @@ class SubagentManager:
         self._order: list[str] = []
         self._semaphores: dict[str, tuple[int, asyncio.Semaphore]] = {}
         self._tasks: dict[str, asyncio.Task[Any]] = {}
+        #: ``delegate_task(run_in_background=true)`` runs, by task id (1.7.0).
+        self.background: dict[str, BackgroundRun] = {}
 
     # -- concurrency ---------------------------------------------------
     def limit_for(self, parent: Session) -> int:
@@ -686,6 +731,7 @@ class SubagentManager:
         progress: ProgressEmitter | None = None,
         force: bool = False,
         prefer: tuple[str, ...] | list[str] | None = None,
+        fork: bool = False,
         _allow_incomplete_retry: bool = True,
     ) -> SubagentResult:
         """Delegate ``task`` to a child session and return its final answer.
@@ -720,6 +766,7 @@ class SubagentManager:
             progress=progress,
             force=force,
             prefer=prefer_roles,
+            fork=fork,
         )
         if not _allow_incomplete_retry:
             return result
@@ -779,6 +826,7 @@ class SubagentManager:
         progress: ProgressEmitter | None = None,
         force: bool = False,
         prefer: tuple[str, ...] = (),
+        fork: bool = False,
     ) -> SubagentResult:
         """One child turn with no incomplete re-issue."""
         brief = (task or "").strip()
@@ -807,6 +855,7 @@ class SubagentManager:
             record = self.new_record(parent, task, agent, title)
         elif agent and not record.name:
             record.name = agent
+        record.fork = record.fork or fork
         if not record.task_fingerprint:
             record.task_fingerprint = fingerprint(agent, brief)
         if progress is not None:
@@ -972,6 +1021,8 @@ class SubagentManager:
         self.core.hub.subscribe(watcher, child.id)
         try:
             self._apply_definition(child, defn, tools)
+            if record.fork:
+                child.history.extend(fork_history(parent))
             # The child is told its own budget, because it is the one that has
             # to spend it: a worker that knows it has N rounds reads what it
             # needs and reports, instead of being cut off mid-survey
@@ -1052,6 +1103,8 @@ class SubagentManager:
         # A browser session's children run the browser's host tools too, and
         # re-bind with it when the browser reconnects (1.6.0).
         child.host_tools_from = getattr(parent, "host_tools_from", None)
+        # One workspace per conversation: children save into the parent's.
+        child.workspace_dir = getattr(parent, "workspace_dir", None)
         child.origin_client_id = getattr(parent, "origin_client_id", None)
         child.backend = SharedBackend(parent.backend)  # type: ignore[assignment]
         return child

@@ -159,6 +159,10 @@ class ModelsSettings(_Model):
     default: str | None = None
     #: Named model profiles, keyed by user-chosen ids.
     profiles: dict[str, ModelProfile] = Field(default_factory=dict)
+    #: ``delegate_task(model_category=…)`` targets: ``{"fast": "<profile id |
+    #: vendor:model | vendor>", "standard": …}``.  An unset category runs on
+    #: the child's usual model (protocol 1.7.0).
+    categories: dict[str, str] = Field(default_factory=dict)
 
 
 class TeamPipelineSettings(_Model):

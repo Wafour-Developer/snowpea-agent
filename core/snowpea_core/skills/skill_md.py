@@ -21,6 +21,7 @@ string, which is what every consumer here wants anyway.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -158,6 +159,9 @@ class SkillDoc:
     allowed_tools: list[str] | None = None
     path: Path | None = None
     frontmatter: dict[str, Any] = field(default_factory=dict)
+    #: ``autoInject: {keywords: [...]}``: words that bring this skill into a
+    #: turn on their own, matched case-insensitively in any script (1.7.0).
+    auto_inject: list[str] = field(default_factory=list)
 
     def render(self, arguments: str = "") -> str:
         """The body with ``$ARGUMENTS`` substituted (appended when absent)."""
@@ -167,6 +171,65 @@ class SkillDoc:
         if not args:
             return self.body
         return f"{self.body}\n\nArguments: {args}"
+
+
+def _frontmatter_lines(text: str) -> list[str]:
+    lines = text.splitlines()
+    start = 0
+    while start < len(lines) and not lines[start].strip():
+        start += 1
+    if start >= len(lines) or lines[start].strip() != FENCE:
+        return []
+    for index in range(start + 1, len(lines)):
+        if lines[index].strip() == FENCE:
+            return lines[start + 1 : index]
+    return []
+
+
+def auto_inject_keywords(text: str) -> list[str]:
+    """The ``autoInject`` keywords of a skill file, in either YAML shape.
+
+    ``autoInject: {keywords: [gmail, 지메일]}`` inline, or::
+
+        autoInject:
+          keywords: [gmail, 지메일]      # or a "- item" list below it
+
+    The flat front-matter reader does not nest, so this looks at the raw block.
+    """
+    lines = _frontmatter_lines(text)
+    for index, line in enumerate(lines):
+        head, sep, rest = line.partition(":")
+        if not sep or head.strip() not in ("autoInject", "auto-inject") or line[:1].isspace():
+            continue
+        rest = rest.strip()
+        if rest:
+            match = re.search(r"keywords\s*:\s*\[(.*?)\]", rest)
+            return _keyword_list(match.group(1)) if match else []
+        block: list[str] = []
+        for follow in lines[index + 1 :]:
+            if follow.strip() and not follow[:1].isspace():
+                break
+            block.append(follow)
+        for position, follow in enumerate(block):
+            key, ksep, value = follow.strip().partition(":")
+            if not ksep or key.strip() != "keywords":
+                continue
+            value = value.strip()
+            if value.startswith("["):
+                return _keyword_list(value.strip("[]"))
+            items = []
+            for item in block[position + 1 :]:
+                stripped = item.strip()
+                if not stripped.startswith("-"):
+                    break
+                items.append(str(_scalar(stripped[1:].strip())))
+            return [word for word in items if word]
+        return []
+    return []
+
+
+def _keyword_list(inner: str) -> list[str]:
+    return [str(_scalar(part)).strip() for part in _split_items(inner) if str(part).strip()]
 
 
 def parse_skill_md(text: str, *, default_name: str, path: Path | None = None) -> SkillDoc:
@@ -183,6 +246,7 @@ def parse_skill_md(text: str, *, default_name: str, path: Path | None = None) ->
         allowed_tools=tools or None if raw_tools not in (None, "", "*") else None,
         path=path,
         frontmatter=front,
+        auto_inject=auto_inject_keywords(text),
     )
 
 

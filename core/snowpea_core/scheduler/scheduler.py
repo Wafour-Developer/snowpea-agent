@@ -33,6 +33,7 @@ import contextlib
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 from snowpea_core.config.settings import SchedulerSettings
@@ -43,6 +44,9 @@ from snowpea_core.server.protocol import Mode
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.server.app_server import Core
+
+#: How often a routine waiting for its host looks again.
+HOST_POLL_SEC = 2.0
 
 log = logging.getLogger("snowpea.scheduler")
 
@@ -161,6 +165,8 @@ class Scheduler:
         origin_session_id: str | None = None,
         agent: str | None = None,
         workdir: str | None = None,
+        host_tools_from: str | None = None,
+        host_wait_sec: int | None = None,
     ) -> Job:
         """Parse ``spec``, store the job and return it. ``ValueError`` if unparseable."""
         if not task.strip():
@@ -178,6 +184,9 @@ class Scheduler:
         )
         if job.next_run is None:
             raise ValueError(f"the schedule {spec!r} has no future firing time")
+        if host_tools_from:
+            job.host_tools_from = host_tools_from
+            job.host_wait_sec = max(0, int(host_wait_sec if host_wait_sec is not None else 300))
         await self.store.insert(job)
         await self.refresh_counter()
         log.info("job %s scheduled (%s) next at %s", job.id, job.spec, iso(job.next_run))
@@ -300,6 +309,13 @@ class Scheduler:
         from snowpea_core.agent.named import session_for_job
 
         core = self.core
+        if job.host_tools_from and not await self._wait_for_host(job):
+            return (
+                "error",
+                f"host_unavailable: no {job.host_tools_from} host connected within "
+                f"{job.host_wait_sec}s, so the routine did not run",
+                None,
+            )
         # A job that names a persistent agent runs *inside* that agent's
         # session, so it sees the agent's memory namespace (M7 contract §6).
         session = session_for_job(core, job.agent)
@@ -319,6 +335,8 @@ class Scheduler:
         # The contract calls these sessions unattended; the flag is what the
         # gateway and approval code read when they need to know (contract §2).
         session.unattended = True
+        if job.host_tools_from:
+            session.host_tools_from = job.host_tools_from
         collector = _Collector()
         core.hub.subscribe(collector, session.id)
         core.lifecycle.set_counter("sessions", len(core.sessions))
@@ -332,6 +350,20 @@ class Scheduler:
                     await core.sessions.close(session.id)
             core.lifecycle.set_counter("sessions", len(core.sessions))
         return collector.status(), collector.final_text, session.id
+
+    async def _wait_for_host(self, job: Job) -> bool:
+        """Wait up to ``job.host_wait_sec`` for a host that can serve the job."""
+        from snowpea_core.tools.host_tools import HOST_TOOLS
+
+        probe = SimpleNamespace(host_tools_from=job.host_tools_from, origin_conn=None)
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + job.host_wait_sec
+        while True:
+            if HOST_TOOLS.for_session(probe):
+                return True
+            if loop.time() >= deadline:
+                return False
+            await asyncio.sleep(min(HOST_POLL_SEC, max(0.05, deadline - loop.time())))
 
     async def _advance(
         self,
