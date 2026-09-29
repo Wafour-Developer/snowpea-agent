@@ -440,6 +440,40 @@ class ProviderRegistry:
         preset = self.preset_or_none(vendor)
         return bool(preset is not None and preset.supports_effort)
 
+    def efforts_for(self, vendor: str, model: str | None = None) -> list[str]:
+        """The effort tiers ``vendor``/``model`` offers; ``[]`` = no effort setting.
+
+        A known model profile (``agent.effortMap`` or built in) wins, and makes
+        effort work on a self-hosted server even without ``effort_param``.
+        Otherwise the vendor decides: Anthropic and Gemini take a thinking
+        budget (all four tiers), the ChatGPT-login Codex backend has its own
+        four, an OpenAI-style API has three (no ``max``), and a vendor or model
+        that takes none offers none.
+        """
+        resolved = self.model_for(vendor, model)
+        profile = effort_scale.model_profile(self.settings, vendor, resolved)
+        if profile is not None:
+            return profile.available()
+        if self.preset_or_none(vendor) is None:
+            # A vendor with no preset (a test double, a plugin transport): not
+            # known to lack effort, so it is not reported as unsupported.
+            return list(effort_scale.EFFORTS)
+        if not self.supports_effort(vendor):
+            return []
+        if vendor in ("anthropic", "gemini"):
+            return list(effort_scale.EFFORTS)
+        if vendor == "openai":
+            from snowpea_core.providers import openai_oauth
+
+            if openai_oauth.is_chatgpt_auth(self.vendor_config("openai")):
+                return list(effort_scale.EFFORTS)
+        preset = self.preset_or_none(vendor)
+        if preset is not None and preset.local_style:
+            return ["low", "medium", "high"]
+        if effort_scale.supports_openai_effort(resolved):
+            return ["low", "medium", "high"]
+        return []
+
     def effort_for(
         self,
         vendor: str,
@@ -735,6 +769,7 @@ class ProviderRegistry:
             model_resolver=resolver,
             vision=self.vision_for(vendor, model),
             on_vision=learned,
+            settings=self.settings,
         )
 
     def default_vendor(self) -> str:

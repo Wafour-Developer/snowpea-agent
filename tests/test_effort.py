@@ -540,3 +540,67 @@ def test_the_command_names_the_rule_that_decided_it() -> None:
     assert describe("max", "model") == "effort: max (model rule)"
     assert describe("low", "vendor") == "effort: low (vendor rule)"
     assert describe("medium", "default") == "effort: medium (agent.effort)"
+
+
+# ---------------------------------------------------------------------------
+# per-model scales (Qwen3.8 Flash Next: low / medium / xhigh, no max)
+# ---------------------------------------------------------------------------
+
+
+def test_qwen38_flash_next_has_three_tiers_with_high_as_xhigh() -> None:
+    profile = effort_scale.model_profile(Settings(), "local", "qwen38-flash-next")
+    assert profile is not None and profile.field == "template"
+    assert profile.available() == ["low", "medium", "high"]
+    assert profile.tiers["high"] == "xhigh"
+    assert effort_scale.clamp("max", profile.available()) == "high"
+    assert effort_scale.clamp("medium", profile.available()) == "medium"
+    assert effort_scale.clamp("high", []) is None
+
+
+def test_the_qwen_tier_goes_in_chat_template_kwargs() -> None:
+    profile = effort_scale.model_profile(Settings(), "local", "Qwen3.8-Flash-Next")
+    body = build_openai_request(
+        PRESETS["local"], "qwen38-flash-next", MESSAGES, TOOLS,
+        max_tokens=100, effort="high", effort_profile=profile,
+    )
+    assert body["chat_template_kwargs"] == {"reasoning_effort": "xhigh"}
+    assert "reasoning_effort" not in body
+
+
+def test_a_local_qwen_gets_effort_without_effort_param() -> None:
+    settings = Settings()
+    settings.providers["local"] = {"base_url": "http://x/v1", "model": "qwen38-flash-next"}
+    registry = ProviderRegistry(settings)
+    assert registry.efforts_for("local") == ["low", "medium", "high"]
+    provider = registry.get("local")
+    assert provider._effort_for("qwen38-flash-next", "max") == "high"
+
+
+def test_a_model_without_effort_offers_none() -> None:
+    settings = Settings()
+    settings.providers["local"] = {"base_url": "http://x/v1", "model": "llama-3-8b"}
+    assert ProviderRegistry(settings).efforts_for("local") == []
+
+
+def test_anthropic_offers_all_four_and_effort_map_overrides() -> None:
+    settings = Settings()
+    settings.providers["anthropic"] = {"api_key": "sk-test", "model": "claude-opus-5-5"}
+    assert ProviderRegistry(settings).efforts_for("anthropic") == list(effort_scale.EFFORTS)
+    settings.agent.effortMap = {"anthropic:claude-opus-5-5": {}}
+    assert ProviderRegistry(settings).efforts_for("anthropic") == []
+    settings.agent.effortMap = {"my-model": {"tiers": {"low": "min", "high": "max"}}}
+    settings.providers["local"] = {"base_url": "http://x/v1", "model": "my-model"}
+    assert ProviderRegistry(settings).efforts_for("local") == ["low", "high"]
+
+
+def test_the_command_says_when_a_model_has_no_effort() -> None:
+    from types import SimpleNamespace
+
+    from snowpea_core.commands.effort_cmd import explain
+
+    ctx = SimpleNamespace(session=SimpleNamespace(provider="local", model="llama-3-8b"))
+    text = explain(ctx, None, "session", [], "high")  # type: ignore[arg-type]
+    assert "not supported by local:llama-3-8b" in text and "kept" in text
+    ctx.session.model = "qwen38-flash-next"
+    text = explain(ctx, "high", "session", ["low", "medium", "high"], "max")  # type: ignore[arg-type]
+    assert "max is not available" in text and "offers: low, medium, high" in text

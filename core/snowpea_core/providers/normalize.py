@@ -165,6 +165,7 @@ def build_openai_request(
     thinking: str | None = None,
     effort: str | None = None,
     vision: bool | None = None,
+    effort_profile: Any = None,
 ) -> dict[str, Any]:
     """The full JSON body for a streaming ``/chat/completions`` call.
 
@@ -195,6 +196,13 @@ def build_openai_request(
     }
     if thinking == "off":
         body["chat_template_kwargs"] = dict(THINKING_OFF_TEMPLATE_KWARGS)
+    elif effort and effort_profile is not None:
+        # The model's own scale (e.g. Qwen3.8's xhigh), where it wants it.
+        wire = effort_profile.tiers.get(effort)
+        if wire and effort_profile.field == "template":
+            body["chat_template_kwargs"] = {"reasoning_effort": wire}
+        elif wire:
+            body["reasoning_effort"] = wire
     elif effort:
         wire = effort_scale.openai_reasoning_effort(effort)
         if wire:

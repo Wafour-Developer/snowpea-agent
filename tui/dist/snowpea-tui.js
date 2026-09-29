@@ -35545,6 +35545,7 @@ var initialState = {
   modelSource: null,
   effort: null,
   effortSource: null,
+  efforts: null,
   delegation: false,
   messages: [],
   toolCalls: [],
@@ -35862,7 +35863,8 @@ function applySessionEvent(state, event, options = {}) {
       const source = typeof payload.source === "string" && payload.source.length > 0 ? payload.source : "model" in payload && payload.model === null ? null : base.modelSource;
       const effort = "effort" in payload ? payload.effort ?? null : base.effort;
       const effortSource = "effortSource" in payload ? payload.effortSource ?? null : base.effortSource;
-      return { ...base, model, provider, modelSource: source, effort, effortSource };
+      const efforts = Array.isArray(payload.efforts) ? payload.efforts : base.efforts;
+      return { ...base, model, provider, modelSource: source, effort, effortSource, efforts };
     }
     case "mode.changed":
       return {
@@ -36901,9 +36903,10 @@ function stopSpeaking(runtime, handle) {
 var INHERIT_REF = "inherit";
 var EFFORT_REF = "__effort__";
 var EFFORTS = ["low", "medium", "high", "max"];
-function nextEffort(current2) {
-  const index = EFFORTS.indexOf(current2 ?? "");
-  return EFFORTS[(index + 1) % EFFORTS.length] ?? "medium";
+function nextEffort(current2, available) {
+  const scale = available && available.length ? available : EFFORTS;
+  const index = scale.indexOf(current2 ?? "");
+  return scale[(index + 1) % scale.length] ?? "medium";
 }
 function modelOptions({
   profiles = null,
@@ -36916,7 +36919,8 @@ function modelOptions({
   current: current2 = null,
   vendor = null,
   effort = null,
-  effortSource = null
+  effortSource = null,
+  efforts = null
 }) {
   const options = [];
   const covered = /* @__PURE__ */ new Set();
@@ -36979,11 +36983,24 @@ function modelOptions({
       current: true
     });
   }
-  if (effort) {
+  if (efforts && efforts.length === 0) {
+    options.push({
+      ref: EFFORT_REF,
+      label: "effort: not supported",
+      detail: `${current2 ?? "this model"} has no reasoning-effort setting`,
+      origin: "effort",
+      current: false
+    });
+  } else if (effort) {
+    const offered = efforts && efforts.length ? `offers ${efforts.join("/")}` : "";
     options.push({
       ref: EFFORT_REF,
       label: `effort: ${effort}`,
-      detail: [effortSource ? `set by ${effortSource}` : "", `Enter \u2192 ${nextEffort(effort)}`].filter(Boolean).join(" \xB7 "),
+      detail: [
+        effortSource ? `set by ${effortSource}` : "",
+        offered,
+        `Enter \u2192 ${nextEffort(effort, efforts)}`
+      ].filter(Boolean).join(" \xB7 "),
       origin: "effort",
       current: false
     });
@@ -42326,18 +42343,26 @@ function App2({
           current: state.model ?? null,
           vendor: state.provider ?? null,
           effort: state.effort,
-          effortSource: state.effortSource
+          effortSource: state.effortSource,
+          efforts: state.efforts
         });
         setModelPicker(options);
       }
     );
-  }, [client, workdir, state.provider, state.model]);
+  }, [client, workdir, state.provider, state.model, state.effort, state.effortSource, state.efforts]);
   const chooseModel = (0, import_react45.useCallback)(
     (ref) => {
       if (ref === EFFORT_REF) {
-        const wanted = nextEffort(state.effort);
+        if (state.efforts && state.efforts.length === 0) {
+          showToast(`effort: not supported by ${state.model ?? "this model"}`);
+          return;
+        }
+        const wanted = nextEffort(state.effort, state.efforts);
         void client.call("session.setEffort", { sessionId, effort: wanted }).then((result) => {
-          showToast(`effort: ${result?.effort ?? wanted}`);
+          const applied = result?.effort ?? null;
+          showToast(
+            applied === null ? `effort: not supported by ${state.model ?? "this model"}` : applied !== wanted ? `effort: ${applied} (${wanted} is not available for this model)` : `effort: ${applied}`
+          );
         }).catch((error) => {
           if (error?.code === -32601) {
             submit(`/effort ${wanted}`);
@@ -42361,7 +42386,7 @@ function App2({
         dispatch({ type: "error", message: String(error) });
       });
     },
-    [client, sessionId, showToast, state.effort]
+    [client, sessionId, showToast, state.effort, state.efforts, state.model]
   );
   const takeClipboard = (0, import_react45.useCallback)(() => {
     if (!captureClipboard || !probe) {

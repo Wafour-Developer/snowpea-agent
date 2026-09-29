@@ -45,25 +45,46 @@ def describe(effort: str, source: str) -> str:
     return f"effort: {effort} ({SOURCE_LABELS.get(source, source)})"
 
 
+def _model_name(ctx: CommandContext) -> str:
+    session = ctx.session
+    return ":".join(part for part in (session.provider, session.model) if part) or "this model"
+
+
+def explain(
+    ctx: CommandContext, effort: str | None, source: str, efforts: list[str], asked: str = ""
+) -> str:
+    """What is in force, said plainly — including "this model has none"."""
+    model = _model_name(ctx)
+    if not efforts:
+        kept = f" Your {asked} setting is kept for models that have one." if asked else ""
+        return f"effort: not supported by {model} (it has no reasoning-effort setting).{kept}"
+    line = describe(effort or efforts[-1], source)
+    requested = effort_scale.normalize(asked) if asked else None
+    if requested and effort and requested != effort:
+        line += f" — {requested} is not available for {model}, so {effort} is used"
+    return f"{line}\n{model} offers: {', '.join(efforts)}"
+
+
 async def cmd_effort(ctx: CommandContext, args: str) -> None:
     """Show the effective effort, or pin this session to one."""
-    from snowpea_core.server.session_handlers import effective_effort
+    from snowpea_core.server.session_handlers import effort_state
 
     wanted = args.strip().lower()
     if not wanted:
-        effort, source = effective_effort(ctx.core, ctx.session)
-        await ctx.say(f"{describe(effort, source)}\n{USAGE}")
+        effort, source, efforts = effort_state(ctx.core, ctx.session)
+        await ctx.say(f"{explain(ctx, effort, source, efforts)}\n{USAGE}")
         return
     try:
         await ctx.core.sessions.set_effort(ctx.session, wanted)
     except ValueError as exc:
         await ctx.say(f"effort: {exc}\n{USAGE}")
         return
-    effort, source = effective_effort(ctx.core, ctx.session)
+    effort, source, efforts = effort_state(ctx.core, ctx.session)
     await ctx.emit(
-        events.model_changed(ctx.session.provider, ctx.session.model, effort, source)
+        events.model_changed(ctx.session.provider, ctx.session.model, effort, source, efforts)
     )
-    await ctx.say(describe(effort, source))
+    asked = "" if wanted == effort_scale.AUTO else wanted
+    await ctx.say(explain(ctx, effort, source, efforts, asked))
 
 
 EFFORT_COMMAND = Command(

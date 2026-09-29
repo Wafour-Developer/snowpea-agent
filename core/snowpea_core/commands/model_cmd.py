@@ -176,8 +176,16 @@ async def cmd_model(ctx: CommandContext, args: str) -> None:
             await ctx.core.store.update_model(ctx.session.id, vendor, wanted)
         _persist(ctx, vendor, wanted)
         route = ModelRoute(vendor, wanted)
-    await ctx.emit(events.model_changed(route.provider, route.model))
-    await ctx.say(f"model: {route.provider or vendor}/{route.model or 'unset'}")
+    from snowpea_core.server.session_handlers import effort_state
+
+    effort, source, efforts = effort_state(ctx.core, ctx.session)
+    await ctx.emit(
+        events.model_changed(route.provider, route.model, effort, source, efforts)
+    )
+    effort_note = (
+        f"effort {effort}" if efforts else "no effort setting on this model"
+    )
+    await ctx.say(f"model: {route.provider or vendor}/{route.model or 'unset'} ({effort_note})")
 
 
 MODEL_COMMAND = Command(

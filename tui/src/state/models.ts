@@ -29,9 +29,15 @@ export const EFFORTS = ["low", "medium", "high", "max"] as const;
  * A row that cycles is one keystroke; a submenu of four is three. The wrap is
  * what makes it safe to press past the end.
  */
-export function nextEffort(current: string | null | undefined): string {
-  const index = EFFORTS.indexOf((current ?? "") as (typeof EFFORTS)[number]);
-  return EFFORTS[(index + 1) % EFFORTS.length] ?? "medium";
+export function nextEffort(
+  current: string | null | undefined,
+  available?: readonly string[] | null,
+): string {
+  // Only the tiers this model has: Qwen3.8 Flash Next stops at high, so the
+  // cycle wraps from high to low instead of offering a max it would ignore.
+  const scale = available && available.length ? available : EFFORTS;
+  const index = scale.indexOf(current ?? "");
+  return scale[(index + 1) % scale.length] ?? "medium";
 }
 
 export interface ModelOption {
@@ -80,6 +86,8 @@ export interface ModelPickerInput {
   effort?: string | null;
   /** Which rule set that: session | model | vendor | default. */
   effortSource?: string | null;
+  /** Tiers the model offers; `[]` = no effort setting; null = unknown. */
+  efforts?: string[] | null;
 }
 
 /**
@@ -102,6 +110,7 @@ export function modelOptions({
   vendor = null,
   effort = null,
   effortSource = null,
+  efforts = null,
 }: ModelPickerInput): ModelOption[] {
   const options: ModelOption[] = [];
   const covered = new Set<string>();
@@ -182,11 +191,25 @@ export function modelOptions({
   // How hard the model thinks belongs next to which model it is: the two are
   // one decision, and splitting them across a picker and a command is what
   // makes an effort setting something users never find.
-  if (effort) {
+  if (efforts && efforts.length === 0) {
+    // Said, not hidden: a missing row reads as "the picker forgot effort".
+    options.push({
+      ref: EFFORT_REF,
+      label: "effort: not supported",
+      detail: `${current ?? "this model"} has no reasoning-effort setting`,
+      origin: "effort",
+      current: false,
+    });
+  } else if (effort) {
+    const offered = efforts && efforts.length ? `offers ${efforts.join("/")}` : "";
     options.push({
       ref: EFFORT_REF,
       label: `effort: ${effort}`,
-      detail: [effortSource ? `set by ${effortSource}` : "", `Enter → ${nextEffort(effort)}`]
+      detail: [
+        effortSource ? `set by ${effortSource}` : "",
+        offered,
+        `Enter → ${nextEffort(effort, efforts)}`,
+      ]
         .filter(Boolean)
         .join(" · "),
       origin: "effort",

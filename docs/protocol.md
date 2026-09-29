@@ -1662,8 +1662,9 @@ Pin how hard a session's model may think, or clear the pin.
 
 | field | type | required | description |
 |---|---|---|---|
-| `effort` | `"low" \| "medium" \| "high" \| "max"` | yes | Effective reasoning effort after the change. |
+| `effort` | `"low" \| "medium" \| "high" \| "max" \| null` | no | Effective reasoning effort after the change, clamped to what the model offers; null when the model has no effort setting. |
 | `effortSource` | `"session" \| "model" \| "vendor" \| "default"` | yes | Rule that decided it: the session pin, a model or vendor rule, or the default. |
+| `efforts` | `("low" \| "medium" \| "high" \| "max")[] \| null` | no | Tiers the session's model offers; [] means it has no effort setting. |
 | `pinned` | `"low" \| "medium" \| "high" \| "max" \| null` | no | The session's own pin; null when it follows the settings. |
 | `sessionId` | `string` | yes | Session that was pinned. |
 
@@ -2729,6 +2730,7 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 |---|---|---|---|
 | `effort` | `"low" \| "medium" \| "high" \| "max" \| null` | no | Effective reasoning effort for the session (CORE-effort). |
 | `effortSource` | `"session" \| "model" \| "vendor" \| "default" \| null` | no | Rule that decided the effort: 'session', 'model', 'vendor' or 'default'. |
+| `efforts` | `("low" \| "medium" \| "high" \| "max")[] \| null` | no | Tiers this model offers, weakest first; [] means it has no effort setting (effort is then null). E.g. Qwen3.8 Flash Next offers low, medium, high. |
 | `kind` | `"model.changed"` | no |  |
 | `model` | `string \| null` | no | Model id now in effect. |
 | `provider` | `string \| null` | no | Vendor now in effect. |

@@ -267,6 +267,7 @@ async def session_create_handler(
     _count_sessions(core)
     await _load_project_skills(core, session.workdir)
     await mcp_client.sync_tools_bounded(core, session.workdir)
+    await announce_model(core, session)
     return SessionCreateResult(
         sessionId=session.id,
         delegation=effective_delegation(core, session)[0],
@@ -706,9 +707,10 @@ async def session_set_model_handler(
         route = await core.sessions.set_model(session, params.model)
     except ValueError as exc:
         raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
-    effective, source = effective_effort(core, session)
+    effective, source, efforts = effort_state(core, session)
     await core.hub.emit_event(
-        session.id, events.model_changed(route.provider, route.model, effective, source)
+        session.id,
+        events.model_changed(route.provider, route.model, effective, source, efforts),
     )
     return SessionSetModelResult(
         provider=route.provider,
@@ -731,15 +733,42 @@ async def session_set_effort_handler(
         pinned = await core.sessions.set_effort(session, params.effort)
     except ValueError as exc:
         raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
-    effective, source = effective_effort(core, session)
+    effective, source, efforts = effort_state(core, session)
     await core.hub.emit_event(
-        session.id, events.model_changed(session.provider, session.model, effective, source)
+        session.id,
+        events.model_changed(session.provider, session.model, effective, source, efforts),
     )
     return SessionSetEffortResult(
         sessionId=session.id,
         effort=effective,  # type: ignore[arg-type]
         effortSource=source,  # type: ignore[arg-type]
         pinned=pinned,  # type: ignore[arg-type]
+        efforts=efforts,  # type: ignore[arg-type]
+    )
+
+
+def effort_state(core: Core, session: Session) -> tuple[str | None, str, list[str]]:
+    """``(effort, source, efforts)``: the tier in force clamped to what the
+    session's model offers (``None`` when it offers none), the rule that set it,
+    and the tiers on offer."""
+    effort, source = effective_effort(core, session)
+    efforts = list(effort_scale.EFFORTS)
+    registry = getattr(core, "providers", None)
+    if registry is not None and hasattr(registry, "efforts_for"):
+        try:
+            vendor = session.provider or registry.default_vendor()
+            efforts = registry.efforts_for(vendor, session.model)
+        except Exception:  # noqa: BLE001 - an unknown vendor keeps the full scale
+            efforts = list(effort_scale.EFFORTS)
+    return effort_scale.clamp(effort, efforts), source, efforts
+
+
+async def announce_model(core: Core, session: Session) -> None:
+    """``model.changed`` with the effort state, so a surface can draw both."""
+    effort, source, efforts = effort_state(core, session)
+    await core.hub.emit_event(
+        session.id,
+        events.model_changed(session.provider, session.model, effort, source, efforts),
     )
 
 
@@ -755,12 +784,14 @@ def effective_effort(core: Core, session: Session) -> tuple[str, str]:
         try:
             vendor = session.provider or registry.default_vendor()
             resolved: tuple[str, str] = registry.effort_for(
-                vendor, session.model, session_effort=session.effort
+                vendor, session.model, session_effort=getattr(session, "effort", None)
             )
             return resolved
         except ProviderError:
             log.debug("could not resolve the session's effort", exc_info=True)
-    return effort_scale.resolve(core.settings, None, None, session_effort=session.effort)
+    return effort_scale.resolve(
+        core.settings, None, None, session_effort=getattr(session, "effort", None)
+    )
 
 
 # ---------------------------------------------------------------------------

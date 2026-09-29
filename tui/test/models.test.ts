@@ -156,3 +156,27 @@ describe("nextEffort", () => {
     expect(nextEffort("hard")).toBe("low");
   });
 });
+
+describe("per-model effort tiers", () => {
+  it("cycles only through the tiers the model offers", () => {
+    const qwen = ["low", "medium", "high"];
+    expect(nextEffort("medium", qwen)).toBe("high");
+    expect(nextEffort("high", qwen)).toBe("low");
+    expect(nextEffort("max", qwen)).toBe("low");
+  });
+
+  it("says effort is not supported when the model offers none", () => {
+    const options = modelOptions({ current: "llama-3-8b", effort: null, efforts: [] });
+    const row = options.find((option) => option.origin === "effort");
+    expect(row?.label).toBe("effort: not supported");
+    expect(row?.detail).toContain("llama-3-8b");
+  });
+
+  it("lists the offered tiers on the effort row", () => {
+    const options = modelOptions({ effort: "high", efforts: ["low", "medium", "high"] });
+    const row = options.find((option) => option.origin === "effort");
+    expect(row?.detail).toContain("offers low/medium/high");
+    expect(row?.detail).toContain("Enter → low");
+  });
+});
+

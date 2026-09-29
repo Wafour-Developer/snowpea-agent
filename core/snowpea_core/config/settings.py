@@ -259,6 +259,11 @@ class AgentSettings(_Model):
     #: ``{"openai": "high", "anthropic:claude-opus-4-1": "max"}``.  The
     #: ``"<vendor>:<model>"`` rule wins over the bare ``"<vendor>"`` one.
     effortBy: dict[str, str] = Field(default_factory=dict)
+    #: A model's own effort scale: ``{"<vendor>:<model>" | "<model>": {"tiers":
+    #: {"low": "low", "high": "xhigh"}, "field": "reasoning_effort" | "template"}}``.
+    #: Tiers left out do not exist for that model; ``{}`` means it has none.
+    #: Qwen3.8 Flash Next is built in (``providers/effort.py``).
+    effortMap: dict[str, Any] = Field(default_factory=dict)
     #: Characters of one project instruction file (AGENTS.md, CLAUDE.md,
     #: .snowpea/instructions.md, .cursorrules) that reach the prompt, and the
     #: ceiling on the merged block.  ``None`` derives it from the session's

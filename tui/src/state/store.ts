@@ -205,6 +205,11 @@ export interface State {
   effort: string | null;
   /** Which rule set it: session | model | vendor | default. */
   effortSource: string | null;
+  /**
+   * Tiers the session's model offers, weakest first; `[]` when it has no
+   * effort setting; `null` until the daemon says (older daemons never do).
+   */
+  efforts: string[] | null;
   /** Delegation mode: the lead hands the work to its team (`/delegation`). */
   delegation: boolean;
   messages: Message[];
@@ -318,6 +323,7 @@ export const initialState: State = {
   modelSource: null,
   effort: null,
   effortSource: null,
+  efforts: null,
   delegation: false,
   messages: [],
   toolCalls: [],
@@ -825,7 +831,8 @@ function applySessionEvent(
       const effort = "effort" in payload ? (payload.effort ?? null) : base.effort;
       const effortSource =
         "effortSource" in payload ? (payload.effortSource ?? null) : base.effortSource;
-      return { ...base, model, provider, modelSource: source, effort, effortSource };
+      const efforts = Array.isArray(payload.efforts) ? (payload.efforts as string[]) : base.efforts;
+      return { ...base, model, provider, modelSource: source, effort, effortSource, efforts };
     }
 
     case "mode.changed":

@@ -1443,7 +1443,17 @@ class SessionSetEffortResult(Payload):
     """What the session will now use, and which rule decided it."""
 
     sessionId: str = Field(description="Session that was pinned.")
-    effort: EffortLevel = Field(description="Effective reasoning effort after the change.")
+    effort: EffortLevel | None = Field(
+        default=None,
+        description=(
+            "Effective reasoning effort after the change, clamped to what the model "
+            "offers; null when the model has no effort setting."
+        ),
+    )
+    efforts: list[EffortLevel] | None = Field(
+        default=None,
+        description="Tiers the session's model offers; [] means it has no effort setting.",
+    )
     effortSource: EffortSource = Field(
         description="Rule that decided it: the session pin, a model or vendor rule, or the default."
     )
@@ -2954,6 +2964,13 @@ class ModelChanged(Payload):
     effortSource: EffortSource | None = Field(
         default=None,
         description="Rule that decided the effort: 'session', 'model', 'vendor' or 'default'.",
+    )
+    efforts: list[EffortLevel] | None = Field(
+        default=None,
+        description=(
+            "Tiers this model offers, weakest first; [] means it has no effort setting "
+            "(effort is then null). E.g. Qwen3.8 Flash Next offers low, medium, high."
+        ),
     )
 
 

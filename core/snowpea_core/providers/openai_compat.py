@@ -58,8 +58,11 @@ class OpenAICompatProvider:
         model_resolver: Callable[[], Awaitable[str]] | None = None,
         vision: bool | None = None,
         on_vision: Callable[[bool], None] | None = None,
+        settings: Any = None,
     ) -> None:
         resolved = PRESETS[preset] if isinstance(preset, str) else preset
+        #: For ``agent.effortMap``: per-model effort tiers (CORE-effort).
+        self._settings = settings
         self.preset = resolved
         self.vendor = resolved.id
         self.model = model or resolved.default_model
@@ -94,11 +97,18 @@ class OpenAICompatProvider:
     def _effort_for(self, model: str, effort: str | None) -> str | None:
         """The tier to send for ``model``, or ``None`` to send none.
 
-        Three gates, all of which must pass: the vendor's API takes the field,
-        this model's family takes it, and this model has not already refused
-        it in this process.
+        A known model profile (``agent.effortMap`` or built in) decides on its
+        own: the tier is clamped to what the model has.  Otherwise three gates,
+        all of which must pass: the vendor's API takes the field, this model's
+        family takes it, and this model has not already refused it in this
+        process.
         """
-        if not effort or not self.preset.supports_effort:
+        if not effort:
+            return None
+        profile = effort_scale.model_profile(self._settings, self.vendor, model)
+        if profile is not None:
+            return effort_scale.clamp(effort_scale.normalize(effort), profile.available())
+        if not self.preset.supports_effort:
             return None
         if not self.preset.local_style and not effort_scale.supports_openai_effort(model):
             # A self-hosted server opted in by configuration, so its model ids
@@ -175,6 +185,7 @@ class OpenAICompatProvider:
         """Stream one assistant turn, normalised to :class:`StreamEvent`."""
         model = await self._ensure_model()
         wanted = self._effort_for(model, effort)
+        profile = effort_scale.model_profile(self._settings, self.vendor, model)
         # ``None`` is the optimistic case: nobody knows whether this server's
         # model can see, so the images go out and the answer teaches us
         # (CORE-vision).
@@ -188,6 +199,7 @@ class OpenAICompatProvider:
             thinking=thinking,
             effort=wanted,
             vision=True if probing else self._vision,
+            effort_profile=profile,
         )
         normalizer = OpenAIStreamNormalizer(self.preset)
         try:
@@ -216,6 +228,7 @@ class OpenAICompatProvider:
                                     max_tokens=max_tokens,
                                     thinking=thinking,
                                     effort=wanted,
+                                    effort_profile=profile,
                                     vision=False,
                                 ),
                                 normalizer,
@@ -241,6 +254,7 @@ class OpenAICompatProvider:
                                         max_tokens=max_tokens,
                                         thinking=thinking,
                                         effort=wanted,
+                                        effort_profile=profile,
                                         vision=True if probing else self._vision,
                                     ),
                                     normalizer,

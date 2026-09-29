@@ -25,6 +25,8 @@ Resolution order for one turn, highest first:
 from __future__ import annotations
 
 import logging
+import re
+from dataclasses import dataclass
 from typing import Any, Literal
 
 log = logging.getLogger("snowpea.providers.effort")
@@ -59,6 +61,78 @@ _CODEX_BY_TIER: dict[str, str] = {
     "high": "high",
     "max": "xhigh",
 }
+
+@dataclass(frozen=True)
+class EffortProfile:
+    """What one model takes: which tiers exist, and how each is spelled.
+
+    ``tiers`` maps a tier of our scale to the wire value; a tier missing from
+    it does not exist for this model and is clamped down to the next one that
+    does.  ``field`` says where the value goes: ``reasoning_effort`` in the
+    request body, or ``template`` for ``chat_template_kwargs.reasoning_effort``
+    (a vLLM router may validate the body field against OpenAI's three words
+    while the model's chat template speaks others).
+    """
+
+    tiers: dict[str, str]
+    field: Literal["reasoning_effort", "template"] = "reasoning_effort"
+
+    def available(self) -> list[str]:
+        return [tier for tier in EFFORTS if tier in self.tiers]
+
+
+#: Models whose effort scale is known: matched on the model id.
+#: Qwen3.8 Flash Next's template takes low / medium / xhigh (its default);
+#: "high" is rejected and there is nothing above xhigh, so it has no ``max``.
+BUILTIN_PROFILES: tuple[tuple[re.Pattern[str], EffortProfile], ...] = (
+    (
+        re.compile(r"qwen[-_.]?3[-_.]?8[-_.]?flash", re.IGNORECASE),
+        EffortProfile({"low": "low", "medium": "medium", "high": "xhigh"}, field="template"),
+    ),
+)
+
+
+def _profile_from(value: Any) -> EffortProfile | None:
+    """An ``agent.effortMap`` entry: ``{"tiers": {...}, "field": ...}`` or a bare tier map."""
+    if not isinstance(value, dict):
+        return None
+    raw = value.get("tiers") if isinstance(value.get("tiers"), dict) else value
+    tiers = {
+        str(tier): str(wire)
+        for tier, wire in raw.items()
+        if tier in EFFORTS and isinstance(wire, str) and wire.strip()
+    }
+    field = "template" if value.get("field") == "template" else "reasoning_effort"
+    return EffortProfile(tiers, field=field)  # type: ignore[arg-type]
+
+
+def model_profile(settings: Any, vendor: str | None, model: str | None) -> EffortProfile | None:
+    """The effort profile for ``vendor``/``model``: settings first, then built in.
+
+    ``agent.effortMap`` keys are ``"<vendor>:<model>"`` or ``"<model>"``; an
+    entry with no tiers (``{}``) says the model takes no effort at all.
+    """
+    table = _field(_agent_block(settings), "effortMap")
+    if isinstance(table, dict) and model:
+        for key in (f"{vendor}:{model}" if vendor else None, model):
+            if key and key in table:
+                return _profile_from(table[key])
+    for pattern, profile in BUILTIN_PROFILES:
+        if model and pattern.search(model):
+            return profile
+    return None
+
+
+def clamp(tier: str | None, available: list[str]) -> str | None:
+    """``tier`` if the model has it, else the nearest one below it (else the lowest)."""
+    if not tier or not available:
+        return None
+    if tier in available:
+        return tier
+    index = EFFORTS.index(tier) if tier in EFFORTS else len(EFFORTS) - 1
+    below = [t for t in available if EFFORTS.index(t) <= index]
+    return below[-1] if below else available[0]
+
 
 #: Thinking budgets in tokens, for the vendors that take a number rather than
 #: a word.  The tiers double and then double again: a tier that is not clearly
@@ -325,6 +399,10 @@ UNSUPPORTED = UnsupportedEffort()
 
 
 __all__ = [
+    "BUILTIN_PROFILES",
+    "EffortProfile",
+    "clamp",
+    "model_profile",
     "AUTO",
     "BUDGET_BY_TIER",
     "BUDGET_SHARE",

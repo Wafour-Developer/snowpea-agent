@@ -1745,11 +1745,12 @@ export function App({
         vendor: state.provider ?? null,
         effort: state.effort,
         effortSource: state.effortSource,
+        efforts: state.efforts,
       });
         setModelPicker(options);
       },
     );
-  }, [client, workdir, state.provider, state.model]);
+  }, [client, workdir, state.provider, state.model, state.effort, state.effortSource, state.efforts]);
 
   /**
    * Pin the session to a model, or clear the pin.
@@ -1764,11 +1765,22 @@ export function App({
       if (ref === EFFORT_REF) {
         // The effort row cycles rather than opening a submenu of four; an
         // older daemon has no such method, and falls back to the command.
-        const wanted = nextEffort(state.effort);
+        if (state.efforts && state.efforts.length === 0) {
+          showToast(`effort: not supported by ${state.model ?? "this model"}`);
+          return;
+        }
+        const wanted = nextEffort(state.effort, state.efforts);
         void client
           .call("session.setEffort", { sessionId, effort: wanted })
           .then((result) => {
-            showToast(`effort: ${result?.effort ?? wanted}`);
+            const applied = result?.effort ?? null;
+            showToast(
+              applied === null
+                ? `effort: not supported by ${state.model ?? "this model"}`
+                : applied !== wanted
+                  ? `effort: ${applied} (${wanted} is not available for this model)`
+                  : `effort: ${applied}`,
+            );
           })
           .catch((error: unknown) => {
             if ((error as { code?: unknown } | null)?.code === -32601) {
@@ -1798,7 +1810,7 @@ export function App({
           dispatch({ type: "error", message: String(error) });
         });
     },
-    [client, sessionId, showToast, state.effort],
+    [client, sessionId, showToast, state.effort, state.efforts, state.model],
   );
 
   /** Ctrl+V with an image on the clipboard. */

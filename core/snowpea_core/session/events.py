@@ -210,6 +210,7 @@ def model_changed(
     model: str | None,
     effort: str | None = None,
     effort_source: str | None = None,
+    efforts: Sequence[str] | None = None,
 ) -> Event:
     """This session is now talking to ``provider``/``model``.
 
@@ -223,6 +224,7 @@ def model_changed(
             model=model,
             effort=effort,  # type: ignore[arg-type]
             effortSource=effort_source,  # type: ignore[arg-type]
+            efforts=list(efforts) if efforts is not None else None,  # type: ignore[arg-type]
         )
     )
 

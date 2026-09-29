@@ -1887,10 +1887,12 @@ export interface SessionSetEffortParams {
 
 /** `session.setEffort` result. */
 export interface SessionSetEffortResult {
-  /** Effective reasoning effort after the change. */
-  effort: "low" | "medium" | "high" | "max";
+  /** Effective reasoning effort after the change, clamped to what the model offers; null when the model has no effort setting. */
+  effort?: "low" | "medium" | "high" | "max" | null;
   /** Rule that decided it: the session pin, a model or vendor rule, or the default. */
   effortSource: "session" | "model" | "vendor" | "default";
+  /** Tiers the session's model offers; [] means it has no effort setting. */
+  efforts?: ("low" | "medium" | "high" | "max")[] | null;
   /** The session's own pin; null when it follows the settings. */
   pinned?: "low" | "medium" | "high" | "max" | null;
   /** Session that was pinned. */
@@ -3462,6 +3464,8 @@ export interface ModelChangedEventPayload {
   effort?: "low" | "medium" | "high" | "max" | null;
   /** Rule that decided the effort: 'session', 'model', 'vendor' or 'default'. */
   effortSource?: "session" | "model" | "vendor" | "default" | null;
+  /** Tiers this model offers, weakest first; [] means it has no effort setting (effort is then null). E.g. Qwen3.8 Flash Next offers low, medium, high. */
+  efforts?: ("low" | "medium" | "high" | "max")[] | null;
   kind?: "model.changed";
   /** Model id now in effect. */
   model?: string | null;
