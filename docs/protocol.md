@@ -2881,6 +2881,8 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 
 Returned as the string `error.data.code` of a JSON-RPC error response.
 
+The numeric `error.code`: `-32601` means only that the **method** does not exist (`method_not_found`), so a client can feature-detect an older daemon by it; a missing session, job, memory, content or other entity is `-32004` (`not_found`, `mcp_not_found`); `-32602` invalid params; `-32603` internal; `-32000` everything else. Before protocol 1.7.0 a missing entity also answered `-32601`.
+
 | code | meaning |
 |---|---|
 | `approval_denied` | The user denied the approval request. |
@@ -2895,8 +2897,9 @@ Returned as the string `error.data.code` of a JSON-RPC error response.
 | `mcp_read_only` |  |
 | `mcp_start_failed` |  |
 | `mcp_unsafe` |  |
+| `method_not_found` | No such method (`-32601`). |
 | `mode_denied` | The session mode forbids this tool or action. |
-| `not_found` | No such session, request, job, or agent. |
+| `not_found` | No such session, request, job, agent or content (`-32004`). |
 | `not_implemented` | Defined in the schema but not implemented in this milestone. |
 | `protocol_incompatible` | Client and server protocol majors differ. |
 | `session_busy` |  |

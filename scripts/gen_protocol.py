@@ -715,6 +715,15 @@ def render_md(schema: dict[str, Any]) -> str:
     out.append("")
     out.append("Returned as the string `error.data.code` of a JSON-RPC error response.")
     out.append("")
+    out.append(
+        "The numeric `error.code`: `-32601` means only that the **method** does not "
+        "exist (`method_not_found`), so a client can feature-detect an older daemon by "
+        "it; a missing session, job, memory, content or other entity is `-32004` "
+        "(`not_found`, `mcp_not_found`); `-32602` invalid params; `-32603` internal; "
+        "`-32000` everything else. Before protocol 1.7.0 a missing entity also "
+        "answered `-32601`."
+    )
+    out.append("")
     out.append("| code | meaning |")
     out.append("|---|---|")
     meanings = {
@@ -724,7 +733,8 @@ def render_md(schema: dict[str, Any]) -> str:
         "invalid_params": "Params failed schema validation.",
         "login_unsupported": "The vendor does not support the requested login method.",
         "mode_denied": "The session mode forbids this tool or action.",
-        "not_found": "No such session, request, job, or agent.",
+        "not_found": "No such session, request, job, agent or content (`-32004`).",
+        "method_not_found": "No such method (`-32601`).",
         "not_implemented": "Defined in the schema but not implemented in this milestone.",
         "protocol_incompatible": "Client and server protocol majors differ.",
         "tool_inactive": "The tool exists but is disabled for this session.",

@@ -11,7 +11,12 @@ from typing import Any
 
 UNAUTHORIZED = "unauthorized"
 PROTOCOL_INCOMPATIBLE = "protocol_incompatible"
+#: A session, job, memory, content or other entity does not exist.  JSON-RPC
+#: code -32004, never -32601 (protocol 1.7.0).
 NOT_FOUND = "not_found"
+#: The method itself does not exist: the only error answered with the
+#: standard -32601, so a client can feature-detect an older daemon by it.
+METHOD_NOT_FOUND_CODE = "method_not_found"
 INVALID_PARAMS = "invalid_params"
 MODE_DENIED = "mode_denied"
 APPROVAL_DENIED = "approval_denied"
@@ -38,6 +43,7 @@ ERROR_CODES: tuple[str, ...] = (
     UNAUTHORIZED,
     PROTOCOL_INCOMPATIBLE,
     NOT_FOUND,
+    METHOD_NOT_FOUND_CODE,
     INVALID_PARAMS,
     MODE_DENIED,
     APPROVAL_DENIED,
@@ -63,12 +69,16 @@ METHOD_NOT_FOUND = -32601
 INVALID_PARAMS_JSONRPC = -32602
 INTERNAL_ERROR = -32603
 SERVER_ERROR = -32000
+#: Application code for a missing entity (``not_found``, ``mcp_not_found``).
+#: Before protocol 1.7.0 these shared -32601 with unknown methods.
+ENTITY_NOT_FOUND = -32004
 
 _JSONRPC_CODE: dict[str, int] = {
-    NOT_FOUND: METHOD_NOT_FOUND,
+    METHOD_NOT_FOUND_CODE: METHOD_NOT_FOUND,
+    NOT_FOUND: ENTITY_NOT_FOUND,
     INVALID_PARAMS: INVALID_PARAMS_JSONRPC,
     MCP_INVALID: INVALID_PARAMS_JSONRPC,
-    MCP_NOT_FOUND: METHOD_NOT_FOUND,
+    MCP_NOT_FOUND: ENTITY_NOT_FOUND,
     INTERNAL: INTERNAL_ERROR,
 }
 
@@ -102,7 +112,9 @@ __all__ = [
     "INTERNAL_ERROR",
     "INVALID_PARAMS_JSONRPC",
     "INVALID_REQUEST",
+    "ENTITY_NOT_FOUND",
     "METHOD_NOT_FOUND",
+    "METHOD_NOT_FOUND_CODE",
     "PARSE_ERROR",
     "LOGIN_UNSUPPORTED",
     "MCP_EXISTS",

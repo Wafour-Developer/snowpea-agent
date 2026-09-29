@@ -232,7 +232,7 @@ class RpcDispatcher:
             raise RpcError(errors.UNAUTHORIZED, f"{method} requires system.hello first")
         handler = self._handlers.get(method)
         if handler is None:
-            raise RpcError(errors.NOT_FOUND, f"unknown method: {method}")
+            raise RpcError(errors.METHOD_NOT_FOUND_CODE, f"unknown method: {method}")
         raw_params = message.get("params")
         if raw_params is None:
             raw_params = {}

@@ -125,6 +125,17 @@ async def test_unknown_method_is_not_found(daemon: Daemon, session: aiohttp.Clie
     await _hello(client, daemon.token)
     response = await client.call("nope.nothing")
     assert response["error"]["code"] == -32601
+    assert response["error"]["data"]["code"] == "method_not_found"
+
+
+async def test_a_missing_entity_is_not_method_not_found(
+    daemon: Daemon, session: aiohttp.ClientSession
+) -> None:
+    """-32601 means only "no such method", so clients can feature-detect by it."""
+    client = await _connect(session, daemon)
+    await _hello(client, daemon.token)
+    response = await client.call("session.interrupt", {"sessionId": "s-missing"})
+    assert response["error"]["code"] == -32004
     assert response["error"]["data"]["code"] == "not_found"
 
 

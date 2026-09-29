@@ -24,6 +24,7 @@ export type ErrorCode =
   | "mcp_read_only"
   | "mcp_start_failed"
   | "mcp_unsafe"
+  | "method_not_found"
   | "mode_denied"
   | "not_found"
   | "not_implemented"
@@ -44,6 +45,7 @@ export const ERROR_CODES: readonly ErrorCode[] = [
   "mcp_read_only",
   "mcp_start_failed",
   "mcp_unsafe",
+  "method_not_found",
   "mode_denied",
   "not_found",
   "not_implemented",
