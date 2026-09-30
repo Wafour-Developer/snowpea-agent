@@ -32,6 +32,7 @@ from snowpea_core.permissions.allowlist import (
     Allowlist,
     command_of,
     first_token,
+    once_only,
     pattern_for_command,
     pattern_for_tool,
     site_of,
@@ -82,6 +83,8 @@ def guard_scope(request: ApprovalRequest, decision: Decision) -> Decision:
     """
     if not decision.allowed or decision.scope == "once":
         return decision
+    if once_only(request.args):
+        return replace(decision, scope="once")
     tool = request.tool or ""
     if (
         decision.scope in ("always", "project")

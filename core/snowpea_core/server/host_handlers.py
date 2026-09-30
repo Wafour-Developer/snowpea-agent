@@ -15,7 +15,7 @@ import time
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
-from snowpea_core.permissions.allowlist import site_of
+from snowpea_core.permissions.allowlist import once_only, site_of
 from snowpea_core.permissions.policy import MODE_MATRIX, RISK_BY_TAG
 from snowpea_core.providers.base import ChatMessage
 from snowpea_core.server import errors
@@ -185,12 +185,21 @@ async def approval_ask_handler(
     args = {**params.args, **({"detail": detail} if detail else {})}
     site = site_of(args, params.site or (str(detail["origin"]) if detail.get("origin") else None))
     payment = (params.risk or "").strip().lower() == PAYMENT_RISK
+    # onceOnly (a host that cannot name the site): never matched against, or
+    # stored as, a rule — the same as a payment, without forcing a person.
+    unremembered = payment or once_only(args)
     force = params.forceAsk or payment
     matrix = MODE_MATRIX.get(session.mode, {}).get(params.permission, "ask")
     if force:
         # Only a deny may come from the mode; allow never does.
         if matrix == "deny":
             return ApprovalAskResult(decision="deny", by="mode")
+    elif unremembered:
+        # The mode matrix still speaks; the allowlist does not.
+        if matrix == "deny":
+            return ApprovalAskResult(decision="deny", by="mode")
+        if matrix == "allow":
+            return ApprovalAskResult(decision="allow", by="mode")
     else:
         verdict = core.policy.decide(session.mode, params.permission, tool, args, session)
         if verdict == "deny":
@@ -199,7 +208,9 @@ async def approval_ask_handler(
             return ApprovalAskResult(
                 decision="allow", by="mode" if matrix == "allow" else "allowlist"
             )
-    if not payment and core.allowlist.matches(tool, args, workdir=session.workdir, site=site):
+    if not unremembered and core.allowlist.matches(
+        tool, args, workdir=session.workdir, site=site
+    ):
         return ApprovalAskResult(decision="allow", by="allowlist")
     decision = await core.approvals.request(
         session,
@@ -209,15 +220,15 @@ async def approval_ask_handler(
         unattended=session.origin_conn is None,
         cancel_event=session.interrupt,
         note=params.reason,
-        scope_hint="site" if site and not payment else "once",
-        # A payment answer is never remembered: no cache, no allowlist entry.
-        cacheable=not payment,
+        scope_hint="site" if site and not unremembered else "once",
+        # A payment / onceOnly answer is never remembered: no cache, no entry.
+        cacheable=not unremembered,
         site=site,
     )
     scope = decision.scope if decision.scope in _SCOPES else "once"
     return ApprovalAskResult(
         decision="allow" if decision.allowed else "deny",
-        scope="once" if payment else scope,  # type: ignore[arg-type]
+        scope="once" if unremembered else scope,  # type: ignore[arg-type]
         by=_decided_by(decision.by),
     )
 

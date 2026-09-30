@@ -1011,3 +1011,40 @@ async def test_tabs_and_clipboard_may_be_remembered_always(
     answer, stored = await _ask_with_scope(http, daemon, tmp_path, "always", "repl.tabs")
     assert answer["scope"] == "always"
     assert len(stored) == 1 and stored[0]["origin"] is None
+
+
+async def test_once_only_ignores_existing_rules_and_stores_nothing(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    host = await open_client(http, daemon, approval_mode="allow", approval_scope="site")
+    try:
+        await host.ok("tool.register", {"tools": [spec("repl", "read")]})
+        session_id = await new_session(host, tmp_path / "w", mode="accept")
+        ask = {
+            "sessionId": session_id,
+            "tool": "repl.send",
+            "permission": "send",
+            "reason": "POST from an opaque-origin tab",
+            "args": {"url": "https://api.example/submit"},
+        }
+        # An ordinary answer stores a rule for api.example …
+        assert (await host.ok("approval.ask", ask))["by"] == "user"
+        assert (await host.ok("approval.ask", ask))["by"] == "allowlist"
+        # … which a onceOnly call must not use: the person is asked.
+        once = dict(ask, args={**ask["args"], "onceOnly": True})
+        asked_before = len(host.approval_requests)
+        answer = await host.ok("approval.ask", once)
+        assert answer == {"decision": "allow", "scope": "once", "by": "user"}
+        assert len(host.approval_requests) == asked_before + 1
+        request = host.approval_requests[-1]
+        assert request["scopeHint"] == "once" and request["site"] is None
+
+        # A "site" answer to a onceOnly call stores nothing.
+        rows_before = (await host.ok("permission.allowlist.list", {}))["patterns"]
+        other = dict(once, tool="repl.upload")
+        answer = await host.ok("approval.ask", other)
+        assert answer["scope"] == "once"
+        rows_after = (await host.ok("permission.allowlist.list", {}))["patterns"]
+        assert rows_after == rows_before
+    finally:
+        await host.stop()

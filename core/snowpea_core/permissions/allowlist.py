@@ -37,12 +37,20 @@ Scope = Literal["project", "global"]
 #: ``target`` value for entries matched against a shell command line.
 SHELL_TARGET = "shell"
 
+def once_only(args: Any) -> bool:
+    """True when a host asked that this call never be remembered (``args.onceOnly``)."""
+    return isinstance(args, dict) and args.get("onceOnly") is True
+
+
 def site_of(args: Any, site: str | None = None) -> str | None:
     """``scheme://host`` of an explicit site, or of ``args["url"]``/``args["origin"]``."""
     from urllib.parse import urlsplit
 
+    # A host marks a call it cannot attribute to a site (an opaque-origin tab)
+    # onceOnly; its url is then the *destination*, not a site to key rules by.
+    from_args = isinstance(args, dict) and not once_only(args)
     for candidate in (site, *(
-        args.get(key) for key in ("origin", "url") if isinstance(args, dict)
+        args.get(key) for key in ("origin", "url") if from_args
     )):
         if not isinstance(candidate, str) or not candidate.strip():
             continue
