@@ -1048,3 +1048,75 @@ async def test_once_only_ignores_existing_rules_and_stores_nothing(
         assert rows_after == rows_before
     finally:
         await host.stop()
+
+
+async def test_allowlist_methods_take_a_project_workdir(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    client = await open_client(http, daemon)
+    try:
+        project_a, project_b = tmp_path / "a", tmp_path / "b"
+        project_a.mkdir()
+        project_b.mkdir()
+        added = await client.ok(
+            "permission.allowlist.add",
+            {"pattern": "^ls( .*)?$", "scope": "project", "workdir": str(project_a)},
+        )
+        assert (project_a / ".snowpea" / "settings.json").is_file()
+        assert not (project_b / ".snowpea" / "settings.json").exists()
+        in_a = await client.ok(
+            "permission.allowlist.list", {"scope": "project", "workdir": str(project_a)}
+        )
+        in_b = await client.ok(
+            "permission.allowlist.list", {"scope": "project", "workdir": str(project_b)}
+        )
+        assert [p["patternId"] for p in in_a["patterns"]] == [added["patternId"]]
+        assert in_b["patterns"] == []
+        await client.ok(
+            "permission.allowlist.remove",
+            {"patternId": added["patternId"], "workdir": str(project_a)},
+        )
+        gone = await client.ok(
+            "permission.allowlist.list", {"scope": "project", "workdir": str(project_a)}
+        )
+        assert gone["patterns"] == []
+        bad = await client.call(
+            "permission.allowlist.list", {"workdir": "relative/path"}
+        )
+        assert bad["error"]["data"]["code"] == "invalid_params"
+    finally:
+        await client.stop()
+
+
+async def test_repl_files_may_be_remembered_for_the_project_only(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    answer, stored = await _ask_with_scope(http, daemon, tmp_path, "project", "repl.files")
+    assert answer["scope"] == "project" and len(stored) == 1
+    assert stored[0]["scope"] == "project" and stored[0]["pattern"] == r"^repl\.files$"
+    project = tmp_path / "w-repl.files-project"
+    assert "repl" in (project / ".snowpea" / "settings.json").read_text(encoding="utf-8")
+    answer, stored = await _ask_with_scope(http, daemon, tmp_path, "always", "repl.files")
+    assert answer["scope"] == "once" and stored == []
+
+
+async def test_a_session_created_in_a_project_uses_its_settings_agents_md_and_memory(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    from snowpea_core.agent.agent import environment_blocks
+    from snowpea_core.memory.retrieval import namespaces_for, project_namespace_of
+
+    project = tmp_path / "proj"
+    (project / ".snowpea").mkdir(parents=True)
+    (project / ".snowpea" / "settings.json").write_text('{"defaultMode": "plan"}')
+    (project / "AGENTS.md").write_text("Always answer in haiku.")
+    client = await open_client(http, daemon)
+    try:
+        session_id = await new_session(client, project)
+        session = daemon.core.sessions.get(session_id)
+        assert session.mode == "plan"
+        _, context = environment_blocks(session, daemon.core)
+        assert "Always answer in haiku." in context
+        assert project_namespace_of(session) in namespaces_for(session)
+    finally:
+        await client.stop()

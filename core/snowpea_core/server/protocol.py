@@ -1322,6 +1322,13 @@ class QuestionAnswer(Payload):
 class AllowlistAddParams(Payload):
     pattern: str = Field(description="Glob or command prefix promoted from ask to allow.")
     scope: AllowlistScope = Field(default="project", description="Where the pattern is stored.")
+    workdir: str | None = Field(
+        default=None,
+        description=(
+            "Absolute folder of the project to use (its .snowpea/settings.json). Default: "
+            "the caller's most recent session's workdir (1.7.0)."
+        ),
+    )
 
 
 class AllowlistAddResult(Payload):
@@ -1330,6 +1337,13 @@ class AllowlistAddResult(Payload):
 
 class AllowlistListParams(Payload):
     scope: AllowlistScope | None = Field(default=None, description="Filter by scope; omit for all.")
+    workdir: str | None = Field(
+        default=None,
+        description=(
+            "Absolute folder of the project to use (its .snowpea/settings.json). Default: "
+            "the caller's most recent session's workdir (1.7.0)."
+        ),
+    )
 
 
 class AllowlistPattern(Payload):
@@ -1362,6 +1376,13 @@ class AllowlistListResult(Payload):
 
 class AllowlistRemoveParams(Payload):
     patternId: str = Field(description="Pattern to delete.")
+    workdir: str | None = Field(
+        default=None,
+        description=(
+            "Absolute folder of the project to use (its .snowpea/settings.json). Default: "
+            "the caller's most recent session's workdir (1.7.0)."
+        ),
+    )
 
 
 # --------------------------------------------------------------------------

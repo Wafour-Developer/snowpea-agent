@@ -329,13 +329,19 @@ WIRE_SCOPE: dict[str, AllowlistStore] = {
 STORE_SCOPE: dict[str, str] = {"project": "project", "global": "always"}
 
 
-def _workdir_for(core: Core, conn: RpcConnection) -> Path | None:
+def _workdir_for(core: Core, conn: RpcConnection, explicit: str | None = None) -> Path | None:
     """Project directory the caller means.
 
-    ``permission.allowlist.*`` carries no session id (the protocol models are
-    fixed), so the workdir is taken from the session this connection started;
-    failing that, from the only open session.
+    ``workdir`` in the params wins (1.7.0): an absolute path to an existing
+    folder, used as the project as-is, the way ``file.complete`` takes it.
+    Otherwise the session this connection started; failing that, the only
+    open session.
     """
+    if explicit:
+        folder = Path(explicit).expanduser()
+        if not folder.is_absolute() or not folder.is_dir():
+            raise RpcError(errors.INVALID_PARAMS, f"workdir must be an existing folder: {explicit}")
+        return folder.resolve()
     sessions = [
         session
         for session in (core.sessions.get(row.sessionId) for row in core.sessions.list())
@@ -354,7 +360,7 @@ async def allowlist_add_handler(
 ) -> AllowlistAddResult:
     """``permission.allowlist.add`` — store a pattern, return its id."""
     store = WIRE_SCOPE.get(params.scope, "project")
-    workdir = _workdir_for(core, conn)
+    workdir = _workdir_for(core, conn, params.workdir)
     if store == "project" and workdir is None:
         raise RpcError(
             errors.INVALID_PARAMS,
@@ -372,7 +378,7 @@ async def allowlist_list_handler(
 ) -> AllowlistListResult:
     """``permission.allowlist.list`` — stored patterns, optionally by scope."""
     store = WIRE_SCOPE.get(params.scope, "project") if params.scope else None
-    workdir = _workdir_for(core, conn)
+    workdir = _workdir_for(core, conn, params.workdir)
     items = core.allowlist.list(store, workdir=workdir)
     return AllowlistListResult(
         patterns=[
@@ -393,7 +399,9 @@ async def allowlist_remove_handler(
     conn: RpcConnection, params: AllowlistRemoveParams, core: Core
 ) -> Ok:
     """``permission.allowlist.remove`` — delete a pattern by id."""
-    removed = core.allowlist.remove(params.patternId, workdir=_workdir_for(core, conn))
+    removed = core.allowlist.remove(
+        params.patternId, workdir=_workdir_for(core, conn, params.workdir)
+    )
     if not removed:
         raise RpcError(errors.NOT_FOUND, f"no allowlist pattern {params.patternId}")
     return Ok(ok=True)

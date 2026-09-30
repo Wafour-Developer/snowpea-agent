@@ -72,6 +72,10 @@ GRACE_SECONDS = 2.0
 #: an "always"/"project" answer for it would become a rule for every site.
 REPL_GLOBAL_OK: frozenset[str] = frozenset({"repl.tabs", "repl.clipboard"})
 
+#: Dotted actions that act on the session's project folder, not on a page:
+#: they may be remembered for that project, never globally (1.7.0).
+REPL_PROJECT_OK: frozenset[str] = frozenset({"repl.files"})
+
 
 def guard_scope(request: ApprovalRequest, decision: Decision) -> Decision:
     """Downgrade a remembered answer that would be broader than it looks.
@@ -90,6 +94,7 @@ def guard_scope(request: ApprovalRequest, decision: Decision) -> Decision:
         decision.scope in ("always", "project")
         and tool.startswith("repl.")
         and tool not in REPL_GLOBAL_OK
+        and not (decision.scope == "project" and tool in REPL_PROJECT_OK)
     ):
         log.info("approval %s: %s for %s kept to once", request.requestId, decision.scope, tool)
         return replace(decision, scope="once")

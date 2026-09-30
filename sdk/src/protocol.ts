@@ -1300,6 +1300,8 @@ export interface PermissionAllowlistAddParams {
   pattern: string;
   /** Where the pattern is stored. */
   scope?: "session" | "project" | "always";
+  /** Absolute folder of the project to use (its .snowpea/settings.json). Default: the caller's most recent session's workdir (1.7.0). */
+  workdir?: string | null;
 }
 
 /** `permission.allowlist.add` result. */
@@ -1312,6 +1314,8 @@ export interface PermissionAllowlistAddResult {
 export interface PermissionAllowlistListParams {
   /** Filter by scope; omit for all. */
   scope?: "session" | "project" | "always" | null;
+  /** Absolute folder of the project to use (its .snowpea/settings.json). Default: the caller's most recent session's workdir (1.7.0). */
+  workdir?: string | null;
 }
 
 /** `permission.allowlist.list` result. */
@@ -1337,6 +1341,8 @@ export interface PermissionAllowlistListResult {
 export interface PermissionAllowlistRemoveParams {
   /** Pattern to delete. */
   patternId: string;
+  /** Absolute folder of the project to use (its .snowpea/settings.json). Default: the caller's most recent session's workdir (1.7.0). */
+  workdir?: string | null;
 }
 
 /** `permission.allowlist.remove` result. */

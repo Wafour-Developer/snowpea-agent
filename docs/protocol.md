@@ -1171,6 +1171,7 @@ Promote a pattern from ask to allow.
 |---|---|---|---|
 | `pattern` | `string` | yes | Glob or command prefix promoted from ask to allow. |
 | `scope` | `"session" \| "project" \| "always"` | no | Where the pattern is stored. |
+| `workdir` | `string \| null` | no | Absolute folder of the project to use (its .snowpea/settings.json). Default: the caller's most recent session's workdir (1.7.0). |
 
 **Result**
 
@@ -1189,6 +1190,7 @@ List stored allowlist patterns.
 | field | type | required | description |
 |---|---|---|---|
 | `scope` | `"session" \| "project" \| "always" \| null` | no | Filter by scope; omit for all. |
+| `workdir` | `string \| null` | no | Absolute folder of the project to use (its .snowpea/settings.json). Default: the caller's most recent session's workdir (1.7.0). |
 
 **Result**
 
@@ -1207,6 +1209,7 @@ Delete an allowlist pattern by id.
 | field | type | required | description |
 |---|---|---|---|
 | `patternId` | `string` | yes | Pattern to delete. |
+| `workdir` | `string \| null` | no | Absolute folder of the project to use (its .snowpea/settings.json). Default: the caller's most recent session's workdir (1.7.0). |
 
 **Result**
 
