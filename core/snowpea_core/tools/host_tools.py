@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from pathlib import Path
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -227,6 +228,8 @@ class HostTools:
             "workspaceDir": str(
                 getattr(session, "workspace_dir", None) or getattr(session, "workdir", "") or ""
             ),
+            # The session's project folder itself (Projects, 1.7.0).
+            "workdir": str(Path(getattr(session, "workdir", "") or ".").resolve()),
         }
         try:
             answer = await self._call_or_cancel(conn, session, params, timeout)

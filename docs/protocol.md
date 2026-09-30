@@ -2314,7 +2314,8 @@ Ask the client to run one of its host tools.
 | `name` | `string` | yes | Host tool name. |
 | `sessionId` | `string` | yes | Session whose turn called the tool. |
 | `turnId` | `string` | no | Turn the call belongs to. |
-| `workspaceDir` | `string` | no | Directory the session works in (its workdir). |
+| `workdir` | `string` | no | The session's project folder, absolute (Projects, 1.7.0). |
+| `workspaceDir` | `string` | no | The session workspace (tmp/, artifacts/); the workdir when it has none. |
 
 **Result**
 

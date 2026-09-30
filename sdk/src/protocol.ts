@@ -2831,7 +2831,9 @@ export interface ToolInvokeParams {
   sessionId: string;
   /** Turn the call belongs to. */
   turnId?: string;
-  /** Directory the session works in (its workdir). */
+  /** The session's project folder, absolute (Projects, 1.7.0). */
+  workdir?: string;
+  /** The session workspace (tmp/, artifacts/); the workdir when it has none. */
   workspaceDir?: string;
 }
 

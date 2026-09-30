@@ -158,6 +158,7 @@ async def test_a_host_tool_runs_in_the_client_and_reports_progress(
         assert call["mode"] == daemon.core.sessions.get(session_id).mode
         workspace = daemon.core.sessions.get(session_id).workspace_dir
         assert workspace and call["workspaceDir"] == workspace
+        assert call["workdir"] == str((tmp_path / "w").resolve())
         assert call["callId"] and call["turnId"]
         assert results_for(host, "host_echo")[-1]["output"] == "echo hi"
         progress = [

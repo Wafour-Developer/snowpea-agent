@@ -1048,7 +1048,12 @@ class ToolInvokeRequest(Payload):
         ),
     )
     workspaceDir: str = Field(
-        default="", description="Directory the session works in (its workdir)."
+        default="",
+        description="The session workspace (tmp/, artifacts/); the workdir when it has none.",
+    )
+    workdir: str = Field(
+        default="",
+        description="The session's project folder, absolute (Projects, 1.7.0).",
     )
 
 
