@@ -253,13 +253,33 @@ def _decided_by(by: str) -> str:
 async def session_attach_handler(
     conn: RpcConnection, params: SessionAttachParams, core: Core
 ) -> SessionAttachResult:
-    """``session.attach`` — this connection becomes the session's origin."""
+    """``session.attach`` — this connection becomes the session's origin.
+
+    With ``hostToolsFrom`` the session's host tools are re-pointed to that
+    browser connection too (addendum 7): a session created by an earlier
+    browser launch gets its ``repl`` and ``browser_*`` back.
+    """
     session = _session(core, params.sessionId)
+    target = params.hostToolsFrom
+    if target and HOST_TOOLS.live_browser(target, [conn]) is None:
+        raise RpcError(
+            errors.INVALID_PARAMS,
+            f"hostToolsFrom {target!r} is not an open connection of clientKind 'browser'",
+        )
     session.origin_conn = conn
     if getattr(conn, "client_id", None):
         session.origin_client_id = conn.client_id
     core.hub.subscribe(conn, session.id)
-    return SessionAttachResult(sessionId=session.id, hostTools=HOST_TOOLS.names_for(session))
+    if target and target != session.host_tools_from:
+        session.host_tools_from = target
+        if core.store is not None:
+            await core.store.update_host_tools_from(session.id, target)
+        await core.sessions.announce_sessions_changed("host", session.id)
+    return SessionAttachResult(
+        sessionId=session.id,
+        hostTools=HOST_TOOLS.names_for(session),
+        hostToolsFrom=session.host_tools_from,
+    )
 
 
 #: Longest ``session.notice`` text kept; notices beyond this many are dropped.

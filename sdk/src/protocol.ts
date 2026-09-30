@@ -1615,6 +1615,8 @@ export interface SessionArtifactsResult {
 
 /** `session.attach` params. Make this connection the origin of a session (approvals, host tools). */
 export interface SessionAttachParams {
+  /** Re-point the session's host tools to this clientId (or surface id). It must name an open connection whose clientKind is 'browser'. Persisted; emits sessions.changed (reason 'host'). */
+  hostToolsFrom?: string | null;
   /** Session this connection becomes the origin of (1.6.0). */
   sessionId: string;
 }
@@ -1623,6 +1625,8 @@ export interface SessionAttachParams {
 export interface SessionAttachResult {
   /** Host tools the session now sees. */
   hostTools?: string[];
+  /** The session's hostToolsFrom after the call; older cores omit it. */
+  hostToolsFrom?: string | null;
   /** The attached session. */
   sessionId: string;
 }

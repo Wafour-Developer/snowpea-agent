@@ -79,8 +79,19 @@ than falling back to a different browser.
 * A new connection with a `clientId` re-binds every open session whose creator
   had that `clientId` and whose origin connection is gone. Approvals and
   `tool.invoke` then reach the new connection.
-* `session.attach {sessionId}` → `{sessionId, hostTools}` makes the caller the
-  origin explicitly.
+* `session.attach {sessionId, hostToolsFrom?}` → `{sessionId, hostTools,
+  hostToolsFrom}` makes the caller the origin explicitly. With `hostToolsFrom`
+  (a clientId or surface id), the session's host tools are re-pointed to that
+  connection, which must be open and of clientKind `browser`; otherwise the call
+  fails with `invalid_params`. The value is persisted in state.db
+  (`sessions.host_tools_from`) and announced as `sessions.changed {reason:
+  "host"}` (addendum 7). `session.create {hostToolsFrom}` is persisted the
+  same way.
+* **Fallback.** When a session's `hostToolsFrom` names no connected host, and
+  its origin connection is an open `browser`-kind connection with registered
+  host tools, the session uses that connection's tools. This covers a browser
+  relaunched under a new clientId that re-attached without the parameter. The
+  per-session `browser_*` routing (§2) follows the same resolution.
 * `keepAlive: true` holds the daemon's idle shutdown while connected (lifecycle
   counter `keepalive_clients`).
 

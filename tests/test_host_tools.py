@@ -401,10 +401,79 @@ async def test_session_attach_makes_the_caller_the_origin(
         session_id = await new_session(owner, tmp_path / "w")
         await browser.ok("tool.register", {"tools": [spec("host_echo")]})
         attached = await browser.ok("session.attach", {"sessionId": session_id})
-        assert attached == {"sessionId": session_id, "hostTools": ["host_echo"]}
+        assert attached["sessionId"] == session_id
+        assert attached["hostTools"] == ["host_echo"]
     finally:
         await browser.stop()
         await owner.stop()
+
+
+async def test_attach_with_host_tools_from_rebinds_a_session_after_a_relaunch(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    """Addendum 7: a relaunched browser (new clientId) takes its sessions back."""
+    first = await open_client(http, daemon, client_id="snowpea-browser-A")
+    await first.ok("tool.register", {"tools": [spec("repl")]})
+    session_id = await new_session(first, tmp_path / "w", hostToolsFrom="snowpea-browser-A")
+    await first.stop()
+    await asyncio.sleep(0.1)
+
+    second = await open_client(http, daemon, client_id="snowpea-browser-B")
+    try:
+        await second.ok("tool.register", {"tools": [spec("repl")]})
+        attached = await second.ok(
+            "session.attach", {"sessionId": session_id, "hostToolsFrom": "snowpea-browser-B"}
+        )
+        assert attached["hostTools"] == ["repl"]
+        assert attached["hostToolsFrom"] == "snowpea-browser-B"
+        listed = await second.ok("tool.list", {"sessionId": session_id})
+        assert "repl" in {tool["name"] for tool in listed["tools"]}
+        await asyncio.sleep(0.05)
+        changed = [
+            n for n in second.notifications
+            if n["method"] == "sessions.changed"
+            and n["params"] == {"reason": "host", "sessionId": session_id}
+            | ({"title": n["params"]["title"]} if "title" in n["params"] else {})
+        ]
+        assert changed
+        rows = await daemon.core.store.list_sessions()
+        row = next(r for r in rows if r["id"] == session_id)
+        assert row["host_tools_from"] == "snowpea-browser-B"
+
+        refused = await second.call(
+            "session.attach", {"sessionId": session_id, "hostToolsFrom": "not-connected"}
+        )
+        assert refused["error"]["code"] == -32602
+    finally:
+        await second.stop()
+
+
+async def test_a_session_whose_named_host_is_gone_uses_its_live_browser_origin(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    """Addendum 7 fallback: no hostToolsFrom on attach, the stale id still resolves."""
+    first = await open_client(http, daemon, client_id="snowpea-browser-A")
+    await first.ok("tool.register", {"tools": [spec("repl")]})
+    session_id = await new_session(first, tmp_path / "w", hostToolsFrom="snowpea-browser-A")
+    await first.stop()
+    await asyncio.sleep(0.1)
+
+    second = await open_client(http, daemon, client_id="snowpea-browser-B")
+    try:
+        await second.ok("tool.register", {"tools": [spec("repl"), spec("browser_navigate")]})
+        attached = await second.ok("session.attach", {"sessionId": session_id})
+        assert sorted(attached["hostTools"]) == ["browser_navigate", "repl"]
+        listed = await second.ok("tool.list", {"sessionId": session_id})
+        assert "repl" in {tool["name"] for tool in listed["tools"]}
+        # The per-session browser_* routing follows the same resolution.
+        from snowpea_core.tools import browser_providers
+
+        session = daemon.core.sessions.get(session_id)
+        assert (
+            browser_providers.resolve_for_session(daemon.core.settings, session).meta.id == "host"
+        )
+    finally:
+        await second.stop()
 
 
 # ---------------------------------------------------------------------------

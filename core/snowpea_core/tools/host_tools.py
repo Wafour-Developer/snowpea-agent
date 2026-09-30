@@ -175,9 +175,35 @@ class HostTools:
                 for surface_id, host in self._hosts.items():
                     if host.tools and getattr(host.conn, field_name, None) == explicit:
                         return surface_id
-            return explicit
+            # The named host is gone (a browser relaunched under a new
+            # clientId): a live browser that is the session's origin, and
+            # provides host tools, takes over (addendum 7).
+            fallback = self._live_browser_origin(session)
+            return fallback if fallback is not None else explicit
         conn = getattr(session, "origin_conn", None)
         return getattr(conn, "surface_id", None) if conn is not None else None
+
+    def _live_browser_origin(self, session: Any) -> str | None:
+        conn = getattr(session, "origin_conn", None)
+        if conn is None or getattr(conn, "closed", False):
+            return None
+        if getattr(conn, "client_kind", None) != "browser":
+            return None
+        surface_id = getattr(conn, "surface_id", None)
+        host = self._hosts.get(surface_id) if surface_id else None
+        return surface_id if host is not None and host.tools else None
+
+    def live_browser(self, client_id: str, candidates: list[Any]) -> Any:
+        """The open ``browser``-kind connection whose clientId (or surface id) is ``client_id``."""
+        pool = [*candidates, *(host.conn for host in self._hosts.values())]
+        for conn in pool:
+            if conn is None or getattr(conn, "closed", False):
+                continue
+            if getattr(conn, "client_kind", None) != "browser":
+                continue
+            if client_id in (getattr(conn, "client_id", None), getattr(conn, "surface_id", None)):
+                return conn
+        return None
 
     def for_session(self, session: Any) -> dict[str, Tool]:
         """``name -> Tool`` for the host tools ``session`` may call."""

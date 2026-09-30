@@ -248,6 +248,7 @@ class SessionManager:
             context_used=history.estimate_tokens(),
             origin_conn=origin_conn,
         )
+        session.host_tools_from = row.get("host_tools_from")
         self._sessions[session.id] = session
         await self.store.reopen_session(session.id)
         log.info("session %s restored (%s, mode=%s)", session.id, session.workdir, session.mode)

@@ -256,6 +256,8 @@ async def session_create_handler(
         deny_exec=bool(params.denyExec),
     )
     session.host_tools_from = params.hostToolsFrom
+    if params.hostToolsFrom and core.store is not None:
+        await core.store.update_host_tools_from(session.id, params.hostToolsFrom)
     session.origin_client_id = getattr(conn, "client_id", None)
     session.browser_memory = (
         params.browserMemory

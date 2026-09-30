@@ -66,6 +66,7 @@ SESSION_COLUMNS: tuple[tuple[str, str], ...] = (
     ("effort", "TEXT"),
     ("delegation", "INTEGER"),
     ("title", "TEXT"),
+    ("host_tools_from", "TEXT"),
 )
 
 SQLITE_RETRY_ATTEMPTS = 5
@@ -226,6 +227,14 @@ class Store:
         """Persist the session's title (auto or ``session.rename``, 1.7.0)."""
         await asyncio.to_thread(
             self._execute, "UPDATE sessions SET title = ? WHERE id = ?", (title, session_id)
+        )
+
+    async def update_host_tools_from(self, session_id: str, value: str | None) -> None:
+        """Persist whose host tools the session uses (``hostToolsFrom``, addendum 7)."""
+        await asyncio.to_thread(
+            self._execute,
+            "UPDATE sessions SET host_tools_from = ? WHERE id = ?",
+            (value, session_id),
         )
 
     async def update_delegation(self, session_id: str, delegation: bool | None) -> None:

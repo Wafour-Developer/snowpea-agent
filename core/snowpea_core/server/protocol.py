@@ -331,12 +331,24 @@ class SessionCreateParams(Payload):
 
 class SessionAttachParams(Payload):
     sessionId: str = Field(description="Session this connection becomes the origin of (1.6.0).")
+    hostToolsFrom: str | None = Field(
+        default=None,
+        description=(
+            "Re-point the session's host tools to this clientId (or surface id). It must "
+            "name an open connection whose clientKind is 'browser'. Persisted; emits "
+            "sessions.changed (reason 'host')."
+        ),
+    )
 
 
 class SessionAttachResult(Payload):
     sessionId: str = Field(description="The attached session.")
     hostTools: list[str] = Field(
         default_factory=list, description="Host tools the session now sees."
+    )
+    hostToolsFrom: str | None = Field(
+        default=None,
+        description="The session's hostToolsFrom after the call; older cores omit it.",
     )
 
 
