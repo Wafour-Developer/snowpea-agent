@@ -29,9 +29,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from pathlib import Path
 from collections import OrderedDict
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from snowpea_core.tools.registry import ProgressEmitter, Tool, ToolContext, ToolResult
