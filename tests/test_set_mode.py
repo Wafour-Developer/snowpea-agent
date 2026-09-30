@@ -376,17 +376,44 @@ async def test_staying_in_plan_keeps_the_write_refused(
     await client.stop()
 
 
-def test_deliverables_go_in_the_project_except_in_a_browser_session() -> None:
-    """IDE/TUI sessions save what the user asked for next to their code; only a
-    browser session, which has no project, uses the workspace artifacts/."""
+def test_deliverables_go_in_the_working_directory_in_every_session() -> None:
+    """Saved deliverables belong where the user works, not under ~/.snowpea
+    (IDE, TUI and browser sessions alike); the workspace is scratch space."""
     from snowpea_core.prompts import environment as prompt_env
 
-    project = prompt_env.environment_lines(
+    lines = prompt_env.environment_lines(
         prompt_env.Environment(workdir="/w", workspace="/h/sessions/s-1")
     )
-    assert "artifacts/" not in project
-    assert "save what the user asked for in the working directory" in project
-    browser = prompt_env.environment_lines(
-        prompt_env.Environment(workdir="/w", workspace="/h/sessions/s-1", browser=True)
-    )
-    assert "artifacts/" in browser
+    assert "artifacts/" not in lines
+    assert "save what the user asked for in the working directory" in lines
+
+
+@pytest.mark.asyncio
+async def test_switching_mode_elsewhere_while_the_picker_is_up_is_the_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The user picked Auto in the IDE's mode selector instead of the picker."""
+    from snowpea_core.tools import set_mode as set_mode_module
+
+    monkeypatch.setattr(set_mode_module, "MODE_POLL_SECONDS", 0.01)
+
+    class _SlowOrigin:
+        def __init__(self, session: Session) -> None:
+            self.session = session
+            self.asked: list[dict[str, Any]] = []
+
+        async def call(self, method: str, params: dict[str, Any], timeout: float | None = None):
+            self.asked.append(params["questions"][0])
+            self.session.mode = "auto"  # the selector, while the picker waits
+            await asyncio.sleep(5)
+            return {"answers": [{"selected": [], "text": None}]}
+
+    core = _Core()
+    session = _session()
+    session.origin_conn = _SlowOrigin(session)
+
+    result = await asyncio.wait_for(set_mode(_ctx(core, session), {"mode": "accept"}), 2)
+
+    assert session.mode == "auto"
+    assert result.output == "모드를 auto 로 바꿨습니다. 구현을 시작합니다."
+    assert "plan" not in result.output

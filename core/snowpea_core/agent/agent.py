@@ -184,14 +184,6 @@ def context_files_total_chars(core: Core | None) -> int | None:
     return int(total) if total else None
 
 
-def _is_browser_session(session: Session) -> bool:
-    """A session a browser drives: its deliverables go in the workspace artifacts."""
-    if getattr(session, "origin_surface", None) == "browser":
-        return True
-    conn = getattr(session, "origin_conn", None)
-    return getattr(conn, "client_kind", None) == "browser"
-
-
 def environment_blocks(session: Session, core: Core | None = None) -> tuple[str, str]:
     """``(environment block, project context files block)`` for ``session``.
 
@@ -221,7 +213,6 @@ def environment_blocks(session: Session, core: Core | None = None) -> tuple[str,
         mode=session.mode,
         backend=str(backend or "local"),
         workspace=getattr(session, "workspace_dir", None),
-        browser=_is_browser_session(session),
         read_context=not ignore,
         context_window=session.context_window,
         context_file_chars=override,

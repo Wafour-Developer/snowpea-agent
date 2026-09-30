@@ -196,9 +196,12 @@ is at most 8,000 characters, and otherwise a pointer to `skill_view`.
 **Workspace.**
 
 * Each session gets `$SNOWPEA_HOME/sessions/<YYYY-MM-DD>_<id>/{tmp,artifacts}`.
-  It is returned by `session.create` and `session.list` (`workspaceDir`), named
-  in the system prompt's environment block, and passed to hosts as
-  `tool.invoke.workspaceDir`. Subagents share their parent's.
+  It is returned by `session.create` and `session.list` (`workspaceDir`) and
+  passed to hosts as `tool.invoke.workspaceDir`. Subagents share their
+  parent's. The environment block names only its `tmp/`, as scratch space:
+  files the user asked for are saved in the working directory in every client,
+  the browser included, so `session.artifacts` lists only what a host or tool
+  put there explicitly.
 * `session.artifacts {sessionId}` → `{workspaceDir, artifacts: [{path, name,
   size, modifiedAt, mimeType}]}`, newest first.
 

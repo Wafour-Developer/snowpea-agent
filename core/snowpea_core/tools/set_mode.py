@@ -22,6 +22,9 @@ waiting for the user to prompt again.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import logging
 from typing import Any
 
 from snowpea_core.prompts import tool_descriptions as descriptions
@@ -29,6 +32,11 @@ from snowpea_core.server.protocol import QuestionItem, QuestionOption
 from snowpea_core.session import events
 from snowpea_core.tools.delegate import delegation_language
 from snowpea_core.tools.registry import Tool, ToolContext, ToolResult
+
+log = logging.getLogger("snowpea.tools.set_mode")
+
+#: How often the picker checks whether the user changed mode some other way.
+MODE_POLL_SECONDS = 0.25
 
 #: The modes a session can be in, in the order the picker offers the ones the
 #: model did not ask for.
@@ -203,21 +211,49 @@ async def set_mode(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     reason = str(args.get("reason") or "").strip()
     question = f"{reason}\n{text['question']}".strip() if reason else text["question"]
 
-    # One question, so one item in the batch; the queue always answers in kind.
-    answers = await queue.ask(
-        ctx.session,
-        [
-            QuestionItem(
-                header=text["header"],
-                question=question,
-                options=[option for _, option in rows],
-                multi=False,
-                allowOther=False,
-            )
-        ],
-        cancel_event=getattr(ctx.session, "interrupt", None),
-    )
+    # The user may answer by switching mode somewhere else (the IDE's mode
+    # selector, /mode in the TUI) instead of in the picker. That ends the
+    # question too, and counts as their answer.
+    stop = asyncio.Event()
+    watcher = asyncio.ensure_future(_watch_mode(ctx.session, current, stop))
+    try:
+        # One question, so one item in the batch; the queue always answers in kind.
+        answers = await queue.ask(
+            ctx.session,
+            [
+                QuestionItem(
+                    header=text["header"],
+                    question=question,
+                    options=[option for _, option in rows],
+                    multi=False,
+                    allowOther=False,
+                )
+            ],
+            cancel_event=stop,
+        )
+    finally:
+        watcher.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await watcher
     answer = answers[0]
+    log.info(
+        "set_mode %s: requested=%s selected=%s by=%s declined=%s timed_out=%s mode=%s",
+        ctx.session.id,
+        requested,
+        list(answer.selected),
+        getattr(answer, "by", None),
+        answer.declined,
+        answer.timed_out,
+        ctx.session.mode,
+    )
+    if ctx.session.mode != current:
+        # Switched elsewhere while the picker was up: that is the answer.
+        mode = ctx.session.mode
+        return ToolResult(
+            ok=True,
+            output=_switched(text, mode) if mode != "plan" else text["kept"],
+            meta={"requested": requested, "mode": mode, "changed": True, "asked": True},
+        )
 
     # Matched loosely: a surface may echo the label without the "(추천)"
     # marker or with its own spacing, and a typed answer may name the option.
@@ -258,6 +294,18 @@ async def set_mode(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     meta["mode"] = mode
     meta["changed"] = True
     return ToolResult(ok=True, output=_switched(text, mode), meta=meta)
+
+
+async def _watch_mode(session: Any, start: str, stop: asyncio.Event) -> None:
+    """Set ``stop`` on an interrupt or once the session leaves ``start`` mode."""
+    interrupt = getattr(session, "interrupt", None)
+    while not stop.is_set():
+        if getattr(session, "mode", start) != start or (
+            interrupt is not None and interrupt.is_set()
+        ):
+            stop.set()
+            return
+        await asyncio.sleep(MODE_POLL_SECONDS)
 
 
 def _switched(text: dict[str, Any], mode: str) -> str:
