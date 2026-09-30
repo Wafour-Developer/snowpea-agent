@@ -247,6 +247,57 @@ async def test_run_now_executes_in_process_and_records_the_run(
     await client.stop()
 
 
+async def test_job_delete_removes_the_job_its_history_and_optionally_its_runs(
+    daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path
+) -> None:
+    """snowpea-browser addendum 10: routines can be deleted."""
+    client = await connect(http, daemon, timeout=TIMEOUT)
+    keep = await client.ok(
+        "job.schedule",
+        {"spec": "0 9 * * *", "task": "keep my runs", "channel": "log", "workdir": str(tmp_path)},
+    )
+    drop = await client.ok(
+        "job.schedule",
+        {"spec": "0 9 * * *", "task": "drop my runs", "channel": "log", "workdir": str(tmp_path)},
+    )
+    await client.ok("job.runNow", {"jobId": keep["jobId"]})
+    await client.ok("job.runNow", {"jobId": drop["jobId"]})
+    assert daemon.core is not None
+    store = daemon.core.store
+    runs = {
+        job: [str(r["session_id"]) for r in await daemon.core.scheduler.store.runs(job)]
+        for job in (keep["jobId"], drop["jobId"])
+    }
+    assert all(len(ids) == 1 for ids in runs.values())
+
+    kept = await client.ok("job.delete", {"jobId": keep["jobId"]})
+    assert kept == {"jobId": keep["jobId"], "deletedSessions": 0}
+    dropped = await client.ok("job.delete", {"jobId": drop["jobId"], "deleteRuns": True})
+    assert dropped == {"jobId": drop["jobId"], "deletedSessions": 1}
+
+    listing = await client.ok("job.list", {})
+    assert {j["jobId"] for j in listing["jobs"]} & {keep["jobId"], drop["jobId"]} == set()
+    assert await daemon.core.scheduler.store.runs(keep["jobId"]) == []
+    stored = {str(r["id"]) for r in await store.list_sessions(include_closed=True)}
+    assert runs[keep["jobId"]][0] in stored
+    assert runs[drop["jobId"]][0] not in stored
+
+    events = client.of_method("job.event")
+    assert [e["jobId"] for e in events if e["kind"] == "deleted"] == [
+        keep["jobId"],
+        drop["jobId"],
+    ]
+    changed = [
+        n for n in client.of_method("sessions.changed")
+        if n.get("reason") == "deleted" and n.get("sessionId") == runs[drop["jobId"]][0]
+    ]
+    assert changed
+
+    unknown = await client.call("job.delete", {"jobId": "job-nope"})
+    assert unknown["error"]["code"] == -32602
+    await client.stop()
+
+
 # ---------------------------------------------------------------------------
 # (5) the double-fire guard
 # ---------------------------------------------------------------------------

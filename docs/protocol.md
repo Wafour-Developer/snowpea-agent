@@ -85,6 +85,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`gateway.sync`](#gatewaysync) | client → server | Reconcile the messenger bindings with settings.gateway. |
 | [`gateway.unbind`](#gatewayunbind) | client → server | Detach a gateway binding. |
 | [`job.cancel`](#jobcancel) | client → server | Cancel a scheduled job. |
+| [`job.delete`](#jobdelete) | client → server | Delete a job, its schedule and run history; optionally its run sessions. |
 | [`job.list`](#joblist) | client → server | List scheduled jobs and their next run times. |
 | [`job.runNow`](#jobrunnow) | client → server | Fire a scheduled job immediately. |
 | [`job.schedule`](#jobschedule) | client → server | Schedule a prompt to run unattended. |
@@ -785,6 +786,26 @@ Cancel a scheduled job.
 | field | type | required | description |
 |---|---|---|---|
 | `ok` | `boolean` | no | True when the call succeeded. |
+
+### `job.delete`
+
+*Direction:* client → server
+
+Delete a job, its schedule and run history; optionally its run sessions.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `deleteRuns` | `boolean` | no | Also delete the sessions its runs opened, with their workspaces, as session.deleteSaved does. A run still in progress is left alone. |
+| `jobId` | `string` | yes | Job to delete, with its schedule and run history. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `deletedSessions` | `number` | no | Run sessions deleted with it. |
+| `jobId` | `string` | yes | The deleted job. |
 
 ### `job.list`
 
@@ -2504,7 +2525,7 @@ Token totals from stored usage events, grouped by provider, model, session or da
 | field | type | required | description |
 |---|---|---|---|
 | `jobId` | `string` | yes | Job the event belongs to. |
-| `kind` | `"started" \| "finished" \| "failed" \| "denied"` | yes | Where the run got to. |
+| `kind` | `"started" \| "finished" \| "failed" \| "denied" \| "deleted"` | yes | Where the run got to. |
 | `payload` | `Record<string, unknown>` | no | Kind-specific body. |
 
 ### `mcp.changed`

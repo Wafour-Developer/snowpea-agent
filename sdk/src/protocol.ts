@@ -759,6 +759,22 @@ export interface JobCancelResult {
   ok?: boolean;
 }
 
+/** `job.delete` params. Delete a job, its schedule and run history; optionally its run sessions. */
+export interface JobDeleteParams {
+  /** Also delete the sessions its runs opened, with their workspaces, as session.deleteSaved does. A run still in progress is left alone. */
+  deleteRuns?: boolean;
+  /** Job to delete, with its schedule and run history. */
+  jobId: string;
+}
+
+/** `job.delete` result. */
+export interface JobDeleteResult {
+  /** Run sessions deleted with it. */
+  deletedSessions?: number;
+  /** The deleted job. */
+  jobId: string;
+}
+
 /** `job.list` params. List scheduled jobs and their next run times. */
 export type JobListParams = Record<string, unknown>;
 
@@ -3110,7 +3126,7 @@ export interface JobEventPayload {
   /** Job the event belongs to. */
   jobId: string;
   /** Where the run got to. */
-  kind: "started" | "finished" | "failed" | "denied";
+  kind: "started" | "finished" | "failed" | "denied" | "deleted";
   /** Kind-specific body. */
   payload?: Record<string, unknown>;
 }
@@ -3867,6 +3883,7 @@ export interface MethodMap {
   "gateway.sync": { params: GatewaySyncParams; result: GatewaySyncResult };
   "gateway.unbind": { params: GatewayUnbindParams; result: GatewayUnbindResult };
   "job.cancel": { params: JobCancelParams; result: JobCancelResult };
+  "job.delete": { params: JobDeleteParams; result: JobDeleteResult };
   "job.list": { params: JobListParams; result: JobListResult };
   "job.runNow": { params: JobRunNowParams; result: JobRunNowResult };
   "job.schedule": { params: JobScheduleParams; result: JobScheduleResult };
@@ -3983,6 +4000,7 @@ export type ClientMethod =
   | "gateway.sync"
   | "gateway.unbind"
   | "job.cancel"
+  | "job.delete"
   | "job.list"
   | "job.runNow"
   | "job.schedule"

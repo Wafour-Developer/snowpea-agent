@@ -211,6 +211,25 @@ class Scheduler:
         log.info("job %s cancelled", job_id)
         return True
 
+    async def delete(self, job_id: str) -> list[str] | None:
+        """Remove a job, its schedule and run history.
+
+        Returns the session ids its runs opened (the caller decides whether
+        those go too), or ``None`` for an unknown job.
+        """
+        job = await self.store.get(job_id)
+        if job is None:
+            return None
+        session_ids = [
+            str(row["session_id"]) for row in await self.store.runs(job_id) if row["session_id"]
+        ]
+        await self.store.delete_runs(job_id)
+        await self.store.delete(job_id)
+        await self.refresh_counter()
+        await self._emit(job_id, "deleted", {})
+        log.info("job %s deleted", job_id)
+        return session_ids
+
     async def run_now(self, job_id: str) -> Job | None:
         """Fire a job immediately, in this process, without touching its schedule."""
         job = await self.store.get(job_id)

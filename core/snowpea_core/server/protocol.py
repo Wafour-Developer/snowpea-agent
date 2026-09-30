@@ -2144,6 +2144,22 @@ class JobIdParams(Payload):
     jobId: str = Field(description="Target job.")
 
 
+class JobDeleteParams(Payload):
+    jobId: str = Field(description="Job to delete, with its schedule and run history.")
+    deleteRuns: bool = Field(
+        default=False,
+        description=(
+            "Also delete the sessions its runs opened, with their workspaces, as "
+            "session.deleteSaved does. A run still in progress is left alone."
+        ),
+    )
+
+
+class JobDeleteResult(Payload):
+    jobId: str = Field(description="The deleted job.")
+    deletedSessions: int = Field(default=0, description="Run sessions deleted with it.")
+
+
 # --------------------------------------------------------------------------
 # gateway.*
 # --------------------------------------------------------------------------
@@ -3449,7 +3465,7 @@ class JobEventNotification(Payload):
     """Progress from a scheduled job."""
 
     jobId: str = Field(description="Job the event belongs to.")
-    kind: Literal["started", "finished", "failed", "denied"] = Field(
+    kind: Literal["started", "finished", "failed", "denied", "deleted"] = Field(
         description="Where the run got to."
     )
     payload: dict[str, Any] = Field(default_factory=dict, description="Kind-specific body.")
@@ -4186,6 +4202,12 @@ METHODS: dict[str, RpcMethod] = {
         _m("job.cancel", JobIdParams, Ok, "Cancel a scheduled job."),
         _m("job.runNow", JobIdParams, Ok, "Fire a scheduled job immediately."),
         _m(
+            "job.delete",
+            JobDeleteParams,
+            JobDeleteResult,
+            "Delete a job, its schedule and run history; optionally its run sessions.",
+        ),
+        _m(
             "gateway.bind",
             GatewayBindParams,
             GatewayBindResult,
@@ -4470,6 +4492,7 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "job.list",
         "job.cancel",
         "job.runNow",
+        "job.delete",
         "agent.create",
         "agent.list",
         "agent.bindChannel",

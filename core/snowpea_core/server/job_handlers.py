@@ -20,6 +20,8 @@ from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import (
     Empty,
+    JobDeleteParams,
+    JobDeleteResult,
     JobIdParams,
     JobListResult,
     JobScheduleParams,
@@ -39,6 +41,7 @@ HANDLED_METHODS: tuple[str, ...] = (
     "job.list",
     "job.cancel",
     "job.runNow",
+    "job.delete",
 )
 
 
@@ -86,12 +89,44 @@ async def job_run_now_handler(_conn: RpcConnection, params: JobIdParams, core: C
     return Ok(ok=True)
 
 
+async def job_delete_handler(
+    _conn: RpcConnection, params: JobDeleteParams, core: Core
+) -> JobDeleteResult:
+    """``job.delete`` — the job, its schedule and run history; optionally its runs.
+
+    With ``deleteRuns`` the run sessions go the way ``session.deleteSaved``
+    takes them (rows, attachments, audio, workspace); a run still in progress
+    is left alone.
+    """
+    from snowpea_core.server.session_handlers import _purge_session_files
+
+    session_ids = await services(core).delete(params.jobId)
+    if session_ids is None:
+        raise RpcError(errors.INVALID_PARAMS, f"no such job: {params.jobId}")
+    deleted = 0
+    if params.deleteRuns and session_ids and core.store is not None:
+        doomed: list[str] = []
+        for session_id in session_ids:
+            live = core.sessions.get(session_id)
+            if live is not None and live.current_turn is not None:
+                continue
+            if live is not None:
+                await core.sessions.close(session_id)
+            doomed.append(session_id)
+        deleted = await core.store.delete_sessions(doomed)
+        for session_id in doomed:
+            _purge_session_files(core, session_id, workspace=True)
+            await core.sessions.announce_sessions_changed("deleted", session_id)
+    return JobDeleteResult(jobId=params.jobId, deletedSessions=deleted)
+
+
 def register_job_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
     """Register every method in :data:`HANDLED_METHODS`."""
     dispatcher.register("job.schedule", job_schedule_handler)
     dispatcher.register("job.list", job_list_handler)
     dispatcher.register("job.cancel", job_cancel_handler)
     dispatcher.register("job.runNow", job_run_now_handler)
+    dispatcher.register("job.delete", job_delete_handler)
     return dispatcher
 
 

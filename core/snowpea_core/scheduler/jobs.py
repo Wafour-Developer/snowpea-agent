@@ -330,6 +330,13 @@ class JobStore:
         removed = await asyncio.to_thread(self._execute, "DELETE FROM jobs WHERE id = ?", (job_id,))
         return bool(removed)
 
+    async def delete_runs(self, job_id: str) -> int:
+        """Drop a job's run history (``job.delete``)."""
+        removed = await asyncio.to_thread(
+            self._execute, "DELETE FROM job_runs WHERE job_id = ?", (job_id,)
+        )
+        return int(removed or 0)
+
     async def enabled_count(self) -> int:
         rows = await asyncio.to_thread(
             self._query, "SELECT COUNT(*) AS n FROM jobs WHERE enabled = 1"
