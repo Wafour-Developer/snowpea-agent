@@ -74,6 +74,9 @@ class SessionManager:
                 payload["status"] = status
             if session is not None and session.title:
                 payload["title"] = session.title
+            payload["hostToolsFrom"] = (
+                getattr(session, "host_tools_from", None) if session is not None else None
+            )
             await self.hub.notify("sessions.changed", payload)
         except Exception:  # noqa: BLE001 - a dead socket must not fail create/close
             log.debug("could not broadcast sessions.changed", exc_info=True)
@@ -563,6 +566,8 @@ class EventHub:
                     )
         event = SessionEvent(sessionId=session_id, seq=seq, kind=kind, payload=body, ts=ts)
         params = event.model_dump(mode="json")
+        owner = self.sessions.get(session_id) if self.sessions is not None else None
+        params["hostToolsFrom"] = getattr(owner, "host_tools_from", None)
         for conn in self.subscribers_for(session_id):
             try:
                 await conn.notify("session.event", params)

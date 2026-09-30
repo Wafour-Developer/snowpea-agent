@@ -432,8 +432,9 @@ async def test_attach_with_host_tools_from_rebinds_a_session_after_a_relaunch(
         changed = [
             n for n in second.notifications
             if n["method"] == "sessions.changed"
-            and n["params"] == {"reason": "host", "sessionId": session_id}
-            | ({"title": n["params"]["title"]} if "title" in n["params"] else {})
+            and n["params"]["reason"] == "host"
+            and n["params"]["sessionId"] == session_id
+            and n["params"]["hostToolsFrom"] == "snowpea-browser-B"
         ]
         assert changed
         rows = await daemon.core.store.list_sessions()

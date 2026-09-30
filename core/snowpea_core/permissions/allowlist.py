@@ -120,6 +120,8 @@ class AllowlistItem:
     scope: Scope
     origin: str | None = None
     created_at: str | None = None
+    #: Owning browser profile of a global entry (addendum 8); ``None`` otherwise.
+    host: str | None = None
 
     @property
     def tool(self) -> str | None:
@@ -163,20 +165,35 @@ class Allowlist:
                 "global",
                 getattr(e, "origin", None),
                 getattr(e, "created_at", None),
+                getattr(e, "host_tools_from", None),
             )
             for e in self.settings.allowlist
         ]
 
     # -- queries -------------------------------------------------------
     def list(
-        self, scope: Scope | None = None, *, workdir: Path | str | None = None
+        self,
+        scope: Scope | None = None,
+        *,
+        workdir: Path | str | None = None,
+        host: str | None = None,
+        any_host: bool = True,
     ) -> list[AllowlistItem]:
-        """Stored entries; ``scope=None`` returns project entries then global."""
+        """Stored entries; ``scope=None`` returns project entries then global.
+
+        ``any_host=False`` keeps only the global entries whose owning browser
+        profile is ``host`` (``None``: the unscoped ones). Project entries are
+        shared by every client.
+        """
         items: list[AllowlistItem] = []
         if scope in (None, "project"):
             items.extend(self._project_items(workdir))
         if scope in (None, "global"):
-            items.extend(self._global_items())
+            items.extend(
+                item
+                for item in self._global_items()
+                if any_host or item.host == host
+            )
         return items
 
     def matches(
@@ -186,11 +203,13 @@ class Allowlist:
         *,
         workdir: Path | str | None = None,
         site: str | None = None,
+        host: str | None = None,
     ) -> bool:
         """True when some stored pattern covers this call.
 
         An entry with an ``origin`` only covers calls on that site (``site``,
-        else the origin of ``args["url"]``).
+        else the origin of ``args["url"]``). A global entry covers only the
+        sessions of its own browser profile ``host`` (``None``: IDE/CLI).
         """
         call_site = site_of(args or {}, site)
         name = tool if isinstance(tool, str) else str(getattr(tool, "name", ""))
@@ -201,7 +220,7 @@ class Allowlist:
         is_shell = permission == "exec" or name in SHELL_TOOLS
         shell_subject = command if (command and is_shell) else None
         wanted_tool_target = tool_target(name)
-        for item in self.list(workdir=workdir):
+        for item in self.list(workdir=workdir, host=host, any_host=False):
             if item.target == SHELL_TARGET:
                 subject = shell_subject
             elif item.target == wanted_tool_target:
@@ -231,6 +250,7 @@ class Allowlist:
         *,
         workdir: Path | str | None = None,
         origin: str | None = None,
+        host: str | None = None,
     ) -> str:
         """Store ``pattern`` and return its id (existing duplicates are reused)."""
         pattern = pattern.strip()
@@ -238,7 +258,12 @@ class Allowlist:
             raise ValueError("an allowlist pattern may not be empty")
         re.compile(pattern)  # fail loudly rather than storing a dead pattern
         for item in self.list(scope, workdir=workdir):
-            if item.pattern == pattern and item.target == target and item.origin == origin:
+            if (
+                item.pattern == pattern
+                and item.target == target
+                and item.origin == origin
+                and (scope == "project" or item.host == host)
+            ):
                 return item.id
         entry = AllowlistEntry(
             id=new_id(),
@@ -246,6 +271,7 @@ class Allowlist:
             target=target,
             origin=origin,
             created_at=datetime.now(UTC).isoformat(timespec="seconds"),
+            host_tools_from=host if scope == "global" else None,
         )
         if scope == "project":
             if workdir is None:
@@ -259,8 +285,18 @@ class Allowlist:
         log.info("allowlist += %s (%s, %s)", pattern, scope, target)
         return entry.id
 
-    def remove(self, pattern_id: str, *, workdir: Path | str | None = None) -> bool:
-        """Delete an entry from whichever store holds it."""
+    def remove(
+        self,
+        pattern_id: str,
+        *,
+        workdir: Path | str | None = None,
+        host: str | None = None,
+        any_host: bool = True,
+    ) -> bool:
+        """Delete an entry from whichever store holds it.
+
+        ``any_host=False`` removes a global entry only when it belongs to ``host``.
+        """
         removed = False
         if workdir is not None:
             project = ProjectSettings.load(workdir)
@@ -269,7 +305,12 @@ class Allowlist:
                 project.allowlist = kept
                 project.save(workdir)
                 removed = True
-        kept_global = [e for e in self.settings.allowlist if e.id != pattern_id]
+        kept_global = [
+            e
+            for e in self.settings.allowlist
+            if e.id != pattern_id
+            or (not any_host and getattr(e, "host_tools_from", None) != host)
+        ]
         if len(kept_global) != len(self.settings.allowlist):
             self.settings.allowlist = kept_global
             self._save_global()

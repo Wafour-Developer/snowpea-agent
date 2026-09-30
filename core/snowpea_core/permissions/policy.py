@@ -193,7 +193,8 @@ class PermissionPolicy:
         if self.allowlist is None:
             return verdict
         workdir = getattr(session, "workdir", None)
-        if self.allowlist.matches(tool, args or {}, workdir=workdir):
+        host = getattr(session, "host_tools_from", None)
+        if self.allowlist.matches(tool, args or {}, workdir=workdir, host=host):
             return "allow"
         return verdict
 

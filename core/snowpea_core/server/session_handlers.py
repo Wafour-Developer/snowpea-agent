@@ -346,10 +346,19 @@ async def collect_sessions(core: Core, params: SessionListParams) -> list[Sessio
                 kind=stored.get("kind") or "chat",
                 parentSessionId=stored.get("parent_session_id"),
                 jobId=stored.get("job_id"),
+                hostToolsFrom=stored.get("host_tools_from"),
             )
         rows = list(by_id.values())
     if params.workdir:
         rows = [row for row in rows if row.workdir == params.workdir]
+    if params.hostToolsFrom is not None:
+        owner = params.hostToolsFrom
+        rows = [
+            row
+            for row in rows
+            if row.hostToolsFrom == owner
+            or (params.includeUnhosted and row.hostToolsFrom is None)
+        ]
     if params.kinds is not None:
         wanted = set(params.kinds)
         rows = [row for row in rows if row.kind in wanted]

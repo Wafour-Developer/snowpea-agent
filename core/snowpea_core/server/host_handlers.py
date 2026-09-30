@@ -209,7 +209,7 @@ async def approval_ask_handler(
                 decision="allow", by="mode" if matrix == "allow" else "allowlist"
             )
     if not unremembered and core.allowlist.matches(
-        tool, args, workdir=session.workdir, site=site
+        tool, args, workdir=session.workdir, site=site, host=session.host_tools_from
     ):
         return ApprovalAskResult(decision="allow", by="allowlist")
     decision = await core.approvals.request(

@@ -391,6 +391,10 @@ class SessionsChangedNotification(Payload):
     sessionId: str = Field(description="Session that changed.")
     status: str | None = Field(default=None, description="Its status now, when known.")
     title: str | None = Field(default=None, description="Its title, when it has one.")
+    hostToolsFrom: str | None = Field(
+        default=None,
+        description="The session's owning client (addendum 8); null for unhosted sessions.",
+    )
 
 
 class UsageSummaryParams(Payload):
@@ -562,6 +566,13 @@ class SessionSummary(Payload):
     )
     pendingApprovals: int = Field(default=0, description="Approvals waiting on a person.")
     pendingQuestions: int = Field(default=0, description="Questions waiting on a person.")
+    hostToolsFrom: str | None = Field(
+        default=None,
+        description=(
+            "Client whose host tools the session uses (a browser profile's clientId); "
+            "null for IDE, TUI and CLI sessions (addendum 8)."
+        ),
+    )
 
 
 class SessionCompactParams(Payload):
@@ -592,6 +603,20 @@ class SessionListParams(Payload):
         description=(
             "Only sessions of these kinds; omit for every kind. A surface that shows "
             "human threads asks for [\"chat\"] (CORE-session-kind)."
+        ),
+    )
+    hostToolsFrom: str | None = Field(
+        default=None,
+        description=(
+            "Only sessions owned by this client (a browser profile's clientId); omit "
+            "for every session (addendum 8)."
+        ),
+    )
+    includeUnhosted: bool = Field(
+        default=False,
+        description=(
+            "With hostToolsFrom: also return sessions with no host (IDE, TUI, CLI), "
+            "which a browser shows in every profile."
         ),
     )
 
@@ -1369,6 +1394,13 @@ class AllowlistAddResult(Payload):
 
 class AllowlistListParams(Payload):
     scope: AllowlistScope | None = Field(default=None, description="Filter by scope; omit for all.")
+    hostToolsFrom: str | None = Field(
+        default=None,
+        description=(
+            "Only this browser profile's global entries (plus project entries); omit "
+            "for every entry (addendum 8)."
+        ),
+    )
     workdir: str | None = Field(
         default=None,
         description=(
@@ -1398,6 +1430,14 @@ class AllowlistPattern(Payload):
     createdAt: str | None = Field(
         default=None, description="UTC ISO time it was stored; null for older entries."
     )
+    hostToolsFrom: str | None = Field(
+        default=None,
+        description=(
+            "Browser profile (clientId) a global entry belongs to: stored from an "
+            "approval in that profile's session and matched only there. Null for "
+            "unscoped entries (IDE/CLI, project) (addendum 8)."
+        ),
+    )
 
 
 class AllowlistListResult(Payload):
@@ -1408,6 +1448,13 @@ class AllowlistListResult(Payload):
 
 class AllowlistRemoveParams(Payload):
     patternId: str = Field(description="Pattern to delete.")
+    hostToolsFrom: str | None = Field(
+        default=None,
+        description=(
+            "When given, a global entry is removed only if it belongs to this browser "
+            "profile (addendum 8)."
+        ),
+    )
     workdir: str | None = Field(
         default=None,
         description=(
@@ -3278,6 +3325,10 @@ class SessionEventNotification(Payload):
     kind: str = Field(description="Event kind; see sessionEventKinds for the payload schema.")
     payload: dict[str, Any] = Field(default_factory=dict, description="Kind-specific body.")
     ts: str = Field(description="UTC ISO-8601 timestamp.")
+    hostToolsFrom: str | None = Field(
+        default=None,
+        description="The session's owning client (addendum 8); null for unhosted sessions.",
+    )
 
 
 class SessionEventKindEnvelope(Payload):
@@ -3298,6 +3349,13 @@ class ApprovalPendingNotification(Payload):
     """An unattended approval is waiting; any authenticated surface may answer."""
 
     request: ApprovalRequest = Field(description="The request now in the shared queue.")
+    hostToolsFrom: str | None = Field(
+        default=None,
+        description=(
+            "The session's owning client (addendum 8). A browser profile shows only "
+            "its own cards and those with null."
+        ),
+    )
 
 
 class QuestionResolvedNotification(Payload):
@@ -3311,6 +3369,13 @@ class QuestionPendingNotification(Payload):
     """A question is waiting; any authenticated surface may see it coming."""
 
     request: QuestionRequest = Field(description="The question now in the shared queue.")
+    hostToolsFrom: str | None = Field(
+        default=None,
+        description=(
+            "The session's owning client (addendum 8). A browser profile shows only "
+            "its own cards and those with null."
+        ),
+    )
 
 
 class CommandsChangedNotification(Payload):

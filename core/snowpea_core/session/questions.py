@@ -88,13 +88,20 @@ class QuestionQueue:
     def count(self, session_id: str) -> int:
         return sum(1 for e in self._pending.values() if e.request.sessionId == session_id)
 
-    async def _announce_status(self, session_id: str, status: str) -> None:
+    async def _announce_status(
+        self, session_id: str, status: str, host: str | None = None
+    ) -> None:
         if self.hub is None:
             return
         with contextlib.suppress(Exception):
             await self.hub.notify(
                 "sessions.changed",
-                {"reason": "question", "sessionId": session_id, "status": status},
+                {
+                    "reason": "question",
+                    "sessionId": session_id,
+                    "status": status,
+                    "hostToolsFrom": host,
+                },
             )
 
     def list(self, session_id: str | None = None, conn: Any = None) -> QuestionRequests:
@@ -148,8 +155,9 @@ class QuestionQueue:
         origin = getattr(session, "origin_conn", None)
         entry = _Pending(request=request, future=loop.create_future(), origin_conn=origin)
         self._pending[request.requestId] = entry
-        await self._announce_status(session.id, "awaiting_question")
-        await self._broadcast_pending(request, exclude=origin)
+        host = getattr(session, "host_tools_from", None)
+        await self._announce_status(session.id, "awaiting_question", host)
+        await self._broadcast_pending(request, exclude=origin, host=host)
         if origin is not None:
             entry.task = asyncio.ensure_future(self._ask_origin(entry))
         outer = float(timeout) + (GRACE_SECONDS if entry.task is not None else 0.0)
@@ -165,16 +173,20 @@ class QuestionQueue:
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await entry.task
         if not self.count(session.id):
-            await self._announce_status(session.id, "running")
+            await self._announce_status(session.id, "running", host)
         await self._resolve(request, answers)
         return _padded(answers, len(questions))
 
-    async def _broadcast_pending(self, request: QuestionRequest, exclude: Any = None) -> None:
+    async def _broadcast_pending(
+        self, request: QuestionRequest, exclude: Any = None, host: str | None = None
+    ) -> None:
         """Announce the question so a second surface can show it too."""
         if self.hub is None:
             return
         await self.hub.notify(
-            "question.pending", {"request": request.model_dump(mode="json")}, exclude=exclude
+            "question.pending",
+            {"request": request.model_dump(mode="json"), "hostToolsFrom": host},
+            exclude=exclude,
         )
 
     async def _await_answers(

@@ -251,6 +251,7 @@ class Session:
             ),
             lastActivityAt=self.last_activity_at,
             turnStartedAt=self.turn_started_at,
+            hostToolsFrom=self.host_tools_from,
         )
 
 

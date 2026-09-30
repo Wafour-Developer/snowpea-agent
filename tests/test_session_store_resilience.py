@@ -178,6 +178,7 @@ async def test_emit_delivers_event_when_store_append_fails(tmp_path: Path) -> No
                 "kind": "message.delta",
                 "payload": {"text": "still delivered"},
                 "ts": event.ts,
+                "hostToolsFrom": None,
             },
         )
     ]

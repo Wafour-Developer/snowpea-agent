@@ -1312,6 +1312,8 @@ export interface PermissionAllowlistAddResult {
 
 /** `permission.allowlist.list` params. List stored allowlist patterns. */
 export interface PermissionAllowlistListParams {
+  /** Only this browser profile's global entries (plus project entries); omit for every entry (addendum 8). */
+  hostToolsFrom?: string | null;
   /** Filter by scope; omit for all. */
   scope?: "session" | "project" | "always" | null;
   /** Absolute folder of the project to use (its .snowpea/settings.json). Default: the caller's most recent session's workdir (1.7.0). */
@@ -1324,6 +1326,8 @@ export interface PermissionAllowlistListResult {
   patterns?: ({
     /** UTC ISO time it was stored; null for older entries. */
     createdAt?: string | null;
+    /** Browser profile (clientId) a global entry belongs to: stored from an approval in that profile's session and matched only there. Null for unscoped entries (IDE/CLI, project) (addendum 8). */
+    hostToolsFrom?: string | null;
     /** Site the entry is limited to (a 'site'-scoped approval), else null. */
     origin?: string | null;
     /** The glob or command prefix. */
@@ -1339,6 +1343,8 @@ export interface PermissionAllowlistListResult {
 
 /** `permission.allowlist.remove` params. Delete an allowlist pattern by id. */
 export interface PermissionAllowlistRemoveParams {
+  /** When given, a global entry is removed only if it belongs to this browser profile (addendum 8). */
+  hostToolsFrom?: string | null;
   /** Pattern to delete. */
   patternId: string;
   /** Absolute folder of the project to use (its .snowpea/settings.json). Default: the caller's most recent session's workdir (1.7.0). */
@@ -1728,8 +1734,12 @@ export interface SessionInterruptResult {
 
 /** `session.list` params. List live or saved sessions. */
 export interface SessionListParams {
+  /** Only sessions owned by this client (a browser profile's clientId); omit for every session (addendum 8). */
+  hostToolsFrom?: string | null;
   /** Include persisted closed sessions. */
   includeClosed?: boolean;
+  /** With hostToolsFrom: also return sessions with no host (IDE, TUI, CLI), which a browser shows in every profile. */
+  includeUnhosted?: boolean;
   /** Only sessions of these kinds; omit for every kind. A surface that shows human threads asks for ["chat"] (CORE-session-kind). */
   kinds?: string[] | null;
   /** Only sessions rooted here. */
@@ -1750,6 +1760,8 @@ export interface SessionListResult {
     createdAt: string;
     /** Reasoning effort pinned to this session, or null when it follows agent.effortBy / agent.effort. */
     effort?: "low" | "medium" | "high" | "max" | null;
+    /** Client whose host tools the session uses (a browser profile's clientId); null for IDE, TUI and CLI sessions (addendum 8). */
+    hostToolsFrom?: string | null;
     /** Scheduled job this run belongs to; null for other kinds. */
     jobId?: string | null;
     /** What opened the session: a human (chat), a scheduled job, a spawned subagent, or a persistent named agent (CORE-session-kind). */
@@ -2993,6 +3005,8 @@ export interface UsageSummaryResult {
 
 /** `approval.pending` notification payload. */
 export interface ApprovalPendingPayload {
+  /** The session's owning client (addendum 8). A browser profile shows only its own cards and those with null. */
+  hostToolsFrom?: string | null;
   /** The request now in the shared queue. */
   request: {
     /** Arguments it wants to use. */
@@ -3123,6 +3137,8 @@ export interface ProviderLoginProgressPayload {
 
 /** `question.pending` notification payload. */
 export interface QuestionPendingPayload {
+  /** The session's owning client (addendum 8). A browser profile shows only its own cards and those with null. */
+  hostToolsFrom?: string | null;
   /** The question now in the shared queue. */
   request: {
     /** The questions, in the order they were asked. */
@@ -3166,6 +3182,8 @@ export interface QuestionResolvedPayload {
 
 /** `session.event` notification payload. */
 export interface SessionEventPayload {
+  /** The session's owning client (addendum 8); null for unhosted sessions. */
+  hostToolsFrom?: string | null;
   /** Event kind; see sessionEventKinds for the payload schema. */
   kind: string;
   /** Kind-specific body. */
@@ -3180,6 +3198,8 @@ export interface SessionEventPayload {
 
 /** `sessions.changed` notification payload. */
 export interface SessionsChangedPayload {
+  /** The session's owning client (addendum 8); null for unhosted sessions. */
+  hostToolsFrom?: string | null;
   /** create, prompt, turn, renamed, close, ... */
   reason: string;
   /** Session that changed. */

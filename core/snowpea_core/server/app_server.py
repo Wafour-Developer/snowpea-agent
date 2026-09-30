@@ -381,7 +381,12 @@ async def allowlist_list_handler(
     """``permission.allowlist.list`` — stored patterns, optionally by scope."""
     store = WIRE_SCOPE.get(params.scope, "project") if params.scope else None
     workdir = _workdir_for(core, conn, params.workdir)
-    items = core.allowlist.list(store, workdir=workdir)
+    items = core.allowlist.list(
+        store,
+        workdir=workdir,
+        host=params.hostToolsFrom,
+        any_host=params.hostToolsFrom is None,
+    )
     return AllowlistListResult(
         patterns=[
             AllowlistPattern(
@@ -391,6 +396,7 @@ async def allowlist_list_handler(
                 tool=item.tool,
                 origin=item.origin,
                 createdAt=item.created_at,
+                hostToolsFrom=item.host,
             )
             for item in items
         ]
@@ -402,7 +408,10 @@ async def allowlist_remove_handler(
 ) -> Ok:
     """``permission.allowlist.remove`` — delete a pattern by id."""
     removed = core.allowlist.remove(
-        params.patternId, workdir=_workdir_for(core, conn, params.workdir)
+        params.patternId,
+        workdir=_workdir_for(core, conn, params.workdir),
+        host=params.hostToolsFrom,
+        any_host=params.hostToolsFrom is None,
     )
     if not removed:
         raise RpcError(errors.NOT_FOUND, f"no allowlist pattern {params.patternId}")

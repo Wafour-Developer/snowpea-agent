@@ -134,6 +134,9 @@ class _Pending:
     workdir: Any = None
     #: False for ``config`` calls: a wide answer must not silence the next one.
     cacheable: bool = True
+    #: The session's owning browser profile (addendum 8): a global rule stored
+    #: from this answer belongs to it, and the pending card names it.
+    host: str | None = None
 
 
 
@@ -188,14 +191,21 @@ class ApprovalQueue:
         """Every pending request of ``session_id``, interactive ones included."""
         return sum(1 for e in self._pending.values() if e.request.sessionId == session_id)
 
-    async def _announce_status(self, session_id: str, status: str) -> None:
+    async def _announce_status(
+        self, session_id: str, status: str, host: str | None = None
+    ) -> None:
         """``sessions.changed`` with the session's new status (1.7.0 task list)."""
         if self.hub is None:
             return
         with contextlib.suppress(Exception):
             await self.hub.notify(
                 "sessions.changed",
-                {"reason": "approval", "sessionId": session_id, "status": status},
+                {
+                    "reason": "approval",
+                    "sessionId": session_id,
+                    "status": status,
+                    "hostToolsFrom": host,
+                },
             )
 
     def unattended(self, session_id: str | None = None) -> ApprovalRequests:
@@ -272,13 +282,14 @@ class ApprovalQueue:
             origin_conn=origin,
             workdir=getattr(session, "workdir", None),
             cacheable=cacheable,
+            host=getattr(session, "host_tools_from", None),
         )
         self._pending[request.requestId] = entry
-        await self._announce_status(session.id, "awaiting_approval")
+        await self._announce_status(session.id, "awaiting_approval", entry.host)
         if origin is not None:
             entry.task = asyncio.ensure_future(self._ask_origin(entry))
         else:
-            await self._broadcast_pending(request)
+            await self._broadcast_pending(request, entry.host)
         outer = float(timeout) + (GRACE_SECONDS if entry.task is not None else 0.0)
         try:
             decision = await self._await_decision(entry, outer, cancel_event)
@@ -291,7 +302,7 @@ class ApprovalQueue:
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await entry.task
         if not self.count(session.id):
-            await self._announce_status(session.id, "running")
+            await self._announce_status(session.id, "running", entry.host)
         decision = guard_scope(request, decision)
         await self._resolve(
             request,
@@ -300,10 +311,11 @@ class ApprovalQueue:
             workdir=entry.workdir,
             unattended=entry.unattended,
             cacheable=entry.cacheable,
+            host=entry.host,
         )
         return decision
 
-    async def _broadcast_pending(self, request: ApprovalRequest) -> None:
+    async def _broadcast_pending(self, request: ApprovalRequest, host: str | None = None) -> None:
         """Announce an unattended request to every authenticated surface.
 
         The gateway listens on the same hub, so a binding whose session raised
@@ -313,7 +325,8 @@ class ApprovalQueue:
         if self.hub is None:
             return
         await self.hub.notify(
-            "approval.pending", {"request": request.model_dump(mode="json")}
+            "approval.pending",
+            {"request": request.model_dump(mode="json"), "hostToolsFrom": host},
         )
 
     async def _await_decision(
@@ -403,12 +416,13 @@ class ApprovalQueue:
         workdir: Any = None,
         unattended: bool = False,
         cacheable: bool = True,
+        host: str | None = None,
     ) -> None:
         """Cache, persist, log and announce a finished request."""
         if cacheable and decision.allowed and decision.scope in CACHING_SCOPES:
             self._cache.add(self.cache_key(request.sessionId, request.tool, request.args))
         if cacheable and decision.allowed and decision.scope in PERSISTING_SCOPES:
-            self._persist(request, decision.scope, workdir)
+            self._persist(request, decision.scope, workdir, host)
         self._append_log(request, decision, unattended=unattended)
         if self.hub is not None:
             await self.hub.notify(
@@ -421,7 +435,9 @@ class ApprovalQueue:
                 exclude=notify_exclude,
             )
 
-    def _persist(self, request: ApprovalRequest, scope: str, workdir: Any) -> None:
+    def _persist(
+        self, request: ApprovalRequest, scope: str, workdir: Any, host: str | None = None
+    ) -> None:
         """Turn a ``project``/``always`` answer into an allowlist entry."""
         if self.allowlist is None:
             return
@@ -442,7 +458,16 @@ class ApprovalQueue:
         else:
             pattern, target = pattern_for_tool(request.tool), tool_target(request.tool)
         try:
-            self.allowlist.add(pattern, store, target, workdir=workdir, origin=origin)
+            # A global rule answered in a browser profile's session is that
+            # profile's rule (addendum 8); project rules stay shared.
+            self.allowlist.add(
+                pattern,
+                store,
+                target,
+                workdir=workdir,
+                origin=origin,
+                host=host if store == "global" else None,
+            )
         except (OSError, ValueError):  # pragma: no cover - a bad store never breaks a turn
             log.warning("could not store allowlist entry %r", pattern, exc_info=True)
 

@@ -254,3 +254,33 @@ kept.
 → `{rows: [{key, inputTokens, outputTokens, calls}], inputTokens,
 outputTokens}`. Usage events now carry `provider` and `model`; older events are
 counted under their session's model.
+
+## 9. Browser profiles (addendum 8)
+
+Snowpea Browser runs one host per profile. Each host is its own core client
+with a stable `clientId` (`snowpea-browser-<uuid>`), and every session a
+profile opens carries that id as `hostToolsFrom`. Sessions with no host (IDE,
+TUI, CLI) have `hostToolsFrom: null`, and the browser shows them in every
+profile.
+
+* **Sessions.** `hostToolsFrom` is on every `session.list` row (live and
+  stored), on `sessions.changed`, and on every live `session.event`.
+  `session.list {hostToolsFrom, includeUnhosted?}` returns only that profile's
+  sessions. With `includeUnhosted: true` it also returns the unhosted ones.
+* **Pending cards.** `approval.pending` and `question.pending` carry
+  `{request, hostToolsFrom}`, and the `sessions.changed` status updates for
+  approvals and questions carry it too. A profile shows only its own cards and
+  those with `null`. `approval.request` and `question.request` still go only to
+  the claiming client.
+* **Always-allow rules.** A global rule stored from an approval in a
+  profile's session (scope `always` or `site`) records that profile
+  (`hostToolsFrom` on `permission.allowlist.list` rows). It covers only that
+  profile's sessions. IDE/CLI sessions match only unscoped rules, as before.
+  Project rules in `<workdir>/.snowpea` stay shared by every client.
+  * `permission.allowlist.list {hostToolsFrom}` returns that profile's global
+    rules plus project rules.
+  * `permission.allowlist.remove {patternId, hostToolsFrom}` removes a global
+    rule only when it belongs to that profile.
+  * With `hostToolsFrom` omitted, both calls see every rule.
+* The wire name is `hostToolsFrom`, not `scope`: `scope` already means
+  `project` or `global` on these methods.

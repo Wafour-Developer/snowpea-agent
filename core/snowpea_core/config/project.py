@@ -37,6 +37,9 @@ class AllowlistEntry(BaseModel):
     origin: str | None = None
     #: UTC ISO time the entry was stored (1.7.0); ``None`` for older entries.
     created_at: str | None = None
+    #: Browser profile (clientId) a global entry belongs to (addendum 8): it
+    #: covers only that profile's sessions. ``None`` is an ordinary entry.
+    host_tools_from: str | None = None
 
 
 def _coerce_allowlist(value: Any) -> Any:

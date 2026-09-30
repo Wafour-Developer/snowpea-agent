@@ -1189,6 +1189,7 @@ List stored allowlist patterns.
 
 | field | type | required | description |
 |---|---|---|---|
+| `hostToolsFrom` | `string \| null` | no | Only this browser profile's global entries (plus project entries); omit for every entry (addendum 8). |
 | `scope` | `"session" \| "project" \| "always" \| null` | no | Filter by scope; omit for all. |
 | `workdir` | `string \| null` | no | Absolute folder of the project to use (its .snowpea/settings.json). Default: the caller's most recent session's workdir (1.7.0). |
 
@@ -1196,7 +1197,7 @@ List stored allowlist patterns.
 
 | field | type | required | description |
 |---|---|---|---|
-| `patterns` | `({ createdAt?: string \| null; origin?: string \| null; pattern: string; patternId: string; scope: "session" \| "project" \| "always"; tool?: string \| null; })[]` | no | Stored allowlist entries. |
+| `patterns` | `({ createdAt?: string \| null; hostToolsFrom?: string \| null; origin?: string \| null; pattern: string; patternId: string; scope: "session" \| "project" \| "always"; tool?: string \| null; })[]` | no | Stored allowlist entries. |
 
 ### `permission.allowlist.remove`
 
@@ -1208,6 +1209,7 @@ Delete an allowlist pattern by id.
 
 | field | type | required | description |
 |---|---|---|---|
+| `hostToolsFrom` | `string \| null` | no | When given, a global entry is removed only if it belongs to this browser profile (addendum 8). |
 | `patternId` | `string` | yes | Pattern to delete. |
 | `workdir` | `string \| null` | no | Absolute folder of the project to use (its .snowpea/settings.json). Default: the caller's most recent session's workdir (1.7.0). |
 
@@ -1558,7 +1560,9 @@ List live or saved sessions.
 
 | field | type | required | description |
 |---|---|---|---|
+| `hostToolsFrom` | `string \| null` | no | Only sessions owned by this client (a browser profile's clientId); omit for every session (addendum 8). |
 | `includeClosed` | `boolean` | no | Include persisted closed sessions. |
+| `includeUnhosted` | `boolean` | no | With hostToolsFrom: also return sessions with no host (IDE, TUI, CLI), which a browser shows in every profile. |
 | `kinds` | `string[] \| null` | no | Only sessions of these kinds; omit for every kind. A surface that shows human threads asks for ["chat"] (CORE-session-kind). |
 | `workdir` | `string \| null` | no | Only sessions rooted here. |
 
@@ -1566,7 +1570,7 @@ List live or saved sessions.
 
 | field | type | required | description |
 |---|---|---|---|
-| `sessions` | `({ agent?: string \| null; contextUsed?: number; contextWindow?: number \| null; createdAt: string; effort?: "low" \| "medium" \| "high" \| "max" \| null; jobId?: string \| null; kind?: "chat" \| "scheduled" \| "subagent" \| "agent"; lastActivityAt?: string \| null; lastPrompt?: string \| null; mode: "plan" \| "accept" \| "auto"; model?: string \| null; originSurface?: string \| null; parentSessionId?: string \| null; pendingApprovals?: number; pendingQuestions?: number; provider?: string \| null; running?: boolean; seq?: number; sessionId: string; status?: "idle" \| "running" \| "awaiting_approval" \| "awaiting_question" \| "error"; title?: string \| null; turnStartedAt?: string \| null; workdir: string; workspaceDir?: string \| null; })[]` | no | Every live session. |
+| `sessions` | `({ agent?: string \| null; contextUsed?: number; contextWindow?: number \| null; createdAt: string; effort?: "low" \| "medium" \| "high" \| "max" \| null; hostToolsFrom?: string \| null; jobId?: string \| null; kind?: "chat" \| "scheduled" \| "subagent" \| "agent"; lastActivityAt?: string \| null; lastPrompt?: string \| null; mode: "plan" \| "accept" \| "auto"; model?: string \| null; originSurface?: string \| null; parentSessionId?: string \| null; pendingApprovals?: number; pendingQuestions?: number; provider?: string \| null; running?: boolean; seq?: number; sessionId: string; status?: "idle" \| "running" \| "awaiting_approval" \| "awaiting_question" \| "error"; title?: string \| null; turnStartedAt?: string \| null; workdir: string; workspaceDir?: string \| null; })[]` | no | Every live session. |
 
 ### `session.notice`
 
@@ -2434,6 +2438,7 @@ Token totals from stored usage events, grouped by provider, model, session or da
 
 | field | type | required | description |
 |---|---|---|---|
+| `hostToolsFrom` | `string \| null` | no | The session's owning client (addendum 8). A browser profile shows only its own cards and those with null. |
 | `request` | `{ args?: Record<string, unknown>; note?: string; requestId: string; risk?: string; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; }` | yes | The request now in the shared queue. |
 
 ### `approval.resolved`
@@ -2509,6 +2514,7 @@ Token totals from stored usage events, grouped by provider, model, session or da
 
 | field | type | required | description |
 |---|---|---|---|
+| `hostToolsFrom` | `string \| null` | no | The session's owning client (addendum 8). A browser profile shows only its own cards and those with null. |
 | `request` | `{ questions?: ({ allowOther?: boolean; header?: string; multi?: boolean; options?: ({ description?: string; label: string; preview?: string; })[]; question: string; secret?: boolean; })[]; requestId: string; sessionId: string; timeoutSec?: number; }` | yes | The question now in the shared queue. |
 
 ### `question.resolved`
@@ -2522,6 +2528,7 @@ Token totals from stored usage events, grouped by provider, model, session or da
 
 | field | type | required | description |
 |---|---|---|---|
+| `hostToolsFrom` | `string \| null` | no | The session's owning client (addendum 8); null for unhosted sessions. |
 | `kind` | `string` | yes | Event kind; see sessionEventKinds for the payload schema. |
 | `payload` | `Record<string, unknown>` | no | Kind-specific body. |
 | `seq` | `number` | yes | Monotonic per-session sequence number. |
@@ -2532,6 +2539,7 @@ Token totals from stored usage events, grouped by provider, model, session or da
 
 | field | type | required | description |
 |---|---|---|---|
+| `hostToolsFrom` | `string \| null` | no | The session's owning client (addendum 8); null for unhosted sessions. |
 | `reason` | `string` | yes | create, prompt, turn, renamed, close, ... |
 | `sessionId` | `string` | yes | Session that changed. |
 | `status` | `string \| null` | no | Its status now, when known. |
