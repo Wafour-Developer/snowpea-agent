@@ -1121,3 +1121,58 @@ async def test_a_session_created_in_a_project_uses_its_settings_agents_md_and_me
         assert project_namespace_of(session) in namespaces_for(session)
     finally:
         await client.stop()
+
+
+async def test_deleting_a_session_deletes_its_workspace_unless_asked_not_to(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    client = await open_client(http, daemon)
+    try:
+        (tmp_path / "w").mkdir()
+        kept_ids = []
+        for delete in (True, False):
+            created = await client.ok("session.create", {"workdir": str(tmp_path / "w")})
+            workspace = Path(created["workspaceDir"])
+            (workspace / "tmp" / "repl-result-1.txt").write_text("page text", encoding="utf-8")
+            await client.ok(
+                "session.deleteSaved",
+                {"sessionId": created["sessionId"], "deleteWorkspace": delete},
+            )
+            assert workspace.exists() is (not delete)
+            if not delete:
+                kept_ids.append(created["sessionId"])
+        assert kept_ids
+    finally:
+        await client.stop()
+
+
+async def test_set_mode_speaks_browser_and_keeps_read_only_clearly(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    from snowpea_core.providers.base import ChatMessage
+    from snowpea_core.session.questions import Answer
+    from snowpea_core.tools import set_mode as set_mode_mod
+    from snowpea_core.tools.registry import ToolContext
+
+    client = await open_client(http, daemon)  # clientKind "browser"
+    try:
+        session_id = await new_session(client, tmp_path / "w", mode="plan")
+        session = daemon.core.sessions.get(session_id)
+        asked: list[Any] = []
+
+        async def fake_ask(sess: Any, items: list[Any], **_: Any) -> list[Any]:
+            asked.extend(items)
+            # A surface that echoes the label without the "(추천)" marker.
+            return [Answer(selected=["읽기 전용 유지"])]
+
+        daemon.core.questions.ask = fake_ask  # type: ignore[method-assign]
+        session.history.messages.append(ChatMessage(role="user", content="이 페이지 요약해줘"))
+        ctx = ToolContext(session=session, core=daemon.core, backend=None)  # type: ignore[arg-type]
+        result = await set_mode_mod.set_mode(ctx, {"mode": "plan"})
+        labels = [option.label for option in asked[0].options]
+        assert labels[0].startswith("읽기 전용 유지") and "구현" not in " ".join(labels)
+        assert "안전 모드로 전환" in " ".join(labels)
+        assert "읽기 전용을 유지하기로" in result.output
+        assert session.mode == "plan"
+    finally:
+        await client.stop()

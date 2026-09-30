@@ -424,13 +424,13 @@ async def session_delete_saved_handler(
     ]
     deleted = await core.store.delete_sessions(ids)
     for session_id in ids:
-        _purge_session_files(core, session_id)
+        _purge_session_files(core, session_id, workspace=params.deleteWorkspace)
     if deleted:
         await core.sessions.announce_sessions_changed("deleted", params.sessionId or "")
     return SessionDeleteResult(deleted=deleted)
 
 
-def _purge_session_files(core: Core, session_id: str) -> None:
+def _purge_session_files(core: Core, session_id: str, *, workspace: bool = True) -> None:
     """Remove the on-disk bytes a deleted session owned.
 
     Deleting a session used to leave ``<home>/attachments/<id>/`` and
@@ -449,6 +449,12 @@ def _purge_session_files(core: Core, session_id: str) -> None:
             shutil.rmtree(audio, ignore_errors=True)
     except OSError:  # pragma: no cover - rmtree already ignores errors
         log.warning("could not purge audio for %s", session_id, exc_info=True)
+    if workspace:
+        # The per-session workspace (1.7.0): REPL results, downloads, page
+        # text, artifacts.  Named <date>_<id>; the date is not stored here.
+        for folder in (core.paths.home / "sessions").glob(f"*_{session_id}"):
+            if folder.is_dir() and folder.name.endswith(f"_{session_id}"):
+                shutil.rmtree(folder, ignore_errors=True)
     checkpoints = getattr(core, "checkpoints", None)
     purge = getattr(checkpoints, "delete_session", None) or getattr(checkpoints, "delete", None)
     if purge is not None:

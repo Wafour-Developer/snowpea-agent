@@ -78,20 +78,84 @@ TEXT: dict[str, dict[str, Any]] = {
 }
 
 
+#: The same picker for a browser session (originSurface / clientKind
+#: "browser"): its modes read as how much the agent may do on a page, and
+#: nothing is "implemented" there.
+BROWSER_TEXT: dict[str, dict[str, Any]] = {
+    "ko": {
+        "header": "모드 전환",
+        "question": "어떻게 진행할까요?",
+        "labels": {
+            "accept": "안전 모드로 전환",
+            "auto": "전체 권한으로 전환",
+            "plan": "읽기 전용 유지",
+        },
+        "descriptions": {
+            "accept": "페이지를 조작하되, 위험한 동작은 먼저 물어봅니다",
+            "auto": "묻지 않고 실행합니다",
+            "plan": "페이지를 읽기만 하고 바꾸지 않습니다",
+        },
+        "names": {"accept": "안전", "auto": "전체 권한", "plan": "읽기 전용"},
+        "switched": "{label} 모드로 바꿨습니다. 작업을 계속합니다.",
+        "kept": "사용자가 읽기 전용을 유지하기로 했습니다. 페이지를 바꾸지 말고, "
+        "읽은 내용만으로 답한 뒤 이 턴을 끝내세요.",
+        "declined": "사용자가 답하지 않았습니다. 읽기 전용 그대로입니다. "
+        "페이지를 바꾸지 말고 이 턴을 끝내세요.",
+    },
+    "en": {
+        "header": "Switch mode",
+        "question": "How should we continue?",
+        "labels": {
+            "accept": "Switch to safe mode",
+            "auto": "Switch to full access",
+            "plan": "Stay read-only",
+        },
+        "descriptions": {
+            "accept": "act on pages, but ask before anything risky",
+            "auto": "runs without asking",
+            "plan": "read pages only, change nothing",
+        },
+        "names": {"accept": "safe mode", "auto": "full access", "plan": "read-only"},
+        "switched": "Now in {label}. Continuing.",
+        "kept": "The user chose to stay read-only. Change nothing on the page; answer "
+        "from what you read and end this turn.",
+        "declined": "The user did not answer. Still read-only. Change nothing on the "
+        "page and end this turn.",
+    },
+}
+
+
+def _is_browser(ctx: ToolContext) -> bool:
+    session = ctx.session
+    if getattr(session, "origin_surface", None) == "browser":
+        return True
+    conn = getattr(session, "origin_conn", None)
+    return getattr(conn, "client_kind", None) == "browser"
+
+
+def _normal(label: str) -> str:
+    """A label as compared: markers, spacing and case do not count."""
+    for marker in RECOMMENDED.values():
+        label = label.replace(marker, "")
+    return " ".join(label.split()).casefold()
+
+
 def _language(ctx: ToolContext) -> str:
     """``ko`` or ``en``; anything the picker has no wording for reads as English."""
     tag = str(delegation_language(ctx) or "en").strip().lower()
     return "ko" if tag.startswith("ko") or "korean" in tag or "한국" in tag else "en"
 
 
-def _options(requested: str, language: str) -> list[tuple[str, QuestionOption]]:
+def _options(
+    requested: str, language: str, table: dict[str, dict[str, Any]] | None = None
+) -> list[tuple[str, QuestionOption]]:
     """The picker rows: the requested mode first and marked, then the rest.
 
     Returned as ``(mode, option)`` pairs so the answer's label — the only thing
     that comes back over ``question.respond`` — maps to a mode without parsing
     the human-facing text again.
     """
-    text = TEXT[language]
+    text = (table or TEXT)[language]
     order = [requested, *(mode for mode in MODES if mode != requested)]
     rows: list[tuple[str, QuestionOption]] = []
     for index, mode in enumerate(order):
@@ -116,8 +180,9 @@ async def set_mode(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         return ToolResult(ok=False, error="this daemon cannot ask the user questions")
 
     language = _language(ctx)
-    text = TEXT[language]
-    rows = _options(requested, language)
+    table = BROWSER_TEXT if _is_browser(ctx) else TEXT
+    text = table[language]
+    rows = _options(requested, language, table)
     reason = str(args.get("reason") or "").strip()
     question = f"{reason}\n{text['question']}".strip() if reason else text["question"]
 
@@ -137,8 +202,13 @@ async def set_mode(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     )
     answer = answers[0]
 
+    # Matched loosely: a surface may echo the label without the "(추천)"
+    # marker or with its own spacing, and a typed answer may name the option.
+    chosen = {_normal(item) for item in answer.selected}
+    if getattr(answer, "text", None):
+        chosen.add(_normal(str(answer.text)))
     picked = next(
-        (mode for mode, option in rows if option.label in answer.selected),
+        (mode for mode, option in rows if _normal(option.label) in chosen),
         None,
     )
     meta = {
@@ -157,7 +227,7 @@ async def set_mode(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         meta["mode"] = picked
         return ToolResult(
             ok=True,
-            output=text["kept"] if picked == "plan" else text["switched"].format(mode=picked),
+            output=text["kept"] if picked == "plan" else _switched(text, picked),
             meta=meta,
         )
 
@@ -165,7 +235,12 @@ async def set_mode(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     await ctx.core.hub.emit_event(ctx.session.id, events.mode_changed(mode))
     meta["mode"] = mode
     meta["changed"] = True
-    return ToolResult(ok=True, output=text["switched"].format(mode=mode), meta=meta)
+    return ToolResult(ok=True, output=_switched(text, mode), meta=meta)
+
+
+def _switched(text: dict[str, Any], mode: str) -> str:
+    label = str(text.get("names", {}).get(mode, mode))
+    return str(text["switched"]).format(mode=mode, label=label)
 
 
 TOOLS: tuple[Tool, ...] = (
@@ -200,4 +275,4 @@ TOOLS: tuple[Tool, ...] = (
 )
 
 
-__all__ = ["MODES", "RECOMMENDED", "TEXT", "TOOLS", "set_mode"]
+__all__ = ["BROWSER_TEXT", "MODES", "RECOMMENDED", "TEXT", "TOOLS", "set_mode"]

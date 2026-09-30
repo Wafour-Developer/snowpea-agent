@@ -581,6 +581,14 @@ class SessionDeleteParams(Payload):
     sessionId: str | None = Field(default=None, description="Delete one saved session.")
     workdir: str | None = Field(default=None, description="Delete saved sessions rooted here.")
     all: bool = Field(default=False, description="Delete saved sessions from every directory.")
+    deleteWorkspace: bool = Field(
+        default=True,
+        description=(
+            "Also delete each session's workspace ($SNOWPEA_HOME/sessions/<date>_<id>: "
+            "tmp/, artifacts/, downloads) — it can hold page text the user deleted the "
+            "chat to get rid of. false keeps it (1.7.0)."
+        ),
+    )
 
 
 class SessionDeleteResult(Payload):

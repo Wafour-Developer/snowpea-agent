@@ -1697,6 +1697,8 @@ export interface SessionCreateResult {
 export interface SessionDeleteSavedParams {
   /** Delete saved sessions from every directory. */
   all?: boolean;
+  /** Also delete each session's workspace ($SNOWPEA_HOME/sessions/<date>_<id>: tmp/, artifacts/, downloads) — it can hold page text the user deleted the chat to get rid of. false keeps it (1.7.0). */
+  deleteWorkspace?: boolean;
   /** Delete one saved session. */
   sessionId?: string | null;
   /** Delete saved sessions rooted here. */

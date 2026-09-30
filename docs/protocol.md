@@ -1518,6 +1518,7 @@ Delete saved sessions.
 | field | type | required | description |
 |---|---|---|---|
 | `all` | `boolean` | no | Delete saved sessions from every directory. |
+| `deleteWorkspace` | `boolean` | no | Also delete each session's workspace ($SNOWPEA_HOME/sessions/<date>_<id>: tmp/, artifacts/, downloads) — it can hold page text the user deleted the chat to get rid of. false keeps it (1.7.0). |
 | `sessionId` | `string \| null` | no | Delete one saved session. |
 | `workdir` | `string \| null` | no | Delete saved sessions rooted here. |
 
