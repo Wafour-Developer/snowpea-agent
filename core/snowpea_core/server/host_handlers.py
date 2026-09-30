@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 from snowpea_core.permissions.allowlist import site_of
@@ -172,9 +173,14 @@ async def approval_ask_handler(
         raise RpcError(
             errors.UNAUTHORIZED, "only the host whose tools this session uses may ask"
         )
-    tool = core.tools.get(params.tool, session)
-    if tool is None:
+    # A dotted action ("repl.upload") belongs to its tool ("repl"); the
+    # allowlist is keyed by the full action, anchored to exactly that name.
+    base = core.tools.get(params.tool, session) or core.tools.get(
+        params.tool.split(".", 1)[0], session
+    )
+    if base is None:
         raise RpcError(errors.NOT_FOUND, f"{params.tool} is not a tool of this session")
+    tool = replace(base, name=params.tool)
     detail = dict(params.detail or {})
     args = {**params.args, **({"detail": detail} if detail else {})}
     site = site_of(args, params.site or (str(detail["origin"]) if detail.get("origin") else None))

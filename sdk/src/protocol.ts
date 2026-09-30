@@ -1318,12 +1318,18 @@ export interface PermissionAllowlistListParams {
 export interface PermissionAllowlistListResult {
   /** Stored allowlist entries. */
   patterns?: ({
+    /** UTC ISO time it was stored; null for older entries. */
+    createdAt?: string | null;
+    /** Site the entry is limited to (a 'site'-scoped approval), else null. */
+    origin?: string | null;
     /** The glob or command prefix. */
     pattern: string;
     /** Stable id of the pattern. */
     patternId: string;
     /** Where it is stored. */
     scope: "session" | "project" | "always";
+    /** Tool or dotted action the entry targets (e.g. 'repl.upload'); null for a shell command pattern (1.7.0). */
+    tool?: string | null;
   })[];
 }
 

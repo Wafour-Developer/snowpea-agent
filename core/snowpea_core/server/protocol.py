@@ -1338,6 +1338,20 @@ class AllowlistPattern(Payload):
     patternId: str = Field(description="Stable id of the pattern.")
     pattern: str = Field(description="The glob or command prefix.")
     scope: AllowlistScope = Field(description="Where it is stored.")
+    tool: str | None = Field(
+        default=None,
+        description=(
+            "Tool or dotted action the entry targets (e.g. 'repl.upload'); null for a "
+            "shell command pattern (1.7.0)."
+        ),
+    )
+    origin: str | None = Field(
+        default=None,
+        description="Site the entry is limited to (a 'site'-scoped approval), else null.",
+    )
+    createdAt: str | None = Field(
+        default=None, description="UTC ISO time it was stored; null for older entries."
+    )
 
 
 class AllowlistListResult(Payload):

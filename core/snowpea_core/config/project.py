@@ -35,6 +35,8 @@ class AllowlistEntry(BaseModel):
     #: ``scheme://host`` the entry is limited to (an approval answered with the
     #: ``site`` scope, 1.6.0); ``None`` matches everywhere.
     origin: str | None = None
+    #: UTC ISO time the entry was stored (1.7.0); ``None`` for older entries.
+    created_at: str | None = None
 
 
 def _coerce_allowlist(value: Any) -> Any:

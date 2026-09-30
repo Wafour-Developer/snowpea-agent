@@ -380,6 +380,9 @@ async def allowlist_list_handler(
                 patternId=item.id,
                 pattern=item.pattern,
                 scope=STORE_SCOPE[item.scope],  # type: ignore[arg-type]
+                tool=item.tool,
+                origin=item.origin,
+                createdAt=item.created_at,
             )
             for item in items
         ]

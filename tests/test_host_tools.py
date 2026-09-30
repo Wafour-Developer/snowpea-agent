@@ -919,3 +919,44 @@ async def test_a_payment_answer_is_never_remembered(
         assert second["by"] == "user" and len(host.approval_requests) == 2
     finally:
         await host.stop()
+
+
+async def test_dotted_actions_are_remembered_exactly_and_listed_by_site(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    from snowpea_core.permissions.allowlist import pattern_for_tool
+
+    assert pattern_for_tool("repl.upload") == r"^repl\.upload$"
+    host = await open_client(http, daemon, approval_mode="allow", approval_scope="site")
+    try:
+        await host.ok("tool.register", {"tools": [spec("repl", "read")]})
+        session_id = await new_session(host, tmp_path / "w", mode="accept")
+        ask = {
+            "sessionId": session_id,
+            "tool": "repl.send",
+            "permission": "send",
+            "reason": "Send the message",
+            "args": {"url": "https://mail.example/inbox"},
+        }
+        first = await host.ok("approval.ask", ask)
+        assert first["by"] == "user"
+        # Remembered for repl.send on that site only.
+        again = await host.ok("approval.ask", ask)
+        assert again["by"] == "allowlist"
+        host.approval_mode = "deny"
+        upload = await host.ok("approval.ask", dict(ask, tool="repl.upload"))
+        assert upload["decision"] == "deny" and upload["by"] == "user"
+
+        listed = await host.ok("permission.allowlist.list", {})
+        rows = [row for row in listed["patterns"] if row.get("origin")]
+        assert len(rows) == 1
+        row = rows[0]
+        assert row["tool"] == "repl.send" and row["origin"] == "https://mail.example"
+        assert row["pattern"] == r"^repl\.send$" and row["createdAt"]
+        await host.ok("permission.allowlist.remove", {"patternId": row["patternId"]})
+        host.approval_mode = "allow"
+        host.approval_requests.clear()
+        await host.ok("approval.ask", ask)
+        assert host.approval_requests, "a removed rule asks again"
+    finally:
+        await host.stop()

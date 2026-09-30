@@ -21,6 +21,7 @@ import re
 import shlex
 import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -110,6 +111,15 @@ class AllowlistItem:
     target: str
     scope: Scope
     origin: str | None = None
+    created_at: str | None = None
+
+    @property
+    def tool(self) -> str | None:
+        """The tool (or dotted action, e.g. ``repl.upload``) a tool entry targets."""
+        if not self.target.startswith("tool:"):
+            return None
+        name = self.target[len("tool:") :]
+        return name or None
 
 
 class Allowlist:
@@ -130,13 +140,22 @@ class Allowlist:
             return []
         project = ProjectSettings.load(workdir)
         return [
-            AllowlistItem(e.id, e.pattern, e.target, "project", e.origin)
+            AllowlistItem(
+                e.id, e.pattern, e.target, "project", e.origin, getattr(e, "created_at", None)
+            )
             for e in project.allowlist
         ]
 
     def _global_items(self) -> list[AllowlistItem]:
         return [
-            AllowlistItem(e.id, e.pattern, e.target, "global", getattr(e, "origin", None))
+            AllowlistItem(
+                e.id,
+                e.pattern,
+                e.target,
+                "global",
+                getattr(e, "origin", None),
+                getattr(e, "created_at", None),
+            )
             for e in self.settings.allowlist
         ]
 
@@ -213,7 +232,13 @@ class Allowlist:
         for item in self.list(scope, workdir=workdir):
             if item.pattern == pattern and item.target == target and item.origin == origin:
                 return item.id
-        entry = AllowlistEntry(id=new_id(), pattern=pattern, target=target, origin=origin)
+        entry = AllowlistEntry(
+            id=new_id(),
+            pattern=pattern,
+            target=target,
+            origin=origin,
+            created_at=datetime.now(UTC).isoformat(timespec="seconds"),
+        )
         if scope == "project":
             if workdir is None:
                 raise ValueError("a project allowlist entry needs a workdir")
