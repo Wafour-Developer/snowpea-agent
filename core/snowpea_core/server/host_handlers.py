@@ -503,34 +503,69 @@ async def setup_status_handler(
     return setup_status(core, params.profile)
 
 
+#: What ``setup.applyDefaults`` fills in, per profile: dotted key -> value.
+#: ``browser.provider`` is deliberately absent — "host" exists only while a
+#: browser is attached, so it is never written globally; a session whose host
+#: provides ``browser_*`` tools is routed to it per session instead
+#: (``browser_providers.resolve_for_session``).
+PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
+    "default": {"search.provider": "ddgs", "memory.enabled": True, "scheduler.enabled": True},
+    "browser": {"search.provider": "ddgs", "memory.enabled": True, "scheduler.enabled": True},
+}
+
+
+def _stored_settings(core: Core) -> dict[str, Any]:
+    """The global ``settings.json`` as written, without model defaults filled in."""
+    try:
+        raw = json.loads(core.paths.settings_json.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def defaults_patch(
+    stored: dict[str, Any], defaults: dict[str, Any]
+) -> tuple[dict[str, Any], list[str], list[str]]:
+    """``(patch, applied, skipped)``: only keys absent or null in ``stored`` are filled."""
+    patch: dict[str, Any] = {}
+    applied: list[str] = []
+    skipped: list[str] = []
+    for key, value in defaults.items():
+        *parents, leaf = key.split(".")
+        node: Any = stored
+        for part in parents:
+            node = node.get(part) if isinstance(node, dict) else None
+        if isinstance(node, dict) and node.get(leaf) is not None:
+            skipped.append(key)
+            continue
+        target = patch
+        for part in parents:
+            target = target.setdefault(part, {})
+        target[leaf] = value
+        applied.append(key)
+    return patch, applied, skipped
+
+
 async def setup_apply_defaults_handler(
     conn: RpcConnection, params: SetupApplyDefaultsParams, core: Core
 ) -> SetupApplyDefaultsResult:
-    """``setup.applyDefaults`` — fill in defaults; what is already fine is left alone.
+    """``setup.applyDefaults`` — fill in what is unset; never overwrite a user's value.
 
-    Gateways are never turned off here: one the person enabled is their choice,
-    and none is enabled by default. The default mode is already ``accept``.
+    A key counts as set when ``settings.json`` holds a non-null value for it,
+    whatever that value is (addendum 6: a chosen ``exa_free`` search provider or
+    ``local_chromium`` browser stays).  Gateways are never touched, and the
+    default mode is already ``accept``.
     """
-    settings = core.settings
-    patch: dict[str, Any] = {}
-    applied: list[str] = []
-    if not _search_keyless_ok(core):
-        patch.setdefault("search", {})["provider"] = "ddgs"
-        applied.append("search.provider")
-    if not settings.memory.enabled:
-        patch.setdefault("memory", {})["enabled"] = True
-        applied.append("memory.enabled")
-    if not settings.scheduler.enabled:
-        patch.setdefault("scheduler", {})["enabled"] = True
-        applied.append("scheduler.enabled")
-    if params.profile == "browser" and settings.browser.provider != "host":
-        patch.setdefault("browser", {})["provider"] = "host"
-        applied.append("browser.provider")
+    patch, applied, skipped = defaults_patch(
+        _stored_settings(core), PROFILE_DEFAULTS.get(params.profile, {})
+    )
     if patch:
         from snowpea_core.server.settings_handlers import settings_set_handler
 
         await settings_set_handler(conn, SettingsSetParams(scope="global", patch=patch), core)
-    return SetupApplyDefaultsResult(applied=applied, status=setup_status(core, params.profile))
+    return SetupApplyDefaultsResult(
+        applied=applied, skipped=skipped, status=setup_status(core, params.profile)
+    )
 
 
 async def provider_test_handler(

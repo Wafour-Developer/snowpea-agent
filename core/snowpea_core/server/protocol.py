@@ -2549,7 +2549,12 @@ class SetupApplyDefaultsParams(Payload):
 
 class SetupApplyDefaultsResult(Payload):
     applied: list[str] = Field(
-        default_factory=list, description="Setting keys this call changed; empty when all set."
+        default_factory=list,
+        description="Setting keys this call filled in because they were unset (absent or null).",
+    )
+    skipped: list[str] = Field(
+        default_factory=list,
+        description="Profile keys left alone because settings.json already holds a value.",
     )
     status: SetupStatusResult = Field(description="setup.status after applying.")
 

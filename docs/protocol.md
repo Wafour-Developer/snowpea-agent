@@ -1808,7 +1808,8 @@ Apply the profile's defaults for everything optional; idempotent.
 
 | field | type | required | description |
 |---|---|---|---|
-| `applied` | `string[]` | no | Setting keys this call changed; empty when all set. |
+| `applied` | `string[]` | no | Setting keys this call filled in because they were unset (absent or null). |
+| `skipped` | `string[]` | no | Profile keys left alone because settings.json already holds a value. |
 | `status` | `{ configuredProviders?: string[]; existingInstall?: boolean; optional?: ({ defaultApplied?: boolean \| null; done: boolean; id: string; title: string; })[]; required?: ({ defaultApplied?: boolean \| null; done: boolean; id: string; title: string; })[]; }` | yes | setup.status after applying. |
 
 ### `setup.catalog`

@@ -2028,8 +2028,10 @@ export interface SetupApplyDefaultsParams {
 
 /** `setup.applyDefaults` result. */
 export interface SetupApplyDefaultsResult {
-  /** Setting keys this call changed; empty when all set. */
+  /** Setting keys this call filled in because they were unset (absent or null). */
   applied?: string[];
+  /** Profile keys left alone because settings.json already holds a value. */
+  skipped?: string[];
   /** setup.status after applying. */
   status: {
     /** Vendors with credentials or a local endpoint. */

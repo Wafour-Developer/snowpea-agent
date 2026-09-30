@@ -29,7 +29,7 @@ async def _act(
 ) -> ToolResult:
     """Run one provider action and turn its failures into tool errors."""
     settings = getattr(ctx.core, "settings", None)
-    provider = browser_providers.resolve(settings)
+    provider = browser_providers.resolve_for_session(settings, getattr(ctx, "session", None))
     if not provider.available(settings):
         return ToolResult(
             ok=False,

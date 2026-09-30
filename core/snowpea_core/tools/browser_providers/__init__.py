@@ -215,6 +215,23 @@ def resolve(settings: Any) -> BrowserProvider:
     return _REGISTRY.get(str(name)) or _REGISTRY["local_chromium"]
 
 
+def resolve_for_session(settings: Any, session: Any) -> BrowserProvider:
+    """The provider for one session's ``browser_*`` call.
+
+    A session whose host (``hostToolsFrom`` or its origin connection) provides
+    ``browser_*`` tools browses through that host, even for a built-in the host
+    did not shadow; every other session uses ``settings.browser.provider``.
+    That is why ``browser.provider: "host"`` never needs to be set globally —
+    it would break the CLI and IDE sessions of the same daemon (addendum 6).
+    """
+    if session is not None:
+        from snowpea_core.tools.host_tools import HOST_TOOLS
+
+        if any(name.startswith("browser_") for name in HOST_TOOLS.names_for(session)):
+            return _REGISTRY.get("host") or resolve(settings)
+    return resolve(settings)
+
+
 async def close_all_sessions(session_id: str) -> None:
     """Drop ``session_id`` from every provider that holds a context for it."""
     for provider in _REGISTRY.values():
@@ -223,6 +240,7 @@ async def close_all_sessions(session_id: str) -> None:
 
 __all__ = [
     "PROVIDER_ORDER",
+    "resolve_for_session",
     "configured",
     "credential_env",
     "credentials_for",

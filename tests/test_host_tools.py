@@ -477,11 +477,12 @@ async def test_setup_status_apply_defaults_and_provider_test(
         assert status["required"][0]["done"] is False
 
         applied = await client.ok("setup.applyDefaults", {"profile": "browser"})
-        assert "browser.provider" in applied["applied"]
+        assert "browser.provider" not in applied["applied"] + applied["skipped"]
         again = await client.ok("setup.applyDefaults", {"profile": "browser"})
         assert again["applied"] == []
         settings = await client.ok("settings.get", {})
-        assert settings["settings"]["browser"]["provider"] == "host"
+        # "host" is never written globally; browser sessions route per session.
+        assert settings["settings"]["browser"]["provider"] == "local_chromium"
 
         providers = await client.ok("provider.list", {})
         vendor = next(
@@ -493,6 +494,66 @@ async def test_setup_status_apply_defaults_and_provider_test(
         assert tested["latencyMs"] >= 0 and tested["provider"] == vendor
     finally:
         await client.stop()
+
+
+async def test_apply_defaults_never_overwrites_what_the_user_chose(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    """Addendum 6: the browser's quick start must not take over CLI/IDE settings."""
+    client = await open_client(http, daemon)
+    try:
+        await client.ok(
+            "settings.set",
+            {
+                "scope": "global",
+                "patch": {
+                    "browser": {"provider": "local_chromium"},
+                    "search": {"provider": "exa_free"},
+                },
+            },
+        )
+        result = await client.ok("setup.applyDefaults", {"profile": "browser"})
+        assert result["applied"] == []
+        assert {"search.provider", "memory.enabled", "scheduler.enabled"} <= set(
+            result["skipped"]
+        )
+        settings = (await client.ok("settings.get", {}))["settings"]
+        assert settings["browser"]["provider"] == "local_chromium"
+        assert settings["search"]["provider"] == "exa_free"
+    finally:
+        await client.stop()
+
+
+def test_apply_defaults_fills_only_absent_or_null_keys() -> None:
+    from snowpea_core.server.host_handlers import defaults_patch
+
+    stored = {"search": {"provider": None}, "memory": {"enabled": False}}
+    patch, applied, skipped = defaults_patch(
+        stored, {"search.provider": "ddgs", "memory.enabled": True, "scheduler.enabled": True}
+    )
+    assert patch == {"search": {"provider": "ddgs"}, "scheduler": {"enabled": True}}
+    assert applied == ["search.provider", "scheduler.enabled"]
+    assert skipped == ["memory.enabled"]
+
+
+def test_browser_tools_route_to_the_host_per_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    from types import SimpleNamespace
+
+    from snowpea_core.tools import browser_providers
+    from snowpea_core.tools.host_tools import HOST_TOOLS
+
+    settings = SimpleNamespace(browser=SimpleNamespace(provider="local_chromium"))
+    browser_session, cli_session = object(), object()
+    monkeypatch.setattr(
+        HOST_TOOLS,
+        "names_for",
+        lambda session: ["repl", "browser_navigate"] if session is browser_session else [],
+    )
+    assert browser_providers.resolve_for_session(settings, browser_session).meta.id == "host"
+    assert browser_providers.resolve_for_session(settings, cli_session).meta.id == (
+        "local_chromium"
+    )
+    assert browser_providers.resolve_for_session(settings, None).meta.id == "local_chromium"
 
 
 # ---------------------------------------------------------------------------

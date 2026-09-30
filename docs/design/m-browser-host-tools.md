@@ -60,12 +60,16 @@ not prompt on every call, and let the host enforce the rest itself:
 
 ## 2. `host` browser provider
 
-`browser.provider: "host"` (`tools/browser_providers/host.py`). Shadowing is the
-primary path: a host that registers `browser_navigate` replaces the Playwright
-tool. With the `host` provider selected, a built-in `browser_*` tool the host did
-not shadow is forwarded to the host tool of the same name. With no host attached
-it refuses rather than falling back to a different browser.
-`setup.applyDefaults {profile: "browser"}` selects it.
+`tools/browser_providers/host.py`. Shadowing is the primary path: a host that
+registers `browser_navigate` replaces the Playwright tool. Routing is **per
+session** (addendum 6): a session whose host provides any `browser_*` tool sends
+the built-in `browser_*` tools the host did not shadow to the host as well
+(`browser_providers.resolve_for_session`). Every other session, such as the CLI
+and IDE ones, keeps the configured `browser.provider`. Selecting
+`browser.provider: "host"` globally still works, but nothing sets it: it would
+leave those other sessions without a browser whenever no browser is attached.
+With the host provider in use and no host attached, the call is refused rather
+than falling back to a different browser.
 
 ## 3. Identity, re-attach, keep-alive
 
@@ -129,11 +133,14 @@ which is keyed by tool only.
   which is done once `provider.test` has passed for a configured vendor
   (remembered in `$SNOWPEA_HOME/setup-state.json`). The optional items are
   search, memory, scheduler, gateways, mode and browser.
-* `setup.applyDefaults {profile}` → `{applied, status}`. It is idempotent:
-  keyless search (`ddgs`) when the current provider has no key, memory and the
-  scheduler on, and `browser.provider: "host"` for the browser profile.
-  Gateways a person enabled are left alone; none is on by default. The default
-  mode is already `accept`.
+* `setup.applyDefaults {profile}` → `{applied, skipped, status}`. It fills in
+  only keys that are unset, meaning absent or null in `settings.json`, and never
+  overwrites a value the user set (addendum 6). The profile defaults are
+  `search.provider: "ddgs"`, `memory.enabled: true` and
+  `scheduler.enabled: true`. `applied` lists the keys it filled in; `skipped`
+  lists the keys that already held a value. It never writes `browser.provider`
+  (§2). Gateways are left alone; none is on by default. The default mode is
+  already `accept`.
 * `provider.test {provider, model?}` → `{ok, provider, model, modelEcho?,
   latencyMs, reply?, error?}`.
 * A plugin in a local directory installs with the existing
