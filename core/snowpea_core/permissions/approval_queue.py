@@ -22,7 +22,7 @@ import contextlib
 import json
 import logging
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, cast
 
 from snowpea_core.config.paths import Paths, utc_now
@@ -64,6 +64,39 @@ PERSISTING_SCOPES: dict[str, str] = {"project": "project", "always": "global", "
 
 #: Extra seconds the outer wait gives the origin call to report its own timeout.
 GRACE_SECONDS = 2.0
+
+
+#: Dotted browser actions whose answer may be remembered beyond one site.
+#: Every other ``repl.*`` action (send, upload, script, …) acts on a page, so
+#: an "always"/"project" answer for it would become a rule for every site.
+REPL_GLOBAL_OK: frozenset[str] = frozenset({"repl.tabs", "repl.clipboard"})
+
+
+def guard_scope(request: ApprovalRequest, decision: Decision) -> Decision:
+    """Downgrade a remembered answer that would be broader than it looks.
+
+    Defense in depth for host actions (1.7.0): a page action (``repl.*``
+    other than tabs/clipboard) answered "always"/"project" would be stored
+    with no site and match everywhere; a "site" answer with no usable
+    http(s) origin would be stored the same way.  Both become ``once``.
+    """
+    if not decision.allowed or decision.scope == "once":
+        return decision
+    tool = request.tool or ""
+    if (
+        decision.scope in ("always", "project")
+        and tool.startswith("repl.")
+        and tool not in REPL_GLOBAL_OK
+    ):
+        log.info("approval %s: %s for %s kept to once", request.requestId, decision.scope, tool)
+        return replace(decision, scope="once")
+    if decision.scope == "site":
+        origin = site_of(request.args, request.site)
+        if origin is None or not origin.startswith(("http://", "https://")):
+            log.info("approval %s: site scope without an http(s) site kept to once",
+                     request.requestId)
+            return replace(decision, scope="once")
+    return decision
 
 
 @dataclass
@@ -251,6 +284,7 @@ class ApprovalQueue:
                     await entry.task
         if not self.count(session.id):
             await self._announce_status(session.id, "running")
+        decision = guard_scope(request, decision)
         await self._resolve(
             request,
             decision,

@@ -960,3 +960,54 @@ async def test_dotted_actions_are_remembered_exactly_and_listed_by_site(
         assert host.approval_requests, "a removed rule asks again"
     finally:
         await host.stop()
+
+
+async def _ask_with_scope(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path, scope: str, tool: str,
+    args: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    host = await open_client(http, daemon, approval_mode="allow", approval_scope=scope)
+    try:
+        await host.ok("tool.register", {"tools": [spec("repl", "read")]})
+        session_id = await new_session(host, tmp_path / f"w-{tool}-{scope}", mode="accept")
+        answer = await host.ok(
+            "approval.ask",
+            {
+                "sessionId": session_id,
+                "tool": tool,
+                "permission": "send",
+                "reason": "x",
+                "args": args or {},
+            },
+        )
+        listed = await host.ok("permission.allowlist.list", {})
+        return answer, [row for row in listed["patterns"] if row.get("tool") == tool]
+    finally:
+        await host.stop()
+
+
+async def test_always_on_a_page_action_is_kept_to_once(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    for tool in ("repl.send", "repl.upload", "repl.script"):
+        answer, stored = await _ask_with_scope(http, daemon, tmp_path, "always", tool)
+        assert answer["scope"] == "once" and stored == [], tool
+
+
+async def test_site_scope_without_a_site_is_kept_to_once(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    answer, stored = await _ask_with_scope(http, daemon, tmp_path, "site", "repl.send")
+    assert answer["scope"] == "once" and stored == []
+    answer, stored = await _ask_with_scope(
+        http, daemon, tmp_path, "site", "repl.upload", {"url": "file:///etc/passwd"}
+    )
+    assert answer["scope"] == "once" and stored == []
+
+
+async def test_tabs_and_clipboard_may_be_remembered_always(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    answer, stored = await _ask_with_scope(http, daemon, tmp_path, "always", "repl.tabs")
+    assert answer["scope"] == "always"
+    assert len(stored) == 1 and stored[0]["origin"] is None
