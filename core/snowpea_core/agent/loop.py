@@ -1565,6 +1565,12 @@ async def _run_one_call(
         await hub.emit_event(session.id, events.error(errors.MODE_DENIED, message))
         await _deny_call(core, session, call, message)
         return "denied"
+    from snowpea_core.tools.browser_providers import browser_settings_refusal
+
+    settings_refusal = browser_settings_refusal(session, tool.name, call.arguments)
+    if settings_refusal:
+        await _deny_call(core, session, call, settings_refusal)
+        return None
     if getattr(session, "deny_exec", False) and tag == "exec":
         await _deny_call(
             core,

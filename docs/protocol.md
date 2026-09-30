@@ -126,6 +126,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`session.prompt`](#sessionprompt) | client → server | Send user text to a session and start a turn. Events: turn.started {turnId, prompt, queued}, then message.user {text, attachments, refs, steered: false}, then the model's output. message.user.text is what the user typed; a page attachment is listed as {kind: page, name, url, title} and only the model sees the rendered page. A steered prompt emits message.user {steered: true} + turn.dequeued {reason: steered}; a queued one emits turn.queued first. |
 | [`session.rename`](#sessionrename) | client → server | Set a session's title. |
 | [`session.resume`](#sessionresume) | client → server | Replay the events a disconnected client missed. |
+| [`session.setBrowserProvider`](#sessionsetbrowserprovider) | client → server | Per-session opt-in to core's own browser; never global (addendum 9). |
 | [`session.setEffort`](#sessionseteffort) | client → server | Pin how hard a session's model may think, or clear the pin. |
 | [`session.setMode`](#sessionsetmode) | client → server | Switch a session between plan, accept and auto. |
 | [`session.setModel`](#sessionsetmodel) | client → server | Pin a session to a model profile, or clear the pin. |
@@ -1655,6 +1656,26 @@ Replay the events a disconnected client missed.
 | `model` | `string \| null` | no | Model id in use. |
 | `provider` | `string \| null` | no | Chat provider vendor in use. |
 | `sessionId` | `string` | yes | Session that was resumed. |
+
+### `session.setBrowserProvider`
+
+*Direction:* client → server
+
+Per-session opt-in to core's own browser; never global (addendum 9).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `provider` | `"host" \| "local"` | yes | 'host': only the Snowpea browser (the default for browser sessions; with no browser attached, browser tools fail with host_unavailable). 'local': the user explicitly allows core's own browser for this session only. |
+| `sessionId` | `string` | yes | Session whose browser tools to point (addendum 9). |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `browserProvider` | `"host" \| "local"` | yes | What it uses now. |
+| `sessionId` | `string` | yes | The session. |
 
 ### `session.setEffort`
 

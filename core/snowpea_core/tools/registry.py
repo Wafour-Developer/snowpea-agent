@@ -178,13 +178,26 @@ class ToolRegistry:
         return self._tools.get(name)
 
     def _view(self, session: Any | None) -> dict[str, Tool]:
-        """Daemon tools with the session's host tools laid over them."""
+        """Daemon tools with the session's host tools laid over them.
+
+        A browser session without its Snowpea browser does not see core's own
+        browser tools at all (addendum 9), so the model cannot pick them; a call
+        to one anyway fails with ``host_unavailable``.
+        """
         if session is None:
             return self._tools
+        from snowpea_core.tools import browser_providers
+
         host = _host_tools(session)
-        if not host:
-            return self._tools
         merged = dict(self._tools)
+        if browser_providers.browser_locked(session) and not any(
+            name.startswith("browser_") for name in host
+        ):
+            merged = {
+                name: tool for name, tool in merged.items() if tool.category != "browser"
+            }
+        if not host and len(merged) == len(self._tools):
+            return self._tools
         merged.update(host)
         return merged
 

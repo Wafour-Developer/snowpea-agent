@@ -284,3 +284,32 @@ profile.
   * With `hostToolsFrom` omitted, both calls see every rule.
 * The wire name is `hostToolsFrom`, not `scope`: `scope` already means
   `project` or `global` on these methods.
+
+## 10. Browser sessions never use core's own browser (addendum 9)
+
+This is the owner's rule. In a browser session, browser work always happens in
+the Snowpea browser's agent tab. A browser session is one with
+`originSurface: "browser"`, a `hostToolsFrom`, or a browser-kind origin
+connection.
+
+* **No fallback.** When no host `browser_*` tool is attached (after the §3
+  fallback), the built-in `browser_*` tools fail at once with
+  `host_unavailable: 브라우저 연결이 끊겼어요. Snowpea 브라우저를 열어 두면 이어서
+  할 수 있어요.` (`meta.code: "host_unavailable"`). They never reach
+  `local_chromium` or any other built-in provider. They are also left out of
+  the session's tool list (`tool.list`, the model's tools) until the browser is
+  back, so the model does not pick them.
+* **Opt-in.** `session.setBrowserProvider {sessionId, provider:
+  "host"|"local"}` → `{sessionId, browserProvider}` is the only way to use
+  core's own browser in such a session.
+  * It applies to that session only. It is persisted
+    (`sessions.browser_provider`) and announced as `sessions.changed {reason:
+    "browserProvider"}`.
+  * Only a client calls it, on the user's word. No tool reaches it.
+  * `"local"` means core's configured provider, and `local_chromium` when
+    that provider is `host`.
+* **Settings.** `settings_set` carries the `config` tag: it asks in accept and
+  auto, is refused in plan, and is never promoted by the allowlist or
+  remembered for the session. So a model cannot change a setting unasked on
+  any surface. In a browser session, `browser.*` keys are refused outright,
+  before anyone is asked, because the browser owns them.

@@ -215,6 +215,45 @@ def resolve(settings: Any) -> BrowserProvider:
     return _REGISTRY.get(str(name)) or _REGISTRY["local_chromium"]
 
 
+#: Error code and text when a browser session has lost its Snowpea browser.
+HOST_UNAVAILABLE = "host_unavailable"
+HOST_UNAVAILABLE_MESSAGE = (
+    "브라우저 연결이 끊겼어요. Snowpea 브라우저를 열어 두면 이어서 할 수 있어요. "
+    "(The Snowpea browser is not connected; do not use another browser. Tell the user "
+    "and stop the browser part of the task.)"
+)
+
+
+def is_browser_session(session: Any) -> bool:
+    """A session the Snowpea browser opened or owns (addendum 9)."""
+    if session is None:
+        return False
+    if getattr(session, "origin_surface", None) == "browser":
+        return True
+    if getattr(session, "host_tools_from", None):
+        return True
+    conn = getattr(session, "origin_conn", None)
+    return getattr(conn, "client_kind", None) == "browser"
+
+
+def host_browser_attached(session: Any) -> bool:
+    """True when the session's host provides ``browser_*`` tools right now."""
+    from snowpea_core.tools.host_tools import HOST_TOOLS
+
+    return any(name.startswith("browser_") for name in HOST_TOOLS.names_for(session))
+
+
+def browser_locked(session: Any) -> bool:
+    """A browser session whose browser work may only happen in the Snowpea browser.
+
+    The owner's rule: in a browser session, browsing always happens in the
+    browser's agent tab. Core's own (headless) browser is used only after the
+    user opted that session in with ``session.setBrowserProvider {provider:
+    "local"}`` — never globally, never on the model's say-so.
+    """
+    return is_browser_session(session) and getattr(session, "browser_provider", None) != "local"
+
+
 def resolve_for_session(settings: Any, session: Any) -> BrowserProvider:
     """The provider for one session's ``browser_*`` call.
 
@@ -224,12 +263,31 @@ def resolve_for_session(settings: Any, session: Any) -> BrowserProvider:
     That is why ``browser.provider: "host"`` never needs to be set globally —
     it would break the CLI and IDE sessions of the same daemon (addendum 6).
     """
-    if session is not None:
-        from snowpea_core.tools.host_tools import HOST_TOOLS
-
-        if any(name.startswith("browser_") for name in HOST_TOOLS.names_for(session)):
-            return _REGISTRY.get("host") or resolve(settings)
+    if session is not None and host_browser_attached(session):
+        return _REGISTRY.get("host") or resolve(settings)
+    if session is not None and getattr(session, "browser_provider", None) == "local":
+        # The user's explicit opt-in means core's own browser, never "host".
+        chosen = resolve(settings)
+        return _REGISTRY["local_chromium"] if chosen.meta.id == "host" else chosen
     return resolve(settings)
+
+
+def browser_settings_refusal(session: Any, tool_name: str, args: Any) -> str | None:
+    """Why a browser session may not make this settings change, if it may not.
+
+    The browser owns ``browser.*``; a model in a browser session changing it
+    (``browser.headless=false`` after a lost host) is refused before anyone is
+    asked (addendum 9).
+    """
+    if tool_name != "settings_set" or not is_browser_session(session):
+        return None
+    key = str((args or {}).get("key") or "").strip()
+    if key == "browser" or key.startswith("browser."):
+        return (
+            f"{key} is managed by the Snowpea browser and cannot be changed from a "
+            "browser session"
+        )
+    return None
 
 
 async def close_all_sessions(session_id: str) -> None:
@@ -240,6 +298,12 @@ async def close_all_sessions(session_id: str) -> None:
 
 __all__ = [
     "PROVIDER_ORDER",
+    "HOST_UNAVAILABLE",
+    "HOST_UNAVAILABLE_MESSAGE",
+    "browser_locked",
+    "browser_settings_refusal",
+    "host_browser_attached",
+    "is_browser_session",
     "resolve_for_session",
     "configured",
     "credential_env",

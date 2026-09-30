@@ -35,6 +35,8 @@ from snowpea_core.server.protocol import (
     SessionIdParams,
     SessionNoticeParams,
     SessionRenameParams,
+    SessionSetBrowserProviderParams,
+    SessionSetBrowserProviderResult,
     SessionSteerParams,
     SessionSteerResult,
     SessionToolContentParams,
@@ -280,6 +282,22 @@ async def session_attach_handler(
         hostTools=HOST_TOOLS.names_for(session),
         hostToolsFrom=session.host_tools_from,
     )
+
+
+async def session_set_browser_provider_handler(
+    _conn: RpcConnection, params: SessionSetBrowserProviderParams, core: Core
+) -> SessionSetBrowserProviderResult:
+    """``session.setBrowserProvider`` — the user's per-session browser choice.
+
+    Only a client calls this, on the user's explicit word; no tool reaches it,
+    so the model can never switch a browser session to core's own browser.
+    """
+    session = _session(core, params.sessionId)
+    session.browser_provider = None if params.provider == "host" else "local"
+    if core.store is not None:
+        await core.store.update_browser_provider(session.id, session.browser_provider)
+    await core.sessions.announce_sessions_changed("browserProvider", session.id)
+    return SessionSetBrowserProviderResult(sessionId=session.id, browserProvider=params.provider)
 
 
 #: Longest ``session.notice`` text kept; notices beyond this many are dropped.
@@ -649,6 +667,7 @@ def register_host_handlers(dispatcher: RpcDispatcher) -> None:
     dispatcher.register("tool.progress", tool_progress_handler)
     dispatcher.register("approval.ask", approval_ask_handler)
     dispatcher.register("session.attach", session_attach_handler)
+    dispatcher.register("session.setBrowserProvider", session_set_browser_provider_handler)
     dispatcher.register("session.steer", session_steer_handler)
     dispatcher.register("session.toolContent", session_tool_content_handler)
     dispatcher.register("session.artifacts", session_artifacts_handler)

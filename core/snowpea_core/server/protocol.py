@@ -341,6 +341,22 @@ class SessionAttachParams(Payload):
     )
 
 
+class SessionSetBrowserProviderParams(Payload):
+    sessionId: str = Field(description="Session whose browser tools to point (addendum 9).")
+    provider: Literal["host", "local"] = Field(
+        description=(
+            "'host': only the Snowpea browser (the default for browser sessions; with no "
+            "browser attached, browser tools fail with host_unavailable). 'local': the "
+            "user explicitly allows core's own browser for this session only."
+        )
+    )
+
+
+class SessionSetBrowserProviderResult(Payload):
+    sessionId: str = Field(description="The session.")
+    browserProvider: Literal["host", "local"] = Field(description="What it uses now.")
+
+
 class SessionAttachResult(Payload):
     sessionId: str = Field(description="The attached session.")
     hostTools: list[str] = Field(
@@ -4287,6 +4303,12 @@ METHODS: dict[str, RpcMethod] = {
             "Make this connection the origin of a session (approvals, host tools).",
         ),
         _m(
+            "session.setBrowserProvider",
+            SessionSetBrowserProviderParams,
+            SessionSetBrowserProviderResult,
+            "Per-session opt-in to core's own browser; never global (addendum 9).",
+        ),
+        _m(
             "usage.summary",
             UsageSummaryParams,
             UsageSummaryResult,
@@ -4479,6 +4501,7 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "tool.progress",
         "approval.ask",
         "session.attach",
+        "session.setBrowserProvider",
         "session.steer",
         "session.toolContent",
         "session.artifacts",

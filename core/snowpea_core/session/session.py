@@ -177,6 +177,10 @@ class Session:
     #: Whose host tools this session sees: a clientId or surface id from
     #: ``session.create {hostToolsFrom}``; ``None`` means the origin connection.
     host_tools_from: str | None = None
+    #: Which browser a browser session's ``browser_*`` tools drive (addendum 9):
+    #: ``None``/``"host"`` means only the Snowpea browser, never core's own;
+    #: ``"local"`` is the user's explicit opt-in (``session.setBrowserProvider``).
+    browser_provider: str | None = None
     #: ``system.hello`` clientId of the connection that created the session, so
     #: a restarted client re-binds as its origin (1.6.0).
     origin_client_id: str | None = None

@@ -67,6 +67,7 @@ SESSION_COLUMNS: tuple[tuple[str, str], ...] = (
     ("delegation", "INTEGER"),
     ("title", "TEXT"),
     ("host_tools_from", "TEXT"),
+    ("browser_provider", "TEXT"),
 )
 
 SQLITE_RETRY_ATTEMPTS = 5
@@ -234,6 +235,14 @@ class Store:
         await asyncio.to_thread(
             self._execute,
             "UPDATE sessions SET host_tools_from = ? WHERE id = ?",
+            (value, session_id),
+        )
+
+    async def update_browser_provider(self, session_id: str, value: str | None) -> None:
+        """Persist a browser session's opt-in to core's own browser (addendum 9)."""
+        await asyncio.to_thread(
+            self._execute,
+            "UPDATE sessions SET browser_provider = ? WHERE id = ?",
             (value, session_id),
         )
 

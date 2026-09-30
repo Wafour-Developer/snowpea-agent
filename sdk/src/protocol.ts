@@ -1909,6 +1909,22 @@ export interface SessionResumeResult {
   sessionId: string;
 }
 
+/** `session.setBrowserProvider` params. Per-session opt-in to core's own browser; never global (addendum 9). */
+export interface SessionSetBrowserProviderParams {
+  /** 'host': only the Snowpea browser (the default for browser sessions; with no browser attached, browser tools fail with host_unavailable). 'local': the user explicitly allows core's own browser for this session only. */
+  provider: "host" | "local";
+  /** Session whose browser tools to point (addendum 9). */
+  sessionId: string;
+}
+
+/** `session.setBrowserProvider` result. */
+export interface SessionSetBrowserProviderResult {
+  /** What it uses now. */
+  browserProvider: "host" | "local";
+  /** The session. */
+  sessionId: string;
+}
+
 /** `session.setEffort` params. Pin how hard a session's model may think, or clear the pin. */
 export interface SessionSetEffortParams {
   /** One of 'low', 'medium', 'high', 'max'. Null clears the pin and lets agent.effortBy / agent.effort decide again. */
@@ -3892,6 +3908,7 @@ export interface MethodMap {
   "session.prompt": { params: SessionPromptParams; result: SessionPromptResult };
   "session.rename": { params: SessionRenameParams; result: SessionRenameResult };
   "session.resume": { params: SessionResumeParams; result: SessionResumeResult };
+  "session.setBrowserProvider": { params: SessionSetBrowserProviderParams; result: SessionSetBrowserProviderResult };
   "session.setEffort": { params: SessionSetEffortParams; result: SessionSetEffortResult };
   "session.setMode": { params: SessionSetModeParams; result: SessionSetModeResult };
   "session.setModel": { params: SessionSetModelParams; result: SessionSetModelResult };
@@ -4006,6 +4023,7 @@ export type ClientMethod =
   | "session.prompt"
   | "session.rename"
   | "session.resume"
+  | "session.setBrowserProvider"
   | "session.setEffort"
   | "session.setMode"
   | "session.setModel"

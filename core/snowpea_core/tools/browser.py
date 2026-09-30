@@ -29,7 +29,19 @@ async def _act(
 ) -> ToolResult:
     """Run one provider action and turn its failures into tool errors."""
     settings = getattr(ctx.core, "settings", None)
-    provider = browser_providers.resolve_for_session(settings, getattr(ctx, "session", None))
+    session = getattr(ctx, "session", None)
+    if browser_providers.browser_locked(session) and not browser_providers.host_browser_attached(
+        session
+    ):
+        # Never fall back to core's own headless browser: the user would see
+        # nothing while the agent says it opened the page (addendum 9).
+        return ToolResult(
+            ok=False,
+            error=f"{browser_providers.HOST_UNAVAILABLE}: "
+            f"{browser_providers.HOST_UNAVAILABLE_MESSAGE}",
+            meta={"code": browser_providers.HOST_UNAVAILABLE},
+        )
+    provider = browser_providers.resolve_for_session(settings, session)
     if not provider.available(settings):
         return ToolResult(
             ok=False,
