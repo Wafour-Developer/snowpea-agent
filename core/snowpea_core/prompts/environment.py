@@ -609,6 +609,10 @@ class Environment:
     backend: str = "local"
     #: The session workspace (``tmp/``, ``artifacts/``), when it has one.
     workspace: str | None = None
+    #: A browser session: it has no project, so what the user asked for is
+    #: saved in the workspace's ``artifacts/``.  Everywhere else the working
+    #: directory is where deliverables go.
+    browser: bool = False
     git: GitSnapshot | None = None
     #: The project's own instruction files, already discovered and clipped.
     project_context: ProjectContext = field(default_factory=ProjectContext)
@@ -646,6 +650,7 @@ def collect(
     mode: str | None = None,
     backend: str = "local",
     workspace: str | None = None,
+    browser: bool = False,
 ) -> Environment:
     """Gather the environment, taking anything injected over anything probed."""
     moment = now or datetime.now().astimezone()
@@ -673,6 +678,7 @@ def collect(
         mode=mode,
         backend=backend,
         workspace=workspace,
+        browser=browser,
         git=snapshot,
         project_context=project,
     )
@@ -690,10 +696,17 @@ def environment_lines(env: Environment) -> str:
         shell = f", shell {env.shell}" if env.shell else ""
         lines.append(f"- Platform: {env.platform}{shell}")
     lines.append(f"- Working directory: {env.workdir}")
-    if env.workspace:
+    if env.workspace and env.browser:
         lines.append(
             f"- Session workspace: {env.workspace} (save files the user should get in "
             "artifacts/, scratch files in tmp/)"
+        )
+    elif env.workspace:
+        # Deliverables go in the project: an IDE user looks for the image or
+        # page they asked for next to their code, not under ~/.snowpea.
+        lines.append(
+            f"- Session scratch space: {env.workspace}/tmp (throwaway files only; save "
+            "what the user asked for in the working directory unless they name a place)"
         )
     if env.home:
         lines.append(f"- Home: {env.home}")

@@ -193,6 +193,37 @@ async def test_a_declined_question_is_not_permission_to_switch() -> None:
 
 
 @pytest.mark.asyncio
+async def test_out_of_plan_mode_it_does_not_ask_and_says_to_carry_on() -> None:
+    """The user approved by switching to auto themselves; a second picker there
+    was dismissed and reported as "still in plan mode", and the agent stopped."""
+    core = _Core()
+    origin = _Origin({"selected": [], "text": None})
+    session = _session(origin, said="실행해줘")
+    session.mode = "auto"
+
+    result = await set_mode(_ctx(core, session), {"mode": "accept"})
+
+    assert origin.asked == []
+    assert session.mode == "auto" and core.sessions.calls == []
+    assert result.output == TEXT["ko"]["already"].format(mode="auto")
+    assert "plan" not in result.output
+
+
+@pytest.mark.asyncio
+async def test_asking_for_plan_from_another_mode_still_asks_and_a_decline_keeps_it() -> None:
+    core = _Core()
+    origin = _Origin({"selected": [], "text": None})
+    session = _session(origin)
+    session.mode = "accept"
+
+    result = await set_mode(_ctx(core, session), {"mode": "plan"})
+
+    assert len(origin.asked) == 1
+    assert session.mode == "accept"
+    assert result.output == TEXT["ko"]["already"].format(mode="accept")
+
+
+@pytest.mark.asyncio
 async def test_an_unmappable_answer_changes_nothing() -> None:
     """Free text, or a label from an older build: not a mode, so not a switch."""
     core = _Core()
@@ -343,3 +374,19 @@ async def test_staying_in_plan_keeps_the_write_refused(
     assert (await client.ok("session.list"))["sessions"][0]["mode"] == "plan"
 
     await client.stop()
+
+
+def test_deliverables_go_in_the_project_except_in_a_browser_session() -> None:
+    """IDE/TUI sessions save what the user asked for next to their code; only a
+    browser session, which has no project, uses the workspace artifacts/."""
+    from snowpea_core.prompts import environment as prompt_env
+
+    project = prompt_env.environment_lines(
+        prompt_env.Environment(workdir="/w", workspace="/h/sessions/s-1")
+    )
+    assert "artifacts/" not in project
+    assert "save what the user asked for in the working directory" in project
+    browser = prompt_env.environment_lines(
+        prompt_env.Environment(workdir="/w", workspace="/h/sessions/s-1", browser=True)
+    )
+    assert "artifacts/" in browser

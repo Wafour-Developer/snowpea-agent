@@ -56,6 +56,7 @@ TEXT: dict[str, dict[str, Any]] = {
         "kept": "사용자가 plan 모드를 유지하기로 했습니다. 계획만 남기고 이 턴을 끝내세요.",
         "declined": "사용자가 모드 전환을 선택하지 않았습니다. plan 모드 그대로입니다. "
         "계획만 남기고 이 턴을 끝내세요.",
+        "already": "이미 {mode} 모드입니다. 물어볼 필요 없이 바로 작업을 계속하세요.",
     },
     "en": {
         "header": "Switch mode",
@@ -74,6 +75,7 @@ TEXT: dict[str, dict[str, Any]] = {
         "kept": "The user chose to stay in plan mode. Leave the plan and end this turn.",
         "declined": "The user did not choose a mode. Still in plan mode. "
         "Leave the plan and end this turn.",
+        "already": "Already in {mode} mode. Nothing to ask; carry on with the work now.",
     },
 }
 
@@ -101,6 +103,7 @@ BROWSER_TEXT: dict[str, dict[str, Any]] = {
         "읽은 내용만으로 답한 뒤 이 턴을 끝내세요.",
         "declined": "사용자가 답하지 않았습니다. 읽기 전용 그대로입니다. "
         "페이지를 바꾸지 말고 이 턴을 끝내세요.",
+        "already": "이미 {label} 모드입니다. 물어볼 필요 없이 작업을 계속하세요.",
     },
     "en": {
         "header": "Switch mode",
@@ -121,6 +124,7 @@ BROWSER_TEXT: dict[str, dict[str, Any]] = {
         "from what you read and end this turn.",
         "declined": "The user did not answer. Still read-only. Change nothing on the "
         "page and end this turn.",
+        "already": "Already in {label}. Nothing to ask; carry on.",
     },
 }
 
@@ -182,6 +186,19 @@ async def set_mode(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     language = _language(ctx)
     table = BROWSER_TEXT if _is_browser(ctx) else TEXT
     text = table[language]
+
+    # The picker exists to leave plan mode. A session already out of it (the
+    # user approved the plan by switching modes themselves) has nothing to
+    # ask: a second picker there was dismissed and then reported as "still in
+    # plan mode", and the agent stopped instead of starting.
+    current = ctx.session.mode
+    if current != "plan" and requested != "plan":
+        label = str(text.get("names", {}).get(current, current))
+        return ToolResult(
+            ok=True,
+            output=str(text["already"]).format(mode=current, label=label),
+            meta={"requested": requested, "mode": current, "changed": False, "asked": False},
+        )
     rows = _options(requested, language, table)
     reason = str(args.get("reason") or "").strip()
     question = f"{reason}\n{text['question']}".strip() if reason else text["question"]
@@ -222,6 +239,11 @@ async def set_mode(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     if picked is None:
         # A decline, a timeout, or free text nobody can map to a mode. None of
         # those is permission to change what the user can be harmed by.
+        if current != "plan":
+            label = str(text.get("names", {}).get(current, current))
+            return ToolResult(
+                ok=True, output=str(text["already"]).format(mode=current, label=label), meta=meta
+            )
         return ToolResult(ok=True, output=text["declined"], meta=meta)
     if picked == ctx.session.mode:
         meta["mode"] = picked
