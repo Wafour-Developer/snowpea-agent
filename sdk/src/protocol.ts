@@ -2563,6 +2563,8 @@ export interface SystemInfoResult {
   } | null;
   /** Process id of the daemon. */
   pid: number;
+  /** The daemon machine's sys.platform (darwin, linux, win32), for engine and permission guidance that depends on where the core runs. */
+  platform?: string | null;
   /** TCP port the daemon is listening on (127.0.0.1 only). */
   port: number;
   /** Protocol semver the daemon speaks. */

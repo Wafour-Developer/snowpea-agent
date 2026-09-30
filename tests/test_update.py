@@ -414,6 +414,8 @@ async def test_hello_advertises_the_update_capability(daemon: Daemon) -> None:
         try:
             info = await client.ok("system.info")
             assert info["restartRequired"] is False
+            # The desktop picks macOS/Windows microphone guidance from this.
+            assert info["platform"] == sys.platform
         finally:
             await client.stop()
 

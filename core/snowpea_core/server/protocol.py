@@ -196,6 +196,13 @@ class InfoResult(Payload):
             "True once system.update finished; the daemon runs the old code until restarted."
         ),
     )
+    platform: str | None = Field(
+        None,
+        description=(
+            "The daemon machine's sys.platform (darwin, linux, win32), for engine and "
+            "permission guidance that depends on where the core runs."
+        ),
+    )
 
 
 class HealthResult(Payload):

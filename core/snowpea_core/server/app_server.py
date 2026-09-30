@@ -9,6 +9,7 @@ import logging
 import os
 import re
 import signal
+import sys
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -261,6 +262,7 @@ async def info_handler(_conn: RpcConnection, _params: Empty, core: Core) -> Info
             summary=status.get("summary"),
         ),
         restartRequired=core.restart_required,
+        platform=sys.platform,
     )
 
 

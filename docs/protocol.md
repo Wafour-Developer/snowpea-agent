@@ -2097,6 +2097,7 @@ _No params (send `{}`)._
 | `home` | `string` | yes | Resolved SNOWPEA_HOME directory. |
 | `lifecycle` | `{ reason?: string; reasons?: string[]; secondsUntilExit?: number \| null; summary?: string \| null; willExit?: boolean; } \| null` | no | Idle-shutdown status, omitted by older daemons. |
 | `pid` | `number` | yes | Process id of the daemon. |
+| `platform` | `string \| null` | no | The daemon machine's sys.platform (darwin, linux, win32), for engine and permission guidance that depends on where the core runs. |
 | `port` | `number` | yes | TCP port the daemon is listening on (127.0.0.1 only). |
 | `protocolVersion` | `string` | yes | Protocol semver the daemon speaks. |
 | `restartRequired` | `boolean` | no | True once system.update finished; the daemon runs the old code until restarted. |
