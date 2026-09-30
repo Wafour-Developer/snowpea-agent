@@ -179,11 +179,13 @@ export interface ApprovalAskParams {
   callId?: string | null;
   /** What the running code is about to do, e.g. {origin, element, action}; shown with the approval and merged into its args. */
   detail?: Record<string, unknown> | null;
+  /** Always ask a person: the mode matrix may only deny (plan still denies) and never auto-allows, not even in auto mode. The allowlist still applies unless risk is 'payment'. For any client's destructive or irreversible actions. */
+  forceAsk?: boolean;
   /** Permission class of the escalated action. */
   permission: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate" | "secret";
   /** What will happen, shown to the person approving. */
   reason: string;
-  /** Risk hint; default from the permission. */
+  /** Risk hint shown with the approval; default from the permission. 'payment' also means: the allowlist is never consulted and the answer is never stored beyond this one call (scope is coerced to 'once'). */
   risk?: string | null;
   /** Session whose tool call is running. */
   sessionId: string;
@@ -195,11 +197,11 @@ export interface ApprovalAskParams {
 
 /** `approval.ask` result. */
 export interface ApprovalAskResult {
-  /** Who decided: mode, allowlist, origin, timeout, ... */
+  /** Who decided: 'user' (a person answered), 'allowlist', 'mode' (the mode matrix), or 'timeout' / 'interrupted' (denied without an answer). */
   by?: string;
   /** allow or deny. */
   decision: "allow" | "deny";
-  /** Scope the answer applies to. */
+  /** Scope the answer applies to; always 'once' for payment. */
   scope?: "once" | "session" | "project" | "always" | "site";
 }
 

@@ -325,7 +325,7 @@ async def test_approval_ask_escalates_and_a_site_answer_is_remembered(
             "args": {"url": "https://shop.example/checkout", "label": "Pay now"},
         }
         first = await host.ok("approval.ask", ask)
-        assert first["decision"] == "allow" and first["by"] == "origin"
+        assert first["decision"] == "allow" and first["by"] == "user"
         request = host.approval_requests[-1]
         assert request["site"] == "https://shop.example" and request["scopeHint"] == "site"
 
@@ -845,3 +845,77 @@ async def test_a_prompt_emits_turn_started_then_message_user(
         assert user["text"] == "hello there" and user["steered"] is False
     finally:
         await client.stop()
+
+
+
+async def test_force_ask_asks_a_person_even_in_auto_mode(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    host = await open_client(http, daemon, approval_mode="allow")
+    try:
+        await host.ok("tool.register", {"tools": [spec("repl", "read")]})
+        session_id = await new_session(host, tmp_path / "w", mode="auto")
+        ask = {
+            "sessionId": session_id,
+            "tool": "repl",
+            "permission": "write",
+            "reason": "Delete the draft",
+            "args": {"url": "https://docs.example/d/1"},
+        }
+        quiet = await host.ok("approval.ask", ask)
+        assert quiet["by"] == "mode" and not host.approval_requests
+        forced = await host.ok("approval.ask", dict(ask, forceAsk=True))
+        assert forced == {"decision": "allow", "scope": "once", "by": "user"}
+        assert host.approval_requests[-1]["tool"] == "repl"
+    finally:
+        await host.stop()
+
+
+async def test_force_ask_in_plan_mode_still_denies(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    host = await open_client(http, daemon, approval_mode="allow")
+    try:
+        await host.ok("tool.register", {"tools": [spec("repl", "read")]})
+        session_id = await new_session(host, tmp_path / "w", mode="plan")
+        answer = await host.ok(
+            "approval.ask",
+            {
+                "sessionId": session_id,
+                "tool": "repl",
+                "permission": "send",
+                "reason": "Send the form",
+                "forceAsk": True,
+            },
+        )
+        assert answer == {"decision": "deny", "scope": "once", "by": "mode"}
+        assert not host.approval_requests
+    finally:
+        await host.stop()
+
+
+async def test_a_payment_answer_is_never_remembered(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    host = await open_client(http, daemon, approval_mode="allow", approval_scope="site")
+    try:
+        await host.ok("tool.register", {"tools": [spec("repl", "read")]})
+        session_id = await new_session(host, tmp_path / "w", mode="auto")
+        pay = {
+            "sessionId": session_id,
+            "tool": "repl",
+            "permission": "send",
+            "reason": "Pay 12,000 KRW",
+            "risk": "payment",
+            "args": {"url": "https://shop.example/checkout"},
+        }
+        first = await host.ok("approval.ask", pay)
+        assert first == {"decision": "allow", "scope": "once", "by": "user"}
+        assert host.approval_requests[-1]["scopeHint"] == "once"
+        assert not [
+            e for e in daemon.core.allowlist.list(workdir=tmp_path / "w") if e.origin
+        ]
+        second = await host.ok("approval.ask", pay)
+        assert second["by"] == "user" and len(host.approval_requests) == 2
+    finally:
+        await host.stop()

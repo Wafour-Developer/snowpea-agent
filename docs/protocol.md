@@ -276,9 +276,10 @@ Escalate one host action through the approval pipeline. The approver's approval.
 | `args` | `Record<string, unknown>` | no | Action details to show. |
 | `callId` | `string \| null` | no | The tool.invoke callId, if any. |
 | `detail` | `Record<string, unknown> \| null` | no | What the running code is about to do, e.g. {origin, element, action}; shown with the approval and merged into its args. |
+| `forceAsk` | `boolean` | no | Always ask a person: the mode matrix may only deny (plan still denies) and never auto-allows, not even in auto mode. The allowlist still applies unless risk is 'payment'. For any client's destructive or irreversible actions. |
 | `permission` | `"read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret"` | yes | Permission class of the escalated action. |
 | `reason` | `string` | yes | What will happen, shown to the person approving. |
-| `risk` | `string \| null` | no | Risk hint; default from the permission. |
+| `risk` | `string \| null` | no | Risk hint shown with the approval; default from the permission. 'payment' also means: the allowlist is never consulted and the answer is never stored beyond this one call (scope is coerced to 'once'). |
 | `sessionId` | `string` | yes | Session whose tool call is running. |
 | `site` | `string \| null` | no | Origin of the page, e.g. https://github.com; derived from detail.origin or args.url if omitted. |
 | `tool` | `string` | yes | Host tool asking; the allowlist is keyed by it. |
@@ -287,9 +288,9 @@ Escalate one host action through the approval pipeline. The approver's approval.
 
 | field | type | required | description |
 |---|---|---|---|
-| `by` | `string` | no | Who decided: mode, allowlist, origin, timeout, ... |
+| `by` | `string` | no | Who decided: 'user' (a person answered), 'allowlist', 'mode' (the mode matrix), or 'timeout' / 'interrupted' (denied without an answer). |
 | `decision` | `"allow" \| "deny"` | yes | allow or deny. |
-| `scope` | `"once" \| "session" \| "project" \| "always" \| "site"` | no | Scope the answer applies to. |
+| `scope` | `"once" \| "session" \| "project" \| "always" \| "site"` | no | Scope the answer applies to; always 'once' for payment. |
 
 ### `approval.list`
 

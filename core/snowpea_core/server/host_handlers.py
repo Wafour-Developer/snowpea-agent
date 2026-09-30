@@ -161,6 +161,11 @@ async def approval_ask_handler(
     Order: the mode matrix for the escalated tag (``deny`` stays deny), the
     allowlist for this tool on this site, then the session's approver. Only the
     connection whose host tools the session uses may ask.
+
+    ``forceAsk`` (1.7.0): the mode matrix may only deny, never auto-allow, so a
+    person is asked even in ``auto``. ``risk: "payment"`` skips the allowlist
+    and is never remembered: the answer's scope is ``once`` whatever the
+    approver picked, and no allowlist entry or session cache is written.
     """
     session = _session(core, params.sessionId)
     if HOST_TOOLS.owner_of(session) != conn.surface_id:
@@ -173,13 +178,22 @@ async def approval_ask_handler(
     detail = dict(params.detail or {})
     args = {**params.args, **({"detail": detail} if detail else {})}
     site = site_of(args, params.site or (str(detail["origin"]) if detail.get("origin") else None))
+    payment = (params.risk or "").strip().lower() == PAYMENT_RISK
+    force = params.forceAsk or payment
     matrix = MODE_MATRIX.get(session.mode, {}).get(params.permission, "ask")
-    verdict = core.policy.decide(session.mode, params.permission, tool, args, session)
-    if verdict == "deny":
-        return ApprovalAskResult(decision="deny", by="mode")
-    if verdict == "allow":
-        return ApprovalAskResult(decision="allow", by="mode" if matrix == "allow" else "allowlist")
-    if core.allowlist.matches(tool, args, workdir=session.workdir, site=site):
+    if force:
+        # Only a deny may come from the mode; allow never does.
+        if matrix == "deny":
+            return ApprovalAskResult(decision="deny", by="mode")
+    else:
+        verdict = core.policy.decide(session.mode, params.permission, tool, args, session)
+        if verdict == "deny":
+            return ApprovalAskResult(decision="deny", by="mode")
+        if verdict == "allow":
+            return ApprovalAskResult(
+                decision="allow", by="mode" if matrix == "allow" else "allowlist"
+            )
+    if not payment and core.allowlist.matches(tool, args, workdir=session.workdir, site=site):
         return ApprovalAskResult(decision="allow", by="allowlist")
     decision = await core.approvals.request(
         session,
@@ -189,15 +203,29 @@ async def approval_ask_handler(
         unattended=session.origin_conn is None,
         cancel_event=session.interrupt,
         note=params.reason,
-        scope_hint="site" if site else "once",
+        scope_hint="site" if site and not payment else "once",
+        # A payment answer is never remembered: no cache, no allowlist entry.
+        cacheable=not payment,
         site=site,
     )
+    scope = decision.scope if decision.scope in _SCOPES else "once"
     return ApprovalAskResult(
         decision="allow" if decision.allowed else "deny",
-        scope=decision.scope if decision.scope in ("once", "session", "project", "always", "site")
-        else "once",  # type: ignore[arg-type]
-        by=decision.by,
+        scope="once" if payment else scope,  # type: ignore[arg-type]
+        by=_decided_by(decision.by),
     )
+
+
+#: ``approval.ask {risk}`` value whose answers are never remembered.
+PAYMENT_RISK = "payment"
+_SCOPES = ("once", "session", "project", "always", "site")
+
+
+def _decided_by(by: str) -> str:
+    """``user`` for any person's answer (origin surface, a client, a chat)."""
+    if by in ("timeout", "interrupted", "error", "origin-unreachable"):
+        return by
+    return "user"
 
 
 # ---------------------------------------------------------------------------

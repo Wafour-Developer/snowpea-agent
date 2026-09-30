@@ -1148,7 +1148,22 @@ class ApprovalAskParams(Payload):
             "args.url if omitted."
         ),
     )
-    risk: str | None = Field(default=None, description="Risk hint; default from the permission.")
+    risk: str | None = Field(
+        default=None,
+        description=(
+            "Risk hint shown with the approval; default from the permission. 'payment' "
+            "also means: the allowlist is never consulted and the answer is never "
+            "stored beyond this one call (scope is coerced to 'once')."
+        ),
+    )
+    forceAsk: bool = Field(
+        default=False,
+        description=(
+            "Always ask a person: the mode matrix may only deny (plan still denies) and "
+            "never auto-allows, not even in auto mode. The allowlist still applies unless "
+            "risk is 'payment'. For any client's destructive or irreversible actions."
+        ),
+    )
     detail: dict[str, Any] | None = Field(
         default=None,
         description=(
@@ -1160,8 +1175,16 @@ class ApprovalAskParams(Payload):
 
 class ApprovalAskResult(Payload):
     decision: Decision = Field(description="allow or deny.")
-    scope: ApprovalScope = Field(default="once", description="Scope the answer applies to.")
-    by: str = Field(default="", description="Who decided: mode, allowlist, origin, timeout, ...")
+    scope: ApprovalScope = Field(
+        default="once", description="Scope the answer applies to; always 'once' for payment."
+    )
+    by: str = Field(
+        default="",
+        description=(
+            "Who decided: 'user' (a person answered), 'allowlist', 'mode' (the mode "
+            "matrix), or 'timeout' / 'interrupted' (denied without an answer)."
+        ),
+    )
 
 
 class ApprovalListResult(Payload):
