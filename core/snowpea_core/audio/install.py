@@ -390,6 +390,36 @@ async def run_argv(argv: Sequence[str], progress: Progress | None = None) -> int
     return int(await process.wait())
 
 
+async def verify_runtime_import(
+    home: Path | str, name: str, package: str, log: Any, execute: Any
+) -> bool:
+    """Prove the engine's module loads in the runtime; repair it once if not.
+
+    pip can leave a wheel the interpreter cannot load — an x86_64 build
+    installed under Rosetta, then loaded by the arm64 core ("incompatible
+    architecture") — and the install used to report success anyway, so the
+    failure only surfaced at the first dictation as "nothing was heard".
+    One from-scratch reinstall fixes the cached/foreign wheel case.
+    """
+    module = RUNTIME_MODULES.get(name)
+    if module is None:
+        return True
+    check = runtime.import_check_argv(home, module)
+    if await execute(check, None) == 0:
+        await log.say(f"{module} loads")
+        return True
+    await log.say(f"{module} cannot be loaded; reinstalling {package} from scratch")
+    code = await execute(runtime.reinstall_argv(home, package), log)
+    if code != 0:
+        await log.say(f"reinstall exited {code}")
+        return False
+    if await execute(check, log) == 0:
+        await log.say(f"{module} loads")
+        return True
+    await log.say(f"{module} still cannot be loaded")
+    return False
+
+
 class _Log:
     """Collects the lines an install printed, and reports where it is.
 
@@ -689,6 +719,19 @@ async def install(
     if code != 0:
         await collected.say(f"exited {code}")
         return InstallResult(ok=False, engine=name, log=collected.text, hint=spec.hint(platform))
+    loads = not spec.runtime or await verify_runtime_import(
+        home, name, spec.package, collected, execute
+    )
+    if not loads:
+        return InstallResult(
+            ok=False,
+            engine=name,
+            log=collected.text,
+            hint=(
+                f"{name} was installed but cannot be loaded on this machine; see the log. "
+                f"Delete {runtime.runtime_dir(home)} and install again."
+            ),
+        )
 
     model_id = MODEL_ENGINES.get(name)
     if model_id is not None:
@@ -744,7 +787,7 @@ async def warmup_supertonic(
         return False
     execute = runner or run_argv
     await log.stage(STAGE_DOWNLOAD, "downloading voice models from Hugging Face")
-    argv = [str(runtime.runtime_python(home_path)), "-c", SUPERTONIC_WARMUP_SCRIPT]
+    argv = [*runtime.runtime_command(home_path), "-c", SUPERTONIC_WARMUP_SCRIPT]
     try:
         code = await asyncio.wait_for(execute(argv, log), timeout=INSTALL_TIMEOUT_SEC)
     except TimeoutError:

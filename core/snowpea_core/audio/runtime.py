@@ -24,8 +24,10 @@ opening the voice screen cost a process per engine.
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 import shutil
+import subprocess
 import sys
 from collections.abc import Awaitable, Callable, Sequence
 from pathlib import Path
@@ -95,6 +97,68 @@ def has_module(home: Path | str, module: str) -> bool:
     return False
 
 
+@functools.lru_cache(maxsize=1)
+def native_prefix() -> tuple[str, ...]:
+    """``("arch", "-arm64")`` on an Apple Silicon Mac, else nothing.
+
+    The runtime's interpreter is usually a universal binary (``/usr/bin/python3``
+    or a uv/Homebrew one).  Started by a core that itself runs under Rosetta —
+    the x64 desktop build on an M-series Mac — it runs as x86_64 too, so pip
+    installs x86_64 wheels, and the arm64 core that later uses the runtime
+    cannot load them ("incompatible architecture").  Every runtime command is
+    therefore started natively.
+    """
+    if sys.platform != "darwin":
+        return ()
+    try:
+        out = subprocess.run(
+            ["sysctl", "-n", "hw.optional.arm64"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return ()
+    return ("arch", "-arm64") if out == "1" and shutil.which("arch") else ()
+
+
+def runtime_command(home: Path | str) -> list[str]:
+    """The runtime interpreter as an argv prefix, started natively (see above)."""
+    return [*native_prefix(), str(runtime_python(home))]
+
+
+def import_check_argv(home: Path | str, module: str) -> list[str]:
+    """Import ``module`` in the runtime: the proof an engine will actually load."""
+    return [*runtime_command(home), "-c", f"import {module}"]
+
+
+def reinstall_argv(home: Path | str, package: str) -> list[str]:
+    """Reinstall ``package`` from scratch, ignoring any cached (foreign-arch) wheel."""
+    if shutil.which("uv"):
+        python = str(runtime_python(home))
+        return [
+            *native_prefix(),
+            "uv",
+            "pip",
+            "install",
+            "--python",
+            python,
+            "--reinstall",
+            "--no-cache",
+            package,
+        ]
+    return [
+        *runtime_command(home),
+        "-m",
+        "pip",
+        "install",
+        "--force-reinstall",
+        "--no-cache-dir",
+        package,
+    ]
+
+
 def create_argv(home: Path | str) -> list[list[str]]:
     """The commands that would create the runtime, best first.
 
@@ -106,13 +170,16 @@ def create_argv(home: Path | str) -> list[list[str]]:
     running from something that cannot create a venv at all.
     """
     target = str(runtime_dir(home))
+    native = list(native_prefix())
     candidates: list[list[str]] = []
     if shutil.which("uv"):
-        candidates.append(["uv", "venv", target])
-    candidates.append([sys.executable, "-m", "venv", target])
+        candidates.append([*native, "uv", "venv", target])
+    # A frozen (PyInstaller) core is not a Python that can run ``-m venv``.
+    if not getattr(sys, "frozen", False):
+        candidates.append([*native, sys.executable, "-m", "venv", target])
     fallback = shutil.which("python3")
     if fallback and fallback != sys.executable:
-        candidates.append([fallback, "-m", "venv", target])
+        candidates.append([*native, fallback, "-m", "venv", target])
     return candidates
 
 
@@ -125,8 +192,8 @@ def runtime_install_argv(home: Path | str, package: str) -> list[str]:
     """
     python = str(runtime_python(home))
     if shutil.which("uv"):
-        return ["uv", "pip", "install", "--python", python, package]
-    return [python, "-m", "pip", "install", package]
+        return [*native_prefix(), "uv", "pip", "install", "--python", python, package]
+    return [*runtime_command(home), "-m", "pip", "install", package]
 
 
 async def ensure_runtime(
@@ -192,6 +259,10 @@ __all__ = [
     "create_argv",
     "ensure_runtime",
     "has_module",
+    "import_check_argv",
+    "native_prefix",
+    "reinstall_argv",
+    "runtime_command",
     "runtime_dir",
     "runtime_install_argv",
     "runtime_python",

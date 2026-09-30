@@ -294,7 +294,7 @@ snowpea v0.1.2 → v0.1.3 (U to update)
 | 按键或命令 | 作用 |
 |---|---|
 | `/voice` | 启用语音输入 |
-| `Ctrl+Space` 或 `/rec` | 开始录音；再按一次停止 |
+| `Ctrl+Space`（macOS 上为 `Ctrl+T`）或 `/rec` | 开始录音；再按一次停止 |
 | `/tts on`、`/tts off` | 每条回复结束时朗读出来 |
 | `Esc` | 停止正在朗读的回复 |
 
@@ -336,7 +336,7 @@ snowpea --fullscreen
 | `Ctrl+R` | 切到待处理的审批队列 |
 | `Ctrl+V` | 附加剪贴板中的图片 |
 | `Ctrl+X` | 清空附件 |
-| `Ctrl+Space` | 开始或停止录音 |
+| `Ctrl+Space`（macOS 上为 `Ctrl+T`） | 开始或停止录音 |
 | `U` | 接受提示的更新 |
 | `R` | 继续启动画面提议的会话 |
 | `F1` | 帮助 |

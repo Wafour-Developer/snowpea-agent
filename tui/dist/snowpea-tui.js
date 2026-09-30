@@ -34366,6 +34366,113 @@ async function connect(options) {
   return client;
 }
 
+// src/state/voice.ts
+var RECORD_KEY = typeof process !== "undefined" && process.platform === "darwin" ? "Ctrl+T" : "Ctrl+Space";
+var noAudio = {
+  stt: false,
+  sttProvider: null,
+  tts: false,
+  ttsProvider: null,
+  voice: null,
+  record: false,
+  play: false,
+  autoSpeak: false,
+  sttProviders: [],
+  ttsProviders: [],
+  players: [],
+  recorders: [],
+  reasons: {}
+};
+var initialVoice = {
+  input: false,
+  tts: false,
+  recording: false,
+  startedAt: null,
+  speaking: false
+};
+function reasonFor(capabilities, name, fallback) {
+  const reason = capabilities.reasons?.[name];
+  return reason && reason.length > 0 ? reason : fallback;
+}
+function toggleVoiceInput(state, capabilities, { localRecorder = false } = {}) {
+  if (state.input) {
+    return { state: { ...state, input: false, recording: false, startedAt: null }, message: "voice input off", ok: true };
+  }
+  if (!capabilities.stt) {
+    return {
+      state,
+      message: `voice input needs speech-to-text: ${reasonFor(capabilities, "stt", "the daemon reports none")}`,
+      ok: false
+    };
+  }
+  if (!capabilities.record && !localRecorder) {
+    return {
+      state,
+      message: `voice input needs a microphone: ${reasonFor(capabilities, "record", "the daemon cannot record")}`,
+      ok: false
+    };
+  }
+  const backend = capabilities.sttProvider ? ` (${capabilities.sttProvider})` : "";
+  return {
+    state: { ...state, input: true },
+    message: `voice input on${backend} \xB7 ${RECORD_KEY} to record`,
+    ok: true
+  };
+}
+function setTts(state, capabilities, on, { localPlayer = false } = {}) {
+  if (!on) return { state: { ...state, tts: false }, message: "speech off", ok: true };
+  if (!capabilities.tts) {
+    return {
+      state,
+      message: `speech needs text-to-speech: ${reasonFor(capabilities, "tts", "the daemon reports none")}`,
+      ok: false
+    };
+  }
+  if (!capabilities.play && !localPlayer) {
+    return {
+      state,
+      message: `speech needs an output device: ${reasonFor(capabilities, "play", "the daemon cannot play audio")}`,
+      ok: false
+    };
+  }
+  const backend = capabilities.ttsProvider ? ` (${capabilities.ttsProvider})` : "";
+  return { state: { ...state, tts: true }, message: `speech on${backend}`, ok: true };
+}
+function startRecording(state, capabilities, now, { localRecorder = false } = {}) {
+  if (state.recording) return { state, message: "already recording", ok: false };
+  if (!capabilities.record && !localRecorder) {
+    return {
+      state,
+      message: `recording needs a microphone: ${reasonFor(capabilities, "record", "the daemon cannot record")}`,
+      ok: false
+    };
+  }
+  return {
+    state: { ...state, input: true, recording: true, startedAt: now },
+    message: `recording \xB7 ${RECORD_KEY} to stop`,
+    ok: true
+  };
+}
+function stopRecording(state, now) {
+  if (!state.recording) {
+    return { state, message: "not recording", ok: false, elapsedMs: 0 };
+  }
+  const elapsedMs = state.startedAt === null ? 0 : Math.max(0, now - state.startedAt);
+  return {
+    state: { ...state, recording: false, startedAt: null },
+    message: "transcribing\u2026",
+    ok: true,
+    elapsedMs
+  };
+}
+var SPEAKING_LABEL = "\u{1F50A} speaking \xB7 esc to stop";
+function recordingLabel(startedAt, now) {
+  const seconds = startedAt === null ? 0 : Math.max(0, Math.floor((now - startedAt) / 1e3));
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return `\u25CF REC ${String(minutes).padStart(2, "0")}:${String(rest).padStart(2, "0")}`;
+}
+
 // src/state/slash-completion.ts
 function commandNameMatches(name, typed) {
   const needle = typed.toLowerCase();
@@ -34423,7 +34530,7 @@ var SURFACE_COMMANDS = [
   },
   {
     name: "voice",
-    summary: "Voice input: /voice toggles, /voice on|off; then Ctrl+Space (or /rec) records.",
+    summary: `Voice input: /voice toggles, /voice on|off; then ${RECORD_KEY} (or /rec) records.`,
     source: "tui"
   },
   { name: "rec", summary: "Start or stop a recording.", source: "tui" },
@@ -34448,7 +34555,7 @@ function ttsSubCommands(draft) {
   return subCommands(draft, "tts", TTS_ACTIONS);
 }
 var VOICE_ACTIONS = [
-  { action: "on", summary: "Arm voice input; Ctrl+Space records." },
+  { action: "on", summary: `Arm voice input; ${RECORD_KEY} records.` },
   { action: "off", summary: "Disarm voice input." }
 ];
 function voiceSubCommands(draft) {
@@ -37448,112 +37555,6 @@ function chipLabel(attachment) {
   return `\u{1F4CE} ${attachment.name} ${formatSize(attachment.size)}`;
 }
 
-// src/state/voice.ts
-var noAudio = {
-  stt: false,
-  sttProvider: null,
-  tts: false,
-  ttsProvider: null,
-  voice: null,
-  record: false,
-  play: false,
-  autoSpeak: false,
-  sttProviders: [],
-  ttsProviders: [],
-  players: [],
-  recorders: [],
-  reasons: {}
-};
-var initialVoice = {
-  input: false,
-  tts: false,
-  recording: false,
-  startedAt: null,
-  speaking: false
-};
-function reasonFor(capabilities, name, fallback) {
-  const reason = capabilities.reasons?.[name];
-  return reason && reason.length > 0 ? reason : fallback;
-}
-function toggleVoiceInput(state, capabilities, { localRecorder = false } = {}) {
-  if (state.input) {
-    return { state: { ...state, input: false, recording: false, startedAt: null }, message: "voice input off", ok: true };
-  }
-  if (!capabilities.stt) {
-    return {
-      state,
-      message: `voice input needs speech-to-text: ${reasonFor(capabilities, "stt", "the daemon reports none")}`,
-      ok: false
-    };
-  }
-  if (!capabilities.record && !localRecorder) {
-    return {
-      state,
-      message: `voice input needs a microphone: ${reasonFor(capabilities, "record", "the daemon cannot record")}`,
-      ok: false
-    };
-  }
-  const backend = capabilities.sttProvider ? ` (${capabilities.sttProvider})` : "";
-  return {
-    state: { ...state, input: true },
-    message: `voice input on${backend} \xB7 Ctrl+Space to record`,
-    ok: true
-  };
-}
-function setTts(state, capabilities, on, { localPlayer = false } = {}) {
-  if (!on) return { state: { ...state, tts: false }, message: "speech off", ok: true };
-  if (!capabilities.tts) {
-    return {
-      state,
-      message: `speech needs text-to-speech: ${reasonFor(capabilities, "tts", "the daemon reports none")}`,
-      ok: false
-    };
-  }
-  if (!capabilities.play && !localPlayer) {
-    return {
-      state,
-      message: `speech needs an output device: ${reasonFor(capabilities, "play", "the daemon cannot play audio")}`,
-      ok: false
-    };
-  }
-  const backend = capabilities.ttsProvider ? ` (${capabilities.ttsProvider})` : "";
-  return { state: { ...state, tts: true }, message: `speech on${backend}`, ok: true };
-}
-function startRecording(state, capabilities, now, { localRecorder = false } = {}) {
-  if (state.recording) return { state, message: "already recording", ok: false };
-  if (!capabilities.record && !localRecorder) {
-    return {
-      state,
-      message: `recording needs a microphone: ${reasonFor(capabilities, "record", "the daemon cannot record")}`,
-      ok: false
-    };
-  }
-  return {
-    state: { ...state, input: true, recording: true, startedAt: now },
-    message: "recording \xB7 Ctrl+Space to stop",
-    ok: true
-  };
-}
-function stopRecording(state, now) {
-  if (!state.recording) {
-    return { state, message: "not recording", ok: false, elapsedMs: 0 };
-  }
-  const elapsedMs = state.startedAt === null ? 0 : Math.max(0, now - state.startedAt);
-  return {
-    state: { ...state, recording: false, startedAt: null },
-    message: "transcribing\u2026",
-    ok: true,
-    elapsedMs
-  };
-}
-var SPEAKING_LABEL = "\u{1F50A} speaking \xB7 esc to stop";
-function recordingLabel(startedAt, now) {
-  const seconds = startedAt === null ? 0 : Math.max(0, Math.floor((now - startedAt) / 1e3));
-  const minutes = Math.floor(seconds / 60);
-  const rest = seconds % 60;
-  return `\u25CF REC ${String(minutes).padStart(2, "0")}:${String(rest).padStart(2, "0")}`;
-}
-
 // src/version.ts
 var TUI_VERSION = "0.2.20";
 
@@ -39667,7 +39668,7 @@ function Chat({
         onClearAttachments?.();
         return;
       }
-      if (key.ctrl && (input === " " || input === "`")) {
+      if (key.ctrl && (input === " " || input === "`" || input === "t")) {
         onToggleRecording?.();
         return;
       }
@@ -41307,7 +41308,7 @@ var KEYS = [
   "/model on its own opens a picker of profiles and vendor models; /model <ref> switches",
   "Paste a file path to attach it \xB7 Ctrl+V pastes an image \xB7 /attach <path>",
   "Backspace on empty input removes an attachment \xB7 Ctrl+X removes all",
-  "/voice arms input \xB7 Ctrl+Space records \xB7 /tts on|off speaks replies",
+  `/voice arms input \xB7 ${RECORD_KEY} records \xB7 /tts on|off speaks replies`,
   "Ctrl+R focuses approvals: a allow, d deny, \u2191\u2193 select, \u2190\u2192 scope",
   "Approval menus: \u2191\u2193 select, Enter confirm, y/a/p/n answer, Esc refuse"
 ];

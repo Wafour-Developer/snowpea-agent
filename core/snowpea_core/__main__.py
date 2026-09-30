@@ -55,8 +55,29 @@ def run_hook_file(argv: list[str]) -> int:
     return 0
 
 
+#: Where macOS package managers put the tools the core shells out to (ffmpeg,
+#: sox, git, node).  An app started from the Dock or Finder gets launchd's
+#: minimal PATH (/usr/bin:/bin:/usr/sbin:/sbin), so the core the desktop app
+#: starts could not find the ffmpeg a terminal-started one found, and reported
+#: "microphone capture is not available" for the same machine.
+MACOS_TOOL_DIRS = ("/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin", "/opt/local/bin")
+
+
+def extend_macos_path(environ: dict[str, str] | None = None) -> None:
+    """Append the Homebrew/MacPorts bin directories to PATH on macOS."""
+    if sys.platform != "darwin":
+        return
+    env = os.environ if environ is None else environ
+    parts = [part for part in env.get("PATH", "").split(os.pathsep) if part]
+    for folder in MACOS_TOOL_DIRS:
+        if folder not in parts and os.path.isdir(folder):
+            parts.append(folder)
+    env["PATH"] = os.pathsep.join(parts)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     raw = list(argv) if argv is not None else sys.argv[1:]
+    extend_macos_path()
     if raw[:1] == ["--run-hook"]:
         return run_hook_file(raw[1:])
     args = build_parser().parse_args(raw)

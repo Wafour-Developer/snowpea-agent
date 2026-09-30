@@ -109,4 +109,21 @@ describe("Chat line editing", () => {
       instance.unmount();
     }
   });
+
+  it("Ctrl+T toggles recording, since Ctrl+Space switches the input source on macOS", async () => {
+    const onToggleRecording = vi.fn();
+    const stdin = fakeStdin();
+    const stdout = fakeStdout(80, 10);
+    const instance = render(
+      <Chat onSubmit={vi.fn()} completions={[]} onToggleRecording={onToggleRecording} />,
+      { stdin, stdout: stdout.stream, exitOnCtrlC: false, patchConsole: false },
+    );
+    try {
+      stdin.write("\u0014");
+      await sleep(40);
+      stdin.write("\u0000");
+      await sleep(40);
+      expect(onToggleRecording).toHaveBeenCalledTimes(2);
+    } finally { instance.unmount(); }
+  });
 });

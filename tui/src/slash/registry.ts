@@ -5,6 +5,7 @@
  * here as well so autocomplete describes everything the input can execute.
  */
 
+import { RECORD_KEY } from "../state/voice.js";
 import type { CommandInfo } from "../rpc/sdk.js";
 import { rankCommandMatches } from "../state/slash-completion.js";
 
@@ -26,7 +27,7 @@ const SURFACE_COMMANDS: CommandInfo[] = [
   },
   {
     name: "voice",
-    summary: "Voice input: /voice toggles, /voice on|off; then Ctrl+Space (or /rec) records.",
+    summary: `Voice input: /voice toggles, /voice on|off; then ${RECORD_KEY} (or /rec) records.`,
     source: "tui",
   },
   { name: "rec", summary: "Start or stop a recording.", source: "tui" },
@@ -56,7 +57,7 @@ export function ttsSubCommands(draft: string): CommandInfo[] {
 
 /** `/voice on|off` completes too; a bare `/voice` toggles. */
 export const VOICE_ACTIONS: ReadonlyArray<{ action: string; summary: string }> = [
-  { action: "on", summary: "Arm voice input; Ctrl+Space records." },
+  { action: "on", summary: `Arm voice input; ${RECORD_KEY} records.` },
   { action: "off", summary: "Disarm voice input." },
 ];
 

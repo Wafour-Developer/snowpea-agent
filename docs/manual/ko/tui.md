@@ -405,7 +405,7 @@ snowpea v0.1.2 → v0.1.3 (U to update)
 | 키·명령 | 하는 일 |
 |---|---|
 | `/voice` | 음성 입력을 켭니다 |
-| `Ctrl+Space` 또는 `/rec` | 녹음 시작, 다시 누르면 중지 |
+| `Ctrl+Space`(macOS는 `Ctrl+T`) 또는 `/rec` | 녹음 시작, 다시 누르면 중지 |
 | `/tts on`, `/tts off` | 답변이 끝날 때마다 읽어 줍니다 |
 | `Esc` | 읽는 중인 답변을 멈춥니다 |
 
@@ -460,7 +460,7 @@ snowpea --fullscreen
 | `Ctrl+R` | 대기 중인 승인 대기열로 |
 | `Ctrl+V` | 클립보드 이미지 첨부 |
 | `Ctrl+X` | 첨부 전부 비우기 |
-| `Ctrl+Space` | 녹음 시작·중지 |
+| `Ctrl+Space`(macOS는 입력 소스 전환과 겹쳐 `Ctrl+T`) | 녹음 시작·중지 |
 | `U` | 제안된 업데이트 받기 |
 | `R` | 시작 화면이 제안한 세션 이어가기 |
 | `F1` | 도움말 |

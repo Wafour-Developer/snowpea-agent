@@ -3,6 +3,7 @@ import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
 import type { CommandInfo } from "../rpc/sdk.js";
 import { wrapLine, type Line } from "../layout/transcript.js";
+import { RECORD_KEY } from "../state/voice.js";
 import { TranscriptView } from "./TranscriptView.js";
 
 export const WORKFLOW_COMMANDS: readonly string[] = [
@@ -33,7 +34,7 @@ const KEYS = [
   "/model on its own opens a picker of profiles and vendor models; /model <ref> switches",
   "Paste a file path to attach it · Ctrl+V pastes an image · /attach <path>",
   "Backspace on empty input removes an attachment · Ctrl+X removes all",
-  "/voice arms input · Ctrl+Space records · /tts on|off speaks replies",
+  `/voice arms input · ${RECORD_KEY} records · /tts on|off speaks replies`,
   "Ctrl+R focuses approvals: a allow, d deny, ↑↓ select, ←→ scope",
   "Approval menus: ↑↓ select, Enter confirm, y/a/p/n answer, Esc refuse",
 ];

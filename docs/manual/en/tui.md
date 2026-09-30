@@ -405,7 +405,7 @@ Voice needs a backend, and the daemon is the one that has them. `snowpea setup a
 | Key or command | What it does |
 |---|---|
 | `/voice` | arm voice input |
-| `Ctrl+Space`, or `/rec` | start recording; again to stop |
+| `Ctrl+Space` (`Ctrl+T` on macOS), or `/rec` | start recording; again to stop |
 | `/tts on`, `/tts off` | speak each reply as it finishes |
 | `Esc` | stop a reply that is being read out |
 
@@ -460,7 +460,7 @@ It costs less bandwidth over a slow link, because only the rows that changed are
 | `Ctrl+R` | focus the unattended approval queue |
 | `Ctrl+V` | attach an image from the clipboard |
 | `Ctrl+X` | clear the attachments |
-| `Ctrl+Space` | start or stop recording |
+| `Ctrl+Space` (`Ctrl+T` on macOS, where `Ctrl+Space` switches the input source) | start or stop recording |
 | `U` | take the offered update |
 | `R` | resume the session the launch screen offered |
 | `F1` | help |

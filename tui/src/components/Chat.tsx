@@ -57,7 +57,7 @@ export interface ChatProps {
   onBackspaceEmpty?: () => boolean;
   /** Ctrl+X clears every chip. */
   onClearAttachments?: () => void;
-  /** Ctrl+Space starts or stops a recording while voice input is armed. */
+  /** Ctrl+Space or Ctrl+T starts or stops a recording while voice input is armed. */
   onToggleRecording?: () => void;
   /** Ctrl+V with nothing pasteable as text: try an image from the clipboard. */
   onClipboard?: () => void;
@@ -456,8 +456,9 @@ export function Chat({
       }
 
       // Ctrl+Space is a NUL byte on the wire; Ink's key parser turns that into
-      // ctrl + "`", which is the form that actually arrives here.
-      if (key.ctrl && (input === " " || input === "`")) {
+      // ctrl + "`", which is the form that actually arrives here. Ctrl+T does
+      // the same, for macOS where Ctrl+Space switches the input language.
+      if (key.ctrl && (input === " " || input === "`" || input === "t")) {
         onToggleRecording?.();
         return;
       }

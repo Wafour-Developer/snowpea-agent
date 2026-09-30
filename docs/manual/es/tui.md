@@ -294,7 +294,7 @@ La voz necesita un backend, y quien los tiene es el daemon. `snowpea setup audio
 | Tecla o comando | Qué hace |
 |---|---|
 | `/voice` | activa la entrada por voz |
-| `Ctrl+Space`, o `/rec` | empieza a grabar; otra vez para parar |
+| `Ctrl+Space` (`Ctrl+T` en macOS), o `/rec` | empieza a grabar; otra vez para parar |
 | `/tts on`, `/tts off` | lee cada respuesta al terminarse |
 | `Esc` | detiene una respuesta que se está leyendo |
 
@@ -336,7 +336,7 @@ Gasta menos ancho de banda en una conexión lenta, porque solo se redibujan las 
 | `Ctrl+R` | ir a la cola de aprobaciones desatendidas |
 | `Ctrl+V` | adjuntar una imagen del portapapeles |
 | `Ctrl+X` | vaciar los adjuntos |
-| `Ctrl+Space` | empezar o parar la grabación |
+| `Ctrl+Space` (`Ctrl+T` en macOS) | empezar o parar la grabación |
 | `U` | aceptar la actualización ofrecida |
 | `R` | continuar la sesión que ofreció la pantalla de inicio |
 | `F1` | ayuda |

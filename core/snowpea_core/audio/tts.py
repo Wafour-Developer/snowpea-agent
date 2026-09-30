@@ -751,6 +751,10 @@ class SupertonicTTS:
         self.language = language
         self.timeout = timeout
 
+    def _native(self) -> tuple[str, ...]:
+        """``arch -arm64`` for the audio runtime on an Apple Silicon Mac."""
+        return runtime.native_prefix() if self._python is None and self.home else ()
+
     def available(self) -> bool:
         """True when the package is there for the interpreter we would run.
 
@@ -794,7 +798,9 @@ class SupertonicTTS:
             }
         )
         stderr, code = await _run(
-            [self.python, "-c", SUPERTONIC_SCRIPT], self.timeout, request.encode("utf-8")
+            [*self._native(), self.python, "-c", SUPERTONIC_SCRIPT],
+            self.timeout,
+            request.encode("utf-8"),
         )
         _check_output(target, self.name, stderr, code)
         return Speech(path=target, mime=mime_for(self.suffix), voice=chosen, provider=self.name)

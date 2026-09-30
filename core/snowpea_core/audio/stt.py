@@ -523,7 +523,7 @@ class SherpaOnnxSTT:
         """
         if self.home is None:  # pragma: no cover - guarded by available()
             raise AudioError("no_stt", "sherpa-onnx has no home configured")
-        return [str(runtime.runtime_python(self.home)), "-c", SHERPA_SCRIPT]
+        return [*runtime.runtime_command(self.home), "-c", SHERPA_SCRIPT]
 
     def request(self, audio: Path) -> dict[str, Any]:
         """The decode request for ``audio``.

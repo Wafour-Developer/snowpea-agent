@@ -10,6 +10,16 @@
  */
 
 /**
+ * The key that starts and stops a recording, as hints spell it.
+ *
+ * Ctrl+Space is macOS's input-source switch (한/영, 中/英), so a Mac terminal
+ * never passes it on; Ctrl+T works everywhere and is what a Mac is told.
+ * Both keys record on every platform.
+ */
+export const RECORD_KEY: string =
+  typeof process !== "undefined" && process.platform === "darwin" ? "Ctrl+T" : "Ctrl+Space";
+
+/**
  * What the daemon says it can do with audio; everything off until it answers.
  *
  * The booleans are what the switches are gated on; the names beside them are
@@ -57,7 +67,7 @@ export const noAudio: AudioCapabilities = {
 };
 
 export interface VoiceState {
-  /** Voice input is armed: Ctrl+Space starts and stops a recording. */
+  /** Voice input is armed: Ctrl+Space (Ctrl+T) starts and stops a recording. */
   input: boolean;
   /** Every assistant message is spoken as it finishes. */
   tts: boolean;
@@ -116,7 +126,7 @@ export function toggleVoiceInput(
   const backend = capabilities.sttProvider ? ` (${capabilities.sttProvider})` : "";
   return {
     state: { ...state, input: true },
-    message: `voice input on${backend} · Ctrl+Space to record`,
+    message: `voice input on${backend} · ${RECORD_KEY} to record`,
     ok: true,
   };
 }
@@ -164,7 +174,7 @@ export function startRecording(
   }
   return {
     state: { ...state, input: true, recording: true, startedAt: now },
-    message: "recording · Ctrl+Space to stop",
+    message: `recording · ${RECORD_KEY} to stop`,
     ok: true,
   };
 }

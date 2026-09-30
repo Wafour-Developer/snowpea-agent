@@ -555,8 +555,10 @@ async def test_installing_a_sherpa_engine_installs_the_package_and_the_model(
     assert result.ok is True
     # The runtime is created first, then the package goes into it.
     assert [call[:2] for call in runner.calls][0] in (["uv", "venv"], [runner.calls[0][0], "-m"])
-    assert runner.calls[-1][-1] == audio_install.SHERPA_PACKAGE
-    assert str(audio_runtime.runtime_python(tmp_path)) in runner.calls[-1]
+    # ...and a final import check proves the runtime can load it.
+    assert runner.calls[-2][-1] == audio_install.SHERPA_PACKAGE
+    assert str(audio_runtime.runtime_python(tmp_path)) in runner.calls[-2]
+    assert runner.calls[-1][-2:] == ["-c", "import sherpa_onnx"]
     assert model.installed(tmp_path) is True
     assert "downloading" in result.log
 
