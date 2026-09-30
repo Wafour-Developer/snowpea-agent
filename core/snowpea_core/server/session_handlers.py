@@ -347,6 +347,11 @@ async def collect_sessions(core: Core, params: SessionListParams) -> list[Sessio
                 parentSessionId=stored.get("parent_session_id"),
                 jobId=stored.get("job_id"),
                 hostToolsFrom=stored.get("host_tools_from"),
+                browserProvider=(
+                    ("local" if stored.get("browser_provider") == "local" else "host")
+                    if stored.get("origin_surface") == "browser" or stored.get("host_tools_from")
+                    else None
+                ),
             )
         rows = list(by_id.values())
     if params.workdir:

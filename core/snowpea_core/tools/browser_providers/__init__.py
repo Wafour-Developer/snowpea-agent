@@ -243,6 +243,13 @@ def host_browser_attached(session: Any) -> bool:
     return any(name.startswith("browser_") for name in HOST_TOOLS.names_for(session))
 
 
+def browser_provider_of(session: Any) -> str | None:
+    """``"host"``/``"local"`` for a browser session, ``None`` otherwise (the wire value)."""
+    if not is_browser_session(session):
+        return None
+    return "local" if getattr(session, "browser_provider", None) == "local" else "host"
+
+
 def browser_locked(session: Any) -> bool:
     """A browser session whose browser work may only happen in the Snowpea browser.
 
@@ -301,6 +308,7 @@ __all__ = [
     "HOST_UNAVAILABLE",
     "HOST_UNAVAILABLE_MESSAGE",
     "browser_locked",
+    "browser_provider_of",
     "browser_settings_refusal",
     "host_browser_attached",
     "is_browser_session",

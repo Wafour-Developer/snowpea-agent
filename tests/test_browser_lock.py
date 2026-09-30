@@ -79,6 +79,9 @@ def test_the_user_opt_in_is_the_only_way_to_core_s_own_browser(
     assert browser_providers.resolve_for_session(settings, opted).meta.id == "local_chromium"
     ide = Session(id="s-ide", workdir=tmp_path)
     assert browser_providers.browser_locked(ide) is False
+    assert browser_providers.browser_provider_of(ide) is None
+    assert browser_providers.browser_provider_of(locked) == "host"
+    assert browser_providers.browser_provider_of(opted) == "local"
 
 
 def test_a_browser_session_may_not_change_browser_settings(tmp_path: Path) -> None:
@@ -122,6 +125,11 @@ async def test_browser_tools_are_hidden_until_the_browser_is_back_and_opt_in_wor
         listed = await host.ok("tool.list", {"sessionId": session_id})
         names = {tool["name"] for tool in listed["tools"]}
         assert not any(name.startswith("browser_") for name in names)
+        ide_session = await new_session(host, tmp_path / "ide")
+        rows0 = {r["sessionId"]: r for r in (await host.ok("session.list", {}))["sessions"]}
+        assert rows0[session_id]["browserProvider"] == "host"
+        # Opened by a browser-kind connection, so it is a browser session too.
+        assert rows0[ide_session]["browserProvider"] == "host"
 
         await host.ok("tool.register", {"tools": [spec("browser_navigate")]})
         listed = await host.ok("tool.list", {"sessionId": session_id})
@@ -136,6 +144,14 @@ async def test_browser_tools_are_hidden_until_the_browser_is_back_and_opt_in_wor
         assert "browser_navigate" in {tool["name"] for tool in listed["tools"]}
         rows = await daemon.core.store.list_sessions()
         assert next(r for r in rows if r["id"] == session_id)["browser_provider"] == "local"
+        listed_rows = {r["sessionId"]: r for r in (await host.ok("session.list", {}))["sessions"]}
+        assert listed_rows[session_id]["browserProvider"] == "local"
+        await asyncio.sleep(0.05)
+        changed = [
+            n["params"] for n in host.notifications
+            if n["method"] == "sessions.changed" and n["params"]["reason"] == "browserProvider"
+        ]
+        assert changed and changed[-1]["browserProvider"] == "local"
 
         await host.ok("session.setBrowserProvider", {"sessionId": session_id, "provider": "host"})
         await asyncio.sleep(0)

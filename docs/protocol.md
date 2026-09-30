@@ -1592,7 +1592,7 @@ List live or saved sessions.
 
 | field | type | required | description |
 |---|---|---|---|
-| `sessions` | `({ agent?: string \| null; contextUsed?: number; contextWindow?: number \| null; createdAt: string; effort?: "low" \| "medium" \| "high" \| "max" \| null; hostToolsFrom?: string \| null; jobId?: string \| null; kind?: "chat" \| "scheduled" \| "subagent" \| "agent"; lastActivityAt?: string \| null; lastPrompt?: string \| null; mode: "plan" \| "accept" \| "auto"; model?: string \| null; originSurface?: string \| null; parentSessionId?: string \| null; pendingApprovals?: number; pendingQuestions?: number; provider?: string \| null; running?: boolean; seq?: number; sessionId: string; status?: "idle" \| "running" \| "awaiting_approval" \| "awaiting_question" \| "error"; title?: string \| null; turnStartedAt?: string \| null; workdir: string; workspaceDir?: string \| null; })[]` | no | Every live session. |
+| `sessions` | `({ agent?: string \| null; browserProvider?: "host" \| "local" \| null; contextUsed?: number; contextWindow?: number \| null; createdAt: string; effort?: "low" \| "medium" \| "high" \| "max" \| null; hostToolsFrom?: string \| null; jobId?: string \| null; kind?: "chat" \| "scheduled" \| "subagent" \| "agent"; lastActivityAt?: string \| null; lastPrompt?: string \| null; mode: "plan" \| "accept" \| "auto"; model?: string \| null; originSurface?: string \| null; parentSessionId?: string \| null; pendingApprovals?: number; pendingQuestions?: number; provider?: string \| null; running?: boolean; seq?: number; sessionId: string; status?: "idle" \| "running" \| "awaiting_approval" \| "awaiting_question" \| "error"; title?: string \| null; turnStartedAt?: string \| null; workdir: string; workspaceDir?: string \| null; })[]` | no | Every live session. |
 
 ### `session.notice`
 
@@ -2581,6 +2581,7 @@ Token totals from stored usage events, grouped by provider, model, session or da
 
 | field | type | required | description |
 |---|---|---|---|
+| `browserProvider` | `"host" \| "local" \| null` | no | A browser session's browser: 'host' (Snowpea browser only) or 'local' (the user opted in to core's own browser); null for non-browser sessions. |
 | `hostToolsFrom` | `string \| null` | no | The session's owning client (addendum 8); null for unhosted sessions. |
 | `reason` | `string` | yes | create, prompt, turn, renamed, close, ... |
 | `sessionId` | `string` | yes | Session that changed. |

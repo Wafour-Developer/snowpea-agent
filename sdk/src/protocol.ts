@@ -1768,6 +1768,8 @@ export interface SessionListResult {
   sessions?: ({
     /** Named agent the session belongs to, when it has one. */
     agent?: string | null;
+    /** A browser session's browser: 'host' (Snowpea browser only) or 'local' (the user opted in to core's own browser); null for non-browser sessions. */
+    browserProvider?: "host" | "local" | null;
     /** Tokens the session's current prompt occupies (CORE-context). */
     contextUsed?: number;
     /** Context window of the session's model; null when unknown. */
@@ -3230,6 +3232,8 @@ export interface SessionEventPayload {
 
 /** `sessions.changed` notification payload. */
 export interface SessionsChangedPayload {
+  /** A browser session's browser: 'host' (Snowpea browser only) or 'local' (the user opted in to core's own browser); null for non-browser sessions. */
+  browserProvider?: "host" | "local" | null;
   /** The session's owning client (addendum 8); null for unhosted sessions. */
   hostToolsFrom?: string | null;
   /** create, prompt, turn, renamed, close, ... */

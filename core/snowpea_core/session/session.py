@@ -256,7 +256,15 @@ class Session:
             lastActivityAt=self.last_activity_at,
             turnStartedAt=self.turn_started_at,
             hostToolsFrom=self.host_tools_from,
+            browserProvider=browser_provider_of(self),  # type: ignore[arg-type]
         )
+
+
+
+def browser_provider_of(session: Session) -> str | None:
+    from snowpea_core.tools.browser_providers import browser_provider_of as lookup
+
+    return lookup(session)
 
 
 __all__ = ["Session"]

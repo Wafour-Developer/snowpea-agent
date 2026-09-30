@@ -77,6 +77,10 @@ class SessionManager:
             payload["hostToolsFrom"] = (
                 getattr(session, "host_tools_from", None) if session is not None else None
             )
+            if session is not None:
+                from snowpea_core.tools.browser_providers import browser_provider_of
+
+                payload["browserProvider"] = browser_provider_of(session)
             await self.hub.notify("sessions.changed", payload)
         except Exception:  # noqa: BLE001 - a dead socket must not fail create/close
             log.debug("could not broadcast sessions.changed", exc_info=True)

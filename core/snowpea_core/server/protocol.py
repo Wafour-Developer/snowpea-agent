@@ -411,6 +411,13 @@ class SessionsChangedNotification(Payload):
         default=None,
         description="The session's owning client (addendum 8); null for unhosted sessions.",
     )
+    browserProvider: Literal["host", "local"] | None = Field(
+        default=None,
+        description=(
+            "A browser session's browser: 'host' (Snowpea browser only) or 'local' "
+            "(the user opted in to core's own browser); null for non-browser sessions."
+        ),
+    )
 
 
 class UsageSummaryParams(Payload):
@@ -587,6 +594,13 @@ class SessionSummary(Payload):
         description=(
             "Client whose host tools the session uses (a browser profile's clientId); "
             "null for IDE, TUI and CLI sessions (addendum 8)."
+        ),
+    )
+    browserProvider: Literal["host", "local"] | None = Field(
+        default=None,
+        description=(
+            "A browser session's browser: 'host' (Snowpea browser only) or 'local' "
+            "(the user opted in to core's own browser); null for non-browser sessions."
         ),
     )
 
