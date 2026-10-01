@@ -129,6 +129,11 @@ class AgentsSettings(_Model):
     #: doing them itself.  Off by default; ``/delegation on|off`` pins one
     #: session either way.
     delegateByDefault: bool = False
+    #: In delegation mode, how many write/exec calls the lead may make itself
+    #: per turn before the rest are refused with "hand it to delegate_task".
+    #: The brief allows a trivial edit or one command; a lead that kept
+    #: implementing everything itself is what this stops.
+    leadDirectCalls: int = 3
     #: How much of the parent's context a delegated child starts with.
     #: ``"lean"`` drops the memory recall block, the skills index and the
     #: nested instruction files, and narrows a read-only child's eager tool

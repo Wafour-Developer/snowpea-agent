@@ -66,3 +66,27 @@ def test_a_definition_cannot_widen_its_childs_mode() -> None:
     assert stricter_mode("plan", "accept") == "plan"
     assert stricter_mode("accept", "auto") == "accept"
     assert stricter_mode("auto", "accept") == "accept"
+
+
+def test_a_delegation_lead_gets_three_direct_calls_then_must_delegate(tmp_path: Path) -> None:
+    """The lead kept implementing everything itself under /delegation on."""
+    from snowpea_core.agent import loop
+
+    settings = Settings()
+    core = SimpleNamespace(settings=settings)
+    lead = Session(id="s-lead", workdir=tmp_path)
+    lead.delegation = True
+    verdicts = [loop._lead_direct_refusal(core, lead, "patch", "write") for _ in range(4)]  # type: ignore[arg-type]
+    assert verdicts[:3] == [None, None, None]
+    assert verdicts[3] and "delegate_task" in verdicts[3]
+    # Reads, delegation off, and subagents are never limited.
+    assert loop._lead_direct_refusal(core, lead, "read_file", "read") is None  # type: ignore[arg-type]
+    plain = Session(id="s-plain", workdir=tmp_path)
+    assert all(
+        loop._lead_direct_refusal(core, plain, "shell", "exec") is None for _ in range(5)  # type: ignore[arg-type]
+    )
+    child = Session(id="s-child", workdir=tmp_path, parent_session_id="s-lead", kind="subagent")
+    child.delegation = True
+    assert all(
+        loop._lead_direct_refusal(core, child, "patch", "write") is None for _ in range(5)  # type: ignore[arg-type]
+    )

@@ -184,6 +184,8 @@ class Session:
     #: True once :mod:`agent.session_agent` applied ``agent``'s definition
     #: (prompt, tools, rounds) to this human session (addendum 17).
     agent_applied: bool = False
+    #: Write/exec calls the lead made itself this turn in delegation mode.
+    lead_direct_calls: int = 0
     #: ``system.hello`` clientId of the connection that created the session, so
     #: a restarted client re-binds as its origin (1.6.0).
     origin_client_id: str | None = None

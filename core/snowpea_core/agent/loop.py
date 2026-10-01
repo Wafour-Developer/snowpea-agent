@@ -1165,6 +1165,7 @@ async def _drive(
     session.rounds_used = 0
     # Times a Stop hook kept this turn going (capped per turn).
     stop_continuations = 0
+    session.lead_direct_calls = 0
     # One acknowledgement per turn, not per tool round.
     session.ack_spoken = False
     while True:
@@ -1583,6 +1584,10 @@ async def _run_one_call(
     # A write that lands on snowpea's own settings is judged as ``config``,
     # not ``write`` (CORE-search-fix): the tag, not the tool, decides.
     tag = effective_permission(tool, call.arguments, session, core)
+    refusal = _lead_direct_refusal(core, session, tool.name, tag)
+    if refusal:
+        await _deny_call(core, session, call, refusal)
+        return None
     verdict = policy.decide(session.mode, tag, tool, call.arguments, session)
     if verdict == "deny":
         message = f"{tool.name} ({tag}) is not allowed in {session.mode} mode"
@@ -1804,6 +1809,39 @@ def _spill_long_result(
         return result
     result.output = spilled.text
     return result
+
+
+#: Tags that count as the lead doing the work itself in delegation mode.
+LEAD_DIRECT_TAGS: frozenset[str] = frozenset({"write", "exec"})
+
+
+def _lead_direct_refusal(core: Core, session: Session, name: str, tag: str) -> str | None:
+    """Why the delegation-mode lead may not make this call itself, if it may not.
+
+    The brief says: a trivial edit or one command yourself, everything else to
+    a team agent. A model can ignore a brief, so past ``agents.leadDirectCalls``
+    write/exec calls in one turn the rest are refused with the way forward.
+    """
+    if tag not in LEAD_DIRECT_TAGS or session.is_subagent or session.parent_session_id:
+        return None
+    from snowpea_core.agent.delegation import effective_delegation
+
+    on, _source = effective_delegation(core, session)
+    if not on:
+        return None
+    try:
+        limit = max(0, int(core.settings.agents.leadDirectCalls))
+    except (AttributeError, TypeError, ValueError):
+        limit = 3
+    if session.lead_direct_calls < limit:
+        session.lead_direct_calls += 1
+        return None
+    return (
+        f"delegation mode is on and you have already made {limit} write/exec calls "
+        f"yourself this turn, so {name} was not run. Hand this step to a team agent with "
+        "delegate_task (implementation to executor, tests to test-engineer), with a "
+        "brief naming the files it owns and the command that proves it is done"
+    )
 
 
 async def _deny_call(core: Core, session: Session, call: ToolCall, reason: str) -> None:
