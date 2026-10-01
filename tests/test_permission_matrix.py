@@ -411,6 +411,24 @@ async def test_plan_then_accept_emit_mode_changed(
     await client.stop()
 
 
+async def test_plan_with_a_request_switches_and_runs_it(
+    daemon: Daemon, http: aiohttp.ClientSession, workdir: Path
+) -> None:
+    """``/plan <request>`` used to only change the mode and drop the request."""
+    client = await connect(http, daemon)
+    session_id = await open_session(client, workdir, "accept")
+    request = "초등학생용 영어 단어 게임을 설계해줘"
+
+    turn = await prompt(client, session_id, f"/plan  {request}")
+    assert await client.wait_turn(turn) == "complete"
+
+    assert [e["payload"]["mode"] for e in client.of_kind("mode.changed")] == ["plan"]
+    sent = [e["payload"]["text"] for e in client.of_kind("message.user")]
+    assert sent == [request]
+    assert client.of_kind("message.done"), "the request got an answer in plan mode"
+    await client.stop()
+
+
 async def test_mode_save_becomes_the_project_default(
     daemon: Daemon, http: aiohttp.ClientSession, workdir: Path
 ) -> None:

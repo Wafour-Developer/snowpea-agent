@@ -143,13 +143,40 @@ async def cmd_busy(ctx: CommandContext, args: str) -> None:
 def _mode_command(mode: str) -> Command:
     async def run(ctx: CommandContext, args: str) -> None:
         await _set_mode(ctx, mode)
-        await ctx.say(f"Mode: {mode}")
+        request = args.strip()
+        if not request:
+            await ctx.say(f"Mode: {mode}")
+            return
+        # ``/plan <request>``: switch, then run the request in the new mode as
+        # this same turn. The text after the command used to be dropped, so a
+        # long brief typed after /plan only changed the mode.
+        from snowpea_core.agent import loop as agent_loop
+
+        ctx.handled_turn = True
+        await agent_loop.run_turn(
+            ctx.core,
+            ctx.session,
+            request,
+            turn_id=ctx.turn_id,
+            unattended=ctx.session.origin_conn is None,
+        )
 
     return Command(
         name=mode,
-        summary=f"Switch the session to {mode} mode.",
+        summary=(
+            f"Switch the session to {mode} mode; /{mode} <request> also runs the "
+            "request in that mode."
+        ),
         run=run,
-        args_schema={"type": "object", "properties": {}},
+        args_schema={
+            "type": "object",
+            "properties": {
+                "request": {
+                    "type": "string",
+                    "description": f"Optional: a request to run right away in {mode} mode.",
+                }
+            },
+        },
     )
 
 

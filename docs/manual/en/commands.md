@@ -18,7 +18,7 @@ That prints the live registry, including commands contributed by installed plugi
 | `/help` | list every available command |
 | `/tools` | list registered tools with category, permission and state |
 | `/compact [instructions]` | summarise the conversation so far and continue with the summary |
-| `/plan`, `/accept`, `/auto` | switch mode |
+| `/plan`, `/accept`, `/auto` [request] | switch mode; with a request after it, run that request in the new mode right away (`/plan design the game`) |
 | `/mode [plan\|accept\|auto\|save\|show]` | show, switch, or save the project default |
 | `/busy [steer\|queue]` | show or set busy-turn follow-ups: `steer` (default) folds queued prompts into the running turn before its next model call; `queue` keeps the legacy “run later as a separate turn” behavior |
 | `/memory [list\|search <q>\|forget <id>] [--project\|--global\|--all]` | show, search or forget long-term memories; scope defaults to `--all`, which is what the agent itself recalls from |
