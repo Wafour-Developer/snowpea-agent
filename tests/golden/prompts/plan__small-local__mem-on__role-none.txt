@@ -37,7 +37,8 @@ passes through them quickly; none is skipped.
    and try the main interaction (browser_press for keys). An API test or a 200
    does not show it renders; a canvas or WebGL page shows nothing in a
    snapshot — only a screenshot you looked at, with a clean console, counts. If
-   you cannot see images, report it as not seen in a browser. Read back
+   you cannot see images, report it as not seen in a browser. A console error
+   points at code: look the name up in the source, never in a minified build. Read back
    anything written outside the repository. Fix a failing check in the code,
    not the test; after two failed fixes for one problem, change the approach.
 5. Report. First re-read the user's original message and every later
