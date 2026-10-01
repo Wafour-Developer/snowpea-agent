@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol, runtime_checkable
 
 Tier = Literal["free", "paid", "subscription"]
@@ -32,17 +32,36 @@ class BrowserProviderMeta:
     endpoint: str = ""
 
 
+#: Console lines a provider keeps per page before dropping the oldest.
+CONSOLE_BUFFER = 50
+
+#: Characters of one console line that reach the model.
+CONSOLE_LINE_CHARS = 500
+
+
 @dataclass(frozen=True)
 class PageState:
-    """What every ``browser_*`` tool reports back after it acts."""
+    """What every ``browser_*`` tool reports back after it acts.
+
+    ``console`` holds the page's console errors and warnings since the last
+    report (each one is reported once); ``image`` is a screenshot's bytes,
+    sent to the model as an image rather than text.
+    """
 
     url: str = ""
     title: str = ""
     text: str = ""
+    console: tuple[str, ...] = ()
+    image: bytes | None = field(default=None, repr=False)
+    image_mime: str = "image/png"
 
     def render(self) -> str:
         head = f"{self.title}\n{self.url}".strip()
-        return f"{head}\n\n{self.text}".strip() if self.text else head
+        body = f"{head}\n\n{self.text}".strip() if self.text else head
+        if self.console:
+            block = "Console errors:\n" + "\n".join(f"- {line}" for line in self.console)
+            body = f"{body}\n\n{block}".strip()
+        return body
 
 
 @runtime_checkable
@@ -65,12 +84,22 @@ class BrowserProvider(Protocol):
 
     async def snapshot(self, session_id: str) -> PageState: ...
 
+    async def screenshot(
+        self, session_id: str, *, full_page: bool = False, selector: str | None = None
+    ) -> PageState: ...
+
+    async def console(self, session_id: str) -> PageState: ...
+
+    async def press(self, session_id: str, key: str, *, hold_ms: int = 0) -> PageState: ...
+
     async def close_session(self, session_id: str) -> None: ...
 
     async def close(self) -> None: ...
 
 
 __all__ = [
+    "CONSOLE_BUFFER",
+    "CONSOLE_LINE_CHARS",
     "BrowserNotInstalled",
     "BrowserProvider",
     "BrowserProviderMeta",

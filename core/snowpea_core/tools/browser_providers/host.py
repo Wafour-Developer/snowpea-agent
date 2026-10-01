@@ -82,6 +82,24 @@ class HostBrowserProvider:
     async def snapshot(self, session_id: str) -> PageState:
         return await self._call(session_id, "browser_snapshot", {})
 
+    # The host protocol has no screenshot, console or key-press action yet.  A
+    # host that registers a ``browser_screenshot`` (etc.) tool shadows the
+    # built-in and never reaches these.
+    async def screenshot(
+        self, session_id: str, *, full_page: bool = False, selector: str | None = None
+    ) -> PageState:
+        raise BrowserProviderUnavailable(
+            "the connected browser cannot take screenshots yet; use browser_snapshot"
+        )
+
+    async def console(self, session_id: str) -> PageState:
+        raise BrowserProviderUnavailable(
+            "the connected browser does not report console messages yet"
+        )
+
+    async def press(self, session_id: str, key: str, *, hold_ms: int = 0) -> PageState:
+        raise BrowserProviderUnavailable("the connected browser cannot press keys yet")
+
     async def close_session(self, session_id: str) -> None:
         return None
 

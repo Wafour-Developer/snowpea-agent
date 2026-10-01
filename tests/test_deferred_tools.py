@@ -109,7 +109,7 @@ def test_deferred_tools_are_named_by_group_and_never_described(
 
     assert deferred.DEFERRED_PREFIX in block
     line = next(row for row in block.splitlines() if row.startswith(deferred.DEFERRED_PREFIX))
-    assert "browser (5)" in line
+    assert "browser (8)" in line
     assert "git (4)" in line
     # Names only: no deferred tool's description reaches the prompt.
     for spec in hidden:

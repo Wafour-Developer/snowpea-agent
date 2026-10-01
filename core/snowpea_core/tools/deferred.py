@@ -225,7 +225,7 @@ def group_of(spec: Any) -> str:
 
 
 def deferred_line(specs: Sequence[Any]) -> str:
-    """``Deferred (load with tool_search): browser (5), git (4), …``.
+    """``Deferred (load with tool_search): browser (8), git (4), …``.
 
     Names only, grouped, no descriptions — the descriptions are the whole cost
     this scheme exists to avoid.

@@ -88,7 +88,8 @@ TOOLS: tuple[Tool, ...] = (
         description=(
             "Keep the task list for multi-step work, visible to the user as you go. "
             "Use it for any task beyond a one-line answer: each thing the user asked "
-            "for, quoted, is one item, in order. Exactly one item is in_progress while work remains. Mark an item "
+            "for, quoted, is one item, in order. Exactly one item is in_progress "
+            "while work remains. Mark an item "
             "completed only after its verification passed — never on intent. If an "
             "item is blocked, set it back to pending with \"(blocked: reason)\" added "
             "and make the blocker's own item in_progress; if it fails, replace it with a "

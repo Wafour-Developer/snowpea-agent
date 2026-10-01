@@ -15,6 +15,25 @@ snowpea addresses this with five coordinated mechanisms: a **repeat guard** that
 
 When the session model supports vision, images reach the model in three ways: paste or `/attach`, an `@path` reference in the prompt, or `view_image` (and MCP tools that return image blocks). All of them use the same attachment store, 20 MB cap, and downscaling rules. After a successful `view_image` or MCP image result, the agent loop appends a user message carrying the picture — the tool line stays a short text summary (`image attached: …` or `N image(s) attached`), never base64. `read_file` on a `.png` or `.jpg` only returns a one-line hint pointing at `view_image`. On a model that cannot see images, `view_image` refuses with an error; `@` and MCP images fall back to a text marker in the outgoing request instead of an image block.
 
+## Browser tools
+
+The `browser` group (deferred, `network` permission) drives one browser page per session:
+
+| Tool | Use |
+|---|---|
+| `browser_navigate` | Open a url and return the page text. |
+| `browser_click` | Click the first element matching a CSS selector. |
+| `browser_type` | Fill a form field, optionally pressing Enter. |
+| `browser_press` | Press a key or combo with no selector (`w`, `ArrowUp`, `Space`, `Control+a`); `hold_ms` holds it down, so WASD movement in a game can be exercised. |
+| `browser_scroll` | Scroll vertically. |
+| `browser_snapshot` | Return the url, title and visible text. |
+| `browser_screenshot` | Capture the viewport (1280×800), the `full_page`, or one `selector`, and attach it as an image, the same way `view_image` does. A text-only model gets an error pointing at `browser_snapshot` instead. |
+| `browser_console` | Return the page's console errors, warnings and uncaught exceptions since the last report. |
+
+With the default `local_chromium` provider, every browser tool result ends with a `Console errors:` block when the page logged errors or warnings since the previous call; each message is reported once (the last 50 are kept). A connected Snowpea browser (the `host` provider) does not support `browser_screenshot`, `browser_console` or `browser_press` yet and says so in the error.
+
+**Url policy (`local_chromium`).** Cloud-metadata addresses (`169.254.169.254`, `metadata.google.internal`, the link-local range) are refused in every session. A session opened by the Snowpea browser that has been switched to core's own Chromium also refuses private/LAN, loopback and link-local addresses unless the user typed that exact address (`localhost:5173`, `192.168.0.10`) in the conversation. CLI and IDE sessions may open loopback and LAN addresses. Hostnames are resolved for the check, and the page a click or redirect lands on is checked again; DNS rebinding is not covered.
+
 ## Inspecting tools
 
 ```bash
@@ -94,7 +113,7 @@ The eager set contains tools fundamental to core agent workflows:
 All remaining tools (browser actions, media generation, git operations, and all `mcp__*` tools) are deferred. Instead of full schemas, the system prompt presents them on a single grouped line:
 
 ```
-Deferred (load with tool_search): browser (4), git (4), media (5), mcp:github (12)
+Deferred (load with tool_search): browser (8), git (4), media (5), mcp:github (12)
 ```
 
 No parameter schemas or tool descriptions are sent until requested.

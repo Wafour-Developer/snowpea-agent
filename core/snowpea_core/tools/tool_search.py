@@ -1,7 +1,7 @@
 """``tool_search`` — turn a deferred tool's name into its schema.
 
 The tools fragment names the deferred groups; this is how the model gets from
-``browser (5)`` to a callable ``browser_navigate``.  Anything it returns is
+``browser (8)`` to a callable ``browser_navigate``.  Anything it returns is
 added to ``session.loaded_tools``, so the next round's tool list carries those
 schemas in full and the model never has to search for the same tool twice.
 """

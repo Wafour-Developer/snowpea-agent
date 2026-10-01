@@ -29,7 +29,7 @@ The `permission` column is the **declared** tag — what `tool.list` reports and
 | terminal | shell, process_list, process_kill | exec |
 | git | git_status, git_diff, git_commit, git_log (thin wrappers → shell on backend) | read / write |
 | web | web_search, web_extract | network |
-| browser | browser_navigate, browser_click, browser_type, browser_scroll, browser_snapshot | network |
+| browser | browser_navigate, browser_click, browser_type, browser_press, browser_scroll, browser_snapshot, browser_screenshot, browser_console | network |
 | delegate | delegate_task (M1 stub → M7) | exec |
 | schedule | schedule_create/list/cancel (stub → M5) | send |
 | memory | memory_write, memory_search (stub → M5) | read/write |

@@ -27,6 +27,8 @@ _NEVER_PARALLEL = frozenset(
         "browser_click",
         "browser_type",
         "browser_scroll",
+        "browser_press",
+        "browser_console",
         "git_commit",
         "process_kill",
     }

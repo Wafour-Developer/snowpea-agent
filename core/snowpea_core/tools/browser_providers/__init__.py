@@ -60,6 +60,17 @@ class ThinBrowserProvider:
     async def snapshot(self, session_id: str) -> PageState:
         raise self._refuse()
 
+    async def screenshot(
+        self, session_id: str, *, full_page: bool = False, selector: str | None = None
+    ) -> PageState:
+        raise self._refuse()
+
+    async def console(self, session_id: str) -> PageState:
+        raise self._refuse()
+
+    async def press(self, session_id: str, key: str, *, hold_ms: int = 0) -> PageState:
+        raise self._refuse()
+
     async def close_session(self, session_id: str) -> None:
         return None
 
