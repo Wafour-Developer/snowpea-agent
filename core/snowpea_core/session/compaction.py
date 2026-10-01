@@ -631,6 +631,13 @@ def prune_request_images(
     return out
 
 
+#: Results never stubbed, however old: a subagent's report is the only copy of
+#: work another session did, already capped in size (``delegate.render_report``),
+#: and "re-run the tool if you need it again" made a parent redo both of its
+#: children's page reads itself.
+KEPT_RESULT_TOOLS: frozenset[str] = frozenset({"delegate_task", "subagent_wait"})
+
+
 def prune_old_tool_outputs(
     history: list[ChatMessage],
     keep_rounds: int = DEFAULT_KEEP_TOOL_ROUNDS,
@@ -667,6 +674,8 @@ def prune_old_tool_outputs(
         if message.name == "skill_view" or (message.tool_call_id or "") in skills:
             continue
         if message.content.startswith(SKILL_PRUNED_PREFIX):
+            continue
+        if message.name in KEPT_RESULT_TOOLS:
             continue
         if cutoff is not None and index < cutoff:
             out[index] = replace(

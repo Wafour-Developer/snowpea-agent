@@ -164,3 +164,51 @@ def test_keep_tool_rounds_is_read_from_settings(tmp_path: Path) -> None:
     settings.agent.keepToolRounds = 2
     on, keep, max_chars = compaction.tool_prune_settings(_core(tmp_path, settings))
     assert (on, keep, max_chars) == (True, 2, compaction.DEFAULT_TOOL_OUTPUT_MAX_CHARS)
+
+
+def test_a_subagent_report_is_never_pruned() -> None:
+    """A parent told to 're-run' a delegation redid its children's work."""
+    report = ChatMessage(
+        role="tool",
+        content="status: complete\n\nSeoul population: 9.4M (source: …)",
+        tool_call_id="d0",
+        name="delegate_task",
+    )
+    waited = ChatMessage(
+        role="tool", content="task bg-1: Busan 3.3M", tool_call_id="w0", name="subagent_wait"
+    )
+    history = [
+        ChatMessage(role="user", content="compare cities"),
+        ChatMessage(
+            role="assistant",
+            content="",
+            tool_calls=[
+                ToolCall(id="d0", name="delegate_task", arguments={"task": "seoul"}),
+                ToolCall(id="w0", name="subagent_wait", arguments={"task_ids": ["bg-1"]}),
+            ],
+        ),
+        report,
+        waited,
+        *rounds(10),
+    ]
+    pruned = compaction.prune_old_tool_outputs(history, 6, 0)
+    assert pruned[2].content == report.content
+    assert pruned[3].content == waited.content
+    # Ordinary old results are still stubbed.
+    assert "pruned" in str(pruned[6].content)
+
+
+def test_a_long_report_is_capped_with_a_pointer_to_the_full_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from snowpea_core.agent.subagent import SubagentResult
+    from snowpea_core.tools import delegate
+
+    monkeypatch.setenv("SNOWPEA_HOME", str(tmp_path))
+    long_line = "word " * 8000  # one 40 000-char line: no line cap applies
+    result = SubagentResult(agent_id="a-1", ok=True, summary=long_line)
+    text = delegate.render_report(result)
+    assert len(text) < delegate.REPORT_MAX_CHARS + 2000
+    assert "characters omitted" in text and "read_file(" in text
+    spilled = next((tmp_path / "cache" / "tool-output").glob("report-*.txt"))
+    assert spilled.read_text(encoding="utf-8") == long_line.strip()

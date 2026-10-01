@@ -29,7 +29,7 @@ from snowpea_core.agent.subagent import (
 from snowpea_core.prompts import tool_descriptions as descriptions
 from snowpea_core.prompts.compose import language_name
 from snowpea_core.session.history import message_text
-from snowpea_core.tools.output_spill import spill
+from snowpea_core.tools.output_spill import spill, spill_chars
 from snowpea_core.tools.registry import Tool, ToolContext, ToolResult
 from snowpea_core.util.lang import DEFAULT_LANGUAGE, detect_language
 
@@ -120,6 +120,10 @@ def language_line(tag: str) -> str:
 #: delegation exists to avoid.
 REPORT_HEAD_LINES = 120
 REPORT_TAIL_LINES = 40
+#: And at most this many characters, however few the lines: the parent gets
+#: the child's final message up to here, with a read_file pointer to the rest.
+REPORT_MAX_CHARS = 16_000
+REPORT_HEAD_CHARS = 12_000
 
 #: One line of "what to do with this", keyed on why the child stopped.  The
 #: parent reads the reason before the report, so the instruction belongs next
@@ -205,6 +209,9 @@ def render_report(result: SubagentResult) -> str:
             head_lines=REPORT_HEAD_LINES,
             tail_lines=REPORT_TAIL_LINES,
             kind="report",
+        ).text
+        summary = spill_chars(
+            summary, max_chars=REPORT_MAX_CHARS, head_chars=REPORT_HEAD_CHARS, kind="report"
         ).text
     parts = ["\n".join(head), summary or NO_REPORT]
     denied_note = _denied_note(result)

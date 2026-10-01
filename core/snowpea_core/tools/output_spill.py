@@ -102,6 +102,41 @@ def spill(
     return Spilled(text="\n".join([*head, pointer, *tail]), path=target, omitted=omitted)
 
 
+def spill_chars(
+    text: str,
+    *,
+    max_chars: int,
+    head_chars: int,
+    kind: str = "output",
+    home: Path | str | None = None,
+) -> Spilled:
+    """Cap ``text`` at ``max_chars``: a head and a tail, with the whole on disk.
+
+    For text whose size is in long lines rather than many lines (a page dump,
+    a one-paragraph report), which :func:`spill` would pass through whole.
+    """
+    if len(text) <= max_chars:
+        return Spilled(text=text)
+    directory = spill_dir(home)
+    target = directory / f"{kind}-{uuid.uuid4().hex[:12]}.txt"
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+        _sweep(directory)
+    except OSError as exc:  # pragma: no cover - disk full / read-only home
+        log.debug("could not spill %s output: %s", kind, exc)
+        return Spilled(text=text)
+    head_chars = max(1, min(head_chars, max_chars))
+    tail_chars = max(0, max_chars - head_chars)
+    omitted = len(text) - head_chars - tail_chars
+    pointer = (
+        f"\n[… {omitted} characters omitted — the full text is in {target}; "
+        f'read it with read_file("{target}")]\n'
+    )
+    tail = text[len(text) - tail_chars :] if tail_chars else ""
+    return Spilled(text=text[:head_chars] + pointer + tail, path=target, omitted=omitted)
+
+
 #: Tools whose results the agent loop runs through :func:`spill`.
 SPILLED_TOOLS: frozenset[str] = frozenset(
     {"shell", "execute_code", "grep", "glob", "list_dir"}
