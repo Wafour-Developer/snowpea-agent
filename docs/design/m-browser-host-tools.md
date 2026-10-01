@@ -35,9 +35,18 @@ Rules (`core/snowpea_core/tools/host_tools.py`):
 * **Permissions.** A host tool carries an ordinary permission tag. Its calls go
   through the same mode matrix, allowlist, approval routing and plugin hooks as
   any tool.
-* **Failure.** A timeout (default 120 s, `timeoutMs` per tool) or a closed
-  connection is a tool error, never a hang. On `session.interrupt`, core sends
-  `tool.cancel` and ends the call as `"<name>: interrupted"` without waiting.
+* **Failure.** A timeout or a closed connection is a tool error, never a hang.
+  On `session.interrupt`, core sends `tool.cancel` and ends the call as
+  `"<name>: interrupted"` without waiting.
+* **Deadline (addendum 15).** The timeout (default 120 s, `timeoutMs` per
+  tool) measures how long the host has been silent, not the call's total
+  time.
+  * Any `tool.progress {callId}` restarts it. An empty `message` is a
+    keepalive and emits no event.
+  * The clock stops while the session waits on a person (an `approval.ask`
+    the host raised, or a question). It starts again when that is answered.
+  * When the deadline does run out, core also sends `tool.cancel` so the host
+    can free its REPL.
 * **Results.** `content` text blocks join `output`. Image blocks
   (`{type: "image", mediaType, data}`) reach a vision model as image input; a
   text-only model keeps the text. Long output is spilled to a file with a

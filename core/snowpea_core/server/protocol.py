@@ -1076,7 +1076,11 @@ class HostToolSpec(Payload):
     permission: PermissionTag = Field(description="Permission class checked against the mode.")
     category: str | None = Field(default=None, description='UI grouping; defaults to "host".')
     timeoutMs: int | None = Field(
-        default=None, description="How long tool.invoke may take; default 120000."
+        default=None,
+        description=(
+            "How long tool.invoke may stay silent; default 120000. tool.progress restarts "
+            "it, and it is paused while the session waits on an approval or a question."
+        ),
     )
 
 
@@ -1181,7 +1185,13 @@ class ToolProgressParams(Payload):
     """Client -> server notification during a tool.invoke."""
 
     callId: str = Field(description="The tool.invoke callId this progress belongs to.")
-    message: str = Field(description="Progress text; re-emitted as session.event tool.progress.")
+    message: str = Field(
+        default="",
+        description=(
+            "Progress text; re-emitted as session.event tool.progress. Any tool.progress, "
+            "an empty keepalive included, restarts the call's deadline (addendum 15)."
+        ),
+    )
 
 
 # --------------------------------------------------------------------------

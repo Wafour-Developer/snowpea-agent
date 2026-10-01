@@ -1474,7 +1474,9 @@ async def test_tool_invoke_names_a_subagents_parent_session(
     tools = HostTools()
     sent: list[dict[str, Any]] = []
 
-    async def capture(conn: Any, session: Any, params: dict[str, Any], timeout: float) -> Any:
+    async def capture(
+        conn: Any, session: Any, params: dict[str, Any], timeout: float, **_: Any
+    ) -> Any:
         sent.append(params)
         return {"ok": True, "output": "ok"}
 
@@ -1486,3 +1488,80 @@ async def test_tool_invoke_names_a_subagents_parent_session(
     result = await tools.invoke(core, "surface", "repl", 5.0, ctx, {})  # type: ignore[arg-type]
     assert result.ok
     assert sent[0]["parentSessionId"] == "s-parent"
+
+
+# ---------------------------------------------------------------------------
+# addendum 15: the host-call deadline is silence, paused while a person decides
+# ---------------------------------------------------------------------------
+
+
+class _SlowHost:
+    """A host connection whose tool.invoke answers after ``delay`` seconds."""
+
+    def __init__(self, delay: float) -> None:
+        self.delay = delay
+        self.surface_id = "surface-slow"
+        self.closed = False
+        self.notified: list[tuple[str, dict[str, Any]]] = []
+
+    async def call(self, method: str, params: dict[str, Any], timeout: float | None = None):
+        await asyncio.sleep(self.delay)
+        return {"ok": True, "output": "done"}
+
+    async def notify(self, method: str, params: dict[str, Any]) -> None:
+        self.notified.append((method, params))
+
+
+def _slow_setup(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, delay: float) -> tuple[Any, ...]:
+    from types import SimpleNamespace
+
+    from snowpea_core.session.session import Session
+    from snowpea_core.tools import host_tools as host_tools_mod
+    from snowpea_core.tools.registry import ToolContext
+
+    monkeypatch.setattr(host_tools_mod, "DEADLINE_POLL_SEC", 0.02)
+    tools = host_tools_mod.HostTools()
+    conn = _SlowHost(delay)
+    tools._hosts[conn.surface_id] = host_tools_mod._Host(conn=conn, tools={"repl": object()})
+    session = Session(id="s-slow", workdir=tmp_path)
+    core = SimpleNamespace(hub=None, approvals=None, questions=None)
+    ctx = ToolContext(session=session, core=core, backend=None, call_id="c-slow")  # type: ignore[arg-type]
+    return tools, conn, core, ctx
+
+
+async def test_a_host_call_waiting_on_an_approval_is_not_timed_out(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from types import SimpleNamespace
+
+    tools, conn, core, ctx = _slow_setup(monkeypatch, tmp_path, delay=0.6)
+    core.approvals = SimpleNamespace(count=lambda session_id: 1)  # a person is deciding
+    result = await tools.invoke(core, conn.surface_id, "repl", 0.2, ctx, {})
+    assert result.ok and result.output == "done"
+    assert conn.notified == []
+
+
+async def test_progress_keepalives_restart_the_host_deadline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tools, conn, core, ctx = _slow_setup(monkeypatch, tmp_path, delay=0.6)
+
+    async def keepalive() -> None:
+        for _ in range(12):
+            await asyncio.sleep(0.05)
+            await tools.progress(conn, "c-slow", "")  # empty: keepalive only
+
+    pinger = asyncio.ensure_future(keepalive())
+    result = await tools.invoke(core, conn.surface_id, "repl", 0.2, ctx, {})
+    await pinger
+    assert result.ok
+
+
+async def test_a_host_call_that_runs_out_is_cancelled_at_the_host(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tools, conn, core, ctx = _slow_setup(monkeypatch, tmp_path, delay=5)
+    result = await tools.invoke(core, conn.surface_id, "repl", 0.2, ctx, {})
+    await asyncio.sleep(0.05)
+    assert not result.ok and "did not answer within" in (result.error or "")
+    assert conn.notified == [("tool.cancel", {"sessionId": "s-slow", "callId": "c-slow"})]

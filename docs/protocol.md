@@ -2463,7 +2463,7 @@ Notification: progress of a running tool.invoke, re-emitted as tool.progress.
 | field | type | required | description |
 |---|---|---|---|
 | `callId` | `string` | yes | The tool.invoke callId this progress belongs to. |
-| `message` | `string` | yes | Progress text; re-emitted as session.event tool.progress. |
+| `message` | `string` | no | Progress text; re-emitted as session.event tool.progress. Any tool.progress, an empty keepalive included, restarts the call's deadline (addendum 15). |
 
 **Result**
 

@@ -3036,8 +3036,8 @@ export interface ToolListResult {
 export interface ToolProgressParams {
   /** The tool.invoke callId this progress belongs to. */
   callId: string;
-  /** Progress text; re-emitted as session.event tool.progress. */
-  message: string;
+  /** Progress text; re-emitted as session.event tool.progress. Any tool.progress, an empty keepalive included, restarts the call's deadline (addendum 15). */
+  message?: string;
 }
 
 /** `tool.progress` result. */
@@ -3060,7 +3060,7 @@ export interface ToolRegisterParams {
     name: string;
     /** Permission class checked against the mode. */
     permission: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate" | "secret";
-    /** How long tool.invoke may take; default 120000. */
+    /** How long tool.invoke may stay silent; default 120000. tool.progress restarts it, and it is paused while the session waits on an approval or a question. */
     timeoutMs?: number | null;
   })[];
 }

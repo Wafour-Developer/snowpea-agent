@@ -31,6 +31,7 @@ import json
 import logging
 import re
 from collections import OrderedDict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -76,6 +77,9 @@ class _InFlight:
     session_id: str
     name: str
     progress: ProgressEmitter
+    #: Monotonic time of the host's last sign of life for this call: the
+    #: invoke itself, then every ``tool.progress`` (addendum 15).
+    last_seen: float = 0.0
 
 
 class HostTools:
@@ -242,7 +246,9 @@ class HostTools:
         session = ctx.session
         call_id = ctx.call_id or f"host-{id(ctx)}"
         progress = ctx.progress or ProgressEmitter(core, session.id, call_id, name)
-        self._inflight[call_id] = _InFlight(session.id, name, progress)
+        self._inflight[call_id] = _InFlight(
+            session.id, name, progress, asyncio.get_running_loop().time()
+        )
         params = {
             "sessionId": session.id,
             "turnId": getattr(session, "current_turn", None) or "",
@@ -260,7 +266,9 @@ class HostTools:
             "parentSessionId": getattr(session, "parent_session_id", None),
         }
         try:
-            answer = await self._call_or_cancel(conn, session, params, timeout)
+            answer = await self._call_or_cancel(
+                conn, session, params, timeout, waiting=_waiting_on_person(core, session.id)
+            )
             if answer is None:
                 return ToolResult(ok=False, error=f"{name}: interrupted")
         except TimeoutError:
@@ -276,21 +284,51 @@ class HostTools:
         return result_from_answer(name, answer)
 
     async def _call_or_cancel(
-        self, conn: Any, session: Any, params: dict[str, Any], timeout: float
+        self,
+        conn: Any,
+        session: Any,
+        params: dict[str, Any],
+        timeout: float,
+        waiting: Callable[[], bool] | None = None,
     ) -> dict[str, Any] | None:
         """The host's answer, or ``None`` once the session is interrupted.
 
         On an interrupt the host is told with a ``tool.cancel`` notification
         and the turn moves on without waiting for it (addendum 2 §L).
+
+        The deadline is ``timeout`` of silence, not of wall time (addendum 15):
+        a ``tool.progress`` from the host restarts it, and it does not run at
+        all while the session waits on a person (an ``approval.ask`` the host
+        raised for this call, or a question). When it does run out, the host
+        gets ``tool.cancel`` too, so it frees its REPL, and ``TimeoutError``
+        is raised.
         """
+        loop = asyncio.get_running_loop()
         interrupt = getattr(session, "interrupt", None)
-        call = asyncio.ensure_future(conn.call("tool.invoke", params, timeout=timeout))
+        call = asyncio.ensure_future(conn.call("tool.invoke", params, timeout=None))
         watcher = asyncio.ensure_future(interrupt.wait()) if interrupt is not None else None
+        waiters = {call, watcher} if watcher is not None else {call}
+        record = self._inflight.get(str(params.get("callId")))
+        started = loop.time()
         try:
-            await asyncio.wait(
-                {call, watcher} if watcher is not None else {call},
-                return_when=asyncio.FIRST_COMPLETED,
-            )
+            while True:
+                seen = record.last_seen if record is not None else started
+                if waiting is not None and waiting():
+                    if record is not None:
+                        record.last_seen = loop.time()
+                    seen = loop.time()
+                remaining = seen + timeout - loop.time()
+                if remaining <= 0:
+                    call.cancel()
+                    self._send_cancel(conn, params)
+                    raise TimeoutError
+                done, _ = await asyncio.wait(
+                    waiters,
+                    timeout=min(remaining, DEADLINE_POLL_SEC),
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if done:
+                    break
         except asyncio.CancelledError:
             # The loop cancels a running tool on an interrupt: still tell the host.
             call.cancel()
@@ -355,8 +393,33 @@ class HostTools:
         owner = self._hosts.get(getattr(conn, "surface_id", ""))
         if owner is None or call.name not in owner.tools:
             return False
-        await call.progress.emit("stdout", message)
+        # Any progress, an empty keepalive included, restarts the deadline.
+        call.last_seen = asyncio.get_running_loop().time()
+        if message:
+            await call.progress.emit("stdout", message)
         return True
+
+
+#: How often a waiting host call re-checks its deadline (seconds).
+DEADLINE_POLL_SEC = 1.0
+
+
+def _waiting_on_person(core: Any, session_id: str) -> Callable[[], bool]:
+    """True while ``session_id`` has an approval or a question pending."""
+
+    def check() -> bool:
+        for queue_name in ("approvals", "questions"):
+            queue = getattr(core, queue_name, None)
+            count = getattr(queue, "count", None)
+            if callable(count):
+                try:
+                    if count(session_id):
+                        return True
+                except Exception:  # noqa: BLE001 - a broken queue never stalls a call
+                    continue
+        return False
+
+    return check
 
 
 #: Key under which a host result's own ``meta`` travels inside ``ToolResult.meta``.
