@@ -242,3 +242,50 @@ async def test_a_rejected_review_does_not_complete_the_turn(
     ]
     assert reasons == ["error"], recorder.texts()
     assert "did not approve" in recorder.texts()
+
+
+def test_deterministic_provider_errors_are_recognised() -> None:
+    assert ralph.deterministic_error("HTTP 400: unknown parameter chat_template_kwargs")
+    assert ralph.deterministic_error("Error code: 401 - invalid api key")
+    assert not ralph.deterministic_error("HTTP 429 too many requests")
+    assert not ralph.deterministic_error("rate limit reached, retry later")
+    assert not ralph.deterministic_error("HTTP 503 service unavailable")
+    assert not ralph.deterministic_error("the tests still fail")
+
+
+@pytest.mark.parametrize(
+    ("error", "runs"),
+    [
+        ("HTTP 400: unknown parameter chat_template_kwargs", 1),  # stop at once
+        ("the sandbox is gone", 2),  # stop when the same failure repeats
+    ],
+)
+async def test_ralph_stops_early_when_every_subagent_fails_the_same_way(
+    daemon: Daemon, repo: Path, monkeypatch: pytest.MonkeyPatch, error: str, runs: int
+) -> None:
+    from snowpea_core.agent.subagent import SubagentResult, get_manager
+
+    core = daemon.core
+    assert core is not None
+    session = await core.sessions.create(repo, mode="auto")
+    recorder = Recorder()
+    core.hub.subscribe(recorder, session.id)
+    calls: list[str] = []
+
+    async def failing_run(parent: Any, task: str, **_kwargs: Any) -> SubagentResult:
+        calls.append(task)
+        return SubagentResult(agent_id=f"a-{len(calls)}", ok=False, error=error)
+
+    monkeypatch.setattr(get_manager(core), "run", failing_run)
+    turn_id = await asyncio.wait_for(
+        core.commands.run(core, session, "ralph", f'"{TASK}"'), timeout=TIMEOUT
+    )
+    batch = len(calls) // runs
+    assert batch >= 1 and len(calls) == batch * runs, len(calls)
+    reasons = [
+        event["payload"]["reason"]
+        for event in recorder.of_kind("turn.done")
+        if event["payload"]["turnId"] == turn_id
+    ]
+    assert reasons == ["error"]
+    assert "retrying will not fix" in recorder.texts()

@@ -2847,8 +2847,11 @@ class UserAttachment(Payload):
 class PromptExpansion(Payload):
     """What a slash command put in front of the model in place of the typed line."""
 
-    kind: Literal["skill"] = "skill"
-    name: str = Field(description="The skill the command ran, e.g. `ralph` or `omc:ralph`.")
+    kind: Literal["skill", "command"] = Field(
+        default="skill",
+        description="'skill' for a skill command, 'command' for a built-in such as /init.",
+    )
+    name: str = Field(description="The skill or command that ran, e.g. `ralph` or `init`.")
     text: str = Field(description="The full instruction the model received.")
 
 

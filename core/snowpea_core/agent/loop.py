@@ -156,7 +156,14 @@ TITLE_CHARS = 60
 def auto_title(text: str) -> str | None:
     """A session title from its first prompt: the opening words of the first line."""
     line = next((part.strip() for part in (text or "").splitlines() if part.strip()), "")
-    if not line or line.startswith("/"):
+    if line.startswith("/"):
+        # A slash command titles the thread by what follows it ("/plan design
+        # the game" -> "design the game"); a bare "/init" leaves the title to
+        # the first real prompt.
+        line = " ".join(
+            token for token in line.split()[1:] if not token.startswith("-")
+        ).strip()
+    if not line:
         return None
     if len(line) <= TITLE_CHARS:
         return line

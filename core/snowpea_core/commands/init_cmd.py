@@ -160,7 +160,7 @@ async def cmd_init(ctx: CommandContext, args: str) -> None:
     _note_agents_md_was_shown(ctx, root / AGENTS_FILE, force=force)
     brief = workflow_brief(
         "init",
-        reply_language=_reply_language(ctx),
+        reply_language=_reply_language(ctx, args),
         AGENTS_PATH=AGENTS_FILE,
         AGENTS_STATUS=agents_status(root / AGENTS_FILE, force),
         SETTINGS_NOTE=settings_note,
@@ -168,10 +168,17 @@ async def cmd_init(ctx: CommandContext, args: str) -> None:
     )
 
     ctx.handled_turn = True
+    # The user's own line is what the transcript and the session title show;
+    # the template is what the model reads, folded like a skill body. It used
+    # to be the other way round, and a thread opened with /init was titled
+    # "You are ru…".
+    typed = f"/init {args}".strip()
     await agent_loop.run_turn(
         ctx.core,
         ctx.session,
-        brief,
+        typed,
+        model_text=brief,
+        expansion={"kind": "command", "name": "init", "text": brief},
         turn_id=ctx.turn_id,
         unattended=ctx.session.origin_conn is None,
     )
@@ -204,10 +211,27 @@ def _note_agents_md_was_shown(ctx: CommandContext, agents_path: Path, *, force: 
     )
 
 
-def _reply_language(ctx: CommandContext) -> str:
-    from snowpea_core.agent.agent import reply_language
+def _reply_language(ctx: CommandContext, args: str = "") -> str:
+    """The configured reply language, else the language the user writes in.
 
-    return reply_language(ctx.core)
+    With ``agent.replyLanguage: auto`` the base prompt says "answer in the
+    user's language" — but the only user message of an /init turn is the
+    English template, so a Korean user got English. The words after /init, or
+    the session's earlier messages, decide instead.
+    """
+    from snowpea_core.agent.agent import reply_language
+    from snowpea_core.tools.delegate import detected_language, last_user_text
+    from snowpea_core.util.lang import detect_language
+
+    configured = (reply_language(ctx.core) or "auto").strip()
+    if configured.lower() != "auto":
+        return configured
+    words = " ".join(token for token in args.split() if not token.startswith("-"))
+    if words:
+        return detect_language(words)
+    if last_user_text(ctx.session):
+        return detected_language(ctx.session)
+    return "auto"
 
 
 COMMANDS: tuple[Command, ...] = (

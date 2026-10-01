@@ -115,8 +115,36 @@ async def test_init_writes_agents_md_and_creates_settings_when_both_absent(
         assert ProjectSettings.path_for(workdir).is_file()
 
         assert _payloads(client, "turn.done")[-1]["reason"] == "complete"
+
+        # The transcript and the title show what the user typed; the template
+        # is folded into the expansion (it used to title the thread "You are ru…").
+        [user] = _payloads(client, "message.user")
+        assert user["text"] == "/init"
+        assert user["expansion"]["kind"] == "command"
+        assert "AGENTS.md" in user["expansion"]["text"]
+        rows = (await client.ok("session.list", {}))["sessions"]
+        # A bare /init leaves the title to the first real prompt.
+        assert next(r for r in rows if r["sessionId"] == session_id)["title"] is None
     finally:
         await client.stop()
+
+
+def test_init_answers_in_the_language_the_user_writes_in(tmp_path: Path) -> None:
+    from types import SimpleNamespace
+
+    from snowpea_core.commands import init_cmd
+    from snowpea_core.providers.base import ChatMessage
+    from snowpea_core.session.session import Session
+
+    settings = SimpleNamespace(agent=SimpleNamespace(replyLanguage="auto"))
+    session = Session(id="s-lang", workdir=tmp_path)
+    ctx = SimpleNamespace(core=SimpleNamespace(settings=settings), session=session)
+    assert init_cmd._reply_language(ctx, "") == "auto"  # nothing to go on
+    assert init_cmd._reply_language(ctx, "--force 한국어로 정리해줘") == "ko"
+    session.history.messages.append(ChatMessage(role="user", content="이 프로젝트 설명해줘"))
+    assert init_cmd._reply_language(ctx, "--force") == "ko"
+    settings.agent.replyLanguage = "ja"
+    assert init_cmd._reply_language(ctx, "") == "ja"
 
 
 # ---------------------------------------------------------------------------

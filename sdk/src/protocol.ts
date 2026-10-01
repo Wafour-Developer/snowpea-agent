@@ -3631,8 +3631,9 @@ export interface MessageUserEventPayload {
   })[];
   /** Set when `text` is a skill command: the skill body the model was given instead. Surfaces show it folded, like a tool call, not inline. */
   expansion?: {
-    kind?: "skill";
-    /** The skill the command ran, e.g. `ralph` or `omc:ralph`. */
+    /** 'skill' for a skill command, 'command' for a built-in such as /init. */
+    kind?: "skill" | "command";
+    /** The skill or command that ran, e.g. `ralph` or `init`. */
     name: string;
     /** The full instruction the model received. */
     text: string;

@@ -2863,7 +2863,7 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | field | type | required | description |
 |---|---|---|---|
 | `attachments` | `({ kind?: "file" \| "image" \| "text" \| "page"; name?: string; title?: string \| null; url?: string \| null; })[]` | no | Files sent along with the prompt. |
-| `expansion` | `{ kind?: "skill"; name: string; text: string; } \| null` | no | Set when `text` is a skill command: the skill body the model was given instead. Surfaces show it folded, like a tool call, not inline. |
+| `expansion` | `{ kind?: "skill" \| "command"; name: string; text: string; } \| null` | no | Set when `text` is a skill command: the skill body the model was given instead. Surfaces show it folded, like a tool call, not inline. |
 | `kind` | `"message.user"` | no |  |
 | `refs` | `(Record<string, unknown>)[]` | no | Resolved @ references (path, kind, lines, truncated). |
 | `steered` | `boolean` | no | True when this prompt was queued behind a running turn and then folded into that same turn before its next model call. |

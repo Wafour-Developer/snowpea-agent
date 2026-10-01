@@ -38,6 +38,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -309,6 +310,25 @@ async def review(ctx: CommandContext, task: str, stories: list[Story]) -> tuple[
     return (APPROVAL_WORD in text.upper()), text
 
 
+#: An HTTP status a provider error names (``HTTP 400``, ``status 400``,
+#: ``Error code: 400``). A 4xx other than a timeout or a rate limit is the same
+#: answer on every retry (a bad parameter, a refused key), so ralph stops.
+_HTTP_STATUS = re.compile(r"(?:http|status|error code)[\s:=]*(\d{3})", re.IGNORECASE)
+_RETRYABLE_4XX = frozenset({408, 409, 425, 429})
+
+
+def deterministic_error(text: str) -> bool:
+    """True for a provider error that retrying cannot fix."""
+    lowered = text.lower()
+    if "rate limit" in lowered or "too many requests" in lowered:
+        return False
+    for match in _HTTP_STATUS.finditer(text):
+        status = int(match.group(1))
+        if 400 <= status < 500 and status not in _RETRYABLE_4XX:
+            return True
+    return "unknown parameter" in lowered or "invalid_request_error" in lowered
+
+
 async def cmd_ralph(ctx: CommandContext, args: str) -> None:
     """``/ralph <task>`` — drive a task to a reviewed finish."""
     task = args.strip().strip('"').strip("'").strip()
@@ -337,6 +357,8 @@ async def cmd_ralph(ctx: CommandContext, args: str) -> None:
     limit = manager.limit_for(ctx.session)
     max_iterations = max(1, int(ctx.core.settings.ralph.max_iterations))
 
+    #: The failures of the previous iteration, to notice an error that repeats.
+    previous_errors: set[str] = set()
     for iteration in range(1, max_iterations + 1):
         batch = ready_stories(stories, limit)
         if not batch:
@@ -354,13 +376,16 @@ async def cmd_ralph(ctx: CommandContext, args: str) -> None:
             return_exceptions=True,
         )
         lines = ["", f"## iteration {iteration}"]
+        errors_now: set[str] = set()
         for story, result in zip(batch, results, strict=True):
             if isinstance(result, BaseException):
                 story.note = f"subagent failed: {result}"
+                errors_now.add(str(result))
                 lines.append(f"- {story.id} {story.title}: {story.note}")
                 continue
             if not result.ok:
                 story.note = f"subagent failed: {result.error or 'no reason given'}"
+                errors_now.add(str(result.error or "no reason given"))
                 lines.append(f"- {story.id} {story.title}: {story.note}")
                 continue
             passed, note = await verify_story(ctx, story)
@@ -372,6 +397,24 @@ async def cmd_ralph(ctx: CommandContext, args: str) -> None:
         await ctx.say("\n".join([f"ralph iteration {iteration}:", *lines[2:]]))
         if all(story.passed for story in stories):
             break
+        # Every subagent failed, and for a reason retrying cannot change: a
+        # deterministic provider error, or the same failure as last time. Ten
+        # identical HTTP 400s used to take five minutes to give up.
+        all_failed = len(errors_now) > 0 and all(
+            isinstance(r, BaseException) or not r.ok for r in results
+        )
+        if all_failed:
+            fatal = next((e for e in errors_now if deterministic_error(e)), None)
+            if fatal is not None or errors_now == previous_errors:
+                reason = fatal or next(iter(errors_now))
+                append_progress(ctx.session, ["", f"stopped early: {reason}"])
+                await _fail(
+                    ctx,
+                    f"stopped after iteration {iteration}: every subagent failed with an error "
+                    f"retrying will not fix: {reason}",
+                )
+                return
+        previous_errors = errors_now
 
     failing = [story for story in stories if not story.passed]
     if failing:
