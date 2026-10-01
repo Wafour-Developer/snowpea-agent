@@ -236,7 +236,31 @@ def test_thinking_off_wins_over_the_effort_in_the_body() -> None:
         PRESETS["openai"], "o3", MESSAGES, TOOLS, max_tokens=1000, thinking="off", effort="high"
     )
     assert "reasoning_effort" not in body
-    assert body["chat_template_kwargs"] == {"enable_thinking": False}
+    # A hosted API rejects the vLLM-only chat_template_kwargs.
+    assert "chat_template_kwargs" not in body
+    local = build_openai_request(
+        PRESETS["local"], "qwen3", MESSAGES, TOOLS, max_tokens=1000, thinking="off"
+    )
+    assert local["chat_template_kwargs"] == {"enable_thinking": False}
+
+
+def test_a_meta_subagent_request_carries_no_chat_template_kwargs() -> None:
+    """Every subagent failed on Meta's API with HTTP 400 'unknown parameter
+    chat_template_kwargs': a delegated turn runs with thinking off."""
+    profile = effort_scale.model_profile(Settings(), "meta", "muse-spark-1.3-contributor")
+    for thinking, effort in (("off", None), ("off", "high"), (None, "max")):
+        body = build_openai_request(
+            PRESETS["meta"], "muse-spark-1.3-contributor", MESSAGES, TOOLS,
+            max_tokens=1000, thinking=thinking, effort=effort, effort_profile=profile,
+        )
+        assert "chat_template_kwargs" not in body
+    # A template-field profile on a hosted vendor falls back to the body field.
+    qwen = effort_scale.model_profile(Settings(), "openrouter", "qwen3.8-flash-next")
+    body = build_openai_request(
+        PRESETS["openrouter"], "qwen/qwen3.8-flash-next", MESSAGES, TOOLS,
+        max_tokens=1000, effort="high", effort_profile=qwen,
+    )
+    assert "chat_template_kwargs" not in body and body["reasoning_effort"] == "xhigh"
 
 
 def test_no_effort_leaves_the_body_as_it_was() -> None:

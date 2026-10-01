@@ -194,12 +194,19 @@ def build_openai_request(
         "max_tokens": max_tokens,
         "stream": True,
     }
+    # ``chat_template_kwargs`` is a vLLM/SGLang extension. A hosted API
+    # validates its parameters and answers HTTP 400 "unknown parameter
+    # chat_template_kwargs" (Meta's Model API did, for every subagent, since a
+    # delegated turn runs with thinking off), so only a self-hosted server
+    # (the ``local`` preset and the named servers built on it) gets it.
+    templated = bool(getattr(preset, "local_style", False))
     if thinking == "off":
-        body["chat_template_kwargs"] = dict(THINKING_OFF_TEMPLATE_KWARGS)
+        if templated:
+            body["chat_template_kwargs"] = dict(THINKING_OFF_TEMPLATE_KWARGS)
     elif effort and effort_profile is not None:
         # The model's own scale (e.g. Qwen3.8's xhigh), where it wants it.
         wire = effort_profile.tiers.get(effort)
-        if wire and effort_profile.field == "template":
+        if wire and effort_profile.field == "template" and templated:
             body["chat_template_kwargs"] = {"reasoning_effort": wire}
         elif wire:
             body["reasoning_effort"] = wire
