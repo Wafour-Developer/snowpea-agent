@@ -445,6 +445,12 @@ def _track(
     """
     session = ctx.session
     core = ctx.core
+    # The lead must collect (and may message) this run, so the two tools that
+    # take its task_id come with it: a deferred subagent_wait was once called
+    # with no arguments before its schema loaded ("task_ids is required").
+    from snowpea_core.tools import deferred
+
+    deferred.load(session, ("subagent_wait", "subagent_message"))
     manager.background[task_id] = BackgroundRun(
         task_id=task_id, parent_session_id=session.id, title=title, task=task
     )

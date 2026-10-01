@@ -136,3 +136,17 @@ def test_compaction_keeps_the_users_words_verbatim_across_two_compactions() -> N
     for words in ("use Flux", "no cards UI", "parent + child", "make it a real 3D game"):
         assert words in carried
     assert carried.count("make it a real 3D game") == 1
+
+
+async def test_a_background_run_loads_the_tools_that_take_its_task_id(tmp_path: Path) -> None:
+    from snowpea_core.tools import deferred
+
+    ctx = _ctx(tmp_path)
+    manager = get_manager(ctx.core)
+
+    async def fake_run(parent: Session, task: str, **kwargs: Any) -> SubagentResult:
+        return SubagentResult(agent_id="a-1", ok=True, summary="r")
+
+    manager.run = fake_run  # type: ignore[method-assign]
+    await delegate.delegate_task(ctx, {"task": "job", "run_in_background": True})
+    assert {"subagent_wait", "subagent_message"} <= deferred.loaded(ctx.session)
