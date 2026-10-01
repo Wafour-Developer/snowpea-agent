@@ -89,6 +89,12 @@ BUILTIN_PROFILES: tuple[tuple[re.Pattern[str], EffortProfile], ...] = (
         re.compile(r"qwen[-_.]?3[-_.]?8[-_.]?flash", re.IGNORECASE),
         EffortProfile({"low": "low", "medium": "medium", "high": "xhigh"}, field="template"),
     ),
+    # Meta's Muse Spark takes minimal..xhigh (and refuses "none"); xhigh is
+    # its top rung, so our "max" lands there.
+    (
+        re.compile(r"muse[-_.]?spark", re.IGNORECASE),
+        EffortProfile({"low": "low", "medium": "medium", "high": "high", "max": "xhigh"}),
+    ),
 )
 
 

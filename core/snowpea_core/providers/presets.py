@@ -1,4 +1,4 @@
-"""The eleven supported LLM vendors (M3 contract §1, plan §1.2, §2.8).
+"""The twelve supported LLM vendors (M3 contract §1, plan §1.2, §2.8).
 
 Every vendor quirk that the adapters care about is declared here — which
 adapter class speaks to it, which wire shape its stream deltas use, whether it
@@ -136,7 +136,7 @@ def _preset(
     )
 
 
-#: The eleven vendors, in the order the setup wizard and ``provider.list`` show.
+#: The twelve vendors, in the order the setup wizard and ``provider.list`` show.
 PRESETS: dict[str, VendorPreset] = {
     preset.id: preset
     for preset in (
@@ -238,6 +238,18 @@ PRESETS: dict[str, VendorPreset] = {
             "qwen3.8-max",
             env_keys=("DASHSCOPE_API_KEY", "QWEN_API_KEY"),
             models=("qwen3.8-max", "qwen3.8-flash"),
+        ),
+        _preset(
+            "meta",
+            "Meta (Muse Spark)",
+            # The Meta Model API (dev.meta.ai). Meta's hosted Llama API
+            # (api.llama.com) was retired on 2026-07-06; Llama weights run
+            # through ``local`` (vLLM/Ollama) or OpenRouter instead.
+            "https://api.meta.ai/v1",
+            "muse-spark-1.3",
+            env_keys=("META_API_KEY", "MODEL_API_KEY"),
+            models=("muse-spark-1.3", "muse-spark-1.3-contributor", "muse-spark-1.1"),
+            supports_effort=True,
         ),
         _preset(
             "local",

@@ -576,6 +576,22 @@ def test_a_local_qwen_gets_effort_without_effort_param() -> None:
     assert provider._effort_for("qwen38-flash-next", "max") == "high"
 
 
+def test_meta_muse_spark_takes_four_tiers_with_max_as_xhigh() -> None:
+    """Meta Model API: reasoning_effort minimal..xhigh; our max is its xhigh."""
+    from snowpea_core.providers.context_windows import static_window
+
+    profile = effort_scale.model_profile(Settings(), "meta", "muse-spark-1.3")
+    assert profile is not None and profile.field == "reasoning_effort"
+    assert profile.available() == ["low", "medium", "high", "max"]
+    body = build_openai_request(
+        PRESETS["meta"], "muse-spark-1.3", MESSAGES, TOOLS,
+        max_tokens=100, effort="max", effort_profile=profile,
+    )
+    assert body["reasoning_effort"] == "xhigh"
+    assert PRESETS["meta"].base_url == "https://api.meta.ai/v1"
+    assert static_window("muse-spark-1.3") == 1_048_576
+
+
 def test_a_model_without_effort_offers_none() -> None:
     settings = Settings()
     settings.providers["local"] = {"base_url": "http://x/v1", "model": "llama-3-8b"}

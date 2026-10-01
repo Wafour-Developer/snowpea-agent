@@ -109,6 +109,8 @@ STATIC_WINDOWS: dict[str, int] = {
     "qwen-plus": 131072,
     "qwen-turbo": 1_000_000,
     "qwen": 131072,
+    # -- Meta Model API ----------------------------------------------------
+    "muse-spark": 1_048_576,
 }
 
 #: ``model id prefix -> largest ``max_tokens`` the vendor accepts``.  Same

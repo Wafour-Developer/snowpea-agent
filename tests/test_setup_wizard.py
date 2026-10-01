@@ -118,9 +118,9 @@ def test_gateway_catalog_is_all_off() -> None:
     assert not any(item.default for item in items)
 
 
-def test_vendor_catalog_lists_eleven_with_login_tags() -> None:
+def test_vendor_catalog_lists_twelve_with_login_tags() -> None:
     items = catalog.vendor_catalog(Settings())
-    assert len(items) == 11
+    assert len(items) == 12
     logins = {item.id: catalog.vendor_auth_tags(item.id) for item in items}
     assert "device_code" in logins["openai"]
     assert "oauth_pkce" in logins["openrouter"]

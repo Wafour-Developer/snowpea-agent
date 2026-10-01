@@ -154,6 +154,7 @@ Eleven vendors ship in v0.1.
 | `kimi` | Moonshot Kimi | OpenAI-compatible | API key |
 | `deepseek` | DeepSeek | OpenAI-compatible | API key |
 | `qwen` | Qwen | OpenAI-compatible | API key |
+| `meta` | Meta (Muse Spark, Meta Model API) | OpenAI-compatible | API key (`META_API_KEY` or `MODEL_API_KEY`) |
 | `local` | Local / OpenAI-compatible servers (vLLM, Ollama, LM Studio) | OpenAI-compatible | base URL, key optional |
 | *your own name* | any number of extra OpenAI-compatible servers, declared with `"preset": "local"` | OpenAI-compatible | base URL, key optional |
 
@@ -376,6 +377,7 @@ actually accepts:
 | `anthropic` | `thinking.budget_tokens` | 2 048 | 8 192 | 32 768 | 65 536 |
 | `gemini` | `thinkingConfig.thinkingBudget` | 2 048 | 8 192 | 32 768 | 65 536 |
 | `openrouter`, `xai` | `reasoning_effort` | `low` | `medium` | `high` | `high` |
+| `meta` (Muse Spark) | `reasoning_effort` | `low` | `medium` | `high` | `xhigh` |
 | `glm`, `minimax`, `kimi`, `deepseek`, `qwen` | — | nothing is sent | | | |
 | `local` and named servers | `reasoning_effort`, opt-in | `low` | `medium` | `high` | `high` |
 

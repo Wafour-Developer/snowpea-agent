@@ -154,6 +154,7 @@ v0.1에는 11종이 들어 있습니다.
 | `kimi` | Moonshot Kimi | OpenAI 호환 | API 키 |
 | `deepseek` | DeepSeek | OpenAI 호환 | API 키 |
 | `qwen` | Qwen | OpenAI 호환 | API 키 |
+| `meta` | Meta (Muse Spark, Meta Model API) | OpenAI 호환 | API 키 (`META_API_KEY` 또는 `MODEL_API_KEY`) |
 | `local` | Local / OpenAI-compatible servers (vLLM, Ollama, LM Studio) | OpenAI 호환 | base URL, 키는 선택 |
 | *직접 지은 이름* | `"preset": "local"`로 선언하는 추가 OpenAI 호환 서버 (개수 제한 없음) | OpenAI 호환 | base URL, 키는 선택 |
 
@@ -382,6 +383,7 @@ snowpea provider models hon2
 | `anthropic` | `thinking.budget_tokens` | 2 048 | 8 192 | 32 768 | 65 536 |
 | `gemini` | `thinkingConfig.thinkingBudget` | 2 048 | 8 192 | 32 768 | 65 536 |
 | `openrouter`, `xai` | `reasoning_effort` | `low` | `medium` | `high` | `high` |
+| `meta` (Muse Spark) | `reasoning_effort` | `low` | `medium` | `high` | `xhigh` |
 | `glm`, `minimax`, `kimi`, `deepseek`, `qwen` | — | 아무것도 보내지 않음 | | | |
 | `local`과 이름 붙인 서버 | `reasoning_effort` (선택) | `low` | `medium` | `high` | `high` |
 

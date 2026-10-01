@@ -622,7 +622,7 @@ async def test_command_and_tool_and_provider_listings(
     assert by_name["read_file"]["permissionTag"] == "read"
 
     providers = (await client.ok("provider.list"))["providers"]
-    assert len(providers) == 11
+    assert len(providers) == 12
     web_login = [
         provider["vendor"]
         for provider in providers

@@ -91,7 +91,7 @@ def kinds(events: list[StreamEvent]) -> list[str]:
 def test_every_vendor_has_a_golden_fixture() -> None:
     missing = [v for v in VENDORS if not (FIXTURE_ROOT / v / "tool_call_once.json").is_file()]
     assert missing == []
-    assert len(VENDORS) == 11
+    assert len(VENDORS) == 12
 
 
 @pytest.mark.parametrize("vendor", VENDORS)
@@ -179,7 +179,7 @@ def test_provider_list_has_eleven_entries_and_three_interactive_logins(
     registry: ProviderRegistry,
 ) -> None:
     infos = registry.list()
-    assert len(infos) == 11
+    assert len(infos) == 12
     assert [info.vendor for info in infos] == list(VENDORS)
     assert all(info.label for info in infos)
     assert all(info.defaultModel for info in infos)
@@ -501,7 +501,7 @@ async def test_provider_list_handler_returns_eleven(tmp_path: Path) -> None:
     from snowpea_core.server.session_handlers import provider_list_handler
 
     result = await provider_list_handler(None, None, _core(tmp_path))  # type: ignore[arg-type]
-    assert len(result.providers) == 11
+    assert len(result.providers) == 12
     assert sum(len(p.authMethods) > 1 for p in result.providers) == 3
 
 

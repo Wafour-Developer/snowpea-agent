@@ -459,7 +459,7 @@ async def vendor_default_models(
 def vendor_catalog(
     settings: Any = None, defaults: Mapping[str, DefaultModel] | None = None
 ) -> list[CatalogItem]:
-    """The eleven vendors, in preset order, tagged with their login methods.
+    """The twelve vendors, in preset order, tagged with their login methods.
 
     ``settings`` (a :class:`~snowpea_core.config.settings.Settings`) decides the
     ``active`` flag: a vendor is active once it is configured, either by a key

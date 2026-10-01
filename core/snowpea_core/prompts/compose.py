@@ -36,6 +36,7 @@ VENDOR_CLASS_BY_PROVIDER: dict[str, str] = {
     "openrouter": "openai-family",
     "xai": "openai-family",
     "gemini": "openai-family",
+    "meta": "openai-family",
     "local": "small-local",
     "qwen": "small-local",
     "glm": "small-local",

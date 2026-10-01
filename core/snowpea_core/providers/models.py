@@ -303,6 +303,7 @@ MODELS_DEV_IDS: dict[str, tuple[str, ...]] = {
     "kimi": ("moonshotai", "kimi-for-coding", "moonshot"),
     "deepseek": ("deepseek",),
     "qwen": ("alibaba", "qwen"),
+    "meta": ("meta", "meta-model-api"),
     # A self-hosted server serves whatever was loaded into it; no public
     # catalog can describe it.
     "local": (),
