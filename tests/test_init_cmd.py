@@ -188,6 +188,14 @@ async def test_session_create_stores_the_locale(
         assert core.sessions.get(created["sessionId"]).locale == "ko"
         assert core.sessions.get(plain["sessionId"]).locale is None
         assert core.sessions.get(bogus["sessionId"]).locale is None
+
+        # Kept in memory only: a client re-sends it on resume or attach.
+        await client.ok("session.resume", {"sessionId": plain["sessionId"], "locale": "ja-JP"})
+        assert core.sessions.get(plain["sessionId"]).locale == "ja"
+        await client.ok("session.attach", {"sessionId": plain["sessionId"], "locale": "de"})
+        assert core.sessions.get(plain["sessionId"]).locale == "de"
+        await client.ok("session.resume", {"sessionId": plain["sessionId"]})
+        assert core.sessions.get(plain["sessionId"]).locale == "de"
     finally:
         await client.stop()
 

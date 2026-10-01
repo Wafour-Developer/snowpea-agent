@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"pkill -f \\\"pytest -q -p no:cacheprovider --deselect tests/test_interrupt.py\\\" ; cd /mnt/data/work/mediagen/snowpea; git add core sdk/src/protocol.ts docs/protocol.md tests && git -c user.n...",
+  "error": "Exit code 144",
+  "timestamp": "2026-10-01T07:50:56.245Z",
+  "retry_count": 1
+}

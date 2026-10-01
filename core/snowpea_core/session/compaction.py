@@ -29,7 +29,7 @@ from snowpea_core.prompts.loader import load
 from snowpea_core.providers import content
 from snowpea_core.providers.base import REDACTED, ChatMessage, ProviderError
 from snowpea_core.session import events
-from snowpea_core.session.history import estimate_messages
+from snowpea_core.session.history import estimate_messages, message_text
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.server.app_server import Core
@@ -399,6 +399,59 @@ def fallback_summary(messages: list[ChatMessage]) -> str:
     return "\n".join(lines)
 
 
+#: Heading of the summary's verbatim block (Hermes ports this as "User
+#: Messages (verbatim, newest first)"): a model summary paraphrases, and a
+#: paraphrase is how an agent came to ask a user the same questions twice.
+VERBATIM_HEADING = "## The user's own words (verbatim, newest first)"
+VERBATIM_NOTE = "These override any paraphrase of them above."
+#: Budget for the whole block and for one entry, in characters.
+VERBATIM_BUDGET = 24_000
+VERBATIM_ENTRY_MAX = 4_000
+_ENTRY = "\n» "
+_SYNTHETIC_PREFIXES = ("[system]", "[from the agent that delegated", SUMMARY_HEADING)
+_STEER_PREFIX = "[from the user, mid-task] "
+
+
+def _verbatim_entries(messages: list[ChatMessage]) -> list[str]:
+    """The user's words in ``messages``, oldest first, carried-over ones included."""
+    out: list[str] = []
+    for message in messages:
+        text = message_text(message).strip() if not message.sensitive else ""
+        if not text:
+            continue
+        if message.role == "system" and VERBATIM_HEADING in text:
+            block = text.split(VERBATIM_HEADING, 1)[1]
+            # Stored newest first; this list is oldest first.
+            out.extend(reversed([e.strip() for e in block.split(_ENTRY)[1:] if e.strip()]))
+        elif message.role == "user":
+            if text.startswith(_SYNTHETIC_PREFIXES):
+                continue
+            out.append(text.removeprefix(_STEER_PREFIX))
+        elif message.role == "tool" and message.name == "ask_user":
+            out.append(f"(answers to the agent's questions) {text}")
+    return out
+
+
+def verbatim_section(messages: list[ChatMessage], budget: int = VERBATIM_BUDGET) -> str:
+    """The block appended to a summary; empty when the user said nothing."""
+    entries: list[str] = []
+    used = 0
+    seen: set[str] = set()
+    for entry in reversed(_verbatim_entries(messages)):
+        if entry in seen:
+            continue
+        seen.add(entry)
+        if len(entry) > VERBATIM_ENTRY_MAX:
+            entry = entry[: VERBATIM_ENTRY_MAX - 1] + "…"
+        if used + len(entry) > budget:
+            break
+        used += len(entry)
+        entries.append(entry.replace("\n", "\n  "))
+    if not entries:
+        return ""
+    return f"{VERBATIM_HEADING}\n{VERBATIM_NOTE}" + "".join(_ENTRY + e for e in entries)
+
+
 def summary_message(text: str) -> ChatMessage:
     """Wrap summary text in the system message that replaces the history."""
     return ChatMessage(role="system", content=f"{SUMMARY_HEADING}\n\n{text}")
@@ -456,6 +509,13 @@ async def compact_session(
     if not text:
         text = fallback_summary(head)
     text = reinject_markers(text, markers)
+    if VERBATIM_HEADING in text:  # a model copying the old block would duplicate it
+        text = text.split(VERBATIM_HEADING, 1)[0].rstrip()
+    # Never more than half of what is being replaced: a compaction must shrink.
+    head_chars = sum(len(message_text(m)) for m in head)
+    verbatim = verbatim_section(head, min(VERBATIM_BUDGET, head_chars // 2))
+    if verbatim:
+        text = f"{text}\n\n{verbatim}"
 
     replacement = [summary_message(text), *tail]
     session.history.replace(replacement)
@@ -676,8 +736,10 @@ def pair_tool_results(history: list[ChatMessage]) -> list[ChatMessage]:
 #: Results never stubbed, however old: a subagent's report is the only copy of
 #: work another session did, already capped in size (``delegate.render_report``),
 #: and "re-run the tool if you need it again" made a parent redo both of its
-#: children's page reads itself.
-KEPT_RESULT_TOOLS: frozenset[str] = frozenset({"delegate_task", "subagent_wait"})
+#: children's page reads itself.  ``ask_user`` holds the user's own answers,
+#: which no tool can produce again: stubbing them left an agent unable to say
+#: what the user had chosen, and it asked the same questions twice.
+KEPT_RESULT_TOOLS: frozenset[str] = frozenset({"delegate_task", "subagent_wait", "ask_user"})
 
 
 def prune_old_tool_outputs(

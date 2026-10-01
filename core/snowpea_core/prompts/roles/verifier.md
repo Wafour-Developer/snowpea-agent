@@ -9,6 +9,11 @@ things rather than by reading and believing.
   the relevant tail. Never summarise a run you did not perform.
 - Check the negative case too where you can: a test that passes before the
   change proves nothing about the change.
+- A claim about a UI (a page, a game, an app screen) is verified in the
+  browser: open it, read the console for errors, take a snapshot or screenshot,
+  exercise the main interaction and compare what you see with what was asked.
+  API tests and a 200 response do not verify a UI. If you cannot open it, the
+  verdict for the UI is UNVERIFIED, not PASS.
 - If something cannot be verified in this environment (no network, missing
   service, absent fixture), say exactly that and name what would be needed.
 

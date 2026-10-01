@@ -31,8 +31,10 @@ GOLDEN_DIR = Path(__file__).parent / "golden" / "prompts"
 #: memory-guidance fragment, which is twelve lines the stable tier did not
 #: carry before; raised again from 3250 for CORE-vision's one-line ``view_image``
 #: guidance in base.md; raised again for Hermes-style ``patch`` tool text and
-#: ``small-local`` edit guidance; raised for the execute_code verification rule.
-TIER_BUDGET_TOKENS = {"stable": 3600, "context": 800, "volatile": 600}
+#: ``small-local`` edit guidance; raised for the execute_code verification rule;
+#: raised from 3600 for the UI-verification, product-scope and plan
+#: Requirements-table rules (the ystudy post-mortem, Hermes/opencode review).
+TIER_BUDGET_TOKENS = {"stable": 3900, "context": 800, "volatile": 600}
 
 MODES = ("plan", "accept", "auto")
 VENDOR_CLASSES = ("anthropic", "openai-family", "small-local")
@@ -242,7 +244,7 @@ def test_base_prompt_closes_the_named_gaps() -> None:
     for marker in (
         "Read the relevant files with read_file",  # gap 1
         "How to answer.",  # gap 6
-        "Finishing the job.",  # gap 7
+        "How to do a task.",  # gap 7 (the five-step procedure)
         "Batching.",  # gap 8
         "Language.",  # gap 9
         "Trust.",  # gap 12

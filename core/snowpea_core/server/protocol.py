@@ -348,6 +348,14 @@ class SessionAttachParams(Payload):
             "sessions.changed (reason 'host')."
         ),
     )
+    locale: str | None = Field(
+        default=None,
+        description=(
+            "The client's UI language as a BCP 47 tag (1.7.0), as on session.create. "
+            "Kept in memory only, so a client re-sends it after a daemon restart; "
+            "omitted leaves the session's current locale."
+        ),
+    )
 
 
 class SessionSetAgentParams(Payload):
@@ -523,6 +531,14 @@ class SessionEvent(Payload):
 class SessionResumeParams(Payload):
     sessionId: str = Field(description="Session to resume.")
     afterSeq: int | None = Field(default=None, description="Replay only events with a greater seq.")
+    locale: str | None = Field(
+        default=None,
+        description=(
+            "The client's UI language as a BCP 47 tag (1.7.0), as on session.create. "
+            "Kept in memory only, so a client re-sends it after a daemon restart; "
+            "omitted leaves the session's current locale."
+        ),
+    )
 
 
 class SessionResumeResult(Payload):

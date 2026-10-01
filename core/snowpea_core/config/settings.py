@@ -247,6 +247,11 @@ class AgentSettings(_Model):
     #: ``"steer"`` folds them into the running turn before the next model call,
     #: ``"queue"`` keeps the legacy "run as a later turn" behaviour.
     busy: Literal["steer", "queue"] = "steer"
+    #: Verify-on-stop (Hermes): a turn that edited code and ran no passing check
+    #: since — or changed a UI file and never looked at it in the browser — is
+    #: sent back to verify, at most twice.  ``"auto"`` is on everywhere except
+    #: messaging gateways.
+    verifyOnStop: Literal["auto", "on", "off"] = "auto"
     #: Language the model answers in.  ``"auto"`` follows whatever the user
     #: wrote; a tag like ``"ko"`` emits a directed override (CORE-prompts).
     replyLanguage: str = "auto"

@@ -1509,6 +1509,7 @@ Make this connection the origin of a session (approvals, host tools).
 | field | type | required | description |
 |---|---|---|---|
 | `hostToolsFrom` | `string \| null` | no | Re-point the session's host tools to this clientId (or surface id). It must name an open connection whose clientKind is 'browser'. Persisted; emits sessions.changed (reason 'host'). |
+| `locale` | `string \| null` | no | The client's UI language as a BCP 47 tag (1.7.0), as on session.create. Kept in memory only, so a client re-sends it after a daemon restart; omitted leaves the session's current locale. |
 | `sessionId` | `string` | yes | Session this connection becomes the origin of (1.6.0). |
 
 **Result**
@@ -1720,6 +1721,7 @@ Replay the events a disconnected client missed.
 | field | type | required | description |
 |---|---|---|---|
 | `afterSeq` | `number \| null` | no | Replay only events with a greater seq. |
+| `locale` | `string \| null` | no | The client's UI language as a BCP 47 tag (1.7.0), as on session.create. Kept in memory only, so a client re-sends it after a daemon restart; omitted leaves the session's current locale. |
 | `sessionId` | `string` | yes | Session to resume. |
 
 **Result**

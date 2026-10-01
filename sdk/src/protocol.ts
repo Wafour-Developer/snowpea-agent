@@ -1718,6 +1718,8 @@ export interface SessionArtifactsResult {
 export interface SessionAttachParams {
   /** Re-point the session's host tools to this clientId (or surface id). It must name an open connection whose clientKind is 'browser'. Persisted; emits sessions.changed (reason 'host'). */
   hostToolsFrom?: string | null;
+  /** The client's UI language as a BCP 47 tag (1.7.0), as on session.create. Kept in memory only, so a client re-sends it after a daemon restart; omitted leaves the session's current locale. */
+  locale?: string | null;
   /** Session this connection becomes the origin of (1.6.0). */
   sessionId: string;
 }
@@ -1975,6 +1977,8 @@ export interface SessionRenameResult {
 export interface SessionResumeParams {
   /** Replay only events with a greater seq. */
   afterSeq?: number | null;
+  /** The client's UI language as a BCP 47 tag (1.7.0), as on session.create. Kept in memory only, so a client re-sends it after a daemon restart; omitted leaves the session's current locale. */
+  locale?: string | null;
   /** Session to resume. */
   sessionId: string;
 }

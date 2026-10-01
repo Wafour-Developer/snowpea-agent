@@ -163,6 +163,16 @@ class Session:
     locale: str | None = None
     #: ``session.notice`` lines waiting for the next model call (1.7.0).
     pending_notices: list[str] = field(default_factory=list)
+    #: ``subagent_message`` texts from the delegating agent, injected at this
+    #: child's next model round.
+    lead_messages: list[str] = field(default_factory=list)
+    #: Set when the user's words are waiting to be folded into the running
+    #: turn.  A lead blocked on a delegation (``delegate_task``,
+    #: ``subagent_wait``) wakes on it, so the user is answered mid-delegation
+    #: instead of after it.  Cleared when the words are folded in.
+    user_waiting: asyncio.Event = field(default_factory=asyncio.Event)
+    #: This turn's edits and checks, for verify-on-stop (agent/verify_gate.py).
+    verify_turn: Any = None
     #: ``write_todos`` list: ``[{id, content, status}]`` (1.7.0).
     todos: list[dict[str, str]] = field(default_factory=list)
     #: Short label: the first prompt's opening words, or ``session.rename``.

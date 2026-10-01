@@ -270,6 +270,10 @@ async def delegate_task(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     title = str(args.get("title", "") or "").strip()
     manager = get_manager(ctx.core)
     background = bool(args.get("run_in_background", False))
+    task_id = f"bg-{uuid.uuid4().hex[:10]}"
+    # A foreground delegation may be detached when the user speaks; its
+    # progress must then stop landing on a tool call that has already returned.
+    progress = None if background or ctx.progress is None else _Detachable(ctx.progress)
     coro = manager.run(
         ctx.session,
         task,
@@ -281,17 +285,12 @@ async def delegate_task(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         force=bool(args.get("force", False)),
         # A delegation can run for minutes with nothing to show; the child's
         # own progress is republished on this call (IDE-PROGRESS D2).
-        progress=None if background else ctx.progress,
+        progress=progress,
         fork=profile == "fork_self",
+        run_id=task_id,
     )
     if background:
-        task_id = f"bg-{uuid.uuid4().hex[:10]}"
-        manager.background[task_id] = BackgroundRun(
-            task_id=task_id,
-            parent_session_id=ctx.session.id,
-            title=title,
-            task=asyncio.ensure_future(coro),
-        )
+        _track(ctx, manager, task_id, title, asyncio.ensure_future(coro))
         return ToolResult(
             ok=True,
             output=(
@@ -302,7 +301,35 @@ async def delegate_task(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             ),
             meta={"task_id": task_id},
         )
-    result = await coro
+    running = asyncio.ensure_future(coro)
+    waiting = asyncio.ensure_future(ctx.session.user_waiting.wait())
+    try:
+        await asyncio.wait({running, waiting}, return_when=asyncio.FIRST_COMPLETED)
+    except asyncio.CancelledError:
+        running.cancel()
+        raise
+    finally:
+        waiting.cancel()
+    if not running.done():
+        # The user said something while the child works.  Leave the child
+        # running and give the turn back, so the lead answers now instead of
+        # after the delegation (Claude Code / Hermes: the lead stays reachable).
+        if progress is not None:
+            progress.detach()
+        _track(ctx, manager, task_id, title, running)
+        return ToolResult(
+            ok=True,
+            output=(
+                f"The user sent a message while this delegation was running. It keeps "
+                f"running in the background as task_id {task_id}"
+                + (f" ({title})" if title else "")
+                + ". Read the user's message and answer it now. To pass instructions "
+                "on to the child, call subagent_message with this task_id; to get its "
+                "report, call subagent_wait with this task_id."
+            ),
+            meta={"task_id": task_id, "detached": True},
+        )
+    result = running.result()
     report = render_report(result)
     if not result.ok and result.reason != BUDGET:
         return ToolResult(
@@ -331,17 +358,27 @@ async def subagent_wait(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     except (TypeError, ValueError):
         timeout = MAX_WAIT
     pending = [run.task for run in runs if not run.task.done()]
+    woken = False
     if pending:
         interrupt = asyncio.ensure_future(ctx.session.interrupt.wait())
+        user = asyncio.ensure_future(ctx.session.user_waiting.wait())
         try:
             await asyncio.wait(
-                [asyncio.gather(*pending, return_exceptions=True), interrupt],
+                [asyncio.gather(*pending, return_exceptions=True), interrupt, user],
                 timeout=timeout,
                 return_when=asyncio.FIRST_COMPLETED,
             )
         finally:
             interrupt.cancel()
+            user.cancel()
+        woken = ctx.session.user_waiting.is_set()
     sections: list[str] = []
+    if woken and any(not run.task.done() for run in runs):
+        sections.append(
+            "The user sent a message while you waited. Answer it now; the tasks "
+            "below keep running. Use subagent_message to pass instructions on, and "
+            "call subagent_wait again for their reports."
+        )
     for run in runs:
         head = f"## {run.task_id}" + (f" — {run.title}" if run.title else "")
         if not run.task.done():
@@ -355,6 +392,92 @@ async def subagent_wait(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         result = run.task.result()
         sections.append(f"{head}\n{render_report(result)}")
     return ToolResult(ok=True, output="\n\n".join(sections))
+
+
+async def subagent_message(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
+    """Pass a message to a running delegation; it reads it at its next round."""
+    task_id = str(args.get("task_id", "") or "").strip()
+    message = str(args.get("message", "") or "").strip()
+    if not task_id or not message:
+        return ToolResult(ok=False, error="task_id and message are required")
+    manager = get_manager(ctx.core)
+    run = manager.background.get(task_id)
+    if run is None or run.parent_session_id != ctx.session.id:
+        return ToolResult(ok=False, error=f"no background task {task_id} in this session")
+    if run.task.done():
+        return ToolResult(
+            ok=False, error=f"{task_id} has already finished; collect it with subagent_wait"
+        )
+    reached = manager.message_run(ctx.session.id, task_id, message)
+    if reached == 0:
+        return ToolResult(ok=False, error=f"{task_id} has no running child to receive it")
+    return ToolResult(ok=True, output=f"delivered to {task_id}; it sees it at its next step.")
+
+
+class _Detachable:
+    """A ``tool.progress`` sink that can be cut off once its call has returned."""
+
+    def __init__(self, inner: Any) -> None:
+        self._inner: Any = inner
+
+    def detach(self) -> None:
+        self._inner = None
+
+    async def emit(self, stream: str, chunk: str, *, truncated: bool = False) -> None:
+        if self._inner is not None:
+            await self._inner.emit(stream, chunk, truncated=truncated)
+
+
+#: Grace before an unclaimed finished delegation is announced: a lead already
+#: inside ``subagent_wait`` for it collects it first.
+ANNOUNCE_GRACE = 0.2
+
+
+def _track(
+    ctx: ToolContext, manager: Any, task_id: str, title: str, task: asyncio.Future[Any]
+) -> None:
+    """Register a background run, and make sure its report is not lost.
+
+    A lead may end its turn before collecting a run (it answered the user and
+    stopped).  When the run finishes unclaimed, the lead is told: with a notice
+    in its running turn, or with a new turn when it is idle — the way a
+    background task's completion wakes Claude Code's main agent.
+    """
+    session = ctx.session
+    core = ctx.core
+    manager.background[task_id] = BackgroundRun(
+        task_id=task_id, parent_session_id=session.id, title=title, task=task
+    )
+
+    async def announce() -> None:
+        await asyncio.sleep(ANNOUNCE_GRACE)
+        run = manager.background.get(task_id)
+        if run is None or run.collected or getattr(session, "closed_at", None):
+            return
+        label = f"{task_id}" + (f" ({title})" if title else "")
+        note = (
+            f"Background delegation {label} has finished. Call subagent_wait with "
+            f"task_ids [\"{task_id}\"] to collect its report, then carry on."
+        )
+        turn = getattr(session, "turn_task", None)
+        if turn is not None and not turn.done():
+            session.pending_notices.append(note)
+            return
+        from snowpea_core.agent import loop as agent_loop
+
+        agent_loop.start_turn(
+            core,
+            session,
+            f"⟲ {title or task_id} finished",
+            unattended=True,
+            model_text=f"[system] {note}",
+        )
+
+    def done(_task: asyncio.Future[Any]) -> None:
+        if hasattr(core, "sessions"):
+            asyncio.ensure_future(announce())
+
+    task.add_done_callback(done)
 
 
 def get_time(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
@@ -487,6 +610,28 @@ TOOLS: tuple[Tool, ...] = (
         run=subagent_wait,
     ),
     Tool(
+        name="subagent_message",
+        category="delegate",
+        description=(
+            "Pass a message to a running delegation (a task_id from delegate_task or "
+            "subagent_wait). The child reads it at its next step. Use it to relay what "
+            "the user asked for mid-task to the one child it concerns."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "task_id": {"type": "string", "description": "The delegation's task_id."},
+                "message": {
+                    "type": "string",
+                    "description": "What the child should know or change, self-contained.",
+                },
+            },
+            "required": ["task_id", "message"],
+        },
+        permission="delegate",
+        run=subagent_message,
+    ),
+    Tool(
         name="get_time",
         category="interaction",
         description="The current date and time, in local time and UTC.",
@@ -509,6 +654,7 @@ __all__ = [
     "TOOLS",
     "delegate_task",
     "get_time",
+    "subagent_message",
     "subagent_wait",
     "delegation_language",
     "detected_language",

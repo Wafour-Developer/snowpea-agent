@@ -86,11 +86,16 @@ TOOLS: tuple[Tool, ...] = (
         name="write_todos",
         category="interaction",
         description=(
-            "Keep a short task list for multi-step work, visible to the user as you "
-            "go. Write it once you know the steps; mark one item in_progress while "
-            "you work on it and completed as soon as it is done. merge=true updates "
-            "items by id (send only the changed ones); merge=false replaces the list. "
-            "Skip it for a one- or two-step task."
+            "Keep the task list for multi-step work, visible to the user as you go. "
+            "Use it when the work has three or more steps or the user gave several "
+            "tasks; skip it for one or two. Each item is a result you can check, in "
+            "order. Exactly one item is in_progress while work remains. Mark an item "
+            "completed only after its verification passed — never on intent. If an "
+            "item is blocked or only partly done, keep it in_progress and add an item "
+            "for the blocker; if it fails, replace it with a revised one. When the "
+            "user adds instructions mid-task, add them as items. Keep commands the user "
+            "gave verbatim. merge=true updates items by id (send only the changed "
+            "ones); merge=false replaces the list."
         ),
         input_schema={
             "type": "object",

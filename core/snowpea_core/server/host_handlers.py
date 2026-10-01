@@ -277,6 +277,10 @@ async def session_attach_handler(
             f"hostToolsFrom {target!r} is not an open connection of clientKind 'browser'",
         )
     session.origin_conn = conn
+    if params.locale is not None:
+        from snowpea_core.agent.agent import locale_tag
+
+        session.locale = locale_tag(params.locale) or session.locale
     if getattr(conn, "client_id", None):
         session.origin_client_id = conn.client_id
     core.hub.subscribe(conn, session.id)
@@ -449,6 +453,7 @@ async def session_steer_handler(
     running = session.current_turn is not None or (task is not None and not task.done())
     if running:
         session.rpc_steers.append(text)
+        session.user_waiting.set()
         return SessionSteerResult(ok=True, started=False)
     from snowpea_core.server.protocol import SessionPromptParams
     from snowpea_core.server.session_handlers import session_prompt_handler

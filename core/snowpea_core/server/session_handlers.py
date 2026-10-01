@@ -306,6 +306,8 @@ async def session_resume_handler(
         raise RpcError(errors.NOT_FOUND, f"no such session: {params.sessionId}")
     await _load_project_skills(core, session.workdir)
     ensure_workspace(core.paths.home, session)
+    if params.locale is not None and locale_tag(params.locale):
+        session.locale = locale_tag(params.locale)
     core.hub.subscribe(conn, session.id)
     if session.origin_conn is None or getattr(session.origin_conn, "closed", False):
         session.origin_conn = conn

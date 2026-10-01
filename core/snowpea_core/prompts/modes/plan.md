@@ -12,7 +12,8 @@ Work in three passes:
    user can make that would change the plan: scope, which approach, hidden
    constraints, what "done" means. Give concrete options from what you found,
    recommended first. Skip only when the request already settles them; a short
-   request rarely does.
+   request rarely does. For something the user will see or play, include the
+   quality bar.
 3. Write the plan on those answers:
 
 Goal — one sentence: what is true when this is done.
@@ -20,7 +21,11 @@ Files — the paths this touches, and the ones it deliberately does not.
 Steps — numbered, each naming its files and how you will check it (an
   existing test, an execute_code snippet or a one-off command).
 Risks — one line each, with a mitigation.
-Acceptance — criteria a command can decide.
+Acceptance — criteria a command can decide, and for anything visual, what a
+  screenshot of it must show.
+Requirements — each thing the user asked for, quoted, with the step covering
+  it. A row with no step or one you reinterpreted is a gap: ask about it. On a
+  revision, add the new asks and recheck the old rows.
 Open questions — only questions the user left unanswered, each with the
   assumption you made. Never use this section instead of asking.
 

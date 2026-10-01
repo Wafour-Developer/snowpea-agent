@@ -126,6 +126,9 @@ async def test_a_stop_hook_blocks_with_exit_2_and_its_stderr(tmp_path: Path) -> 
     assert payload["hook_event_name"] == "Stop"
     assert payload["stop_hook_active"] is False
     assert payload["last_assistant_message"] == "Next I'll build it."
+    # Who the session belongs to rides along, so a guard need not read state.db.
+    for key in ("origin_surface", "host_tools_from", "agent", "parent_session_id"):
+        assert key in payload
 
 
 async def test_a_stop_hook_blocks_with_a_json_decision(tmp_path: Path) -> None:

@@ -178,14 +178,23 @@ async def test_busy_queue_keeps_the_legacy_separate_turn_behavior(
             await daemon.stop()
 
 
-async def test_busy_steer_propagates_to_running_child_next_provider_request(
+async def test_user_message_wakes_the_lead_mid_delegation_and_it_relays(
     http: aiohttp.ClientSession, tmp_path: Path
 ) -> None:
+    """A follow-up during a foreground delegation reaches the lead at once.
+
+    The delegation is detached into the background, the lead sees the user's
+    words, relays an instruction with ``subagent_message`` and collects the
+    report with ``subagent_wait``.  The child is never sent the user's raw text.
+    """
+
     class DelegateProvider:
-        vendor = "test-steer-child"
+        vendor = "test-steer-lead"
 
         def __init__(self) -> None:
             self.child_calls: list[list[ChatMessage]] = []
+            self.lead_calls: list[list[ChatMessage]] = []
+            self.task_id = ""
 
         async def stream(
             self, messages: list[ChatMessage], tools: list[Any], **kwargs: Any
@@ -194,13 +203,13 @@ async def test_busy_steer_propagates_to_running_child_next_provider_request(
             users = "\n".join(_user_texts(messages))
             if "slow child" in users:
                 self.child_calls.append(list(messages))
-                if not _has_tool_result(messages, "shell"):
+                if not _has_tool_result(messages, "shell") or "relay this" not in users:
                     yield StreamEvent(
                         kind="tool_call",
                         tool_call=ToolCall(
-                            id="child_sleep",
+                            id=f"child_sleep_{len(self.child_calls)}",
                             name="shell",
-                            arguments={"command": "sleep 0.3"},
+                            arguments={"command": "sleep 0.2"},
                         ),
                     )
                     yield StreamEvent(kind="done", stop_reason="tool_use")
@@ -208,6 +217,7 @@ async def test_busy_steer_propagates_to_running_child_next_provider_request(
                 yield StreamEvent(kind="text_delta", text="child done")
                 yield StreamEvent(kind="done", stop_reason="end_turn")
                 return
+            self.lead_calls.append(list(messages))
             if not _has_tool_result(messages, "delegate_task"):
                 yield StreamEvent(
                     kind="tool_call",
@@ -215,6 +225,32 @@ async def test_busy_steer_propagates_to_running_child_next_provider_request(
                         id="delegate_1",
                         name="delegate_task",
                         arguments={"task": "slow child", "agent": "executor"},
+                    ),
+                )
+                yield StreamEvent(kind="done", stop_reason="tool_use")
+                return
+            if not _has_tool_result(messages, "subagent_message"):
+                result = next(
+                    m for m in messages if m.role == "tool" and m.name == "delegate_task"
+                )
+                self.task_id = str(result.content).split("task_id ")[1].split()[0].rstrip(".")
+                yield StreamEvent(
+                    kind="tool_call",
+                    tool_call=ToolCall(
+                        id="relay_1",
+                        name="subagent_message",
+                        arguments={"task_id": self.task_id, "message": "relay this"},
+                    ),
+                )
+                yield StreamEvent(kind="done", stop_reason="tool_use")
+                return
+            if not _has_tool_result(messages, "subagent_wait"):
+                yield StreamEvent(
+                    kind="tool_call",
+                    tool_call=ToolCall(
+                        id="wait_1",
+                        name="subagent_wait",
+                        arguments={"task_ids": [self.task_id], "timeout": 30},
                     ),
                 )
                 yield StreamEvent(kind="done", stop_reason="tool_use")
@@ -251,20 +287,35 @@ async def test_busy_steer_propagates_to_running_child_next_provider_request(
         queued_turn = agent_loop.start_turn(core, session, FOLLOWUP_PROMPT)
         assert await asyncio.wait_for(session.turn_task, timeout=TIMEOUT) is None
 
-        child_messages = "\n".join(
-            "\n---\n".join(_user_texts(call)) for call in provider.child_calls[1:]
-        )
-        assert f"[from the user, mid-task] {FOLLOWUP_PROMPT}" in child_messages
-        child_user_events = [
+        # The lead saw the user's words while the child was still working.
+        detached = [
             event["payload"]
-            for event in recorder.of_kind("message.user")
-            if event["sessionId"] != session.id
+            for event in recorder.of_kind("tool.result")
+            if event["sessionId"] == session.id
+            and event["payload"].get("name") == "delegate_task"
         ]
-        assert any(
-            payload.get("steered") is True
-            and payload.get("text") == f"[from the user, mid-task] {FOLLOWUP_PROMPT}"
-            for payload in child_user_events
+        assert detached and "keeps running in the background" in detached[0]["output"]
+        relayed_at = next(
+            index
+            for index, call in enumerate(provider.lead_calls)
+            if _has_tool_result(call, "delegate_task")
         )
+        assert FOLLOWUP_PROMPT in _user_texts(provider.lead_calls[relayed_at])
+
+        # The child got the lead's relay, not the user's raw text.
+        child_messages = "\n".join(
+            "\n---\n".join(_user_texts(call)) for call in provider.child_calls
+        )
+        assert "[from the agent that delegated this task, mid-task] relay this" in child_messages
+        assert FOLLOWUP_PROMPT not in child_messages
+
+        waited = [
+            event["payload"]
+            for event in recorder.of_kind("tool.result")
+            if event["sessionId"] == session.id
+            and event["payload"].get("name") == "subagent_wait"
+        ]
+        assert waited and "child done" in waited[0]["output"]
         assert any(
             event["payload"].get("turnId") == queued_turn
             and event["payload"].get("reason") == "steered"

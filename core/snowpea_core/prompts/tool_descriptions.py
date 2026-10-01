@@ -86,7 +86,9 @@ GLOB = (
 DELEGATE_TASK = (
     "Hand a self-contained task to a subagent and return its report. The child sees "
     "nothing of this conversation, so put everything it needs in the task; say whether "
-    "it must write code or only research, and how to verify the result. Pass title as a "
+    "it must write code or only research, how to verify the result, and exactly what "
+    "its report must contain (files changed, commands run and their results, what is "
+    "left). Pass title as a "
     "one-line description in the user's language — it is what the user sees while it "
     "runs.\n"
     "USE FOR: reasoning-heavy subtasks, work that would flood this context with "

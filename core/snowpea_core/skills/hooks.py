@@ -9,7 +9,8 @@ A plugin ships ``hooks/hooks.json`` in the Claude Code shape::
 the empty string mean "every tool").  The command runs through the shell with
 the hook payload on stdin::
 
-    {"event", "tool_name", "tool_input", "session_id", "cwd"}
+    {"event", "tool_name", "tool_input", "session_id", "cwd",
+     "origin_surface", "host_tools_from", "agent", "parent_session_id"}
 
 and ``SNOWPEA_HOME`` / ``SNOWPEA_TOOL_NAME`` in its environment, plus
 ``CLAUDE_PLUGIN_ROOT`` and ``SNOWPEA_PLUGIN_ROOT`` pointing at the plugin that
@@ -248,6 +249,16 @@ def registry_of(core: Core) -> HookRegistry | None:
     return registry if isinstance(registry, HookRegistry) else None
 
 
+def session_fields(session: Session) -> dict[str, Any]:
+    """Who the session belongs to, so a guard need not read state.db for it."""
+    return {
+        "origin_surface": getattr(session, "origin_surface", None),
+        "host_tools_from": getattr(session, "host_tools_from", None),
+        "agent": getattr(session, "agent", None),
+        "parent_session_id": getattr(session, "parent_session_id", None),
+    }
+
+
 async def run_event(
     core: Core,
     session: Session,
@@ -268,6 +279,7 @@ async def run_event(
         "tool_input": dict(tool_input or {}),
         "session_id": session.id,
         "cwd": str(session.workdir),
+        **session_fields(session),
     }
     home = core.paths.home
     outcome = HookOutcome()
@@ -354,6 +366,7 @@ async def stop(
         "tool_input": {},
         "session_id": session.id,
         "cwd": str(session.workdir),
+        **session_fields(session),
         "stop_hook_active": active,
         "last_assistant_message": last_message,
     }

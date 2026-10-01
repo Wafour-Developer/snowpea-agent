@@ -22,7 +22,7 @@ from time import monotonic
 from typing import TYPE_CHECKING, Any
 
 from snowpea_core.agent import agent as agent_mod
-from snowpea_core.agent import call_fixups, context_files
+from snowpea_core.agent import call_fixups, context_files, verify_gate
 from snowpea_core.agent.agent import AgentConfig, build_messages
 from snowpea_core.agent.tool_batch import plan_tool_batch_segments
 from snowpea_core.attachments import pending
@@ -71,6 +71,8 @@ INTERRUPTED_INVITATION = (
 )
 
 STEER_PREFIX = "[from the user, mid-task] "
+#: How a ``subagent_message`` from the delegating agent reaches its child.
+LEAD_PREFIX = "[from the agent that delegated this task, mid-task] "
 
 #: How many times one assistant turn may be resumed after the model stopped at
 #: the output limit.  Two is enough for a long review and still bounded
@@ -714,7 +716,9 @@ def start_turn(
         waiting = len(session.queued_turns)
         _emit_soon(core, session, events.turn_queued(turn_id, waiting, waiting))
         if (queued.when_busy or _busy_policy(core)) == "steer":
-            asyncio.ensure_future(_propagate_steer(core, session, turn_id, text))
+            # Wake a lead that is waiting on a delegation; it decides what,
+            # if anything, its children are told (``subagent_message``).
+            session.user_waiting.set()
         return turn_id
     session.turn_task = asyncio.ensure_future(_drain_turns(core, session, queued))
     return turn_id
@@ -768,7 +772,12 @@ async def _flush_notices(session: Session) -> int:
 
 async def _steer_queued_turns(core: Core, session: Session) -> int:
     """Fold queued prompts into the running turn as fresh user messages."""
+    session.user_waiting.clear()
     await _flush_notices(session)
+    while session.lead_messages:
+        body = f"{LEAD_PREFIX}{session.lead_messages.pop(0)}"
+        session.history.append(ChatMessage(role="user", content=body))
+        await core.hub.emit_event(session.id, events.message_user(body, steered=True))
     rpc_injected = 0
     while session.rpc_steers:
         # ``session.steer`` is an explicit request, so it ignores agent.busy.
@@ -827,7 +836,6 @@ async def _steer_queued_turns(core: Core, session: Session) -> int:
         await core.hub.emit_event(
             session.id, events.turn_dequeued(queued.turn_id, "steered", remaining)
         )
-        await _propagate_steer(core, session, queued.turn_id, queued.text)
     return injected + len(steered)
 
 
@@ -843,24 +851,6 @@ async def _inject_external_steer(
     session.history.compact()
     await core.hub.emit_event(session.id, events.message_user(body, steered=True))
     return True
-
-
-async def _propagate_steer(core: Core, session: Session, source_turn_id: str, text: str) -> None:
-    if _busy_policy(core) != "steer":
-        return
-    from snowpea_core.agent.subagent import get_manager
-
-    manager = get_manager(core)
-    for record in manager.descendants(session.id):
-        child = core.sessions.get(record.session_id) if record.session_id else None
-        if child is None:
-            manager.queue_steer(record, source_turn_id, text)
-            continue
-        queued_ids = {
-            str(item[0]) for item in child.steered_prompts if isinstance(item, tuple) and item
-        }
-        if source_turn_id not in child.propagated_steers and source_turn_id not in queued_ids:
-            child.steered_prompts.append((source_turn_id, text))
 
 
 async def _drain_turns(core: Core, session: Session, first: QueuedTurn) -> None:
@@ -1150,11 +1140,11 @@ async def _drive(
             session.id,
             events.message_user(text, attachments, refs=refs, expansion=expansion),
         )
-    if session.is_subagent and _busy_policy(core) == "steer":
+    if session.is_subagent:
         from snowpea_core.agent.subagent import get_manager
 
-        for source_turn_id, steer_text in get_manager(core).take_pending_steers(session.id):
-            await _inject_external_steer(core, session, source_turn_id, steer_text)
+        for _source, lead_text in get_manager(core).take_pending_steers(session.id):
+            session.lead_messages.append(lead_text)
 
     # Recall once per turn, on the user's own words (M5 contract §1).
     await _auto_inject_skills(core, session, text)
@@ -1166,6 +1156,7 @@ async def _drive(
     # Times a Stop hook kept this turn going (capped per turn).
     stop_continuations = 0
     session.lead_direct_calls = 0
+    verify_gate.begin_turn(session)
     # One acknowledgement per turn, not per tool round.
     session.ack_spoken = False
     while True:
@@ -1264,6 +1255,15 @@ async def _drive(
                     continuations=attempt.continuations,
                 ),
             )
+            # Verify-on-stop (Hermes): edited code with no fresh passing check,
+            # or a UI never looked at, goes back for verification first.
+            unverified = (
+                None if session.interrupt.is_set() else verify_gate.nudge(core, session)
+            )
+            if unverified:
+                session.history.append(ChatMessage(role="user", content=unverified))
+                await hub.emit_event(session.id, events.hook_continue(unverified, 0))
+                continue
             # Claude Code's Stop hook: a hook may keep the agent going (ralph,
             # "the boulder never stops"); its reason is the next instruction.
             if stop_continuations < plugin_hooks.MAX_STOP_CONTINUATIONS:
@@ -1767,6 +1767,7 @@ async def _run_one_call(
     )
     if result.diff:
         await hub.emit_event(session.id, events.diff(result.path or "", result.diff))
+    verify_gate.observe(session, call.name, dict(call.arguments), result)
     session.history.append(
         ChatMessage(
             role="tool",

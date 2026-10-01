@@ -349,6 +349,10 @@ class SubagentRecord:
     #: Steer prompts to inject when the child session starts or reaches its
     #: next model round.
     pending_steers: list[tuple[str, str]] = field(default_factory=list)
+    #: The ``delegate_task`` call this record works for (its ``bg-…`` task id),
+    #: shared by the continuation re-issues, so ``subagent_message`` can reach
+    #: whichever attempt is running.
+    run_id: str = ""
 
     @property
     def ok(self) -> bool:
@@ -536,6 +540,26 @@ class SubagentManager:
         if any(turn_id == source_turn_id for turn_id, _ in record.pending_steers):
             return
         record.pending_steers.append((source_turn_id, text))
+
+    def message_run(self, parent_session_id: str, run_id: str, text: str) -> int:
+        """Hand ``text`` to the live child(ren) working for ``run_id``; how many.
+
+        A started child gets it at its next model round; one still queued gets
+        it when it starts.
+        """
+        reached = 0
+        for record in self.records():
+            if record.run_id != run_id or record.parent_session_id != parent_session_id:
+                continue
+            if record.status not in (QUEUED, RUNNING):
+                continue
+            child = self.core.sessions.get(record.session_id) if record.session_id else None
+            if child is None:
+                self.queue_steer(record, f"lead:{uuid.uuid4().hex}", text)
+            else:
+                child.lead_messages.append(text)
+            reached += 1
+        return reached
 
     def take_pending_steers(self, session_id: str) -> list[tuple[str, str]]:
         for record in self.records():
@@ -748,6 +772,7 @@ class SubagentManager:
         force: bool = False,
         prefer: tuple[str, ...] | list[str] | None = None,
         fork: bool = False,
+        run_id: str = "",
         _allow_incomplete_retry: bool = True,
     ) -> SubagentResult:
         """Delegate ``task`` to a child session and return its final answer.
@@ -783,6 +808,7 @@ class SubagentManager:
             force=force,
             prefer=prefer_roles,
             fork=fork,
+            run_id=run_id,
         )
         if not _allow_incomplete_retry:
             return result
@@ -816,6 +842,7 @@ class SubagentManager:
                 progress=progress,
                 force=True,
                 prefer=prefer_roles,
+                run_id=run_id,
             )
             # Prefer the continuation's answer; keep prior findings if the
             # retry came back emptier than the first attempt.
@@ -843,6 +870,7 @@ class SubagentManager:
         force: bool = False,
         prefer: tuple[str, ...] = (),
         fork: bool = False,
+        run_id: str = "",
     ) -> SubagentResult:
         """One child turn with no incomplete re-issue."""
         brief = (task or "").strip()
@@ -872,6 +900,8 @@ class SubagentManager:
         elif agent and not record.name:
             record.name = agent
         record.fork = record.fork or fork
+        if run_id:
+            record.run_id = run_id
         if not record.task_fingerprint:
             record.task_fingerprint = fingerprint(agent, brief)
         if progress is not None:
@@ -1031,7 +1061,7 @@ class SubagentManager:
 
         child = await self._child_session(parent, record, defn)
         record.session_id = child.id
-        child.steered_prompts.extend(record.pending_steers)
+        child.lead_messages.extend(text for _source, text in record.pending_steers)
         record.pending_steers.clear()
         watcher = _ChildWatcher(self, record)
         self.core.hub.subscribe(watcher, child.id)
