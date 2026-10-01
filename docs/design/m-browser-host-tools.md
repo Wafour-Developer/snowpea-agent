@@ -387,3 +387,16 @@ restricted in browser sessions.
 to the working copy, so edits are live after `skill.reload`. `skill.remove`
 drops the link and leaves the directory alone. Installing as a copy replaces
 the link.
+
+## 14. Closing and deleting a session with subagents (addendum 16)
+
+* `session.close {sessionId}` also closes the session's live subagents, at
+  every depth. It is idempotent: closing an already-closed session answers
+  `ok`. Only an id core has never seen is `not_found`.
+* `session.deleteSaved {sessionId}` also deletes every subagent below it,
+  including their rows, attachments and audio, and their workspaces with
+  `deleteWorkspace`. An idle live subagent is closed first.
+  `sessions.changed {reason: "deleted", sessionId}` is emitted for each
+  deleted session.
+* Only `subagent` sessions cascade. A scheduled run that names the thread
+  that scheduled it as its parent is kept.

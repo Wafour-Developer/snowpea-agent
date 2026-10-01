@@ -450,7 +450,9 @@ async def test_session_list_and_close(
 
     assert (await client.ok("session.close", {"sessionId": session_id}))["ok"] is True
     assert (await client.ok("session.list"))["sessions"] == []
-    missing = await client.call("session.close", {"sessionId": session_id})
+    # Closing again is idempotent (addendum 16); an unknown id is not_found.
+    assert (await client.ok("session.close", {"sessionId": session_id}))["ok"] is True
+    missing = await client.call("session.close", {"sessionId": "s-unknown"})
     assert missing["error"]["data"]["code"] == "not_found"
 
     await client.stop()

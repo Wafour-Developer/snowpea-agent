@@ -169,3 +169,45 @@ async def test_sessions_carry_their_profile_and_list_filters_on_it(
     finally:
         await profile_a.stop()
         await profile_b.stop()
+
+
+async def test_close_and_delete_cascade_to_subagents_only(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path  # noqa: F811
+) -> None:
+    """Addendum 16: a root's subagents close and delete with it; a scheduled
+    run that names it as parent does not; closing twice is fine."""
+    client = await open_client(http, daemon)
+    try:
+        root = await new_session(client, tmp_path / "w")
+        sessions = daemon.core.sessions
+        child = await sessions.create(
+            workdir=tmp_path / "w", parent_session_id=root, kind="subagent"
+        )
+        grandchild = await sessions.create(
+            workdir=tmp_path / "w", parent_session_id=child.id, kind="subagent"
+        )
+        routine = await sessions.create(
+            workdir=tmp_path / "w", parent_session_id=root, kind="scheduled"
+        )
+
+        await client.ok("session.close", {"sessionId": root})
+        assert sessions.get(child.id) is None and sessions.get(grandchild.id) is None
+        assert sessions.get(routine.id) is not None
+        # Idempotent: an already-closed child is not an error.
+        await client.ok("session.close", {"sessionId": child.id})
+        missing = await client.call("session.close", {"sessionId": "s-nope"})
+        assert missing["error"]["data"]["code"] == "not_found"
+
+        result = await client.ok("session.deleteSaved", {"sessionId": root})
+        assert result["deleted"] == 3
+        stored = {str(r["id"]) for r in await daemon.core.store.list_sessions(include_closed=True)}
+        assert {root, child.id, grandchild.id} & stored == set()
+        assert routine.id in stored
+        await asyncio.sleep(0.05)
+        deleted = {
+            n["params"]["sessionId"] for n in client.notifications
+            if n["method"] == "sessions.changed" and n["params"]["reason"] == "deleted"
+        }
+        assert deleted == {root, child.id, grandchild.id}
+    finally:
+        await client.stop()

@@ -426,8 +426,17 @@ async def session_delete_saved_handler(
         live = core.sessions.get(params.sessionId)
         if live is not None and live.current_turn is None:
             await core.sessions.close(params.sessionId)
-    live_ids = {row.sessionId for row in core.sessions.list()}
     stored = await core.store.list_sessions(include_closed=True)
+    children: list[str] = []
+    if params.sessionId:
+        # Its subagents go with it (addendum 16); an idle live one is closed first.
+        children = _subagent_children([*stored, *_live_rows(core)], params.sessionId)
+        for child in children:
+            live = core.sessions.get(child)
+            if live is not None and live.current_turn is None:
+                await core.sessions.close(child)
+    live_ids = {row.sessionId for row in core.sessions.list()}
+    wanted = set(children)
     ids = [
         str(row["id"])
         for row in stored
@@ -435,6 +444,7 @@ async def session_delete_saved_handler(
         and (
             params.all
             or (params.sessionId and row["id"] == params.sessionId)
+            or str(row["id"]) in wanted
             or (params.workdir and row["workdir"] == params.workdir)
         )
     ]
@@ -442,7 +452,11 @@ async def session_delete_saved_handler(
     for session_id in ids:
         _purge_session_files(core, session_id, workspace=params.deleteWorkspace)
     if deleted:
-        await core.sessions.announce_sessions_changed("deleted", params.sessionId or "")
+        if params.sessionId:
+            for session_id in ids:
+                await core.sessions.announce_sessions_changed("deleted", session_id)
+        else:
+            await core.sessions.announce_sessions_changed("deleted", "")
     return SessionDeleteResult(deleted=deleted)
 
 
@@ -480,10 +494,48 @@ def _purge_session_files(core: Core, session_id: str, *, workspace: bool = True)
             log.warning("could not purge checkpoints for %s", session_id, exc_info=True)
 
 
+def _subagent_children(rows: list[dict[str, Any]], root: str) -> list[str]:
+    """Every subagent below ``root``, deepest last (addendum 16).
+
+    Only ``subagent`` sessions cascade: a scheduled run also records the
+    thread that scheduled it as its parent, and deleting that thread must not
+    take the routine's history with it.
+    """
+    children: dict[str, list[str]] = {}
+    for row in rows:
+        parent = row.get("parent_session_id")
+        if parent and (row.get("kind") or "chat") == "subagent":
+            children.setdefault(str(parent), []).append(str(row["id"]))
+    found: list[str] = []
+    queue = [root]
+    while queue:
+        for child in children.get(queue.pop(0), []):
+            if child not in found and child != root:
+                found.append(child)
+                queue.append(child)
+    return found
+
+
+def _live_rows(core: Core) -> list[dict[str, Any]]:
+    return [
+        {"id": s.id, "parent_session_id": s.parent_session_id, "kind": s.kind}
+        for s in core.sessions.all()
+    ]
+
+
 async def session_close_handler(_conn: RpcConnection, params: SessionIdParams, core: Core) -> Ok:
+    """``session.close`` — idempotent; closing a session closes its live subagents too."""
+    children = _subagent_children(_live_rows(core), params.sessionId)
     closed = await core.sessions.close(params.sessionId)
+    for child in reversed(children):
+        await core.sessions.close(child)
     if not closed:
-        raise RpcError(errors.NOT_FOUND, f"no such session: {params.sessionId}")
+        known = core.store is not None and any(
+            str(row["id"]) == params.sessionId
+            for row in await core.store.list_sessions(include_closed=True)
+        )
+        if not known:
+            raise RpcError(errors.NOT_FOUND, f"no such session: {params.sessionId}")
     _count_sessions(core)
     return Ok(ok=True)
 
