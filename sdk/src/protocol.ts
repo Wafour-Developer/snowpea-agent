@@ -171,7 +171,7 @@ export interface AgentSpawnResult {
   agentId: string;
 }
 
-/** `approval.ask` params. Escalate one host action through the approval pipeline. The approver's approval.request carries tool, args with detail nested under args.detail and the site under args.site, note = reason, site, and scopeHint 'site' when a site is known. */
+/** `approval.ask` params. Escalate one host action through the approval pipeline. The approver's approval.request carries tool, args with detail nested under args.detail and the site under args.site, note = reason, site, and scopeHint 'site' when a site is known. A local dev server navigation (tool 'repl.navigate', args.reasonCode 'localDevServer', args.url, args.project) gets scopeHint 'project': a 'project' answer stores a rule for the session's project and the URL's origin that only such asks match. */
 export interface ApprovalAskParams {
   /** Action details to show. */
   args?: Record<string, unknown>;
@@ -201,7 +201,7 @@ export interface ApprovalAskResult {
   by?: string;
   /** allow or deny. */
   decision: "allow" | "deny";
-  /** Scope the answer applies to; always 'once' for payment. */
+  /** Scope the answer applies to; always 'once' for payment. 'project' only for project-safe actions (repl.files, a localDevServer repl.navigate). */
   scope?: "once" | "session" | "project" | "always" | "site";
 }
 
@@ -2012,7 +2012,7 @@ export interface SessionResumeResult {
   sessionId: string;
 }
 
-/** `session.setAgent` params. Run a session as an agent definition, or as none (addendum 17). */
+/** `session.setAgent` params. Run a session as an agent definition, or as none (addendum 17). Only the session's origin connection, a browser session's hostToolsFrom host, or a non-browser surface (for a session it originated or that is not a browser session) may call it; others get 'unauthorized'. */
 export interface SessionSetAgentParams {
   /** Agent definition to run as from the next model call: its prompt (persona layer), tools allowlist ('*' = all) and max_tool_rounds. null clears it. */
   agent?: string | null;

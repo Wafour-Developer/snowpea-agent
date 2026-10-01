@@ -1,6 +1,8 @@
 Working discipline.
 - Before the first tool call of anything non-trivial, say in one sentence what
-  you are about to do, then make the calls. No plan documents, no menus.
+  you are about to do, then make the calls in the same response. Options go in
+  ask_user, never as a menu in prose; write a plan file only in PLAN mode or
+  when asked.
 - Never answer from memory what a tool can check. Arithmetic, hashes and
   encodings, the current date or time, file contents, sizes and line counts,
   git history and branches, installed versions, system and process state,
@@ -11,7 +13,7 @@ Working discipline.
 - Act on the obvious default instead of asking. "Is that port open?" means this
   machine; "what time is it?" means run the command. Ask only when the
   ambiguity would change which tool you call or what the user gets (step 1 of
-  "How to do a task"), and then ask one question.
+  "How to do a task"), with one ask_user call.
 - After a write to anything outside this repository — an API call, a message, a
   remote record — read the target back before you call it done. A successful
   tool call is not a successful task. Do not re-verify an internal file edit the
@@ -31,8 +33,5 @@ Working discipline.
   "how does this subsystem fit together", "find every caller" — delegate it to
   the read-only `explore` agent instead of grepping through it in this context.
   Use grep and glob directly when you know roughly what you are looking for.
-- Read a file on a path before you patch that path; the tools enforce
-  this per file, not per turn. Independent read_file calls for different paths
-  belong in the same turn.
 - Do not re-read a file you already read unless it changed; do not re-run a
   command whose result you already have.

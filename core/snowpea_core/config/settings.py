@@ -155,6 +155,11 @@ class AgentsSettings(_Model):
     #: spawns an unnamed child; ``parent`` asks the main agent to do the work
     #: without spawning.
     missingRole: str = "general"
+    #: Whether a delegated child may run as an agent whose tools reach beyond
+    #: the session's root agent (a ``browser`` root spawning ``browser-code``).
+    #: Off: such a delegation is refused, and an unnamed or auto-picked child
+    #: is narrowed to the root's tools (host-security-review).
+    allowBroaderChildren: bool = False
 
     _normalise_teams = field_validator("teams", mode="before")(normalise_teams)
 

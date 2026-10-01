@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from pathlib import PurePath
+from pathlib import Path, PurePath
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -50,10 +50,16 @@ UI_SUFFIXES = frozenset(
      ".less", ".astro"}
 )
 
-#: Browser tools whose successful call is a look at the page.
-BROWSER_LOOKS = frozenset(
-    {"browser_navigate", "browser_snapshot", "browser_screenshot", "browser_vision",
-     "browser_console", "browser_click", "browser_type"}
+#: Calls that show the page itself: a snapshot of what rendered, a screenshot,
+#: or a screenshot file opened with view_image.  Navigating alone is not a look.
+BROWSER_LOOKS = frozenset({"browser_snapshot", "browser_screenshot", "view_image"})
+
+#: Script files that are UI when they live in a web project (one with an
+#: ``index.html`` or a bundler config between them and the working directory).
+WEB_SCRIPT_SUFFIXES = frozenset({".js", ".mjs", ".ts", ".glsl", ".wgsl"})
+WEB_ROOT_MARKERS = (
+    "index.html", "vite.config.js", "vite.config.ts", "vite.config.mjs",
+    "next.config.js", "next.config.mjs", "svelte.config.js", "nuxt.config.ts",
 )
 
 #: A shell command that checks the code: tests, linters, type checkers, builds.
@@ -67,6 +73,7 @@ _CHECK = re.compile(
     r"|gradle\w*\s+(?:test|build|check)|mvn\w*\s+(?:test|verify|package)"
     r"|dotnet\s+(?:test|build)|swift\s+(?:test|build)|deno\s+(?:test|check)"
     r"|node\s+--test|phpunit|rspec|ctest|vite\s+build|next\s+build"
+    r"|node\s+\S+\.(?:m?js|cjs|ts)|deno\s+run|bun\s+(?:run\s+)?\S+\.(?:m?js|ts)"
     r")(?:\b|$)"
 )
 
@@ -76,13 +83,35 @@ def is_check_command(command: str) -> bool:
     return bool(_CHECK.search(command or ""))
 
 
-def _kind(path: str) -> str | None:
+def _in_web_project(path: Path, workdir: Path | None) -> bool:
+    """True when a web entry or bundler config sits between ``path`` and ``workdir``."""
+    try:
+        folder = path.resolve().parent
+        stop = workdir.resolve() if workdir is not None else None
+    except OSError:
+        return False
+    for _ in range(12):
+        if any((folder / marker).is_file() for marker in WEB_ROOT_MARKERS):
+            return True
+        if folder == stop or folder.parent == folder:
+            return False
+        folder = folder.parent
+    return False
+
+
+def _kind(path: str, workdir: Path | None = None) -> str | None:
     """``"ui"``, ``"code"`` or ``None`` (nothing to verify) for an edited path."""
     pure = PurePath(path)
     suffix = pure.suffix.lower()
     if suffix in NON_CODE_SUFFIXES or (not suffix and pure.name.lower() in NON_CODE_NAMES):
         return None
-    return "ui" if suffix in UI_SUFFIXES else "code"
+    if suffix in UI_SUFFIXES:
+        return "ui"
+    if suffix in WEB_SCRIPT_SUFFIXES:
+        full = Path(path) if Path(path).is_absolute() or workdir is None else workdir / path
+        if _in_web_project(full, workdir):
+            return "ui"
+    return "code"
 
 
 @dataclass
@@ -113,7 +142,8 @@ def observe(session: Session, name: str, args: dict[str, Any], result: Any) -> N
     ok = bool(getattr(result, "ok", False))
     if name in EDIT_TOOLS and ok:
         path = str(getattr(result, "path", "") or args.get("path") or "")
-        kind = _kind(path) if path else None
+        workdir = getattr(session, "workdir", None)
+        kind = _kind(path, Path(workdir) if workdir else None) if path else None
         if kind == "ui":
             turn.ui_edits[path] = turn.step
         elif kind == "code":
@@ -130,10 +160,13 @@ def observe(session: Session, name: str, args: dict[str, Any], result: Any) -> N
     if name in BROWSER_LOOKS and ok:
         turn.last_look = turn.step
         return
-    if name in ("delegate_task", "subagent_wait") and ok:
+    if name == "delegate_task" and ok and str(args.get("agent") or "") == "verifier":
+        # Only the verifier's verdict counts, and UNVERIFIED is not a pass: an
+        # executor's "7/7 PASS" over API tests is how a page that never
+        # rendered was once reported complete.
         output = str(getattr(result, "output", "") or "")
-        if re.search(r"\bPASS\b", output) and not re.search(r"\bFAIL\b", output):
-            turn.last_check = (turn.step, True, f"{name} (verifier PASS)")
+        if re.search(r"\bPASS\b", output) and not re.search(r"\b(?:FAIL|UNVERIFIED)\b", output):
+            turn.last_check = (turn.step, True, "delegate_task (verifier PASS)")
             turn.last_look = turn.step
 
 
@@ -157,9 +190,12 @@ def nudge(core: Core, session: Session) -> str | None:
     edits = {**turn.code_edits, **turn.ui_edits}
     if not edits:
         return _open_todos(session, turn)
-    last_edit = max(edits.values())
     check = turn.last_check
-    code_ok = check is not None and check[0] > last_edit and check[1]
+    # Only code edits need a check; a UI-only turn is proved by looking at it.
+    last_edit = max(turn.code_edits.values(), default=-1)
+    code_ok = not turn.code_edits or (
+        check is not None and check[0] > last_edit and check[1]
+    )
     ui_last = max(turn.ui_edits.values(), default=-1)
     ui_ok = not turn.ui_edits or turn.last_look > ui_last
     if code_ok and ui_ok:
@@ -170,21 +206,25 @@ def nudge(core: Core, session: Session) -> str | None:
         "[system] You changed code in this turn but have no fresh evidence that it works.",
         "Changed: " + ", ".join(shown) + (" …" if len(edits) > len(shown) else ""),
     ]
-    if check is None:
-        lines.append("No test, lint, typecheck or build ran after the edits.")
-    elif check[0] < last_edit:
-        lines.append(f"The last check (`{check[2]}`) ran before the latest edit, so it is stale.")
-    elif not check[1]:
-        lines.append(f"The last check (`{check[2]}`) failed.")
-    lines.append(
-        "Run the project's relevant check now, read any failure, fix the cause and say "
-        "what passed. With no suite, verify the changed behaviour with execute_code and "
-        "call it ad-hoc verification, not a green suite."
-    )
+    if not code_ok:
+        if check is None:
+            lines.append("No test, lint, typecheck or build ran after the edits.")
+        elif check[0] < last_edit:
+            lines.append(
+                f"The last check (`{check[2]}`) ran before the latest edit, so it is stale."
+            )
+        else:
+            lines.append(f"The last check (`{check[2]}`) failed.")
+        lines.append(
+            "Run the project's relevant check now, read any failure, fix the cause and say "
+            "what passed. With no suite, exercise the changed behaviour — execute_code "
+            "(Python) or node in shell — and call it ad-hoc verification, not a green suite."
+        )
     if not ui_ok:
         lines.append(
-            "UI files changed too: open the page in the browser, read the console for "
-            "errors, take a snapshot or screenshot and compare it with what was asked."
+            "UI files changed too: start the dev server if needed, open the page in the "
+            "browser, take a browser_screenshot (or snapshot), read the console errors, "
+            "and compare what you see with what was asked. Navigating alone is not a look."
         )
     lines.append(
         "If you cannot verify, say exactly what blocks it and call the work unverified; "
@@ -199,7 +239,12 @@ def _open_todos(session: Session, turn: TurnEvidence) -> str | None:
     if turn.todo_nudged:
         return None
     todos = [t for t in (getattr(session, "todos", None) or []) if isinstance(t, dict)]
-    open_items = [t for t in todos if t.get("status") in ("pending", "in_progress")]
+    open_items = [
+        t
+        for t in todos
+        if t.get("status") in ("pending", "in_progress")
+        and "(blocked:" not in str(t.get("content") or "")
+    ]
     if not open_items:
         return None
     turn.todo_nudged = True
@@ -207,8 +252,9 @@ def _open_todos(session: Session, turn: TurnEvidence) -> str | None:
     listed = "; ".join(str(t.get("content") or t.get("id")) for t in open_items[:8])
     return (
         f"[system] Your task list still has {len(open_items)} open item(s): {listed}. "
-        "Carry on with them now. If one cannot be done in this turn, say what blocks it "
-        "and replace it with a revised item, instead of ending as if it were done."
+        "Carry on with them now. If one cannot be done, set it back to pending with "
+        '"(blocked: reason)" added and say so, instead of ending as if it were done.'
+
     )
 
 

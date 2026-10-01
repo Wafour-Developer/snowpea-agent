@@ -312,7 +312,9 @@ async def session_resume_handler(
     if session.origin_conn is None or getattr(session.origin_conn, "closed", False):
         session.origin_conn = conn
         # Keep the surface that opened the session. Overwriting it with this
-        # connection's opaque id made a TUI/CLI thread look like an IDE spare.
+        # connection's opaque id made a TUI/CLI thread look like an IDE spare,
+        # and would turn a browser root into an ordinary session
+        # (host-security-review). Only an unset origin is filled, in memory.
         if not session.origin_surface:
             session.origin_surface = conn.surface_id
     stored = (

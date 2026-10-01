@@ -61,7 +61,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`agent.delete`](#agentdelete) | client → server | Delete a named agent. |
 | [`agent.list`](#agentlist) | client → server | List the named agents that are defined. |
 | [`agent.spawn`](#agentspawn) | client → server | Run a named agent on a task. |
-| [`approval.ask`](#approvalask) | client → server | Escalate one host action through the approval pipeline. The approver's approval.request carries tool, args with detail nested under args.detail and the site under args.site, note = reason, site, and scopeHint 'site' when a site is known. |
+| [`approval.ask`](#approvalask) | client → server | Escalate one host action through the approval pipeline. The approver's approval.request carries tool, args with detail nested under args.detail and the site under args.site, note = reason, site, and scopeHint 'site' when a site is known. A local dev server navigation (tool 'repl.navigate', args.reasonCode 'localDevServer', args.url, args.project) gets scopeHint 'project': a 'project' answer stores a rule for the session's project and the URL's origin that only such asks match. |
 | [`approval.list`](#approvallist) | client → server | List tool calls still waiting for a decision. |
 | [`approval.request`](#approvalrequest) | server → client | Ask the client to approve a tool call. |
 | [`approval.respond`](#approvalrespond) | client → server | Answer a pending approval and unblock the turn. |
@@ -129,7 +129,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`session.prompt`](#sessionprompt) | client → server | Send user text to a session and start a turn. Events: turn.started {turnId, prompt, queued}, then message.user {text, attachments, refs, steered: false}, then the model's output. message.user.text is what the user typed; a page attachment is listed as {kind: page, name, url, title} and only the model sees the rendered page. A steered prompt emits message.user {steered: true} + turn.dequeued {reason: steered}; a queued one emits turn.queued first. |
 | [`session.rename`](#sessionrename) | client → server | Set a session's title. |
 | [`session.resume`](#sessionresume) | client → server | Replay the events a disconnected client missed. |
-| [`session.setAgent`](#sessionsetagent) | client → server | Run a session as an agent definition, or as none (addendum 17). |
+| [`session.setAgent`](#sessionsetagent) | client → server | Run a session as an agent definition, or as none (addendum 17). Only the session's origin connection, a browser session's hostToolsFrom host, or a non-browser surface (for a session it originated or that is not a browser session) may call it; others get 'unauthorized'. |
 | [`session.setBrowserProvider`](#sessionsetbrowserprovider) | client → server | Per-session opt-in to core's own browser; never global (addendum 9). |
 | [`session.setEffort`](#sessionseteffort) | client → server | Pin how hard a session's model may think, or clear the pin. |
 | [`session.setMode`](#sessionsetmode) | client → server | Switch a session between plan, accept and auto. |
@@ -272,7 +272,7 @@ Run a named agent on a task.
 
 *Direction:* client → server
 
-Escalate one host action through the approval pipeline. The approver's approval.request carries tool, args with detail nested under args.detail and the site under args.site, note = reason, site, and scopeHint 'site' when a site is known.
+Escalate one host action through the approval pipeline. The approver's approval.request carries tool, args with detail nested under args.detail and the site under args.site, note = reason, site, and scopeHint 'site' when a site is known. A local dev server navigation (tool 'repl.navigate', args.reasonCode 'localDevServer', args.url, args.project) gets scopeHint 'project': a 'project' answer stores a rule for the session's project and the URL's origin that only such asks match.
 
 **Params**
 
@@ -295,7 +295,7 @@ Escalate one host action through the approval pipeline. The approver's approval.
 |---|---|---|---|
 | `by` | `string` | no | Who decided: 'user' (a person answered), 'allowlist', 'mode' (the mode matrix), or 'timeout' / 'interrupted' (denied without an answer). |
 | `decision` | `"allow" \| "deny"` | yes | allow or deny. |
-| `scope` | `"once" \| "session" \| "project" \| "always" \| "site"` | no | Scope the answer applies to; always 'once' for payment. |
+| `scope` | `"once" \| "session" \| "project" \| "always" \| "site"` | no | Scope the answer applies to; always 'once' for payment. 'project' only for project-safe actions (repl.files, a localDevServer repl.navigate). |
 
 ### `approval.list`
 
@@ -1740,7 +1740,7 @@ Replay the events a disconnected client missed.
 
 *Direction:* client → server
 
-Run a session as an agent definition, or as none (addendum 17).
+Run a session as an agent definition, or as none (addendum 17). Only the session's origin connection, a browser session's hostToolsFrom host, or a non-browser surface (for a session it originated or that is not a browser session) may call it; others get 'unauthorized'.
 
 **Params**
 

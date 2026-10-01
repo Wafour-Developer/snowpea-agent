@@ -42,6 +42,43 @@ def once_only(args: Any) -> bool:
     return isinstance(args, dict) and args.get("onceOnly") is True
 
 
+#: ``approval.ask`` ``args.reasonCode`` of a browser navigation to a local dev
+#: server; the one ask that may be remembered for the project, per origin.
+LOCAL_DEV_REASON = "localDevServer"
+
+#: The host action that carries :data:`LOCAL_DEV_REASON`.
+LOCAL_DEV_TOOL = "repl.navigate"
+
+
+def local_dev_origin(tool: str, args: Any, workdir: Path | str | None = None) -> str | None:
+    """The http(s) origin of a local-dev-server navigation ask, else ``None``.
+
+    Only ``repl.navigate`` with ``args.reasonCode == "localDevServer"`` and a
+    usable ``args.url`` qualifies. ``args.project``, when sent, must name the
+    session's own project (``workdir``): a rule is never stored for, or matched
+    against, a project the session is not in.
+    """
+    if tool != LOCAL_DEV_TOOL or not isinstance(args, dict) or once_only(args):
+        return None
+    if args.get("reasonCode") != LOCAL_DEV_REASON:
+        return None
+    project = args.get("project")
+    if project is not None:
+        if workdir is None or not isinstance(project, str) or not project.strip():
+            return None
+        try:
+            same = Path(project).expanduser().resolve() == Path(workdir).expanduser().resolve()
+        except (OSError, RuntimeError):
+            return None
+        if not same:
+            return None
+    url = args.get("url")
+    origin = site_of({"url": url}) if isinstance(url, str) else None
+    if origin is None or not origin.startswith(("http://", "https://")):
+        return None
+    return origin
+
+
 def site_of(args: Any, site: str | None = None) -> str | None:
     """``scheme://host`` of an explicit site, or of ``args["url"]``/``args["origin"]``."""
     from urllib.parse import urlsplit
@@ -122,6 +159,8 @@ class AllowlistItem:
     created_at: str | None = None
     #: Owning browser profile of a global entry (addendum 8); ``None`` otherwise.
     host: str | None = None
+    #: ``approval.ask`` reasonCode the entry is limited to; ``None`` for any call.
+    reason_code: str | None = None
 
     @property
     def tool(self) -> str | None:
@@ -151,7 +190,13 @@ class Allowlist:
         project = ProjectSettings.load(workdir)
         return [
             AllowlistItem(
-                e.id, e.pattern, e.target, "project", e.origin, getattr(e, "created_at", None)
+                e.id,
+                e.pattern,
+                e.target,
+                "project",
+                e.origin,
+                getattr(e, "created_at", None),
+                reason_code=getattr(e, "reason_code", None),
             )
             for e in project.allowlist
         ]
@@ -166,6 +211,7 @@ class Allowlist:
                 getattr(e, "origin", None),
                 getattr(e, "created_at", None),
                 getattr(e, "host_tools_from", None),
+                getattr(e, "reason_code", None),
             )
             for e in self.settings.allowlist
         ]
@@ -204,12 +250,15 @@ class Allowlist:
         workdir: Path | str | None = None,
         site: str | None = None,
         host: str | None = None,
+        reason_code: str | None = None,
     ) -> bool:
         """True when some stored pattern covers this call.
 
         An entry with an ``origin`` only covers calls on that site (``site``,
         else the origin of ``args["url"]``). A global entry covers only the
-        sessions of its own browser profile ``host`` (``None``: IDE/CLI).
+        sessions of its own browser profile ``host`` (``None``: IDE/CLI). An
+        entry with a ``reason_code`` covers only a call that names the same
+        ``reason_code``; an ordinary call never matches it.
         """
         call_site = site_of(args or {}, site)
         name = tool if isinstance(tool, str) else str(getattr(tool, "name", ""))
@@ -228,6 +277,8 @@ class Allowlist:
             else:
                 continue
             if item.origin and item.origin != call_site:
+                continue
+            if item.reason_code and item.reason_code != reason_code:
                 continue
             if subject is not None and _matches_pattern(item.pattern, subject):
                 return True
@@ -251,6 +302,7 @@ class Allowlist:
         workdir: Path | str | None = None,
         origin: str | None = None,
         host: str | None = None,
+        reason_code: str | None = None,
     ) -> str:
         """Store ``pattern`` and return its id (existing duplicates are reused)."""
         pattern = pattern.strip()
@@ -262,6 +314,7 @@ class Allowlist:
                 item.pattern == pattern
                 and item.target == target
                 and item.origin == origin
+                and item.reason_code == reason_code
                 and (scope == "project" or item.host == host)
             ):
                 return item.id
@@ -272,6 +325,7 @@ class Allowlist:
             origin=origin,
             created_at=datetime.now(UTC).isoformat(timespec="seconds"),
             host_tools_from=host if scope == "global" else None,
+            reason_code=reason_code,
         )
         if scope == "project":
             if workdir is None:
@@ -324,6 +378,8 @@ class Allowlist:
 
 
 __all__ = [
+    "LOCAL_DEV_REASON",
+    "LOCAL_DEV_TOOL",
     "SHELL_TARGET",
     "SHELL_TOOLS",
     "Allowlist",
@@ -331,6 +387,7 @@ __all__ = [
     "Scope",
     "command_of",
     "first_token",
+    "local_dev_origin",
     "new_id",
     "pattern_for_command",
     "pattern_for_tool",

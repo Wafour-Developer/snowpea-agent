@@ -7,6 +7,5 @@ created or modified with its path, state what you verified and how, and say
 plainly what you could not do. Do not replay your process, and keep it under a
 dozen lines: a long report crowds out the parent's context window.
 
-Never report a result you did not actually produce. If a command failed or a
-path was blocked, say so; a reported blocker is worth more than an invented
-success.
+Where these instructions say to ask the user, take your recommended option
+instead and list it under "Assumptions" in your report.

@@ -37,7 +37,7 @@ GOLDEN_DIR = Path(__file__).parent / "golden" / "prompts"
 TIER_BUDGET_TOKENS = {"stable": 3900, "context": 800, "volatile": 600}
 
 MODES = ("plan", "accept", "auto")
-VENDOR_CLASSES = ("anthropic", "openai-family", "small-local")
+VENDOR_CLASSES = ("anthropic", "openai-family", "gemini", "meta", "small-local")
 ROLES = (None, "executor")
 
 
@@ -242,7 +242,7 @@ def test_an_empty_persona_adds_nothing() -> None:
 def test_base_prompt_closes_the_named_gaps() -> None:
     base = loader.load("base")
     for marker in (
-        "Read the relevant files with read_file",  # gap 1
+        "read it before changing anything",  # gap 1
         "How to answer.",  # gap 6
         "How to do a task.",  # gap 7 (the five-step procedure)
         "Batching.",  # gap 8
@@ -321,7 +321,8 @@ def test_an_unknown_tag_is_used_as_written() -> None:
         ("openai", "openai-family"),
         ("openrouter", "openai-family"),
         ("xai", "openai-family"),
-        ("gemini", "openai-family"),
+        ("gemini", "gemini"),
+        ("meta", "meta"),
         ("local", "small-local"),
         ("qwen", "small-local"),
         ("glm", "small-local"),
@@ -334,6 +335,27 @@ def test_an_unknown_tag_is_used_as_written() -> None:
 )
 def test_vendor_class_for(provider: str | None, expected: str) -> None:
     assert compose.vendor_class_for(provider) == expected
+
+
+@pytest.mark.parametrize(
+    ("provider", "model", "expected"),
+    [
+        ("openrouter", "meta/muse-spark-1.3", "meta"),
+        ("openrouter", "anthropic/claude-sonnet-5", "anthropic"),
+        ("openrouter", "google/gemini-3-pro", "gemini"),
+        ("openrouter", "qwen/qwen3.8-max", "small-local"),
+        ("openai", "gpt-6", "openai-family"),
+        ("meta", "muse-spark-1.3-contributor", "meta"),
+        ("hon2", "claude-sonnet-5", "openai-family"),
+    ],
+)
+def test_vendor_class_follows_the_model_family(
+    provider: str, model: str, expected: str
+) -> None:
+    """opencode picks its prompt by model id; so do we, before the provider."""
+    local = provider == "hon2"
+    want = "small-local" if local else expected
+    assert compose.vendor_class_for(provider, model=model, local_style=local) == want
 
 
 # ---------------------------------------------------------------------------
@@ -616,7 +638,7 @@ def test_plan_mode_asks_before_it_writes() -> None:
     assert explore < ask < write
     assert "call ask_user" in plan
     # Unknowns are asked, not quietly assumed into the plan.
-    assert "Never use this section instead of asking." in plan
+    assert "Never use this section instead of asking;" in plan
     assert "what you assumed" not in plan
 
 

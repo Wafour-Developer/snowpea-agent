@@ -14,6 +14,8 @@ leading substring: anything that changes per turn has to come last.
 
 from __future__ import annotations
 
+import re
+
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -26,7 +28,9 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.providers.base import ToolSpec
 
 #: Prompt layers keyed on how capable the model family is.
-VENDOR_CLASSES: tuple[str, ...] = ("anthropic", "openai-family", "small-local")
+VENDOR_CLASSES: tuple[str, ...] = (
+    "anthropic", "openai-family", "gemini", "meta", "small-local"
+)
 
 #: Provider preset -> vendor class.  A small local model needs several hundred
 #: words of tool-use enforcement that would be noise for a frontier model.
@@ -35,8 +39,8 @@ VENDOR_CLASS_BY_PROVIDER: dict[str, str] = {
     "openai": "openai-family",
     "openrouter": "openai-family",
     "xai": "openai-family",
-    "gemini": "openai-family",
-    "meta": "openai-family",
+    "gemini": "gemini",
+    "meta": "meta",
     "local": "small-local",
     "qwen": "small-local",
     "glm": "small-local",
@@ -87,7 +91,21 @@ _LANGUAGE_NAMES: dict[str, str] = {
 }
 
 
-def vendor_class_for(provider: str | None, *, local_style: bool = False) -> str:
+#: Model id -> prompt layer, checked before the provider (opencode picks its
+#: prompt by model id the same way): Muse Spark through OpenRouter still gets
+#: the Meta layer, Claude through a gateway the Anthropic one.
+MODEL_FAMILY_CLASSES: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"muse[-_.]?spark", re.IGNORECASE), "meta"),
+    (re.compile(r"claude", re.IGNORECASE), "anthropic"),
+    (re.compile(r"gemini", re.IGNORECASE), "gemini"),
+    (re.compile(r"(?:^|[/:])(?:gpt|o\d|codex|grok)", re.IGNORECASE), "openai-family"),
+    (re.compile(r"qwen|glm|deepseek|kimi|minimax|llama|mistral", re.IGNORECASE), "small-local"),
+)
+
+
+def vendor_class_for(
+    provider: str | None, *, local_style: bool = False, model: str | None = None
+) -> str:
     """The prompt layer for a provider preset; unknown vendors get the default.
 
     ``local_style`` is what a named OpenAI-compatible server (``hon2``) passes:
@@ -95,6 +113,12 @@ def vendor_class_for(provider: str | None, *, local_style: bool = False) -> str:
     small model as the built-in ``local`` vendor and needs the same tool-use
     enforcement.
     """
+    if local_style:
+        return "small-local"
+    if model:
+        for pattern, family in MODEL_FAMILY_CLASSES:
+            if pattern.search(model):
+                return family
     if not provider:
         return "anthropic"
     key = provider.strip().lower().partition(":")[0]

@@ -644,3 +644,11 @@ def test_the_command_says_when_a_model_has_no_effort() -> None:
     ctx.session.model = "qwen38-flash-next"
     text = explain(ctx, "high", "session", ["low", "medium", "high"], "max")  # type: ignore[arg-type]
     assert "max is not available" in text and "offers: low, medium, high" in text
+
+
+def test_meta_defaults_to_high_effort_below_the_users_rules() -> None:
+    assert effort_scale.resolve(Settings(), "meta", "muse-spark-1.3") == ("high", "vendor")
+    pinned = Settings()
+    pinned.agent.effortBy = {"meta": "low"}
+    assert effort_scale.resolve(pinned, "meta", "muse-spark-1.3") == ("low", "vendor")
+    assert effort_scale.resolve(Settings(), "openai", "gpt-6")[1] == "default"

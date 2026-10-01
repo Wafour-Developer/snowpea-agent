@@ -16,7 +16,12 @@ import time
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
-from snowpea_core.permissions.allowlist import once_only, site_of
+from snowpea_core.permissions.allowlist import (
+    LOCAL_DEV_REASON,
+    local_dev_origin,
+    once_only,
+    site_of,
+)
 from snowpea_core.permissions.policy import MODE_MATRIX, RISK_BY_TAG
 from snowpea_core.providers.base import ChatMessage
 from snowpea_core.server import errors
@@ -218,8 +223,18 @@ async def approval_ask_handler(
             return ApprovalAskResult(
                 decision="allow", by="mode" if matrix == "allow" else "allowlist"
             )
+    # A local dev server navigation may be remembered for this project and
+    # this origin; only such an ask is matched against those rules.
+    local_dev = (
+        local_dev_origin(params.tool, args, session.workdir) if not unremembered else None
+    )
     if not unremembered and core.allowlist.matches(
-        tool, args, workdir=session.workdir, site=site, host=session.host_tools_from
+        tool,
+        args,
+        workdir=session.workdir,
+        site=site,
+        host=session.host_tools_from,
+        reason_code=LOCAL_DEV_REASON if local_dev else None,
     ):
         return ApprovalAskResult(decision="allow", by="allowlist")
     decision = await core.approvals.request(
@@ -230,7 +245,7 @@ async def approval_ask_handler(
         unattended=session.origin_conn is None,
         cancel_event=session.interrupt,
         note=params.reason,
-        scope_hint="site" if site and not unremembered else "once",
+        scope_hint="project" if local_dev else ("site" if site and not unremembered else "once"),
         # A payment / onceOnly answer is never remembered: no cache, no entry.
         cacheable=not unremembered,
         site=site,
@@ -276,6 +291,9 @@ async def session_attach_handler(
             errors.INVALID_PARAMS,
             f"hostToolsFrom {target!r} is not an open connection of clientKind 'browser'",
         )
+    # Only the live origin *connection* moves. ``origin_surface`` is what
+    # opened the session ("browser", "tui", ...) and is never rewritten here,
+    # in memory or in the store: a browser root must stay a browser root.
     session.origin_conn = conn
     if params.locale is not None:
         from snowpea_core.agent.agent import locale_tag
@@ -296,13 +314,57 @@ async def session_attach_handler(
     )
 
 
+def _is_browser_session(session: Session) -> bool:
+    return getattr(session, "origin_surface", None) == "browser" or bool(
+        getattr(session, "host_tools_from", None)
+    )
+
+
+def _may_set_agent(conn: RpcConnection, session: Session) -> bool:
+    """Whether ``conn`` may switch ``session``'s agent (host-security-review).
+
+    Allowed: the session's origin connection; for a browser session, the
+    connection that is its ``hostToolsFrom`` host; a non-browser surface
+    (TUI, IDE, CLI) for a session it originated or that is not a browser
+    session. Any other connection — another browser profile above all — may
+    not widen a browser root to ``browser-code``.
+    """
+    if session.origin_conn is not None and session.origin_conn is conn:
+        return True
+    surface = getattr(conn, "surface_id", None)
+    client_id = getattr(conn, "client_id", None)
+    originated = (surface is not None and session.origin_surface == surface) or (
+        client_id is not None and getattr(session, "origin_client_id", None) == client_id
+    )
+    if _is_browser_session(session):
+        host = getattr(session, "host_tools_from", None)
+        if host and host in (client_id, surface):
+            return True
+        if host and surface is not None and HOST_TOOLS.owner_of(session) == surface:
+            return True
+        return originated
+    if getattr(conn, "client_kind", None) == "browser":
+        return originated
+    return True
+
+
 async def session_set_agent_handler(
-    _conn: RpcConnection, params: SessionSetAgentParams, core: Core
+    conn: RpcConnection, params: SessionSetAgentParams, core: Core
 ) -> SessionSetAgentResult:
-    """``session.setAgent`` — run as a definition (or none) from the next model call."""
+    """``session.setAgent`` — run as a definition (or none) from the next model call.
+
+    Only the session's own surfaces may switch it (see :func:`_may_set_agent`);
+    others get ``unauthorized``.
+    """
     from snowpea_core.agent.session_agent import UnknownAgent, switch_agent
 
     session = _session(core, params.sessionId)
+    if not _may_set_agent(conn, session):
+        raise RpcError(
+            errors.UNAUTHORIZED,
+            "only the session's origin connection, its browser host or the owner's "
+            "own surfaces may change its agent",
+        )
     try:
         agent = await switch_agent(core, session, (params.agent or "").strip() or None)
     except UnknownAgent as exc:

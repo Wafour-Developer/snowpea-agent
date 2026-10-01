@@ -1321,7 +1321,11 @@ class ApprovalAskParams(Payload):
 class ApprovalAskResult(Payload):
     decision: Decision = Field(description="allow or deny.")
     scope: ApprovalScope = Field(
-        default="once", description="Scope the answer applies to; always 'once' for payment."
+        default="once",
+        description=(
+            "Scope the answer applies to; always 'once' for payment. 'project' only "
+            "for project-safe actions (repl.files, a localDevServer repl.navigate)."
+        ),
     )
     by: str = Field(
         default="",
@@ -4557,7 +4561,11 @@ METHODS: dict[str, RpcMethod] = {
                 "Escalate one host action through the approval pipeline. The approver's "
                 "approval.request carries tool, args with detail nested under "
                 "args.detail and the site under args.site, note = reason, site, and "
-                "scopeHint 'site' when a site is known."
+                "scopeHint 'site' when a site is known. A local dev server navigation "
+                "(tool 'repl.navigate', args.reasonCode 'localDevServer', args.url, "
+                "args.project) gets scopeHint 'project': a 'project' answer stores a "
+                "rule for the session's project and the URL's origin that only such "
+                "asks match."
             ),
         ),
         _m(
@@ -4570,7 +4578,12 @@ METHODS: dict[str, RpcMethod] = {
             "session.setAgent",
             SessionSetAgentParams,
             SessionSetAgentResult,
-            "Run a session as an agent definition, or as none (addendum 17).",
+            (
+                "Run a session as an agent definition, or as none (addendum 17). Only "
+                "the session's origin connection, a browser session's hostToolsFrom "
+                "host, or a non-browser surface (for a session it originated or that "
+                "is not a browser session) may call it; others get 'unauthorized'."
+            ),
         ),
         _m(
             "session.setBrowserProvider",

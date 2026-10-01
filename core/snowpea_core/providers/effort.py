@@ -37,6 +37,10 @@ EffortSource = Literal["session", "model", "vendor", "default"]
 #: The user-facing scale, weakest first.
 EFFORTS: tuple[str, ...] = ("low", "medium", "high", "max")
 DEFAULT_EFFORT = "medium"
+#: Built-in per-vendor effort, below ``agent.effortBy`` and above
+#: ``agent.effort``: Muse Spark answered coding turns in 100-150 tokens at
+#: "medium" and under-planned; "high" is its usable coding tier.
+BUILTIN_VENDOR_EFFORT: dict[str, str] = {"meta": "high"}
 #: What ``/effort auto`` and ``session.setEffort null`` mean: no pin.
 AUTO = "auto"
 
@@ -253,6 +257,8 @@ def resolve(
         legacy = _legacy_openai_effort(settings, name)
         if legacy is not None:
             return legacy, "vendor"
+        if name in BUILTIN_VENDOR_EFFORT:
+            return BUILTIN_VENDOR_EFFORT[name], "vendor"
     configured = normalize(_field(agent, "effort"))
     return (configured or DEFAULT_EFFORT), "default"
 
@@ -406,6 +412,7 @@ UNSUPPORTED = UnsupportedEffort()
 
 __all__ = [
     "BUILTIN_PROFILES",
+    "BUILTIN_VENDOR_EFFORT",
     "EffortProfile",
     "clamp",
     "model_profile",

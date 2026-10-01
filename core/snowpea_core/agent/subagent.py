@@ -38,6 +38,7 @@ from snowpea_core.prompts.loader import PromptNotFound, load
 from snowpea_core.providers.base import REDACTED, ChatMessage
 from snowpea_core.server.protocol import AgentInfo
 from snowpea_core.session import events
+from snowpea_core.tools.deferred import TOOL_SEARCH
 from snowpea_core.tools.registry import ProgressEmitter
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -353,6 +354,9 @@ class SubagentRecord:
     #: shared by the continuation re-issues, so ``subagent_message`` can reach
     #: whichever attempt is running.
     run_id: str = ""
+    #: Tools the child may never exceed: the session's root agent's, when that
+    #: agent is narrower than what the child would get (host-security-review).
+    tool_ceiling: set[str] | None = None
 
     @property
     def ok(self) -> bool:
@@ -834,6 +838,7 @@ class SubagentManager:
                 parent,
                 continuation_brief(brief, result),
                 agent=agent or (result.name or None),
+                explicit_agent=bool(agent),
                 tools=tools,
                 timeout=timeout,
                 record=None,
@@ -871,9 +876,17 @@ class SubagentManager:
         prefer: tuple[str, ...] = (),
         fork: bool = False,
         run_id: str = "",
+        explicit_agent: bool | None = None,
     ) -> SubagentResult:
-        """One child turn with no incomplete re-issue."""
+        """One child turn with no incomplete re-issue.
+
+        ``explicit_agent`` says the caller named ``agent`` (default: whether
+        ``agent`` is given); only an agent the caller named is refused for
+        being broader than the root, an auto-picked one is narrowed instead.
+        """
         brief = (task or "").strip()
+        if explicit_agent is None:
+            explicit_agent = bool(agent)
         # Resolve role: explicit → prefer → general → missingRole policy.
         if not agent:
             agent = pick_agent(
@@ -965,6 +978,9 @@ class SubagentManager:
         defn = self.definition(parent, agent)
         if agent and defn is None:
             return await self._refuse(record, f"unknown agent '{agent}'")
+        refusal = self._narrowing(parent, record, defn, tools, explicit=explicit_agent)
+        if refusal:
+            return await self._refuse(record, refusal)
 
         semaphore = self.semaphore_for(parent)
         current = asyncio.current_task()
@@ -1040,6 +1056,68 @@ class SubagentManager:
             denied_tools=list(record.denied_tools),
         )
 
+    def _root_of(self, parent: Session) -> Session:
+        """The human session a chain of delegations started from."""
+        root = parent
+        for _ in range(16):
+            parent_id = getattr(root, "parent_session_id", None)
+            if getattr(root, "kind", "chat") != "subagent" or not parent_id:
+                break
+            above = self.core.sessions.get(parent_id)
+            if above is None:
+                break
+            root = above
+        return root
+
+    def _root_tools(self, root: Session) -> set[str] | None:
+        """The root agent's tools; ``None`` when it may use every tool."""
+        name = getattr(root, "agent", None)
+        defn = self.definition(root, name) if name else None
+        if defn is not None:
+            listed = defn.tool_list()
+            return set(listed) if listed is not None else None
+        allowed = getattr(root, "allowed_tools", None)
+        return set(allowed) if allowed is not None else None
+
+    def _narrowing(
+        self,
+        parent: Session,
+        record: SubagentRecord,
+        defn: AgentDefinition | None,
+        tools: list[str] | None,
+        *,
+        explicit: bool,
+    ) -> str | None:
+        """Refuse a child broader than the root agent, or cap it to the root's tools.
+
+        A delegation may narrow the session's root agent, never widen it: a
+        ``browser`` root must not reach ``shell`` through ``browser-code``
+        (host-security-review). A child the caller named is refused with the
+        reason; an auto-picked or unnamed one is capped at the root's tools.
+        ``agents.allowBroaderChildren`` turns the check off.
+        """
+        if getattr(self.core.settings.agents, "allowBroaderChildren", False):
+            return None
+        root = self._root_of(parent)
+        ceiling = self._root_tools(root)
+        if ceiling is None:
+            return None
+        child = _child_tools(defn, tools)
+        extra = None if child is None else sorted(child - ceiling - {TOOL_SEARCH})
+        if extra == []:
+            return None
+        if explicit and record.name:
+            reach = "every tool" if extra is None else ", ".join(extra)
+            root_name = getattr(root, "agent", None) or "the session's agent"
+            return (
+                f"agent '{record.name}' refused: it may use tools the session's root agent "
+                f"'{root_name}' does not have ({reach}). A delegated agent may only narrow "
+                "the root agent's tools. Pick an agent within those tools, or the user can "
+                "allow broader children with the setting agents.allowBroaderChildren."
+            )
+        record.tool_ceiling = ceiling
+        return None
+
     async def _refuse(self, record: SubagentRecord, message: str) -> SubagentResult:
         record.status = ERROR
         record.error = message
@@ -1067,6 +1145,13 @@ class SubagentManager:
         self.core.hub.subscribe(watcher, child.id)
         try:
             self._apply_definition(child, defn, tools)
+            if record.tool_ceiling is not None:
+                current = child.allowed_tools
+                child.allowed_tools = (
+                    set(record.tool_ceiling)
+                    if current is None
+                    else current & record.tool_ceiling
+                )
             if record.fork:
                 child.history.extend(fork_history(parent))
             # The child is told its own budget, because it is the one that has
@@ -1205,6 +1290,20 @@ class SubagentManager:
             from snowpea_core.tools import deferred
 
             deferred.load(child, allowed)
+
+
+def _child_tools(defn: AgentDefinition | None, tools: list[str] | None) -> set[str] | None:
+    """The tool set :meth:`SubagentManager._apply_definition` will give a child."""
+    allowed: set[str] | None = None
+    listed = defn.tool_list() if defn is not None else None
+    if listed is not None:
+        allowed = set(listed)
+    if tools:
+        explicit = {str(name) for name in tools if str(name).strip()}
+        allowed = explicit if allowed is None else (allowed & explicit)
+    if allowed is None and defn is not None and defn.name in READONLY_DEFAULT_AGENTS:
+        allowed = set(READONLY_DEFAULT_TOOLS)
+    return allowed
 
 
 def _call_summary(payload: dict[str, Any]) -> str:

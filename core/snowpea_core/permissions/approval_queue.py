@@ -32,6 +32,7 @@ from snowpea_core.permissions.allowlist import (
     Allowlist,
     command_of,
     first_token,
+    local_dev_origin,
     once_only,
     pattern_for_command,
     pattern_for_tool,
@@ -77,24 +78,32 @@ REPL_GLOBAL_OK: frozenset[str] = frozenset({"repl.tabs", "repl.clipboard"})
 REPL_PROJECT_OK: frozenset[str] = frozenset({"repl.files"})
 
 
-def guard_scope(request: ApprovalRequest, decision: Decision) -> Decision:
+def guard_scope(request: ApprovalRequest, decision: Decision, workdir: Any = None) -> Decision:
     """Downgrade a remembered answer that would be broader than it looks.
 
     Defense in depth for host actions (1.7.0): a page action (``repl.*``
     other than tabs/clipboard) answered "always"/"project" would be stored
     with no site and match everywhere; a "site" answer with no usable
     http(s) origin would be stored the same way.  Both become ``once``.
+    The exception is a local-dev-server navigation (``repl.navigate`` with
+    ``reasonCode: "localDevServer"``) answered "project": it is stored for
+    the session's project *and* the URL's origin only.
     """
     if not decision.allowed or decision.scope == "once":
         return decision
     if once_only(request.args):
         return replace(decision, scope="once")
     tool = request.tool or ""
+    local_dev = (
+        decision.scope == "project"
+        and local_dev_origin(tool, request.args, workdir) is not None
+    )
     if (
         decision.scope in ("always", "project")
         and tool.startswith("repl.")
         and tool not in REPL_GLOBAL_OK
         and not (decision.scope == "project" and tool in REPL_PROJECT_OK)
+        and not local_dev
     ):
         log.info("approval %s: %s for %s kept to once", request.requestId, decision.scope, tool)
         return replace(decision, scope="once")
@@ -330,7 +339,7 @@ class ApprovalQueue:
                     await entry.task
         if not self.count(session.id):
             await self._announce_status(session.id, "running", entry.host)
-        decision = guard_scope(request, decision)
+        decision = guard_scope(request, decision, entry.workdir)
         await self._resolve(
             request,
             decision,
@@ -446,7 +455,15 @@ class ApprovalQueue:
         host: str | None = None,
     ) -> None:
         """Cache, persist, log and announce a finished request."""
-        if cacheable and decision.allowed and decision.scope in CACHING_SCOPES:
+        # A local-dev project rule is per origin; the session cache is keyed by
+        # tool alone and would allow every navigation, so only the rule counts.
+        per_origin = local_dev_origin(request.tool, request.args, workdir) is not None
+        if (
+            cacheable
+            and decision.allowed
+            and decision.scope in CACHING_SCOPES
+            and not (per_origin and decision.scope == "project")
+        ):
             self._cache.add(self.cache_key(request.sessionId, request.tool, request.args))
         if cacheable and decision.allowed and decision.scope in PERSISTING_SCOPES:
             self._persist(request, decision.scope, workdir, host)
@@ -473,7 +490,13 @@ class ApprovalQueue:
             log.warning("cannot store a project allowlist entry without a workdir")
             return
         origin = None
-        if scope == "site":
+        reason_code = None
+        local_dev = local_dev_origin(request.tool, request.args, workdir)
+        if scope == "project" and local_dev is not None:
+            # "Always for this project" on a local dev server: this tool, this
+            # origin, and only asks that name the same reason (security review).
+            origin, reason_code = local_dev, str(request.args.get("reasonCode"))
+        elif scope == "site":
             # "Always allow on this site": the tool, limited to the page's origin.
             origin = site_of(request.args, request.site)
             if origin is None:
@@ -494,6 +517,7 @@ class ApprovalQueue:
                 workdir=workdir,
                 origin=origin,
                 host=host if store == "global" else None,
+                reason_code=reason_code,
             )
         except (OSError, ValueError):  # pragma: no cover - a bad store never breaks a turn
             log.warning("could not store allowlist entry %r", pattern, exc_info=True)

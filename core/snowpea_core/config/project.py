@@ -40,6 +40,9 @@ class AllowlistEntry(BaseModel):
     #: Browser profile (clientId) a global entry belongs to (addendum 8): it
     #: covers only that profile's sessions. ``None`` is an ordinary entry.
     host_tools_from: str | None = None
+    #: The ``approval.ask`` ``args.reasonCode`` a rule is limited to (e.g.
+    #: ``localDevServer``): such a rule covers only asks naming that reason.
+    reason_code: str | None = None
 
 
 def _coerce_allowlist(value: Any) -> Any:

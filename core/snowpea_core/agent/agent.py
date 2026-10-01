@@ -371,6 +371,7 @@ def build_system_prompt(
         mode=session.mode,
         vendor_class=compose.vendor_class_for(
             session.provider,
+            model=session.model,
             local_style=bool(
                 core is not None and core.providers.is_local_style(session.provider or "")
             ),

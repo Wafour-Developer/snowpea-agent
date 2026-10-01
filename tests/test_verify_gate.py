@@ -68,6 +68,8 @@ def test_a_ui_edit_also_needs_a_look_in_the_browser(tmp_path: Path) -> None:
     verify_gate.observe(
         session, "browser_navigate", {"url": "http://127.0.0.1:8899"}, ToolResult(ok=True)
     )
+    assert verify_gate.nudge(_core(), session), "navigating is not a look"
+    verify_gate.observe(session, "browser_screenshot", {}, ToolResult(ok=True))
     assert verify_gate.nudge(_core(), session) is None
 
 
@@ -97,3 +99,41 @@ def test_open_todos_get_one_reminder(tmp_path: Path) -> None:
     reminder = verify_gate.nudge(_core(), session)
     assert reminder and "add missions" in reminder and "build the world" not in reminder
     assert verify_gate.nudge(_core(), session) is None
+
+
+def test_only_a_verifiers_clean_pass_counts(tmp_path: Path) -> None:
+    session = _session(tmp_path)
+    _edit(session, "app/main.py")
+    verify_gate.observe(
+        session, "delegate_task", {"agent": "executor"}, ToolResult(ok=True, output="7/7 PASS")
+    )
+    assert verify_gate.nudge(_core(), session)
+    verify_gate.observe(
+        session,
+        "delegate_task",
+        {"agent": "verifier"},
+        ToolResult(ok=True, output="API PASS; UI UNVERIFIED"),
+    )
+    assert verify_gate.nudge(_core(), session)
+
+
+def test_scripts_of_a_web_project_are_ui(tmp_path: Path) -> None:
+    (tmp_path / "web").mkdir()
+    (tmp_path / "web" / "index.html").write_text("<canvas></canvas>")
+    (tmp_path / "tools").mkdir()
+    session = _session(tmp_path)
+    _edit(session, "web/game.js")
+    _edit(session, "tools/build.ts")
+    assert session.verify_turn.ui_edits.keys() == {"web/game.js"}
+    assert session.verify_turn.code_edits.keys() == {"tools/build.ts"}
+
+
+def test_a_ui_only_turn_is_proved_by_a_screenshot_and_node_counts_as_a_check(
+    tmp_path: Path,
+) -> None:
+    session = _session(tmp_path)
+    _edit(session, "index.html")
+    verify_gate.observe(session, "browser_screenshot", {}, ToolResult(ok=True))
+    assert verify_gate.nudge(_core(), session) is None
+    assert verify_gate.is_check_command("node scripts/smoke.mjs")
+    assert not verify_gate.is_check_command("node --version")

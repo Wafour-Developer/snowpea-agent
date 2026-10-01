@@ -87,12 +87,12 @@ TOOLS: tuple[Tool, ...] = (
         category="interaction",
         description=(
             "Keep the task list for multi-step work, visible to the user as you go. "
-            "Use it when the work has three or more steps or the user gave several "
-            "tasks; skip it for one or two. Each item is a result you can check, in "
-            "order. Exactly one item is in_progress while work remains. Mark an item "
+            "Use it for any task beyond a one-line answer: each thing the user asked "
+            "for, quoted, is one item, in order. Exactly one item is in_progress while work remains. Mark an item "
             "completed only after its verification passed — never on intent. If an "
-            "item is blocked or only partly done, keep it in_progress and add an item "
-            "for the blocker; if it fails, replace it with a revised one. When the "
+            "item is blocked, set it back to pending with \"(blocked: reason)\" added "
+            "and make the blocker's own item in_progress; if it fails, replace it with a "
+            "revised one. When the "
             "user adds instructions mid-task, add them as items. Keep commands the user "
             "gave verbatim. merge=true updates items by id (send only the changed "
             "ones); merge=false replaces the list."

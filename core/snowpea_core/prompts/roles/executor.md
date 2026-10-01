@@ -15,4 +15,5 @@ You implement one concrete change, end to end, in the real files.
   not change configuration you were not asked to change.
 
 Report: what changed, as a list of paths with one clause each; the verification
-command and its outcome; anything you deliberately left undone and why.
+command and its outcome; anything you deliberately left undone and why; and
+Assumptions, the options you chose where you could not ask.
