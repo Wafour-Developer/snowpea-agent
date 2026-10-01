@@ -121,6 +121,9 @@ class Job(BaseModel):
     #: connect before failing with ``host_unavailable`` (1.7.0).
     host_tools_from: str | None = None
     host_wait_sec: int = 300
+    #: How long a firing may wait for its host before it is recorded as missed
+    #: (addendum 11): the run is held as ``waiting_for_host`` meanwhile.
+    catch_up_window_min: int = 60
 
     @classmethod
     def from_spec(
@@ -203,7 +206,11 @@ class Job(BaseModel):
         if not self.host_tools_from:
             return None
         return json.dumps(
-            {"hostToolsFrom": self.host_tools_from, "hostWaitSec": self.host_wait_sec}
+            {
+                "hostToolsFrom": self.host_tools_from,
+                "hostWaitSec": self.host_wait_sec,
+                "catchUpWindowMinutes": self.catch_up_window_min,
+            }
         )
 
     @classmethod
@@ -241,6 +248,7 @@ def _options_of(row: sqlite3.Row) -> dict[str, Any]:
     return {
         "host_tools_from": str(data["hostToolsFrom"]),
         "host_wait_sec": int(data.get("hostWaitSec") or 300),
+        "catch_up_window_min": int(data.get("catchUpWindowMinutes") or 60),
     }
 
 
@@ -369,6 +377,22 @@ class JobStore:
             " WHERE job_id = ? AND scheduled_ts = ?",
             (iso(utc_now()), status, session_id, job_id, iso(scheduled_ts)),
         )
+
+    async def set_run_status(self, job_id: str, scheduled_ts: datetime, status: str) -> None:
+        """Mark a claimed occurrence (``waiting_for_host`` while its host is away)."""
+        await asyncio.to_thread(
+            self._execute,
+            "UPDATE job_runs SET status = ? WHERE job_id = ? AND scheduled_ts = ?",
+            (status, job_id, iso(scheduled_ts)),
+        )
+
+    async def waiting_runs(self) -> Rows:
+        """Occurrences held for a host that was not connected when they came due."""
+        rows = await asyncio.to_thread(
+            self._query,
+            "SELECT * FROM job_runs WHERE status = 'waiting_for_host' ORDER BY scheduled_ts",
+        )
+        return [dict(row) for row in rows]
 
     async def runs(self, job_id: str) -> Rows:
         rows = await asyncio.to_thread(

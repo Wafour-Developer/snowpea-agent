@@ -836,9 +836,12 @@ async def test_task_list_status_titles_rename_and_broadcast(
         await host.stop()
 
 
-async def test_a_routine_runs_with_the_browsers_host_tools_or_fails_without_one(
+async def test_a_routine_waits_for_its_host_and_runs_when_the_host_registers(
     http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
 ) -> None:
+    """Addendum 11: a firing whose host is away is held, not failed, and starts
+    as soon as that host registers its tools; job.nextRunForClient tells the
+    browser when to wake it."""
     watcher = await open_client(http, daemon)
     try:
         (tmp_path / "w").mkdir()
@@ -848,36 +851,84 @@ async def test_a_routine_runs_with_the_browsers_host_tools_or_fails_without_one(
                 "spec": "every 1 hour",
                 "task": "use host echo",
                 "workdir": str(tmp_path / "w"),
-                "sessionTemplate": {"hostToolsFrom": "browser", "hostWaitSec": 1},
+                "sessionTemplate": {"hostToolsFrom": "snowpea-browser-R", "hostWaitSec": 5},
             },
         )
-        await watcher.ok("job.runNow", {"jobId": job["jobId"]})
-        failed = None
-        for _ in range(200):
-            failed = next(
-                (
-                    n["params"] for n in watcher.notifications
-                    if n["method"] == "job.event" and n["params"]["kind"] == "failed"
-                ),
-                None,
-            )
-            if failed:
-                break
-            await asyncio.sleep(0.05)
-        assert failed and "host_unavailable" in failed["payload"]["text"]
+        upcoming = await watcher.ok("job.nextRunForClient", {"clientId": "snowpea-browser-R"})
+        assert upcoming["nextRunAt"] == job["nextRunAt"]
+        assert (await watcher.ok("job.nextRunForClient", {"clientId": "nobody"})) == {
+            "nextRunAt": None
+        }
 
-        host = await open_client(http, daemon)  # clientKind "browser"
+        await watcher.ok("job.runNow", {"jobId": job["jobId"]})
+        await asyncio.sleep(0.05)
+        kinds = [
+            n["params"]["kind"] for n in watcher.notifications
+            if n["method"] == "job.event" and n["params"]["jobId"] == job["jobId"]
+        ]
+        assert kinds == ["waiting_for_host"]
+        held = await watcher.ok("job.nextRunForClient", {"clientId": "snowpea-browser-R"})
+        assert held["nextRunAt"] < job["nextRunAt"]  # the held run is due now
+
+        host = await open_client(http, daemon, client_id="snowpea-browser-R")
         try:
-            await host.ok("tool.register", {"tools": [spec("host_echo")]})
             host.handlers["host_echo"] = lambda p: {"ok": True, "output": "routine echo"}
-            await watcher.ok("job.runNow", {"jobId": job["jobId"]})
+            await host.ok("tool.register", {"tools": [spec("host_echo")]})
             for _ in range(300):
                 if host.invocations:
                     break
                 await asyncio.sleep(0.05)
             assert host.invocations and host.invocations[-1]["name"] == "host_echo"
+            for _ in range(200):
+                kinds = [
+                    n["params"]["kind"] for n in watcher.notifications
+                    if n["method"] == "job.event" and n["params"]["jobId"] == job["jobId"]
+                ]
+                if "finished" in kinds:
+                    break
+                await asyncio.sleep(0.05)
+            assert kinds == ["waiting_for_host", "started", "finished"]
         finally:
             await host.stop()
+    finally:
+        await watcher.stop()
+
+
+async def test_a_held_routine_past_its_window_is_recorded_as_missed(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    from datetime import timedelta
+
+    from snowpea_core.scheduler.jobs import utc_now
+
+    watcher = await open_client(http, daemon)
+    try:
+        (tmp_path / "w").mkdir()
+        job = await watcher.ok(
+            "job.schedule",
+            {
+                "spec": "every 1 hour",
+                "task": "use host echo",
+                "workdir": str(tmp_path / "w"),
+                "sessionTemplate": {
+                    "hostToolsFrom": "snowpea-browser-M",
+                    "catchUpWindowMinutes": 10,
+                },
+            },
+        )
+        await watcher.ok("job.runNow", {"jobId": job["jobId"]})
+        scheduler = daemon.core.scheduler
+        assert len(await scheduler.store.waiting_runs()) == 1
+        await scheduler.resume_waiting(utc_now() + timedelta(minutes=11))
+        await asyncio.sleep(0.05)
+        assert await scheduler.store.waiting_runs() == []
+        [run] = await scheduler.store.runs(job["jobId"])
+        assert run["status"] == "missed"
+        kinds = [
+            n["params"]["kind"] for n in watcher.notifications
+            if n["method"] == "job.event" and n["params"]["jobId"] == job["jobId"]
+        ]
+        assert kinds == ["waiting_for_host", "missed"]
     finally:
         await watcher.stop()
 

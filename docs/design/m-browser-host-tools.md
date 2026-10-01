@@ -313,3 +313,24 @@ connection.
   remembered for the session. So a model cannot change a setting unasked on
   any surface. In a browser session, `browser.*` keys are refused outright,
   before anyone is asked, because the browser owns them.
+
+## 11. Routines and a sleeping browser host (addendum 11)
+
+The browser stops its host when idle and starts it lazily, so a routine whose
+`hostToolsFrom` names that host can come due while it is gone.
+
+* **Held runs.** Such a firing is claimed and stored as `job_runs.status =
+  waiting_for_host`, and `job.event {kind: "waiting_for_host", payload:
+  {scheduledAt, hostToolsFrom}}` is emitted. The job's schedule moves on as
+  usual.
+* **Start.** The held run starts as soon as a matching host registers its
+  tools (`tool.register`; the scheduler's tick checks too). It then emits
+  `started` / `finished` like any run.
+* **Missed.** A held run older than the job's `sessionTemplate.catchUpWindowMinutes`
+  (default 60) is recorded as `missed`, with `job.event {kind: "missed"}`.
+  `hostWaitSec` now only bounds how long a run that has started waits for the
+  host's tools.
+* **Waking the host.** `job.nextRunForClient {clientId}` → `{nextRunAt}` gives
+  the earliest held run, or the next firing of a job whose `hostToolsFrom` is
+  that clientId, so the browser can wake its host just before. It is null when
+  there is none.

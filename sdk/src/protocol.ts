@@ -809,6 +809,18 @@ export interface JobListResult {
   })[];
 }
 
+/** `job.nextRunForClient` params. When a host should be awake for its routines (addendum 11). */
+export interface JobNextRunForClientParams {
+  /** A host's clientId (a browser profile). */
+  clientId: string;
+}
+
+/** `job.nextRunForClient` result. */
+export interface JobNextRunForClientResult {
+  /** Earliest run that needs this client's host: a held (waiting_for_host) occurrence or the next firing of a job whose hostToolsFrom is this clientId; null when none. */
+  nextRunAt?: string | null;
+}
+
 /** `job.runNow` params. Fire a scheduled job immediately. */
 export interface JobRunNowParams {
   /** Target job. */
@@ -833,9 +845,11 @@ export interface JobScheduleParams {
   sessionTemplate?: {
     /** Named agent that runs the task. */
     agent?: string | null;
+    /** A firing whose host is not connected is held as waiting_for_host and starts when the host registers its tools; past this many minutes it is recorded as missed (addendum 11). */
+    catchUpWindowMinutes?: number;
     /** Run with a connected client's host tools: a clientKind ("browser"), a clientId or a surface id. */
     hostToolsFrom?: string | null;
-    /** How long a firing waits for that host to connect; then the run fails with host_unavailable (job.event). */
+    /** How long a run that has started waits for the host's tools to appear; then it fails with host_unavailable (job.event). */
     hostWaitSec?: number;
     /** Permission mode for the run. */
     mode?: "plan" | "accept" | "auto" | null;
@@ -3128,7 +3142,7 @@ export interface JobEventPayload {
   /** Job the event belongs to. */
   jobId: string;
   /** Where the run got to. */
-  kind: "started" | "finished" | "failed" | "denied" | "deleted";
+  kind: "started" | "finished" | "failed" | "denied" | "deleted" | "waiting_for_host" | "missed";
   /** Kind-specific body. */
   payload?: Record<string, unknown>;
 }
@@ -3889,6 +3903,7 @@ export interface MethodMap {
   "job.cancel": { params: JobCancelParams; result: JobCancelResult };
   "job.delete": { params: JobDeleteParams; result: JobDeleteResult };
   "job.list": { params: JobListParams; result: JobListResult };
+  "job.nextRunForClient": { params: JobNextRunForClientParams; result: JobNextRunForClientResult };
   "job.runNow": { params: JobRunNowParams; result: JobRunNowResult };
   "job.schedule": { params: JobScheduleParams; result: JobScheduleResult };
   "lsp.catalog": { params: LspCatalogParams; result: LspCatalogResult };
@@ -4006,6 +4021,7 @@ export type ClientMethod =
   | "job.cancel"
   | "job.delete"
   | "job.list"
+  | "job.nextRunForClient"
   | "job.runNow"
   | "job.schedule"
   | "lsp.catalog"

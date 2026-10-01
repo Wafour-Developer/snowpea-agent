@@ -24,6 +24,8 @@ from snowpea_core.server.protocol import (
     JobDeleteResult,
     JobIdParams,
     JobListResult,
+    JobNextRunForClientParams,
+    JobNextRunForClientResult,
     JobScheduleParams,
     JobScheduleResult,
     Ok,
@@ -42,6 +44,7 @@ HANDLED_METHODS: tuple[str, ...] = (
     "job.cancel",
     "job.runNow",
     "job.delete",
+    "job.nextRunForClient",
 )
 
 
@@ -62,6 +65,7 @@ async def job_schedule_handler(
             workdir=params.workdir,
             host_tools_from=template.hostToolsFrom if template else None,
             host_wait_sec=template.hostWaitSec if template else None,
+            catch_up_window_min=template.catchUpWindowMinutes if template else None,
         )
     except ValueError as exc:
         raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
@@ -120,6 +124,16 @@ async def job_delete_handler(
     return JobDeleteResult(jobId=params.jobId, deletedSessions=deleted)
 
 
+async def job_next_run_for_client_handler(
+    _conn: RpcConnection, params: JobNextRunForClientParams, core: Core
+) -> JobNextRunForClientResult:
+    """``job.nextRunForClient`` — so a browser can wake its host just in time."""
+    from snowpea_core.scheduler.jobs import iso
+
+    moment = await services(core).next_run_for_client(params.clientId)
+    return JobNextRunForClientResult(nextRunAt=iso(moment) if moment else None)
+
+
 def register_job_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
     """Register every method in :data:`HANDLED_METHODS`."""
     dispatcher.register("job.schedule", job_schedule_handler)
@@ -127,6 +141,7 @@ def register_job_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
     dispatcher.register("job.cancel", job_cancel_handler)
     dispatcher.register("job.runNow", job_run_now_handler)
     dispatcher.register("job.delete", job_delete_handler)
+    dispatcher.register("job.nextRunForClient", job_next_run_for_client_handler)
     return dispatcher
 
 

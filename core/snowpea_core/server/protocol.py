@@ -2110,8 +2110,16 @@ class JobSessionTemplate(Payload):
     hostWaitSec: int = Field(
         default=300,
         description=(
-            "How long a firing waits for that host to connect; then the run fails with "
-            "host_unavailable (job.event)."
+            "How long a run that has started waits for the host's tools to appear; then "
+            "it fails with host_unavailable (job.event)."
+        ),
+    )
+    catchUpWindowMinutes: int = Field(
+        default=60,
+        description=(
+            "A firing whose host is not connected is held as waiting_for_host and starts "
+            "when the host registers its tools; past this many minutes it is recorded as "
+            "missed (addendum 11)."
         ),
     )
 
@@ -2165,6 +2173,21 @@ class JobDeleteParams(Payload):
         description=(
             "Also delete the sessions its runs opened, with their workspaces, as "
             "session.deleteSaved does. A run still in progress is left alone."
+        ),
+    )
+
+
+class JobNextRunForClientParams(Payload):
+    clientId: str = Field(description="A host's clientId (a browser profile).")
+
+
+class JobNextRunForClientResult(Payload):
+    nextRunAt: str | None = Field(
+        default=None,
+        description=(
+            "Earliest run that needs this client's host: a held (waiting_for_host) "
+            "occurrence or the next firing of a job whose hostToolsFrom is this clientId; "
+            "null when none."
         ),
     )
 
@@ -3479,7 +3502,9 @@ class JobEventNotification(Payload):
     """Progress from a scheduled job."""
 
     jobId: str = Field(description="Job the event belongs to.")
-    kind: Literal["started", "finished", "failed", "denied", "deleted"] = Field(
+    kind: Literal[
+        "started", "finished", "failed", "denied", "deleted", "waiting_for_host", "missed"
+    ] = Field(
         description="Where the run got to."
     )
     payload: dict[str, Any] = Field(default_factory=dict, description="Kind-specific body.")
@@ -4216,6 +4241,12 @@ METHODS: dict[str, RpcMethod] = {
         _m("job.cancel", JobIdParams, Ok, "Cancel a scheduled job."),
         _m("job.runNow", JobIdParams, Ok, "Fire a scheduled job immediately."),
         _m(
+            "job.nextRunForClient",
+            JobNextRunForClientParams,
+            JobNextRunForClientResult,
+            "When a host should be awake for its routines (addendum 11).",
+        ),
+        _m(
             "job.delete",
             JobDeleteParams,
             JobDeleteResult,
@@ -4507,6 +4538,7 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "job.cancel",
         "job.runNow",
         "job.delete",
+        "job.nextRunForClient",
         "agent.create",
         "agent.list",
         "agent.bindChannel",

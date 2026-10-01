@@ -9,6 +9,7 @@ itself is :mod:`snowpea_core.tools.host_tools`.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -134,6 +135,11 @@ async def tool_register_handler(
         names = HOST_TOOLS.register(core, conn, specs)
     except HostToolError as exc:
         raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
+    # A routine held for this host starts now (addendum 11); in the
+    # background, so registration answers at once.
+    scheduler = getattr(core, "scheduler", None)
+    if scheduler is not None:
+        asyncio.ensure_future(scheduler.resume_waiting())
     return ToolRegisterResult(registered=names)
 
 

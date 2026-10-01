@@ -87,6 +87,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`job.cancel`](#jobcancel) | client → server | Cancel a scheduled job. |
 | [`job.delete`](#jobdelete) | client → server | Delete a job, its schedule and run history; optionally its run sessions. |
 | [`job.list`](#joblist) | client → server | List scheduled jobs and their next run times. |
+| [`job.nextRunForClient`](#jobnextrunforclient) | client → server | When a host should be awake for its routines (addendum 11). |
 | [`job.runNow`](#jobrunnow) | client → server | Fire a scheduled job immediately. |
 | [`job.schedule`](#jobschedule) | client → server | Schedule a prompt to run unattended. |
 | [`lsp.catalog`](#lspcatalog) | client → server | List every registered language server, regardless of whether it has started. |
@@ -823,6 +824,24 @@ _No params (send `{}`)._
 |---|---|---|---|
 | `jobs` | `({ channel?: string \| null; enabled?: boolean; jobId: string; kind?: "cron" \| "once" \| "interval"; lastRunAt?: string \| null; lastStatus?: "ok" \| "error" \| "denied_by_timeout" \| null; mode?: "plan" \| "accept" \| "auto"; nextRunAt?: string \| null; originSessionId?: string \| null; spec: string; state?: "scheduled" \| "running" \| "cancelled"; task: string; })[]` | no | Known jobs. |
 
+### `job.nextRunForClient`
+
+*Direction:* client → server
+
+When a host should be awake for its routines (addendum 11).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `clientId` | `string` | yes | A host's clientId (a browser profile). |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `nextRunAt` | `string \| null` | no | Earliest run that needs this client's host: a held (waiting_for_host) occurrence or the next firing of a job whose hostToolsFrom is this clientId; null when none. |
+
 ### `job.runNow`
 
 *Direction:* client → server
@@ -854,7 +873,7 @@ Schedule a prompt to run unattended.
 | `agent` | `string \| null` | no | Named agent that runs the task. |
 | `channel` | `string \| null` | no | Gateway channel that receives the output. |
 | `mode` | `"plan" \| "accept" \| "auto"` | no | Permission mode for the unattended run. |
-| `sessionTemplate` | `{ agent?: string \| null; hostToolsFrom?: string \| null; hostWaitSec?: number; mode?: "plan" \| "accept" \| "auto" \| null; } \| null` | no | Session setup for each run, incl. host tools (1.7.0). |
+| `sessionTemplate` | `{ agent?: string \| null; catchUpWindowMinutes?: number; hostToolsFrom?: string \| null; hostWaitSec?: number; mode?: "plan" \| "accept" \| "auto" \| null; } \| null` | no | Session setup for each run, incl. host tools (1.7.0). |
 | `spec` | `string` | yes | Cron expression or natural-language schedule. |
 | `task` | `string` | yes | Prompt run on each firing. |
 | `workdir` | `string \| null` | no | Working directory for the run; defaults to the daemon's home. |
@@ -2525,7 +2544,7 @@ Token totals from stored usage events, grouped by provider, model, session or da
 | field | type | required | description |
 |---|---|---|---|
 | `jobId` | `string` | yes | Job the event belongs to. |
-| `kind` | `"started" \| "finished" \| "failed" \| "denied" \| "deleted"` | yes | Where the run got to. |
+| `kind` | `"started" \| "finished" \| "failed" \| "denied" \| "deleted" \| "waiting_for_host" \| "missed"` | yes | Where the run got to. |
 | `payload` | `Record<string, unknown>` | no | Kind-specific body. |
 
 ### `mcp.changed`

@@ -37,7 +37,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 from snowpea_core.config.settings import SchedulerSettings
-from snowpea_core.scheduler.jobs import Job, Jobs, JobStatus, JobStore, iso, utc_now
+from snowpea_core.scheduler.jobs import Job, Jobs, JobStatus, JobStore, iso, parse_iso, utc_now
 from snowpea_core.scheduler.nl_parse import Spec, first_run, next_run, parse_spec
 from snowpea_core.server import errors
 from snowpea_core.server.protocol import Mode
@@ -54,6 +54,11 @@ log = logging.getLogger("snowpea.scheduler")
 LOG_CHANNEL = "log"
 
 #: ``job.event`` kind for each way a run can end.
+#: ``job_runs.status`` and ``job.event`` kind of an occurrence held for its
+#: host, and of one whose host never came within the catch-up window.
+WAITING_FOR_HOST = "waiting_for_host"
+MISSED = "missed"
+
 FINISH_KINDS: dict[str, str] = {
     "ok": "finished",
     "denied_by_timeout": "denied",
@@ -167,6 +172,7 @@ class Scheduler:
         workdir: str | None = None,
         host_tools_from: str | None = None,
         host_wait_sec: int | None = None,
+        catch_up_window_min: int | None = None,
     ) -> Job:
         """Parse ``spec``, store the job and return it. ``ValueError`` if unparseable."""
         if not task.strip():
@@ -187,6 +193,9 @@ class Scheduler:
         if host_tools_from:
             job.host_tools_from = host_tools_from
             job.host_wait_sec = max(0, int(host_wait_sec if host_wait_sec is not None else 300))
+            job.catch_up_window_min = max(
+                0, int(catch_up_window_min if catch_up_window_min is not None else 60)
+            )
         await self.store.insert(job)
         await self.refresh_counter()
         log.info("job %s scheduled (%s) next at %s", job.id, job.spec, iso(job.next_run))
@@ -242,7 +251,7 @@ class Scheduler:
     async def tick(self, moment: datetime | None = None) -> int:
         """Fire everything that is due; returns how many runs started."""
         now = moment or utc_now()
-        fired = 0
+        fired = await self.resume_waiting(now)
         for job in await self.store.due(now):
             if job.id in self._running:
                 continue
@@ -275,6 +284,69 @@ class Scheduler:
         if not await self.store.claim(job.id, scheduled_ts):
             log.info("job %s occurrence %s already ran; skipping", job.id, iso(scheduled_ts))
             return
+        if job.host_tools_from and not self._host_ready(job):
+            # The browser stops its host when idle (addendum 11): hold the run
+            # until that host connects instead of failing it.
+            await self.store.set_run_status(job.id, scheduled_ts, WAITING_FOR_HOST)
+            await self._emit(
+                job.id,
+                WAITING_FOR_HOST,
+                {"scheduledAt": iso(scheduled_ts), "hostToolsFrom": job.host_tools_from},
+            )
+            if advance:
+                await self._advance(job, scheduled_ts, status=None)
+            log.info("job %s waits for host %s", job.id, job.host_tools_from)
+            return
+        await self._run_claimed(job, scheduled_ts, advance=advance)
+
+    def _host_ready(self, job: Job) -> bool:
+        from snowpea_core.tools.host_tools import HOST_TOOLS
+
+        probe = SimpleNamespace(host_tools_from=job.host_tools_from, origin_conn=None)
+        return bool(HOST_TOOLS.for_session(probe))
+
+    async def resume_waiting(self, moment: datetime | None = None) -> int:
+        """Run held occurrences whose host is back; record stale ones as missed.
+
+        Called on every tick and whenever a client registers host tools, so a
+        routine starts as soon as its browser profile wakes up.
+        """
+        now = moment or utc_now()
+        started = 0
+        for row in await self.store.waiting_runs():
+            job = await self.store.get(str(row["job_id"]))
+            scheduled = parse_iso(row["scheduled_ts"])
+            if job is None or scheduled is None:
+                continue
+            if now - scheduled > timedelta(minutes=job.catch_up_window_min):
+                await self.store.finish(job.id, scheduled, MISSED)
+                await self._emit(job.id, MISSED, {"scheduledAt": iso(scheduled)})
+                log.info("job %s missed %s: its host never came", job.id, iso(scheduled))
+                continue
+            if job.id in self._running or not self._host_ready(job):
+                continue
+            await self.store.set_run_status(job.id, scheduled, "running")
+            started += 1
+            await self._run_claimed(job, scheduled, advance=False)
+        return started
+
+    async def next_run_for_client(self, client_id: str) -> datetime | None:
+        """When a host should be up: its earliest held or upcoming run (addendum 11)."""
+        times: list[datetime] = []
+        for job in await self.store.list():
+            if job.host_tools_from != client_id:
+                continue
+            if job.enabled and job.next_run is not None:
+                times.append(job.next_run)
+        for row in await self.store.waiting_runs():
+            job = await self.store.get(str(row["job_id"]))
+            scheduled = parse_iso(row["scheduled_ts"])
+            if job is not None and job.host_tools_from == client_id and scheduled is not None:
+                times.append(scheduled)
+        return min(times) if times else None
+
+    async def _run_claimed(self, job: Job, scheduled_ts: datetime, *, advance: bool) -> None:
+        """Run an occurrence this process has claimed."""
         self._running.add(job.id)
         job.state = "running"
         await self.store.update(job)
