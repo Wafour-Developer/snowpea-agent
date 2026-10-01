@@ -1573,6 +1573,7 @@ Open a session rooted at a working directory.
 | `denyExec` | `boolean \| null` | no | When true, refuse exec-tagged tools without prompting (headless CI). |
 | `effort` | `"low" \| "medium" \| "high" \| "max" \| null` | no | Reasoning effort for this session; null follows the settings. |
 | `hostToolsFrom` | `string \| null` | no | Whose host tools this session sees: a connection's clientId (or surface id). Default: the creating connection (1.6.0). |
+| `locale` | `string \| null` | no | The client's UI language as a BCP 47 tag, e.g. 'ko-KR' (1.7.0). With agent.replyLanguage 'auto', text the core writes for this session (/init, /ralph and delegated briefs) is in this language before any guess from what the user typed. Ignored when not a language tag. |
 | `maxConcurrent` | `number \| null` | no | Override for concurrent subagents. |
 | `mode` | `"plan" \| "accept" \| "auto" \| null` | no | Starting mode; defaults to the project setting. |
 | `model` | `string \| null` | no | Model id; defaults to the provider's default. |
@@ -2738,6 +2739,16 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 |---|---|---|---|
 | `checkpoint` | `{ createdAt: string; files?: ({ afterSha?: string \| null; beforeSha?: string \| null; path: string; restorable?: boolean; size?: number; skipped?: "too_large" \| "excluded" \| "unreadable" \| null; source: "tool" \| "shell"; status: "modified" \| "created" \| "deleted"; })[]; id: string; kind: "turn" \| "restore"; prompt?: string; sessionId: string; turnId?: string \| null; workdir: string; }` | yes | The whole checkpoint manifest so far. |
 | `kind` | `"checkpoint.updated"` | no |  |
+
+### kind `command.progress`
+
+| field | type | required | description |
+|---|---|---|---|
+| `command` | `"ralph" \| "ultrawork"` | yes | Command reporting. |
+| `iteration` | `number` | no | 0 for the plan, then 1, 2, …. |
+| `kind` | `"command.progress"` | no |  |
+| `outcome` | `string \| null` | no | Set on the last event only: ralph 'complete', 'rejected', 'stopped', 'max_iterations' or 'error'; ultrawork 'complete' or 'partial'. |
+| `stories` | `({ id: string; note?: string; status: "pass" \| "fail" \| "pending"; title: string; })[]` | no | Every story, in plan order. |
 
 ### kind `compaction`
 

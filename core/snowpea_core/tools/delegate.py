@@ -16,7 +16,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from snowpea_core.agent.agent import reply_language
+from snowpea_core.agent.agent import session_reply_language
 from snowpea_core.agent.definition import builtin_agent_definitions
 from snowpea_core.agent.role_pick import PARENT
 from snowpea_core.agent.subagent import (
@@ -98,8 +98,8 @@ def detected_language(session: Session) -> str:
 
 
 def delegation_language(ctx: ToolContext) -> str:
-    """What the child should answer in: the setting, or what the user wrote."""
-    configured = (reply_language(ctx.core) or "auto").strip()
+    """What the child should answer in: the setting, the UI locale, or what the user wrote."""
+    configured = session_reply_language(ctx.core, ctx.session)
     if configured and configured.lower() != "auto":
         return configured
     return detected_language(ctx.session)

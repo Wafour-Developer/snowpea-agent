@@ -289,3 +289,321 @@ async def test_ralph_stops_early_when_every_subagent_fails_the_same_way(
     ]
     assert reasons == ["error"]
     assert "retrying will not fix" in recorder.texts()
+
+
+# ---------------------------------------------------------------------------
+# command.progress (snowpea-browser): the plan and each iteration as data
+# ---------------------------------------------------------------------------
+
+
+async def test_ralph_emits_command_progress_for_plan_iterations_and_outcome(
+    daemon: Daemon, repo: Path
+) -> None:
+    core = daemon.core
+    assert core is not None
+    session = await core.sessions.create(repo, mode="auto", max_concurrent=3)
+    recorder = Recorder()
+    core.hub.subscribe(recorder, session.id)
+
+    await asyncio.wait_for(
+        core.commands.run(core, session, "ralph", f'"{TASK}"'), timeout=TIMEOUT
+    )
+    progress = [event["payload"] for event in recorder.of_kind("command.progress")]
+    assert len(progress) >= 3, progress
+    plan, *middle, last = progress
+    assert plan["command"] == "ralph" and plan["iteration"] == 0
+    assert plan["outcome"] is None
+    assert [row["status"] for row in plan["stories"]] == ["pending", "pending"]
+    assert {row["id"] for row in plan["stories"]} == {"S1", "S2"}
+    assert all(row["title"] for row in plan["stories"])
+    assert middle and all(row["iteration"] >= 1 and row["outcome"] is None for row in middle)
+    assert last["outcome"] == "complete"
+    assert all(row["status"] == "pass" for row in last["stories"])
+    # The text lines are still there, unchanged.
+    assert "ralph: 2 stories planned." in recorder.texts()
+    assert "ralph iteration 1:" in recorder.texts()
+
+
+async def test_ralph_progress_carries_stopped_when_it_gives_up_early(
+    daemon: Daemon, repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from snowpea_core.agent.subagent import SubagentResult, get_manager
+
+    core = daemon.core
+    assert core is not None
+    session = await core.sessions.create(repo, mode="auto")
+    recorder = Recorder()
+    core.hub.subscribe(recorder, session.id)
+
+    async def failing_run(parent: Any, task: str, **_kwargs: Any) -> SubagentResult:
+        return SubagentResult(
+            agent_id="a", ok=False, summary="", error="HTTP 400: unknown parameter x"
+        )
+
+    monkeypatch.setattr(get_manager(core), "run", failing_run)
+    await asyncio.wait_for(
+        core.commands.run(core, session, "ralph", f'"{TASK}"'), timeout=TIMEOUT
+    )
+    last = recorder.of_kind("command.progress")[-1]["payload"]
+    assert last["outcome"] == "stopped"
+    assert last["iteration"] == 1
+    assert "fail" in {row["status"] for row in last["stories"]}
+    failed = next(row for row in last["stories"] if row["status"] == "fail")
+    assert "HTTP 400" in failed["note"]
+
+
+# ---------------------------------------------------------------------------
+# PRD robustness: a stricter retry, JSON mode where the vendor takes it, and a
+# single-story fallback instead of failing the command
+# ---------------------------------------------------------------------------
+
+
+class _ScriptedProvider:
+    """Answers each ``stream`` call with the next scripted reply."""
+
+    def __init__(self, replies: list[str], json_mode: bool = False) -> None:
+        from types import SimpleNamespace
+
+        self.replies = list(replies)
+        self.calls: list[dict[str, Any]] = []
+        self.preset = SimpleNamespace(supports_json_mode=json_mode)
+
+    async def stream(self, messages: list[Any], tools: list[Any], **kwargs: Any) -> Any:
+        from snowpea_core.providers.base import StreamEvent
+
+        self.calls.append({"messages": list(messages), **kwargs})
+        text = self.replies.pop(0) if self.replies else ""
+        if text:
+            yield StreamEvent(kind="text_delta", text=text)
+
+
+def _prd_ctx(provider: Any, workdir: Path) -> Any:
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        core=SimpleNamespace(providers=SimpleNamespace(get=lambda *_a: provider)),
+        session=SimpleNamespace(provider=None, model=None, workdir=workdir),
+    )
+
+
+GOOD_PRD = '{"stories": [{"id": "S1", "title": "do it", "verify": ["true"]}]}'
+
+
+async def test_prd_retries_once_more_strictly_and_uses_json_mode_where_supported(
+    tmp_path: Path,
+) -> None:
+    # The first attempt answers in prose; the stricter retry answers in JSON.
+    provider = _ScriptedProvider(["Sure! Here is the plan.", GOOD_PRD], json_mode=True)
+    stories, fallback = await ralph.build_prd(_prd_ctx(provider, tmp_path), "do it")
+    assert fallback is None
+    assert [story.title for story in stories] == ["do it"]
+    assert len(provider.calls) == 2
+    assert "response_format" not in provider.calls[0]
+    assert provider.calls[1]["response_format"] == {"type": "json_object"}
+    assert provider.calls[1]["messages"][-1].content == ralph.PRD_RETRY_INSTRUCTION
+
+
+async def test_prd_retry_sends_no_json_mode_to_a_vendor_without_it(tmp_path: Path) -> None:
+    provider = _ScriptedProvider(["no json here", GOOD_PRD], json_mode=False)
+    stories, fallback = await ralph.build_prd(_prd_ctx(provider, tmp_path), "do it")
+    assert fallback is None and len(stories) == 1
+    assert all("response_format" not in call for call in provider.calls)
+
+
+async def test_prd_falls_back_to_one_story_when_the_retry_fails_too(tmp_path: Path) -> None:
+    task = "Make the importer skip blank rows " + "x" * 200 + "\nand log them."
+    provider = _ScriptedProvider([], json_mode=True)  # empty replies throughout
+    stories, fallback = await ralph.build_prd(_prd_ctx(provider, tmp_path), task)
+    assert fallback is not None and "empty reply" in fallback
+    assert len(stories) == 1
+    only = stories[0]
+    assert only.id == "S1"
+    assert only.acceptance == task
+    assert only.title.startswith("Make the importer skip blank rows")
+    assert len(only.title) <= ralph.FALLBACK_TITLE_CHARS
+    assert "\n" not in only.title
+
+
+async def test_ralph_runs_the_fallback_story_and_says_so(
+    daemon: Daemon, repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from snowpea_core.agent.subagent import SubagentResult, get_manager
+
+    core = daemon.core
+    assert core is not None
+    session = await core.sessions.create(repo, mode="auto")
+    recorder = Recorder()
+    core.hub.subscribe(recorder, session.id)
+    provider = _ScriptedProvider([])
+    monkeypatch.setattr(core.providers, "get", lambda *_a, **_k: provider)
+
+    async def ok_run(parent: Any, task: str, **_kwargs: Any) -> SubagentResult:
+        return SubagentResult(agent_id="a", ok=True, summary="done")
+
+    async def approve(*_args: Any, **_kwargs: Any) -> tuple[bool, str]:
+        return True, "APPROVE"
+
+    monkeypatch.setattr(get_manager(core), "run", ok_run)
+    monkeypatch.setattr(ralph, "review", approve)
+    turn_id = await asyncio.wait_for(
+        core.commands.run(core, session, "ralph", f'"{TASK}"'), timeout=TIMEOUT
+    )
+    texts = recorder.texts()
+    assert "running the task as a single story" in texts
+    assert "ralph: 1 stories planned." in texts
+    reasons = [
+        event["payload"]["reason"]
+        for event in recorder.of_kind("turn.done")
+        if event["payload"]["turnId"] == turn_id
+    ]
+    assert reasons == ["complete"]
+    last = recorder.of_kind("command.progress")[-1]["payload"]
+    assert last["outcome"] == "complete"
+    assert [row["id"] for row in last["stories"]] == ["S1"]
+
+
+# ---------------------------------------------------------------------------
+# check failures: a repeat stops the loop, a broken check is rewritten rather
+# than the work redone, and invalid checks are repaired before iteration 1
+# ---------------------------------------------------------------------------
+
+BROKEN_PYTHON_CHECK = (
+    "python3 -c \"import os; try: os.stat('x'); except OSError: raise SystemExit(1)\""
+)
+
+
+def test_check_problem_compiles_python_c_and_parses_shell() -> None:
+    assert ralph.check_problem(BROKEN_PYTHON_CHECK) is not None
+    assert ralph.check_problem("python3 -u -c \"import os; assert os.sep\"") is None
+    assert ralph.check_problem("pytest -q tests/test_x.py") is None
+    if ralph.shutil.which("bash"):
+        assert ralph.check_problem("test -f a && (grep foo a") is not None
+
+
+def test_a_broken_check_is_told_apart_from_a_failing_one() -> None:
+    syntax = 'Traceback:\n  File "<string>", line 1\n    try: x\nSyntaxError: invalid syntax'
+    assert ralph.check_is_broken(1, syntax)
+    assert ralph.check_is_broken(127, "bash: nosuchtool: command not found")
+    assert ralph.check_is_broken(2, "bash: -c: syntax error near unexpected token `)'")
+    assert not ralph.check_is_broken(1, "AssertionError")
+    assert not ralph.check_is_broken(1, "ModuleNotFoundError: No module named 'foo'")
+    assert not ralph.check_is_broken(1, "FAILED tests/test_x.py::test_y - assert 1 == 2")
+
+
+def test_failure_signatures_ignore_timings_and_addresses() -> None:
+    one = ralph.failure_signature("pytest", 1, "1 failed in 0.12s at 0x7f00aa")
+    two = ralph.failure_signature("pytest", 1, "1 failed   in 0.31s at 0x7f11bb")
+    assert one == two
+    assert one != ralph.failure_signature("pytest", 1, "AssertionError: other")
+
+
+async def _run_ralph_with(
+    daemon: Daemon,
+    repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    verify: list[str],
+    repairs: list[list[str] | None],
+) -> tuple[Recorder, str, list[str], list[str]]:
+    """``/ralph`` on one story with ``verify``; subagents succeed, review approves."""
+    from snowpea_core.agent.subagent import SubagentResult, get_manager
+
+    core = daemon.core
+    assert core is not None
+    session = await core.sessions.create(repo, mode="auto")
+    recorder = Recorder()
+    core.hub.subscribe(recorder, session.id)
+    runs: list[str] = []
+    repair_problems: list[str] = []
+
+    async def prd(_ctx: Any, _task: str) -> tuple[list[ralph.Story], None]:
+        return [ralph.Story(id="S1", title="the story", verify=list(verify))], None
+
+    async def ok_run(parent: Any, task: str, **_kwargs: Any) -> SubagentResult:
+        runs.append(task)
+        return SubagentResult(agent_id="a", ok=True, summary="done")
+
+    async def repair(_ctx: Any, _task: str, _story: Any, problem: str) -> list[str] | None:
+        repair_problems.append(problem)
+        return repairs.pop(0) if repairs else None
+
+    async def approve(*_args: Any, **_kwargs: Any) -> tuple[bool, str]:
+        return True, "APPROVE"
+
+    monkeypatch.setattr(ralph, "build_prd", prd)
+    monkeypatch.setattr(ralph, "repair_checks", repair)
+    monkeypatch.setattr(ralph, "review", approve)
+    monkeypatch.setattr(get_manager(core), "run", ok_run)
+    turn_id = await asyncio.wait_for(
+        core.commands.run(core, session, "ralph", f'"{TASK}"'), timeout=TIMEOUT
+    )
+    return recorder, turn_id, runs, repair_problems
+
+
+def _reasons(recorder: Recorder, turn_id: str) -> list[str]:
+    return [
+        event["payload"]["reason"]
+        for event in recorder.of_kind("turn.done")
+        if event["payload"]["turnId"] == turn_id
+    ]
+
+
+async def test_the_same_check_failure_twice_stops_ralph(
+    daemon: Daemon, repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    recorder, turn_id, runs, repairs = await _run_ralph_with(
+        daemon, repo, monkeypatch, ["test -f never-created.txt"], []
+    )
+    assert len(runs) == 2, "a third identical attempt should never start"
+    assert repairs == []  # an ordinary failing check is the work's problem
+    assert _reasons(recorder, turn_id) == ["error"]
+    assert "failed the same way twice" in recorder.texts()
+    assert recorder.of_kind("command.progress")[-1]["payload"]["outcome"] == "stopped"
+
+
+async def test_a_check_that_errors_is_rewritten_instead_of_redoing_the_work(
+    daemon: Daemon, repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    recorder, turn_id, runs, repairs = await _run_ralph_with(
+        daemon, repo, monkeypatch, ["snowpea-no-such-tool --check"], [["true"]]
+    )
+    assert len(runs) == 1, "the work was not redone for a broken check"
+    assert len(repairs) == 1 and "exited 127" in repairs[0]
+    assert _reasons(recorder, turn_id) == ["complete"]
+    assert "check rewritten" in recorder.texts()
+
+
+async def test_a_broken_check_that_cannot_be_repaired_stops_after_the_repeat(
+    daemon: Daemon, repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    recorder, turn_id, runs, repairs = await _run_ralph_with(
+        daemon, repo, monkeypatch, ["snowpea-no-such-tool --check"], [None]
+    )
+    assert len(runs) == 1 and len(repairs) == 1
+    assert _reasons(recorder, turn_id) == ["error"]
+    assert "failed the same way twice" in recorder.texts()
+
+
+async def test_invalid_checks_are_repaired_before_the_first_iteration(
+    daemon: Daemon, repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    recorder, turn_id, runs, repairs = await _run_ralph_with(
+        daemon, repo, monkeypatch, [BROKEN_PYTHON_CHECK], [["true"]]
+    )
+    assert len(repairs) == 1 and "python -c" in repairs[0]
+    assert len(runs) == 1
+    assert "invalid check rewritten" in recorder.texts()
+    assert _reasons(recorder, turn_id) == ["complete"]
+    prd = json.loads((repo / ".snowpea" / "ralph" / "prd.json").read_text(encoding="utf-8"))
+    assert prd["stories"][0]["verify"] == ["true"]
+
+
+async def test_repair_checks_asks_the_model_and_reads_its_verify_list(tmp_path: Path) -> None:
+    provider = _ScriptedProvider(['{"verify": ["python3 - <<\'PY\'\\nassert 1\\nPY"]}'], True)
+    story = ralph.Story(id="S1", title="t", verify=[BROKEN_PYTHON_CHECK])
+    revised = await ralph.repair_checks(_prd_ctx(provider, tmp_path), "task", story, "bad")
+    assert revised == ["python3 - <<'PY'\nassert 1\nPY"]
+    assert provider.calls[0]["response_format"] == {"type": "json_object"}
+    assert "bad" in provider.calls[0]["messages"][-1].content
+
+    nothing = _ScriptedProvider([])
+    assert await ralph.repair_checks(_prd_ctx(nothing, tmp_path), "task", story, "bad") is None

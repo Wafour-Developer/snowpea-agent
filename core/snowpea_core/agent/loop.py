@@ -1535,13 +1535,15 @@ def skill_refuses(session: Session, name: str) -> bool:
     (:data:`deferred.ALWAYS_ALLOWED`): refusing tool_search left a
     deep-research child spending five rounds failing to load web_search.
     """
-    allowed = deferred_tools.narrowed(getattr(session, "allowed_tools", None))
+    allowed = deferred_tools.narrowed(getattr(session, "allowed_tools", None), session)
     return allowed is not None and name not in allowed
 
 
 def _narrowed_refusal(session: Session, name: str) -> str:
     """The refusal a narrowed agent reads, naming what it can call instead."""
-    allowed = sorted(deferred_tools.narrowed(getattr(session, "allowed_tools", None)) or ())
+    allowed = sorted(
+        deferred_tools.narrowed(getattr(session, "allowed_tools", None), session) or ()
+    )
     return f"{name} is not available to this agent; its tools are: {', '.join(allowed)}"
 
 

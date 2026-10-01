@@ -158,6 +158,9 @@ class Session:
     rpc_steers: list[str] = field(default_factory=list)
     #: Recall also searches pages a browser host ingested (1.7.0).
     browser_memory: bool = False
+    #: ``session.create {locale}``: the client's UI language (``ko-KR``), which
+    #: ``agent.replyLanguage: auto`` prefers to a guess (1.7.0).
+    locale: str | None = None
     #: ``session.notice`` lines waiting for the next model call (1.7.0).
     pending_notices: list[str] = field(default_factory=list)
     #: ``write_todos`` list: ``[{id, content, status}]`` (1.7.0).

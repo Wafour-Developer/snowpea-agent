@@ -1122,6 +1122,7 @@ class SubagentManager:
         )
         child.unattended = parent.unattended
         child.memory_namespace = parent.memory_namespace
+        child.locale = getattr(parent, "locale", None)
         inherit_host(child, parent)
         child.backend = SharedBackend(parent.backend)  # type: ignore[assignment]
         return child
@@ -1139,6 +1140,7 @@ class SubagentManager:
         """
         child.is_subagent = True
         allowed: set[str] | None = None
+        from_defn: list[str] | None = None
         if defn is not None:
             child.prompt_role = role_file(defn.name)
             # ``max_tool_rounds:`` / ``tool_rounds:`` in the definition outranks
@@ -1164,6 +1166,15 @@ class SubagentManager:
             # they can still load or allow more tools only when explicitly listed.
             allowed = set(READONLY_DEFAULT_TOOLS)
         child.allowed_tools = allowed
+        # Tools a project or user definition names, or the caller lists, are
+        # the ones this child was made for: their schemas go out from the first
+        # round rather than behind ``tool_search``.  The built-in read-only
+        # roles keep their sparse eager set (CORE-round-cost).
+        named = defn is not None and defn.source != "builtin" and from_defn is not None
+        if allowed and (named or tools):
+            from snowpea_core.tools import deferred
+
+            deferred.load(child, allowed)
 
 
 def _call_summary(payload: dict[str, Any]) -> str:

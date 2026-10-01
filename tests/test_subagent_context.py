@@ -173,3 +173,103 @@ def test_a_child_that_may_write_is_not_read_only(core: Core, workdir: Path) -> N
     assert sent == {
         "read_file", "view_image", "glob", "grep", "write_file", "shell", "tool_search"
     }
+
+
+# ---------------------------------------------------------------------------
+# a child's definition tools and inherited host tools are sent in full
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def browser_host(core: Core):  # type: ignore[no-untyped-def]
+    """A browser connection that registered ``repl`` and ``browser_navigate``."""
+    from types import SimpleNamespace
+
+    from snowpea_core.tools.host_tools import HOST_TOOLS
+
+    conn = SimpleNamespace(
+        surface_id="surf-child-eager",
+        client_id="snowpea-browser-child",
+        client_kind="browser",
+        closed=False,
+        on_close=[],
+    )
+    HOST_TOOLS.register(
+        core,
+        conn,
+        [
+            {"name": "repl", "permission": "read"},
+            {"name": "browser_navigate", "permission": "read"},
+        ],
+    )
+    try:
+        yield conn
+    finally:
+        HOST_TOOLS.drop_connection(conn)
+
+
+def _child_of_browser(core: Core, workdir: Path, defn: object, tools: object = None) -> Session:
+    from snowpea_core.agent.subagent import get_manager, inherit_host
+
+    parent = Session(id="s-browser-parent", workdir=workdir)
+    parent.host_tools_from = "snowpea-browser-child"
+    child = Session(id=f"s-child-{id(defn)}", workdir=workdir)
+    inherit_host(child, parent)
+    get_manager(core)._apply_definition(child, defn, tools)  # type: ignore[arg-type]
+    return child
+
+
+def test_a_child_gets_inherited_host_tools_eagerly_even_when_its_list_omits_them(
+    core: Core, workdir: Path, browser_host: object
+) -> None:
+    from snowpea_core.agent.definition import AgentDefinition
+
+    defn = AgentDefinition(
+        name="coder", description="d", tools=["read_file", "write_file", "shell"]
+    )
+    child = _child_of_browser(core, workdir, defn)
+    sent = {spec.name for spec in core.tools.specs(child)}
+    assert {"repl", "browser_navigate"} <= sent
+    assert not {"repl", "browser_navigate"} & {
+        spec.name for spec in core.tools.deferred_specs(child)
+    }
+    # And the loop lets the call through.
+    from snowpea_core.agent.loop import skill_refuses
+
+    assert not skill_refuses(child, "repl")
+    assert skill_refuses(child, "patch")
+
+
+def test_a_read_only_project_definition_sends_its_whole_list(
+    core: Core, workdir: Path, browser_host: object
+) -> None:
+    from snowpea_core.agent.definition import AgentDefinition
+
+    tools = ["read_file", "grep", "web_search", "git_diff"]
+    project = AgentDefinition(name="researcher", description="d", tools=tools)
+    child = _child_of_browser(core, workdir, project)
+    sent = {spec.name for spec in core.tools.specs(child)}
+    assert {"web_search", "git_diff", "repl"} <= sent
+    assert not core.tools.deferred_specs(child)
+
+    # The built-in read-only roles keep their sparse eager set.
+    builtin = AgentDefinition(name="explore", description="d", tools=tools, source="builtin")
+    child = _child_of_browser(core, workdir, builtin)
+    sent = {spec.name for spec in core.tools.specs(child)}
+    assert "repl" in sent
+    assert {"web_search", "git_diff"} <= {
+        spec.name for spec in core.tools.deferred_specs(child)
+    }
+
+
+def test_the_parent_session_is_unchanged(
+    core: Core, workdir: Path, browser_host: object
+) -> None:
+    parent = Session(id="s-browser-parent-only", workdir=workdir)
+    parent.host_tools_from = "snowpea-browser-child"
+    parent.allowed_tools = {"read_file", "shell"}
+    # A narrowed human session gets no host tools added by narrowing.
+    assert "repl" not in {spec.name for spec in core.tools.specs(parent)}
+    assert deferred.narrowed(parent.allowed_tools, parent) == (
+        {"read_file", "shell"} | deferred.ALWAYS_ALLOWED
+    )

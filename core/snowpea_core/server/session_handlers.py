@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from snowpea_core.agent import loop as agent_loop
+from snowpea_core.agent.agent import locale_tag
 from snowpea_core.agent.delegation import effective_delegation
 from snowpea_core.agent.prompt_refs import prepare_prompt
 from snowpea_core.attachments import pending
@@ -280,6 +281,7 @@ async def session_create_handler(
         if params.browserMemory is not None
         else getattr(conn, "client_kind", None) == "browser"
     )
+    session.locale = locale_tag(params.locale)
     ensure_workspace(core.paths.home, session)
     core.hub.subscribe(conn, session.id)
     _count_sessions(core)

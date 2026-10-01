@@ -181,8 +181,13 @@ class OpenAICompatProvider:
         max_tokens: int = 4096,
         thinking: str | None = None,
         effort: str | None = None,
+        response_format: dict[str, Any] | None = None,
     ) -> AsyncIterator[StreamEvent]:
-        """Stream one assistant turn, normalised to :class:`StreamEvent`."""
+        """Stream one assistant turn, normalised to :class:`StreamEvent`.
+
+        ``response_format`` is sent only when the preset says the vendor takes
+        it (:attr:`VendorPreset.supports_json_mode`); otherwise it is dropped.
+        """
         model = await self._ensure_model()
         wanted = self._effort_for(model, effort)
         profile = effort_scale.model_profile(self._settings, self.vendor, model)
@@ -201,6 +206,8 @@ class OpenAICompatProvider:
             vision=True if probing else self._vision,
             effort_profile=profile,
         )
+        if response_format and self.preset.supports_json_mode:
+            body["response_format"] = response_format
         normalizer = OpenAIStreamNormalizer(self.preset)
         try:
             async with self._client() as client:

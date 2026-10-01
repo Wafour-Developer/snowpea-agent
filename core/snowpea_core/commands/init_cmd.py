@@ -219,11 +219,12 @@ def _reply_language(ctx: CommandContext, args: str = "") -> str:
     English template, so a Korean user got English. The words after /init, or
     the session's earlier messages, decide instead.
     """
-    from snowpea_core.agent.agent import reply_language
+    from snowpea_core.agent.agent import session_reply_language
     from snowpea_core.tools.delegate import detected_language, last_user_text
     from snowpea_core.util.lang import detect_language
 
-    configured = (reply_language(ctx.core) or "auto").strip()
+    # The setting, else the client's UI locale (session.create {locale}).
+    configured = session_reply_language(ctx.core, ctx.session)
     if configured.lower() != "auto":
         return configured
     words = " ".join(token for token in args.split() if not token.startswith("-"))

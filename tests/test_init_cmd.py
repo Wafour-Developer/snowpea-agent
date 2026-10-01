@@ -147,6 +147,51 @@ def test_init_answers_in_the_language_the_user_writes_in(tmp_path: Path) -> None
     assert init_cmd._reply_language(ctx, "") == "ja"
 
 
+def test_init_answers_in_the_session_locale_before_guessing(tmp_path: Path) -> None:
+    from types import SimpleNamespace
+
+    from snowpea_core.agent.agent import locale_tag
+    from snowpea_core.session.session import Session
+
+    settings = SimpleNamespace(agent=SimpleNamespace(replyLanguage="auto"))
+    session = Session(id="s-locale", workdir=tmp_path)
+    session.locale = locale_tag("ko-KR")
+    ctx = SimpleNamespace(core=SimpleNamespace(settings=settings), session=session)
+    # A Korean browser, an /init with no words: Korean, not the template's English.
+    assert init_cmd._reply_language(ctx, "") == "ko"
+    assert init_cmd._reply_language(ctx, "--force") == "ko"
+    # The setting still wins over the locale.
+    settings.agent.replyLanguage = "ja"
+    assert init_cmd._reply_language(ctx, "") == "ja"
+
+    assert locale_tag("pt_BR") == "pt"
+    assert locale_tag("zh-Hant-TW") == "zh"
+    assert locale_tag("not a locale") is None
+    assert locale_tag("") is None and locale_tag(None) is None
+
+
+@pytest.mark.asyncio
+async def test_session_create_stores_the_locale(
+    daemon: Daemon, http: aiohttp.ClientSession, workdir: Path
+) -> None:
+    client = await connect(http, daemon, timeout=TIMEOUT)
+    try:
+        created = await client.ok(
+            "session.create", {"workdir": str(workdir), "mode": "accept", "locale": "ko-KR"}
+        )
+        plain = await client.ok("session.create", {"workdir": str(workdir), "mode": "accept"})
+        bogus = await client.ok(
+            "session.create", {"workdir": str(workdir), "mode": "accept", "locale": "<b>"}
+        )
+        core = daemon.core
+        assert core is not None
+        assert core.sessions.get(created["sessionId"]).locale == "ko"
+        assert core.sessions.get(plain["sessionId"]).locale is None
+        assert core.sessions.get(bogus["sessionId"]).locale is None
+    finally:
+        await client.stop()
+
+
 # ---------------------------------------------------------------------------
 # settings.json already present: left alone
 # ---------------------------------------------------------------------------

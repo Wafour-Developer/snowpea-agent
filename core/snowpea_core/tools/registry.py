@@ -252,7 +252,8 @@ class ToolRegistry:
         from snowpea_core.tools import deferred as deferred_tools
 
         allowed = deferred_tools.narrowed(
-            getattr(session, "allowed_tools", None) if session is not None else None
+            getattr(session, "allowed_tools", None) if session is not None else None,
+            session,
         )
         return [
             tool

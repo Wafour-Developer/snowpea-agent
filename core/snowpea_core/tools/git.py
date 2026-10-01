@@ -21,6 +21,44 @@ GIT = "git --no-pager -c color.ui=false"
 DEFAULT_LOG_COUNT = 20
 MAX_LOG_COUNT = 500
 
+#: Build output and caches a commit must not sweep in when the repository has no
+#: ignore rule for them.  Directories match at any depth; suffixes any file.
+ARTIFACT_DIRS: tuple[str, ...] = (
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".tox",
+    ".venv",
+    "venv",
+    "node_modules",
+    "dist",
+    "build",
+    "target",
+)
+ARTIFACT_SUFFIXES: tuple[str, ...] = (".pyc", ".pyo", ".class")
+
+
+def artifact_excludes(tracked: list[str]) -> list[str]:
+    """``:(exclude)`` pathspecs for the artifacts this repository does not track.
+
+    A repository that already tracks something under ``dist/`` (or a ``.class``
+    file) means it, so that kind is left to ``.gitignore`` alone.
+    """
+    tracked_dirs: set[str] = set()
+    tracked_suffixes: set[str] = set()
+    for path in tracked:
+        parts = path.split("/")
+        tracked_dirs.update(parts[:-1])
+        tracked_suffixes.update(s for s in ARTIFACT_SUFFIXES if parts[-1].endswith(s))
+    specs = [f":(exclude,glob)**/{name}/**" for name in ARTIFACT_DIRS if name not in tracked_dirs]
+    specs += [
+        f":(exclude,glob)**/*{suffix}"
+        for suffix in ARTIFACT_SUFFIXES
+        if suffix not in tracked_suffixes
+    ]
+    return specs
+
 
 async def _git(ctx: ToolContext, argv: str, *, timeout: float = 60.0) -> ToolResult:
     result = await ctx.backend.run(f"{GIT} {argv}", cwd=None, timeout=timeout)
@@ -77,7 +115,13 @@ async def git_commit(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         quoted = " ".join(shlex.quote(str(p)) for p in paths)
         staged = await _git(ctx, f"add -- {quoted}")
     elif bool(args.get("all", True)):
-        staged = await _git(ctx, "add -A")
+        # Everything, minus build artifacts the repository has no ignore rule for.
+        staged = await _git(ctx, "add -u")
+        if staged.ok:
+            listed = await _git(ctx, "ls-files")
+            tracked = listed.output.splitlines() if listed.ok else []
+            excludes = " ".join(shlex.quote(spec) for spec in artifact_excludes(tracked))
+            staged = await _git(ctx, f"add -A -- . {excludes}")
     else:
         staged = ToolResult(ok=True)
     if not staged.ok:
@@ -158,10 +202,13 @@ TOOLS: tuple[Tool, ...] = (
 
 
 __all__ = [
+    "ARTIFACT_DIRS",
+    "ARTIFACT_SUFFIXES",
     "DEFAULT_LOG_COUNT",
     "GIT",
     "MAX_LOG_COUNT",
     "TOOLS",
+    "artifact_excludes",
     "git_commit",
     "git_diff",
     "git_log",

@@ -19,6 +19,7 @@ from snowpea_core.server.protocol import (
     CheckpointRestored,
     CheckpointRestoreSkipped,
     CheckpointUpdated,
+    CommandProgress,
     CompactionEvent,
     CompactionStarted,
     ContextEvent,
@@ -185,6 +186,23 @@ def diff(path: str, patch: str) -> Event:
 
 def todos_updated(todos: Sequence[dict[str, Any]]) -> Event:
     return _pack(TodosUpdated(todos=[TodoItem(**todo) for todo in todos]))
+
+
+def command_progress(
+    command: str,
+    iteration: int,
+    stories: Sequence[dict[str, Any]],
+    outcome: str | None = None,
+) -> Event:
+    """``/ralph`` or ``/ultrawork`` plan and progress, as data."""
+    return _pack(
+        CommandProgress(
+            command=command,  # type: ignore[arg-type]
+            iteration=iteration,
+            stories=list(stories),  # type: ignore[arg-type]
+            outcome=outcome,
+        )
+    )
 
 
 def checkpoint_updated(checkpoint: CheckpointInfo | dict[str, Any]) -> Event:
@@ -390,6 +408,7 @@ def validate(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
 __all__ = [
     "Event",
     "backend_changed",
+    "command_progress",
     "compaction",
     "compaction_started",
     "context",

@@ -1774,6 +1774,8 @@ export interface SessionCreateParams {
   effort?: "low" | "medium" | "high" | "max" | null;
   /** Whose host tools this session sees: a connection's clientId (or surface id). Default: the creating connection (1.6.0). */
   hostToolsFrom?: string | null;
+  /** The client's UI language as a BCP 47 tag, e.g. 'ko-KR' (1.7.0). With agent.replyLanguage 'auto', text the core writes for this session (/init, /ralph and delegated briefs) is in this language before any guess from what the user typed. Ignored when not a language tag. */
+  locale?: string | null;
   /** Override for concurrent subagents. */
   maxConcurrent?: number | null;
   /** Starting mode; defaults to the project setting. */
@@ -3469,6 +3471,28 @@ export interface CheckpointUpdatedEventPayload {
   kind?: "checkpoint.updated";
 }
 
+/** Payload of `session.event` with kind `command.progress`. */
+export interface CommandProgressEventPayload {
+  /** Command reporting. */
+  command: "ralph" | "ultrawork";
+  /** 0 for the plan, then 1, 2, …. */
+  iteration?: number;
+  kind?: "command.progress";
+  /** Set on the last event only: ralph 'complete', 'rejected', 'stopped', 'max_iterations' or 'error'; ultrawork 'complete' or 'partial'. */
+  outcome?: string | null;
+  /** Every story, in plan order. */
+  stories?: ({
+    /** Story (or subtask) id, e.g. S1. */
+    id: string;
+    /** Why it passed or failed; empty while pending. */
+    note?: string;
+    /** Where the story stands. */
+    status: "pass" | "fail" | "pending";
+    /** What the story delivers. */
+    title: string;
+  })[];
+}
+
 /** Payload of `session.event` with kind `compaction`. */
 export interface CompactionEventPayload {
   /** Estimated tokens the history holds now. */
@@ -3905,6 +3929,7 @@ export interface SessionEventKindMap {
   "backend.changed": BackendChangedEventPayload;
   "checkpoint.restored": CheckpointRestoredEventPayload;
   "checkpoint.updated": CheckpointUpdatedEventPayload;
+  "command.progress": CommandProgressEventPayload;
   "compaction": CompactionEventPayload;
   "compaction.started": CompactionStartedEventPayload;
   "context": ContextEventPayload;
@@ -3943,6 +3968,7 @@ export const SESSION_EVENT_KINDS: readonly SessionEventKind[] = [
   "backend.changed",
   "checkpoint.restored",
   "checkpoint.updated",
+  "command.progress",
   "compaction",
   "compaction.started",
   "context",

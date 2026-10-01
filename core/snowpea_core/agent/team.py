@@ -49,6 +49,7 @@ from snowpea_core.prompts.loader import load
 from snowpea_core.providers.base import ChatMessage
 from snowpea_core.server.protocol import TeamStatusResult, TeamTask, TeamTaskUpdate
 from snowpea_core.session.session import Session
+from snowpea_core.tools.git import artifact_excludes
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.server.app_server import Core
@@ -190,6 +191,23 @@ async def git(cwd: Path | str, *args: str, timeout: float = 120.0) -> GitResult:
         raw_out.decode("utf-8", "replace"),
         raw_err.decode("utf-8", "replace"),
     )
+
+
+async def stage_work(cwd: Path | str) -> GitResult:
+    """Stage a worker's changes without its build artifacts.
+
+    ``git add -A`` already honours ``.gitignore``; a repository with no rule for
+    ``__pycache__`` got its ``.pyc`` files committed by every worker.  Changes
+    to tracked files are staged wherever they are; new files are staged minus
+    the artifact kinds :func:`artifact_excludes` names.  Nothing is written
+    into the user's ``.gitignore``.
+    """
+    updated = await git(cwd, "add", "-u")
+    if not updated.ok:
+        return updated
+    listed = await git(cwd, "ls-files", "-z")
+    tracked = [path for path in listed.stdout.split("\0") if path] if listed.ok else []
+    return await git(cwd, "add", "-A", "--", ".", *artifact_excludes(tracked))
 
 
 async def repo_root(workdir: Path | str) -> Path:
@@ -592,8 +610,10 @@ class TeamManager:
             )
             return
 
-        await git(entry.path, "add", "-A")
-        status = await git(entry.path, "status", "--porcelain")
+        await stage_work(entry.path)
+        # What is staged, not what is in the tree: artifacts left unstaged
+        # must not turn into an empty commit that fails the task.
+        status = await git(entry.path, "diff", "--cached", "--name-only")
         if status.stdout.strip():
             message = f"team {run.id} agent {entry.n}: {row.title}"
             if row.retries:
@@ -978,5 +998,6 @@ __all__ = [
     "new_team_id",
     "parse_team_args",
     "repo_root",
+    "stage_work",
     "tasks_from_payload",
 ]

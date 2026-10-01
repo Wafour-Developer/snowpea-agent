@@ -447,3 +447,54 @@ async def test_a_worker_anchor_keeps_the_team_and_is_named(daemon: Daemon, repo:
     # With a roster the worker is picked from it; with none it is named
     # "executor" explicitly so a profile assignment can apply either way.
     assert anchor.workdir == entry.path
+
+
+# ---------------------------------------------------------------------------
+# a worker's commit leaves build artifacts out when nothing ignores them
+# ---------------------------------------------------------------------------
+
+
+def _write(root: Path, rel: str, text: str = "x\n") -> None:
+    target = root / rel
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(text, encoding="utf-8")
+
+
+async def test_stage_work_skips_artifacts_the_repo_does_not_ignore(tmp_path: Path) -> None:
+    root = init_repo(tmp_path / "artifacts", {"app.py": "print(1)\n"})
+    _write(root, "build/keep.txt")  # this repository tracks build/ on purpose
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "track build")
+
+    _write(root, "app.py", "print(2)\n")
+    _write(root, "pkg/mod.py")
+    _write(root, "__pycache__/app.cpython-311.pyc")
+    _write(root, "pkg/__pycache__/mod.cpython-311.pyc")
+    _write(root, "pkg/stray.pyc")
+    _write(root, "web/node_modules/left-pad/index.js")
+    _write(root, ".venv/bin/python")
+    _write(root, "dist/app.whl")
+    _write(root, "build/new.txt")
+
+    result = await team.stage_work(root)
+    assert result.ok, result.text
+    staged = set(git(root, "diff", "--cached", "--name-only").split())
+    assert staged == {"app.py", "pkg/mod.py", "build/new.txt"}
+    # Nothing was written into the user's ignore rules.
+    assert not (root / ".gitignore").exists()
+
+
+async def test_stage_work_still_stages_tracked_changes_under_an_artifact_dir(
+    tmp_path: Path,
+) -> None:
+    root = init_repo(tmp_path / "tracked", {"README": "r\n"})
+    _write(root, "dist/bundle.js", "v1\n")
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "ship dist")
+    _write(root, "dist/bundle.js", "v2\n")
+    _write(root, "dist/extra.js")
+    _write(root, "lib/__pycache__/x.pyc")
+
+    await team.stage_work(root)
+    staged = set(git(root, "diff", "--cached", "--name-only").split())
+    assert staged == {"dist/bundle.js", "dist/extra.js"}

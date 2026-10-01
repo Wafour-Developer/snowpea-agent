@@ -665,6 +665,18 @@ async def test_ultrawork_splits_fans_out_and_merges(daemon: Daemon, workdir: Pat
     assert "T2 second half" in merged
     assert merged.count("child finished its quick task") == 2
 
+    # command.progress: the plan (all pending), then the one round with its outcome.
+    progress = [event["payload"] for event in recorder.of_kind("command.progress")]
+    assert [(row["command"], row["iteration"], row["outcome"]) for row in progress] == [
+        ("ultrawork", 0, None),
+        ("ultrawork", 1, "complete"),
+    ]
+    assert [(row["id"], row["status"]) for row in progress[0]["stories"]] == [
+        ("T1", "pending"),
+        ("T2", "pending"),
+    ]
+    assert [row["status"] for row in progress[1]["stories"]] == ["pass", "pass"]
+
 
 async def test_ultrawork_without_a_task_explains_itself(daemon: Daemon, workdir: Path) -> None:
     from snowpea_core.commands import ultrawork

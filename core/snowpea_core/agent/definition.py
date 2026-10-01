@@ -527,7 +527,11 @@ def parse_generated_json(text: str) -> dict[str, Any]:
 
 
 async def complete_text(
-    provider: Any, messages: list[ChatMessage], *, max_tokens: int = DEFAULT_MAX_TOKENS
+    provider: Any,
+    messages: list[ChatMessage],
+    *,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
+    response_format: dict[str, Any] | None = None,
 ) -> str:
     """Run one non-tool provider turn and return the concatenated text.
 
@@ -537,11 +541,15 @@ async def complete_text(
     the ``/team`` planner's prompt on a local Qwen. Every caller here parses the
     text as JSON, so that one flake used to fail a whole ``/team``, ``/ralph`` or
     agent generation outright.
+
+    ``response_format`` is passed through only when given; the caller decides
+    whether this provider takes it.
     """
+    extra: dict[str, Any] = {"response_format": response_format} if response_format else {}
     text = ""
     for _attempt in range(1 + EMPTY_REPLY_RETRIES):
         chunks: list[str] = []
-        async for event in provider.stream(messages, [], max_tokens=max_tokens):
+        async for event in provider.stream(messages, [], max_tokens=max_tokens, **extra):
             if event.kind == "text_delta" and event.text:
                 chunks.append(event.text)
         text = "".join(chunks)

@@ -39,12 +39,15 @@ import asyncio
 import json
 import logging
 import re
+import shlex
+import shutil
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from snowpea_core.agent.agent import reply_language
-from snowpea_core.agent.definition import complete_text, parse_generated_json
+from snowpea_core.agent.agent import session_reply_language
+from snowpea_core.agent.definition import DefinitionError, complete_text, parse_generated_json
 from snowpea_core.agent.subagent import get_manager
 from snowpea_core.commands.registry import Command, CommandContext
 from snowpea_core.prompts.compose import workflow_brief
@@ -83,6 +86,31 @@ PRD_SYSTEM = render(
     "workflows/ralph-prd", MIN_STORIES=MIN_STORIES, MAX_STORIES=MAX_STORIES
 )
 
+#: The second PRD request, after a reply that held no usable JSON object.
+PRD_RETRY_INSTRUCTION = (
+    "Your previous reply could not be used. Reply with only a JSON object, no prose, "
+    'no code fences. Shape: {"stories": [{"id": "S1", "title": "<one line>", '
+    '"acceptance": "<how we know it is done>", "verify": ["<shell command>"], '
+    '"independent": true, "depends_on": []}]}'
+)
+
+#: JSON mode for the retry, on vendors whose preset says they take it.
+JSON_MODE = {"type": "json_object"}
+
+#: Longest title the single-story fallback PRD takes from the task.
+FALLBACK_TITLE_CHARS = 80
+
+#: Asks the model to rewrite one story's verification commands.
+CHECK_REPAIR_SYSTEM = (
+    "You fix the verification commands of one story in a PRD for an autonomous coding "
+    "agent. The commands run from the project root in a POSIX shell; each must exit "
+    "non-zero while the story is not done and zero once it is. Reply with only a JSON "
+    'object, no prose, no code fences: {"verify": ["<shell command>", ...]}. '
+    "Python that needs try/except, with, for, if or def blocks cannot be a one-line "
+    "python -c: write it as a script through a heredoc (python3 - <<'PY' ... PY) or as "
+    "a temporary file, and use assert for the condition being checked."
+)
+
 RALPH_ARGS_SCHEMA = {
     "type": "object",
     "properties": {
@@ -109,6 +137,11 @@ class Story:
     depends_on: list[str] = field(default_factory=list)
     passed: bool = False
     note: str = ""
+    #: Normalised signature of the last failed check; ``""`` after a pass.
+    failure: str = ""
+    #: True when the last failure was the check itself erroring (a syntax
+    #: error, a missing command), not the work falling short of it.
+    check_broken: bool = False
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -156,8 +189,28 @@ def stories_from_payload(data: dict[str, Any]) -> list[Story]:
     return stories
 
 
-async def build_prd(ctx: CommandContext, task: str) -> list[Story]:
-    """Ask the session's provider for the story list."""
+def supports_json_mode(provider: Any) -> bool:
+    """True when ``provider``'s vendor preset says it honours JSON mode."""
+    return bool(getattr(getattr(provider, "preset", None), "supports_json_mode", False))
+
+
+def fallback_prd(task: str) -> list[Story]:
+    """One story that is the whole task, for when the model gives no PRD."""
+    first_line = next((line.strip() for line in task.splitlines() if line.strip()), task)
+    title = first_line
+    if len(title) > FALLBACK_TITLE_CHARS:
+        title = title[: FALLBACK_TITLE_CHARS - 1].rstrip() + "…"
+    return [Story(id="S1", title=title or "task", acceptance=task)]
+
+
+async def build_prd(ctx: CommandContext, task: str) -> tuple[list[Story], str | None]:
+    """Ask the session's provider for the story list.
+
+    Returns ``(stories, fallback_reason)``.  A reply with no usable JSON object
+    (or no stories) is asked for once more, more strictly and in JSON mode where
+    the vendor takes it; when that fails too, the PRD is the task as a single
+    story and ``fallback_reason`` says why.  A provider error still raises.
+    """
     provider = ctx.core.providers.get(ctx.session.provider, ctx.session.model)
     messages = [
         ChatMessage(role="system", content=PRD_SYSTEM),
@@ -169,8 +222,25 @@ async def build_prd(ctx: CommandContext, task: str) -> list[Story]:
             ),
         ),
     ]
-    text = await complete_text(provider, messages)
-    return stories_from_payload(parse_generated_json(text))
+    reason = ""
+    for attempt in range(2):
+        if attempt:
+            messages = [*messages, ChatMessage(role="user", content=PRD_RETRY_INSTRUCTION)]
+        text = await complete_text(
+            provider,
+            messages,
+            response_format=JSON_MODE if attempt and supports_json_mode(provider) else None,
+        )
+        try:
+            stories = stories_from_payload(parse_generated_json(text))
+        except DefinitionError as exc:
+            reason = str(exc)
+            log.info("ralph PRD attempt %d unusable: %s", attempt + 1, reason)
+            continue
+        if stories:
+            return stories, None
+        reason = "the model did not return any stories"
+    return fallback_prd(task), reason
 
 
 # ---------------------------------------------------------------------------
@@ -236,8 +306,8 @@ def ready_stories(stories: list[Story], limit: int) -> list[Story]:
 
 
 def reply_language_for(ctx: CommandContext) -> str:
-    """``agent.replyLanguage`` for this run; children cannot see the setting."""
-    return reply_language(ctx.core)
+    """``agent.replyLanguage`` (or the UI locale) for this run; children cannot see it."""
+    return session_reply_language(ctx.core, ctx.session)
 
 
 def story_task(task: str, story: Story, language: str = "auto") -> str:
@@ -259,8 +329,93 @@ def story_task(task: str, story: Story, language: str = "auto") -> str:
     )
 
 
+_PYTHON = re.compile(r"(?:^|/)python(?:\d+(?:\.\d+)?)?$")
+_SHELL_SEPARATORS = frozenset({"&&", "||", ";", "|", "&"})
+
+
+def _python_c_code(command: str) -> list[str]:
+    """The code of every ``python -c '<code>'`` in ``command``."""
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return []
+    found: list[str] = []
+    for index, token in enumerate(tokens):
+        if not _PYTHON.search(token):
+            continue
+        for later in range(index + 1, len(tokens) - 1):
+            option = tokens[later]
+            if option in _SHELL_SEPARATORS or not option.startswith("-"):
+                break
+            if option == "-c":
+                found.append(tokens[later + 1])
+                break
+    return found
+
+
+def check_problem(command: str) -> str | None:
+    """Why ``command`` cannot run as written, or ``None`` when it looks valid.
+
+    ``python -c`` code is compiled; the whole line goes through ``bash -n``
+    when bash is on this machine.  Neither runs anything.
+    """
+    for code in _python_c_code(command):
+        try:
+            compile(code, "<check>", "exec")
+        except SyntaxError as exc:
+            return f"python -c: {exc.msg} (line {exc.lineno})"
+    bash = shutil.which("bash")
+    if bash is None:
+        return None
+    try:
+        checked = subprocess.run(
+            [bash, "-n", "-c", command], capture_output=True, text=True, timeout=5
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if checked.returncode != 0:
+        lines = (checked.stderr or "").strip().splitlines()
+        return f"shell: {lines[-1] if lines else 'syntax error'}"
+    return None
+
+
+def check_is_broken(exit_code: int, output: str) -> bool:
+    """True when a failed check failed on its own terms, not on the work.
+
+    Only the unambiguous cases count: the shell could not find or run the
+    command, the shell could not parse it, or Python could not compile the
+    ``-c`` code (``File "<string>"`` is how Python names that code).  An
+    assertion, an import error or a failing test is the work, not the check.
+    """
+    if exit_code in (126, 127):
+        return True
+    lowered = output.lower()
+    if "command not found" in lowered or "syntax error near unexpected token" in lowered:
+        return True
+    if "unexpected eof while looking for matching" in lowered:
+        return True
+    return 'File "<string>"' in output and any(
+        name in output for name in ("SyntaxError", "IndentationError", "TabError")
+    )
+
+
+def failure_signature(command: str, exit_code: int, output: str) -> str:
+    """A check failure with numbers, addresses and spacing taken out."""
+    tail = "\n".join(output.strip().splitlines()[-5:])
+    text = f"{command}\x00{exit_code}\x00{tail}".lower()
+    text = re.sub(r"0x[0-9a-f]+", "0x", text)
+    text = re.sub(r"\d+(?:\.\d+)?", "#", text)
+    return " ".join(text.split())
+
+
 async def verify_story(ctx: CommandContext, story: Story) -> tuple[bool, str]:
-    """Run a story's verification commands on the session backend."""
+    """Run a story's verification commands on the session backend.
+
+    A failure also leaves its signature in :attr:`Story.failure` and whether
+    the check itself was at fault in :attr:`Story.check_broken`.
+    """
+    story.failure = ""
+    story.check_broken = False
     if not story.verify:
         return True, "no verification commands; taking the subagent's word for it"
     from snowpea_core.agent.loop import backend_for
@@ -270,11 +425,71 @@ async def verify_story(ctx: CommandContext, story: Story) -> tuple[bool, str]:
         try:
             result = await backend.run(command, timeout=300.0)
         except OSError as exc:
+            story.failure = failure_signature(command, -1, f"{type(exc).__name__}: {exc}")
             return False, f"{command}: {type(exc).__name__}: {exc}"
         if result.exit_code != 0 or result.timed_out:
+            output = "\n".join(part for part in (result.stderr, result.stdout) if part)
+            story.failure = failure_signature(command, result.exit_code, output)
+            story.check_broken = check_is_broken(result.exit_code, output)
             tail = (result.stderr or result.stdout or "").strip().splitlines()
             return False, f"{command} exited {result.exit_code}: {tail[-1] if tail else ''}"
     return True, "all verification commands exited zero"
+
+
+async def repair_checks(
+    ctx: CommandContext, task: str, story: Story, problem: str
+) -> list[str] | None:
+    """Ask the model for new verification commands for ``story``; ``None`` on failure."""
+    try:
+        provider = ctx.core.providers.get(ctx.session.provider, ctx.session.model)
+        messages = [
+            ChatMessage(role="system", content=CHECK_REPAIR_SYSTEM),
+            ChatMessage(
+                role="user",
+                content=(
+                    f"Task: {task}\nStory {story.id}: {story.title}\n"
+                    f"Acceptance: {story.acceptance or '(none given)'}\n"
+                    "Current verification commands:\n"
+                    + "\n".join(f"- {command}" for command in story.verify)
+                    + f"\n\nWhat is wrong with them: {problem}"
+                ),
+            ),
+        ]
+        text = await complete_text(
+            provider,
+            messages,
+            response_format=JSON_MODE if supports_json_mode(provider) else None,
+        )
+        verify = _as_list(parse_generated_json(text).get("verify"))
+    except Exception as exc:  # noqa: BLE001 - a failed repair keeps the old check
+        log.info("ralph could not repair %s's checks: %s", story.id, exc)
+        return None
+    return verify or None
+
+
+async def validate_checks(ctx: CommandContext, task: str, stories: list[Story]) -> list[str]:
+    """Repair checks that cannot run as written, before any work starts.
+
+    Returns one line per story whose checks were invalid.  A repair that is
+    still invalid keeps the original; it then fails as a broken check, gets one
+    more repair, and the repeated-failure stop ends the loop if that fails too.
+    """
+    lines: list[str] = []
+    for story in stories:
+        problems = [
+            f"{command}: {problem}"
+            for command in story.verify
+            if (problem := check_problem(command)) is not None
+        ]
+        if not problems:
+            continue
+        revised = await repair_checks(ctx, task, story, "; ".join(problems))
+        if revised and all(check_problem(command) is None for command in revised):
+            story.verify = revised
+            lines.append(f"- {story.id}: invalid check rewritten ({problems[0]})")
+        else:
+            lines.append(f"- {story.id}: invalid check could not be repaired ({problems[0]})")
+    return lines
 
 
 def reviewer_agent(manager: Any, session: Any) -> str | None:
@@ -337,13 +552,20 @@ async def cmd_ralph(ctx: CommandContext, args: str) -> None:
         return
 
     try:
-        stories = await build_prd(ctx, task)
+        stories, fallback_reason = await build_prd(ctx, task)
     except Exception as exc:  # noqa: BLE001 - a bad PRD ends the command, not the daemon
+        await _progress(ctx, 0, [], outcome="error")
         await _fail(ctx, f"could not build a PRD for this task: {exc}")
         return
-    if not stories:
-        await _fail(ctx, "the model did not return any stories for this task")
-        return
+    if fallback_reason is not None:
+        await ctx.say(
+            f"ralph: no usable PRD from the model ({fallback_reason}); "
+            "running the task as a single story."
+        )
+
+    repaired = await validate_checks(ctx, task, stories)
+    if repaired:
+        await ctx.say("\n".join(["ralph: checked the PRD's verification commands:", *repaired]))
 
     write_prd(ctx.session, task, stories, 0)
     append_progress(ctx.session, [f"# ralph: {task}", "", f"{len(stories)} stories planned."])
@@ -352,6 +574,7 @@ async def cmd_ralph(ctx: CommandContext, args: str) -> None:
             [f"ralph: {len(stories)} stories planned.", *(f"  {s.id} {s.title}" for s in stories)]
         )
     )
+    await _progress(ctx, 0, stories)
 
     manager = get_manager(ctx.core)
     limit = manager.limit_for(ctx.session)
@@ -359,10 +582,31 @@ async def cmd_ralph(ctx: CommandContext, args: str) -> None:
 
     #: The failures of the previous iteration, to notice an error that repeats.
     previous_errors: set[str] = set()
+    #: The last iteration that ran, for the final ``command.progress``.
+    last = 0
     for iteration in range(1, max_iterations + 1):
-        batch = ready_stories(stories, limit)
-        if not batch:
+        # A story whose check broke gets its check rewritten this round, not
+        # its work redone: the work may well be fine.
+        broken = [story for story in stories if not story.passed and story.check_broken]
+        batch = [story for story in ready_stories(stories, limit) if not story.check_broken]
+        if not batch and not broken:
             break
+        last = iteration
+        lines = ["", f"## iteration {iteration}"]
+        #: Stories whose check failed exactly as it did the round before.
+        stuck: list[Story] = []
+        for story in broken:
+            before = story.failure
+            revised = await repair_checks(ctx, task, story, story.note)
+            if revised:
+                story.verify = revised
+            passed, note = await verify_story(ctx, story)
+            story.passed = passed
+            story.note = f"check rewritten; {note}" if revised else note
+            if not passed and story.failure and story.failure == before:
+                stuck.append(story)
+            verdict = "PASS" if passed else "FAIL"
+            lines.append(f"- {story.id} {story.title}: {verdict} — {story.note}")
         language = reply_language_for(ctx)
         results = await asyncio.gather(
             *(
@@ -375,7 +619,6 @@ async def cmd_ralph(ctx: CommandContext, args: str) -> None:
             ),
             return_exceptions=True,
         )
-        lines = ["", f"## iteration {iteration}"]
         errors_now: set[str] = set()
         for story, result in zip(batch, results, strict=True):
             if isinstance(result, BaseException):
@@ -388,13 +631,17 @@ async def cmd_ralph(ctx: CommandContext, args: str) -> None:
                 errors_now.add(str(result.error or "no reason given"))
                 lines.append(f"- {story.id} {story.title}: {story.note}")
                 continue
+            before = story.failure
             passed, note = await verify_story(ctx, story)
             story.passed = passed
             story.note = note
+            if not passed and story.failure and story.failure == before:
+                stuck.append(story)
             lines.append(f"- {story.id} {story.title}: {'PASS' if passed else 'FAIL'} — {note}")
         write_prd(ctx.session, task, stories, iteration)
         append_progress(ctx.session, lines)
         await ctx.say("\n".join([f"ralph iteration {iteration}:", *lines[2:]]))
+        await _progress(ctx, iteration, stories)
         if all(story.passed for story in stories):
             break
         # Every subagent failed, and for a reason retrying cannot change: a
@@ -408,6 +655,7 @@ async def cmd_ralph(ctx: CommandContext, args: str) -> None:
             if fatal is not None or errors_now == previous_errors:
                 reason = fatal or next(iter(errors_now))
                 append_progress(ctx.session, ["", f"stopped early: {reason}"])
+                await _progress(ctx, iteration, stories, outcome="stopped")
                 await _fail(
                     ctx,
                     f"stopped after iteration {iteration}: every subagent failed with an error "
@@ -415,9 +663,24 @@ async def cmd_ralph(ctx: CommandContext, args: str) -> None:
                 )
                 return
         previous_errors = errors_now
+        # The same check failing the same way twice in a row will fail that way
+        # a third time: a broken check once ran ten times over seven minutes.
+        if stuck:
+            reason = "; ".join(f"{story.id}: {story.note}" for story in stuck)
+            append_progress(ctx.session, ["", f"stopped early: same check failure twice: {reason}"])
+            await _progress(ctx, iteration, stories, outcome="stopped")
+            await _fail(
+                ctx,
+                f"stopped after iteration {iteration}: a check failed the same way twice in a "
+                f"row: {reason}",
+            )
+            return
 
     failing = [story for story in stories if not story.passed]
     if failing:
+        # Out of iterations, or nothing left runnable (a dependency never passed).
+        outcome = "max_iterations" if last >= max_iterations else "stopped"
+        await _progress(ctx, last, stories, outcome=outcome)
         await _fail(
             ctx,
             "ralph stopped after "
@@ -431,11 +694,33 @@ async def cmd_ralph(ctx: CommandContext, args: str) -> None:
         ctx.session, ["", "## review", f"{'APPROVED' if approved else 'REJECTED'}: {verdict}"]
     )
     if not approved:
+        await _progress(ctx, last, stories, outcome="rejected")
         await _fail(ctx, f"the reviewer did not approve the work:\n{verdict}")
         return
     await ctx.say(
         f"ralph: all {len(stories)} stories pass and the reviewer approved.\n{verdict}".strip()
     )
+    await _progress(ctx, last, stories, outcome="complete")
+
+
+def progress_stories(stories: list[Story]) -> list[dict[str, str]]:
+    """Stories as ``command.progress`` rows; one not attempted yet is pending."""
+    return [
+        {
+            "id": story.id,
+            "title": story.title,
+            "status": "pass" if story.passed else ("fail" if story.note else "pending"),
+            "note": story.note,
+        }
+        for story in stories
+    ]
+
+
+async def _progress(
+    ctx: CommandContext, iteration: int, stories: list[Story], outcome: str | None = None
+) -> None:
+    """Emit ``command.progress`` beside the text lines (snowpea-browser)."""
+    await ctx.emit(events.command_progress("ralph", iteration, progress_stories(stories), outcome))
 
 
 async def _fail(ctx: CommandContext, message: str) -> None:
@@ -469,13 +754,19 @@ __all__ = [
     "Story",
     "append_progress",
     "build_prd",
+    "check_is_broken",
+    "check_problem",
     "cmd_ralph",
+    "fallback_prd",
+    "progress_stories",
     "ready_stories",
     "review",
+    "repair_checks",
     "reviewer_agent",
     "state_dir",
     "stories_from_payload",
     "story_task",
+    "validate_checks",
     "verify_story",
     "write_prd",
 ]

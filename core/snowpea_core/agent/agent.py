@@ -12,6 +12,7 @@ downstream had to change when the text moved.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -293,6 +294,30 @@ def reply_language(core: Core | None) -> str:
         return "auto"
 
 
+#: A BCP 47 language tag, loosely: ``ko``, ``ko-KR``, ``zh-Hant-TW``, ``pt_BR``.
+_LOCALE = re.compile(r"^[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{2,8})*$")
+
+
+def locale_tag(locale: str | None) -> str | None:
+    """``"ko-KR"`` -> ``"ko"``; ``None`` for anything that is not a language tag."""
+    text = (locale or "").strip()
+    if not text or len(text) > 35 or not _LOCALE.match(text):
+        return None
+    return re.split(r"[-_]", text, maxsplit=1)[0].lower()
+
+
+def session_reply_language(core: Core | None, session: Any) -> str:
+    """``agent.replyLanguage``; on ``auto``, the session's UI locale when it has one.
+
+    ``"auto"`` comes back when neither says anything, and the caller falls
+    back to guessing from what the user typed.
+    """
+    configured = (reply_language(core) or "auto").strip() or "auto"
+    if configured.lower() != "auto":
+        return configured
+    return locale_tag(getattr(session, "locale", None)) or "auto"
+
+
 def build_system_prompt(
     session: Session,
     tools: list[ToolSpec],
@@ -437,8 +462,10 @@ __all__ = [
     "invalidate_environment",
     "invalidate_tools",
     "is_lean_child",
+    "locale_tag",
     "memory_enabled",
     "reply_language",
+    "session_reply_language",
     "skill_groups",
     "skill_index_max",
     "tool_lines",

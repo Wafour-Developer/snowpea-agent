@@ -29,6 +29,7 @@ from snowpea_core.agent.subagent import get_manager
 from snowpea_core.commands.registry import Command, CommandContext
 from snowpea_core.prompts.loader import render
 from snowpea_core.providers.base import ChatMessage
+from snowpea_core.session import events
 
 log = logging.getLogger("snowpea.commands.ultrawork")
 
@@ -181,6 +182,17 @@ async def cmd_ultrawork(ctx: CommandContext, args: str) -> None:
         )
     )
 
+    await ctx.emit(
+        events.command_progress(
+            "ultrawork",
+            0,
+            [
+                {"id": part.id, "title": part.title, "status": "pending", "note": ""}
+                for part in subtasks
+            ],
+        )
+    )
+
     merged = [part for part in subtasks if part.merged]
     if merged:
         await ctx.say(
@@ -205,21 +217,32 @@ async def cmd_ultrawork(ctx: CommandContext, args: str) -> None:
     )
 
     lines: list[str] = [f"ultrawork: merged {len(subtasks)} subtask reports."]
+    rows: list[dict[str, str]] = []
     failures = 0
     for part, result in zip(subtasks, results, strict=True):
         heading = f"{part.id} {part.title}"
         if isinstance(result, BaseException):
             failures += 1
             lines.append(f"\n### {heading} — failed\n{result}")
+            rows.append({"id": part.id, "title": part.title, "status": "fail", "note": str(result)})
             continue
         if not result.ok:
             failures += 1
-            lines.append(f"\n### {heading} — failed\n{result.error or 'no reason given'}")
+            reason = result.error or "no reason given"
+            lines.append(f"\n### {heading} — failed\n{reason}")
+            rows.append({"id": part.id, "title": part.title, "status": "fail", "note": reason})
             continue
         lines.append(f"\n### {heading}\n{result.summary or '(no report)'}")
+        rows.append({"id": part.id, "title": part.title, "status": "pass", "note": ""})
     if failures:
         lines.append(f"\n{failures} of {len(subtasks)} subtasks did not finish cleanly.")
     await ctx.say("\n".join(lines))
+    # One round, so its progress is also the last: it carries the outcome.
+    await ctx.emit(
+        events.command_progress(
+            "ultrawork", 1, rows, outcome="partial" if failures else "complete"
+        )
+    )
 
 
 COMMANDS: tuple[Command, ...] = (

@@ -58,7 +58,7 @@ async def tool_search(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     except (TypeError, ValueError):
         count = deferred.MAX_RESULTS
     catalogue = registry.all_specs(ctx.session)
-    allowed = deferred.narrowed(getattr(ctx.session, "allowed_tools", None))
+    allowed = deferred.narrowed(getattr(ctx.session, "allowed_tools", None), ctx.session)
     if allowed is not None:
         # A narrowed agent finds only what it may call.
         catalogue = [spec for spec in catalogue if spec.name in allowed]

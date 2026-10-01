@@ -57,9 +57,29 @@ READONLY_EAGER_TOOLS: frozenset[str] = frozenset({"read_file", "view_image", "gr
 ALWAYS_ALLOWED: frozenset[str] = READONLY_EAGER_TOOLS | {"tool_search"}
 
 
-def narrowed(allowed: Iterable[str] | None) -> set[str] | None:
-    """An agent's tool list with :data:`ALWAYS_ALLOWED` added; ``None`` stays ``None``."""
-    return None if allowed is None else {str(name) for name in allowed} | ALWAYS_ALLOWED
+def narrowed(allowed: Iterable[str] | None, session: Any = None) -> set[str] | None:
+    """An agent's tool list with :data:`ALWAYS_ALLOWED` added; ``None`` stays ``None``.
+
+    Given a delegated ``session``, the host tools it inherited from its parent
+    (a browser's ``repl`` and ``browser_*``) are added too: a definition written
+    for coding does not name them, and a child of a browser session that could
+    not reach the page spent its rounds on ``tool_search`` looking for them.
+    """
+    if allowed is None:
+        return None
+    names = {str(name) for name in allowed} | ALWAYS_ALLOWED
+    if session is not None and getattr(session, "is_subagent", False):
+        names.update(inherited_host_tools(session))
+    return names
+
+
+def inherited_host_tools(session: Any) -> list[str]:
+    """Host tools a delegated ``session`` sees through its parent's host; else ``[]``."""
+    if session is None or not getattr(session, "is_subagent", False):
+        return []
+    from snowpea_core.tools.host_tools import HOST_TOOLS
+
+    return HOST_TOOLS.names_for(session)
 
 #: A session that may call one of these is not read-only, whatever its role
 #: says.  ``shell`` is deliberately absent: a read-only reviewer is routinely
@@ -297,9 +317,11 @@ __all__ = [
     "enabled",
     "forced_eager",
     "group_of",
+    "inherited_host_tools",
     "is_readonly_child",
     "load",
     "loaded",
+    "narrowed",
     "search",
     "split",
 ]

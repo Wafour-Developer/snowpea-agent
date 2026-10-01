@@ -327,6 +327,15 @@ class SessionCreateParams(Payload):
             "browser client (clientKind 'browser') creates the session (1.7.0)."
         ),
     )
+    locale: str | None = Field(
+        default=None,
+        description=(
+            "The client's UI language as a BCP 47 tag, e.g. 'ko-KR' (1.7.0). With "
+            "agent.replyLanguage 'auto', text the core writes for this session (/init, "
+            "/ralph and delegated briefs) is in this language before any guess from "
+            "what the user typed. Ignored when not a language tag."
+        ),
+    )
 
 
 class SessionAttachParams(Payload):
@@ -3009,6 +3018,37 @@ class TodosUpdated(Payload):
     todos: list[TodoItem] = Field(default_factory=list, description="The whole list, in order.")
 
 
+class CommandProgressStory(Payload):
+    id: str = Field(description="Story (or subtask) id, e.g. S1.")
+    title: str = Field(description="What the story delivers.")
+    status: Literal["pass", "fail", "pending"] = Field(description="Where the story stands.")
+    note: str = Field(default="", description="Why it passed or failed; empty while pending.")
+
+
+class CommandProgress(Payload):
+    """A long-running workflow command reports its plan and progress (1.7.0).
+
+    Sent by ``/ralph`` and ``/ultrawork`` once the plan is built (iteration 0),
+    after each iteration, and once more with ``outcome`` when the command ends.
+    The plain-text progress messages are still sent; this is the same state in
+    a shape a surface can render without parsing them.
+    """
+
+    kind: Literal["command.progress"] = "command.progress"
+    command: Literal["ralph", "ultrawork"] = Field(description="Command reporting.")
+    iteration: int = Field(default=0, description="0 for the plan, then 1, 2, ….")
+    stories: list[CommandProgressStory] = Field(
+        default_factory=list, description="Every story, in plan order."
+    )
+    outcome: str | None = Field(
+        default=None,
+        description=(
+            "Set on the last event only: ralph 'complete', 'rejected', 'stopped', "
+            "'max_iterations' or 'error'; ultrawork 'complete' or 'partial'."
+        ),
+    )
+
+
 class DiffEvent(Payload):
     """A file was edited."""
 
@@ -3448,6 +3488,7 @@ SessionEventPayload = Annotated[
     | ToolProgress
     | DiffEvent
     | TodosUpdated
+    | CommandProgress
     | CheckpointUpdated
     | CheckpointRestored
     | SubagentSpawn
@@ -3487,6 +3528,7 @@ SESSION_EVENT_MODELS: dict[str, type[BaseModel]] = {
     "tool.progress": ToolProgress,
     "diff": DiffEvent,
     "todos.updated": TodosUpdated,
+    "command.progress": CommandProgress,
     "checkpoint.updated": CheckpointUpdated,
     "checkpoint.restored": CheckpointRestored,
     "subagent.spawn": SubagentSpawn,

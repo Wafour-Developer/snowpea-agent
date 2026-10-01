@@ -131,6 +131,19 @@ async def test_configured_language_wins_over_what_the_user_wrote(
     assert delegation_language(context(core, session)) == "ko"
 
 
+async def test_auto_prefers_the_session_locale_to_a_guess(
+    daemon: Daemon, workdir: Path
+) -> None:
+    core = core_of(daemon)
+    session = await open_session(core, workdir)
+    core.settings.agent.replyLanguage = "auto"
+    session.locale = "ko"
+    session.history.append(ChatMessage(role="user", content="plain english question"))
+    assert delegation_language(context(core, session)) == "ko"
+    core.settings.agent.replyLanguage = "ja"
+    assert delegation_language(context(core, session)) == "ja"
+
+
 async def test_auto_follows_the_last_user_message(daemon: Daemon, workdir: Path) -> None:
     core = core_of(daemon)
     session = await open_session(core, workdir)

@@ -279,6 +279,19 @@ async def test_git_tools_round_trip_through_the_backend(
     diff = await run(ctx, "git_diff")
     assert diff.ok and "-one" in diff.output
 
+    # Staging everything leaves build artifacts out when nothing ignores them.
+    (workdir / "__pycache__").mkdir()
+    (workdir / "__pycache__" / "file.cpython-311.pyc").write_bytes(b"\0")
+    (workdir / "node_modules").mkdir()
+    (workdir / "node_modules" / "x.js").write_text("x\n")
+    committed = await run(ctx, "git_commit", message="second")
+    assert committed.ok, committed.error
+    shown = subprocess.run(
+        ["git", "show", "--name-only", "--pretty=format:", "HEAD"],
+        cwd=workdir, capture_output=True, text=True, check=True,
+    ).stdout.split()
+    assert shown == ["file.txt"]
+
 
 # ---------------------------------------------------------------------------
 # background processes

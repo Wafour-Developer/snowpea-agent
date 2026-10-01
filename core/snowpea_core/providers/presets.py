@@ -72,6 +72,10 @@ class VendorPreset:
     #: :func:`snowpea_core.providers.effort.supports_openai_effort` — but a
     #: vendor with this False is never sent one (CORE-effort).
     supports_effort: bool = False
+    #: True when this vendor's chat API honours
+    #: ``response_format: {"type": "json_object"}``.  Only set where that is
+    #: known; an unknown vendor is never sent the field (``/ralph`` PRD retry).
+    supports_json_mode: bool = False
 
     @property
     def vendor(self) -> str:
@@ -115,6 +119,7 @@ def _preset(
     key_required: bool = True,
     local_style: bool = False,
     supports_effort: bool = False,
+    supports_json_mode: bool = False,
 ) -> VendorPreset:
     return VendorPreset(
         id=vendor_id,
@@ -133,6 +138,7 @@ def _preset(
         key_required=key_required,
         local_style=local_style,
         supports_effort=supports_effort,
+        supports_json_mode=supports_json_mode,
     )
 
 
@@ -163,6 +169,7 @@ PRESETS: dict[str, VendorPreset] = {
             env_keys=("OPENAI_API_KEY",),
             models=("gpt-6-astra", "gpt-5.6", "gpt-5.4-nano"),
             supports_effort=True,
+            supports_json_mode=True,
         ),
         _preset(
             "openrouter",
@@ -230,6 +237,7 @@ PRESETS: dict[str, VendorPreset] = {
             models=("deepseek-v4-pro", "deepseek-v4-flash"),
             # DeepSeek emits one tool call per assistant turn.
             supports_parallel_tools=False,
+            supports_json_mode=True,
         ),
         _preset(
             "qwen",
