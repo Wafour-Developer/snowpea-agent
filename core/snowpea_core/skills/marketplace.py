@@ -451,7 +451,17 @@ def _relocate_bare_skill(target: Path, home: Path | str) -> Path:
     return destination
 
 
-async def install(source: str, plugins_dir: Path, home: Path | str) -> Path:
+def _clear(target: Path) -> None:
+    """Remove an installed plugin: a copied tree, or a development symlink."""
+    if target.is_symlink():
+        target.unlink()
+    elif target.exists():
+        shutil.rmtree(target)
+
+
+async def install(
+    source: str, plugins_dir: Path, home: Path | str, *, link: bool = False
+) -> Path:
     """Put the plugin named by ``source`` under ``plugins_dir``; return its path.
 
     Accepts a local path, a git URL, ``<marketplace>/<plugin>``, a shortcut, or
@@ -462,7 +472,27 @@ async def install(source: str, plugins_dir: Path, home: Path | str) -> Path:
     directories) lands in ``$SNOWPEA_HOME/skills/<name>/`` instead, which is
     where the loader looks for one skill (M15 §B5d).
     """
+    if link:
+        return _link_bundle(source, plugins_dir)
     return _relocate_bare_skill(await _install_bundle(source, plugins_dir, home), home)
+
+
+def _link_bundle(source: str, plugins_dir: Path) -> Path:
+    """Install a local plugin directory as a symlink (development).
+
+    Edits in the working copy are live after ``skill.reload``, with no
+    reinstall. Only a local plugin directory can be linked.
+    """
+    local = Path(source.strip()).expanduser().resolve()
+    if not local.is_dir():
+        raise InstallError(f"{source}: link needs a local plugin directory")
+    name = str(read_plugin_json(local).get("name") or local.name)
+    target = plugins_dir / name
+    _clear(target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.symlink_to(local, target_is_directory=True)
+    log.info("linked plugin %s -> %s", target, local)
+    return target
 
 
 async def _install_bundle(source: str, plugins_dir: Path, home: Path | str) -> Path:
@@ -474,8 +504,7 @@ async def _install_bundle(source: str, plugins_dir: Path, home: Path | str) -> P
     if local.exists() and local.is_dir():
         name = str(read_plugin_json(local).get("name") or local.name)
         target = plugins_dir / name
-        if target.exists():
-            shutil.rmtree(target)
+        _clear(target)
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(local, target)
         return target

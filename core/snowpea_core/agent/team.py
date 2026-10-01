@@ -40,7 +40,7 @@ from typing import TYPE_CHECKING, Any
 from snowpea_core.agent import team_store
 from snowpea_core.agent.agent import reply_language
 from snowpea_core.agent.definition import complete_text, parse_generated_json
-from snowpea_core.agent.subagent import SharedBackend, get_manager
+from snowpea_core.agent.subagent import SharedBackend, get_manager, inherit_host
 from snowpea_core.agent.team_guide import guide_for_session, render_team_guide
 from snowpea_core.agent.team_store import TaskRow, TeamStore, get_store
 from snowpea_core.exec.local import LocalBackend
@@ -785,6 +785,7 @@ class TeamManager:
         )
         anchor.unattended = lead.unattended
         anchor.memory_namespace = lead.memory_namespace
+        inherit_host(anchor, lead)
         backend = getattr(lead, "backend", None)
         if backend is None or getattr(backend, "kind", "local") == "local":
             anchor.backend = LocalBackend(run.repo)
@@ -836,6 +837,7 @@ class TeamManager:
         )
         anchor.unattended = lead.unattended
         anchor.memory_namespace = lead.memory_namespace
+        inherit_host(anchor, lead)
         backend = getattr(lead, "backend", None)
         if backend is None or getattr(backend, "kind", "local") == "local":
             anchor.backend = LocalBackend(entry.path)

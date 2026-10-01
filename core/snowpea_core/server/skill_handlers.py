@@ -87,7 +87,7 @@ async def skill_search_handler(
 async def skill_install_handler(_conn: RpcConnection, params: SkillInstallParams, core: Core) -> Ok:
     """``skill.install`` — local path, git URL, ``<marketplace>/<plugin>`` or shortcut."""
     try:
-        target = await _loader(core).install(params.source)
+        target = await _loader(core).install(params.source, link=params.link)
     except InstallError as exc:
         raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
     log.info("installed %s into %s", params.source, target)

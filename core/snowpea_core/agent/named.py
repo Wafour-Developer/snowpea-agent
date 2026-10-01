@@ -51,6 +51,7 @@ from snowpea_core.agent.definition import (
     parse_agent_md,
     validate_name,
 )
+from snowpea_core.agent.subagent import inherit_host
 from snowpea_core.config.paths import utc_now
 from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
@@ -258,15 +259,20 @@ class NamedAgentRegistry:
         definition: AgentDefinition | None = None,
         *,
         workdir: Path | str | None = None,
+        parent: Session | None = None,
     ) -> NamedAgent:
-        """Register ``name`` as a persistent instance and open its session."""
+        """Register ``name`` as a persistent instance and open its session.
+
+        ``parent`` is the session it was created from: a browser session's
+        named agent runs with that browser's host tools (addendum 14).
+        """
         try:
             slug = validate_name(name)
         except DefinitionError as exc:
             raise NamedAgentError(str(exc)) from exc
         if slug in self._agents:
             raise NamedAgentError(f"a named agent called {slug!r} already exists")
-        session = await self._open_session(slug, definition, workdir=workdir)
+        session = await self._open_session(slug, definition, workdir=workdir, parent=parent)
         agent = NamedAgent(
             name=slug,
             session_id=session.id,
@@ -289,9 +295,17 @@ class NamedAgentRegistry:
         *,
         workdir: Path | str | None = None,
         session_id: str | None = None,
+        parent: Session | None = None,
     ) -> Session:
         """Open the agent's unattended session, keeping ``session_id`` if given."""
         core = self._require_core()
+        # A re-opened session keeps the browser host it was created with.
+        stored_host: dict[str, Any] = {}
+        if session_id and core.store is not None and parent is None:
+            for row in await core.store.list_sessions(include_closed=True):
+                if row["id"] == session_id:
+                    stored_host = row
+                    break
         resolved = Path(workdir) if workdir else self._workdir_for(definition)
         mode = None
         if definition is not None and definition.permission in MODES:
@@ -313,6 +327,14 @@ class NamedAgentRegistry:
         )
         session.unattended = True
         session.memory_namespace = namespace_for(name)
+        if parent is not None:
+            inherit_host(session, parent)
+        elif stored_host.get("host_tools_from"):
+            session.host_tools_from = stored_host["host_tools_from"]
+            session.browser_provider = stored_host.get("browser_provider")
+        if session.host_tools_from and core.store is not None:
+            await core.store.update_host_tools_from(session.id, session.host_tools_from)
+            await core.store.update_browser_provider(session.id, session.browser_provider)
         if definition is not None and definition.prompt.strip():
             session.system_prompt = definition.prompt
         core.lifecycle.set_counter("sessions", len(core.sessions))

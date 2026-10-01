@@ -212,6 +212,22 @@ def fingerprint(agent: str | None, task: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def inherit_host(child: Any, parent: Any) -> None:
+    """Give ``child`` its parent's browser host, workspace and client identity.
+
+    A browser session's children (subagents, team workers and reviewers, a
+    named agent it creates) run the browser's host tools too, re-bind with it
+    when the browser reconnects (1.6.0), keep its per-session browser choice
+    (addendum 9) and save into the same workspace.
+    """
+    child.host_tools_from = getattr(parent, "host_tools_from", None)
+    child.workspace_dir = getattr(parent, "workspace_dir", None)
+    child.origin_client_id = getattr(parent, "origin_client_id", None)
+    child.browser_provider = getattr(parent, "browser_provider", None)
+    if getattr(parent, "origin_surface", None) == "browser":
+        child.origin_surface = "browser"
+
+
 class SharedBackend:
     """The parent's backend, minus the right to close it.
 
@@ -1100,12 +1116,7 @@ class SubagentManager:
         )
         child.unattended = parent.unattended
         child.memory_namespace = parent.memory_namespace
-        # A browser session's children run the browser's host tools too, and
-        # re-bind with it when the browser reconnects (1.6.0).
-        child.host_tools_from = getattr(parent, "host_tools_from", None)
-        # One workspace per conversation: children save into the parent's.
-        child.workspace_dir = getattr(parent, "workspace_dir", None)
-        child.origin_client_id = getattr(parent, "origin_client_id", None)
+        inherit_host(child, parent)
         child.backend = SharedBackend(parent.backend)  # type: ignore[assignment]
         return child
 

@@ -189,7 +189,7 @@ async def agent_create_handler(
         if params.name:
             defn = await named_agents.rename_definition(core, session, defn, params.name)
         if params.named:
-            await named_agents.registry(core).create(defn.name, defn)
+            await named_agents.registry(core).create(defn.name, defn, parent=session)
     except DefinitionError as exc:
         raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
     except named_agents.NamedAgentError as exc:

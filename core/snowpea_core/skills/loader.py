@@ -783,9 +783,9 @@ class SkillLoader:
         self.last_not_included = list(report.not_included)
         return hits, list(report.unavailable)
 
-    async def install(self, source: str) -> Path:
+    async def install(self, source: str, *, link: bool = False) -> Path:
         """Install a plugin and reload; returns where it landed."""
-        target = await marketplace.install(source, self.plugins_dir, self.home)
+        target = await marketplace.install(source, self.plugins_dir, self.home, link=link)
         await self.reload()
         return target
 
@@ -796,6 +796,11 @@ class SkillLoader:
         into ``plugins/`` (M15 §B5d), and it must still be removable.
         """
         for target in (self.plugins_dir / name, self.home / "skills" / name):
+            if target.is_symlink():
+                # A development link: drop the link, never the working copy.
+                target.unlink()
+                await self.reload()
+                return True
             if target.is_dir():
                 shutil.rmtree(target)
                 await self.reload()

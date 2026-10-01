@@ -2499,6 +2499,14 @@ class SkillSearchResult(Payload):
 
 class SkillInstallParams(Payload):
     source: str = Field(description="Path, URL or registry name to install from.")
+    link: bool = Field(
+        default=False,
+        description=(
+            "Local plugin directory only: install it as a symlink instead of a copy, so "
+            "edits are live after skill.reload (development). skill.remove drops the "
+            "link and leaves the directory alone."
+        ),
+    )
 
 
 class SkillListResult(Payload):

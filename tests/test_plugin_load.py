@@ -128,6 +128,37 @@ async def test_install_loads_plugin_skill_agent_and_command(
     await client.stop()
 
 
+async def test_a_linked_plugin_is_live_and_removing_it_keeps_the_working_copy(
+    daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path
+) -> None:
+    """skill.install {link: true}: a development symlink, not a copy."""
+    import shutil
+
+    workdir = tmp_path / "project"
+    workdir.mkdir()
+    working_copy = tmp_path / "sample-plugin"
+    shutil.copytree(SAMPLE_PLUGIN, working_copy)
+    client = await connect(http, daemon)
+    await start_session(client, workdir)
+
+    await client.ok("skill.install", {"source": str(working_copy), "link": True})
+    installed = daemon.paths.home / "plugins" / "sample-plugin"
+    assert installed.is_symlink() and installed.resolve() == working_copy.resolve()
+    rows = by_name((await client.ok("skill.list"))["skills"])
+    assert rows["hello"]["source"] == "plugin:sample-plugin"
+
+    # Reinstalling as a copy replaces the link, never the working copy.
+    await client.ok("skill.install", {"source": str(working_copy)})
+    assert installed.is_dir() and not installed.is_symlink()
+    await client.ok("skill.install", {"source": str(working_copy), "link": True})
+    await client.ok("skill.remove", {"name": "sample-plugin"})
+    assert not installed.exists() and (working_copy / "plugin.json").is_file()
+
+    bad = await client.call("skill.install", {"source": "github:x/y", "link": True})
+    assert bad["error"]["code"] == -32602
+    await client.stop()
+
+
 async def test_plugin_commands_are_in_command_list(
     daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path
 ) -> None:

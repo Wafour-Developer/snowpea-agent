@@ -355,3 +355,26 @@ The browser stops its host when idle and starts it lazily, so a routine whose
     recomputed.
   * It emits `job.event {kind: "updated", payload: {nextRunAt}}`.
   * An unknown jobId or a bad spec fails with -32602.
+
+## 12. Team and named agents in browser sessions (addendum 14)
+
+A child created from a browser session inherits the session's `host_tools_from`,
+`origin_client_id`, `workspace_dir` and `browser_provider`, and its
+`originSurface: "browser"` (`subagent.inherit_host`). This covers:
+
+* `delegate_task` children;
+* `/team` worker and reviewer anchors, and therefore their subagents;
+* a named agent created with `agent.create {named: true}` from that session. Its
+  host is persisted and comes back when its session is reopened.
+
+So such a child runs the browser's host tools. When the browser is gone, its
+browser tools fail with `host_unavailable` (§10). Core never silently uses its
+own browser. Slash commands, including `queue_command("/team …")`, are not
+restricted in browser sessions.
+
+## 13. Plugin development link
+
+`skill.install {source: <local dir>, link: true}` installs a plugin as a symlink
+to the working copy, so edits are live after `skill.reload`. `skill.remove`
+drops the link and leaves the directory alone. Installing as a copy replaces
+the link.
