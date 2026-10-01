@@ -257,6 +257,9 @@ class SessionManager:
         )
         session.host_tools_from = row.get("host_tools_from")
         session.browser_provider = row.get("browser_provider")
+        if row.get("agent") and session.agent is None:
+            # Re-applied (prompt, tools, rounds) at the next turn (addendum 17).
+            session.agent = row.get("agent")
         self._sessions[session.id] = session
         await self.store.reopen_session(session.id)
         log.info("session %s restored (%s, mode=%s)", session.id, session.workdir, session.mode)

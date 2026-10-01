@@ -38,8 +38,11 @@ AGENT_ARGS_SCHEMA = {
     "properties": {
         "action": {
             "type": "string",
-            "enum": ["create", "list"],
-            "description": "'create <description>' generates a definition, 'list' prints them.",
+            "enum": ["create", "list", "use"],
+            "description": (
+                "'create <description>' generates a definition, 'list' prints them, "
+                "'use <name|none>' runs this session as that agent."
+            ),
         },
         "description": {
             "type": "string",
@@ -48,7 +51,7 @@ AGENT_ARGS_SCHEMA = {
     },
 }
 
-USAGE = 'Usage: /agent create "<description>"   |   /agent list'
+USAGE = 'Usage: /agent create "<description>"   |   /agent list   |   /agent use <name|none>'
 
 
 # ---------------------------------------------------------------------------
@@ -243,6 +246,9 @@ async def cmd_agent(ctx: CommandContext, args: str) -> None:
     if not action or action == "list":
         await _list(ctx)
         return
+    if action == "use":
+        await _use(ctx, strip_quotes(rest))
+        return
     if action != "create":
         await ctx.say(f"Unknown /agent action '{action}'.\n{USAGE}")
         return
@@ -264,6 +270,22 @@ async def cmd_agent(ctx: CommandContext, args: str) -> None:
     )
 
 
+async def _use(ctx: CommandContext, name: str) -> None:
+    """``/agent use <name>`` / ``/agent use none`` — what session.setAgent does."""
+    from snowpea_core.agent.session_agent import UnknownAgent, switch_agent
+
+    target = None if name.lower() in ("", "none", "off", "default") else name
+    try:
+        agent = await switch_agent(ctx.core, ctx.session, target)
+    except UnknownAgent as exc:
+        await ctx.say(f"{exc}. See /agent list.")
+        return
+    if agent:
+        await ctx.say(f"This session now runs as agent '{agent}'.")
+    else:
+        await ctx.say("This session runs without an agent.")
+
+
 async def _list(ctx: CommandContext) -> None:
     definitions = definitions_for(ctx.core, ctx.session.workdir)
     if not definitions:
@@ -279,7 +301,10 @@ async def _list(ctx: CommandContext) -> None:
 COMMANDS: tuple[Command, ...] = (
     Command(
         name="agent",
-        summary='Create or list agent definitions: /agent create "<description>" | /agent list.',
+        summary=(
+            'Create, list or use agent definitions: /agent create "<description>" | '
+            "/agent list | /agent use <name|none>."
+        ),
         run=cmd_agent,
         args_schema=AGENT_ARGS_SCHEMA,
     ),

@@ -909,6 +909,9 @@ async def run_turn(
     turn_id = turn_id or new_turn_id()
     session.current_turn = turn_id
     hub = core.hub
+    from snowpea_core.agent.session_agent import ensure_applied
+
+    ensure_applied(core, session)
     await _mark_turn_started(core, session, text)
     # The turn is running *now* — after whatever wait it did in the FIFO, and
     # before anything it produces.  Without this a surface has to start its

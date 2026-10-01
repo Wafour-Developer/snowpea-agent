@@ -77,6 +77,7 @@ snowpea commands list --json
 |---|---|
 | `/agent create "<description>"` | `<project>/.snowpea/agents/<name>.md`에 에이전트 정의를 작성 |
 | `/agent list` | 에이전트 정의를 나열 |
+| `/agent use <name\|none>` | 이 세션을 그 에이전트로 실행: 프롬프트·도구·라운드 수 적용 (`none`이면 해제) |
 | `/skill create <name> "<할 일>" [--global] [--force]` | 브리프로부터 SKILL.md를 생성해 `<project>/.snowpea/skills/<name>/`에 작성 (`--global`이면 `$SNOWPEA_HOME/skills/<name>/`); 이미 있으면 `--force` 없이는 덮어쓰지 않음 |
 | `/skill learn [name]` | 방금 끝낸 세션을 `<project>/.snowpea/skills/<name>/SKILL.md`로 바꿈 |
 | `/skill reload` | `SKILL.md`를 손으로 고친 뒤 스킬·에이전트·명령·플러그인 MCP 서버를 다시 읽음(설치나 `/skill create`는 스스로 재적재) |

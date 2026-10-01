@@ -68,6 +68,7 @@ SESSION_COLUMNS: tuple[tuple[str, str], ...] = (
     ("title", "TEXT"),
     ("host_tools_from", "TEXT"),
     ("browser_provider", "TEXT"),
+    ("agent", "TEXT"),
 )
 
 SQLITE_RETRY_ATTEMPTS = 5
@@ -236,6 +237,12 @@ class Store:
             self._execute,
             "UPDATE sessions SET host_tools_from = ? WHERE id = ?",
             (value, session_id),
+        )
+
+    async def update_agent(self, session_id: str, agent: str | None) -> None:
+        """Persist the agent a human session runs as (addendum 17)."""
+        await asyncio.to_thread(
+            self._execute, "UPDATE sessions SET agent = ? WHERE id = ?", (agent, session_id)
         )
 
     async def update_browser_provider(self, session_id: str, value: str | None) -> None:

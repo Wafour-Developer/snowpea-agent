@@ -400,3 +400,24 @@ the link.
   deleted session.
 * Only `subagent` sessions cascade. A scheduled run that names the thread
   that scheduled it as its parent is kept.
+
+## 15. An agent definition for a human session (addendum 17)
+
+* `session.create {agent}` now applies the definition to the session itself,
+  not only to its route and label:
+  * its prompt, as the persona layer above the base rules;
+  * its `tools` allowlist (`"*"` = every tool; the always-allowed tools such
+    as `tool_search` and `ask_user` stay);
+  * its `max_tool_rounds`.
+  An unknown agent is `invalid_params`.
+* `session.setAgent {sessionId, agent|null}` → `{sessionId, agent}`
+  re-applies these from the next model call. `null` clears them.
+  * It emits the session event `agent.changed {agent}` and `sessions.changed
+    {reason: "agent"}`.
+  * `/agent use <name|none>` does the same.
+* The choice is persisted (`sessions.agent`). A restored session re-applies it
+  at its next turn. `session.list` rows carry `agent`.
+* **Default for browser chats.** A session that a browser-kind client creates
+  without naming an agent gets `browser.defaultAgent` (a global setting, e.g.
+  `"browser"`). If that definition is missing, a warning is logged and the
+  session runs without an agent.

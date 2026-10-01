@@ -36,6 +36,8 @@ from snowpea_core.server.protocol import (
     SessionIdParams,
     SessionNoticeParams,
     SessionRenameParams,
+    SessionSetAgentParams,
+    SessionSetAgentResult,
     SessionSetBrowserProviderParams,
     SessionSetBrowserProviderResult,
     SessionSteerParams,
@@ -288,6 +290,20 @@ async def session_attach_handler(
         hostTools=HOST_TOOLS.names_for(session),
         hostToolsFrom=session.host_tools_from,
     )
+
+
+async def session_set_agent_handler(
+    _conn: RpcConnection, params: SessionSetAgentParams, core: Core
+) -> SessionSetAgentResult:
+    """``session.setAgent`` — run as a definition (or none) from the next model call."""
+    from snowpea_core.agent.session_agent import UnknownAgent, switch_agent
+
+    session = _session(core, params.sessionId)
+    try:
+        agent = await switch_agent(core, session, (params.agent or "").strip() or None)
+    except UnknownAgent as exc:
+        raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
+    return SessionSetAgentResult(sessionId=session.id, agent=agent)
 
 
 async def session_set_browser_provider_handler(
@@ -674,6 +690,7 @@ def register_host_handlers(dispatcher: RpcDispatcher) -> None:
     dispatcher.register("approval.ask", approval_ask_handler)
     dispatcher.register("session.attach", session_attach_handler)
     dispatcher.register("session.setBrowserProvider", session_set_browser_provider_handler)
+    dispatcher.register("session.setAgent", session_set_agent_handler)
     dispatcher.register("session.steer", session_steer_handler)
     dispatcher.register("session.toolContent", session_tool_content_handler)
     dispatcher.register("session.artifacts", session_artifacts_handler)

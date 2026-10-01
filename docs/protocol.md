@@ -129,6 +129,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`session.prompt`](#sessionprompt) | client → server | Send user text to a session and start a turn. Events: turn.started {turnId, prompt, queued}, then message.user {text, attachments, refs, steered: false}, then the model's output. message.user.text is what the user typed; a page attachment is listed as {kind: page, name, url, title} and only the model sees the rendered page. A steered prompt emits message.user {steered: true} + turn.dequeued {reason: steered}; a queued one emits turn.queued first. |
 | [`session.rename`](#sessionrename) | client → server | Set a session's title. |
 | [`session.resume`](#sessionresume) | client → server | Replay the events a disconnected client missed. |
+| [`session.setAgent`](#sessionsetagent) | client → server | Run a session as an agent definition, or as none (addendum 17). |
 | [`session.setBrowserProvider`](#sessionsetbrowserprovider) | client → server | Per-session opt-in to core's own browser; never global (addendum 9). |
 | [`session.setEffort`](#sessionseteffort) | client → server | Pin how hard a session's model may think, or clear the pin. |
 | [`session.setMode`](#sessionsetmode) | client → server | Switch a session between plan, accept and auto. |
@@ -1732,6 +1733,26 @@ Replay the events a disconnected client missed.
 | `provider` | `string \| null` | no | Chat provider vendor in use. |
 | `sessionId` | `string` | yes | Session that was resumed. |
 
+### `session.setAgent`
+
+*Direction:* client → server
+
+Run a session as an agent definition, or as none (addendum 17).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `agent` | `string \| null` | no | Agent definition to run as from the next model call: its prompt (persona layer), tools allowlist ('*' = all) and max_tool_rounds. null clears it. |
+| `sessionId` | `string` | yes | Session to switch. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `agent` | `string \| null` | no | Agent now in force. |
+| `sessionId` | `string` | yes | The session. |
+
 ### `session.setBrowserProvider`
 
 *Direction:* client → server
@@ -2675,6 +2696,13 @@ Token totals from stored usage events, grouped by provider, model, session or da
 ## `session.event` kinds
 
 Every session event carries a monotonically increasing per-session `seq`. After a reconnect, `session.resume(sessionId, afterSeq)` replays anything missed.
+
+### kind `agent.changed`
+
+| field | type | required | description |
+|---|---|---|---|
+| `agent` | `string \| null` | no | Agent definition now in force (prompt, tools, rounds); null for none. |
+| `kind` | `"agent.changed"` | no |  |
 
 ### kind `audio.spoken`
 

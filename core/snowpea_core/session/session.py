@@ -181,6 +181,9 @@ class Session:
     #: ``None``/``"host"`` means only the Snowpea browser, never core's own;
     #: ``"local"`` is the user's explicit opt-in (``session.setBrowserProvider``).
     browser_provider: str | None = None
+    #: True once :mod:`agent.session_agent` applied ``agent``'s definition
+    #: (prompt, tools, rounds) to this human session (addendum 17).
+    agent_applied: bool = False
     #: ``system.hello`` clientId of the connection that created the session, so
     #: a restarted client re-binds as its origin (1.6.0).
     origin_client_id: str | None = None

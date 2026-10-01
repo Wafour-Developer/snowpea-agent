@@ -259,7 +259,7 @@ async def test_setup_catalog_returns_vendors_and_search_with_ddgs_first(daemon: 
         client = await connect(http, daemon)
         try:
             result = await client.ok("setup.catalog")
-            assert len(result["vendors"]) == 11
+            assert len(result["vendors"]) == 12
             assert result["search"][0]["id"] == "ddgs"
             assert result["browser"]
             assert result["tools"]

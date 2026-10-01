@@ -2004,6 +2004,22 @@ export interface SessionResumeResult {
   sessionId: string;
 }
 
+/** `session.setAgent` params. Run a session as an agent definition, or as none (addendum 17). */
+export interface SessionSetAgentParams {
+  /** Agent definition to run as from the next model call: its prompt (persona layer), tools allowlist ('*' = all) and max_tool_rounds. null clears it. */
+  agent?: string | null;
+  /** Session to switch. */
+  sessionId: string;
+}
+
+/** `session.setAgent` result. */
+export interface SessionSetAgentResult {
+  /** Agent now in force. */
+  agent?: string | null;
+  /** The session. */
+  sessionId: string;
+}
+
 /** `session.setBrowserProvider` params. Per-session opt-in to core's own browser; never global (addendum 9). */
 export interface SessionSetBrowserProviderParams {
   /** 'host': only the Snowpea browser (the default for browser sessions; with no browser attached, browser tools fail with host_unavailable). 'local': the user explicitly allows core's own browser for this session only. */
@@ -3363,6 +3379,13 @@ export interface ToolCancelPayload {
 // session.event payloads by kind
 // ---------------------------------------------------------------------------
 
+/** Payload of `session.event` with kind `agent.changed`. */
+export interface AgentChangedEventPayload {
+  /** Agent definition now in force (prompt, tools, rounds); null for none. */
+  agent?: string | null;
+  kind?: "agent.changed";
+}
+
 /** Payload of `session.event` with kind `audio.spoken`. */
 export interface AudioSpokenEventPayload {
   kind?: "audio.spoken";
@@ -3865,6 +3888,7 @@ export interface UsageEventPayload {
 
 /** Maps every `session.event` kind to its payload type. */
 export interface SessionEventKindMap {
+  "agent.changed": AgentChangedEventPayload;
   "audio.spoken": AudioSpokenEventPayload;
   "backend.changed": BackendChangedEventPayload;
   "checkpoint.restored": CheckpointRestoredEventPayload;
@@ -3901,6 +3925,7 @@ export interface SessionEventKindMap {
 
 export type SessionEventKind = keyof SessionEventKindMap;
 export const SESSION_EVENT_KINDS: readonly SessionEventKind[] = [
+  "agent.changed",
   "audio.spoken",
   "backend.changed",
   "checkpoint.restored",
@@ -4014,6 +4039,7 @@ export interface MethodMap {
   "session.prompt": { params: SessionPromptParams; result: SessionPromptResult };
   "session.rename": { params: SessionRenameParams; result: SessionRenameResult };
   "session.resume": { params: SessionResumeParams; result: SessionResumeResult };
+  "session.setAgent": { params: SessionSetAgentParams; result: SessionSetAgentResult };
   "session.setBrowserProvider": { params: SessionSetBrowserProviderParams; result: SessionSetBrowserProviderResult };
   "session.setEffort": { params: SessionSetEffortParams; result: SessionSetEffortResult };
   "session.setMode": { params: SessionSetModeParams; result: SessionSetModeResult };
@@ -4132,6 +4158,7 @@ export type ClientMethod =
   | "session.prompt"
   | "session.rename"
   | "session.resume"
+  | "session.setAgent"
   | "session.setBrowserProvider"
   | "session.setEffort"
   | "session.setMode"

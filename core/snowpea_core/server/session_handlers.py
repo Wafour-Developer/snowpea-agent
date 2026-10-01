@@ -255,6 +255,22 @@ async def session_create_handler(
         origin_conn=conn,
         deny_exec=bool(params.denyExec),
     )
+    agent_name = params.agent
+    if not agent_name and getattr(conn, "client_kind", None) == "browser":
+        agent_name = core.settings.browser.defaultAgent
+    if agent_name:
+        from snowpea_core.agent.session_agent import UnknownAgent, apply_agent
+
+        try:
+            apply_agent(core, session, agent_name)
+        except UnknownAgent as exc:
+            if params.agent:
+                await core.sessions.close(session.id)
+                raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
+            log.warning("browser.defaultAgent %s: %s", agent_name, exc)
+            session.agent_applied = True
+        if core.store is not None and session.agent:
+            await core.store.update_agent(session.id, session.agent)
     session.host_tools_from = params.hostToolsFrom
     if params.hostToolsFrom and core.store is not None:
         await core.store.update_host_tools_from(session.id, params.hostToolsFrom)
@@ -347,6 +363,7 @@ async def collect_sessions(core: Core, params: SessionListParams) -> list[Sessio
                 parentSessionId=stored.get("parent_session_id"),
                 jobId=stored.get("job_id"),
                 hostToolsFrom=stored.get("host_tools_from"),
+                agent=stored.get("agent"),
                 browserProvider=(
                     ("local" if stored.get("browser_provider") == "local" else "host")
                     if stored.get("origin_surface") == "browser" or stored.get("host_tools_from")

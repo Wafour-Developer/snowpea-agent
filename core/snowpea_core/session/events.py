@@ -12,6 +12,7 @@ from typing import Any, Literal
 
 from snowpea_core.server.protocol import (
     SESSION_EVENT_MODELS,
+    AgentChanged,
     AudioSpoken,
     BackendChanged,
     CheckpointInfo,
@@ -201,6 +202,10 @@ def checkpoint_restored(
             skipped=list(skipped),  # type: ignore[arg-type]
         )
     )
+
+
+def agent_changed(agent: str | None) -> Event:
+    return _pack(AgentChanged(agent=agent))
 
 
 def mode_changed(mode: str, delegation: bool | None = None) -> Event:

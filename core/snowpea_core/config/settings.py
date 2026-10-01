@@ -309,6 +309,9 @@ class BrowserSettings(_Model):
     provider: str = "local_chromium"
     headless: bool = True
     credentials: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    #: Agent definition a session gets when a browser-kind client creates it
+    #: without naming one (addendum 17), e.g. the plugin's ``browser`` agent.
+    defaultAgent: str | None = None
 
 
 class ToolsSettings(_Model):

@@ -77,6 +77,7 @@ These are answered by the terminal UI itself rather than by the core, so they do
 |---|---|
 | `/agent create "<description>"` | write an agent definition into `<project>/.snowpea/agents/<name>.md` |
 | `/agent list` | list agent definitions |
+| `/agent use <name\|none>` | run this session as that agent: its prompt, tools and round budget (`none` clears it) |
 | `/skill create <name> "<what it should do>" [--global] [--force]` | generate a SKILL.md from a brief and write it into `<project>/.snowpea/skills/<name>/` (or `$SNOWPEA_HOME/skills/<name>/` with `--global`); refuses to overwrite an existing one without `--force` |
 | `/skill learn [name]` | turn the session you just finished into `<project>/.snowpea/skills/<name>/SKILL.md` |
 | `/skill reload` | re-scan skills, agents, commands and plugin MCP servers after editing a `SKILL.md` by hand (an install or `/skill create` reloads on its own) |

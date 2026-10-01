@@ -341,6 +341,22 @@ class SessionAttachParams(Payload):
     )
 
 
+class SessionSetAgentParams(Payload):
+    sessionId: str = Field(description="Session to switch.")
+    agent: str | None = Field(
+        default=None,
+        description=(
+            "Agent definition to run as from the next model call: its prompt (persona "
+            "layer), tools allowlist ('*' = all) and max_tool_rounds. null clears it."
+        ),
+    )
+
+
+class SessionSetAgentResult(Payload):
+    sessionId: str = Field(description="The session.")
+    agent: str | None = Field(default=None, description="Agent now in force.")
+
+
 class SessionSetBrowserProviderParams(Payload):
     sessionId: str = Field(description="Session whose browser tools to point (addendum 9).")
     provider: Literal["host", "local"] = Field(
@@ -3123,6 +3139,16 @@ class TeamTaskUpdate(Payload):
     retries: int = Field(default=0, description="How many times a merge conflict re-queued it.")
 
 
+class AgentChanged(Payload):
+    """The agent a human session runs as changed (addendum 17)."""
+
+    kind: Literal["agent.changed"] = "agent.changed"
+    agent: str | None = Field(
+        default=None,
+        description="Agent definition now in force (prompt, tools, rounds); null for none.",
+    )
+
+
 class ModeChanged(Payload):
     """The session's permission mode changed."""
 
@@ -3410,6 +3436,7 @@ SessionEventPayload = Annotated[
     | SubagentDone
     | TeamTaskUpdate
     | ModeChanged
+    | AgentChanged
     | BackendChanged
     | ModelChanged
     | UsageEvent
@@ -3447,6 +3474,7 @@ SESSION_EVENT_MODELS: dict[str, type[BaseModel]] = {
     "subagent.done": SubagentDone,
     "team.task.update": TeamTaskUpdate,
     "mode.changed": ModeChanged,
+    "agent.changed": AgentChanged,
     "backend.changed": BackendChanged,
     "model.changed": ModelChanged,
     "usage": UsageEvent,
@@ -4460,6 +4488,12 @@ METHODS: dict[str, RpcMethod] = {
             "Make this connection the origin of a session (approvals, host tools).",
         ),
         _m(
+            "session.setAgent",
+            SessionSetAgentParams,
+            SessionSetAgentResult,
+            "Run a session as an agent definition, or as none (addendum 17).",
+        ),
+        _m(
             "session.setBrowserProvider",
             SessionSetBrowserProviderParams,
             SessionSetBrowserProviderResult,
@@ -4662,6 +4696,7 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "approval.ask",
         "session.attach",
         "session.setBrowserProvider",
+        "session.setAgent",
         "session.steer",
         "session.toolContent",
         "session.artifacts",
