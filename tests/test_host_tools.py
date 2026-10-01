@@ -170,6 +170,46 @@ async def test_a_host_tool_runs_in_the_client_and_reports_progress(
         await host.stop()
 
 
+async def test_host_result_meta_reaches_surfaces_and_the_replay_not_the_model(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    """Addendum 13: a host's meta (page preview cards) rides on tool.result,
+    also for a sensitive result, is stored for replay, and is capped."""
+    host = await open_client(http, daemon)
+    try:
+        await host.ok("tool.register", {"tools": [spec("host_echo")]})
+        pages = [{"url": "https://example.com/a", "title": "A page"}]
+        host.handlers["host_echo"] = lambda p: {
+            "ok": True,
+            "output": "secret page text",
+            "meta": {"sensitive": True, "pages": pages, "title": "A page", "elapsedMs": 12},
+        }
+        session_id = await new_session(host, tmp_path / "w")
+        assert await run_turn(host, session_id, "use host echo") == "complete"
+        result = results_for(host, "host_echo")[-1]
+        assert result["output"] == "[redacted]"
+        assert result["meta"] == {
+            "sensitive": True, "pages": pages, "title": "A page", "elapsedMs": 12
+        }
+        history = daemon.core.sessions.get(session_id).history.messages
+        assert not any("example.com/a" in str(m.content) for m in history)
+
+        resumed = await host.ok("session.resume", {"sessionId": session_id})
+        replayed = [
+            e["payload"] for e in resumed["events"]
+            if e["kind"] == "tool.result" and e["payload"]["name"] == "host_echo"
+        ]
+        assert replayed and replayed[-1]["meta"]["pages"] == pages
+
+        host.handlers["host_echo"] = lambda p: {
+            "ok": True, "output": "big", "meta": {"pages": ["x" * 20000]}
+        }
+        assert await run_turn(host, session_id, "use host echo") == "complete"
+        assert results_for(host, "host_echo")[-1]["meta"] is None
+    finally:
+        await host.stop()
+
+
 async def test_a_host_that_does_not_answer_times_out_as_a_tool_error(
     http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
 ) -> None:

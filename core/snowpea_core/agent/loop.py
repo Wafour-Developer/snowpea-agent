@@ -45,6 +45,7 @@ from snowpea_core.session import compaction, events
 from snowpea_core.session.manager import persist_history
 from snowpea_core.skills import hooks as plugin_hooks
 from snowpea_core.tools import deferred as deferred_tools
+from snowpea_core.tools import host_tools as host_tools_mod
 from snowpea_core.tools import mcp_client, output_spill, repeat_guard, view_image
 from snowpea_core.tools.host_tools import HOST_TOOLS
 from snowpea_core.tools.registry import (
@@ -1727,6 +1728,7 @@ async def _run_one_call(
             REDACTED if sensitive else result.output,
             REDACTED if sensitive and result.error else result.error,
             content=event_content,
+            meta=host_tools_mod.event_meta(result.meta, tool=call.name),
         ),
     )
     if result.diff:

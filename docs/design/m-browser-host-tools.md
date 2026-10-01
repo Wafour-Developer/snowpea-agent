@@ -45,6 +45,14 @@ Rules (`core/snowpea_core/tools/host_tools.py`):
   keeps the output out of the stored history, the `tool.result` event (both
   `[redacted]`), compaction summaries and memory; the model reads it only
   during the turn it was produced in.
+* **Result meta (addendum 13).** The host's `meta` is forwarded as is on the
+  `tool.result` event's `meta` and stored with it, so a `session.resume`
+  replay has it.
+  * Surfaces use it for things like page preview cards (`pages`, `title`,
+    `elapsedMs`). It is never shown to the model.
+  * It is forwarded for sensitive results too, because the host puts only
+    non-secret facts there.
+  * Anything over 16 KB of JSON is dropped, with a warning in the log.
 
 ### Code-running host tools (the intended pattern)
 

@@ -2944,6 +2944,7 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | `content` | `({ contentRef?: string \| null; data?: string \| null; mediaType?: string \| null; text?: string \| null; type: "text" \| "image"; })[] \| null` | no | A host tool's content blocks: text inline, images as contentRef (session.toolContent). Absent for sensitive results (1.7.0). |
 | `error` | `string \| null` | no | Failure detail when ok is false. |
 | `kind` | `"tool.result"` | no |  |
+| `meta` | `Record<string, unknown> \| null` | no | Host-tool facts for surfaces (e.g. pages for page preview cards); not shown to the model. Forwarded as the host gave it, also for sensitive results; dropped above 16 KB (addendum 13). |
 | `name` | `string` | yes | Tool that ran. |
 | `ok` | `boolean` | yes | False when the tool failed. |
 | `output` | `string` | no | Output handed back to the model. |

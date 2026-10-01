@@ -137,6 +137,7 @@ def tool_result(
     output: str = "",
     error: str | None = None,
     content: Sequence[dict[str, Any]] | None = None,
+    meta: dict[str, Any] | None = None,
 ) -> Event:
     return _pack(
         ToolResultEvent(
@@ -146,6 +147,7 @@ def tool_result(
             output=output,
             error=error,
             content=[ToolContentBlock(**block) for block in content] if content else None,
+            meta=meta or None,
         )
     )
 

@@ -3792,6 +3792,8 @@ export interface ToolResultEventPayload {
   /** Failure detail when ok is false. */
   error?: string | null;
   kind?: "tool.result";
+  /** Host-tool facts for surfaces (e.g. pages for page preview cards); not shown to the model. Forwarded as the host gave it, also for sensitive results; dropped above 16 KB (addendum 13). */
+  meta?: Record<string, unknown> | null;
   /** Tool that ran. */
   name: string;
   /** False when the tool failed. */

@@ -27,6 +27,7 @@ Rules (docs/design/m-browser-host-tools.md):
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 from collections import OrderedDict
@@ -357,6 +358,37 @@ class HostTools:
         return True
 
 
+#: Key under which a host result's own ``meta`` travels inside ``ToolResult.meta``.
+HOST_META_KEY = "host_meta"
+
+#: Largest host ``meta`` forwarded on a ``tool.result`` event (JSON bytes).
+HOST_META_MAX_BYTES = 16 * 1024
+
+
+def event_meta(meta: dict[str, Any] | None, *, tool: str = "") -> dict[str, Any] | None:
+    """The host's ``meta`` for the ``tool.result`` event, or ``None`` when absent or too big.
+
+    Surfaces use it (page preview cards: ``pages``, ``title``, ``elapsedMs``);
+    the model never sees it. It is forwarded even for a sensitive result,
+    whose output and content are redacted, because the host puts only
+    non-secret facts there.
+    """
+    host_meta = (meta or {}).get(HOST_META_KEY)
+    if not isinstance(host_meta, dict) or not host_meta:
+        return None
+    try:
+        size = len(json.dumps(host_meta, ensure_ascii=False).encode("utf-8"))
+    except (TypeError, ValueError):
+        log.warning("dropping %s result meta: not JSON", tool)
+        return None
+    if size > HOST_META_MAX_BYTES:
+        log.warning(
+            "dropping %s result meta: %d bytes exceeds %d", tool, size, HOST_META_MAX_BYTES
+        )
+        return None
+    return host_meta
+
+
 def result_from_answer(name: str, answer: dict[str, Any]) -> ToolResult:
     """A ``tool.invoke`` answer as a :class:`ToolResult`.
 
@@ -366,6 +398,10 @@ def result_from_answer(name: str, answer: dict[str, Any]) -> ToolResult:
     """
     output = str(answer.get("output") or "")
     meta = dict(answer["meta"]) if isinstance(answer.get("meta"), dict) else {}
+    if meta:
+        # The host's own facts, kept apart from what core adds below, so the
+        # tool.result event can hand them to surfaces as given (addendum 13).
+        meta[HOST_META_KEY] = dict(meta)
     images: list[dict[str, Any]] = []
     texts: list[str] = []
     for index, block in enumerate(answer.get("content") or []):

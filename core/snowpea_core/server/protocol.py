@@ -2907,6 +2907,14 @@ class ToolResultEvent(Payload):
             "(session.toolContent). Absent for sensitive results (1.7.0)."
         ),
     )
+    meta: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Host-tool facts for surfaces (e.g. pages for page preview cards); not shown "
+            "to the model. Forwarded as the host gave it, also for sensitive results; "
+            "dropped above 16 KB (addendum 13)."
+        ),
+    )
 
 
 class ToolProgress(Payload):
