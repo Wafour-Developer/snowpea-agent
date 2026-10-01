@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import subprocess
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -190,6 +191,26 @@ def _prefix_entries(workdir: Path, query: str, limit: int) -> tuple[list[Complet
     return entries[:limit], truncated
 
 
+def _relative_up_entries(
+    workdir: Path, query: str, limit: int
+) -> tuple[list[CompleteEntry], bool]:
+    """Complete ``../…`` relative to the workdir, spelled as typed.
+
+    ``@/abs`` and ``@~/`` already completed outside the project; ``../``
+    was refused, so ``@../`` showed nothing. The ``@`` reference itself
+    resolves against the workdir either way (``prompt_refs.resolve_path``).
+    """
+    if query.endswith("/"):
+        typed_dir, prefix = query, ""
+    else:
+        typed_dir, _, prefix = query.rpartition("/")
+        typed_dir = f"{typed_dir}/"
+    dir_path = (workdir / typed_dir).resolve()
+    if not dir_path.is_dir():
+        return [], False
+    return _list_dir(dir_path, prefix, lambda child: typed_dir + child.name, limit)
+
+
 def _absolute_entries(query: str, limit: int) -> tuple[list[CompleteEntry], bool]:
     """Complete ``/abs/…`` and ``~/…`` the way a shell does, outside the workdir.
 
@@ -197,8 +218,6 @@ def _absolute_entries(query: str, limit: int) -> tuple[list[CompleteEntry], bool
     so the picker can drop them in as typed. Credential locations (.ssh, .env,
     keys) are left out of the listing; the read itself is the tools' business.
     """
-    from snowpea_core.agent.prompt_refs import is_secret_pattern
-
     tilde = query.startswith("~")
     expanded = str(Path(query).expanduser()) if tilde else query
     if query.endswith("/"):
@@ -210,6 +229,22 @@ def _absolute_entries(query: str, limit: int) -> tuple[list[CompleteEntry], bool
     if not dir_path.is_absolute() or not dir_path.is_dir():
         return [], False
     home = str(Path.home())
+
+    def shown(child: Path) -> str:
+        text = str(child)
+        if tilde and text.startswith(home):
+            text = "~" + text[len(home) :]
+        return text
+
+    return _list_dir(dir_path, prefix, shown, limit)
+
+
+def _list_dir(
+    dir_path: Path, prefix: str, render: Callable[[Path], str], limit: int
+) -> tuple[list[CompleteEntry], bool]:
+    """One directory's children matching ``prefix``, secrets left out."""
+    from snowpea_core.agent.prompt_refs import is_secret_pattern
+
     try:
         children = sorted(dir_path.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
     except OSError:
@@ -223,9 +258,7 @@ def _absolute_entries(query: str, limit: int) -> tuple[list[CompleteEntry], bool
             continue
         if prefix and not child.name.lower().startswith(prefix.lower()):
             continue
-        shown = str(child)
-        if tilde and shown.startswith(home):
-            shown = "~" + shown[len(home) :]
+        shown = render(child)
         try:
             is_dir = child.is_dir()
         except OSError:
@@ -249,10 +282,10 @@ def complete_paths(
     workdir = workdir.resolve()
     limit = max(1, min(limit, MAX_LIMIT))
     query = query.replace("\\", "/")
-    if ".." in query.split("/"):
-        return [], False
     if query.startswith("/") or query.startswith("~"):
         return _absolute_entries(query, limit)
+    if ".." in query.split("/"):
+        return _relative_up_entries(workdir, query, limit)
     if not query:
         git_paths = _git_paths(workdir)
         if git_paths is not None:
@@ -318,26 +351,9 @@ def complete_paths(
     return matched, truncated
 
 
-def refuse_escape(workdir: Path, query: str) -> bool:
-    """True when a relative query tries to leave ``workdir``."""
-    if not query or query.startswith("/") or query.startswith("~"):
-        return False
-    parts = [part for part in query.replace("\\", "/").split("/") if part and part != "."]
-    depth = 0
-    for part in parts:
-        if part == "..":
-            depth -= 1
-            if depth < 0:
-                return True
-        else:
-            depth += 1
-    return False
-
-
 __all__ = [
     "CompleteEntry",
     "DEFAULT_LIMIT",
     "MAX_LIMIT",
     "complete_paths",
-    "refuse_escape",
 ]

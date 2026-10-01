@@ -159,29 +159,30 @@ async def test_limit_and_truncated(daemon: Daemon, tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_escape_refused(daemon: Daemon, tmp_path: Path) -> None:
-    workdir = tmp_path / "escape"
+async def test_parent_directory_queries_complete(daemon: Daemon, tmp_path: Path) -> None:
+    """``@../`` lists the parent directory, spelled as typed, like ``@/`` and ``@~/``."""
+    workdir = tmp_path / "project"
     workdir.mkdir()
+    (tmp_path / "sibling").mkdir()
+    (tmp_path / "sibling" / "notes.md").write_text("x", encoding="utf-8")
+    (tmp_path / "shared.txt").write_text("x", encoding="utf-8")
     async with aiohttp.ClientSession() as http:
         client = await connect(http, daemon)
         try:
             session_id = await _session(client, workdir)
-            frame = await client.call(
-                "file.complete",
-                {"sessionId": session_id, "query": "../outside"},
+            top = await client.ok("file.complete", {"sessionId": session_id, "query": "../"})
+            inner = await client.ok(
+                "file.complete", {"sessionId": session_id, "query": "../sibling/no"}
             )
+            prefix = await client.ok("file.complete", {"sessionId": session_id, "query": "../sh"})
         finally:
             await client.stop()
-    error = frame.get("error") or {}
-    code = error.get("data", {}).get("code") or error.get("code")
-    assert code in {"invalid_params", -32602}
-
-
-def test_refuse_escape_unit(tmp_path: Path) -> None:
-    workdir = tmp_path / "w"
-    workdir.mkdir()
-    assert file_complete.refuse_escape(workdir, "../etc") is True
-    assert file_complete.refuse_escape(workdir, "/etc/passwd") is False
+    paths = {entry["path"]: entry["kind"] for entry in top["entries"]}
+    assert paths["../sibling/"] == "dir"
+    assert paths["../project/"] == "dir"
+    assert paths["../shared.txt"] == "file"
+    assert [entry["path"] for entry in inner["entries"]] == ["../sibling/notes.md"]
+    assert [entry["path"] for entry in prefix["entries"]] == ["../shared.txt"]
 
 
 def test_absolute_and_home_queries_complete_outside_the_workdir(

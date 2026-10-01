@@ -37,8 +37,6 @@ async def file_complete_handler(
 ) -> FileCompleteResult:
     workdir = _workdir(core, params)
     query = params.query or ""
-    if file_complete.refuse_escape(workdir, query):
-        raise RpcError(errors.INVALID_PARAMS, "path escapes the working directory")
     limit = params.limit if params.limit is not None else file_complete.DEFAULT_LIMIT
     entries, truncated = file_complete.complete_paths(workdir, query, limit=limit)
     return FileCompleteResult(
