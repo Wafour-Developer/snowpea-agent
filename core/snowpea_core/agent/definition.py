@@ -59,7 +59,10 @@ BUILTIN_DIR = Path(__file__).resolve().parent / "definitions"
 #: Default value of ``tools`` — every registered tool.
 ALL_TOOLS = "*"
 
-DEFAULT_MAX_TOKENS = 2048
+#: Output budget for one JSON-generating call.  A reasoning model spends its
+#: thinking from the same budget: at 2048 a Muse Spark /ralph PRD came back
+#: cut off mid-string (``"verify": ["test -f … && grep -qi qu``).
+DEFAULT_MAX_TOKENS = 8192
 
 #: Extra attempts `complete_text` makes when the model answers with nothing.
 EMPTY_REPLY_RETRIES = 2

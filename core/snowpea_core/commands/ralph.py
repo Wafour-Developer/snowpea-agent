@@ -218,7 +218,9 @@ async def build_prd(ctx: CommandContext, task: str) -> tuple[list[Story], str | 
             role="user",
             content=(
                 "Write the PRD for this task in the project at "
-                f"{ctx.session.workdir}. Reply with the JSON object only.\n\nTask: {task}"
+                f"{ctx.session.workdir}. This call has no tools: do not say you will look "
+                "at the project first, write the PRD from the task now. Reply with the "
+                f"JSON object only.\n\nTask: {task}"
             ),
         ),
     ]
