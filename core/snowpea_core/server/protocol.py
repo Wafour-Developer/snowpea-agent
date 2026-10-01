@@ -4642,6 +4642,17 @@ METHODS: dict[str, RpcMethod] = {
             "Inject a user message into a running turn at its next tool round.",
         ),
         _m(
+            "session.setActive",
+            SessionIdParams,
+            Ok,
+            (
+                "Mark the session the user is looking at as the active one: a messenger "
+                "with gateway.<platform>.shareActive posts its questions and approvals to "
+                "the owner's chat. session.prompt and session.steer from a client do the "
+                "same. Subagent and scheduled sessions are refused with 'invalid_params'."
+            ),
+        ),
+        _m(
             "setup.status",
             SetupStatusParams,
             SetupStatusResult,
@@ -4798,6 +4809,7 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "session.setBrowserProvider",
         "session.setAgent",
         "session.steer",
+        "session.setActive",
         "session.toolContent",
         "session.artifacts",
         "session.rename",

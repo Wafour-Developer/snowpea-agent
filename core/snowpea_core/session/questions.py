@@ -158,6 +158,9 @@ class QuestionQueue:
         host = getattr(session, "host_tools_from", None)
         await self._announce_status(session.id, "awaiting_question", host)
         await self._broadcast_pending(request, exclude=origin, host=host)
+        tell = getattr(self.hub, "tell_observers", None)
+        if tell is not None:
+            await tell("question.pending", {"request": request.model_dump(mode="json")})
         if origin is not None:
             entry.task = asyncio.ensure_future(self._ask_origin(entry))
         outer = float(timeout) + (GRACE_SECONDS if entry.task is not None else 0.0)
@@ -262,6 +265,9 @@ class QuestionQueue:
             return
         by = answers[0].by if answers else "unknown"
         await self.hub.notify("question.resolved", {"requestId": request.requestId, "by": by})
+        tell = getattr(self.hub, "tell_observers", None)
+        if tell is not None:
+            await tell("question.resolved", {"requestId": request.requestId, "by": by})
 
 
 def _answer_from(raw: Any, *, by: str) -> Answer:

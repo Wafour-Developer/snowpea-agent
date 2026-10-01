@@ -2014,6 +2014,18 @@ export interface SessionResumeResult {
   sessionId: string;
 }
 
+/** `session.setActive` params. Mark the session the user is looking at as the active one: a messenger with gateway.<platform>.shareActive posts its questions and approvals to the owner's chat. session.prompt and session.steer from a client do the same. Subagent and scheduled sessions are refused with 'invalid_params'. */
+export interface SessionSetActiveParams {
+  /** Target session. */
+  sessionId: string;
+}
+
+/** `session.setActive` result. */
+export interface SessionSetActiveResult {
+  /** True when the call succeeded. */
+  ok?: boolean;
+}
+
 /** `session.setAgent` params. Run a session as an agent definition, or as none (addendum 17). Only the session's origin connection, a browser session's hostToolsFrom host, or a non-browser surface (for a session it originated or that is not a browser session) may call it; others get 'unauthorized'. */
 export interface SessionSetAgentParams {
   /** Agent definition to run as from the next model call: its prompt (persona layer), tools allowlist ('*' = all) and max_tool_rounds. null clears it. */
@@ -4085,6 +4097,7 @@ export interface MethodMap {
   "session.prompt": { params: SessionPromptParams; result: SessionPromptResult };
   "session.rename": { params: SessionRenameParams; result: SessionRenameResult };
   "session.resume": { params: SessionResumeParams; result: SessionResumeResult };
+  "session.setActive": { params: SessionSetActiveParams; result: SessionSetActiveResult };
   "session.setAgent": { params: SessionSetAgentParams; result: SessionSetAgentResult };
   "session.setBrowserProvider": { params: SessionSetBrowserProviderParams; result: SessionSetBrowserProviderResult };
   "session.setEffort": { params: SessionSetEffortParams; result: SessionSetEffortResult };
@@ -4204,6 +4217,7 @@ export type ClientMethod =
   | "session.prompt"
   | "session.rename"
   | "session.resume"
+  | "session.setActive"
   | "session.setAgent"
   | "session.setBrowserProvider"
   | "session.setEffort"

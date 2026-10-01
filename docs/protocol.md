@@ -129,6 +129,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`session.prompt`](#sessionprompt) | client → server | Send user text to a session and start a turn. Events: turn.started {turnId, prompt, queued}, then message.user {text, attachments, refs, steered: false}, then the model's output. message.user.text is what the user typed; a page attachment is listed as {kind: page, name, url, title} and only the model sees the rendered page. A steered prompt emits message.user {steered: true} + turn.dequeued {reason: steered}; a queued one emits turn.queued first. |
 | [`session.rename`](#sessionrename) | client → server | Set a session's title. |
 | [`session.resume`](#sessionresume) | client → server | Replay the events a disconnected client missed. |
+| [`session.setActive`](#sessionsetactive) | client → server | Mark the session the user is looking at as the active one: a messenger with gateway.<platform>.shareActive posts its questions and approvals to the owner's chat. session.prompt and session.steer from a client do the same. Subagent and scheduled sessions are refused with 'invalid_params'. |
 | [`session.setAgent`](#sessionsetagent) | client → server | Run a session as an agent definition, or as none (addendum 17). Only the session's origin connection, a browser session's hostToolsFrom host, or a non-browser surface (for a session it originated or that is not a browser session) may call it; others get 'unauthorized'. |
 | [`session.setBrowserProvider`](#sessionsetbrowserprovider) | client → server | Per-session opt-in to core's own browser; never global (addendum 9). |
 | [`session.setEffort`](#sessionseteffort) | client → server | Pin how hard a session's model may think, or clear the pin. |
@@ -1735,6 +1736,24 @@ Replay the events a disconnected client missed.
 | `model` | `string \| null` | no | Model id in use. |
 | `provider` | `string \| null` | no | Chat provider vendor in use. |
 | `sessionId` | `string` | yes | Session that was resumed. |
+
+### `session.setActive`
+
+*Direction:* client → server
+
+Mark the session the user is looking at as the active one: a messenger with gateway.<platform>.shareActive posts its questions and approvals to the owner's chat. session.prompt and session.steer from a client do the same. Subagent and scheduled sessions are refused with 'invalid_params'.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `sessionId` | `string` | yes | Target session. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ok` | `boolean` | no | True when the call succeeded. |
 
 ### `session.setAgent`
 

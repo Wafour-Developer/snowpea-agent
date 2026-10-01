@@ -372,6 +372,28 @@ async def session_set_agent_handler(
     return SessionSetAgentResult(sessionId=session.id, agent=agent)
 
 
+async def session_set_active_handler(
+    conn: RpcConnection, params: SessionIdParams, core: Core
+) -> Ok:
+    """``session.setActive`` — the thread the user is looking at becomes the active one.
+
+    The owner's messenger shares that session's questions and approvals
+    (``gateway.<platform>.shareActive``).  The same surfaces that may switch a
+    session's agent may mark it (see :func:`_may_set_agent`); a subagent or a
+    scheduled run is not a conversation and is refused.
+    """
+    session = _session(core, params.sessionId)
+    if str(getattr(conn, "surface_id", "") or "").startswith("gateway:") or not _may_set_agent(
+        conn, session
+    ):
+        raise RpcError(
+            errors.UNAUTHORIZED, "only the owner's own surfaces may mark a session active"
+        )
+    if not core.sessions.mark_active(session):
+        raise RpcError(errors.INVALID_PARAMS, f"{session.id} is a {session.kind} session")
+    return Ok(ok=True)
+
+
 async def session_set_browser_provider_handler(
     _conn: RpcConnection, params: SessionSetBrowserProviderParams, core: Core
 ) -> SessionSetBrowserProviderResult:
@@ -514,6 +536,9 @@ async def session_steer_handler(
     task = getattr(session, "turn_task", None)
     running = session.current_turn is not None or (task is not None and not task.done())
     if running:
+        from snowpea_core.server.session_handlers import mark_active
+
+        mark_active(core, conn, session)
         session.rpc_steers.append(text)
         session.user_waiting.set()
         return SessionSteerResult(ok=True, started=False)
@@ -759,6 +784,7 @@ def register_host_handlers(dispatcher: RpcDispatcher) -> None:
     dispatcher.register("session.setBrowserProvider", session_set_browser_provider_handler)
     dispatcher.register("session.setAgent", session_set_agent_handler)
     dispatcher.register("session.steer", session_steer_handler)
+    dispatcher.register("session.setActive", session_set_active_handler)
     dispatcher.register("session.toolContent", session_tool_content_handler)
     dispatcher.register("session.artifacts", session_artifacts_handler)
     dispatcher.register("session.rename", session_rename_handler)

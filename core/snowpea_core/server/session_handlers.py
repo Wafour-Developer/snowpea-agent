@@ -563,6 +563,18 @@ async def session_close_handler(_conn: RpcConnection, params: SessionIdParams, c
     return Ok(ok=True)
 
 
+def mark_active(core: Core, conn: Any, session: Session) -> None:
+    """Make ``session`` the owner's active one when a person prompted it from a client.
+
+    A messenger never reaches here (it starts turns directly), but a gateway
+    surface id is refused all the same: only a human surface decides which
+    session's questions follow the owner to their phone.
+    """
+    if str(getattr(conn, "surface_id", "") or "").startswith("gateway:"):
+        return
+    core.sessions.mark_active(session)
+
+
 async def session_prompt_handler(
     conn: RpcConnection, params: SessionPromptParams, core: Core
 ) -> TurnResult:
@@ -570,6 +582,7 @@ async def session_prompt_handler(
     await _refresh_settings(core)
     session = _session(core, params.sessionId)
     core.hub.subscribe(conn, session.id)
+    mark_active(core, conn, session)
     raw_text = params.text
     parsed = core.commands.parse(raw_text)
     if parsed is not None:

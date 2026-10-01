@@ -159,6 +159,11 @@ class ChatSessionMemory:
         data[self.key(binding_id, channel_id)] = session_id
         self._write(data)
 
+    def channels(self, binding_id: str) -> list[str]:
+        """Every chat of ``binding_id`` this file remembers."""
+        prefix = f"{binding_id}|"
+        return [key[len(prefix) :] for key in self._read() if key.startswith(prefix)]
+
     def forget(self, binding_id: str, channel_id: str) -> None:
         data = self._read()
         if data.pop(self.key(binding_id, channel_id), None) is not None:

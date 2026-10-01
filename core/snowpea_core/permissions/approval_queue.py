@@ -326,6 +326,10 @@ class ApprovalQueue:
             entry.task = asyncio.ensure_future(self._ask_origin(entry))
         else:
             await self._broadcast_pending(request, entry.host)
+        await self._tell_observers(
+            "approval.pending",
+            {"request": request.model_dump(mode="json"), "interactive": origin is not None},
+        )
         outer = float(timeout) + (GRACE_SECONDS if entry.task is not None else 0.0)
         try:
             decision = await self._await_decision(entry, outer, cancel_event)
@@ -343,7 +347,9 @@ class ApprovalQueue:
         await self._resolve(
             request,
             decision,
-            notify_exclude=origin,
+            # The origin answered its own dialog and needs no echo; a decision
+            # made elsewhere (the owner's messenger) must close that dialog.
+            notify_exclude=origin if decision.by == "origin" else None,
             workdir=entry.workdir,
             unattended=entry.unattended,
             cacheable=entry.cacheable,
@@ -364,6 +370,12 @@ class ApprovalQueue:
             "approval.pending",
             {"request": request.model_dump(mode="json"), "hostToolsFrom": host},
         )
+
+    async def _tell_observers(self, method: str, params: dict[str, Any]) -> None:
+        """Tell in-process observers (the gateway) about every request, attended or not."""
+        tell = getattr(self.hub, "tell_observers", None)
+        if tell is not None:
+            await tell(method, params)
 
     async def _await_decision(
         self, entry: _Pending, timeout: float, cancel_event: asyncio.Event | None
@@ -477,6 +489,14 @@ class ApprovalQueue:
                     "by": decision.by,
                 },
                 exclude=notify_exclude,
+            )
+            await self._tell_observers(
+                "approval.resolved",
+                {
+                    "requestId": request.requestId,
+                    "decision": decision.decision,
+                    "by": decision.by,
+                },
             )
 
     def _persist(

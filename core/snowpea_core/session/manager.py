@@ -58,6 +58,25 @@ class SessionManager:
         #: it derived here is what stops that from happening again
         #: (CORE-model-assignment B-P2-1).
         self.definition_model_for: Any = None
+        #: The session the owner most recently worked in from a human surface
+        #: (``session.prompt`` / ``session.steer`` / ``session.setActive``),
+        #: and when.  A messenger shares that session's questions and
+        #: approvals with the owner's chat (``gateway.<platform>.shareActive``).
+        self.active_id: str | None = None
+        self.active_at: str | None = None
+
+    def mark_active(self, session: Session) -> bool:
+        """Make ``session`` the active one; False for a subagent or job run.
+
+        Only a thread a person is in counts: a subagent belongs to its parent's
+        turn and a scheduled run to its job, so neither may take the place of
+        the conversation the owner is looking at.
+        """
+        if session.kind not in ("chat", "agent") or session.parent_session_id:
+            return False
+        self.active_id = session.id
+        self.active_at = utc_now()
+        return True
 
     async def announce_sessions_changed(
         self, reason: str, session_id: str, *, status: str | None = None
@@ -540,6 +559,9 @@ class EventHub:
         #: before they open a session — that is what "broadcast to every
         #: authenticated client" means for the shared approval queue (M5 §4).
         self._clients: list[Any] = []
+        #: In-process listeners told about every question and approval, the
+        #: interactive ones included (see :meth:`tell_observers`).
+        self._observers: list[Any] = []
         self.store = store
         self.sessions = sessions
 
@@ -565,6 +587,28 @@ class EventHub:
 
     def clients(self) -> list[Any]:
         return list(self._clients)
+
+    def add_observer(self, observer: Any) -> None:
+        """Register an in-process listener with an ``observe(method, params)``."""
+        if not any(other is observer for other in self._observers):
+            self._observers.append(observer)
+
+    def remove_observer(self, observer: Any) -> None:
+        self._observers = [other for other in self._observers if other is not observer]
+
+    async def tell_observers(self, method: str, params: dict[str, Any]) -> None:
+        """Hand ``params`` to the in-process observers only; nothing goes on the wire.
+
+        The approval and question queues call this for every request they
+        raise and settle, including an interactive approval that is asked of
+        its origin alone and never broadcast.  The gateway uses it to share
+        the active session's asks with the owner's chat.
+        """
+        for observer in list(self._observers):
+            try:
+                await observer.observe(method, params)
+            except Exception:  # noqa: BLE001 - a listener must never fail the ask
+                log.warning("observer failed on %s", method, exc_info=True)
 
     def subscribers_for(self, session_id: str) -> list[Any]:
         seen: list[Any] = []

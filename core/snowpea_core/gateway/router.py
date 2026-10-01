@@ -51,7 +51,13 @@ from snowpea_core.gateway.base import (
     question_text,
     split_message,
 )
-from snowpea_core.gateway.chat import CHAT_KINDS, CHATS_FILE, ChatCommands, ChatSessionMemory
+from snowpea_core.gateway.chat import (
+    CHAT_KINDS,
+    CHATS_FILE,
+    ChatCommands,
+    ChatSessionMemory,
+    short_id,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.server.app_server import Core
@@ -72,6 +78,16 @@ UNKNOWN_COMMAND_TEXT = "Unknown command /{name} — send /help for the list, or 
 #: :func:`desired_gateways` already skips any value that is not a dict, so a
 #: flag can never be mistaken for a messenger to bind.
 GATEWAY_FLAGS: frozenset[str] = frozenset({"typing", "progress"})
+
+#: Per-platform key, ``settings.gateway.<platform>.shareActive``: post the
+#: owner's active session's questions and approvals to the owner's chat.
+#: Defaults to on wherever the binding has an approver (``allowed_user_id``).
+SHARE_ACTIVE_KEY = "shareActive"
+
+#: Under a shared question: the chat's typed lines still go to its own session.
+SHARED_QUESTION_HINT = (
+    "(버튼으로 답해 주세요 / answer with the buttons; \u270f\ufe0f Other to type)"
+)
 
 #: Channel string that means "just write it to the daemon log" (contract §2).
 LOG_CHANNEL = "log"
@@ -245,6 +261,12 @@ class GatewayConnection:
         self.question_answers: list[dict[str, Any]] = []
         #: Typing hint and progress line for whatever turn is running.
         self.activity = TurnActivity(self)
+        #: Set on a request shared from the owner's active session rather than
+        #: this chat's own: the line naming the session that asks.
+        self.label: str = ""
+        #: A shared question whose "Other" was pressed: the next line the
+        #: approver types is its answer instead of a prompt.
+        self.awaiting_text = False
 
     async def notify(self, method: str, params: dict[str, Any]) -> None:
         if self.closed:
@@ -344,10 +366,13 @@ class GatewayConnection:
             return
         item = items[self.question_at]
         request_id = str(request.get("requestId", ""))
+        text = question_text(item, self.question_at + 1, len(items))
+        if self.label:
+            text = f"{self.label}\n{text}\n{SHARED_QUESTION_HINT}"
         await self.router.send(
             self.binding,
             self.channel_id,
-            question_text(item, self.question_at + 1, len(items)),
+            text,
             buttons=question_buttons(
                 request_id,
                 list(item.get("options") or []),
@@ -383,6 +408,13 @@ class GatewayRouter:
         self._bindings: dict[str, Binding] = {}
         self._adapters: dict[str, PlatformAdapter] = {}
         self._conns: dict[tuple[str, str], GatewayConnection] = {}
+        #: Requests of the owner's active session posted to an owner chat,
+        #: ``(binding, channel, requestId) -> state``.  Kept apart from the
+        #: chat's own connection so a shared batch never collides with the
+        #: chat's own session's.
+        self._shared: dict[tuple[str, str, str], GatewayConnection] = {}
+        #: The chat each binding's approver last wrote from.
+        self._last_chat: dict[str, str] = {}
         self._store: BindingStore | None = None
         self._credentials: CredentialStore | None = None
         #: Which session each chat is in, across restarts.  Repointed at the
@@ -398,6 +430,9 @@ class GatewayRouter:
         self._store = BindingStore(core.paths.state_db)
         self._credentials = CredentialStore(core.paths)
         self.chats = ChatSessionMemory(core.paths.home / CHATS_FILE)
+        # Every question and approval, the interactive ones included, so the
+        # active session's asks can follow the owner to their chat.
+        core.hub.add_observer(self)
 
     def _build_adapter(self, platform: str, credentials_ref: str) -> PlatformAdapter:
         """Resolve the credential and construct the adapter for ``platform``."""
@@ -488,6 +523,9 @@ class GatewayRouter:
             await conn.activity.cancel()
             if self.core is not None:
                 self.core.hub.unsubscribe(conn)
+        for key in [key for key in self._shared if key[0] == binding_id]:
+            del self._shared[key]
+        self._last_chat.pop(binding_id, None)
         if self._store is not None:
             self._store.delete(binding_id)
         self._count()
@@ -604,6 +642,9 @@ class GatewayRouter:
             conn.closed = True
             await conn.activity.cancel()
         self._conns.clear()
+        self._shared.clear()
+        if self.core is not None:
+            self.core.hub.remove_observer(self)
         if self._store is not None:
             with contextlib.suppress(Exception):
                 self._store.close()
@@ -673,6 +714,8 @@ class GatewayRouter:
         if binding.channel_id and message.channel_id != binding.channel_id:
             log.info("ignoring %s message from unbound channel", binding.platform)
             return
+        if binding.user_id and message.user_id == binding.user_id:
+            self._last_chat[binding.id] = message.channel_id
         callback = parse_approval_callback(message.callback_data)
         if callback is not None:
             await self._handle_approval(binding, message, *callback)
@@ -730,6 +773,24 @@ class GatewayRouter:
                         message.callback_id, reason
                     )
             return
+        # Only approvals this chat was actually shown: its own session's, or one
+        # forwarded from the owner's active session. Answering carries no
+        # connection, so without this an approver could settle any pending
+        # approval whose id they knew.
+        own = self._conns.get((binding.id, message.channel_id))
+        shown = (own is not None and request_id in own.asked) or (
+            (binding.id, message.channel_id, request_id) in self._shared
+        )
+        if not shown:
+            log.warning(
+                "ignoring approval %s on binding %s: not shown in this chat", request_id, binding.id
+            )
+            if adapter is not None and message.callback_id:
+                with contextlib.suppress(Exception):
+                    await adapter.acknowledge(  # type: ignore[attr-defined]
+                        message.callback_id, "this approval was not asked here"
+                    )
+            return
         if adapter is not None and message.callback_id:
             with contextlib.suppress(AttributeError, Exception):
                 await adapter.acknowledge(message.callback_id, decision)  # type: ignore[attr-defined]
@@ -757,7 +818,20 @@ class GatewayRouter:
         asks the user to type instead.
         """
         adapter = self._adapters.get(binding.id)
-        conn = self._open_question(binding, message.channel_id)
+        shared = self._shared.get((binding.id, message.channel_id, request_id))
+        if shared is not None and shared.question:
+            # Shared from another session: only the owner may answer it,
+            # the same rule as an approval.
+            if not binding.user_id or message.user_id != binding.user_id:
+                if adapter is not None and message.callback_id:
+                    with contextlib.suppress(AttributeError, Exception):
+                        await adapter.acknowledge(  # type: ignore[attr-defined]
+                            message.callback_id, "not your question"
+                        )
+                return
+            conn: GatewayConnection | None = shared
+        else:
+            conn = self._open_question(binding, message.channel_id)
         if conn is None or str((conn.question or {}).get("requestId")) != request_id:
             return
         options = list(conn.current_question().get("options") or [])
@@ -765,6 +839,7 @@ class GatewayRouter:
             if adapter is not None and message.callback_id:
                 with contextlib.suppress(AttributeError, Exception):
                     await adapter.acknowledge(message.callback_id, "other")  # type: ignore[attr-defined]
+            conn.awaiting_text = conn is shared
             await self.send(
                 binding, message.channel_id, "답을 적어 주세요 / type your answer as a reply."
             )
@@ -780,6 +855,11 @@ class GatewayRouter:
 
     async def _answer_open_question(self, binding: Binding, message: InboundMessage) -> bool:
         """Read a typed reply as the answer to the open question; True if it was one."""
+        shared = self._awaiting_shared(binding, message.channel_id)
+        if shared is not None and binding.user_id and message.user_id == binding.user_id:
+            # "Other" was pressed on a shared question: this line is its answer.
+            await self._advance_question(binding, message, shared, [], message.text.strip())
+            return True
         conn = self._open_question(binding, message.channel_id)
         if conn is None:
             return False
@@ -811,6 +891,7 @@ class GatewayRouter:
         """Record one answer, then post the next question or submit the batch."""
         request = conn.question or {}
         items = list(request.get("questions") or [])
+        conn.awaiting_text = False
         conn.question_answers.append({"selected": selected, "text": text})
         conn.question_at += 1
         if conn.question_at < len(items):
@@ -819,6 +900,112 @@ class GatewayRouter:
         await self._respond_question(
             binding, message, str(request.get("requestId", "")), conn.question_answers
         )
+
+    def _awaiting_shared(self, binding: Binding, channel_id: str) -> GatewayConnection | None:
+        """The shared question in this chat whose "Other" is waiting for text."""
+        for (binding_id, channel, _request), shared in reversed(self._shared.items()):
+            if binding_id == binding.id and channel == channel_id and shared.awaiting_text:
+                return shared
+        return None
+
+    # -- the active session's asks, shared with the owner ---------------
+    def share_active(self, binding: Binding) -> bool:
+        """``gateway.<platform>.shareActive``; on by default, never without an approver."""
+        if not binding.user_id:
+            return False
+        settings = getattr(self.core, "settings", None)
+        block = (getattr(settings, "gateway", None) or {}).get(binding.platform)
+        value = block.get(SHARE_ACTIVE_KEY) if isinstance(block, dict) else None
+        return value if isinstance(value, bool) else True
+
+    def owner_chat(self, binding: Binding) -> str | None:
+        """Where the binding's approver is reached: the bound chat, their DM, or their last chat.
+
+        A Telegram private chat's id is the user's id, so the DM is known
+        without the owner ever having written there; other platforms fall
+        back to the chat the approver wrote from last (or the only chat this
+        binding remembers, after a restart).
+        """
+        if binding.channel_id:
+            return binding.channel_id
+        if binding.platform == "telegram" and binding.user_id:
+            return binding.user_id
+        last = self._last_chat.get(binding.id)
+        if last:
+            return last
+        remembered = self.chats.channels(binding.id)
+        return remembered[0] if len(remembered) == 1 else None
+
+    def _session_label(self, session_id: str) -> str:
+        """``[title-or-project · s-1a2b3c]``: which session is asking."""
+        session = self.core.sessions.get(session_id) if self.core is not None else None
+        name = ""
+        if session is not None:
+            name = (session.title or "").strip() or Path(str(session.workdir)).name
+        return f"[{name} · {short_id(session_id)}]" if name else f"[{short_id(session_id)}]"
+
+    async def observe(self, method: str, params: dict[str, Any]) -> None:
+        """Hub observer: every question and approval, raised and settled."""
+        if method in ("approval.pending", "question.pending"):
+            await self._share_pending(method, params)
+        elif method in ("approval.resolved", "question.resolved"):
+            await self._share_resolved(method, params)
+
+    async def _share_pending(self, method: str, params: dict[str, Any]) -> None:
+        """Post the active session's new request to each owner chat that wants it."""
+        request = dict(params.get("request") or {})
+        request_id = str(request.get("requestId") or "")
+        session_id = str(request.get("sessionId") or "")
+        if self.core is None or not request_id or not session_id:
+            return
+        if session_id != getattr(self.core.sessions, "active_id", None):
+            return
+        if method == "question.pending" and not (request.get("questions") or []):
+            return
+        label = self._session_label(session_id)
+        for binding in list(self._bindings.values()):
+            if binding.state != "active" or binding.id not in self._adapters:
+                continue
+            if not self.share_active(binding):
+                continue
+            channel = self.owner_chat(binding)
+            if channel is None:
+                continue
+            own = self._conns.get((binding.id, channel))
+            # A broadcast request of the chat's own session is already posted
+            # by its connection; only an interactive approval never reaches it.
+            if own is not None and own.session_id == session_id and not params.get("interactive"):
+                continue
+            shared = GatewayConnection(self, binding, channel)
+            shared.session_id = session_id
+            shared.label = label
+            self._shared[(binding.id, channel, request_id)] = shared
+            if method == "approval.pending":
+                shared.asked.add(request_id)
+                body = approval_text(
+                    str(request.get("tool", "?")), dict(request.get("args") or {}), session_id
+                )
+                await self.send(
+                    binding, channel, f"{label}\n{body}", buttons=approval_buttons(request_id)
+                )
+            else:
+                shared.question = request
+                await shared.post_question()
+
+    async def _share_resolved(self, method: str, params: dict[str, Any]) -> None:
+        """Close a shared request in its chat once anyone answered it."""
+        request_id = str(params.get("requestId") or "")
+        by = str(params.get("by") or "")
+        for key in [key for key in self._shared if key[2] == request_id]:
+            shared = self._shared.pop(key)
+            binding = shared.binding
+            if method == "approval.resolved":
+                text = f"{shared.label}\napproval {request_id}: {params.get('decision')} (by {by})"
+            elif by.startswith(f"gateway:{binding.platform}:"):
+                continue  # answered right here; the last button press says so
+            else:
+                text = f"{shared.label}\nquestion {request_id}: answered (by {by})"
+            await self.send(binding, shared.channel_id, text)
 
     async def _respond_question(
         self,
@@ -1037,6 +1224,7 @@ def _picked_labels(text: str, options: list[dict[str, Any]], multi: bool) -> lis
 
 __all__ = [
     "FAKE_GATEWAY_ENV",
+    "SHARE_ACTIVE_KEY",
     "GATEWAY_FLAGS",
     "SOURCE_MANUAL",
     "SOURCE_SETTINGS",

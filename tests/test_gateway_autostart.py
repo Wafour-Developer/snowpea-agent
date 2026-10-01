@@ -165,6 +165,11 @@ async def test_only_the_configured_user_id_may_answer_an_approval(
                 callback_id="cb-1",
             )
 
+        # An approval this chat was never shown cannot be settled from it.
+        await router.handle(binding, press("12345"))
+        assert answered == []
+
+        router._shared[(binding.id, "chat-a", "ap-1")] = object()  # forwarded here
         await router.handle(binding, press("12345"))
         assert [(r, d) for r, d, _ in answered] == [("ap-1", "allow")]
         assert answered[0][2] == "gateway:telegram:12345"

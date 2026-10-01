@@ -129,6 +129,10 @@ Unlike an approval, anyone in the conversation may answer: a question grants no 
 
 When one `ask_user` call carries several questions, the terminal shows them as tabs; a chat has no tabs, so the gateway posts them one at a time — the header line counts them (`❓ Storage (2/3)`) and the next question only appears once the current one is answered. All the answers go back together when the last one is in. After `questions.timeoutSec` (600 seconds by default) the agent is told nobody answered.
 
+## Your active session, on your phone
+
+The session you last prompted from the TUI, the IDE or the CLI is your *active* session. (The IDE can also mark the thread you are looking at with `session.setActive`. Subagent and scheduled sessions never count.) Its questions and approvals are posted to your own chat as well, with the same buttons, under a line naming the session (`[renderer pick · s-7c68c2]`), so you can answer from your phone. This includes approvals the terminal would otherwise keep to itself. Only the active session is shared, and only the binding's `--user` / `allowed_user_id` can answer. On Telegram the post goes to your private chat with the bot. Other platforms use the chat you last wrote from. Whichever side answers first wins, and the other side is told. Text you type still goes to the chat's own session. The exception is a shared question where you pressed "Other": your next line is the answer. It is on for every messenger with an approver. To turn it off for one platform, set `{ "gateway": { "telegram": { "shareActive": false } } }`.
+
 ## Named agents
 
 A named agent survives daemon restarts with its own session, its own memory namespace, its own channels and its own jobs. Two named agents cannot read each other's memories, which is what makes it reasonable to give one a work channel and another a personal one.

@@ -613,6 +613,9 @@ class Settings(_Model):
     #: the "typing…" hint and the edited-in-place progress message a chat
     #: shows while a turn runs.  ``desired_gateways`` skips any value that is
     #: not a dict, so a switch is never mistaken for a messenger to bind.
+    #: A platform block may also carry ``shareActive`` (default ``true``
+    #: wherever ``allowed_user_id`` is set): post the owner's active session's
+    #: questions and approvals to the owner's chat (see ``gateway/router.py``).
     gateway: dict[str, Any] = Field(default_factory=dict)
     #: Global allowlist patterns (contract §7); the project store lives in
     #: ``<workdir>/.snowpea/settings.json``.
