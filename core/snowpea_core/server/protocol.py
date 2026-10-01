@@ -1573,6 +1573,14 @@ class ProviderInfo(Payload):
             "whose URL is fixed by the preset."
         ),
     )
+    defaultBaseUrl: str = Field(
+        default="",
+        description=(
+            "The preset's own endpoint, used when no base_url is configured (e.g. "
+            "https://api.meta.ai/v1); empty for SDK-driven vendors. A settings form shows "
+            "it as the default so the field reads as optional."
+        ),
+    )
     variant: str = Field(
         default="",
         description=(

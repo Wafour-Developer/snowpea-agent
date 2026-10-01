@@ -1483,6 +1483,8 @@ export interface ProviderListResult {
     custom?: boolean;
     /** True for the vendor used when none is named. */
     default?: boolean;
+    /** The preset's own endpoint, used when no base_url is configured (e.g. https://api.meta.ai/v1); empty for SDK-driven vendors. A settings form shows it as the default so the field reads as optional. */
+    defaultBaseUrl?: string;
     /** Model used when the caller names none. */
     defaultModel?: string;
     /** Human-readable vendor name for pickers. */

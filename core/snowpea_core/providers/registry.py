@@ -847,6 +847,7 @@ class ProviderRegistry:
                     preset="local" if preset.local_style else vendor,
                     custom=vendor not in PRESETS,
                     baseUrl=base_url,
+                    defaultBaseUrl=preset.base_url or "",
                     variant=variant,
                     supportsEffort=preset.supports_effort,
                 )

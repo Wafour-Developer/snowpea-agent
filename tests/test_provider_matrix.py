@@ -175,7 +175,7 @@ async def test_exhausted_tape_is_an_error(registry: ProviderRegistry) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_provider_list_has_eleven_entries_and_three_interactive_logins(
+def test_provider_list_has_twelve_entries_and_three_interactive_logins(
     registry: ProviderRegistry,
 ) -> None:
     infos = registry.list()
@@ -183,6 +183,11 @@ def test_provider_list_has_eleven_entries_and_three_interactive_logins(
     assert [info.vendor for info in infos] == list(VENDORS)
     assert all(info.label for info in infos)
     assert all(info.defaultModel for info in infos)
+    # A hosted vendor names its own endpoint, so a settings form can show it as
+    # the default instead of making the base URL look required.
+    by_vendor = {info.vendor: info for info in infos}
+    assert by_vendor["meta"].defaultBaseUrl == "https://api.meta.ai/v1"
+    assert by_vendor["meta"].baseUrl == ""
     assert all("api_key" in info.authMethods for info in infos)
 
     web = [info.vendor for info in infos if len(info.authMethods) > 1]

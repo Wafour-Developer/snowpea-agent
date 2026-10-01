@@ -1329,7 +1329,7 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `providers` | `({ authMethods?: string[]; authStatus?: "unconfigured" \| "active" \| "expired"; baseUrl?: string; configured?: boolean; custom?: boolean; default?: boolean; defaultModel?: string; label?: string; models?: string[]; preset?: string; supportsEffort?: boolean; variant?: string; vendor: string; })[]` | no | Known chat providers. |
+| `providers` | `({ authMethods?: string[]; authStatus?: "unconfigured" \| "active" \| "expired"; baseUrl?: string; configured?: boolean; custom?: boolean; default?: boolean; defaultBaseUrl?: string; defaultModel?: string; label?: string; models?: string[]; preset?: string; supportsEffort?: boolean; variant?: string; vendor: string; })[]` | no | Known chat providers. |
 
 ### `provider.loginWeb`
 
