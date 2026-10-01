@@ -2962,6 +2962,8 @@ export interface ToolInvokeParams {
   mode?: "plan" | "accept" | "auto";
   /** Host tool name. */
   name: string;
+  /** The session that spawned this one (a subagent's parent); null for a root session. A browser host shares the parent's agent tabs with it. */
+  parentSessionId?: string | null;
   /** Session whose turn called the tool. */
   sessionId: string;
   /** Turn the call belongs to. */

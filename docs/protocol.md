@@ -2418,6 +2418,7 @@ Ask the client to run one of its host tools.
 | `callId` | `string` | yes | Id of the tool call; tool.progress refers to it. |
 | `mode` | `"plan" \| "accept" \| "auto"` | no | The session's mode. A code-running tool registered as 'read' must refuse mutations in plan mode itself and escalate the rest with approval.ask. |
 | `name` | `string` | yes | Host tool name. |
+| `parentSessionId` | `string \| null` | no | The session that spawned this one (a subagent's parent); null for a root session. A browser host shares the parent's agent tabs with it. |
 | `sessionId` | `string` | yes | Session whose turn called the tool. |
 | `turnId` | `string` | no | Turn the call belongs to. |
 | `workdir` | `string` | no | The session's project folder, absolute (Projects, 1.7.0). |

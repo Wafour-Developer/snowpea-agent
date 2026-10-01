@@ -1137,6 +1137,13 @@ class ToolInvokeRequest(Payload):
         default="",
         description="The session's project folder, absolute (Projects, 1.7.0).",
     )
+    parentSessionId: str | None = Field(
+        default=None,
+        description=(
+            "The session that spawned this one (a subagent's parent); null for a root "
+            "session. A browser host shares the parent's agent tabs with it."
+        ),
+    )
 
 
 class ToolInvokeResult(Payload):

@@ -257,6 +257,7 @@ class HostTools:
             ),
             # The session's project folder itself (Projects, 1.7.0).
             "workdir": str(Path(getattr(session, "workdir", "") or ".").resolve()),
+            "parentSessionId": getattr(session, "parent_session_id", None),
         }
         try:
             answer = await self._call_or_cancel(conn, session, params, timeout)

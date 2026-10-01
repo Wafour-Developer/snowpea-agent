@@ -159,6 +159,7 @@ async def test_a_host_tool_runs_in_the_client_and_reports_progress(
         workspace = daemon.core.sessions.get(session_id).workspace_dir
         assert workspace and call["workspaceDir"] == workspace
         assert call["workdir"] == str((tmp_path / "w").resolve())
+        assert call["parentSessionId"] is None  # a root session
         assert call["callId"] and call["turnId"]
         assert results_for(host, "host_echo")[-1]["output"] == "echo hi"
         progress = [
@@ -1458,3 +1459,30 @@ async def test_set_mode_speaks_browser_and_keeps_read_only_clearly(
         assert session.mode == "plan"
     finally:
         await client.stop()
+
+
+async def test_tool_invoke_names_a_subagents_parent_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The browser host shares the parent's agent tabs with a subagent."""
+    from types import SimpleNamespace
+
+    from snowpea_core.session.session import Session
+    from snowpea_core.tools.host_tools import HostTools
+    from snowpea_core.tools.registry import ToolContext
+
+    tools = HostTools()
+    sent: list[dict[str, Any]] = []
+
+    async def capture(conn: Any, session: Any, params: dict[str, Any], timeout: float) -> Any:
+        sent.append(params)
+        return {"ok": True, "output": "ok"}
+
+    monkeypatch.setattr(tools, "connection", lambda surface_id: SimpleNamespace(closed=False))
+    monkeypatch.setattr(tools, "_call_or_cancel", capture)
+    child = Session(id="s-child", workdir=tmp_path, parent_session_id="s-parent")
+    core = SimpleNamespace(hub=None)
+    ctx = ToolContext(session=child, core=core, backend=None, call_id="c1")  # type: ignore[arg-type]
+    result = await tools.invoke(core, "surface", "repl", 5.0, ctx, {})  # type: ignore[arg-type]
+    assert result.ok
+    assert sent[0]["parentSessionId"] == "s-parent"

@@ -11,7 +11,7 @@ process, and leaves the agent loop, permissions, memory and sessions to core.
 |---|---|---|
 | `tool.register` | c → s | `{tools: [{name, description, inputSchema, permission, category?, timeoutMs?}]}` → `{registered: [name]}` |
 | `tool.unregister` | c → s | `{names}` → `{removed}` |
-| `tool.invoke` | s → c request | `{sessionId, turnId, callId, name, args, mode, workspaceDir}` → `{ok, output, error?, content?, meta?}` |
+| `tool.invoke` | s → c request | `{sessionId, turnId, callId, name, args, mode, workspaceDir, workdir, parentSessionId}` → `{ok, output, error?, content?, meta?}` |
 | `tool.progress` | c → s notification | `{callId, message}`; re-emitted as `session.event tool.progress` (`stream: "stdout"`, `chunk: message`) |
 | `tool.cancel` | s → c notification | `{sessionId, callId}`; sent when the turn is interrupted while a call runs |
 
