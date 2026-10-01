@@ -14,9 +14,12 @@ from pathlib import Path
 from typing import Any
 
 import aiohttp
+import pytest
 from _support import RpcClient
 from test_host_tools import Daemon, daemon, new_session, open_client, spec  # noqa: F401
 
+from snowpea_core.permissions.allowlist import Allowlist, is_loopback_origin, local_dev_origin
+from snowpea_core.permissions.approval_queue import Decision
 from snowpea_core.server.protocol import PROTOCOL_VERSION
 
 BROWSER_AGENT = """---
@@ -228,6 +231,12 @@ async def test_local_dev_server_project_answer_is_remembered_per_origin(
         [rule] = [e for e in stored["allowlist"] if e["target"] == "tool:repl.navigate"]
         assert rule["origin"] == "http://localhost:5173"
         assert rule["reason_code"] == "localDevServer"
+        listed = await host.ok(
+            "permission.allowlist.list", {"scope": "project", "workdir": str(workdir)}
+        )
+        [row] = listed["patterns"]
+        assert row["reasonCode"] == "localDevServer"
+        assert row["origin"] == "http://localhost:5173"
 
         asked = len(host.approval_requests)
         again = await host.ok(
@@ -273,5 +282,120 @@ async def test_local_dev_server_project_answer_needs_the_sessions_project(
             "permission.allowlist.list", {"scope": "project", "workdir": str(workdir)}
         )
         assert listed["patterns"] == []
+    finally:
+        await host.stop()
+
+
+@pytest.mark.parametrize(
+    ("origin", "loopback"),
+    [
+        ("http://localhost:5173", True),
+        ("http://LOCALHOST", True),
+        ("http://localhost.:3000", True),
+        ("http://app.localhost:8080", True),
+        ("https://a.b.localhost", True),
+        ("http://127.0.0.1:5173", True),
+        ("http://127.200.3.4", True),
+        ("http://[::1]:5173", True),
+        ("http://[::1]", True),
+        ("http://user@localhost:1", True),
+        ("http://192.168.1.10:5173", False),
+        ("http://10.0.0.1", False),
+        ("http://0.0.0.0:3000", False),
+        ("http://[::ffff:127.0.0.1]", False),
+        ("http://[fe80::1]", False),
+        ("http://localhost.example.com", False),
+        ("http://notlocalhost", False),
+        ("http://evil-localhost", False),
+        ("http://127.0.0.1.nip.io", False),
+        ("http://example.com", False),
+        ("http://[::1", False),
+        ("", False),
+        (None, False),
+    ],
+)
+def test_loopback_origins_are_read_literally(origin: str | None, loopback: bool) -> None:
+    assert is_loopback_origin(origin) is loopback
+
+
+def test_local_dev_origin_and_scope_need_a_loopback_host(tmp_path: Path) -> None:
+    from snowpea_core.permissions.approval_queue import guard_scope
+    from snowpea_core.server.protocol import ApprovalRequest
+
+    def ask(url: str) -> dict[str, Any]:
+        return {"url": url, "reasonCode": "localDevServer"}
+
+    assert local_dev_origin("repl.navigate", ask("http://[::1]:5173/x")) == "http://[::1]:5173"
+    assert local_dev_origin("repl.navigate", ask("http://127.0.0.1:8000/")) == (
+        "http://127.0.0.1:8000"
+    )
+    for url in ("http://192.168.0.5:5173/", "https://dev.example.com/", "http://0.0.0.0/"):
+        assert local_dev_origin("repl.navigate", ask(url)) is None, url
+        request = ApprovalRequest(
+            requestId="r", sessionId="s", tool="repl.navigate", args=ask(url)
+        )
+        decision = guard_scope(request, Decision("allow", "project"), tmp_path)
+        assert decision.scope == "once", url
+
+
+def test_a_stored_non_loopback_local_dev_rule_never_matches(tmp_path: Path) -> None:
+    from snowpea_core.config.project import AllowlistEntry, ProjectSettings
+
+    allowlist = Allowlist()
+    with pytest.raises(ValueError):
+        allowlist.add(
+            "^repl\\.navigate$",
+            "project",
+            "tool:repl.navigate",
+            workdir=tmp_path,
+            origin="http://192.168.0.5:5173",
+            reason_code="localDevServer",
+        )
+    project = ProjectSettings.load(tmp_path)
+    project.allowlist = [
+        AllowlistEntry(
+            id=f"al-{n}",
+            pattern="^repl\\.navigate$",
+            target="tool:repl.navigate",
+            origin=origin,
+            reason_code="localDevServer",
+        )
+        for n, origin in enumerate(("http://192.168.0.5:5173", "http://localhost:5173"))
+    ]
+    project.save(tmp_path)
+    assert not allowlist.matches(
+        "repl.navigate",
+        {"url": "http://192.168.0.5:5173/"},
+        workdir=tmp_path,
+        reason_code="localDevServer",
+    )
+    assert allowlist.matches(
+        "repl.navigate",
+        {"url": "http://localhost:5173/"},
+        workdir=tmp_path,
+        reason_code="localDevServer",
+    )
+
+
+async def test_a_non_loopback_local_dev_project_answer_is_kept_to_once(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path  # noqa: F811
+) -> None:
+    host = await open_client(http, daemon, approval_mode="allow", approval_scope="project")
+    try:
+        await host.ok("tool.register", {"tools": [spec("repl", "read")]})
+        workdir = tmp_path / "proj"
+        session_id = await new_session(host, workdir, mode="accept")
+        for url in ("http://192.168.1.20:5173/", "https://staging.example.com/"):
+            answer = await host.ok("approval.ask", _nav(session_id, url, workdir))
+            assert answer["decision"] == "allow" and answer["scope"] == "once", url
+            assert host.approval_requests[-1]["scopeHint"] != "project"
+        listed = await host.ok(
+            "permission.allowlist.list", {"scope": "project", "workdir": str(workdir)}
+        )
+        assert listed["patterns"] == []
+        # Not remembered: the same navigation asks a person again.
+        asked = len(host.approval_requests)
+        await host.ok("approval.ask", _nav(session_id, "http://192.168.1.20:5173/", workdir))
+        assert len(host.approval_requests) == asked + 1
     finally:
         await host.stop()

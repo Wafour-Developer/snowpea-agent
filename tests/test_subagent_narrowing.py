@@ -133,3 +133,110 @@ async def test_a_running_unnamed_child_gets_only_the_roots_tools(
                 seen = set(child.allowed_tools or ())
     await asyncio.wait_for(runner, timeout=TIMEOUT)
     assert seen is not None and seen and seen <= {"read_file", "repl"}
+
+
+# ---------------------------------------------------------------------------
+# /team workers: the stand-in parents are held to the lead's root agent
+# ---------------------------------------------------------------------------
+
+
+def _team_run(root, repo: Path, worktree: Path):  # noqa: ANN001, ANN202
+    from snowpea_core.agent.team import TeamRun, Worktree
+
+    entry = Worktree(n=1, path=worktree, branch="team/x-1")
+    run = TeamRun(id="x", session=root, repo=repo, task="t", workers=1, worktrees=[entry])
+    return run, entry
+
+
+def _worktree_without_the_root_agent(tmp: Path) -> Path:
+    """A checkout that has the wide agents but not the root's own definition."""
+    path = tmp / "wt-1"
+    path.mkdir()
+    for name, tools in (("browser-code", "*"), ("reader", ["read_file"])):
+        write_definition(
+            AgentDefinition(name=name, description=name, tools=tools, prompt=name), path
+        )
+    return path
+
+
+async def test_a_team_worker_anchor_is_measured_against_the_leads_root(
+    daemon: Daemon, workdir: Path, tmp_path: Path  # noqa: F811
+) -> None:
+    from snowpea_core.agent.team import TeamManager
+
+    root = await _browser_root(daemon, workdir)
+    run, entry = _team_run(root, workdir, _worktree_without_the_root_agent(tmp_path))
+    team = TeamManager(daemon.core)
+    manager = get_manager(daemon.core)
+    for anchor in (team._anchor(run, entry), team._review_anchor(run)):
+        assert manager._root_of(anchor) is root
+        wide = manager.definition(anchor, "browser-code")
+        named = SubagentRecord(
+            agent_id="g", name="browser-code", task="t", parent_session_id=root.id
+        )
+        assert "refused" in (manager._narrowing(anchor, named, wide, None, explicit=True) or "")
+        picked = SubagentRecord(agent_id="h", name="executor", task="t", parent_session_id=root.id)
+        executor = manager.definition(anchor, "executor")
+        assert manager._narrowing(anchor, picked, executor, None, explicit=False) is None
+        assert picked.tool_ceiling == {"read_file", "repl"}
+
+
+async def test_a_named_broader_team_worker_is_refused_and_a_default_one_capped(
+    daemon: Daemon, workdir: Path, tmp_path: Path  # noqa: F811
+) -> None:
+    from snowpea_core.agent.team import TeamManager
+
+    root = await _browser_root(daemon, workdir)
+    run, entry = _team_run(root, workdir, _worktree_without_the_root_agent(tmp_path))
+    anchor = TeamManager(daemon.core)._anchor(run, entry)
+    manager = get_manager(daemon.core)
+    refused = await asyncio.wait_for(
+        manager.run(anchor, "quick child", agent="browser-code"), timeout=TIMEOUT
+    )
+    assert refused.ok is False
+    assert "agent 'browser-code' refused" in (refused.error or "")
+
+    # /team's own ``executor`` default is not a name the user chose: capped.
+    runner = asyncio.ensure_future(
+        manager.run(anchor, "slow child for the team", agent="executor", explicit_agent=False)
+    )
+    seen: set[str] | None = None
+    deadline = asyncio.get_running_loop().time() + TIMEOUT
+    while seen is None and asyncio.get_running_loop().time() < deadline:
+        await asyncio.sleep(0.01)
+        for record in manager.records():
+            child = daemon.core.sessions.get(record.session_id or "")
+            ours = record.name == "executor" and child is not None
+            if ours and child.parent_session_id == root.id:
+                seen = set(child.allowed_tools or ())
+    result = await asyncio.wait_for(runner, timeout=TIMEOUT)
+    assert result.ok, result.error
+    assert seen is not None and seen and seen <= {"read_file", "repl"}
+
+
+async def test_a_pipeline_stage_on_a_broader_agent_fails_with_the_reason(
+    daemon: Daemon, workdir: Path  # noqa: F811
+) -> None:
+    from snowpea_core.agent.team_pipeline import StagePlan, TeamPipeline
+
+    root = await _browser_root(daemon, workdir)
+    pipeline = TeamPipeline(daemon.core, root, roster=["browser-code", "reader"], source="t")
+    pipeline.anchor = pipeline._anchor(
+        StagePlan(owners={"implement": "browser-code"}, unused=(), source="t")
+    )
+    result = await asyncio.wait_for(
+        pipeline._delegate("browser-code", "quick child", title="implement"), timeout=TIMEOUT
+    )
+    assert result.ok is False
+    assert "agent 'browser-code' refused" in (result.error or "")
+    assert "agents.allowBroaderChildren" in (result.error or "")
+
+    daemon.core.settings.agents.allowBroaderChildren = True
+    try:
+        allowed = await asyncio.wait_for(
+            pipeline._delegate("browser-code", "quick child", title="implement"),
+            timeout=TIMEOUT,
+        )
+        assert allowed.ok, allowed.error
+    finally:
+        daemon.core.settings.agents.allowBroaderChildren = False

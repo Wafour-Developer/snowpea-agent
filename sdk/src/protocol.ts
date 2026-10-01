@@ -1427,6 +1427,8 @@ export interface PermissionAllowlistListResult {
     pattern: string;
     /** Stable id of the pattern. */
     patternId: string;
+    /** approval.ask args.reasonCode the entry is limited to, e.g. 'localDevServer' for a project rule on a loopback dev server origin; null for an entry that covers any call (1.7.0). */
+    reasonCode?: string | null;
     /** Where it is stored. */
     scope: "session" | "project" | "always";
     /** Tool or dotted action the entry targets (e.g. 'repl.upload'); null for a shell command pattern (1.7.0). */

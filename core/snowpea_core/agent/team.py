@@ -595,8 +595,13 @@ class TeamManager:
         # team the anchor carries no roster, and an unnamed subagent falls
         # outside ``agents.models`` entirely (CORE-model-assignment B-P2-2).
         worker_agent = None if anchor.team_agents else "executor"
+        # ``executor`` is this code's default, not a name the user chose: under
+        # a narrower root agent it is capped to the root's tools, not refused.
         result = await manager.run(
-            anchor, self._task_prompt(run, row, entry), agent=worker_agent
+            anchor,
+            self._task_prompt(run, row, entry),
+            agent=worker_agent,
+            explicit_agent=False,
         )
         if not result.ok:
             await self._transition(
@@ -777,7 +782,11 @@ class TeamManager:
         )
         agent = REVIEW_AGENT if manager.definition(anchor, REVIEW_AGENT) else None
         result = await manager.run(
-            anchor, brief, agent=agent, title=f"Review {row.id}: {row.title}"
+            anchor,
+            brief,
+            agent=agent,
+            title=f"Review {row.id}: {row.title}",
+            explicit_agent=False,
         )
         verdict = (result.summary or "").strip()
         if not result.ok or REQUEST_CHANGES not in verdict.upper():

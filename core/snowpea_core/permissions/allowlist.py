@@ -50,13 +50,47 @@ LOCAL_DEV_REASON = "localDevServer"
 LOCAL_DEV_TOOL = "repl.navigate"
 
 
+def is_loopback_origin(origin: str | None) -> bool:
+    """True when ``origin``'s host is loopback, read literally (no DNS).
+
+    Loopback is ``127.0.0.0/8``, ``::1`` (``[::1]`` in a URL), ``localhost``
+    and any ``*.localhost`` name; nothing else (not ``0.0.0.0``, not an
+    IPv4-mapped ``::ffff:127.0.0.1``). A port and userinfo are ignored;
+    anything unparsable is not loopback.
+    """
+    import ipaddress
+    from urllib.parse import urlsplit
+
+    if not isinstance(origin, str) or not origin.strip():
+        return False
+    try:
+        host = urlsplit(origin.strip()).hostname
+    except ValueError:
+        return False
+    if not host:
+        return False
+    host = host.rstrip(".").lower()
+    if host == "localhost" or host.endswith(".localhost"):
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    # Spelled out rather than ``is_loopback``, whose answer for an IPv4-mapped
+    # ``::ffff:127.0.0.1`` differs between Python versions.
+    if address.version == 4:
+        return address in ipaddress.ip_network("127.0.0.0/8")
+    return address == ipaddress.ip_address("::1")
+
+
 def local_dev_origin(tool: str, args: Any, workdir: Path | str | None = None) -> str | None:
     """The http(s) origin of a local-dev-server navigation ask, else ``None``.
 
     Only ``repl.navigate`` with ``args.reasonCode == "localDevServer"`` and a
-    usable ``args.url`` qualifies. ``args.project``, when sent, must name the
-    session's own project (``workdir``): a rule is never stored for, or matched
-    against, a project the session is not in.
+    usable ``args.url`` on a loopback host (:func:`is_loopback_origin`)
+    qualifies. ``args.project``, when sent, must name the session's own project
+    (``workdir``): a rule is never stored for, or matched against, a project
+    the session is not in.
     """
     if tool != LOCAL_DEV_TOOL or not isinstance(args, dict) or once_only(args):
         return None
@@ -75,6 +109,8 @@ def local_dev_origin(tool: str, args: Any, workdir: Path | str | None = None) ->
     url = args.get("url")
     origin = site_of({"url": url}) if isinstance(url, str) else None
     if origin is None or not origin.startswith(("http://", "https://")):
+        return None
+    if not is_loopback_origin(origin):
         return None
     return origin
 
@@ -280,6 +316,10 @@ class Allowlist:
                 continue
             if item.reason_code and item.reason_code != reason_code:
                 continue
+            # A local-dev rule is for a loopback origin only; one stored for any
+            # other host (an older core, a hand edit) never matches.
+            if item.reason_code == LOCAL_DEV_REASON and not is_loopback_origin(item.origin):
+                continue
             if subject is not None and _matches_pattern(item.pattern, subject):
                 return True
         return False
@@ -309,6 +349,8 @@ class Allowlist:
         if not pattern:
             raise ValueError("an allowlist pattern may not be empty")
         re.compile(pattern)  # fail loudly rather than storing a dead pattern
+        if reason_code == LOCAL_DEV_REASON and not is_loopback_origin(origin):
+            raise ValueError("a local dev server rule needs a loopback origin")
         for item in self.list(scope, workdir=workdir):
             if (
                 item.pattern == pattern
@@ -387,6 +429,7 @@ __all__ = [
     "Scope",
     "command_of",
     "first_token",
+    "is_loopback_origin",
     "local_dev_origin",
     "new_id",
     "pattern_for_command",

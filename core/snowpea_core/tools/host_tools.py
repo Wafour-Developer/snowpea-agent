@@ -46,6 +46,19 @@ log = logging.getLogger(__name__)
 #: Host results whose content blocks ``session.toolContent`` can still return.
 CONTENT_CACHE_SIZE = 200
 
+#: Host tools whose whole result is an image (the browser host's screenshot).
+IMAGE_ONLY_TOOLS: frozenset[str] = frozenset({"browser_screenshot"})
+
+
+def _can_see(ctx: ToolContext) -> bool:
+    from snowpea_core.tools.view_image import session_can_see
+
+    try:
+        return session_can_see(ctx)
+    except Exception:  # noqa: BLE001 - no provider registry (tests): let it through
+        return True
+
+
 #: Default wait for a ``tool.invoke`` answer.
 DEFAULT_TIMEOUT_MS = 120_000
 
@@ -240,6 +253,16 @@ class HostTools:
         args: dict[str, Any],
     ) -> ToolResult:
         """Send ``tool.invoke`` to the owning connection and map its answer."""
+        if name in IMAGE_ONLY_TOOLS and not _can_see(ctx):
+            # The host cannot know which model reads the result; core does.
+            # Refuse before the browser takes a picture nobody can look at.
+            return ToolResult(
+                ok=False,
+                error=(
+                    f"{name}: this model cannot see images; use browser_snapshot for the "
+                    "page text, and report a canvas or WebGL page as not seen in a browser"
+                ),
+            )
         conn = self.connection(surface_id)
         if conn is None or getattr(conn, "closed", False):
             return ToolResult(ok=False, error=f"{name}: the host that provides it disconnected")

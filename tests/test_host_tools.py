@@ -126,7 +126,8 @@ async def run_turn(client: RpcClient, session_id: str, text: str, **extra: Any) 
 
 def results_for(client: RpcClient, name: str) -> list[dict[str, Any]]:
     return [
-        event["payload"] for event in client.of_kind("tool.result")
+        event["payload"]
+        for event in client.of_kind("tool.result")
         if event["payload"].get("name") == name
     ]
 
@@ -163,7 +164,8 @@ async def test_a_host_tool_runs_in_the_client_and_reports_progress(
         assert call["callId"] and call["turnId"]
         assert results_for(host, "host_echo")[-1]["output"] == "echo hi"
         progress = [
-            e["payload"] for e in host.of_kind("tool.progress")
+            e["payload"]
+            for e in host.of_kind("tool.progress")
             if e["payload"].get("callId") == call["callId"]
         ]
         assert progress and progress[0]["chunk"] == "halfway"
@@ -190,20 +192,26 @@ async def test_host_result_meta_reaches_surfaces_and_the_replay_not_the_model(
         result = results_for(host, "host_echo")[-1]
         assert result["output"] == "[redacted]"
         assert result["meta"] == {
-            "sensitive": True, "pages": pages, "title": "A page", "elapsedMs": 12
+            "sensitive": True,
+            "pages": pages,
+            "title": "A page",
+            "elapsedMs": 12,
         }
         history = daemon.core.sessions.get(session_id).history.messages
         assert not any("example.com/a" in str(m.content) for m in history)
 
         resumed = await host.ok("session.resume", {"sessionId": session_id})
         replayed = [
-            e["payload"] for e in resumed["events"]
+            e["payload"]
+            for e in resumed["events"]
             if e["kind"] == "tool.result" and e["payload"]["name"] == "host_echo"
         ]
         assert replayed and replayed[-1]["meta"]["pages"] == pages
 
         host.handlers["host_echo"] = lambda p: {
-            "ok": True, "output": "big", "meta": {"pages": ["x" * 20000]}
+            "ok": True,
+            "output": "big",
+            "meta": {"pages": ["x" * 20000]},
         }
         assert await run_turn(host, session_id, "use host echo") == "complete"
         assert results_for(host, "host_echo")[-1]["meta"] is None
@@ -256,9 +264,7 @@ async def test_host_tools_from_names_another_client(
     try:
         await host.ok("tool.register", {"tools": [spec("host_echo")]})
         host.handlers["host_echo"] = lambda p: {"ok": True, "output": "from the browser"}
-        session_id = await new_session(
-            driver, tmp_path / "d", hostToolsFrom="browser-install-1"
-        )
+        session_id = await new_session(driver, tmp_path / "d", hostToolsFrom="browser-install-1")
         assert await run_turn(driver, session_id, "use host echo") == "complete"
         assert results_for(driver, "host_echo")[-1]["output"] == "from the browser"
     finally:
@@ -280,7 +286,8 @@ async def test_a_daemon_tool_name_is_refused_but_browser_tools_are_shadowed(
         assert refused["error"]["data"]["code"] == "invalid_params"
         await host.ok("tool.register", {"tools": [spec("browser_navigate", "network")]})
         host.handlers["browser_navigate"] = lambda p: {
-            "ok": True, "output": f"host opened {p['args']['url']}"
+            "ok": True,
+            "output": f"host opened {p['args']['url']}",
         }
         session_id = await new_session(host, tmp_path / "w")
         assert await run_turn(host, session_id, "use browser") == "complete"
@@ -315,9 +322,7 @@ async def test_image_blocks_and_sensitive_output(
 ) -> None:
     host = await open_client(http, daemon)
     try:
-        await host.ok(
-            "tool.register", {"tools": [spec("host_shot"), spec("host_secret")]}
-        )
+        await host.ok("tool.register", {"tools": [spec("host_shot"), spec("host_secret")]})
         host.handlers["host_shot"] = lambda p: {
             "ok": True,
             "output": "",
@@ -327,7 +332,9 @@ async def test_image_blocks_and_sensitive_output(
             ],
         }
         host.handlers["host_secret"] = lambda p: {
-            "ok": True, "output": "password=hunter2", "meta": {"sensitive": True}
+            "ok": True,
+            "output": "password=hunter2",
+            "meta": {"sensitive": True},
         }
         session_id = await new_session(host, tmp_path / "w")
         await run_turn(host, session_id, "use host shot")
@@ -338,9 +345,11 @@ async def test_image_blocks_and_sensitive_output(
         session = daemon.core.sessions.get(session_id)
         tool_messages = [m for m in session.history.messages if m.name == "host_secret"]
         assert tool_messages and tool_messages[-1].content == "[redacted]"
-        stored = await daemon.core.store.load_history(session_id) if hasattr(
-            daemon.core.store, "load_history"
-        ) else None
+        stored = (
+            await daemon.core.store.load_history(session_id)
+            if hasattr(daemon.core.store, "load_history")
+            else None
+        )
         if stored is not None:
             assert "hunter2" not in json.dumps(stored, default=str)
     finally:
@@ -471,7 +480,8 @@ async def test_attach_with_host_tools_from_rebinds_a_session_after_a_relaunch(
         assert "repl" in {tool["name"] for tool in listed["tools"]}
         await asyncio.sleep(0.05)
         changed = [
-            n for n in second.notifications
+            n
+            for n in second.notifications
             if n["method"] == "sessions.changed"
             and n["params"]["reason"] == "host"
             and n["params"]["sessionId"] == session_id
@@ -552,8 +562,7 @@ async def test_a_page_attachment_reaches_the_model_as_untrusted_content(
         user = client.of_kind("message.user")[-1]["payload"]
         assert user["text"] == "summarise this"
         assert user["attachments"] == [
-            {"kind": "page", "name": "A post", "url": "https://example.com/post",
-             "title": "A post"}
+            {"kind": "page", "name": "A post", "url": "https://example.com/post", "title": "A post"}
         ]
         assert user["refs"] == []
     finally:
@@ -625,9 +634,7 @@ async def test_apply_defaults_never_overwrites_what_the_user_chose(
         )
         result = await client.ok("setup.applyDefaults", {"profile": "browser"})
         assert result["applied"] == []
-        assert {"search.provider", "memory.enabled", "scheduler.enabled"} <= set(
-            result["skipped"]
-        )
+        assert {"search.provider", "memory.enabled", "scheduler.enabled"} <= set(result["skipped"])
         settings = (await client.ok("settings.get", {}))["settings"]
         assert settings["browser"]["provider"] == "local_chromium"
         assert settings["search"]["provider"] == "exa_free"
@@ -797,18 +804,14 @@ async def test_when_busy_overrides_agent_busy_per_prompt(
             if host.invocations:
                 break
             await asyncio.sleep(0.02)
-        queued = await host.ok(
-            "session.prompt", {"sessionId": session_id, "text": "later please"}
-        )
+        queued = await host.ok("session.prompt", {"sessionId": session_id, "text": "later please"})
         steered = await host.ok(
             "session.prompt",
             {"sessionId": session_id, "text": "also check the footer", "whenBusy": "steer"},
         )
         assert await host.wait_turn(first["turnId"], timeout=15) == "complete"
         dequeued = [e["payload"] for e in host.of_kind("turn.dequeued")]
-        assert any(
-            d["turnId"] == steered["turnId"] and d["reason"] == "steered" for d in dequeued
-        )
+        assert any(d["turnId"] == steered["turnId"] and d["reason"] == "steered" for d in dequeued)
         assert await host.wait_turn(queued["turnId"], timeout=15) == "complete"
     finally:
         await host.stop()
@@ -904,7 +907,8 @@ async def test_a_routine_waits_for_its_host_and_runs_when_the_host_registers(
         await watcher.ok("job.runNow", {"jobId": job["jobId"]})
         await asyncio.sleep(0.05)
         kinds = [
-            n["params"]["kind"] for n in watcher.notifications
+            n["params"]["kind"]
+            for n in watcher.notifications
             if n["method"] == "job.event" and n["params"]["jobId"] == job["jobId"]
         ]
         assert kinds == ["waiting_for_host"]
@@ -922,7 +926,8 @@ async def test_a_routine_waits_for_its_host_and_runs_when_the_host_registers(
             assert host.invocations and host.invocations[-1]["name"] == "host_echo"
             for _ in range(200):
                 kinds = [
-                    n["params"]["kind"] for n in watcher.notifications
+                    n["params"]["kind"]
+                    for n in watcher.notifications
                     if n["method"] == "job.event" and n["params"]["jobId"] == job["jobId"]
                 ]
                 if "finished" in kinds:
@@ -980,7 +985,8 @@ async def test_job_update_patches_a_job_and_job_list_shows_a_held_run(
         assert unknown["error"]["code"] == -32602
         await asyncio.sleep(0.05)
         updated = [
-            n for n in watcher.notifications
+            n
+            for n in watcher.notifications
             if n["method"] == "job.event"
             and n["params"]["jobId"] == job_id
             and n["params"]["kind"] == "updated"
@@ -1021,7 +1027,8 @@ async def test_a_held_routine_past_its_window_is_recorded_as_missed(
         [run] = await scheduler.store.runs(job["jobId"])
         assert run["status"] == "missed"
         kinds = [
-            n["params"]["kind"] for n in watcher.notifications
+            n["params"]["kind"]
+            for n in watcher.notifications
             if n["method"] == "job.event" and n["params"]["jobId"] == job["jobId"]
         ]
         assert kinds == ["waiting_for_host", "missed"]
@@ -1063,10 +1070,18 @@ async def test_browsing_memory_ingest_dedupe_recall_and_forget(
     client = await open_client(http, daemon)  # clientKind "browser"
     try:
         items = [
-            {"url": "https://github.com/a/b", "title": "b repo", "text": "snowpea core",
-             "visitedAt": "2026-09-01T00:00:00Z"},
-            {"url": "https://example.com/x", "title": "x", "text": "hello",
-             "visitedAt": "2026-09-20T00:00:00Z"},
+            {
+                "url": "https://github.com/a/b",
+                "title": "b repo",
+                "text": "snowpea core",
+                "visitedAt": "2026-09-01T00:00:00Z",
+            },
+            {
+                "url": "https://example.com/x",
+                "title": "x",
+                "text": "hello",
+                "visitedAt": "2026-09-20T00:00:00Z",
+            },
         ]
         first = await client.ok("memory.ingest", {"items": items})
         assert first == {"added": 2, "skipped": 0, "removed": 0}
@@ -1129,7 +1144,6 @@ async def test_a_prompt_emits_turn_started_then_message_user(
         assert user["text"] == "hello there" and user["steered"] is False
     finally:
         await client.stop()
-
 
 
 async def test_force_ask_asks_a_person_even_in_auto_mode(
@@ -1196,9 +1210,7 @@ async def test_a_payment_answer_is_never_remembered(
         first = await host.ok("approval.ask", pay)
         assert first == {"decision": "allow", "scope": "once", "by": "user"}
         assert host.approval_requests[-1]["scopeHint"] == "once"
-        assert not [
-            e for e in daemon.core.allowlist.list(workdir=tmp_path / "w") if e.origin
-        ]
+        assert not [e for e in daemon.core.allowlist.list(workdir=tmp_path / "w") if e.origin]
         second = await host.ok("approval.ask", pay)
         assert second["by"] == "user" and len(host.approval_requests) == 2
     finally:
@@ -1247,7 +1259,11 @@ async def test_dotted_actions_are_remembered_exactly_and_listed_by_site(
 
 
 async def _ask_with_scope(
-    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path, scope: str, tool: str,
+    http: aiohttp.ClientSession,
+    daemon: Daemon,
+    tmp_path: Path,
+    scope: str,
+    tool: str,
     args: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     host = await open_client(http, daemon, approval_mode="allow", approval_scope=scope)
@@ -1364,9 +1380,7 @@ async def test_allowlist_methods_take_a_project_workdir(
             "permission.allowlist.list", {"scope": "project", "workdir": str(project_a)}
         )
         assert gone["patterns"] == []
-        bad = await client.call(
-            "permission.allowlist.list", {"workdir": "relative/path"}
-        )
+        bad = await client.call("permission.allowlist.list", {"workdir": "relative/path"})
         assert bad["error"]["data"]["code"] == "invalid_params"
     finally:
         await client.stop()
@@ -1490,6 +1504,45 @@ async def test_tool_invoke_names_a_subagents_parent_session(
     assert sent[0]["parentSessionId"] == "s-parent"
 
 
+async def test_host_screenshot_is_refused_for_a_model_that_cannot_see(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The host cannot tell which model reads a screenshot; core refuses early."""
+    from types import SimpleNamespace
+
+    from snowpea_core.session.session import Session
+    from snowpea_core.tools.host_tools import HostTools
+    from snowpea_core.tools.registry import ToolContext
+
+    tools = HostTools()
+    sent: list[dict[str, Any]] = []
+
+    async def capture(conn: Any, session: Any, params: dict[str, Any], *a: Any, **k: Any) -> Any:
+        sent.append(params)
+        return {"ok": True, "output": "ok"}
+
+    monkeypatch.setattr(tools, "connection", lambda surface_id: SimpleNamespace(closed=False))
+    monkeypatch.setattr(tools, "_call_or_cancel", capture)
+    session = Session(id="s-blind", workdir=tmp_path, provider="local", model="text-only")
+
+    def registry(sees: bool | None) -> Any:
+        return SimpleNamespace(
+            default_vendor=lambda: "local",
+            vision_for=lambda vendor, model: sees,
+            is_local_style=lambda vendor: False,
+        )
+
+    blind = SimpleNamespace(hub=None, providers=registry(False))
+    ctx = ToolContext(session=session, core=blind, backend=None, call_id="c1")  # type: ignore[arg-type]
+    refused = await tools.invoke(blind, "surface", "browser_screenshot", 5.0, ctx, {})  # type: ignore[arg-type]
+    assert not refused.ok and "cannot see images" in (refused.error or "") and sent == []
+
+    seeing = SimpleNamespace(hub=None, providers=registry(True))
+    ctx = ToolContext(session=session, core=seeing, backend=None, call_id="c2")  # type: ignore[arg-type]
+    assert (await tools.invoke(seeing, "surface", "browser_screenshot", 5.0, ctx, {})).ok  # type: ignore[arg-type]
+    assert len(sent) == 1
+
+
 # ---------------------------------------------------------------------------
 # addendum 15: the host-call deadline is silence, paused while a person decides
 # ---------------------------------------------------------------------------
@@ -1596,9 +1649,7 @@ async def test_a_stop_hook_keeps_the_turn_going_once_then_lets_it_end(
         assert len(client.of_kind("message.done")) == 2
         assert len(client.of_kind("turn.done")) == 1
         history = daemon.core.sessions.get(session_id).history.messages
-        assert any(
-            "Stop hook: you said you would continue" in str(m.content) for m in history
-        )
+        assert any("Stop hook: you said you would continue" in str(m.content) for m in history)
     finally:
         registry.hooks.get("Stop", []).clear()
         await client.stop()

@@ -397,6 +397,7 @@ async def allowlist_list_handler(
                 origin=item.origin,
                 createdAt=item.created_at,
                 hostToolsFrom=item.host,
+                reasonCode=item.reason_code,
             )
             for item in items
         ]

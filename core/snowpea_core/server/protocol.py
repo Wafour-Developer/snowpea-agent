@@ -1530,6 +1530,14 @@ class AllowlistPattern(Payload):
             "unscoped entries (IDE/CLI, project) (addendum 8)."
         ),
     )
+    reasonCode: str | None = Field(
+        default=None,
+        description=(
+            "approval.ask args.reasonCode the entry is limited to, e.g. 'localDevServer' "
+            "for a project rule on a loopback dev server origin; null for an entry that "
+            "covers any call (1.7.0)."
+        ),
+    )
 
 
 class AllowlistListResult(Payload):

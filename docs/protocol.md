@@ -1274,7 +1274,7 @@ List stored allowlist patterns.
 
 | field | type | required | description |
 |---|---|---|---|
-| `patterns` | `({ createdAt?: string \| null; hostToolsFrom?: string \| null; origin?: string \| null; pattern: string; patternId: string; scope: "session" \| "project" \| "always"; tool?: string \| null; })[]` | no | Stored allowlist entries. |
+| `patterns` | `({ createdAt?: string \| null; hostToolsFrom?: string \| null; origin?: string \| null; pattern: string; patternId: string; reasonCode?: string \| null; scope: "session" \| "project" \| "always"; tool?: string \| null; })[]` | no | Stored allowlist entries. |
 
 ### `permission.allowlist.remove`
 

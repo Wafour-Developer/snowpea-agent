@@ -777,6 +777,7 @@ class SubagentManager:
         prefer: tuple[str, ...] | list[str] | None = None,
         fork: bool = False,
         run_id: str = "",
+        explicit_agent: bool | None = None,
         _allow_incomplete_retry: bool = True,
     ) -> SubagentResult:
         """Delegate ``task`` to a child session and return its final answer.
@@ -796,8 +797,15 @@ class SubagentManager:
         with a continuation brief (Hermes/OMC: re-issue, do not extend the
         same turn).  Pass ``_allow_incomplete_retry=False`` for the inner
         attempts themselves.
+
+        ``explicit_agent`` (default: whether ``agent`` is given) says the
+        caller's user named ``agent``; a code default such as ``/team``'s
+        ``executor`` passes ``False`` so a root narrower than it caps the child
+        instead of refusing it (see :meth:`_narrowing`).
         """
         brief = (task or "").strip()
+        if explicit_agent is None:
+            explicit_agent = bool(agent)
         prefer_roles = tuple(str(name).strip() for name in (prefer or ()) if str(name).strip())
         result = await self._run_once(
             parent,
@@ -813,6 +821,7 @@ class SubagentManager:
             prefer=prefer_roles,
             fork=fork,
             run_id=run_id,
+            explicit_agent=explicit_agent,
         )
         if not _allow_incomplete_retry:
             return result
@@ -838,7 +847,7 @@ class SubagentManager:
                 parent,
                 continuation_brief(brief, result),
                 agent=agent or (result.name or None),
-                explicit_agent=bool(agent),
+                explicit_agent=explicit_agent,
                 tools=tools,
                 timeout=timeout,
                 record=None,
@@ -1057,8 +1066,14 @@ class SubagentManager:
         )
 
     def _root_of(self, parent: Session) -> Session:
-        """The human session a chain of delegations started from."""
-        root = parent
+        """The human session a chain of delegations started from.
+
+        ``/team`` hands the manager a stand-in parent that only borrows the
+        lead's id (its workdir a worktree, its agent and tools not copied); the
+        registered session under that id is the one measured, so a team worker
+        is held to the same root as a ``delegate_task`` child.
+        """
+        root = self.core.sessions.get(parent.id) or parent
         for _ in range(16):
             parent_id = getattr(root, "parent_session_id", None)
             if getattr(root, "kind", "chat") != "subagent" or not parent_id:
