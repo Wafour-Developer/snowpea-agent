@@ -2131,6 +2131,13 @@ class JobScheduleResult(Payload):
     )
 
 
+class JobHeldRun(Payload):
+    """An occurrence held for its host, or one that never got it (addendum 11/12)."""
+
+    status: Literal["waiting_for_host", "missed"] = Field(description="Where it stands.")
+    scheduledAt: str = Field(description="UTC ISO time the occurrence was due.")
+
+
 class JobInfo(Payload):
     """One scheduled job."""
 
@@ -2156,6 +2163,16 @@ class JobInfo(Payload):
     lastStatus: Literal["ok", "error", "denied_by_timeout"] | None = Field(
         default=None, description="How the last run ended."
     )
+    held: JobHeldRun | None = Field(
+        default=None,
+        description=(
+            "The newest occurrence when it is waiting for its host or was missed "
+            "(addendum 12); null otherwise."
+        ),
+    )
+    catchUpWindowMinutes: int = Field(
+        default=60, description="How long a held run waits for its host before it is missed."
+    )
 
 
 class JobListResult(Payload):
@@ -2173,6 +2190,38 @@ class JobDeleteParams(Payload):
         description=(
             "Also delete the sessions its runs opened, with their workspaces, as "
             "session.deleteSaved does. A run still in progress is left alone."
+        ),
+    )
+
+
+class JobUpdateTemplate(Payload):
+    """The session-template fields job.update may change; omitted ones stay."""
+
+    catchUpWindowMinutes: int | None = Field(
+        default=None, ge=0, description="New catch-up window for held runs."
+    )
+    hostWaitSec: int | None = Field(
+        default=None, ge=0, description="New wait for a started run's host tools."
+    )
+
+
+class JobUpdateParams(Payload):
+    jobId: str = Field(description="Job to change.")
+    sessionTemplate: JobUpdateTemplate | None = Field(
+        default=None, description="Template fields to change."
+    )
+    enabled: bool | None = Field(
+        default=None,
+        description=(
+            "False pauses the job (no next firing); true resumes it from now on its "
+            "schedule."
+        ),
+    )
+    schedule: str | None = Field(
+        default=None,
+        description=(
+            "A new schedule spec, parsed like job.schedule's spec; the next run is "
+            "recomputed."
         ),
     )
 
@@ -3503,7 +3552,14 @@ class JobEventNotification(Payload):
 
     jobId: str = Field(description="Job the event belongs to.")
     kind: Literal[
-        "started", "finished", "failed", "denied", "deleted", "waiting_for_host", "missed"
+        "started",
+        "finished",
+        "failed",
+        "denied",
+        "deleted",
+        "updated",
+        "waiting_for_host",
+        "missed",
     ] = Field(
         description="Where the run got to."
     )
@@ -4240,6 +4296,7 @@ METHODS: dict[str, RpcMethod] = {
         _m("job.list", Empty, JobListResult, "List scheduled jobs and their next run times."),
         _m("job.cancel", JobIdParams, Ok, "Cancel a scheduled job."),
         _m("job.runNow", JobIdParams, Ok, "Fire a scheduled job immediately."),
+        _m("job.update", JobUpdateParams, JobInfo, "Change an existing job (addendum 12)."),
         _m(
             "job.nextRunForClient",
             JobNextRunForClientParams,
@@ -4539,6 +4596,7 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "job.runNow",
         "job.delete",
         "job.nextRunForClient",
+        "job.update",
         "agent.create",
         "agent.list",
         "agent.bindChannel",

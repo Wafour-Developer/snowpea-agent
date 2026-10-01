@@ -782,10 +782,19 @@ export type JobListParams = Record<string, unknown>;
 export interface JobListResult {
   /** Known jobs. */
   jobs?: ({
+    /** How long a held run waits for its host before it is missed. */
+    catchUpWindowMinutes?: number;
     /** Channel that receives the output. */
     channel?: string | null;
     /** False once the job is cancelled or has run out. */
     enabled?: boolean;
+    /** The newest occurrence when it is waiting for its host or was missed (addendum 12); null otherwise. */
+    held?: {
+      /** UTC ISO time the occurrence was due. */
+      scheduledAt: string;
+      /** Where it stands. */
+      status: "waiting_for_host" | "missed";
+    } | null;
     /** Job id. */
     jobId: string;
     /** How the spec repeats: a cron rule, a one-shot, or a fixed interval. */
@@ -868,6 +877,60 @@ export interface JobScheduleResult {
   jobId: string;
   /** UTC ISO-8601 time of the first firing. */
   nextRunAt?: string | null;
+}
+
+/** `job.update` params. Change an existing job (addendum 12). */
+export interface JobUpdateParams {
+  /** False pauses the job (no next firing); true resumes it from now on its schedule. */
+  enabled?: boolean | null;
+  /** Job to change. */
+  jobId: string;
+  /** A new schedule spec, parsed like job.schedule's spec; the next run is recomputed. */
+  schedule?: string | null;
+  /** Template fields to change. */
+  sessionTemplate?: {
+    /** New catch-up window for held runs. */
+    catchUpWindowMinutes?: number | null;
+    /** New wait for a started run's host tools. */
+    hostWaitSec?: number | null;
+  } | null;
+}
+
+/** `job.update` result. */
+export interface JobUpdateResult {
+  /** How long a held run waits for its host before it is missed. */
+  catchUpWindowMinutes?: number;
+  /** Channel that receives the output. */
+  channel?: string | null;
+  /** False once the job is cancelled or has run out. */
+  enabled?: boolean;
+  /** The newest occurrence when it is waiting for its host or was missed (addendum 12); null otherwise. */
+  held?: {
+    /** UTC ISO time the occurrence was due. */
+    scheduledAt: string;
+    /** Where it stands. */
+    status: "waiting_for_host" | "missed";
+  } | null;
+  /** Job id. */
+  jobId: string;
+  /** How the spec repeats: a cron rule, a one-shot, or a fixed interval. */
+  kind?: "cron" | "once" | "interval";
+  /** UTC ISO-8601 time of the last firing, null before the first. */
+  lastRunAt?: string | null;
+  /** How the last run ended. */
+  lastStatus?: "ok" | "error" | "denied_by_timeout" | null;
+  /** Permission mode for the run. */
+  mode?: "plan" | "accept" | "auto";
+  /** UTC ISO-8601 time of the next firing. */
+  nextRunAt?: string | null;
+  /** TUI/chat session that also receives every result. */
+  originSessionId?: string | null;
+  /** Schedule as given. */
+  spec: string;
+  /** Current job state. */
+  state?: "scheduled" | "running" | "cancelled";
+  /** Prompt run on each firing. */
+  task: string;
 }
 
 /** `lsp.catalog` params. List every registered language server, regardless of whether it has started. */
@@ -3142,7 +3205,7 @@ export interface JobEventPayload {
   /** Job the event belongs to. */
   jobId: string;
   /** Where the run got to. */
-  kind: "started" | "finished" | "failed" | "denied" | "deleted" | "waiting_for_host" | "missed";
+  kind: "started" | "finished" | "failed" | "denied" | "deleted" | "updated" | "waiting_for_host" | "missed";
   /** Kind-specific body. */
   payload?: Record<string, unknown>;
 }
@@ -3906,6 +3969,7 @@ export interface MethodMap {
   "job.nextRunForClient": { params: JobNextRunForClientParams; result: JobNextRunForClientResult };
   "job.runNow": { params: JobRunNowParams; result: JobRunNowResult };
   "job.schedule": { params: JobScheduleParams; result: JobScheduleResult };
+  "job.update": { params: JobUpdateParams; result: JobUpdateResult };
   "lsp.catalog": { params: LspCatalogParams; result: LspCatalogResult };
   "lsp.status": { params: LspStatusParams; result: LspStatusResult };
   "mcp.add": { params: McpAddParams; result: McpAddResult };
@@ -4024,6 +4088,7 @@ export type ClientMethod =
   | "job.nextRunForClient"
   | "job.runNow"
   | "job.schedule"
+  | "job.update"
   | "lsp.catalog"
   | "lsp.status"
   | "mcp.add"

@@ -330,6 +330,49 @@ class Scheduler:
             await self._run_claimed(job, scheduled, advance=False)
         return started
 
+    async def update(
+        self,
+        job_id: str,
+        *,
+        catch_up_window_min: int | None = None,
+        host_wait_sec: int | None = None,
+        enabled: bool | None = None,
+        schedule: str | None = None,
+    ) -> Job | None:
+        """Patch a job; ``None`` for an unknown one, ``ValueError`` for a bad spec."""
+        job = await self.store.get(job_id)
+        if job is None:
+            return None
+        if schedule is not None:
+            parsed: Spec = parse_spec(schedule)
+            upcoming = first_run(parsed)
+            if upcoming is None:
+                raise ValueError(f"the schedule {schedule!r} has no future firing time")
+            job.spec = parsed.display
+            job.kind = parsed.kind  # type: ignore[assignment]
+            job.cron = parsed.cron
+            job.interval_sec = parsed.interval_sec
+            job.next_run = upcoming
+        if catch_up_window_min is not None:
+            job.catch_up_window_min = max(0, int(catch_up_window_min))
+        if host_wait_sec is not None:
+            job.host_wait_sec = max(0, int(host_wait_sec))
+        if enabled is False:
+            job.enabled = False
+            job.state = "cancelled"
+            job.next_run = None
+        elif enabled is True or (schedule is not None and job.enabled):
+            job.enabled = True
+            if job.next_run is None or (enabled is True and schedule is None):
+                job.next_run = next_run(job.to_spec(), utc_now())
+            if job.next_run is None:
+                raise ValueError("the job's schedule has no future firing time to resume at")
+            job.state = "scheduled"
+        await self.store.update(job)
+        await self.refresh_counter()
+        await self._emit(job.id, "updated", {"nextRunAt": iso(job.next_run)})
+        return job
+
     async def next_run_for_client(self, client_id: str) -> datetime | None:
         """When a host should be up: its earliest held or upcoming run (addendum 11)."""
         times: list[datetime] = []

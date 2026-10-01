@@ -334,3 +334,16 @@ The browser stops its host when idle and starts it lazily, so a routine whose
   the earliest held run, or the next firing of a job whose `hostToolsFrom` is
   that clientId, so the browser can wake its host just before. It is null when
   there is none.
+* **State on job.list (addendum 12).** Each row carries `held: {status:
+  waiting_for_host|missed, scheduledAt} | null` (the job's newest occurrence,
+  when it is held or was missed) and `catchUpWindowMinutes`.
+* **job.update (addendum 12).** `job.update {jobId, sessionTemplate?:
+  {catchUpWindowMinutes?, hostWaitSec?}, enabled?, schedule?}` → the updated
+  job row.
+  * It is a partial patch: fields left out stay as they are.
+  * `enabled: false` pauses the job, with no next firing. `enabled: true`
+    resumes it from now on its schedule.
+  * `schedule` is parsed like `job.schedule`'s spec, and the next run is
+    recomputed.
+  * It emits `job.event {kind: "updated", payload: {nextRunAt}}`.
+  * An unknown jobId or a bad spec fails with -32602.

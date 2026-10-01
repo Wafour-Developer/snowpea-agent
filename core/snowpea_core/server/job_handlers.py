@@ -22,12 +22,15 @@ from snowpea_core.server.protocol import (
     Empty,
     JobDeleteParams,
     JobDeleteResult,
+    JobHeldRun,
     JobIdParams,
+    JobInfo,
     JobListResult,
     JobNextRunForClientParams,
     JobNextRunForClientResult,
     JobScheduleParams,
     JobScheduleResult,
+    JobUpdateParams,
     Ok,
 )
 from snowpea_core.server.rpc import RpcConnection, RpcDispatcher
@@ -45,6 +48,7 @@ HANDLED_METHODS: tuple[str, ...] = (
     "job.runNow",
     "job.delete",
     "job.nextRunForClient",
+    "job.update",
 )
 
 
@@ -74,8 +78,15 @@ async def job_schedule_handler(
 
 async def job_list_handler(_conn: RpcConnection, _params: Empty, core: Core) -> JobListResult:
     """``job.list`` — every job with its next run, last run and last status."""
-    jobs = await services(core).list()
-    return JobListResult(jobs=[job.info() for job in jobs])
+    scheduler = services(core)
+    rows = []
+    for job in await scheduler.list():
+        info = job.info()
+        held = await scheduler.store.held_run(job.id)
+        if held is not None:
+            info.held = JobHeldRun(status=held["status"], scheduledAt=held["scheduled_ts"])
+        rows.append(info)
+    return JobListResult(jobs=rows)
 
 
 async def job_cancel_handler(_conn: RpcConnection, params: JobIdParams, core: Core) -> Ok:
@@ -134,6 +145,26 @@ async def job_next_run_for_client_handler(
     return JobNextRunForClientResult(nextRunAt=iso(moment) if moment else None)
 
 
+async def job_update_handler(
+    _conn: RpcConnection, params: JobUpdateParams, core: Core
+) -> JobInfo:
+    """``job.update`` — a partial, validated patch of an existing job."""
+    template = params.sessionTemplate
+    try:
+        job = await services(core).update(
+            params.jobId,
+            catch_up_window_min=template.catchUpWindowMinutes if template else None,
+            host_wait_sec=template.hostWaitSec if template else None,
+            enabled=params.enabled,
+            schedule=params.schedule,
+        )
+    except ValueError as exc:
+        raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
+    if job is None:
+        raise RpcError(errors.INVALID_PARAMS, f"no such job: {params.jobId}")
+    return job.info()
+
+
 def register_job_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
     """Register every method in :data:`HANDLED_METHODS`."""
     dispatcher.register("job.schedule", job_schedule_handler)
@@ -142,6 +173,7 @@ def register_job_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
     dispatcher.register("job.runNow", job_run_now_handler)
     dispatcher.register("job.delete", job_delete_handler)
     dispatcher.register("job.nextRunForClient", job_next_run_for_client_handler)
+    dispatcher.register("job.update", job_update_handler)
     return dispatcher
 
 

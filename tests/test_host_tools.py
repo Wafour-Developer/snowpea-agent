@@ -894,6 +894,61 @@ async def test_a_routine_waits_for_its_host_and_runs_when_the_host_registers(
         await watcher.stop()
 
 
+async def test_job_update_patches_a_job_and_job_list_shows_a_held_run(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    """Addendum 12: job.update is a partial, validated patch; job.list carries
+    held and catchUpWindowMinutes."""
+    watcher = await open_client(http, daemon)
+    try:
+        (tmp_path / "w").mkdir()
+        job = await watcher.ok(
+            "job.schedule",
+            {
+                "spec": "every 1 hour",
+                "task": "use host echo",
+                "workdir": str(tmp_path / "w"),
+                "sessionTemplate": {"hostToolsFrom": "snowpea-browser-U"},
+            },
+        )
+        job_id = job["jobId"]
+        await watcher.ok("job.runNow", {"jobId": job_id})
+        [row] = [j for j in (await watcher.ok("job.list", {}))["jobs"] if j["jobId"] == job_id]
+        assert row["held"]["status"] == "waiting_for_host"
+        assert row["catchUpWindowMinutes"] == 60
+
+        patched = await watcher.ok(
+            "job.update", {"jobId": job_id, "sessionTemplate": {"catchUpWindowMinutes": 15}}
+        )
+        assert patched["catchUpWindowMinutes"] == 15
+        assert patched["spec"] == row["spec"]  # untouched
+
+        paused = await watcher.ok("job.update", {"jobId": job_id, "enabled": False})
+        assert paused["enabled"] is False and paused["nextRunAt"] is None
+        resumed = await watcher.ok("job.update", {"jobId": job_id, "enabled": True})
+        assert resumed["enabled"] is True and resumed["nextRunAt"]
+
+        moved = await watcher.ok("job.update", {"jobId": job_id, "schedule": "every 2 hours"})
+        assert moved["spec"] != row["spec"] and moved["nextRunAt"]
+        listed = [j for j in (await watcher.ok("job.list", {}))["jobs"] if j["jobId"] == job_id]
+        assert listed[0]["catchUpWindowMinutes"] == 15
+
+        bad = await watcher.call("job.update", {"jobId": job_id, "schedule": "sometime soonish"})
+        assert bad["error"]["code"] == -32602
+        unknown = await watcher.call("job.update", {"jobId": "job-nope", "enabled": True})
+        assert unknown["error"]["code"] == -32602
+        await asyncio.sleep(0.05)
+        updated = [
+            n for n in watcher.notifications
+            if n["method"] == "job.event"
+            and n["params"]["jobId"] == job_id
+            and n["params"]["kind"] == "updated"
+        ]
+        assert len(updated) == 4
+    finally:
+        await watcher.stop()
+
+
 async def test_a_held_routine_past_its_window_is_recorded_as_missed(
     http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
 ) -> None:
@@ -929,6 +984,11 @@ async def test_a_held_routine_past_its_window_is_recorded_as_missed(
             if n["method"] == "job.event" and n["params"]["jobId"] == job["jobId"]
         ]
         assert kinds == ["waiting_for_host", "missed"]
+        # Addendum 12: a page opened later still sees the state.
+        jobs = (await watcher.ok("job.list", {}))["jobs"]
+        [row] = [j for j in jobs if j["jobId"] == job["jobId"]]
+        assert row["held"]["status"] == "missed" and row["held"]["scheduledAt"]
+        assert row["catchUpWindowMinutes"] == 10
     finally:
         await watcher.stop()
 

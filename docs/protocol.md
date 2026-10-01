@@ -90,6 +90,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`job.nextRunForClient`](#jobnextrunforclient) | client → server | When a host should be awake for its routines (addendum 11). |
 | [`job.runNow`](#jobrunnow) | client → server | Fire a scheduled job immediately. |
 | [`job.schedule`](#jobschedule) | client → server | Schedule a prompt to run unattended. |
+| [`job.update`](#jobupdate) | client → server | Change an existing job (addendum 12). |
 | [`lsp.catalog`](#lspcatalog) | client → server | List every registered language server, regardless of whether it has started. |
 | [`lsp.status`](#lspstatus) | client → server | Report every language server the daemon has started and its state. |
 | [`mcp.add`](#mcpadd) | client → server | Write an MCP server into the project or global .mcp.json and start it. |
@@ -822,7 +823,7 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `jobs` | `({ channel?: string \| null; enabled?: boolean; jobId: string; kind?: "cron" \| "once" \| "interval"; lastRunAt?: string \| null; lastStatus?: "ok" \| "error" \| "denied_by_timeout" \| null; mode?: "plan" \| "accept" \| "auto"; nextRunAt?: string \| null; originSessionId?: string \| null; spec: string; state?: "scheduled" \| "running" \| "cancelled"; task: string; })[]` | no | Known jobs. |
+| `jobs` | `({ catchUpWindowMinutes?: number; channel?: string \| null; enabled?: boolean; held?: { scheduledAt: string; status: "waiting_for_host" \| "missed"; } \| null; jobId: string; kind?: "cron" \| "once" \| "interval"; lastRunAt?: string \| null; lastStatus?: "ok" \| "error" \| "denied_by_timeout" \| null; mode?: "plan" \| "accept" \| "auto"; nextRunAt?: string \| null; originSessionId?: string \| null; spec: string; state?: "scheduled" \| "running" \| "cancelled"; task: string; })[]` | no | Known jobs. |
 
 ### `job.nextRunForClient`
 
@@ -884,6 +885,40 @@ Schedule a prompt to run unattended.
 |---|---|---|---|
 | `jobId` | `string` | yes | Id of the scheduled job. |
 | `nextRunAt` | `string \| null` | no | UTC ISO-8601 time of the first firing. |
+
+### `job.update`
+
+*Direction:* client → server
+
+Change an existing job (addendum 12).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `enabled` | `boolean \| null` | no | False pauses the job (no next firing); true resumes it from now on its schedule. |
+| `jobId` | `string` | yes | Job to change. |
+| `schedule` | `string \| null` | no | A new schedule spec, parsed like job.schedule's spec; the next run is recomputed. |
+| `sessionTemplate` | `{ catchUpWindowMinutes?: number \| null; hostWaitSec?: number \| null; } \| null` | no | Template fields to change. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `catchUpWindowMinutes` | `number` | no | How long a held run waits for its host before it is missed. |
+| `channel` | `string \| null` | no | Channel that receives the output. |
+| `enabled` | `boolean` | no | False once the job is cancelled or has run out. |
+| `held` | `{ scheduledAt: string; status: "waiting_for_host" \| "missed"; } \| null` | no | The newest occurrence when it is waiting for its host or was missed (addendum 12); null otherwise. |
+| `jobId` | `string` | yes | Job id. |
+| `kind` | `"cron" \| "once" \| "interval"` | no | How the spec repeats: a cron rule, a one-shot, or a fixed interval. |
+| `lastRunAt` | `string \| null` | no | UTC ISO-8601 time of the last firing, null before the first. |
+| `lastStatus` | `"ok" \| "error" \| "denied_by_timeout" \| null` | no | How the last run ended. |
+| `mode` | `"plan" \| "accept" \| "auto"` | no | Permission mode for the run. |
+| `nextRunAt` | `string \| null` | no | UTC ISO-8601 time of the next firing. |
+| `originSessionId` | `string \| null` | no | TUI/chat session that also receives every result. |
+| `spec` | `string` | yes | Schedule as given. |
+| `state` | `"scheduled" \| "running" \| "cancelled"` | no | Current job state. |
+| `task` | `string` | yes | Prompt run on each firing. |
 
 ### `lsp.catalog`
 
@@ -2544,7 +2579,7 @@ Token totals from stored usage events, grouped by provider, model, session or da
 | field | type | required | description |
 |---|---|---|---|
 | `jobId` | `string` | yes | Job the event belongs to. |
-| `kind` | `"started" \| "finished" \| "failed" \| "denied" \| "deleted" \| "waiting_for_host" \| "missed"` | yes | Where the run got to. |
+| `kind` | `"started" \| "finished" \| "failed" \| "denied" \| "deleted" \| "updated" \| "waiting_for_host" \| "missed"` | yes | Where the run got to. |
 | `payload` | `Record<string, unknown>` | no | Kind-specific body. |
 
 ### `mcp.changed`

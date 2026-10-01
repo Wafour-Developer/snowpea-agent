@@ -178,6 +178,7 @@ class Job(BaseModel):
             enabled=self.enabled,
             lastRunAt=iso(self.last_run),
             lastStatus=self.last_status,
+            catchUpWindowMinutes=self.catch_up_window_min,
         )
 
     def row(self) -> tuple[Any, ...]:
@@ -203,15 +204,12 @@ class Job(BaseModel):
         )
 
     def _options(self) -> str | None:
-        if not self.host_tools_from:
+        if not self.host_tools_from and self.catch_up_window_min == 60:
             return None
-        return json.dumps(
-            {
-                "hostToolsFrom": self.host_tools_from,
-                "hostWaitSec": self.host_wait_sec,
-                "catchUpWindowMinutes": self.catch_up_window_min,
-            }
-        )
+        data: dict[str, Any] = {"catchUpWindowMinutes": self.catch_up_window_min}
+        if self.host_tools_from:
+            data.update(hostToolsFrom=self.host_tools_from, hostWaitSec=self.host_wait_sec)
+        return json.dumps(data)
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> Job:
@@ -243,13 +241,15 @@ def _options_of(row: sqlite3.Row) -> dict[str, Any]:
         data = json.loads(raw) if raw else {}
     except ValueError:
         return {}
-    if not isinstance(data, dict) or not data.get("hostToolsFrom"):
+    if not isinstance(data, dict):
         return {}
-    return {
-        "host_tools_from": str(data["hostToolsFrom"]),
-        "host_wait_sec": int(data.get("hostWaitSec") or 300),
-        "catch_up_window_min": int(data.get("catchUpWindowMinutes") or 60),
-    }
+    options: dict[str, Any] = {}
+    if data.get("catchUpWindowMinutes") is not None:
+        options["catch_up_window_min"] = int(data["catchUpWindowMinutes"])
+    if data.get("hostToolsFrom"):
+        options["host_tools_from"] = str(data["hostToolsFrom"])
+        options["host_wait_sec"] = int(data.get("hostWaitSec") or 300)
+    return options
 
 
 #: Aliases so the annotations below still mean the builtin ``list`` even
@@ -385,6 +385,17 @@ class JobStore:
             "UPDATE job_runs SET status = ? WHERE job_id = ? AND scheduled_ts = ?",
             (status, job_id, iso(scheduled_ts)),
         )
+
+    async def held_run(self, job_id: str) -> dict[str, Any] | None:
+        """The job's newest occurrence, when it is held or was missed (``job.list``)."""
+        rows = await asyncio.to_thread(
+            self._query,
+            "SELECT * FROM job_runs WHERE job_id = ? ORDER BY scheduled_ts DESC LIMIT 1",
+            (job_id,),
+        )
+        if not rows or rows[0]["status"] not in ("waiting_for_host", "missed"):
+            return None
+        return dict(rows[0])
 
     async def waiting_runs(self) -> Rows:
         """Occurrences held for a host that was not connected when they came due."""
