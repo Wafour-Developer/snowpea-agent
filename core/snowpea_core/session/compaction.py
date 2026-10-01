@@ -631,6 +631,48 @@ def prune_request_images(
     return out
 
 
+#: What stands in for a tool result the history never got.
+MISSING_RESULT = "(no result was recorded for this call; it did not finish)"
+
+
+def pair_tool_results(history: list[ChatMessage]) -> list[ChatMessage]:
+    """Every tool call answered, every tool result asked for — for the request only.
+
+    OpenAI-style APIs refuse a request whose assistant tool calls are not all
+    followed by their results ("Missing tool response for tool_call_id"), or
+    whose tool result answers no call. A broken pairing is a bug elsewhere,
+    but it must not wedge the thread: a missing result gets a stub right after
+    the call's other results, and an orphan result is left out. The stored
+    transcript is untouched.
+    """
+    out: list[ChatMessage] = []
+    open_ids: list[str] = []
+    answered: set[str] = set()
+
+    def close_open() -> None:
+        for call_id in open_ids:
+            if call_id not in answered:
+                out.append(
+                    ChatMessage(role="tool", content=MISSING_RESULT, tool_call_id=call_id)
+                )
+        open_ids.clear()
+        answered.clear()
+
+    for message in history:
+        if message.role == "tool":
+            call_id = message.tool_call_id or ""
+            if call_id in open_ids and call_id not in answered:
+                answered.add(call_id)
+                out.append(message)
+            continue  # an orphan or a duplicate result
+        close_open()
+        out.append(message)
+        if message.role == "assistant" and message.tool_calls:
+            open_ids.extend(call.id for call in message.tool_calls if call.id)
+    close_open()
+    return out
+
+
 #: Results never stubbed, however old: a subagent's report is the only copy of
 #: work another session did, already capped in size (``delegate.render_report``),
 #: and "re-run the tool if you need it again" made a parent redo both of its

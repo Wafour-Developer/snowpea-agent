@@ -131,3 +131,24 @@ async def test_a_browser_client_gets_the_default_agent(
     finally:
         daemon.core.settings.browser.defaultAgent = None
         await browser.stop()
+
+
+async def test_two_clients_resuming_one_thread_at_once_share_one_session(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path  # noqa: F811
+) -> None:
+    """A double restore made two Session objects for one thread, so two turns
+    ran in it at once and one sent the other's unanswered tool call."""
+    client = await open_client(http, daemon)
+    try:
+        session_id = await new_session(client, tmp_path / "w")
+        await daemon.core.sessions.close(session_id)
+        first, second, third = await asyncio.gather(
+            daemon.core.sessions.restore(session_id),
+            daemon.core.sessions.restore(session_id),
+            client.ok("session.resume", {"sessionId": session_id}),
+        )
+        assert first is not None and first is second
+        assert daemon.core.sessions.get(session_id) is first
+        assert third["sessionId"] == session_id
+    finally:
+        await client.stop()

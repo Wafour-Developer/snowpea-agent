@@ -388,7 +388,7 @@ def build_messages(
     # Local import: ``session/compaction.py`` imports this function.
     from snowpea_core.session import compaction
 
-    history = session.history.snapshot()
+    history = compaction.pair_tool_results(session.history.snapshot())
     on, keep, max_chars = compaction.tool_prune_settings(core)
     if on:
         pruned: list[str] = []

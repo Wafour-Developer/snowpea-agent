@@ -212,3 +212,31 @@ def test_a_long_report_is_capped_with_a_pointer_to_the_full_text(
     assert "characters omitted" in text and "read_file(" in text
     spilled = next((tmp_path / "cache" / "tool-output").glob("report-*.txt"))
     assert spilled.read_text(encoding="utf-8") == long_line.strip()
+
+
+def test_a_missing_tool_result_is_stubbed_and_an_orphan_result_dropped() -> None:
+    """Meta's API refused 'Missing tool response for tool_call_id'; the request
+    is repaired instead of wedging the thread."""
+    history = [
+        ChatMessage(role="user", content="build it"),
+        ChatMessage(
+            role="assistant",
+            content="",
+            tool_calls=[
+                ToolCall(id="a", name="shell", arguments={"command": "npm run build"}),
+                ToolCall(id="b", name="shell", arguments={"command": "relaunch"}),
+            ],
+        ),
+        ChatMessage(role="tool", content="built", tool_call_id="a", name="shell"),
+        ChatMessage(role="tool", content="stray", tool_call_id="zzz", name="shell"),
+        ChatMessage(role="assistant", content="done"),
+    ]
+    paired = compaction.pair_tool_results(history)
+    assert [(m.role, m.tool_call_id, m.content) for m in paired[2:4]] == [
+        ("tool", "a", "built"),
+        ("tool", "b", compaction.MISSING_RESULT),
+    ]
+    assert all(m.tool_call_id != "zzz" for m in paired)
+    assert paired[-1].content == "done"
+    # A well-formed history passes through unchanged.
+    assert compaction.pair_tool_results(rounds(3)) == rounds(3)

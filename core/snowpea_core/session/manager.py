@@ -42,6 +42,9 @@ class SessionManager:
         hub: EventHub | None = None,
     ) -> None:
         self._sessions: dict[str, Session] = {}
+        #: Restores in flight, so two clients resuming the same thread at once
+        #: share one Session object (see :meth:`restore`).
+        self._restoring: dict[str, asyncio.Future[Session | None]] = {}
         self.store = store
         self.settings = settings or Settings()
         self.hub = hub
@@ -207,10 +210,35 @@ class SessionManager:
         return [s for s in self._sessions.values() if s.closed_at is None]
 
     async def restore(self, session_id: str, *, origin_conn: Any = None) -> Session | None:
-        """Rehydrate a persisted conversation after a daemon restart."""
+        """Rehydrate a persisted conversation after a daemon restart.
+
+        Concurrent calls for one id share a single restore. After a restart
+        the IDE resumed a thread twice at once; both calls passed the "already
+        live?" check before either finished reading the store, two Session
+        objects existed for one thread, and two turns ran in it side by side —
+        one of them sent the other's unanswered tool call and the provider
+        refused the request ("Missing tool response for tool_call_id").
+        """
         live = self.get(session_id)
         if live is not None:
             return live
+        pending = self._restoring.get(session_id)
+        if pending is not None:
+            return await asyncio.shield(pending)
+        future: asyncio.Future[Session | None] = asyncio.get_running_loop().create_future()
+        self._restoring[session_id] = future
+        try:
+            session = await self._restore(session_id, origin_conn=origin_conn)
+        except BaseException:
+            future.set_result(None)
+            raise
+        finally:
+            self._restoring.pop(session_id, None)
+        if not future.done():
+            future.set_result(session)
+        return session
+
+    async def _restore(self, session_id: str, *, origin_conn: Any = None) -> Session | None:
         if self.store is None:
             return None
         row = await self.store.session(session_id)
@@ -260,6 +288,9 @@ class SessionManager:
         if row.get("agent") and session.agent is None:
             # Re-applied (prompt, tools, rounds) at the next turn (addendum 17).
             session.agent = row.get("agent")
+        existing = self._sessions.get(session.id)
+        if existing is not None:  # created meanwhile by session.create or another path
+            return existing
         self._sessions[session.id] = session
         await self.store.reopen_session(session.id)
         log.info("session %s restored (%s, mode=%s)", session.id, session.workdir, session.mode)
