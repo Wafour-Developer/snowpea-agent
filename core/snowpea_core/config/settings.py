@@ -222,6 +222,10 @@ class RalphSettings(_Model):
 
 class ApprovalsSettings(_Model):
     timeoutSec: int = 300
+    #: Ask before web_search / web_extract in accept mode too (addendum 18).
+    #: Off by default: they are read-only fetches, and a subagent doing a
+    #: lookup raised dozens of approval cards.
+    readOnlyWebAsk: bool = False
 
 
 class QuestionsSettings(_Model):

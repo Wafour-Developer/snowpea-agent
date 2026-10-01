@@ -111,6 +111,21 @@ NOTE_BY_TAG: dict[str, str] = {
 }
 
 
+#: Network tools that only read (a search, a page fetch). Accept mode lets
+#: them run without asking unless ``approvals.readOnlyWebAsk`` is on
+#: (addendum 18); plan and auto keep their matrix answer.
+READ_ONLY_WEB_TOOLS: frozenset[str] = frozenset({"web_search", "web_extract"})
+
+#: Modes from least to most permissive.
+MODE_STRICTNESS: tuple[str, ...] = ("plan", "accept", "auto")
+
+
+def stricter_mode(first: str, second: str) -> str:
+    """The less permissive of two modes (an unknown one counts as the strictest)."""
+    rank = {mode: index for index, mode in enumerate(MODE_STRICTNESS)}
+    return first if rank.get(first, -1) <= rank.get(second, -1) else second
+
+
 class PermissionPolicy:
     """Decides allow / deny / ask for one tool call."""
 
@@ -131,11 +146,25 @@ class PermissionPolicy:
     ) -> Verdict:
         """Look the pair up in :data:`MODE_MATRIX`, then apply the allowlist."""
         verdict = MODE_MATRIX.get(mode, {}).get(tag, "ask")
+        if (
+            verdict == "ask"
+            and mode == "accept"
+            and tag == "network"
+            and tool is not None
+            and tool.name in READ_ONLY_WEB_TOOLS
+            and not self._read_only_web_asks()
+        ):
+            verdict = "allow"
         if mode == "plan":
             verdict = self.plan_exception(verdict, tag, tool, args, session)
         if verdict == "ask" and tag not in UNPROMOTABLE:
             verdict = self.promote(verdict, tool, args, session)
         return verdict  # type: ignore[return-value]
+
+    def _read_only_web_asks(self) -> bool:
+        settings = getattr(self.allowlist, "settings", None)
+        approvals = getattr(settings, "approvals", None)
+        return bool(getattr(approvals, "readOnlyWebAsk", False))
 
     def plan_exception(
         self,

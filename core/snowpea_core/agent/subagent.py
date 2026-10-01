@@ -1085,7 +1085,13 @@ class SubagentManager:
         """A fresh session that inherits the parent and obeys the definition."""
         mode = parent.mode
         if defn is not None and defn.permission not in ("", "inherit", None):
-            mode = defn.permission  # type: ignore[assignment]
+            # A definition may narrow its child's mode, never widen the
+            # parent's: a plan-mode parent cannot spawn an accept-mode child
+            # (addendum 18).
+            from snowpea_core.permissions.policy import MODE_STRICTNESS, stricter_mode
+
+            if defn.permission in MODE_STRICTNESS:
+                mode = stricter_mode(parent.mode, str(defn.permission))  # type: ignore[assignment]
         definition_model = (
             defn.model if defn is not None and defn.model and defn.model != "inherit" else None
         )

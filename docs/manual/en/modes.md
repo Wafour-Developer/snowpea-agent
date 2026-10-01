@@ -16,10 +16,10 @@ Every tool carries one permission tag. The mode decides what happens to each tag
 | mode | read | write | exec | network | send | delegate |
 |---|---|---|---|---|---|---|
 | **plan** | allow | deny † | ask ‡ | allow | deny | allow |
-| **accept** (default) | allow | allow | ask | ask | ask | allow |
+| **accept** (default) | allow | allow | ask | ask § | ask | allow |
 | **auto** | allow | allow | allow | allow | allow | allow |
 
-† plan mode writes markdown and plan files only. ‡ plan mode runs read-only commands without asking; everything else still asks.
+† plan mode writes markdown and plan files only. ‡ plan mode runs read-only commands without asking; everything else still asks. § `web_search` and `web_extract` only read, so accept mode runs them without asking; set `approvals.readOnlyWebAsk: true` to be asked for them too. A subagent runs in its parent's mode or a stricter one, and a "for this session" approval given to the parent covers its subagents.
 
 **plan** is for thinking. The agent reads your repository and searches the web, and cannot change your code. Two things it can do, because otherwise it cannot do its job at all:
 

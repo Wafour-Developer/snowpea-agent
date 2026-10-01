@@ -229,8 +229,35 @@ class ApprovalQueue:
         return (session_id, tool, first_token(command) if command else "")
 
     def cached(self, session_id: str, tool: str, args: dict[str, Any] | None = None) -> bool:
-        """True when this session already approved this exact call shape."""
-        return self.cache_key(session_id, tool, args) in self._cache
+        """True when this session, or a session above it, approved this call shape.
+
+        A subagent's call is covered by a "for this session" answer its parent
+        (or grandparent) gave (addendum 18); the parent's ``always`` answers
+        live in the allowlist and cover it already.
+        """
+        for ancestor in self._lineage(session_id):
+            if self.cache_key(ancestor, tool, args) in self._cache:
+                return True
+        return False
+
+    def _lineage(self, session_id: str) -> list[str]:
+        """``session_id`` and the sessions it descends from, nearest first."""
+        chain = [session_id]
+        sessions = getattr(self.hub, "sessions", None)
+        lookup = getattr(sessions, "get", None)
+        current = session_id
+        while callable(lookup) and len(chain) < 16:
+            session = lookup(current)
+            # Only a subagent inherits: a scheduled run also names the thread
+            # that scheduled it as its parent, and must not borrow its answers.
+            if session is None or getattr(session, "kind", "chat") != "subagent":
+                break
+            parent = getattr(session, "parent_session_id", None)
+            if not parent or parent in chain:
+                break
+            chain.append(parent)
+            current = parent
+        return chain
 
     @property
     def timeout_sec(self) -> int:
