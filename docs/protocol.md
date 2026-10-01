@@ -2786,6 +2786,14 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | `kind` | `"error"` | no |  |
 | `message` | `string` | yes | Human-readable detail. |
 
+### kind `hook.continue`
+
+| field | type | required | description |
+|---|---|---|---|
+| `count` | `number` | yes | How many times Stop hooks continued this turn so far. |
+| `kind` | `"hook.continue"` | no |  |
+| `reason` | `string` | yes | The hook's instruction, handed to the model. |
+
 ### kind `job.done`
 
 | field | type | required | description |

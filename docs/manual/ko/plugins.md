@@ -146,7 +146,9 @@ list what must change. Never edit files yourself.
 }
 ```
 
-이 명령은 stdin으로 `{event, tool_name, tool_input, session_id, cwd}`를 JSON으로 받고, 환경변수로 `SNOWPEA_HOME`과 `SNOWPEA_TOOL_NAME`을 받습니다. `PreToolUse`는 권한 판정 이후, 툴 실행 직전에 돕니다. 종료 상태 2는 호출을 막고 그 stderr가 모델이 보는 에러가 되므로, 턴은 죽지 않고 거부로 이어집니다. `PostToolUse`는 툴이 값을 돌려준 직후에, `Stop`은 턴이 더 이상 툴 호출 없이 끝날 때 돕니다. 다른 훅 이벤트는 파싱만 되고 무시됩니다.
+이 명령은 stdin으로 `{event, tool_name, tool_input, session_id, cwd}`를 JSON으로 받고, 환경변수로 `SNOWPEA_HOME`과 `SNOWPEA_TOOL_NAME`을 받습니다. `PreToolUse`는 권한 판정 이후, 툴 실행 직전에 돕니다. 종료 상태 2는 호출을 막고 그 stderr가 모델이 보는 에러가 되므로, 턴은 죽지 않고 거부로 이어집니다. `PostToolUse`는 툴이 값을 돌려준 직후에, `Stop`은 모델이 더 이상 툴 호출 없이 턴을 끝내려 할 때 돕니다. 다른 훅 이벤트는 파싱만 되고 무시됩니다.
+
+**에이전트를 계속 진행시키기 (`Stop`).** Claude Code와 같이 `Stop` 훅은 턴이 끝나는 것을 막을 수 있습니다. stdin에는 `hook_event_name: "Stop"`, `stop_hook_active`(이 턴이 이미 Stop 훅으로 한 번 이어졌으면 true), `last_assistant_message`도 들어옵니다. 종료 상태 2(stderr가 지시문) 또는 stdout `{"decision": "block", "reason": "…"}`를 내면 그 이유가 모델에게 전달되고 턴이 이어지며, 화면에는 `hook.continue` 세션 이벤트가 갑니다. `{"continue": false}`나 아무 출력 없이 끝나면 턴이 끝납니다. 한 턴은 최대 8번까지만 이어지므로 항상 막는 훅도 무한 반복하지 않습니다. 한 번만 이어가려면 `stop_hook_active`를 확인하세요.
 
 `${CLAUDE_PLUGIN_ROOT}`, `${SNOWPEA_PLUGIN_ROOT}`, `${SNOWPEA_PYTHON}`은 중괄호가 있든 없든 훅과 MCP 명령 안에서 확장됩니다.
 

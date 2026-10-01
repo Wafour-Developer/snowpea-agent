@@ -3147,6 +3147,14 @@ class TeamTaskUpdate(Payload):
     retries: int = Field(default=0, description="How many times a merge conflict re-queued it.")
 
 
+class HookContinue(Payload):
+    """A Stop hook kept the turn going instead of letting it end."""
+
+    kind: Literal["hook.continue"] = "hook.continue"
+    reason: str = Field(description="The hook's instruction, handed to the model.")
+    count: int = Field(description="How many times Stop hooks continued this turn so far.")
+
+
 class AgentChanged(Payload):
     """The agent a human session runs as changed (addendum 17)."""
 
@@ -3445,6 +3453,7 @@ SessionEventPayload = Annotated[
     | TeamTaskUpdate
     | ModeChanged
     | AgentChanged
+    | HookContinue
     | BackendChanged
     | ModelChanged
     | UsageEvent
@@ -3483,6 +3492,7 @@ SESSION_EVENT_MODELS: dict[str, type[BaseModel]] = {
     "team.task.update": TeamTaskUpdate,
     "mode.changed": ModeChanged,
     "agent.changed": AgentChanged,
+    "hook.continue": HookContinue,
     "backend.changed": BackendChanged,
     "model.changed": ModelChanged,
     "usage": UsageEvent,

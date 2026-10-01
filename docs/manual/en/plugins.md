@@ -148,7 +148,9 @@ Drop it in `<project>/.snowpea/agents/reviewer.md`, or let `/agent create "revie
 }
 ```
 
-The command receives `{event, tool_name, tool_input, session_id, cwd}` as JSON on stdin, plus `SNOWPEA_HOME` and `SNOWPEA_TOOL_NAME` in the environment. `PreToolUse` runs after the permission verdict and just before the tool; exit status 2 blocks the call, and its stderr becomes the error the model sees, so the turn continues with a refusal rather than dying. `PostToolUse` runs right after the tool returns, `Stop` when a turn ends with no further tool calls. Other hook events are parsed and ignored.
+The command receives `{event, tool_name, tool_input, session_id, cwd}` as JSON on stdin, plus `SNOWPEA_HOME` and `SNOWPEA_TOOL_NAME` in the environment. `PreToolUse` runs after the permission verdict and just before the tool; exit status 2 blocks the call, and its stderr becomes the error the model sees, so the turn continues with a refusal rather than dying. `PostToolUse` runs right after the tool returns, `Stop` when the model is about to end its turn with no further tool calls. Other hook events are parsed and ignored.
+
+**Keeping the agent going (`Stop`).** As in Claude Code, a `Stop` hook can refuse to let the turn end. Its stdin also carries `hook_event_name: "Stop"`, `stop_hook_active` (true once this turn has already been continued by a Stop hook) and `last_assistant_message`. Exit status 2 (stderr is the instruction) or stdout `{"decision": "block", "reason": "…"}` hands the reason to the model and the turn continues; the surface sees a `hook.continue` session event. `{"continue": false}` or a quiet exit lets the turn end. A turn is continued at most 8 times, so a hook that always blocks cannot loop forever — check `stop_hook_active` to continue only once.
 
 `${CLAUDE_PLUGIN_ROOT}`, `${SNOWPEA_PLUGIN_ROOT}` and `${SNOWPEA_PYTHON}` expand inside hook and MCP commands, with or without braces.
 

@@ -1565,3 +1565,60 @@ async def test_a_host_call_that_runs_out_is_cancelled_at_the_host(
     await asyncio.sleep(0.05)
     assert not result.ok and "did not answer within" in (result.error or "")
     assert conn.notified == [("tool.cancel", {"sessionId": "s-slow", "callId": "c-slow"})]
+
+
+async def test_a_stop_hook_keeps_the_turn_going_once_then_lets_it_end(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    """A Stop hook that blocks while stop_hook_active is false: one more model
+    call in the same turn, with the hook's reason handed to the model."""
+    from snowpea_core.skills import hooks
+
+    script = tmp_path / "once.py"
+    script.write_text(
+        "import json, sys\n"
+        "payload = json.load(sys.stdin)\n"
+        "if not payload['stop_hook_active']:\n"
+        "    print('you said you would continue; do it now', file=sys.stderr)\n"
+        "    sys.exit(2)\n",
+        encoding="utf-8",
+    )
+    registry = daemon.core.skills.hooks
+    registry.add(hooks.Hook(event="Stop", matcher="", command=f"${{SNOWPEA_PYTHON}} {script}"))
+    client = await open_client(http, daemon)
+    try:
+        session_id = await new_session(client, tmp_path / "w")
+        assert await run_turn(client, session_id, "hello") == "complete"
+        continued = client.of_kind("hook.continue")
+        assert [e["payload"]["count"] for e in continued] == [1]
+        assert continued[0]["payload"]["reason"] == "you said you would continue; do it now"
+        # Two answers in one turn: before and after the hook's instruction.
+        assert len(client.of_kind("message.done")) == 2
+        assert len(client.of_kind("turn.done")) == 1
+        history = daemon.core.sessions.get(session_id).history.messages
+        assert any(
+            "Stop hook: you said you would continue" in str(m.content) for m in history
+        )
+    finally:
+        registry.hooks.get("Stop", []).clear()
+        await client.stop()
+
+
+async def test_a_stop_hook_that_always_blocks_cannot_loop_forever(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    from snowpea_core.skills import hooks
+
+    script = tmp_path / "always.py"
+    script.write_text("import sys\nprint('again', file=sys.stderr)\nsys.exit(2)\n", "utf-8")
+    registry = daemon.core.skills.hooks
+    registry.add(hooks.Hook(event="Stop", matcher="", command=f"${{SNOWPEA_PYTHON}} {script}"))
+    client = await open_client(http, daemon)
+    try:
+        session_id = await new_session(client, tmp_path / "w")
+        assert await run_turn(client, session_id, "hello") == "complete"
+        counts = [e["payload"]["count"] for e in client.of_kind("hook.continue")]
+        assert counts == list(range(1, hooks.MAX_STOP_CONTINUATIONS + 1))
+    finally:
+        registry.hooks.get("Stop", []).clear()
+        await client.stop()

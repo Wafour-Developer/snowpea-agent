@@ -15,6 +15,14 @@ and ``SNOWPEA_HOME`` / ``SNOWPEA_TOOL_NAME`` in its environment, plus
 ``CLAUDE_PLUGIN_ROOT`` and ``SNOWPEA_PLUGIN_ROOT`` pointing at the plugin that
 declared it.  For ``PreToolUse``, exit status 2 blocks the call and the hook's
 stderr becomes the error the model sees.
+
+``Stop`` runs when the model is about to end its turn, as in Claude Code: the
+payload adds ``hook_event_name``, ``stop_hook_active`` (true when this turn
+already continued because of a Stop hook) and ``last_assistant_message``. A
+hook keeps the agent going with exit status 2 (stderr is the instruction) or
+by printing ``{"decision": "block", "reason": "…"}``; the reason is handed
+to the model and the turn continues. At most :data:`MAX_STOP_CONTINUATIONS`
+times per turn, so a hook that always blocks cannot loop forever.
 """
 
 from __future__ import annotations
@@ -39,8 +47,12 @@ log = logging.getLogger("snowpea.skills.hooks")
 #: The three events this milestone runs; others are parsed and ignored.
 EVENTS: tuple[str, ...] = ("PreToolUse", "PostToolUse", "Stop")
 
-#: Exit status a ``PreToolUse`` hook uses to refuse the call.
+#: Exit status a ``PreToolUse`` hook uses to refuse the call, and a ``Stop``
+#: hook uses to keep the agent going.
 BLOCK_EXIT_CODE = 2
+
+#: How many times Stop hooks may keep one turn going.
+MAX_STOP_CONTINUATIONS = 8
 
 #: What :func:`run_hook` reports for a hook that could not start or timed out.
 HOOK_FAILED = -1
@@ -191,6 +203,18 @@ async def run_hook(
     cwd: Path | str | None = None,
 ) -> tuple[int, str]:
     """Run one hook; returns ``(exit_code, stderr)``.  Never raises."""
+    code, _out, err = await run_hook_output(hook, payload, home=home, cwd=cwd)
+    return code, err
+
+
+async def run_hook_output(
+    hook: Hook,
+    payload: dict[str, Any],
+    *,
+    home: Path | str,
+    cwd: Path | str | None = None,
+) -> tuple[int, str, str]:
+    """Run one hook; returns ``(exit_code, stdout, stderr)``.  Never raises."""
     command = expand(hook.command, hook.root)
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     try:
@@ -204,14 +228,18 @@ async def run_hook(
         )
     except OSError as exc:
         log.info("hook %s could not start: %s", hook.command, exc)
-        return HOOK_FAILED, f"could not start: {exc}"
+        return HOOK_FAILED, "", f"could not start: {exc}"
     try:
-        _, err = await asyncio.wait_for(process.communicate(body), hook.timeout)
+        out, err = await asyncio.wait_for(process.communicate(body), hook.timeout)
     except TimeoutError:
         process.kill()
         log.info("hook %s timed out after %.0fs", hook.command, hook.timeout)
-        return HOOK_FAILED, f"timed out after {hook.timeout:g}s"
-    return int(process.returncode or 0), (err or b"").decode("utf-8", "replace").strip()
+        return HOOK_FAILED, "", f"timed out after {hook.timeout:g}s"
+    return (
+        int(process.returncode or 0),
+        (out or b"").decode("utf-8", "replace").strip(),
+        (err or b"").decode("utf-8", "replace").strip(),
+    )
 
 
 def registry_of(core: Core) -> HookRegistry | None:
@@ -277,13 +305,75 @@ async def post_tool_use(
     await run_event(core, session, "PostToolUse", tool_name, tool_input)
 
 
-async def stop(core: Core, session: Session) -> None:
-    await run_event(core, session, "Stop")
+@dataclass(frozen=True)
+class StopDecision:
+    """What the Stop hooks said about ending the turn."""
+
+    block: bool = False
+    reason: str = ""
+
+
+def _stop_block_reason(code: int, out: str, err: str) -> str | None:
+    """The instruction when a Stop hook blocks, else ``None`` (Claude Code's contract)."""
+    if code == BLOCK_EXIT_CODE:
+        return err or out or "A Stop hook asked you to continue."
+    if code != 0:
+        return None
+    text = out.strip()
+    if not text.startswith("{"):
+        return None
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return None
+    if not isinstance(data, dict) or data.get("continue") is False:
+        return None
+    if str(data.get("decision") or "").lower() != "block":
+        return None
+    return str(data.get("reason") or "A Stop hook asked you to continue.")
+
+
+async def stop(
+    core: Core,
+    session: Session,
+    *,
+    last_message: str = "",
+    active: bool = False,
+) -> StopDecision:
+    """Run the Stop hooks; the first that blocks decides, with its reason."""
+    registry = registry_of(core)
+    if registry is None:
+        return StopDecision()
+    hooks = registry.for_tool("Stop", "")
+    if not hooks:
+        return StopDecision()
+    payload = {
+        "event": "Stop",
+        "hook_event_name": "Stop",
+        "tool_name": "",
+        "tool_input": {},
+        "session_id": session.id,
+        "cwd": str(session.workdir),
+        "stop_hook_active": active,
+        "last_assistant_message": last_message,
+    }
+    for hook in hooks:
+        code, out, err = await run_hook_output(
+            hook, payload, home=core.paths.home, cwd=session.workdir
+        )
+        reason = _stop_block_reason(code, out, err)
+        if reason is not None:
+            return StopDecision(block=True, reason=reason.strip())
+        if code not in (0, BLOCK_EXIT_CODE):
+            log.warning("Stop hook %s failed (exit %s): %s", hook.command, code, err[:200])
+    return StopDecision()
 
 
 __all__ = [
     "BLOCKED_PREFIX",
     "BLOCK_EXIT_CODE",
+    "MAX_STOP_CONTINUATIONS",
+    "StopDecision",
     "DEFAULT_TIMEOUT_SEC",
     "EVENTS",
     "Hook",
@@ -294,5 +384,6 @@ __all__ = [
     "pre_tool_use",
     "run_event",
     "run_hook",
+    "run_hook_output",
     "stop",
 ]

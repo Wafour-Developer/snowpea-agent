@@ -92,3 +92,61 @@ def test_fail_closed_is_read_from_hooks_json(tmp_path: Path) -> None:
     registry = hooks.HookRegistry()
     assert registry.load_file(config, plugin="browser") == 1
     assert registry.for_tool("PreToolUse", "repl")[0].fail_closed is True
+
+
+# ---------------------------------------------------------------------------
+# Stop hooks that keep the agent going (Claude Code's contract)
+# ---------------------------------------------------------------------------
+
+
+def _stop_registry(command: str) -> hooks.HookRegistry:
+    registry = hooks.HookRegistry()
+    registry.add(hooks.Hook(event="Stop", matcher="", command=command))
+    return registry
+
+
+async def test_a_stop_hook_blocks_with_exit_2_and_its_stderr(tmp_path: Path) -> None:
+    script = tmp_path / "keep_going.py"
+    seen = tmp_path / "payload.json"
+    script.write_text(
+        "import sys, pathlib\n"
+        f"pathlib.Path({str(seen)!r}).write_text(sys.stdin.read())\n"
+        "print('finish the M1 scaffold', file=sys.stderr)\n"
+        "sys.exit(2)\n",
+        encoding="utf-8",
+    )
+    core = _core(tmp_path, _stop_registry(f"${{SNOWPEA_PYTHON}} {script}"))
+    decision = await hooks.stop(
+        core, _session(tmp_path), last_message="Next I'll build it.", active=False
+    )
+    assert decision.block and decision.reason == "finish the M1 scaffold"
+    import json
+
+    payload = json.loads(seen.read_text(encoding="utf-8"))
+    assert payload["hook_event_name"] == "Stop"
+    assert payload["stop_hook_active"] is False
+    assert payload["last_assistant_message"] == "Next I'll build it."
+
+
+async def test_a_stop_hook_blocks_with_a_json_decision(tmp_path: Path) -> None:
+    script = tmp_path / "json_block.py"
+    script.write_text(
+        "import json\nprint(json.dumps({'decision': 'block', 'reason': 'run the tests'}))\n",
+        encoding="utf-8",
+    )
+    core = _core(tmp_path, _stop_registry(f"${{SNOWPEA_PYTHON}} {script}"))
+    decision = await hooks.stop(core, _session(tmp_path))
+    assert decision == hooks.StopDecision(block=True, reason="run the tests")
+
+
+async def test_a_quiet_or_continue_false_stop_hook_lets_the_turn_end(tmp_path: Path) -> None:
+    quiet = tmp_path / "quiet.py"
+    quiet.write_text("pass\n", encoding="utf-8")
+    stop_all = tmp_path / "stop_all.py"
+    stop_all.write_text(
+        "import json\nprint(json.dumps({'continue': False, 'decision': 'block'}))\n",
+        encoding="utf-8",
+    )
+    for script in (quiet, stop_all):
+        core = _core(tmp_path, _stop_registry(f"${{SNOWPEA_PYTHON}} {script}"))
+        assert (await hooks.stop(core, _session(tmp_path))).block is False

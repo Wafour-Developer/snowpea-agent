@@ -1156,6 +1156,8 @@ async def _drive(
 
     rounds_left = config.max_tool_rounds
     session.rounds_used = 0
+    # Times a Stop hook kept this turn going (capped per turn).
+    stop_continuations = 0
     # One acknowledgement per turn, not per tool round.
     session.ack_spoken = False
     while True:
@@ -1254,10 +1256,25 @@ async def _drive(
                     continuations=attempt.continuations,
                 ),
             )
+            # Claude Code's Stop hook: a hook may keep the agent going (ralph,
+            # "the boulder never stops"); its reason is the next instruction.
+            if stop_continuations < plugin_hooks.MAX_STOP_CONTINUATIONS:
+                decision = await plugin_hooks.stop(
+                    core,
+                    session,
+                    last_message=assistant_text,
+                    active=stop_continuations > 0,
+                )
+                if decision.block and not session.interrupt.is_set():
+                    stop_continuations += 1
+                    session.pending_notices.append(f"Stop hook: {decision.reason}")
+                    await hub.emit_event(
+                        session.id, events.hook_continue(decision.reason, stop_continuations)
+                    )
+                    continue
             await speak_reply(core, session, assistant_text)
             await finish_turn(core, session, turn_id, "complete")
             await nudge_after_turn(core, session, text)
-            await plugin_hooks.stop(core, session)
             return "complete"
 
         # The opening line is spoken here, before the tools run: a spoken

@@ -3528,6 +3528,15 @@ export interface ErrorEventPayload {
   message: string;
 }
 
+/** Payload of `session.event` with kind `hook.continue`. */
+export interface HookContinueEventPayload {
+  /** How many times Stop hooks continued this turn so far. */
+  count: number;
+  kind?: "hook.continue";
+  /** The hook's instruction, handed to the model. */
+  reason: string;
+}
+
 /** Payload of `session.event` with kind `job.done`. */
 export interface JobDoneEventPayload {
   /** Job that ran. */
@@ -3900,6 +3909,7 @@ export interface SessionEventKindMap {
   "context": ContextEventPayload;
   "diff": DiffEventPayload;
   "error": ErrorEventPayload;
+  "hook.continue": HookContinueEventPayload;
   "job.done": JobDoneEventPayload;
   "job.failed": JobFailedEventPayload;
   "loop.suspected": LoopSuspectedEventPayload;
@@ -3937,6 +3947,7 @@ export const SESSION_EVENT_KINDS: readonly SessionEventKind[] = [
   "context",
   "diff",
   "error",
+  "hook.continue",
   "job.done",
   "job.failed",
   "loop.suspected",

@@ -24,6 +24,7 @@ from snowpea_core.server.protocol import (
     ContextEvent,
     DiffEvent,
     ErrorEvent,
+    HookContinue,
     JobDone,
     JobFailed,
     LoopSuspected,
@@ -202,6 +203,10 @@ def checkpoint_restored(
             skipped=list(skipped),  # type: ignore[arg-type]
         )
     )
+
+
+def hook_continue(reason: str, count: int) -> Event:
+    return _pack(HookContinue(reason=reason, count=count))
 
 
 def agent_changed(agent: str | None) -> Event:
