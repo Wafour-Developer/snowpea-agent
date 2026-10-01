@@ -362,3 +362,16 @@ async def test_a_plan_turn_is_still_refused_a_source_write(
     assert REFUSAL_NOTE in refused[0]["payload"]["error"]
 
     await client.stop()
+
+
+def test_a_session_workspaces_scratch_is_not_config(tmp_path: Path) -> None:
+    """tmp/ and artifacts/ of a session workspace are working state, not settings."""
+    from snowpea_core.tools.config_guard import is_config_path
+
+    home = tmp_path / "home"
+    ws = home / "sessions" / "2026-10-01_s-abc"
+    assert not is_config_path(str(ws / "tmp" / "shoot.py"), home=home)
+    assert not is_config_path(str(ws / "artifacts" / "shot.png"), home=home)
+    assert is_config_path(str(ws / "meta.json"), home=home)
+    assert is_config_path(str(home / "settings.json"), home=home)
+    assert is_config_path(str(home / "sessions" / "tmp" / "x"), home=home)

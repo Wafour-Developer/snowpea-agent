@@ -38,6 +38,21 @@ PROJECT_FILES: frozenset[str] = frozenset({"settings.json", "credentials.json"})
 HOME_WORKING_DIRS: frozenset[str] = frozenset({"plans"})
 
 
+#: Subdirectories of a session workspace (``sessions/<day>_<id>/``) that are
+#: scratch and output: an agent writing a helper script to ``tmp/`` in AUTO
+#: mode was asked for approval every time, as if it were editing settings.
+SESSION_WORKING_DIRS: frozenset[str] = frozenset({"tmp", "artifacts"})
+
+
+def _in_session_workspace(resolved: Path, snowpea_home: Path) -> bool:
+    """True for a path inside ``sessions/<workspace>/tmp`` or ``/artifacts``."""
+    try:
+        parts = resolved.relative_to(snowpea_home / "sessions").parts
+    except ValueError:
+        return False
+    return len(parts) >= 3 and parts[1] in SESSION_WORKING_DIRS
+
+
 def _resolve(path: str, workdir: Any) -> Path | None:
     try:
         candidate = Path(path).expanduser()
@@ -71,6 +86,8 @@ def is_config_path(path: str, *, workdir: Any = None, home: Any = None) -> bool:
     except (OSError, RuntimeError, ValueError):  # pragma: no cover - unresolvable $HOME
         return False
     if _under(resolved, snowpea_home):
+        if _in_session_workspace(resolved, snowpea_home):
+            return False
         return not any(
             _under(resolved, snowpea_home / name) for name in HOME_WORKING_DIRS
         )
