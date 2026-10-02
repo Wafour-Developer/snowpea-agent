@@ -61,6 +61,11 @@ dev = [
 [tool.hatch.version]
 path = "core/snowpea_core/__init__.py"
 
+# Local orchestration transcripts must never travel in published packages,
+# including state files accidentally tracked beneath the Python package.
+[tool.hatch.build]
+exclude = ["**/.omc/**", "**/.omx/**"]
+
 # Copies tui/dist/snowpea-tui.js into the package before the wheel is zipped.
 [tool.hatch.build.hooks.custom]
 path = "hatch_build.py"

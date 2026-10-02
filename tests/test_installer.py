@@ -12,6 +12,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -35,6 +36,19 @@ NPM_BIN = REPO_ROOT / "installer" / "npm" / "bin" / "snowpea.js"
 INSTALL_URL = (
     "https://raw.githubusercontent.com/Wafour-Developer/snowpea-agent/main/installer/install.sh"
 )
+
+
+def test_distributions_exclude_local_orchestration_state() -> None:
+    import fnmatch
+
+    config = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
+    exclusions = config["tool"]["hatch"]["build"]["exclude"]
+    for path in (
+        "core/snowpea_core/.omc/state/transcript.jsonl",
+        "core/snowpea_core/prompts/.omc/state/session.json",
+        "core/snowpea_core/.omx/state/session.json",
+    ):
+        assert any(fnmatch.fnmatch(path, pattern) for pattern in exclusions), path
 
 
 def _run(*argv: str, **kwargs: object) -> subprocess.CompletedProcess[str]:
