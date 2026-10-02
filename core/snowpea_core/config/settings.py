@@ -144,8 +144,8 @@ class AgentsSettings(_Model):
     #: turn with no report), how many times ``SubagentManager.run`` re-issues
     #: the work with a continuation brief before returning to the parent.
     #: Mirrors Hermes/OMC "re-issue incomplete work" rather than extending
-    #: the same turn's round counter.  ``0`` disables.  Default ``1``.
-    incompleteRetries: int = 1
+    #: the same turn's round counter.  ``0`` disables.  Default ``3``.
+    incompleteRetries: int = 3
     #: Generalist role used when no specialised ``prefer`` role is available
     #: (``delegate_task``, ultrawork, …).  A string or a list; default
     #: ``executor``.

@@ -654,6 +654,19 @@ function applySessionEvent(
       }
       const merged = attachExpansion(base.messages);
       if (merged) return { ...base, messages: settleFolds(merged) };
+      // Some runtimes publish a skill slash prompt echo before they attach the
+      // expansion payload, or omit the expansion entirely on older versions.
+      // If this surface already drew the exact slash line and is waiting for a
+      // fold, consume that echo instead of adding a duplicate `/ralph` row.
+      const slashEcho = base.messages.findIndex(
+        (entry) => entry.role === "user" && entry.text === text && entry.awaitingFold,
+      );
+      if (slashEcho !== -1) {
+        const messages = base.messages.slice();
+        const { awaitingFold: _, ...rest } = messages[slashEcho];
+        messages[slashEcho] = rest;
+        return { ...base, messages };
+      }
       const files = Array.isArray(payload.attachments)
         ? payload.attachments
           .map((entry: any) => ({ name: String(entry?.name ?? "") }))

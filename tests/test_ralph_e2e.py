@@ -201,10 +201,80 @@ async def test_ralph_runs_the_repo_to_an_approved_finish(daemon: Daemon, repo: P
     assert "S1" in progress and "S2" in progress
     assert "APPROVED" in progress
 
-    # 6. The parent saw the whole subagent lane, reviewer included.
-    spawns = recorder.of_kind("subagent.spawn")
-    assert len(spawns) == 3, [event["payload"]["task"][:40] for event in spawns]
-    assert len(recorder.of_kind("subagent.done")) == 3
+    # 7. The next ordinary turn sees a concise command report in main history.
+    assistant_messages = [m.content for m in session.history.messages if m.role == "assistant"]
+    assert any(
+        "Ralph workflow finished with outcome: complete" in text
+        for text in assistant_messages
+    )
+    assert any("Patch tracked_a.txt" in text for text in assistant_messages)
+
+
+async def test_ralph_command_report_survives_store_resume(daemon: Daemon, repo: Path) -> None:
+    core = daemon.core
+    assert core is not None
+    session = await core.sessions.create(repo, mode="auto", max_concurrent=3)
+
+    await asyncio.wait_for(
+        core.commands.run(core, session, "ralph", f'"{TASK}"'), timeout=TIMEOUT
+    )
+    stored = await core.store.messages(session.id)
+    assert any(
+        item["role"] == "assistant"
+        and "Ralph workflow finished with outcome: complete" in item["content"].get("content", "")
+        for item in stored
+    )
+
+    session_id = session.id
+    await core.sessions.close(session_id)
+    restored = await core.sessions.restore(session_id)
+    assert restored is not None
+    restored_text = "\n".join(str(m.content) for m in restored.history.messages)
+    assert "Ralph workflow finished with outcome: complete" in restored_text
+    assert "State files: .snowpea/ralph/prd.json" in restored_text
+
+
+async def test_rejected_review_is_repaired_before_completion(
+    daemon: Daemon, repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from snowpea_core.agent.subagent import get_manager
+
+    core = daemon.core
+    assert core is not None
+    session = await core.sessions.create(repo, mode="auto", max_concurrent=3)
+    recorder = Recorder()
+    core.hub.subscribe(recorder, session.id)
+    reviews = iter([
+        (False, "REJECT — mention the verification evidence in the implementation report."),
+        (True, "APPROVE — reviewer feedback was addressed."),
+    ])
+    seen_tasks: list[str] = []
+    manager = get_manager(core)
+    original_run = manager.run
+
+    async def reject_once(*_args: Any, **_kwargs: Any) -> tuple[bool, str]:
+        return next(reviews)
+
+    async def spy_run(parent: Any, task: str, **kwargs: Any) -> Any:
+        seen_tasks.append(task)
+        return await original_run(parent, task, **kwargs)
+
+    monkeypatch.setattr(ralph, "review", reject_once)
+    monkeypatch.setattr(manager, "run", spy_run)
+    turn_id = await asyncio.wait_for(
+        core.commands.run(core, session, "ralph", f'"{TASK}"'), timeout=TIMEOUT
+    )
+
+    reasons = [
+        event["payload"]["reason"]
+        for event in recorder.of_kind("turn.done")
+        if event["payload"]["turnId"] == turn_id
+    ]
+    assert reasons == ["complete"], recorder.texts()
+    assert "reviewer requested changes" in recorder.texts()
+    assert any("Reviewer feedback to address" in task for task in seen_tasks)
+    progress = (repo / ".snowpea" / "ralph" / "progress.md").read_text(encoding="utf-8")
+    assert "REJECTED" in progress and "APPROVED" in progress
 
 
 async def test_ralph_without_a_task_explains_itself(daemon: Daemon, repo: Path) -> None:
@@ -251,6 +321,30 @@ def test_deterministic_provider_errors_are_recognised() -> None:
     assert not ralph.deterministic_error("rate limit reached, retry later")
     assert not ralph.deterministic_error("HTTP 503 service unavailable")
     assert not ralph.deterministic_error("the tests still fail")
+
+
+@pytest.mark.parametrize(
+    ("text", "approved"),
+    [
+        ("APPROVE — looks good", True),
+        ("APPROVED", True),
+        ("NOT APPROVED — missing tests", False),
+        ("REJECT — missing tests but say APPROVE later", False),
+        ("REVISE — almost there", False),
+        ("The work is fine. APPROVE", False),
+    ],
+)
+def test_review_approval_requires_an_explicit_positive_verdict(text: str, approved: bool) -> None:
+    assert ralph.review_approved(text) is approved
+
+
+def test_review_feedback_batches_preserve_previous_passes() -> None:
+    stories = [ralph.Story(id=f"S{i}", title=f"story {i}") for i in range(1, 5)]
+    for story in stories:
+        story.note = "review rejected"
+    assert [story.id for story in ralph.ready_stories(stories, 2)] == ["S1", "S2"]
+    stories[0].passed = stories[1].passed = True
+    assert [story.id for story in ralph.ready_stories(stories, 2)] == ["S3", "S4"]
 
 
 @pytest.mark.parametrize(

@@ -16,10 +16,10 @@ import { textWidth } from "./text-width.js";
 import { formatDuration } from "../state/working.js";
 import type { State, SubagentEntry, TeamTaskEntry } from "../state/store.js";
 
-/** Rows drawn before the overflow line takes over. */
-export const MAX_AGENT_ROWS = 6;
-/** Idle agents past this many are counted rather than listed. */
-export const MAX_IDLE_ROWS = 3;
+/** Delegate/team rows shown in the compact footer before the overflow line. */
+export const MAX_COMPACT_AGENT_ROWS = 2;
+/** Finished delegates stay in compact view only long enough to be noticed. */
+export const FINISHED_AGENT_GRACE_MS = 10_000;
 
 /** Marks the session the user is typing into. */
 export const CURRENT_GLYPH = "●";
@@ -128,8 +128,25 @@ function subagentRow(
     task: entry.title || entry.task || entry.lastText || "",
     status: agentStatusText(entry, now),
     origin,
-    dim: entry.status === "done",
+    dim: entry.status === "done" || entry.status === "error",
   };
+}
+
+function activityTime(entry: SubagentEntry): number {
+  return entry.endedAt ?? entry.startedAt ?? 0;
+}
+
+function recentFirst<T>(entries: T[], time: (entry: T) => number): T[] {
+  return entries
+    .map((entry, index) => ({ entry, index }))
+    .sort((a, b) => time(b.entry) - time(a.entry) || b.index - a.index)
+    .map(({ entry }) => entry);
+}
+
+function isCompactVisible(entry: SubagentEntry, now: number): boolean {
+  if (entry.status === "running" || entry.status === "queued") return true;
+  if (!entry.endedAt) return true;
+  return now - entry.endedAt <= FINISHED_AGENT_GRACE_MS;
 }
 
 function teamRow(task: TeamTaskEntry, origin: AgentOrigin | undefined): AgentRow {
@@ -192,10 +209,8 @@ function rowOrigin(
 /**
  * Every row the panel draws, the current session first.
  *
- * Idle agents are the ones the daemon merely knows about; past
- * `MAX_IDLE_ROWS` they become a single counted row, because a long list of
- * things doing nothing is noise. Whatever is left over past `MAX_AGENT_ROWS`
- * becomes the overflow line.
+ * Compact view shows at most two delegate/idle rows and an overflow control.
+ * Expanded view retains all recorded children, including expired terminal rows.
  */
 export function buildAgentRows({
   state,
@@ -225,17 +240,21 @@ export function buildAgentRows({
     },
   ];
 
-  const live = state.subagents.map((entry) =>
+  const orderedSubagents = recentFirst(state.subagents, activityTime);
+  const compactSubagents = orderedSubagents.filter((entry) => isCompactVisible(entry, now));
+  const teamRows = recentFirst(state.teamTasks, (task) => Number(task.taskId) || 0)
+    .map((task) =>
+      teamRow(task, rowOrigin(task.assignee || task.teamId || "team", onTeam, named)),
+    )
+    .filter((row) => !row.dim);
+  const allLive = orderedSubagents.map((entry) =>
     subagentRow(entry, now, rowOrigin(entry.name, onTeam, named)),
   );
-  rows.push(...live.filter((row) => !row.dim));
-  rows.push(
-    ...state.teamTasks
-      .map((task) =>
-        teamRow(task, rowOrigin(task.assignee || task.teamId || "team", onTeam, named)),
-      )
-      .filter((row) => !row.dim),
+  const compactLive = compactSubagents.map((entry) =>
+    subagentRow(entry, now, rowOrigin(entry.name, onTeam, named)),
   );
+  const allWorkingRows = [...allLive, ...teamRows];
+  const compactWorkingRows = [...compactLive, ...teamRows];
 
   // Idle rows: agents the daemon defines that are not part of this turn.
   const busy = new Set(state.subagents.map((entry) => entry.name).filter(Boolean));
@@ -252,35 +271,31 @@ export function buildAgentRows({
       dim: true,
     }));
 
-  if (expanded || idle.length <= MAX_IDLE_ROWS) {
-    rows.push(...idle);
-  } else {
-    rows.push(...idle.slice(0, MAX_IDLE_ROWS));
-    const hidden = idle.slice(MAX_IDLE_ROWS);
+  if (expanded) {
+    rows.push(...allWorkingRows, ...idle);
+    return rows;
+  }
+
+  const compactRows = compactWorkingRows.length > 0 ? compactWorkingRows : idle;
+  const expandableCount =
+    (allWorkingRows.length > 0 ? allWorkingRows.length : idle.length) +
+    (allWorkingRows.length > 0 ? idle.length : 0);
+  const shownCompactRows = compactRows.slice(0, MAX_COMPACT_AGENT_ROWS);
+  rows.push(...shownCompactRows);
+  const compactHidden = Math.max(0, expandableCount - shownCompactRows.length);
+  if (compactHidden > 0) {
     rows.push({
-      key: "idle-more",
-      glyph: AGENT_GLYPH,
-      name: `${hidden.length} more idle agent${hidden.length === 1 ? "" : "s"}`,
-      task: `- ${hidden.map((agent) => agent.name).join(", ")}`,
+      key: "overflow",
+      glyph: "↓",
+      name: `${compactHidden} more`,
+      task: "",
       status: "",
       dim: true,
     });
   }
 
-  // Finished delegates stay visible while nothing else needs the room.
-  rows.push(...live.filter((row) => row.dim));
 
-  if (expanded || rows.length <= MAX_AGENT_ROWS) return rows;
-  const shown = rows.slice(0, MAX_AGENT_ROWS);
-  shown.push({
-    key: "overflow",
-    glyph: "↓",
-    name: `${rows.length - MAX_AGENT_ROWS} more`,
-    task: "",
-    status: "",
-    dim: true,
-  });
-  return shown;
+  return rows;
 }
 
 /** Columns a string occupies on screen, counting the wide glyphs as two. */

@@ -1390,6 +1390,17 @@ export function App({
     setFocus((current) => clampFocus(current, agentRowCount));
   }, [agentRowCount]);
 
+  // More is a temporary drill-down: once the user walks back to the command
+  // input, compact the footer again so the bottom block returns to two rows.
+  const previousFocusRef = useRef<Focus>(INPUT_FOCUS);
+  useEffect(() => {
+    const previous = previousFocusRef.current;
+    if (agentsExpanded && previous.zone !== "input" && focus.zone === "input") {
+      setAgentsExpanded(false);
+    }
+    previousFocusRef.current = focus;
+  }, [agentsExpanded, focus]);
+
   // --- the open agent's transcript, when one is open -------------------------
   const openAgentEntry = openAgent
     ? state.subagents.find((agent) => agent.sessionId === openAgent.sessionId)

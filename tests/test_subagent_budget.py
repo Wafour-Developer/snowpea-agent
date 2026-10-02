@@ -397,13 +397,13 @@ def test_is_incomplete_and_continuation_brief() -> None:
     )
 
 
-async def test_incomplete_budget_is_reissued_once(
+async def test_incomplete_budget_uses_the_configured_retry_count(
     daemon: Daemon, workdir: Path
 ) -> None:
-    """Manager re-issues a budget stop with a continuation brief (default retries=1)."""
+    """Manager re-issues budget stops with continuation briefs up to the configured count."""
     core = daemon.core
     assert core is not None
-    core.settings.agents.incompleteRetries = 1
+    core.settings.agents.incompleteRetries = 3
     core.settings.agents.toolRounds = {"default": TINY}
     parent = await core.sessions.create(workdir, mode="auto")
     everything = Recorder()
@@ -413,12 +413,120 @@ async def test_incomplete_budget_is_reissued_once(
         parent, "endless child that never stops reading", title="survey"
     )
 
-    # Two child sessions: first attempt + one continue.
+    # Four child sessions: first attempt + three smooth continuations.
     spawns = [e for e in everything.events if e["kind"] == "subagent.spawn"]
-    assert len(spawns) == 2
+    assert len(spawns) == 4
     titles = [str(e["payload"].get("title") or "") for e in spawns]
     assert "survey" in titles
     assert any("continue" in title for title in titles)
     # Still unfinished after the continue (fixture never stops reading).
     assert result.reason == "budget"
 
+
+async def test_budget_continuation_receives_prior_tool_result_checkpoint(
+    tmp_path: Path,
+) -> None:
+    """A retry resumes from the prior child's actual tool findings, not just calls."""
+    script = tmp_path / "checkpoint-provider.json"
+    script.write_text(
+        '{'
+        '"steps": ['
+        '{"match": "handoff sentinel", "text": "finished from checkpoint"},'
+        '{"match": "checkpoint handoff", "text": "reading file", '
+        '"tool_calls": [{"name": "read_file", "arguments": {"path": "a.txt"}}]}'
+        '], "default": {"text": "default"}'
+        '}',
+        encoding="utf-8",
+    )
+    previous = os.environ.get("SNOWPEA_PROVIDER")
+    os.environ["SNOWPEA_PROVIDER"] = f"fake:{script}"
+    instance = await make_daemon(
+        tmp_path / "home",
+        settings={"agents": {"toolRounds": {"default": 1}, "incompleteRetries": 1}},
+    )
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "a.txt").write_text("handoff sentinel found in file\n", encoding="utf-8")
+    try:
+        core = instance.core
+        assert core is not None
+        parent = await core.sessions.create(project, mode="auto")
+        everything = Recorder()
+        core.hub.subscribe(everything, None)
+
+        result = await get_manager(core).run(parent, "checkpoint handoff survey")
+
+        assert result.reason == "complete"
+        assert result.summary == "finished from checkpoint"
+        spawns = [e for e in everything.events if e["kind"] == "subagent.spawn"]
+        assert len(spawns) == 2
+        prompts = [
+            e["payload"]["text"]
+            for e in everything.events
+            if e["kind"] == "message.user" and "Prior session checkpoint" in e["payload"]["text"]
+        ]
+        assert prompts
+        assert "Prior session checkpoint" in prompts[-1]
+        assert "handoff sentinel found in file" in prompts[-1]
+        assert "assistant called read_file" in prompts[-1]
+    finally:
+        await instance.stop()
+        if previous is None:
+            os.environ.pop("SNOWPEA_PROVIDER", None)
+        else:
+            os.environ["SNOWPEA_PROVIDER"] = previous
+
+
+def test_timeout_is_a_hard_stop_not_an_automatic_retry() -> None:
+    from snowpea_core.agent.subagent import incomplete_retries_for, is_incomplete
+
+    class _Core:
+        settings = object()
+
+    assert incomplete_retries_for(_Core()) == 3
+
+    assert (
+        is_incomplete(
+            SubagentResult(
+                agent_id="a-timeout",
+                ok=False,
+                summary="partial",
+                reason="timeout",
+                rounds_used=1,
+                last_calls=['shell {"command": "sleep 99"}'],
+            )
+        )
+        is False
+    )
+
+
+def test_checkpoint_redacts_sensitive_calls_and_keeps_newest_tail() -> None:
+    from snowpea_core.agent.subagent import _conversation_checkpoint
+    from snowpea_core.providers.base import ChatMessage, ToolCall
+    from snowpea_core.session.history import History
+
+    class _Session:
+        def __init__(self) -> None:
+            self.history = History()
+
+    session = _Session()
+    for idx in range(24):
+        session.history.append(ChatMessage(role="tool", name="read_file", content=f"old {idx}"))
+    session.history.append(
+        ChatMessage(
+            role="assistant",
+            content="",
+            sensitive=True,
+            tool_calls=[
+                ToolCall(id="secret", name="shell", arguments={"command": "echo SECRET_TOKEN"})
+            ],
+        )
+    )
+    session.history.append(ChatMessage(role="tool", name="shell", content="newest result"))
+
+    checkpoint = _conversation_checkpoint(session)  # type: ignore[arg-type]
+
+    assert "newest result" in checkpoint
+    assert "[redacted]" in checkpoint
+    assert "SECRET_TOKEN" not in checkpoint
+    assert "old 0" not in checkpoint

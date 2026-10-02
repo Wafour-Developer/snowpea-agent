@@ -386,10 +386,15 @@ async def test_the_prompt_is_published_once_and_replayed_with_the_answer(
     await client.stop()
 
 
-async def test_a_slash_command_publishes_no_prompt_event(
+async def test_a_slash_command_publishes_no_prompt_event_but_keeps_command_context(
     daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path
 ) -> None:
-    """``/help`` is not a turn: nothing joins the history, so nothing is said."""
+    """``/help`` is not a model prompt event, but its result stays in history.
+
+    Workflow commands such as ``/ralph`` run outside the normal model loop; if
+    their command output is not persisted into the session history, the next
+    ordinary prompt has no main-context knowledge of what the workflow did.
+    """
     workdir = tmp_path / "project"
     workdir.mkdir()
     client = await connect(http, daemon)
@@ -397,6 +402,14 @@ async def test_a_slash_command_publishes_no_prompt_event(
     turn_id = await prompt(client, session_id, "/help")
     assert await client.wait_turn(turn_id) == "complete"
     assert client.of_kind("message.user") == []
+
+    session = daemon.core.sessions.get(session_id)
+    assert session is not None
+    history = session.history.snapshot()
+    assert [(message.role, str(message.content).splitlines()[0]) for message in history[-2:]] == [
+        ("user", "/help"),
+        ("assistant", "Commands:"),
+    ]
     await client.stop()
 
 
@@ -467,7 +480,9 @@ async def test_other_clients_learn_when_a_session_is_created(
     watcher = await connect(http, daemon)
     creator = await connect(http, daemon)
     try:
-        created = await creator.ok("session.create", {"workdir": str(workdir), "originSurface": "cli"})
+        created = await creator.ok(
+            "session.create", {"workdir": str(workdir), "originSurface": "cli"}
+        )
         note = await watcher.wait_notification("sessions.changed")
         assert note["reason"] == "created"
         assert note["sessionId"] == created["sessionId"]

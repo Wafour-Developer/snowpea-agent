@@ -113,24 +113,34 @@ BUDGET_LINE = (
     "report: if you run out, the report is written for you and the work stops."
 )
 
-#: Reasons that mean the work did not finish and is worth one automatic
+#: Reasons that mean the work did not finish and may be worth an automatic
 #: re-issue (Hermes ``truncated`` / OMC "generate missing" — a new child turn,
-#: not an extended budget on the same session).
-RETRYABLE_REASONS: frozenset[str] = frozenset({BUDGET, TIMEOUT, ERROR})
+#: not an extended budget on the same session).  ``timeout`` is deliberately
+#: excluded: a caller's explicit timeout is a hard stop.
+RETRYABLE_REASONS: frozenset[str] = frozenset({BUDGET, ERROR})
 
 #: Caps how much of a prior report is pasted into a continuation brief.
 CONTINUATION_SUMMARY_CHARS = 4000
 CONTINUATION_CALLS = 8
 
+#: Caps the structured checkpoint copied from the previous child session.  This
+#: is intentionally larger than the report cap because tool outputs are often
+#: where the useful state lives when a budget stop happens before a final
+#: answer (CORE-subagent-budget-continuation).
+CONTINUATION_CHECKPOINT_CHARS = 6000
+CONTINUATION_MESSAGE_CHARS = 1200
+CONTINUATION_TOOL_RESULT_CHARS = 1000
+CONTINUATION_TRANSCRIPT_MESSAGES = 18
+
 
 def incomplete_retries_for(core: Any) -> int:
     """``agents.incompleteRetries``, floored at 0."""
     agents = getattr(getattr(core, "settings", None), "agents", None)
-    raw = getattr(agents, "incompleteRetries", 1)
+    raw = getattr(agents, "incompleteRetries", 3)
     try:
         return max(0, int(raw))
     except (TypeError, ValueError):
-        return 1
+        return 3
 
 
 def is_incomplete(result: SubagentResult) -> bool:
@@ -141,7 +151,10 @@ def is_incomplete(result: SubagentResult) -> bool:
     if reason == BUDGET:
         return True
     if reason == TIMEOUT:
-        return True
+        # A caller-provided timeout is a hard stop, not extra budget.  Retrying
+        # it makes the manager appear to ignore the timeout and can repeat the
+        # exact same long-running action.
+        return False
     if reason == ERROR:
         # Validation refusals (empty task, unknown agent, duplicate) never
         # started a turn — re-issuing them would invent a new brief and hide
@@ -168,6 +181,11 @@ def continuation_brief(original: str, result: SubagentResult) -> str:
     ]
     if summary:
         parts.extend(["", "Prior report / findings:", summary])
+    checkpoint = (getattr(result, "checkpoint", "") or "").strip()
+    if checkpoint:
+        parts.extend(
+            ["", "Prior session checkpoint (recent tool outputs and work state):", checkpoint]
+        )
     if calls:
         parts.extend(
             ["", "Last tool calls from the prior attempt:"]
@@ -357,6 +375,11 @@ class SubagentRecord:
     #: Tools the child may never exceed: the session's root agent's, when that
     #: agent is narrower than what the child would get (host-security-review).
     tool_ceiling: set[str] | None = None
+    #: Bounded recent transcript/tool-output checkpoint captured before the
+    #: child session is closed.  This is what lets an automatic continuation
+    #: resume from facts the prior child learned even when it hit the tool-round
+    #: budget before writing a final report.
+    checkpoint: str = ""
 
     @property
     def ok(self) -> bool:
@@ -400,6 +423,10 @@ class SubagentResult:
     last_calls: list[str] = field(default_factory=list)
     #: Tool names whose calls were denied while this child still reported.
     denied_tools: list[str] = field(default_factory=list)
+    #: Bounded recent transcript/tool-output checkpoint for automatic
+    #: continuations.  Not shown directly in the normal parent report; it is
+    #: fed into the next child brief when incompleteRetries allows a retry.
+    checkpoint: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -1063,6 +1090,7 @@ class SubagentManager:
             budget=record.budget,
             last_calls=list(record.last_calls),
             denied_tools=list(record.denied_tools),
+            checkpoint=record.checkpoint,
         )
 
     def _root_of(self, parent: Session) -> Session:
@@ -1203,6 +1231,8 @@ class SubagentManager:
             record.rounds_used = int(getattr(child, "rounds_used", 0) or 0)
             record.error = f"the subagent did not finish within {timeout:g}s"
         finally:
+            if not record.checkpoint:
+                record.checkpoint = _conversation_checkpoint(child)
             self.core.hub.unsubscribe(watcher)
             try:
                 await self.core.sessions.close(child.id)
@@ -1332,6 +1362,86 @@ def _call_summary(payload: dict[str, Any]) -> str:
     if len(rendered) > CALL_ARG_CHARS:
         rendered = rendered[:CALL_ARG_CHARS] + "…"
     return f"{name} {rendered}".strip()
+
+
+def _conversation_checkpoint(session: Session) -> str:
+    """A bounded, redacted checkpoint from the child's recent work.
+
+    The parent report should stay concise, but an automatic continuation needs
+    more than a final summary when the child spent its last round inside a tool
+    call.  This deliberately keeps the last assistant/tool-result exchanges and
+    redacts sensitive tool outputs.
+    """
+    lines: list[str] = []
+    messages = session.history.snapshot()[-CONTINUATION_TRANSCRIPT_MESSAGES:]
+    for message in messages:
+        if message.role == "assistant":
+            text = _message_content_text(message)
+            if text:
+                lines.append(f"assistant: {_clip(text, CONTINUATION_MESSAGE_CHARS)}")
+            for call in message.tool_calls or []:
+                if message.sensitive:
+                    args = REDACTED
+                else:
+                    try:
+                        args = json.dumps(call.arguments, ensure_ascii=False, sort_keys=True)
+                    except (TypeError, ValueError):
+                        args = str(call.arguments)
+                lines.append(
+                    "assistant called "
+                    f"{call.name}: {_clip_middle(args, CONTINUATION_MESSAGE_CHARS)}"
+                )
+            continue
+        if message.role == "tool":
+            text = REDACTED if message.sensitive else _message_content_text(message)
+            name = message.name or "tool"
+            lines.append(
+                f"tool {name} result: {_clip_middle(text, CONTINUATION_TOOL_RESULT_CHARS)}"
+            )
+    return _clip_tail(
+        "\n".join(line for line in lines if line.strip()), CONTINUATION_CHECKPOINT_CHARS
+    )
+
+
+def _message_content_text(message: ChatMessage) -> str:
+    content = REDACTED if message.sensitive else message.content
+    if isinstance(content, str):
+        return content.strip()
+    parts: list[str] = []
+    for block in content:
+        if isinstance(block, dict):
+            if "text" in block:
+                parts.append(str(block.get("text") or ""))
+            else:
+                # Binary image/audio blocks are not useful textual handoffs and
+                # their data URLs would crowd out the actual work checkpoint.
+                parts.append(f"[{block.get('type') or 'non-text'} content omitted]")
+        else:
+            parts.append(str(block))
+    return "\n".join(part for part in parts if part).strip()
+
+
+def _clip(text: str, limit: int) -> str:
+    text = str(text or "").strip()
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 14)].rstrip() + "\n…[truncated]"
+
+
+def _clip_tail(text: str, limit: int) -> str:
+    text = str(text or "").strip()
+    if len(text) <= limit:
+        return text
+    return "[truncated older checkpoint]\n" + text[-max(0, limit - 31) :].lstrip()
+
+
+def _clip_middle(text: str, limit: int) -> str:
+    text = str(text or "").strip()
+    if len(text) <= limit:
+        return text
+    head = max(1, (limit - 18) // 2)
+    tail = max(1, limit - 18 - head)
+    return f"{text[:head].rstrip()}\n…[truncated]…\n{text[-tail:].lstrip()}"
 
 
 def _last_assistant_text(session: Session) -> str:

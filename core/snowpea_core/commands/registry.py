@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from snowpea_core.providers.base import ChatMessage
 from snowpea_core.server import errors
 from snowpea_core.server.protocol import CommandInfo, CommandSource
 from snowpea_core.session import events
@@ -26,7 +28,36 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 #: block is stale the moment they finish (CORE-context-files).
 CONTEXT_WRITING_COMMANDS: frozenset[str] = frozenset({"init", "deepinit", "skill"})
 
+#: Keep command turns useful for future model context without letting verbose
+#: command output consume the next prompt.
+MAX_COMMAND_HISTORY_CHARS = 6000
+MAX_COMMAND_HISTORY_HEAD_CHARS = 3000
+MAX_COMMAND_HISTORY_TAIL_CHARS = 2600
+_SECRET_ASSIGNMENT = re.compile(
+    r"(?i)\b(api[_-]?key|token|access[_-]?token|refresh[_-]?token|id[_-]?token|"
+    r"oauth[_-]?token|password|passwd|secret|client[_-]?secret|authorization)"
+    r"(\s*(?:=|:)\s*|\s+)([^\s,;]+)"
+)
+_BEARER_TOKEN = re.compile(r"(?i)\b(bearer)\s+([a-z0-9._~+/=-]{8,})")
+_AUTHORIZATION_HEADER = re.compile(r"(?im)^(\s*authorization\s*:\s*).+$")
+
 log = logging.getLogger("snowpea.commands")
+
+
+def _redact_command_text(text: str) -> str:
+    """Mask secret-looking command args/output before persisting history."""
+    masked = _AUTHORIZATION_HEADER.sub(lambda m: f"{m.group(1)}***", text)
+    masked = _SECRET_ASSIGNMENT.sub(lambda m: f"{m.group(1)}{m.group(2)}***", masked)
+    return _BEARER_TOKEN.sub(lambda m: f"{m.group(1)} ***", masked)
+
+
+def _clip_command_history(text: str) -> str:
+    """Keep both the beginning and final status when a command is verbose."""
+    if len(text) <= MAX_COMMAND_HISTORY_CHARS:
+        return text
+    head = text[:MAX_COMMAND_HISTORY_HEAD_CHARS].rstrip()
+    tail = text[-MAX_COMMAND_HISTORY_TAIL_CHARS:].lstrip()
+    return f"{head}\n…[command output truncated]\n{tail}"
 
 
 @dataclass
@@ -37,16 +68,63 @@ class CommandContext:
     session: Session
     turn_id: str
     conn: Any = None
+    command_name: str = ""
+    command_args: str = ""
     #: Set by a command that ran a full agent turn itself (a skill command);
     #: the registry then leaves ``turn.done`` to the turn it started.
     handled_turn: bool = False
+    #: Assistant texts emitted by plain commands. Skill commands run the normal
+    #: agent loop, so their history is owned by that loop instead.
+    output_texts: list[str] = field(default_factory=list)
+    #: Optional concise handoff summary a command can provide for the next model
+    #: turn. This is especially important for workflow commands such as
+    #: ``/ralph`` whose detailed event stream is not otherwise in history.
+    history_summary: str | None = None
+    _history_recorded: bool = False
 
     async def emit(self, event: events.Event) -> None:
         await self.core.hub.emit_event(self.session.id, event)
 
     async def say(self, text: str) -> None:
         """Answer the user with a completed assistant message."""
+        self.output_texts.append(text)
         await self.emit(events.message_done(text))
+
+    def set_history_summary(self, text: str | None) -> None:
+        self.history_summary = text.strip() if text and text.strip() else None
+
+    async def record_history(self, *, reason: str = "complete") -> None:
+        """Persist a plain command turn into the conversation history.
+
+        Slash commands are real turns for surfaces, but commands that do not run
+        the agent loop used to leave no user/assistant messages behind. The next
+        ordinary prompt then had no main-context knowledge of a completed (or
+        failed) workflow such as ``/ralph``.
+        """
+        if self._history_recorded:
+            return
+        self._history_recorded = True
+        line = _redact_command_text(f"/{self.command_name} {self.command_args}".strip())
+        if line == "/":
+            line = "/" + (self.command_name or "command")
+        text = self.history_summary or "\n\n".join(
+            part for part in self.output_texts if part.strip()
+        )
+        text = _redact_command_text(text)
+        if not text.strip():
+            text = f"Command {line} finished with reason: {reason}."
+        text = _clip_command_history(text)
+        if reason != "complete" and not text.lower().startswith("command failed"):
+            text = f"Command finished with reason '{reason}'.\n\n{text}"
+        self.session.history.append(ChatMessage(role="user", content=line))
+        self.session.history.append(ChatMessage(role="assistant", content=text))
+        self.session.history.compact()
+        try:
+            from snowpea_core.session.manager import persist_history
+
+            await persist_history(self.core.store, self.session)
+        except Exception:  # noqa: BLE001 - command history is best-effort
+            log.debug("could not persist command history for %s", self.session.id, exc_info=True)
 
 
 CommandRun = Callable[[CommandContext, str], Awaitable[None]]
@@ -142,7 +220,14 @@ class CommandRegistry:
             )
             await core.hub.emit_event(session.id, events.turn_done(turn_id, "error"))
             return turn_id
-        ctx = CommandContext(core=core, session=session, turn_id=turn_id, conn=conn)
+        ctx = CommandContext(
+            core=core,
+            session=session,
+            turn_id=turn_id,
+            conn=conn,
+            command_name=name,
+            command_args=args,
+        )
         # A command is a turn: it ends with ``turn.done`` below, so it opens
         # with ``turn.started`` too, carrying the line that was typed. That
         # line is what ``session.list`` shows for a session used only through
@@ -154,10 +239,21 @@ class CommandRegistry:
         try:
             await command.run(ctx, args)
         except asyncio.CancelledError:
+            ctx.set_history_summary(
+                "Command was interrupted before it completed."
+                + (
+                    "\n\nPartial output:\n" + "\n\n".join(ctx.output_texts)
+                    if ctx.output_texts
+                    else ""
+                )
+            )
+            await ctx.record_history(reason="interrupted")
             await core.hub.emit_event(session.id, events.turn_done(turn_id, "interrupted"))
             raise
         except Exception as exc:  # noqa: BLE001 - a broken command ends its own turn
             log.exception("command /%s failed", name)
+            ctx.set_history_summary(f"Command failed: {type(exc).__name__}: {exc}")
+            await ctx.record_history(reason="error")
             await core.hub.emit_event(
                 session.id, events.error(errors.INTERNAL, f"{type(exc).__name__}: {exc}")
             )
@@ -174,6 +270,7 @@ class CommandRegistry:
 
                 invalidate_environment()
         if not ctx.handled_turn:
+            await ctx.record_history(reason="complete")
             await core.hub.emit_event(session.id, events.turn_done(turn_id, "complete"))
         return turn_id
 

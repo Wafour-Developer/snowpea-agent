@@ -45,6 +45,19 @@ describe("skill expansion in the reducer", () => {
     expect(state.pendingEchoes).toEqual([]);
   });
 
+  it("swallows a slash skill echo without expansion instead of duplicating the row", () => {
+    let state = reducer(initialState, {
+      type: "user/message",
+      text: "/ralph hello",
+      expectEvent: false,
+    });
+    state = apply(state, event(1, "message.user", { text: "/ralph hello" }));
+
+    expect(state.messages).toHaveLength(1);
+    expect(state.messages[0].text).toBe("/ralph hello");
+    expect(state.messages[0].awaitingFold).toBeUndefined();
+  });
+
   it("attaches expansion to a slash command drawn without a pending echo", () => {
     let state = reducer(initialState, {
       type: "user/message",

@@ -9,8 +9,8 @@ import type { SessionEvent } from "../src/rpc/sdk.js";
 import {
   AGENT_GLYPH,
   CURRENT_GLYPH,
-  MAX_AGENT_ROWS,
-  MAX_IDLE_ROWS,
+  FINISHED_AGENT_GRACE_MS,
+  MAX_COMPACT_AGENT_ROWS,
   agentStatusText,
   buildAgentRows,
   cells,
@@ -61,9 +61,9 @@ describe("buildAgentRows", () => {
       }),
     );
     const rows = buildAgentRows({ state, now: NOW });
-    expect(rows[1]).toMatchObject({ name: "executor", task: "add failing test" });
-    expect(rows[1].status).toBe("running · 12s");
-    expect(rows[2]).toMatchObject({ name: "reviewer", status: "queued" });
+    expect(rows[1]).toMatchObject({ name: "reviewer", status: "queued" });
+    expect(rows[2]).toMatchObject({ name: "executor", task: "add failing test" });
+    expect(rows[2].status).toBe("running · 12s");
   });
 
   it("reports the time and the tokens a finished delegate spent", () => {
@@ -135,11 +135,10 @@ describe("buildAgentRows", () => {
       known: known("one", "two", "three", "four", "five"),
       now: NOW,
     });
-    const collapsed = rows.find((row) => row.key === "idle-more");
-    expect(rows.filter((row) => row.status === "idle")).toHaveLength(MAX_IDLE_ROWS);
-    expect(collapsed?.name).toBe("2 more idle agents");
-    expect(collapsed?.task).toBe("- four, five");
-    expect(collapsed?.glyph).toBe(AGENT_GLYPH);
+    const collapsed = rows.find((row) => row.key === "overflow");
+    expect(rows.filter((row) => row.status === "idle")).toHaveLength(MAX_COMPACT_AGENT_ROWS);
+    expect(collapsed?.name).toBe("3 more");
+    expect(collapsed?.glyph).toBe("↓");
   });
 
   it("lists every idle agent once the panel is opened out", () => {
@@ -153,7 +152,7 @@ describe("buildAgentRows", () => {
     expect(rows.some((row) => row.key === "idle-more")).toBe(false);
   });
 
-  it("turns everything past six rows into an overflow line", () => {
+  it("turns everything past two non-current rows into a More line", () => {
     let state = initialState;
     for (let index = 0; index < 10; index += 1) {
       state = apply(
@@ -168,8 +167,102 @@ describe("buildAgentRows", () => {
       );
     }
     const rows = buildAgentRows({ state, now: NOW });
-    expect(rows).toHaveLength(MAX_AGENT_ROWS + 1);
-    expect(rows[rows.length - 1]).toMatchObject({ key: "overflow", name: "5 more" });
+    expect(rows).toHaveLength(1 + MAX_COMPACT_AGENT_ROWS + 1);
+    expect(rows[1]).toMatchObject({ name: "agent-9" });
+    expect(rows[2]).toMatchObject({ name: "agent-8" });
+    expect(rows[rows.length - 1]).toMatchObject({ key: "overflow", name: "8 more" });
+  });
+
+
+  it("moves old finished delegates into expanded history while compact keeps recent finishes", () => {
+    const state = apply(
+      initialState,
+      event(1, "subagent.spawn", {
+        agentId: "old",
+        name: "executor",
+        task: "old work",
+        status: "running",
+        at: NOW - 60_000,
+      }),
+      event(2, "subagent.done", {
+        agentId: "old",
+        status: "done",
+        summary: "finished earlier",
+        at: NOW - FINISHED_AGENT_GRACE_MS - 1,
+      }),
+      event(3, "subagent.spawn", {
+        agentId: "recent",
+        name: "reviewer",
+        task: "recent work",
+        status: "running",
+        at: NOW - 5000,
+      }),
+      event(4, "subagent.done", {
+        agentId: "recent",
+        status: "error",
+        summary: "failed just now",
+        at: NOW - 1000,
+      }),
+    );
+
+    const compact = buildAgentRows({ state, now: NOW });
+    expect(compact.map((row) => row.key)).toEqual(["current", "agent-recent", "overflow"]);
+    expect(compact[compact.length - 1]).toMatchObject({ name: "1 more" });
+
+    const expanded = buildAgentRows({ state, now: NOW, expanded: true });
+    expect(expanded.map((row) => row.key)).toEqual(["current", "agent-recent", "agent-old"]);
+  });
+
+
+  it("keeps the compact delegate panel to two newest rows plus more", () => {
+    let state = initialState;
+    for (let index = 0; index < 5; index += 1) {
+      state = apply(
+        state,
+        event(index + 1, "subagent.spawn", {
+          agentId: `a${index}`,
+          name: `agent-${index}`,
+          task: `work ${index}`,
+          status: "running",
+          at: NOW + index,
+        }),
+      );
+    }
+    const rows = buildAgentRows({ state, now: NOW + 10_000 });
+    expect(rows.map((row) => row.key)).toEqual(["current", "agent-a4", "agent-a3", "overflow"]);
+    expect(rows[rows.length - 1]).toMatchObject({ name: `${5 - MAX_COMPACT_AGENT_ROWS} more` });
+  });
+
+  it("drops finished delegates from compact view after the grace window", () => {
+    const state = apply(
+      initialState,
+      event(1, "subagent.spawn", {
+        agentId: "old",
+        name: "verifier",
+        task: "verify",
+        status: "running",
+        at: NOW - 60_000,
+      }),
+      event(2, "subagent.done", {
+        agentId: "old",
+        status: "done",
+        at: NOW - FINISHED_AGENT_GRACE_MS - 1,
+      }),
+    );
+    const compact = buildAgentRows({ state, now: NOW });
+    expect(compact.some((row) => row.key === "agent-old")).toBe(false);
+    expect(compact.some((row) => row.key === "overflow")).toBe(true);
+    expect(buildAgentRows({ state, now: NOW, expanded: true }).some((row) => row.key === "agent-old")).toBe(true);
+  });
+
+  it("dims failed delegates as finished rows", () => {
+    const state = apply(
+      initialState,
+      event(1, "subagent.spawn", { agentId: "bad", name: "executor", task: "fail", status: "running", at: NOW - 1000 }),
+      event(2, "subagent.done", { agentId: "bad", status: "error", at: NOW }),
+    );
+    const row = buildAgentRows({ state, now: NOW }).find((entry) => entry.key === "agent-bad");
+    expect(row).toMatchObject({ dim: true, glyph: "✗" });
   });
 
   it("shows team tasks as rows of their own", () => {

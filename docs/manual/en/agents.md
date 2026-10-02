@@ -224,6 +224,12 @@ Each subsequent stage receives all prior hand-offs verbatim, plus `git diff --st
 
 ## Tool round budgets and grace call
 
+Main-agent work continues automatically at a tool-round checkpoint while keeping
+the same conversation, up to three renewals. After that, an attended run asks
+whether to continue; an unattended run saves its partial report and stops.
+Stop and permission decisions still apply throughout. Budget-boundary answers
+also go through the normal completion verification and Stop hooks.
+
 To prevent runaway token spend, subagents and pipeline stages operate with role-specific tool round budgets.
 
 | Role / Agent | Default tool rounds |
@@ -237,7 +243,7 @@ To prevent runaway token spend, subagents and pipeline stages operate with role-
 
 ### Incomplete re-issue
 
-When a child stops with `reason: budget`, `timeout`, or an empty `error`, `SubagentManager.run` re-issues the task up to `agents.incompleteRetries` times (default **1**) with a continuation brief that includes the prior report and last tool calls. This is a **new child turn**, not an extension of the same round counter — the Hermes/OMC pattern of re-issuing incomplete work. Set `agents.incompleteRetries` to `0` to disable. Interrupted and permission-denied stops are never re-issued.
+When a child stops with `reason: budget` or a ran-child empty `error`, `SubagentManager.run` re-issues the task up to `agents.incompleteRetries` times (default **3**) with a continuation brief that includes the prior report, last tool calls, and a bounded checkpoint of recent tool outputs / work state. This is a **new child turn**, not an extension of the same round counter — the Hermes/OMC pattern of re-issuing incomplete work while preserving what the previous child actually learned. Set `agents.incompleteRetries` to `0` to disable. Interrupted, timeout, and permission-denied stops are never re-issued.
 
 ### Role assignment
 

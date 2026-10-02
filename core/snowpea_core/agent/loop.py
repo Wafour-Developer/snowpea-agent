@@ -118,6 +118,10 @@ BUDGET_CONTINUE_INSTRUCTION = (
     "You have another {n} tool rounds. Continue the work from where you stopped."
 )
 
+# A round cap is a checkpoint, not an implicit cancellation. Keep the same
+# history for a few checkpoints; an endless turn still has a bounded fallback.
+MAX_AUTO_BUDGET_CONTINUATIONS = 10
+
 #: Used as the report when the model answered the budget prompt with nothing.
 #: A delegation must never come back empty (CORE-subagent-budget).
 BUDGET_EMPTY_REPORT = "Stopped after {n} tool rounds without writing a report."
@@ -1152,6 +1156,7 @@ async def _drive(
     denials = 0
 
     rounds_left = config.max_tool_rounds
+    budget_continuations = 0
     session.rounds_used = 0
     # Times a Stop hook kept this turn going (capped per turn).
     stop_continuations = 0
@@ -1193,10 +1198,33 @@ async def _drive(
                         continuations=probe.continuations,
                     ),
                 )
+                unverified = (
+                    None if session.interrupt.is_set() else verify_gate.nudge(core, session)
+                )
+                if unverified:
+                    session.history.append(ChatMessage(role="user", content=unverified))
+                    await hub.emit_event(session.id, events.hook_continue(unverified, 0))
+                    rounds_left = config.max_tool_rounds
+                    continue
+                if stop_continuations < plugin_hooks.MAX_STOP_CONTINUATIONS:
+                    decision = await plugin_hooks.stop(
+                        core,
+                        session,
+                        last_message=assistant_text,
+                        active=stop_continuations > 0,
+                    )
+                    if decision.block and not session.interrupt.is_set():
+                        stop_continuations += 1
+                        session.pending_notices.append(f"Stop hook: {decision.reason}")
+                        await hub.emit_event(
+                            session.id,
+                            events.hook_continue(decision.reason, stop_continuations),
+                        )
+                        rounds_left = config.max_tool_rounds
+                        continue
                 await speak_reply(core, session, assistant_text)
                 await finish_turn(core, session, turn_id, "complete")
                 await nudge_after_turn(core, session, text)
-                await plugin_hooks.stop(core, session)
                 return "complete"
             await _budget_report(
                 core,
@@ -1211,12 +1239,22 @@ async def _drive(
                 # was still published, but nobody is waiting for a question.
                 await finish_turn(core, session, turn_id, "interrupted")
                 return "interrupted"
-            # Only a session someone is watching gets the choice; a delegated
-            # or scheduled turn has nobody to ask and ends on its report.
+            # Resume automatically while preserving the conversation. Only
+            # after the bounded automatic window does an attended turn ask.
+            automatic = budget_continuations < MAX_AUTO_BUDGET_CONTINUATIONS
             asks = not unattended and not session.is_subagent
-            if not asks or not await _ask_to_continue(core, session, config):
+            if not automatic and (not asks or not await _ask_to_continue(core, session, config)):
                 await finish_turn(core, session, turn_id, "budget")
                 return "budget"
+            budget_continuations += 1
+            if automatic:
+                await hub.emit_event(
+                    session.id,
+                    events.hook_continue(
+                        BUDGET_CONTINUE_INSTRUCTION.format(n=config.max_tool_rounds),
+                        budget_continuations,
+                    ),
+                )
             session.history.append(
                 ChatMessage(
                     role="user",

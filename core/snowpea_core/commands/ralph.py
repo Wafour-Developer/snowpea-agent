@@ -77,6 +77,10 @@ FALLBACK_REVIEWER = "reviewer"
 
 #: The word the reviewer has to say.
 APPROVAL_WORD = "APPROVE"
+_REVIEW_APPROVED = re.compile(r"^\s*(?:APPROVE|APPROVED)\b", re.IGNORECASE)
+_REVIEW_REJECTED = re.compile(
+    r"^\s*(?:REJECT|REJECTED|REVISE|CHANGES?\s+REQUESTED)\b", re.IGNORECASE
+)
 
 #: Ceiling on stories, so a chatty model cannot make the loop unbounded.
 MAX_STORIES = 8
@@ -312,9 +316,16 @@ def reply_language_for(ctx: CommandContext) -> str:
     return session_reply_language(ctx.core, ctx.session)
 
 
-def story_task(task: str, story: Story, language: str = "auto") -> str:
+def story_task(
+    task: str, story: Story, language: str = "auto", reviewer_feedback: str = ""
+) -> str:
     """The brief one implementation subagent receives."""
     acceptance = f"Acceptance criteria: {story.acceptance}\n" if story.acceptance else ""
+    if reviewer_feedback.strip():
+        acceptance += (
+            "Reviewer feedback to address before re-verifying: "
+            f"{reviewer_feedback.strip()}\n"
+        )
     verify = (
         "It must make these commands exit zero: " + "; ".join(story.verify) + "\n"
         if story.verify
@@ -510,6 +521,14 @@ def reviewer_agent(manager: Any, session: Any) -> str | None:
     return REVIEWER_AGENT if architect is not None else None
 
 
+def review_approved(text: str) -> bool:
+    """True only for an explicit positive reviewer verdict at the start."""
+    stripped = text.strip()
+    if _REVIEW_REJECTED.match(stripped):
+        return False
+    return bool(_REVIEW_APPROVED.match(stripped))
+
+
 async def review(ctx: CommandContext, task: str, stories: list[Story]) -> tuple[bool, str]:
     """Ask a reviewer subagent to sign the work off."""
     manager = get_manager(ctx.core)
@@ -524,7 +543,106 @@ async def review(ctx: CommandContext, task: str, stories: list[Story]) -> tuple[
     )
     result = await manager.run(ctx.session, brief, agent=reviewer)
     text = result.summary or result.error or ""
-    return (APPROVAL_WORD in text.upper()), text
+    return review_approved(text), text
+
+
+def history_summary(
+    task: str, stories: list[Story], outcome: str, detail: str = ""
+) -> str:
+    """Concise workflow handoff for the next ordinary model turn."""
+    rows = [
+        f"Ralph workflow finished with outcome: {outcome}.",
+        f"Task: {task}",
+        "Stories:",
+    ]
+    for story in stories:
+        status = "PASS" if story.passed else "FAIL" if story.note else "PENDING"
+        note = f" — {story.note}" if story.note else ""
+        rows.append(f"- {story.id} {story.title}: {status}{note}")
+    if detail.strip():
+        rows.extend(["", "Final detail:", detail.strip()])
+    rows.extend(["", f"State files: {STATE_DIR / PRD_NAME}, {STATE_DIR / PROGRESS_NAME}"])
+    return "\n".join(rows)
+
+
+async def _review_until_approved(
+    ctx: CommandContext,
+    task: str,
+    stories: list[Story],
+    *,
+    start_iteration: int,
+    max_iterations: int,
+) -> tuple[bool, str, int]:
+    """Run reviewer sign-off, repairing rejected feedback within the iteration cap."""
+    manager = get_manager(ctx.core)
+    limit = manager.limit_for(ctx.session)
+    language = reply_language_for(ctx)
+    iteration = start_iteration
+    approved, verdict = await review(ctx, task, stories)
+    append_progress(
+        ctx.session, ["", "## review", f"{'APPROVED' if approved else 'REJECTED'}: {verdict}"]
+    )
+    if approved:
+        return True, verdict, iteration
+
+    for story in stories:
+        story.passed = False
+        story.note = f"review rejected: {verdict}"
+    await _progress(ctx, iteration, stories)
+    while iteration < max_iterations:
+        batch = ready_stories(stories, max(1, limit))
+        if not batch:
+            verdict = "review feedback repair could not find an unblocked story to run"
+            break
+        iteration += 1
+        await ctx.say(
+            "ralph: reviewer requested changes; continuing with reviewer feedback "
+            f"(iteration {iteration}/{max_iterations})."
+        )
+        lines = ["", f"## iteration {iteration} (review feedback)"]
+        results = await asyncio.gather(
+            *(
+                manager.run(
+                    ctx.session,
+                    story_task(task, story, language, reviewer_feedback=verdict),
+                    prefer=("executor",),
+                )
+                for story in batch
+            ),
+            return_exceptions=True,
+        )
+        for story, result in zip(batch, results, strict=True):
+            if isinstance(result, BaseException):
+                story.note = f"subagent failed: {result}"
+                lines.append(f"- {story.id} {story.title}: {story.note}")
+                continue
+            if not result.ok:
+                story.note = f"subagent failed: {result.error or 'no reason given'}"
+                lines.append(f"- {story.id} {story.title}: {story.note}")
+                continue
+            passed, note = await verify_story(ctx, story)
+            story.passed = passed
+            story.note = note
+            lines.append(f"- {story.id} {story.title}: {'PASS' if passed else 'FAIL'} — {note}")
+        write_prd(ctx.session, task, stories, iteration)
+        append_progress(ctx.session, lines)
+        await ctx.say("\n".join([f"ralph iteration {iteration}:", *lines[2:]]))
+        await _progress(ctx, iteration, stories)
+        if not all(story.passed for story in stories):
+            verdict = "review feedback repair did not pass all stories"
+            continue
+        approved, verdict = await review(ctx, task, stories)
+        append_progress(
+            ctx.session,
+            ["", "## review", f"{'APPROVED' if approved else 'REJECTED'}: {verdict}"],
+        )
+        if approved:
+            return True, verdict, iteration
+        for story in stories:
+            story.passed = False
+            story.note = f"review rejected: {verdict}"
+        await _progress(ctx, iteration, stories)
+    return False, verdict, iteration
 
 
 #: An HTTP status a provider error names (``HTTP 400``, ``status 400``,
@@ -557,7 +675,7 @@ async def cmd_ralph(ctx: CommandContext, args: str) -> None:
         stories, fallback_reason = await build_prd(ctx, task)
     except Exception as exc:  # noqa: BLE001 - a bad PRD ends the command, not the daemon
         await _progress(ctx, 0, [], outcome="error")
-        await _fail(ctx, f"could not build a PRD for this task: {exc}")
+        await _fail(ctx, f"could not build a PRD for this task: {exc}", task=task)
         return
     if fallback_reason is not None:
         await ctx.say(
@@ -662,6 +780,8 @@ async def cmd_ralph(ctx: CommandContext, args: str) -> None:
                     ctx,
                     f"stopped after iteration {iteration}: every subagent failed with an error "
                     f"retrying will not fix: {reason}",
+                    task=task,
+                    stories=stories,
                 )
                 return
         previous_errors = errors_now
@@ -675,6 +795,8 @@ async def cmd_ralph(ctx: CommandContext, args: str) -> None:
                 ctx,
                 f"stopped after iteration {iteration}: a check failed the same way twice in a "
                 f"row: {reason}",
+                task=task,
+                stories=stories,
             )
             return
 
@@ -688,20 +810,28 @@ async def cmd_ralph(ctx: CommandContext, args: str) -> None:
             "ralph stopped after "
             f"{max_iterations} iterations with {len(failing)} story/stories still failing: "
             + ", ".join(story.id for story in failing),
+            task=task,
+            stories=stories,
         )
         return
 
-    approved, verdict = await review(ctx, task, stories)
-    append_progress(
-        ctx.session, ["", "## review", f"{'APPROVED' if approved else 'REJECTED'}: {verdict}"]
+    approved, verdict, last = await _review_until_approved(
+        ctx, task, stories, start_iteration=last, max_iterations=max_iterations
     )
     if not approved:
         await _progress(ctx, last, stories, outcome="rejected")
-        await _fail(ctx, f"the reviewer did not approve the work:\n{verdict}")
+        await _fail(
+            ctx,
+            "the reviewer did not approve the work after repair attempts:\n" + verdict,
+            task=task,
+            stories=stories,
+        )
         return
-    await ctx.say(
-        f"ralph: all {len(stories)} stories pass and the reviewer approved.\n{verdict}".strip()
-    )
+    message = (
+        f"ralph: all {len(stories)} stories pass and the reviewer approved.\n{verdict}"
+    ).strip()
+    ctx.set_history_summary(history_summary(task, stories, "complete", verdict))
+    await ctx.say(message)
     await _progress(ctx, last, stories, outcome="complete")
 
 
@@ -725,8 +855,17 @@ async def _progress(
     await ctx.emit(events.command_progress("ralph", iteration, progress_stories(stories), outcome))
 
 
-async def _fail(ctx: CommandContext, message: str) -> None:
+async def _fail(
+    ctx: CommandContext,
+    message: str,
+    *,
+    task: str = "",
+    stories: list[Story] | None = None,
+) -> None:
     """End the ralph turn unsuccessfully; only approval earns ``complete``."""
+    if task or stories:
+        ctx.set_history_summary(history_summary(task, stories or [], "error", message))
+        await ctx.record_history(reason="error")
     await ctx.say(f"ralph: {message}")
     await ctx.emit(events.error(errors.INTERNAL, message))
     ctx.handled_turn = True
