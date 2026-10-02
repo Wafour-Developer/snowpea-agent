@@ -35835,6 +35835,15 @@ function applySessionEvent(state, event, options = {}) {
       }
       const merged = attachExpansion(base.messages);
       if (merged) return { ...base, messages: settleFolds(merged) };
+      const slashEcho = base.messages.findIndex(
+        (entry) => entry.role === "user" && entry.text === text2 && entry.awaitingFold
+      );
+      if (slashEcho !== -1) {
+        const messages = base.messages.slice();
+        const { awaitingFold: _, ...rest } = messages[slashEcho];
+        messages[slashEcho] = rest;
+        return { ...base, messages };
+      }
       const files = Array.isArray(payload.attachments) ? payload.attachments.map((entry) => ({ name: String(entry?.name ?? "") })).filter((entry) => entry.name.length > 0) : [];
       const message = {
         id: nextId("msg"),
@@ -37556,7 +37565,7 @@ function chipLabel(attachment) {
 }
 
 // src/version.ts
-var TUI_VERSION = "0.2.21";
+var TUI_VERSION = "0.2.22";
 
 // src/layout/transcript.ts
 var TOOL_OUTPUT_LINES = 12;
@@ -38343,8 +38352,8 @@ function groupCalls(calls) {
 }
 
 // src/layout/agents.ts
-var MAX_AGENT_ROWS = 6;
-var MAX_IDLE_ROWS = 3;
+var MAX_COMPACT_AGENT_ROWS = 2;
+var FINISHED_AGENT_GRACE_MS = 1e4;
 var CURRENT_GLYPH = "\u25CF";
 var AGENT_GLYPH = "\u25EF";
 var ORIGIN_COLOR = {
@@ -38406,8 +38415,19 @@ function subagentRow(entry, now, origin) {
     task: entry.title || entry.task || entry.lastText || "",
     status: agentStatusText(entry, now),
     origin,
-    dim: entry.status === "done"
+    dim: entry.status === "done" || entry.status === "error"
   };
+}
+function activityTime(entry) {
+  return entry.endedAt ?? entry.startedAt ?? 0;
+}
+function recentFirst(entries, time) {
+  return entries.map((entry, index) => ({ entry, index })).sort((a, b) => time(b.entry) - time(a.entry) || b.index - a.index).map(({ entry }) => entry);
+}
+function isCompactVisible(entry, now) {
+  if (entry.status === "running" || entry.status === "queued") return true;
+  if (!entry.endedAt) return true;
+  return now - entry.endedAt <= FINISHED_AGENT_GRACE_MS;
 }
 function teamRow(task, origin) {
   const running = task.status === "running" || task.status === "claimed";
@@ -38453,15 +38473,19 @@ function buildAgentRows({
       dim: false
     }
   ];
-  const live = state.subagents.map(
+  const orderedSubagents = recentFirst(state.subagents, activityTime);
+  const compactSubagents = orderedSubagents.filter((entry) => isCompactVisible(entry, now));
+  const teamRows = recentFirst(state.teamTasks, (task) => Number(task.taskId) || 0).map(
+    (task) => teamRow(task, rowOrigin(task.assignee || task.teamId || "team", onTeam, named))
+  ).filter((row) => !row.dim);
+  const allLive = orderedSubagents.map(
     (entry) => subagentRow(entry, now, rowOrigin(entry.name, onTeam, named))
   );
-  rows.push(...live.filter((row) => !row.dim));
-  rows.push(
-    ...state.teamTasks.map(
-      (task) => teamRow(task, rowOrigin(task.assignee || task.teamId || "team", onTeam, named))
-    ).filter((row) => !row.dim)
+  const compactLive = compactSubagents.map(
+    (entry) => subagentRow(entry, now, rowOrigin(entry.name, onTeam, named))
   );
+  const allWorkingRows = [...allLive, ...teamRows];
+  const compactWorkingRows = [...compactLive, ...teamRows];
   const busy = new Set(state.subagents.map((entry) => entry.name).filter(Boolean));
   const idle = known.filter((agent) => agent.kind !== "subagent" && !busy.has(agent.name)).filter((agent) => !onTeam || onTeam.has(agent.name) || agent.kind === "agent").map((agent) => ({
     key: `idle-${agent.name}`,
@@ -38472,32 +38496,26 @@ function buildAgentRows({
     origin: rowOrigin(agent.name, onTeam, named),
     dim: true
   }));
-  if (expanded || idle.length <= MAX_IDLE_ROWS) {
-    rows.push(...idle);
-  } else {
-    rows.push(...idle.slice(0, MAX_IDLE_ROWS));
-    const hidden = idle.slice(MAX_IDLE_ROWS);
+  if (expanded) {
+    rows.push(...allWorkingRows, ...idle);
+    return rows;
+  }
+  const compactRows = compactWorkingRows.length > 0 ? compactWorkingRows : idle;
+  const expandableCount = (allWorkingRows.length > 0 ? allWorkingRows.length : idle.length) + (allWorkingRows.length > 0 ? idle.length : 0);
+  const shownCompactRows = compactRows.slice(0, MAX_COMPACT_AGENT_ROWS);
+  rows.push(...shownCompactRows);
+  const compactHidden = Math.max(0, expandableCount - shownCompactRows.length);
+  if (compactHidden > 0) {
     rows.push({
-      key: "idle-more",
-      glyph: AGENT_GLYPH,
-      name: `${hidden.length} more idle agent${hidden.length === 1 ? "" : "s"}`,
-      task: `- ${hidden.map((agent) => agent.name).join(", ")}`,
+      key: "overflow",
+      glyph: "\u2193",
+      name: `${compactHidden} more`,
+      task: "",
       status: "",
       dim: true
     });
   }
-  rows.push(...live.filter((row) => row.dim));
-  if (expanded || rows.length <= MAX_AGENT_ROWS) return rows;
-  const shown = rows.slice(0, MAX_AGENT_ROWS);
-  shown.push({
-    key: "overflow",
-    glyph: "\u2193",
-    name: `${rows.length - MAX_AGENT_ROWS} more`,
-    task: "",
-    status: "",
-    dim: true
-  });
-  return shown;
+  return rows;
 }
 function cells(text2) {
   return textWidth(text2);
@@ -42101,6 +42119,14 @@ function App2({
   (0, import_react45.useEffect)(() => {
     setFocus((current2) => clampFocus(current2, agentRowCount));
   }, [agentRowCount]);
+  const previousFocusRef = (0, import_react45.useRef)(INPUT_FOCUS);
+  (0, import_react45.useEffect)(() => {
+    const previous = previousFocusRef.current;
+    if (agentsExpanded && previous.zone !== "input" && focus.zone === "input") {
+      setAgentsExpanded(false);
+    }
+    previousFocusRef.current = focus;
+  }, [agentsExpanded, focus]);
   const openAgentEntry = openAgent ? state.subagents.find((agent) => agent.sessionId === openAgent.sessionId) : void 0;
   const agentLines = (0, import_react45.useMemo)(
     () => openAgent && state.children[openAgent.sessionId] ? transcriptLines(state.children[openAgent.sessionId], contentWidth - 4) : [],
