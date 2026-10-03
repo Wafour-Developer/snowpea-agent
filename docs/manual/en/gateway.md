@@ -86,7 +86,7 @@ Which session a chat is in survives a daemon restart. The choice is one line in 
 
 ## Typing and progress
 
-While a turn runs the chat shows the platform's "typing…" hint, refreshed every few seconds and paused whenever an approval or a question is waiting on you — the agent is not working while you decide. On the turn's first tool call one message goes out (`⏳ shell npm test`), and every later tool call *edits* that same message rather than sending another. At the end it settles on `✓ 4 tool calls · 1m 12s`, or `✗` when the turn failed or was stopped.
+While a turn runs the chat shows the platform's "typing…" hint, refreshed every few seconds and paused whenever an approval or a question is waiting on you — the agent is not working while you decide. On the turn's first tool call one message goes out (`⏳ shell npm test`), and every later tool call *edits* that same message rather than sending another. At the end it settles on `✓ 4 tool calls · 1m 12s`, or `✗` when the turn failed or was stopped. Updates are coalesced about once per second, including a trailing refresh for fast results. The same progress message retains recent structured tool inputs/results and subagent activity, including child tool calls/results, agent identity and terminal reports. Long output is bounded and credentials/sensitive results are hidden; the complete transcript remains in the session.
 
 A platform that cannot edit a message gets no progress message at all, because without editing the feature is a stream of chat spam. Slack shows no typing hint either: bot tokens cannot send one, so a Slack chat gets the progress message and nothing else. The progress message still edits itself in place there.
 

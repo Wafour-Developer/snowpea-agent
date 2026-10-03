@@ -171,16 +171,17 @@ class FakeProvider:
                     arguments=dict(call.get("arguments", {})),
                 ),
             )
-        in_tokens = _prompt_chars(messages) // 4
-        reasoning_tokens = 0 if thinking == "off" else int(step.get("reasoningTokens") or 0)
-        yield StreamEvent(
-            kind="usage",
-            usage=Usage(
-                input_tokens=in_tokens,
-                output_tokens=len(text) // 4 + reasoning_tokens,
-                reasoning_tokens=reasoning_tokens,
-            ),
-        )
+        if step.get("usage", True) is not False:
+            in_tokens = _prompt_chars(messages) // 4
+            reasoning_tokens = 0 if thinking == "off" else int(step.get("reasoningTokens") or 0)
+            yield StreamEvent(
+                kind="usage",
+                usage=Usage(
+                    input_tokens=in_tokens,
+                    output_tokens=len(text) // 4 + reasoning_tokens,
+                    reasoning_tokens=reasoning_tokens,
+                ),
+            )
         scripted = step.get("stopReason")
         if scripted:
             yield StreamEvent(kind="done", stop_reason=STOP_REASONS.get(str(scripted), "end_turn"))

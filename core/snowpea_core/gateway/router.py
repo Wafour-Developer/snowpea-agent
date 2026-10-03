@@ -29,6 +29,7 @@ import os
 import sqlite3
 import threading
 import uuid
+from builtins import list as builtin_list
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -267,6 +268,15 @@ class GatewayConnection:
         #: A shared question whose "Other" was pressed: the next line the
         #: approver types is its answer instead of a prompt.
         self.awaiting_text = False
+        #: Child sessions this chat should watch for real tool calls/results.
+        #: The parent session still owns the chat; child message.done events are
+        #: not sent as replies.
+        self.child_sessions: dict[str, str] = {}
+        #: True after this connection is subscribed globally.  EventHub cannot
+        #: unsubscribe one child at a time, so child discovery promotes the one
+        #: parent subscription to a single global subscription and this class
+        #: filters back down to parent+known-child events.
+        self.global_subscription = False
 
     async def notify(self, method: str, params: dict[str, Any]) -> None:
         if self.closed:
@@ -288,11 +298,35 @@ class GatewayConnection:
         # resumed transcript can show it, and echoing it would send the person
         # their own words back.  The turn and tool events are not messages at
         # all — they drive the typing hint and the one progress line.
-        if params.get("sessionId") != self.session_id:
+        event_session_id = str(params.get("sessionId") or "")
+        child_agent = self.child_sessions.get(event_session_id)
+        if event_session_id != self.session_id and not child_agent:
+            child_agent = self._adopt_known_child(event_session_id)
+        if event_session_id != self.session_id and not child_agent:
             return
         kind = params.get("kind")
         payload = params.get("payload") or {}
+        if child_agent:
+            if kind == "tool.call":
+                await self.activity.subagent_tool_call(
+                    child_agent,
+                    str(payload.get("name") or "?"),
+                    dict(payload.get("args") or {}),
+                )
+            elif kind == "tool.result":
+                await self.activity.subagent_tool_result(
+                    child_agent,
+                    str(payload.get("name") or "?"),
+                    dict(payload),
+                )
+            elif kind in {"subagent.spawn", "subagent.update", "subagent.done"}:
+                if kind != "subagent.done":
+                    self._watch_child_session(payload, parent_label=child_agent)
+                await self.activity.subagent_event(kind, dict(payload))
+            return
         if kind == "turn.started":
+            self.child_sessions.clear()
+            self._restore_parent_subscription()
             await self.activity.turn_started()
             return
         if kind == "tool.call":
@@ -300,14 +334,96 @@ class GatewayConnection:
                 str(payload.get("name") or "?"), dict(payload.get("args") or {})
             )
             return
+        if kind == "tool.result":
+            await self.activity.tool_result(
+                str(payload.get("name") or "?"), dict(payload)
+            )
+            return
+        if kind in {"subagent.spawn", "subagent.update", "subagent.done"}:
+            if kind != "subagent.done":
+                self._watch_child_session(payload)
+            await self.activity.subagent_event(kind, dict(payload))
+            return
         if kind == "turn.done":
             await self.activity.turn_done(str(payload.get("reason") or "complete"))
+            self.child_sessions.clear()
+            self._restore_parent_subscription()
             return
         if kind != "message.done":
             return
         text = str(payload.get("text") or "").strip()
         if text:
             await self.router.send(self.binding, self.channel_id, text)
+
+    def _watch_child_session(self, payload: dict[str, Any], *, parent_label: str = "") -> None:
+        """Promote to one global subscription once a child session is known.
+
+        ``EventHub.unsubscribe(conn)`` is all-or-nothing.  Per-child
+        subscriptions would therefore accumulate until the chat switched
+        sessions.  A single global subscription avoids growth; this connection
+        filters events back down to its parent and known child sessions.
+        """
+        session_id = str(payload.get("sessionId") or "")
+        label = str(payload.get("name") or payload.get("agentId") or "subagent")
+        title = str(payload.get("title") or "").strip()
+        if title:
+            label = f"{label} · {title}"
+        if parent_label:
+            label = f"{parent_label} › {label}"
+        if session_id:
+            self.child_sessions[session_id] = label
+        self._promote_global_subscription()
+
+    def _adopt_known_child(self, session_id: str) -> str:
+        """Recognise a globally observed child by walking its parent chain."""
+        if not session_id or not self.session_id:
+            return ""
+        core = getattr(self.router, "core", None)
+        sessions = getattr(core, "sessions", None)
+        get = getattr(sessions, "get", None)
+        if get is None:
+            return ""
+        try:
+            session = get(session_id)
+        except Exception:  # noqa: BLE001 - routing must not break on store state
+            return ""
+        if session is None:
+            return ""
+        parent_id = getattr(session, "parent_session_id", None)
+        parent_label = ""
+        if parent_id == self.session_id:
+            parent_label = ""
+        elif parent_id in self.child_sessions:
+            parent_label = self.child_sessions[parent_id]
+        else:
+            return ""
+        label = str(getattr(session, "agent", None) or session_id)
+        if parent_label:
+            label = f"{parent_label} › {label}"
+        self.child_sessions[session_id] = label
+        return label
+
+    def _promote_global_subscription(self) -> None:
+        if self.global_subscription:
+            return
+        core = getattr(self.router, "core", None)
+        hub = getattr(core, "hub", None)
+        if hub is None:
+            return
+        hub.unsubscribe(self)
+        hub.subscribe(self, None)
+        self.global_subscription = True
+
+    def _restore_parent_subscription(self) -> None:
+        if not self.global_subscription or not self.session_id:
+            return
+        core = getattr(self.router, "core", None)
+        hub = getattr(core, "hub", None)
+        if hub is None:
+            return
+        hub.unsubscribe(self)
+        hub.subscribe(self, self.session_id)
+        self.global_subscription = False
 
     async def _approval_pending(self, params: dict[str, Any]) -> None:
         request = params.get("request") or {}
@@ -517,14 +633,14 @@ class GatewayRouter:
         if adapter is not None:
             with contextlib.suppress(Exception):
                 await adapter.stop()
-        for key in [key for key in self._conns if key[0] == binding_id]:
-            conn = self._conns.pop(key)
+        for conn_key in [key for key in self._conns if key[0] == binding_id]:
+            conn = self._conns.pop(conn_key)
             conn.closed = True
             await conn.activity.cancel()
             if self.core is not None:
                 self.core.hub.unsubscribe(conn)
-        for key in [key for key in self._shared if key[0] == binding_id]:
-            del self._shared[key]
+        for shared_key in [key for key in self._shared if key[0] == binding_id]:
+            del self._shared[shared_key]
         self._last_chat.pop(binding_id, None)
         if self._store is not None:
             self._store.delete(binding_id)
@@ -885,7 +1001,7 @@ class GatewayRouter:
         binding: Binding,
         message: InboundMessage,
         conn: GatewayConnection,
-        selected: list[str],
+        selected: builtin_list[str],
         text: str | None,
     ) -> None:
         """Record one answer, then post the next question or submit the batch."""
@@ -1012,7 +1128,7 @@ class GatewayRouter:
         binding: Binding,
         message: InboundMessage,
         request_id: str,
-        answers: list[dict[str, Any]],
+        answers: builtin_list[dict[str, Any]],
     ) -> None:
         if self.core is None:
             return
@@ -1077,6 +1193,8 @@ class GatewayRouter:
         if session is None:
             session = await self._create_session(binding, channel_id)
         conn.session_id = session.id
+        conn.child_sessions.clear()
+        conn.global_subscription = False
         self._conns[key] = conn
         self.core.hub.subscribe(conn, session.id)
         self.chats.remember(binding.id, channel_id, session.id)
@@ -1121,9 +1239,12 @@ class GatewayRouter:
             self._conns[key] = conn
         elif conn.session_id != session.id:
             self.core.hub.unsubscribe(conn)
+            conn.child_sessions.clear()
+            conn.global_subscription = False
             await conn.activity.cancel()
         conn.session_id = session.id
-        self.core.hub.subscribe(conn, session.id)
+        if not conn.global_subscription:
+            self.core.hub.subscribe(conn, session.id)
         self.chats.remember(binding.id, channel_id, session.id)
         return conn
 

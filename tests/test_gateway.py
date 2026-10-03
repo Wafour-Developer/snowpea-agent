@@ -8,6 +8,7 @@ request building and response parsing are exercised, only the socket is fake.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from pathlib import Path
@@ -16,8 +17,9 @@ from typing import Any
 import aiohttp
 import httpx
 import pytest
-from _support import connect
+from _support import connect, env_vars
 
+from snowpea_core.gateway import activity as gateway_activity
 from snowpea_core.gateway.base import (
     Button,
     GatewayError,
@@ -37,11 +39,10 @@ from snowpea_core.gateway.router import Binding, GatewayConnection
 from snowpea_core.gateway.slack import SlackAdapter, parse_envelope, slack_manifest
 from snowpea_core.gateway.telegram import TelegramAdapter, inline_keyboard, parse_update
 from snowpea_core.server.app_server import Daemon
+from snowpea_core.session import events
 
 FIXTURE = Path(__file__).parent / "fixtures" / "providers" / "fake" / "gateway.json"
 TIMEOUT = 10.0
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -253,9 +254,7 @@ async def test_only_the_answer_is_forwarded_to_the_chat() -> None:
     sent: list[str] = []
 
     class _Router:
-        async def send(
-            self, _binding: Any, _channel: str, text: str, buttons: Any = None
-        ) -> str:
+        async def send(self, _binding: Any, _channel: str, text: str, buttons: Any = None) -> str:
             sent.append(text)
             return "m1"
 
@@ -272,6 +271,535 @@ async def test_only_the_answer_is_forwarded_to_the_chat() -> None:
     assert sent == []
     await conn.notify("session.event", event("message.done", text="the answer"))
     assert sent == ["the answer"]
+
+
+async def test_gateway_progress_details_tool_results_and_subagents() -> None:
+    """A messenger sees readable tool/result/subagent details in one edited line."""
+    sent: list[str] = []
+    edits: list[str] = []
+
+    class _Adapter:
+        async def edit(self, _channel: str, _message_id: str, text: str) -> None:
+            edits.append(text)
+
+    class _Router:
+        def gateway_flag(self, _name: str) -> bool:
+            return True
+
+        def adapter(self, _binding_id: str) -> Any:
+            return _Adapter()
+
+        async def send(self, _binding: Any, _channel: str, text: str, buttons: Any = None) -> str:
+            sent.append(text)
+            return "m1"
+
+    binding = Binding(id="gw-1", platform="telegram", credentials_ref="tg", channel_id="c1")
+    conn = GatewayConnection(_Router(), binding, "c1")  # type: ignore[arg-type]
+    conn.session_id = "s-1"
+
+    def event(kind: str, **payload: Any) -> dict[str, Any]:
+        return {"sessionId": "s-1", "seq": 1, "kind": kind, "payload": payload}
+
+    await conn.notify("session.event", event("turn.started"))
+    tool_kind, tool_payload = events.tool_call(
+        "call-1",
+        "shell",
+        {
+            "command": (
+                "pytest tests/test_gateway.py --header 'Authorization: Bearer sk-secret-token'"
+            ),
+            "api_key": "private-secret",
+        },
+    )
+    await conn.notify("session.event", event(tool_kind, **tool_payload))
+    result_kind, result_payload = events.tool_result(
+        "call-1", "shell", True, "2 passed\nAuthorization: Bearer result-secret-token"
+    )
+    await conn.notify("session.event", event(result_kind, **result_payload))
+    await conn.notify(
+        "session.event",
+        event(
+            "subagent.spawn",
+            agentId="agent-1",
+            name="researcher",
+            title="check gateway formatting token=title-secret",
+            task="inspect telegram output password=task-secret",
+            status="running",
+            sessionId="child-1",
+        ),
+    )
+    await conn.notify(
+        "session.event",
+        event(
+            "subagent.done",
+            agentId="agent-1",
+            name="researcher",
+            title="check gateway formatting token=title-secret",
+            ok=True,
+            summary="found readable details Authorization: Bearer summary-secret-token",
+            status="done",
+            sessionId="child-1",
+            rounds=2,
+            budget=5,
+        ),
+    )
+    await conn.notify("session.event", event("turn.done", reason="complete"))
+
+    assert len(sent) == 1
+    shown = "\n---\n".join([*sent, *edits])
+    assert "Tool call" in shown and "shell" in shown
+    assert "command: pytest tests/test_gateway.py" in shown
+    assert "private-secret" not in shown and "api_key: <redacted>" in shown
+    assert "sk-secret-token" not in shown and "Authorization: ***" in shown
+    assert "Tool result ✓" in shown and "2 passed" in shown
+    assert "result-secret-token" not in shown
+    assert "Subagent ✓ researcher" in shown
+    assert "agent-1" in shown and "child-1" in shown
+    assert "found readable details" in shown
+    assert "title-secret" not in shown and "task-secret" not in shown
+    assert "summary-secret-token" not in shown
+    assert "rounds: 2/5" in shown
+
+
+async def test_gateway_progress_trailing_edit_shows_fast_multiline_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fast tool results are coalesced into the one progress message before turn.done."""
+    sent: list[str] = []
+    edits: list[str] = []
+    block_edit = False
+    edit_started = asyncio.Event()
+    release_edit = asyncio.Event()
+    monkeypatch.setattr(gateway_activity, "PROGRESS_EDIT_INTERVAL_SEC", 0.05)
+
+    class _Adapter:
+        async def edit(self, _channel: str, _message_id: str, text: str) -> None:
+            edits.append(text)
+            if block_edit:
+                edit_started.set()
+                await release_edit.wait()
+
+    class _Router:
+        def gateway_flag(self, _name: str) -> bool:
+            return True
+
+        def adapter(self, _binding_id: str) -> Any:
+            return _Adapter()
+
+        async def send(self, _binding: Any, _channel: str, text: str, buttons: Any = None) -> str:
+            sent.append(text)
+            return "m1"
+
+    binding = Binding(id="gw-1", platform="telegram", credentials_ref="tg", channel_id="c1")
+    conn = GatewayConnection(_Router(), binding, "c1")  # type: ignore[arg-type]
+    conn.session_id = "s-1"
+
+    def event(kind: str, **payload: Any) -> dict[str, Any]:
+        return {"sessionId": "s-1", "seq": 1, "kind": kind, "payload": payload}
+
+    await conn.notify("session.event", event("turn.started"))
+    await conn.notify(
+        "session.event",
+        event("tool.call", callId="call-1", name="shell", args={"command": "echo lines"}),
+    )
+    await conn.notify(
+        "session.event",
+        event(
+            "tool.result",
+            callId="call-1",
+            name="shell",
+            ok=True,
+            output="first line\nsecond line\nthird line\nfourth line\nfifth line\nlast status: ok",
+        ),
+    )
+
+    assert len(sent) == 1
+    assert edits == []
+    await asyncio.sleep(0.08)
+    assert edits
+    assert "Tool result ✓: shell" in edits[-1]
+    assert "output:\n    first line\n    second line\n    third line" in edits[-1]
+    assert "    …\n    last status: ok" in edits[-1]
+
+    block_edit = True
+    conn.activity._last_edit = gateway_activity.time.monotonic()
+    await conn.notify(
+        "session.event",
+        event(
+            "tool.result",
+            callId="call-2",
+            name="shell",
+            ok=True,
+            output="before slow platform edit",
+        ),
+    )
+    await asyncio.wait_for(edit_started.wait(), timeout=1)
+    await conn.notify(
+        "session.event",
+        event(
+            "tool.result",
+            callId="call-3",
+            name="shell",
+            ok=False,
+            output="late evidence during edit: expected 2, got 1",
+        ),
+    )
+    block_edit = False
+    release_edit.set()
+    await asyncio.sleep(0.12)
+    assert "late evidence during edit: expected 2, got 1" in edits[-1]
+
+    await conn.notify("session.event", event("turn.done", reason="complete"))
+    final_edit_count = len(edits)
+    await asyncio.sleep(0.08)
+    assert len(edits) == final_edit_count
+
+
+async def test_gateway_progress_render_keeps_heading_with_huge_detail() -> None:
+    """Oversized first progress messages keep attribution and stay within adapter bounds."""
+    sent: list[str] = []
+    edits: list[str] = []
+
+    class _Adapter:
+        async def edit(self, _channel: str, _message_id: str, text: str) -> None:
+            edits.append(text)
+
+    class _Router:
+        def gateway_flag(self, _name: str) -> bool:
+            return True
+
+        def adapter(self, _binding_id: str) -> Any:
+            return _Adapter()
+
+        async def send(self, _binding: Any, _channel: str, text: str, buttons: Any = None) -> str:
+            sent.append(text)
+            return "m1"
+
+    binding = Binding(id="gw-1", platform="telegram", credentials_ref="tg", channel_id="c1")
+    conn = GatewayConnection(_Router(), binding, "c1")  # type: ignore[arg-type]
+    conn.session_id = "s-1"
+    huge_title = "token=headline-private title-" + "T" * 4000
+    huge_output = "first evidence\n" + ("middle evidence\n" * 300) + "last status: ok"
+
+    def event(kind: str, **payload: Any) -> dict[str, Any]:
+        return {"sessionId": "s-1", "seq": 1, "kind": kind, "payload": payload}
+
+    await conn.notify("session.event", event("turn.started"))
+    await conn.notify(
+        "session.event",
+        event(
+            "subagent.update",
+            agentId="agent-huge",
+            name="debugger",
+            title=huge_title,
+            status="running",
+            lastText=huge_output,
+            sessionId="child-huge",
+        ),
+    )
+
+    assert len(sent) == 1
+    shown = sent[0]
+    assert len(shown) <= gateway_activity.DETAIL_MAX
+    assert "Subagent update: debugger" in shown
+    assert "agent-huge" in shown
+    assert "headline-private" not in shown
+    assert "… detail truncated …" in shown
+    assert "T" * 1000 not in shown
+    assert len(edits) == 0
+
+
+async def test_gateway_watches_child_session_tool_events_without_forwarding_child_answer() -> None:
+    """Subagent real tool events are readable even though child answers stay private."""
+    sent: list[str] = []
+    edits: list[str] = []
+    subscriptions: list[tuple[Any, str | None]] = []
+
+    class _Adapter:
+        async def edit(self, _channel: str, _message_id: str, text: str) -> None:
+            edits.append(text)
+
+    class _Hub:
+        def subscribe(self, conn: Any, session_id: str | None = None) -> None:
+            subscriptions.append((conn, session_id))
+
+        def unsubscribe(self, conn: Any) -> None:
+            subscriptions[:] = [entry for entry in subscriptions if entry[0] is not conn]
+
+    class _Core:
+        hub = _Hub()
+
+    class _Router:
+        core = _Core()
+
+        def gateway_flag(self, _name: str) -> bool:
+            return True
+
+        def adapter(self, _binding_id: str) -> Any:
+            return _Adapter()
+
+        async def send(self, _binding: Any, _channel: str, text: str, buttons: Any = None) -> str:
+            sent.append(text)
+            return "m1"
+
+    binding = Binding(id="gw-1", platform="telegram", credentials_ref="tg", channel_id="c1")
+    conn = GatewayConnection(_Router(), binding, "c1")  # type: ignore[arg-type]
+    conn.session_id = "parent-1"
+
+    def event(session_id: str, kind: str, **payload: Any) -> dict[str, Any]:
+        return {"sessionId": session_id, "seq": 1, "kind": kind, "payload": payload}
+
+    await conn.notify("session.event", event("parent-1", "turn.started"))
+    await conn.notify(
+        "session.event",
+        event(
+            "parent-1",
+            "subagent.update",
+            agentId="agent-3",
+            name="researcher",
+            title="inspect child tools",
+            status="running",
+            sessionId="child-3",
+        ),
+    )
+    assert subscriptions[-1][1] is None
+    assert conn.global_subscription is True
+    assert subscriptions.count((conn, None)) == 1
+
+    await conn.notify(
+        "session.event",
+        event(
+            "child-3",
+            "subagent.update",
+            agentId="agent-4",
+            name="debugger",
+            title="nested",
+            status="running",
+            sessionId="nested-4",
+        ),
+    )
+    assert conn.child_sessions["nested-4"].endswith("› debugger · nested")
+    assert subscriptions.count((conn, None)) == 1
+
+    tool_kind, tool_payload = events.tool_call(
+        "child-call-1", "read_file", {"path": "README.md", "token": "child-secret"}
+    )
+    await conn.notify("session.event", event("child-3", tool_kind, **tool_payload))
+    result_kind, result_payload = events.tool_result(
+        "child-call-1", "read_file", True, "contents Authorization: Bearer child-result-secret"
+    )
+    await conn.notify("session.event", event("child-3", result_kind, **result_payload))
+    await conn.notify("session.event", event("child-3", "message.done", text="raw child answer"))
+
+    await conn.notify("session.event", event("child-3", "turn.done", reason="complete"))
+    result_kind, result_payload = events.tool_result(
+        "child-call-2", "read_file", True, "late result after child done"
+    )
+    await conn.notify("session.event", event("child-3", result_kind, **result_payload))
+
+    await conn.notify("session.event", event("parent-1", "turn.done", reason="complete"))
+    assert conn.global_subscription is False
+    assert subscriptions[-1] == (conn, "parent-1")
+
+    shown = "\n".join([*sent, *edits])
+    assert "Subagent tool call: researcher · inspect child tools → read_file" in shown
+    assert "path: README.md" in shown
+    assert "token: <redacted>" in shown
+    assert "child-secret" not in shown
+    assert "Subagent tool result ✓" in shown
+    assert "child-result-secret" not in shown
+    assert "raw child answer" not in shown
+    assert "late result after child done" in shown
+
+
+async def test_gateway_subagent_progress_without_tool_posts_one_readable_message() -> None:
+    """A child-only turn is visible even when no parent tool.call preceded it."""
+    sent: list[str] = []
+    edits: list[str] = []
+
+    class _Adapter:
+        async def edit(self, _channel: str, _message_id: str, text: str) -> None:
+            edits.append(text)
+
+    class _Router:
+        def gateway_flag(self, _name: str) -> bool:
+            return True
+
+        def adapter(self, _binding_id: str) -> Any:
+            return _Adapter()
+
+        async def send(self, _binding: Any, _channel: str, text: str, buttons: Any = None) -> str:
+            sent.append(text)
+            return "m1"
+
+    binding = Binding(id="gw-1", platform="telegram", credentials_ref="tg", channel_id="c1")
+    conn = GatewayConnection(_Router(), binding, "c1")  # type: ignore[arg-type]
+    conn.session_id = "s-1"
+
+    def event(kind: str, **payload: Any) -> dict[str, Any]:
+        return {"sessionId": "s-1", "seq": 1, "kind": kind, "payload": payload}
+
+    await conn.notify("session.event", event("turn.started"))
+    await conn.notify(
+        "session.event",
+        event(
+            "subagent.update",
+            agentId="agent-2",
+            name="debugger",
+            title="investigate",
+            status="running",
+            lastText="checking logs password=child-secret",
+            sessionId="child-2",
+        ),
+    )
+    await conn.notify("session.event", event("turn.done", reason="complete"))
+
+    shown = "\n".join([*sent, *edits])
+    assert len(sent) == 1
+    assert "Subagent update: debugger" in shown
+    assert "checking logs password=***" in shown
+    assert "child-secret" not in shown
+
+
+async def test_gateway_progress_hides_sensitive_tool_result_output() -> None:
+    """Sensitive host tool results keep shape/status but not secret output."""
+    sent: list[str] = []
+    edits: list[str] = []
+
+    class _Adapter:
+        async def edit(self, _channel: str, _message_id: str, text: str) -> None:
+            edits.append(text)
+
+    class _Router:
+        def gateway_flag(self, _name: str) -> bool:
+            return True
+
+        def adapter(self, _binding_id: str) -> Any:
+            return _Adapter()
+
+        async def send(self, _binding: Any, _channel: str, text: str, buttons: Any = None) -> str:
+            sent.append(text)
+            return "m1"
+
+    binding = Binding(id="gw-1", platform="telegram", credentials_ref="tg", channel_id="c1")
+    conn = GatewayConnection(_Router(), binding, "c1")  # type: ignore[arg-type]
+    conn.session_id = "s-1"
+
+    await conn.notify(
+        "session.event",
+        {"sessionId": "s-1", "seq": 1, "kind": "turn.started", "payload": {}},
+    )
+    await conn.notify(
+        "session.event",
+        {
+            "sessionId": "s-1",
+            "seq": 2,
+            "kind": "tool.call",
+            "payload": {"callId": "call-1", "name": "secret_lookup", "args": {}},
+        },
+    )
+    await conn.notify(
+        "session.event",
+        {
+            "sessionId": "s-1",
+            "seq": 3,
+            "kind": "tool.result",
+            "payload": {
+                "callId": "call-1",
+                "name": "secret_lookup",
+                "ok": True,
+                "output": "token=super-secret",
+                "meta": {"sensitive": True},
+            },
+        },
+    )
+    await conn.notify(
+        "session.event",
+        {"sessionId": "s-1", "seq": 4, "kind": "turn.done", "payload": {"reason": "complete"}},
+    )
+
+    shown = "\n".join([*sent, *edits])
+    assert "secret_lookup" in shown
+    assert "<sensitive output hidden>" in shown
+    assert "super-secret" not in shown
+
+
+async def test_gateway_delegated_child_tool_events_reach_progress_message(
+    http: aiohttp.ClientSession, tmp_path: Path
+) -> None:
+    """Real gateway+delegate flow shows child tool calls/results in messenger progress."""
+    script = tmp_path / "delegate_child_tools.json"
+    script.write_text(
+        json.dumps(
+            {
+                "steps": [
+                    {
+                        "match": "delegate child tools",
+                        "text": "delegating",
+                        "tool_calls": [
+                            {
+                                "name": "delegate_task",
+                                "arguments": {"task": "child uses shell"},
+                            }
+                        ],
+                    },
+                    {
+                        "match": "child uses shell",
+                        "text": "child about to shell",
+                        "usage": False,
+                        "tool_calls": [
+                            {"name": "shell", "arguments": {"command": "echo child-ok"}}
+                        ],
+                    },
+                    {"after_tool": "shell", "text": "child shell done", "repeat": True},
+                    {"after_tool": "delegate_task", "text": "parent got child report"},
+                ],
+                "default": {"text": "fake default reply"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    with env_vars(SNOWPEA_PROVIDER=f"fake:{script}", SNOWPEA_GATEWAY_FAKE="1"):
+        FakeAdapter.instances.clear()
+        workdir = tmp_path / "project"
+        workdir.mkdir()
+        daemon = Daemon(port=0, home=tmp_path / "home")
+        await daemon.start()
+        try:
+            client = await connect(http, daemon)
+            await client.ok(
+                "gateway.bind",
+                {
+                    "platform": "telegram",
+                    "credentialsRef": "tg_child_tools",
+                    "target": {"new_session": {"workdir": str(workdir), "mode": "auto"}},
+                    "channelId": "c1",
+                    "userId": "u1",
+                },
+            )
+            adapter = FakeAdapter.instances["tg_child_tools"]
+            await adapter.push("delegate child tools", channel_id="c1", user_id="u1")
+            await adapter.wait_for_send(TIMEOUT, count=2)
+            deadline = asyncio.get_running_loop().time() + TIMEOUT
+            shown = ""
+            while asyncio.get_running_loop().time() < deadline:
+                shown = "\n".join(
+                    [message.text for message in adapter.sent] + [e[2] for e in adapter.edits]
+                )
+                if "Subagent tool result" in shown:
+                    break
+                await asyncio.sleep(0.02)
+
+            assert "Subagent update" in shown
+            assert "Subagent tool call" in shown
+            assert "shell" in shown and "echo child-ok" in shown
+            assert "Subagent tool result ✓" in shown
+            assert "child-ok" in shown
+            assert "child shell done" not in adapter.sent[-1].text
+            await client.stop()
+        finally:
+            await daemon.stop()
+            FakeAdapter.instances.clear()
 
 
 def test_approval_callback_round_trips() -> None:
