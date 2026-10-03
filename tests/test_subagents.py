@@ -250,9 +250,7 @@ async def test_a_childs_token_stream_does_not_become_parent_events() -> None:
     assert record.usage() == {"inputTokens": 7, "outputTokens": 9}
     manager.updates.clear()
 
-    await watcher.notify(
-        "session.event", {"kind": "tool.call", "payload": {"name": "read_file"}}
-    )
+    await watcher.notify("session.event", {"kind": "tool.call", "payload": {"name": "read_file"}})
     await watcher.notify(
         "session.event", {"kind": "message.done", "payload": {"text": "all 200 tokens"}}
     )
@@ -452,9 +450,11 @@ async def test_a_denied_tool_call_with_a_final_answer_stays_ok(
     assert core is not None
     provider = DeniedThenFinalProvider()
     core.providers.get = lambda _provider, _model: provider  # type: ignore[assignment]
+
     async def deny(*args: Any, **kwargs: Any) -> Decision:
         del args, kwargs
         return Decision("deny", "once", "test", errors.APPROVAL_DENIED)
+
     core.approvals.request = deny  # type: ignore[method-assign]
     session = await core.sessions.create(workdir, mode="accept")
 
@@ -488,9 +488,11 @@ async def test_a_child_that_ends_on_denials_still_fails(daemon: Daemon, workdir:
     core = daemon.core
     assert core is not None
     core.providers.get = lambda _provider, _model: AlwaysDeniedProvider()  # type: ignore[assignment]
+
     async def deny(*args: Any, **kwargs: Any) -> Decision:
         del args, kwargs
         return Decision("deny", "once", "test", errors.APPROVAL_DENIED)
+
     core.approvals.request = deny  # type: ignore[method-assign]
     session = await core.sessions.create(workdir, mode="accept")
 
@@ -513,9 +515,7 @@ async def test_an_unknown_agent_name_is_refused(daemon: Daemon, workdir: Path) -
     assert result.error == "unknown agent 'nobody-defined-this'"
 
 
-async def test_active_team_restricts_and_defaults_delegation(
-    daemon: Daemon, workdir: Path
-) -> None:
+async def test_active_team_restricts_and_defaults_delegation(daemon: Daemon, workdir: Path) -> None:
     core = daemon.core
     assert core is not None
     session = await open_session(core, workdir)
@@ -726,9 +726,7 @@ def test_deepinit_root_task_with_summaries(tmp_path: Path) -> None:
     assert "Previous attempt did not create AGENTS.md" in retry
 
 
-async def test_deepinit_falls_back_when_model_skips_write(
-    daemon: Daemon, workdir: Path
-) -> None:
+async def test_deepinit_falls_back_when_model_skips_write(daemon: Daemon, workdir: Path) -> None:
     """Model attempts (plus manager incomplete retry) still leave no file → stub."""
     from snowpea_core.agent.subagent import SubagentResult, get_manager
     from snowpea_core.commands.deepinit import FALLBACK_MARKER
@@ -771,17 +769,13 @@ async def test_deepinit_falls_back_when_model_skips_write(
     assert (root / "AGENTS.md").is_file()
     assert FALLBACK_MARKER in (src / "AGENTS.md").read_text(encoding="utf-8")
     assert FALLBACK_MARKER in (root / "AGENTS.md").read_text(encoding="utf-8")
-    said = "\n".join(
-        str(event["payload"]["text"]) for event in recorder.of_kind("message.done")
-    )
+    said = "\n".join(str(event["payload"]["text"]) for event in recorder.of_kind("message.done"))
     assert "fallback" in said
     assert "wrote 2 file(s)" in said
     assert "did not get written" not in said
 
 
-async def test_deepinit_explore_then_write_passes_notes(
-    daemon: Daemon, workdir: Path
-) -> None:
+async def test_deepinit_explore_then_write_passes_notes(daemon: Daemon, workdir: Path) -> None:
     """Explorer maps; executor receives those notes in the write brief."""
     from snowpea_core.agent.subagent import SubagentResult, get_manager
 
@@ -820,7 +814,9 @@ async def test_deepinit_explore_then_write_passes_notes(
             return SubagentResult(
                 agent_id="a-root", ok=True, summary="Wrote root.", name="executor"
             )
-        return SubagentResult(agent_id="a-x", ok=False, summary="", error=f"unexpected {title} {agent}")
+        return SubagentResult(
+            agent_id="a-x", ok=False, summary="", error=f"unexpected {title} {agent}"
+        )
 
     manager = get_manager(core)
     manager.run = fake_run  # type: ignore[method-assign]
@@ -832,7 +828,11 @@ async def test_deepinit_explore_then_write_passes_notes(
 
     assert (src / "AGENTS.md").is_file()
     assert (root / "AGENTS.md").is_file()
-    write_briefs = [b for b in briefs if "Write src/AGENTS.md" in b or "write src/AGENTS.md" in b.lower() or "Explore notes:" in b]
+    write_briefs = [
+        b
+        for b in briefs
+        if "Write src/AGENTS.md" in b or "write src/AGENTS.md" in b.lower() or "Explore notes:" in b
+    ]
     assert any("MAP-NOTE: src is the Python core." in b for b in write_briefs)
 
 
@@ -895,7 +895,6 @@ def test_deepinit_picks_team_writing_roles() -> None:
     assert deepinit.pick_doc_agent(bare, manager, deepinit.WRITE_AGENTS) == "executor"
 
 
-
 # ---------------------------------------------------------------------------
 # per-agent model assignment (CORE-model-assignment)
 # ---------------------------------------------------------------------------
@@ -926,13 +925,9 @@ async def test_a_profile_id_in_an_agent_definition_is_not_read_as_a_vendor(
     """
     core = daemon.core
     assert core is not None
-    core.settings.models.profiles = {
-        "fast": ModelProfile(provider="openai", model="gpt-fast")
-    }
+    core.settings.models.profiles = {"fast": ModelProfile(provider="openai", model="gpt-fast")}
     core.settings.models.default = None
-    write_definition(
-        AgentDefinition(name="scribe", description="Writes.", model="fast"), workdir
-    )
+    write_definition(AgentDefinition(name="scribe", description="Writes.", model="fast"), workdir)
     session = await open_session(core, workdir)
     manager = get_manager(core)
     runner = asyncio.ensure_future(manager.run(session, "do a thing", agent="scribe"))
@@ -959,9 +954,7 @@ async def test_a_delegation_model_override_outranks_the_assignment(
     assert (seen["provider"], seen["model"]) == ("anthropic", "claude-deep")
 
 
-async def test_an_unresolvable_delegation_model_is_refused(
-    daemon: Daemon, workdir: Path
-) -> None:
+async def test_an_unresolvable_delegation_model_is_refused(daemon: Daemon, workdir: Path) -> None:
     """The caller asked for a specific model; falling back would be a lie."""
     core = daemon.core
     assert core is not None
@@ -1013,7 +1006,7 @@ async def test_a_child_inherits_the_parents_pin_when_nothing_else_applies(
 
 
 async def test_parent_interrupt_cascades_to_slow_child(
-    daemon: Daemon, workdir: Path, tmp_path: Path
+    daemon: Daemon, workdir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Parent interrupt cascades to running child and subagent.done is interrupted."""
     from snowpea_core.agent import loop as agent_loop
@@ -1022,6 +1015,17 @@ async def test_parent_interrupt_cascades_to_slow_child(
 
     core = daemon.core
     assert core is not None
+
+    manager = get_manager(core)
+    emit_done = manager.emit_done
+
+    async def delayed_terminal_event(record: SubagentRecord) -> None:
+        # Make the cleanup race deterministic: a cancelled delegation must wait
+        # for its child report, rather than end the parent while it is pending.
+        await asyncio.sleep(0.02)
+        await emit_done(record)
+
+    monkeypatch.setattr(manager, "emit_done", delayed_terminal_event)
 
     async def _sleeping_run(ctx: Any, args: dict[str, Any]) -> ToolResult:
         del ctx, args
@@ -1101,18 +1105,14 @@ async def test_parent_interrupt_cascades_to_slow_child(
     await asyncio.wait_for(parent_runner, timeout=TIMEOUT)
 
     parent_turn_done = [
-        e["payload"]
-        for e in recorder.of_kind("turn.done")
-        if e["sessionId"] == parent_session.id
+        e["payload"] for e in recorder.of_kind("turn.done") if e["sessionId"] == parent_session.id
     ]
     assert any(
         p.get("turnId") == "t-parent" and p.get("reason") == "interrupted" for p in parent_turn_done
     )
 
     child_turn_done = [
-        e["payload"]
-        for e in recorder.of_kind("turn.done")
-        if e["sessionId"] == child_session_id
+        e["payload"] for e in recorder.of_kind("turn.done") if e["sessionId"] == child_session_id
     ]
     assert any(p.get("reason") == "interrupted" for p in child_turn_done)
 
@@ -1122,6 +1122,17 @@ async def test_parent_interrupt_cascades_to_slow_child(
         if e["sessionId"] == parent_session.id
     ]
     assert any(p.get("status") == "interrupted" for p in subagent_done)
+    parent_terminal = next(
+        i
+        for i, event in enumerate(recorder.events)
+        if event["sessionId"] == parent_session.id and event["kind"] == "turn.done"
+    )
+    child_report = next(
+        i
+        for i, event in enumerate(recorder.events)
+        if event["sessionId"] == parent_session.id and event["kind"] == "subagent.done"
+    )
+    assert child_report < parent_terminal
 
     assert not unrelated_session.interrupt.is_set()
 

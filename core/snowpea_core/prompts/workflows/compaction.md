@@ -26,3 +26,10 @@ You are compacting a coding-agent conversation so the same agent can continue in
 - Each [SKILL_PRUNED: … reload with skill_view(name="…")] marker from the conversation, copied verbatim, never paraphrased. They tell the agent which skills to load again.
 
 If the conversation starts with an earlier summary, it is discarded after this one: carry forward its objective, requirements, decisions and unfinished work even when the newer conversation does not mention them, drop only what is finished and no longer needed, and where the two disagree the newer conversation wins. Do not invent anything that is not in the conversation.
+
+Preserve the evidence chain, not only the final outcome: distinguish failed attempts
+from subsequently successful repairs and unverified claims from passing checks.
+Retain delegated-child agent/session IDs, terminal reasons, key tool errors/results,
+verification commands and report/state-file references needed to retrieve details.
+Never erase an unresolved failure because another child succeeded. Do not copy
+credentials, sensitive outputs or binary payloads into the summary.

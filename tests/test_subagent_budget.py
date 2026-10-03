@@ -527,3 +527,104 @@ def test_checkpoint_redacts_sensitive_calls_and_keeps_newest_tail() -> None:
     assert "[redacted]" in checkpoint
     assert "SECRET_TOKEN" not in checkpoint
     assert "old 0" not in checkpoint
+
+
+async def test_every_child_attempt_is_reported_to_main_context(
+    daemon: Daemon, workdir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from snowpea_core.agent.loop import _flush_notices
+    from snowpea_core.session.manager import persist_history
+
+    core = daemon.core
+    parent = await core.sessions.create(workdir, mode="auto")
+    core.settings.agents.incompleteRetries = 1
+    manager = get_manager(core)
+    results = iter(
+        [
+            SubagentResult(
+                agent_id="failed-child",
+                session_id="child-session-1",
+                ok=False,
+                summary="test failed; api_key=private-child-secret",
+                reason="budget",
+                status="error",
+                checkpoint="tool exec result: expected 2, got 1",
+            ),
+            SubagentResult(
+                agent_id="successful-child",
+                session_id="child-session-2",
+                ok=True,
+                summary="fixed assertion; pytest: 1 passed",
+                reason="complete",
+            ),
+        ]
+    )
+
+    async def run_once(*_args, **_kwargs):
+        return next(results)
+
+    monkeypatch.setattr(manager, "_run_once", run_once)
+    await manager.run(parent, "fix tests")
+    await _flush_notices(parent)
+    await persist_history(core.store, parent)
+    text = "\n".join(str(m.content) for m in parent.history.snapshot())
+    assert "failed-child" in text and "successful-child" in text
+    assert "expected 2, got 1" in text and "pytest: 1 passed" in text
+    assert "child-session-1" in text and "child-session-2" in text
+    assert "private-child-secret" not in text
+    stored = await core.store.messages(parent.id)
+    assert any("failed-child" in str(m["content"]) for m in stored)
+
+
+async def test_live_child_tool_evidence_reaches_lead_before_child_finishes(
+    daemon: Daemon, workdir: Path
+) -> None:
+    from snowpea_core.agent.loop import _flush_notices
+    from snowpea_core.agent.subagent import SubagentRecord, _ChildWatcher
+    from snowpea_core.session import events
+
+    core = daemon.core
+    parent = await core.sessions.create(workdir, mode="auto")
+    record = SubagentRecord(
+        agent_id="live-child",
+        session_id="live-session",
+        name="executor",
+        task="fix",
+        parent_session_id=parent.id,
+    )
+    watcher = _ChildWatcher(get_manager(core), record)
+    for kind, payload in [
+        events.tool_result("c1", "shell", False, "expected 2, got 1"),
+        events.tool_result("c2", "shell", True, "pytest: 1 passed; api_key=child-secret"),
+        events.tool_result("c3", "host_secret", True, "private-output", meta={"sensitive": True}),
+    ]:
+        await watcher.notify("session.event", {"kind": kind, "payload": payload})
+    assert len(parent.pending_notices) == 3
+    await _flush_notices(parent)
+    text = str(parent.history.snapshot())
+    assert "live-child" in text and "live-session" in text
+    assert "expected 2, got 1" in text and "pytest: 1 passed" in text
+    assert "child-secret" not in text and "private-output" not in text
+    assert "not a completion verdict" in text
+
+
+async def test_provider_error_report_is_not_a_successful_child(
+    daemon: Daemon, workdir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from snowpea_core.providers.base import ProviderError
+
+    class FailingProvider:
+        vendor = "test"
+
+        async def stream(self, *_args, **_kwargs):
+            raise ProviderError("internal", "provider unavailable")
+            yield  # pragma: no cover - async generator contract
+
+    core = daemon.core
+    core.settings.agents.incompleteRetries = 0
+    monkeypatch.setattr(core.providers, "get", lambda *_args: FailingProvider())
+    parent = await core.sessions.create(workdir, mode="auto")
+    result = await get_manager(core).run(parent, "fix")
+    assert not result.ok
+    assert result.status == "error" and result.reason == "error"
+    assert "provider unavailable" in result.summary

@@ -75,7 +75,12 @@ def last_user_text(session: Session) -> str:
     """The most recent thing the user themselves wrote, or ``""``."""
     for message in reversed(session.history.snapshot()):
         if message.role == "user":
-            return message_text(message).strip()
+            text = message_text(message).strip()
+            # Notices travel as user messages for provider compatibility, but
+            # they are evidence, not a replacement for the human's request.
+            if text.startswith("[system]"):
+                continue
+            return text
     return ""
 
 
@@ -306,7 +311,15 @@ async def delegate_task(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     try:
         await asyncio.wait({running, waiting}, return_when=asyncio.FIRST_COMPLETED)
     except asyncio.CancelledError:
+        # Parent Stop cancels this tool task first.  The child manager owns the
+        # terminal subagent.done event, so wait for its cancellation cleanup before
+        # letting the parent turn finish; otherwise clients can observe parent
+        # turn.done before the interrupted child is reported.
         running.cancel()
+        try:
+            await running
+        except asyncio.CancelledError:
+            pass
         raise
     finally:
         waiting.cancel()

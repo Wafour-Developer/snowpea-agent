@@ -94,9 +94,7 @@ CALL_ARG_CHARS = 120
 
 #: Roles that are read-only by default unless a definition explicitly lists
 #: a broader tool set.
-READONLY_DEFAULT_AGENTS: frozenset[str] = frozenset(
-    {"explore", "explorer", "reviewer", "critic"}
-)
+READONLY_DEFAULT_AGENTS: frozenset[str] = frozenset({"explore", "explorer", "reviewer", "critic"})
 
 #: Default tools for the read-only roles above.
 READONLY_DEFAULT_TOOLS: frozenset[str] = frozenset({"read_file", "grep", "glob"})
@@ -188,8 +186,7 @@ def continuation_brief(original: str, result: SubagentResult) -> str:
         )
     if calls:
         parts.extend(
-            ["", "Last tool calls from the prior attempt:"]
-            + [f"- {call}" for call in calls]
+            ["", "Last tool calls from the prior attempt:"] + [f"- {call}" for call in calls]
         )
     parts.extend(
         [
@@ -485,6 +482,7 @@ class _ChildWatcher:
         if kind == "tool.result":
             if _is_denied_tool_result(payload):
                 record.denied_tools.append(str(payload.get("name") or "tool"))
+            self._queue_tool_evidence(payload)
             return
         if kind == "tool.call":
             # Whatever the child said before reaching for a tool was not its
@@ -497,6 +495,26 @@ class _ChildWatcher:
             await self._manager.emit_update(
                 record, last_text=f"calling {payload.get('name') or 'a tool'}"
             )
+
+    def _queue_tool_evidence(self, payload: dict[str, Any]) -> None:
+        """Let a lead's next round see live results, even from background children."""
+        from snowpea_core.commands.registry import _redact_command_text
+
+        record = self._record
+        parent = self._manager.core.sessions.get(record.parent_session_id)
+        if parent is None:
+            return
+        meta = payload.get("meta")
+        sensitive = isinstance(meta, dict) and bool(meta.get("sensitive"))
+        output = REDACTED if sensitive else str(payload.get("output") or payload.get("error") or "")
+        parent.pending_notices.append(
+            _redact_command_text(
+                f"Child tool evidence (not a completion verdict): agentId={record.agent_id}; "
+                f"sessionId={record.session_id}; callId={payload.get('callId')}; "
+                f"tool={payload.get('name')}; ok={payload.get('ok')}; "
+                f"result: {_clip_middle(output, 1200)}"
+            )
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -850,6 +868,7 @@ class SubagentManager:
             run_id=run_id,
             explicit_agent=explicit_agent,
         )
+        self._report_attempt(parent, result)
         if not _allow_incomplete_retry:
             return result
         if result.reason == PARENT:
@@ -860,9 +879,7 @@ class SubagentManager:
             if parent.interrupt.is_set():
                 break
             attempt += 1
-            cont_title = (
-                f"{title} (continue {attempt})" if title else f"continue {attempt}"
-            )
+            cont_title = f"{title} (continue {attempt})" if title else f"continue {attempt}"
             log.info(
                 "subagent incomplete (reason=%s); re-issuing %d/%d for parent %s",
                 result.reason,
@@ -885,6 +902,7 @@ class SubagentManager:
                 prefer=prefer_roles,
                 run_id=run_id,
             )
+            self._report_attempt(parent, nxt)
             # Prefer the continuation's answer; keep prior findings if the
             # retry came back emptier than the first attempt.
             if not (nxt.summary or "").strip() and (result.summary or "").strip():
@@ -895,6 +913,31 @@ class SubagentManager:
                 )
             result = nxt
         return result
+
+    def _report_attempt(self, parent: Session, result: SubagentResult) -> None:
+        """Carry every child attempt, not just the last retry, to the next model call.
+
+        Queue rather than inserting inside an outstanding parent tool batch.
+        Full child tool evidence is persisted under the referenced child session.
+        """
+        from snowpea_core.commands.registry import _redact_command_text
+
+        parent.pending_notices.append(
+            _redact_command_text(
+                "\n".join(
+                    [
+                        "Delegation evidence (do not treat a partial report as completion):",
+                        f"agentId: {result.agent_id}; sessionId: {result.session_id or 'none'}",
+                        f"role: {result.name}; status: {result.status}; reason: {result.reason}",
+                        f"roundsUsed: {result.rounds_used}; budget: {result.budget}",
+                        f"report: {_clip_middle(result.summary or '', 1500)}",
+                        f"error: {_clip_middle(result.error or '', 500)}",
+                        f"deniedTools: {', '.join(result.denied_tools)}",
+                        f"recent evidence: {_clip_middle(result.checkpoint, 2000)}",
+                    ]
+                )
+            )
+        )
 
     async def _run_once(
         self,
@@ -925,9 +968,7 @@ class SubagentManager:
             explicit_agent = bool(agent)
         # Resolve role: explicit → prefer → general → missingRole policy.
         if not agent:
-            agent = pick_agent(
-                parent, self, prefer, core=self.core, allow_general=True
-            )
+            agent = pick_agent(parent, self, prefer, core=self.core, allow_general=True)
         if not agent and missing_role_policy(self.core) == "parent":
             if record is None:
                 record = self.new_record(parent, task, None, title)
@@ -1191,9 +1232,7 @@ class SubagentManager:
             if record.tool_ceiling is not None:
                 current = child.allowed_tools
                 child.allowed_tools = (
-                    set(record.tool_ceiling)
-                    if current is None
-                    else current & record.tool_ceiling
+                    set(record.tool_ceiling) if current is None else current & record.tool_ceiling
                 )
             if record.fork:
                 child.history.extend(fork_history(parent))
@@ -1212,10 +1251,11 @@ class SubagentManager:
             record.rounds_used = int(getattr(child, "rounds_used", 0) or 0)
             if not record.summary:
                 record.summary = _last_assistant_text(child)
+            if (record.reason or "").lower() == ERROR:
+                record.status = ERROR
             if record.truncated:
                 record.summary = (
-                    f"{record.summary}\n\n"
-                    f"{TRUNCATED_MARK.format(count=record.continuations)}"
+                    f"{record.summary}\n\n{TRUNCATED_MARK.format(count=record.continuations)}"
                 ).strip()
             if (record.reason or "").lower() == "denied" and not record.summary.strip():
                 record.status = ERROR

@@ -145,9 +145,7 @@ def auto_title(text: str) -> str | None:
         # A slash command titles the thread by what follows it ("/plan design
         # the game" -> "design the game"); a bare "/init" leaves the title to
         # the first real prompt.
-        line = " ".join(
-            token for token in line.split()[1:] if not token.startswith("-")
-        ).strip()
+        line = " ".join(token for token in line.split()[1:] if not token.startswith("-")).strip()
     if not line:
         return None
     if len(line) <= TITLE_CHARS:
@@ -201,6 +199,19 @@ async def finish_turn(core: Core, session: Session, turn_id: str, reason: str) -
     :func:`run_turn` (CORE-session-race).
     """
     await _mark_turn_finished(core, session, reason)
+    await _flush_notices(session)
+    if (
+        reason in {"interrupted", "denied"}
+        and not session.is_subagent
+        and turn_id not in session.finished_turns
+    ):
+        session.history.append(
+            ChatMessage(
+                role="assistant",
+                content=f"Turn {turn_id} stopped: {reason}. Work remains unverified; "
+                "retain preceding tool results and failures before continuing.",
+            )
+        )
     # Sensitive host results served this turn; from here on (memory, the next
     # turn, compaction) they are only a marker.
     for message in session.history.messages:
@@ -912,10 +923,26 @@ async def run_turn(
             await finish_turn(core, session, turn_id, "interrupted")
         raise
     except ProviderError as exc:
+        from snowpea_core.commands.registry import _redact_command_text
+
+        session.history.append(
+            ChatMessage(
+                role="assistant",
+                content=_redact_command_text(f"Turn failed ({exc.code}): {exc}"),
+            )
+        )
         await hub.emit_event(session.id, events.error(exc.code, str(exc)))
         reason = "error"
         await finish_turn(core, session, turn_id, reason)
     except Exception as exc:  # noqa: BLE001 - a bug ends the turn, never the daemon
+        from snowpea_core.commands.registry import _redact_command_text
+
+        session.history.append(
+            ChatMessage(
+                role="assistant",
+                content=_redact_command_text(f"Turn failed ({type(exc).__name__}): {exc}"),
+            )
+        )
         log.exception("turn %s failed", turn_id)
         await hub.emit_event(
             session.id, events.error(errors.INTERNAL, f"{type(exc).__name__}: {exc}")
@@ -1137,6 +1164,10 @@ async def _drive(
     # One acknowledgement per turn, not per tool round.
     session.ack_spoken = False
     while True:
+        # Persist each safe round boundary, including steering and child evidence.
+        # No outstanding tool-call/result pair is split by these notices.
+        await _flush_notices(session)
+        await persist_history(getattr(core, "store", None), session)
         if rounds_left <= 0:
             if session.is_subagent:
                 # Hermes-style grace call: one tools-free model call to summarise what
@@ -1243,6 +1274,7 @@ async def _drive(
 
         # Busy follow-ups become new user messages for the next model call.
         await _steer_queued_turns(core, session)
+        await persist_history(getattr(core, "store", None), session)
         # A server added to ``.mcp.json`` during the turn is usable next round.
         await mcp_client.resync_if_changed(core, session.workdir)
         specs = core.tools.specs(session)
@@ -1267,9 +1299,7 @@ async def _drive(
             )
             # Verify-on-stop (Hermes): edited code with no fresh passing check,
             # or a UI never looked at, goes back for verification first.
-            unverified = (
-                None if session.interrupt.is_set() else verify_gate.nudge(core, session)
-            )
+            unverified = None if session.interrupt.is_set() else verify_gate.nudge(core, session)
             if unverified:
                 session.history.append(ChatMessage(role="user", content=unverified))
                 await hub.emit_event(session.id, events.hook_continue(unverified, 0))
@@ -1315,17 +1345,13 @@ async def _drive(
             if kind == "parallel" and len(batch) > 1:
                 outcomes = await asyncio.gather(
                     *[
-                        _run_one_call(
-                            core, session, backend, policy, call, turn_id, unattended
-                        )
+                        _run_one_call(core, session, backend, policy, call, turn_id, unattended)
                         for call in batch
                     ]
                 )
             else:
                 outcomes = [
-                    await _run_one_call(
-                        core, session, backend, policy, call, turn_id, unattended
-                    )
+                    await _run_one_call(core, session, backend, policy, call, turn_id, unattended)
                     for call in batch
                 ]
             for outcome in outcomes:
@@ -1505,9 +1531,7 @@ async def _auto_inject_skills(core: Core, session: Session, text: str) -> list[s
             continue
         done.add(doc.name)
         if len(doc.body) <= AUTO_INJECT_BODY_LIMIT:
-            note = (
-                f"[skill {doc.name} applies here (matched “{hit}”); follow it]\n\n{doc.body}"
-            )
+            note = f"[skill {doc.name} applies here (matched “{hit}”); follow it]\n\n{doc.body}"
         else:
             note = (
                 f"[skill {doc.name} applies here (matched “{hit}”). Read it with "
@@ -1621,8 +1645,7 @@ async def _run_one_call(
             core,
             session,
             call,
-            "exec tools are disabled for this session; use read_file, glob, grep, or "
-            "patch instead",
+            "exec tools are disabled for this session; use read_file, glob, grep, or patch instead",
         )
         return None
     if verdict == "ask":
@@ -1696,9 +1719,7 @@ async def _run_one_call(
             tool_task: asyncio.Task[ToolResult] = asyncio.ensure_future(
                 tool.run(ctx, dict(call.arguments))
             )
-            interrupt_task: asyncio.Task[bool] = asyncio.ensure_future(
-                session.interrupt.wait()
-            )
+            interrupt_task: asyncio.Task[bool] = asyncio.ensure_future(session.interrupt.wait())
             done, pending = await asyncio.wait(
                 {tool_task, interrupt_task}, return_when=asyncio.FIRST_COMPLETED
             )
@@ -1738,9 +1759,7 @@ async def _run_one_call(
         core, call.name, result, host=str(getattr(tool, "source", "")).startswith("host:")
     )
     if repeated is None and not was_interrupted:
-        result = await repeat_guard.record(
-            core, session, call.name, dict(call.arguments), result
-        )
+        result = await repeat_guard.record(core, session, call.name, dict(call.arguments), result)
     # Next to the LSP ``Diagnostics`` block (tools/fs.py ``_with_diagnostics``):
     # a call that touches a directory with its own AGENTS.md gets that file
     # once, and a call that *writes* one drops the cached prompt that no longer
@@ -1787,9 +1806,7 @@ async def _run_one_call(
             sensitive=sensitive,
         )
     )
-    if result.ok and result.meta and (
-        result.meta.get("image") or result.meta.get("images")
-    ):
+    if result.ok and result.meta and (result.meta.get("image") or result.meta.get("images")):
         session.pending_tool_images.append((call.name, result))
     if was_interrupted or session.interrupt.is_set():
         view_image.flush_tool_image_messages(core, session, append=False)

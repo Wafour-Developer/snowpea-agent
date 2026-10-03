@@ -198,3 +198,90 @@ async def test_budget_boundary_final_answer_still_runs_completion_verification(
         ]
     finally:
         await client.stop()
+
+
+async def test_each_model_round_has_a_durable_prior_tool_transcript(
+    daemon: Any,
+    http: aiohttp.ClientSession,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from snowpea_core.session.history import message_to_json
+
+    original = agent_loop._model_turn
+    snapshots = []
+
+    async def inspect_round(core, session, *args, **kwargs):
+        rows = await core.store.messages(session.id)
+        stored = [{"role": row["role"], "content": row["content"]} for row in rows]
+        expected = [
+            {"role": m.role, "content": message_to_json(m)} for m in session.history.snapshot()
+        ]
+        assert stored == expected
+        sent_messages = args[1]
+        assert "child attempt failed: expected 2, got 1" in str(sent_messages)
+        for message in session.history.snapshot():
+            if message.role == "tool":
+                assert any(
+                    sent.role == "tool"
+                    and sent.tool_call_id == message.tool_call_id
+                    and sent.content == message.content
+                    for sent in sent_messages
+                )
+        snapshots.append(stored)
+        return await original(core, session, *args, **kwargs)
+
+    monkeypatch.setattr(agent_loop, "_model_turn", inspect_round)
+    daemon.core.settings.agent.auto_budget_continuations = 1
+    workdir = tmp_path / "durable-rounds"
+    workdir.mkdir()
+    client = await connect(http, daemon)
+    try:
+        sid = await open_session(client, workdir, "auto")
+        daemon.core.sessions.get(sid).pending_notices.append(
+            "child attempt failed: expected 2, got 1; task: 파일 세 번 써줘"
+        )
+        tid = await prompt(client, sid, "파일 세 번 써줘")
+        assert await client.wait_turn(tid) == "complete"
+        assert len(snapshots) >= 3
+        assert any(row["role"] == "tool" for row in snapshots[-1])
+    finally:
+        await client.stop()
+
+
+async def test_provider_failure_is_retained_for_next_message(
+    daemon: Any,
+    http: aiohttp.ClientSession,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from snowpea_core.providers.base import ProviderError
+
+    async def failing_model(*_args, **_kwargs):
+        raise ProviderError("internal", "HTTP 503: backend down; api_key=private-secret")
+
+    monkeypatch.setattr(agent_loop, "_model_turn", failing_model)
+    workdir = tmp_path / "failure"
+    workdir.mkdir()
+    client = await connect(http, daemon)
+    try:
+        sid = await open_session(client, workdir, "auto")
+        tid = await prompt(client, sid, "계속해줘")
+        assert await client.wait_turn(tid) == "error"
+        rows = await daemon.core.store.messages(sid)
+        text = str(rows)
+        assert "HTTP 503: backend down" in text
+        assert "private-secret" not in text
+    finally:
+        await client.stop()
+
+
+async def test_interrupted_turn_retains_unverified_status(daemon: Any, tmp_path: Path) -> None:
+    session = await daemon.core.sessions.create(tmp_path, mode="auto")
+    session.pending_notices.append("child failed: check returned exit code 1")
+    await agent_loop.finish_turn(daemon.core, session, "t-evidence", "interrupted")
+    rows = await daemon.core.store.messages(session.id)
+    text = str(rows)
+    assert "child failed: check returned exit code 1" in text
+    assert "stopped: interrupted" in text
+    assert "Work remains unverified" in text

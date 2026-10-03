@@ -251,6 +251,17 @@ Example `settings.json` (existing `agent.max_tool_rounds` remains supported;
 }
 ```
 
+### Evidence across rounds and workflows
+
+Each safe model-round boundary saves the main conversation, including tool calls
+and results. Every child attempt (failed, incomplete, or successful) queues a
+bounded evidence handoff with agent/session IDs, terminal reason, report, errors,
+and recent tool results; the next model request receives it after outstanding
+tool calls are resolved. `/ralph`, `/team`, and `/workers` persist progress before
+the final summary, so switching back to ordinary prompts retains earlier failures
+and later repairs. Sensitive results are redacted. Compaction preserves relevant
+failure/verification evidence and trace references, not unlimited raw output.
+
 ### Incomplete re-issue
 
 When a child stops with `reason: budget` or a ran-child empty `error`, `SubagentManager.run` re-issues the task up to `agents.incompleteRetries` times (default **3**) with a continuation brief that includes the prior report, last tool calls, and a bounded checkpoint of recent tool outputs / work state. This is a **new child turn**, not an extension of the same round counter — the Hermes/OMC pattern of re-issuing incomplete work while preserving what the previous child actually learned. Set `agents.incompleteRetries` to `0` to disable. Interrupted, timeout, and permission-denied stops are never re-issued.

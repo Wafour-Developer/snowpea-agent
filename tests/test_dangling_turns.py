@@ -350,8 +350,11 @@ async def test_an_interrupted_turn_keeps_its_prompt_for_resume(
             lambda event: event["kind"] == "turn.done" and event["payload"]["turnId"] == turn_id
         )
         messages = stored_messages(home, session_id)
-        assert [m["role"] for m in messages][-1:] == ["user"], messages
-        assert "slow reply" in json.dumps(messages[-1]["content"], ensure_ascii=False)
+        users = [m for m in messages if m["role"] == "user"]
+        assert "slow reply" in json.dumps(users[-1]["content"], ensure_ascii=False)
+        assert messages[-1]["role"] == "assistant"
+        assert "stopped: interrupted" in str(messages[-1]["content"])
+        assert "Work remains unverified" in str(messages[-1]["content"])
         await daemon.stop()
 
 
@@ -399,4 +402,3 @@ async def test_session_resume_after_daemon_died_mid_turn_has_synthetic_interrupt
             await client2.stop()
         finally:
             await daemon2.stop()
-

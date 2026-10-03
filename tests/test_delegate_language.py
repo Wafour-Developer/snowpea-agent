@@ -131,9 +131,7 @@ async def test_configured_language_wins_over_what_the_user_wrote(
     assert delegation_language(context(core, session)) == "ko"
 
 
-async def test_auto_prefers_the_session_locale_to_a_guess(
-    daemon: Daemon, workdir: Path
-) -> None:
+async def test_auto_prefers_the_session_locale_to_a_guess(daemon: Daemon, workdir: Path) -> None:
     core = core_of(daemon)
     session = await open_session(core, workdir)
     core.settings.agent.replyLanguage = "auto"
@@ -250,3 +248,17 @@ async def test_title_defaults_to_empty(daemon: Daemon, workdir: Path) -> None:
         timeout=TIMEOUT,
     )
     assert recorder.of_kind("subagent.spawn")[0]["payload"]["title"] == ""
+
+
+async def test_child_evidence_does_not_replace_human_request_language(
+    daemon: Daemon, workdir: Path
+) -> None:
+    session = await open_session(daemon.core, workdir)
+    session.history.append(ChatMessage(role="user", content="실패 원인을 수정하고 계속 진행해줘"))
+    session.history.append(
+        ChatMessage(
+            role="user", content="[system] Child tool evidence: shell failed, expected 2 got 1"
+        )
+    )
+    assert last_user_text(session) == "실패 원인을 수정하고 계속 진행해줘"
+    assert detected_language(session) == "ko"

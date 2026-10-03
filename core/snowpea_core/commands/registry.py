@@ -40,13 +40,18 @@ _SECRET_ASSIGNMENT = re.compile(
 )
 _BEARER_TOKEN = re.compile(r"(?i)\b(bearer)\s+([a-z0-9._~+/=-]{8,})")
 _AUTHORIZATION_HEADER = re.compile(r"(?im)^(\s*authorization\s*:\s*).+$")
+_JSON_SECRET = re.compile(
+    r'(?i)("(?:api[_-]?key|token|access[_-]?token|refresh[_-]?token|password|'
+    r'passwd|secret|client[_-]?secret|authorization)"\s*:\s*)"(?:\\.|[^"\\])*"'
+)
 
 log = logging.getLogger("snowpea.commands")
 
 
 def _redact_command_text(text: str) -> str:
     """Mask secret-looking command args/output before persisting history."""
-    masked = _AUTHORIZATION_HEADER.sub(lambda m: f"{m.group(1)}***", text)
+    masked = _JSON_SECRET.sub(lambda m: f'{m.group(1)}"***"', text)
+    masked = _AUTHORIZATION_HEADER.sub(lambda m: f"{m.group(1)}***", masked)
     masked = _SECRET_ASSIGNMENT.sub(lambda m: f"{m.group(1)}{m.group(2)}***", masked)
     return _BEARER_TOKEN.sub(lambda m: f"{m.group(1)} ***", masked)
 
@@ -81,6 +86,7 @@ class CommandContext:
     #: ``/ralph`` whose detailed event stream is not otherwise in history.
     history_summary: str | None = None
     _history_recorded: bool = False
+    _history_started: bool = False
 
     async def emit(self, event: events.Event) -> None:
         await self.core.hub.emit_event(self.session.id, event)
@@ -88,7 +94,26 @@ class CommandContext:
     async def say(self, text: str) -> None:
         """Answer the user with a completed assistant message."""
         self.output_texts.append(text)
+        if self.command_name in {"ralph", "team", "workers"}:
+            from snowpea_core.agent.loop import _flush_notices
+            from snowpea_core.session.manager import persist_history
+
+            self._start_history()
+            await _flush_notices(self.session)
+            self.session.history.append(
+                ChatMessage(
+                    role="assistant", content=_clip_command_history(_redact_command_text(text))
+                )
+            )
+            await persist_history(self.core.store, self.session)
         await self.emit(events.message_done(text))
+
+    def _start_history(self) -> None:
+        if self._history_started:
+            return
+        line = _redact_command_text(f"/{self.command_name} {self.command_args}".strip())
+        self.session.history.append(ChatMessage(role="user", content=line))
+        self._history_started = True
 
     def set_history_summary(self, text: str | None) -> None:
         self.history_summary = text.strip() if text and text.strip() else None
@@ -116,7 +141,7 @@ class CommandContext:
         text = _clip_command_history(text)
         if reason != "complete" and not text.lower().startswith("command failed"):
             text = f"Command finished with reason '{reason}'.\n\n{text}"
-        self.session.history.append(ChatMessage(role="user", content=line))
+        self._start_history()
         self.session.history.append(ChatMessage(role="assistant", content=text))
         self.session.history.compact()
         try:
