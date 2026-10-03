@@ -82,25 +82,8 @@ MAX_CONTINUATIONS = 2
 #: What the model is told when its answer was cut off mid-sentence.
 CONTINUE_INSTRUCTION = "Continue exactly where you stopped, without repeating."
 
-#: Floor for a delegated child's tool rounds when nothing else is configured.
-#: A worker reads far more than it writes, and the parent only ever sees its
-#: final report, so the child must not inherit a short human-session budget
-#: (CORE-subagent-budget).  Aligned with Hermes' higher child iteration floor
-#: (their ``delegation.max_iterations`` default is 50–250); 80 is the contract
-#: number already documented in CORE-subagent-budget.
-SUBAGENT_TOOL_ROUNDS = 80
-
-#: Default tool-round budgets per role when not configured in definition or settings.
-DEFAULT_TOOL_ROUNDS: dict[str, int] = {
-    "explore": 8,
-    "explorer": 8,
-    "reviewer": 16,
-    "critic": 16,
-    "test-engineer": 15,
-    "verifier": 14,
-    "architect": 10,
-    "executor": 80,
-}
+#: Hermes-compatible default for an independent delegated-child budget.
+SUBAGENT_TOOL_ROUNDS = 50
 
 #: What the model is asked for when the round budget runs out.  The call that
 #: carries it is made with **no tools**, so the only thing it can produce is
@@ -117,10 +100,6 @@ BUDGET_INSTRUCTION = (
 BUDGET_CONTINUE_INSTRUCTION = (
     "You have another {n} tool rounds. Continue the work from where you stopped."
 )
-
-# A round cap is a checkpoint, not an implicit cancellation. Keep the same
-# history for a few checkpoints; an endless turn still has a bounded fallback.
-MAX_AUTO_BUDGET_CONTINUATIONS = 10
 
 #: Used as the report when the model answered the budget prompt with nothing.
 #: A delegation must never come back empty (CORE-subagent-budget).
@@ -277,15 +256,13 @@ def tool_rounds_for(core: Core, session: Session | None = None) -> int:
 
     Highest rung first:
 
-    1. the agent definition's ``max_tool_rounds`` / ``tool_rounds:`` (carried on the session);
-    2. ``agents.maxToolRoundsBy[<agent name>]``;
-    3. ``agents.toolRounds[<agent name>]`` when the setting is a mapping;
-    4. ``agents.maxToolRounds`` as a number;
+    1. ``agents.maxToolRoundsBy[<agent name>]``;
+    2. the agent definition's ``max_tool_rounds`` / ``tool_rounds:``;
+    3. ``agents.maxToolRounds`` as a number;
+    4. ``agents.toolRounds[<agent name>]`` when the setting is a mapping;
     5. ``agents.toolRounds`` as a number, or its ``"default"`` / ``"*"`` key;
-    6. Role defaults when absent (explore/explorer 8, reviewer/critic 16,
-       test-engineer 15, verifier 14, architect 10, executor 80);
-    7. ``agent.max_tool_rounds`` for a human session, or that value
-       **floored at** :data:`SUBAGENT_TOOL_ROUNDS` (80) for a delegated child.
+    6. ``agents.defaultToolRounds`` (50) for a delegated child;
+    7. ``agent.max_turns`` / ``agent.max_tool_rounds`` (500) for a human session.
     """
     settings = core.settings
     name = (
@@ -350,15 +327,10 @@ def tool_rounds_for(core: Core, session: Session | None = None) -> int:
         except (TypeError, ValueError):
             pass
 
-    # 5. Role defaults
-    if name and name in DEFAULT_TOOL_ROUNDS:
-        return DEFAULT_TOOL_ROUNDS[name]
-
-    # 6. Fallback — children get at least SUBAGENT_TOOL_ROUNDS (Hermes-style floor).
-    base = max(1, int(settings.agent.max_tool_rounds))
+    # Independent child budgets do not inherit the parent's larger allowance.
     if session is not None and session.is_subagent:
-        return max(base, SUBAGENT_TOOL_ROUNDS)
-    return base
+        return max(1, int(getattr(agents_settings, "defaultToolRounds", SUBAGENT_TOOL_ROUNDS)))
+    return max(1, int(settings.agent.max_tool_rounds))
 
 
 def agent_config(core: Core, session: Session | None = None) -> AgentConfig:
@@ -1241,7 +1213,7 @@ async def _drive(
                 return "interrupted"
             # Resume automatically while preserving the conversation. Only
             # after the bounded automatic window does an attended turn ask.
-            automatic = budget_continuations < MAX_AUTO_BUDGET_CONTINUATIONS
+            automatic = budget_continuations < core.settings.agent.auto_budget_continuations
             asks = not unattended and not session.is_subagent
             if not automatic and (not asks or not await _ask_to_continue(core, session, config)):
                 await finish_turn(core, session, turn_id, "budget")

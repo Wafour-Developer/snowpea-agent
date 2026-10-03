@@ -224,22 +224,32 @@ Each subsequent stage receives all prior hand-offs verbatim, plus `git diff --st
 
 ## Tool round budgets and grace call
 
-Main-agent work continues automatically at a tool-round checkpoint while keeping
-the same conversation, up to three renewals. After that, an attended run asks
-whether to continue; an unattended run saves its partial report and stops.
-Stop and permission decisions still apply throughout. Budget-boundary answers
-also go through the normal completion verification and Stop hooks.
+The per-checkpoint budget matches Hermes defaults: **500 tool-use rounds for
+the main agent**, and **50 per child**, independent of the parent's allowance.
+All child roles use the same default unless explicitly overridden.
 
-To prevent runaway token spend, subagents and pipeline stages operate with role-specific tool round budgets.
+Main-agent work keeps the same conversation and renews its budget automatically
+up to `agent.auto_budget_continuations` times (default **10**, `0` disables).
+Afterwards an attended run asks Continue/Stop; an unattended run saves a partial
+report and stops. Stop, permissions, completion verification and Stop hooks still
+apply. Unlike Hermes's single-window cap, automatic renewals remain enabled: the
+default main path permits 11 windows of 500 rounds, excluding report calls.
 
-| Role / Agent | Default tool rounds |
-|---|---|
-| `explore`, `explorer` | 8 |
-| `reviewer`, `critic` | 16 |
-| `test-engineer` | 15 |
-| `verifier` | 14 |
-| `architect` | 10 |
-| `executor` & other subagents | 80 (floor; keeps `agent.max_tool_rounds` when higher) |
+Example `settings.json` (existing `agent.max_tool_rounds` remains supported;
+`max_turns` wins if both are present):
+
+```json
+{
+  "agent": {
+    "max_turns": 500,
+    "auto_budget_continuations": 10
+  },
+  "agents": {
+    "defaultToolRounds": 50,
+    "incompleteRetries": 3
+  }
+}
+```
 
 ### Incomplete re-issue
 
@@ -257,12 +267,12 @@ When `agent` is omitted, the runtime picks a role:
 
 ### Configuring round budgets
 
-Budgets are resolved in precedence order:
-1. `agents.maxToolRoundsBy.<role>` (e.g. `{ "agents": { "maxToolRoundsBy": { "explore": 10 } } }`)
-2. `agents.maxToolRounds` global scalar in `settings.json`
-3. `max_tool_rounds` in the agent definition frontmatter
-4. Role defaults shown above
-5. Fallback: `agent.max_tool_rounds`, floored at 80 for a delegated child
+Budgets are resolved in this order:
+1. `agents.maxToolRoundsBy` (role, then `default` / `*`)
+2. Agent-definition `max_tool_rounds` / `tool_rounds`
+3. `agents.maxToolRounds`
+4. Legacy `agents.toolRounds` (role mapping or scalar)
+5. Child: `agents.defaultToolRounds` (50); main: `agent.max_turns` (500)
 
 ### Toolless grace call on budget exhaustion
 

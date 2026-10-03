@@ -224,22 +224,31 @@ test·verify·review 단계는 각각 명시적인 한 줄로 답합니다 — `
 
 ## 툴 라운드 예산과 Grace Call
 
-메인 에이전트는 도구 호출 한도에 도달하면 같은 대화 내용을 유지하며 최대 세 번
-자동으로 이어갑니다. 그 이후에는 사용자가 보고 있는 실행에서 계속할지 묻고,
-무인 실행은 지금까지의 보고서를 남기고 멈춥니다. 진행 중 Stop과 권한 판단은
-계속 적용됩니다. 한도 경계에서 나온 완료 답변도 일반 답변과 같은 검증과
-Stop 훅을 거칩니다.
+구간별 기본 예산을 Hermes와 맞췄습니다: **메인 500 툴 사용 라운드**,
+**자식 50 라운드**이며 자식은 부모 예산과 독립적입니다. 역할별 명시적
+설정이 없으면 모든 자식 역할은 같은 기본값을 사용합니다.
 
-토큰 과다 소모를 방지하기 위해 서브에이전트와 파이프라인 단계는 역할별 툴 라운드 예산을 기준으로 동작합니다.
+메인은 같은 대화를 유지하며 `agent.auto_budget_continuations`회까지 자동으로
+예산을 갱신합니다(기본 **10**, `0`이면 비활성화). 이후 사용자 연결 실행은
+Continue/Stop을 묻고, 무인 실행은 부분 보고서를 저장하고 멈춥니다. Stop·권한·
+완료 검증·Stop 훅은 유지됩니다. Hermes의 단일 구간 한도와 달리 자동 갱신은
+유지되므로 기본 메인 경로는 500 라운드씩 11구간입니다(보고 호출 제외).
 
-| 역할 / 에이전트 | 기본 툴 라운드 |
-|---|---|
-| `explore`, `explorer` | 8 |
-| `reviewer`, `critic` | 16 |
-| `test-engineer` | 15 |
-| `verifier` | 14 |
-| `architect` | 10 |
-| `executor` 및 기타 서브에이전트 | 80 (하한; `agent.max_tool_rounds`가 더 크면 그대로) |
+`settings.json` 예시(기존 `agent.max_tool_rounds`도 지원하며 둘 다 있으면
+`max_turns`가 우선합니다):
+
+```json
+{
+  "agent": {
+    "max_turns": 500,
+    "auto_budget_continuations": 10
+  },
+  "agents": {
+    "defaultToolRounds": 50,
+    "incompleteRetries": 3
+  }
+}
+```
 
 ### 미완료 재발행
 
@@ -257,12 +266,12 @@ Stop 훅을 거칩니다.
 
 ### 라운드 예산 설정 우선순위
 
-예산은 다음 우선순위에 따라 결정됩니다:
-1. `agents.maxToolRoundsBy.<role>` (예: `{ "agents": { "maxToolRoundsBy": { "explore": 10 } } }`)
-2. `settings.json`의 `agents.maxToolRounds` 전역 스칼라 설정
-3. 에이전트 정의 프론트매터의 `max_tool_rounds`
-4. 위의 내장 역할 기본값
-5. 폴백: `agent.max_tool_rounds`, 위임된 자식은 80 하한
+예산 설정 우선순위:
+1. `agents.maxToolRoundsBy` (역할, 그다음 `default` / `*`)
+2. 에이전트 정의의 `max_tool_rounds` / `tool_rounds`
+3. `agents.maxToolRounds`
+4. 기존 `agents.toolRounds` (역할 매핑 또는 숫자)
+5. 자식: `agents.defaultToolRounds` (50), 메인: `agent.max_turns` (500)
 
 ### 예산 소진 시 무도구 Grace Call
 

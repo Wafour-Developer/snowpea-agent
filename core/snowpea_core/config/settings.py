@@ -113,9 +113,10 @@ class AgentsSettings(_Model):
     #: Tool rounds one delegated turn may make before it has to stop and
     #: report (CORE-subagent-budget).  Either a number for every agent or, like
     #: :attr:`models`, a mapping of agent name -> number with ``"default"`` as
-    #: the catch-all key.  Unset falls back to ``agent.max_tool_rounds``,
-    #: floored at ``loop.SUBAGENT_TOOL_ROUNDS`` for a child session.
+    #: the catch-all key. Unset uses ``defaultToolRounds`` for child sessions.
     toolRounds: int | dict[str, int] | None = None
+    #: Hermes-compatible independent child budget, unless explicitly overridden.
+    defaultToolRounds: int = Field(default=50, ge=1)
     #: Global ceiling on tool rounds for subagents.
     maxToolRounds: int | None = None
     #: Per-agent tool-round ceilings, e.g. {"explore": 8, "reviewer": 12}.
@@ -245,9 +246,19 @@ class QuestionsSettings(_Model):
 
 
 class AgentSettings(_Model):
-    #: Tool calls one turn may make before the loop checks in with the person
-    #: (a picker: continue or stop). An unattended turn stops at the budget.
-    max_tool_rounds: int = 200
+    #: Hermes-compatible tool-use round budget; max_turns is accepted in JSON.
+    max_tool_rounds: int = Field(default=500, ge=1)
+    #: Automatic budget renewals before Continue/Stop; zero disables renewals.
+    auto_budget_continuations: int = Field(default=10, ge=0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _max_turns_alias(cls, value: Any) -> Any:
+        if isinstance(value, dict) and "max_turns" in value:
+            value = dict(value)
+            value["max_tool_rounds"] = value.pop("max_turns")
+        return value
+
     #: What to do with prompts submitted while a turn is busy:
     #: ``"steer"`` folds them into the running turn before the next model call,
     #: ``"queue"`` keeps the legacy "run as a later turn" behaviour.

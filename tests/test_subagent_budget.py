@@ -137,7 +137,7 @@ async def test_the_budget_comes_from_settings_then_the_definition(
 async def test_a_child_gets_more_rounds_than_the_session_default(
     daemon: Daemon, workdir: Path
 ) -> None:
-    """Nothing configured: a worker's floor is higher, because it reads more."""
+    """Child budgets are independent of the main-agent budget."""
     core = daemon.core
     assert core is not None
     core.settings.agents.toolRounds = None
@@ -147,9 +147,9 @@ async def test_a_child_gets_more_rounds_than_the_session_default(
     session.is_subagent = True
     assert tool_rounds_for(core, session) == SUBAGENT_TOOL_ROUNDS
 
-    # When the session default is already above the floor, the child keeps it.
+    # A larger main allowance does not change a child budget.
     core.settings.agent.max_tool_rounds = 200
-    assert tool_rounds_for(core, session) == 200
+    assert tool_rounds_for(core, session) == SUBAGENT_TOOL_ROUNDS
 
 
 async def test_tool_rounds_survives_a_definition_round_trip() -> None:
@@ -185,20 +185,19 @@ async def test_role_defaults_for_subagents(daemon: Daemon, workdir: Path) -> Non
     session = await core.sessions.create(workdir, mode="auto")
     session.is_subagent = True
 
-    floor = max(int(core.settings.agent.max_tool_rounds), SUBAGENT_TOOL_ROUNDS)
-    for role, expected in [
-        ("explore", 8),
-        ("explorer", 8),
-        ("reviewer", 16),
-        ("critic", 16),
-        ("test-engineer", 15),
-        ("verifier", 14),
-        ("architect", 10),
-        ("executor", 80),
-        ("unknown-role", floor),
-    ]:
+    for role in (
+        "explore",
+        "explorer",
+        "reviewer",
+        "critic",
+        "test-engineer",
+        "verifier",
+        "architect",
+        "executor",
+        "unknown-role",
+    ):
         session.agent = role
-        assert tool_rounds_for(core, session) == expected
+        assert tool_rounds_for(core, session) == SUBAGENT_TOOL_ROUNDS
 
 
 async def test_max_tool_rounds_settings_precedence(daemon: Daemon, workdir: Path) -> None:
@@ -209,8 +208,8 @@ async def test_max_tool_rounds_settings_precedence(daemon: Daemon, workdir: Path
     session.is_subagent = True
     session.agent = "explore"
 
-    # Default role budget
-    assert tool_rounds_for(core, session) == 8
+    # Uniform default child budget
+    assert tool_rounds_for(core, session) == SUBAGENT_TOOL_ROUNDS
 
     # agents.maxToolRounds overrides role default
     core.settings.agents.maxToolRounds = 14
@@ -240,7 +239,6 @@ async def test_subagent_with_max_tool_rounds_stops_at_budget(daemon: Daemon, wor
     assert result.reason == "budget"
     assert result.rounds_used == 3
     assert result.budget == 3
-
 
 
 async def test_a_report_is_never_empty() -> None:
@@ -292,6 +290,7 @@ async def test_prose_written_before_a_tool_call_is_not_the_summary() -> None:
 
 async def test_a_tool_call_drops_an_earlier_message_done() -> None:
     """A surface that publishes intermediate prose cannot poison the summary."""
+
     class _Manager:
         async def emit_update(self, record: SubagentRecord, *, last_text: str = "") -> None:
             return None
@@ -344,9 +343,7 @@ def test_is_incomplete_and_continuation_brief() -> None:
     assert "read_file" in brief
 
     assert (
-        is_incomplete(
-            SubagentResult(agent_id="a-2", ok=True, summary="done", reason="complete")
-        )
+        is_incomplete(SubagentResult(agent_id="a-2", ok=True, summary="done", reason="complete"))
         is False
     )
     assert (
@@ -429,13 +426,13 @@ async def test_budget_continuation_receives_prior_tool_result_checkpoint(
     """A retry resumes from the prior child's actual tool findings, not just calls."""
     script = tmp_path / "checkpoint-provider.json"
     script.write_text(
-        '{'
+        "{"
         '"steps": ['
         '{"match": "handoff sentinel", "text": "finished from checkpoint"},'
         '{"match": "checkpoint handoff", "text": "reading file", '
         '"tool_calls": [{"name": "read_file", "arguments": {"path": "a.txt"}}]}'
         '], "default": {"text": "default"}'
-        '}',
+        "}",
         encoding="utf-8",
     )
     previous = os.environ.get("SNOWPEA_PROVIDER")

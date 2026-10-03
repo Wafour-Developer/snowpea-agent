@@ -480,3 +480,34 @@ async def test_deleting_a_profile_that_is_still_referenced_is_refused(daemon: Da
             assert "unknown profile" in str(frame["error"])
         finally:
             await client.stop()
+
+
+async def test_budget_settings_persist_and_reload_with_hermes_alias(daemon: Daemon) -> None:
+    from snowpea_core.agent.loop import tool_rounds_for
+
+    async with aiohttp.ClientSession() as http:
+        client = await connect(http, daemon)
+        try:
+            result = await client.ok(
+                "settings.set",
+                {
+                    "scope": "global",
+                    "patch": {
+                        "agent": {"max_turns": 650, "auto_budget_continuations": 2},
+                        "agents": {"defaultToolRounds": 55},
+                    },
+                },
+            )
+            assert result["settings"]["agent"]["max_tool_rounds"] == 650
+            assert result["settings"]["agent"]["auto_budget_continuations"] == 2
+            assert tool_rounds_for(daemon.core) == 650
+            session = await daemon.core.sessions.create(daemon.paths.home, mode="auto")
+            session.is_subagent = True
+            assert tool_rounds_for(daemon.core, session) == 55
+            reread = await client.ok("settings.get", {"scope": "global"})
+            assert reread["settings"]["agent"]["max_tool_rounds"] == 650
+            on_disk = json.loads(daemon.paths.settings_json.read_text(encoding="utf-8"))
+            # Both input spellings persist using the existing canonical key.
+            assert on_disk["agent"]["max_tool_rounds"] == 650
+        finally:
+            await client.stop()

@@ -23,10 +23,12 @@ STOP = agent_loop._CONTINUE_ROWS["ko"][3]
 
 @pytest_asyncio.fixture
 async def daemon(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
-    monkeypatch.setattr(agent_loop, "MAX_AUTO_BUDGET_CONTINUATIONS", 0)
     monkeypatch.setenv("SNOWPEA_PROVIDER", f"fake:{FIXTURE}")
     monkeypatch.setenv("SNOWPEA_TEST", "1")
-    instance = await make_daemon(tmp_path / "home", settings={"agent": {"max_tool_rounds": 2}})
+    instance = await make_daemon(
+        tmp_path / "home",
+        settings={"agent": {"max_tool_rounds": 2, "auto_budget_continuations": 0}},
+    )
     try:
         yield instance
     finally:
@@ -69,7 +71,7 @@ async def test_continue_lets_the_turn_run_past_the_budget(
 async def test_budget_continues_automatically_with_the_same_context(
     daemon: Any, http: aiohttp.ClientSession, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(agent_loop, "MAX_AUTO_BUDGET_CONTINUATIONS", 3)
+    daemon.core.settings.agent.auto_budget_continuations = 3
     workdir = tmp_path / "automatic"
     workdir.mkdir()
     client = await connect(http, daemon)
@@ -87,13 +89,17 @@ async def test_automatic_continuation_is_bounded_and_stop_is_respected(
     http: aiohttp.ClientSession, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fixture = tmp_path / "endless.json"
-    fixture.write_text(json.dumps({
-        "steps": [],
-        "default": {
-            "text": "Still checking the same file.",
-            "tool_calls": [{"name": "read_file", "arguments": {"path": "a.txt"}}],
-        },
-    }))
+    fixture.write_text(
+        json.dumps(
+            {
+                "steps": [],
+                "default": {
+                    "text": "Still checking the same file.",
+                    "tool_calls": [{"name": "read_file", "arguments": {"path": "a.txt"}}],
+                },
+            }
+        )
+    )
     monkeypatch.setenv("SNOWPEA_PROVIDER", f"fake:{fixture}")
     monkeypatch.setenv("SNOWPEA_TEST", "1")
     instance = await make_daemon(tmp_path / "home", settings={"agent": {"max_tool_rounds": 2}})
@@ -106,7 +112,10 @@ async def test_automatic_continuation_is_bounded_and_stop_is_respected(
         session_id = await open_session(client, workdir, "auto")
         turn_id = await prompt(client, session_id, "계속 확인해줘")
         assert await client.wait_turn(turn_id) == "budget"
-        assert len(client.of_kind("hook.continue")) == agent_loop.MAX_AUTO_BUDGET_CONTINUATIONS
+        assert (
+            len(client.of_kind("hook.continue"))
+            == instance.core.settings.agent.auto_budget_continuations
+        )
         assert len(client.questions) == 1
         assert client.of_kind("error") == []
     finally:
@@ -169,7 +178,9 @@ async def test_a_turn_that_finishes_exactly_at_the_budget_asks_nothing(
 
 
 async def test_budget_boundary_final_answer_still_runs_completion_verification(
-    done_daemon: Any, http: aiohttp.ClientSession, tmp_path: Path,
+    done_daemon: Any,
+    http: aiohttp.ClientSession,
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     nudges = iter(["Verify the changed files before finishing.", None])
