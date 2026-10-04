@@ -11,21 +11,24 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
 from snowpea_core import __main__ as core_main
 from snowpea_core.skills import hooks
 
+FIXTURES = Path(__file__).parent / "fixtures" / "plugins" / "sample-plugin"
 
-def _core(tmp_path: Path, registry: hooks.HookRegistry) -> SimpleNamespace:
+
+def _core(tmp_path: Path, registry: hooks.HookRegistry) -> Any:
     return SimpleNamespace(
         paths=SimpleNamespace(home=tmp_path),
         skills=SimpleNamespace(hooks=registry),
     )
 
 
-def _session(tmp_path: Path) -> SimpleNamespace:
+def _session(tmp_path: Path) -> Any:
     return SimpleNamespace(id="s-hook", workdir=tmp_path)
 
 
@@ -38,6 +41,25 @@ def test_a_frozen_core_runs_hooks_through_its_run_hook_entry(
 ) -> None:
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     assert hooks.expand("${SNOWPEA_PYTHON} x.py", None).endswith("--run-hook x.py")
+
+
+def test_windows_snowpea_python_quotes_interpreter_with_spaces(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(hooks.sys, "platform", "win32")
+    monkeypatch.setattr(hooks.sys, "executable", r"C:\Program Files\Snowpea\python.exe")
+
+    assert hooks.python_command() == r'"C:\Program Files\Snowpea\python.exe"'
+
+
+def test_windows_frozen_python_command_preserves_run_hook(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(hooks.sys, "platform", "win32")
+    monkeypatch.setattr(hooks.sys, "executable", r"C:\Program Files\Snowpea\snowpea.exe")
+    monkeypatch.setattr(hooks.sys, "frozen", True, raising=False)
+
+    assert hooks.python_command() == r'"C:\Program Files\Snowpea\snowpea.exe" --run-hook'
 
 
 def test_run_hook_entry_runs_a_script_and_keeps_its_exit_status(tmp_path: Path) -> None:
@@ -92,6 +114,20 @@ def test_fail_closed_is_read_from_hooks_json(tmp_path: Path) -> None:
     registry = hooks.HookRegistry()
     assert registry.load_file(config, plugin="browser") == 1
     assert registry.for_tool("PreToolUse", "repl")[0].fail_closed is True
+
+
+async def test_sample_plugin_hook_records_tool_with_snowpea_python(tmp_path: Path) -> None:
+    registry = hooks.HookRegistry()
+    assert registry.load_file(
+        FIXTURES / "hooks" / "hooks.json", plugin="sample-plugin", root=FIXTURES
+    ) == 1
+
+    message = await hooks.pre_tool_use(
+        _core(tmp_path, registry), _session(tmp_path), "write_file", {"path": "x"}
+    )
+
+    assert message is None
+    assert (tmp_path / "fixture-hook.marker").read_text(encoding="utf-8") == "write_file"
 
 
 # ---------------------------------------------------------------------------

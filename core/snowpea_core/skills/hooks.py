@@ -34,6 +34,7 @@ import logging
 import os
 import re
 import shlex
+import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -163,7 +164,10 @@ def python_command() -> str:
     ``python "<exe>"`` from source; a frozen core runs it through its
     ``--run-hook`` entry, since it has no interpreter binary to hand out.
     """
-    exe = shlex.quote(sys.executable)
+    if sys.platform == "win32":
+        exe = subprocess.list2cmdline([sys.executable])
+    else:
+        exe = shlex.quote(sys.executable)
     return f"{exe} --run-hook" if getattr(sys, "frozen", False) else exe
 
 
