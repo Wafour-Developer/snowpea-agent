@@ -77,6 +77,13 @@ pass_step() {
 }
 fail_step() {
   printf 'FAIL %s %s\n' "$1" "$2"
+  if [ "${GITHUB_ACTIONS:-false}" = "true" ]; then
+    annotation="Smoke step $1: $2"
+    annotation="${annotation//%/%25}"
+    annotation="${annotation//$'\r'/%0D}"
+    annotation="${annotation//$'\n'/%0A}"
+    printf '::error::%s\n' "$annotation"
+  fi
   FAILED=$((FAILED + 1))
 }
 skip_step() {
@@ -181,12 +188,15 @@ fi
 # 2 — setup writes settings.json
 # ---------------------------------------------------------------------------
 
-if sn setup --quick --vendor deepseek --key "sk-e2e-fixture" >/dev/null 2>&1 &&
+setup_out="$(sn setup --quick --vendor deepseek --key "sk-e2e-fixture" 2>&1)"
+setup_rc=$?
+if [ "$setup_rc" -eq 0 ] &&
   [ -f "$E2E_HOME/settings.json" ] &&
   grep -q '"deepseek"' "$E2E_HOME/settings.json"; then
   pass_step 2 "snowpea setup --quick wrote settings.json"
 else
   fail_step 2 "snowpea setup --quick did not record the vendor in $E2E_HOME/settings.json"
+  note "$(printf '%s' "$setup_out" | tail -20)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -261,13 +271,14 @@ fi
 if ! command_registered ralph; then
   skip_step 7 "/ralph is not registered yet (pending US-019)"
 else
-  sn -c "/ralph 'make tests pass'" --mode auto --cwd "$FIXTURE_REPO" >/dev/null 2>&1
+  ralph_out="$(sn -c "/ralph 'make tests pass'" --mode auto --cwd "$FIXTURE_REPO" 2>&1)"
   ralph_rc=$?
   ralph_changed="$(dirty_files)"
   if [ "$ralph_rc" -eq 0 ] && [ "$ralph_changed" != "0" ]; then
     pass_step 7 "/ralph finished, $ralph_changed file(s) changed"
   else
     fail_step 7 "exit $ralph_rc, $ralph_changed file(s) changed (wanted exit 0 and a non-empty diff)"
+    note "$(printf '%s' "$ralph_out" | tail -20)"
   fi
   git -C "$FIXTURE_REPO" checkout -q -- .
   git -C "$FIXTURE_REPO" clean -qfd
@@ -280,7 +291,7 @@ fi
 if ! command_registered team; then
   skip_step 8 "/team is not registered yet (pending US-020)"
 else
-  sn -c "/workers 2 'add docstrings'" --mode auto --cwd "$FIXTURE_REPO" >/dev/null 2>&1
+  team_out="$(sn -c "/workers 2 'add docstrings'" --mode auto --cwd "$FIXTURE_REPO" 2>&1)"
   team_rc=$?
   team_status="$(cd "$FIXTURE_REPO" && sn team status 2>&1)"
   merged="$(printf '%s\n' "$team_status" | grep -c "merged")"
@@ -289,6 +300,8 @@ else
     pass_step 8 "/team merged 2 tasks and left no worktree behind"
   else
     fail_step 8 "exit $team_rc, $merged merged task(s), $worktrees worktree(s) (wanted 0/2/1)"
+    note "$(printf '%s' "$team_out" | tail -20)"
+    note "$team_status"
   fi
 fi
 
@@ -360,6 +373,7 @@ else
     pass_step 12 "the session switched to the docker backend"
   else
     fail_step 12 "exit $backend_rc; /backend docker did not report a docker backend"
+    note "$(printf '%s' "$backend_out" | tail -20)"
   fi
 fi
 

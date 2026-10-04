@@ -119,7 +119,16 @@ jobs:
           git config --global user.email "e2e@snowpea.invalid"
           git config --global user.name "snowpea e2e"
       - name: v01 smoke
-        run: bash tests/e2e/v01_smoke.sh --from-checkout
+        run: |
+          set -o pipefail
+          bash tests/e2e/v01_smoke.sh --from-checkout 2>&1 | tee smoke.log
+      - name: preserve smoke diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-${{ runner.os }}
+          path: smoke.log
+          retention-days: 7
 
   e2e-macos:
     name: e2e (macos)
@@ -144,7 +153,16 @@ jobs:
           git config --global user.email "e2e@snowpea.invalid"
           git config --global user.name "snowpea e2e"
       - name: v01 smoke
-        run: bash tests/e2e/v01_smoke.sh --from-checkout
+        run: |
+          set -o pipefail
+          bash tests/e2e/v01_smoke.sh --from-checkout 2>&1 | tee smoke.log
+      - name: preserve smoke diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-${{ runner.os }}
+          path: smoke.log
+          retention-days: 7
 
   e2e-windows:
     name: e2e (windows)
@@ -170,4 +188,13 @@ jobs:
           git config --global user.name "snowpea e2e"
       - name: v01 smoke
         shell: pwsh
-        run: tests\e2e\v01_smoke.ps1 -FromCheckout
+        run: |
+          & tests\e2e\v01_smoke.ps1 -FromCheckout 2>&1 | Tee-Object -FilePath smoke.log
+          exit $LASTEXITCODE
+      - name: preserve smoke diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-${{ runner.os }}
+          path: smoke.log
+          retention-days: 7

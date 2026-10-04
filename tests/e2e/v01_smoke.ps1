@@ -41,6 +41,7 @@ $ToolRoot = Join-Path $E2ERoot 'snowpea-e2e-tools'
 $FakeScript = Join-Path $RepoRoot 'tests\fixtures\providers\fake\e2e.json'
 $SamplePlugin = Join-Path $RepoRoot 'tests\fixtures\plugins\sample-plugin'
 $InstallUrl = 'https://raw.githubusercontent.com/Wafour-Developer/snowpea-agent/main/installer/install.ps1'
+$ExpectedVersion = ((Get-Content (Join-Path $RepoRoot 'core\snowpea_core\__init__.py') -Raw) -replace '(?s).*__version__\s*=\s*\"([^\"]+)\".*', '$1')
 
 if (-not $FromCheckout -and -not $FromUrl) {
     $FromCheckout = Test-Path (Join-Path $RepoRoot 'installer\install.ps1')
@@ -51,7 +52,21 @@ $script:Failed = 0
 $script:Skipped = 0
 
 function Pass-Step([int]$N, [string]$What) { Write-Host "PASS $N $What"; $script:Passed++ }
-function Fail-Step([int]$N, [string]$Why) { Write-Host "FAIL $N $Why"; $script:Failed++ }
+function Escape-GitHubActionsAnnotation([string]$Text) {
+    return ($Text -replace '%', '%25' -replace "`r", '%0D' -replace "`n", '%0A')
+}
+function Write-GitHubActionsError([string]$Title, [string]$Message) {
+    if ($env:GITHUB_ACTIONS -eq 'true') {
+        $safeTitle = Escape-GitHubActionsAnnotation $Title
+        $safeMessage = Escape-GitHubActionsAnnotation $Message
+        Write-Host "::error title=${safeTitle}::${safeMessage}"
+    }
+}
+function Fail-Step([int]$N, [string]$Why) {
+    Write-Host "FAIL $N $Why"
+    Write-GitHubActionsError "Snowpea Windows smoke step $N failed" "FAIL $N $Why"
+    $script:Failed++
+}
 function Skip-Step([int]$N, [string]$Why) { Write-Host "SKIP $N $Why"; $script:Skipped++ }
 function Note([string]$Text) { Write-Host "     $Text" }
 
@@ -107,7 +122,7 @@ function Cleanup {
     }
 }
 
-Write-Host 'snowpea v0.1 end-to-end smoke'
+Write-Host "snowpea v$ExpectedVersion end-to-end smoke"
 Write-Host "  repo     $RepoRoot"
 Write-Host "  fixture  $FixtureRepo"
 Write-Host "  home     $E2EHome"
@@ -140,16 +155,18 @@ try {
     if ($installRc -ne 0) {
         Fail-Step 1 "the installer exited $installRc"
     }
-    elseif ($versionOut -match '^snowpea 0\.1\.') {
+    elseif ($versionOut -eq "snowpea $ExpectedVersion") {
         Pass-Step 1 "installed; $versionOut"
     }
     else {
-        Fail-Step 1 "snowpea --version printed '$versionOut', expected 'snowpea 0.1.x'"
+        Fail-Step 1 "snowpea --version printed '$versionOut', expected 'snowpea $ExpectedVersion'"
     }
 
     if (-not (Test-Path $Snowpea)) {
         Write-Host ''
-        Write-Host "FAIL: no snowpea executable at $Snowpea; the remaining steps cannot run"
+        $fatal = "FAIL: no snowpea executable at $Snowpea; the remaining steps cannot run"
+        Write-Host $fatal
+        Write-GitHubActionsError 'Snowpea Windows smoke install failed' $fatal
         Write-Host "PASS=$script:Passed FAIL=$($script:Failed + 14) SKIP=$script:Skipped"
         exit 1
     }
@@ -311,13 +328,16 @@ try {
     }
 
     # -----------------------------------------------------------------------
-    # 13 — plan mode denies a write
+    # 13 — plan mode denies a write to CODE
     # -----------------------------------------------------------------------
-    $foo = Join-Path $FixtureRepo 'foo.txt'
+    # Plan mode may write documents (markdown, text, docs/, plan files — see
+    # permissions/plan_paths.py), so a .txt is allowed by design. What it must
+    # never do is touch source: that is what this step asserts.
+    $foo = Join-Path $FixtureRepo 'foo.py'
     if (Test-Path $foo) { Remove-Item -Force $foo }
-    Invoke-Snowpea '--mode' 'plan' '-c' 'write foo.txt' '--cwd' $FixtureRepo | Out-Null
+    Invoke-Snowpea '--mode' 'plan' '-c' 'write foo.py' '--cwd' $FixtureRepo | Out-Null
     $planRc = $script:LastRc
-    if ($planRc -eq 4 -and -not (Test-Path $foo)) { Pass-Step 13 'plan mode denied the write (exit 4, no file)' }
+    if ($planRc -eq 4 -and -not (Test-Path $foo)) { Pass-Step 13 'plan mode denied the write to source (exit 4, no file)' }
     else { Fail-Step 13 "exit $planRc, file created: $(if (Test-Path $foo) { 'yes' } else { 'no' }) (wanted exit 4 and no file)" }
 
     # -----------------------------------------------------------------------
