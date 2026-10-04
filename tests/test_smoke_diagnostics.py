@@ -37,7 +37,15 @@ def test_all_ci_smokes_preserve_output_and_failure_status() -> None:
         assert "path: smoke.log" in job
         if name == "windows":
             assert "Tee-Object -FilePath smoke.log" in job
+            assert "pwsh -NoProfile -File" in job
+            assert "*>&1" in job
             assert "exit $LASTEXITCODE" in job
         else:
             assert "set -o pipefail" in job
             assert "2>&1 | tee smoke.log" in job
+
+
+def test_protocol_smoke_uses_installed_dependencies() -> None:
+    script = (ROOT / "tests/e2e/v01_smoke.sh").read_text()
+    assert '"$TOOL_ROOT/tools/snowpea-agent/bin/python" scripts/gen_protocol.py --check' in script
+    assert "python3 scripts/gen_protocol.py --check" not in script

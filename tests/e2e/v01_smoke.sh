@@ -403,7 +403,9 @@ fi
 if [ ! -f "$REPO_ROOT/scripts/gen_protocol.py" ]; then
   skip_step 14 "scripts/gen_protocol.py is not in this install"
 else
-  protocol_out="$(cd "$REPO_ROOT" && python3 scripts/gen_protocol.py --check 2>&1)"
+  # The installer puts dependencies in uv's isolated tool environment, not
+  # into the runner's system Python. Validate with the installed interpreter.
+  protocol_out="$(cd "$REPO_ROOT" && "$TOOL_ROOT/tools/snowpea-agent/bin/python" scripts/gen_protocol.py --check 2>&1)"
   protocol_rc=$?
   if [ "$protocol_rc" -eq 0 ]; then
     pass_step 14 "gen_protocol.py --check reports no drift"

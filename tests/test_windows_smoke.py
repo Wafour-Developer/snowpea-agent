@@ -47,6 +47,19 @@ def test_windows_smoke_emits_github_actions_error_annotations() -> None:
     assert "-replace '%', '%25'" in script
     assert "-replace \"`r\", '%0D'" in script
     assert "-replace \"`n\", '%0A'" in script
-    assert "Write-GitHubActionsError \"Snowpea Windows smoke step $N failed\"" in script
+    assert 'Write-GitHubActionsError "Snowpea Windows smoke step $N failed"' in script
     assert "Write-GitHubActionsError 'Snowpea Windows smoke install failed' $fatal" in script
     assert "$env:GITHUB_ACTIONS -eq 'true'" in script
+
+
+def test_windows_smoke_protocol_check_uses_installed_tool_python() -> None:
+    script = _windows_script()
+
+    assert (
+        "$protocolPython = Join-Path $ToolRoot 'tools\\snowpea-agent\\Scripts\\python.exe'"
+        in script
+    )
+    assert "& $protocolPython $gen --check" in script
+    assert "installed Python not found at $protocolPython" in script
+    assert "output: $($protocolOut.Trim())" in script
+    assert "python $gen --check" not in script

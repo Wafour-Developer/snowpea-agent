@@ -348,12 +348,18 @@ try {
         Skip-Step 14 'scripts/gen_protocol.py is not in this install'
     }
     else {
-        Push-Location $RepoRoot
-        python $gen --check 2>&1 | Out-Null
-        $protocolRc = $LASTEXITCODE
-        Pop-Location
-        if ($protocolRc -eq 0) { Pass-Step 14 'gen_protocol.py --check reports no drift' }
-        else { Fail-Step 14 "gen_protocol.py --check exited $protocolRc" }
+        $protocolPython = Join-Path $ToolRoot 'tools\snowpea-agent\Scripts\python.exe'
+        if (-not (Test-Path $protocolPython)) {
+            Fail-Step 14 "installed Python not found at $protocolPython"
+        }
+        else {
+            Push-Location $RepoRoot
+            $protocolOut = & $protocolPython $gen --check 2>&1 | Out-String
+            $protocolRc = $LASTEXITCODE
+            Pop-Location
+            if ($protocolRc -eq 0) { Pass-Step 14 'gen_protocol.py --check reports no drift' }
+            else { Fail-Step 14 "gen_protocol.py --check exited $protocolRc; output: $($protocolOut.Trim())" }
+        }
     }
 
     # -----------------------------------------------------------------------

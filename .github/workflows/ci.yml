@@ -189,7 +189,7 @@ jobs:
       - name: v01 smoke
         shell: pwsh
         run: |
-          & tests\e2e\v01_smoke.ps1 -FromCheckout 2>&1 | Tee-Object -FilePath smoke.log
+          & pwsh -NoProfile -File ./tests/e2e/v01_smoke.ps1 -FromCheckout *>&1 | Tee-Object -FilePath smoke.log
           exit $LASTEXITCODE
       - name: preserve smoke diagnostics
         if: always()
