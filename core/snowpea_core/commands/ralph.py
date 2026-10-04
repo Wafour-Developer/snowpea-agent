@@ -77,10 +77,16 @@ FALLBACK_REVIEWER = "reviewer"
 
 #: The word the reviewer has to say.
 APPROVAL_WORD = "APPROVE"
-_REVIEW_APPROVED = re.compile(r"^\s*(?:APPROVE|APPROVED)\b", re.IGNORECASE)
-_REVIEW_REJECTED = re.compile(
-    r"^\s*(?:REJECT|REJECTED|REVISE|CHANGES?\s+REQUESTED)\b", re.IGNORECASE
+_REVIEW_APPROVED = re.compile(
+    r"^\s*(?:verdict\s*:\s*)?[*_`]*(?:APPROVE|APPROVED)[*_`]*(?=\s|[:—-]|$)",
+    re.IGNORECASE,
 )
+_REVIEW_REJECTED = re.compile(
+    r"^\s*(?:verdict\s*:\s*)?[*_`]*(?:REJECT|REJECTED|REVISE|CHANGES?\s+REQUESTED)"
+    r"[*_`]*(?=\s|[:—-]|$)",
+    re.IGNORECASE,
+)
+_REVIEW_NOT_APPROVED = re.compile(r"\bnot\s+approved?\b", re.IGNORECASE)
 
 #: Ceiling on stories, so a chatty model cannot make the loop unbounded.
 MAX_STORIES = 8
@@ -522,11 +528,12 @@ def reviewer_agent(manager: Any, session: Any) -> str | None:
 
 
 def review_approved(text: str) -> bool:
-    """True only for an explicit positive reviewer verdict at the start."""
-    stripped = text.strip()
-    if _REVIEW_REJECTED.match(stripped):
+    """True only for an explicit positive reviewer verdict near the top."""
+    lines = [line.strip(" \t>*_`-") for line in text.strip().splitlines()[:8]]
+    lines = [line for line in lines if line]
+    if any(_REVIEW_NOT_APPROVED.search(line) or _REVIEW_REJECTED.match(line) for line in lines):
         return False
-    return bool(_REVIEW_APPROVED.match(stripped))
+    return any(_REVIEW_APPROVED.match(line) for line in lines)
 
 
 async def review(ctx: CommandContext, task: str, stories: list[Story]) -> tuple[bool, str]:
@@ -579,6 +586,7 @@ async def _review_until_approved(
     language = reply_language_for(ctx)
     iteration = start_iteration
     approved, verdict = await review(ctx, task, stories)
+    reviewer_feedback = verdict
     append_progress(
         ctx.session, ["", "## review", f"{'APPROVED' if approved else 'REJECTED'}: {verdict}"]
     )
@@ -604,7 +612,7 @@ async def _review_until_approved(
             *(
                 manager.run(
                     ctx.session,
-                    story_task(task, story, language, reviewer_feedback=verdict),
+                    story_task(task, story, language, reviewer_feedback=reviewer_feedback),
                     prefer=("executor",),
                 )
                 for story in batch
@@ -629,9 +637,9 @@ async def _review_until_approved(
         await ctx.say("\n".join([f"ralph iteration {iteration}:", *lines[2:]]))
         await _progress(ctx, iteration, stories)
         if not all(story.passed for story in stories):
-            verdict = "review feedback repair did not pass all stories"
             continue
         approved, verdict = await review(ctx, task, stories)
+        reviewer_feedback = verdict
         append_progress(
             ctx.session,
             ["", "## review", f"{'APPROVED' if approved else 'REJECTED'}: {verdict}"],

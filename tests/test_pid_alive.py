@@ -7,7 +7,6 @@ import signal
 import subprocess
 import sys
 import time
-from typing import Any
 from unittest.mock import Mock
 
 import pytest
@@ -18,22 +17,21 @@ from snowpea_core.cli import daemon_client
 class FakeKernel32:
     def __init__(self) -> None:
         self.handle = 2**40 + 123
-        self.exit_code = daemon_client.STILL_ACTIVE
-        self.get_exit_code_ok = True
+        self.wait_result = daemon_client.WAIT_TIMEOUT
         self.closed: list[int] = []
         self.open_calls: list[tuple[int, bool, int]] = []
         self.OpenProcess = Mock(side_effect=self._open_process)
-        self.GetExitCodeProcess = Mock(side_effect=self._get_exit_code_process)
+        self.WaitForSingleObject = Mock(side_effect=self._wait_for_single_object)
         self.CloseHandle = Mock(side_effect=self._close_handle)
 
     def _open_process(self, access: int, inherit: bool, pid: int) -> int:
         self.open_calls.append((access, inherit, pid))
         return self.handle
 
-    def _get_exit_code_process(self, handle: int, exit_code_ptr: Any) -> bool:
+    def _wait_for_single_object(self, handle: int, timeout_ms: int) -> int:
         assert handle == self.handle
-        exit_code_ptr._obj.value = self.exit_code
-        return self.get_exit_code_ok
+        assert timeout_ms == 0
+        return self.wait_result
 
     def _close_handle(self, handle: int) -> bool:
         self.closed.append(handle)
@@ -46,11 +44,11 @@ class FakeKernel32:
             daemon_client.ctypes.wintypes.DWORD,
         ]
         assert self.OpenProcess.restype is daemon_client.ctypes.wintypes.HANDLE
-        assert self.GetExitCodeProcess.argtypes == [
+        assert self.WaitForSingleObject.argtypes == [
             daemon_client.ctypes.wintypes.HANDLE,
-            daemon_client.ctypes.POINTER(daemon_client.ctypes.wintypes.DWORD),
+            daemon_client.ctypes.wintypes.DWORD,
         ]
-        assert self.GetExitCodeProcess.restype is daemon_client.ctypes.wintypes.BOOL
+        assert self.WaitForSingleObject.restype is daemon_client.ctypes.wintypes.DWORD
         assert self.CloseHandle.argtypes == [daemon_client.ctypes.wintypes.HANDLE]
         assert self.CloseHandle.restype is daemon_client.ctypes.wintypes.BOOL
 
@@ -85,7 +83,7 @@ def test_pid_alive_windows_active_uses_query_handle(
 
     assert calls == ["kernel32"]
     assert kernel32.handle > 2**32
-    assert kernel32.open_calls == [(daemon_client.PROCESS_QUERY_LIMITED_INFORMATION, False, 4242)]
+    assert kernel32.open_calls == [(daemon_client.SYNCHRONIZE, False, 4242)]
     assert kernel32.closed == [kernel32.handle]
     kernel32.assert_winapi_prototypes()
 
@@ -94,7 +92,17 @@ def test_pid_alive_windows_exited_process_is_not_alive(
     windows_pid_alive: tuple[FakeKernel32, list[str]],
 ) -> None:
     kernel32, _calls = windows_pid_alive
-    kernel32.exit_code = 0
+    kernel32.wait_result = daemon_client.WAIT_OBJECT_0
+
+    assert daemon_client.pid_alive(4242) is False
+    assert kernel32.closed == [kernel32.handle]
+
+
+def test_pid_alive_windows_still_active_exit_code_is_not_treated_as_alive(
+    windows_pid_alive: tuple[FakeKernel32, list[str]],
+) -> None:
+    kernel32, _calls = windows_pid_alive
+    kernel32.wait_result = daemon_client.STILL_ACTIVE
 
     assert daemon_client.pid_alive(4242) is False
     assert kernel32.closed == [kernel32.handle]
@@ -131,7 +139,7 @@ def test_pid_alive_windows_query_failure_closes_handle_and_returns_false(
     windows_pid_alive: tuple[FakeKernel32, list[str]],
 ) -> None:
     kernel32, _calls = windows_pid_alive
-    kernel32.get_exit_code_ok = False
+    kernel32.wait_result = 0xFFFFFFFF
 
     assert daemon_client.pid_alive(4242) is False
     assert kernel32.closed == [kernel32.handle]

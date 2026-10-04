@@ -24,6 +24,7 @@ from snowpea_core.agent.subagent import (
     COMPLETE,
     BackgroundRun,
     SubagentResult,
+    drop_live_evidence,
     get_manager,
 )
 from snowpea_core.prompts import tool_descriptions as descriptions
@@ -38,6 +39,20 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 #: Upper bound on ``timeout``, mirroring the ``shell`` tool's own ceiling.
 MAX_TIMEOUT = 3600.0
+#: Grace for a cancelled foreground delegation to publish its terminal child event.
+DELEGATE_CANCEL_CLEANUP_TIMEOUT = 5.0
+
+
+def _drain_cancelled_delegate(task: asyncio.Future[Any]) -> None:
+    """Retrieve a late cleanup failure after the parent has already stopped."""
+    if task.cancelled():
+        return
+    try:
+        task.exception()
+    except asyncio.CancelledError:
+        pass
+    except Exception:
+        pass
 
 
 def _builtin_agent_names() -> str:
@@ -312,14 +327,14 @@ async def delegate_task(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         await asyncio.wait({running, waiting}, return_when=asyncio.FIRST_COMPLETED)
     except asyncio.CancelledError:
         # Parent Stop cancels this tool task first.  The child manager owns the
-        # terminal subagent.done event, so wait for its cancellation cleanup before
-        # letting the parent turn finish; otherwise clients can observe parent
-        # turn.done before the interrupted child is reported.
+        # terminal subagent.done event, so give its cancellation cleanup a short
+        # window before letting the parent turn finish.
         running.cancel()
-        try:
-            await running
-        except asyncio.CancelledError:
-            pass
+        done, _ = await asyncio.wait({running}, timeout=DELEGATE_CANCEL_CLEANUP_TIMEOUT)
+        if done:
+            _drain_cancelled_delegate(running)
+        else:
+            running.add_done_callback(_drain_cancelled_delegate)
         raise
     finally:
         waiting.cancel()
@@ -403,6 +418,7 @@ async def subagent_wait(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             sections.append(f"{head}\nfailed: {error or 'cancelled'}")
             continue
         result = run.task.result()
+        drop_live_evidence(ctx.session, result.agent_id, result.session_id)
         sections.append(f"{head}\n{render_report(result)}")
     return ToolResult(ok=True, output="\n\n".join(sections))
 

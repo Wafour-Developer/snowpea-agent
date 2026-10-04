@@ -55,6 +55,8 @@ class InboundMessage:
     callback_data: str | None = None
     #: Platform handle for answering the press (Telegram's callback query id).
     callback_id: str | None = None
+    #: Platform-specific non-secret facts, such as Telegram's chat type.
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 #: What an adapter calls for every inbound message.

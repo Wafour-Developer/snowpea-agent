@@ -140,14 +140,19 @@ class History:
     messages: list[ChatMessage] = field(default_factory=list)
     max_messages: int = DEFAULT_MAX_MESSAGES
     compactions: int = 0
+    version: int = 0
+    rewrite_version: int = 0
 
     def append(self, message: ChatMessage) -> int:
         """Append ``message`` and return its index."""
         self.messages.append(message)
+        self.version += 1
         return len(self.messages) - 1
 
     def extend(self, messages: list[ChatMessage]) -> None:
         self.messages.extend(messages)
+        if messages:
+            self.version += 1
 
     def snapshot(self) -> list[ChatMessage]:
         """Copy of the current messages, safe to hand to a provider."""
@@ -166,6 +171,13 @@ class History:
         """
         self.messages = list(messages)
         self.compactions += 1
+        self.version += 1
+        self.rewrite_version += 1
+
+    def mark_rewritten(self) -> None:
+        """Record an in-place edit to messages that are already in history."""
+        self.version += 1
+        self.rewrite_version += 1
 
     def compact(self) -> bool:
         """Trim the oldest messages once the list outgrows ``max_messages``.
@@ -189,6 +201,8 @@ class History:
             kept = [head, *kept]
         self.messages = kept
         self.compactions += 1
+        self.version += 1
+        self.rewrite_version += 1
         return True
 
     def __len__(self) -> int:

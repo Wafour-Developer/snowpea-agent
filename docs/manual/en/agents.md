@@ -242,7 +242,11 @@ Example `settings.json` (existing `agent.max_tool_rounds` remains supported;
 {
   "agent": {
     "max_turns": 500,
-    "auto_budget_continuations": 10
+    "auto_budget_continuations": 10,
+    "verify_continue_rounds": 20,
+    "no_progress_rounds": 40,
+    "turn_max_minutes": 0,
+    "turn_max_tokens": 0
   },
   "agents": {
     "defaultToolRounds": 50,
@@ -250,6 +254,24 @@ Example `settings.json` (existing `agent.max_tool_rounds` remains supported;
   }
 }
 ```
+
+### Turn safeguards
+
+At a budget checkpoint, verification and Stop-hook continuations grant
+`agent.verify_continue_rounds` rounds (default **20**) and count against the same
+per-turn `auto_budget_continuations` limit. Productive work still receives the
+normal 500-round automatic renewals.
+
+`agent.no_progress_rounds` (default **40**, `0` disables) stops repeated rounds
+that produce no new file edits, distinct tool-call arguments, or tool output
+content. Reading a new file or range counts as progress; repeating the same read
+does not. The turn saves a partial report with reason `stalled`.
+
+Optional `agent.turn_max_minutes` and `agent.turn_max_tokens` ceilings default to
+**0** (unlimited). They are checked at safe round boundaries; token accounting
+uses provider-reported input and output usage. Reaching a ceiling saves a partial
+report with reason `budget`. Round-window settings must be positive; renewal,
+no-progress, time and token limits must be nonnegative.
 
 ### Evidence across rounds and workflows
 
@@ -278,12 +300,17 @@ When `agent` is omitted, the runtime picks a role:
 
 ### Configuring round budgets
 
-Budgets are resolved in this order:
+Budgets are resolved in this order (for both main and child sessions):
+
 1. `agents.maxToolRoundsBy` (role, then `default` / `*`)
 2. Agent-definition `max_tool_rounds` / `tool_rounds`
 3. `agents.maxToolRounds`
-4. Legacy `agents.toolRounds` (role mapping or scalar)
+4. Legacy `agents.toolRounds` (role, then `default`, then `*`, or scalar)
 5. Child: `agents.defaultToolRounds` (50); main: `agent.max_turns` (500)
+
+Definition budgets outrank scalar `agents.maxToolRounds`; `maxToolRoundsBy`
+outranks definitions. Previous built-in role caps, including explore's 8 rounds,
+were removed: every child role now defaults to 50. Explicit overrides remain.
 
 ### Toolless grace call on budget exhaustion
 

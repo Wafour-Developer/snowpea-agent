@@ -26,9 +26,10 @@ import asyncio
 import contextlib
 import json
 import logging
-import re
 import time
 from typing import Any
+
+from snowpea_core.util.redaction import is_sensitive_key, redact_text, redact_value
 
 log = logging.getLogger("snowpea.gateway.activity")
 
@@ -39,6 +40,8 @@ TYPING_CALL_TIMEOUT_SEC = 1.5
 #: Floor between two edits of the progress message, so a turn that calls ten
 #: fast tools does not spend its time rate-limited by the platform.
 PROGRESS_EDIT_INTERVAL_SEC = 1.0
+#: Telegram groups count edits against a tighter shared channel budget.
+GROUP_PROGRESS_EDIT_INTERVAL_SEC = 3.0
 #: Argument keys worth showing beside a tool name, best first.
 LABEL_KEYS: tuple[str, ...] = (
     "command",
@@ -61,27 +64,6 @@ DETAIL_ITEMS = 8
 VALUE_MAX = 260
 #: Max preview lines kept when rendering stdout/stderr in messenger progress.
 VALUE_MAX_LINES = 5
-#: Authorization bearer tokens can appear inside longer command strings.
-INLINE_AUTH_BEARER = re.compile(r"(?i)(authorization\s*[:=]\s*bearer\s+)([^\s,;]+)")
-
-SENSITIVE_KEYS = frozenset(
-    {
-        "api_key",
-        "apikey",
-        "authorization",
-        "auth_token",
-        "access_token",
-        "refresh_token",
-        "token",
-        "password",
-        "passwd",
-        "secret",
-        "client_secret",
-        "credential",
-        "credentials",
-        "jwt",
-    }
-)
 
 
 def tool_label(name: str, args: dict[str, Any]) -> str:
@@ -131,26 +113,18 @@ def _clip_multiline(text: str, limit: int = VALUE_MAX) -> str:
 
 def _redact_text(text: str) -> str:
     """Hide obvious secret assignments inside free-form tool text."""
-    # Reuse the command-history redactor so messenger output follows the same
-    # masking rules, including Authorization: and Bearer tokens.  Import lazily
-    # to keep gateway startup independent of the command registry.
-    from snowpea_core.commands.registry import _redact_command_text
-
-    masked = INLINE_AUTH_BEARER.sub(lambda match: f"{match.group(1)}***", text)
-    return _redact_command_text(masked)
+    return redact_text(text)
 
 
 def _redact_value(key: str, value: Any) -> Any:
     """Return a chat-safe, bounded version of one argument/result value."""
-    if key.lower() in SENSITIVE_KEYS:
-        return "<redacted>"
+    if is_sensitive_key(key):
+        return redact_value(key, value)
     if isinstance(value, dict):
         return {str(k): _redact_value(str(k), v) for k, v in value.items()}
     if isinstance(value, list):
         return [_redact_value("", item) for item in value[:6]]
-    if isinstance(value, str):
-        return _redact_text(value)
-    return value
+    return redact_value(key, value)
 
 
 def _format_value(value: Any) -> str:
@@ -251,6 +225,7 @@ class TurnActivity:
         self._last_edit = 0.0
         self._details: list[str] = []
         self._pending_headline = ""
+        self._edit_backoff_until = 0.0
 
     # -- capabilities ---------------------------------------------------
     def _adapter(self) -> Any:
@@ -287,6 +262,7 @@ class TurnActivity:
         self._last_edit = 0.0
         self._details = []
         self._pending_headline = ""
+        self._edit_backoff_until = 0.0
         self._start_typing()
 
     async def tool_call(self, name: str, args: dict[str, Any]) -> None:
@@ -515,7 +491,12 @@ class TurnActivity:
             # Coalesce instead of cancelling it and starting a concurrent edit.
             self._pending_headline = headline
             return
-        if time.monotonic() - self._last_edit >= PROGRESS_EDIT_INTERVAL_SEC or force:
+        now = time.monotonic()
+        if now < self._edit_backoff_until and not force:
+            self._pending_headline = headline
+            self._schedule_trailing_edit()
+            return
+        if now - self._last_edit >= self._progress_edit_interval() or force:
             self._cancel_trailing_edit()
             await self._edit(body, force=force)
             return
@@ -526,13 +507,23 @@ class TurnActivity:
         edit = self._edit_call()
         if edit is None or not self._message_id or (text == self._shown and not force):
             return
+        if time.monotonic() < self._edit_backoff_until:
+            self._pending_headline = text.splitlines()[0] if text else self._pending_headline
+            self._schedule_trailing_edit()
+            return
         try:
             await edit(self.conn.channel_id, self._message_id, text)
         except Exception as exc:  # noqa: BLE001 - a dead edit must not end a turn
+            retry_after = getattr(exc, "retry_after", None)
+            if isinstance(retry_after, (int, float)) and retry_after > 0:
+                self._edit_backoff_until = time.monotonic() + float(retry_after)
+                self._pending_headline = text.splitlines()[0] if text else self._pending_headline
+                self._schedule_trailing_edit()
             log.debug("progress edit on %s failed: %s", self.conn.surface_id, exc)
             return
         self._shown = text
         self._last_edit = time.monotonic()
+        self._edit_backoff_until = 0.0
 
     def _cancel_trailing_edit(self) -> None:
         task = self._trailing_task
@@ -542,18 +533,31 @@ class TurnActivity:
         self._pending_headline = ""
 
     def _schedule_trailing_edit(self) -> None:
-        if not self._running or not self._posted or not self._message_id:
+        if not self._posted or not self._message_id:
             return
         if self._trailing_task is not None and not self._trailing_task.done():
             return
         elapsed = time.monotonic() - self._last_edit
-        delay = max(0.0, PROGRESS_EDIT_INTERVAL_SEC - elapsed)
+        delay = max(
+            0.0,
+            self._progress_edit_interval() - elapsed,
+            self._edit_backoff_until - time.monotonic(),
+        )
         self._trailing_task = asyncio.ensure_future(self._trailing_edit_after(delay))
+
+    def _progress_edit_interval(self) -> float:
+        if getattr(self.conn.binding, "platform", "") == "telegram":
+            chat_type = str(getattr(self.conn, "chat_type", "") or "").lower()
+            if chat_type in {"group", "supergroup", "channel"}:
+                return GROUP_PROGRESS_EDIT_INTERVAL_SEC
+        return PROGRESS_EDIT_INTERVAL_SEC
 
     async def _trailing_edit_after(self, delay: float) -> None:
         try:
             await asyncio.sleep(delay)
-            if not self._running or not self._posted or not self._message_id:
+            if not self._posted or not self._message_id:
+                return
+            if not self._running and not self._pending_headline:
                 return
             headline = self._pending_headline
             if not headline:
@@ -570,7 +574,7 @@ class TurnActivity:
                 self._trailing_task = None
                 # An event may arrive while the platform edit is in flight.
                 # Give that newer evidence its own coalesced trailing refresh.
-                if self._pending_headline and self._running:
+                if self._pending_headline and (self._running or self._posted):
                     self._schedule_trailing_edit()
 
     def _remember_detail(self, text: str) -> None:
@@ -614,6 +618,7 @@ __all__ = [
     "LABEL_MAX",
     "DETAIL_ITEMS",
     "DETAIL_MAX",
+    "GROUP_PROGRESS_EDIT_INTERVAL_SEC",
     "PROGRESS_EDIT_INTERVAL_SEC",
     "TYPING_CALL_TIMEOUT_SEC",
     "TYPING_INTERVAL_SEC",

@@ -37,12 +37,57 @@ from snowpea_core.gateway.discord import (
 from snowpea_core.gateway.fake import FakeAdapter
 from snowpea_core.gateway.router import Binding, GatewayConnection
 from snowpea_core.gateway.slack import SlackAdapter, parse_envelope, slack_manifest
-from snowpea_core.gateway.telegram import TelegramAdapter, inline_keyboard, parse_update
+from snowpea_core.gateway.telegram import (
+    TelegramAdapter,
+    TelegramRateLimit,
+    inline_keyboard,
+    parse_update,
+)
 from snowpea_core.server.app_server import Daemon
 from snowpea_core.session import events
+from snowpea_core.util.redaction import redact_text, redact_value
 
 FIXTURE = Path(__file__).parent / "fixtures" / "providers" / "fake" / "gateway.json"
 TIMEOUT = 10.0
+
+
+def test_shared_redaction_covers_env_keys_and_common_token_shapes() -> None:
+    raw = "\n".join(
+        [
+            "set OPENAI_API_KEY=sk-live-secret",
+            "GITHUB_TOKEN=ghp_abcdefghi123456",
+            "AWS_SECRET_ACCESS_KEY=AKIA1234567890ABCDEF",
+            "authHeader: Bearer sk-ant-anthropic-secret",
+            "apiTokenValue=github_pat_abcdefghi123456",
+            "slack=xoxb-12345678-secret",
+            "jwt=eyJabcdefghi.eyJabcdefghi.signature123",
+        ]
+    )
+
+    masked = redact_text(raw)
+
+    for secret in (
+        "sk-live-secret",
+        "ghp_abcdefghi123456",
+        "AKIA1234567890ABCDEF",
+        "sk-ant-anthropic-secret",
+        "github_pat_abcdefghi123456",
+        "xoxb-12345678-secret",
+        "eyJabcdefghi.eyJabcdefghi.signature123",
+    ):
+        assert secret not in masked
+    assert "OPENAI_API_KEY=***" in masked
+    assert "authHeader: ***" in masked
+    assert "set OPENAI_API_KEY=***" in masked
+
+    env = redact_value(
+        "env",
+        {
+            "OPENAI_API_KEY": "sk-env-secret",
+            "nested": {"github-token": "gho_abcdefghi123456"},
+        },
+    )
+    assert env == {"OPENAI_API_KEY": "<redacted>", "nested": {"github-token": "<redacted>"}}
 
 
 # ---------------------------------------------------------------------------
@@ -455,6 +500,101 @@ async def test_gateway_progress_trailing_edit_shows_fast_multiline_result(
     assert len(edits) == final_edit_count
 
 
+async def test_gateway_progress_uses_group_safe_telegram_edit_interval(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(gateway_activity, "PROGRESS_EDIT_INTERVAL_SEC", 0.02)
+    monkeypatch.setattr(gateway_activity, "GROUP_PROGRESS_EDIT_INTERVAL_SEC", 0.12)
+
+    async def run(chat_type: str) -> list[str]:
+        edits: list[str] = []
+        edited = asyncio.Event()
+
+        class _Adapter:
+            async def edit(self, _channel: str, _message_id: str, text: str) -> None:
+                edits.append(text)
+                edited.set()
+
+        class _Router:
+            def gateway_flag(self, _name: str) -> bool:
+                return True
+
+            def adapter(self, _binding_id: str) -> Any:
+                return _Adapter()
+
+            async def send(
+                self, _binding: Any, _channel: str, _text: str, buttons: Any = None
+            ) -> str:
+                return "m1"
+
+        binding = Binding(id=f"gw-{chat_type}", platform="telegram", credentials_ref="tg")
+        conn = GatewayConnection(_Router(), binding, "c1")  # type: ignore[arg-type]
+        conn.chat_type = chat_type
+        await conn.activity.turn_started()
+        await conn.activity.tool_call("shell", {"command": "echo hi"})
+        await conn.activity.tool_result(
+            "shell", {"callId": "call-1", "ok": True, "output": "done"}
+        )
+        if chat_type == "private":
+            await asyncio.wait_for(edited.wait(), timeout=0.2)
+        else:
+            await asyncio.sleep(0.05)
+            assert edits == []
+            await asyncio.wait_for(edited.wait(), timeout=0.2)
+        await conn.activity.cancel()
+        return edits
+
+    assert await run("private")
+    assert await run("supergroup")
+
+
+async def test_gateway_progress_backs_off_after_telegram_retry_after(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(gateway_activity, "PROGRESS_EDIT_INTERVAL_SEC", 0.0)
+    edits: list[str] = []
+    attempts = 0
+    edited = asyncio.Event()
+
+    class _RetryAfter(Exception):
+        retry_after = 0.04
+
+    class _Adapter:
+        async def edit(self, _channel: str, _message_id: str, text: str) -> None:
+            nonlocal attempts
+            attempts += 1
+            if attempts <= 2:
+                raise _RetryAfter()
+            edits.append(text)
+            edited.set()
+
+    class _Router:
+        def gateway_flag(self, _name: str) -> bool:
+            return True
+
+        def adapter(self, _binding_id: str) -> Any:
+            return _Adapter()
+
+        async def send(self, _binding: Any, _channel: str, _text: str, buttons: Any = None) -> str:
+            return "m1"
+
+    binding = Binding(id="gw-1", platform="telegram", credentials_ref="tg")
+    conn = GatewayConnection(_Router(), binding, "c1")  # type: ignore[arg-type]
+    await conn.activity.turn_started()
+    await conn.activity.tool_call("shell", {"command": "echo hi"})
+    await conn.activity.tool_result(
+        "shell", {"callId": "call-1", "ok": True, "output": "first"}
+    )
+    assert attempts == 1
+
+    await conn.activity.turn_done("complete")
+    assert attempts == 1
+    await asyncio.wait_for(edited.wait(), timeout=0.3)
+    assert attempts == 3
+    assert edits[-1].startswith("✓ 1 tool call")
+    await conn.activity.cancel()
+
+
 async def test_gateway_progress_render_keeps_heading_with_huge_detail() -> None:
     """Oversized first progress messages keep attribution and stay within adapter bounds."""
     sent: list[str] = []
@@ -843,7 +983,7 @@ async def test_telegram_poll_parses_a_message_and_a_button_press() -> None:
             "update_id": 10,
             "message": {
                 "message_id": 1,
-                "chat": {"id": -100},
+                "chat": {"id": -100, "type": "supergroup"},
                 "from": {"id": 42},
                 "text": "안녕",
             },
@@ -854,7 +994,7 @@ async def test_telegram_poll_parses_a_message_and_a_button_press() -> None:
                 "id": "cbq-1",
                 "from": {"id": 42},
                 "data": "apr:ap-9:deny",
-                "message": {"message_id": 2, "chat": {"id": -100}},
+                "message": {"message_id": 2, "chat": {"id": -100, "type": "supergroup"}},
             },
         },
     ]
@@ -878,11 +1018,34 @@ async def test_telegram_poll_parses_a_message_and_a_button_press() -> None:
     assert received[0].channel_id == "-100"
     assert received[0].user_id == "42"
     assert received[0].text == "안녕"
+    assert received[0].metadata["chat_type"] == "supergroup"
     assert parse_approval_callback(received[1].callback_data) == ("ap-9", "deny")
     assert received[1].callback_id == "cbq-1"
+    assert received[1].metadata["chat_type"] == "supergroup"
     # An edit with no text and no attachment is not something to answer.
     empty = {"update_id": 12, "message": {"chat": {"id": 1}, "from": {"id": 2}}}
     assert parse_update(empty) is None
+
+
+async def test_telegram_edit_raises_retry_after_for_429() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            429,
+            json={
+                "ok": False,
+                "description": "Too Many Requests",
+                "parameters": {"retry_after": 7},
+            },
+        )
+
+    adapter = TelegramAdapter(
+        "123:ABC", client=httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    )
+    with pytest.raises(TelegramRateLimit) as caught:
+        await adapter.edit("555", "77", "⏳ shell echo hi")
+    await adapter.stop()
+
+    assert caught.value.retry_after == 7
 
 
 # ---------------------------------------------------------------------------

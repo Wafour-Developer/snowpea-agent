@@ -251,6 +251,8 @@ class GatewayConnection:
         self.session_id: str | None = None
         self.closed = False
         self.surface_id = f"gateway:{binding.platform}:{channel_id}"
+        #: Platform conversation type, e.g. Telegram private/group/supergroup.
+        self.chat_type: str = ""
         #: Approval requests this conversation was asked about.
         self.asked: set[str] = set()
         #: The ``ask_user`` batch this chat is working through, if any.  A
@@ -827,6 +829,11 @@ class GatewayRouter:
 
     async def handle(self, binding: Binding, message: InboundMessage) -> None:
         """Route one inbound message: a button press, or a prompt."""
+        chat_type = str(message.metadata.get("chat_type") or "")
+        if chat_type:
+            conn = self._conns.get((binding.id, message.channel_id))
+            if conn is not None:
+                conn.chat_type = chat_type
         if binding.channel_id and message.channel_id != binding.channel_id:
             log.info("ignoring %s message from unbound channel", binding.platform)
             return
@@ -1158,10 +1165,14 @@ class GatewayRouter:
                 # never reaches the chat; say so where the person can see it.
                 await self.send(binding, message.channel_id, UNKNOWN_COMMAND_TEXT.format(name=name))
                 return
-            session, _conn = await self._session_for(binding, message.channel_id)
+            session, _conn = await self._session_for(
+                binding, message.channel_id, metadata=message.metadata
+            )
             self.core.commands.start(self.core, session, name, args, None)
             return
-        session, _conn = await self._session_for(binding, message.channel_id)
+        session, _conn = await self._session_for(
+            binding, message.channel_id, metadata=message.metadata
+        )
         from snowpea_core.agent.prompt_refs import prepare_prompt
         from snowpea_core.server.session_handlers import _accept_attachments
 
@@ -1178,17 +1189,25 @@ class GatewayRouter:
         )
 
     async def _session_for(
-        self, binding: Binding, channel_id: str
+        self,
+        binding: Binding,
+        channel_id: str,
+        *,
+        metadata: dict[str, Any] | None = None,
     ) -> tuple[Any, GatewayConnection]:
         """The session for this conversation, created on first message."""
         assert self.core is not None
         key = (binding.id, channel_id)
         conn = self._conns.get(key)
+        chat_type = str((metadata or {}).get("chat_type") or "")
+        if conn is not None and chat_type:
+            conn.chat_type = chat_type
         if conn is not None and conn.session_id is not None:
             session = self.core.sessions.get(conn.session_id)
             if session is not None:
                 return session, conn
         conn = GatewayConnection(self, binding, channel_id)
+        conn.chat_type = chat_type
         session = await self._remembered_session(binding, channel_id)
         if session is None:
             session = await self._create_session(binding, channel_id)

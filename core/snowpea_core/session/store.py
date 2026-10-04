@@ -501,6 +501,30 @@ class Store:
             (session_id, idx, role, json.dumps(content)),
         )
 
+    async def append_messages(
+        self, session_id: str, start_idx: int, messages: list[dict[str, Any]]
+    ) -> None:
+        """Atomically append new provider-history rows for one session."""
+
+        if not messages:
+            return
+
+        def append() -> None:
+            with self._lock:
+                if self._closed:
+                    raise StoreClosed("session store is closed")
+                self._conn.executemany(
+                    "INSERT OR REPLACE INTO messages (session_id, idx, role, content_json)"
+                    " VALUES (?, ?, ?, ?)",
+                    [
+                        (session_id, start_idx + offset, item["role"], json.dumps(item["content"]))
+                        for offset, item in enumerate(messages)
+                    ],
+                )
+                self._conn.commit()
+
+        await asyncio.to_thread(append)
+
     async def replace_messages(self, session_id: str, messages: list[dict[str, Any]]) -> None:
         """Atomically replace the resumable provider history for one session."""
 

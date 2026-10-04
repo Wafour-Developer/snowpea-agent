@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -19,6 +18,7 @@ from snowpea_core.providers.base import ChatMessage
 from snowpea_core.server import errors
 from snowpea_core.server.protocol import CommandInfo, CommandSource
 from snowpea_core.session import events
+from snowpea_core.util.redaction import redact_text
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.server.app_server import Core
@@ -33,27 +33,12 @@ CONTEXT_WRITING_COMMANDS: frozenset[str] = frozenset({"init", "deepinit", "skill
 MAX_COMMAND_HISTORY_CHARS = 6000
 MAX_COMMAND_HISTORY_HEAD_CHARS = 3000
 MAX_COMMAND_HISTORY_TAIL_CHARS = 2600
-_SECRET_ASSIGNMENT = re.compile(
-    r"(?i)\b(api[_-]?key|token|access[_-]?token|refresh[_-]?token|id[_-]?token|"
-    r"oauth[_-]?token|password|passwd|secret|client[_-]?secret|authorization)"
-    r"(\s*(?:=|:)\s*|\s+)([^\s,;]+)"
-)
-_BEARER_TOKEN = re.compile(r"(?i)\b(bearer)\s+([a-z0-9._~+/=-]{8,})")
-_AUTHORIZATION_HEADER = re.compile(r"(?im)^(\s*authorization\s*:\s*).+$")
-_JSON_SECRET = re.compile(
-    r'(?i)("(?:api[_-]?key|token|access[_-]?token|refresh[_-]?token|password|'
-    r'passwd|secret|client[_-]?secret|authorization)"\s*:\s*)"(?:\\.|[^"\\])*"'
-)
-
 log = logging.getLogger("snowpea.commands")
 
 
 def _redact_command_text(text: str) -> str:
     """Mask secret-looking command args/output before persisting history."""
-    masked = _JSON_SECRET.sub(lambda m: f'{m.group(1)}"***"', text)
-    masked = _AUTHORIZATION_HEADER.sub(lambda m: f"{m.group(1)}***", masked)
-    masked = _SECRET_ASSIGNMENT.sub(lambda m: f"{m.group(1)}{m.group(2)}***", masked)
-    return _BEARER_TOKEN.sub(lambda m: f"{m.group(1)} ***", masked)
+    return redact_text(text)
 
 
 def _clip_command_history(text: str) -> str:

@@ -250,6 +250,15 @@ class AgentSettings(_Model):
     max_tool_rounds: int = Field(default=500, ge=1)
     #: Automatic budget renewals before Continue/Stop; zero disables renewals.
     auto_budget_continuations: int = Field(default=10, ge=0)
+    #: Rounds granted to verify-on-stop and Stop-hook continuations that fire
+    #: after a budget probe, counted against ``auto_budget_continuations``.
+    verify_continue_rounds: int = Field(default=20, ge=1)
+    #: Consecutive rounds with no new call signature or output before stopping.
+    no_progress_rounds: int = Field(default=40, ge=0)
+    #: Optional wall-clock ceiling for one turn. ``0`` keeps Hermes-like unlimited.
+    turn_max_minutes: float = Field(default=0, ge=0)
+    #: Optional provider-reported token ceiling for one turn. ``0`` is unlimited.
+    turn_max_tokens: int = Field(default=0, ge=0)
 
     @model_validator(mode="before")
     @classmethod

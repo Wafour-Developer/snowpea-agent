@@ -741,6 +741,10 @@ def pair_tool_results(history: list[ChatMessage]) -> list[ChatMessage]:
 #: what the user had chosen, and it asked the same questions twice.
 KEPT_RESULT_TOOLS: frozenset[str] = frozenset({"delegate_task", "subagent_wait", "ask_user"})
 
+#: Name on flushed ``session.notice`` / child-evidence bundles.  They are user
+#: messages on purpose, but old ones should shrink with old tool output.
+NOTICE_MESSAGE_NAME = "session_notice"
+
 
 def prune_old_tool_outputs(
     history: list[ChatMessage],
@@ -773,6 +777,16 @@ def prune_old_tool_outputs(
     skills = set(_skill_names_by_call(history))
     out = list(history)
     for index, message in enumerate(out):
+        if _is_notice_message(message):
+            if cutoff is not None and index < cutoff:
+                out[index] = replace(
+                    message, content=_notice_stub(len(str(message.content or "")))
+                )
+                continue
+            trimmed = _trim_tool_output(str(message.content or ""), max_chars)
+            if trimmed != message.content:
+                out[index] = replace(message, content=trimmed)
+            continue
         if message.role != "tool" or not isinstance(message.content, str):
             continue
         if message.name == "skill_view" or (message.tool_call_id or "") in skills:
@@ -794,6 +808,14 @@ def prune_old_tool_outputs(
         if trimmed != message.content:
             out[index] = replace(message, content=trimmed)
     return out
+
+
+def _is_notice_message(message: ChatMessage) -> bool:
+    return message.role == "user" and message.name == NOTICE_MESSAGE_NAME
+
+
+def _notice_stub(chars: int) -> str:
+    return f"[earlier session notices pruned — {chars} chars]"
 
 
 def tool_prune_settings(core: Core | None) -> tuple[bool, int, int]:

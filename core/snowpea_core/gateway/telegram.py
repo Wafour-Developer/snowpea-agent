@@ -32,6 +32,14 @@ RETRY_DELAY_SEC = 3.0
 MENU_DESCRIPTION_CHARS = 256
 
 
+class TelegramRateLimit(GatewayError):
+    """Telegram asked this call path to wait before retrying."""
+
+    def __init__(self, method: str, retry_after: float) -> None:
+        self.retry_after = retry_after
+        super().__init__(f"telegram {method} rate limited: retry after {retry_after:g}s")
+
+
 def parse_update(update: dict[str, Any]) -> InboundMessage | None:
     """Turn one ``getUpdates`` entry into an :class:`InboundMessage`.
 
@@ -54,6 +62,7 @@ def parse_update(update: dict[str, Any]) -> InboundMessage | None:
             message_id=str(message.get("message_id", "")) or None,
             callback_data=str(query.get("data", "")) or None,
             callback_id=str(query.get("id", "")) or None,
+            metadata={"chat_type": str(chat.get("type") or "")},
         )
     message = update.get("message")
     if not isinstance(message, dict):
@@ -80,6 +89,7 @@ def parse_update(update: dict[str, Any]) -> InboundMessage | None:
         attachments=attachments,
         message_id=str(message.get("message_id", "")) or None,
         reply_to=str(reply.get("message_id")) if reply.get("message_id") else None,
+        metadata={"chat_type": str(chat.get("type") or "")},
     )
 
 
@@ -129,15 +139,24 @@ class TelegramAdapter:
         """One Bot API call; raises :class:`GatewayError` on a non-ok answer."""
         try:
             response = await self._http().post(f"{self._url_prefix}/{method}", json=payload)
-            response.raise_for_status()
             body = response.json()
         except (httpx.HTTPError, ValueError) as exc:
             # httpx names the URL in its message, and the URL carries the
             # bot token; a log line must never.
             detail = str(exc).replace(self._token, "<token>") or type(exc).__name__
             raise GatewayError(f"telegram {method} failed: {detail}") from exc
+        if response.status_code >= 400 and body.get("ok", False):
+            try:
+                response.raise_for_status()
+            except httpx.HTTPError as exc:
+                detail = str(exc).replace(self._token, "<token>") or type(exc).__name__
+                raise GatewayError(f"telegram {method} failed: {detail}") from exc
         if not body.get("ok"):
-            raise GatewayError(f"telegram {method} rejected: {body.get('description')}")
+            retry_after = (body.get("parameters") or {}).get("retry_after")
+            if response.status_code == 429 and isinstance(retry_after, (int, float)):
+                raise TelegramRateLimit(method, float(retry_after))
+            detail = body.get("description") or str(response.url).replace(self._token, "<token>")
+            raise GatewayError(f"telegram {method} rejected: {detail}")
         return body.get("result")
 
     # -- PlatformAdapter -----------------------------------------------
@@ -187,11 +206,15 @@ class TelegramAdapter:
 
     async def edit(self, channel_id: str, message_id: str, text: str) -> None:
         """Rewrite one of our own messages, which is how progress stays to one."""
-        with contextlib.suppress(GatewayError):
+        try:
             await self._api(
                 "editMessageText",
                 {"chat_id": channel_id, "message_id": message_id, "text": text},
             )
+        except TelegramRateLimit:
+            raise
+        except GatewayError:
+            return
 
     async def acknowledge(self, callback_id: str, text: str = "") -> None:
         """Clear the spinner on a pressed inline button."""
@@ -240,6 +263,7 @@ __all__ = [
     "POLL_TIMEOUT_SEC",
     "RETRY_DELAY_SEC",
     "TelegramAdapter",
+    "TelegramRateLimit",
     "inline_keyboard",
     "parse_update",
 ]

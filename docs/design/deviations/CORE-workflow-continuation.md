@@ -4,7 +4,8 @@
 
 A main-agent round cap is a checkpoint. When the budget probe requests more tools,
 the loop records its report and automatically renews the round allowance up to
-three times in the same turn and conversation. It emits `hook.continue` for each
+`agent.auto_budget_continuations` times (default ten) in the same turn and
+conversation. It emits `hook.continue` for each
 renewal, so attached surfaces can show that work is continuing. The current
 permission mode and interrupt event remain in force.
 

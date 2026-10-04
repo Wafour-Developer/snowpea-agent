@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
+import json
 import logging
 import re
 import uuid
@@ -73,6 +75,10 @@ INTERRUPTED_INVITATION = (
 STEER_PREFIX = "[from the user, mid-task] "
 #: How a ``subagent_message`` from the delegating agent reaches its child.
 LEAD_PREFIX = "[from the agent that delegated this task, mid-task] "
+
+#: ``session.notice`` and live child evidence are folded into one user message.
+MAX_NOTICE_FLUSH_COUNT = 20
+MAX_NOTICE_FLUSH_CHARS = 12_000
 
 #: How many times one assistant turn may be resumed after the model stopped at
 #: the output limit.  Two is enough for a long review and still bounded
@@ -214,9 +220,13 @@ async def finish_turn(core: Core, session: Session, turn_id: str, reason: str) -
         )
     # Sensitive host results served this turn; from here on (memory, the next
     # turn, compaction) they are only a marker.
+    redacted_sensitive = False
     for message in session.history.messages:
-        if message.sensitive:
+        if message.sensitive and message.content != REDACTED:
             message.content = REDACTED
+            redacted_sensitive = True
+    if redacted_sensitive:
+        session.history.mark_rewritten()
     if not getattr(core, "stopping", False):
         # Written whether or not the turn was already closed for us: the
         # prompt it began with must survive an interruption (CORE-dangling-turns).
@@ -399,6 +409,8 @@ class _Attempt:
     #: Characters of hidden reasoning; published, never stored.
     reasoning_chars: int = 0
     reasoning_tokens: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
     #: How many times the answer was resumed after an output-limit stop.
     continuations: int = 0
     interrupted: bool = False
@@ -407,6 +419,102 @@ class _Attempt:
     def truncated(self) -> bool:
         """True when the answer still ends at the output limit."""
         return self.stop_reason == "max_tokens"
+
+
+def _stable_json(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def _hash_text(value: Any) -> str:
+    return hashlib.sha256(str(value).encode("utf-8", errors="replace")).hexdigest()
+
+
+@dataclass
+class _TurnProgress:
+    """Progress detector for unattended auto-renewing turns."""
+
+    no_progress_limit: int
+    seen_calls: set[str] = field(default_factory=set)
+    seen_outputs: set[str] = field(default_factory=set)
+    history_index: int = 0
+    stagnant_rounds: int = 0
+    tokens: int = 0
+
+    def add_usage(self, attempt: _Attempt) -> None:
+        self.tokens += max(0, attempt.input_tokens) + max(0, attempt.output_tokens)
+
+    def observe_history(self, history: list[ChatMessage]) -> bool:
+        progressed = False
+        if self.history_index > len(history):
+            self.history_index = 0
+        for message in history[self.history_index :]:
+            if message.role == "assistant":
+                for call in message.tool_calls or []:
+                    signature = f"{call.name}:{_stable_json(call.arguments)}"
+                    if signature not in self.seen_calls:
+                        self.seen_calls.add(signature)
+                        progressed = True
+            elif message.role == "tool":
+                digest = f"{message.name or ''}:{_hash_text(message.content)}"
+                if digest not in self.seen_outputs:
+                    self.seen_outputs.add(digest)
+                    progressed = True
+        self.history_index = len(history)
+        return progressed
+
+    def observe_round(self, history: list[ChatMessage]) -> bool:
+        # Progress is read from the conversation only: an edit, a build or a
+        # read of something new always leaves a new call or a new result. A
+        # filesystem digest here walked and hashed the whole working directory
+        # every round — the user's home, for a messenger session.
+        progressed = self.observe_history(history)
+        if progressed:
+            self.stagnant_rounds = 0
+        else:
+            self.stagnant_rounds += 1
+        return progressed
+
+    def stalled(self) -> bool:
+        return self.no_progress_limit > 0 and self.stagnant_rounds >= self.no_progress_limit
+
+
+def _verify_continue_rounds(core: Core) -> int:
+    try:
+        return max(1, int(core.settings.agent.verify_continue_rounds))
+    except (AttributeError, TypeError, ValueError):
+        return 20
+
+
+def _auto_continue_limit(core: Core) -> int:
+    try:
+        return max(0, int(core.settings.agent.auto_budget_continuations))
+    except (AttributeError, TypeError, ValueError):
+        return 10
+
+
+def _guard_limits(core: Core) -> tuple[float, int, int]:
+    agent = core.settings.agent
+    try:
+        wall_minutes = max(0.0, float(agent.turn_max_minutes))
+    except (AttributeError, TypeError, ValueError):
+        wall_minutes = 0.0
+    try:
+        token_limit = max(0, int(agent.turn_max_tokens))
+    except (AttributeError, TypeError, ValueError):
+        token_limit = 0
+    try:
+        no_progress = max(0, int(agent.no_progress_rounds))
+    except (AttributeError, TypeError, ValueError):
+        no_progress = 40
+    return wall_minutes, token_limit, no_progress
+
+
+def _budget_probe_continue_window(core: Core, used: int) -> tuple[int, int] | None:
+    """Round grant for verify/Stop continuations after the budget probe."""
+
+    if used >= _auto_continue_limit(core):
+        return None
+    return used + 1, _verify_continue_rounds(core)
 
 
 async def _stream_once(
@@ -482,6 +590,8 @@ async def _stream_once(
             attempt.calls.append(event.tool_call)
         elif event.kind == "usage" and event.usage is not None:
             # The vendor's own prompt count beats any local estimate.
+            attempt.input_tokens += event.usage.input_tokens
+            attempt.output_tokens += event.usage.output_tokens
             attempt.reasoning_tokens += event.usage.reasoning_tokens
             compaction.record_provider_usage(session, event.usage.input_tokens)
             await hub.emit_event(
@@ -623,6 +733,8 @@ async def _model_turn(
         )
         retry.reasoning_chars += attempt.reasoning_chars
         retry.reasoning_tokens += attempt.reasoning_tokens
+        retry.input_tokens += attempt.input_tokens
+        retry.output_tokens += attempt.output_tokens
         attempt = retry
         if attempt.interrupted or not attempt.truncated or attempt.calls:
             return attempt
@@ -660,6 +772,8 @@ async def _model_turn(
             stop_reason=resumed.stop_reason,
             reasoning_chars=attempt.reasoning_chars + resumed.reasoning_chars,
             reasoning_tokens=attempt.reasoning_tokens + resumed.reasoning_tokens,
+            input_tokens=attempt.input_tokens + resumed.input_tokens,
+            output_tokens=attempt.output_tokens + resumed.output_tokens,
             continuations=attempt.continuations + 1,
             interrupted=resumed.interrupted,
         )
@@ -751,10 +865,46 @@ async def _flush_notices(session: Session) -> int:
     """Hand ``session.notice`` lines to the model before its next call (1.7.0)."""
     if not session.pending_notices:
         return 0
-    lines = [f"[system] {text}" for text in session.pending_notices]
+    lines = _bounded_notice_lines(session.pending_notices)
     session.pending_notices.clear()
-    session.history.append(ChatMessage(role="user", content="\n".join(lines)))
+    session.history.append(
+        ChatMessage(role="user", content="\n".join(lines), name=compaction.NOTICE_MESSAGE_NAME)
+    )
     return len(lines)
+
+
+def _bounded_notice_lines(notices: list[str]) -> list[str]:
+    """Newest notices that fit in one bounded model message."""
+    selected: list[str] = []
+    used = 0
+    dropped = 0
+    for text in reversed(notices):
+        line = _clip_notice_line(f"[system] {text}")
+        extra = len(line) + (1 if selected else 0)
+        if len(selected) >= MAX_NOTICE_FLUSH_COUNT or used + extra > MAX_NOTICE_FLUSH_CHARS:
+            dropped += 1
+            continue
+        selected.append(line)
+        used += extra
+    selected.reverse()
+    if dropped:
+        marker = f"[system] [earlier notices omitted: {dropped}]"
+        while selected and (
+            len(selected) >= MAX_NOTICE_FLUSH_COUNT
+            or len("\n".join([marker, *selected])) > MAX_NOTICE_FLUSH_CHARS
+        ):
+            selected.pop(0)
+        selected.insert(0, marker)
+    return selected
+
+
+def _clip_notice_line(text: str) -> str:
+    if len(text) <= MAX_NOTICE_FLUSH_CHARS:
+        return text
+    marker = "\n...[notice truncated]...\n"
+    head = max(1, (MAX_NOTICE_FLUSH_CHARS - len(marker)) // 2)
+    tail = max(1, MAX_NOTICE_FLUSH_CHARS - len(marker) - head)
+    return f"{text[:head].rstrip()}{marker}{text[-tail:].lstrip()}"
 
 
 async def _steer_queued_turns(core: Core, session: Session) -> int:
@@ -1157,6 +1307,9 @@ async def _drive(
     rounds_left = config.max_tool_rounds
     budget_continuations = 0
     session.rounds_used = 0
+    turn_started_at = monotonic()
+    wall_minutes, token_limit, no_progress_limit = _guard_limits(core)
+    progress = _TurnProgress(no_progress_limit=no_progress_limit)
     # Times a Stop hook kept this turn going (capped per turn).
     stop_continuations = 0
     session.lead_direct_calls = 0
@@ -1168,6 +1321,30 @@ async def _drive(
         # No outstanding tool-call/result pair is split by these notices.
         await _flush_notices(session)
         await persist_history(getattr(core, "store", None), session)
+        if wall_minutes and monotonic() - turn_started_at >= wall_minutes * 60:
+            await _guard_report(
+                core,
+                session,
+                provider,
+                config,
+                memory_block,
+                reason="wall-clock",
+                detail=f"elapsed time reached {wall_minutes:g} minutes",
+            )
+            await finish_turn(core, session, turn_id, "budget")
+            return "budget"
+        if token_limit and progress.tokens >= token_limit:
+            await _guard_report(
+                core,
+                session,
+                provider,
+                config,
+                memory_block,
+                reason="token",
+                detail=f"provider-reported usage reached {progress.tokens} tokens",
+            )
+            await finish_turn(core, session, turn_id, "budget")
+            return "budget"
         if rounds_left <= 0:
             if session.is_subagent:
                 # Hermes-style grace call: one tools-free model call to summarise what
@@ -1190,6 +1367,8 @@ async def _drive(
             # finished reply).  Only a model that still reaches for a tool gets
             # the report-then-ask path.
             probe = await _budget_probe(core, session, provider, config, memory_block)
+            if probe is not None:
+                progress.add_usage(probe)
             if probe is not None and not probe.calls and not probe.interrupted:
                 assistant_text = probe.text
                 session.history.append(ChatMessage(role="assistant", content=assistant_text))
@@ -1205,9 +1384,15 @@ async def _drive(
                     None if session.interrupt.is_set() else verify_gate.nudge(core, session)
                 )
                 if unverified:
+                    window = _budget_probe_continue_window(core, budget_continuations)
+                    if window is None:
+                        await finish_turn(core, session, turn_id, "budget")
+                        return "budget"
+                    budget_continuations, rounds_left = window
                     session.history.append(ChatMessage(role="user", content=unverified))
-                    await hub.emit_event(session.id, events.hook_continue(unverified, 0))
-                    rounds_left = config.max_tool_rounds
+                    await hub.emit_event(
+                        session.id, events.hook_continue(unverified, budget_continuations)
+                    )
                     continue
                 if stop_continuations < plugin_hooks.MAX_STOP_CONTINUATIONS:
                     decision = await plugin_hooks.stop(
@@ -1217,13 +1402,17 @@ async def _drive(
                         active=stop_continuations > 0,
                     )
                     if decision.block and not session.interrupt.is_set():
+                        window = _budget_probe_continue_window(core, budget_continuations)
+                        if window is None:
+                            await finish_turn(core, session, turn_id, "budget")
+                            return "budget"
+                        budget_continuations, rounds_left = window
                         stop_continuations += 1
                         session.pending_notices.append(f"Stop hook: {decision.reason}")
                         await hub.emit_event(
                             session.id,
-                            events.hook_continue(decision.reason, stop_continuations),
+                            events.hook_continue(decision.reason, budget_continuations),
                         )
-                        rounds_left = config.max_tool_rounds
                         continue
                 await speak_reply(core, session, assistant_text)
                 await finish_turn(core, session, turn_id, "complete")
@@ -1244,7 +1433,7 @@ async def _drive(
                 return "interrupted"
             # Resume automatically while preserving the conversation. Only
             # after the bounded automatic window does an attended turn ask.
-            automatic = budget_continuations < core.settings.agent.auto_budget_continuations
+            automatic = budget_continuations < _auto_continue_limit(core)
             asks = not unattended and not session.is_subagent
             if not automatic and (not asks or not await _ask_to_continue(core, session, config)):
                 await finish_turn(core, session, turn_id, "budget")
@@ -1280,6 +1469,7 @@ async def _drive(
         specs = core.tools.specs(session)
         messages = build_messages(session, specs, memory_block, core=core)
         attempt = await _model_turn(core, session, provider, messages, specs, config)
+        progress.add_usage(attempt)
         calls = _repair_calls(core, session, attempt.calls)
 
         if attempt.interrupted:
@@ -1369,7 +1559,20 @@ async def _drive(
                         view_image.flush_tool_image_messages(core, session)
                     return outcome
         view_image.flush_tool_image_messages(core, session)
+        progress.observe_round(session.history.snapshot())
         session.history.compact()
+        if progress.stalled():
+            await _guard_report(
+                core,
+                session,
+                provider,
+                config,
+                memory_block,
+                reason="stalled",
+                detail=f"{progress.stagnant_rounds} consecutive rounds produced no new evidence",
+            )
+            await finish_turn(core, session, turn_id, "stalled")
+            return "stalled"
         # A prompt typed during a long tool call is folded in before the next
         # model round starts.
         await _steer_queued_turns(core, session)
@@ -1439,6 +1642,54 @@ async def _budget_report(
             log.exception("the tool-budget report failed for %s", session.id)
     if not text:
         text = BUDGET_EMPTY_REPORT.format(n=config.max_tool_rounds)
+    session.history.append(ChatMessage(role="assistant", content=text))
+    await core.hub.emit_event(
+        session.id,
+        events.message_done(text, truncated=truncated, continuations=continuations),
+    )
+    await speak_reply(core, session, text)
+    return text
+
+
+async def _guard_report(
+    core: Core,
+    session: Session,
+    provider: Any,
+    config: AgentConfig,
+    memory_block: str,
+    *,
+    reason: str,
+    detail: str,
+) -> str:
+    """Write a partial report before a runaway guard ends the turn."""
+
+    instruction = (
+        f"Stop now and write a partial report because this turn hit the {reason} guard: "
+        f"{detail}. Summarize what changed, what was verified, and what remains. "
+        "Do not call tools."
+    )
+    text = ""
+    truncated = False
+    continuations = 0
+    try:
+        attempt = await _model_turn(
+            core,
+            session,
+            provider,
+            [
+                *build_messages(session, [], memory_block, core=core),
+                ChatMessage(role="user", content=instruction),
+            ],
+            [],
+            config,
+        )
+        text = attempt.text.strip()
+        truncated = attempt.truncated
+        continuations = attempt.continuations
+    except Exception:  # noqa: BLE001 - the guard must still end the turn
+        log.exception("the %s guard report failed for %s", reason, session.id)
+    if not text:
+        text = f"Stopped by the {reason} guard. {detail}"
     session.history.append(ChatMessage(role="assistant", content=text))
     await core.hub.emit_event(
         session.id,

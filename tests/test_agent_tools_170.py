@@ -12,6 +12,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
 from snowpea_core.agent import loop as agent_loop
 from snowpea_core.agent.subagent import SubagentResult, fork_history, get_manager
 from snowpea_core.providers.base import ChatMessage, ToolCall
@@ -169,6 +171,111 @@ async def test_background_delegation_and_subagent_wait(tmp_path: Path) -> None:
     stranger = ToolContext(session=other, core=ctx.core, backend=None)  # type: ignore[arg-type]
     refused = await delegate.subagent_wait(stranger, {"task_ids": [task_id]})
     assert not refused.ok
+
+
+async def test_foreground_delegation_stop_has_bounded_child_cleanup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctx = _ctx(tmp_path, settings=None)
+    manager = get_manager(ctx.core)
+    entered_child = asyncio.Event()
+    entered_cleanup = asyncio.Event()
+    release_cleanup = asyncio.Event()
+    child_task: asyncio.Task[Any] | None = None
+
+    async def fake_run(parent: Session, task: str, **kwargs: Any) -> SubagentResult:
+        nonlocal child_task
+        child_task = asyncio.current_task()
+        entered_child.set()
+        try:
+            await asyncio.Future()
+        except asyncio.CancelledError:
+            entered_cleanup.set()
+            await release_cleanup.wait()
+            raise
+
+    manager.run = fake_run  # type: ignore[method-assign]
+    monkeypatch.setattr(delegate, "DELEGATE_CANCEL_CLEANUP_TIMEOUT", 0.01)
+
+    call = asyncio.ensure_future(delegate.delegate_task(ctx, {"task": "wait forever"}))
+    await entered_child.wait()
+    call.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(call, timeout=1)
+    assert entered_cleanup.is_set()
+
+    release_cleanup.set()
+    assert child_task is not None
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(child_task, timeout=1)
+
+
+async def test_foreground_delegation_stop_preserves_cancelled_error_after_cleanup_failure(
+    tmp_path: Path,
+) -> None:
+    ctx = _ctx(tmp_path, settings=None)
+    manager = get_manager(ctx.core)
+    entered_child = asyncio.Event()
+
+    async def fake_run(parent: Session, task: str, **kwargs: Any) -> SubagentResult:
+        entered_child.set()
+        try:
+            await asyncio.Future()
+        except asyncio.CancelledError as exc:
+            raise RuntimeError("cleanup failed") from exc
+
+    manager.run = fake_run  # type: ignore[method-assign]
+
+    call = asyncio.ensure_future(delegate.delegate_task(ctx, {"task": "fail cleanup"}))
+    await entered_child.wait()
+    call.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(call, timeout=1)
+
+
+async def test_foreground_delegation_stop_drains_late_cleanup_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctx = _ctx(tmp_path, settings=None)
+    manager = get_manager(ctx.core)
+    entered_child = asyncio.Event()
+    entered_cleanup = asyncio.Event()
+    release_cleanup = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    loop_errors: list[dict[str, Any]] = []
+    previous_handler = loop.get_exception_handler()
+
+    def record_exception(loop: asyncio.AbstractEventLoop, context: dict[str, Any]) -> None:
+        loop_errors.append(context)
+
+    async def fake_run(parent: Session, task: str, **kwargs: Any) -> SubagentResult:
+        entered_child.set()
+        try:
+            await asyncio.Future()
+        except asyncio.CancelledError as exc:
+            entered_cleanup.set()
+            await release_cleanup.wait()
+            raise RuntimeError("late cleanup failed") from exc
+
+    manager.run = fake_run  # type: ignore[method-assign]
+    monkeypatch.setattr(delegate, "DELEGATE_CANCEL_CLEANUP_TIMEOUT", 0.01)
+    loop.set_exception_handler(record_exception)
+    try:
+        call = asyncio.ensure_future(delegate.delegate_task(ctx, {"task": "fail late"}))
+        await entered_child.wait()
+        call.cancel()
+
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(call, timeout=1)
+        assert entered_cleanup.is_set()
+
+        release_cleanup.set()
+        await asyncio.sleep(0)
+        assert loop_errors == []
+    finally:
+        loop.set_exception_handler(previous_handler)
 
 
 # ---------------------------------------------------------------------------

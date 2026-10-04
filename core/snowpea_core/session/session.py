@@ -158,11 +158,20 @@ class Session:
     rpc_steers: list[str] = field(default_factory=list)
     #: Recall also searches pages a browser host ingested (1.7.0).
     browser_memory: bool = False
+    #: Serialises history writes so an older persistence attempt cannot delete
+    #: or overwrite rows written by a newer one for the same session.
+    history_persist_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    history_persisted_len: int = 0
+    history_persisted_version: int = 0
+    history_persisted_rewrite_version: int = 0
     #: ``session.create {locale}``: the client's UI language (``ko-KR``), which
     #: ``agent.replyLanguage: auto`` prefers to a guess (1.7.0).
     locale: str | None = None
     #: ``session.notice`` lines waiting for the next model call (1.7.0).
     pending_notices: list[str] = field(default_factory=list)
+    #: Recently queued child-attempt evidence markers.  This survives notice
+    #: flushes so the same failed attempt is carried once, not every replay.
+    reported_child_attempts: list[str] = field(default_factory=list)
     #: ``subagent_message`` texts from the delegating agent, injected at this
     #: child's next model round.
     lead_messages: list[str] = field(default_factory=list)

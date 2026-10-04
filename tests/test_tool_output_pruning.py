@@ -198,6 +198,19 @@ def test_a_subagent_report_is_never_pruned() -> None:
     assert "pruned" in str(pruned[6].content)
 
 
+def test_old_notice_bundles_are_pruned_like_tool_output() -> None:
+    notice = ChatMessage(
+        role="user",
+        name=compaction.NOTICE_MESSAGE_NAME,
+        content="[system] child evidence\n" + ("x" * 2000),
+    )
+    history = [notice, *rounds(10)]
+    pruned = compaction.prune_old_tool_outputs(history, 6, 2000)
+
+    assert str(pruned[0].content).startswith("[earlier session notices pruned")
+    assert history[0].content == notice.content
+
+
 def test_a_long_report_is_capped_with_a_pointer_to_the_full_text(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

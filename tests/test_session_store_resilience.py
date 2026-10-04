@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import sqlite3
 from pathlib import Path
@@ -7,7 +8,8 @@ from typing import Any
 
 import pytest
 
-from snowpea_core.session.manager import EventHub, SessionManager
+from snowpea_core.providers.base import ChatMessage
+from snowpea_core.session.manager import EventHub, SessionManager, persist_history
 from snowpea_core.session.session import Session
 from snowpea_core.session.store import Store
 
@@ -146,6 +148,94 @@ async def test_final_append_failure_logs_the_session_id(
         store.close()
 
 
+class RecordingHistoryStore:
+    def __init__(self) -> None:
+        self.rows: list[dict[str, Any]] = []
+        self.replaces: list[list[dict[str, Any]]] = []
+        self.appends: list[tuple[int, list[dict[str, Any]]]] = []
+        self.block_append = asyncio.Event()
+        self.block_append.set()
+        self.append_started = asyncio.Event()
+
+    async def append_messages(
+        self, _session_id: str, start_idx: int, messages: list[dict[str, Any]]
+    ) -> None:
+        self.append_started.set()
+        await self.block_append.wait()
+        self.appends.append((start_idx, list(messages)))
+        for offset, message in enumerate(messages):
+            idx = start_idx + offset
+            if idx == len(self.rows):
+                self.rows.append(message)
+            else:
+                self.rows[idx] = message
+
+    async def replace_messages(
+        self, _session_id: str, messages: list[dict[str, Any]]
+    ) -> None:
+        self.replaces.append(list(messages))
+        self.rows = list(messages)
+
+
+async def test_persist_history_skips_unchanged_history(tmp_path: Path) -> None:
+    store = RecordingHistoryStore()
+    session = Session(id="s-history-skip", workdir=tmp_path)
+
+    session.history.append(ChatMessage(role="user", content="hello"))
+
+    assert await persist_history(store, session) is True
+    assert await persist_history(store, session) is False
+    assert len(store.appends) == 1
+    assert store.replaces == []
+
+
+async def test_persist_history_appends_only_new_messages(tmp_path: Path) -> None:
+    store = RecordingHistoryStore()
+    session = Session(id="s-history-append", workdir=tmp_path)
+
+    session.history.append(ChatMessage(role="user", content="first"))
+    await persist_history(store, session)
+    session.history.append(ChatMessage(role="assistant", content="second"))
+
+    assert await persist_history(store, session) is True
+    assert [start for start, _messages in store.appends] == [0, 1]
+    assert [row["role"] for row in store.rows] == ["user", "assistant"]
+    assert store.replaces == []
+
+
+async def test_persist_history_replaces_when_existing_rows_changed(tmp_path: Path) -> None:
+    store = RecordingHistoryStore()
+    session = Session(id="s-history-replace", workdir=tmp_path)
+
+    session.history.append(ChatMessage(role="user", content="before"))
+    await persist_history(store, session)
+    session.history.messages[0].content = "after"
+    session.history.mark_rewritten()
+
+    assert await persist_history(store, session) is True
+    assert len(store.appends) == 1
+    assert len(store.replaces) == 1
+    assert store.rows[0]["content"]["content"] == "after"
+
+
+async def test_concurrent_history_persists_keep_newest_snapshot(tmp_path: Path) -> None:
+    store = RecordingHistoryStore()
+    store.block_append.clear()
+    session = Session(id="s-history-race", workdir=tmp_path)
+    session.history.append(ChatMessage(role="user", content="first"))
+
+    first = asyncio.create_task(persist_history(store, session))
+    await store.append_started.wait()
+    session.history.append(ChatMessage(role="assistant", content="second"))
+    second = asyncio.create_task(persist_history(store, session))
+
+    store.block_append.set()
+    assert await first is True
+    assert await second is True
+    assert [row["content"]["content"] for row in store.rows] == ["first", "second"]
+    assert [start for start, _messages in store.appends] == [0, 1]
+
+
 async def test_emit_delivers_event_when_store_append_fails(tmp_path: Path) -> None:
     class BrokenStore:
         async def append_event(self, *_args: Any) -> None:
@@ -200,4 +290,3 @@ async def test_emit_delivers_event_when_store_is_closed(tmp_path: Path) -> None:
 
     assert session.seq == 1
     assert event.seq == 1
-

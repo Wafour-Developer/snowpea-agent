@@ -130,6 +130,12 @@ CONTINUATION_MESSAGE_CHARS = 1200
 CONTINUATION_TOOL_RESULT_CHARS = 1000
 CONTINUATION_TRANSCRIPT_MESSAGES = 18
 
+#: Live child tool snippets are only a bridge until the child report arrives.
+LIVE_EVIDENCE_PER_CHILD = 6
+LIVE_EVIDENCE_MARKER = "snowpea-child-live"
+ATTEMPT_EVIDENCE_MARKER = "snowpea-child-attempt"
+REPORTED_ATTEMPT_MARKERS = 200
+
 
 def incomplete_retries_for(core: Any) -> int:
     """``agents.incompleteRetries``, floored at 0."""
@@ -507,14 +513,17 @@ class _ChildWatcher:
         meta = payload.get("meta")
         sensitive = isinstance(meta, dict) and bool(meta.get("sensitive"))
         output = REDACTED if sensitive else str(payload.get("output") or payload.get("error") or "")
-        parent.pending_notices.append(
+        marker = _child_live_marker(record.agent_id, record.session_id)
+        note = (
             _redact_command_text(
+                f"{marker}\n"
                 f"Child tool evidence (not a completion verdict): agentId={record.agent_id}; "
                 f"sessionId={record.session_id}; callId={payload.get('callId')}; "
                 f"tool={payload.get('name')}; ok={payload.get('ok')}; "
                 f"result: {_clip_middle(output, 1200)}"
             )
         )
+        _append_bounded_child_notice(parent, marker, note, LIVE_EVIDENCE_PER_CHILD)
 
 
 # ---------------------------------------------------------------------------
@@ -922,22 +931,35 @@ class SubagentManager:
         """
         from snowpea_core.commands.registry import _redact_command_text
 
-        parent.pending_notices.append(
+        _drop_child_live_evidence(parent, result.agent_id, result.session_id)
+        marker = _attempt_marker(result)
+        if marker in parent.reported_child_attempts:
+            return
+        note = (
             _redact_command_text(
                 "\n".join(
                     [
+                        marker,
                         "Delegation evidence (do not treat a partial report as completion):",
                         f"agentId: {result.agent_id}; sessionId: {result.session_id or 'none'}",
                         f"role: {result.name}; status: {result.status}; reason: {result.reason}",
                         f"roundsUsed: {result.rounds_used}; budget: {result.budget}",
-                        f"report: {_clip_middle(result.summary or '', 1500)}",
-                        f"error: {_clip_middle(result.error or '', 500)}",
+                        f"report: {_clip_middle(result.summary or '', 1000)}",
+                        f"error: {_clip_middle(result.error or '', 300)}",
                         f"deniedTools: {', '.join(result.denied_tools)}",
-                        f"recent evidence: {_clip_middle(result.checkpoint, 2000)}",
+                        f"recent evidence: {_clip_middle(result.checkpoint, 1000)}",
                     ]
                 )
             )
         )
+        # Replayed identical terminal events should not queue the same failed
+        # attempt report forever.
+        parent.pending_notices = [
+            notice for notice in parent.pending_notices if not notice.startswith(marker)
+        ]
+        parent.pending_notices.append(note)
+        parent.reported_child_attempts.append(marker)
+        del parent.reported_child_attempts[:-REPORTED_ATTEMPT_MARKERS]
 
     async def _run_once(
         self,
@@ -1412,6 +1434,8 @@ def _conversation_checkpoint(session: Session) -> str:
     call.  This deliberately keeps the last assistant/tool-result exchanges and
     redacts sensitive tool outputs.
     """
+    from snowpea_core.util.redaction import redact_text
+
     lines: list[str] = []
     messages = session.history.snapshot()[-CONTINUATION_TRANSCRIPT_MESSAGES:]
     for message in messages:
@@ -1427,13 +1451,14 @@ def _conversation_checkpoint(session: Session) -> str:
                         args = json.dumps(call.arguments, ensure_ascii=False, sort_keys=True)
                     except (TypeError, ValueError):
                         args = str(call.arguments)
+                    args = redact_text(args)
                 lines.append(
                     "assistant called "
                     f"{call.name}: {_clip_middle(args, CONTINUATION_MESSAGE_CHARS)}"
                 )
             continue
         if message.role == "tool":
-            text = REDACTED if message.sensitive else _message_content_text(message)
+            text = REDACTED if message.sensitive else redact_text(_message_content_text(message))
             name = message.name or "tool"
             lines.append(
                 f"tool {name} result: {_clip_middle(text, CONTINUATION_TOOL_RESULT_CHARS)}"
@@ -1482,6 +1507,45 @@ def _clip_middle(text: str, limit: int) -> str:
     head = max(1, (limit - 18) // 2)
     tail = max(1, limit - 18 - head)
     return f"{text[:head].rstrip()}\n…[truncated]…\n{text[-tail:].lstrip()}"
+
+
+def _child_live_marker(agent_id: str, session_id: str) -> str:
+    return f"[{LIVE_EVIDENCE_MARKER} agentId={agent_id}; sessionId={session_id}]"
+
+
+def _attempt_marker(result: SubagentResult) -> str:
+    return (
+        f"[{ATTEMPT_EVIDENCE_MARKER} agentId={result.agent_id}; "
+        f"sessionId={result.session_id or 'none'}; status={result.status}; "
+        f"reason={result.reason}; roundsUsed={result.rounds_used}]"
+    )
+
+
+def _append_bounded_child_notice(
+    parent: Session, marker: str, note: str, limit: int = LIVE_EVIDENCE_PER_CHILD
+) -> None:
+    parent.pending_notices.append(note)
+    positions = [
+        index for index, notice in enumerate(parent.pending_notices) if notice.startswith(marker)
+    ]
+    for index in reversed(positions[: max(0, len(positions) - limit)]):
+        del parent.pending_notices[index]
+
+
+def _drop_child_live_evidence(parent: Session, agent_id: str, session_id: str | None) -> None:
+    markers = {_child_live_marker(agent_id, session_id or "")}
+    if session_id:
+        markers.add(_child_live_marker(agent_id, session_id))
+    parent.pending_notices = [
+        notice
+        for notice in parent.pending_notices
+        if not any(notice.startswith(marker) for marker in markers)
+    ]
+
+
+def drop_live_evidence(parent: Session, agent_id: str, session_id: str | None = None) -> None:
+    """Remove queued live evidence once a durable child report is delivered."""
+    _drop_child_live_evidence(parent, agent_id, session_id)
 
 
 def _last_assistant_text(session: Session) -> str:

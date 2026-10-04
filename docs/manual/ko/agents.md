@@ -241,7 +241,11 @@ Continue/Stop을 묻고, 무인 실행은 부분 보고서를 저장하고 멈�
 {
   "agent": {
     "max_turns": 500,
-    "auto_budget_continuations": 10
+    "auto_budget_continuations": 10,
+    "verify_continue_rounds": 20,
+    "no_progress_rounds": 40,
+    "turn_max_minutes": 0,
+    "turn_max_tokens": 0
   },
   "agents": {
     "defaultToolRounds": 50,
@@ -249,6 +253,24 @@ Continue/Stop을 묻고, 무인 실행은 부분 보고서를 저장하고 멈�
   }
 }
 ```
+
+### 턴 안전장치
+
+예산 경계에서 완료 검증과 Stop 훅의 추가 실행은
+`agent.verify_continue_rounds` 라운드(기본 **20**)를 부여하며 같은 턴의
+`auto_budget_continuations` 한도에 포함됩니다. 생산적인 작업의 일반 자동
+갱신은 계속 500 라운드를 부여합니다.
+
+`agent.no_progress_rounds`(기본 **40**, `0`이면 비활성화) 동안 새 파일 수정,
+서로 다른 도구 호출 인자, 새 도구 출력 내용이 없으면 부분 보고서를 저장하고
+`stalled` 사유로 종료합니다. 새 파일이나 범위를 읽는 것은 진행으로 인정하지만
+같은 읽기를 반복하는 것은 인정하지 않습니다.
+
+선택적 `agent.turn_max_minutes`와 `agent.turn_max_tokens`의 기본값은
+**0**(무제한)입니다. 안전한 라운드 경계에서 확인하며 토큰은 제공자가 보고한
+입력·출력 사용량을 합산합니다. 한도 도달 시 `budget` 사유의 부분 보고서를
+저장합니다. 라운드 구간 설정은 양수, 갱신·정체·시간·토큰 한도는 0 이상이어야
+합니다.
 
 ### 라운드 및 워크플로 간 근거 유지
 
@@ -276,12 +298,18 @@ Continue/Stop을 묻고, 무인 실행은 부분 보고서를 저장하고 멈�
 
 ### 라운드 예산 설정 우선순위
 
-예산 설정 우선순위:
+메인과 자식 모두에 적용되는 예산 설정 우선순위:
+
 1. `agents.maxToolRoundsBy` (역할, 그다음 `default` / `*`)
 2. 에이전트 정의의 `max_tool_rounds` / `tool_rounds`
 3. `agents.maxToolRounds`
-4. 기존 `agents.toolRounds` (역할 매핑 또는 숫자)
+4. 기존 `agents.toolRounds` (역할, `default`, `*` 순의 매핑 또는 숫자)
 5. 자식: `agents.defaultToolRounds` (50), 메인: `agent.max_turns` (500)
+
+에이전트 정의 예산은 숫자형 `agents.maxToolRounds`보다 우선하며,
+`maxToolRoundsBy`는 정의보다 우선합니다. explore의 8 라운드를 포함한 이전
+내장 역할별 한도는 제거되었습니다. 모든 자식 역할의 기본값은 50이며
+명시적 설정으로 역할별 한도를 지정할 수 있습니다.
 
 ### 예산 소진 시 무도구 Grace Call
 

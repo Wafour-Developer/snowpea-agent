@@ -95,9 +95,11 @@ def read_daemon_json(home: Path | str | None = None) -> DaemonInfo | None:
         return None
 
 
-PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+SYNCHRONIZE = 0x00100000
 STILL_ACTIVE = 259
 ERROR_ACCESS_DENIED = 5
+WAIT_OBJECT_0 = 0
+WAIT_TIMEOUT = 258
 
 
 def _pid_alive_windows(pid: int) -> bool:
@@ -109,22 +111,20 @@ def _pid_alive_windows(pid: int) -> bool:
         ctypes.wintypes.DWORD,
     ]
     kernel32.OpenProcess.restype = ctypes.wintypes.HANDLE
-    kernel32.GetExitCodeProcess.argtypes = [
+    kernel32.WaitForSingleObject.argtypes = [
         ctypes.wintypes.HANDLE,
-        ctypes.POINTER(ctypes.wintypes.DWORD),
+        ctypes.wintypes.DWORD,
     ]
-    kernel32.GetExitCodeProcess.restype = ctypes.wintypes.BOOL
+    kernel32.WaitForSingleObject.restype = ctypes.wintypes.DWORD
     kernel32.CloseHandle.argtypes = [ctypes.wintypes.HANDLE]
     kernel32.CloseHandle.restype = ctypes.wintypes.BOOL
 
-    handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    handle = kernel32.OpenProcess(SYNCHRONIZE, False, pid)
     if not handle:
         return ctypes.get_last_error() == ERROR_ACCESS_DENIED  # type: ignore[attr-defined]
     try:
-        exit_code = ctypes.wintypes.DWORD()
-        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
-            return False
-        return exit_code.value == STILL_ACTIVE
+        state = kernel32.WaitForSingleObject(handle, 0)
+        return state == WAIT_TIMEOUT
     finally:
         kernel32.CloseHandle(handle)
 

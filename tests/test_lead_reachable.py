@@ -12,7 +12,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from snowpea_core.agent import loop as agent_loop
-from snowpea_core.agent.subagent import SubagentResult, get_manager
+from snowpea_core.agent.subagent import BackgroundRun, SubagentResult, get_manager
 from snowpea_core.providers.base import ChatMessage, ToolCall
 from snowpea_core.session.compaction import prune_old_tool_outputs
 from snowpea_core.session.session import Session
@@ -78,6 +78,30 @@ async def test_foreground_delegation_detaches_when_the_user_speaks(tmp_path: Pat
         ctx, {"task_ids": [result.meta["task_id"]], "timeout": 5}
     )
     assert "report" in collected.output
+
+
+async def test_subagent_wait_collection_clears_live_evidence(tmp_path: Path) -> None:
+    ctx = _ctx(tmp_path)
+    manager = get_manager(ctx.core)
+    task: asyncio.Task[SubagentResult] = asyncio.create_task(
+        asyncio.sleep(0, result=SubagentResult(agent_id="a-1", ok=True, summary="report"))
+    )
+    task_id = "bg-test"
+    manager.background[task_id] = BackgroundRun(
+        task_id=task_id,
+        parent_session_id=ctx.session.id,
+        title="background",
+        task=task,
+    )
+    ctx.session.pending_notices.append(
+        "[snowpea-child-live agentId=a-1; sessionId=]\nChild tool evidence: stale"
+    )
+
+    collected = await delegate.subagent_wait(ctx, {"task_ids": [task_id], "timeout": 1})
+
+    assert "report" in collected.output
+    assert manager.background[task_id].collected is True
+    assert "Child tool evidence" not in "\n".join(ctx.session.pending_notices)
 
 
 async def test_an_unclaimed_background_run_is_announced(tmp_path: Path, monkeypatch: Any) -> None:

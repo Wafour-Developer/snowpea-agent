@@ -302,6 +302,7 @@ class SessionManager:
             context_used=history.estimate_tokens(),
             origin_conn=origin_conn,
         )
+        _mark_history_persisted(session, stored_messages)
         session.host_tools_from = row.get("host_tools_from")
         session.browser_provider = row.get("browser_provider")
         if row.get("agent") and session.agent is None:
@@ -537,17 +538,78 @@ async def persist_history(store: Any, session: Any) -> bool:
     if store is None:
         return False
     try:
-        await store.replace_messages(
-            session.id,
-            [
-                {"role": message.role, "content": message_to_json(message)}
-                for message in session.history.snapshot()
-            ],
-        )
+        async with session.history_persist_lock:
+            current_len = len(session.history)
+            version = getattr(session.history, "version", 0)
+            rewrite_version = getattr(session.history, "rewrite_version", 0)
+            if (
+                session.history_persisted_len == current_len
+                and session.history_persisted_version == version
+                and session.history_persisted_rewrite_version == rewrite_version
+            ):
+                return False
+
+            persisted_len = session.history_persisted_len
+            if (
+                session.history_persisted_rewrite_version == rewrite_version
+                and 0 <= persisted_len <= current_len
+            ):
+                new_messages = [
+                    {"role": message.role, "content": message_to_json(message)}
+                    for message in session.history.messages[persisted_len:]
+                ]
+                if new_messages:
+                    append_many = getattr(store, "append_messages", None)
+                    if append_many is not None:
+                        await append_many(session.id, persisted_len, new_messages)
+                    else:  # pragma: no cover - compatibility with external test doubles
+                        for offset, item in enumerate(new_messages):
+                            await store.append_message(
+                                session.id,
+                                persisted_len + offset,
+                                item["role"],
+                                item["content"],
+                            )
+                else:
+                    messages = [
+                        {"role": message.role, "content": message_to_json(message)}
+                        for message in session.history.snapshot()
+                    ]
+                    await store.replace_messages(session.id, messages)
+            else:
+                messages = [
+                    {"role": message.role, "content": message_to_json(message)}
+                    for message in session.history.snapshot()
+                ]
+                await store.replace_messages(session.id, messages)
+            _mark_history_persisted(
+                session,
+                current_len,
+                version=version,
+                rewrite_version=rewrite_version,
+            )
     except Exception:  # noqa: BLE001 - persistence must not fail a turn
         log.debug("could not persist history for %s", session.id, exc_info=True)
         return False
     return True
+
+
+def _mark_history_persisted(
+    session: Any,
+    messages: list[dict[str, Any]] | int,
+    *,
+    version: int | None = None,
+    rewrite_version: int | None = None,
+) -> None:
+    session.history_persisted_len = messages if isinstance(messages, int) else len(messages)
+    session.history_persisted_version = (
+        getattr(session.history, "version", 0) if version is None else version
+    )
+    session.history_persisted_rewrite_version = (
+        getattr(session.history, "rewrite_version", 0)
+        if rewrite_version is None
+        else rewrite_version
+    )
 
 
 class EventHub:

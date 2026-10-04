@@ -20,6 +20,7 @@ from snowpea_core.agent.definition import parse_agent_text, render_agent_md
 from snowpea_core.agent.loop import SUBAGENT_TOOL_ROUNDS, tool_rounds_for
 from snowpea_core.agent.subagent import (
     BUDGET_LINE,
+    SubagentManager,
     SubagentRecord,
     SubagentResult,
     _ChildWatcher,
@@ -27,6 +28,7 @@ from snowpea_core.agent.subagent import (
     get_manager,
 )
 from snowpea_core.server.app_server import Daemon
+from snowpea_core.session.session import Session
 from snowpea_core.tools.delegate import render_report
 
 pytestmark = pytest.mark.asyncio
@@ -520,12 +522,30 @@ def test_checkpoint_redacts_sensitive_calls_and_keeps_newest_tail() -> None:
         )
     )
     session.history.append(ChatMessage(role="tool", name="shell", content="newest result"))
+    session.history.append(
+        ChatMessage(
+            role="assistant",
+            content="",
+            tool_calls=[
+                ToolCall(
+                    id="env-secret",
+                    name="shell",
+                    arguments={"command": "OPENAI_API_KEY=sk-checkpoint-secret pytest"},
+                )
+            ],
+        )
+    )
+    session.history.append(
+        ChatMessage(role="tool", name="shell", content="bare token ghp_checkpointsecret123")
+    )
 
     checkpoint = _conversation_checkpoint(session)  # type: ignore[arg-type]
 
     assert "newest result" in checkpoint
     assert "[redacted]" in checkpoint
     assert "SECRET_TOKEN" not in checkpoint
+    assert "sk-checkpoint-secret" not in checkpoint
+    assert "ghp_checkpointsecret123" not in checkpoint
     assert "old 0" not in checkpoint
 
 
@@ -606,6 +626,110 @@ async def test_live_child_tool_evidence_reaches_lead_before_child_finishes(
     assert "expected 2, got 1" in text and "pytest: 1 passed" in text
     assert "child-secret" not in text and "private-output" not in text
     assert "not a completion verdict" in text
+
+
+async def test_live_child_tool_evidence_is_capped_and_dropped_after_report(
+    workdir: Path,
+) -> None:
+    from snowpea_core.agent.subagent import LIVE_EVIDENCE_PER_CHILD
+    from snowpea_core.session import events
+
+    class Sessions:
+        def get(self, _session_id: str) -> Session:
+            return parent
+
+    class CoreStub:
+        sessions = Sessions()
+
+    parent = Session(id="parent", workdir=workdir)
+    record = SubagentRecord(
+        agent_id="burst-child",
+        session_id="burst-session",
+        name="executor",
+        task="fix",
+        parent_session_id=parent.id,
+    )
+    manager = SubagentManager(CoreStub())  # type: ignore[arg-type]
+    watcher = _ChildWatcher(manager, record)
+    for index in range(LIVE_EVIDENCE_PER_CHILD + 3):
+        kind, payload = events.tool_result(f"c{index}", "shell", True, f"result-{index}")
+        await watcher.notify(
+            "session.event",
+            {"kind": kind, "payload": payload},
+        )
+
+    text = "\n".join(parent.pending_notices)
+    assert len(parent.pending_notices) == LIVE_EVIDENCE_PER_CHILD
+    assert "result-0" not in text and "result-1" not in text
+    assert f"result-{LIVE_EVIDENCE_PER_CHILD + 2}" in text
+
+    manager._report_attempt(
+        parent,
+        SubagentResult(
+            agent_id="burst-child",
+            session_id="burst-session",
+            ok=False,
+            summary="still failing",
+            reason="budget",
+            status="error",
+        ),
+    )
+    text = "\n".join(parent.pending_notices)
+    assert "Child tool evidence" not in text
+    assert "Delegation evidence" in text and "still failing" in text
+
+
+async def test_flushed_child_evidence_is_globally_bounded(
+    workdir: Path,
+) -> None:
+    from snowpea_core.agent.loop import (
+        MAX_NOTICE_FLUSH_CHARS,
+        MAX_NOTICE_FLUSH_COUNT,
+        _flush_notices,
+    )
+
+    parent = Session(id="parent", workdir=workdir)
+    parent.pending_notices.extend(
+        f"child evidence {index}: {'x' * 1200}" for index in range(MAX_NOTICE_FLUSH_COUNT + 8)
+    )
+
+    flushed = await _flush_notices(parent)
+    message = parent.history.snapshot()[-1]
+    assert parent.pending_notices == []
+    assert flushed <= MAX_NOTICE_FLUSH_COUNT
+    assert message.name == "session_notice"
+    assert len(str(message.content)) <= MAX_NOTICE_FLUSH_CHARS
+    assert "earlier notices omitted" in str(message.content)
+    assert "child evidence 0" not in str(message.content)
+    assert f"child evidence {MAX_NOTICE_FLUSH_COUNT + 7}" in str(message.content)
+
+
+async def test_duplicate_attempt_report_is_not_requeued_after_flush(workdir: Path) -> None:
+    from snowpea_core.agent.loop import _flush_notices
+
+    class CoreStub:
+        pass
+
+    parent = Session(id="parent", workdir=workdir)
+    manager = SubagentManager(CoreStub())  # type: ignore[arg-type]
+    result = SubagentResult(
+        agent_id="retry-child",
+        session_id="retry-session",
+        ok=False,
+        summary="same failure",
+        reason="budget",
+        status="error",
+        rounds_used=50,
+    )
+
+    manager._report_attempt(parent, result)
+    assert len(parent.pending_notices) == 1
+    await _flush_notices(parent)
+    manager._report_attempt(parent, result)
+
+    assert parent.pending_notices == []
+    text = "\n".join(str(message.content) for message in parent.history.snapshot())
+    assert text.count("Delegation evidence") == 1
 
 
 async def test_provider_error_report_is_not_a_successful_child(

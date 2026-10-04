@@ -14,6 +14,7 @@ import json
 import os
 from collections.abc import AsyncIterator
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -23,6 +24,7 @@ from _support import OriginConn, Recorder, git
 from snowpea_core.agent.subagent import RUNNING, SUBAGENT_KIND
 from snowpea_core.commands import ralph
 from snowpea_core.server.app_server import Daemon
+from snowpea_core.session.session import Session
 
 FIXTURE = Path(__file__).parent / "fixtures" / "providers" / "fake" / "ralph.json"
 TIMEOUT = 60.0
@@ -328,14 +330,79 @@ def test_deterministic_provider_errors_are_recognised() -> None:
     [
         ("APPROVE — looks good", True),
         ("APPROVED", True),
+        ("**APPROVE** — looks good", True),
+        ("Intro line\nVerdict: APPROVE\nEvidence follows", True),
+        ("Intro line\nVerdict: **APPROVE**\nEvidence follows", True),
+        ("VERDICT: APPROVED", True),
         ("NOT APPROVED — missing tests", False),
+        ("Verdict: not approved", False),
         ("REJECT — missing tests but say APPROVE later", False),
+        ("Intro line\n**REJECT** — missing tests\nAPPROVE later", False),
+        ("Intro line\nVerdict: **REJECT**\nAPPROVE later", False),
+        ("VERDICT: REJECTED", False),
         ("REVISE — almost there", False),
         ("The work is fine. APPROVE", False),
     ],
 )
 def test_review_approval_requires_an_explicit_positive_verdict(text: str, approved: bool) -> None:
     assert ralph.review_approved(text) is approved
+
+
+async def test_review_feedback_repair_reuses_last_real_reviewer_verdict(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real_feedback = "REJECT — mention the verification evidence in the implementation report."
+    session = Session(id="s-ralph-feedback", workdir=tmp_path)
+    said: list[str] = []
+    seen_tasks: list[str] = []
+
+    async def say(text: str) -> None:
+        said.append(text)
+
+    ctx = SimpleNamespace(
+        core=SimpleNamespace(),
+        session=session,
+        turn_id="t-ralph-feedback",
+        say=say,
+        emit=lambda event: None,
+    )
+    manager = SimpleNamespace(limit_for=lambda _session: 1)
+
+    async def fake_run(parent: Any, task: str, **kwargs: Any) -> Any:
+        seen_tasks.append(task)
+        return SimpleNamespace(ok=True, error="")
+
+    async def reject_once(*_args: Any, **_kwargs: Any) -> tuple[bool, str]:
+        return False, real_feedback
+
+    async def fail_verification(*_args: Any, **_kwargs: Any) -> tuple[bool, str]:
+        return False, "still failing"
+
+    async def no_progress(*_args: Any, **_kwargs: Any) -> None:
+        return None
+
+    manager.run = fake_run
+    monkeypatch.setattr(ralph, "get_manager", lambda _core: manager)
+    monkeypatch.setattr(ralph, "reply_language_for", lambda _ctx: "auto")
+    monkeypatch.setattr(ralph, "review", reject_once)
+    monkeypatch.setattr(ralph, "verify_story", fail_verification)
+    monkeypatch.setattr(ralph, "_progress", no_progress)
+
+    story = ralph.Story(id="S1", title="repair me")
+    approved, verdict, iteration = await ralph._review_until_approved(
+        ctx,  # type: ignore[arg-type]
+        "fix the thing",
+        [story],
+        start_iteration=0,
+        max_iterations=2,
+    )
+
+    assert approved is False
+    assert verdict == real_feedback
+    assert iteration == 2
+    assert len(seen_tasks) == 2
+    assert all(real_feedback in task for task in seen_tasks)
+    assert all("review feedback repair did not pass" not in task for task in seen_tasks)
 
 
 def test_review_feedback_batches_preserve_previous_passes() -> None:

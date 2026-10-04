@@ -3897,8 +3897,8 @@ export interface TurnDequeuedEventPayload {
 /** Payload of `session.event` with kind `turn.done`. */
 export interface TurnDoneEventPayload {
   kind?: "turn.done";
-  /** Why the turn ended. budget = the tool-round budget ran out; the turn reported what it had done before ending. */
-  reason?: "complete" | "interrupted" | "error" | "denied" | "timeout" | "budget";
+  /** Why the turn ended. budget = the tool-round budget ran out; the turn reported what it had done before ending. stalled = consecutive rounds made no new tool or file progress. */
+  reason?: "complete" | "interrupted" | "error" | "denied" | "timeout" | "budget" | "stalled";
   /** True when the daemon wrote this event itself to close a turn a crash left open, rather than the turn reporting its own end (CORE-dangling-turns). The turn produced no further output after the events already stored. */
   synthetic?: boolean;
   /** Turn that ended. */

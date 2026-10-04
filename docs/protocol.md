@@ -3033,7 +3033,7 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | field | type | required | description |
 |---|---|---|---|
 | `kind` | `"turn.done"` | no |  |
-| `reason` | `"complete" \| "interrupted" \| "error" \| "denied" \| "timeout" \| "budget"` | no | Why the turn ended. budget = the tool-round budget ran out; the turn reported what it had done before ending. |
+| `reason` | `"complete" \| "interrupted" \| "error" \| "denied" \| "timeout" \| "budget" \| "stalled"` | no | Why the turn ended. budget = the tool-round budget ran out; the turn reported what it had done before ending. stalled = consecutive rounds made no new tool or file progress. |
 | `synthetic` | `boolean` | no | True when the daemon wrote this event itself to close a turn a crash left open, rather than the turn reporting its own end (CORE-dangling-turns). The turn produced no further output after the events already stored. |
 | `turnId` | `string` | yes | Turn that ended. |
 
