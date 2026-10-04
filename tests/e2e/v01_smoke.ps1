@@ -71,6 +71,9 @@ function Shorten-Diagnostic([string]$Text, [int]$Limit = 3500) {
     return $Text.Substring(0, $Limit) + " ... <truncated>"
 }
 function Fail-Step([int]$N, [string]$Why) {
+    if ($script:LastSnowpeaRc -and $script:LastSnowpeaOutput) {
+        $Why += "; command output: $($script:LastSnowpeaOutput.Trim())"
+    }
     $safeWhy = Shorten-Diagnostic $Why
     Write-Host "FAIL $N $safeWhy"
     Write-GitHubActionsError "Snowpea Windows smoke step $N failed" "FAIL $N $safeWhy"

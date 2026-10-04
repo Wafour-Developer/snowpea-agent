@@ -67,6 +67,20 @@ class TuiNotFound(RuntimeError):
     """No TUI bundle could be located (→ exit code 2)."""
 
 
+def _configure_windows_stdio_encoding(
+    stdout: Any | None = None, stderr: Any | None = None
+) -> None:
+    """Use UTF-8 for redirected Windows CLI output unless the user chose encoding."""
+    if sys.platform != "win32" or os.environ.get("PYTHONIOENCODING"):
+        return
+    for stream in (stdout or sys.stdout, stderr or sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if not callable(reconfigure):
+            continue
+        with contextlib.suppress(Exception):
+            reconfigure(encoding="utf-8", errors="backslashreplace")
+
+
 def _err(message: str) -> None:
     print(f"snowpea: {message}", file=sys.stderr)
 
@@ -503,6 +517,7 @@ def parse_argv(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 def main(argv: Sequence[str] | None = None) -> int:
     """``snowpea`` console script."""
+    _configure_windows_stdio_encoding()
     args = parse_argv(argv)
 
     if args.version:
