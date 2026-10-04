@@ -201,6 +201,18 @@ jobs:
             Write-Output "::error::Windows smoke process failed: $detail"
           }
           exit $smokeRc
+      - name: summarize Windows smoke failure
+        if: failure()
+        shell: python
+        run: |
+          import os
+          from pathlib import Path
+          log = Path('smoke.log')
+          detail = log.read_text(encoding='utf-8-sig', errors='replace')[-4000:] if log.exists() else 'No smoke log: process did not start.'
+          escaped = detail.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+          print('::error::Windows smoke diagnostic: ' + escaped)
+          with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a', encoding='utf-8') as summary:
+              summary.write('### Windows smoke failure\n\n```text\n' + detail + '\n```\n')
       - name: preserve smoke diagnostics
         if: always()
         uses: actions/upload-artifact@v4
