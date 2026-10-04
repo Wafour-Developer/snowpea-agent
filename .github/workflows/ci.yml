@@ -189,6 +189,10 @@ jobs:
       - name: v01 smoke
         shell: pwsh
         run: |
+          # Do not let native stderr abort the diagnostic wrapper before it
+          # can annotate and preserve the process failure.
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
           & pwsh -NoProfile -File ./tests/e2e/v01_smoke.ps1 -FromCheckout *>&1 | Tee-Object -FilePath smoke.log
           $smokeRc = $LASTEXITCODE
           if ($smokeRc -ne 0) {
