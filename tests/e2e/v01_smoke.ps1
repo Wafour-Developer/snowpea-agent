@@ -50,6 +50,9 @@ if (-not $FromCheckout -and -not $FromUrl) {
 $script:Passed = 0
 $script:Failed = 0
 $script:Skipped = 0
+$script:LastSnowpeaCommand = '<none>'
+$script:LastSnowpeaRc = $null
+$script:LastSnowpeaOutput = ''
 
 function Pass-Step([int]$N, [string]$What) { Write-Host "PASS $N $What"; $script:Passed++ }
 function Escape-GitHubActionsAnnotation([string]$Text) {
@@ -62,9 +65,15 @@ function Write-GitHubActionsError([string]$Title, [string]$Message) {
         Write-Host "::error title=${safeTitle}::${safeMessage}"
     }
 }
+function Shorten-Diagnostic([string]$Text, [int]$Limit = 3500) {
+    if ($null -eq $Text) { return '' }
+    if ($Text.Length -le $Limit) { return $Text }
+    return $Text.Substring(0, $Limit) + " ... <truncated>"
+}
 function Fail-Step([int]$N, [string]$Why) {
-    Write-Host "FAIL $N $Why"
-    Write-GitHubActionsError "Snowpea Windows smoke step $N failed" "FAIL $N $Why"
+    $safeWhy = Shorten-Diagnostic $Why
+    Write-Host "FAIL $N $safeWhy"
+    Write-GitHubActionsError "Snowpea Windows smoke step $N failed" "FAIL $N $safeWhy"
     $script:Failed++
 }
 function Skip-Step([int]$N, [string]$Why) { Write-Host "SKIP $N $Why"; $script:Skipped++ }
@@ -80,11 +89,40 @@ Remove-Item Env:\SNOWPEA_TUI_ENTRY -ErrorAction SilentlyContinue
 
 $Snowpea = Join-Path $ToolRoot 'bin\snowpea.exe'
 
+function Format-SnowpeaCommand([object[]]$Arguments) {
+    $redacted = @()
+    $skipNext = $false
+    foreach ($arg in $Arguments) {
+        if ($skipNext) {
+            $redacted += '<redacted>'
+            $skipNext = $false
+            continue
+        }
+        $text = [string]$arg
+        $redacted += $text
+        if ($text -in @('--key', '--api-key', '--token')) { $skipNext = $true }
+    }
+    return "snowpea $($redacted -join ' ')"
+}
+
 function Invoke-Snowpea {
-    # Runs `snowpea <args>`, returns the combined output, sets $script:LastRc.
-    $output = & $Snowpea @args 2>&1 | Out-String
-    $script:LastRc = $LASTEXITCODE
-    return $output
+    # Runs `snowpea <args>`, returns the combined output, records diagnostics, sets $script:LastRc.
+    $script:LastSnowpeaCommand = Format-SnowpeaCommand $args
+    $script:LastSnowpeaOutput = ''
+    $script:LastSnowpeaRc = $null
+    try {
+        $output = & $Snowpea @args *>&1 | Out-String
+        $script:LastRc = $LASTEXITCODE
+        $script:LastSnowpeaRc = $LASTEXITCODE
+        $script:LastSnowpeaOutput = $output
+        return $output
+    }
+    catch {
+        $script:LastRc = 999
+        $script:LastSnowpeaRc = 999
+        $script:LastSnowpeaOutput = $_ | Out-String
+        throw
+    }
 }
 
 function Reset-FixtureRepo {
@@ -111,10 +149,20 @@ function Command-Registered([string]$Name) {
 }
 
 function Cleanup {
-    if (Test-Path $Snowpea) { & $Snowpea daemon stop 2>&1 | Out-Null }
+    try {
+        if (Test-Path $Snowpea) { & $Snowpea daemon stop *>&1 | Out-Null }
+    }
+    catch {
+        Note "cleanup could not stop daemon: $($_.Exception.Message)"
+    }
     if (-not $Keep) {
         foreach ($path in @($FixtureRepo, $E2EHome, $ToolRoot)) {
-            if (Test-Path $path) { Remove-Item -Recurse -Force $path -ErrorAction SilentlyContinue }
+            try {
+                if (Test-Path $path) { Remove-Item -Recurse -Force $path -ErrorAction SilentlyContinue }
+            }
+            catch {
+                Note "cleanup could not remove ${path}: $($_.Exception.Message)"
+            }
         }
     }
     else {
@@ -383,6 +431,16 @@ try {
     else {
         Fail-Step 15 "exit $stopRc, pid alive: $alive, daemon.json present: $(Test-Path $daemonJson)"
     }
+}
+catch {
+    $diag = "unexpected PowerShell exception after $($script:LastSnowpeaCommand); rc=$($script:LastSnowpeaRc); message=$($_.Exception.Message)"
+    if ($script:LastSnowpeaOutput) {
+        $diag += "; last output: $($script:LastSnowpeaOutput.Trim())"
+    }
+    if ($_.ScriptStackTrace) {
+        $diag += "; stack: $($_.ScriptStackTrace)"
+    }
+    Fail-Step 0 $diag
 }
 finally {
     Cleanup

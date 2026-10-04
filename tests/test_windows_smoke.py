@@ -6,7 +6,11 @@ script drift that previously made remote CI fail without useful annotations.
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 from pathlib import Path
+
+import pytest
 
 import snowpea_core
 
@@ -63,3 +67,40 @@ def test_windows_smoke_protocol_check_uses_installed_tool_python() -> None:
     assert "installed Python not found at $protocolPython" in script
     assert "output: $($protocolOut.Trim())" in script
     assert "python $gen --check" not in script
+
+
+def test_windows_smoke_catches_unexpected_exceptions_with_command_context() -> None:
+    script = _windows_script()
+
+    assert "$script:LastSnowpeaCommand = '<none>'" in script
+    assert "$script:LastSnowpeaOutput = ''" in script
+    assert "function Format-SnowpeaCommand" in script
+    assert "$script:LastSnowpeaCommand = Format-SnowpeaCommand $args" in script
+    assert "$redacted += '<redacted>'" in script
+    assert "catch {" in script
+    assert "unexpected PowerShell exception after $($script:LastSnowpeaCommand)" in script
+    assert "last output: $($script:LastSnowpeaOutput.Trim())" in script
+    assert "Fail-Step 0 $diag" in script
+    assert "function Shorten-Diagnostic" in script
+
+
+def test_windows_smoke_parses_with_powershell_when_available() -> None:
+    pwsh = shutil.which("pwsh") or shutil.which("powershell")
+    if pwsh is None:
+        pytest.skip("PowerShell is not installed")
+
+    command = (
+        "$tokens=$null; $errs=$null; "
+        "$null=[System.Management.Automation.Language.Parser]::ParseFile("
+        f"'{WINDOWS_SMOKE}', [ref]$tokens, [ref]$errs); "
+        "if ($errs.Count) { $errs | ForEach-Object { $_.Message }; exit 1 }; "
+        "'parse ok'"
+    )
+    result = subprocess.run(
+        [pwsh, "-NoProfile", "-Command", command],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "parse ok" in result.stdout
