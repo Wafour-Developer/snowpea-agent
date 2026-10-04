@@ -190,7 +190,13 @@ jobs:
         shell: pwsh
         run: |
           & pwsh -NoProfile -File ./tests/e2e/v01_smoke.ps1 -FromCheckout *>&1 | Tee-Object -FilePath smoke.log
-          exit $LASTEXITCODE
+          $smokeRc = $LASTEXITCODE
+          if ($smokeRc -ne 0) {
+            $detail = (Get-Content smoke.log -Tail 20) -join "`n"
+            $detail = $detail -replace '%', '%25' -replace "`r", '%0D' -replace "`n", '%0A'
+            Write-Output "::error::Windows smoke process failed: $detail"
+          }
+          exit $smokeRc
       - name: preserve smoke diagnostics
         if: always()
         uses: actions/upload-artifact@v4

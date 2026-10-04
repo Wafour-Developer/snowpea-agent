@@ -39,7 +39,9 @@ def test_all_ci_smokes_preserve_output_and_failure_status() -> None:
             assert "Tee-Object -FilePath smoke.log" in job
             assert "pwsh -NoProfile -File" in job
             assert "*>&1" in job
-            assert "exit $LASTEXITCODE" in job
+            assert "$smokeRc = $LASTEXITCODE" in job
+            assert "exit $smokeRc" in job
+            assert "Windows smoke process failed:" in job
         else:
             assert "set -o pipefail" in job
             assert "2>&1 | tee smoke.log" in job
