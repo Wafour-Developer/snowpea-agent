@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.7.0"
+PROTOCOL_VERSION = "1.8.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -493,6 +493,29 @@ class SessionSteerParams(Payload):
             "User message injected at the running turn's next tool-round boundary; "
             "with no turn running it starts one like session.prompt (1.6.0)."
         )
+    )
+
+
+class SessionContinueParams(Payload):
+    sessionId: str = Field(description="A chat session the caller may drive.")
+    reason: str = Field(
+        default="handback", description="Why the session continues, e.g. 'handback'."
+    )
+    note: str = Field(description="The [system] line the model sees, e.g. 'the tab is back'.")
+    idempotencyKey: str | None = Field(
+        default=None, description="The same key twice: the second call is a no-op."
+    )
+
+
+class SessionContinueResult(Payload):
+    started: bool = Field(description="True when a new system-initiated turn started.")
+    turnId: str | None = Field(default=None, description="The turn that started, if any.")
+    duplicate: bool | None = Field(
+        default=None, description="True when idempotencyKey was already used."
+    )
+    queued: bool | None = Field(
+        default=None,
+        description="True when a turn was running and the note joins its next model call.",
     )
 
 
@@ -3397,6 +3420,17 @@ class TurnStarted(Payload):
     queued: bool = Field(
         default=False, description="True when this turn waited in the prompt queue first."
     )
+    initiator: Literal["user", "system"] = Field(
+        default="user",
+        description=(
+            "Who started the turn (1.8.0). 'system' = session.continue: the input is a "
+            "[system] note, no message.user is emitted, and surfaces show a status line "
+            "instead of a user bubble."
+        ),
+    )
+    reason: str | None = Field(
+        default=None, description="Why a system turn started, e.g. 'handback' (1.8.0)."
+    )
 
 
 class TurnQueued(Payload):
@@ -4643,6 +4677,20 @@ METHODS: dict[str, RpcMethod] = {
             "Inject a user message into a running turn at its next tool round.",
         ),
         _m(
+            "session.continue",
+            SessionContinueParams,
+            SessionContinueResult,
+            (
+                "Continue a chat session on the system's behalf, e.g. after a human "
+                "hand-back (1.8.0). A running turn gets the note at its next model call "
+                "(like session.notice); otherwise a turn starts whose input is the "
+                "[system] note, with turn.started initiator 'system' and no message.user. "
+                "Same callers as session.setAgent; subagent and scheduled sessions are "
+                "refused with 'invalid_params'. One system start per session per 10 s, "
+                "and an idempotencyKey is honoured once."
+            ),
+        ),
+        _m(
             "session.setActive",
             SessionIdParams,
             Ok,
@@ -4706,6 +4754,7 @@ CAPABILITIES: list[str] = [
     "update",
     "checkpoints",
     "hostTools",
+    "sessionContinue",
 ]
 
 #: Where the daemon listens; mirrored into the schema dump for the SDK.
@@ -4810,6 +4859,7 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "session.setBrowserProvider",
         "session.setAgent",
         "session.steer",
+        "session.continue",
         "session.setActive",
         "session.toolContent",
         "session.artifacts",

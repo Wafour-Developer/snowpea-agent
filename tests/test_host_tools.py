@@ -582,6 +582,66 @@ async def test_steer_without_a_running_turn_starts_one(
         await client.stop()
 
 
+async def test_continue_starts_a_system_turn_without_a_user_message(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    """session.continue (1.8.0): a hand-back wakes an idle session as the system."""
+    client = await open_client(http, daemon)
+    try:
+        session_id = await new_session(client, tmp_path / "w")
+        params = {
+            "sessionId": session_id,
+            "reason": "handback",
+            "note": "the user handed the tab back after logging in; carry on",
+            "idempotencyKey": "tab-7-back-1",
+        }
+        result = await client.ok("session.continue", params)
+        assert result["started"] is True and result["turnId"]
+        await client.wait(lambda e: e["kind"] == "turn.done", timeout=10)
+        started = [e["payload"] for e in client.of_kind("turn.started")]
+        assert started[-1]["initiator"] == "system"
+        assert started[-1]["reason"] == "handback"
+        assert started[-1]["prompt"] is None
+        assert client.of_kind("message.user") == []  # no words the user never typed
+        core = daemon.core
+        assert core is not None
+        history = core.sessions.get(session_id).history.messages
+        assert any(
+            m.role == "user" and str(m.content).startswith("[system] (handback)") for m in history
+        )
+
+        # The same key again is a no-op; a new key inside 10 s is held back.
+        again = await client.ok("session.continue", params)
+        assert again["started"] is False and again["duplicate"] is True
+        soon = await client.ok("session.continue", {**params, "idempotencyKey": "tab-7-back-2"})
+        assert soon["started"] is False and not soon.get("duplicate")
+    finally:
+        await client.stop()
+
+
+async def test_continue_during_a_turn_is_a_notice_and_hello_advertises_it(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    client = await open_client(http, daemon)
+    try:
+        session_id = await new_session(client, tmp_path / "w")
+        core = daemon.core
+        assert core is not None
+        session = core.sessions.get(session_id)
+        session.current_turn = "t-running"  # a turn is in flight
+        result = await client.ok(
+            "session.continue", {"sessionId": session_id, "reason": "handback", "note": "tab back"}
+        )
+        assert result["started"] is False and result["queued"] is True
+        assert session.pending_notices[-1] == "(handback) tab back"
+        session.current_turn = None
+        from snowpea_core.server.protocol import CAPABILITIES, PROTOCOL_VERSION
+
+        assert "sessionContinue" in CAPABILITIES and PROTOCOL_VERSION == "1.8.0"
+    finally:
+        await client.stop()
+
+
 # ---------------------------------------------------------------------------
 # setup
 # ---------------------------------------------------------------------------

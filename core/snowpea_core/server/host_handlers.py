@@ -38,6 +38,8 @@ from snowpea_core.server.protocol import (
     SessionArtifactsResult,
     SessionAttachParams,
     SessionAttachResult,
+    SessionContinueParams,
+    SessionContinueResult,
     SessionIdParams,
     SessionNoticeParams,
     SessionRenameParams,
@@ -551,6 +553,62 @@ async def session_steer_handler(
     return SessionSteerResult(ok=True, started=True)
 
 
+#: Shortest gap between two system-initiated turns of one session.
+CONTINUE_MIN_INTERVAL_SEC = 10.0
+#: Keys remembered per session for ``session.continue`` idempotency.
+CONTINUE_KEYS_MAX = 256
+
+
+async def session_continue_handler(
+    conn: RpcConnection, params: SessionContinueParams, core: Core
+) -> SessionContinueResult:
+    """``session.continue`` (1.8.0) — carry a session on without a user message.
+
+    The browser host calls it when a tab handed to the user (``requestHuman``)
+    comes back: a running turn gets the note at its next model call, and an
+    idle session starts a turn whose input is the ``[system]`` note, marked
+    ``initiator: "system"`` so no surface shows words the user never typed.
+    """
+    session = _session(core, params.sessionId)
+    note = params.note.strip()
+    if not note:
+        raise RpcError(errors.INVALID_PARAMS, "note is empty")
+    if str(getattr(conn, "surface_id", "") or "").startswith("gateway:") or not _may_set_agent(
+        conn, session
+    ):
+        raise RpcError(errors.UNAUTHORIZED, "only the session's own surfaces may continue it")
+    if session.is_subagent or getattr(session, "kind", "chat") != "chat":
+        raise RpcError(errors.INVALID_PARAMS, f"{session.id} is not a chat session")
+    key = (params.idempotencyKey or "").strip()
+    if key and key in session.continue_keys:
+        return SessionContinueResult(started=False, duplicate=True)
+    if key:
+        if len(session.continue_keys) >= CONTINUE_KEYS_MAX:
+            session.continue_keys.clear()
+        session.continue_keys.add(key)
+    reason = (params.reason or "handback").strip() or "handback"
+    task = getattr(session, "turn_task", None)
+    running = session.current_turn is not None or (task is not None and not task.done())
+    if running:
+        session.pending_notices.append(f"({reason}) {note}")
+        return SessionContinueResult(started=False, queued=True)
+    now = time.monotonic()
+    if now - session.last_system_start < CONTINUE_MIN_INTERVAL_SEC:
+        return SessionContinueResult(started=False)
+    session.last_system_start = now
+    from snowpea_core.agent import loop as agent_loop
+
+    turn_id = agent_loop.start_turn(
+        core,
+        session,
+        "",
+        model_text=f"[system] ({reason}) {note}",
+        initiator="system",
+        reason=reason,
+    )
+    return SessionContinueResult(started=True, turnId=turn_id)
+
+
 # ---------------------------------------------------------------------------
 # setup.status / setup.applyDefaults / provider.test
 # ---------------------------------------------------------------------------
@@ -785,6 +843,7 @@ def register_host_handlers(dispatcher: RpcDispatcher) -> None:
     dispatcher.register("session.setAgent", session_set_agent_handler)
     dispatcher.register("session.steer", session_steer_handler)
     dispatcher.register("session.setActive", session_set_active_handler)
+    dispatcher.register("session.continue", session_continue_handler)
     dispatcher.register("session.toolContent", session_tool_content_handler)
     dispatcher.register("session.artifacts", session_artifacts_handler)
     dispatcher.register("session.rename", session_rename_handler)

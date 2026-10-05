@@ -134,6 +134,12 @@ class QueuedTurn:
     #: ``session.prompt {whenBusy}``: ``queue``/``steer`` for this prompt only,
     #: ``None`` to follow ``agent.busy`` (1.7.0).
     when_busy: str | None = None
+    #: ``"system"`` for a turn the core starts on the session's behalf
+    #: (``session.continue``, 1.8.0): its input is a ``[system]`` note, not a
+    #: user message, and surfaces render it as such.
+    initiator: str = "user"
+    #: Why a system turn started (``"handback"``); ``None`` for user turns.
+    reason: str | None = None
 
 
 def new_turn_id() -> str:
@@ -790,6 +796,8 @@ def start_turn(
     refs: list[dict[str, Any]] | None = None,
     expansion: dict[str, Any] | None = None,
     when_busy: str | None = None,
+    initiator: str = "user",
+    reason: str | None = None,
 ) -> str:
     """Schedule a turn, or queue it behind the session's active turn.
 
@@ -808,6 +816,8 @@ def start_turn(
         refs=refs,
         expansion=expansion,
         when_busy=when_busy if when_busy in ("queue", "steer") else None,
+        initiator=initiator,
+        reason=reason,
     )
     task = session.turn_task
     if task is not None and not task.done():
@@ -1009,6 +1019,13 @@ async def _drain_turns(core: Core, session: Session, first: QueuedTurn) -> None:
                 model_text=queued.model_text,
                 refs=queued.refs,
                 expansion=queued.expansion,
+                # Only a system turn names its initiator, so a run_turn stand-in
+                # written before 1.8.0 keeps working for ordinary prompts.
+                **(
+                    {"initiator": queued.initiator, "reason": queued.reason}
+                    if queued.initiator != "user"
+                    else {}
+                ),
             )
             # The queue is *not* re-flushed here.  ``session.interrupt`` already
             # emptied it synchronously, at the instant Stop was pressed; a
@@ -1038,6 +1055,8 @@ async def run_turn(
     model_text: str | None = None,
     refs: list[dict[str, Any]] | None = None,
     expansion: dict[str, Any] | None = None,
+    initiator: str = "user",
+    reason: str | None = None,
 ) -> str:
     """Run one full turn; returns its turn id once ``turn.done`` was emitted."""
     turn_id = turn_id or new_turn_id()
@@ -1046,11 +1065,21 @@ async def run_turn(
     from snowpea_core.agent.session_agent import ensure_applied
 
     ensure_applied(core, session)
-    await _mark_turn_started(core, session, text)
+    system = initiator == "system"
+    await _mark_turn_started(core, session, None if system else text)
     # The turn is running *now* — after whatever wait it did in the FIFO, and
     # before anything it produces.  Without this a surface has to start its
     # clock on the first delta it happens to overhear (IDE-PROGRESS D1).
-    await hub.emit_event(session.id, events.turn_started(turn_id, text or None, queued=queued))
+    await hub.emit_event(
+        session.id,
+        events.turn_started(
+            turn_id,
+            None if system else (text or None),
+            queued=queued,
+            initiator="system" if system else "user",
+            reason=reason,
+        ),
+    )
     try:
         reason = await _drive(
             core,
@@ -1062,6 +1091,7 @@ async def run_turn(
             model_text=model_text,
             refs=refs,
             expansion=expansion,
+            system=system,
         )
     except asyncio.CancelledError:
         # A shutdown in progress (``Daemon.stop`` -> ``SessionManager.close_all``,
@@ -1255,6 +1285,7 @@ async def _drive(
     model_text: str | None = None,
     refs: list[dict[str, Any]] | None = None,
     expansion: dict[str, Any] | None = None,
+    system: bool = False,
 ) -> str:
     """The loop proper; emits ``turn.done`` itself and returns its reason."""
     hub = core.hub
@@ -1288,11 +1319,14 @@ async def _drive(
         # The prompt is published as well as stored: ``session.resume`` replays
         # the event log, so a transcript rebuilt without this shows every answer
         # and none of the questions.  Once per prompt, and never for the
-        # continuation nudge the loop appends to itself further down.
-        await hub.emit_event(
-            session.id,
-            events.message_user(text, attachments, refs=refs, expansion=expansion),
-        )
+        # continuation nudge the loop appends to itself further down. A
+        # system-started turn has no user words to show: ``turn.started``
+        # carries its initiator and reason instead.
+        if not system:
+            await hub.emit_event(
+                session.id,
+                events.message_user(text, attachments, refs=refs, expansion=expansion),
+            )
     if session.is_subagent:
         from snowpea_core.agent.subagent import get_manager
 

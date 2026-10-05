@@ -182,6 +182,10 @@ class Session:
     user_waiting: asyncio.Event = field(default_factory=asyncio.Event)
     #: This turn's edits and checks, for verify-on-stop (agent/verify_gate.py).
     verify_turn: Any = None
+    #: ``session.continue`` (1.8.0): keys already honoured, and when the last
+    #: system-initiated turn started (loop guard).
+    continue_keys: set[str] = field(default_factory=set)
+    last_system_start: float = 0.0
     #: ``write_todos`` list: ``[{id, content, status}]`` (1.7.0).
     todos: list[dict[str, str]] = field(default_factory=list)
     #: Short label: the first prompt's opening words, or ``session.rename``.

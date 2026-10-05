@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.7.0";
+export const PROTOCOL_VERSION = "1.8.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -1764,6 +1764,30 @@ export interface SessionCompactResult {
   before?: number;
   /** Length of the summary in characters. */
   summaryChars?: number;
+}
+
+/** `session.continue` params. Continue a chat session on the system's behalf, e.g. after a human hand-back (1.8.0). A running turn gets the note at its next model call (like session.notice); otherwise a turn starts whose input is the [system] note, with turn.started initiator 'system' and no message.user. Same callers as session.setAgent; subagent and scheduled sessions are refused with 'invalid_params'. One system start per session per 10 s, and an idempotencyKey is honoured once. */
+export interface SessionContinueParams {
+  /** The same key twice: the second call is a no-op. */
+  idempotencyKey?: string | null;
+  /** The [system] line the model sees, e.g. 'the tab is back'. */
+  note: string;
+  /** Why the session continues, e.g. 'handback'. */
+  reason?: string;
+  /** A chat session the caller may drive. */
+  sessionId: string;
+}
+
+/** `session.continue` result. */
+export interface SessionContinueResult {
+  /** True when idempotencyKey was already used. */
+  duplicate?: boolean | null;
+  /** True when a turn was running and the note joins its next model call. */
+  queued?: boolean | null;
+  /** True when a new system-initiated turn started. */
+  started: boolean;
+  /** The turn that started, if any. */
+  turnId?: string | null;
 }
 
 /** `session.create` params. Open a session rooted at a working directory. */
@@ -3918,11 +3942,15 @@ export interface TurnQueuedEventPayload {
 
 /** Payload of `session.event` with kind `turn.started`. */
 export interface TurnStartedEventPayload {
+  /** Who started the turn (1.8.0). 'system' = session.continue: the input is a [system] note, no message.user is emitted, and surfaces show a status line instead of a user bubble. */
+  initiator?: "user" | "system";
   kind?: "turn.started";
   /** The prompt that opened it; null when there is none. */
   prompt?: string | null;
   /** True when this turn waited in the prompt queue first. */
   queued?: boolean;
+  /** Why a system turn started, e.g. 'handback' (1.8.0). */
+  reason?: string | null;
   /** Turn that is now running. */
   turnId: string;
 }
@@ -4089,6 +4117,7 @@ export interface MethodMap {
   "session.attach": { params: SessionAttachParams; result: SessionAttachResult };
   "session.close": { params: SessionCloseParams; result: SessionCloseResult };
   "session.compact": { params: SessionCompactParams; result: SessionCompactResult };
+  "session.continue": { params: SessionContinueParams; result: SessionContinueResult };
   "session.create": { params: SessionCreateParams; result: SessionCreateResult };
   "session.deleteSaved": { params: SessionDeleteSavedParams; result: SessionDeleteSavedResult };
   "session.interrupt": { params: SessionInterruptParams; result: SessionInterruptResult };
@@ -4209,6 +4238,7 @@ export type ClientMethod =
   | "session.attach"
   | "session.close"
   | "session.compact"
+  | "session.continue"
   | "session.create"
   | "session.deleteSaved"
   | "session.interrupt"

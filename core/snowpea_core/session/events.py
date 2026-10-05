@@ -341,9 +341,24 @@ def audio_spoken(
     )
 
 
-def turn_started(turn_id: str, prompt: str | None = None, *, queued: bool = False) -> Event:
+def turn_started(
+    turn_id: str,
+    prompt: str | None = None,
+    *,
+    queued: bool = False,
+    initiator: str = "user",
+    reason: str | None = None,
+) -> Event:
     """A turn began running, after any wait in the prompt queue."""
-    return _pack(TurnStarted(turnId=turn_id, prompt=prompt, queued=queued))
+    return _pack(
+        TurnStarted(
+            turnId=turn_id,
+            prompt=prompt,
+            queued=queued,
+            initiator=initiator,  # type: ignore[arg-type]
+            reason=reason,
+        )
+    )
 
 
 def turn_queued(turn_id: str, position: int, queued: int) -> Event:

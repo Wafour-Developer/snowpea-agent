@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.7.0` (semver)
+- **Protocol version:** `1.8.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.7.0"
+    "protocolVersion": "1.8.0"
   }
 }
 ```
@@ -46,6 +46,7 @@ Server capabilities advertised in the `system.hello` result:
 - `hostTools`
 - `lsp`
 - `mcp`
+- `sessionContinue`
 - `sessions`
 - `settings`
 - `setup`
@@ -121,6 +122,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`session.attach`](#sessionattach) | client → server | Make this connection the origin of a session (approvals, host tools). |
 | [`session.close`](#sessionclose) | client → server | Close a session and release its resources. |
 | [`session.compact`](#sessioncompact) | client → server | Summarise the conversation so far and replace the history with it. |
+| [`session.continue`](#sessioncontinue) | client → server | Continue a chat session on the system's behalf, e.g. after a human hand-back (1.8.0). A running turn gets the note at its next model call (like session.notice); otherwise a turn starts whose input is the [system] note, with turn.started initiator 'system' and no message.user. Same callers as session.setAgent; subagent and scheduled sessions are refused with 'invalid_params'. One system start per session per 10 s, and an idempotencyKey is honoured once. |
 | [`session.create`](#sessioncreate) | client → server | Open a session rooted at a working directory. |
 | [`session.deleteSaved`](#sessiondeletesaved) | client → server | Delete saved sessions. |
 | [`session.interrupt`](#sessioninterrupt) | client → server | Stop the running turn as soon as possible. |
@@ -1559,6 +1561,30 @@ Summarise the conversation so far and replace the history with it.
 | `after` | `number` | no | Estimated tokens the history holds now. |
 | `before` | `number` | no | Estimated tokens the history held before. |
 | `summaryChars` | `number` | no | Length of the summary in characters. |
+
+### `session.continue`
+
+*Direction:* client → server
+
+Continue a chat session on the system's behalf, e.g. after a human hand-back (1.8.0). A running turn gets the note at its next model call (like session.notice); otherwise a turn starts whose input is the [system] note, with turn.started initiator 'system' and no message.user. Same callers as session.setAgent; subagent and scheduled sessions are refused with 'invalid_params'. One system start per session per 10 s, and an idempotencyKey is honoured once.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `idempotencyKey` | `string \| null` | no | The same key twice: the second call is a no-op. |
+| `note` | `string` | yes | The [system] line the model sees, e.g. 'the tab is back'. |
+| `reason` | `string` | no | Why the session continues, e.g. 'handback'. |
+| `sessionId` | `string` | yes | A chat session the caller may drive. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `duplicate` | `boolean \| null` | no | True when idempotencyKey was already used. |
+| `queued` | `boolean \| null` | no | True when a turn was running and the note joins its next model call. |
+| `started` | `boolean` | yes | True when a new system-initiated turn started. |
+| `turnId` | `string \| null` | no | The turn that started, if any. |
 
 ### `session.create`
 
@@ -3050,9 +3076,11 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 
 | field | type | required | description |
 |---|---|---|---|
+| `initiator` | `"user" \| "system"` | no | Who started the turn (1.8.0). 'system' = session.continue: the input is a [system] note, no message.user is emitted, and surfaces show a status line instead of a user bubble. |
 | `kind` | `"turn.started"` | no |  |
 | `prompt` | `string \| null` | no | The prompt that opened it; null when there is none. |
 | `queued` | `boolean` | no | True when this turn waited in the prompt queue first. |
+| `reason` | `string \| null` | no | Why a system turn started, e.g. 'handback' (1.8.0). |
 | `turnId` | `string` | yes | Turn that is now running. |
 
 ### kind `usage`
