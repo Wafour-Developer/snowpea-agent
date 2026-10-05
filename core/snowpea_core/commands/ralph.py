@@ -600,7 +600,14 @@ async def review(ctx: CommandContext, task: str, stories: list[Story]) -> tuple[
     """Ask a reviewer subagent to sign the work off."""
     manager = get_manager(ctx.core)
     reviewer = reviewer_agent(manager, ctx.session)
-    summary = "\n".join(f"- {story.id} {story.title}: {story.note}" for story in stories)
+    # The reviewer may have no shell (a browser root narrows its children's
+    # tools): it must see what the loop itself ran and what came back, or it
+    # rejects for want of a way to reproduce the checks (snowpea-browser e2e).
+    summary = "\n".join(
+        f"- {story.id} {story.title}: {story.note}"
+        + "".join(f"\n    verified with: {command}" for command in story.verify)
+        for story in stories
+    )
     brief = workflow_brief(
         "ralph-review",
         reply_language=reply_language_for(ctx),

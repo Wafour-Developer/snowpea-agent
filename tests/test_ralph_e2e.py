@@ -206,8 +206,7 @@ async def test_ralph_runs_the_repo_to_an_approved_finish(daemon: Daemon, repo: P
     # 7. The next ordinary turn sees a concise command report in main history.
     assistant_messages = [m.content for m in session.history.messages if m.role == "assistant"]
     assert any(
-        "Ralph workflow finished with outcome: complete" in text
-        for text in assistant_messages
+        "Ralph workflow finished with outcome: complete" in text for text in assistant_messages
     )
     assert any("Patch tracked_a.txt" in text for text in assistant_messages)
 
@@ -217,9 +216,7 @@ async def test_ralph_command_report_survives_store_resume(daemon: Daemon, repo: 
     assert core is not None
     session = await core.sessions.create(repo, mode="auto", max_concurrent=3)
 
-    await asyncio.wait_for(
-        core.commands.run(core, session, "ralph", f'"{TASK}"'), timeout=TIMEOUT
-    )
+    await asyncio.wait_for(core.commands.run(core, session, "ralph", f'"{TASK}"'), timeout=TIMEOUT)
     stored = await core.store.messages(session.id)
     assert any(
         item["role"] == "assistant"
@@ -246,10 +243,12 @@ async def test_rejected_review_is_repaired_before_completion(
     session = await core.sessions.create(repo, mode="auto", max_concurrent=3)
     recorder = Recorder()
     core.hub.subscribe(recorder, session.id)
-    reviews = iter([
-        (False, "REJECT — mention the verification evidence in the implementation report."),
-        (True, "APPROVE — reviewer feedback was addressed."),
-    ])
+    reviews = iter(
+        [
+            (False, "REJECT — mention the verification evidence in the implementation report."),
+            (True, "APPROVE — reviewer feedback was addressed."),
+        ]
+    )
     seen_tasks: list[str] = []
     manager = get_manager(core)
     original_run = manager.run
@@ -466,9 +465,7 @@ async def test_ralph_emits_command_progress_for_plan_iterations_and_outcome(
     recorder = Recorder()
     core.hub.subscribe(recorder, session.id)
 
-    await asyncio.wait_for(
-        core.commands.run(core, session, "ralph", f'"{TASK}"'), timeout=TIMEOUT
-    )
+    await asyncio.wait_for(core.commands.run(core, session, "ralph", f'"{TASK}"'), timeout=TIMEOUT)
     progress = [event["payload"] for event in recorder.of_kind("command.progress")]
     assert len(progress) >= 3, progress
     plan, *middle, last = progress
@@ -502,9 +499,7 @@ async def test_ralph_progress_carries_stopped_when_it_gives_up_early(
         )
 
     monkeypatch.setattr(get_manager(core), "run", failing_run)
-    await asyncio.wait_for(
-        core.commands.run(core, session, "ralph", f'"{TASK}"'), timeout=TIMEOUT
-    )
+    await asyncio.wait_for(core.commands.run(core, session, "ralph", f'"{TASK}"'), timeout=TIMEOUT)
     last = recorder.of_kind("command.progress")[-1]["payload"]
     assert last["outcome"] == "stopped"
     assert last["iteration"] == 1
@@ -635,7 +630,7 @@ BROKEN_PYTHON_CHECK = (
 
 def test_check_problem_compiles_python_c_and_parses_shell() -> None:
     assert ralph.check_problem(BROKEN_PYTHON_CHECK) is not None
-    assert ralph.check_problem("python3 -u -c \"import os; assert os.sep\"") is None
+    assert ralph.check_problem('python3 -u -c "import os; assert os.sep"') is None
     assert ralph.check_problem("pytest -q tests/test_x.py") is None
     if ralph.shutil.which("bash"):
         assert ralph.check_problem("test -f a && (grep foo a") is not None
@@ -844,3 +839,34 @@ async def test_a_new_task_keeps_the_unfinished_prd_aside(
     backups = list(state.glob("prd-*.json"))
     assert len(backups) == 1
     assert json.loads(backups[0].read_text(encoding="utf-8"))["task"] == "old"
+
+
+async def test_the_reviewer_sees_the_recorded_checks_and_may_not_reject_for_want_of_a_shell(
+    daemon: Daemon, repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A reviewer without shell judges from what the loop ran (snowpea-browser e2e)."""
+    from snowpea_core.agent.subagent import SubagentResult, get_manager
+
+    core = daemon.core
+    assert core is not None
+    session = await core.sessions.create(repo, mode="auto")
+    briefs: list[str] = []
+
+    async def capture(parent: Any, task: str, **_kwargs: Any) -> SubagentResult:
+        briefs.append(task)
+        return SubagentResult(agent_id="r", ok=True, summary="APPROVE")
+
+    monkeypatch.setattr(get_manager(core), "run", capture)
+    ctx = SimpleNamespace(core=core, session=session)
+    story = ralph.Story(
+        id="S1",
+        title="add is_palindrome",
+        verify=["pytest -q tests/test_text.py"],
+        passed=True,
+        note="all verification commands exited zero",
+    )
+    monkeypatch.setattr(ralph, "reply_language_for", lambda _ctx: "auto")
+    approved, _ = await ralph.review(ctx, "add is_palindrome", [story])  # type: ignore[arg-type]
+    assert approved
+    assert "verified with: pytest -q tests/test_text.py" in briefs[0]
+    assert "never REJECT only because you cannot run a command" in briefs[0]
