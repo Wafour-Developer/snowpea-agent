@@ -4687,7 +4687,8 @@ METHODS: dict[str, RpcMethod] = {
                 "[system] note, with turn.started initiator 'system' and no message.user. "
                 "Same callers as session.setAgent; subagent and scheduled sessions are "
                 "refused with 'invalid_params'. One system start per session per 10 s, "
-                "and an idempotencyKey is honoured once."
+                "and an idempotencyKey is honoured once; a call inside the 10 s window "
+                "keeps its note as a notice (queued: true)."
             ),
         ),
         _m(

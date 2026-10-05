@@ -122,7 +122,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`session.attach`](#sessionattach) | client → server | Make this connection the origin of a session (approvals, host tools). |
 | [`session.close`](#sessionclose) | client → server | Close a session and release its resources. |
 | [`session.compact`](#sessioncompact) | client → server | Summarise the conversation so far and replace the history with it. |
-| [`session.continue`](#sessioncontinue) | client → server | Continue a chat session on the system's behalf, e.g. after a human hand-back (1.8.0). A running turn gets the note at its next model call (like session.notice); otherwise a turn starts whose input is the [system] note, with turn.started initiator 'system' and no message.user. Same callers as session.setAgent; subagent and scheduled sessions are refused with 'invalid_params'. One system start per session per 10 s, and an idempotencyKey is honoured once. |
+| [`session.continue`](#sessioncontinue) | client → server | Continue a chat session on the system's behalf, e.g. after a human hand-back (1.8.0). A running turn gets the note at its next model call (like session.notice); otherwise a turn starts whose input is the [system] note, with turn.started initiator 'system' and no message.user. Same callers as session.setAgent; subagent and scheduled sessions are refused with 'invalid_params'. One system start per session per 10 s, and an idempotencyKey is honoured once; a call inside the 10 s window keeps its note as a notice (queued: true). |
 | [`session.create`](#sessioncreate) | client → server | Open a session rooted at a working directory. |
 | [`session.deleteSaved`](#sessiondeletesaved) | client → server | Delete saved sessions. |
 | [`session.interrupt`](#sessioninterrupt) | client → server | Stop the running turn as soon as possible. |
@@ -1566,7 +1566,7 @@ Summarise the conversation so far and replace the history with it.
 
 *Direction:* client → server
 
-Continue a chat session on the system's behalf, e.g. after a human hand-back (1.8.0). A running turn gets the note at its next model call (like session.notice); otherwise a turn starts whose input is the [system] note, with turn.started initiator 'system' and no message.user. Same callers as session.setAgent; subagent and scheduled sessions are refused with 'invalid_params'. One system start per session per 10 s, and an idempotencyKey is honoured once.
+Continue a chat session on the system's behalf, e.g. after a human hand-back (1.8.0). A running turn gets the note at its next model call (like session.notice); otherwise a turn starts whose input is the [system] note, with turn.started initiator 'system' and no message.user. Same callers as session.setAgent; subagent and scheduled sessions are refused with 'invalid_params'. One system start per session per 10 s, and an idempotencyKey is honoured once; a call inside the 10 s window keeps its note as a notice (queued: true).
 
 **Params**
 

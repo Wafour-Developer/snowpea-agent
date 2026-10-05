@@ -615,6 +615,7 @@ async def test_continue_starts_a_system_turn_without_a_user_message(
         assert again["started"] is False and again["duplicate"] is True
         soon = await client.ok("session.continue", {**params, "idempotencyKey": "tab-7-back-2"})
         assert soon["started"] is False and not soon.get("duplicate")
+        assert soon["queued"] is True  # held back, but kept as a notice
     finally:
         await client.stop()
 

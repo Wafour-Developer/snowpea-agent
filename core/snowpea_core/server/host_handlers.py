@@ -594,7 +594,10 @@ async def session_continue_handler(
         return SessionContinueResult(started=False, queued=True)
     now = time.monotonic()
     if now - session.last_system_start < CONTINUE_MIN_INTERVAL_SEC:
-        return SessionContinueResult(started=False)
+        # Too soon for another system turn; the note is not lost, it joins the
+        # next model call like a session.notice.
+        session.pending_notices.append(f"({reason}) {note}")
+        return SessionContinueResult(started=False, queued=True)
     session.last_system_start = now
     from snowpea_core.agent import loop as agent_loop
 
