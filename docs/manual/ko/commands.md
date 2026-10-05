@@ -67,7 +67,7 @@ snowpea commands list --json
 | `/deep-research <topic>` | 서브에이전트에 걸쳐 흩어진 다중 출처 웹 리서치, 출처와 함께 답변 |
 | `/ralplan <task>` | 합의 기반 계획 — 코드를 쓰기 전에 planner, architect, critic이 논쟁 |
 
-`/ralph`는 자신의 상태를 `<project>/.snowpea/ralph/`에 `prd.json`과 `progress.md`로 남기므로 지금 무엇을 하고 있다고 생각하는지 읽을 수 있고, 수렴하지 못하면 `ralph.max_iterations`(10)에서 멈춥니다. `/ultrawork`와 `/deepinit`은 `agents.max_concurrent`(기본 3) 안에서 흩어집니다. 마지막 세 개는 `core/snowpea_core/builtin_skills/` 아래의 `SKILL.md` 파일이고, 여러분의 스킬을 읽는 것과 같은 로더로 읽힙니다 — 읽고, 복사하고, 고치세요.
+`/ralph`는 자신의 상태를 `<project>/.snowpea/ralph/`에 `prd.json`과 `progress.md`로 남기므로 지금 무엇을 하고 있다고 생각하는지 읽고 고칠 수 있습니다. `/ralph`만 쓰거나 "계속"만 말하면(`/ralph 실행해줘`, `/ralph 계속해줘`, `/ralph --resume`) 새 작업을 계획하지 않고 끝나지 않은 `prd.json`을 이어서 진행합니다 — 예약 잡에는 이 형태를 쓰세요. 새 작업을 주면 끝나지 않은 PRD는 `prd-<시각>.json`으로 남겨 둡니다. 그리고 수렴하지 못하면 `ralph.max_iterations`(10)에서 멈춥니다. `/ultrawork`와 `/deepinit`은 `agents.max_concurrent`(기본 3) 안에서 흩어집니다. 마지막 세 개는 `core/snowpea_core/builtin_skills/` 아래의 `SKILL.md` 파일이고, 여러분의 스킬을 읽는 것과 같은 로더로 읽힙니다 — 읽고, 복사하고, 고치세요.
 
 `/init`은 `/deepinit`의 빠른 버전입니다: 서브에이전트 없이 메인 에이전트 턴 하나, 도구 호출도 몇 번 정도로 — Claude Code 자체의 `/init`과 같은 정신입니다. 프로젝트에 설정 파일이 아직 없으면 `<project>/.snowpea/settings.json`을 `defaultMode: "accept"`로 만들지만, 이미 있으면 손대지 않습니다. plan 모드에서는 무엇을 쓸지 보고만 합니다.
 

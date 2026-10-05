@@ -43,6 +43,7 @@ import shlex
 import shutil
 import subprocess
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -61,7 +62,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 log = logging.getLogger("snowpea.commands.ralph")
 
-USAGE = 'Usage: /ralph "<task>"'
+USAGE = 'Usage: /ralph "<task>"  (or /ralph alone to resume an unfinished PRD)'
 
 #: Where the loop keeps its state, relative to the workdir.
 STATE_DIR = Path(".snowpea") / "ralph"
@@ -264,6 +265,58 @@ def state_dir(session: Session) -> Path:
     directory = Path(session.workdir) / STATE_DIR
     directory.mkdir(parents=True, exist_ok=True)
     return directory
+
+
+#: A /ralph argument that asks to carry on rather than to plan something new:
+#: "/ralph 실행해줘" from a schedule used to be planned as a task of its own and
+#: overwrote the PRD the user and the agent had written.
+_RESUME_PHRASE = re.compile(
+    r"^(?:--?resume|resume|continue|go|run|start|"
+    r"계속|이어서|재개|진행|실행|시작)(?:\s*(?:해|해줘|해 줘|하자|해라|해주세요|합시다|진행해줘|"
+    r"진행해|실행해줘|실행해)?)?[.!?\s]*$",
+    re.IGNORECASE,
+)
+
+
+def is_resume_request(args: str) -> bool:
+    """True for an empty /ralph or one that only says to carry on."""
+    text = args.strip().strip('"').strip("'").strip()
+    return not text or bool(_RESUME_PHRASE.match(text))
+
+
+def load_saved_prd(session: Session) -> tuple[str, list[Story]] | None:
+    """The PRD in ``.snowpea/ralph/prd.json`` when it still has work left."""
+    path = Path(session.workdir) / STATE_DIR / PRD_NAME
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    stories = stories_from_payload(data)
+    raw = data.get("stories") if isinstance(data.get("stories"), list) else []
+    by_id = {str(entry.get("id")): entry for entry in raw if isinstance(entry, dict)}
+    for story in stories:
+        entry = by_id.get(story.id) or {}
+        story.passed = bool(entry.get("passed", False))
+        story.note = str(entry.get("note") or "")
+    if not stories or all(story.passed for story in stories):
+        return None
+    return str(data.get("task") or "").strip(), stories
+
+
+def _backup_prd(session: Session) -> Path | None:
+    """Keep an unfinished PRD aside before a new task replaces it."""
+    path = Path(session.workdir) / STATE_DIR / PRD_NAME
+    if not path.is_file():
+        return None
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    target = path.with_name(f"prd-{stamp}.json")
+    try:
+        target.write_bytes(path.read_bytes())
+    except OSError:
+        return None
+    return target
 
 
 def write_prd(session: Session, task: str, stories: list[Story], iteration: int) -> Path:
@@ -675,16 +728,35 @@ def deterministic_error(text: str) -> bool:
 async def cmd_ralph(ctx: CommandContext, args: str) -> None:
     """``/ralph <task>`` — drive a task to a reviewed finish."""
     task = args.strip().strip('"').strip("'").strip()
-    if not task:
+    saved = load_saved_prd(ctx.session)
+    resuming = saved is not None and is_resume_request(task)
+    if resuming:
+        # Carry on with the PRD on disk — the one the last run left, or one the
+        # user or the agent edited by hand — instead of planning anew.
+        assert saved is not None
+        task, stories = saved[0] or task, saved[1]
+        done = sum(story.passed for story in stories)
+        await ctx.say(
+            f"ralph: resuming {STATE_DIR / PRD_NAME} — {done}/{len(stories)} stories already "
+            "pass. Run /ralph \"<new task>\" to plan something else."
+        )
+        fallback_reason = None
+    elif not task:
         await ctx.say(USAGE)
         return
-
-    try:
-        stories, fallback_reason = await build_prd(ctx, task)
-    except Exception as exc:  # noqa: BLE001 - a bad PRD ends the command, not the daemon
-        await _progress(ctx, 0, [], outcome="error")
-        await _fail(ctx, f"could not build a PRD for this task: {exc}", task=task)
-        return
+    else:
+        if saved is not None:
+            backup = _backup_prd(ctx.session)
+            if backup is not None:
+                await ctx.say(
+                    f"ralph: the unfinished PRD was kept as {backup.name}; planning the new task."
+                )
+        try:
+            stories, fallback_reason = await build_prd(ctx, task)
+        except Exception as exc:  # noqa: BLE001 - a bad PRD ends the command, not the daemon
+            await _progress(ctx, 0, [], outcome="error")
+            await _fail(ctx, f"could not build a PRD for this task: {exc}", task=task)
+            return
     if fallback_reason is not None:
         await ctx.say(
             f"ralph: no usable PRD from the model ({fallback_reason}); "
@@ -696,10 +768,14 @@ async def cmd_ralph(ctx: CommandContext, args: str) -> None:
         await ctx.say("\n".join(["ralph: checked the PRD's verification commands:", *repaired]))
 
     write_prd(ctx.session, task, stories, 0)
-    append_progress(ctx.session, [f"# ralph: {task}", "", f"{len(stories)} stories planned."])
+    planned = "resumed" if resuming else "planned"
+    append_progress(ctx.session, [f"# ralph: {task}", "", f"{len(stories)} stories {planned}."])
     await ctx.say(
         "\n".join(
-            [f"ralph: {len(stories)} stories planned.", *(f"  {s.id} {s.title}" for s in stories)]
+            [
+                f"ralph: {len(stories)} stories {planned}.",
+                *(f"  {s.id} {s.title}{' (pass)' if s.passed else ''}" for s in stories),
+            ]
         )
     )
     await _progress(ctx, 0, stories)

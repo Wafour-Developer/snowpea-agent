@@ -768,3 +768,79 @@ async def test_repair_checks_asks_the_model_and_reads_its_verify_list(tmp_path: 
 
     nothing = _ScriptedProvider([])
     assert await ralph.repair_checks(_prd_ctx(nothing, tmp_path), "task", story, "bad") is None
+
+
+# ---------------------------------------------------------------------------
+# resuming the PRD on disk instead of planning a "실행해줘" task
+# ---------------------------------------------------------------------------
+
+
+def test_resume_phrases_are_recognised() -> None:
+    for text in ("", "실행해줘", "계속해줘", "이어서 진행해줘", "resume", "--resume", "continue."):
+        assert ralph.is_resume_request(text), text
+    for text in ("add a login page", "실행 파일을 만들어줘", "run the migration script"):
+        assert not ralph.is_resume_request(text), text
+
+
+async def test_ralph_resumes_an_unfinished_prd_instead_of_replanning(
+    daemon: Daemon, repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from snowpea_core.agent.subagent import SubagentResult, get_manager
+
+    core = daemon.core
+    assert core is not None
+    session = await core.sessions.create(repo, mode="auto")
+    state = repo / ".snowpea" / "ralph"
+    state.mkdir(parents=True, exist_ok=True)
+    (state / "prd.json").write_text(
+        json.dumps(
+            {
+                "task": "ship M1c..M8",
+                "iteration": 2,
+                "stories": [
+                    {"id": "M1c", "title": "spawn frame", "verify": ["true"], "passed": True},
+                    {"id": "M2", "title": "player physics", "verify": ["true"]},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    planned: list[str] = []
+    runs: list[str] = []
+
+    async def prd(_ctx: Any, task: str) -> tuple[list[ralph.Story], None]:
+        planned.append(task)
+        return [ralph.Story(id="S1", title="python main.py")], None
+
+    async def ok_run(parent: Any, task: str, **_kwargs: Any) -> SubagentResult:
+        runs.append(task)
+        return SubagentResult(agent_id="a", ok=True, summary="done")
+
+    async def approve(*_args: Any, **_kwargs: Any) -> tuple[bool, str]:
+        return True, "APPROVE"
+
+    monkeypatch.setattr(ralph, "build_prd", prd)
+    monkeypatch.setattr(ralph, "review", approve)
+    monkeypatch.setattr(get_manager(core), "run", ok_run)
+    await asyncio.wait_for(core.commands.run(core, session, "ralph", "실행해줘"), timeout=TIMEOUT)
+
+    assert planned == []  # the PRD on disk was not replaced by a "실행해줘" plan
+    assert len(runs) == 1 and "player physics" in runs[0]  # only the unfinished story ran
+    saved = json.loads((state / "prd.json").read_text(encoding="utf-8"))
+    assert saved["task"] == "ship M1c..M8"
+    assert [s["id"] for s in saved["stories"]] == ["M1c", "M2"]
+
+
+async def test_a_new_task_keeps_the_unfinished_prd_aside(
+    daemon: Daemon, repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state = repo / ".snowpea" / "ralph"
+    state.mkdir(parents=True, exist_ok=True)
+    (state / "prd.json").write_text(
+        json.dumps({"task": "old", "stories": [{"id": "S1", "title": "old story"}]}),
+        encoding="utf-8",
+    )
+    await _run_ralph_with(daemon, repo, monkeypatch, ["true"], [])
+    backups = list(state.glob("prd-*.json"))
+    assert len(backups) == 1
+    assert json.loads(backups[0].read_text(encoding="utf-8"))["task"] == "old"
