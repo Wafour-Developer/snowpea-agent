@@ -523,7 +523,95 @@ def _budget_probe_continue_window(core: Core, used: int) -> tuple[int, int] | No
     return used + 1, _verify_continue_rounds(core)
 
 
+#: Provider failures worth another try: the server or the network hiccuped, the
+#: request itself was fine. A 30-minute turn used to die on one ReadTimeout
+#: from a busy local vLLM ("internal: … ReadTimeout:") and the work stopped.
+_TRANSIENT_PROVIDER = re.compile(
+    r"timeout|timed out|connecterror|connect error|connection (?:reset|refused|aborted)|"
+    r"remoteprotocolerror|readerror|networkerror|server disconnected|incomplete chunked|"
+    r"http (?:408|409|425|429|500|502|503|504|529)|overloaded|rate limit|"
+    r"temporarily unavailable|bad gateway|service unavailable",
+    re.IGNORECASE,
+)
+
+
+def transient_provider_error(exc: BaseException) -> bool:
+    """True for a provider error a retry can fix (timeouts, resets, 429/5xx)."""
+    return isinstance(exc, ProviderError) and bool(_TRANSIENT_PROVIDER.search(str(exc)))
+
+
+#: First backoff before a provider retry, doubled each time (capped at 30 s).
+PROVIDER_RETRY_BASE_SEC = 2.0
+
+
+def _provider_retries(core: Core) -> int:
+    try:
+        return max(0, int(core.settings.agent.provider_retries))
+    except (AttributeError, TypeError, ValueError):
+        return 3
+
+
 async def _stream_once(
+    core: Core,
+    session: Session,
+    provider: Any,
+    messages: list[ChatMessage],
+    specs: list[Any],
+    *,
+    max_tokens: int,
+    thinking: str,
+    effort: str | None = None,
+    reasoning_base: int = 0,
+) -> _Attempt:
+    """One provider call, retried on a transient failure (``agent.provider_retries``).
+
+    Backs off 2 s, 4 s, 8 s … (capped at 30 s), stops waiting when the user
+    presses Stop, and says on the session that it is retrying. A request the
+    server refused (a 400, a bad key) is not retried: it would fail the same way.
+    """
+    retries = _provider_retries(core)
+    for attempt_no in range(retries + 1):
+        try:
+            return await _stream_once_raw(
+                core,
+                session,
+                provider,
+                messages,
+                specs,
+                max_tokens=max_tokens,
+                thinking=thinking,
+                effort=effort,
+                reasoning_base=reasoning_base,
+            )
+        except ProviderError as exc:
+            if attempt_no >= retries or not transient_provider_error(exc):
+                raise
+            if session.interrupt.is_set():
+                raise
+            delay = min(30.0, PROVIDER_RETRY_BASE_SEC * (2**attempt_no))
+            log.warning(
+                "provider call failed (%s); retry %d/%d in %.0fs",
+                exc,
+                attempt_no + 1,
+                retries,
+                delay,
+            )
+            await core.hub.emit_event(
+                session.id,
+                events.hook_continue(
+                    f"The model server did not answer ({exc}); retrying "
+                    f"{attempt_no + 1}/{retries} in {delay:.0f}s.",
+                    attempt_no + 1,
+                ),
+            )
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(session.interrupt.wait(), timeout=delay)
+            if session.interrupt.is_set():
+                raise
+    raise AssertionError("unreachable")  # pragma: no cover
+
+
+async def _stream_once_raw(
     core: Core,
     session: Session,
     provider: Any,

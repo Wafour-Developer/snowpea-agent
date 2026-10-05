@@ -244,6 +244,7 @@ Example `settings.json` (existing `agent.max_tool_rounds` remains supported;
     "max_turns": 500,
     "auto_budget_continuations": 10,
     "verify_continue_rounds": 20,
+    "provider_retries": 3,
     "no_progress_rounds": 40,
     "turn_max_minutes": 0,
     "turn_max_tokens": 0
@@ -254,6 +255,8 @@ Example `settings.json` (existing `agent.max_tool_rounds` remains supported;
   }
 }
 ```
+
+A model call that fails transiently (timeout, connection reset, HTTP 429/5xx) is retried `agent.provider_retries` times (default **3**) with 2 s, 4 s, 8 s backoff before the turn ends with an error; a refused request (HTTP 400, a bad key) is not retried.
 
 ### Turn safeguards
 

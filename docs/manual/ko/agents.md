@@ -243,6 +243,7 @@ Continue/Stop을 묻고, 무인 실행은 부분 보고서를 저장하고 멈�
     "max_turns": 500,
     "auto_budget_continuations": 10,
     "verify_continue_rounds": 20,
+    "provider_retries": 3,
     "no_progress_rounds": 40,
     "turn_max_minutes": 0,
     "turn_max_tokens": 0
@@ -253,6 +254,8 @@ Continue/Stop을 묻고, 무인 실행은 부분 보고서를 저장하고 멈�
   }
 }
 ```
+
+모델 호출이 일시적으로 실패하면(타임아웃, 연결 끊김, HTTP 429/5xx) 턴을 끝내기 전에 `agent.provider_retries`번(기본 **3**) 2초, 4초, 8초 간격으로 다시 시도합니다. 거부된 요청(HTTP 400, 잘못된 키)은 다시 시도하지 않습니다.
 
 ### 턴 안전장치
 

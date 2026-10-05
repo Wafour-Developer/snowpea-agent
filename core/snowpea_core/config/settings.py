@@ -264,6 +264,9 @@ class AgentSettings(_Model):
     #: Rounds granted to verify-on-stop and Stop-hook continuations that fire
     #: after a budget probe, counted against ``auto_budget_continuations``.
     verify_continue_rounds: int = Field(default=20, ge=1)
+    #: Retries of a model call that failed transiently (timeout, reset, 429/5xx),
+    #: with 2 s, 4 s, 8 s … backoff; 0 turns retrying off.
+    provider_retries: int = Field(default=3, ge=0)
     #: Consecutive rounds with no new call signature or output before stopping.
     no_progress_rounds: int = Field(default=40, ge=0)
     #: Optional wall-clock ceiling for one turn. ``0`` keeps Hermes-like unlimited.
