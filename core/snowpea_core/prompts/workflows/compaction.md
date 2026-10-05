@@ -20,6 +20,7 @@ You are compacting a coding-agent conversation so the same agent can continue in
 2. The one after, if known.
 ## Relevant files
 - Absolute path: why it matters and what changed in it.
+- If a current plan exists (.snowpea/plans/current.md, a "Current plan:" line), keep its path, title and which steps are done, in progress or next.
 ## Preferences
 - How the user wants to be worked with.
 ## Skills pruned

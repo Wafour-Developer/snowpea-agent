@@ -2,7 +2,7 @@
 name: deep-interview
 description: Socratic interview that scores ambiguity and refuses to hand off until the spec is clear.
 argument-hint: "<a vague idea, in one line>"
-allowed-tools: [read_file, list_dir, glob, grep, git_status, git_diff, memory_write, memory_search, ask_user, queue_command]
+allowed-tools: [read_file, list_dir, glob, grep, git_status, git_diff, plan_save, memory_write, memory_search, ask_user, queue_command]
 ---
 
 # Deep interview
@@ -153,6 +153,11 @@ Write the finished spec into the conversation as markdown, in this shape:
 Final score <n>, after <k> rounds.
 ```
 
+Save it as the project's current plan: call `plan_save` with the spec's title,
+the whole markdown, `source: "deep-interview"`, and `steps` = its acceptance
+criteria in order (`[{"title": …}]`). That file (`.snowpea/plans/current.md`)
+is what `/ralph`, `/team` and `/ultrawork` build from when the user just says go.
+
 Then call `memory_write` once with a two or three sentence summary of the
 decisions that were reached, tagged `spec` and with the project's name, so a
 later session starts where this one ended.
@@ -190,9 +195,12 @@ these options, in this order:
    command; when it is a shell command, print it on its own line for the user
    to run — the interview never runs shell itself.
 2. `/ralplan <the spec's title>` — when the approach is still contested.
-3. `/ralph <the spec's title>` — when the work is clear and wants driving to done.
-4. `/ultrawork <the spec's title>` — when it splits into independent pieces.
+3. `/ralph` — when the work is clear and wants driving to done.
+4. `/ultrawork` — when it splits into independent pieces.
 5. "여기서 멈춤 — 스펙만 남깁니다 / stop here".
+
+`/ralph` and `/ultrawork` take no argument here: alone, each runs the spec you
+just saved with `plan_save`. A word after the command is read as a new task.
 
 Put the recommended one first among the commands and mark it "(추천)" /
 "(recommended)", with the one-line reason as its description. The free-text row
@@ -235,7 +243,9 @@ The method is the same; these things are not:
   `autoresearch` skill. snowpea's equivalent handoffs are the three commands
   listed above, offered as an `ask_user` picker and queued with `queue_command`
   only once the user has picked one.
-- **The spec stays in the conversation.** OMC writes
-  `.omc/specs/deep-interview-{slug}.md` and marks it `pending approval`. Writing
-  files is outside this skill's `allowed-tools`, which is what keeps the
-  read-only promise honest.
+- **The spec is saved as the current plan.** OMC writes
+  `.omc/specs/deep-interview-{slug}.md` and marks it `pending approval`. Here
+  `plan_save` writes it to `.snowpea/plans/current.md`, its acceptance criteria
+  as the steps, and that is the only file the interview writes — `write_file`
+  stays outside its `allowed-tools`, which is what keeps the read-only promise
+  honest.

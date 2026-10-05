@@ -318,6 +318,18 @@ def session_reply_language(core: Core | None, session: Any) -> str:
     return locale_tag(getattr(session, "locale", None)) or "auto"
 
 
+def plan_prompt_line(session: Session) -> str:
+    """``Current plan: …`` for the main agent while the project has an active plan.
+
+    Only the user's own words survive a compaction verbatim; the plan body the
+    assistant wrote does not.  One line every turn keeps "그냥 구현해줘" pointed
+    at the plan on disk (CORE-plan-continuity).
+    """
+    from snowpea_core.agent import plan_store
+
+    return plan_store.prompt_line(session.workdir)
+
+
 def build_system_prompt(
     session: Session,
     tools: list[ToolSpec],
@@ -387,6 +399,9 @@ def build_system_prompt(
         skill_index_max=skill_index_max(core),
         memory_guidance=memory_enabled(core) and not lean,
         memory_block="" if lean else memory_block,
+        plan_line=(
+            "" if lean or getattr(session, "is_subagent", False) else plan_prompt_line(session)
+        ),
         environment=environment,
         context_files=context_files,
         context_fill=context_fill(session),

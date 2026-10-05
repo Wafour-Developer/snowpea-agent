@@ -9,7 +9,8 @@ leading substring: anything that changes per turn has to come last.
   role or reply language changes.
 - **context** — the environment block, the project context files, the tool
   list.  Rebuilt once per session and after a compaction.
-- **volatile** — the memory block and the context-pressure line.  Per turn.
+- **volatile** — the memory block, the current-plan line and the
+  context-pressure line.  Per turn.
 """
 
 from __future__ import annotations
@@ -266,6 +267,7 @@ def build_tiers(
     skill_index_max: int = DEFAULT_SKILL_INDEX_MAX,
     memory_guidance: bool = True,
     memory_block: str = "",
+    plan_line: str = "",
     environment: str = "",
     context_files: str = "",
     context_fill: float | None = None,
@@ -285,6 +287,11 @@ def build_tiers(
     # Right after the identity: the working discipline every family needs
     # (M15 §A1).  The vendor layer below only adds family-specific enforcement.
     stable.append(load("fragments/execution", root))
+    # How to treat the "Current plan:" line of the volatile tier. Only the main
+    # agent works a plan: a subagent or a role gets a brief, not the plan
+    # (CORE-plan-continuity).
+    if not (subagent or role):
+        stable.append(load("fragments/plan-continuity", root))
 
     vendor = vendor_class if vendor_class in VENDOR_CLASSES else "anthropic"
     stable.append(load(f"vendors/{vendor}", root))
@@ -315,7 +322,10 @@ def build_tiers(
     elif tools:
         context.append(tools_block(tools, deferred_tools or (), root))
 
-    volatile: list[str] = [memory_block]
+    # The current plan's one-line summary: per turn, because a step can be
+    # marked between turns, and here rather than in the stable tier so a
+    # plan that changes never costs the cached prefix (CORE-plan-continuity).
+    volatile: list[str] = [memory_block, plan_line]
     if context_fill is not None and context_fill >= CONTEXT_PRESSURE_THRESHOLD:
         volatile.append(load("fragments/context-pressure", root))
 

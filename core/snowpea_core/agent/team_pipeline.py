@@ -37,12 +37,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from snowpea_core.agent import plan_store
 from snowpea_core.agent.agent import reply_language
 from snowpea_core.agent.definition import complete_text, parse_generated_json
+from snowpea_core.agent.plan_store import Plan
 from snowpea_core.agent.subagent import SubagentManager, SubagentResult, get_manager
 from snowpea_core.agent.team import git
 from snowpea_core.agent.team_config import active_team, default_roster, teams_with_source
 from snowpea_core.agent.team_guide import guide_for_session, render_team_guide
+from snowpea_core.commands import plan_gate
 from snowpea_core.prompts.compose import workflow_brief
 from snowpea_core.prompts.loader import load
 from snowpea_core.providers.base import ChatMessage
@@ -262,6 +265,8 @@ class PipelineTask:
     #: Filled in as the pipeline runs.
     report: str = ""
     ok: bool = False
+    #: Current-plan steps this task implements (CORE-plan-continuity).
+    plan_step: tuple[str, ...] = ()
 
     @property
     def exclusive(self) -> bool:
@@ -334,6 +339,7 @@ def tasks_from_payload(
                 brief=brief or title,
                 files=_files(entry),
                 depends_on=tuple(dep for dep in _deps(entry) if dep in earlier),
+                plan_step=plan_gate.step_ids(entry.get("plan_step")),
             )
         )
     if not out:
@@ -377,6 +383,7 @@ def merge_overlapping(tasks: list[PipelineTask]) -> list[PipelineTask]:
                 if dep != head.id and dep not in merged_ids
             ),
             merged=merged_ids,
+            plan_step=tuple(dict.fromkeys((*head.plan_step, *task.plan_step))),
         )
         owner.update({name: target for name in task.files})
         log.info(
@@ -576,11 +583,20 @@ class TeamPipeline:
         roster: Sequence[str] | None = None,
         *,
         source: str | None = None,
+        plan: Plan | None = None,
+        from_plan: bool = False,
+        only: str | None = None,
     ) -> None:
         self.core = core
         self.session = session
         self.roster = None if roster is None else list(roster)
         self.source = source
+        #: The project's current plan: what this run carries out when
+        #: ``from_plan``, background for the planner otherwise.
+        self.plan = plan
+        self.from_plan = from_plan and plan is not None
+        #: The one step "S3 진행해줘" named, when it named one.
+        self.only = only if self.from_plan else None
         self.manager: SubagentManager = get_manager(core)
         self.language = reply_language(core)
         #: Replaced in :meth:`run` once the roster is known.
@@ -636,7 +652,39 @@ class TeamPipeline:
         await self._test(run)
         await self._verify(run)
         await self._review(run)
+        await self._sync_plan(run)
         return self.report(run)
+
+    async def _sync_plan(self, run: PipelineRun) -> None:
+        """Mark the plan steps the tasks implemented.
+
+        ``done`` only when the task finished *and* the run passed its tests and
+        review; a finished task in a run that did not is ``in_progress``.
+        """
+        if not self.from_plan or self.plan is None:
+            return
+        passed = run.passed()
+        changes: list[tuple[str, str, str]] = []
+        for task in run.tasks:
+            for step in task.plan_step:
+                if task.ok and passed:
+                    note = f"team: {task.id} finished; tests and review passed"
+                    changes.append((step, "done", note))
+                else:
+                    why = "the run did not pass" if task.ok else (task.report or "failed")
+                    changes.append((step, "in_progress", f"team {task.id}: {why}"[:300]))
+        if not changes:
+            return
+        hub = getattr(self.core, "hub", None)
+
+        async def emit(event: Any) -> None:
+            if hub is not None:
+                await hub.emit_event(self.session.id, event)
+
+        assert self.plan is not None
+        await plan_store.mark_steps(
+            self.session.workdir, changes, emit=emit, plan_id=self.plan.id
+        )
 
     # -- stages --------------------------------------------------------
     async def _explore(self, run: PipelineRun) -> str:
@@ -668,9 +716,15 @@ class TeamPipeline:
             .replace("${MAX_TASKS}", str(self.max_tasks()))
             .replace("${TEAM_GUIDE}", render_team_guide(guide, audience="lead") if guide else "")
         )
+        if self.from_plan and self.plan is not None:
+            task_text = plan_gate.plan_request(self.plan, unit="task", only=self.only)
+        elif self.plan is not None:
+            task_text = plan_gate.plan_context(run.task, self.plan)
+        else:
+            task_text = run.task
         instruction = (
             f"Plan this task for the project at {self.session.workdir}. "
-            f"Reply with the JSON object only.\n\nTask: {run.task}"
+            f"Reply with the JSON object only.\n\nTask: {task_text}"
         )
         handoffs = self._all_prior_handoffs(run)
         if handoffs:
@@ -706,6 +760,16 @@ class TeamPipeline:
         run.tasks = merge_overlapping(
             tasks_from_payload(payload, run.task, max_tasks=self.max_tasks())
         )
+        if self.from_plan and self.plan is not None:
+            known = {self.only} if self.only else {step.id.upper() for step in self.plan.steps}
+            for task in run.tasks:
+                task.plan_step = tuple(step for step in task.plan_step if step in known)
+            if len(run.tasks) == 1 and not run.tasks[0].plan_step:
+                run.tasks[0].plan_step = (
+                    (self.only,)
+                    if self.only
+                    else tuple(step.id for step in plan_store.pending_steps(self.plan))
+                )
 
     async def _implement(self, run: PipelineRun, findings: str) -> None:
         agent = run.plan.owners[IMPLEMENT]
@@ -1213,9 +1277,14 @@ async def run_pipeline(
     roster: Sequence[str] | None = None,
     *,
     source: str | None = None,
+    plan: Plan | None = None,
+    from_plan: bool = False,
+    only: str | None = None,
 ) -> str:
     """Entry point ``/team "<task>"`` and ``/team <name> "<task>"`` call."""
-    return await TeamPipeline(core, session, roster, source=source).run(task, say=say)
+    return await TeamPipeline(
+        core, session, roster, source=source, plan=plan, from_plan=from_plan, only=only
+    ).run(task, say=say)
 
 
 def parse_pipeline_args(args: str) -> str:

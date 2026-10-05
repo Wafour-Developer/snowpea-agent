@@ -2946,6 +2946,18 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | `model` | `string \| null` | no | Model id now in effect. |
 | `provider` | `string \| null` | no | Vendor now in effect. |
 
+### kind `plan.updated`
+
+| field | type | required | description |
+|---|---|---|---|
+| `done` | `number` | no | Steps marked done. |
+| `kind` | `"plan.updated"` | no |  |
+| `next` | `string \| null` | no | The next pending step as 'S3 <title>'; null when none is left. |
+| `path` | `string` | yes | The plan file, relative to the workdir. |
+| `status` | `"active" \| "done" \| "archived"` | yes | Where the plan stands. |
+| `title` | `string` | yes | The plan's title. |
+| `total` | `number` | no | Steps in the plan. |
+
 ### kind `subagent.done`
 
 | field | type | required | description |

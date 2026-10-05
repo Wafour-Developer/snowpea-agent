@@ -231,6 +231,17 @@ class RalphSettings(_Model):
     max_iterations: int = 10
 
 
+class PlanningSettings(_Model):
+    """``planning`` — the plan-first gate on ``/ralph``, ``/team``, ``/ultrawork``.
+
+    ``ask`` (default): a short request with nothing concrete in it ("개선해줘",
+    "improve performance") and no current plan asks whether to plan it with
+    ``/ralplan`` first; ``off`` runs it as typed (CORE-plan-continuity).
+    """
+
+    gate: Literal["ask", "off"] = "ask"
+
+
 class ApprovalsSettings(_Model):
     timeoutSec: int = 300
     #: Ask before web_search / web_extract in accept mode too (addendum 18).
@@ -602,6 +613,7 @@ class Settings(_Model):
 
     agents: AgentsSettings = Field(default_factory=AgentsSettings)
     ralph: RalphSettings = Field(default_factory=RalphSettings)
+    planning: PlanningSettings = Field(default_factory=PlanningSettings)
     team: TeamSettings = Field(default_factory=TeamSettings)
     modes: ModesSettings = Field(default_factory=ModesSettings)
     approvals: ApprovalsSettings = Field(default_factory=ApprovalsSettings)
@@ -737,6 +749,7 @@ __all__ = [
     "MemorySettings",
     "ModelProfile",
     "ModelsSettings",
+    "PlanningSettings",
     "RalphSettings",
     "SchedulerSettings",
     "SearchSettings",

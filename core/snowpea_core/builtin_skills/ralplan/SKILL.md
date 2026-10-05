@@ -2,14 +2,14 @@
 name: ralplan
 description: Consensus planning — planner, architect and critic argue until the plan holds, before any code is written.
 argument-hint: "<task description>"
-allowed-tools: [read_file, list_dir, glob, grep, git_status, git_diff, git_log, delegate_task, memory_write, memory_search, ask_user, queue_command]
+allowed-tools: [read_file, list_dir, glob, grep, git_status, git_diff, git_log, delegate_task, plan_save, memory_write, memory_search, ask_user, queue_command]
 ---
 
 # Ralplan
 
 Produce a plan that three different readings of the problem all survive. This is
 a **planning** skill: it reads the repository, it delegates to reviewers, and it
-writes nothing but the plan. No edits, no commits, no `/ralph`.
+writes nothing but the plan (with `plan_save`). No edits, no commits, no `/ralph`.
 
 The task is: **$ARGUMENTS**
 
@@ -85,7 +85,7 @@ Sketch, in the conversation:
   touches and how it is verified.
 
 Before ending this turn: architect called? critic called? verdict `APPROVE` or
-five iterations? plan in the final shape? `memory_write` done? hand-off asked?
+five iterations? plan in the final shape? `plan_save` and `memory_write` done? hand-off asked?
 If any answer is no, the turn is not over — keep going.
 
 ### Round 2 — the architect
@@ -172,7 +172,13 @@ Status: pending approval
 - Critic: <verdict> after <n> iteration(s)
 ```
 
-Call `memory_write` once with the decision and its consequences, tagged `plan`.
+Save it as the project's current plan: call `plan_save` with the plan's title,
+the whole markdown above, `source: "ralplan"`, and `steps` = the numbered steps
+of "The plan" (`[{"title": …}]`, in order). That file
+(`.snowpea/plans/current.md`) is what `/ralph`, `/team` and `/ultrawork` run
+when the user just says go — the conversation is not.
+
+Then call `memory_write` once with the decision and its consequences, tagged `plan`.
 
 ## Handing off
 
@@ -185,10 +191,16 @@ its equivalent in the user's language) and these options, in this order:
    queues only that check with `queue_command` when it is a slash command; when
    it is a shell command, print it on its own line for the user to run. The
    planner never runs shell itself.
-2. `/ralph <title>` — when the steps depend on each other in sequence.
-3. `/ultrawork <title>` — when the steps are independent.
-4. `/ralplan <title>` — when the plan came out contested and wants replanning.
-5. "여기서 멈춤 — 계획만 남깁니다 / stop here".
+2. `/ralph` — when the steps depend on each other in sequence.
+3. `/team` — when the project has a team and the steps want its plan → implement
+   → test → review stages.
+4. `/ultrawork` — when the steps are independent.
+5. `/ralplan <title>` — when the plan came out contested and wants replanning.
+6. "여기서 멈춤 — 계획만 남깁니다 / stop here".
+
+`/ralph`, `/team` and `/ultrawork` take **no argument** here: alone, each runs
+the current plan you just saved, step by step. Never append the title — a word
+after the command is read as a new task.
 
 Put the one you recommend first among the commands, mark its label "(추천)" /
 "(recommended)", and give the one-line reason as its description — that reason is
@@ -217,10 +229,13 @@ kept. These differ:
 - **It is a skill, not an alias.** OMC's ralplan is shorthand for
   `/plan --consensus` and delegates the whole workflow to the plan skill. snowpea
   has no `--consensus` mode, so the loop is written out here.
-- **The gate is advisory.** OMC intercepts vague `ralph`/`autopilot`/`team`
-  invocations automatically and redirects them, with `force:` and `!` escapes.
-  snowpea's `/ralph` runs when you type it; this skill checks specificity only
-  when you invoke it, and answers by recommending, never by redirecting.
+- **The gate asks instead of redirecting.** OMC intercepts vague
+  `ralph`/`autopilot`/`team` invocations automatically and redirects them, with
+  `force:` and `!` escapes. snowpea's `/ralph`, `/team` and `/ultrawork` ask an
+  attended user whether to plan a short, anchorless request with `/ralplan`
+  first when there is no current plan (`--force`, `--now` or a leading `!`
+  skip it; `planning.gate: "off"` turns it off). Inside this skill the check
+  above only recommends.
 - **Reviewers are agent definitions, not fixed agent types.** `agent="architect"`
   and `agent="critic"` resolve against `agents/*.md` in the project or
   `$SNOWPEA_HOME`. When the project defines neither, `delegate_task` still runs
@@ -237,6 +252,8 @@ kept. These differ:
 - **No company-context MCP call.** OMC reads `companyContext.tool` from
   `.claude/omc.jsonc` and injects the result as advisory context. snowpea's
   equivalent is `memory_search` in Round 0.
-- **The plan lives in the conversation.** OMC writes plan artifacts to
-  `.omc/plans/`. Writing files is outside this skill's `allowed-tools`; run
-  `/ralph` if you want something on disk.
+- **The plan lives in `.snowpea/plans/current.md`.** OMC writes plan artifacts
+  to `.omc/plans/` and hands the approved one to ralph or team. Here `plan_save`
+  writes it (archiving the plan it replaces), and `/ralph`, `/team` and
+  `/ultrawork` with no argument build their work from its pending steps. The
+  skill still writes no other file.

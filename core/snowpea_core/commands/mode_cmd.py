@@ -140,8 +140,30 @@ async def cmd_busy(ctx: CommandContext, args: str) -> None:
     await ctx.say(f"Busy: {target}")
 
 
+async def _clear_plan(ctx: CommandContext) -> None:
+    """``/plan clear``: abandon the current plan (archived, not deleted)."""
+    from snowpea_core.agent import plan_store
+
+    current = plan_store.load_current(ctx.session.workdir)
+    archived = plan_store.archive_current(ctx.session.workdir)
+    if current is None or archived is None:
+        await ctx.say("There is no current plan to clear.")
+        return
+    current.status = "archived"
+    await ctx.emit(plan_store.event_for(current))
+    await ctx.say(
+        f'Cleared the current plan "{current.title}"; it is kept as '
+        f"{plan_store.PLANS_DIR.as_posix()}/archive/{archived.name}."
+    )
+
+
 def _mode_command(mode: str) -> Command:
     async def run(ctx: CommandContext, args: str) -> None:
+        if mode == "plan" and args.strip().lower() in ("clear", "--clear"):
+            # Not a request to plan "clear": the way to drop a plan nobody
+            # will run (CORE-plan-continuity). The mode does not change.
+            await _clear_plan(ctx)
+            return
         await _set_mode(ctx, mode)
         request = args.strip()
         if not request:

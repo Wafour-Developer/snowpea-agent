@@ -617,6 +617,20 @@ class GatewayRouter:
     def adapter(self, binding_id: str) -> PlatformAdapter | None:
         return self._adapters.get(binding_id)
 
+    def has_approver(self, session: Any) -> bool:
+        """True when a chat serving ``session`` has a bound approver to answer it.
+
+        A chat answers ``ask_user`` through buttons, so a session a person talks
+        to through a bound messenger is attended — the plan-first gate asks
+        there (CORE-plan-continuity).  A binding without a user id answers
+        nothing on anyone's behalf, the same fail-closed rule as approvals.
+        """
+        session_id = getattr(session, "id", None)
+        return any(
+            conn.session_id == session_id and bool(conn.binding.user_id)
+            for conn in self._conns.values()
+        )
+
     def connection(self, binding_id: str, channel_id: str) -> GatewayConnection | None:
         """The pseudo-connection serving one conversation, if it has one yet."""
         return self._conns.get((binding_id, channel_id))

@@ -3100,6 +3100,25 @@ class CommandProgress(Payload):
     )
 
 
+class PlanUpdated(Payload):
+    """The project's current plan was saved or one of its steps changed (1.8.0).
+
+    The plan lives at ``<workdir>/.snowpea/plans/current.md`` (state beside it
+    in ``current.json``); ``/ralph``, ``/team`` and ``/ultrawork`` run it when
+    asked to just carry on, and mark its steps as their work passes.
+    """
+
+    kind: Literal["plan.updated"] = "plan.updated"
+    title: str = Field(description="The plan's title.")
+    status: Literal["active", "done", "archived"] = Field(description="Where the plan stands.")
+    done: int = Field(default=0, description="Steps marked done.")
+    total: int = Field(default=0, description="Steps in the plan.")
+    next: str | None = Field(
+        default=None, description="The next pending step as 'S3 <title>'; null when none is left."
+    )
+    path: str = Field(description="The plan file, relative to the workdir.")
+
+
 class DiffEvent(Payload):
     """A file was edited."""
 
@@ -3552,6 +3571,7 @@ SessionEventPayload = Annotated[
     | DiffEvent
     | TodosUpdated
     | CommandProgress
+    | PlanUpdated
     | CheckpointUpdated
     | CheckpointRestored
     | SubagentSpawn
@@ -3592,6 +3612,7 @@ SESSION_EVENT_MODELS: dict[str, type[BaseModel]] = {
     "diff": DiffEvent,
     "todos.updated": TodosUpdated,
     "command.progress": CommandProgress,
+    "plan.updated": PlanUpdated,
     "checkpoint.updated": CheckpointUpdated,
     "checkpoint.restored": CheckpointRestored,
     "subagent.spawn": SubagentSpawn,

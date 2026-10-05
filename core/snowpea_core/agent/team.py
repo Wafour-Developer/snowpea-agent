@@ -37,12 +37,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from snowpea_core.agent import team_store
+from snowpea_core.agent import plan_store, team_store
 from snowpea_core.agent.agent import reply_language
 from snowpea_core.agent.definition import complete_text, parse_generated_json
+from snowpea_core.agent.plan_store import Plan
 from snowpea_core.agent.subagent import SharedBackend, get_manager, inherit_host
 from snowpea_core.agent.team_guide import guide_for_session, render_team_guide
 from snowpea_core.agent.team_store import TaskRow, TeamStore, get_store
+from snowpea_core.commands import plan_gate
 from snowpea_core.exec.local import LocalBackend
 from snowpea_core.prompts.compose import workflow_brief
 from snowpea_core.prompts.loader import load
@@ -231,6 +233,8 @@ class PlannedTask:
     id: str
     title: str
     depends_on: list[str] = field(default_factory=list)
+    #: Current-plan steps the task implements (CORE-plan-continuity).
+    plan_step: tuple[str, ...] = ()
 
 
 def tasks_from_payload(data: dict[str, Any]) -> list[PlannedTask]:
@@ -259,7 +263,14 @@ def tasks_from_payload(data: dict[str, Any]) -> list[PlannedTask]:
         if isinstance(deps_raw, str):
             deps_raw = [deps_raw]
         deps = [str(item).strip() for item in deps_raw if str(item).strip()]
-        planned.append(PlannedTask(id=task_id, title=title, depends_on=deps))
+        planned.append(
+            PlannedTask(
+                id=task_id,
+                title=title,
+                depends_on=deps,
+                plan_step=plan_gate.step_ids(entry.get("plan_step")),
+            )
+        )
     known = {task.id for task in planned}
     for task in planned:
         task.depends_on = [dep for dep in task.depends_on if dep in known and dep != task.id]
@@ -300,6 +311,10 @@ class TeamRun:
     reviewed: set[str] = field(default_factory=set)
     #: Findings waiting to be handed back to the worker that wrote the task.
     review_findings: dict[str, str] = field(default_factory=dict)
+    #: Task id -> the current-plan steps it implements; marked as tasks merge.
+    plan_steps: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    #: The plan those steps belong to; marks land only while it is current.
+    plan_id: str = ""
 
     def worktree(self, n: int) -> Worktree | None:
         for entry in self.worktrees:
@@ -330,7 +345,15 @@ class TeamManager:
         return bool(getattr(self.core.settings.team, "review", False))
 
     # -- entry point ---------------------------------------------------
-    async def start(self, session: Session, n: int, task: str) -> str:
+    async def start(
+        self,
+        session: Session,
+        n: int,
+        task: str,
+        *,
+        plan: Plan | None = None,
+        from_plan: bool = False,
+    ) -> str:
         """Plan, create the worktrees and launch the run; returns the team id.
 
         The run itself continues in the background — ``team.start`` answers with
@@ -342,7 +365,7 @@ class TeamManager:
         workers = max(MIN_WORKERS, min(MAX_WORKERS, int(n)))
         repo = await repo_root(session.workdir)
 
-        planned = await self.plan(session, brief, workers)
+        planned = await self.plan(session, brief, workers, plan=plan, from_plan=from_plan)
         if not planned:
             raise TeamError("the model did not split this task into any work items")
 
@@ -356,6 +379,8 @@ class TeamManager:
             await self._emit(team_id, entry.id, team_store.QUEUED, None, 0)
 
         run = TeamRun(id=team_id, session=session, repo=repo, task=brief, workers=workers)
+        run.plan_steps = {entry.id: entry.plan_step for entry in planned if entry.plan_step}
+        run.plan_id = plan.id if from_plan and plan is not None else ""
         run.worktrees = await self._create_worktrees(run)
         self._runs[team_id] = run
         await store.post(team_id, "lead", f"{len(planned)} tasks, {workers} workers")
@@ -382,24 +407,49 @@ class TeamManager:
                 except asyncio.CancelledError:
                     pass
 
-    async def plan(self, session: Session, task: str, workers: int) -> list[PlannedTask]:
-        """Ask the session's provider for the task list."""
+    async def plan(
+        self,
+        session: Session,
+        task: str,
+        workers: int,
+        *,
+        plan: Plan | None = None,
+        from_plan: bool = False,
+    ) -> list[PlannedTask]:
+        """Ask the session's provider for the task list.
+
+        ``plan`` is the project's current plan: what to split when
+        ``from_plan``, background otherwise (CORE-plan-continuity).
+        """
         provider = self.core.providers.get(session.provider, session.model)
         context = await repo_context(Path(session.workdir), task, Path(self.core.paths.home))
         plan_system = PLAN_SYSTEM.replace("${TEAM_GUIDE}", _lead_guide_text(self.core, session))
+        if from_plan and plan is not None:
+            task_text = plan_gate.plan_request(plan, unit="task")
+        elif plan is not None:
+            task_text = plan_gate.plan_context(task, plan)
+        else:
+            task_text = task
         messages = [
             ChatMessage(role="system", content=plan_system),
             ChatMessage(
                 role="user",
                 content=(
                     f"Split this task for {workers} parallel agents working in the project at "
-                    f"{session.workdir}. Reply with the JSON object only.\n\nTask: {task}"
+                    f"{session.workdir}. Reply with the JSON object only.\n\nTask: {task_text}"
                     f"{context}"
                 ),
             ),
         ]
         text = await complete_text(provider, messages)
-        return tasks_from_payload(parse_generated_json(text))
+        planned = tasks_from_payload(parse_generated_json(text))
+        if from_plan and plan is not None:
+            known = {step.id.upper() for step in plan.steps}
+            for entry in planned:
+                entry.plan_step = tuple(step for step in entry.plan_step if step in known)
+            if len(planned) == 1 and not planned[0].plan_step:
+                planned[0].plan_step = tuple(step.id for step in plan_store.pending_steps(plan))
+        return planned
 
     # -- worktrees -----------------------------------------------------
     async def _create_worktrees(self, run: TeamRun) -> list[Worktree]:
@@ -716,6 +766,7 @@ class TeamManager:
             await self.store.post(
                 run.id, "lead", f"merged {row.id} from {branch}", task_id=row.id
             )
+            await self._mark_plan(run, row.id, "done", f"workers: {row.id} merged")
             return
 
         hunks = await self._conflict_hunks(run)
@@ -730,6 +781,9 @@ class TeamManager:
                 team_store.FAILED,
                 conflict_hunks=hunks,
                 note=f"still conflicting after {limit} retries",
+            )
+            await self._mark_plan(
+                run, row.id, "in_progress", f"workers: {row.id} failed to merge"
             )
             await self.store.post(
                 run.id,
@@ -754,6 +808,25 @@ class TeamManager:
             f"{row.id} conflicted; re-queued to agent {row.agent_n} (retry {row.retries})",
             task_id=row.id,
         )
+
+    async def _mark_plan(self, run: TeamRun, task_id: str, status: str, note: str) -> None:
+        """Mirror one task's outcome onto the current-plan steps it implements."""
+        steps = run.plan_steps.get(task_id, ())
+        if not steps or not run.plan_id:
+            return
+
+        async def emit(event: Any) -> None:
+            await self.core.hub.emit_event(run.session.id, event)
+
+        try:
+            await plan_store.mark_steps(
+                run.session.workdir,
+                [(step, status, note) for step in steps],
+                emit=emit,
+                plan_id=run.plan_id,
+            )
+        except OSError:
+            log.warning("could not update the current plan for %s", task_id, exc_info=True)
 
     async def _review_merge(self, run: TeamRun, row: TaskRow) -> str:
         """The reviewer's findings when it wants changes, else ``""``.

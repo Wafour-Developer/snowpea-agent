@@ -3737,6 +3737,23 @@ export interface ModelChangedEventPayload {
   provider?: string | null;
 }
 
+/** Payload of `session.event` with kind `plan.updated`. */
+export interface PlanUpdatedEventPayload {
+  /** Steps marked done. */
+  done?: number;
+  kind?: "plan.updated";
+  /** The next pending step as 'S3 <title>'; null when none is left. */
+  next?: string | null;
+  /** The plan file, relative to the workdir. */
+  path: string;
+  /** Where the plan stands. */
+  status: "active" | "done" | "archived";
+  /** The plan's title. */
+  title: string;
+  /** Steps in the plan. */
+  total?: number;
+}
+
 /** Payload of `session.event` with kind `subagent.done`. */
 export interface SubagentDoneEventPayload {
   /** Subagent that finished. */
@@ -3992,6 +4009,7 @@ export interface SessionEventKindMap {
   "message.user": MessageUserEventPayload;
   "mode.changed": ModeChangedEventPayload;
   "model.changed": ModelChangedEventPayload;
+  "plan.updated": PlanUpdatedEventPayload;
   "subagent.done": SubagentDoneEventPayload;
   "subagent.spawn": SubagentSpawnEventPayload;
   "subagent.update": SubagentUpdateEventPayload;
@@ -4031,6 +4049,7 @@ export const SESSION_EVENT_KINDS: readonly SessionEventKind[] = [
   "message.user",
   "mode.changed",
   "model.changed",
+  "plan.updated",
   "subagent.done",
   "subagent.spawn",
   "subagent.update",

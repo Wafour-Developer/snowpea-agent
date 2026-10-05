@@ -323,9 +323,27 @@ class SessionManager:
         return session.next_seq()
 
     async def set_mode(self, session: Session, mode: Mode) -> Mode:
+        leaving_plan = session.mode == "plan" and mode != "plan"
+        if mode == "plan" and session.mode != "plan":
+            # A new planning pass: what an earlier pass wrote or saved is not
+            # this pass's plan (CORE-plan-continuity).
+            session.plan_saved = False
+            session.plan_files.clear()
         session.mode = mode
         if self.store is not None:
             await self.store.update_mode(session.id, mode)
+        if leaving_plan:
+            # Every way out of PLAN mode (set_mode, /mode, session.setMode)
+            # passes here: a plan written as a file but never plan_save'd still
+            # becomes the plan /ralph runs (CORE-plan-continuity).
+            from snowpea_core.agent import plan_store
+
+            try:
+                plan = plan_store.adopt_written_plan(session)
+                if plan is not None and self.hub is not None:
+                    await self.hub.emit_event(session.id, plan_store.event_for(plan))
+            except Exception:  # noqa: BLE001 - a plan file must never block a mode switch
+                log.warning("could not register the plan written in %s", session.id, exc_info=True)
         return mode
 
     async def set_model(self, session: Session, reference: str | None) -> ModelRoute:

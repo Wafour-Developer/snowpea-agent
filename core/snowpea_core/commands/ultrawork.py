@@ -24,8 +24,10 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from snowpea_core.agent import plan_store
 from snowpea_core.agent.definition import complete_text, parse_generated_json
 from snowpea_core.agent.subagent import get_manager
+from snowpea_core.commands import plan_gate
 from snowpea_core.commands.registry import Command, CommandContext
 from snowpea_core.prompts.loader import render
 from snowpea_core.providers.base import ChatMessage
@@ -59,6 +61,8 @@ class Subtask:
     files: tuple[str, ...] = ()
     #: Ids merged into this one because they claimed the same files.
     merged: tuple[str, ...] = ()
+    #: Current-plan steps this subtask implements (CORE-plan-continuity).
+    plan_step: tuple[str, ...] = ()
 
 
 def _files(entry: dict[str, Any]) -> tuple[str, ...]:
@@ -95,7 +99,13 @@ def subtasks_from_payload(data: dict[str, Any], fallback: str) -> list[Subtask]:
         if not brief:
             continue
         out.append(
-            Subtask(str(entry.get("id") or f"T{index}"), title or brief, brief, _files(entry))
+            Subtask(
+                str(entry.get("id") or f"T{index}"),
+                title or brief,
+                brief,
+                _files(entry),
+                plan_step=plan_gate.step_ids(entry.get("plan_step")),
+            )
         )
     return out or [Subtask("T1", fallback, fallback)]
 
@@ -132,6 +142,7 @@ def merge_overlapping(subtasks: list[Subtask]) -> list[Subtask]:
             ),
             files=tuple(dict.fromkeys((*head.files, *task.files))),
             merged=(*head.merged, task.id),
+            plan_step=tuple(dict.fromkeys((*head.plan_step, *task.plan_step))),
         )
         owner.update({name: target for name in task.files})
         log.info(
@@ -166,13 +177,43 @@ async def split(ctx: CommandContext, task: str) -> list[Subtask]:
 
 
 async def cmd_ultrawork(ctx: CommandContext, args: str) -> None:
-    """``/ultrawork <task>`` — parallel fan-out over subagents."""
-    task = args.strip().strip('"').strip("'").strip()
-    if not task:
+    """``/ultrawork <task>`` — parallel fan-out over subagents.
+
+    With an active current plan, an empty or execute-only argument splits the
+    plan's pending steps instead of the words typed; a real task is split
+    with the plan as context (CORE-plan-continuity).
+    """
+    task, forced = plan_gate.strip_bypass(args)
+    task = task.strip().strip('"').strip("'").strip()
+    plan = plan_store.active_plan(ctx.session.workdir)
+    from_plan = plan is not None and plan_gate.is_execute_request(task, plan)
+    if not task and not from_plan:
         await ctx.say(USAGE)
         return
+    if plan is None and not await plan_gate.ask_before_running(
+        ctx, "ultrawork", task, forced=forced
+    ):
+        return
 
-    subtasks = await split(ctx, task)
+    if from_plan:
+        assert plan is not None
+        only = plan_gate.target_step(task, plan)
+        await ctx.say(
+            f"ultrawork: splitting the current plan {plan_store.describe(plan)}"
+            + (f", step {only} only." if only else ".")
+        )
+        subtasks = await split(ctx, plan_gate.plan_request(plan, unit="subtask", only=only))
+        known = {only} if only else {step.id.upper() for step in plan.steps}
+        for part in subtasks:
+            part.plan_step = tuple(step for step in part.plan_step if step in known)
+        if len(subtasks) == 1 and not subtasks[0].plan_step:
+            subtasks[0].plan_step = (
+                (only,) if only else tuple(step.id for step in plan_store.pending_steps(plan))
+            )
+            if subtasks[0].title.startswith("Carry out the user's current plan"):
+                subtasks[0].title = plan.title
+    else:
+        subtasks = await split(ctx, plan_gate.plan_context(task, plan) if plan else task)
     await ctx.say(
         "\n".join(
             [
@@ -237,12 +278,36 @@ async def cmd_ultrawork(ctx: CommandContext, args: str) -> None:
     if failures:
         lines.append(f"\n{failures} of {len(subtasks)} subtasks did not finish cleanly.")
     await ctx.say("\n".join(lines))
+    if from_plan and plan is not None:
+        await _sync_plan(ctx, subtasks, rows, plan.id)
     # One round, so its progress is also the last: it carries the outcome.
     await ctx.emit(
         events.command_progress(
             "ultrawork", 1, rows, outcome="partial" if failures else "complete"
         )
     )
+
+
+async def _sync_plan(
+    ctx: CommandContext, subtasks: list[Subtask], rows: list[dict[str, str]], plan_id: str
+) -> None:
+    """Mark the plan steps the subtasks implemented: done when every one finished."""
+    status: dict[str, list[dict[str, str]]] = {}
+    for part, row in zip(subtasks, rows, strict=True):
+        for step in part.plan_step:
+            status.setdefault(step, []).append(row)
+    changes = [
+        (step, "done", "ultrawork: subtask finished")
+        if all(row["status"] == "pass" for row in done)
+        else (
+            step,
+            "in_progress",
+            ("ultrawork: " + next(r["note"] for r in done if r["status"] != "pass"))[:300],
+        )
+        for step, done in status.items()
+    ]
+    if changes:
+        await plan_store.mark_steps(ctx.session.workdir, changes, emit=ctx.emit, plan_id=plan_id)
 
 
 COMMANDS: tuple[Command, ...] = (

@@ -36,4 +36,5 @@ Open questions — only questions the user left unanswered, each with the
 Write it for an implementer with no context: nothing left to guess, no vague or
 unverifiable steps ("add validation", "test it works").
 
-When the plan is done, call set_mode("accept"); never ask in prose to switch modes.
+When the plan is done, save it with plan_save, then call set_mode("accept");
+never ask in prose to switch modes.

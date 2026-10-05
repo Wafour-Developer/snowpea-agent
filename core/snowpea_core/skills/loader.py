@@ -148,6 +148,39 @@ def builtin_root() -> Path:
     return Path(__file__).resolve().parent.parent / "builtin_skills"
 
 
+#: Skills whose result is a plan: a turn of theirs that ends without
+#: ``plan_save`` still leaves its plan as the current one (CORE-plan-continuity).
+PLAN_SKILLS: dict[str, str] = {"ralplan": "ralplan", "deep-interview": "deep-interview"}
+
+
+def _plan_id(session: Any) -> str | None:
+    from snowpea_core.agent import plan_store
+
+    try:
+        plan = plan_store.load_current(session.workdir)
+    except Exception:  # noqa: BLE001 - a broken plan file is no plan
+        return None
+    return plan.id if plan is not None else None
+
+
+async def _adopt_turn_plan(ctx: Any, start: int, source: str) -> None:
+    """Save the plan the turn wrote into the conversation, since it did not save it."""
+    from snowpea_core.agent import plan_store
+
+    messages = ctx.session.history.snapshot()
+    # A compaction mid-turn shortens the history; then the newest messages
+    # are the turn's.
+    recent = messages[start:] if len(messages) > start else messages[-20:]
+    try:
+        plan = plan_store.adopt_from_history(ctx.session, recent, source)
+    except Exception:  # noqa: BLE001 - the fallback must never fail the skill's turn
+        log.warning("could not save the %s plan from the conversation", source, exc_info=True)
+        return
+    if plan is not None:
+        log.info("%s ended without plan_save; saved its plan %r", source, plan.title)
+        await plan_store.publish(ctx.core, ctx.session, plan)
+
+
 class SkillLoader:
     """Scans the search roots and keeps the command registry in step."""
 
@@ -616,6 +649,9 @@ class SkillLoader:
             # into the chat as if the user had written it.
             body = instruction(doc, args)
             typed = f"/{command_name} {args}".strip()
+            plan_source = PLAN_SKILLS.get(doc.name)
+            before = _plan_id(session) if plan_source else None
+            start = len(session.history.snapshot()) if plan_source else 0
             try:
                 await agent_loop.run_turn(
                     ctx.core,
@@ -627,6 +663,8 @@ class SkillLoader:
                 )
             finally:
                 session.skill_approved_tools = previous
+            if plan_source and _plan_id(session) == before:
+                await _adopt_turn_plan(ctx, start, plan_source)
 
         return Command(
             name=doc.name,

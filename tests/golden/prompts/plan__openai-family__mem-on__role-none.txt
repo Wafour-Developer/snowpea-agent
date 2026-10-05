@@ -155,6 +155,12 @@ Working discipline.
 - Do not re-read a file you already read unless it changed; do not re-run a
   command whose result you already have.
 
+Current plan.
+A "Current plan:" line below means a saved plan (.snowpea/plans/current.md;
+read it when it is not in the conversation). Asked to implement or continue
+the plan (not a new task), do its pending steps in order and plan_update_step
+each; when the user changes the plan, plan_save the revised version.
+
 Execution discipline.
 Finish the task in this turn rather than describing what you would do next. When
 you need information, call the tool; do not ask the user for something a tool
@@ -224,7 +230,8 @@ Open questions — only questions the user left unanswered, each with the
 Write it for an implementer with no context: nothing left to guess, no vague or
 unverifiable steps ("add validation", "test it works").
 
-When the plan is done, call set_mode("accept"); never ask in prose to switch modes.
+When the plan is done, save it with plan_save, then call set_mode("accept");
+never ask in prose to switch modes.
 
 Environment
 - Platform: Linux (x86_64), shell bash

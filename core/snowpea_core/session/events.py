@@ -36,6 +36,7 @@ from snowpea_core.server.protocol import (
     MessageUser,
     ModeChanged,
     ModelChanged,
+    PlanUpdated,
     TodoItem,
     TodosUpdated,
     ToolCallEvent,
@@ -186,6 +187,22 @@ def diff(path: str, patch: str) -> Event:
 
 def todos_updated(todos: Sequence[dict[str, Any]]) -> Event:
     return _pack(TodosUpdated(todos=[TodoItem(**todo) for todo in todos]))
+
+
+def plan_updated(
+    title: str, status: str, done: int, total: int, next_step: str | None, path: str
+) -> Event:
+    """The current plan was saved or a step of it changed (CORE-plan-continuity)."""
+    return _pack(
+        PlanUpdated(
+            title=title,
+            status=status,  # type: ignore[arg-type]
+            done=done,
+            total=total,
+            next=next_step,
+            path=path,
+        )
+    )
 
 
 def command_progress(
@@ -438,6 +455,7 @@ __all__ = [
     "message_user",
     "mode_changed",
     "model_changed",
+    "plan_updated",
     "tool_call",
     "tool_progress",
     "tool_result",

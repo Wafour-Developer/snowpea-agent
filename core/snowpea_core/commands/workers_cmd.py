@@ -16,9 +16,10 @@ from __future__ import annotations
 
 import logging
 
-from snowpea_core.agent import team_store
+from snowpea_core.agent import plan_store, team_store
 from snowpea_core.agent.team import TeamError, get_manager_for
 from snowpea_core.agent.team import parse_team_args as _parse_args
+from snowpea_core.commands import plan_gate
 from snowpea_core.commands.registry import Command, CommandContext
 from snowpea_core.server import errors
 from snowpea_core.session import events
@@ -45,15 +46,41 @@ WORKERS_ARGS_SCHEMA = {
 
 async def cmd_workers(ctx: CommandContext, args: str) -> None:
     """``/workers 3 "add docstrings"`` — split, work in worktrees, merge."""
-    try:
-        workers, task = _parse_args(args)
-    except TeamError:
-        await ctx.say(USAGE)
+    workdir = getattr(ctx.session, "workdir", None)
+    plan = plan_store.active_plan(workdir) if workdir else None
+    args, forced = plan_gate.strip_bypass(args)
+    head = args.strip().partition(" ")[0]
+    if plan is not None and head.isdigit() and not args.strip()[len(head) :].strip():
+        # ``/workers 3`` alone runs the current plan (CORE-plan-continuity).
+        workers, task = int(head), ""
+    else:
+        try:
+            workers, task = _parse_args(args)
+        except TeamError:
+            await ctx.say(USAGE)
+            return
+    task, bypassed = plan_gate.strip_bypass(task)
+    forced = forced or bypassed
+    from_plan = plan is not None and plan_gate.is_execute_request(task, plan)
+    if plan is None and not await plan_gate.ask_before_running(
+        ctx, "workers", task, forced=forced
+    ):
         return
+    if from_plan:
+        assert plan is not None
+        task = plan_gate.plan_label(plan)
+        await ctx.say(f"workers: running the current plan {plan_store.describe(plan)}.")
 
     manager = get_manager_for(ctx.core)
     try:
-        team_id = await manager.start(ctx.session, workers, task)
+        # The plan rides along only when there is one: without a plan the call
+        # is exactly what it was before plans existed.
+        if plan is not None:
+            team_id = await manager.start(
+                ctx.session, workers, task, plan=plan, from_plan=from_plan
+            )
+        else:
+            team_id = await manager.start(ctx.session, workers, task)
     except TeamError as exc:
         await _fail(ctx, str(exc))
         return

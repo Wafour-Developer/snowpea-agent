@@ -217,6 +217,18 @@ QUEUE_COMMAND = (
     "yourself — and say in your reply what you queued."
 )
 
+PLAN_SAVE = (
+    "Save a finished plan or spec as the project's current plan "
+    "(.snowpea/plans/current.md; the one it replaces is archived). /ralph, /team and "
+    "/ultrawork run it when the user just says to go ahead, and its next step is shown "
+    "to you every turn. Call it once with the final version, not with drafts."
+)
+
+PLAN_UPDATE_STEP = (
+    "Mark a step of the current plan pending, in_progress, done or blocked, with a note "
+    "(the check that passed, or the blocker). Mark done only after its verification passed."
+)
+
 LSP_HOVER = (
     "The type and documentation the language server has for the symbol at a position: "
     "signature, inferred type, docstring. Use it to confirm what a function actually "
@@ -235,6 +247,8 @@ __all__ = [
     "ASK_USER",
     "DELEGATE_TASK",
     "PATCH",
+    "PLAN_SAVE",
+    "PLAN_UPDATE_STEP",
     "GLOB",
     "GREP",
     "LSP_DEFINITION",

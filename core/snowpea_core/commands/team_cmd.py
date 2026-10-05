@@ -27,6 +27,7 @@ import re
 import shlex
 from typing import Literal
 
+from snowpea_core.agent import plan_store
 from snowpea_core.agent.team_pipeline import (
     PipelineError,
     named_roster,
@@ -35,6 +36,7 @@ from snowpea_core.agent.team_pipeline import (
     stage_line,
     stage_summary,
 )
+from snowpea_core.commands import plan_gate
 from snowpea_core.commands.registry import Command, CommandContext
 from snowpea_core.commands.workers_cmd import cmd_workers
 from snowpea_core.server import errors
@@ -97,7 +99,8 @@ async def cmd_team(ctx: CommandContext, args: str) -> None:
     if words and words[0].isdigit():
         await _run_workers_compat(ctx, args)
         return
-    await _dispatch_pipeline(ctx, args)
+    args, forced = plan_gate.strip_bypass(args)
+    await _dispatch_pipeline(ctx, args, forced=forced)
 
 
 async def _run_workers_compat(ctx: CommandContext, args: str) -> None:
@@ -119,7 +122,7 @@ async def _run_workers_compat(ctx: CommandContext, args: str) -> None:
         ctx.say = original_say  # type: ignore[method-assign]
 
 
-async def _dispatch_pipeline(ctx: CommandContext, args: str) -> None:
+async def _dispatch_pipeline(ctx: CommandContext, args: str, *, forced: bool = False) -> None:
     """Tell ``/team <name> "<task>"`` from ``/team "<task>"`` and run it."""
     from snowpea_core.agent.team_config import teams_with_source
 
@@ -135,9 +138,11 @@ async def _dispatch_pipeline(ctx: CommandContext, args: str) -> None:
                 "(/team create <name> <agent...> makes one)",
             )
             return
-        await _run_pipeline(ctx, match.group(3).strip(), roster=roster, source=name)
+        await _run_pipeline(
+            ctx, match.group(3).strip(), roster=roster, source=name, forced=forced
+        )
         return
-    await _run_pipeline(ctx, parse_pipeline_args(args))
+    await _run_pipeline(ctx, parse_pipeline_args(args), forced=forced)
 
 
 async def _run_pipeline(
@@ -146,9 +151,17 @@ async def _run_pipeline(
     *,
     roster: list[str] | None = None,
     source: str | None = None,
+    forced: bool = False,
 ) -> None:
-    """``/team "<task>"`` — a roster, by role, staged."""
-    if not task:
+    """``/team "<task>"`` — a roster, by role, staged.
+
+    With an active current plan, an empty or execute-only task runs the plan's
+    pending steps; a vague task with no plan meets the plan-first gate
+    (CORE-plan-continuity).
+    """
+    plan = plan_store.active_plan(ctx.session.workdir)
+    from_plan = plan is not None and plan_gate.is_execute_request(task, plan)
+    if not task and not from_plan:
         await ctx.say(USAGE)
         return
     if roster is None and not _has_a_roster(ctx):
@@ -158,8 +171,28 @@ async def _run_pipeline(
             "just this once (/team list shows them)",
         )
         return
+    if plan is None and not await plan_gate.ask_before_running(ctx, "team", task, forced=forced):
+        return
+    only = plan_gate.target_step(task, plan) if from_plan else None
+    if from_plan:
+        assert plan is not None
+        task = plan_gate.plan_label(plan)
+        await ctx.say(
+            f"team: running the current plan {plan_store.describe(plan)}"
+            + (f", step {only} only." if only else ".")
+        )
     try:
-        report = await run_pipeline(ctx.core, ctx.session, task, ctx.say, roster, source=source)
+        report = await run_pipeline(
+            ctx.core,
+            ctx.session,
+            task,
+            ctx.say,
+            roster,
+            source=source,
+            plan=plan,
+            from_plan=from_plan,
+            only=only,
+        )
     except PipelineError as exc:
         await _fail(ctx, str(exc))
         return

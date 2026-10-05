@@ -24,7 +24,7 @@ from time import monotonic
 from typing import TYPE_CHECKING, Any
 
 from snowpea_core.agent import agent as agent_mod
-from snowpea_core.agent import call_fixups, context_files, verify_gate
+from snowpea_core.agent import call_fixups, context_files, plan_store, verify_gate
 from snowpea_core.agent.agent import AgentConfig, build_messages
 from snowpea_core.agent.tool_batch import plan_tool_batch_segments
 from snowpea_core.attachments import pending
@@ -2051,6 +2051,10 @@ async def _run_one_call(
     # matches the tree (CORE-context-files).
     override, ignore_context = agent_mod.context_file_settings(core)
     context_files.note_write(session, call.name, dict(call.arguments))
+    if result.ok:
+        # A plan written as a file in PLAN mode becomes the current plan when
+        # the session leaves the mode without plan_save (CORE-plan-continuity).
+        plan_store.note_written(session, call.name, dict(call.arguments))
     if not ignore_context:
         result = context_files.attach_nested(
             session,

@@ -188,6 +188,11 @@ class Session:
     last_system_start: float = 0.0
     #: ``write_todos`` list: ``[{id, content, status}]`` (1.7.0).
     todos: list[dict[str, str]] = field(default_factory=list)
+    #: Plan documents written while in PLAN mode this session, newest last, and
+    #: whether ``plan_save`` ran: leaving plan mode registers the newest file as
+    #: the current plan only when nothing was saved (CORE-plan-continuity).
+    plan_files: list[str] = field(default_factory=list)
+    plan_saved: bool = False
     #: Short label: the first prompt's opening words, or ``session.rename``.
     title: str | None = None
     #: UTC ISO times for the task list (1.7.0): last prompt/turn end, and the

@@ -47,9 +47,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from snowpea_core.agent import plan_store
 from snowpea_core.agent.agent import session_reply_language
 from snowpea_core.agent.definition import DefinitionError, complete_text, parse_generated_json
 from snowpea_core.agent.subagent import get_manager
+from snowpea_core.commands import plan_gate
 from snowpea_core.commands.registry import Command, CommandContext
 from snowpea_core.prompts.compose import workflow_brief
 from snowpea_core.prompts.loader import render
@@ -153,9 +155,14 @@ class Story:
     #: True when the last failure was the check itself erroring (a syntax
     #: error, a missing command), not the work falling short of it.
     check_broken: bool = False
+    #: Ids of the current-plan steps this story implements; empty when the
+    #: PRD was not built from a plan (CORE-plan-continuity).
+    plan_step: list[str] = field(default_factory=list)
+    #: The plan those steps belong to; a mark lands only while it is current.
+    plan_id: str = ""
 
     def to_json(self) -> dict[str, Any]:
-        return {
+        row: dict[str, Any] = {
             "id": self.id,
             "title": self.title,
             "acceptance": self.acceptance,
@@ -165,6 +172,10 @@ class Story:
             "passed": self.passed,
             "note": self.note,
         }
+        if self.plan_step:
+            row["plan_step"] = self.plan_step[0] if len(self.plan_step) == 1 else self.plan_step
+            row["plan_id"] = self.plan_id
+        return row
 
 
 def _as_list(value: Any) -> list[str]:
@@ -195,6 +206,8 @@ def stories_from_payload(data: dict[str, Any]) -> list[Story]:
                 verify=_as_list(entry.get("verify")),
                 independent=bool(entry.get("independent", True)),
                 depends_on=_as_list(entry.get("depends_on")),
+                plan_step=list(plan_gate.step_ids(entry.get("plan_step"))),
+                plan_id=str(entry.get("plan_id") or ""),
             )
         )
     return stories
@@ -267,21 +280,15 @@ def state_dir(session: Session) -> Path:
     return directory
 
 
-#: A /ralph argument that asks to carry on rather than to plan something new:
-#: "/ralph 실행해줘" from a schedule used to be planned as a task of its own and
-#: overwrote the PRD the user and the agent had written.
-_RESUME_PHRASE = re.compile(
-    r"^(?:--?resume|resume|continue|go|run|start|"
-    r"계속|이어서|재개|진행|실행|시작)(?:\s*(?:해|해줘|해 줘|하자|해라|해주세요|합시다|진행해줘|"
-    r"진행해|실행해줘|실행해)?)?[.!?\s]*$",
-    re.IGNORECASE,
-)
-
-
 def is_resume_request(args: str) -> bool:
-    """True for an empty /ralph or one that only says to carry on."""
-    text = args.strip().strip('"').strip("'").strip()
-    return not text or bool(_RESUME_PHRASE.match(text))
+    """True for an empty /ralph or one that only says to carry on.
+
+    "/ralph 실행해줘" from a schedule used to be planned as a task of its own
+    and overwrote the PRD the user and the agent had written.  The phrase list
+    is :func:`plan_gate.is_carry_on`, the same one that decides "run the plan",
+    so resuming a PRD and running a plan can never disagree about a phrase.
+    """
+    return plan_gate.is_carry_on(args)
 
 
 def load_saved_prd(session: Session) -> tuple[str, list[Story]] | None:
@@ -725,11 +732,50 @@ def deterministic_error(text: str) -> bool:
     return "unknown parameter" in lowered or "invalid_request_error" in lowered
 
 
+def _prd_predates(session: Session, plan: plan_store.Plan) -> bool:
+    """True when ``plan`` was saved after the unfinished PRD was last written.
+
+    The PRD on disk is resumed first — unless the user has since agreed a new
+    plan: ``/ralplan`` → ``/ralph 실행해줘`` must run that plan, not an older,
+    unrelated PRD that happens to be unfinished.
+    """
+    try:
+        written = (Path(session.workdir) / STATE_DIR / PRD_NAME).stat().st_mtime
+        created = datetime.fromisoformat(plan.createdAt.replace("Z", "+00:00")).timestamp()
+    except (OSError, ValueError):
+        return False
+    return created > written
+
+
 async def cmd_ralph(ctx: CommandContext, args: str) -> None:
-    """``/ralph <task>`` — drive a task to a reviewed finish."""
-    task = args.strip().strip('"').strip("'").strip()
+    """``/ralph <task>`` — drive a task to a reviewed finish.
+
+    What the argument means, in order (CORE-plan-continuity): a carry-on phrase
+    with an unfinished ``prd.json`` resumes it; empty, a carry-on or
+    execute-only phrase, or the plan's title with an active current plan
+    builds the PRD *from the plan*, one story per pending step; a real task
+    with an active plan is planned with the plan as context; anything else is
+    planned as typed — after the plan-first gate when it is too vague to.
+    """
+    task, forced = plan_gate.strip_bypass(args)
+    task = task.strip().strip('"').strip("'").strip()
     saved = load_saved_prd(ctx.session)
-    resuming = saved is not None and is_resume_request(task)
+    plan = plan_store.active_plan(ctx.session.workdir)
+    # An unfinished PRD built from this very plan is resumed with its
+    # story-level progress; one built from something else yields to a plan
+    # saved after it.
+    same_plan = (
+        saved is not None
+        and plan is not None
+        and any(story.plan_id == plan.id for story in saved[1])
+    )
+    resuming = (
+        saved is not None
+        and is_resume_request(task)
+        and (same_plan or not (plan is not None and _prd_predates(ctx.session, plan)))
+    )
+    from_plan = not resuming and plan is not None and plan_gate.is_execute_request(task, plan)
+    only = plan_gate.target_step(task, plan) if from_plan else None
     if resuming:
         # Carry on with the PRD on disk — the one the last run left, or one the
         # user or the agent edited by hand — instead of planning anew.
@@ -741,22 +787,49 @@ async def cmd_ralph(ctx: CommandContext, args: str) -> None:
             "pass. Run /ralph \"<new task>\" to plan something else."
         )
         fallback_reason = None
-    elif not task:
+    elif not task and not from_plan:
         await ctx.say(USAGE)
         return
     else:
+        # The plan-first gate: only with nothing else to go on — no plan to
+        # run, no PRD to resume.
+        if (
+            plan is None
+            and saved is None
+            and not await plan_gate.ask_before_running(ctx, "ralph", task, forced=forced)
+        ):
+            return
         if saved is not None:
             backup = _backup_prd(ctx.session)
             if backup is not None:
                 await ctx.say(
                     f"ralph: the unfinished PRD was kept as {backup.name}; planning the new task."
                 )
+        if from_plan:
+            assert plan is not None
+            request = plan_gate.plan_request(plan, only=only)
+            task = plan_gate.plan_label(plan)
+            scope = f"step {only}" if only else (
+                f"{len(plan_store.pending_steps(plan))}/{len(plan.steps)} steps left"
+            )
+            await ctx.say(
+                f"ralph: running the current plan {plan_store.describe(plan)} — {scope}, "
+                f"{plan_store.CURRENT_PATH}."
+            )
+        else:
+            request = plan_gate.plan_context(task, plan) if plan is not None else task
         try:
-            stories, fallback_reason = await build_prd(ctx, task)
+            stories, fallback_reason = await build_prd(ctx, request)
         except Exception as exc:  # noqa: BLE001 - a bad PRD ends the command, not the daemon
             await _progress(ctx, 0, [], outcome="error")
             await _fail(ctx, f"could not build a PRD for this task: {exc}", task=task)
             return
+        if from_plan:
+            assert plan is not None
+            if fallback_reason is not None and len(stories) == 1:
+                # The fallback story is the whole request; its title is the plan's.
+                stories[0].title = plan.title if not only else f"{only} of {plan.title}"
+            _link_plan_steps(stories, plan, only)
     if fallback_reason is not None:
         await ctx.say(
             f"ralph: no usable PRD from the model ({fallback_reason}); "
@@ -919,6 +992,56 @@ async def cmd_ralph(ctx: CommandContext, args: str) -> None:
     await _progress(ctx, last, stories, outcome="complete")
 
 
+def _link_plan_steps(
+    stories: list[Story], plan: plan_store.Plan, only: str | None = None
+) -> None:
+    """Keep only real step ids on each story; one story and no ids takes them all.
+
+    A model that ignored the ``plan_step`` field still ran the plan, so a
+    single-story PRD (the fallback included) carries every pending step — or
+    the one step the user named.  Every linked story records the plan's id.
+    """
+    known = {only} if only else {step.id.upper() for step in plan.steps}
+    for story in stories:
+        story.plan_step = [step for step in story.plan_step if step in known]
+    if len(stories) == 1 and not stories[0].plan_step:
+        stories[0].plan_step = (
+            [only] if only else [step.id for step in plan_store.pending_steps(plan)]
+        )
+    for story in stories:
+        if story.plan_step:
+            story.plan_id = plan.id
+
+
+async def _sync_plan(ctx: CommandContext, stories: list[Story]) -> None:
+    """Mirror story results onto the current plan's steps.
+
+    A step is ``done`` once every story implementing it passed its checks;
+    ``in_progress`` (with the failure as its note) once one was attempted.
+    """
+    by_plan: dict[str, dict[str, list[Story]]] = {}
+    for story in stories:
+        if not story.plan_id:
+            continue
+        for step in story.plan_step:
+            by_plan.setdefault(story.plan_id, {}).setdefault(step, []).append(story)
+    for plan_id, by_step in by_plan.items():
+        changes: list[tuple[str, str, str]] = []
+        for step, rows in by_step.items():
+            if all(story.passed for story in rows):
+                changes.append((step, "done", f"ralph: {', '.join(s.id for s in rows)} passed"))
+            elif any(story.note for story in rows):
+                failing = next(story for story in rows if not story.passed and story.note)
+                note = f"ralph {failing.id}: {failing.note}"[:300]
+                changes.append((step, "in_progress", note))
+        try:
+            await plan_store.mark_steps(
+                ctx.session.workdir, changes, emit=ctx.emit, plan_id=plan_id
+            )
+        except OSError:
+            log.warning("ralph could not update the current plan", exc_info=True)
+
+
 def progress_stories(stories: list[Story]) -> list[dict[str, str]]:
     """Stories as ``command.progress`` rows; one not attempted yet is pending."""
     return [
@@ -935,8 +1058,13 @@ def progress_stories(stories: list[Story]) -> list[dict[str, str]]:
 async def _progress(
     ctx: CommandContext, iteration: int, stories: list[Story], outcome: str | None = None
 ) -> None:
-    """Emit ``command.progress`` beside the text lines (snowpea-browser)."""
+    """Emit ``command.progress`` beside the text lines (snowpea-browser).
+
+    Every progress point is also where the current plan's steps follow the
+    stories that implement them.
+    """
     await ctx.emit(events.command_progress("ralph", iteration, progress_stories(stories), outcome))
+    await _sync_plan(ctx, stories)
 
 
 async def _fail(
