@@ -97,6 +97,11 @@ def build_parser() -> argparse.ArgumentParser:
         description="Snowpea — a local-first coding agent.",
     )
     parser.add_argument("--version", "-V", action="store_true", help="print the version and exit")
+    parser.add_argument(
+        "--check-tui",
+        action="store_true",
+        help="check that the TUI loads on this machine's Node, then exit (the installer runs it)",
+    )
     parser.add_argument("--mode", choices=MODES, default=None, help="permission mode")
     parser.add_argument(
         "--fullscreen",
@@ -172,6 +177,53 @@ def _mark_es_module(bundle: Path) -> None:
     if bundle.exists() and not marker.exists():
         with contextlib.suppress(OSError):
             marker.write_text('{"type": "module"}\n', encoding="utf-8")
+
+
+#: What the bundle prints when it loaded and only lacks its arguments.
+_TUI_LOADED = "--port"
+#: Node's own words for a bundle it could not load at all.
+_TUI_LOAD_FAILURES = ("SyntaxError", "ERR_REQUIRE_ESM", "ERR_UNKNOWN_FILE_EXTENSION",
+                      "Cannot use import statement", "ERR_MODULE_NOT_FOUND")
+
+
+def check_tui() -> tuple[bool, str]:
+    """Load the TUI bundle on the Node that ``snowpea`` would use; ``(ok, message)``.
+
+    An install that passed "Node >= 20" could still not start the TUI (a bundle
+    without its ES-module marker on Node 20): the failure only showed on the
+    user's first ``snowpea``. Run without arguments, a bundle that loaded stops
+    at its own usage check; one Node could not load fails before that.
+    """
+    try:
+        command = resolve_tui_command()
+    except TuiNotFound as exc:
+        return False, f"the TUI is missing: {exc}"
+    node = shutil.which(command[0])
+    if node is None:
+        return False, f"`{command[0]}` is not on PATH; install Node 20 or newer"
+    try:
+        version = subprocess.run(
+            [node, "--version"], capture_output=True, text=True, timeout=15
+        ).stdout.strip()
+        probe = subprocess.run(
+            [node, *command[1:]], capture_output=True, text=True, timeout=30,
+            stdin=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return False, f"could not run {node}: {exc}"
+    output = f"{probe.stdout}\n{probe.stderr}"
+    if any(marker in output for marker in _TUI_LOAD_FAILURES) or _TUI_LOADED not in output:
+        lines = output.strip().splitlines()
+        cause = next(
+            (line.strip() for line in lines if any(m in line for m in _TUI_LOAD_FAILURES)),
+            lines[-1].strip() if lines else "no output",
+        )
+        return False, (
+            f"the TUI does not load on {node} ({version or 'unknown version'}): {cause}\n"
+            "Install Node 22 or newer, or put it first on PATH, then run "
+            "`snowpea --check-tui` again."
+        )
+    return True, f"the TUI loads on {node} ({version})"
 
 
 def resolve_tui_command(
@@ -538,6 +590,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         # Cache-only: `--version` never waits on the network.
         print(f"snowpea {__version__}{update_mod.version_suffix(args.home)}")
         return EXIT_OK
+
+    if getattr(args, "check_tui", False):
+        ok, detail = check_tui()
+        (print if ok else _err)(f"snowpea: {detail}" if ok else detail)
+        return EXIT_OK if ok else 1
 
     home: str | None = args.home
 

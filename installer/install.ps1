@@ -218,6 +218,9 @@ if (-not (Have 'snowpea')) {
 Write-Host ''
 snowpea --version
 if ($LASTEXITCODE -ne 0) { Die 'snowpea --version failed' 'snowpea --version' }
+# Node >= 20 on PATH is not proof the TUI starts: fail here, not on first run.
+snowpea --check-tui
+if ($LASTEXITCODE -ne 0) { Die 'the TUI does not start with the Node on PATH' 'install Node 22+, then: snowpea --check-tui' }
 
 Write-Host @"
 

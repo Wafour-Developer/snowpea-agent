@@ -386,6 +386,11 @@ main() {
   fi
   printf '\n'
   snowpea --version || die "snowpea --version failed" "snowpea --version"
+  # Node >= 20 on PATH is not proof the TUI starts: fail here, not on the
+  # user's first `snowpea`.
+  snowpea --check-tui \
+    || die "the TUI does not start with the Node on PATH ($(node --version 2>/dev/null))" \
+      "install Node 22+ (or put it first on PATH), then: snowpea --check-tui"
   cat <<EOF
 
 Next:

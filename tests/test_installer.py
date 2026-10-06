@@ -431,3 +431,26 @@ def test_launching_repairs_an_install_without_the_marker(tmp_path: Path) -> None
     assert not marker.exists()
     resolve_tui_command(package_root=tmp_path / "packaged", repo_root=tmp_path / "repo")
     assert '"module"' in marker.read_text(encoding="utf-8")
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+def test_check_tui_tells_a_loading_bundle_from_a_broken_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The installer's last step: does the TUI load on this machine's Node?"""
+    from snowpea_core.cli.main import check_tui
+
+    good = tmp_path / "good.mjs"
+    good.write_text(
+        "console.error('snowpea-tui: --port <number> is required'); process.exit(2);\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("SNOWPEA_TUI_ENTRY", str(good))
+    ok, detail = check_tui()
+    assert ok, detail
+
+    broken = tmp_path / "broken.mjs"
+    broken.write_text("import { x from 'node:fs';\n", encoding="utf-8")
+    monkeypatch.setenv("SNOWPEA_TUI_ENTRY", str(broken))
+    ok, detail = check_tui()
+    assert not ok and "SyntaxError" in detail and "Node 22" in detail
