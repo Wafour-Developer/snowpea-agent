@@ -28,6 +28,7 @@ Parallel delegation without worktrees is therefore only safe across disjoint fil
 | `explore` | read-only search: finds where something lives and reports it as `path:line` evidence |
 | `reviewer` | read-only review: a verdict plus findings, each with the evidence behind it |
 | `executor`, `architect`, `verifier`, `test-engineer` | role prompts, with every tool available |
+| `writer` | documentation (README, manuals, API docs, changelog, comments): checks every command it documents, updates every language copy, does not change code; the delegation lead hands it docs, the /team pipeline gives it no stage |
 | `explorer`, `critic` | read-only-by-default team roles (`read_file`, `glob`, `grep`) unless a definition explicitly broadens tools |
 
 `explore` and `reviewer` carry a tool allowlist, so they are read-only in fact and not only by instruction: no `write_file`, no `edit_file`, no `shell`. A definition of the same name in `<project>/.snowpea/agents/` overrides the built-in one completely.
@@ -69,7 +70,7 @@ Findings without evidence are opinions, so each finding names a location, what g
 
 ## Delegation mode
 
-By default the agent does the work itself and delegates only when it judges a task worth it. Delegation mode turns the session's agent into a lead: it plans (or follows the plan it wrote in plan mode), hands implementation to `executor`, tests to `test-engineer`, design questions to `architect` and broad searches to `explorer`, and has `verifier` check the result before it reports the work as done. Trivial edits and single commands it still does itself: up to `agents.leadDirectCalls` (default 3) write or exec calls per turn. Further ones are refused with an instruction to hand the step to a team agent with `delegate_task`, so a model that ignores the brief cannot keep implementing everything itself.
+By default the agent does the work itself and delegates only when it judges a task worth it. Delegation mode turns the session's agent into a lead: it plans (or follows the plan it wrote in plan mode), hands implementation to `executor`, tests to `test-engineer`, design questions to `architect` and broad searches to `explorer`, documentation to `writer`, and has `verifier` check the result before it reports the work as done. Trivial edits and single commands it still does itself: up to `agents.leadDirectCalls` (default 3) write or exec calls per turn. Further ones are refused with an instruction to hand the step to a team agent with `delegate_task`, so a model that ignores the brief cannot keep implementing everything itself.
 
 ```text
 /delegation          # what is in force, and why

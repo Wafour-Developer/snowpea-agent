@@ -66,6 +66,7 @@ DEFAULT_AGENT_TEAM: tuple[str, ...] = (
     "explorer",
     "test-engineer",
     "verifier",
+    "writer",
 )
 
 

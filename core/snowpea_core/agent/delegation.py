@@ -24,6 +24,7 @@ FALLBACK_ROSTER: tuple[str, ...] = (
     "verifier",
     "explorer",
     "architect",
+    "writer",
 )
 
 

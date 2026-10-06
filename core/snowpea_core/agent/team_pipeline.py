@@ -79,6 +79,10 @@ STAGE_AGENTS: dict[str, tuple[str, ...]] = {
     REVIEW: ("critic", "reviewer"),
 }
 
+#: Roster members that own no stage on purpose: the lead hands them work
+#: directly (``writer`` for docs), so they are not reported as unused.
+SUPPORT_AGENTS: frozenset[str] = frozenset({"writer"})
+
 #: The one stage that cannot be skipped: with nobody to write the code there
 #: is no pipeline, only a plan.
 REQUIRED_STAGES: frozenset[str] = frozenset({IMPLEMENT})
@@ -178,7 +182,7 @@ def stage_assignments(
             f"(roster: {', '.join(members) or 'empty'}). "
             "Use /team <N> \"<task>\" for the worktree workers instead."
         )
-    unused = tuple(name for name in members if name not in taken)
+    unused = tuple(name for name in members if name not in taken and name not in SUPPORT_AGENTS)
     return StagePlan(owners=owners, unused=unused, source=source)
 
 
