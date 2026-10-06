@@ -41,6 +41,9 @@ WHEEL_PATH = "snowpea_core/tui/dist/snowpea-tui.js"
 #: Copied alongside the bundle when present (debugging aid, not required).
 OPTIONAL_SIBLINGS = ("snowpea-tui.js.map",)
 
+#: ``package.json`` that tells Node the bundle beside it is an ES module.
+MODULE_MARKER = "package.json"
+
 
 class MissingBundle(FileNotFoundError):
     """``tui/dist/snowpea-tui.js`` is not there and the build may not skip it."""
@@ -81,6 +84,10 @@ def copy_bundle(root: Path | str, *, skip: bool | None = None) -> Path | None:
 
     target_dir.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source, target)
+    # The bundle is an ES module. Node 22+ detects that on its own, but Node 20
+    # (a conda base env, say) reads a bare .js as CommonJS and dies on the first
+    # import: the packaged copy needs the module marker beside it.
+    (target_dir / MODULE_MARKER).write_text('{"type": "module"}\n', encoding="utf-8")
     for sibling in OPTIONAL_SIBLINGS:
         extra = source.with_name(sibling)
         if extra.is_file():

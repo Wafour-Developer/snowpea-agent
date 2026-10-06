@@ -409,3 +409,25 @@ def test_the_daemon_command_carries_the_home_override(tmp_path: Path) -> None:
     assert command[-4:-2] == ["--port", "0"]
     assert command[-2] == "--home"
     assert command[-1] == str((tmp_path / "home").resolve())
+
+
+def test_the_packaged_bundle_is_marked_as_an_es_module(tmp_path: Path) -> None:
+    """Node 20 reads a bare .js as CommonJS; the wheel ships the marker."""
+    import hatch_build
+
+    source = tmp_path / "tui" / "dist" / "snowpea-tui.js"
+    source.parent.mkdir(parents=True)
+    source.write_text("import fs from 'node:fs';\n", encoding="utf-8")
+    target = hatch_build.copy_bundle(tmp_path, skip=False)
+    assert target is not None
+    assert (target.parent / "package.json").read_text(encoding="utf-8").strip() == (
+        '{"type": "module"}'
+    )
+
+
+def test_launching_repairs_an_install_without_the_marker(tmp_path: Path) -> None:
+    packaged = _make_bundle(tmp_path / "packaged")
+    marker = packaged.with_name("package.json")
+    assert not marker.exists()
+    resolve_tui_command(package_root=tmp_path / "packaged", repo_root=tmp_path / "repo")
+    assert '"module"' in marker.read_text(encoding="utf-8")

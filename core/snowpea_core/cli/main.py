@@ -161,6 +161,19 @@ def repo_tui_bundle(repo_root: Path | None = None) -> Path:
     return root / "tui" / "dist" / TUI_BUNDLE
 
 
+def _mark_es_module(bundle: Path) -> None:
+    """Make sure Node reads the packaged bundle as an ES module.
+
+    Wheels up to 0.2.26 shipped the bundle without the ``{"type": "module"}``
+    marker, and Node 20 then fails with "Cannot use import statement outside a
+    module". Writing it on first launch repairs those installs in place.
+    """
+    marker = bundle.with_name("package.json")
+    if bundle.exists() and not marker.exists():
+        with contextlib.suppress(OSError):
+            marker.write_text('{"type": "module"}\n', encoding="utf-8")
+
+
 def resolve_tui_command(
     *, package_root: Path | None = None, repo_root: Path | None = None
 ) -> list[str]:
@@ -182,6 +195,7 @@ def resolve_tui_command(
 
     packaged = packaged_tui_bundle(package_root)
     repo = repo_tui_bundle(repo_root)
+    _mark_es_module(packaged)
     if packaged.exists() and repo.exists():
         # Editable installs ship an older copy under ``snowpea_core/tui/dist``.
         # Prefer whichever bundle was built most recently so reconnect and other
