@@ -638,7 +638,9 @@ async def test_continue_during_a_turn_is_a_notice_and_hello_advertises_it(
         session.current_turn = None
         from snowpea_core.server.protocol import CAPABILITIES, PROTOCOL_VERSION
 
-        assert "sessionContinue" in CAPABILITIES and PROTOCOL_VERSION == "1.8.0"
+        # Added in 1.8.0; later minor versions keep it.
+        version = tuple(int(part) for part in PROTOCOL_VERSION.split("."))
+        assert "sessionContinue" in CAPABILITIES and (1, 8, 0) <= version < (2, 0, 0)
     finally:
         await client.stop()
 

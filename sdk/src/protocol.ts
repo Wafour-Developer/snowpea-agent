@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.8.0";
+export const PROTOCOL_VERSION = "1.9.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -2498,6 +2498,257 @@ export interface SetupStatusResult {
   })[];
 }
 
+/** `site.delete` params. Site memory (1.9.0): delete one entry, or every entry of an origin, in one browser profile. Same callers as site.list. */
+export interface SiteDeleteParams {
+  /** One entry; omitted = all of them. */
+  entryId?: string | null;
+  /** The browser profile (its clientId). Required from a UI client; a browser client may only name its own. */
+  hostToolsFrom?: string | null;
+  /** Origin. */
+  origin: string;
+}
+
+/** `site.delete` result. */
+export interface SiteDeleteResult {
+  /** Entries removed. */
+  deleted: number;
+}
+
+/** `site.get` params. Site memory (1.9.0): the entries stored for an origin in the caller's browser profile; with path, only those whose urlPattern matches it, most specific first; with pageType, only that one. Stale entries are included, flagged. Browser host clients only; entries are untrusted page-derived data and core never puts them in a prompt. */
+export interface SiteGetParams {
+  /** Origin, e.g. 'https://www.example.com'. */
+  origin: string;
+  /** Only this page type. */
+  pageType?: string | null;
+  /** Path (and query) on the origin: only entries whose urlPattern matches. */
+  path?: string | null;
+}
+
+/** `site.get` result. */
+export interface SiteGetResult {
+  /** Most specific urlPattern first; stale entries included, flagged. */
+  entries?: ({
+    /** At most 30. */
+    actions?: ({
+      /** What the action does to its element. */
+      kind: "click" | "fill" | "select" | "toggle" | "submit";
+      /** At most 6, in the order to try; at least one is not 'css'. */
+      locators: ({
+        /** Locator kind (1.9.0). Never XPath. */
+        by: "role" | "label" | "text" | "placeholder" | "testid" | "css";
+        /** With by 'role': the accessible name. */
+        name?: string | null;
+        /** With by 'role': the ARIA role. */
+        role?: string | null;
+        /** With every other kind: the label, text, placeholder, test id or CSS. */
+        value?: string | null;
+      })[];
+      /** A login name or password input: locators only, never a value. */
+      loginField?: boolean;
+      /** Action name, [a-z0-9-]{1,40}. */
+      name: string;
+    })[];
+    /** UTC ISO time of the first put. */
+    createdAt: string;
+    /** Core-assigned id. */
+    entryId: string;
+    /** 'stale' marks. */
+    failureCount?: number;
+    /** Structural hash of the page's AX skeleton, e.g. 'ax1:3f9a…'. */
+    fingerprint?: string | null;
+    /** At most 10. */
+    flows?: ({
+      /** Flow name. */
+      name: string;
+      /** At most 12 steps of 120 chars. */
+      steps?: string[];
+    })[];
+    /** At most 20 of 80 chars. */
+    landmarks?: string[];
+    /** UTC ISO time of the last put or 'ok' mark. */
+    lastVerified: string;
+    /** Origin, e.g. 'https://www.example.com'. */
+    origin: string;
+    /** Page type, [a-z0-9-]{1,40}, e.g. 'login'. */
+    pageType: string;
+    /** At most 10 of 160 chars. */
+    pitfalls?: string[];
+    /** Marked stale and not replaced since. */
+    stale?: boolean;
+    /** Puts and 'ok' marks. */
+    successCount?: number;
+    /** What the page is. */
+    summary?: string;
+    /** Path glob on the origin, starting with '/'; '*' = any segment chars. */
+    urlPattern: string;
+  })[];
+}
+
+/** `site.list` params. Site memory (1.9.0): one browser profile's remembered sites, by origin, for a settings UI. A browser client sees its own profile; any other owner client names one with hostToolsFrom. */
+export interface SiteListParams {
+  /** From the previous page. */
+  cursor?: string | null;
+  /** The browser profile (its clientId). Required from a UI client; a browser client may only name its own. */
+  hostToolsFrom?: string | null;
+  /** Most sites per page. */
+  limit?: number;
+  /** Only this origin. */
+  origin?: string | null;
+}
+
+/** `site.list` result. */
+export interface SiteListResult {
+  /** Pass back for the next page. */
+  cursor?: string | null;
+  /** Sites, by origin. */
+  sites?: ({
+    /** Entries stored for it. */
+    entries: number;
+    /** Sum over its entries (1.9.0). */
+    failureCount?: number;
+    /** Latest lastVerified of its entries. */
+    lastVerified: string;
+    /** Origin. */
+    origin: string;
+    /** Distinct page types of its entries, sorted (1.9.0). */
+    pageTypes?: string[];
+    /** How many of them are stale. */
+    stale: number;
+    /** Sum over its entries (1.9.0). */
+    successCount?: number;
+  })[];
+}
+
+/** `site.mark` params. Site memory (1.9.0): 'ok' counts a success, sets lastVerified and clears stale; 'stale' counts a failure and flags the entry until the next put. Browser host clients only. */
+export interface SiteMarkParams {
+  /** For the UI and log only. */
+  detail?: string | null;
+  /** The entry. */
+  entryId: string;
+  /** Origin of the entry. */
+  origin: string;
+  /** 'ok' = verified use; 'stale' = it failed. */
+  outcome: "ok" | "stale";
+}
+
+/** `site.mark` result. */
+export interface SiteMarkResult {
+  /** The entry after the mark. */
+  entry: {
+    /** At most 30. */
+    actions?: ({
+      /** What the action does to its element. */
+      kind: "click" | "fill" | "select" | "toggle" | "submit";
+      /** At most 6, in the order to try; at least one is not 'css'. */
+      locators: ({
+        /** Locator kind (1.9.0). Never XPath. */
+        by: "role" | "label" | "text" | "placeholder" | "testid" | "css";
+        /** With by 'role': the accessible name. */
+        name?: string | null;
+        /** With by 'role': the ARIA role. */
+        role?: string | null;
+        /** With every other kind: the label, text, placeholder, test id or CSS. */
+        value?: string | null;
+      })[];
+      /** A login name or password input: locators only, never a value. */
+      loginField?: boolean;
+      /** Action name, [a-z0-9-]{1,40}. */
+      name: string;
+    })[];
+    /** UTC ISO time of the first put. */
+    createdAt: string;
+    /** Core-assigned id. */
+    entryId: string;
+    /** 'stale' marks. */
+    failureCount?: number;
+    /** Structural hash of the page's AX skeleton, e.g. 'ax1:3f9a…'. */
+    fingerprint?: string | null;
+    /** At most 10. */
+    flows?: ({
+      /** Flow name. */
+      name: string;
+      /** At most 12 steps of 120 chars. */
+      steps?: string[];
+    })[];
+    /** At most 20 of 80 chars. */
+    landmarks?: string[];
+    /** UTC ISO time of the last put or 'ok' mark. */
+    lastVerified: string;
+    /** Origin, e.g. 'https://www.example.com'. */
+    origin: string;
+    /** Page type, [a-z0-9-]{1,40}, e.g. 'login'. */
+    pageType: string;
+    /** At most 10 of 160 chars. */
+    pitfalls?: string[];
+    /** Marked stale and not replaced since. */
+    stale?: boolean;
+    /** Puts and 'ok' marks. */
+    successCount?: number;
+    /** What the page is. */
+    summary?: string;
+    /** Path glob on the origin, starting with '/'; '*' = any segment chars. */
+    urlPattern: string;
+  };
+}
+
+/** `site.put` params. Site memory (1.9.0): upsert an entry by (origin, pageType). Core checks the schema, refuses XPath, values on login fields and strings that look like personal data or credentials, and enforces 16 KB per entry and 30 entries per origin ('invalid_params' naming the field); past 1,000 origins the least recently verified origin is dropped. A put clears stale and counts as a success. Browser host clients only. */
+export interface SitePutParams {
+  /** The entry; upserted by (origin, pageType). */
+  entry: {
+    /** At most 30. */
+    actions?: ({
+      /** What the action does to its element. */
+      kind: "click" | "fill" | "select" | "toggle" | "submit";
+      /** At most 6, in the order to try; at least one is not 'css'. */
+      locators: ({
+        /** Locator kind (1.9.0). Never XPath. */
+        by: "role" | "label" | "text" | "placeholder" | "testid" | "css";
+        /** With by 'role': the accessible name. */
+        name?: string | null;
+        /** With by 'role': the ARIA role. */
+        role?: string | null;
+        /** With every other kind: the label, text, placeholder, test id or CSS. */
+        value?: string | null;
+      })[];
+      /** A login name or password input: locators only, never a value. */
+      loginField?: boolean;
+      /** Action name, [a-z0-9-]{1,40}. */
+      name: string;
+    })[];
+    /** Structural hash of the page's AX skeleton, e.g. 'ax1:3f9a…'. */
+    fingerprint?: string | null;
+    /** At most 10. */
+    flows?: ({
+      /** Flow name. */
+      name: string;
+      /** At most 12 steps of 120 chars. */
+      steps?: string[];
+    })[];
+    /** At most 20 of 80 chars. */
+    landmarks?: string[];
+    /** UTC ISO time the host last verified it; default now. */
+    lastVerified?: string | null;
+    /** Page type, [a-z0-9-]{1,40}, e.g. 'login'. */
+    pageType: string;
+    /** At most 10 of 160 chars. */
+    pitfalls?: string[];
+    /** What the page is. */
+    summary?: string;
+    /** Path glob on the origin, starting with '/'; '*' = any segment chars. */
+    urlPattern: string;
+  };
+  /** Origin the entry belongs to. */
+  origin: string;
+}
+
+/** `site.put` result. */
+export interface SitePutResult {
+  /** True when no entry for (origin, pageType) existed. */
+  created: boolean;
+  /** The entry's id. */
+  entryId: string;
+}
+
 /** `skill.create` params. Write a new SKILL.md, generated from a brief or supplied verbatim. */
 export interface SkillCreateParams {
   /** A complete SKILL.md body. When given, it is validated and written directly — no model turn runs. */
@@ -4158,6 +4409,11 @@ export interface MethodMap {
   "setup.applyDefaults": { params: SetupApplyDefaultsParams; result: SetupApplyDefaultsResult };
   "setup.catalog": { params: SetupCatalogParams; result: SetupCatalogResult };
   "setup.status": { params: SetupStatusParams; result: SetupStatusResult };
+  "site.delete": { params: SiteDeleteParams; result: SiteDeleteResult };
+  "site.get": { params: SiteGetParams; result: SiteGetResult };
+  "site.list": { params: SiteListParams; result: SiteListResult };
+  "site.mark": { params: SiteMarkParams; result: SiteMarkResult };
+  "site.put": { params: SitePutParams; result: SitePutResult };
   "skill.create": { params: SkillCreateParams; result: SkillCreateResult };
   "skill.install": { params: SkillInstallParams; result: SkillInstallResult };
   "skill.list": { params: SkillListParams; result: SkillListResult };
@@ -4279,6 +4535,11 @@ export type ClientMethod =
   | "setup.applyDefaults"
   | "setup.catalog"
   | "setup.status"
+  | "site.delete"
+  | "site.get"
+  | "site.list"
+  | "site.mark"
+  | "site.put"
   | "skill.create"
   | "skill.install"
   | "skill.list"

@@ -421,3 +421,69 @@ the link.
   without naming an agent gets `browser.defaultAgent` (a global setting, e.g.
   `"browser"`). If that definition is missing, a warning is logged and the
   session runs without an agent.
+* `browser.siteMemory` (default `true`) turns site memory on or off (§16).
+
+## 16. Site memory (addendum 20, protocol 1.9.0)
+
+The browser keeps a small structural map per site and page type, so the agent
+does not re-explore a site it has used before. Core stores it; the host builds,
+checks and uses it. `system.hello` advertises `siteMemory`.
+
+* **Methods.**
+  * `site.get {origin, path?, pageType?}` → `{entries}`. With `path` (path and
+    query), only entries whose `urlPattern` matches, most specific first: more
+    literal characters, then fewer `*`, then the most recently verified. A
+    pattern without `?` ignores the query. Stale entries are included, flagged.
+  * `site.put {origin, entry}` → `{entryId, created}`. Upsert by (origin,
+    pageType). Core keeps `entryId`, `createdAt` and the counts. The caller's
+    other fields replace the stored ones, and the put clears `stale` and counts
+    as a success.
+  * `site.mark {origin, entryId, outcome: "ok"|"stale", detail?}` → `{entry}`.
+    `ok` adds a success, sets `lastVerified` to now and clears `stale`. `stale`
+    adds a failure and sets `stale` until the next put.
+  * `site.list {origin?, limit?, cursor?, hostToolsFrom?}` → `{sites: [{origin,
+    entries, lastVerified, stale, pageTypes, successCount, failureCount}],
+    cursor?}`, by origin. `pageTypes` is sorted; the counts are summed over the
+    origin's entries.
+  * `site.delete {origin, entryId?, hostToolsFrom?}` → `{deleted}`. Without
+    `entryId`, every entry of the origin goes.
+* **Scope and callers.** Entries belong to one browser profile: the browser
+  client's `clientId`, the id its sessions carry as `hostToolsFrom` (§9). No
+  call reaches another profile.
+  * `get`, `put` and `mark`: only a `browser`-kind client with a `clientId`, on
+    its own profile. Everyone else gets `unauthorized`.
+  * `list` and `delete`: that browser client on its own profile, naming another
+    profile is `unauthorized`. Another owner client (desktop, TUI) must name the
+    profile with `hostToolsFrom`.
+  * Chat gateways may call none of them.
+* **What core refuses** (`invalid_params`, `details.field` names the field; the
+  value is never echoed):
+  * anything outside the schema, including unknown keys such as a `value` on
+    an action;
+  * XPath, either as a locator kind or as a CSS value starting with `/`, `(/`
+    or `xpath=`;
+  * more than 6 locators, or only CSS ones;
+  * a CSS `[value=…]` selector on a `loginField` action;
+  * control characters and newlines;
+  * strings that look like personal data or credentials: emails, phone numbers,
+    runs of 8+ digits, `password=`-style pairs, bearer tokens and well-known key
+    shapes. The fingerprint is checked for hash shape only. Core refuses rather
+    than strips, so a host bug that leaks data shows up instead of being hidden;
+  * an entry over 16 KB serialized;
+  * a 31st page type on an origin.
+* **Caps and retention.** Past 1,000 origins in a profile, a put for a new
+  origin first drops the least recently verified origin. On every call, before
+  anything else, core drops the profile's expired entries:
+  * entries not verified for 90 days;
+  * stale entries with 3 or more failures and no success (put or `ok`) for 30
+    days.
+* **Switch.** `browser.siteMemory` (global setting, default `true`; the
+  browser's 「사이트 구조 기억하기」 switch writes it with `settings.set`). When
+  it is `false`, `site.get`, `site.put` and `site.mark` answer `tool_inactive`
+  ("site memory is turned off"). `site.list` and `site.delete` keep working,
+  so the user can still see and clear what was remembered.
+* **Storage.** The `site_entries` table in `state.db`, created on open like the
+  other tables.
+* **Untrusted data.** Entries are page-derived. Core never puts them in a
+  prompt or a system message; the host shows them to the model fenced as
+  untrusted data.

@@ -14,6 +14,7 @@ import logging
 import sqlite3
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -53,6 +54,19 @@ CREATE TABLE IF NOT EXISTS messages (
     PRIMARY KEY (session_id, idx)
 );
 CREATE INDEX IF NOT EXISTS events_session_seq ON events (session_id, seq);
+CREATE TABLE IF NOT EXISTS site_entries (
+    entry_id      TEXT PRIMARY KEY,
+    profile       TEXT NOT NULL,
+    origin        TEXT NOT NULL,
+    page_type     TEXT NOT NULL,
+    entry_json    TEXT NOT NULL,
+    last_verified TEXT NOT NULL,
+    last_success  TEXT NOT NULL,
+    failure_count INTEGER NOT NULL DEFAULT 0,
+    stale         INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (profile, origin, page_type)
+);
+CREATE INDEX IF NOT EXISTS site_entries_profile_origin ON site_entries (profile, origin);
 """
 
 #: Columns added to ``sessions`` after the first release.  Applied on every
@@ -552,6 +566,181 @@ class Store:
             (session_id,),
         )
         return [{"role": row["role"], "content": json.loads(row["content_json"])} for row in rows]
+
+    # -- site memory (protocol 1.9.0) ----------------------------------
+    # One row per (browser profile, origin, page type).  ``entry_json`` is the
+    # whole wire entry; the other columns repeat what retention, eviction and
+    # listing filter on, and every write rewrites both together.
+
+    def _locked(self, work: Callable[[sqlite3.Connection], Any]) -> Any:
+        with self._lock:
+            if self._closed:
+                raise StoreClosed("session store is closed")
+            try:
+                result = work(self._conn)
+            except BaseException:
+                self._conn.rollback()
+                raise
+            self._conn.commit()
+            return result
+
+    @staticmethod
+    def _write_site_row(conn: sqlite3.Connection, profile: str, entry: dict[str, Any]) -> None:
+        # ``_lastSuccess`` is a column only; it never reaches the wire entry.
+        last_success = entry.pop("_lastSuccess")
+        conn.execute(
+            "INSERT OR REPLACE INTO site_entries (entry_id, profile, origin, page_type,"
+            " entry_json, last_verified, last_success, failure_count, stale)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                entry["entryId"],
+                profile,
+                entry["origin"],
+                entry["pageType"],
+                json.dumps(entry),
+                entry["lastVerified"],
+                last_success,
+                int(entry["failureCount"]),
+                int(bool(entry["stale"])),
+            ),
+        )
+
+    async def site_sweep(
+        self, profile: str, unverified_before: str, no_success_before: str, failures: int
+    ) -> int:
+        """Drop a profile's expired entries: unverified too long, or stale and failing."""
+        return int(
+            await asyncio.to_thread(
+                self._locked,
+                lambda conn: conn.execute(
+                    "DELETE FROM site_entries WHERE profile = ? AND (last_verified < ?"
+                    " OR (stale = 1 AND failure_count >= ? AND last_success < ?))",
+                    (profile, unverified_before, failures, no_success_before),
+                ).rowcount,
+            )
+        )
+
+    async def site_entries(self, profile: str, origin: str) -> list[dict[str, Any]]:
+        rows = await asyncio.to_thread(
+            self._query,
+            "SELECT entry_json FROM site_entries WHERE profile = ? AND origin = ?",
+            (profile, origin),
+        )
+        return [json.loads(row["entry_json"]) for row in rows]
+
+    async def site_put(
+        self,
+        profile: str,
+        origin: str,
+        page_type: str,
+        build: Callable[[dict[str, Any] | None], dict[str, Any]],
+        *,
+        max_per_origin: int,
+        max_origins: int,
+    ) -> tuple[dict[str, Any], bool, list[str]]:
+        """Upsert by (profile, origin, page type) in one transaction.
+
+        ``build(existing)`` returns the entry to store, with a private
+        ``_lastSuccess``; it may raise to refuse.  A new page type on a full
+        origin raises :class:`OverflowError`; a new origin past
+        ``max_origins`` evicts the least recently verified origins first.
+        Returns ``(entry, created, evicted_origins)``.
+        """
+
+        def work(conn: sqlite3.Connection) -> tuple[dict[str, Any], bool, list[str]]:
+            row = conn.execute(
+                "SELECT entry_json FROM site_entries"
+                " WHERE profile = ? AND origin = ? AND page_type = ?",
+                (profile, origin, page_type),
+            ).fetchone()
+            existing = json.loads(row["entry_json"]) if row is not None else None
+            evicted: list[str] = []
+            if existing is None:
+                count = conn.execute(
+                    "SELECT COUNT(*) AS n FROM site_entries WHERE profile = ? AND origin = ?",
+                    (profile, origin),
+                ).fetchone()["n"]
+                if count >= max_per_origin:
+                    raise OverflowError(f"{origin} already has {count} entries")
+                if count == 0:
+                    others = conn.execute(
+                        "SELECT origin, MAX(last_verified) AS lv FROM site_entries"
+                        " WHERE profile = ? GROUP BY origin ORDER BY lv ASC, origin ASC",
+                        (profile,),
+                    ).fetchall()
+                    excess = len(others) + 1 - max_origins
+                    evicted = [str(r["origin"]) for r in others[: max(excess, 0)]]
+                    for gone in evicted:
+                        conn.execute(
+                            "DELETE FROM site_entries WHERE profile = ? AND origin = ?",
+                            (profile, gone),
+                        )
+            entry = build(existing)
+            self._write_site_row(conn, profile, entry)
+            return entry, existing is None, evicted
+
+        return await asyncio.to_thread(self._locked, work)
+
+    async def site_update(
+        self,
+        profile: str,
+        origin: str,
+        entry_id: str,
+        change: Callable[[dict[str, Any]], dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        """Rewrite one entry through ``change`` (which sets ``_lastSuccess``)."""
+
+        def work(conn: sqlite3.Connection) -> dict[str, Any] | None:
+            row = conn.execute(
+                "SELECT entry_json, last_success FROM site_entries"
+                " WHERE profile = ? AND origin = ? AND entry_id = ?",
+                (profile, origin, entry_id),
+            ).fetchone()
+            if row is None:
+                return None
+            entry = json.loads(row["entry_json"])
+            entry["_lastSuccess"] = row["last_success"]
+            entry = change(entry)
+            self._write_site_row(conn, profile, entry)
+            return entry
+
+        return await asyncio.to_thread(self._locked, work)
+
+    async def site_list(
+        self, profile: str, origin: str | None, after: str | None, limit: int
+    ) -> list[dict[str, Any]]:
+        """Per-origin counts for one profile, by origin, after ``after``."""
+        sql = (
+            "SELECT origin, COUNT(*) AS entries, MAX(last_verified) AS last_verified,"
+            " SUM(stale) AS stale, SUM(failure_count) AS failure_count,"
+            " SUM(json_extract(entry_json, '$.successCount')) AS success_count,"
+            # Page types match [a-z0-9-], so a comma cannot occur inside one.
+            " GROUP_CONCAT(page_type, ',') AS page_types"
+            " FROM site_entries WHERE profile = ?"
+        )
+        params: list[Any] = [profile]
+        if origin is not None:
+            sql += " AND origin = ?"
+            params.append(origin)
+        if after is not None:
+            sql += " AND origin > ?"
+            params.append(after)
+        sql += " GROUP BY origin ORDER BY origin LIMIT ?"
+        params.append(int(limit))
+        rows = await asyncio.to_thread(self._query, sql, tuple(params))
+        return [dict(row) for row in rows]
+
+    async def site_delete(self, profile: str, origin: str, entry_id: str | None) -> int:
+        sql = "DELETE FROM site_entries WHERE profile = ? AND origin = ?"
+        params: tuple[Any, ...] = (profile, origin)
+        if entry_id is not None:
+            sql += " AND entry_id = ?"
+            params = (*params, entry_id)
+        return int(
+            await asyncio.to_thread(
+                self._locked, lambda conn: max(conn.execute(sql, params).rowcount, 0)
+            )
+        )
 
     def close(self) -> None:
         """Idempotent: a second call (e.g. from a double ``Daemon.stop``) is a no-op."""

@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.8.0"
+PROTOCOL_VERSION = "1.9.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -2545,6 +2545,190 @@ class MemoryIngestResult(Payload):
     removed: int = Field(default=0, description="For memory.delete by source: how many.")
 
 
+# --------------------------------------------------------------------------
+# site.* — site memory, learned per-site maps (1.9.0)
+# --------------------------------------------------------------------------
+
+#: How a stored locator finds its element.  XPath is deliberately absent: it
+#: breaks on any layout change and can address text a page did not label.
+SiteLocatorKind = Literal["role", "label", "text", "placeholder", "testid", "css"]
+SiteActionKind = Literal["click", "fill", "select", "toggle", "submit"]
+SiteMarkOutcome = Literal["ok", "stale"]
+
+#: Plain names chosen by the agent: a page type and an action name.
+SITE_NAME_PATTERN = r"^[a-z0-9-]{1,40}$"
+
+
+class SiteLocator(Payload):
+    """One way to find an element; ``role`` takes role (+ name), every other kind value."""
+
+    by: SiteLocatorKind = Field(description="Locator kind (1.9.0). Never XPath.")
+    role: str | None = Field(
+        default=None, max_length=40, description="With by 'role': the ARIA role."
+    )
+    name: str | None = Field(
+        default=None, max_length=200, description="With by 'role': the accessible name."
+    )
+    value: str | None = Field(
+        default=None,
+        max_length=200,
+        description="With every other kind: the label, text, placeholder, test id or CSS.",
+    )
+
+
+class SiteAction(Payload):
+    name: str = Field(pattern=SITE_NAME_PATTERN, description="Action name, [a-z0-9-]{1,40}.")
+    kind: SiteActionKind = Field(description="What the action does to its element.")
+    locators: list[SiteLocator] = Field(
+        min_length=1,
+        max_length=6,
+        description="At most 6, in the order to try; at least one is not 'css'.",
+    )
+    loginField: bool = Field(
+        default=False,
+        description="A login name or password input: locators only, never a value.",
+    )
+
+
+class SiteFlow(Payload):
+    name: str = Field(min_length=1, max_length=40, description="Flow name.")
+    steps: list[Annotated[str, Field(max_length=120)]] = Field(
+        default_factory=list, max_length=12, description="At most 12 steps of 120 chars."
+    )
+
+
+class SiteEntryInput(Payload):
+    """What the host sends to ``site.put``: structure only, no values (1.9.0)."""
+
+    pageType: str = Field(
+        pattern=SITE_NAME_PATTERN, description="Page type, [a-z0-9-]{1,40}, e.g. 'login'."
+    )
+    urlPattern: str = Field(
+        min_length=1,
+        max_length=200,
+        description="Path glob on the origin, starting with '/'; '*' = any segment chars.",
+    )
+    summary: str = Field(default="", max_length=300, description="What the page is.")
+    landmarks: list[Annotated[str, Field(max_length=80)]] = Field(
+        default_factory=list, max_length=20, description="At most 20 of 80 chars."
+    )
+    actions: list[SiteAction] = Field(
+        default_factory=list, max_length=30, description="At most 30."
+    )
+    flows: list[SiteFlow] = Field(default_factory=list, max_length=10, description="At most 10.")
+    pitfalls: list[Annotated[str, Field(max_length=160)]] = Field(
+        default_factory=list, max_length=10, description="At most 10 of 160 chars."
+    )
+    fingerprint: str | None = Field(
+        default=None,
+        max_length=200,
+        description="Structural hash of the page's AX skeleton, e.g. 'ax1:3f9a…'.",
+    )
+    lastVerified: str | None = Field(
+        default=None, description="UTC ISO time the host last verified it; default now."
+    )
+
+
+class SiteEntry(SiteEntryInput):
+    """A stored entry; strings are page-derived, untrusted data (1.9.0)."""
+
+    entryId: str = Field(description="Core-assigned id.")
+    origin: str = Field(description="Origin, e.g. 'https://www.example.com'.")
+    createdAt: str = Field(description="UTC ISO time of the first put.")
+    lastVerified: str = Field(  # type: ignore[assignment]
+        description="UTC ISO time of the last put or 'ok' mark."
+    )
+    successCount: int = Field(default=0, description="Puts and 'ok' marks.")
+    failureCount: int = Field(default=0, description="'stale' marks.")
+    stale: bool = Field(default=False, description="Marked stale and not replaced since.")
+
+
+class SiteGetParams(Payload):
+    origin: str = Field(description="Origin, e.g. 'https://www.example.com'.")
+    path: str | None = Field(
+        default=None,
+        max_length=2048,
+        description="Path (and query) on the origin: only entries whose urlPattern matches.",
+    )
+    pageType: str | None = Field(default=None, description="Only this page type.")
+
+
+class SiteGetResult(Payload):
+    entries: list[SiteEntry] = Field(
+        default_factory=list,
+        description="Most specific urlPattern first; stale entries included, flagged.",
+    )
+
+
+class SitePutParams(Payload):
+    origin: str = Field(description="Origin the entry belongs to.")
+    entry: SiteEntryInput = Field(description="The entry; upserted by (origin, pageType).")
+
+
+class SitePutResult(Payload):
+    entryId: str = Field(description="The entry's id.")
+    created: bool = Field(description="True when no entry for (origin, pageType) existed.")
+
+
+class SiteMarkParams(Payload):
+    origin: str = Field(description="Origin of the entry.")
+    entryId: str = Field(description="The entry.")
+    outcome: SiteMarkOutcome = Field(description="'ok' = verified use; 'stale' = it failed.")
+    detail: str | None = Field(
+        default=None, max_length=200, description="For the UI and log only."
+    )
+
+
+class SiteMarkResult(Payload):
+    entry: SiteEntry = Field(description="The entry after the mark.")
+
+
+class SiteListParams(Payload):
+    origin: str | None = Field(default=None, description="Only this origin.")
+    limit: int = Field(default=100, ge=1, le=500, description="Most sites per page.")
+    cursor: str | None = Field(default=None, description="From the previous page.")
+    hostToolsFrom: str | None = Field(
+        default=None,
+        description=(
+            "The browser profile (its clientId). Required from a UI client; a browser "
+            "client may only name its own."
+        ),
+    )
+
+
+class SiteSummary(Payload):
+    origin: str = Field(description="Origin.")
+    entries: int = Field(description="Entries stored for it.")
+    lastVerified: str = Field(description="Latest lastVerified of its entries.")
+    stale: int = Field(description="How many of them are stale.")
+    pageTypes: list[str] = Field(
+        default_factory=list, description="Distinct page types of its entries, sorted (1.9.0)."
+    )
+    successCount: int = Field(default=0, description="Sum over its entries (1.9.0).")
+    failureCount: int = Field(default=0, description="Sum over its entries (1.9.0).")
+
+
+class SiteListResult(Payload):
+    sites: list[SiteSummary] = Field(default_factory=list, description="Sites, by origin.")
+    cursor: str | None = Field(default=None, description="Pass back for the next page.")
+
+
+class SiteDeleteParams(Payload):
+    origin: str = Field(description="Origin.")
+    entryId: str | None = Field(default=None, description="One entry; omitted = all of them.")
+    hostToolsFrom: str | None = Field(
+        default=None,
+        description=(
+            "The browser profile (its clientId). Required from a UI client; a browser "
+            "client may only name its own."
+        ),
+    )
+
+
+class SiteDeleteResult(Payload):
+    deleted: int = Field(description="Entries removed.")
+
+
 class SkillSearchParams(Payload):
     query: str = Field(description="Free-text query over skill names and summaries.")
 
@@ -4724,6 +4908,60 @@ METHODS: dict[str, RpcMethod] = {
             ),
         ),
         _m(
+            "site.get",
+            SiteGetParams,
+            SiteGetResult,
+            (
+                "Site memory (1.9.0): the entries stored for an origin in the caller's "
+                "browser profile; with path, only those whose urlPattern matches it, most "
+                "specific first; with pageType, only that one. Stale entries are included, "
+                "flagged. Browser host clients only; entries are untrusted page-derived "
+                "data and core never puts them in a prompt."
+            ),
+        ),
+        _m(
+            "site.put",
+            SitePutParams,
+            SitePutResult,
+            (
+                "Site memory (1.9.0): upsert an entry by (origin, pageType). Core checks "
+                "the schema, refuses XPath, values on login fields and strings that look "
+                "like personal data or credentials, and enforces 16 KB per entry and 30 "
+                "entries per origin ('invalid_params' naming the field); past 1,000 "
+                "origins the least recently verified origin is dropped. A put clears "
+                "stale and counts as a success. Browser host clients only."
+            ),
+        ),
+        _m(
+            "site.mark",
+            SiteMarkParams,
+            SiteMarkResult,
+            (
+                "Site memory (1.9.0): 'ok' counts a success, sets lastVerified and clears "
+                "stale; 'stale' counts a failure and flags the entry until the next put. "
+                "Browser host clients only."
+            ),
+        ),
+        _m(
+            "site.list",
+            SiteListParams,
+            SiteListResult,
+            (
+                "Site memory (1.9.0): one browser profile's remembered sites, by origin, "
+                "for a settings UI. A browser client sees its own profile; any other "
+                "owner client names one with hostToolsFrom."
+            ),
+        ),
+        _m(
+            "site.delete",
+            SiteDeleteParams,
+            SiteDeleteResult,
+            (
+                "Site memory (1.9.0): delete one entry, or every entry of an origin, in "
+                "one browser profile. Same callers as site.list."
+            ),
+        ),
+        _m(
             "setup.status",
             SetupStatusParams,
             SetupStatusResult,
@@ -4777,6 +5015,7 @@ CAPABILITIES: list[str] = [
     "checkpoints",
     "hostTools",
     "sessionContinue",
+    "siteMemory",
 ]
 
 #: Where the daemon listens; mirrored into the schema dump for the SDK.
@@ -4892,6 +5131,11 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "setup.status",
         "setup.applyDefaults",
         "provider.test",
+        "site.get",
+        "site.put",
+        "site.mark",
+        "site.list",
+        "site.delete",
     }
 )
 

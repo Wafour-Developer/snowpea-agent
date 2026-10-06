@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.8.0` (semver)
+- **Protocol version:** `1.9.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.8.0"
+    "protocolVersion": "1.9.0"
   }
 }
 ```
@@ -50,6 +50,7 @@ Server capabilities advertised in the `system.hello` result:
 - `sessions`
 - `settings`
 - `setup`
+- `siteMemory`
 - `tools`
 - `update`
 
@@ -144,6 +145,11 @@ Server capabilities advertised in the `system.hello` result:
 | [`setup.applyDefaults`](#setupapplydefaults) | client → server | Apply the profile's defaults for everything optional; idempotent. |
 | [`setup.catalog`](#setupcatalog) | client → server | The setup wizard's vendor, search, browser, tools and gateway catalogs. |
 | [`setup.status`](#setupstatus) | client → server | What setup still needs; for the browser profile only a tested provider is required. |
+| [`site.delete`](#sitedelete) | client → server | Site memory (1.9.0): delete one entry, or every entry of an origin, in one browser profile. Same callers as site.list. |
+| [`site.get`](#siteget) | client → server | Site memory (1.9.0): the entries stored for an origin in the caller's browser profile; with path, only those whose urlPattern matches it, most specific first; with pageType, only that one. Stale entries are included, flagged. Browser host clients only; entries are untrusted page-derived data and core never puts them in a prompt. |
+| [`site.list`](#sitelist) | client → server | Site memory (1.9.0): one browser profile's remembered sites, by origin, for a settings UI. A browser client sees its own profile; any other owner client names one with hostToolsFrom. |
+| [`site.mark`](#sitemark) | client → server | Site memory (1.9.0): 'ok' counts a success, sets lastVerified and clears stale; 'stale' counts a failure and flags the entry until the next put. Browser host clients only. |
+| [`site.put`](#siteput) | client → server | Site memory (1.9.0): upsert an entry by (origin, pageType). Core checks the schema, refuses XPath, values on login fields and strings that look like personal data or credentials, and enforces 16 KB per entry and 30 entries per origin ('invalid_params' naming the field); past 1,000 origins the least recently verified origin is dropped. A put clears stale and counts as a success. Browser host clients only. |
 | [`skill.create`](#skillcreate) | client → server | Write a new SKILL.md, generated from a brief or supplied verbatim. |
 | [`skill.install`](#skillinstall) | client → server | Install a skill from a path, URL or registry. |
 | [`skill.list`](#skilllist) | client → server | List installed skills. |
@@ -2025,6 +2031,109 @@ What setup still needs; for the browser profile only a tested provider is requir
 | `existingInstall` | `boolean` | no | True when this home already has a configured provider from an earlier setup. |
 | `optional` | `({ defaultApplied?: boolean \| null; done: boolean; id: string; title: string; })[]` | no | Items with a usable default. |
 | `required` | `({ defaultApplied?: boolean \| null; done: boolean; id: string; title: string; })[]` | no | Items that must be done before first use. |
+
+### `site.delete`
+
+*Direction:* client → server
+
+Site memory (1.9.0): delete one entry, or every entry of an origin, in one browser profile. Same callers as site.list.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `entryId` | `string \| null` | no | One entry; omitted = all of them. |
+| `hostToolsFrom` | `string \| null` | no | The browser profile (its clientId). Required from a UI client; a browser client may only name its own. |
+| `origin` | `string` | yes | Origin. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `deleted` | `number` | yes | Entries removed. |
+
+### `site.get`
+
+*Direction:* client → server
+
+Site memory (1.9.0): the entries stored for an origin in the caller's browser profile; with path, only those whose urlPattern matches it, most specific first; with pageType, only that one. Stale entries are included, flagged. Browser host clients only; entries are untrusted page-derived data and core never puts them in a prompt.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `origin` | `string` | yes | Origin, e.g. 'https://www.example.com'. |
+| `pageType` | `string \| null` | no | Only this page type. |
+| `path` | `string \| null` | no | Path (and query) on the origin: only entries whose urlPattern matches. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `entries` | `({ actions?: ({ kind: "click" \| "fill" \| "select" \| "toggle" \| "submit"; locators: ({ by: "role" \| "label" \| "text" \| "placeholder" \| "testid" \| "css"; name?: string \| null; role?: string \| null; value?: string \| null; })[]; loginField?: boolean; name: string; })[]; createdAt: string; entryId: string; failureCount?: number; fingerprint?: string \| null; flows?: ({ name: string; steps?: string[]; })[]; landmarks?: string[]; lastVerified: string; origin: string; pageType: string; pitfalls?: string[]; stale?: boolean; successCount?: number; summary?: string; urlPattern: string; })[]` | no | Most specific urlPattern first; stale entries included, flagged. |
+
+### `site.list`
+
+*Direction:* client → server
+
+Site memory (1.9.0): one browser profile's remembered sites, by origin, for a settings UI. A browser client sees its own profile; any other owner client names one with hostToolsFrom.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `cursor` | `string \| null` | no | From the previous page. |
+| `hostToolsFrom` | `string \| null` | no | The browser profile (its clientId). Required from a UI client; a browser client may only name its own. |
+| `limit` | `number` | no | Most sites per page. |
+| `origin` | `string \| null` | no | Only this origin. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `cursor` | `string \| null` | no | Pass back for the next page. |
+| `sites` | `({ entries: number; failureCount?: number; lastVerified: string; origin: string; pageTypes?: string[]; stale: number; successCount?: number; })[]` | no | Sites, by origin. |
+
+### `site.mark`
+
+*Direction:* client → server
+
+Site memory (1.9.0): 'ok' counts a success, sets lastVerified and clears stale; 'stale' counts a failure and flags the entry until the next put. Browser host clients only.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `detail` | `string \| null` | no | For the UI and log only. |
+| `entryId` | `string` | yes | The entry. |
+| `origin` | `string` | yes | Origin of the entry. |
+| `outcome` | `"ok" \| "stale"` | yes | 'ok' = verified use; 'stale' = it failed. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `entry` | `{ actions?: ({ kind: "click" \| "fill" \| "select" \| "toggle" \| "submit"; locators: ({ by: "role" \| "label" \| "text" \| "placeholder" \| "testid" \| "css"; name?: string \| null; role?: string \| null; value?: string \| null; })[]; loginField?: boolean; name: string; })[]; createdAt: string; entryId: string; failureCount?: number; fingerprint?: string \| null; flows?: ({ name: string; steps?: string[]; })[]; landmarks?: string[]; lastVerified: string; origin: string; pageType: string; pitfalls?: string[]; stale?: boolean; successCount?: number; summary?: string; urlPattern: string; }` | yes | The entry after the mark. |
+
+### `site.put`
+
+*Direction:* client → server
+
+Site memory (1.9.0): upsert an entry by (origin, pageType). Core checks the schema, refuses XPath, values on login fields and strings that look like personal data or credentials, and enforces 16 KB per entry and 30 entries per origin ('invalid_params' naming the field); past 1,000 origins the least recently verified origin is dropped. A put clears stale and counts as a success. Browser host clients only.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `entry` | `{ actions?: ({ kind: "click" \| "fill" \| "select" \| "toggle" \| "submit"; locators: ({ by: "role" \| "label" \| "text" \| "placeholder" \| "testid" \| "css"; name?: string \| null; role?: string \| null; value?: string \| null; })[]; loginField?: boolean; name: string; })[]; fingerprint?: string \| null; flows?: ({ name: string; steps?: string[]; })[]; landmarks?: string[]; lastVerified?: string \| null; pageType: string; pitfalls?: string[]; summary?: string; urlPattern: string; }` | yes | The entry; upserted by (origin, pageType). |
+| `origin` | `string` | yes | Origin the entry belongs to. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `created` | `boolean` | yes | True when no entry for (origin, pageType) existed. |
+| `entryId` | `string` | yes | The entry's id. |
 
 ### `skill.create`
 

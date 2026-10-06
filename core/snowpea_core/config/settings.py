@@ -371,6 +371,11 @@ class BrowserSettings(_Model):
     #: Agent definition a session gets when a browser-kind client creates it
     #: without naming one (addendum 17), e.g. the plugin's ``browser`` agent.
     defaultAgent: str | None = None
+    #: Site memory (addendum 20): False refuses ``site.get`` / ``site.put`` /
+    #: ``site.mark``; ``site.list`` / ``site.delete`` keep working so the user
+    #: can still see and clear what was remembered.  The browser's
+    #: "remember site structure" switch writes it through ``settings.set``.
+    siteMemory: bool = True
 
 
 class ToolsSettings(_Model):
