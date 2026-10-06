@@ -59,6 +59,11 @@ THINKING_CHOICES: tuple[str, ...] = ("on", "off", "auto")
 EFFORT_CHOICES: tuple[str, ...] = ("low", "medium", "high", "max")
 DEFAULT_EFFORT = "medium"
 
+#: Earlier built-in default teams (sorted), upgraded to DEFAULT_AGENT_TEAM on load.
+_PREVIOUS_DEFAULT_TEAMS: tuple[list[str], ...] = (
+    sorted(["architect", "critic", "executor", "explorer", "test-engineer", "verifier"]),
+)
+
 DEFAULT_AGENT_TEAM: tuple[str, ...] = (
     "architect",
     "critic",
@@ -694,6 +699,12 @@ class Settings(_Model):
         if not settings.agents.teams and "agents" in raw:
             settings.agents.teams["default"] = list(DEFAULT_AGENT_TEAM)
             settings.agents.default_team = "default"
+        # A default team saved before a role joined the built-in roster (writer)
+        # is still exactly the old built-in list: it was never customised, so
+        # it follows the roster. A team the user edited is left alone.
+        default = settings.agents.teams.get("default")
+        if default is not None and sorted(default) in _PREVIOUS_DEFAULT_TEAMS:
+            settings.agents.teams["default"] = list(DEFAULT_AGENT_TEAM)
         return settings
 
     @model_validator(mode="after")

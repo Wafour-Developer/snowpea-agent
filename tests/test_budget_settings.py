@@ -130,3 +130,24 @@ def test_subagent_default_and_role_override_are_independent_of_main() -> None:
     assert tool_rounds_for(core) == 700
     assert tool_rounds_for(core, SimpleNamespace(agent="executor", is_subagent=True)) == 60
     assert tool_rounds_for(core, SimpleNamespace(agent="reviewer", is_subagent=True)) == 12
+
+
+def test_an_untouched_default_team_gains_new_built_in_roles(tmp_path) -> None:
+    import json
+
+    from snowpea_core.config.paths import Paths
+    from snowpea_core.config.settings import DEFAULT_AGENT_TEAM
+
+    paths = Paths(home=tmp_path)
+    old = ["architect", "critic", "executor", "explorer", "test-engineer", "verifier"]
+    paths.settings_json.write_text(
+        json.dumps({"agents": {"teams": {"default": old}}}), encoding="utf-8"
+    )
+    loaded = Settings.load(paths)
+    assert loaded.agents.teams["default"] == list(DEFAULT_AGENT_TEAM)
+    assert "writer" in loaded.agents.teams["default"]
+    custom = ["executor", "verifier"]
+    paths.settings_json.write_text(
+        json.dumps({"agents": {"teams": {"default": custom}}}), encoding="utf-8"
+    )
+    assert Settings.load(paths).agents.teams["default"] == custom
