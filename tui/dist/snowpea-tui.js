@@ -37565,7 +37565,7 @@ function chipLabel(attachment) {
 }
 
 // src/version.ts
-var TUI_VERSION = "0.2.27";
+var TUI_VERSION = "0.2.28";
 
 // src/layout/transcript.ts
 var TOOL_OUTPUT_LINES = 12;
