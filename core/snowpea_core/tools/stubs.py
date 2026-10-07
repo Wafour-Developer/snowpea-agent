@@ -80,7 +80,7 @@ TOOLS: tuple[Tool, ...] = (
         ["id"],
     ),
     _tool(
-        "memory_write",
+        "save_memory",
         "memory",
         "write",
         "Store a durable note the agent can recall in later sessions.",
@@ -96,7 +96,7 @@ TOOLS: tuple[Tool, ...] = (
         ["text"],
     ),
     _tool(
-        "memory_search",
+        "search_memory",
         "memory",
         "read",
         "Search stored memories and return the matching notes.",

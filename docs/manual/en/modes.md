@@ -4,12 +4,14 @@ Every tool carries one permission tag. The mode decides what happens to each tag
 
 | tag | tools |
 |---|---|
-| `read` | `read_file`, `list_dir`, `glob`, `grep`, `git_status`, `git_diff`, `git_log`, `process_list`, `memory_search`, `transcribe_audio`, `skill_search`, `skill_list`, `ask_user`, `set_mode` |
-| `write` | `write_file`, `edit_file`, `git_commit`, `memory_write` |
+| `read` | `read_file`, `list_dir`, `glob`, `grep`, `git_status`, `git_diff`, `git_log`, `process_list`, `search_memory`, `transcribe_audio`, `skill_search`, `skill_list`, `ask_user`, `set_mode` |
+| `write` | `write_file`, `edit_file`, `git_commit`, `save_memory` |
 | `exec` | `shell`, `execute_code`, `process_kill`, `skill_install`, `skill_remove` |
 | `delegate` | `delegate_task` — the child inherits the session's mode, so delegating can never do more than the parent may; the child's own calls are what get asked |
 | `network` | `web_search`, `web_extract`, `browser_*`, media tools, `text_to_speech`, MCP servers by default |
 | `send` | `schedule_create`, `schedule_list`, `schedule_cancel` |
+
+The memory tools are `save_memory` and `search_memory` since 0.2.28. The old names `memory_write` / `memory_search` still mean them in an agent definition's `tools`, a skill's `allowed-tools` and the allowlist, and a call by another agent's name (`update_memory`, `add_memory`, `memory`, `recall`, …) reaches them too.
 
 ## The matrix
 

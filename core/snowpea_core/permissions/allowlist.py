@@ -28,6 +28,7 @@ from typing import Any, Literal
 from snowpea_core.config.paths import Paths
 from snowpea_core.config.project import AllowlistEntry, ProjectSettings
 from snowpea_core.config.settings import Settings
+from snowpea_core.tools.renames import former_names
 
 log = logging.getLogger("snowpea.permissions.allowlist")
 
@@ -304,12 +305,13 @@ class Allowlist:
         command = command_of(args or {})
         is_shell = permission == "exec" or name in SHELL_TOOLS
         shell_subject = command if (command and is_shell) else None
-        wanted_tool_target = tool_target(name)
+        # A rule saved under a tool's old name (memory_write) still covers it.
+        wanted_tool_targets = {tool_target(n) for n in (name, *former_names(name))}
         for item in self.list(workdir=workdir, host=host, any_host=False):
             if item.target == SHELL_TARGET:
                 subject = shell_subject
-            elif item.target == wanted_tool_target:
-                subject = name
+            elif item.target in wanted_tool_targets:
+                subject = item.target[len("tool:") :]
             else:
                 continue
             if item.origin and item.origin != call_site:

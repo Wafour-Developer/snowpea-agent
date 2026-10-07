@@ -43,12 +43,12 @@ GLOBAL_ENTRIES = 10
 PREAMBLE = (
     "What you already know about this user and this project, from earlier "
     "sessions. Treat it as background you start the conversation with, not "
-    "something to recite back. memory_search finds anything not listed here."
+    "something to recite back. search_memory finds anything not listed here."
 )
 PROJECT_HEADING = "## Project memory ({name})"
 PROFILE_HEADING = "## About the user"
 GLOBAL_HEADING = "## Global memory"
-MORE = "… and {count} more — memory_search finds the rest"
+MORE = "… and {count} more — search_memory finds the rest"
 #: Appended to the preamble so the model can see how full the project scope is
 #: and consolidate before the budget starts dropping entries (M15 §D3).  The
 #: two ceilings are ``memory.digestEntries`` and ``memory.digestChars``, which

@@ -321,10 +321,10 @@ async def test_memory_tools_are_active(home: Path, http: aiohttp.ClientSession) 
     try:
         client = await connect(http, daemon)
         tools = {tool["name"]: tool for tool in (await client.ok("tool.list"))["tools"]}
-        assert tools["memory_write"]["state"] == "active"
-        assert tools["memory_search"]["state"] == "active"
-        assert tools["memory_write"]["permissionTag"] == "write"
-        assert tools["memory_search"]["permissionTag"] == "read"
+        assert tools["save_memory"]["state"] == "active"
+        assert tools["search_memory"]["state"] == "active"
+        assert tools["save_memory"]["permissionTag"] == "write"
+        assert tools["search_memory"]["permissionTag"] == "read"
     finally:
         await daemon.stop()
 

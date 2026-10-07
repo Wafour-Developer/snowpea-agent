@@ -6,8 +6,8 @@
 
 | 标签 | 工具 |
 |---|---|
-| `read` | `read_file`, `list_dir`, `glob`, `grep`, `git_status`, `git_diff`, `git_log`, `process_list`, `memory_search`, `transcribe_audio` |
-| `write` | `write_file`, `edit_file`, `git_commit`, `memory_write` |
+| `read` | `read_file`, `list_dir`, `glob`, `grep`, `git_status`, `git_diff`, `git_log`, `process_list`, `search_memory`, `transcribe_audio` |
+| `write` | `write_file`, `edit_file`, `git_commit`, `save_memory` |
 | `exec` | `shell`, `process_kill`, `delegate_task` |
 | `network` | `web_search`, `web_extract`, `browser_*`, 媒体工具, `text_to_speech`, 默认还有 MCP server |
 | `send` | `schedule_create`, `schedule_list`, `schedule_cancel` |

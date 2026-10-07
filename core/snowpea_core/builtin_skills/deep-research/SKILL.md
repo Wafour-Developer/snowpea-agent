@@ -2,7 +2,7 @@
 name: deep-research
 description: Multi-source web research that fans out over subagents and answers with citations.
 argument-hint: "<question or topic>"
-allowed-tools: [web_search, web_extract, delegate_task, read_file, glob, grep, memory_write, memory_search]
+allowed-tools: [web_search, web_extract, delegate_task, read_file, glob, grep, save_memory, search_memory]
 ---
 
 # Deep research
@@ -28,7 +28,7 @@ language, followed by a one-line gloss when the report's language differs.
 
 ### 1. Check what is already known
 
-Call `memory_search` on the question's key terms first. A previous session may
+Call `search_memory` on the question's key terms first. A previous session may
 have answered part of this, and repeating the search costs the user time and
 tokens for nothing. If the repository is the subject of the question, read the
 relevant files before you search the web: local facts beat web facts about local
@@ -102,7 +102,7 @@ moving library is worse than no answer.
 - [<title>](<url>) — <what it is: spec, docs, blog, issue thread>
 ```
 
-Then call `memory_write` once with the short answer and the two or three most
+Then call `save_memory` once with the short answer and the two or three most
 load-bearing URLs, tagged `research`, so the next session inherits the result
 instead of the search.
 
@@ -128,7 +128,7 @@ originals:
   across many runs, keeps `.omc/autoresearch/<slug>/` with per-iteration
   evaluation JSON and a decision log, and stops on a max-runtime ceiling. This
   skill answers one question in one turn; what persists is a single
-  `memory_write`, which is snowpea's replacement for that artifact tree.
+  `save_memory`, which is snowpea's replacement for that artifact tree.
 - **No evaluator contract.** `autoresearch` requires a structured evaluator
   emitting `{pass, score}` and iterates through failures. Research questions have
   no such predicate, so the stopping rule here is facet coverage plus an explicit

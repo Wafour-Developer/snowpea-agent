@@ -518,7 +518,7 @@ class MemorySettings(_Model):
     auto_remember_patterns: list[str] = Field(
         default_factory=lambda: list(DEFAULT_REMEMBER_PATTERNS)
     )
-    #: True lets ``memory_write`` ask the human whether a note belongs to this
+    #: True lets ``save_memory`` ask the human whether a note belongs to this
     #: project or to every project when the model did not say (M5 §1b).
     #: False skips the question and files it under the project.
     askScope: bool = True

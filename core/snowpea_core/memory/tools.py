@@ -1,10 +1,12 @@
-"""The ``memory_write`` / ``memory_search`` tools (M5 contract §1, §1b).
+"""The ``save_memory`` / ``search_memory`` tools (M5 contract §1, §1b).
 
 These replace the inactive M5 placeholders registered by
 ``tools/stubs.py``: registering a tool under an existing name overwrites it, so
-``register_memory_tools`` is called after the builtin catalog.
+``register_memory_tools`` is called after the builtin catalog.  They were
+``memory_write`` / ``memory_search`` before; see ``tools/renames.py`` for why
+and for the old names that still resolve.
 
-``memory_write`` is the one tool that will stop and ask a human a question
+``save_memory`` is the one tool that will stop and ask a human a question
 before it does its job.  "Remember this" is ambiguous in a way most tool calls
 are not — the same sentence means "for this repo" and "for me, everywhere"
 depending on who says it — and guessing wrong is invisible until the memory
@@ -32,7 +34,10 @@ from snowpea_core.tools.registry import Tool, ToolContext, ToolRegistry, ToolRes
 WRITE_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
-        "text": {"type": "string", "description": "What to remember."},
+        "text": {
+            "type": "string",
+            "description": "The fact to remember, in the user's own words.",
+        },
         "tags": {
             "type": "array",
             "items": {"type": "string"},
@@ -55,7 +60,10 @@ WRITE_SCHEMA: dict[str, Any] = {
 SEARCH_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
-        "query": {"type": "string", "description": "What to look for."},
+        "query": {
+            "type": "string",
+            "description": "Words to look for, e.g. 'deploy target'.",
+        },
         "limit": {"type": "integer", "description": "Maximum number of memories to return."},
     },
     "required": ["query"],
@@ -102,7 +110,7 @@ def _unattended(session: Any) -> bool:
 
 
 def scope_question(project: str) -> QuestionItem:
-    """The single question ``memory_write`` asks when no scope was passed."""
+    """The single question ``save_memory`` asks when no scope was passed."""
     return QuestionItem(
         header=SCOPE_HEADER,
         question=SCOPE_QUESTION.format(project=project),
@@ -133,7 +141,7 @@ def _chosen(selected: list[str]) -> str | None:
 
 
 async def resolve_namespace(ctx: ToolContext, scope: str | None) -> tuple[str | None, str]:
-    """Which namespace ``memory_write`` should use, asking the human if needed.
+    """Which namespace ``save_memory`` should use, asking the human if needed.
 
     Returns ``(namespace, reason)``.  ``namespace`` is ``None`` when nothing
     should be written, and ``reason`` is then the text the model is shown.
@@ -184,11 +192,11 @@ async def resolve_namespace(ctx: ToolContext, scope: str | None) -> tuple[str | 
     return (project if picked == "project" else GLOBAL_NAMESPACE), ""
 
 
-async def memory_write(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
+async def save_memory(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     """Store one durable note, in the scope the user chose."""
     text = str(args.get("text") or "").strip()
     if not text:
-        return ToolResult(ok=False, error="memory_write needs a non-empty text")
+        return ToolResult(ok=False, error="save_memory needs a non-empty text")
     raw_scope = str(args.get("scope") or "").strip().lower() or None
     if raw_scope is not None and raw_scope not in {"project", "global"}:
         return ToolResult(
@@ -217,11 +225,11 @@ async def memory_write(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     )
 
 
-async def memory_search(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
+async def search_memory(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     """Recall memories matching a query, best first, across every scope."""
     query = str(args.get("query") or "").strip()
     if not query:
-        return ToolResult(ok=False, error="memory_search needs a non-empty query")
+        return ToolResult(ok=False, error="search_memory needs a non-empty query")
     try:
         limit = int(args.get("limit") or 0)
     except (TypeError, ValueError):
@@ -239,20 +247,20 @@ async def memory_search(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
 
 TOOLS: tuple[Tool, ...] = (
     Tool(
-        name="memory_write",
+        name="save_memory",
         category="memory",
         description=descriptions.MEMORY_WRITE,
         input_schema=WRITE_SCHEMA,
         permission="write",
-        run=memory_write,
+        run=save_memory,
     ),
     Tool(
-        name="memory_search",
+        name="search_memory",
         category="memory",
         description=descriptions.MEMORY_SEARCH,
         input_schema=SEARCH_SCHEMA,
         permission="read",
-        run=memory_search,
+        run=search_memory,
     ),
 )
 
@@ -276,8 +284,8 @@ __all__ = [
     "TOOLS",
     "WRITE_SCHEMA",
     "format_entry",
-    "memory_search",
-    "memory_write",
+    "search_memory",
+    "save_memory",
     "register_memory_tools",
     "resolve_namespace",
     "scope_question",

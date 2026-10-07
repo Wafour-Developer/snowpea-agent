@@ -2,7 +2,7 @@
 name: deep-interview
 description: Socratic interview that scores ambiguity and refuses to hand off until the spec is clear.
 argument-hint: "<a vague idea, in one line>"
-allowed-tools: [read_file, list_dir, glob, grep, git_status, git_diff, plan_save, memory_write, memory_search, ask_user, queue_command]
+allowed-tools: [read_file, list_dir, glob, grep, git_status, git_diff, plan_save, save_memory, search_memory, ask_user, queue_command]
 ---
 
 # Deep interview
@@ -96,7 +96,7 @@ ambiguity 0.42 — weakest: Verification (0.8)
 1. **Look before you ask.** Before the first question, use `list_dir`, `glob`,
    `grep` and `read_file` to find out whether this is an existing feature or a
    new one, and what the surrounding code already does. Never ask the user for a
-   fact the repository will tell you. Call `memory_search` once on the idea's key
+   fact the repository will tell you. Call `search_memory` once on the idea's key
    nouns in case an earlier session already settled some of this.
 
 2. **One question per turn.** Never batch. A batched question gets a batched
@@ -158,7 +158,7 @@ the whole markdown, `source: "deep-interview"`, and `steps` = its acceptance
 criteria in order (`[{"title": …}]`). That file (`.snowpea/plans/current.md`)
 is what `/ralph`, `/team` and `/ultrawork` build from when the user just says go.
 
-Then call `memory_write` once with a two or three sentence summary of the
+Then call `save_memory` once with a two or three sentence summary of the
 decisions that were reached, tagged `spec` and with the project's name, so a
 later session starts where this one ended.
 
@@ -230,7 +230,7 @@ The method is the same; these things are not:
 - **No state file and no resume.** OMC persists interview state through
   `state_write(mode="deep-interview")` so an interrupted interview can continue.
   Here the session history is the state; what survives the session is the one
-  `memory_write` call at the end.
+  `save_memory` call at the end.
 - **No `explore` subagent and no challenge agents.** OMC delegates codebase
   reconnaissance to a haiku `explore` agent and rotates in challenger personas at
   round thresholds. This skill reads the repository itself with the read-only

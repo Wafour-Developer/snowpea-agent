@@ -1922,7 +1922,7 @@ def _repair_calls(core: Core, session: Session, calls: list[ToolCall]) -> list[T
     next shows the call that actually ran.
     """
     # Every registered name, not only the active ones: a deferred tool called
-    # by an alias (update_memory -> memory_write) is loaded on first use.
+    # by an alias (update_memory -> save_memory) is loaded on first use.
     known = list(core.tools.names())
     for call in calls:
         tool = core.tools.get(call.name, session)

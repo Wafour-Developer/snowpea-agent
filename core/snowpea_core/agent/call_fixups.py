@@ -58,21 +58,26 @@ ALIASES: dict[str, str] = {
     "webfetch": "web_extract",
     "web_fetch": "web_extract",
     "fetch": "web_extract",
-    # Memory, as other agents name it (Hermes' "memory", Claude-style
-    # "update_memory"): an unknown name used to be refused with a suggestion
-    # of plan_update_step.
-    "update_memory": "memory_write",
-    "save_memory": "memory_write",
-    "add_memory": "memory_write",
-    "memory_add": "memory_write",
-    "memory_save": "memory_write",
-    "store_memory": "memory_write",
-    "remember": "memory_write",
-    "memory": "memory_write",
-    "search_memory": "memory_search",
-    "recall": "memory_search",
-    "memory_recall": "memory_search",
-    "read_memory": "memory_search",
+    # Memory, as other agents name it (Hermes' "memory", Cursor's
+    # "update_memory", mem0's "add_memory"), and snowpea's own names before the
+    # rename (tools/renames.py): an unknown name used to be refused with a
+    # suggestion of plan_update_step.
+    "memory_write": "save_memory",
+    "update_memory": "save_memory",
+    "add_memory": "save_memory",
+    "create_memory": "save_memory",
+    "write_memory": "save_memory",
+    "memory_add": "save_memory",
+    "memory_save": "save_memory",
+    "store_memory": "save_memory",
+    "remember": "save_memory",
+    "memory": "save_memory",
+    "memory_search": "search_memory",
+    "recall": "search_memory",
+    "memory_recall": "search_memory",
+    "read_memory": "search_memory",
+    "query_memory": "search_memory",
+    "find_memory": "search_memory",
 }
 
 

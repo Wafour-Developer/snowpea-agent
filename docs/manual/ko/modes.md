@@ -4,12 +4,14 @@
 
 | 태그 | 툴 |
 |---|---|
-| `read` | `read_file`, `list_dir`, `glob`, `grep`, `git_status`, `git_diff`, `git_log`, `process_list`, `memory_search`, `transcribe_audio`, `skill_search`, `skill_list`, `ask_user`, `set_mode` |
-| `write` | `write_file`, `edit_file`, `git_commit`, `memory_write` |
+| `read` | `read_file`, `list_dir`, `glob`, `grep`, `git_status`, `git_diff`, `git_log`, `process_list`, `search_memory`, `transcribe_audio`, `skill_search`, `skill_list`, `ask_user`, `set_mode` |
+| `write` | `write_file`, `edit_file`, `git_commit`, `save_memory` |
 | `exec` | `shell`, `execute_code`, `process_kill`, `skill_install`, `skill_remove` |
 | `delegate` | `delegate_task` — 자식은 세션의 모드를 물려받으므로 위임 자체는 부모보다 더 할 수 없고, 승인은 자식의 개별 호출에서 묻습니다 |
 | `network` | `web_search`, `web_extract`, `browser_*`, 미디어 툴, `text_to_speech`, 기본적으로 MCP 서버 |
 | `send` | `schedule_create`, `schedule_list`, `schedule_cancel` |
+
+메모리 툴은 0.2.28부터 `save_memory`(기억 저장) / `search_memory`(기억 검색)입니다. 이전 이름 `memory_write` / `memory_search`는 에이전트 정의의 `tools`, 스킬의 `allowed-tools`, allowlist에서 계속 같은 툴을 뜻하고, 다른 에이전트가 쓰는 이름(`update_memory`, `add_memory`, `memory`, `recall` 등)으로 호출해도 이 두 툴로 연결됩니다.
 
 ## 매트릭스
 

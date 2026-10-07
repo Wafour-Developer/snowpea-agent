@@ -430,7 +430,7 @@ class MemoryStore:
         """True when this exact text is already remembered in *any* namespace given.
 
         The auto-remember nudge asks across every scope the session can see, so
-        a fact the scope-aware ``memory_write`` already filed under the project
+        a fact the scope-aware ``save_memory`` already filed under the project
         is not written a second time globally (M5 §1b).
         """
         wanted = _unique(namespaces)

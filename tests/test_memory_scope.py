@@ -43,8 +43,8 @@ from snowpea_core.memory.tools import (
     NO_ANSWER,
     OPTION_GLOBAL,
     OPTION_PROJECT,
-    memory_search,
-    memory_write,
+    save_memory,
+    search_memory,
 )
 from snowpea_core.session.questions import QuestionQueue
 from snowpea_core.session.session import Session
@@ -78,7 +78,7 @@ class _Origin:
 
 
 class _Core:
-    """The smallest Core-shaped thing ``memory_write`` reaches into."""
+    """The smallest Core-shaped thing ``save_memory`` reaches into."""
 
     def __init__(self, services: MemoryServices, *, timeout_sec: int = 600) -> None:
         self.memory = services
@@ -155,7 +155,7 @@ async def test_session_derives_its_namespace_from_the_workdir(tmp_path: Path) ->
 
 
 # ---------------------------------------------------------------------------
-# (2) memory_write with an explicit scope
+# (2) save_memory with an explicit scope
 # ---------------------------------------------------------------------------
 
 
@@ -166,8 +166,8 @@ async def test_explicit_scope_skips_the_question(services: MemoryServices, tmp_p
     ctx = ctx_for(core, root)
     ctx.session.origin_conn = origin
 
-    project = await memory_write(ctx, {"text": "빌드는 uv run", "scope": "project"})
-    glob = await memory_write(ctx, {"text": "이름은 whitevil", "scope": "global"})
+    project = await save_memory(ctx, {"text": "빌드는 uv run", "scope": "project"})
+    glob = await save_memory(ctx, {"text": "이름은 whitevil", "scope": "global"})
 
     assert origin.asked == [], "an explicit scope must never ask"
     assert project.meta is not None and project.meta["scope"] == "project"
@@ -178,7 +178,7 @@ async def test_explicit_scope_skips_the_question(services: MemoryServices, tmp_p
 
 
 async def test_an_unknown_scope_is_refused(services: MemoryServices, tmp_path: Path) -> None:
-    result = await memory_write(
+    result = await save_memory(
         ctx_for(_Core(services), git_repo(tmp_path / "repo")),
         {"text": "x", "scope": "team"},
     )
@@ -187,7 +187,7 @@ async def test_an_unknown_scope_is_refused(services: MemoryServices, tmp_path: P
 
 
 # ---------------------------------------------------------------------------
-# (3) memory_write without a scope: the question
+# (3) save_memory without a scope: the question
 # ---------------------------------------------------------------------------
 
 
@@ -203,7 +203,7 @@ async def test_no_scope_asks_and_honours_the_answer(
     ctx = ctx_for(_Core(services), root)
     ctx.session.origin_conn = origin
 
-    result = await memory_write(ctx, {"text": "배포 대상은 duho 서버다"})
+    result = await save_memory(ctx, {"text": "배포 대상은 duho 서버다"})
 
     assert len(origin.asked) == 1
     question = origin.asked[0]["questions"][0]
@@ -223,7 +223,7 @@ async def test_cancel_writes_nothing(services: MemoryServices, tmp_path: Path) -
     ctx = ctx_for(_Core(services), root)
     ctx.session.origin_conn = _Origin("Cancel")
 
-    result = await memory_write(ctx, {"text": "배포 대상은 duho 서버다"})
+    result = await save_memory(ctx, {"text": "배포 대상은 duho 서버다"})
 
     assert result.output == CANCELLED
     assert result.meta == {"written": False}
@@ -238,7 +238,7 @@ async def test_a_declining_surface_writes_nothing(
     ctx = ctx_for(_Core(services), root)
     ctx.session.origin_conn = _Origin(None)
 
-    result = await memory_write(ctx, {"text": "배포 대상은 duho 서버다"})
+    result = await save_memory(ctx, {"text": "배포 대상은 duho 서버다"})
 
     assert result.output == CANCELLED
     assert await services.store.list_many(namespaces=namespaces_for(ctx.session)) == []
@@ -249,7 +249,7 @@ async def test_nobody_answering_writes_nothing(services: MemoryServices, tmp_pat
     ctx = ctx_for(_Core(services, timeout_sec=1), root)
     ctx.session.origin_conn = None  # nothing to ask, and no client will respond
 
-    result = await asyncio.wait_for(memory_write(ctx, {"text": "duho"}), timeout=10)
+    result = await asyncio.wait_for(save_memory(ctx, {"text": "duho"}), timeout=10)
 
     assert result.output == NO_ANSWER
     assert await services.store.list_many(namespaces=namespaces_for(ctx.session)) == []
@@ -264,7 +264,7 @@ async def test_an_unwatched_session_defaults_to_project(
     ctx = ctx_for(_Core(services), root, **kwargs)
     ctx.session.origin_conn = origin
 
-    result = await memory_write(ctx, {"text": "빌드는 uv run"})
+    result = await save_memory(ctx, {"text": "빌드는 uv run"})
 
     assert origin.asked == [], "nobody is watching; asking would hang the turn"
     assert result.meta is not None and result.meta["scope"] == "project"
@@ -280,7 +280,7 @@ async def test_ask_scope_false_defaults_to_project(
     ctx = ctx_for(core, root)
     ctx.session.origin_conn = origin
 
-    result = await memory_write(ctx, {"text": "빌드는 uv run"})
+    result = await save_memory(ctx, {"text": "빌드는 uv run"})
 
     assert origin.asked == []
     assert result.meta is not None and result.meta["scope"] == "project"
@@ -293,7 +293,7 @@ async def test_a_session_with_no_project_writes_globally(
     ctx = ctx_for(_Core(services), Path.home())
     ctx.session.origin_conn = origin
 
-    result = await memory_write(ctx, {"text": "이름은 whitevil"})
+    result = await save_memory(ctx, {"text": "이름은 whitevil"})
 
     assert origin.asked == [], "there is no project to choose; global is the only answer"
     assert result.meta is not None and result.meta["scope"] == "global"
@@ -408,7 +408,7 @@ async def test_the_digest_trims_and_says_how_many_it_left_out(
 
     shown = [line for line in block.splitlines() if line.startswith("- ") and "메모" in line]
     assert 0 < len(shown) < 10
-    assert f"… and {12 - len(shown)} more — memory_search finds the rest" in block
+    assert f"… and {12 - len(shown)} more — search_memory finds the rest" in block
 
 
 async def test_an_entry_limit_below_the_total_is_counted_too(
@@ -464,7 +464,7 @@ async def test_memory_search_tool_labels_its_hits(
     await services.store.write("duho 서버에 배포한다", namespace=ctx.session.project_namespace)
     await services.store.write("duho 계정은 whitevil", namespace=GLOBAL_NAMESPACE)
 
-    result = await memory_search(ctx, {"query": "duho"})
+    result = await search_memory(ctx, {"query": "duho"})
 
     assert "[project]" in result.output
     assert "[global]" in result.output

@@ -26,6 +26,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from snowpea_core.tools.renames import canonical_names
+
 #: The delimiter that opens and closes the front matter.
 FENCE = "---"
 
@@ -236,7 +238,7 @@ def parse_skill_md(text: str, *, default_name: str, path: Path | None = None) ->
     """Parse a skill or command markdown file into a :class:`SkillDoc`."""
     front, body = split_frontmatter(text)
     raw_tools = front.get("allowed-tools", front.get("allowedTools"))
-    tools = as_list(raw_tools)
+    tools = canonical_names(as_list(raw_tools))
     return SkillDoc(
         name=str(front.get("name") or default_name).strip() or default_name,
         description=str(front.get("description") or "").strip(),

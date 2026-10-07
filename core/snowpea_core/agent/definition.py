@@ -34,6 +34,7 @@ from typing import Any
 
 from snowpea_core.prompts.loader import load
 from snowpea_core.providers.base import ChatMessage
+from snowpea_core.tools.renames import canonical, canonical_names
 
 #: Frontmatter delimiter.
 FENCE = "---"
@@ -114,8 +115,8 @@ class AgentDefinition:
     def tool_list(self) -> list[str] | None:
         """``None`` when the definition allows every tool."""
         if isinstance(self.tools, str):
-            return None if self.tools.strip() == ALL_TOOLS else [self.tools.strip()]
-        return list(self.tools)
+            return None if self.tools.strip() == ALL_TOOLS else [canonical(self.tools.strip())]
+        return canonical_names(self.tools)
 
     def to_json(self) -> dict[str, Any]:
         return {

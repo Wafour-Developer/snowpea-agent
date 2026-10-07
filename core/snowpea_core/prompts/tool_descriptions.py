@@ -180,24 +180,24 @@ SKILL_VIEW = (
 )
 
 MEMORY_WRITE = (
-    "Store one fact the user will want you to know in a later session — a preference, a "
-    "deploy target, a convention they had to explain once. Memories are kept in one of two "
-    "scopes: \"project\" (only sessions opened in this repository recall it) and \"global\" "
-    "(every project recalls it). Pass scope ONLY when the user said which they meant "
-    "(\"프로젝트에 기억해\", \"이 레포에만\", \"remember globally\", \"for all my projects\"). "
-    "When they just said \"기억해\" / \"remember this\", leave scope out: the daemon asks them "
-    "where to keep it and writes what they choose. The tool result says what happened — a "
-    "cancelled or unanswered question writes nothing, so do not claim you remembered it. "
-    "One fact per call, in the user's own words, and tag it (e.g. profile:deploy_target) so "
-    "it can be found again."
+    "Save one fact to long-term memory so you still know it in later sessions — a user "
+    "preference, a deploy target, a convention they had to explain once. Not for notes "
+    "about the current task (use todos or the plan) and not for anything the repository "
+    "already says. One fact per call, in the user's own words, with tags (e.g. "
+    "profile:deploy_target) so search_memory finds it. scope: \"project\" = only this "
+    "repository, \"global\" = every project. Pass scope ONLY when the user said which "
+    "(\"프로젝트에 기억해\", \"이 레포에만\", \"remember globally\"); after a plain "
+    "\"기억해\" / \"remember this\" leave it out and the user is asked. A cancelled or "
+    "unanswered question saves nothing — then do not say you remembered it."
 )
 
 MEMORY_SEARCH = (
-    "Search everything you have been asked to remember and return the matching notes, best "
-    "first. Each hit is labelled [project] (this repository), [global] (everywhere) or "
-    "[agent] (this agent's own memory); the label is not part of the fact. Use it when the "
-    "user refers to something they told you before and the recall block at the top of the "
-    "prompt does not already have it. Cite a memory you rely on as [mem:<id>]."
+    "Search long-term memory (facts saved with save_memory in this or earlier sessions) "
+    "and return the matching notes, best first. Use it when the user refers to something "
+    "they told you before and the recall block at the top of the prompt does not have "
+    "it. Each hit is labelled [project] (this repository), [global] (every project) or "
+    "[agent] (this agent's own memory); the label is not part of the fact. Cite a memory "
+    "you rely on as [mem:<id>]."
 )
 
 SET_MODE = (

@@ -40,6 +40,7 @@ from snowpea_core.server.protocol import AgentInfo
 from snowpea_core.session import events
 from snowpea_core.tools.deferred import TOOL_SEARCH
 from snowpea_core.tools.registry import ProgressEmitter
+from snowpea_core.tools.renames import canonical_names
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.server.app_server import Core
@@ -1381,7 +1382,7 @@ class SubagentManager:
             if defn.prompt.strip():
                 child.system_prompt = defn.prompt.strip()
         if tools:
-            explicit = {str(name) for name in tools if str(name).strip()}
+            explicit = set(canonical_names(str(name) for name in tools if str(name).strip()))
             allowed = explicit if allowed is None else (allowed & explicit)
         if allowed is None and defn is not None and defn.name in READONLY_DEFAULT_AGENTS:
             # Built-in read-only roles are intentionally sparse by default:

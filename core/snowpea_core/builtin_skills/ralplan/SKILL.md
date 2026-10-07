@@ -2,7 +2,7 @@
 name: ralplan
 description: Consensus planning — planner, architect and critic argue until the plan holds, before any code is written.
 argument-hint: "<task description>"
-allowed-tools: [read_file, list_dir, glob, grep, git_status, git_diff, git_log, delegate_task, plan_save, memory_write, memory_search, ask_user, queue_command]
+allowed-tools: [read_file, list_dir, glob, grep, git_status, git_diff, git_log, delegate_task, plan_save, save_memory, search_memory, ask_user, queue_command]
 ---
 
 # Ralplan
@@ -64,7 +64,7 @@ to continue. **Do not stop to ask whether to continue.**
 
 Read before you plan. Use `list_dir`, `glob`, `grep` and `read_file` to find the
 code this task touches; use `git_log` to see whether somebody already tried.
-Call `memory_search` on the task's key nouns. Facts first, opinions after.
+Call `search_memory` on the task's key nouns. Facts first, opinions after.
 
 ### Round 1 — the planner draft
 
@@ -85,7 +85,7 @@ Sketch, in the conversation:
   touches and how it is verified.
 
 Before ending this turn: architect called? critic called? verdict `APPROVE` or
-five iterations? plan in the final shape? `plan_save` and `memory_write` done? hand-off asked?
+five iterations? plan in the final shape? `plan_save` and `save_memory` done? hand-off asked?
 If any answer is no, the turn is not over — keep going.
 
 ### Round 2 — the architect
@@ -178,7 +178,7 @@ of "The plan" (`[{"title": …}]`, in order). That file
 (`.snowpea/plans/current.md`) is what `/ralph`, `/team` and `/ultrawork` run
 when the user just says go — the conversation is not.
 
-Then call `memory_write` once with the decision and its consequences, tagged `plan`.
+Then call `save_memory` once with the decision and its consequences, tagged `plan`.
 
 ## Handing off
 
@@ -251,7 +251,7 @@ kept. These differ:
   Here the Risks section is always required instead of being a mode.
 - **No company-context MCP call.** OMC reads `companyContext.tool` from
   `.claude/omc.jsonc` and injects the result as advisory context. snowpea's
-  equivalent is `memory_search` in Round 0.
+  equivalent is `search_memory` in Round 0.
 - **The plan lives in `.snowpea/plans/current.md`.** OMC writes plan artifacts
   to `.omc/plans/` and hands the approved one to ralph or team. Here `plan_save`
   writes it (archiving the plan it replaces), and `/ralph`, `/team` and

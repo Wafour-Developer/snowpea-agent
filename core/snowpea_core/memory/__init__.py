@@ -176,7 +176,7 @@ async def _write_nudge(
 
     The dedupe spans every scope the session recalls from, not just the one
     being written to: a fact the model already filed under the project through
-    ``memory_write`` must not reappear as a global copy (M5 §1b).
+    ``save_memory`` must not reappear as a global copy (M5 §1b).
     """
     if await memory.store.exists_any(fact, namespaces=seen_in or [namespace]):
         return None
