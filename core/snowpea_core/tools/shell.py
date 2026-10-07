@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from snowpea_core.exec.backend import DEFAULT_TIMEOUT, ExecResult, StreamingBackend
@@ -59,6 +60,24 @@ async def _run(ctx: ToolContext, command: str, *, cwd: str | None, timeout: floa
     return await backend.run_stream(command, cwd=cwd, timeout=timeout, on_chunk=on_chunk)
 
 
+_SLEEP = re.compile(r"(?:^|[;&|\s(])sleep\s+(\d+(?:\.\d+)?)(s|m)?\b")
+
+
+def _fit_sleeps(command: str, timeout: float) -> float:
+    """A timeout long enough for the command's own ``sleep``s, when none was given.
+
+    "sleep 240; ssh host 'tail log'" ran into the 120 s default and was killed
+    mid-wait: the model meant to wait, so the wait gets its time plus the
+    default for whatever follows. An explicit ``timeout`` is never changed.
+    """
+    total = 0.0
+    for amount, unit in _SLEEP.findall(command):
+        total += float(amount) * (60 if unit == "m" else 1)
+    if total <= 0 or total + 10 < timeout:
+        return timeout
+    return min(MAX_TIMEOUT, total + DEFAULT_TIMEOUT)
+
+
 async def shell(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     command = str(args.get("command", "")).strip()
     if not command:
@@ -71,6 +90,8 @@ async def shell(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         timeout = min(MAX_TIMEOUT, max(1.0, float(raw_timeout)))
     except (TypeError, ValueError):
         timeout = DEFAULT_TIMEOUT
+    if "timeout" not in args:
+        timeout = _fit_sleeps(command, timeout)
     try:
         result = await _run(ctx, command, cwd=str(cwd) if cwd else None, timeout=timeout)
     except OSError as exc:

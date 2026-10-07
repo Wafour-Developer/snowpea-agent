@@ -58,6 +58,21 @@ ALIASES: dict[str, str] = {
     "webfetch": "web_extract",
     "web_fetch": "web_extract",
     "fetch": "web_extract",
+    # Memory, as other agents name it (Hermes' "memory", Claude-style
+    # "update_memory"): an unknown name used to be refused with a suggestion
+    # of plan_update_step.
+    "update_memory": "memory_write",
+    "save_memory": "memory_write",
+    "add_memory": "memory_write",
+    "memory_add": "memory_write",
+    "memory_save": "memory_write",
+    "store_memory": "memory_write",
+    "remember": "memory_write",
+    "memory": "memory_write",
+    "search_memory": "memory_search",
+    "recall": "memory_search",
+    "memory_recall": "memory_search",
+    "read_memory": "memory_search",
 }
 
 
@@ -70,6 +85,7 @@ ARG_ALIASES: dict[str, tuple[str, ...]] = {
     "new_string": ("new_str", "newString"),
     "replace_all": ("replaceAll",),
     "content": ("contents", "file_text"),
+    "text": ("content", "memory", "note", "fact"),
 }
 
 

@@ -1921,7 +1921,9 @@ def _repair_calls(core: Core, session: Session, calls: list[ToolCall]) -> list[T
     Done before the calls enter history, so the transcript the model reads
     next shows the call that actually ran.
     """
-    known = [tool.name for tool in core.tools.active(session)]
+    # Every registered name, not only the active ones: a deferred tool called
+    # by an alias (update_memory -> memory_write) is loaded on first use.
+    known = list(core.tools.names())
     for call in calls:
         tool = core.tools.get(call.name, session)
         if tool is None:
