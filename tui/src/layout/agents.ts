@@ -12,7 +12,7 @@
 
 import { formatTokens } from "./hud.js";
 import { currentAccent } from "./palette.js";
-import { textWidth } from "./text-width.js";
+import { graphemes, textWidth } from "./text-width.js";
 import { formatDuration } from "../state/working.js";
 import type { State, SubagentEntry, TeamTaskEntry } from "../state/store.js";
 
@@ -313,6 +313,19 @@ export interface AgentRowLayout {
   status: string;
 }
 
+/** `text` cut to at most `room` cells, an ellipsis marking the cut. */
+function fitCells(text: string, room: number): string {
+  if (cells(text) <= room) return text;
+  let out = "";
+  let used = 0;
+  for (const part of graphemes(text)) {
+    if (used + part.width > room - 1) break;
+    out += part.text;
+    used += part.width;
+  }
+  return `${out}…`;
+}
+
 /** Name column width, so the task text of every row starts in one place. */
 export const NAME_WIDTH = 16;
 
@@ -334,8 +347,11 @@ export function layoutAgentRow(row: AgentRow, width: number): AgentRowLayout {
   const room = safeWidth - leftCells - (statusCells > 0 ? statusCells + 1 : 0);
   let task = row.task;
   if (room <= 0) task = "";
-  else if (task.length > room) task = `${task.slice(0, Math.max(1, room - 1))}…`;
-  const used = leftCells + task.length + statusCells;
+  // Measured in cells too: a task in Korean is twice as wide as its length,
+  // and a row that overflows wraps its status onto a second line, which
+  // pushes the whole screen out of the rows the layout gave it.
+  else task = fitCells(task, room);
+  const used = leftCells + cells(task) + statusCells;
   return {
     left: padded,
     task,

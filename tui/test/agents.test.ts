@@ -302,6 +302,13 @@ describe("layoutAgentRow", () => {
     expect(line.task.endsWith("…")).toBe(true);
   });
 
+  it("cuts a Korean task by screen cells, so the row never wraps", () => {
+    const korean = { ...row, task: "GLM5-Next MTP 그래프 구현·빌드·벤치 ( hon1 ) (continue)", status: "done · 0s · ↑ 1.7M · ↓ 7.9k tokens" };
+    const line = layoutAgentRow(korean, 96);
+    expect(cells(line.left) + cells(line.task) + line.gap.length + cells(line.status)).toBe(96);
+    expect(line.task.endsWith("…")).toBe(true);
+  });
+
   it("starts every task in the same column, wide glyphs included", () => {
     const short = layoutAgentRow({ ...row, name: "a" }, 60);
     const long = layoutAgentRow({ ...row, name: "architect" }, 60);

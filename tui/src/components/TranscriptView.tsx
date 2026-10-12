@@ -6,6 +6,11 @@
  * line were ever too wide it must be cut, never reflowed onto a second row,
  * because a second row would push the last row off screen and make Ink scroll
  * the alternate buffer.
+ *
+ * The reverse matters as much: Ink gives a `Text` with nothing in it no height
+ * at all, so the blank line between two blocks would take no row, every line
+ * under it would ride up one, and the window would end that many rows short of
+ * the input. A blank line is drawn as a single space so it keeps its row.
  */
 
 import React from "react";
@@ -34,20 +39,24 @@ function TranscriptViewInner({
   return (
     <Box flexDirection="column" height={height} flexGrow={1} flexShrink={1} overflow="hidden">
       {lines.map((line) => (
-        <Text key={line.key} wrap="truncate-end">
-          {line.segments.map((segment, index) => (
-            <Text
-              key={`${line.key}-s${index}`}
-              color={segment.color}
-              dimColor={segment.dimColor}
-              bold={segment.bold}
-              italic={segment.italic}
-              backgroundColor={segment.backgroundColor}
-            >
-              {segment.text}
-            </Text>
-          ))}
-        </Text>
+        <Box key={line.key} flexShrink={0}>
+          <Text wrap="truncate-end">
+            {line.segments.every((segment) => segment.text === "")
+              ? " "
+              : line.segments.map((segment, index) => (
+                  <Text
+                    key={`${line.key}-s${index}`}
+                    color={segment.color}
+                    dimColor={segment.dimColor}
+                    bold={segment.bold}
+                    italic={segment.italic}
+                    backgroundColor={segment.backgroundColor}
+                  >
+                    {segment.text}
+                  </Text>
+                ))}
+          </Text>
+        </Box>
       ))}
     </Box>
   );
