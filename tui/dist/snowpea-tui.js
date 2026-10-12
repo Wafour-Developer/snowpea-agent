@@ -37566,7 +37566,7 @@ function chipLabel(attachment) {
 }
 
 // src/version.ts
-var TUI_VERSION = "0.2.29";
+var TUI_VERSION = "0.2.30";
 
 // src/components/DiffView.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
@@ -38686,6 +38686,17 @@ function buildAgentRows({
 function cells(text2) {
   return textWidth(text2);
 }
+function fitCells(text2, room) {
+  if (cells(text2) <= room) return text2;
+  let out = "";
+  let used = 0;
+  for (const part of graphemes(text2)) {
+    if (used + part.width > room - 1) break;
+    out += part.text;
+    used += part.width;
+  }
+  return `${out}\u2026`;
+}
 var NAME_WIDTH = 16;
 function layoutAgentRow(row, width) {
   const safeWidth2 = Math.max(10, Math.floor(width));
@@ -38697,8 +38708,8 @@ function layoutAgentRow(row, width) {
   const room = safeWidth2 - leftCells - (statusCells > 0 ? statusCells + 1 : 0);
   let task = row.task;
   if (room <= 0) task = "";
-  else if (task.length > room) task = `${task.slice(0, Math.max(1, room - 1))}\u2026`;
-  const used = leftCells + task.length + statusCells;
+  else task = fitCells(task, room);
+  const used = leftCells + cells(task) + statusCells;
   return {
     left: padded,
     task,
@@ -38990,7 +39001,7 @@ function TranscriptViewInner({
   height
 }) {
   transcriptRenderCount.value += 1;
-  return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Box_default, { flexDirection: "column", height, flexGrow: 1, flexShrink: 1, overflow: "hidden", children: lines.map((line) => /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Text, { wrap: "truncate-end", children: line.segments.map((segment, index) => /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Box_default, { flexDirection: "column", height, flexGrow: 1, flexShrink: 1, overflow: "hidden", children: lines.map((line) => /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Box_default, { flexShrink: 0, children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Text, { wrap: "truncate-end", children: line.segments.every((segment) => segment.text === "") ? " " : line.segments.map((segment, index) => /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
     Text,
     {
       color: segment.color,
@@ -39001,7 +39012,7 @@ function TranscriptViewInner({
       children: segment.text
     },
     `${line.key}-s${index}`
-  )) }, line.key)) });
+  )) }) }, line.key)) });
 }
 var TranscriptView = import_react29.default.memo(TranscriptViewInner);
 
