@@ -40609,22 +40609,37 @@ var StatusHud = import_react35.default.memo(StatusHudInner);
 // src/components/AgentPanel.tsx
 var import_react36 = __toESM(require_react(), 1);
 var import_jsx_runtime19 = __toESM(require_jsx_runtime(), 1);
+function hintShares(rows) {
+  const last = rows[rows.length - 1];
+  return last !== void 0 && (last.key === "overflow" || last.key === "idle-more");
+}
 function AgentPanelInner({
   rows,
   width,
-  focusedIndex = null
+  focusedIndex = null,
+  hint
 }) {
-  if (rows.length === 0) return null;
-  return /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Box_default, { flexDirection: "column", flexShrink: 0, width, children: rows.map((row, index) => {
-    const focused = index === focusedIndex;
-    const line = layoutAgentRow(row, width - 1);
-    return /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Box_default, { width, flexWrap: "nowrap", overflow: "hidden", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { color: rowColor(row), dimColor: row.dim && !rowColor(row), inverse: focused, bold: focused, children: line.left }),
-      /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { dimColor: !focused, inverse: focused, wrap: "truncate-end", children: line.task }),
-      /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { dimColor: true, inverse: focused, children: line.gap }),
-      /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { dimColor: row.dim && !focused, color: row.color, inverse: focused, children: line.status })
-    ] }, row.key);
-  }) });
+  if (rows.length === 0) return hint ? /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: hint }) : null;
+  const shared = hint !== void 0 && hintShares(rows);
+  return /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Box_default, { flexDirection: "column", flexShrink: 0, width, children: [
+    rows.map((row, index) => {
+      const focused = index === focusedIndex;
+      const line = layoutAgentRow(row, width - 1);
+      if (shared && index === rows.length - 1) {
+        return /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Box_default, { width, flexWrap: "nowrap", overflow: "hidden", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { color: rowColor(row), dimColor: !focused, inverse: focused, bold: focused, children: line.left }),
+          /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `  \xB7  ${hint}` })
+        ] }, row.key);
+      }
+      return /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(Box_default, { width, flexWrap: "nowrap", overflow: "hidden", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { color: rowColor(row), dimColor: row.dim && !rowColor(row), inverse: focused, bold: focused, children: line.left }),
+        /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { dimColor: !focused, inverse: focused, wrap: "truncate-end", children: line.task }),
+        /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { dimColor: true, inverse: focused, children: line.gap }),
+        /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { dimColor: row.dim && !focused, color: row.color, inverse: focused, children: line.status })
+      ] }, row.key);
+    }),
+    hint !== void 0 && !shared ? /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: hint }) : null
+  ] });
 }
 var AgentPanel = import_react36.default.memo(AgentPanelInner);
 
@@ -42287,6 +42302,8 @@ function App2({
     () => layout(draft, Math.max(1, contentWidth - 2), draft.length).lines.length,
     [draft, contentWidth]
   );
+  const panelHint = mouseOn ? `\u2191\u2193 select \xB7 click or Enter opens${fullscreen ? " \xB7 wheel scrolls \xB7 Shift+drag selects text" : ""}` : "\u2191\u2193 select \xB7 Enter opens \xB7 /mouse enables clicking";
+  const hintRows = hintShares(agentRows) ? 0 : 1;
   const showLogo = !fullscreen;
   const layout2 = computeLayout({
     // One row short of the terminal on purpose; see `RESERVED_FRAME_ROW`.
@@ -42297,7 +42314,7 @@ function App2({
     headerRows: (showLogo ? logoRows(terminal.rows) : 0) + HEADER_ROWS,
     // The HUD's rows, the context warning when there is one, the summary line,
     // every row of the agent panel and its key/mouse hint.
-    statusRows: hudRows.length + (contextWarning(state.context) ? 1 : 0) + 1 + agentRows.length + 3,
+    statusRows: hudRows.length + (contextWarning(state.context) ? 1 : 0) + 1 + agentRows.length + 2 + hintRows,
     bottomRows: bottomRows({
       inputRows: draftRows,
       paletteCommands: draft.startsWith("/") ? completions.length : 0,
@@ -42335,11 +42352,11 @@ function App2({
   );
   const panelMouseLayout = (0, import_react45.useMemo)(
     () => ({
-      totalRows: fullscreen ? layout2.rows : terminal.rows,
-      bottomRows: layout2.bottomRows,
+      totalRows: terminal.rows,
+      bottomRows: hintRows + (fullscreen ? terminal.rows - layout2.rows : 1),
       panelRows: agentRows.length
     }),
-    [fullscreen, layout2.rows, layout2.bottomRows, terminal.rows, agentRows.length]
+    [fullscreen, layout2.rows, hintRows, terminal.rows, agentRows.length]
   );
   const holdRows = state.messages.some((message) => message.streaming) ? Math.max(1, holdRegionRows - MIN_LIVE_MESSAGE_ROWS) : holdRegionRows;
   const released = settledCount(state, staticCursorRef.current, holdRows);
@@ -43459,10 +43476,10 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
       {
         rows: agentRows,
         width: contentWidth,
-        focusedIndex: focus.zone === "agent" ? focus.index : null
+        focusedIndex: focus.zone === "agent" ? focus.index : null,
+        hint: panelHint
       }
-    ),
-    /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { dimColor: true, children: mouseOn ? `\u2191\u2193 select \xB7 click or Enter opens${fullscreen ? " \xB7 wheel scrolls \xB7 Shift+drag selects text" : ""}` : "\u2191\u2193 select \xB7 Enter opens \xB7 /mouse enables clicking" })
+    )
   ] });
   const helpNode = showHelp ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
     HelpPanel,

@@ -17,14 +17,27 @@ export interface AgentPanelProps {
   width: number;
   /** Row the keyboard is on, when the cursor has walked down into the panel. */
   focusedIndex?: number | null;
+  /**
+   * The key hint. It shares the `↓ 5 more` row when the panel ends in one,
+   * and takes a row of its own otherwise; `hintShares` says which.
+   */
+  hint?: string;
+}
+
+/** True when the hint fits on the panel's last row instead of a row of its own. */
+export function hintShares(rows: readonly AgentRow[]): boolean {
+  const last = rows[rows.length - 1];
+  return last !== undefined && (last.key === "overflow" || last.key === "idle-more");
 }
 
 function AgentPanelInner({
   rows,
   width,
   focusedIndex = null,
+  hint,
 }: AgentPanelProps): React.ReactElement | null {
-  if (rows.length === 0) return null;
+  if (rows.length === 0) return hint ? <Text dimColor wrap="truncate-end">{hint}</Text> : null;
+  const shared = hint !== undefined && hintShares(rows);
   return (
     <Box flexDirection="column" flexShrink={0} width={width}>
       {rows.map((row, index) => {
@@ -32,6 +45,16 @@ function AgentPanelInner({
         // One column short of the panel: a row that fills the last cell makes
         // the terminal wrap it onto a second line.
         const line = layoutAgentRow(row, width - 1);
+        if (shared && index === rows.length - 1) {
+          return (
+            <Box key={row.key} width={width} flexWrap="nowrap" overflow="hidden">
+              <Text color={rowColor(row)} dimColor={!focused} inverse={focused} bold={focused}>
+                {line.left}
+              </Text>
+              <Text dimColor wrap="truncate-end">{`  ·  ${hint}`}</Text>
+            </Box>
+          );
+        }
         return (
           <Box key={row.key} width={width} flexWrap="nowrap" overflow="hidden">
             <Text color={rowColor(row)} dimColor={row.dim && !rowColor(row)} inverse={focused} bold={focused}>
@@ -49,6 +72,7 @@ function AgentPanelInner({
           </Box>
         );
       })}
+      {hint !== undefined && !shared ? <Text dimColor wrap="truncate-end">{hint}</Text> : null}
     </Box>
   );
 }

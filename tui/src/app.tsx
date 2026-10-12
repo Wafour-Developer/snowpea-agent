@@ -151,7 +151,7 @@ import {
 import { ApprovalQueue } from "./components/ApprovalQueue.js";
 import { ConfirmMenu, type ConfirmOption } from "./components/ConfirmMenu.js";
 import { StatusHud } from "./components/StatusHud.js";
-import { AgentPanel } from "./components/AgentPanel.js";
+import { AgentPanel, hintShares } from "./components/AgentPanel.js";
 import { AttachmentChips } from "./components/AttachmentChips.js";
 import { ModelPicker } from "./components/ModelPicker.js";
 import { SkillCreateForm } from "./components/SkillCreateForm.js";
@@ -1475,6 +1475,11 @@ export function App({
   // Full-screen greets an empty session with the launch banner inside the
   // transcript region, as inline prints it at the top; the header keeps only
   // its rule.
+  const panelHint = mouseOn
+    ? `↑↓ select · click or Enter opens${fullscreen ? " · wheel scrolls · Shift+drag selects text" : ""}`
+    : "↑↓ select · Enter opens · /mouse enables clicking";
+  /** The hint shares the `↓ 5 more` row when the panel ends in one. */
+  const hintRows = hintShares(agentRows) ? 0 : 1;
   const showLogo = !fullscreen;
   const layout = computeLayout({
     // One row short of the terminal on purpose; see `RESERVED_FRAME_ROW`.
@@ -1490,7 +1495,8 @@ export function App({
       (contextWarning(state.context) ? 1 : 0) +
       1 +
       agentRows.length +
-      3,
+      2 +
+      hintRows,
     bottomRows: reserveBottomRows({
       inputRows: draftRows,
       paletteCommands: draft.startsWith("/") ? completions.length : 0,
@@ -1550,13 +1556,16 @@ export function App({
     () => sliceViewport(agentLines, agentWindowRows, agentScroll),
     [agentLines, agentWindowRows, agentScroll],
   );
+  // The panel is the last block on screen; below it are only the hint's own
+  // row (when it has one) and, in full screen, the row the frame leaves free
+  // at the bottom of the terminal — inline, the cursor's row.
   const panelMouseLayout = useMemo(
     () => ({
-      totalRows: fullscreen ? layout.rows : terminal.rows,
-      bottomRows: layout.bottomRows,
+      totalRows: terminal.rows,
+      bottomRows: hintRows + (fullscreen ? terminal.rows - layout.rows : 1),
       panelRows: agentRows.length,
     }),
-    [fullscreen, layout.rows, layout.bottomRows, terminal.rows, agentRows.length],
+    [fullscreen, layout.rows, hintRows, terminal.rows, agentRows.length],
   );
 
   // --- what has reached the scrollback --------------------------------------
@@ -3008,10 +3017,8 @@ export function App({
         rows={agentRows}
         width={contentWidth}
         focusedIndex={focus.zone === "agent" ? focus.index : null}
+        hint={panelHint}
       />
-      <Text dimColor>{mouseOn
-        ? `↑↓ select · click or Enter opens${fullscreen ? " · wheel scrolls · Shift+drag selects text" : ""}`
-        : "↑↓ select · Enter opens · /mouse enables clicking"}</Text>
     </>
   );
 
