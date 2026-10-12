@@ -16,6 +16,8 @@
 
 import { useInput, type Key } from "ink";
 
+import { mouseReports } from "../input/mouse.js";
+
 /** Rows PageUp / PageDown move the cursor by. */
 export const PAGE_STEP = 10;
 
@@ -82,6 +84,8 @@ export function useChoiceKeys(options: ChoiceKeyOptions): void {
 
   useInput(
     (input, key) => {
+      // The wheel scrolls the transcript; it must not move the cursor here.
+      if (mouseReports(input).length > 0) return;
       if (onKey?.(input, key)) return;
 
       if (key.escape) {

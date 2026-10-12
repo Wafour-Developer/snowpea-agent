@@ -10,7 +10,7 @@
 import React from "react";
 import { Box, Text } from "ink";
 
-import { Logo } from "./Logo.js";
+import { Logo, bigLogoRows, collapsedLine } from "./Logo.js";
 import { colorMode, type ColorMode } from "../layout/palette.js";
 import { relativeTime, type SessionRecord } from "../state/history.js";
 
@@ -30,6 +30,27 @@ export interface LaunchBannerProps {
   now?: number;
   /** How much colour the terminal can take; detected when not given. */
   colors?: ColorMode;
+  /**
+   * Rows the banner may take. Full-screen draws it inside the transcript
+   * region, which a small terminal makes shorter than the banner: the tips go
+   * first, then the block wordmark gives way to its one-line form.
+   */
+  maxRows?: number;
+}
+
+/** Which parts of the banner fit in `maxRows`. */
+export function bannerParts(
+  width: number,
+  hasLastSession: boolean,
+  maxRows = Number.POSITIVE_INFINITY,
+): { bigLogo: boolean; tips: boolean } {
+  const text = 2;
+  const last = hasLastSession ? 3 : 0;
+  const tips = TIPS.length + 2;
+  const big = bigLogoRows(width) + 1;
+  if (big + text + last + tips <= maxRows) return { bigLogo: true, tips: true };
+  if (big + text + last <= maxRows) return { bigLogo: true, tips: false };
+  return { bigLogo: false, tips: 1 + text + last + tips <= maxRows };
 }
 
 const TIPS: readonly string[] = [
@@ -61,16 +82,23 @@ export function LaunchBanner({
   lastSession = null,
   now = Date.now(),
   colors: paintProp,
+  maxRows,
 }: LaunchBannerProps): React.ReactElement {
+  const parts = bannerParts(width, lastSession !== null, maxRows);
   const target = [provider, model].filter(Boolean).join("/");
   const paint = paintProp ?? colorMode(process.env, Boolean(process.stdout?.isTTY));
   const description = "Open-source multi-vendor coding agent and personal AI assistant";
   const meta = [`v${version}`, target, workdir, mode.toUpperCase()].filter(Boolean).join(" · ");
   return (
     <Box flexDirection="column" width={width}>
-      <Logo terminalRows={terminalRows} version={version} width={width} big mode={paint} />
-
-      <Text dimColor>{"─".repeat(Math.max(0, width))}</Text>
+      {parts.bigLogo ? (
+        <>
+          <Logo terminalRows={terminalRows} version={version} width={width} big mode={paint} />
+          <Text dimColor>{"─".repeat(Math.max(0, width))}</Text>
+        </>
+      ) : (
+        <Text color="green" wrap="truncate-end">{collapsedLine(version)}</Text>
+      )}
 
       <Box flexDirection="column">
         <Text wrap="truncate-end">{centre(description, width)}</Text>
@@ -90,10 +118,11 @@ export function LaunchBanner({
                 : lastSession.sessionId.slice(0, 8)}
             </Text>
           </Text>
-          <Text dimColor>Press R or type /resume to continue it</Text>
+          <Text dimColor wrap="truncate-end">Press R or type /resume to continue it</Text>
         </Box>
       ) : null}
 
+      {parts.tips ? (
       <Box marginTop={1} marginBottom={1} flexDirection="column">
         {TIPS.map((tip) => (
           <Text key={tip} dimColor wrap="truncate-end">
@@ -101,6 +130,7 @@ export function LaunchBanner({
           </Text>
         ))}
       </Box>
+      ) : null}
     </Box>
   );
 }

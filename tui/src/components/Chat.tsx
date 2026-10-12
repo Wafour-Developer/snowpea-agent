@@ -11,6 +11,8 @@ import { textWidth } from "../layout/text-width.js";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Box, Text, useInput, useStdout } from "ink";
 
+import { mouseReports } from "../input/mouse.js";
+
 import { currentAccent, currentInputBackground } from "../layout/palette.js";
 import type { CommandInfo } from "../rpc/sdk.js";
 import {
@@ -245,6 +247,9 @@ export function Chat({
 
   useInput(
     (input, key) => {
+      // Mouse reports are the app's (the wheel scrolls the transcript); Ink
+      // hands them to every input, and here they would be typed as text.
+      if (mouseReports(input).length > 0) return;
       const keyPlus = key as typeof key & {
         shift?: boolean;
         alt?: boolean;

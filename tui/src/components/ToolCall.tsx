@@ -75,7 +75,7 @@ export function ToolCall({
           </Text>
         );
       })}
-      {hidden > 0 ? <Text dimColor>{`  … ${hidden} more lines`}</Text> : null}
+      {hidden > 0 && shown.length > 0 ? <Text dimColor>{`  … ${hidden} more lines`}</Text> : null}
     </Box>
   );
 }

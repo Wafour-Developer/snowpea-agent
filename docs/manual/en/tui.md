@@ -60,10 +60,10 @@ Deleting takes the messages, the events and the session row together, and with t
 
 ## The layout
 
-The UI draws inline, the way `git log` does, not as a full-screen application. Finished output is handed to the terminal, which means your own scrollback, your own mouse, your own `Ctrl+Shift+F`. Only the bottom of the screen is live.
+The UI is a full-screen application. The input, the mode and status lines and the agent panel stay put at the bottom of the screen; the transcript above them is a window you scroll with the mouse wheel, `PgUp`/`PgDn` or `Ctrl+U`/`Ctrl+D`. Only the rows that changed are redrawn, so typing never repaints the screen. The wordmark greets an empty session and gives its rows to the transcript once the first prompt is sent. Quitting puts your terminal back exactly as it was. `snowpea --inline` keeps the older inline layout (see [inline layout](#inline-layout)).
 
 ```text
- › explain the retry logic                 ← scrollback: yours, never redrawn
+ › explain the retry logic                 ← the transcript: scrolls, the rest stays
  ⏺ Read 3 files (128 lines)
  ◆ The retry lives in `client.ts`…
 
@@ -102,7 +102,7 @@ When a run of tool calls finishes, it collapses into one line in the scrollback 
 
 A call that failed keeps its own card, with its output, because that is the one you need to read. `Ctrl+O` expands the newest tool call or diff while it is still live.
 
-The agent panel under the status line lists who is working for this session: running and finished delegates, then the active team's idle roster. Tab moves the focus into it, ↑↓ pick a row and Enter opens that agent's own transcript. Clicking a row does the same once you type `/mouse` (or `/mouse on`): a terminal cannot report clicks for one region only, so while the mouse is on the terminal's own drag-to-select needs Shift held, and `/mouse off` (or `/mouse` again) gives it back. It is off when the TUI starts.
+The agent panel under the status line lists who is working for this session: running and finished delegates, then the active team's idle roster. Tab moves the focus into it, ↑↓ pick a row and Enter opens that agent's own transcript. Clicking a row does the same once you type `/mouse` (or `/mouse on`): a terminal cannot report clicks for one region only, so while the mouse is on the terminal's own drag-to-select needs Shift held, and `/mouse off` (or `/mouse` again) gives it back. It is on when the full-screen TUI starts, off in `--inline`.
 
 ## Modes
 
@@ -435,15 +435,15 @@ The draft is then probed with `mcp.test` before anything is written. On success 
 
 The HUD shows `mcp 2/3` — servers ready out of servers configured — and hides the segment when none are configured. A server that stops working is reported once in the transcript rather than on every retry.
 
-## Full screen
+## Inline layout
 
-`--fullscreen` switches to an alternate-buffer layout: the transcript is a window the UI scrolls itself with `PgUp`/`PgDn` and `Ctrl+U`/`Ctrl+D`, and nothing is left in your scrollback when you quit.
+Full screen is the default. `--inline` (or `SNOWPEA_TUI_INLINE=1`) draws the way `git log` does instead: finished output is handed to the terminal's own scrollback and only the bottom of the screen is live.
 
 ```bash
-snowpea --fullscreen
+snowpea --inline
 ```
 
-It costs less bandwidth over a slow link, because only the rows that changed are redrawn. It also takes your terminal's scrollback away for the session, which is why it is not the default.
+The mouse wheel scrolls the transcript in full screen because the TUI asks the terminal for mouse reports; while it does, selecting text with the mouse needs Shift held. `/mouse off` gives selection back (the wheel then stops scrolling the transcript), and `/mouse` turns reports on again. The inline layout starts with them off.
 
 ## Keys
 

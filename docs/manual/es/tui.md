@@ -312,15 +312,15 @@ Al parar, transcribe y deja el texto en el borrador en lugar de enviarlo, porque
 voice input needs speech-to-text: no transcription backend: install the whisper CLI, set an OpenAI API key, or …
 ```
 
-## Pantalla completa
+## Pantalla completa e inline
 
-`--fullscreen` cambia a una disposición sobre el buffer alternativo: la transcripción pasa a ser una ventana que la interfaz desplaza ella misma con `PgUp`/`PgDn` y `Ctrl+U`/`Ctrl+D`, y al salir no queda nada en tu scrollback.
+La interfaz es de pantalla completa por defecto: la entrada, las líneas de modo y estado y el panel de agentes quedan fijos abajo, y la transcripción de arriba se desplaza con la rueda del ratón, `PgUp`/`PgDn` o `Ctrl+U`/`Ctrl+D`. Solo se redibujan las filas que cambiaron, y al salir la terminal queda como estaba. Mientras la rueda desplaza la transcripción, seleccionar texto con el ratón requiere Shift; `/mouse off` lo devuelve.
+
+`--inline` (o `SNOWPEA_TUI_INLINE=1`) mantiene la disposición anterior, que deja la transcripción en el scrollback de la terminal.
 
 ```bash
-snowpea --fullscreen
+snowpea --inline
 ```
-
-Gasta menos ancho de banda en una conexión lenta, porque solo se redibujan las filas que cambiaron. También te quita el scrollback de la terminal durante la sesión, y por eso no es lo predeterminado.
 
 ## Teclas
 

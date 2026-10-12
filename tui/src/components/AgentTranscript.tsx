@@ -53,7 +53,7 @@ function AgentTranscriptInner({
           <Text bold color="cyan">{`◯ ${name}`}</Text>
           <Text dimColor>{task ? ` · ${task}` : ""}</Text>
         </Text>
-        <Text dimColor>{scrollIndicator ? `${scrollIndicator} · ${status}` : status}</Text>
+        <Text dimColor wrap="truncate-end">{scrollIndicator ? `${scrollIndicator} · ${status}` : status}</Text>
       </Box>
 
       {empty ? (
@@ -64,7 +64,7 @@ function AgentTranscriptInner({
         <TranscriptView lines={lines} height={height} />
       )}
 
-      <Text dimColor>↑↓ PgUp/PgDn scroll · Esc back to the main transcript</Text>
+      <Text dimColor wrap="truncate-end">↑↓ PgUp/PgDn scroll · Esc back to the main transcript</Text>
     </Box>
   );
 }

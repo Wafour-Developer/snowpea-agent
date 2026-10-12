@@ -23,6 +23,8 @@ export interface Segment {
   dimColor?: boolean;
   bold?: boolean;
   italic?: boolean;
+  /** Cell background, e.g. the band behind a prompt the user sent. */
+  backgroundColor?: string;
 }
 
 export interface Line {
@@ -316,6 +318,23 @@ export function toolCallLines(call: ToolCallEntry, expanded: boolean): Line[] {
   }
 
   const out: Line[] = [{ key: `${call.callId}-h`, segments: head }];
+  // While the call is in flight the daemon streams its output; the tail says
+  // the thing is alive and what it is chewing on. The final result replaces it.
+  if (call.state === "running") {
+    (call.progress ?? []).forEach((line, index) => {
+      out.push({
+        key: `${call.callId}-p${index}`,
+        segments: [{
+          text: `  ${line.text}`,
+          dimColor: line.stream === "stdout",
+          color: line.stream === "stderr" ? "yellow" : undefined,
+        }],
+      });
+    });
+    if ((call.progress ?? []).length > 0 && call.progressTruncated) {
+      out.push({ key: `${call.callId}-ptrunc`, segments: [{ text: "  … truncated", dimColor: true }] });
+    }
+  }
   shown.forEach((line, index) => {
     const severity = diagnosticLineColor(line);
     out.push({
@@ -329,7 +348,9 @@ export function toolCallLines(call: ToolCallEntry, expanded: boolean): Line[] {
       ],
     });
   });
-  if (hidden > 0) {
+  // A collapsed call already says "(N lines)" on its header; the fold line is
+  // only for output that is partly shown.
+  if (hidden > 0 && shown.length > 0) {
     out.push({ key: `${call.callId}-more`, segments: [{ text: `  … ${hidden} more lines`, dimColor: true }] });
   }
   return out;

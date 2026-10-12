@@ -113,7 +113,7 @@ import {
 } from "./state/voice.js";
 import type { SessionMemory, SessionRecord, TuiHistory } from "./state/history.js";
 import { TUI_VERSION } from "./version.js";
-import { transcriptLines } from "./layout/transcript.js";
+import { screenTranscriptLines, type TurnNote } from "./layout/screen-transcript.js";
 import {
   HEADER_ROWS,
   bottomRows as reserveBottomRows,
@@ -139,7 +139,7 @@ import { compactionDivider, contextWarning, summaryLine } from "./layout/bottom.
 import { currentAccent } from "./layout/palette.js";
 import { FullscreenLayout } from "./components/FullscreenLayout.js";
 import { Chat } from "./components/Chat.js";
-import { MessageView } from "./components/MessageStream.js";
+import { MessageView, colorizeFileRefs } from "./components/MessageStream.js";
 import { ToolCall } from "./components/ToolCall.js";
 import { DiffView } from "./components/DiffView.js";
 import { ApprovalPrompt, type ApprovalAnswer } from "./components/ApprovalPrompt.js";
@@ -197,6 +197,8 @@ import { UpdateBanner } from "./components/UpdateBanner.js";
 
 export const PLACEHOLDER_TEXT = "snowpea tui placeholder";
 const ENABLE_MOUSE = "\u001b[?1000h\u001b[?1006h";
+/** Rows one wheel notch scrolls, as most terminals scroll their own buffer. */
+const WHEEL_ROWS = 3;
 const DISABLE_MOUSE = "\u001b[?1000l\u001b[?1006l";
 
 /** The answers to "update now?", offered the same way approvals are. */
@@ -287,16 +289,22 @@ export function agentTranscriptRows({
   usable,
   statusRows,
   bottomRows,
+  transcriptRows,
 }: {
   fullscreen: boolean;
   /** Rows the frame may use — `usableRows(terminal.rows)`. */
   usable: number;
   statusRows: number;
   bottomRows: number;
+  /** Full-screen only: the transcript region the open agent takes over. */
+  transcriptRows?: number;
 }): number {
-  // Full-screen owns the alternate buffer and keeps its own fixed height, so
-  // the window there is a constant and the layout absorbs the rest.
-  if (fullscreen) return AGENT_TRANSCRIPT_ROWS;
+  // Full-screen draws the agent in place of the main transcript, so it gets
+  // that whole region less its own border, title and hint rows.
+  if (fullscreen) {
+    if (transcriptRows === undefined) return AGENT_TRANSCRIPT_ROWS;
+    return Math.max(MIN_AGENT_TRANSCRIPT_ROWS, transcriptRows - AGENT_TRANSCRIPT_CHROME_ROWS);
+  }
   const room = usable - statusRows - bottomRows - AGENT_TRANSCRIPT_CHROME_ROWS;
   return Math.max(MIN_AGENT_TRANSCRIPT_ROWS, Math.min(AGENT_TRANSCRIPT_ROWS, room));
 }
@@ -655,6 +663,8 @@ export function App({
   const staticCursorRef = useRef(0);
   /** Everything already written to the scrollback, in the order it went there. */
   const staticBlocksRef = useRef<StaticEntry[]>([{ key: "launch", kind: "launch" }]);
+  /** Full-screen's twin of the `✓ Done` lines `<Static>` is given, with where each turn ended. */
+  const turnNotesRef = useRef<TurnNote[]>([]);
   /** Wrapped rows already committed to scrollback per open-stream message id. */
   const streamCommittedRef = useRef<Map<string, number>>(new Map());
   /**
@@ -1159,10 +1169,12 @@ export function App({
     [stdout],
   );
 
-  // Off by default: a terminal cannot scope mouse reporting to one region,
-  // so while it is on the terminal's own drag-to-select stops working
-  // everywhere. `/mouse` turns it on for people who want to click the ◯ rows.
-  const [mouseOn, setMouseOn] = useState(false);
+  // A terminal cannot scope mouse reporting to one region, so while it is on
+  // the terminal's own drag-to-select needs Shift. Full-screen turns it on
+  // anyway: the alternate buffer has no scrollback, and without reports the
+  // wheel arrives as arrow keys that walk the prompt history instead of the
+  // transcript. Inline leaves it off; `/mouse` toggles it in either layout.
+  const [mouseOn, setMouseOn] = useState(fullscreen);
   useEffect(() => {
     setMouseMode(mouseOn);
     return () => setMouseMode(false);
@@ -1191,6 +1203,8 @@ export function App({
             streamCommittedRef.current = new Map();
             turnRef.current = null;
             turnActiveRef.current = false;
+            // Notes point into the old timeline; the new one starts empty.
+            turnNotesRef.current = [];
             setOpenAgent(null);
             setScrollOffset(0);
             setExpandedId(null);
@@ -1408,7 +1422,7 @@ export function App({
   const agentLines = useMemo(
     () =>
       openAgent && state.children[openAgent.sessionId]
-        ? transcriptLines(state.children[openAgent.sessionId], contentWidth - 4)
+        ? screenTranscriptLines(state.children[openAgent.sessionId], contentWidth - 4)
         : [],
     [openAgent, state.children, contentWidth],
   );
@@ -1458,12 +1472,17 @@ export function App({
     [draft, contentWidth],
   );
 
+  // Full-screen greets an empty session with the launch banner inside the
+  // transcript region, as inline prints it at the top; the header keeps only
+  // its rule.
+  const showLogo = !fullscreen;
   const layout = computeLayout({
     // One row short of the terminal on purpose; see `RESERVED_FRAME_ROW`.
     rows: usableRows(terminal.rows),
     columns: terminal.columns,
-    // Logo block, then the workdir row and the rule row.
-    headerRows: logoRows(terminal.rows) + HEADER_ROWS,
+    // Logo block, then the rule row. Full-screen gives the logo's rows to the
+    // transcript once there is a transcript to show.
+    headerRows: (showLogo ? logoRows(terminal.rows) : 0) + HEADER_ROWS,
     // The HUD's rows, the context warning when there is one, the summary line,
     // every row of the agent panel and its key/mouse hint.
     statusRows:
@@ -1497,6 +1516,7 @@ export function App({
     usable: usableRows(terminal.rows),
     statusRows: layout.statusRows,
     bottomRows: layout.bottomRows,
+    transcriptRows: layout.transcriptRows,
   });
   // Rows the inline live region may occupy before Ink starts clearing the
   // screen on every frame. Full-screen draws a fixed window into the alternate
@@ -1593,26 +1613,32 @@ export function App({
     const turn = turnRef.current;
     const ok = state.lastTurnReason === null || state.lastTurnReason === "complete";
     turnCountRef.current += 1;
+    const noteText = turnSummaryLine({
+      ok,
+      elapsedMs: now - turn.startedAt,
+      inputTokens: state.usage.inputTokens - turn.inputTokens,
+      outputTokens: state.usage.outputTokens - turn.outputTokens,
+    });
     staticBlocksRef.current = staticBlocksRef.current.concat({
       key: `turn-${turnCountRef.current}`,
       kind: "note",
       ok,
-      text: turnSummaryLine({
-        ok,
-        elapsedMs: now - turn.startedAt,
-        inputTokens: state.usage.inputTokens - turn.inputTokens,
-        outputTokens: state.usage.outputTokens - turn.outputTokens,
-      }),
+      text: noteText,
     });
+    turnNotesRef.current = turnNotesRef.current.concat({ at: state.timeline.length, text: noteText, ok });
     turnRef.current = null;
   }
   turnActiveRef.current = state.turnActive;
 
   const staticCursor = staticCursorRef.current;
 
+  const turnNotes = turnNotesRef.current;
   const lines = useMemo(
-    () => (fullscreen ? transcriptLines(state, contentWidth, { expandedCall: expandedId }) : []),
-    [fullscreen, state, contentWidth, expandedId],
+    () =>
+      fullscreen
+        ? screenTranscriptLines(state, contentWidth, { expandedId, notes: turnNotes }, colorizeFileRefs)
+        : [],
+    [fullscreen, state, contentWidth, expandedId, turnNotes],
   );
   // Memoized so typing, which touches neither the transcript nor the scroll
   // position, hands `TranscriptView` the very same array and its memo holds.
@@ -2541,24 +2567,35 @@ export function App({
       void handleStartDaemon();
       return;
     }
+    const reports = mouseReports(input);
+    // The wheel scrolls whatever window is open, even under a prompt: reading
+    // back is how a question gets answered. A fast flick sends several reports
+    // in one chunk, and each one counts.
+    // Shift, Alt and Ctrl add 4, 8 and 16 to the button; a wheel is a wheel.
+    const wheel = reports.reduce((sum, report) => {
+      const button = report.button & ~0x1c;
+      return sum + (button === 64 ? 1 : button === 65 ? -1 : 0);
+    }, 0);
+    if (wheel !== 0) {
+      // Help covers the transcript; scrolling what nobody can see would leave
+      // it somewhere else when help closes.
+      if (showHelp) return;
+      if (openAgent) {
+        setAgentScroll((offset) =>
+          clampScroll(offset + wheel * WHEEL_ROWS, agentLines.length, agentWindowRows),
+        );
+      } else if (fullscreen) scrollBy(wheel * WHEEL_ROWS);
+      return;
+    }
     // A prompt on screen owns every other key: mode cycling, Ctrl+O and the
     // rest would otherwise fire underneath the question being asked.
     if (state.pendingQuestion || state.pendingApproval || update.phase === "confirm" || modelPicker) {
       return;
     }
-    const reports = mouseReports(input);
     if (reports.length > 0) {
       // Mouse traffic never reaches the editor, handled or not.
       const mouse = reports.find((report) => report.press);
       if (!mouse) return;
-      if (openAgent && mouse.button === 64) {
-        setAgentScroll((offset) => offset + 1);
-        return;
-      }
-      if (openAgent && mouse.button === 65) {
-        setAgentScroll((offset) => Math.max(0, offset - 1));
-        return;
-      }
       if (openAgent || mouse.button !== 0) return;
       const index = panelRowAt(mouse.row, panelMouseLayout);
       if (index === null) return;
@@ -2972,7 +3009,9 @@ export function App({
         width={contentWidth}
         focusedIndex={focus.zone === "agent" ? focus.index : null}
       />
-      <Text dimColor>{mouseOn ? "↑↓ select · click or Enter opens" : "↑↓ select · Enter opens · /mouse enables clicking"}</Text>
+      <Text dimColor>{mouseOn
+        ? `↑↓ select · click or Enter opens${fullscreen ? " · wheel scrolls · Shift+drag selects text" : ""}`
+        : "↑↓ select · Enter opens · /mouse enables clicking"}</Text>
     </>
   );
 
@@ -2998,12 +3037,36 @@ export function App({
         rows={layout.rows}
         terminalRows={terminal.rows}
         version={version}
+        showLogo={showLogo}
         columns={layout.columns}
         transcriptRows={layout.transcriptRows}
         lines={viewport.lines}
         banner={bannerText(update)}
         scrollIndicator={scrollIndicator(viewport)}
-        overlay={helpNode}
+        overlay={helpNode ?? (state.timeline.length === 0 && !openAgent ? (
+          <LaunchBanner
+            width={terminal.columns - 2}
+            terminalRows={terminal.rows}
+            version={version}
+            workdir={workdir}
+            mode={mode}
+            provider={state.provider}
+            model={state.model}
+            lastSession={lastSession}
+            maxRows={layout.transcriptRows}
+          />
+        ) : openAgent ? (
+          <AgentTranscript
+            name={openAgent.name}
+            task={openAgentEntry?.task ?? ""}
+            status={openAgentEntry ? agentStatusText(openAgentEntry, clock) : ""}
+            lines={agentViewport.lines}
+            height={agentWindowRows}
+            width={contentWidth}
+            scrollIndicator={scrollIndicator(agentViewport)}
+            empty={agentLines.length === 0}
+          />
+        ) : null)}
         bottom={bottomNode}
         status={statusNode}
       />

@@ -16,6 +16,8 @@
 import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
 
+import { mouseReports } from "../input/mouse.js";
+
 import { currentAccent } from "../layout/palette.js";
 import { choiceHint, useChoiceKeys } from "../hooks/useChoiceKeys.js";
 
@@ -212,6 +214,7 @@ export function McpAddForm({
 
   useInput(
     (input, key) => {
+      if (mouseReports(input).length > 0) return;
       if (key.escape) {
         onCancel();
         return;

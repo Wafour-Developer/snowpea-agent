@@ -357,9 +357,11 @@ describe("--fullscreen", () => {
 
   const base = ["--port", "1234", "--token", "t"];
 
-  it("renders inline unless the alternate buffer is asked for", async () => {
+  it("draws full screen unless the inline layout is asked for", async () => {
     const parse = await parseArgs();
-    expect(parse(base, "/tmp", {}).fullscreen).toBe(false);
+    expect(parse(base, "/tmp", {}).fullscreen).toBe(true);
+    expect(parse([...base, "--inline"], "/tmp", {}).fullscreen).toBe(false);
+    expect(parse(base, "/tmp", { SNOWPEA_TUI_INLINE: "1" }).fullscreen).toBe(false);
   });
 
   it("takes the alternate buffer for the flag", async () => {
@@ -368,7 +370,7 @@ describe("--fullscreen", () => {
     expect(parse([...base, "--fullscreen=true"], "/tmp", {}).fullscreen).toBe(true);
   });
 
-  it("keeps the inline flags working, redundant as they now are", async () => {
+  it("keeps every inline spelling working", async () => {
     const parse = await parseArgs();
     expect(parse([...base, "--fullscreen", "--no-fullscreen"], "/tmp", {}).fullscreen).toBe(false);
     expect(parse([...base, "--fullscreen", "--inline"], "/tmp", {}).fullscreen).toBe(false);

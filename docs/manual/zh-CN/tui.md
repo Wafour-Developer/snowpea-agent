@@ -312,15 +312,15 @@ snowpea v0.1.2 → v0.1.3 (U to update)
 voice input needs speech-to-text: no transcription backend: install the whisper CLI, set an OpenAI API key, or …
 ```
 
-## 全屏
+## 全屏与内联
 
-`--fullscreen` 切换到备用屏幕缓冲区布局：记录变成由界面自己滚动的窗口，用 `PgUp`/`PgDn` 和 `Ctrl+U`/`Ctrl+D` 翻动，退出时不会在回滚缓冲里留下任何东西。
+默认是全屏：输入行、模式行和状态行、代理面板固定在屏幕底部，上方的记录用鼠标滚轮、`PgUp`/`PgDn` 或 `Ctrl+U`/`Ctrl+D` 滚动。只重绘变化的行，退出后终端恢复原样。滚轮用于滚动记录时，用鼠标选择文字需要按住 Shift；`/mouse off` 可以恢复。
+
+`--inline`（或 `SNOWPEA_TUI_INLINE=1`）使用以前的布局，把记录留在终端的回滚缓冲里。
 
 ```bash
-snowpea --fullscreen
+snowpea --inline
 ```
-
-它在慢速连接上更省带宽，因为只重绘变化的行。代价是这个会话期间拿走了终端的回滚缓冲，这也是它不是默认值的原因。
 
 ## 按键
 

@@ -13,6 +13,8 @@
 import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
 
+import { mouseReports } from "../input/mouse.js";
+
 import type { ApprovalDecision, ApprovalScope } from "../rpc/sdk.js";
 import { type ApprovalEntry } from "../state/store.js";
 import { ConfirmMenu, type ConfirmOption } from "./ConfirmMenu.js";
@@ -87,6 +89,7 @@ export function ApprovalPrompt({
   // refusal, Esc goes back to the menu, and nothing leaks into the chat draft.
   useInput(
     (input, key) => {
+      if (mouseReports(input).length > 0) return;
       if (reason === null) return;
       if (key.return) {
         onDecide({ decision: "deny", scope: "once" }, reason.trim() || undefined);

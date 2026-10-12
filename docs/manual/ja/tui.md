@@ -312,15 +312,15 @@ snowpea v0.1.2 → v0.1.3 (U to update)
 voice input needs speech-to-text: no transcription backend: install the whisper CLI, set an OpenAI API key, or …
 ```
 
-## 全画面
+## 全画面とインライン
 
-`--fullscreen` は代替スクリーンバッファのレイアウトに切り替えます。記録は UI 自身がスクロールする窓になり、`PgUp`/`PgDn` と `Ctrl+U`/`Ctrl+D` で動かせます。終了してもスクロールバックには何も残りません。
+既定は全画面です。入力欄、モード行・ステータス行、エージェントパネルは画面下に固定され、その上の記録はマウスホイール、`PgUp`/`PgDn`、`Ctrl+U`/`Ctrl+D` でスクロールします。変わった行だけを描き直し、終了するとターミナルは元のとおりに戻ります。ホイールで記録をスクロールしている間、マウスで文字を選ぶには Shift を押したままドラッグします。`/mouse off` で元に戻せます。
+
+`--inline`（または `SNOWPEA_TUI_INLINE=1`）は、記録をターミナルのスクロールバックに残す以前のレイアウトを使います。
 
 ```bash
-snowpea --fullscreen
+snowpea --inline
 ```
-
-変わった行だけを描き直すので、遅い回線では帯域を食いません。その代わりセッションのあいだターミナルのスクロールバックを取り上げます。既定でない理由はそれです。
 
 ## キー
 

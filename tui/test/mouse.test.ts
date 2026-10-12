@@ -53,7 +53,11 @@ describe("mouse reports as Ink delivers them", () => {
     expect(parseMouse("<0;2;30m")).toEqual({ button: 0, col: 2, row: 30, press: false });
     const chunk = mouseReports("[<0;11;22M[<0;11;22m[<0;2;30M[<0;2;30m");
     expect(chunk.map((r) => r.press)).toEqual([true, false, true, false]);
+    expect(mouseReports("[<64;20;10M64;20;10M").map((r) => r.button)).toEqual([64, 64]);
     expect(mouseReports("hello")).toEqual([]);
+    expect(mouseReports("12;3")).toEqual([]);
+    expect(mouseReports("1;2;3m")).toEqual([]);
+    expect(mouseReports("10;20;30M")).toEqual([]);
     expect(mouseReports("<not a report")).toEqual([]);
   });
 });

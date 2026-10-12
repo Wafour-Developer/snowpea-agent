@@ -18,7 +18,7 @@ export interface MouseReport {
  *
  * Returns null for anything else, including malformed numbers.
  */
-const REPORT = /(?:\u001b)?\[?<(\d+);(\d+);(\d+)([Mm])/g;
+const REPORT = /(?:\u001b)?(\[?<)?(\d+);(\d+);(\d+)([Mm])/g;
 
 /**
  * Every SGR mouse report in one stdin chunk, in order.
@@ -26,18 +26,22 @@ const REPORT = /(?:\u001b)?\[?<(\d+);(\d+);(\d+)([Mm])/g;
  * Ink hands `useInput` the sequence with its ESC stripped (and sometimes
  * without the `[`), and a fast click lands press and release in the same
  * chunk, so `<0;11;22M<0;11;22m` and `[<0;2;30M` are as common as the
- * textbook `ESC [ < 0;11;22 M`. Anything that is not wholly made of reports
- * is not mouse input and yields nothing.
+ * textbook `ESC [ < 0;11;22 M`. A wheel flick in full-screen splits a chunk
+ * of reports at an ESC, and the half after it arrives as `64;20;10M`, prefix
+ * and all gone. Anything that is not wholly made of reports is not mouse input
+ * and yields nothing.
  */
 export function mouseReports(input: string): MouseReport[] {
-  if (!/^(?:(?:\u001b)?\[?<\d+;\d+;\d+[Mm])+$/.test(input)) return [];
+  if (!/^(?:(?:\u001b)?(?:\[?<)?\d+;\d+;\d+[Mm])+$/.test(input)) return [];
   const reports: MouseReport[] = [];
   for (const match of input.matchAll(REPORT)) {
-    const button = Number(match[1]);
-    const col = Number(match[2]);
-    const row = Number(match[3]);
+    const button = Number(match[2]);
+    const col = Number(match[3]);
+    const row = Number(match[4]);
+    // Only a wheel flick loses its prefix; a bare `1;2;3m` is somebody's text.
+    if (!match[1] && button < 64) return [];
     if (button < 0 || col < 1 || row < 1) continue;
-    reports.push({ button, col, row, press: match[4] === "M" });
+    reports.push({ button, col, row, press: match[5] === "M" });
   }
   return reports;
 }

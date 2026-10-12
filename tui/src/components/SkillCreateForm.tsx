@@ -10,6 +10,8 @@
 import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
 
+import { mouseReports } from "../input/mouse.js";
+
 import { currentAccent } from "../layout/palette.js";
 import { choiceHint, useChoiceKeys } from "../hooks/useChoiceKeys.js";
 import { isValidSkillName, type SkillScope } from "../state/skill-completion.js";
@@ -60,6 +62,7 @@ export function SkillCreateForm({
 
   useInput(
     (input, key) => {
+      if (mouseReports(input).length > 0) return;
       if (key.escape) {
         onCancel();
         return;

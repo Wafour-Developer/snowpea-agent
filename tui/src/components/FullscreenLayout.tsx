@@ -12,7 +12,8 @@
  * `sliceViewport` and the input block's height is reserved by `bottomRows`.
  *
  * There is no header bar: the workdir, the session and the mode all live in the
- * HUD under the input, so the top of the screen is the logo and then content.
+ * HUD under the input, so the top of the screen is the logo and then content —
+ * and once a session has a transcript, only the rule and then content.
  */
 
 import React from "react";
@@ -29,6 +30,11 @@ export interface FullscreenLayoutProps {
   terminalRows: number;
   /** Shown under the wordmark; the daemon's version once it is known. */
   version: string;
+  /**
+   * Draw the wordmark. It greets an empty session; once there is a transcript
+   * its rows go to the transcript instead.
+   */
+  showLogo?: boolean;
   columns: number;
   transcriptRows: number;
   /** Already windowed by `sliceViewport`. */
@@ -50,6 +56,7 @@ export function FullscreenLayout({
   rows,
   terminalRows,
   version,
+  showLogo = true,
   columns,
   transcriptRows,
   lines,
@@ -65,7 +72,7 @@ export function FullscreenLayout({
 
   return (
     <Box flexDirection="column" width={columns} height={rows} paddingX={1} overflow="hidden">
-      <Logo terminalRows={terminalRows} version={version} width={inner} />
+      {showLogo ? <Logo terminalRows={terminalRows} version={version} width={inner} /> : null}
 
       <Box flexShrink={0} justifyContent="space-between">
         {banner === null ? (

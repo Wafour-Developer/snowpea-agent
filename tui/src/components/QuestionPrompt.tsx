@@ -28,6 +28,8 @@
 import React, { useMemo, useState } from "react";
 import { Box, Text, useInput } from "ink";
 
+import { mouseReports } from "../input/mouse.js";
+
 import { currentAccent } from "../layout/palette.js";
 import { useChoiceKeys } from "../hooks/useChoiceKeys.js";
 import type { QuestionEntry } from "../state/store.js";
@@ -152,7 +154,7 @@ export function QuestionPrompt({
   // through the one key map every picker in the TUI shares (M15b §2).
   useInput(
     (input, key) => {
-      if (!typing) return;
+      if (!typing || mouseReports(input).length > 0) return;
       if (key.return) {
         const text = draft.trim();
         // Single-select: the typed answer replaces the picked option, as picking

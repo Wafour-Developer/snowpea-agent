@@ -103,11 +103,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="check that the TUI loads on this machine's Node, then exit (the installer runs it)",
     )
     parser.add_argument("--mode", choices=MODES, default=None, help="permission mode")
-    parser.add_argument(
-        "--fullscreen",
+    layout = parser.add_mutually_exclusive_group()
+    layout.add_argument(
+        "--inline",
         action="store_true",
-        help="run the TUI in the alternate-buffer full-screen layout instead of inline",
+        help="draw the TUI inline, leaving the transcript in the terminal's scrollback "
+        "(the default is full screen)",
     )
+    # Full screen is the default since 0.2.29; the flag stays so old scripts work.
+    layout.add_argument("--fullscreen", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--home", default=None, help="override SNOWPEA_HOME")
     parser.add_argument(
         "-c",
@@ -281,8 +285,8 @@ def launch_tui(args: argparse.Namespace, home: str | None) -> int:
     command += ["--port", str(info.port), "--token", info.token, "--cwd", str(workdir)]
     if args.mode:
         command += ["--mode", args.mode]
-    if getattr(args, "fullscreen", False):
-        command.append("--fullscreen")
+    if getattr(args, "inline", False):
+        command.append("--inline")
     try:
         code = subprocess.call(command)  # noqa: S603 - argv built above
     except FileNotFoundError:

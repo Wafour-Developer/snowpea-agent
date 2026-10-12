@@ -4,8 +4,8 @@
  * Invoked by `snowpea` (cli/main.py) as:
  *   node dist/snowpea-tui.js --port <n> --token <t> [--mode plan|accept|auto] [--cwd DIR]
  *
- * Renders inline by default, leaving the transcript in the terminal's
- * scrollback; `--fullscreen` switches to the alternate-buffer layout.
+ * Renders full screen on the alternate buffer by default; `--inline` keeps the
+ * older layout that leaves the transcript in the terminal's scrollback.
  *
  * Nothing renders at import time: failures during connect are reported on
  * stderr and exit non-zero rather than throwing out of module evaluation.
@@ -56,9 +56,12 @@ export interface CliArgs {
   mode?: Mode;
   cwd: string;
   /**
-   * Draw full screen on the alternate buffer. Off by default: the inline
-   * layout keeps the terminal's own scrollback, which is what people expect
-   * from a coding agent in a terminal. `--fullscreen` opts in.
+   * Draw full screen on the alternate buffer: the input, the HUD and the agent
+   * panel stay put at the bottom and only the transcript scrolls. The default
+   * since 0.2.29 — the inline layout repainted its live region on every frame
+   * and, once that region outgrew the terminal, repeated the answer and shook
+   * the screen. `--inline` (or `SNOWPEA_TUI_INLINE=1`) keeps the old layout,
+   * which leaves the history in the terminal's own scrollback.
    */
   fullscreen: boolean;
 }
@@ -97,9 +100,8 @@ export function parseArgs(
     throw new Error(`--mode must be one of ${MODES.join("|")}`);
   }
 
-  // Inline is the default, so the alternate buffer has to be asked for. The
-  // inline flags stay accepted — they are now redundant, not wrong.
-  const fullscreenRequested = values.get("fullscreen") === "true";
+  // Full screen is the default; the inline layout has to be asked for.
+  // `--fullscreen` stays accepted — it is now redundant, not wrong.
   const inlineRequested =
     values.get("no-fullscreen") === "true" ||
     values.get("inline") === "true" ||
@@ -111,7 +113,7 @@ export function parseArgs(
     token,
     mode: modeRaw as Mode | undefined,
     cwd: values.get("cwd") || cwd,
-    fullscreen: fullscreenRequested && !inlineRequested,
+    fullscreen: !inlineRequested,
   };
 }
 

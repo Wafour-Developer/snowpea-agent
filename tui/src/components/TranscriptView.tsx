@@ -42,6 +42,7 @@ function TranscriptViewInner({
               dimColor={segment.dimColor}
               bold={segment.bold}
               italic={segment.italic}
+              backgroundColor={segment.backgroundColor}
             >
               {segment.text}
             </Text>

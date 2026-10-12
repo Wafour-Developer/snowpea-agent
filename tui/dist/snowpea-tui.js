@@ -7933,7 +7933,7 @@ var require_react_reconciler_development = __commonJS({
         var HostPortal = 4;
         var HostComponent = 5;
         var HostText = 6;
-        var Fragment9 = 7;
+        var Fragment10 = 7;
         var Mode = 8;
         var ContextConsumer = 9;
         var ContextProvider = 10;
@@ -8073,7 +8073,7 @@ var require_react_reconciler_development = __commonJS({
               return "DehydratedFragment";
             case ForwardRef:
               return getWrappedName$1(type, type.render, "ForwardRef");
-            case Fragment9:
+            case Fragment10:
               return "Fragment";
             case HostComponent:
               return type;
@@ -11207,7 +11207,7 @@ var require_react_reconciler_development = __commonJS({
             }
           }
           function updateFragment2(returnFiber, current3, fragment, lanes, key) {
-            if (current3 === null || current3.tag !== Fragment9) {
+            if (current3 === null || current3.tag !== Fragment10) {
               var created = createFiberFromFragment(fragment, returnFiber.mode, lanes, key);
               created.return = returnFiber;
               return created;
@@ -11610,7 +11610,7 @@ var require_react_reconciler_development = __commonJS({
               if (child.key === key) {
                 var elementType = element.type;
                 if (elementType === REACT_FRAGMENT_TYPE) {
-                  if (child.tag === Fragment9) {
+                  if (child.tag === Fragment10) {
                     deleteRemainingChildren(returnFiber, child.sibling);
                     var existing = useFiber(child, element.props.children);
                     existing.return = returnFiber;
@@ -17101,7 +17101,7 @@ var require_react_reconciler_development = __commonJS({
               var _resolvedProps2 = workInProgress2.elementType === type ? _unresolvedProps2 : resolveDefaultProps(type, _unresolvedProps2);
               return updateForwardRef(current3, workInProgress2, type, _resolvedProps2, renderLanes2);
             }
-            case Fragment9:
+            case Fragment10:
               return updateFragment(current3, workInProgress2, renderLanes2);
             case Mode:
               return updateMode(current3, workInProgress2, renderLanes2);
@@ -17538,7 +17538,7 @@ var require_react_reconciler_development = __commonJS({
             case SimpleMemoComponent:
             case FunctionComponent:
             case ForwardRef:
-            case Fragment9:
+            case Fragment10:
             case Mode:
             case Profiler:
             case ContextConsumer:
@@ -22306,7 +22306,7 @@ var require_react_reconciler_development = __commonJS({
           return fiber;
         }
         function createFiberFromFragment(elements, mode, lanes, key) {
-          var fiber = createFiber(Fragment9, elements, key, mode);
+          var fiber = createFiber(Fragment10, elements, key, mode);
           fiber.lanes = lanes;
           return fiber;
         }
@@ -36643,16 +36643,17 @@ function clampFocus(focus, agentRows) {
 }
 
 // src/input/mouse.ts
-var REPORT = /(?:\u001b)?\[?<(\d+);(\d+);(\d+)([Mm])/g;
+var REPORT = /(?:\u001b)?(\[?<)?(\d+);(\d+);(\d+)([Mm])/g;
 function mouseReports(input) {
-  if (!/^(?:(?:\u001b)?\[?<\d+;\d+;\d+[Mm])+$/.test(input)) return [];
+  if (!/^(?:(?:\u001b)?(?:\[?<)?\d+;\d+;\d+[Mm])+$/.test(input)) return [];
   const reports = [];
   for (const match of input.matchAll(REPORT)) {
-    const button = Number(match[1]);
-    const col = Number(match[2]);
-    const row = Number(match[3]);
+    const button = Number(match[2]);
+    const col = Number(match[3]);
+    const row = Number(match[4]);
+    if (!match[1] && button < 64) return [];
     if (button < 0 || col < 1 || row < 1) continue;
-    reports.push({ button, col, row, press: match[4] === "M" });
+    reports.push({ button, col, row, press: match[5] === "M" });
   }
   return reports;
 }
@@ -37567,6 +37568,297 @@ function chipLabel(attachment) {
 // src/version.ts
 var TUI_VERSION = "0.2.28";
 
+// src/components/DiffView.tsx
+var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
+var COLLAPSED_LINES = 12;
+var EXPANDED_LINES = 200;
+function diffLineColor(line) {
+  if (line.startsWith("+++") || line.startsWith("---")) return "cyan";
+  if (line.startsWith("@@")) return "magenta";
+  if (line.startsWith("+")) return "green";
+  if (line.startsWith("-")) return "red";
+  return void 0;
+}
+function bodyLines(patch) {
+  return patch.split("\n").filter((line) => !/^(\+\+\+|---|diff |index )/.test(line));
+}
+function diffStats(patch) {
+  let added = 0;
+  let removed = 0;
+  for (const line of bodyLines(patch)) {
+    if (line.startsWith("+")) added += 1;
+    else if (line.startsWith("-")) removed += 1;
+  }
+  return { added, removed };
+}
+function diffHeader(diff2) {
+  const { added, removed } = diffStats(diff2.patch);
+  if (diff2.created) {
+    return `\u271A Created ${diff2.path} (${added} ${added === 1 ? "line" : "lines"})`;
+  }
+  return `\u270E Edited ${diff2.path}  (+${added} \u2212${removed})`;
+}
+function DiffView({
+  diff: diff2,
+  expanded = false,
+  diagnostics
+}) {
+  const badge = diagnosticsBadge(diagnostics);
+  const lines = diff2.patch.split("\n");
+  const limit = expanded ? EXPANDED_LINES : COLLAPSED_LINES;
+  const shown = lines.slice(0, limit);
+  const hidden = lines.length - shown.length;
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Box_default, { flexDirection: "column", marginBottom: 1, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Text, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Text, { bold: true, color: diff2.created ? "green" : "yellow", children: diffHeader(diff2) }),
+      badge ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Text, { color: diagnosticsColor(diagnostics), children: `  ${badge}` }) : null
+    ] }),
+    shown.map((line, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      Text,
+      {
+        color: diffLineColor(line),
+        dimColor: diffLineColor(line) === void 0,
+        wrap: "truncate-end",
+        children: line
+      },
+      `${diff2.id}-d${index}`
+    )),
+    hidden > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Text, { dimColor: true, children: `\u2026 ${hidden} more ${hidden === 1 ? "line" : "lines"} (Ctrl+O)` }) : null
+  ] });
+}
+
+// src/layout/summary.ts
+function toolKind(name) {
+  const lower = name.toLowerCase();
+  if (/(^|_)delegate/.test(lower)) return "delegate";
+  if (/(^|_)(bash|shell|exec|run|terminal)/.test(lower)) return "shell";
+  if (/(^|_)(read|cat|open|view)/.test(lower)) return "read";
+  if (/(^|_)(search|grep|glob|find|rg)/.test(lower)) return "search";
+  if (/(^|_)(edit|patch|apply|replace)/.test(lower)) return "edit";
+  if (/(^|_)(write|create|save)/.test(lower)) return "write";
+  if (/(^|_)(fetch|http|curl|web|browse)/.test(lower)) return "fetch";
+  return "other";
+}
+function subject(call) {
+  const args = call.args ?? {};
+  for (const key of ["path", "file", "file_path", "filename", "pattern", "query", "url", "command"]) {
+    const value = args[key];
+    if (typeof value === "string" && value.length > 0) return value;
+  }
+  return null;
+}
+var EN = {
+  one: {
+    shell: "Ran shell command",
+    read: "Read a file",
+    search: "Searched",
+    edit: "Edited a file",
+    write: "Wrote a file",
+    fetch: "Fetched a page",
+    delegate: "Delegated a task",
+    other: "Ran a tool"
+  },
+  many: {
+    shell: (n) => `Ran ${n} shell commands`,
+    read: (n) => `Read ${n} files`,
+    search: (n) => `Searched ${n} patterns`,
+    edit: (n) => `Edited ${n} files`,
+    write: (n) => `Wrote ${n} files`,
+    fetch: (n) => `Fetched ${n} pages`,
+    delegate: (n) => `Delegated ${n} tasks`,
+    other: (n) => `Ran ${n} tools`
+  },
+  single: {
+    shell: (what) => `Ran shell: ${what}`,
+    read: (what) => `Read ${what}`,
+    search: (what) => `Searched "${what}"`,
+    edit: (what) => `Edited ${what}`,
+    write: (what) => `Wrote ${what}`,
+    fetch: (what) => `Fetched ${what}`,
+    delegate: (what) => `Delegated: ${what}`
+  },
+  tool: (name) => `Ran ${name}`
+};
+var KO = {
+  one: {
+    shell: "\uC178 \uBA85\uB839 \uC2E4\uD589",
+    read: "\uD30C\uC77C \uC77D\uC74C",
+    search: "\uAC80\uC0C9",
+    edit: "\uD30C\uC77C \uC218\uC815",
+    write: "\uD30C\uC77C \uC791\uC131",
+    fetch: "\uD398\uC774\uC9C0 \uAC00\uC838\uC634",
+    delegate: "\uC791\uC5C5 \uC704\uC784",
+    other: "\uB3C4\uAD6C \uC2E4\uD589"
+  },
+  many: {
+    shell: (n) => `\uC178 \uBA85\uB839 ${n}\uAC1C \uC2E4\uD589`,
+    read: (n) => `\uD30C\uC77C ${n}\uAC1C \uC77D\uC74C`,
+    search: (n) => `${n}\uAC1C \uD328\uD134 \uAC80\uC0C9`,
+    edit: (n) => `\uD30C\uC77C ${n}\uAC1C \uC218\uC815`,
+    write: (n) => `\uD30C\uC77C ${n}\uAC1C \uC791\uC131`,
+    fetch: (n) => `\uD398\uC774\uC9C0 ${n}\uAC1C \uAC00\uC838\uC634`,
+    delegate: (n) => `\uC791\uC5C5 ${n}\uAC1C \uC704\uC784`,
+    other: (n) => `\uB3C4\uAD6C ${n}\uAC1C \uC2E4\uD589`
+  },
+  single: {
+    shell: (what) => `\uC178 \uC2E4\uD589: ${what}`,
+    read: (what) => `${what} \uC77D\uC74C`,
+    search: (what) => `"${what}" \uAC80\uC0C9`,
+    edit: (what) => `${what} \uC218\uC815`,
+    write: (what) => `${what} \uC791\uC131`,
+    fetch: (what) => `${what} \uAC00\uC838\uC634`,
+    delegate: (what) => `\uC704\uC784: ${what}`
+  },
+  tool: (name) => `${name} \uC2E4\uD589`
+};
+var JA = {
+  one: {
+    shell: "\u30B7\u30A7\u30EB\u30B3\u30DE\u30F3\u30C9\u3092\u5B9F\u884C",
+    read: "\u30D5\u30A1\u30A4\u30EB\u3092\u8AAD\u307F\u8FBC\u307F",
+    search: "\u691C\u7D22",
+    edit: "\u30D5\u30A1\u30A4\u30EB\u3092\u7DE8\u96C6",
+    write: "\u30D5\u30A1\u30A4\u30EB\u3092\u4F5C\u6210",
+    fetch: "\u30DA\u30FC\u30B8\u3092\u53D6\u5F97",
+    delegate: "\u30BF\u30B9\u30AF\u3092\u59D4\u4EFB",
+    other: "\u30C4\u30FC\u30EB\u3092\u5B9F\u884C"
+  },
+  many: {
+    shell: (n) => `\u30B7\u30A7\u30EB\u30B3\u30DE\u30F3\u30C9 ${n} \u4EF6\u3092\u5B9F\u884C`,
+    read: (n) => `\u30D5\u30A1\u30A4\u30EB ${n} \u4EF6\u3092\u8AAD\u307F\u8FBC\u307F`,
+    search: (n) => `\u30D1\u30BF\u30FC\u30F3 ${n} \u4EF6\u3092\u691C\u7D22`,
+    edit: (n) => `\u30D5\u30A1\u30A4\u30EB ${n} \u4EF6\u3092\u7DE8\u96C6`,
+    write: (n) => `\u30D5\u30A1\u30A4\u30EB ${n} \u4EF6\u3092\u4F5C\u6210`,
+    fetch: (n) => `\u30DA\u30FC\u30B8 ${n} \u4EF6\u3092\u53D6\u5F97`,
+    delegate: (n) => `\u30BF\u30B9\u30AF ${n} \u4EF6\u3092\u59D4\u4EFB`,
+    other: (n) => `\u30C4\u30FC\u30EB ${n} \u4EF6\u3092\u5B9F\u884C`
+  },
+  single: {
+    shell: (what) => `\u30B7\u30A7\u30EB\u5B9F\u884C: ${what}`,
+    read: (what) => `${what} \u3092\u8AAD\u307F\u8FBC\u307F`,
+    search: (what) => `"${what}" \u3092\u691C\u7D22`,
+    edit: (what) => `${what} \u3092\u7DE8\u96C6`,
+    write: (what) => `${what} \u3092\u4F5C\u6210`,
+    fetch: (what) => `${what} \u3092\u53D6\u5F97`,
+    delegate: (what) => `\u59D4\u4EFB: ${what}`
+  },
+  tool: (name) => `${name} \u3092\u5B9F\u884C`
+};
+var ZH = {
+  one: {
+    shell: "\u6267\u884C\u4E86 shell \u547D\u4EE4",
+    read: "\u8BFB\u53D6\u4E86\u6587\u4EF6",
+    search: "\u8FDB\u884C\u4E86\u641C\u7D22",
+    edit: "\u4FEE\u6539\u4E86\u6587\u4EF6",
+    write: "\u5199\u5165\u4E86\u6587\u4EF6",
+    fetch: "\u6293\u53D6\u4E86\u9875\u9762",
+    delegate: "\u59D4\u6D3E\u4E86\u4EFB\u52A1",
+    other: "\u8C03\u7528\u4E86\u5DE5\u5177"
+  },
+  many: {
+    shell: (n) => `\u6267\u884C\u4E86 ${n} \u6761 shell \u547D\u4EE4`,
+    read: (n) => `\u8BFB\u53D6\u4E86 ${n} \u4E2A\u6587\u4EF6`,
+    search: (n) => `\u641C\u7D22\u4E86 ${n} \u4E2A\u6A21\u5F0F`,
+    edit: (n) => `\u4FEE\u6539\u4E86 ${n} \u4E2A\u6587\u4EF6`,
+    write: (n) => `\u5199\u5165\u4E86 ${n} \u4E2A\u6587\u4EF6`,
+    fetch: (n) => `\u6293\u53D6\u4E86 ${n} \u4E2A\u9875\u9762`,
+    delegate: (n) => `\u59D4\u6D3E\u4E86 ${n} \u4E2A\u4EFB\u52A1`,
+    other: (n) => `\u8C03\u7528\u4E86 ${n} \u4E2A\u5DE5\u5177`
+  },
+  single: {
+    shell: (what) => `\u6267\u884C shell: ${what}`,
+    read: (what) => `\u8BFB\u53D6 ${what}`,
+    search: (what) => `\u641C\u7D22 "${what}"`,
+    edit: (what) => `\u4FEE\u6539 ${what}`,
+    write: (what) => `\u5199\u5165 ${what}`,
+    fetch: (what) => `\u6293\u53D6 ${what}`,
+    delegate: (what) => `\u59D4\u6D3E: ${what}`
+  },
+  tool: (name) => `${name}`
+};
+var CATALOG = { en: EN, ko: KO, ja: JA, zh: ZH };
+function verbsFor(language) {
+  return CATALOG[language] ?? EN;
+}
+function delegateTitle(call) {
+  if (toolKind(call.name) !== "delegate") return null;
+  const title = (call.args ?? {}).title;
+  return typeof title === "string" && title.trim().length > 0 ? title.trim() : null;
+}
+function summarizeCalls(calls, language = uiLanguage()) {
+  if (calls.length === 0) return "";
+  const verbs = verbsFor(language);
+  const kinds = new Set(calls.map((call) => toolKind(call.name)));
+  const kind = kinds.size === 1 ? [...kinds][0] : "other";
+  if (calls.length === 1) {
+    const call = calls[0];
+    const title = delegateTitle(call);
+    if (title) return clip(title, 60);
+    if (kind === "delegate") {
+      const agent = (call.args ?? {}).agent;
+      const named = typeof agent === "string" && agent.trim().length > 0 ? agent.trim() : null;
+      return named ? verbs.single.delegate(clip(named, 30)) : verbs.one.delegate;
+    }
+    const what = subject(call);
+    if (!what) return kind === "other" ? verbs.tool(clip(call.name, 30)) : verbs.one[kind];
+    switch (kind) {
+      case "shell":
+        return verbs.single.shell(clip(what, 40));
+      case "read":
+        return verbs.single.read(basename(what));
+      case "edit":
+        return verbs.single.edit(basename(what));
+      case "write":
+        return verbs.single.write(basename(what));
+      case "search":
+        return verbs.single.search(clip(what, 30));
+      case "fetch":
+        return verbs.single.fetch(clip(what, 40));
+      default:
+        return verbs.tool(clip(call.name, 30));
+    }
+  }
+  return verbs.many[kind](calls.length);
+}
+function hiddenLines(calls) {
+  let total = 0;
+  for (const call of calls) {
+    const body = call.output ?? "";
+    if (body.length > 0) total += body.split("\n").length;
+  }
+  return total;
+}
+function groupCalls(calls) {
+  const blocks = [];
+  let run = [];
+  const flush = () => {
+    if (run.length > 0) blocks.push({ kind: "tools", calls: run });
+    run = [];
+  };
+  for (const call of calls) {
+    if (call.state === "error") {
+      flush();
+      blocks.push({ kind: "single", call });
+      continue;
+    }
+    run.push(call);
+  }
+  flush();
+  return blocks;
+}
+
+// src/components/ToolSummary.tsx
+var import_jsx_runtime2 = __toESM(require_jsx_runtime(), 1);
+var SUMMARY_GLYPH = "\u23FA";
+function ToolSummary({ calls }) {
+  if (calls.length === 0) return null;
+  const lines = hiddenLines(calls);
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(Box_default, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Text, { color: currentAccentDim(), children: `${SUMMARY_GLYPH} ` }),
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Text, { children: summarizeCalls(calls) }),
+    lines > 0 ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Text, { dimColor: true, children: ` (${lines} lines)` }) : null
+  ] });
+}
+
 // src/layout/transcript.ts
 var TOOL_OUTPUT_LINES = 12;
 var COLLAPSED_ERROR_LINES = 3;
@@ -37815,6 +38107,21 @@ function toolCallLines(call, expanded) {
     head.push({ text: ` (${allLength} lines)`, dimColor: true });
   }
   const out = [{ key: `${call.callId}-h`, segments: head }];
+  if (call.state === "running") {
+    (call.progress ?? []).forEach((line, index) => {
+      out.push({
+        key: `${call.callId}-p${index}`,
+        segments: [{
+          text: `  ${line.text}`,
+          dimColor: line.stream === "stdout",
+          color: line.stream === "stderr" ? "yellow" : void 0
+        }]
+      });
+    });
+    if ((call.progress ?? []).length > 0 && call.progressTruncated) {
+      out.push({ key: `${call.callId}-ptrunc`, segments: [{ text: "  \u2026 truncated", dimColor: true }] });
+    }
+  }
   shown.forEach((line, index) => {
     const severity = diagnosticLineColor(line);
     out.push({
@@ -37828,12 +38135,12 @@ function toolCallLines(call, expanded) {
       ]
     });
   });
-  if (hidden > 0) {
+  if (hidden > 0 && shown.length > 0) {
     out.push({ key: `${call.callId}-more`, segments: [{ text: `  \u2026 ${hidden} more lines`, dimColor: true }] });
   }
   return out;
 }
-function diffLineColor(line) {
+function diffLineColor2(line) {
   if (line.startsWith("+++") || line.startsWith("---")) return "cyan";
   if (line.startsWith("@@")) return "magenta";
   if (line.startsWith("+")) return "green";
@@ -37848,79 +38155,157 @@ function diffLines(diff2) {
     { key: `${diff2.id}-h`, segments: [{ text: `\xB1 ${diff2.path}`, bold: true, color: "yellow" }] }
   ];
   shown.forEach(
-    (line, index) => out.push({ key: `${diff2.id}-d${index}`, segments: [{ text: line, color: diffLineColor(line) }] })
+    (line, index) => out.push({ key: `${diff2.id}-d${index}`, segments: [{ text: line, color: diffLineColor2(line) }] })
   );
   if (hidden > 0) {
     out.push({ key: `${diff2.id}-more`, segments: [{ text: `\u2026 ${hidden} more diff lines`, dimColor: true }] });
   }
   return out;
 }
-function subagentLines(state) {
-  if (state.subagents.length === 0) return [];
-  const marks = {
-    queued: { glyph: "\u25E6", color: "gray" },
-    running: { glyph: "\u25CF", color: "cyan" },
-    done: { glyph: "\u2713", color: "green" },
-    error: { glyph: "\u2717", color: "red" }
-  };
-  const counts = /* @__PURE__ */ new Map();
-  for (const entry of state.subagents) counts.set(entry.status, (counts.get(entry.status) ?? 0) + 1);
-  const summary = ["running", "queued", "done", "error"].filter((status) => counts.has(status)).map((status) => `${counts.get(status)} ${status}`).join(" \xB7 ");
-  const out = [
-    { key: "subagents-h", segments: [{ text: `subagents (${summary})`, dimColor: true }] }
-  ];
-  state.subagents.forEach((entry, index) => {
-    const last = index === state.subagents.length - 1;
-    const mark = marks[entry.status] ?? marks.queued;
-    const label = entry.name ? `${entry.name}: ` : "";
+
+// src/layout/screen-transcript.ts
+var blank = (key) => ({ key, segments: [{ text: "" }] });
+function bandLines(lines, width, background) {
+  if (!background) return lines;
+  return lines.map((line) => {
+    const used = line.segments.reduce((sum, segment) => sum + textWidth(segment.text), 0);
+    const pad = Math.max(0, width - used);
+    const segments = line.segments.map((segment) => ({ ...segment, backgroundColor: background }));
+    if (pad > 0) segments.push({ text: " ".repeat(pad), backgroundColor: background });
+    return { ...line, segments };
+  });
+}
+function messageBlock(message, width, colorize2, inputBackground) {
+  const base = messageLines(message, width);
+  const formatted = message.role === "user" ? colorize2(base) : base;
+  const wrapped = formatted.flatMap((line) => wrapLine(line, width, "  "));
+  const background = message.role === "user" ? inputBackground : void 0;
+  const out = bandLines(wrapped, width, background);
+  if (message.expansion) {
+    const { name, lines } = message.expansion;
     out.push({
-      key: `${entry.agentId}-h`,
+      key: `${message.id}-fold`,
       segments: [
-        { text: last ? "  \u2514\u2500 " : "  \u251C\u2500 ", dimColor: true },
-        { text: `${mark.glyph} `, color: mark.color },
-        { text: `${label}${entry.task}` }
+        { text: `${SUMMARY_GLYPH} `, color: currentAccentDim() },
+        { text: `skill ${name} \xB7 ${lines} lines`, dimColor: true }
       ]
     });
-    const detail = entry.status === "done" || entry.status === "error" ? entry.summary : entry.lastText;
-    if (detail) {
-      out.push({
-        key: `${entry.agentId}-d`,
-        segments: [{ text: `  ${last ? " " : "\u2502"}     ${detail.replace(/\s+/g, " ").trim()}`, dimColor: true }]
-      });
-    }
-  });
+  }
+  for (const attachment of message.attachments ?? []) {
+    out.push(
+      ...bandLines(
+        [{ key: `${message.id}-att-${attachment.name}`, segments: [{ text: `  \u{1F4CE} ${attachment.name}`, dimColor: true }] }],
+        width,
+        background
+      )
+    );
+  }
   return out;
 }
-function transcriptLines(state, width, { expandedCall = null } = {}) {
-  const raw = [];
-  for (const item of state.timeline) {
-    if (item.kind === "message") {
-      const message = state.messages.find((m) => m.id === item.id);
-      if (!message) continue;
-      raw.push(...messageLines(message, width));
-      raw.push({ key: `${item.id}-gap`, segments: [{ text: "" }] });
-      continue;
+function summaryLine2(calls) {
+  const hidden = hiddenLines(calls);
+  const segments = [
+    { text: `${SUMMARY_GLYPH} `, color: currentAccentDim() },
+    { text: summarizeCalls(calls) }
+  ];
+  if (hidden > 0) segments.push({ text: ` (${hidden} lines)`, dimColor: true });
+  return { key: `tools-${calls[0].callId}-${calls.length}`, segments };
+}
+function diffBlock(diff2, expanded, state) {
+  const diagnostics = state.diagnostics[diff2.path];
+  const badge = diagnosticsBadge(diagnostics);
+  const head = [{ text: diffHeader(diff2), bold: true, color: diff2.created ? "green" : "yellow" }];
+  if (badge) head.push({ text: `  ${badge}`, color: diagnosticsColor(diagnostics) });
+  const all = diff2.patch.split("\n");
+  const shown = all.slice(0, expanded ? EXPANDED_LINES : COLLAPSED_LINES);
+  const hidden = all.length - shown.length;
+  const out = [{ key: `${diff2.id}-h`, segments: head }];
+  shown.forEach((line, index) => {
+    const color = diffLineColor(line);
+    out.push({ key: `${diff2.id}-d${index}`, segments: [{ text: line, color, dimColor: color === void 0 }] });
+  });
+  if (hidden > 0) {
+    out.push({
+      key: `${diff2.id}-more`,
+      segments: [{ text: `\u2026 ${hidden} more ${hidden === 1 ? "line" : "lines"} (Ctrl+O)`, dimColor: true }]
+    });
+  }
+  return out;
+}
+function screenTranscriptLines(state, width, { expandedId = null, notes = [], inputBackground = currentInputBackground() } = {}, colorize2 = (lines) => lines) {
+  notes = notes.filter((note) => note.at <= state.timeline.length).sort((a, b) => a.at - b.at);
+  const out = [];
+  let last = "none";
+  let run = [];
+  let noteIndex = 0;
+  const push = (lines, kind, gapAfter) => {
+    if (kind === "block" && last === "tools") out.push(blank(`gap-${out.length}`));
+    out.push(...lines.flatMap((line) => wrapLine(line, width, "  ")));
+    if (gapAfter) out.push(blank(`gap-${out.length}`));
+    last = gapAfter ? "none" : kind;
+  };
+  const flush = (live) => {
+    if (run.length === 0) return;
+    if (live) {
+      for (const call of run) push(toolCallLines(call, expandedId === call.callId), "tools", false);
+    } else {
+      for (const block of groupCalls(run)) {
+        if (block.kind === "single" || block.calls.some((call) => call.callId === expandedId)) {
+          const calls = block.kind === "single" ? [block.call] : block.calls;
+          for (const call of calls) push(toolCallLines(call, expandedId === call.callId), "tools", false);
+        } else {
+          push([summaryLine2(block.calls)], "tools", false);
+        }
+      }
     }
+    run = [];
+  };
+  const placeNotes = (position) => {
+    while (noteIndex < notes.length && notes[noteIndex].at <= position) {
+      const note = notes[noteIndex];
+      flush(false);
+      push(
+        [{
+          key: `note-${noteIndex}`,
+          segments: [
+            { text: note.text.slice(0, 1), color: note.ok ? "green" : "red" },
+            { text: note.text.slice(1), dimColor: true }
+          ]
+        }],
+        "block",
+        true
+      );
+      noteIndex += 1;
+    }
+  };
+  state.timeline.forEach((item, index) => {
+    placeNotes(index);
     if (item.kind === "tool") {
-      const call = state.toolCalls.find((c) => c.callId === item.id);
-      if (!call) continue;
-      raw.push(...toolCallLines(call, expandedCall === item.id));
-      raw.push({ key: `${item.id}-gap`, segments: [{ text: "" }] });
-      continue;
+      const call = state.toolCalls.find((entry) => entry.callId === item.id);
+      if (call) run.push(call);
+      return;
     }
-    const diff2 = state.diffs.find((d) => d.id === item.id);
-    if (!diff2) continue;
-    raw.push(...diffLines(diff2));
-    raw.push({ key: `${item.id}-gap`, segments: [{ text: "" }] });
-  }
-  const tree = subagentLines(state);
-  if (tree.length > 0) {
-    raw.push({ key: "subagents-gap", segments: [{ text: "" }] });
-    raw.push(...tree);
-  }
-  const wrapped = [];
-  for (const line of raw) wrapped.push(...wrapLine(line, width, "  "));
-  return wrapped;
+    flush(false);
+    if (item.kind === "message") {
+      const message = state.messages.find((entry) => entry.id === item.id);
+      if (message) push(messageBlock(message, width, colorize2, inputBackground), "block", true);
+      return;
+    }
+    if (item.kind === "compaction") {
+      const entry = state.compactions.find((c) => c.id === item.id);
+      if (entry) {
+        push([{ key: `compaction-${entry.id}`, segments: [{ text: compactionDivider(entry.before, entry.after, width), dimColor: true }] }], "block", true);
+      }
+      return;
+    }
+    const diff2 = state.diffs.find((entry) => entry.id === item.id);
+    if (diff2) push(diffBlock(diff2, expandedId === diff2.id, state), "block", true);
+  });
+  const tailNotes = notes.slice(noteIndex).some((note) => note.at <= state.timeline.length);
+  flush(state.turnActive && !tailNotes);
+  placeNotes(state.timeline.length);
+  while (out.length > 0 && out[out.length - 1].segments.every((segment) => segment.text === "")) out.pop();
+  return out;
 }
 
 // src/layout/viewport.ts
@@ -38105,17 +38490,17 @@ function messageFullyCommitted(message, width, committed) {
 }
 
 // src/components/RenderedLines.tsx
-var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime3 = __toESM(require_jsx_runtime(), 1);
 function RenderedLines({
   lines,
   background,
   width
 }) {
-  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: lines.map((line) => {
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(import_jsx_runtime3.Fragment, { children: lines.map((line) => {
     const used = background && width ? line.segments.reduce((sum, segment) => sum + textWidth(segment.text), 0) : 0;
     const pad = background && width ? Math.max(0, width - used) : 0;
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Text, { children: [
-      line.segments.map((segment, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+    return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(Text, { children: [
+      line.segments.map((segment, index) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
         Text,
         {
           color: segment.color,
@@ -38127,228 +38512,9 @@ function RenderedLines({
         },
         index
       )),
-      pad > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Text, { backgroundColor: background, children: " ".repeat(pad) }) : null
+      pad > 0 ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Text, { backgroundColor: background, children: " ".repeat(pad) }) : null
     ] }, line.key);
   }) });
-}
-
-// src/layout/summary.ts
-function toolKind(name) {
-  const lower = name.toLowerCase();
-  if (/(^|_)delegate/.test(lower)) return "delegate";
-  if (/(^|_)(bash|shell|exec|run|terminal)/.test(lower)) return "shell";
-  if (/(^|_)(read|cat|open|view)/.test(lower)) return "read";
-  if (/(^|_)(search|grep|glob|find|rg)/.test(lower)) return "search";
-  if (/(^|_)(edit|patch|apply|replace)/.test(lower)) return "edit";
-  if (/(^|_)(write|create|save)/.test(lower)) return "write";
-  if (/(^|_)(fetch|http|curl|web|browse)/.test(lower)) return "fetch";
-  return "other";
-}
-function subject(call) {
-  const args = call.args ?? {};
-  for (const key of ["path", "file", "file_path", "filename", "pattern", "query", "url", "command"]) {
-    const value = args[key];
-    if (typeof value === "string" && value.length > 0) return value;
-  }
-  return null;
-}
-var EN = {
-  one: {
-    shell: "Ran shell command",
-    read: "Read a file",
-    search: "Searched",
-    edit: "Edited a file",
-    write: "Wrote a file",
-    fetch: "Fetched a page",
-    delegate: "Delegated a task",
-    other: "Ran a tool"
-  },
-  many: {
-    shell: (n) => `Ran ${n} shell commands`,
-    read: (n) => `Read ${n} files`,
-    search: (n) => `Searched ${n} patterns`,
-    edit: (n) => `Edited ${n} files`,
-    write: (n) => `Wrote ${n} files`,
-    fetch: (n) => `Fetched ${n} pages`,
-    delegate: (n) => `Delegated ${n} tasks`,
-    other: (n) => `Ran ${n} tools`
-  },
-  single: {
-    shell: (what) => `Ran shell: ${what}`,
-    read: (what) => `Read ${what}`,
-    search: (what) => `Searched "${what}"`,
-    edit: (what) => `Edited ${what}`,
-    write: (what) => `Wrote ${what}`,
-    fetch: (what) => `Fetched ${what}`,
-    delegate: (what) => `Delegated: ${what}`
-  },
-  tool: (name) => `Ran ${name}`
-};
-var KO = {
-  one: {
-    shell: "\uC178 \uBA85\uB839 \uC2E4\uD589",
-    read: "\uD30C\uC77C \uC77D\uC74C",
-    search: "\uAC80\uC0C9",
-    edit: "\uD30C\uC77C \uC218\uC815",
-    write: "\uD30C\uC77C \uC791\uC131",
-    fetch: "\uD398\uC774\uC9C0 \uAC00\uC838\uC634",
-    delegate: "\uC791\uC5C5 \uC704\uC784",
-    other: "\uB3C4\uAD6C \uC2E4\uD589"
-  },
-  many: {
-    shell: (n) => `\uC178 \uBA85\uB839 ${n}\uAC1C \uC2E4\uD589`,
-    read: (n) => `\uD30C\uC77C ${n}\uAC1C \uC77D\uC74C`,
-    search: (n) => `${n}\uAC1C \uD328\uD134 \uAC80\uC0C9`,
-    edit: (n) => `\uD30C\uC77C ${n}\uAC1C \uC218\uC815`,
-    write: (n) => `\uD30C\uC77C ${n}\uAC1C \uC791\uC131`,
-    fetch: (n) => `\uD398\uC774\uC9C0 ${n}\uAC1C \uAC00\uC838\uC634`,
-    delegate: (n) => `\uC791\uC5C5 ${n}\uAC1C \uC704\uC784`,
-    other: (n) => `\uB3C4\uAD6C ${n}\uAC1C \uC2E4\uD589`
-  },
-  single: {
-    shell: (what) => `\uC178 \uC2E4\uD589: ${what}`,
-    read: (what) => `${what} \uC77D\uC74C`,
-    search: (what) => `"${what}" \uAC80\uC0C9`,
-    edit: (what) => `${what} \uC218\uC815`,
-    write: (what) => `${what} \uC791\uC131`,
-    fetch: (what) => `${what} \uAC00\uC838\uC634`,
-    delegate: (what) => `\uC704\uC784: ${what}`
-  },
-  tool: (name) => `${name} \uC2E4\uD589`
-};
-var JA = {
-  one: {
-    shell: "\u30B7\u30A7\u30EB\u30B3\u30DE\u30F3\u30C9\u3092\u5B9F\u884C",
-    read: "\u30D5\u30A1\u30A4\u30EB\u3092\u8AAD\u307F\u8FBC\u307F",
-    search: "\u691C\u7D22",
-    edit: "\u30D5\u30A1\u30A4\u30EB\u3092\u7DE8\u96C6",
-    write: "\u30D5\u30A1\u30A4\u30EB\u3092\u4F5C\u6210",
-    fetch: "\u30DA\u30FC\u30B8\u3092\u53D6\u5F97",
-    delegate: "\u30BF\u30B9\u30AF\u3092\u59D4\u4EFB",
-    other: "\u30C4\u30FC\u30EB\u3092\u5B9F\u884C"
-  },
-  many: {
-    shell: (n) => `\u30B7\u30A7\u30EB\u30B3\u30DE\u30F3\u30C9 ${n} \u4EF6\u3092\u5B9F\u884C`,
-    read: (n) => `\u30D5\u30A1\u30A4\u30EB ${n} \u4EF6\u3092\u8AAD\u307F\u8FBC\u307F`,
-    search: (n) => `\u30D1\u30BF\u30FC\u30F3 ${n} \u4EF6\u3092\u691C\u7D22`,
-    edit: (n) => `\u30D5\u30A1\u30A4\u30EB ${n} \u4EF6\u3092\u7DE8\u96C6`,
-    write: (n) => `\u30D5\u30A1\u30A4\u30EB ${n} \u4EF6\u3092\u4F5C\u6210`,
-    fetch: (n) => `\u30DA\u30FC\u30B8 ${n} \u4EF6\u3092\u53D6\u5F97`,
-    delegate: (n) => `\u30BF\u30B9\u30AF ${n} \u4EF6\u3092\u59D4\u4EFB`,
-    other: (n) => `\u30C4\u30FC\u30EB ${n} \u4EF6\u3092\u5B9F\u884C`
-  },
-  single: {
-    shell: (what) => `\u30B7\u30A7\u30EB\u5B9F\u884C: ${what}`,
-    read: (what) => `${what} \u3092\u8AAD\u307F\u8FBC\u307F`,
-    search: (what) => `"${what}" \u3092\u691C\u7D22`,
-    edit: (what) => `${what} \u3092\u7DE8\u96C6`,
-    write: (what) => `${what} \u3092\u4F5C\u6210`,
-    fetch: (what) => `${what} \u3092\u53D6\u5F97`,
-    delegate: (what) => `\u59D4\u4EFB: ${what}`
-  },
-  tool: (name) => `${name} \u3092\u5B9F\u884C`
-};
-var ZH = {
-  one: {
-    shell: "\u6267\u884C\u4E86 shell \u547D\u4EE4",
-    read: "\u8BFB\u53D6\u4E86\u6587\u4EF6",
-    search: "\u8FDB\u884C\u4E86\u641C\u7D22",
-    edit: "\u4FEE\u6539\u4E86\u6587\u4EF6",
-    write: "\u5199\u5165\u4E86\u6587\u4EF6",
-    fetch: "\u6293\u53D6\u4E86\u9875\u9762",
-    delegate: "\u59D4\u6D3E\u4E86\u4EFB\u52A1",
-    other: "\u8C03\u7528\u4E86\u5DE5\u5177"
-  },
-  many: {
-    shell: (n) => `\u6267\u884C\u4E86 ${n} \u6761 shell \u547D\u4EE4`,
-    read: (n) => `\u8BFB\u53D6\u4E86 ${n} \u4E2A\u6587\u4EF6`,
-    search: (n) => `\u641C\u7D22\u4E86 ${n} \u4E2A\u6A21\u5F0F`,
-    edit: (n) => `\u4FEE\u6539\u4E86 ${n} \u4E2A\u6587\u4EF6`,
-    write: (n) => `\u5199\u5165\u4E86 ${n} \u4E2A\u6587\u4EF6`,
-    fetch: (n) => `\u6293\u53D6\u4E86 ${n} \u4E2A\u9875\u9762`,
-    delegate: (n) => `\u59D4\u6D3E\u4E86 ${n} \u4E2A\u4EFB\u52A1`,
-    other: (n) => `\u8C03\u7528\u4E86 ${n} \u4E2A\u5DE5\u5177`
-  },
-  single: {
-    shell: (what) => `\u6267\u884C shell: ${what}`,
-    read: (what) => `\u8BFB\u53D6 ${what}`,
-    search: (what) => `\u641C\u7D22 "${what}"`,
-    edit: (what) => `\u4FEE\u6539 ${what}`,
-    write: (what) => `\u5199\u5165 ${what}`,
-    fetch: (what) => `\u6293\u53D6 ${what}`,
-    delegate: (what) => `\u59D4\u6D3E: ${what}`
-  },
-  tool: (name) => `${name}`
-};
-var CATALOG = { en: EN, ko: KO, ja: JA, zh: ZH };
-function verbsFor(language) {
-  return CATALOG[language] ?? EN;
-}
-function delegateTitle(call) {
-  if (toolKind(call.name) !== "delegate") return null;
-  const title = (call.args ?? {}).title;
-  return typeof title === "string" && title.trim().length > 0 ? title.trim() : null;
-}
-function summarizeCalls(calls, language = uiLanguage()) {
-  if (calls.length === 0) return "";
-  const verbs = verbsFor(language);
-  const kinds = new Set(calls.map((call) => toolKind(call.name)));
-  const kind = kinds.size === 1 ? [...kinds][0] : "other";
-  if (calls.length === 1) {
-    const call = calls[0];
-    const title = delegateTitle(call);
-    if (title) return clip(title, 60);
-    if (kind === "delegate") {
-      const agent = (call.args ?? {}).agent;
-      const named = typeof agent === "string" && agent.trim().length > 0 ? agent.trim() : null;
-      return named ? verbs.single.delegate(clip(named, 30)) : verbs.one.delegate;
-    }
-    const what = subject(call);
-    if (!what) return kind === "other" ? verbs.tool(clip(call.name, 30)) : verbs.one[kind];
-    switch (kind) {
-      case "shell":
-        return verbs.single.shell(clip(what, 40));
-      case "read":
-        return verbs.single.read(basename(what));
-      case "edit":
-        return verbs.single.edit(basename(what));
-      case "write":
-        return verbs.single.write(basename(what));
-      case "search":
-        return verbs.single.search(clip(what, 30));
-      case "fetch":
-        return verbs.single.fetch(clip(what, 40));
-      default:
-        return verbs.tool(clip(call.name, 30));
-    }
-  }
-  return verbs.many[kind](calls.length);
-}
-function hiddenLines(calls) {
-  let total = 0;
-  for (const call of calls) {
-    const body = call.output ?? "";
-    if (body.length > 0) total += body.split("\n").length;
-  }
-  return total;
-}
-function groupCalls(calls) {
-  const blocks = [];
-  let run = [];
-  const flush = () => {
-    if (run.length > 0) blocks.push({ kind: "tools", calls: run });
-    run = [];
-  };
-  for (const call of calls) {
-    if (call.state === "error") {
-      flush();
-      blocks.push({ kind: "single", call });
-      continue;
-    }
-    run.push(call);
-  }
-  flush();
-  return blocks;
 }
 
 // src/layout/agents.ts
@@ -38761,7 +38927,7 @@ function shadowRow(width) {
 }
 
 // src/components/Logo.tsx
-var import_jsx_runtime2 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime4 = __toESM(require_jsx_runtime(), 1);
 var LOGO_COLLAPSE_ROWS = 24;
 var LOGO_EXPANDED_ROWS = 3;
 var LOGO_COLLAPSED_ROWS = 1;
@@ -38775,6 +38941,9 @@ var TAGLINE = "open-source multi-vendor coding agent \xB7 your own AI assistant"
 var LOGO_COLOR = "magenta";
 function logoRows(terminalRows) {
   return terminalRows < LOGO_COLLAPSE_ROWS ? LOGO_COLLAPSED_ROWS : LOGO_EXPANDED_ROWS;
+}
+function bigLogoRows(terminalColumns) {
+  return letterWidthFor(terminalColumns) === null ? LOGO_EXPANDED_ROWS : WORDMARK_ROWS + 2;
 }
 function isCollapsed(terminalRows) {
   return logoRows(terminalRows) === LOGO_COLLAPSED_ROWS;
@@ -38795,39 +38964,40 @@ function LogoInner({
     const paint = mode ?? colorMode(process.env, Boolean(process.stdout?.isTTY));
     const colors = gradientColors(bigRows.length, paint);
     const accent = paint === "none" ? void 0 : LOGO_COLOR;
-    return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(Box_default, { flexDirection: "column", flexShrink: 0, width, children: [
-      bigRows.map((row, index) => /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Text, { color: colors[index], bold: true, wrap: "truncate-end", children: row }, `wordmark-${index}`)),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: shadowRow(drawn) })
+    return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Box_default, { flexDirection: "column", flexShrink: 0, width, children: [
+      bigRows.map((row, index) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { color: colors[index], bold: true, wrap: "truncate-end", children: row }, `wordmark-${index}`)),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: shadowRow(drawn) })
     ] });
   }
   if (isCollapsed(terminalRows)) {
-    return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Box_default, { flexShrink: 0, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Text, { color: LOGO_COLOR, bold: true, wrap: "truncate-end", children: collapsedLine(version) }) });
+    return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Box_default, { flexShrink: 0, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { color: LOGO_COLOR, bold: true, wrap: "truncate-end", children: collapsedLine(version) }) });
   }
   const mini = renderMiniMark();
-  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(Box_default, { flexDirection: "column", flexShrink: 0, width, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Text, { color: LOGO_COLOR, bold: true, wrap: "truncate-end", children: `${mini[0]} ${WORDMARK[0]}` }),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Text, { color: LOGO_COLOR, bold: true, wrap: "truncate-end", children: `${mini[1]} ${WORDMARK[1]}` }),
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `${TAGLINE}  v${version}` })
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Box_default, { flexDirection: "column", flexShrink: 0, width, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { color: LOGO_COLOR, bold: true, wrap: "truncate-end", children: `${mini[0]} ${WORDMARK[0]}` }),
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { color: LOGO_COLOR, bold: true, wrap: "truncate-end", children: `${mini[1]} ${WORDMARK[1]}` }),
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `${TAGLINE}  v${version}` })
   ] });
 }
 var Logo = import_react28.default.memo(LogoInner);
 
 // src/components/TranscriptView.tsx
 var import_react29 = __toESM(require_react(), 1);
-var import_jsx_runtime3 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime5 = __toESM(require_jsx_runtime(), 1);
 var transcriptRenderCount = { value: 0 };
 function TranscriptViewInner({
   lines,
   height
 }) {
   transcriptRenderCount.value += 1;
-  return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Box_default, { flexDirection: "column", height, flexGrow: 1, flexShrink: 1, overflow: "hidden", children: lines.map((line) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Text, { wrap: "truncate-end", children: line.segments.map((segment, index) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Box_default, { flexDirection: "column", height, flexGrow: 1, flexShrink: 1, overflow: "hidden", children: lines.map((line) => /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Text, { wrap: "truncate-end", children: line.segments.map((segment, index) => /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
     Text,
     {
       color: segment.color,
       dimColor: segment.dimColor,
       bold: segment.bold,
       italic: segment.italic,
+      backgroundColor: segment.backgroundColor,
       children: segment.text
     },
     `${line.key}-s${index}`
@@ -38836,11 +39006,12 @@ function TranscriptViewInner({
 var TranscriptView = import_react29.default.memo(TranscriptViewInner);
 
 // src/components/FullscreenLayout.tsx
-var import_jsx_runtime4 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime6 = __toESM(require_jsx_runtime(), 1);
 function FullscreenLayout({
   rows,
   terminalRows,
   version,
+  showLogo = true,
   columns,
   transcriptRows,
   lines,
@@ -38853,15 +39024,15 @@ function FullscreenLayout({
 }) {
   const inner = Math.max(1, columns - 2);
   const rule = banner === null ? "\u2500".repeat(Math.max(0, inner - (scrollIndicator2?.length ?? 0))) : null;
-  return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Box_default, { flexDirection: "column", width: columns, height: rows, paddingX: 1, overflow: "hidden", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Logo, { terminalRows, version, width: inner }),
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Box_default, { flexShrink: 0, justifyContent: "space-between", children: [
-      banner === null ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: rule }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { color: bannerColor, wrap: "truncate-end", children: banner }),
-      scrollIndicator2 ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { dimColor: true, children: scrollIndicator2 }) : null
+  return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexDirection: "column", width: columns, height: rows, paddingX: 1, overflow: "hidden", children: [
+    showLogo ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Logo, { terminalRows, version, width: inner }) : null,
+    /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexShrink: 0, justifyContent: "space-between", children: [
+      banner === null ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: rule }) : /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { color: bannerColor, wrap: "truncate-end", children: banner }),
+      scrollIndicator2 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { dimColor: true, children: scrollIndicator2 }) : null
     ] }),
-    overlay ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Box_default, { flexDirection: "column", height: transcriptRows, flexGrow: 1, flexShrink: 1, overflow: "hidden", children: overlay }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(TranscriptView, { lines, height: transcriptRows }),
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Box_default, { flexDirection: "column", flexShrink: 0, children: bottom }),
-    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Box_default, { flexDirection: "column", flexShrink: 0, children: status })
+    overlay ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Box_default, { flexDirection: "column", height: transcriptRows, flexGrow: 1, flexShrink: 1, overflow: "hidden", children: overlay }) : /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(TranscriptView, { lines, height: transcriptRows }),
+    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Box_default, { flexDirection: "column", flexShrink: 0, children: bottom }),
+    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Box_default, { flexDirection: "column", flexShrink: 0, children: status })
   ] });
 }
 
@@ -39105,7 +39276,7 @@ function applyFileCompletion(text2, token, entry) {
 }
 
 // src/components/AgentPalette.tsx
-var import_jsx_runtime5 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime7 = __toESM(require_jsx_runtime(), 1);
 function AgentPalette({
   candidates,
   selectedIndex = 0,
@@ -39114,21 +39285,21 @@ function AgentPalette({
 }) {
   if (candidates.length === 0) {
     if (prefix.length === 0) return null;
-    return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Box_default, { borderStyle: "round", borderColor: "magenta", paddingX: 1, children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Text, { dimColor: true, children: `no agent starts with "${prefix}"` }) });
+    return /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Box_default, { borderStyle: "round", borderColor: "magenta", paddingX: 1, children: /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { dimColor: true, children: `no agent starts with "${prefix}"` }) });
   }
   const start = Math.max(0, Math.min(selectedIndex - maxRows + 1, candidates.length - maxRows));
   const shown = candidates.slice(Math.max(0, start), Math.max(0, start) + maxRows);
-  return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(Box_default, { flexDirection: "column", borderStyle: "round", borderColor: "magenta", paddingX: 1, children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(Box_default, { flexDirection: "column", borderStyle: "round", borderColor: "magenta", paddingX: 1, children: [
     shown.map((candidate) => {
       const active = candidates.indexOf(candidate) === selectedIndex;
       const tag = candidateTag(candidate);
-      return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(Text, { inverse: active, wrap: "truncate-end", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Text, { color: "magenta", children: candidate.name }),
-        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Text, { dimColor: true, children: candidate.description ? ` ${candidate.description}` : "" }),
-        tag ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Text, { dimColor: true, children: ` [${tag}]` }) : null
+      return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(Text, { inverse: active, wrap: "truncate-end", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { color: "magenta", children: candidate.name }),
+        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { dimColor: true, children: candidate.description ? ` ${candidate.description}` : "" }),
+        tag ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { dimColor: true, children: ` [${tag}]` }) : null
       ] }, candidate.name);
     }),
-    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Text, { dimColor: true, children: "\u2191/\u2193 select \xB7 Tab or Enter accept \xB7 Esc close" })
+    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { dimColor: true, children: "\u2191/\u2193 select \xB7 Tab or Enter accept \xB7 Esc close" })
   ] });
 }
 
@@ -39157,6 +39328,7 @@ function useChoiceKeys(options) {
   } = options;
   use_input_default(
     (input, key) => {
+      if (mouseReports(input).length > 0) return;
       if (onKey?.(input, key)) return;
       if (key.escape) {
         onCancel?.();
@@ -39247,7 +39419,7 @@ function choiceHint(options) {
 }
 
 // src/components/ChoiceList.tsx
-var import_jsx_runtime6 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime8 = __toESM(require_jsx_runtime(), 1);
 function otherRowIndex(options, allowOther) {
   return allowOther ? options.length : -1;
 }
@@ -39284,10 +39456,10 @@ function ChoiceList({
     const mark = multi ? held ? "[x] " : "[ ] " : radio ? held ? "\u25CF " : "\u25CB " : "";
     const number = numbered ? `${index + 1}. ` : "";
     const rowColor2 = option.danger ? "red" : here ? color : void 0;
-    return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexDirection: "column", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { color: here ? option.danger ? "red" : color : void 0, bold: here, children: here ? "\u276F " : "  " }),
-        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Box_default, { flexShrink: descriptionMode === "inline" ? 0 : 1, children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+    return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(Box_default, { flexDirection: "column", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(Box_default, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { color: here ? option.danger ? "red" : color : void 0, bold: here, children: here ? "\u276F " : "  " }),
+        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Box_default, { flexShrink: descriptionMode === "inline" ? 0 : 1, children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
           Text,
           {
             inverse: here,
@@ -39298,22 +39470,22 @@ function ChoiceList({
             children: ` ${number}${mark}${option.label} `
           }
         ) }),
-        option.shortcut ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { dimColor: true, children: `  (${option.shortcut})` }) : null,
-        option.description && descriptionMode === "inline" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `  ${option.description}` }) : null,
-        option.badge ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { color: option.badgeColor ?? color, children: `  ${option.badge}` }) : null
+        option.shortcut ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { dimColor: true, children: `  (${option.shortcut})` }) : null,
+        option.description && descriptionMode === "inline" ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `  ${option.description}` }) : null,
+        option.badge ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { color: option.badgeColor ?? color, children: `  ${option.badge}` }) : null
       ] }),
-      option.description && descriptionMode === "block" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `      ${option.description}` }) : null
+      option.description && descriptionMode === "block" ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `      ${option.description}` }) : null
     ] }, `${index}-${option.label}`);
   };
-  return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexDirection: "column", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexDirection: "row", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexDirection: "column", flexGrow: 1, children: [
-        hiddenAbove > 0 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { dimColor: true, children: `   \u2191 ${hiddenAbove} more` }) : null,
+  return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(Box_default, { flexDirection: "column", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(Box_default, { flexDirection: "row", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(Box_default, { flexDirection: "column", flexGrow: 1, children: [
+        hiddenAbove > 0 ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { dimColor: true, children: `   \u2191 ${hiddenAbove} more` }) : null,
         shown.map((option, offset) => row(option, start + offset)),
-        hiddenBelow > 0 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { dimColor: true, children: `   \u2193 ${hiddenBelow} more` }) : null,
-        allowOther ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { color: selectedIndex === other ? color : void 0, bold: selectedIndex === other, children: selectedIndex === other ? "\u276F " : "  " }),
-          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+        hiddenBelow > 0 ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { dimColor: true, children: `   \u2193 ${hiddenBelow} more` }) : null,
+        allowOther ? /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(Box_default, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { color: selectedIndex === other ? color : void 0, bold: selectedIndex === other, children: selectedIndex === other ? "\u276F " : "  " }),
+          /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
             Text,
             {
               inverse: selectedIndex === other,
@@ -39324,7 +39496,7 @@ function ChoiceList({
           )
         ] }) : null
       ] }),
-      preview ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+      preview ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
         Box_default,
         {
           flexDirection: "column",
@@ -39332,16 +39504,16 @@ function ChoiceList({
           borderStyle: "single",
           borderColor: "gray",
           paddingX: 1,
-          children: preview.split("\n").map((line, index) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: line }, `preview-${index}`))
+          children: preview.split("\n").map((line, index) => /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: line }, `preview-${index}`))
         }
       ) : null
     ] }),
-    hint === null || hint === void 0 ? null : /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { dimColor: true, children: hint })
+    hint === null || hint === void 0 ? null : /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { dimColor: true, children: hint })
   ] });
 }
 
 // src/components/FilePalette.tsx
-var import_jsx_runtime7 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime9 = __toESM(require_jsx_runtime(), 1);
 function FilePalette({
   entries,
   selectedIndex = 0,
@@ -39358,8 +39530,8 @@ function FilePalette({
       description
     };
   });
-  return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(Box_default, { flexDirection: "column", borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { flexDirection: "column", borderStyle: "round", borderColor: "cyan", paddingX: 1, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
       ChoiceList,
       {
         options,
@@ -39371,12 +39543,12 @@ function FilePalette({
         showPreview: false
       }
     ),
-    truncated ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { dimColor: true, children: "\u2026 more" }) : null
+    truncated ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { dimColor: true, children: "\u2026 more" }) : null
   ] });
 }
 
 // src/components/SlashCommandPalette.tsx
-var import_jsx_runtime8 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime10 = __toESM(require_jsx_runtime(), 1);
 function SlashCommandPalette({
   commands,
   selectedIndex = 0,
@@ -39384,7 +39556,7 @@ function SlashCommandPalette({
 }) {
   if (commands.length === 0) return null;
   const hasPreview = commands.some((command) => Boolean(command.preview));
-  return /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Box_default, { flexDirection: "column", borderStyle: "round", borderColor: currentAccent(), paddingX: 1, children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Box_default, { flexDirection: "column", borderStyle: "round", borderColor: currentAccent(), paddingX: 1, children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
     ChoiceList,
     {
       options: commands.map((command) => ({
@@ -39403,7 +39575,7 @@ function SlashCommandPalette({
 }
 
 // src/components/Chat.tsx
-var import_jsx_runtime9 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime11 = __toESM(require_jsx_runtime(), 1);
 function Chat({
   onSubmit,
   initialHistory = [],
@@ -39517,6 +39689,7 @@ function Chat({
   }, [append]);
   use_input_default(
     (input, key) => {
+      if (mouseReports(input).length > 0) return;
       const keyPlus = key;
       if (key.escape) {
         if (showFilePopup) {
@@ -39719,8 +39892,8 @@ function Chat({
   const cursorEnd = (0, import_react30.useMemo)(() => right(editor).cursor, [editor]);
   const promptColor = disabled ? "gray" : currentAccent();
   const band = currentInputBackground();
-  return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { flexDirection: "column", children: [
-    showFilePopup && fileCompletions.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(Box_default, { flexDirection: "column", children: [
+    showFilePopup && fileCompletions.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
       FilePalette,
       {
         entries: fileCompletions,
@@ -39728,7 +39901,7 @@ function Chat({
         truncated: fileTruncated
       }
     ) : null,
-    showAgents ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+    showAgents ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
       AgentPalette,
       {
         candidates: agentMatches,
@@ -39736,32 +39909,32 @@ function Chat({
         prefix: query?.prefix ?? ""
       }
     ) : null,
-    showPalette ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(SlashCommandPalette, { commands: completions, selectedIndex: selected }) : null,
-    value.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { flexWrap: "nowrap", overflow: "hidden", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { color: promptColor, backgroundColor: band, children: "> " }),
-      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { dimColor: true, backgroundColor: band, wrap: "truncate-end", children: placeholder }),
-      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { inverse: true, children: " " }),
-      band ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { backgroundColor: band, children: " ".repeat(Math.max(0, wrapWidth - textWidth(placeholder) - 1)) }) : null
-    ] }) : /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Box_default, { flexDirection: "column", children: draft.lines.map((line, row) => {
+    showPalette ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(SlashCommandPalette, { commands: completions, selectedIndex: selected }) : null,
+    value.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(Box_default, { flexWrap: "nowrap", overflow: "hidden", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { color: promptColor, backgroundColor: band, children: "> " }),
+      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { dimColor: true, backgroundColor: band, wrap: "truncate-end", children: placeholder }),
+      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { inverse: true, children: " " }),
+      band ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { backgroundColor: band, children: " ".repeat(Math.max(0, wrapWidth - textWidth(placeholder) - 1)) }) : null
+    ] }) : /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Box_default, { flexDirection: "column", children: draft.lines.map((line, row) => {
       const prefix = row === 0 ? "> " : "  ";
       if (row !== draft.cursorRow) {
         const text2 = value.slice(line.start, line.end);
-        return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { flexWrap: "nowrap", overflow: "hidden", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { color: promptColor, backgroundColor: band, children: prefix }),
-          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { wrap: "truncate-end", backgroundColor: band, children: text2 }),
-          band ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { backgroundColor: band, children: " ".repeat(Math.max(0, wrapWidth - textWidth(text2))) }) : null
+        return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(Box_default, { flexWrap: "nowrap", overflow: "hidden", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { color: promptColor, backgroundColor: band, children: prefix }),
+          /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { wrap: "truncate-end", backgroundColor: band, children: text2 }),
+          band ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { backgroundColor: band, children: " ".repeat(Math.max(0, wrapWidth - textWidth(text2))) }) : null
         ] }, `draft-${row}`);
       }
       const hasCursorText = cursor >= line.start && cursor < line.end && cursorEnd > cursor;
       const before = value.slice(line.start, cursor);
       const mark = hasCursorText ? value.slice(cursor, cursorEnd) : " ";
       const after = hasCursorText ? value.slice(cursorEnd, line.end) : value.slice(cursor, line.end);
-      return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { flexWrap: "nowrap", overflow: "hidden", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { color: promptColor, backgroundColor: band, children: prefix }),
-        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { backgroundColor: band, children: before }),
-        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { inverse: true, children: mark }),
-        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { wrap: "truncate-end", backgroundColor: band, children: after }),
-        band ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { backgroundColor: band, children: " ".repeat(
+      return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(Box_default, { flexWrap: "nowrap", overflow: "hidden", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { color: promptColor, backgroundColor: band, children: prefix }),
+        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { backgroundColor: band, children: before }),
+        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { inverse: true, children: mark }),
+        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { wrap: "truncate-end", backgroundColor: band, children: after }),
+        band ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { backgroundColor: band, children: " ".repeat(
           Math.max(0, wrapWidth - textWidth(before) - textWidth(mark) - textWidth(after))
         ) }) : null
       ] }, `draft-${row}`);
@@ -39769,21 +39942,8 @@ function Chat({
   ] });
 }
 
-// src/components/ToolSummary.tsx
-var import_jsx_runtime10 = __toESM(require_jsx_runtime(), 1);
-var SUMMARY_GLYPH = "\u23FA";
-function ToolSummary({ calls }) {
-  if (calls.length === 0) return null;
-  const lines = hiddenLines(calls);
-  return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(Box_default, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Text, { color: currentAccentDim(), children: `${SUMMARY_GLYPH} ` }),
-    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Text, { children: summarizeCalls(calls) }),
-    lines > 0 ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Text, { dimColor: true, children: ` (${lines} lines)` }) : null
-  ] });
-}
-
 // src/components/MessageStream.tsx
-var import_jsx_runtime11 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime12 = __toESM(require_jsx_runtime(), 1);
 function skillExpansionLabel(expansion, width) {
   const suffix = ` \xB7 ${expansion.lines} lines`;
   const prefix = "skill ";
@@ -39798,9 +39958,9 @@ function SkillExpansionLine({
   expansion,
   width
 }) {
-  return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(Box_default, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { color: currentAccentDim(), children: `${SUMMARY_GLYPH} ` }),
-    /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Text, { dimColor: true, children: skillExpansionLabel(expansion, width) })
+  return /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(Box_default, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { color: currentAccentDim(), children: `${SUMMARY_GLYPH} ` }),
+    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { dimColor: true, children: skillExpansionLabel(expansion, width) })
   ] });
 }
 function colorizeFileRefs(lines) {
@@ -39859,10 +40019,10 @@ function MessageView({
     if (lines.length > cap) lines = lines.slice(lines.length - cap);
   }
   const band = message.role === "user" ? currentInputBackground() : void 0;
-  return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(Box_default, { flexDirection: "column", marginBottom: 1, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(RenderedLines, { lines, background: band, width: band ? width : void 0 }),
-    message.expansion ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(SkillExpansionLine, { expansion: message.expansion, width }) : null,
-    (message.attachments ?? []).map((attachment) => /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(Box_default, { flexDirection: "column", marginBottom: 1, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(RenderedLines, { lines, background: band, width: band ? width : void 0 }),
+    message.expansion ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(SkillExpansionLine, { expansion: message.expansion, width }) : null,
+    (message.attachments ?? []).map((attachment) => /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
       Text,
       {
         dimColor: true,
@@ -39876,7 +40036,7 @@ function MessageView({
 }
 
 // src/components/ToolCall.tsx
-var import_jsx_runtime12 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime13 = __toESM(require_jsx_runtime(), 1);
 var STATE_GLYPH = {
   running: { glyph: "\u25CC", color: "yellow" },
   ok: { glyph: "\u2713", color: "green" },
@@ -39899,24 +40059,24 @@ function ToolCall({
   const { shown, total } = visibleToolBodyLines(call, expanded, maxOutputLines);
   const hidden = total - shown.length;
   const tail = call.state === "running" ? call.progress ?? [] : [];
-  return /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(Box_default, { flexDirection: "column", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(Text, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(Text, { color: meta.color, children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(Box_default, { flexDirection: "column", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(Text, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(Text, { color: meta.color, children: [
         meta.glyph,
         " "
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { bold: true, children: call.name }),
-      /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(Text, { dimColor: true, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { bold: true, children: call.name }),
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(Text, { dimColor: true, children: [
         " ",
         summarizeArgs2(call.args)
       ] }),
-      !expanded && total > 0 && shown.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(Text, { dimColor: true, children: [
+      !expanded && total > 0 && shown.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(Text, { dimColor: true, children: [
         " (",
         total,
         " lines)"
       ] }) : null
     ] }),
-    tail.map((line, index) => /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(
+    tail.map((line, index) => /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
       Text,
       {
         dimColor: line.stream === "stdout",
@@ -39928,10 +40088,10 @@ function ToolCall({
       },
       `${call.callId}-p${index}`
     )),
-    tail.length > 0 && call.progressTruncated ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { dimColor: true, children: "  \u2026 truncated" }) : null,
+    tail.length > 0 && call.progressTruncated ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { dimColor: true, children: "  \u2026 truncated" }) : null,
     shown.map((line, index) => {
       const severity = diagnosticLineColor(line);
-      return /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(
+      return /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
         Text,
         {
           dimColor: !call.error && severity === void 0,
@@ -39944,66 +40104,7 @@ function ToolCall({
         `${call.callId}-o${index}`
       );
     }),
-    hidden > 0 ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Text, { dimColor: true, children: `  \u2026 ${hidden} more lines` }) : null
-  ] });
-}
-
-// src/components/DiffView.tsx
-var import_jsx_runtime13 = __toESM(require_jsx_runtime(), 1);
-var COLLAPSED_LINES = 12;
-var EXPANDED_LINES = 200;
-function diffLineColor2(line) {
-  if (line.startsWith("+++") || line.startsWith("---")) return "cyan";
-  if (line.startsWith("@@")) return "magenta";
-  if (line.startsWith("+")) return "green";
-  if (line.startsWith("-")) return "red";
-  return void 0;
-}
-function bodyLines(patch) {
-  return patch.split("\n").filter((line) => !/^(\+\+\+|---|diff |index )/.test(line));
-}
-function diffStats(patch) {
-  let added = 0;
-  let removed = 0;
-  for (const line of bodyLines(patch)) {
-    if (line.startsWith("+")) added += 1;
-    else if (line.startsWith("-")) removed += 1;
-  }
-  return { added, removed };
-}
-function diffHeader(diff2) {
-  const { added, removed } = diffStats(diff2.patch);
-  if (diff2.created) {
-    return `\u271A Created ${diff2.path} (${added} ${added === 1 ? "line" : "lines"})`;
-  }
-  return `\u270E Edited ${diff2.path}  (+${added} \u2212${removed})`;
-}
-function DiffView({
-  diff: diff2,
-  expanded = false,
-  diagnostics
-}) {
-  const badge = diagnosticsBadge(diagnostics);
-  const lines = diff2.patch.split("\n");
-  const limit = expanded ? EXPANDED_LINES : COLLAPSED_LINES;
-  const shown = lines.slice(0, limit);
-  const hidden = lines.length - shown.length;
-  return /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(Box_default, { flexDirection: "column", marginBottom: 1, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(Text, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { bold: true, color: diff2.created ? "green" : "yellow", children: diffHeader(diff2) }),
-      badge ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { color: diagnosticsColor(diagnostics), children: `  ${badge}` }) : null
-    ] }),
-    shown.map((line, index) => /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
-      Text,
-      {
-        color: diffLineColor2(line),
-        dimColor: diffLineColor2(line) === void 0,
-        wrap: "truncate-end",
-        children: line
-      },
-      `${diff2.id}-d${index}`
-    )),
-    hidden > 0 ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { dimColor: true, children: `\u2026 ${hidden} more ${hidden === 1 ? "line" : "lines"} (Ctrl+O)` }) : null
+    hidden > 0 && shown.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { dimColor: true, children: `  \u2026 ${hidden} more lines` }) : null
   ] });
 }
 
@@ -40120,6 +40221,7 @@ function ApprovalPrompt({
   const [reason, setReason] = (0, import_react32.useState)(null);
   use_input_default(
     (input, key) => {
+      if (mouseReports(input).length > 0) return;
       if (reason === null) return;
       if (key.return) {
         onDecide({ decision: "deny", scope: "once" }, reason.trim() || void 0);
@@ -40194,7 +40296,7 @@ function maskSecret(value) {
 }
 var CONFIRM_LABEL = "\uD655\uC778 / Confirm";
 var NOT_ANSWERED = "(not answered)";
-var blank = () => ({ selected: [], text: null });
+var blank2 = () => ({ selected: [], text: null });
 function questionPromptRows(request) {
   const questions = request.questions ?? [];
   const first = questions[0];
@@ -40211,7 +40313,7 @@ function QuestionPrompt({
 }) {
   const questions = (0, import_react33.useMemo)(() => request.questions ?? [], [request]);
   const [tab2, setTab] = (0, import_react33.useState)(0);
-  const [answers, setAnswers] = (0, import_react33.useState)(() => questions.map(() => blank()));
+  const [answers, setAnswers] = (0, import_react33.useState)(() => questions.map(() => blank2()));
   const [cursor, setCursor] = (0, import_react33.useState)(0);
   const [typing, setTyping] = (0, import_react33.useState)(false);
   const [draft, setDraft] = (0, import_react33.useState)("");
@@ -40221,7 +40323,7 @@ function QuestionPrompt({
   const allowOther = current2?.allowOther !== false;
   const secret = current2?.secret === true;
   const multi = current2?.multi === true;
-  const answer = answers[at] ?? blank();
+  const answer = answers[at] ?? blank2();
   const otherRow = allowOther ? options.length : -1;
   const confirmRow = allowOther ? options.length + 1 : options.length;
   const rows = confirmRow + 1;
@@ -40258,7 +40360,7 @@ function QuestionPrompt({
   };
   use_input_default(
     (input, key) => {
-      if (!typing) return;
+      if (!typing || mouseReports(input).length > 0) return;
       if (key.return) {
         const text2 = draft.trim();
         const keep = multi || text2.length === 0 ? answer.selected : [];
@@ -40370,7 +40472,7 @@ function QuestionPrompt({
       /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { dimColor: true, children: secret ? "  hidden \xB7 Enter to keep \xB7 Esc to go back" : "  Enter to keep \xB7 Esc to go back" })
     ] }) : /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(import_jsx_runtime16.Fragment, { children: [
       questions.length > 1 && last ? /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Box_default, { marginTop: 1, flexDirection: "column", children: questions.map((question, index) => {
-        const entry = answers[index] ?? blank();
+        const entry = answers[index] ?? blank2();
         const plain = entry.selected.length > 0 ? entry.selected.join(", ") : entry.text ?? "";
         const said = question.secret === true && entry.selected.length === 0 ? maskSecret(entry.text) : plain;
         return /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(Box_default, { children: [
@@ -40691,6 +40793,7 @@ function SkillCreateForm({
   });
   use_input_default(
     (input, key) => {
+      if (mouseReports(input).length > 0) return;
       if (key.escape) {
         onCancel();
         return;
@@ -40963,6 +41066,7 @@ function McpAddForm({
   });
   use_input_default(
     (input, key) => {
+      if (mouseReports(input).length > 0) return;
       if (key.escape) {
         onCancel();
         return;
@@ -41193,10 +41297,10 @@ function AgentTranscriptInner({
             /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Text, { bold: true, color: "cyan", children: `\u25EF ${name}` }),
             /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Text, { dimColor: true, children: task ? ` \xB7 ${task}` : "" })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Text, { dimColor: true, children: scrollIndicator2 ? `${scrollIndicator2} \xB7 ${status}` : status })
+          /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: scrollIndicator2 ? `${scrollIndicator2} \xB7 ${status}` : status })
         ] }),
         empty ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Box_default, { height, children: /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Text, { dimColor: true, children: "waiting for the agent's first output\u2026" }) }) : /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(TranscriptView, { lines, height }),
-        /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Text, { dimColor: true, children: "\u2191\u2193 PgUp/PgDn scroll \xB7 Esc back to the main transcript" })
+        /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: "\u2191\u2193 PgUp/PgDn scroll \xB7 Esc back to the main transcript" })
       ]
     }
   );
@@ -41218,6 +41322,15 @@ function SectionRule({
 // src/components/LaunchBanner.tsx
 var import_jsx_runtime29 = __toESM(require_jsx_runtime(), 1);
 var PROMPT_PREVIEW = 60;
+function bannerParts(width, hasLastSession, maxRows = Number.POSITIVE_INFINITY) {
+  const text2 = 2;
+  const last = hasLastSession ? 3 : 0;
+  const tips = TIPS.length + 2;
+  const big = bigLogoRows(width) + 1;
+  if (big + text2 + last + tips <= maxRows) return { bigLogo: true, tips: true };
+  if (big + text2 + last <= maxRows) return { bigLogo: true, tips: false };
+  return { bigLogo: false, tips: 1 + text2 + last + tips <= maxRows };
+}
 var TIPS = [
   "/help lists every command the daemon offers",
   "Shift+Tab cycles plan \u2192 accept \u2192 auto",
@@ -41241,15 +41354,19 @@ function LaunchBanner({
   model,
   lastSession = null,
   now = Date.now(),
-  colors: paintProp
+  colors: paintProp,
+  maxRows
 }) {
+  const parts = bannerParts(width, lastSession !== null, maxRows);
   const target = [provider, model].filter(Boolean).join("/");
   const paint = paintProp ?? colorMode(process.env, Boolean(process.stdout?.isTTY));
   const description = "Open-source multi-vendor coding agent and personal AI assistant";
   const meta = [`v${version}`, target, workdir, mode.toUpperCase()].filter(Boolean).join(" \xB7 ");
   return /* @__PURE__ */ (0, import_jsx_runtime29.jsxs)(Box_default, { flexDirection: "column", width, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(Logo, { terminalRows, version, width, big: true, mode: paint }),
-    /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(Text, { dimColor: true, children: "\u2500".repeat(Math.max(0, width)) }),
+    parts.bigLogo ? /* @__PURE__ */ (0, import_jsx_runtime29.jsxs)(import_jsx_runtime29.Fragment, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(Logo, { terminalRows, version, width, big: true, mode: paint }),
+      /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(Text, { dimColor: true, children: "\u2500".repeat(Math.max(0, width)) })
+    ] }) : /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(Text, { color: "green", wrap: "truncate-end", children: collapsedLine(version) }),
     /* @__PURE__ */ (0, import_jsx_runtime29.jsxs)(Box_default, { flexDirection: "column", children: [
       /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(Text, { wrap: "truncate-end", children: centre(description, width) }),
       /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: centre(meta, width) })
@@ -41260,9 +41377,9 @@ function LaunchBanner({
         /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(Text, { dimColor: true, children: `${relativeTime(lastSession.at, now)} \xB7 ` }),
         /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(Text, { children: lastSession.firstPrompt ? `"${previewPrompt(lastSession.firstPrompt)}"` : lastSession.sessionId.slice(0, 8) })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(Text, { dimColor: true, children: "Press R or type /resume to continue it" })
+      /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: "Press R or type /resume to continue it" })
     ] }) : null,
-    /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(Box_default, { marginTop: 1, marginBottom: 1, flexDirection: "column", children: TIPS.map((tip) => /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `  \xB7 ${tip}` }, tip)) })
+    parts.tips ? /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(Box_default, { marginTop: 1, marginBottom: 1, flexDirection: "column", children: TIPS.map((tip) => /* @__PURE__ */ (0, import_jsx_runtime29.jsx)(Text, { dimColor: true, wrap: "truncate-end", children: `  \xB7 ${tip}` }, tip)) }) : null
   ] });
 }
 
@@ -41385,6 +41502,7 @@ function UpdateBanner({ update }) {
 // src/app.tsx
 var import_jsx_runtime34 = __toESM(require_jsx_runtime(), 1);
 var ENABLE_MOUSE = "\x1B[?1000h\x1B[?1006h";
+var WHEEL_ROWS = 3;
 var DISABLE_MOUSE = "\x1B[?1000l\x1B[?1006l";
 var UPDATE_OPTIONS = [
   { label: "Update and restart", value: true, shortcut: "y" },
@@ -41404,9 +41522,13 @@ function agentTranscriptRows({
   fullscreen,
   usable,
   statusRows,
-  bottomRows: bottomRows2
+  bottomRows: bottomRows2,
+  transcriptRows
 }) {
-  if (fullscreen) return AGENT_TRANSCRIPT_ROWS;
+  if (fullscreen) {
+    if (transcriptRows === void 0) return AGENT_TRANSCRIPT_ROWS;
+    return Math.max(MIN_AGENT_TRANSCRIPT_ROWS, transcriptRows - AGENT_TRANSCRIPT_CHROME_ROWS);
+  }
   const room = usable - statusRows - bottomRows2 - AGENT_TRANSCRIPT_CHROME_ROWS;
   return Math.max(MIN_AGENT_TRANSCRIPT_ROWS, Math.min(AGENT_TRANSCRIPT_ROWS, room));
 }
@@ -41607,6 +41729,7 @@ function App2({
   const [runningCommand, setRunningCommand] = (0, import_react45.useState)(null);
   const staticCursorRef = (0, import_react45.useRef)(0);
   const staticBlocksRef = (0, import_react45.useRef)([{ key: "launch", kind: "launch" }]);
+  const turnNotesRef = (0, import_react45.useRef)([]);
   const streamCommittedRef = (0, import_react45.useRef)(/* @__PURE__ */ new Map());
   const turnRef = (0, import_react45.useRef)(null);
   const turnActiveRef = (0, import_react45.useRef)(false);
@@ -41949,7 +42072,7 @@ function App2({
     },
     [stdout]
   );
-  const [mouseOn, setMouseOn] = (0, import_react45.useState)(false);
+  const [mouseOn, setMouseOn] = (0, import_react45.useState)(fullscreen);
   (0, import_react45.useEffect)(() => {
     setMouseMode(mouseOn);
     return () => setMouseMode(false);
@@ -41969,6 +42092,7 @@ function App2({
           streamCommittedRef.current = /* @__PURE__ */ new Map();
           turnRef.current = null;
           turnActiveRef.current = false;
+          turnNotesRef.current = [];
           setOpenAgent(null);
           setScrollOffset(0);
           setExpandedId(null);
@@ -42129,7 +42253,7 @@ function App2({
   }, [agentsExpanded, focus]);
   const openAgentEntry = openAgent ? state.subagents.find((agent) => agent.sessionId === openAgent.sessionId) : void 0;
   const agentLines = (0, import_react45.useMemo)(
-    () => openAgent && state.children[openAgent.sessionId] ? transcriptLines(state.children[openAgent.sessionId], contentWidth - 4) : [],
+    () => openAgent && state.children[openAgent.sessionId] ? screenTranscriptLines(state.children[openAgent.sessionId], contentWidth - 4) : [],
     [openAgent, state.children, contentWidth]
   );
   const phase = derivePhase(state, { runningCommand });
@@ -42163,12 +42287,14 @@ function App2({
     () => layout(draft, Math.max(1, contentWidth - 2), draft.length).lines.length,
     [draft, contentWidth]
   );
+  const showLogo = !fullscreen;
   const layout2 = computeLayout({
     // One row short of the terminal on purpose; see `RESERVED_FRAME_ROW`.
     rows: usableRows(terminal.rows),
     columns: terminal.columns,
-    // Logo block, then the workdir row and the rule row.
-    headerRows: logoRows(terminal.rows) + HEADER_ROWS,
+    // Logo block, then the rule row. Full-screen gives the logo's rows to the
+    // transcript once there is a transcript to show.
+    headerRows: (showLogo ? logoRows(terminal.rows) : 0) + HEADER_ROWS,
     // The HUD's rows, the context warning when there is one, the summary line,
     // every row of the agent panel and its key/mouse hint.
     statusRows: hudRows.length + (contextWarning(state.context) ? 1 : 0) + 1 + agentRows.length + 3,
@@ -42190,7 +42316,8 @@ function App2({
     fullscreen,
     usable: usableRows(terminal.rows),
     statusRows: layout2.statusRows,
-    bottomRows: layout2.bottomRows
+    bottomRows: layout2.bottomRows,
+    transcriptRows: layout2.transcriptRows
   });
   const liveRegionRows = fullscreen ? Number.POSITIVE_INFINITY : Math.max(
     1,
@@ -42246,24 +42373,27 @@ function App2({
     const turn2 = turnRef.current;
     const ok = state.lastTurnReason === null || state.lastTurnReason === "complete";
     turnCountRef.current += 1;
+    const noteText = turnSummaryLine({
+      ok,
+      elapsedMs: now - turn2.startedAt,
+      inputTokens: state.usage.inputTokens - turn2.inputTokens,
+      outputTokens: state.usage.outputTokens - turn2.outputTokens
+    });
     staticBlocksRef.current = staticBlocksRef.current.concat({
       key: `turn-${turnCountRef.current}`,
       kind: "note",
       ok,
-      text: turnSummaryLine({
-        ok,
-        elapsedMs: now - turn2.startedAt,
-        inputTokens: state.usage.inputTokens - turn2.inputTokens,
-        outputTokens: state.usage.outputTokens - turn2.outputTokens
-      })
+      text: noteText
     });
+    turnNotesRef.current = turnNotesRef.current.concat({ at: state.timeline.length, text: noteText, ok });
     turnRef.current = null;
   }
   turnActiveRef.current = state.turnActive;
   const staticCursor = staticCursorRef.current;
+  const turnNotes = turnNotesRef.current;
   const lines = (0, import_react45.useMemo)(
-    () => fullscreen ? transcriptLines(state, contentWidth, { expandedCall: expandedId }) : [],
-    [fullscreen, state, contentWidth, expandedId]
+    () => fullscreen ? screenTranscriptLines(state, contentWidth, { expandedId, notes: turnNotes }, colorizeFileRefs) : [],
+    [fullscreen, state, contentWidth, expandedId, turnNotes]
   );
   const viewport = (0, import_react45.useMemo)(
     () => sliceViewport(lines, layout2.transcriptRows, scrollOffset),
@@ -42968,21 +43098,26 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
       void handleStartDaemon();
       return;
     }
+    const reports = mouseReports(input);
+    const wheel = reports.reduce((sum, report) => {
+      const button = report.button & ~28;
+      return sum + (button === 64 ? 1 : button === 65 ? -1 : 0);
+    }, 0);
+    if (wheel !== 0) {
+      if (showHelp) return;
+      if (openAgent) {
+        setAgentScroll(
+          (offset) => clampScroll(offset + wheel * WHEEL_ROWS, agentLines.length, agentWindowRows)
+        );
+      } else if (fullscreen) scrollBy(wheel * WHEEL_ROWS);
+      return;
+    }
     if (state.pendingQuestion || state.pendingApproval || update.phase === "confirm" || modelPicker) {
       return;
     }
-    const reports = mouseReports(input);
     if (reports.length > 0) {
       const mouse = reports.find((report) => report.press);
       if (!mouse) return;
-      if (openAgent && mouse.button === 64) {
-        setAgentScroll((offset) => offset + 1);
-        return;
-      }
-      if (openAgent && mouse.button === 65) {
-        setAgentScroll((offset) => Math.max(0, offset - 1));
-        return;
-      }
       if (openAgent || mouse.button !== 0) return;
       const index = panelRowAt(mouse.row, panelMouseLayout);
       if (index === null) return;
@@ -43327,7 +43462,7 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
         focusedIndex: focus.zone === "agent" ? focus.index : null
       }
     ),
-    /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { dimColor: true, children: mouseOn ? "\u2191\u2193 select \xB7 click or Enter opens" : "\u2191\u2193 select \xB7 Enter opens \xB7 /mouse enables clicking" })
+    /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(Text, { dimColor: true, children: mouseOn ? `\u2191\u2193 select \xB7 click or Enter opens${fullscreen ? " \xB7 wheel scrolls \xB7 Shift+drag selects text" : ""}` : "\u2191\u2193 select \xB7 Enter opens \xB7 /mouse enables clicking" })
   ] });
   const helpNode = showHelp ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
     HelpPanel,
@@ -43347,12 +43482,38 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
         rows: layout2.rows,
         terminalRows: terminal.rows,
         version,
+        showLogo,
         columns: layout2.columns,
         transcriptRows: layout2.transcriptRows,
         lines: viewport.lines,
         banner: bannerText(update),
         scrollIndicator: scrollIndicator(viewport),
-        overlay: helpNode,
+        overlay: helpNode ?? (state.timeline.length === 0 && !openAgent ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+          LaunchBanner,
+          {
+            width: terminal.columns - 2,
+            terminalRows: terminal.rows,
+            version,
+            workdir,
+            mode,
+            provider: state.provider,
+            model: state.model,
+            lastSession,
+            maxRows: layout2.transcriptRows
+          }
+        ) : openAgent ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+          AgentTranscript,
+          {
+            name: openAgent.name,
+            task: openAgentEntry?.task ?? "",
+            status: openAgentEntry ? agentStatusText(openAgentEntry, clock) : "",
+            lines: agentViewport.lines,
+            height: agentWindowRows,
+            width: contentWidth,
+            scrollIndicator: scrollIndicator(agentViewport),
+            empty: agentLines.length === 0
+          }
+        ) : null),
         bottom: bottomNode,
         status: statusNode
       }
@@ -43920,14 +44081,13 @@ function parseArgs(argv, cwd2 = process.cwd(), env3 = process.env) {
   if (modeRaw !== void 0 && !MODES.includes(modeRaw)) {
     throw new Error(`--mode must be one of ${MODES.join("|")}`);
   }
-  const fullscreenRequested = values.get("fullscreen") === "true";
   const inlineRequested = values.get("no-fullscreen") === "true" || values.get("inline") === "true" || values.get("fullscreen") === "false" || env3.SNOWPEA_TUI_INLINE === "1";
   return {
     port,
     token,
     mode: modeRaw,
     cwd: values.get("cwd") || cwd2,
-    fullscreen: fullscreenRequested && !inlineRequested
+    fullscreen: !inlineRequested
   };
 }
 function frameStdout(stdout, writer) {
