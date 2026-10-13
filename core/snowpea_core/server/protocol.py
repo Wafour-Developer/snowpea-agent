@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.11.0"
+PROTOCOL_VERSION = "1.12.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -1327,7 +1327,8 @@ class ApprovalAskParams(Payload):
     forceAsk: bool = Field(
         default=False,
         description=(
-            "Always ask a person: the mode matrix may only deny (plan still denies) and "
+            "Always ask a person: the mode matrix may only deny (plan still denies write, "
+            "send and config; a read is asked) and "
             "never auto-allows, not even in auto mode. The allowlist still applies unless "
             "risk is 'payment'. For any client's destructive or irreversible actions."
         ),
@@ -1347,7 +1348,9 @@ class ApprovalAskResult(Payload):
         default="once",
         description=(
             "Scope the answer applies to; always 'once' for payment. 'project' only "
-            "for project-safe actions (repl.files, a localDevServer repl.navigate)."
+            "for project-safe actions (repl.files, a localDevServer repl.navigate). For "
+            "args.onceOnly (1.12.0) the scope the person picked, which core never stores: "
+            "the host may keep it on its side."
         ),
     )
     by: str = Field(
@@ -5078,6 +5081,7 @@ CAPABILITIES: list[str] = [
     "sessionContinue",
     "siteMemory",
     "webSearch",
+    "onceOnlyScope",
 ]
 
 #: Where the daemon listens; mirrored into the schema dump for the SDK.

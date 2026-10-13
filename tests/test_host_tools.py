@@ -1416,7 +1416,8 @@ async def test_once_only_ignores_existing_rules_and_stores_nothing(
         once = dict(ask, args={**ask["args"], "onceOnly": True})
         asked_before = len(host.approval_requests)
         answer = await host.ok("approval.ask", once)
-        assert answer == {"decision": "allow", "scope": "once", "by": "user"}
+        # The person's own choice goes back (1.12.0); core keeps nothing.
+        assert answer == {"decision": "allow", "scope": "site", "by": "user"}
         assert len(host.approval_requests) == asked_before + 1
         request = host.approval_requests[-1]
         assert request["scopeHint"] == "once" and request["site"] is None
@@ -1425,9 +1426,73 @@ async def test_once_only_ignores_existing_rules_and_stores_nothing(
         rows_before = (await host.ok("permission.allowlist.list", {}))["patterns"]
         other = dict(once, tool="repl.upload")
         answer = await host.ok("approval.ask", other)
-        assert answer["scope"] == "once"
+        assert answer["scope"] == "site"
         rows_after = (await host.ok("permission.allowlist.list", {}))["patterns"]
         assert rows_after == rows_before
+        # … and caches nothing: the next onceOnly call asks again.
+        asked_before = len(host.approval_requests)
+        await host.ok("approval.ask", other)
+        assert len(host.approval_requests) == asked_before + 1
+    finally:
+        await host.stop()
+
+
+async def test_a_local_file_answered_always_goes_back_to_the_host_unstored(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    """Addendum 22: a file:// open asked with forceAsk + onceOnly, even in plan mode."""
+    host = await open_client(http, daemon, approval_mode="allow", approval_scope="always")
+    try:
+        await host.ok("tool.register", {"tools": [spec("repl", "read")]})
+        for mode in ("plan", "accept", "auto"):
+            session_id = await new_session(host, tmp_path / f"w-{mode}", mode=mode)
+            ask = {
+                "sessionId": session_id,
+                "tool": "repl.navigate",
+                "permission": "read",
+                "forceAsk": True,
+                "reason": "Open a local file in the agent tab",
+                "args": {
+                    "url": "file:///home/me/report.pdf",
+                    "reasonCode": "file.open",
+                    "onceOnly": True,
+                },
+            }
+            for _ in range(2):
+                asked_before = len(host.approval_requests)
+                answer = await host.ok("approval.ask", ask)
+                assert answer == {"decision": "allow", "scope": "always", "by": "user"}, mode
+                # Asked every time: neither the mode nor a cache answered.
+                assert len(host.approval_requests) == asked_before + 1, mode
+        rows = (await host.ok("permission.allowlist.list", {}))["patterns"]
+        assert [row for row in rows if str(row.get("tool", "")).startswith("repl")] == []
+    finally:
+        await host.stop()
+
+
+async def test_payment_stays_once_even_when_once_only(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    answer, stored = await _ask_with_scope(
+        http, daemon, tmp_path, "always", "repl.tabs", {"onceOnly": True}
+    )
+    assert answer["scope"] == "always" and stored == []
+    host = await open_client(http, daemon, approval_mode="allow", approval_scope="always")
+    try:
+        await host.ok("tool.register", {"tools": [spec("repl", "read")]})
+        session_id = await new_session(host, tmp_path / "w-pay", mode="accept")
+        answer = await host.ok(
+            "approval.ask",
+            {
+                "sessionId": session_id,
+                "tool": "repl.send",
+                "permission": "send",
+                "reason": "Pay",
+                "risk": "payment",
+                "args": {"onceOnly": True},
+            },
+        )
+        assert answer["scope"] == "once"
     finally:
         await host.stop()
 

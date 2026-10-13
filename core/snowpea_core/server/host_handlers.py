@@ -184,6 +184,8 @@ async def approval_ask_handler(
     person is asked even in ``auto``. ``risk: "payment"`` skips the allowlist
     and is never remembered: the answer's scope is ``once`` whatever the
     approver picked, and no allowlist entry or session cache is written.
+    ``args.onceOnly`` is never remembered by core either, but since 1.12.0
+    the answer carries the scope the person picked, for the host to keep.
     """
     session = _session(core, params.sessionId)
     if HOST_TOOLS.owner_of(session) != conn.surface_id:
@@ -253,9 +255,16 @@ async def approval_ask_handler(
         site=site,
     )
     scope = decision.scope if decision.scope in _SCOPES else "once"
+    if payment:
+        scope = "once"
+    elif unremembered and decision.allowed:
+        # onceOnly (1.12.0): the person's own choice goes back to the host,
+        # which may keep it on its side (a local file it remembers by path).
+        # Core stored nothing: no allowlist entry, no session cache.
+        scope = decision.picked if decision.picked in _SCOPES else scope
     return ApprovalAskResult(
         decision="allow" if decision.allowed else "deny",
-        scope="once" if unremembered else scope,  # type: ignore[arg-type]
+        scope=scope,  # type: ignore[arg-type]
         by=_decided_by(decision.by),
     )
 

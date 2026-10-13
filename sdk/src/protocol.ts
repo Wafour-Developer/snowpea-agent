@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.11.0";
+export const PROTOCOL_VERSION = "1.12.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -181,7 +181,7 @@ export interface ApprovalAskParams {
   callId?: string | null;
   /** What the running code is about to do, e.g. {origin, element, action}; shown with the approval and merged into its args. */
   detail?: Record<string, unknown> | null;
-  /** Always ask a person: the mode matrix may only deny (plan still denies) and never auto-allows, not even in auto mode. The allowlist still applies unless risk is 'payment'. For any client's destructive or irreversible actions. */
+  /** Always ask a person: the mode matrix may only deny (plan still denies write, send and config; a read is asked) and never auto-allows, not even in auto mode. The allowlist still applies unless risk is 'payment'. For any client's destructive or irreversible actions. */
   forceAsk?: boolean;
   /** Permission class of the escalated action. */
   permission: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate" | "secret";
@@ -203,7 +203,7 @@ export interface ApprovalAskResult {
   by?: string;
   /** allow or deny. */
   decision: "allow" | "deny";
-  /** Scope the answer applies to; always 'once' for payment. 'project' only for project-safe actions (repl.files, a localDevServer repl.navigate). */
+  /** Scope the answer applies to; always 'once' for payment. 'project' only for project-safe actions (repl.files, a localDevServer repl.navigate). For args.onceOnly (1.12.0) the scope the person picked, which core never stores: the host may keep it on its side. */
   scope?: "once" | "session" | "project" | "always" | "site";
 }
 

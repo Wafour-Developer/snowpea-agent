@@ -92,7 +92,7 @@ def guard_scope(request: ApprovalRequest, decision: Decision, workdir: Any = Non
     if not decision.allowed or decision.scope == "once":
         return decision
     if once_only(request.args):
-        return replace(decision, scope="once")
+        return replace(decision, scope="once", picked=decision.scope)
     tool = request.tool or ""
     local_dev = (
         decision.scope == "project"
@@ -126,6 +126,10 @@ class Decision:
     code: str | None = None
     #: Free text the human typed when refusing; the model is told exactly this.
     reason: str = ""
+    #: The scope the person picked, when :func:`guard_scope` kept a ``onceOnly``
+    #: answer to ``once``: ``approval.ask`` hands it back so the host can keep
+    #: the choice on its side (addendum 22); nothing here stores it.
+    picked: str = ""
 
     @property
     def allowed(self) -> bool:
