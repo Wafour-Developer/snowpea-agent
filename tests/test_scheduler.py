@@ -85,6 +85,36 @@ async def test_parse_spec_relative_and_interval_seconds() -> None:
     assert parse_spec("매 30분", NOW).interval_sec == 1800
 
 
+@pytest.mark.parametrize(
+    ("spec", "cron"),
+    [
+        ("매주 월 9시", "0 9 * * 1"),
+        ("매주 월요일 9시", "0 9 * * 1"),
+        ("매주 월,수 9시", "0 9 * * 1,3"),
+        ("매주 월, 수 9시", "0 9 * * 1,3"),
+        ("매주 월·수·금 18:30", "30 18 * * 1,3,5"),
+        ("매주 토 오후 3시", "0 15 * * 6"),
+        ("every Monday 9am", "0 9 * * 1"),
+        ("every mon and wed at 9am", "0 9 * * 1,3"),
+        ("weekly on fri 17:00", "0 17 * * 5"),
+    ],
+)
+async def test_parse_spec_reads_short_and_listed_weekdays(spec: str, cron: str) -> None:
+    parsed = parse_spec(spec, NOW)
+    assert parsed.kind == "cron" and parsed.cron == cron
+
+
+async def test_a_weekly_spec_without_a_readable_day_is_refused() -> None:
+    """"매주" never falls back to a one-shot: the day or the time is missing."""
+    for spec in ("매주 9시", "매주 월", "every week at 9am"):
+        with pytest.raises(ValueError):
+            parse_spec(spec, NOW)
+    # Outside a weekly phrase a lone 금/일 is not a weekday (금일 = today), and
+    # "month" is not "mon".
+    assert parse_spec("금일 15시", NOW).kind == "once"
+    assert parse_spec("every month 9am", NOW).kind == "once"
+
+
 async def test_parse_spec_rejects_nonsense() -> None:
     with pytest.raises(ValueError):
         parse_spec("whenever you feel like it", NOW)

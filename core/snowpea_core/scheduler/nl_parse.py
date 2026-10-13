@@ -102,6 +102,12 @@ WEEKDAYS: dict[str, int] = {
     "토요일": 6,
 }
 
+#: One-character Korean day names, read only in a weekly phrase ("매주 월,수 9시"):
+#: on their own 금일 is "today" and 일 is just "day".
+SHORT_KO_WEEKDAYS: dict[str, int] = {
+    "일": 0, "월": 1, "화": 2, "수": 3, "목": 4, "금": 5, "토": 6,
+}
+
 _DURATION_TERM = re.compile(r"(\d+)\s*([a-z]+|[가-힣]+)")
 _CRON_FIELD = re.compile(r"^[0-9*/,\-]+$|^(?:[a-z]{3}(?:-[a-z]{3})?)(?:,[a-z]{3})*$")
 _HH_MM = re.compile(r"\b(\d{1,2})\s*:\s*(\d{2})\b")
@@ -109,6 +115,14 @@ _KO_CLOCK = re.compile(r"(\d{1,2})\s*시(?:\s*(\d{1,2})\s*분)?")
 _EN_CLOCK = re.compile(r"\b(\d{1,2})(?:\s*:\s*(\d{2}))?\s*(am|pm)\b")
 _BARE_HOUR = re.compile(r"(?:^|\bat\s+)(\d{1,2})\b(?!\s*[:\d])")
 _ISO_AT = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})[ t](\d{1,2}):(\d{2})\b")
+_EN_WEEKDAY = re.compile(
+    r"\b(sunday|sun|monday|mon|tuesday|tues|tue|wednesday|wed|thursday|thurs|thur|thu"
+    r"|friday|fri|saturday|sat)s?\b"
+)
+_KO_WEEKDAY = re.compile(r"([월화수목금토일])요일")
+#: A word made only of short day names, e.g. ``월`` / ``월,수`` / ``월·수·금`` / ``월수금``.
+_KO_SHORT_RUN = re.compile(r"^[월화수목금토일](?:[,·/、]?[월화수목금토일])*$")
+_EN_ALIASES = {"tues": "tue", "thurs": "thu", "thur": "thu"}
 _EVERY_N = re.compile(r"(?:every|each|매)\s*(\d+\s*(?:[a-z]+|[가-힣]+))")
 _N_MADA = re.compile(r"(\d+\s*[가-힣]+)\s*마다")
 
@@ -236,29 +250,54 @@ def _interval_seconds(text: str) -> int | None:
     return None
 
 
-def _weekday(text: str) -> int | None:
-    for word, number in WEEKDAYS.items():
-        if word in text:
-            return number
-    return None
+def _weekdays(text: str, *, weekly: bool) -> list[int]:
+    """Every day of the week ``text`` names, as cron numbers, in order and once each."""
+    days: list[int] = []
+    for match in _EN_WEEKDAY.finditer(text):
+        word = match.group(1)
+        days.append(WEEKDAYS[_EN_ALIASES.get(word, word)])
+    for match in _KO_WEEKDAY.finditer(text):
+        days.append(SHORT_KO_WEEKDAYS[match.group(1)])
+    if weekly:
+        # "월, 수" and "월 · 수" are one list: close the gaps around separators.
+        squeezed = re.sub(r"\s*([,·/、])\s*", r"\1", text)
+        for word in squeezed.split():
+            word = word.strip(".,·/、")
+            if _KO_SHORT_RUN.match(word):
+                days.extend(SHORT_KO_WEEKDAYS[char] for char in word if char in SHORT_KO_WEEKDAYS)
+    return sorted(set(days))
 
 
 def _recurring_cron(text: str) -> str | None:
-    """Daily / weekly / weekday phrases with a clock, as a cron expression."""
+    """Daily / weekly / weekday phrases with a clock, as a cron expression.
+
+    A weekly phrase whose day cannot be read is an error, not a one-shot: "매주
+    9시" must not quietly become "tomorrow at nine".
+    """
     daily = bool(re.search(r"매일|every\s+day|each\s+day|daily", text))
-    weekly = bool(re.search(r"매주|every\s+week|weekly", text))
-    weekdays = bool(re.search(r"평일|weekdays?|every\s+weekday", text))
-    day = _weekday(text)
-    if not (daily or weekly or weekdays or day is not None):
+    weekdays = bool(re.search(r"평일|\bweekdays?\b|every\s+weekday", text))
+    weekly = not weekdays and bool(re.search(r"매주|every\s+week\b|each\s+week\b|weekly", text))
+    days = _weekdays(text, weekly=weekly)
+    if not (daily or weekly or weekdays or days):
         return None
+    if weekly and not days:
+        raise ValueError(
+            f"could not tell which day of the week {text!r} means;"
+            ' name it, e.g. "매주 월 09:00", "매주 월,수 9시" or "every Monday 9am"'
+        )
     clock = parse_clock(text)
     if clock is None:
+        if weekly:
+            raise ValueError(
+                f"could not find a time of day in {text!r};"
+                ' e.g. "매주 월 09:00" or "every Monday 9am"'
+            )
         return None
     hour, minute = clock
     if weekdays:
         return f"{minute} {hour} * * 1-5"
-    if day is not None:
-        return f"{minute} {hour} * * {day}"
+    if days:
+        return f"{minute} {hour} * * {','.join(str(day) for day in days)}"
     if daily:
         return f"{minute} {hour} * * *"
     return None
