@@ -29,6 +29,15 @@ export function runCommand(
   return client.call("command.run", { sessionId, name, args } as P<"command.run">);
 }
 
+/**
+ * Search the web with the daemon's configured provider chain (protocol 1.11.0).
+ * Browser host clients only; `unavailable` when no provider can answer, and an
+ * older daemon answers method-not-found.
+ */
+export function webSearch(client: Client, query: string, num?: number): Promise<R<"web.search">> {
+  return client.call("web.search", (num === undefined ? { query } : { query, num }) as P<"web.search">);
+}
+
 /** Choose the execution backend (local, docker, ssh) for a session. */
 export function setBackend(
   client: Client,

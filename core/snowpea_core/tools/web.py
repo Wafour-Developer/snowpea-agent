@@ -20,6 +20,7 @@ readable text, truncated to ``settings.tools.max_output_chars``.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
@@ -27,7 +28,7 @@ import httpx
 from snowpea_core.session import events
 from snowpea_core.tools import http_util, search_providers
 from snowpea_core.tools.registry import Tool, ToolContext, ToolResult
-from snowpea_core.tools.search_providers.base import SearchProviderUnavailable
+from snowpea_core.tools.search_providers.base import SearchHit, SearchProviderUnavailable
 
 log = logging.getLogger("snowpea.tools.web")
 
@@ -99,6 +100,73 @@ async def _warn_once(ctx: ToolContext, message: str) -> None:
     await hub.emit_event(session.id, events.error(SEARCH_UNAVAILABLE, message))
 
 
+@dataclass
+class SearchOutcome:
+    """What one walk down the provider chain found."""
+
+    #: The provider asked first: the forced one, else the configured one.
+    preferred: str
+    hits: list[SearchHit] = field(default_factory=list)
+    #: The provider that answered, or ``""`` when none did.
+    provider: str = ""
+    #: Why the *preferred* provider dropped out, which is the one the user cares about.
+    reason: str = ""
+    #: ``"<id>: <why>"`` for each provider that could not answer.
+    skipped: list[str] = field(default_factory=list)
+
+    @property
+    def fallback_from(self) -> str:
+        return self.preferred if self.provider and self.provider != self.preferred else ""
+
+    @property
+    def detail(self) -> str:
+        return "; ".join(self.skipped) or "no providers registered"
+
+
+async def search_chain(settings: Any, query: str, limit: int, forced: str = "") -> SearchOutcome:
+    """Ask ``forced`` or the configured provider, then the fallback chain, for ``query``.
+
+    Shared by the ``web_search`` tool and the browser host's ``web.search`` RPC,
+    so both use the same providers, settings, caps and timeouts.
+    """
+    outcome = SearchOutcome(preferred=forced or configured_provider(settings))
+    preferred = outcome.preferred
+    for provider in search_providers.chain(preferred):
+        pid = provider.meta.id
+        bind = getattr(provider, "bind", None)
+        if callable(bind):
+            bind(settings)
+        if not provider.available(settings):
+            why = unavailable_reason(provider, settings)
+            outcome.skipped.append(f"{pid}: {why}")
+            if pid == preferred:
+                outcome.reason = why
+            continue
+        try:
+            hits = await provider.search(query, limit=limit)
+        except SearchProviderUnavailable as exc:
+            outcome.skipped.append(f"{pid}: {exc}")
+            if pid == preferred:
+                outcome.reason = str(exc)
+            log.info("web_search provider %s unavailable: %s", pid, exc)
+            continue
+        except Exception as exc:  # noqa: BLE001 - a provider client can raise anything
+            outcome.skipped.append(f"{pid}: {type(exc).__name__}: {exc}")
+            if pid == preferred:
+                outcome.reason = f"{type(exc).__name__}: {exc}"
+            log.info("web_search provider %s failed: %s", pid, exc)
+            continue
+        if not hits:
+            outcome.skipped.append(f"{pid}: no results")
+            if pid == preferred:
+                outcome.reason = "it returned no results"
+            continue
+        outcome.hits = list(hits)
+        outcome.provider = pid
+        return outcome
+    return outcome
+
+
 async def web_search(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     query = str(args.get("query", "")).strip()
     if not query:
@@ -111,43 +179,11 @@ async def web_search(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
 
     settings = getattr(ctx.core, "settings", None)
     forced = str(args.get("provider") or "").strip()
-    preferred = forced or configured_provider(settings)
-    skipped: list[str] = []
-    #: Why the *configured* provider dropped out, which is the one the user cares about.
-    reason = ""
+    outcome = await search_chain(settings, query, limit, forced)
+    reason = outcome.reason
 
-    for provider in search_providers.chain(preferred):
-        pid = provider.meta.id
-        bind = getattr(provider, "bind", None)
-        if callable(bind):
-            bind(settings)
-        if not provider.available(settings):
-            why = unavailable_reason(provider, settings)
-            skipped.append(f"{pid}: {why}")
-            if pid == preferred:
-                reason = why
-            continue
-        try:
-            hits = await provider.search(query, limit=limit)
-        except SearchProviderUnavailable as exc:
-            skipped.append(f"{pid}: {exc}")
-            if pid == preferred:
-                reason = str(exc)
-            log.info("web_search provider %s unavailable: %s", pid, exc)
-            continue
-        except Exception as exc:  # noqa: BLE001 - a provider client can raise anything
-            skipped.append(f"{pid}: {type(exc).__name__}: {exc}")
-            if pid == preferred:
-                reason = f"{type(exc).__name__}: {exc}"
-            log.info("web_search provider %s failed: %s", pid, exc)
-            continue
-        if not hits:
-            skipped.append(f"{pid}: no results")
-            if pid == preferred:
-                reason = "it returned no results"
-            continue
-
-        fallback_from = preferred if pid != preferred else ""
+    if outcome.provider:
+        pid, hits, fallback_from = outcome.provider, outcome.hits, outcome.fallback_from
         if fallback_from:
             await _warn_once(
                 ctx,
@@ -166,12 +202,12 @@ async def web_search(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             },
         )
 
-    detail = "; ".join(skipped) or "no providers registered"
+    detail = outcome.detail
     await _warn_once(ctx, f"web_search found no usable provider ({detail})")
     return ToolResult(
         ok=False,
         error=f"{SEARCH_UNAVAILABLE}: every provider in the chain declined ({detail})",
-        meta={"provider": None, "fallback_from": preferred, "reason": reason or detail},
+        meta={"provider": None, "fallback_from": outcome.preferred, "reason": reason or detail},
     )
 
 
@@ -300,9 +336,11 @@ __all__ = [
     "SEARCH_UNAVAILABLE",
     "TOOLS",
     "URL_BLOCKED",
+    "SearchOutcome",
     "annotate",
     "configured_provider",
     "max_output_chars",
+    "search_chain",
     "search_header",
     "unavailable_reason",
     "web_extract",

@@ -37,6 +37,9 @@ MCP_READ_ONLY = "mcp_read_only"
 MCP_INVALID = "mcp_invalid"
 MCP_START_FAILED = "mcp_start_failed"
 MCP_UNSAFE = "mcp_unsafe"
+#: A service the call needs cannot answer right now (``web.search`` with no
+#: usable search provider, protocol 1.11.0); ``details.reason`` says why.
+UNAVAILABLE = "unavailable"
 INTERNAL = "internal"
 
 ERROR_CODES: tuple[str, ...] = (
@@ -59,6 +62,7 @@ ERROR_CODES: tuple[str, ...] = (
     MCP_INVALID,
     MCP_START_FAILED,
     MCP_UNSAFE,
+    UNAVAILABLE,
     INTERNAL,
 )
 
@@ -131,6 +135,7 @@ __all__ = [
     "SESSION_BUSY",
     "TOOL_INACTIVE",
     "UNAUTHORIZED",
+    "UNAVAILABLE",
     "INVALID_PARAMS",
     "RpcError",
     "jsonrpc_code",

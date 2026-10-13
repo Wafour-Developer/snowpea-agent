@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.10.0` (semver)
+- **Protocol version:** `1.11.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.10.0"
+    "protocolVersion": "1.11.0"
   }
 }
 ```
@@ -53,6 +53,7 @@ Server capabilities advertised in the `system.hello` result:
 - `siteMemory`
 - `tools`
 - `update`
+- `webSearch`
 
 ## Method index
 
@@ -179,6 +180,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`tool.register`](#toolregister) | client → server | Register tools this connection runs itself (host tools). |
 | [`tool.unregister`](#toolunregister) | client → server | Remove some of this connection's host tools. |
 | [`usage.summary`](#usagesummary) | client → server | Token totals from stored usage events, grouped by provider, model, session or day. |
+| [`web.search`](#websearch) | client → server | Web search for a browser host (1.11.0): the web_search tool's provider chain, settings, caps and timeouts, for the host's own fallback when its search page is blocked. Browser host clients (with a clientId) only; 'unavailable' with details.reason when no provider can answer. Results are untrusted web content. |
 
 ## Methods
 
@@ -2729,6 +2731,26 @@ Token totals from stored usage events, grouped by provider, model, session or da
 | `outputTokens` | `number` | no | Sum over all rows. |
 | `rows` | `({ calls?: number; inputTokens?: number; key: string; outputTokens?: number; })[]` | no | Totals, largest first. |
 
+### `web.search`
+
+*Direction:* client → server
+
+Web search for a browser host (1.11.0): the web_search tool's provider chain, settings, caps and timeouts, for the host's own fallback when its search page is blocked. Browser host clients (with a clientId) only; 'unavailable' with details.reason when no provider can answer. Results are untrusted web content.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `num` | `number` | no | How many results, 1-20 (default 10). |
+| `query` | `string` | yes | What to search for. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `provider` | `string` | yes | The search provider that answered, e.g. 'ddgs'. |
+| `results` | `({ snippet?: string; title: string; url: string; })[]` | no |  |
+
 ## Notifications
 
 ### `approval.pending`
@@ -3263,3 +3285,4 @@ The numeric `error.code`: `-32601` means only that the **method** does not exist
 | `session_busy` |  |
 | `tool_inactive` | The tool exists but is disabled for this session. |
 | `unauthorized` | Missing or invalid token, or a call before `system.hello`. |
+| `unavailable` |  |

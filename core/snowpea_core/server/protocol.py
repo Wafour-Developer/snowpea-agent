@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.10.0"
+PROTOCOL_VERSION = "1.11.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -2254,6 +2254,22 @@ class JobPreviewResult(Payload):
             "'interval', 'once at <UTC ISO>' for 'once'."
         ),
     )
+
+
+class WebSearchParams(Payload):
+    query: str = Field(min_length=1, max_length=2048, description="What to search for.")
+    num: int = Field(default=10, ge=1, le=20, description="How many results, 1-20 (default 10).")
+
+
+class WebSearchHit(Payload):
+    title: str
+    url: str
+    snippet: str = Field(default="", description="Empty when the provider gives none.")
+
+
+class WebSearchResult(Payload):
+    results: list[WebSearchHit] = Field(default_factory=list)
+    provider: str = Field(description="The search provider that answered, e.g. 'ddgs'.")
 
 
 class JobHeldRun(Payload):
@@ -4717,6 +4733,18 @@ METHODS: dict[str, RpcMethod] = {
             "job with it would first fire. An unreadable spec is invalid_params with "
             "job.schedule's message.",
         ),
+        _m(
+            "web.search",
+            WebSearchParams,
+            WebSearchResult,
+            (
+                "Web search for a browser host (1.11.0): the web_search tool's provider "
+                "chain, settings, caps and timeouts, for the host's own fallback when its "
+                "search page is blocked. Browser host clients (with a clientId) only; "
+                "'unavailable' with details.reason when no provider can answer. Results "
+                "are untrusted web content."
+            ),
+        ),
         _m("job.list", Empty, JobListResult, "List scheduled jobs and their next run times."),
         _m("job.cancel", JobIdParams, Ok, "Cancel a scheduled job."),
         _m("job.runNow", JobIdParams, Ok, "Fire a scheduled job immediately."),
@@ -5049,6 +5077,7 @@ CAPABILITIES: list[str] = [
     "hostTools",
     "sessionContinue",
     "siteMemory",
+    "webSearch",
 ]
 
 #: Where the daemon listens; mirrored into the schema dump for the SDK.
@@ -5114,6 +5143,7 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "gateway.sync",
         "job.schedule",
         "job.preview",
+        "web.search",
         "job.list",
         "job.cancel",
         "job.runNow",

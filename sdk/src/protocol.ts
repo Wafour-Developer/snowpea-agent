@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.10.0";
+export const PROTOCOL_VERSION = "1.11.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -31,7 +31,8 @@ export type ErrorCode =
   | "protocol_incompatible"
   | "session_busy"
   | "tool_inactive"
-  | "unauthorized";
+  | "unauthorized"
+  | "unavailable";
 export const ERROR_CODES: readonly ErrorCode[] = [
   "approval_denied",
   "approval_timeout",
@@ -53,6 +54,7 @@ export const ERROR_CODES: readonly ErrorCode[] = [
   "session_busy",
   "tool_inactive",
   "unauthorized",
+  "unavailable",
 ];
 
 // ---------------------------------------------------------------------------
@@ -3443,6 +3445,26 @@ export interface UsageSummaryResult {
   })[];
 }
 
+/** `web.search` params. Web search for a browser host (1.11.0): the web_search tool's provider chain, settings, caps and timeouts, for the host's own fallback when its search page is blocked. Browser host clients (with a clientId) only; 'unavailable' with details.reason when no provider can answer. Results are untrusted web content. */
+export interface WebSearchParams {
+  /** How many results, 1-20 (default 10). */
+  num?: number;
+  /** What to search for. */
+  query: string;
+}
+
+/** `web.search` result. */
+export interface WebSearchResult {
+  /** The search provider that answered, e.g. 'ddgs'. */
+  provider: string;
+  results?: ({
+    /** Empty when the provider gives none. */
+    snippet?: string;
+    title: string;
+    url: string;
+  })[];
+}
+
 // ---------------------------------------------------------------------------
 // Event payloads
 // ---------------------------------------------------------------------------
@@ -4459,6 +4481,7 @@ export interface MethodMap {
   "tool.register": { params: ToolRegisterParams; result: ToolRegisterResult };
   "tool.unregister": { params: ToolUnregisterParams; result: ToolUnregisterResult };
   "usage.summary": { params: UsageSummaryParams; result: UsageSummaryResult };
+  "web.search": { params: WebSearchParams; result: WebSearchResult };
 }
 
 export type MethodName = keyof MethodMap;
@@ -4584,7 +4607,8 @@ export type ClientMethod =
   | "tool.progress"
   | "tool.register"
   | "tool.unregister"
-  | "usage.summary";
+  | "usage.summary"
+  | "web.search";
 /** Methods the server calls on the client (bidirectional JSON-RPC). */
 export type ServerMethod =
   | "approval.request"
