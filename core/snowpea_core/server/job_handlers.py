@@ -28,6 +28,8 @@ from snowpea_core.server.protocol import (
     JobListResult,
     JobNextRunForClientParams,
     JobNextRunForClientResult,
+    JobPreviewParams,
+    JobPreviewResult,
     JobScheduleParams,
     JobScheduleResult,
     JobUpdateParams,
@@ -43,6 +45,7 @@ log = logging.getLogger("snowpea.server.job")
 #: Methods this module implements.
 HANDLED_METHODS: tuple[str, ...] = (
     "job.schedule",
+    "job.preview",
     "job.list",
     "job.cancel",
     "job.runNow",
@@ -74,6 +77,31 @@ async def job_schedule_handler(
     except ValueError as exc:
         raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
     return JobScheduleResult(jobId=job.id, nextRunAt=iso(job.next_run))
+
+
+async def job_preview_handler(
+    _conn: RpcConnection, params: JobPreviewParams, _core: Core
+) -> JobPreviewResult:
+    """``job.preview`` — what ``job.schedule`` would make of a spec; nothing is saved.
+
+    The same parser and the same first firing as a real job, so a form can show
+    "next run" before the user commits to it.
+    """
+    from snowpea_core.scheduler.jobs import iso
+    from snowpea_core.scheduler.nl_parse import first_run, parse_spec
+
+    try:
+        spec = parse_spec(params.spec)
+    except ValueError as exc:
+        raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
+    upcoming = first_run(spec)
+    if upcoming is None:
+        # job.schedule refuses this one too, with the same words.
+        raise RpcError(
+            errors.INVALID_PARAMS, f"the schedule {params.spec!r} has no future firing time"
+        )
+    normalized = spec.cron if spec.kind == "cron" else spec.describe()
+    return JobPreviewResult(kind=spec.kind, nextRunAt=iso(upcoming), normalized=normalized)
 
 
 async def job_list_handler(_conn: RpcConnection, _params: Empty, core: Core) -> JobListResult:
@@ -168,6 +196,7 @@ async def job_update_handler(
 def register_job_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
     """Register every method in :data:`HANDLED_METHODS`."""
     dispatcher.register("job.schedule", job_schedule_handler)
+    dispatcher.register("job.preview", job_preview_handler)
     dispatcher.register("job.list", job_list_handler)
     dispatcher.register("job.cancel", job_cancel_handler)
     dispatcher.register("job.runNow", job_run_now_handler)

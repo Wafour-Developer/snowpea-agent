@@ -14,6 +14,14 @@ export function scheduleJob(client: Client, params: P<"job.schedule">): Promise<
   return client.call("job.schedule", params);
 }
 
+/**
+ * Read a schedule spec without saving anything: its kind and next run (1.10.0).
+ * An older daemon answers method-not-found.
+ */
+export function previewJob(client: Client, spec: string): Promise<R<"job.preview">> {
+  return client.call("job.preview", { spec } as P<"job.preview">);
+}
+
 /** List scheduled jobs. */
 export function listJobs(client: Client): Promise<R<"job.list">> {
   return client.call("job.list", {} as P<"job.list">);

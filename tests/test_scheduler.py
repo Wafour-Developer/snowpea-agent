@@ -199,6 +199,35 @@ async def test_schedule_rejects_an_unparseable_spec(
     await client.stop()
 
 
+async def test_preview_reads_a_spec_like_schedule_and_saves_nothing(
+    daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path
+) -> None:
+    client = await connect(http, daemon, timeout=TIMEOUT)
+    daily = await client.ok("job.preview", {"spec": "매일 09:00"})
+    assert daily["kind"] == "cron" and daily["normalized"] == "0 9 * * *"
+    assert daily["nextRunAt"] == first_run_iso("매일 09:00")
+    interval = await client.ok("job.preview", {"spec": "every 30m"})
+    assert interval["kind"] == "interval" and interval["normalized"] == "every 1800s"
+    once = await client.ok("job.preview", {"spec": "in 10m"})
+    assert once["kind"] == "once" and once["nextRunAt"].endswith("Z")
+    assert (await client.ok("job.list", {}))["jobs"] == []
+
+    bad = await client.call("job.preview", {"spec": "sometime soonish"})
+    schedule = await client.call(
+        "job.schedule", {"spec": "sometime soonish", "task": "x", "workdir": str(tmp_path)}
+    )
+    assert bad["error"]["data"]["code"] == "invalid_params"
+    assert bad["error"]["message"] == schedule["error"]["message"]
+    assert 'try a cron expression' in bad["error"]["message"]
+    await client.stop()
+
+
+def first_run_iso(spec: str) -> str | None:
+    from snowpea_core.scheduler.jobs import iso
+
+    return iso(first_run(parse_spec(spec)))
+
+
 # ---------------------------------------------------------------------------
 # (4) job.runNow runs in the daemon and delivers to the log channel (AC-08)
 # ---------------------------------------------------------------------------

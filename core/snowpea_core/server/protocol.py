@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.9.0"
+PROTOCOL_VERSION = "1.10.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -2229,6 +2229,30 @@ class JobScheduleResult(Payload):
     jobId: str = Field(description="Id of the scheduled job.")
     nextRunAt: str | None = Field(
         default=None, description="UTC ISO-8601 time of the first firing."
+    )
+
+
+class JobPreviewParams(Payload):
+    spec: str = Field(
+        description="A schedule spec, read exactly as job.schedule reads it (1.10.0)."
+    )
+
+
+class JobPreviewResult(Payload):
+    kind: Literal["cron", "once", "interval"] = Field(description="What the spec turned into.")
+    nextRunAt: str | None = Field(
+        default=None,
+        description=(
+            "UTC ISO-8601 time a job with this spec would first fire if saved now. A spec "
+            "that would never fire is invalid_params, as for job.schedule."
+        ),
+    )
+    normalized: str | None = Field(
+        default=None,
+        description=(
+            "The parsed schedule: the cron expression for 'cron', 'every <n>s' for "
+            "'interval', 'once at <UTC ISO>' for 'once'."
+        ),
     )
 
 
@@ -4685,6 +4709,14 @@ METHODS: dict[str, RpcMethod] = {
             JobScheduleResult,
             "Schedule a prompt to run unattended.",
         ),
+        _m(
+            "job.preview",
+            JobPreviewParams,
+            JobPreviewResult,
+            "Read a schedule spec without saving anything (1.10.0): its kind and when a "
+            "job with it would first fire. An unreadable spec is invalid_params with "
+            "job.schedule's message.",
+        ),
         _m("job.list", Empty, JobListResult, "List scheduled jobs and their next run times."),
         _m("job.cancel", JobIdParams, Ok, "Cancel a scheduled job."),
         _m("job.runNow", JobIdParams, Ok, "Fire a scheduled job immediately."),
@@ -5081,6 +5113,7 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "gateway.unbind",
         "gateway.sync",
         "job.schedule",
+        "job.preview",
         "job.list",
         "job.cancel",
         "job.runNow",

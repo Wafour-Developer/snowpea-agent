@@ -87,7 +87,8 @@ async def test_hello_advertises_site_memory_at_1_9_0(
             {"token": daemon.token, "clientVersion": "t", "protocolVersion": PROTOCOL_VERSION},
         )
         assert "siteMemory" in hello["capabilities"]
-        assert PROTOCOL_VERSION == "1.9.0" and "siteMemory" in CAPABILITIES
+        assert tuple(map(int, PROTOCOL_VERSION.split("."))) >= (1, 9, 0)
+        assert "siteMemory" in CAPABILITIES
     finally:
         await client.stop()
 

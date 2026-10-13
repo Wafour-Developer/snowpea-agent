@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.9.0` (semver)
+- **Protocol version:** `1.10.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.9.0"
+    "protocolVersion": "1.10.0"
   }
 }
 ```
@@ -90,6 +90,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`job.delete`](#jobdelete) | client → server | Delete a job, its schedule and run history; optionally its run sessions. |
 | [`job.list`](#joblist) | client → server | List scheduled jobs and their next run times. |
 | [`job.nextRunForClient`](#jobnextrunforclient) | client → server | When a host should be awake for its routines (addendum 11). |
+| [`job.preview`](#jobpreview) | client → server | Read a schedule spec without saving anything (1.10.0): its kind and when a job with it would first fire. An unreadable spec is invalid_params with job.schedule's message. |
 | [`job.runNow`](#jobrunnow) | client → server | Fire a scheduled job immediately. |
 | [`job.schedule`](#jobschedule) | client → server | Schedule a prompt to run unattended. |
 | [`job.update`](#jobupdate) | client → server | Change an existing job (addendum 12). |
@@ -852,6 +853,26 @@ When a host should be awake for its routines (addendum 11).
 | field | type | required | description |
 |---|---|---|---|
 | `nextRunAt` | `string \| null` | no | Earliest run that needs this client's host: a held (waiting_for_host) occurrence or the next firing of a job whose hostToolsFrom is this clientId; null when none. |
+
+### `job.preview`
+
+*Direction:* client → server
+
+Read a schedule spec without saving anything (1.10.0): its kind and when a job with it would first fire. An unreadable spec is invalid_params with job.schedule's message.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `spec` | `string` | yes | A schedule spec, read exactly as job.schedule reads it (1.10.0). |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `kind` | `"cron" \| "once" \| "interval"` | yes | What the spec turned into. |
+| `nextRunAt` | `string \| null` | no | UTC ISO-8601 time a job with this spec would first fire if saved now. A spec that would never fire is invalid_params, as for job.schedule. |
+| `normalized` | `string \| null` | no | The parsed schedule: the cron expression for 'cron', 'every <n>s' for 'interval', 'once at <UTC ISO>' for 'once'. |
 
 ### `job.runNow`
 
