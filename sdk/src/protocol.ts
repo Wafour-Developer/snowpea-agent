@@ -2152,7 +2152,7 @@ export interface SessionSteerResult {
   started?: boolean;
 }
 
-/** `session.toolContent` params. A host tool result's content blocks with image bytes (recent calls only). */
+/** `session.toolContent` params. A host tool result's content blocks with image bytes; results with images are kept on disk. */
 export interface SessionToolContentParams {
   /** tool.result callId whose content to fetch. */
   callId: string;

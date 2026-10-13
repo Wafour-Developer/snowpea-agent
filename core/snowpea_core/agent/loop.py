@@ -2157,7 +2157,9 @@ async def _run_one_call(
     sensitive = bool(result.meta and result.meta.get("sensitive"))
     raw_content = (result.meta or {}).get("content") if not sensitive else None
     event_content = (
-        HOST_TOOLS.keep_content(session.id, call.id, raw_content)
+        HOST_TOOLS.keep_content(
+            session.id, call.id, raw_content, store=host_tools_mod.content_store(core)
+        )
         if isinstance(raw_content, list) and raw_content
         else None
     )

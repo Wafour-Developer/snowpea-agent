@@ -508,6 +508,14 @@ def _purge_session_files(core: Core, session_id: str, *, workspace: bool = True)
         for folder in (core.paths.home / "sessions").glob(f"*_{session_id}"):
             if folder.is_dir() and folder.name.endswith(f"_{session_id}"):
                 shutil.rmtree(folder, ignore_errors=True)
+    try:
+        from snowpea_core.tools.host_tools import content_store
+
+        kept = content_store(core)
+        if kept is not None:
+            kept.purge(session_id)
+    except OSError:
+        log.warning("could not purge tool content for %s", session_id, exc_info=True)
     checkpoints = getattr(core, "checkpoints", None)
     purge = getattr(checkpoints, "delete_session", None) or getattr(checkpoints, "delete", None)
     if purge is not None:

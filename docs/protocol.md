@@ -139,7 +139,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`session.setMode`](#sessionsetmode) | client → server | Switch a session between plan, accept and auto. |
 | [`session.setModel`](#sessionsetmodel) | client → server | Pin a session to a model profile, or clear the pin. |
 | [`session.steer`](#sessionsteer) | client → server | Inject a user message into a running turn at its next tool round. |
-| [`session.toolContent`](#sessiontoolcontent) | client → server | A host tool result's content blocks with image bytes (recent calls only). |
+| [`session.toolContent`](#sessiontoolcontent) | client → server | A host tool result's content blocks with image bytes; results with images are kept on disk. |
 | [`settings.get`](#settingsget) | client → server | Read global or project settings, with secrets masked. |
 | [`settings.set`](#settingsset) | client → server | Deep-merge a patch into global or project settings and persist it. |
 | [`setup.applyDefaults`](#setupapplydefaults) | client → server | Apply the profile's defaults for everything optional; idempotent. |
@@ -1914,7 +1914,7 @@ Inject a user message into a running turn at its next tool round.
 
 *Direction:* client → server
 
-A host tool result's content blocks with image bytes (recent calls only).
+A host tool result's content blocks with image bytes; results with images are kept on disk.
 
 **Params**
 

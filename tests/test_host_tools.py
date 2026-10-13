@@ -849,6 +849,25 @@ async def test_tool_result_events_carry_content_with_image_refs(
 
         await run_turn(host, session_id, "use host secret")
         assert not results_for(host, "host_secret")[-1].get("content")
+
+        # Out of the memory cache (an old thread, or a restarted daemon), the
+        # image still comes back from disk; the sensitive result was never kept.
+        await asyncio.gather(*list(HOST_TOOLS._writes))
+        HOST_TOOLS._content.clear()
+        from_disk = await host.ok(
+            "session.toolContent", {"sessionId": session_id, "callId": result["callId"]}
+        )
+        first = from_disk["content"][0]
+        assert first["type"] == "text" and first["text"] == "the page"
+        assert from_disk["content"][1]["type"] == "image"
+        assert base64.b64decode(from_disk["content"][1]["data"])
+        kept = daemon.core.paths.tool_content_dir / session_id
+        secret_id = results_for(host, "host_secret")[-1]["callId"]
+        assert not (kept / f"{secret_id.replace(':', '_')}.json").exists()
+
+        # Deleting the thread takes its kept content with it.
+        await host.ok("session.deleteSaved", {"sessionId": session_id})
+        assert not kept.exists()
     finally:
         await host.stop()
 

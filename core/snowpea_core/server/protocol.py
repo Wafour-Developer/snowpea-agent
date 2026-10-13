@@ -4873,7 +4873,8 @@ METHODS: dict[str, RpcMethod] = {
             "session.toolContent",
             SessionToolContentParams,
             SessionToolContentResult,
-            "A host tool result's content blocks with image bytes (recent calls only).",
+            "A host tool result's content blocks with image bytes; results with images "
+            "are kept on disk.",
         ),
         _m(
             "session.steer",

@@ -68,7 +68,7 @@ from snowpea_core.server.protocol import (
     UsageSummaryResult,
 )
 from snowpea_core.session.workspace import ensure_workspace, list_artifacts
-from snowpea_core.tools.host_tools import HOST_TOOLS, HostToolError
+from snowpea_core.tools.host_tools import HOST_TOOLS, HostToolError, content_store
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.server.app_server import Core
@@ -514,12 +514,30 @@ async def session_artifacts_handler(
     )
 
 
+async def _stored(core: Core, session_id: str) -> bool:
+    """Whether ``session_id`` is a saved session, open or not."""
+    store = getattr(core, "store", None)
+    if store is None:
+        return False
+    try:
+        return await store.session(session_id) is not None
+    except Exception:  # noqa: BLE001 - an unreadable store finds nothing
+        return False
+
+
 async def session_tool_content_handler(
     _conn: RpcConnection, params: SessionToolContentParams, core: Core
 ) -> SessionToolContentResult:
-    """``session.toolContent`` — a recent host result's blocks, images included."""
-    _session(core, params.sessionId)
-    blocks = HOST_TOOLS.content(params.sessionId, params.callId)
+    """``session.toolContent`` — a host result's blocks, images included.
+
+    Recent results come from memory; older ones, and every one after a daemon
+    restart, from the copy kept on disk. A saved thread need not be open.
+    """
+    if core.sessions.get(params.sessionId) is None and not await _stored(core, params.sessionId):
+        raise RpcError(errors.NOT_FOUND, f"no such session: {params.sessionId}")
+    blocks = await HOST_TOOLS.content_or_disk(
+        params.sessionId, params.callId, content_store(core)
+    )
     if blocks is None:
         raise RpcError(errors.NOT_FOUND, f"no content kept for {params.callId}")
     return SessionToolContentResult(

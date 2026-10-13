@@ -98,6 +98,14 @@ class Paths:
         return self.home / "attachments"
 
     @property
+    def tool_content_dir(self) -> Path:
+        """Host tool results with images, kept for ``session.toolContent``.
+
+        Created on first use, like :attr:`attachments_dir`.
+        """
+        return self.home / "tool-content"
+
+    @property
     def audio_dir(self) -> Path:
         """Recordings and synthesised speech, one subdirectory per session."""
         return self.home / "audio"

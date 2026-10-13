@@ -40,6 +40,7 @@ from snowpea_core.tools.registry import ProgressEmitter, Tool, ToolContext, Tool
 
 if TYPE_CHECKING:
     from snowpea_core.server.app_server import Core
+    from snowpea_core.tools.tool_content_store import ToolContentStore
 
 log = logging.getLogger(__name__)
 
@@ -48,6 +49,23 @@ CONTENT_CACHE_SIZE = 200
 
 #: Host tools whose whole result is an image (the browser host's screenshot).
 IMAGE_ONLY_TOOLS: frozenset[str] = frozenset({"browser_screenshot"})
+
+
+def content_store(core: Any) -> ToolContentStore | None:
+    """The daemon's on-disk store of host results with images, made on first use."""
+    store = getattr(core, "tool_content", None)
+    if store is None:
+        paths = getattr(core, "paths", None)
+        if paths is None:
+            return None
+        from snowpea_core.tools.tool_content_store import ToolContentStore
+
+        store = ToolContentStore(paths.tool_content_dir)
+        try:
+            core.tool_content = store
+        except AttributeError:  # a frozen stand-in core (tests)
+            pass
+    return store
 
 
 def _can_see(ctx: ToolContext) -> bool:
@@ -107,6 +125,8 @@ class HostTools:
         self._content: OrderedDict[tuple[str, str], list[dict[str, Any]]] = OrderedDict()
         #: ``tool.cancel`` sends still in flight, held so they are not collected.
         self._cancels: set[asyncio.Task[None]] = set()
+        #: Disk writes of kept content still running.
+        self._writes: set[asyncio.Future[bool]] = set()
 
     # -- registration --------------------------------------------------
     def register(self, core: Core, conn: Any, specs: list[dict[str, Any]]) -> list[str]:
@@ -382,12 +402,23 @@ class HostTools:
         task.add_done_callback(self._cancels.discard)
 
     def keep_content(
-        self, session_id: str, call_id: str, blocks: list[dict[str, Any]]
+        self,
+        session_id: str,
+        call_id: str,
+        blocks: list[dict[str, Any]],
+        store: ToolContentStore | None = None,
     ) -> list[dict[str, Any]]:
-        """Remember a result's blocks; return them as a tool.result event carries them."""
+        """Remember a result's blocks; return them as a tool.result event carries them.
+
+        With ``store``, a result that has an image is also written to disk in
+        the background, so ``session.toolContent`` can still answer once it
+        has left the in-memory cache or the daemon has restarted.
+        """
         self._content[(session_id, call_id)] = blocks
         while len(self._content) > CONTENT_CACHE_SIZE:
             self._content.popitem(last=False)
+        if store is not None and any(block.get("type") == "image" for block in blocks):
+            self._persist(store, session_id, call_id, blocks)
         event_blocks: list[dict[str, Any]] = []
         for index, block in enumerate(blocks):
             if block.get("type") == "image":
@@ -402,8 +433,29 @@ class HostTools:
                 event_blocks.append({"type": "text", "text": str(block.get("text") or "")})
         return event_blocks
 
+    def _persist(
+        self, store: ToolContentStore, session_id: str, call_id: str, blocks: list[dict[str, Any]]
+    ) -> None:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:  # no loop (a sync caller): write in place
+            store.save(session_id, call_id, blocks)
+            return
+        future = loop.run_in_executor(None, store.save, session_id, call_id, list(blocks))
+        self._writes.add(future)
+        future.add_done_callback(self._writes.discard)
+
     def content(self, session_id: str, call_id: str) -> list[dict[str, Any]] | None:
         return self._content.get((session_id, call_id))
+
+    async def content_or_disk(
+        self, session_id: str, call_id: str, store: ToolContentStore | None
+    ) -> list[dict[str, Any]] | None:
+        """``content``, falling back to what ``store`` kept on disk."""
+        blocks = self.content(session_id, call_id)
+        if blocks is not None or store is None:
+            return blocks
+        return await asyncio.to_thread(store.load, session_id, call_id)
 
     async def progress(self, conn: Any, call_id: str, message: str) -> bool:
         """Re-emit a client's ``tool.progress`` as a session event.
