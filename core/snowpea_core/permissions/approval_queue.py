@@ -71,7 +71,12 @@ GRACE_SECONDS = 2.0
 #: Dotted browser actions whose answer may be remembered beyond one site.
 #: Every other ``repl.*`` action (send, upload, script, …) acts on a page, so
 #: an "always"/"project" answer for it would become a rule for every site.
-REPL_GLOBAL_OK: frozenset[str] = frozenset({"repl.tabs", "repl.clipboard"})
+#: Reading a tab and attaching to one (``repl.read`` / ``repl.attach``,
+#: protocol 1.13.0) only look: the browser's approval card offers "always on
+#: every site" for them, stored as the profile's origin-less global rule.
+REPL_GLOBAL_OK: frozenset[str] = frozenset(
+    {"repl.tabs", "repl.clipboard", "repl.read", "repl.attach"}
+)
 
 #: Dotted actions that act on the session's project folder, not on a page:
 #: they may be remembered for that project, never globally (1.7.0).

@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.12.0";
+export const PROTOCOL_VERSION = "1.13.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -203,7 +203,7 @@ export interface ApprovalAskResult {
   by?: string;
   /** allow or deny. */
   decision: "allow" | "deny";
-  /** Scope the answer applies to; always 'once' for payment. 'project' only for project-safe actions (repl.files, a localDevServer repl.navigate). For args.onceOnly (1.12.0) the scope the person picked, which core never stores: the host may keep it on its side. */
+  /** Scope the answer applies to; always 'once' for payment. 'project' only for project-safe actions (repl.files, a localDevServer repl.navigate); 'always' for a page action only for repl.tabs, repl.clipboard and (1.13.0) repl.read and repl.attach, others are kept to 'once'. For args.onceOnly (1.12.0) the scope the person picked, which core never stores: the host may keep it on its side. */
   scope?: "once" | "session" | "project" | "always" | "site";
 }
 

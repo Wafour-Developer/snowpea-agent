@@ -1387,6 +1387,88 @@ async def test_site_scope_without_a_site_is_kept_to_once(
     assert answer["scope"] == "once" and stored == []
 
 
+async def _ask_tab(host: Any, session_id: str, tool: str, site: str) -> dict[str, Any]:
+    return await host.ok(
+        "approval.ask",
+        {
+            "sessionId": session_id,
+            "tool": tool,
+            "permission": "read",
+            "forceAsk": True,
+            "reason": "Read the tab",
+            "site": site,
+            "args": {"reasonCode": "tab.read"} if tool == "repl.read" else {},
+        },
+    )
+
+
+@pytest.mark.parametrize("tool", ["repl.read", "repl.attach"])
+async def test_reading_or_attaching_a_tab_may_be_allowed_on_every_site(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path, tool: str
+) -> None:
+    """Addendum 23: "always" is the profile's origin-less rule; it covers other sites."""
+    host = await open_client(
+        http, daemon, client_id="profile-A", approval_mode="allow", approval_scope="always"
+    )
+    try:
+        await host.ok("tool.register", {"tools": [spec("repl", "read")]})
+        first = await new_session(host, tmp_path / "w1", mode="accept")
+        answer = await _ask_tab(host, first, tool, "https://a.example")
+        assert answer == {"decision": "allow", "scope": "always", "by": "user"}
+        rows = [
+            row
+            for row in (await host.ok("permission.allowlist.list", {}))["patterns"]
+            if row.get("tool") == tool
+        ]
+        assert len(rows) == 1 and rows[0]["origin"] is None
+
+        # Another session, another site: no card.
+        second = await new_session(host, tmp_path / "w2", mode="accept")
+        asked = len(host.approval_requests)
+        answer = await _ask_tab(host, second, tool, "https://b.example")
+        assert answer["decision"] == "allow" and answer["by"] == "allowlist"
+        assert len(host.approval_requests) == asked
+
+        # Removed: asked again (a fresh session, so no session cache either).
+        await host.ok("permission.allowlist.remove", {"patternId": rows[0]["patternId"]})
+        third = await new_session(host, tmp_path / "w3", mode="accept")
+        answer = await _ask_tab(host, third, tool, "https://b.example")
+        assert answer["by"] == "user"
+        assert len(host.approval_requests) == asked + 1
+    finally:
+        await host.stop()
+
+
+async def test_a_tab_site_rule_stays_on_its_site(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    host = await open_client(
+        http, daemon, client_id="profile-A", approval_mode="allow", approval_scope="site"
+    )
+    try:
+        await host.ok("tool.register", {"tools": [spec("repl", "read")]})
+        first = await new_session(host, tmp_path / "w1", mode="accept")
+        answer = await _ask_tab(host, first, "repl.read", "https://a.example")
+        assert answer["scope"] == "site"
+        rows = [
+            row
+            for row in (await host.ok("permission.allowlist.list", {}))["patterns"]
+            if row.get("tool") == "repl.read"
+        ]
+        assert [row["origin"] for row in rows] == ["https://a.example"]
+
+        second = await new_session(host, tmp_path / "w2", mode="accept")
+        asked = len(host.approval_requests)
+        assert (await _ask_tab(host, second, "repl.read", "https://a.example"))["by"] == (
+            "allowlist"
+        )
+        assert len(host.approval_requests) == asked
+        assert (await _ask_tab(host, second, "repl.read", "https://b.example"))["by"] == "user"
+        assert len(host.approval_requests) == asked + 1
+    finally:
+        await host.stop()
+
+
 async def test_tabs_and_clipboard_may_be_remembered_always(
     http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
 ) -> None:

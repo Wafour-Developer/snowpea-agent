@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.12.0` (semver)
+- **Protocol version:** `1.13.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.12.0"
+    "protocolVersion": "1.13.0"
   }
 }
 ```
@@ -52,6 +52,7 @@ Server capabilities advertised in the `system.hello` result:
 - `settings`
 - `setup`
 - `siteMemory`
+- `tabReadAlways`
 - `tools`
 - `update`
 - `webSearch`
@@ -308,7 +309,7 @@ Escalate one host action through the approval pipeline. The approver's approval.
 |---|---|---|---|
 | `by` | `string` | no | Who decided: 'user' (a person answered), 'allowlist', 'mode' (the mode matrix), or 'timeout' / 'interrupted' (denied without an answer). |
 | `decision` | `"allow" \| "deny"` | yes | allow or deny. |
-| `scope` | `"once" \| "session" \| "project" \| "always" \| "site"` | no | Scope the answer applies to; always 'once' for payment. 'project' only for project-safe actions (repl.files, a localDevServer repl.navigate). For args.onceOnly (1.12.0) the scope the person picked, which core never stores: the host may keep it on its side. |
+| `scope` | `"once" \| "session" \| "project" \| "always" \| "site"` | no | Scope the answer applies to; always 'once' for payment. 'project' only for project-safe actions (repl.files, a localDevServer repl.navigate); 'always' for a page action only for repl.tabs, repl.clipboard and (1.13.0) repl.read and repl.attach, others are kept to 'once'. For args.onceOnly (1.12.0) the scope the person picked, which core never stores: the host may keep it on its side. |
 
 ### `approval.list`
 

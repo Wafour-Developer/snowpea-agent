@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.12.0"
+PROTOCOL_VERSION = "1.13.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -1348,7 +1348,9 @@ class ApprovalAskResult(Payload):
         default="once",
         description=(
             "Scope the answer applies to; always 'once' for payment. 'project' only "
-            "for project-safe actions (repl.files, a localDevServer repl.navigate). For "
+            "for project-safe actions (repl.files, a localDevServer repl.navigate); "
+            "'always' for a page action only for repl.tabs, repl.clipboard and (1.13.0) "
+            "repl.read and repl.attach, others are kept to 'once'. For "
             "args.onceOnly (1.12.0) the scope the person picked, which core never stores: "
             "the host may keep it on its side."
         ),
@@ -5082,6 +5084,7 @@ CAPABILITIES: list[str] = [
     "siteMemory",
     "webSearch",
     "onceOnlyScope",
+    "tabReadAlways",
 ]
 
 #: Where the daemon listens; mirrored into the schema dump for the SDK.
