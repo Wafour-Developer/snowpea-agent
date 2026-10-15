@@ -52,7 +52,7 @@ snowpea commands list --json
 | `/ralph <task>` | PRD 루프: 수용 기준이 붙은 스토리를 쓰고, 구현하고, 검증하고, APPROVE가 나올 때까지 리뷰 |
 | `/ultrawork <task>` | 독립적인 조각으로 쪼개 동시 서브에이전트에 돌리고 보고서를 합침 |
 | `/review [what]` | 커밋되지 않은 변경을 읽기 전용 `reviewer` 에이전트로 리뷰하고 판정을 전달 |
-| `/setup [providers\|search\|browser\|audio\|all]` | 설정 마법사 화면을 이 자리에서 다시 실행. 키는 가려진 채 입력 |
+| `/setup [providers\|search\|browser\|audio\|all]` | 설정 마법사 화면을 이 자리에서 다시 실행. 키는 가려진 채 입력. `providers`에서 로컬·OpenAI 호환 서버(이름, URL, 모델, 선택 키)를 여러 개 추가·수정 |
 | `/login <vendor> [method]` | 벤더 로그인 — 브라우저 흐름, 디바이스 흐름, 또는 가려진 키 입력 |
 | `/init [--force]` | 프로젝트 루트에 빠르고 거친 `AGENTS.md`를 한 턴에 작성; 기존 파일이 있으면 `--force` 없이는 병합 |
 | `/deepinit [path]` | 탐색 후 계층적 `AGENTS.md` 작성 (디렉터리별 map→write, 이어서 루트) |

@@ -52,7 +52,7 @@ These are answered by the terminal UI itself rather than by the core, so they do
 | `/ralph <task>` | PRD loop: stories with acceptance criteria, implement, verify, review until APPROVE |
 | `/ultrawork <task>` | split into independent parts, run them on concurrent subagents, merge the reports |
 | `/review [what]` | review the uncommitted diff with a read-only `reviewer` agent and report the verdict |
-| `/setup [providers\|search\|browser\|audio\|all]` | re-run a wizard screen here, keys entered masked |
+| `/setup [providers\|search\|browser\|audio\|all]` | re-run a wizard screen here, keys entered masked; `providers` also adds or edits local / OpenAI-compatible servers (name, URL, model, optional key), as many as you like |
 | `/login <vendor> [method]` | sign in to a vendor: browser flow, device flow, or a masked key |
 | `/init [--force]` | fast, rough `AGENTS.md` for the project root, in one turn; merges into an existing file unless `--force` |
 | `/deepinit [path]` | explore then write hierarchical `AGENTS.md` (map → write per directory, then root) |

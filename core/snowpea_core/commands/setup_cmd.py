@@ -374,11 +374,28 @@ def _audio_block(settings: Any, key: str) -> _Block:
     return _Block(getattr(audio, key, None) or {})
 
 
+#: The row ``/setup providers`` offers below the vendors to add a named server.
+ADD_LOCAL = "add-local-server"
+
+#: Where a new server is looked for when nothing else is entered (vLLM's port).
+DEFAULT_LOCAL_URL = "http://localhost:8000/v1"
+
+
 async def _configure_providers(ctx: CommandContext) -> list[str]:
-    """Pick the LLM vendor and ask for its key, masked."""
-    from snowpea_core.providers.presets import PRESETS
+    """Pick the LLM vendor and ask for its key, masked.
+
+    The OpenAI-compatible servers are listed too: ``local`` and every named
+    one (``hon2``, ``vllm-a``), plus a row to add another, so a TUI user can
+    run several local models without leaving for ``snowpea setup``.
+    """
+    from snowpea_core.providers.presets import PRESETS, local_vendor_ids
 
     current = ctx.core.settings.providers if hasattr(ctx.core.settings, "providers") else {}
+    servers = (
+        [name for name in local_vendor_ids(current) if name not in PRESETS]
+        if isinstance(current, dict)
+        else []
+    )
     rows = [
         (
             name,
@@ -387,10 +404,19 @@ async def _configure_providers(ctx: CommandContext) -> list[str]:
         )
         for name, preset in PRESETS.items()
     ]
+    rows += [(name, _server_label(current, name), False) for name in servers]
+    rows.append(
+        (ADD_LOCAL, "Add another local / OpenAI-compatible server (vLLM, Ollama, LM Studio)", False)
+    )
     answers = await _ask(ctx, [choice_question(PICK_HEADER, "Which LLM vendor?", rows)])
     vendor = _picked(answers[0] if answers else None)
     if not vendor:
         return ["providers: unchanged"]
+    if vendor == ADD_LOCAL:
+        return await _add_local_server(ctx, current)
+    preset = PRESETS.get(vendor)
+    if vendor in servers or (preset is not None and preset.local_style):
+        return await _configure_local_server(ctx, vendor, current)
     saved = bool((current.get(vendor) or {}).get("api_key")) if isinstance(current, dict) else False
     hint = "saved — Enter to keep" if saved else f"Enter to use ${vendor.upper()}_API_KEY"
     key_answers = await _ask(
@@ -410,6 +436,128 @@ async def _configure_providers(ctx: CommandContext) -> list[str]:
         _store_vendor_key(ctx.core.settings, vendor, key)
         return [f"providers: {vendor} (key saved)"]
     return [f"providers: {vendor}" + ("" if saved else " (no key)")]
+
+
+def _server_label(providers: Any, vendor: str) -> str:
+    """``hon2 — http://hon2:8000/v1``, what the vendor row says about a server."""
+    block = providers.get(vendor) if isinstance(providers, dict) else None
+    block = block if isinstance(block, dict) else {}
+    label = str(block.get("label") or "") or vendor
+    url = str(block.get("base_url") or "")
+    return f"{label} — {url}" if url else label
+
+
+async def _add_local_server(ctx: CommandContext, providers: Any) -> list[str]:
+    """Ask what to call a new OpenAI-compatible server, then configure it."""
+    from snowpea_core.providers.presets import validate_custom_vendor_id
+
+    answers = await _ask(
+        ctx,
+        [
+            QuestionItem(
+                header="Server",
+                question="Name for this server (e.g. hon2, vllm-a)",
+                options=[],
+                allowOther=True,
+            )
+        ],
+    )
+    name = _answer_text(answers[0] if answers else None).lower()
+    if not name:
+        return ["providers: unchanged"]
+    if isinstance(providers, dict) and name in providers:
+        return [f"providers: {name} is already configured; pick it from the list to change it"]
+    try:
+        validate_custom_vendor_id(name)
+    except ValueError as exc:
+        return [f"providers: {exc}"]
+    return await _configure_local_server(ctx, name, providers, new=True)
+
+
+async def _configure_local_server(
+    ctx: CommandContext, vendor: str, providers: Any, *, new: bool = False
+) -> list[str]:
+    """Ask a local server's URL, model and optional key, in one batch.
+
+    An empty answer keeps what is saved. The block goes through the provider
+    registry when the daemon has one, so the server answers in this session
+    without a restart — the same path ``provider.configure`` takes.
+    """
+    block = providers.get(vendor) if isinstance(providers, dict) else None
+    block = block if isinstance(block, dict) else {}
+    saved_url = str(block.get("base_url") or "")
+    saved_model = str(block.get("model") or "")
+    has_key = bool(block.get("api_key"))
+    answers = await _ask(
+        ctx,
+        [
+            QuestionItem(
+                header="URL",
+                question=f"{vendor} base URL [Enter = {saved_url or DEFAULT_LOCAL_URL}]",
+                options=[],
+                allowOther=True,
+            ),
+            QuestionItem(
+                header="Model",
+                question=(
+                    f"{vendor} model id [Enter = {saved_model}]"
+                    if saved_model
+                    else f"{vendor} model id [Enter = pick later with /model]"
+                ),
+                options=[],
+                allowOther=True,
+            ),
+            QuestionItem(
+                header=KEY_HEADER,
+                question=(
+                    f"{vendor} API key [saved — Enter to keep]"
+                    if has_key
+                    else f"{vendor} API key [optional — Enter for none]"
+                ),
+                options=[],
+                allowOther=True,
+                secret=True,
+            ),
+        ],
+    )
+    url, model, key = (
+        _answer_text(answers[index] if len(answers) > index else None) for index in range(3)
+    )
+    config: dict[str, Any] = {}
+    if new and vendor != "local":
+        config["preset"] = "local"
+    if url or not saved_url:
+        config["base_url"] = url or DEFAULT_LOCAL_URL
+    if model:
+        config["model"] = model
+    if key:
+        config["api_key"] = key
+    if not config:
+        return [f"providers: {vendor} unchanged"]
+    try:
+        _configure_vendor(ctx.core, vendor, config)
+    except Exception as exc:  # noqa: BLE001 - the registry's refusal, said in words
+        return [f"providers: {vendor} not saved: {exc}"]
+    merged = ctx.core.settings.providers.get(vendor) or {}
+    parts = [str(merged.get("base_url") or "")]
+    if merged.get("model"):
+        parts.append(f"model {merged['model']}")
+    if key:
+        parts.append("key saved")
+    verb = "added" if new else "updated"
+    return [f"providers: {vendor} {verb} ({', '.join(part for part in parts if part)})"]
+
+
+def _configure_vendor(core: Any, vendor: str, config: dict[str, Any]) -> None:
+    """Merge ``config`` into ``providers.<vendor>``, through the registry if any."""
+    registry = getattr(core, "providers", None)
+    configure = getattr(registry, "configure", None)
+    if callable(configure):
+        configure(vendor, config)
+    else:
+        providers = core.settings.providers
+        providers[vendor] = {**(providers.get(vendor) or {}), **config}
+    core.settings.providers.setdefault("default", vendor)
 
 
 def _store_vendor_key(settings: Any, vendor: str, key: str) -> None:

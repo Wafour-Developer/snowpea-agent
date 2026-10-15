@@ -234,6 +234,110 @@ async def test_a_failing_probe_warns_but_keeps_the_key(
     assert core.settings.browser.credentials["firecrawl_cloud"]["api_key"] == "fc-key"
 
 
+# ---------------------------------------------------------------------------
+# /setup providers: several local / OpenAI-compatible servers
+# ---------------------------------------------------------------------------
+
+
+def _with_registry(core: Any) -> Any:
+    from snowpea_core.providers.registry import ProviderRegistry
+
+    core.providers = ProviderRegistry(core.settings)
+    return core.providers
+
+
+async def test_setup_providers_adds_a_named_local_server(tmp_path: Path) -> None:
+    ctx, core, said = make(
+        tmp_path,
+        [setup_cmd.ADD_LOCAL, "hon2", "http://hon2:8000/v1", "flash-next", Answer()],
+    )
+    registry = _with_registry(core)
+
+    await setup_cmd.cmd_setup(ctx, "providers")
+
+    block = core.settings.providers["hon2"]
+    assert block["preset"] == "local"
+    assert block["base_url"] == "http://hon2:8000/v1" and block["model"] == "flash-next"
+    assert "api_key" not in block
+    # The registry treats it as a server in this session, no restart needed.
+    assert registry.is_local_style("hon2") and "hon2" in registry.known_vendors()
+    assert registry.base_url_for("hon2") == "http://hon2:8000/v1"
+    assert "providers: hon2 added" in "\n".join(said)
+    reloaded = _settings_on_disk(core.paths.home)
+    assert reloaded.providers["hon2"]["base_url"] == "http://hon2:8000/v1"
+
+
+async def test_a_second_server_keeps_the_first(tmp_path: Path) -> None:
+    ctx, core, _ = make(
+        tmp_path,
+        [
+            setup_cmd.ADD_LOCAL, "hon2", "http://hon2:8000/v1", "flash", Answer(),
+            setup_cmd.ADD_LOCAL, "ollama-box", "http://box:11434/v1", "qwen3", "sk-1",
+        ],
+    )
+    registry = _with_registry(core)
+    core.settings.providers["local"] = {"base_url": "http://localhost:1234/v1"}
+
+    await setup_cmd.cmd_setup(ctx, "providers")
+    await setup_cmd.cmd_setup(ctx, "providers")
+
+    assert registry.local_vendors() == ["local", "hon2", "ollama-box"]
+    assert core.settings.providers["local"] == {"base_url": "http://localhost:1234/v1"}
+    assert core.settings.providers["hon2"]["model"] == "flash"
+    assert core.settings.providers["ollama-box"]["api_key"] == "sk-1"
+    # The second run offered the server added by the first, labelled with its URL.
+    picker = [q for q in core.questions.asked if q.header == setup_cmd.PICK_HEADER][-1]
+    labels = {option.label: option.description for option in picker.options}
+    assert labels["hon2"] == "hon2 — http://hon2:8000/v1"
+    # Every key prompt is masked.
+    keys = [q for q in core.questions.asked if q.header == setup_cmd.KEY_HEADER]
+    assert len(keys) == 2 and all(q.secret for q in keys)
+
+
+async def test_editing_a_server_keeps_what_was_left_empty(tmp_path: Path) -> None:
+    ctx, core, said = make(tmp_path, ["hon2", Answer(), "new-model", Answer()])
+    _with_registry(core)
+    core.settings.providers["hon2"] = {
+        "preset": "local",
+        "base_url": "http://hon2:8000/v1",
+        "model": "old-model",
+        "api_key": "kept",
+    }
+
+    await setup_cmd.cmd_setup(ctx, "providers")
+
+    assert core.settings.providers["hon2"] == {
+        "preset": "local",
+        "base_url": "http://hon2:8000/v1",
+        "model": "new-model",
+        "api_key": "kept",
+    }
+    assert "providers: hon2 updated" in "\n".join(said)
+
+
+async def test_the_builtin_local_vendor_asks_for_its_url(tmp_path: Path) -> None:
+    ctx, core, _ = make(tmp_path, ["local", "http://localhost:11434/v1", Answer(), Answer()])
+    _with_registry(core)
+
+    await setup_cmd.cmd_setup(ctx, "providers")
+
+    assert core.settings.providers["local"]["base_url"] == "http://localhost:11434/v1"
+    assert "preset" not in core.settings.providers["local"]
+
+
+@pytest.mark.parametrize("name", ["openai", "Bad Name", "local"])
+async def test_a_server_name_that_cannot_be_used_is_refused(tmp_path: Path, name: str) -> None:
+    ctx, core, said = make(tmp_path, [setup_cmd.ADD_LOCAL, name])
+    _with_registry(core)
+    core.settings.providers["local"] = {"base_url": "http://localhost:8000/v1"}
+    before = dict(core.settings.providers)
+
+    await setup_cmd.cmd_setup(ctx, "providers")
+
+    assert core.settings.providers == before
+    assert "providers:" in "\n".join(said)
+
+
 async def test_an_unknown_section_prints_the_usage(tmp_path: Path) -> None:
     ctx, core, said = make(tmp_path)
     await setup_cmd.cmd_setup(ctx, "wardrobe")
