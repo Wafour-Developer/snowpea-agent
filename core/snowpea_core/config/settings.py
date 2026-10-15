@@ -527,6 +527,12 @@ class MemorySettings(_Model):
     #: Character budget for that digest's project section; the rest is counted
     #: in a "… and K more" line rather than dropped silently.
     digestChars: int = 6000
+    #: True puts pages a browser host ingested (the ``browser`` namespace) in
+    #: the automatic recall block again.  Off by default: that namespace is
+    #: raw page text, noisy and page-derived, so it is only searched when
+    #: asked (``search_memory {namespace: "browser"}``; snowpea-browser
+    #: addendum 22).
+    recallBrowser: bool = False
 
 
 class SchedulerSettings(_Model):

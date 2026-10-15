@@ -662,3 +662,60 @@ async def test_a_fresh_session_carries_the_digest_in_its_system_prompt(
         assert "- name: whitevil" in system
     finally:
         await daemon.stop()
+
+
+# ---------------------------------------------------------------------------
+# snowpea-browser addendum 22: visited pages stay out of the recall block
+# ---------------------------------------------------------------------------
+
+
+async def _browser_and_global_rows(services: MemoryServices) -> None:
+    from snowpea_core.memory.browser import BROWSER_NAMESPACE
+
+    for index in range(3):
+        await services.store.write(
+            f"checkout page text {index}: cart, checkout button, shipping form",
+            namespace=BROWSER_NAMESPACE,
+        )
+    await services.store.write(
+        "checkout on this shop needs the saved address", namespace=GLOBAL_NAMESPACE
+    )
+
+
+async def test_the_recall_block_leaves_out_visited_pages(
+    services: MemoryServices, tmp_path: Path
+) -> None:
+    await _browser_and_global_rows(services)
+    session = Session(id="s-1", workdir=tmp_path, browser_memory=True)
+
+    block = await services.retrieval.context_block(session, "checkout")
+
+    assert "checkout on this shop needs the saved address" in block
+    assert "checkout page text" not in block
+
+
+async def test_recall_browser_puts_visited_pages_back(
+    services: MemoryServices, tmp_path: Path
+) -> None:
+    await _browser_and_global_rows(services)
+    services.retrieval.settings.recallBrowser = True
+    session = Session(id="s-1", workdir=tmp_path, browser_memory=True)
+
+    block = await services.retrieval.context_block(session, "checkout")
+
+    assert "checkout page text" in block
+
+
+async def test_search_memory_still_reaches_visited_pages_when_asked(
+    services: MemoryServices, tmp_path: Path
+) -> None:
+    await _browser_and_global_rows(services)
+    # A delegated child has no browser_memory flag of its own; asking still works.
+    ctx = ctx_for(_Core(services), tmp_path)
+
+    found = await search_memory(ctx, {"query": "checkout", "namespace": "browser"})
+
+    assert found.ok and "checkout page text" in found.output
+    assert "saved address" not in found.output
+    refused = await search_memory(ctx, {"query": "checkout", "namespace": "secrets"})
+    assert not refused.ok and "browser" in (refused.error or "")

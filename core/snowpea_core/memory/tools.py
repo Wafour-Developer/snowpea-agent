@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from snowpea_core.memory.browser import BROWSER_NAMESPACE
 from snowpea_core.memory.retrieval import (
     display_name,
     namespace_of,
@@ -65,6 +66,14 @@ SEARCH_SCHEMA: dict[str, Any] = {
             "description": "Words to look for, e.g. 'deploy target'.",
         },
         "limit": {"type": "integer", "description": "Maximum number of memories to return."},
+        "namespace": {
+            "type": "string",
+            "enum": ["browser"],
+            "description": (
+                "Search only this namespace. 'browser' is the text of pages the "
+                "browser saved; it is not in the automatic recall, so ask for it here."
+            ),
+        },
     },
     "required": ["query"],
 }
@@ -234,10 +243,15 @@ async def search_memory(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         limit = int(args.get("limit") or 0)
     except (TypeError, ValueError):
         limit = 0
+    wanted = str(args.get("namespace") or "").strip()
+    if wanted and wanted != BROWSER_NAMESPACE:
+        return ToolResult(
+            ok=False, error=f"unknown namespace {wanted!r}; use 'browser' or leave it out"
+        )
     memory = _services(ctx)
     entries = await memory.store.search_many(
         query,
-        namespaces=namespaces_for(ctx.session),
+        namespaces=[wanted] if wanted else namespaces_for(ctx.session),
         limit=limit or memory.settings.top_k,
     )
     if not entries:

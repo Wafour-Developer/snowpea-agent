@@ -171,7 +171,12 @@ class Retrieval:
         digest = await self.digest(session)
         entries = []
         if query.strip():
-            found = await self.recall_many(query, namespaces=namespaces_for(session))
+            found = await self.recall_many(
+                query,
+                namespaces=recall_namespaces_for(
+                    session, browser=bool(getattr(self.settings, "recallBrowser", False))
+                ),
+            )
             entries = [entry for entry in found if entry.id not in digest.ids]
         return compose_block(digest, entries, project=project_root_of(session))
 
@@ -213,6 +218,19 @@ def namespaces_for(session: Session | Any) -> list[str]:
 
         found.append(BROWSER_NAMESPACE)
     return [namespace for namespace in found if namespace]
+
+
+def recall_namespaces_for(session: Session | Any, *, browser: bool = False) -> list[str]:
+    """The namespaces the automatic recall block draws from.
+
+    :func:`namespaces_for` without the ``browser`` namespace unless ``browser``
+    (``memory.recallBrowser``) says otherwise: visited-page text crowded out
+    the facts a turn needs and put page-derived content in the system prompt.
+    """
+    from snowpea_core.memory.browser import BROWSER_NAMESPACE
+
+    found = namespaces_for(session)
+    return found if browser else [name for name in found if name != BROWSER_NAMESPACE]
 
 
 def display_name(session: Session | Any) -> str:
@@ -263,6 +281,7 @@ __all__ = [
     "display_name",
     "namespace_of",
     "namespaces_for",
+    "recall_namespaces_for",
     "project_namespace_of",
     "project_root_of",
     "remember_candidate",
