@@ -260,16 +260,29 @@ def test_uv_is_the_command_whenever_uv_is_on_path(
         "install",
         "--force",
         "--reinstall",
+        # requires-python, so a Mac's system 3.9 is never picked.
+        "--python",
+        ">=3.11",
         # The images extra rides along, or an upgrade would silently drop the
         # downscaling the installers put there (CORE-multimodal).
         "snowpea-agent[images]",
     ]
 
 
-def test_without_uv_the_recorded_install_method_decides(
-    paths: Paths, monkeypatch: pytest.MonkeyPatch
-) -> None:
+@pytest.fixture
+def no_uv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """No uv, git or pipx anywhere: not on PATH, not in a home of its own."""
+    home = tmp_path / "user-home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.delenv("UV_INSTALL_DIR", raising=False)
+    monkeypatch.delenv("XDG_BIN_HOME", raising=False)
     monkeypatch.setattr(update_mod.shutil, "which", lambda name: None)
+    return home
+
+
+def test_without_uv_the_recorded_install_method_decides(paths: Paths, no_uv: Path) -> None:
     update_mod.write_install_json(paths, "pip", "snowpea-agent")
     assert update_mod.update_command(paths, "snowpea-agent") == [
         sys.executable,
@@ -281,13 +294,86 @@ def test_without_uv_the_recorded_install_method_decides(
     ]
 
 
-def test_without_uv_and_without_a_record_there_is_no_command(
-    paths: Paths, monkeypatch: pytest.MonkeyPatch
+def test_without_uv_and_without_a_record_uv_is_installed_first(
+    paths: Paths, no_uv: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(update_mod.shutil, "which", lambda name: None)
+    """A machine with only the desktop app: the update button still works."""
+    monkeypatch.setattr(update_mod, "_on_windows", lambda: False)
+    command = update_mod.update_command(paths, "snowpea-agent")
+    assert command is not None and command[:2] == ["sh", "-c"]
+    assert update_mod.UV_INSTALL_SH in command
+    assert str(no_uv / ".local" / "bin") in command
+    assert command[-1] == "snowpea-agent[images]"
+    # The profile files are left alone; the app finds ~/.local/bin by itself.
+    assert "UV_NO_MODIFY_PATH=1" in command[2]
+
+
+def test_the_windows_bootstrap_runs_the_powershell_installer(
+    no_uv: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(update_mod, "_on_windows", lambda: True)
+    command = update_mod.bootstrap_command("snowpea-agent[images]")
+    assert command[0] == "powershell" and update_mod.UV_INSTALL_PS1 in command[-1]
+    assert "tool install --force --reinstall --python '>=3.11' 'snowpea-agent[images]'" in (
+        command[-1]
+    )
+
+
+def test_a_recorded_pipx_install_without_pipx_has_no_command(paths: Paths, no_uv: Path) -> None:
+    update_mod.write_install_json(paths, "pipx", "snowpea-agent")
     assert update_mod.update_command(paths, "snowpea-agent") is None
     assert update_mod.manual_command("snowpea-agent").startswith("uv tool install")
     assert "images" in update_mod.manual_command("snowpea-agent")
+
+
+def test_uv_in_its_install_folder_is_found_off_path(paths: Paths, no_uv: Path) -> None:
+    """An app opened from Finder gives the daemon a PATH without ~/.local/bin."""
+    folder = no_uv / ".local" / "bin"
+    folder.mkdir(parents=True)
+    exe = folder / ("uv.exe" if update_mod._on_windows() else "uv")
+    exe.write_text("")
+    command = update_mod.update_command(paths, "snowpea-agent")
+    assert command is not None and command[0] == str(exe)
+
+
+def test_a_release_tag_installs_the_wheel_when_git_is_missing(no_uv: Path) -> None:
+    source = f"git+{update_mod.REPO_URL}@v0.2.34"
+    assert update_mod.installable_source(source) == (
+        f"{update_mod.REPO_URL}/releases/download/v0.2.34/snowpea_agent-0.2.34-py3-none-any.whl"
+    )
+    # A branch or a commit has no wheel; it stays a git source.
+    assert update_mod.installable_source(f"git+{update_mod.REPO_URL}@main").endswith("@main")
+    assert update_mod.installable_source("snowpea-agent") == "snowpea-agent"
+
+
+def test_with_git_the_tag_is_installed_from_git(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(update_mod, "git_usable", lambda: True)
+    source = f"git+{update_mod.REPO_URL}@v0.2.34"
+    assert update_mod.installable_source(source) == source
+
+
+def test_the_mac_git_stub_without_the_xcode_tools_is_not_git(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(update_mod.shutil, "which", lambda name: "/usr/bin/git")
+    monkeypatch.setattr(update_mod.sys, "platform", "darwin")
+    monkeypatch.setattr(
+        update_mod.subprocess, "run", lambda *a, **k: SimpleNamespace(returncode=2)
+    )
+    assert update_mod.git_usable() is False
+    monkeypatch.setattr(
+        update_mod.subprocess, "run", lambda *a, **k: SimpleNamespace(returncode=0)
+    )
+    assert update_mod.git_usable() is True
+
+
+def test_install_json_written_with_a_byte_order_mark_is_read(paths: Paths) -> None:
+    """Windows PowerShell's Set-Content -Encoding utf8 writes a BOM."""
+    paths.ensure()
+    paths.install_json.write_text('\ufeff{"method": "uv", "source": "x"}', encoding="utf-8")
+    assert update_mod.read_install_json(paths)["method"] == "uv"
 
 
 def test_the_images_extra_is_spelled_per_source_kind() -> None:

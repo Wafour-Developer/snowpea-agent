@@ -522,9 +522,13 @@ def check_enabled(settings: Settings) -> bool:
 
 
 def read_install_json(paths: Paths) -> dict[str, Any]:
-    """``$SNOWPEA_HOME/install.json``, or ``{}`` when it is absent or corrupt."""
+    """``$SNOWPEA_HOME/install.json``, or ``{}`` when it is absent or corrupt.
+
+    ``utf-8-sig``: Windows PowerShell's ``Set-Content -Encoding utf8`` (what
+    ``install.ps1`` uses) writes a byte-order mark, which ``json`` refuses.
+    """
     try:
-        payload = json.loads(paths.install_json.read_text(encoding="utf-8"))
+        payload = json.loads(paths.install_json.read_text(encoding="utf-8-sig"))
     except (OSError, ValueError):
         return {}
     return payload if isinstance(payload, dict) else {}
@@ -556,29 +560,136 @@ def write_install_json(paths: Paths, method: str, source: str) -> None:
     paths.install_json.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
+#: The official uv installers, the same ones ``installer/install.sh`` runs.
+UV_INSTALL_SH = "https://astral.sh/uv/install.sh"
+UV_INSTALL_PS1 = "https://astral.sh/uv/install.ps1"
+
+#: What ``uv tool install`` is told to run on: the package's ``requires-python``.
+#: Without it uv takes the first interpreter it finds, and a Mac's system
+#: Python 3.9 ends the install with "no solution" instead of uv downloading one.
+UV_PYTHON = ">=3.11"
+
+_RELEASE_TAG_RE = re.compile(r"^v(?P<version>\d+\.\d+\.\d+)$")
+
+
+def _on_windows() -> bool:
+    return os.name == "nt"
+
+
+def uv_bin_dir() -> Path:
+    """Where uv puts its own binary and the tools it installs: ``~/.local/bin``."""
+    return Path.home() / ".local" / "bin"
+
+
+def find_uv() -> str | None:
+    """``uv`` on PATH, else where its installer puts it.
+
+    An app opened from Finder or the dock hands the daemon a bare PATH, so a
+    uv the user installed in ``~/.local/bin`` is not on it.
+    """
+    if shutil.which("uv"):
+        return "uv"
+    exe = "uv.exe" if _on_windows() else "uv"
+    for folder in (
+        os.environ.get("UV_INSTALL_DIR"),
+        os.environ.get("XDG_BIN_HOME"),
+        str(uv_bin_dir()),
+        str(Path.home() / ".cargo" / "bin"),
+    ):
+        if folder and (Path(folder) / exe).is_file():
+            return str(Path(folder) / exe)
+    return None
+
+
+def git_usable() -> bool:
+    """True when ``git`` can actually run.
+
+    A Mac without the Xcode command line tools still has ``/usr/bin/git``: a
+    stub that opens the tools installer and fails, so it is only trusted when
+    ``xcode-select -p`` finds the tools.
+    """
+    if not shutil.which("git"):
+        return False
+    if sys.platform != "darwin":
+        return True
+    try:
+        found = subprocess.run(  # noqa: S603 - fixed argv
+            ["xcode-select", "-p"], capture_output=True, timeout=10, check=False
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return found.returncode == 0
+
+
+def installable_source(source: str) -> str:
+    """``source``, or the release's wheel when installing it would need git.
+
+    A ``git+…@vX.Y.Z`` source makes uv clone the repository, and a machine
+    with only the desktop app has no git (a bare Mac answers with the Xcode
+    tools prompt).  Every release publishes its wheel, so that is installed
+    instead; anything that is not a release tag is left alone.
+    """
+    split = _split_git_source(source)
+    if split is None or git_usable():
+        return source
+    _url, ref = split
+    match = _RELEASE_TAG_RE.match(ref or "")
+    if match is None:
+        return source
+    version = match.group("version")
+    return f"{REPO_URL}/releases/download/{ref}/snowpea_agent-{version}-py3-none-any.whl"
+
+
+def bootstrap_command(requirement: str) -> list[str]:
+    """Install uv with its official installer, then snowpea with it.
+
+    For a machine with only the desktop app: the update button has to work
+    there too.  uv goes to ``~/.local/bin`` without touching shell profiles
+    (``UV_NO_MODIFY_PATH``); the desktop app looks for the core there.
+    """
+    folder = str(uv_bin_dir())
+    if _on_windows():
+        uv = str(Path(folder) / "uv.exe")
+        script = (
+            f"$env:UV_INSTALL_DIR='{folder}'; $env:UV_NO_MODIFY_PATH='1'; "
+            f"irm {UV_INSTALL_PS1} | iex; "
+            f"& '{uv}' tool install --force --reinstall --python '{UV_PYTHON}' "
+            f"'{requirement}'; exit $LASTEXITCODE"
+        )
+        return ["powershell", "-NoProfile", "-ExecutionPolicy", "ByPass", "-Command", script]
+    script = (
+        '(curl -LsSf "$1" || wget -qO- "$1") '
+        '| env UV_INSTALL_DIR="$2" UV_NO_MODIFY_PATH=1 sh '
+        '&& "$2/uv" tool install --force --reinstall --python "$3" "$4"'
+    )
+    return ["sh", "-c", script, "sh", UV_INSTALL_SH, folder, UV_PYTHON, requirement]
+
+
 def update_command(paths: Paths, source: str) -> list[str] | None:
     """The argv that upgrades snowpea to ``source``, or ``None`` if unknown.
 
     ``uv tool install`` is how the installers put snowpea on the machine, so it
-    is what the upgrade uses whenever ``uv`` is on PATH.  Otherwise the method
-    the installer recorded in ``install.json`` decides, and an unrecognised or
-    missing record yields ``None`` so the caller can print a manual command
-    instead of running something that was never used to install anything.
+    is what the upgrade uses whenever uv can be found.  Otherwise the method the
+    installer recorded in ``install.json`` decides.  With no uv and no other
+    record — a machine with only the desktop app — uv is installed first, so
+    the update button works there as well.  ``None`` is left for a recorded
+    method whose tool is missing (pipx), where a manual command is clearer.
     """
     method = str(read_install_json(paths).get("method", "")).strip().lower()
-    requirement = with_images(source)
-    if shutil.which("uv"):
-        return ["uv", "tool", "install", "--force", "--reinstall", requirement]
-    if method == "pipx" and shutil.which("pipx"):
-        return ["pipx", "install", "--force", requirement]
+    requirement = with_images(installable_source(source))
+    uv = find_uv()
+    if uv:
+        return [uv, "tool", "install", "--force", "--reinstall", "--python", UV_PYTHON, requirement]
+    if method == "pipx":
+        return ["pipx", "install", "--force", requirement] if shutil.which("pipx") else None
     if method == "pip":
         return [sys.executable, "-m", "pip", "install", "--upgrade", requirement]
-    return None
+    return bootstrap_command(requirement)
 
 
 def manual_command(source: str) -> str:
     """What to tell the user to run when nothing can be run for them."""
-    return f"uv tool install --force --reinstall {with_images(source)!r}"
+    return f"uv tool install --force --reinstall --python '{UV_PYTHON}' {with_images(source)!r}"
 
 
 def start_update(paths: Paths, command: list[str]) -> subprocess.Popen[bytes]:
