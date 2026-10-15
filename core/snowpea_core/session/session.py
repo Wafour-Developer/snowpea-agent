@@ -45,6 +45,9 @@ class Session:
     #: True for a session a parent agent spawned: it gets the subagent preamble
     #: (no user is watching; the final message is the whole report).
     is_subagent: bool = False
+    #: ``"lean"`` | ``"full"`` for this child only — its agent definition's
+    #: ``childContext:``.  ``None`` follows ``agents.childContext``.
+    child_context: str | None = None
     #: True once this turn's opening acknowledgement has been spoken, so
     #: only the first line before a tool call is read aloud.
     ack_spoken: bool = False

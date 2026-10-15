@@ -273,3 +273,62 @@ def test_the_parent_session_is_unchanged(
     assert deferred.narrowed(parent.allowed_tools, parent) == (
         {"read_file", "shell"} | deferred.ALWAYS_ALLOWED
     )
+
+
+# ---------------------------------------------------------------------------
+# snowpea-browser addendum 22: a definition may keep its child's context
+# ---------------------------------------------------------------------------
+
+
+def _delegated(core: Core, workdir: Path, child_context: str | None) -> Session:
+    from snowpea_core.agent.definition import AgentDefinition
+    from snowpea_core.agent.subagent import get_manager
+
+    defn = AgentDefinition(name="browser", description="d", child_context=child_context)
+    child = Session(id=f"s-child-{child_context}", workdir=workdir)
+    get_manager(core)._apply_definition(child, defn, None)
+    return child
+
+
+def test_a_definition_with_child_context_full_keeps_skills_and_recall(
+    core: Core, workdir: Path
+) -> None:
+    child = _delegated(core, workdir, "full")
+    assert agent_mod.is_lean_child(child, core) is False
+    text = prompt_for(core, child)
+    assert "The user prefers short replies" in text
+    assert "deploy: How this project ships." in text
+
+
+def test_a_definition_without_it_stays_lean(core: Core, workdir: Path) -> None:
+    child = _delegated(core, workdir, None)
+    assert agent_mod.is_lean_child(child, core) is True
+    text = prompt_for(core, child)
+    assert "The user prefers short replies" not in text
+    assert "deploy: How this project ships." not in text
+
+
+def test_a_definition_that_says_lean_wins_over_the_setting(
+    core: Core, workdir: Path
+) -> None:
+    core.settings.agents.childContext = "full"
+    assert agent_mod.is_lean_child(_delegated(core, workdir, "lean"), core) is True
+    assert agent_mod.is_lean_child(_delegated(core, workdir, None), core) is False
+
+
+@pytest.mark.parametrize(
+    ("line", "expected"),
+    [
+        ("childContext: full", "full"),
+        ("childContext: LEAN", "lean"),
+        ("childContext: huge", None),
+        ("", None),
+    ],
+)
+def test_child_context_is_read_from_frontmatter(line: str, expected: str | None) -> None:
+    from snowpea_core.agent.definition import parse_agent_text, render_agent_md
+
+    defn = parse_agent_text(f"---\nname: browser\n{line}\n---\n\nDrive the tab.\n")
+    assert defn.child_context == expected
+    again = parse_agent_text(render_agent_md(defn))
+    assert again.child_context == expected

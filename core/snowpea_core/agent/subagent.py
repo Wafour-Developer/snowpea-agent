@@ -1376,6 +1376,8 @@ class SubagentManager:
             # whole output — unless the definition asks for it by name.
             if defn.thinking in THINKING_CHOICES:
                 child.thinking = defn.thinking
+            if defn.child_context is not None:
+                child.child_context = defn.child_context
             from_defn = defn.tool_list()
             if from_defn is not None:
                 allowed = set(from_defn)

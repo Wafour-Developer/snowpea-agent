@@ -354,7 +354,7 @@ Setting `agents.childContext` controls the context diet:
 
 | setting | default | values | what it does |
 |---|---|---|---|
-| `agents.childContext` | `"lean"` | `"lean"`, `"full"` | `"lean"` strips the memory recall block, the skills index, and nested instruction files from delegated children, and narrows read-only child tools. `"full"` restores the parent's prompt for children. |
+| `agents.childContext` | `"lean"` | `"lean"`, `"full"` | `"lean"` strips the memory recall block, the skills index, and nested instruction files from delegated children, and narrows read-only child tools. `"full"` restores the parent's prompt for children. An agent definition can decide for its own delegated runs with frontmatter `childContext: full` (or `lean`), which wins over the setting. |
 
 In `"lean"` mode:
 - **No memory block or guidance**: the child has no memory recall block or guidance line (though memory tools still work if permitted).

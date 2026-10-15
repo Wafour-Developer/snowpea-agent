@@ -153,8 +153,16 @@ def is_lean_child(session: Session, core: Core | None) -> bool:
     ``AGENTS.md`` are context it was not asked to carry (CORE-round-cost).  It
     keeps its role, its definition prompt, its budget line and the root
     instruction file, and can still reach a skill by name with ``skill_view``.
+
+    The child's own definition decides first (``childContext: full`` on a
+    ``browser`` agent keeps its site skills and recall), then the setting.
     """
-    return bool(getattr(session, "is_subagent", False)) and child_context(core) == "lean"
+    if not getattr(session, "is_subagent", False):
+        return False
+    own = getattr(session, "child_context", None)
+    if own in ("lean", "full"):
+        return own == "lean"
+    return child_context(core) == "lean"
 
 
 def context_file_settings(core: Core | None) -> tuple[int | None, bool]:

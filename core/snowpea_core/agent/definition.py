@@ -98,6 +98,11 @@ class AgentDefinition:
     #: hidden reasoning says ``thinking: on``; everything else inherits, which
     #: for a delegated turn means off (CORE-reasoning-budget).
     thinking: str = "inherit"
+    #: ``"lean"`` | ``"full"`` — what a delegated run of this agent starts
+    #: with.  ``None`` follows ``agents.childContext``.  ``full`` keeps the
+    #: skills index and the memory recall block a lean child goes without
+    #: (snowpea-browser addendum 22: a ``browser`` agent needs its site skills).
+    child_context: str | None = None
     prompt: str = ""
     #: Where it was read from, when it came off disk.
     path: Path | None = None
@@ -129,6 +134,7 @@ class AgentDefinition:
             "tool_rounds": self.tool_rounds,
             "max_tool_rounds": self.max_tool_rounds,
             "thinking": self.thinking,
+            "child_context": self.child_context,
             "prompt": self.prompt,
             "source": self.source,
             "path": str(self.path) if self.path else None,
@@ -178,6 +184,12 @@ def _positive_int(value: Any) -> int | None:
     except (TypeError, ValueError):
         return None
     return number if number >= 1 else None
+
+
+def _child_context(value: Any) -> str | None:
+    """``lean`` | ``full`` from frontmatter; anything else means "not set"."""
+    text = str(value or "").strip().lower()
+    return text if text in ("lean", "full") else None
 
 
 def _unquote(value: str) -> str:
@@ -279,6 +291,8 @@ def render_agent_md(defn: AgentDefinition) -> str:
         fields.append((key, rounds_val))
     if defn.thinking != "inherit":
         fields.append(("thinking", defn.thinking))
+    if defn.child_context is not None:
+        fields.append(("childContext", defn.child_context))
     head = "\n".join(f"{key}: {_render_value(value)}" for key, value in fields)
     return f"{FENCE}\n{head}\n{FENCE}\n\n{defn.prompt.strip()}\n"
 
@@ -333,6 +347,7 @@ def parse_agent_text(
         tool_rounds=parsed_rounds,
         max_tool_rounds=parsed_rounds,
         thinking=str(meta.get("thinking") or "inherit"),
+        child_context=_child_context(meta.get("childContext", meta.get("child_context"))),
         prompt=body,
         path=path,
         source=source,
