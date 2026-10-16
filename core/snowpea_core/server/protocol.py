@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.14.0"
+PROTOCOL_VERSION = "1.15.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -2650,6 +2650,17 @@ class MemoryIngestResult(Payload):
 SiteLocatorKind = Literal["role", "label", "text", "placeholder", "testid", "css"]
 SiteActionKind = Literal["click", "fill", "select", "toggle", "submit"]
 SiteMarkOutcome = Literal["ok", "stale"]
+#: What a typed flow step does to its action's element (1.15.0).
+SiteStepVerb = Literal["fill", "click", "select", "enter"]
+SiteMarkPartOutcome = Literal["ok", "miss", "stale"]
+SITE_RECIPE_NAME_PATTERN = r"^[a-z0-9][a-z0-9-]{0,31}$"
+SITE_FIELD_NAME_PATTERN = r"^[A-Za-z][A-Za-z0-9_]{0,23}$"
+#: Attributes a recipe field may read instead of the text; never ``value``.
+SITE_ATTR_PATTERN = (
+    r"^(href|src|srcset|alt|title|datetime|aria-label|content|id|class|data-[a-z0-9_-]{1,40})$"
+)
+#: Stats counters stop here.
+SITE_COUNT_MAX = 1_000_000
 
 #: Plain names chosen by the agent: a page type and an action name.
 SITE_NAME_PATTERN = r"^[a-z0-9-]{1,40}$"
@@ -2686,11 +2697,88 @@ class SiteAction(Payload):
     )
 
 
+class SiteFlowStep(Payload):
+    """One replayable flow step (1.15.0): which action, never what to type."""
+
+    verb: SiteStepVerb = Field(description="fill | click | select | enter.")
+    action: str | None = Field(
+        default=None,
+        pattern=SITE_NAME_PATTERN,
+        description=(
+            "An action name of the same entry; required for fill, click and select. Never a "
+            "login field for fill or select."
+        ),
+    )
+    intent: str | None = Field(
+        default=None, max_length=120, description="What the step is for, one line."
+    )
+
+
+class SiteFlowStats(Payload):
+    ok: int = Field(default=0, ge=0, le=SITE_COUNT_MAX, strict=True)
+    missed: int = Field(default=0, ge=0, le=SITE_COUNT_MAX, strict=True)
+    lastRun: str | None = Field(default=None, description="UTC ISO time of the last ok run.")
+
+
 class SiteFlow(Payload):
     name: str = Field(min_length=1, max_length=40, description="Flow name.")
-    steps: list[Annotated[str, Field(max_length=120)]] = Field(
-        default_factory=list, max_length=12, description="At most 12 steps of 120 chars."
+    steps: list[Annotated[str, Field(max_length=120)] | SiteFlowStep] = Field(
+        default_factory=list,
+        max_length=16,
+        description=(
+            "At most 16: a string of 120 chars (shown, never replayed) or a typed step "
+            "(1.15.0)."
+        ),
     )
+    expect: Literal["page", "update"] | None = Field(
+        default=None,
+        description="After the last step: 'page' = a new page loads, 'update' = this one changes.",
+    )
+    stats: SiteFlowStats | None = Field(
+        default=None, description="Replay counts; site.markPart keeps them (1.15.0)."
+    )
+
+
+class SiteRecipeField(Payload):
+    name: str = Field(
+        pattern=SITE_FIELD_NAME_PATTERN, description="[A-Za-z][A-Za-z0-9_]{0,23}, unique."
+    )
+    selector: str = Field(
+        max_length=100, description="CSS relative to the item; '' = the item itself."
+    )
+    attr: str | None = Field(
+        default=None,
+        pattern=SITE_ATTR_PATTERN,
+        description="Read this attribute instead of the text (href, src, data-*…; never value).",
+    )
+
+
+class SiteRecipeStats(Payload):
+    hits: int = Field(default=0, ge=0, le=SITE_COUNT_MAX, strict=True)
+    misses: int = Field(default=0, ge=0, le=SITE_COUNT_MAX, strict=True)
+    day: int | None = Field(
+        default=None,
+        ge=0,
+        le=SITE_COUNT_MAX,
+        strict=True,
+        description="Days since 1970-01-01 (UTC) of the last success or save.",
+    )
+
+
+class SiteRecipe(Payload):
+    """How to read a page's repeated structure (1.15.0): selectors only, no values."""
+
+    name: str = Field(
+        pattern=SITE_RECIPE_NAME_PATTERN,
+        description="[a-z0-9][a-z0-9-]{0,31}, unique in the entry.",
+    )
+    intent: str | None = Field(default=None, max_length=120, description="What it reads.")
+    item: str = Field(
+        min_length=1, max_length=100, description="CSS of the repeated element."
+    )
+    fields: list[SiteRecipeField] = Field(min_length=1, max_length=12, description="1 to 12.")
+    stats: SiteRecipeStats | None = Field(default=None, description="Use counts.")
+    stale: bool = Field(default=False, description="Its last use found nothing.")
 
 
 class SiteEntryInput(Payload):
@@ -2712,6 +2800,9 @@ class SiteEntryInput(Payload):
         default_factory=list, max_length=30, description="At most 30."
     )
     flows: list[SiteFlow] = Field(default_factory=list, max_length=10, description="At most 10.")
+    recipes: list[SiteRecipe] = Field(
+        default_factory=list, max_length=8, description="At most 8 readers (1.15.0)."
+    )
     pitfalls: list[Annotated[str, Field(max_length=160)]] = Field(
         default_factory=list, max_length=10, description="At most 10 of 160 chars."
     )
@@ -2777,6 +2868,23 @@ class SiteMarkParams(Payload):
 
 class SiteMarkResult(Payload):
     entry: SiteEntry = Field(description="The entry after the mark.")
+
+
+class SiteMarkPartParams(Payload):
+    origin: str = Field(description="Origin of the entry.")
+    entryId: str = Field(description="The entry.")
+    part: Literal["flow", "recipe"] = Field(description="Which list the part is in.")
+    name: str = Field(min_length=1, max_length=40, description="The flow's or recipe's name.")
+    outcome: SiteMarkPartOutcome = Field(
+        description=(
+            "flow: ok (stats.ok+1, lastRun) | miss (stats.missed+1). recipe: ok (hits+1, "
+            "day, not stale) | miss (misses+1) | stale (misses+1, stale)."
+        )
+    )
+
+
+class SiteMarkPartResult(Payload):
+    entry: SiteEntry = Field(description="The entry after the count.")
 
 
 class SiteListParams(Payload):
@@ -5054,7 +5162,8 @@ METHODS: dict[str, RpcMethod] = {
             (
                 "Site memory (1.9.0): upsert an entry by (origin, pageType). Core checks "
                 "the schema, refuses XPath, values on login fields and strings that look "
-                "like personal data or credentials, and enforces 16 KB per entry and 30 "
+                "like personal data or credentials, and enforces 24 KB per entry (16 KB "
+                "before 1.15.0) and 30 "
                 "entries per origin ('invalid_params' naming the field); past 1,000 "
                 "origins the least recently verified origin is dropped. A put clears "
                 "stale and counts as a success. Browser host clients only."
@@ -5068,6 +5177,17 @@ METHODS: dict[str, RpcMethod] = {
                 "Site memory (1.9.0): 'ok' counts a success, sets lastVerified and clears "
                 "stale; 'stale' counts a failure and flags the entry until the next put. "
                 "Browser host clients only."
+            ),
+        ),
+        _m(
+            "site.markPart",
+            SiteMarkPartParams,
+            SiteMarkPartResult,
+            (
+                "Site memory (1.15.0): count one use of a flow or recipe of an entry without "
+                "a put. The entry's successCount, failureCount, stale and lastVerified are "
+                "untouched, so this never counts as verification. 'not_found' for an unknown "
+                "entry, flow or recipe. Browser host clients only."
             ),
         ),
         _m(
@@ -5150,6 +5270,7 @@ CAPABILITIES: list[str] = [
     "llmSample",
     "snapshotSupersede",
     "readOnlyDelegation",
+    "siteRecipes",
 ]
 
 #: Where the daemon listens; mirrored into the schema dump for the SDK.
@@ -5271,6 +5392,7 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "site.get",
         "site.put",
         "site.mark",
+        "site.markPart",
         "site.list",
         "site.delete",
     }

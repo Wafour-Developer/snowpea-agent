@@ -27,8 +27,9 @@ from snowpea_core.util.redaction import (
     is_sensitive_key,
 )
 
-#: Serialized size of one stored entry, in UTF-8 bytes.
-MAX_ENTRY_BYTES = 16 * 1024
+#: Serialized size of one stored entry, in UTF-8 bytes.  24 KiB since 1.15.0:
+#: flows carry an intent per step and recipes have slots of their own.
+MAX_ENTRY_BYTES = 24 * 1024
 MAX_ENTRIES_PER_ORIGIN = 30
 MAX_ORIGINS_PER_PROFILE = 1000
 #: An entry nobody verified for this long is dropped.
@@ -63,6 +64,11 @@ _AUTH_HEADER = re.compile(r"(?i)\bauthorization\s*:")
 #: CSS that is really XPath, or a selector that reads an input's value.
 _XPATH_LIKE = re.compile(r"(?i)^\s*(?:/|\./|\(\s*/|xpath\s*[=:])")
 _VALUE_SELECTOR = re.compile(r"(?i)\[\s*value\s*[~|^$*]?=")
+#: Any attribute selector on ``value``, with or without an operator: a
+#: recipe reads structure and must never be keyed on what a field holds.
+_ANY_VALUE_SELECTOR = re.compile(r"(?i)\[\s*value\s*(?:[~|^$*]?=|\])")
+#: Typed steps that put text or a choice into their element.
+_INPUT_VERBS = frozenset({"fill", "select"})
 
 
 def _looks_sensitive(text: str) -> bool:
@@ -148,6 +154,8 @@ def check_entry(entry: dict[str, Any]) -> None:
                     raise SiteMemoryError(
                         f"{at}.value", "a login field is stored by locators only, never a value"
                     )
+    _check_flows(entry)
+    _check_recipes(entry)
     lv = entry.get("lastVerified")
     if lv is not None:
         parse_time(lv, "entry.lastVerified")
@@ -157,11 +165,68 @@ def check_entry(entry: dict[str, Any]) -> None:
     if fingerprint is not None and not re.fullmatch(r"[A-Za-z0-9:._+/=-]+", fingerprint):
         raise SiteMemoryError("entry.fingerprint", "must be a plain hash string")
     checked = {k: v for k, v in entry.items() if k not in ("fingerprint", "lastVerified")}
+    # A run time is ours to check for shape (above), not page content.
+    checked["flows"] = [
+        {k: v for k, v in flow.items() if k != "stats"} for flow in entry.get("flows") or []
+    ]
     for path, text in _strings(checked, "entry"):
         if _CONTROL.search(text):
             raise SiteMemoryError(path, "control characters and newlines are not allowed")
         if _looks_sensitive(text):
             raise SiteMemoryError(path, "looks like personal data or a credential")
+
+
+def _check_flows(entry: dict[str, Any]) -> None:
+    """Typed steps name an action of this entry, and never type into a login field."""
+    actions = {action["name"]: action for action in entry.get("actions") or []}
+    for fi, flow in enumerate(entry.get("flows") or []):
+        for si, step in enumerate(flow.get("steps") or []):
+            if not isinstance(step, dict):
+                continue
+            at = f"entry.flows[{fi}].steps[{si}]"
+            name = step.get("action")
+            if name is None:
+                if step["verb"] != "enter":
+                    raise SiteMemoryError(f"{at}.action", f"a {step['verb']} step needs an action")
+                continue
+            action = actions.get(name)
+            if action is None:
+                raise SiteMemoryError(f"{at}.action", f"no action named {name!r} in this entry")
+            if step["verb"] in _INPUT_VERBS and action.get("loginField"):
+                raise SiteMemoryError(
+                    f"{at}.action", "a login field is never filled or selected by a flow"
+                )
+        last_run = (flow.get("stats") or {}).get("lastRun")
+        if last_run is not None:
+            parse_time(last_run, f"entry.flows[{fi}].stats.lastRun")
+
+
+def _check_selector(text: str, field: str) -> None:
+    if _XPATH_LIKE.search(text):
+        raise SiteMemoryError(field, "XPath is not a selector")
+    if _ANY_VALUE_SELECTOR.search(text):
+        raise SiteMemoryError(field, "a selector may not use the value attribute")
+
+
+def _check_recipes(entry: dict[str, Any]) -> None:
+    """Unique names, structure-only selectors (1.15.0)."""
+    seen: set[str] = set()
+    for ri, recipe in enumerate(entry.get("recipes") or []):
+        at = f"entry.recipes[{ri}]"
+        if recipe["name"] in seen:
+            raise SiteMemoryError(f"{at}.name", f"duplicate recipe name {recipe['name']!r}")
+        seen.add(recipe["name"])
+        _check_selector(recipe["item"], f"{at}.item")
+        names: set[str] = set()
+        for fi, field in enumerate(recipe.get("fields") or []):
+            where = f"{at}.fields[{fi}]"
+            if field["name"] in names:
+                raise SiteMemoryError(f"{where}.name", f"duplicate field name {field['name']!r}")
+            names.add(field["name"])
+            if field.get("selector"):
+                _check_selector(field["selector"], f"{where}.selector")
+            if (field.get("attr") or "").strip().lower() == "value":
+                raise SiteMemoryError(f"{where}.attr", "a recipe never reads the value attribute")
 
 
 def check_text(text: str, field: str) -> None:

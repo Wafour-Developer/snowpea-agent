@@ -469,7 +469,7 @@ checks and uses it. `system.hello` advertises `siteMemory`.
     runs of 8+ digits, `password=`-style pairs, bearer tokens and well-known key
     shapes. The fingerprint is checked for hash shape only. Core refuses rather
     than strips, so a host bug that leaks data shows up instead of being hidden;
-  * an entry over 16 KB serialized;
+  * an entry over 24 KB serialized (16 KB before 1.15.0);
   * a 31st page type on an origin.
 * **Caps and retention.** Past 1,000 origins in a profile, a put for a new
   origin first drops the least recently verified origin. On every call, before
@@ -477,6 +477,18 @@ checks and uses it. `system.hello` advertises `siteMemory`.
   * entries not verified for 90 days;
   * stale entries with 3 or more failures and no success (put or `ok`) for 30
     days.
+* **Typed flows and recipes (1.15.0, addendum 24).** A flow step is a string
+  (shown, never replayed) or `{verb: fill|click|select|enter, action, intent}`
+  naming an action of the same entry — never a value, and never `fill`/`select`
+  on a `loginField` action. A flow may carry `expect` (`page`|`update`) and
+  `stats` (`ok`, `missed`, `lastRun`); at most 16 steps. `recipes[]` (at most 8)
+  are readers: an `item` CSS selector and 1–12 `fields` (`selector` relative to
+  the item, optional `attr` from an allowlist that excludes `value`), plus
+  `stats` (`hits`, `misses`, `day`) and `stale`. Recipe selectors may not use
+  `[value…]` in any form or XPath. `site.markPart` counts a flow or recipe use
+  without a put: the entry's `successCount`, `failureCount`, `stale` and
+  `lastVerified` are untouched, so it never counts as verification. Capability
+  `siteRecipes`.
 * **Switch.** `browser.siteMemory` (global setting, default `true`; the
   browser's 「사이트 구조 기억하기」 switch writes it with `settings.set`). When
   it is `false`, `site.get`, `site.put` and `site.mark` answer `tool_inactive`

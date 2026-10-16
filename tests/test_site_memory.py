@@ -321,7 +321,7 @@ async def test_an_oversized_entry_is_refused(
         ]
         frame = await client.call("site.put", {"origin": ORIGIN, "entry": entry(actions=actions)})
         assert code_of(frame) == errors.INVALID_PARAMS and field_of(frame) == "entry"
-        assert sm.MAX_ENTRY_BYTES == 16 * 1024
+        assert sm.MAX_ENTRY_BYTES == 24 * 1024
     finally:
         await client.stop()
 

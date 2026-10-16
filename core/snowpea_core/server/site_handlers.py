@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import (
+    SITE_COUNT_MAX,
     SiteDeleteParams,
     SiteDeleteResult,
     SiteEntry,
@@ -29,6 +30,8 @@ from snowpea_core.server.protocol import (
     SiteListParams,
     SiteListResult,
     SiteMarkParams,
+    SiteMarkPartParams,
+    SiteMarkPartResult,
     SiteMarkResult,
     SitePutParams,
     SitePutResult,
@@ -239,6 +242,77 @@ async def site_mark_handler(
     return SiteMarkResult(entry=SiteEntry(**entry))
 
 
+class _PartMissing(LookupError):
+    """The entry has no flow or recipe of that name."""
+
+
+def _bump(value: Any) -> int:
+    return min(int(value or 0) + 1, SITE_COUNT_MAX)
+
+
+def _count_part(entry: dict[str, Any], params: SiteMarkPartParams, now: datetime) -> None:
+    """Apply one ``site.markPart`` to the flow's or recipe's own stats."""
+    if params.part == "flow":
+        flow = next((f for f in entry.get("flows") or [] if f.get("name") == params.name), None)
+        if flow is None:
+            raise _PartMissing(f"no flow {params.name!r} in entry {params.entryId}")
+        stats = dict(flow.get("stats") or {"ok": 0, "missed": 0, "lastRun": None})
+        if params.outcome == "ok":
+            stats["ok"] = _bump(stats.get("ok"))
+            stats["lastRun"] = sm.iso(now)
+        else:
+            stats["missed"] = _bump(stats.get("missed"))
+        flow["stats"] = stats
+        return
+    recipe = next((r for r in entry.get("recipes") or [] if r.get("name") == params.name), None)
+    if recipe is None:
+        raise _PartMissing(f"no recipe {params.name!r} in entry {params.entryId}")
+    stats = dict(recipe.get("stats") or {"hits": 0, "misses": 0, "day": None})
+    if params.outcome == "ok":
+        stats["hits"] = _bump(stats.get("hits"))
+        stats["day"] = (now - datetime(1970, 1, 1, tzinfo=UTC)).days
+        recipe["stale"] = False
+    else:
+        stats["misses"] = _bump(stats.get("misses"))
+        if params.outcome == "stale":
+            recipe["stale"] = True
+    recipe["stats"] = stats
+
+
+async def site_mark_part_handler(
+    conn: RpcConnection, params: SiteMarkPartParams, core: Core
+) -> SiteMarkPartResult:
+    """``site.markPart`` — count one use of a flow or recipe (1.15.0).
+
+    Only the part's own stats change: the entry's ``successCount``,
+    ``failureCount``, ``stale`` and ``lastVerified`` stay as they are, so a
+    count never stands in for verification and retention is unchanged.
+    """
+    profile = _host_profile(conn)
+    _require_enabled(core)
+    if params.part == "flow" and params.outcome == "stale":
+        raise RpcError(
+            errors.INVALID_PARAMS, "a flow counts ok or miss; stale is for a recipe",
+            {"field": "outcome"},
+        )
+    store = _store(core)
+    origin = _origin(params.origin)
+    now = datetime.now(UTC)
+
+    def change(entry: dict[str, Any]) -> dict[str, Any]:
+        _count_part(entry, params, now)
+        return entry
+
+    await _sweep(store, profile, now)
+    try:
+        entry = await store.site_update(profile, origin, params.entryId, change)
+    except _PartMissing as exc:
+        raise RpcError(errors.NOT_FOUND, str(exc)) from exc
+    if entry is None:
+        raise RpcError(errors.NOT_FOUND, f"no site entry {params.entryId} for {origin}")
+    return SiteMarkPartResult(entry=SiteEntry(**entry))
+
+
 async def site_list_handler(
     conn: RpcConnection, params: SiteListParams, core: Core
 ) -> SiteListResult:
@@ -280,6 +354,7 @@ def register_site_handlers(dispatcher: RpcDispatcher) -> None:
     dispatcher.register("site.get", site_get_handler)
     dispatcher.register("site.put", site_put_handler)
     dispatcher.register("site.mark", site_mark_handler)
+    dispatcher.register("site.markPart", site_mark_part_handler)
     dispatcher.register("site.list", site_list_handler)
     dispatcher.register("site.delete", site_delete_handler)
 

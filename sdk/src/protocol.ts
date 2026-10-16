@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.14.0";
+export const PROTOCOL_VERSION = "1.15.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -2609,10 +2609,26 @@ export interface SiteGetResult {
     fingerprint?: string | null;
     /** At most 10. */
     flows?: ({
+      /** After the last step: 'page' = a new page loads, 'update' = this one changes. */
+      expect?: "page" | "update" | null;
       /** Flow name. */
       name: string;
-      /** At most 12 steps of 120 chars. */
-      steps?: string[];
+      /** Replay counts; site.markPart keeps them (1.15.0). */
+      stats?: {
+        /** UTC ISO time of the last ok run. */
+        lastRun?: string | null;
+        missed?: number;
+        ok?: number;
+      } | null;
+      /** At most 16: a string of 120 chars (shown, never replayed) or a typed step (1.15.0). */
+      steps?: (string | {
+        /** An action name of the same entry; required for fill, click and select. Never a login field for fill or select. */
+        action?: string | null;
+        /** What the step is for, one line. */
+        intent?: string | null;
+        /** fill | click | select | enter. */
+        verb: "fill" | "click" | "select" | "enter";
+      })[];
     })[];
     /** At most 20 of 80 chars. */
     landmarks?: string[];
@@ -2624,6 +2640,33 @@ export interface SiteGetResult {
     pageType: string;
     /** At most 10 of 160 chars. */
     pitfalls?: string[];
+    /** At most 8 readers (1.15.0). */
+    recipes?: ({
+      /** 1 to 12. */
+      fields: ({
+        /** Read this attribute instead of the text (href, src, data-*…; never value). */
+        attr?: string | null;
+        /** [A-Za-z][A-Za-z0-9_]{0,23}, unique. */
+        name: string;
+        /** CSS relative to the item; '' = the item itself. */
+        selector: string;
+      })[];
+      /** What it reads. */
+      intent?: string | null;
+      /** CSS of the repeated element. */
+      item: string;
+      /** [a-z0-9][a-z0-9-]{0,31}, unique in the entry. */
+      name: string;
+      /** Its last use found nothing. */
+      stale?: boolean;
+      /** Use counts. */
+      stats?: {
+        /** Days since 1970-01-01 (UTC) of the last success or save. */
+        day?: number | null;
+        hits?: number;
+        misses?: number;
+      } | null;
+    })[];
     /** Marked stale and not replaced since. */
     stale?: boolean;
     /** Puts and 'ok' marks. */
@@ -2716,10 +2759,26 @@ export interface SiteMarkResult {
     fingerprint?: string | null;
     /** At most 10. */
     flows?: ({
+      /** After the last step: 'page' = a new page loads, 'update' = this one changes. */
+      expect?: "page" | "update" | null;
       /** Flow name. */
       name: string;
-      /** At most 12 steps of 120 chars. */
-      steps?: string[];
+      /** Replay counts; site.markPart keeps them (1.15.0). */
+      stats?: {
+        /** UTC ISO time of the last ok run. */
+        lastRun?: string | null;
+        missed?: number;
+        ok?: number;
+      } | null;
+      /** At most 16: a string of 120 chars (shown, never replayed) or a typed step (1.15.0). */
+      steps?: (string | {
+        /** An action name of the same entry; required for fill, click and select. Never a login field for fill or select. */
+        action?: string | null;
+        /** What the step is for, one line. */
+        intent?: string | null;
+        /** fill | click | select | enter. */
+        verb: "fill" | "click" | "select" | "enter";
+      })[];
     })[];
     /** At most 20 of 80 chars. */
     landmarks?: string[];
@@ -2731,6 +2790,33 @@ export interface SiteMarkResult {
     pageType: string;
     /** At most 10 of 160 chars. */
     pitfalls?: string[];
+    /** At most 8 readers (1.15.0). */
+    recipes?: ({
+      /** 1 to 12. */
+      fields: ({
+        /** Read this attribute instead of the text (href, src, data-*…; never value). */
+        attr?: string | null;
+        /** [A-Za-z][A-Za-z0-9_]{0,23}, unique. */
+        name: string;
+        /** CSS relative to the item; '' = the item itself. */
+        selector: string;
+      })[];
+      /** What it reads. */
+      intent?: string | null;
+      /** CSS of the repeated element. */
+      item: string;
+      /** [a-z0-9][a-z0-9-]{0,31}, unique in the entry. */
+      name: string;
+      /** Its last use found nothing. */
+      stale?: boolean;
+      /** Use counts. */
+      stats?: {
+        /** Days since 1970-01-01 (UTC) of the last success or save. */
+        day?: number | null;
+        hits?: number;
+        misses?: number;
+      } | null;
+    })[];
     /** Marked stale and not replaced since. */
     stale?: boolean;
     /** Puts and 'ok' marks. */
@@ -2742,7 +2828,124 @@ export interface SiteMarkResult {
   };
 }
 
-/** `site.put` params. Site memory (1.9.0): upsert an entry by (origin, pageType). Core checks the schema, refuses XPath, values on login fields and strings that look like personal data or credentials, and enforces 16 KB per entry and 30 entries per origin ('invalid_params' naming the field); past 1,000 origins the least recently verified origin is dropped. A put clears stale and counts as a success. Browser host clients only. */
+/** `site.markPart` params. Site memory (1.15.0): count one use of a flow or recipe of an entry without a put. The entry's successCount, failureCount, stale and lastVerified are untouched, so this never counts as verification. 'not_found' for an unknown entry, flow or recipe. Browser host clients only. */
+export interface SiteMarkPartParams {
+  /** The entry. */
+  entryId: string;
+  /** The flow's or recipe's name. */
+  name: string;
+  /** Origin of the entry. */
+  origin: string;
+  /** flow: ok (stats.ok+1, lastRun) | miss (stats.missed+1). recipe: ok (hits+1, day, not stale) | miss (misses+1) | stale (misses+1, stale). */
+  outcome: "ok" | "miss" | "stale";
+  /** Which list the part is in. */
+  part: "flow" | "recipe";
+}
+
+/** `site.markPart` result. */
+export interface SiteMarkPartResult {
+  /** The entry after the count. */
+  entry: {
+    /** At most 30. */
+    actions?: ({
+      /** What the action does to its element. */
+      kind: "click" | "fill" | "select" | "toggle" | "submit";
+      /** At most 6, in the order to try; at least one is not 'css'. */
+      locators: ({
+        /** Locator kind (1.9.0). Never XPath. */
+        by: "role" | "label" | "text" | "placeholder" | "testid" | "css";
+        /** With by 'role': the accessible name. */
+        name?: string | null;
+        /** With by 'role': the ARIA role. */
+        role?: string | null;
+        /** With every other kind: the label, text, placeholder, test id or CSS. */
+        value?: string | null;
+      })[];
+      /** A login name or password input: locators only, never a value. */
+      loginField?: boolean;
+      /** Action name, [a-z0-9-]{1,40}. */
+      name: string;
+    })[];
+    /** UTC ISO time of the first put. */
+    createdAt: string;
+    /** Core-assigned id. */
+    entryId: string;
+    /** 'stale' marks. */
+    failureCount?: number;
+    /** Structural hash of the page's AX skeleton, e.g. 'ax1:3f9a…'. */
+    fingerprint?: string | null;
+    /** At most 10. */
+    flows?: ({
+      /** After the last step: 'page' = a new page loads, 'update' = this one changes. */
+      expect?: "page" | "update" | null;
+      /** Flow name. */
+      name: string;
+      /** Replay counts; site.markPart keeps them (1.15.0). */
+      stats?: {
+        /** UTC ISO time of the last ok run. */
+        lastRun?: string | null;
+        missed?: number;
+        ok?: number;
+      } | null;
+      /** At most 16: a string of 120 chars (shown, never replayed) or a typed step (1.15.0). */
+      steps?: (string | {
+        /** An action name of the same entry; required for fill, click and select. Never a login field for fill or select. */
+        action?: string | null;
+        /** What the step is for, one line. */
+        intent?: string | null;
+        /** fill | click | select | enter. */
+        verb: "fill" | "click" | "select" | "enter";
+      })[];
+    })[];
+    /** At most 20 of 80 chars. */
+    landmarks?: string[];
+    /** UTC ISO time of the last put or 'ok' mark. */
+    lastVerified: string;
+    /** Origin, e.g. 'https://www.example.com'. */
+    origin: string;
+    /** Page type, [a-z0-9-]{1,40}, e.g. 'login'. */
+    pageType: string;
+    /** At most 10 of 160 chars. */
+    pitfalls?: string[];
+    /** At most 8 readers (1.15.0). */
+    recipes?: ({
+      /** 1 to 12. */
+      fields: ({
+        /** Read this attribute instead of the text (href, src, data-*…; never value). */
+        attr?: string | null;
+        /** [A-Za-z][A-Za-z0-9_]{0,23}, unique. */
+        name: string;
+        /** CSS relative to the item; '' = the item itself. */
+        selector: string;
+      })[];
+      /** What it reads. */
+      intent?: string | null;
+      /** CSS of the repeated element. */
+      item: string;
+      /** [a-z0-9][a-z0-9-]{0,31}, unique in the entry. */
+      name: string;
+      /** Its last use found nothing. */
+      stale?: boolean;
+      /** Use counts. */
+      stats?: {
+        /** Days since 1970-01-01 (UTC) of the last success or save. */
+        day?: number | null;
+        hits?: number;
+        misses?: number;
+      } | null;
+    })[];
+    /** Marked stale and not replaced since. */
+    stale?: boolean;
+    /** Puts and 'ok' marks. */
+    successCount?: number;
+    /** What the page is. */
+    summary?: string;
+    /** Path glob on the origin, starting with '/'; '*' = any segment chars. */
+    urlPattern: string;
+  };
+}
+
+/** `site.put` params. Site memory (1.9.0): upsert an entry by (origin, pageType). Core checks the schema, refuses XPath, values on login fields and strings that look like personal data or credentials, and enforces 24 KB per entry (16 KB before 1.15.0) and 30 entries per origin ('invalid_params' naming the field); past 1,000 origins the least recently verified origin is dropped. A put clears stale and counts as a success. Browser host clients only. */
 export interface SitePutParams {
   /** The entry; upserted by (origin, pageType). */
   entry: {
@@ -2770,10 +2973,26 @@ export interface SitePutParams {
     fingerprint?: string | null;
     /** At most 10. */
     flows?: ({
+      /** After the last step: 'page' = a new page loads, 'update' = this one changes. */
+      expect?: "page" | "update" | null;
       /** Flow name. */
       name: string;
-      /** At most 12 steps of 120 chars. */
-      steps?: string[];
+      /** Replay counts; site.markPart keeps them (1.15.0). */
+      stats?: {
+        /** UTC ISO time of the last ok run. */
+        lastRun?: string | null;
+        missed?: number;
+        ok?: number;
+      } | null;
+      /** At most 16: a string of 120 chars (shown, never replayed) or a typed step (1.15.0). */
+      steps?: (string | {
+        /** An action name of the same entry; required for fill, click and select. Never a login field for fill or select. */
+        action?: string | null;
+        /** What the step is for, one line. */
+        intent?: string | null;
+        /** fill | click | select | enter. */
+        verb: "fill" | "click" | "select" | "enter";
+      })[];
     })[];
     /** At most 20 of 80 chars. */
     landmarks?: string[];
@@ -2783,6 +3002,33 @@ export interface SitePutParams {
     pageType: string;
     /** At most 10 of 160 chars. */
     pitfalls?: string[];
+    /** At most 8 readers (1.15.0). */
+    recipes?: ({
+      /** 1 to 12. */
+      fields: ({
+        /** Read this attribute instead of the text (href, src, data-*…; never value). */
+        attr?: string | null;
+        /** [A-Za-z][A-Za-z0-9_]{0,23}, unique. */
+        name: string;
+        /** CSS relative to the item; '' = the item itself. */
+        selector: string;
+      })[];
+      /** What it reads. */
+      intent?: string | null;
+      /** CSS of the repeated element. */
+      item: string;
+      /** [a-z0-9][a-z0-9-]{0,31}, unique in the entry. */
+      name: string;
+      /** Its last use found nothing. */
+      stale?: boolean;
+      /** Use counts. */
+      stats?: {
+        /** Days since 1970-01-01 (UTC) of the last success or save. */
+        day?: number | null;
+        hits?: number;
+        misses?: number;
+      } | null;
+    })[];
     /** What the page is. */
     summary?: string;
     /** Path glob on the origin, starting with '/'; '*' = any segment chars. */
@@ -4486,6 +4732,7 @@ export interface MethodMap {
   "site.get": { params: SiteGetParams; result: SiteGetResult };
   "site.list": { params: SiteListParams; result: SiteListResult };
   "site.mark": { params: SiteMarkParams; result: SiteMarkResult };
+  "site.markPart": { params: SiteMarkPartParams; result: SiteMarkPartResult };
   "site.put": { params: SitePutParams; result: SitePutResult };
   "skill.create": { params: SkillCreateParams; result: SkillCreateResult };
   "skill.install": { params: SkillInstallParams; result: SkillInstallResult };
@@ -4615,6 +4862,7 @@ export type ClientMethod =
   | "site.get"
   | "site.list"
   | "site.mark"
+  | "site.markPart"
   | "site.put"
   | "skill.create"
   | "skill.install"

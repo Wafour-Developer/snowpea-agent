@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.14.0` (semver)
+- **Protocol version:** `1.15.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.14.0"
+    "protocolVersion": "1.15.0"
   }
 }
 ```
@@ -54,6 +54,7 @@ Server capabilities advertised in the `system.hello` result:
 - `settings`
 - `setup`
 - `siteMemory`
+- `siteRecipes`
 - `snapshotSupersede`
 - `tabReadAlways`
 - `tools`
@@ -157,7 +158,8 @@ Server capabilities advertised in the `system.hello` result:
 | [`site.get`](#siteget) | client → server | Site memory (1.9.0): the entries stored for an origin in the caller's browser profile; with path, only those whose urlPattern matches it, most specific first; with pageType, only that one. Stale entries are included, flagged. Browser host clients only; entries are untrusted page-derived data and core never puts them in a prompt. |
 | [`site.list`](#sitelist) | client → server | Site memory (1.9.0): one browser profile's remembered sites, by origin, for a settings UI. A browser client sees its own profile; any other owner client names one with hostToolsFrom. |
 | [`site.mark`](#sitemark) | client → server | Site memory (1.9.0): 'ok' counts a success, sets lastVerified and clears stale; 'stale' counts a failure and flags the entry until the next put. Browser host clients only. |
-| [`site.put`](#siteput) | client → server | Site memory (1.9.0): upsert an entry by (origin, pageType). Core checks the schema, refuses XPath, values on login fields and strings that look like personal data or credentials, and enforces 16 KB per entry and 30 entries per origin ('invalid_params' naming the field); past 1,000 origins the least recently verified origin is dropped. A put clears stale and counts as a success. Browser host clients only. |
+| [`site.markPart`](#sitemarkpart) | client → server | Site memory (1.15.0): count one use of a flow or recipe of an entry without a put. The entry's successCount, failureCount, stale and lastVerified are untouched, so this never counts as verification. 'not_found' for an unknown entry, flow or recipe. Browser host clients only. |
+| [`site.put`](#siteput) | client → server | Site memory (1.9.0): upsert an entry by (origin, pageType). Core checks the schema, refuses XPath, values on login fields and strings that look like personal data or credentials, and enforces 24 KB per entry (16 KB before 1.15.0) and 30 entries per origin ('invalid_params' naming the field); past 1,000 origins the least recently verified origin is dropped. A put clears stale and counts as a success. Browser host clients only. |
 | [`skill.create`](#skillcreate) | client → server | Write a new SKILL.md, generated from a brief or supplied verbatim. |
 | [`skill.install`](#skillinstall) | client → server | Install a skill from a path, URL or registry. |
 | [`skill.list`](#skilllist) | client → server | List installed skills. |
@@ -2125,7 +2127,7 @@ Site memory (1.9.0): the entries stored for an origin in the caller's browser pr
 
 | field | type | required | description |
 |---|---|---|---|
-| `entries` | `({ actions?: ({ kind: "click" \| "fill" \| "select" \| "toggle" \| "submit"; locators: ({ by: "role" \| "label" \| "text" \| "placeholder" \| "testid" \| "css"; name?: string \| null; role?: string \| null; value?: string \| null; })[]; loginField?: boolean; name: string; })[]; createdAt: string; entryId: string; failureCount?: number; fingerprint?: string \| null; flows?: ({ name: string; steps?: string[]; })[]; landmarks?: string[]; lastVerified: string; origin: string; pageType: string; pitfalls?: string[]; stale?: boolean; successCount?: number; summary?: string; urlPattern: string; })[]` | no | Most specific urlPattern first; stale entries included, flagged. |
+| `entries` | `({ actions?: ({ kind: "click" \| "fill" \| "select" \| "toggle" \| "submit"; locators: ({ by: "role" \| "label" \| "text" \| "placeholder" \| "testid" \| "css"; name?: string \| null; role?: string \| null; value?: string \| null; })[]; loginField?: boolean; name: string; })[]; createdAt: string; entryId: string; failureCount?: number; fingerprint?: string \| null; flows?: ({ expect?: "page" \| "update" \| null; name: string; stats?: { lastRun?: string \| null; missed?: number; ok?: number; } \| null; steps?: (string \| { action?: string \| null; intent?: string \| null; verb: "fill" \| "click" \| "select" \| "enter"; })[]; })[]; landmarks?: string[]; lastVerified: string; origin: string; pageType: string; pitfalls?: string[]; recipes?: ({ fields: ({ attr?: string \| null; name: string; selector: string; })[]; intent?: string \| null; item: string; name: string; stale?: boolean; stats?: { day?: number \| null; hits?: number; misses?: number; } \| null; })[]; stale?: boolean; successCount?: number; summary?: string; urlPattern: string; })[]` | no | Most specific urlPattern first; stale entries included, flagged. |
 
 ### `site.list`
 
@@ -2168,19 +2170,41 @@ Site memory (1.9.0): 'ok' counts a success, sets lastVerified and clears stale; 
 
 | field | type | required | description |
 |---|---|---|---|
-| `entry` | `{ actions?: ({ kind: "click" \| "fill" \| "select" \| "toggle" \| "submit"; locators: ({ by: "role" \| "label" \| "text" \| "placeholder" \| "testid" \| "css"; name?: string \| null; role?: string \| null; value?: string \| null; })[]; loginField?: boolean; name: string; })[]; createdAt: string; entryId: string; failureCount?: number; fingerprint?: string \| null; flows?: ({ name: string; steps?: string[]; })[]; landmarks?: string[]; lastVerified: string; origin: string; pageType: string; pitfalls?: string[]; stale?: boolean; successCount?: number; summary?: string; urlPattern: string; }` | yes | The entry after the mark. |
+| `entry` | `{ actions?: ({ kind: "click" \| "fill" \| "select" \| "toggle" \| "submit"; locators: ({ by: "role" \| "label" \| "text" \| "placeholder" \| "testid" \| "css"; name?: string \| null; role?: string \| null; value?: string \| null; })[]; loginField?: boolean; name: string; })[]; createdAt: string; entryId: string; failureCount?: number; fingerprint?: string \| null; flows?: ({ expect?: "page" \| "update" \| null; name: string; stats?: { lastRun?: string \| null; missed?: number; ok?: number; } \| null; steps?: (string \| { action?: string \| null; intent?: string \| null; verb: "fill" \| "click" \| "select" \| "enter"; })[]; })[]; landmarks?: string[]; lastVerified: string; origin: string; pageType: string; pitfalls?: string[]; recipes?: ({ fields: ({ attr?: string \| null; name: string; selector: string; })[]; intent?: string \| null; item: string; name: string; stale?: boolean; stats?: { day?: number \| null; hits?: number; misses?: number; } \| null; })[]; stale?: boolean; successCount?: number; summary?: string; urlPattern: string; }` | yes | The entry after the mark. |
 
-### `site.put`
+### `site.markPart`
 
 *Direction:* client → server
 
-Site memory (1.9.0): upsert an entry by (origin, pageType). Core checks the schema, refuses XPath, values on login fields and strings that look like personal data or credentials, and enforces 16 KB per entry and 30 entries per origin ('invalid_params' naming the field); past 1,000 origins the least recently verified origin is dropped. A put clears stale and counts as a success. Browser host clients only.
+Site memory (1.15.0): count one use of a flow or recipe of an entry without a put. The entry's successCount, failureCount, stale and lastVerified are untouched, so this never counts as verification. 'not_found' for an unknown entry, flow or recipe. Browser host clients only.
 
 **Params**
 
 | field | type | required | description |
 |---|---|---|---|
-| `entry` | `{ actions?: ({ kind: "click" \| "fill" \| "select" \| "toggle" \| "submit"; locators: ({ by: "role" \| "label" \| "text" \| "placeholder" \| "testid" \| "css"; name?: string \| null; role?: string \| null; value?: string \| null; })[]; loginField?: boolean; name: string; })[]; fingerprint?: string \| null; flows?: ({ name: string; steps?: string[]; })[]; landmarks?: string[]; lastVerified?: string \| null; pageType: string; pitfalls?: string[]; summary?: string; urlPattern: string; }` | yes | The entry; upserted by (origin, pageType). |
+| `entryId` | `string` | yes | The entry. |
+| `name` | `string` | yes | The flow's or recipe's name. |
+| `origin` | `string` | yes | Origin of the entry. |
+| `outcome` | `"ok" \| "miss" \| "stale"` | yes | flow: ok (stats.ok+1, lastRun) \| miss (stats.missed+1). recipe: ok (hits+1, day, not stale) \| miss (misses+1) \| stale (misses+1, stale). |
+| `part` | `"flow" \| "recipe"` | yes | Which list the part is in. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `entry` | `{ actions?: ({ kind: "click" \| "fill" \| "select" \| "toggle" \| "submit"; locators: ({ by: "role" \| "label" \| "text" \| "placeholder" \| "testid" \| "css"; name?: string \| null; role?: string \| null; value?: string \| null; })[]; loginField?: boolean; name: string; })[]; createdAt: string; entryId: string; failureCount?: number; fingerprint?: string \| null; flows?: ({ expect?: "page" \| "update" \| null; name: string; stats?: { lastRun?: string \| null; missed?: number; ok?: number; } \| null; steps?: (string \| { action?: string \| null; intent?: string \| null; verb: "fill" \| "click" \| "select" \| "enter"; })[]; })[]; landmarks?: string[]; lastVerified: string; origin: string; pageType: string; pitfalls?: string[]; recipes?: ({ fields: ({ attr?: string \| null; name: string; selector: string; })[]; intent?: string \| null; item: string; name: string; stale?: boolean; stats?: { day?: number \| null; hits?: number; misses?: number; } \| null; })[]; stale?: boolean; successCount?: number; summary?: string; urlPattern: string; }` | yes | The entry after the count. |
+
+### `site.put`
+
+*Direction:* client → server
+
+Site memory (1.9.0): upsert an entry by (origin, pageType). Core checks the schema, refuses XPath, values on login fields and strings that look like personal data or credentials, and enforces 24 KB per entry (16 KB before 1.15.0) and 30 entries per origin ('invalid_params' naming the field); past 1,000 origins the least recently verified origin is dropped. A put clears stale and counts as a success. Browser host clients only.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `entry` | `{ actions?: ({ kind: "click" \| "fill" \| "select" \| "toggle" \| "submit"; locators: ({ by: "role" \| "label" \| "text" \| "placeholder" \| "testid" \| "css"; name?: string \| null; role?: string \| null; value?: string \| null; })[]; loginField?: boolean; name: string; })[]; fingerprint?: string \| null; flows?: ({ expect?: "page" \| "update" \| null; name: string; stats?: { lastRun?: string \| null; missed?: number; ok?: number; } \| null; steps?: (string \| { action?: string \| null; intent?: string \| null; verb: "fill" \| "click" \| "select" \| "enter"; })[]; })[]; landmarks?: string[]; lastVerified?: string \| null; pageType: string; pitfalls?: string[]; recipes?: ({ fields: ({ attr?: string \| null; name: string; selector: string; })[]; intent?: string \| null; item: string; name: string; stale?: boolean; stats?: { day?: number \| null; hits?: number; misses?: number; } \| null; })[]; summary?: string; urlPattern: string; }` | yes | The entry; upserted by (origin, pageType). |
 | `origin` | `string` | yes | Origin the entry belongs to. |
 
 **Result**
