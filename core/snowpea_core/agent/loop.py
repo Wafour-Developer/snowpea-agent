@@ -34,8 +34,11 @@ from snowpea_core.memory import context_for_turn, nudge_after_turn
 from snowpea_core.permissions import plan_paths
 from snowpea_core.permissions.policy import (
     PLAN_WRITE_TOOLS,
+    READ_ONLY_REFUSED,
+    READ_ONLY_REFUSED_TOOLS,
     UNPROMOTABLE,
     PermissionPolicy,
+    read_only_refusal,
 )
 from snowpea_core.prompts import environment as prompt_env
 from snowpea_core.providers import content as content_parts
@@ -2000,6 +2003,13 @@ async def _run_one_call(
         await _deny_call(core, session, call, refusal)
         return None
     verdict = policy.decide(session.mode, tag, tool, call.arguments, session)
+    if getattr(session, "read_only", False) and (
+        tag in READ_ONLY_REFUSED or verdict == "ask" or tool.name in READ_ONLY_REFUSED_TOOLS
+    ):
+        # A read-only delegation (addendum 23) mutates nothing — not even the
+        # plan documents plan mode allows — and never stops to ask a person.
+        await _deny_call(core, session, call, read_only_refusal(tool.name, tag))
+        return None
     if verdict == "deny":
         message = f"{tool.name} ({tag}) is not allowed in {session.mode} mode"
         if session.mode == "plan" and tool.name in PLAN_WRITE_TOOLS and tag == "write":
@@ -2185,6 +2195,7 @@ async def _run_one_call(
             tool_call_id=call.id,
             name=call.name,
             sensitive=sensitive,
+            snapshot_tab=host_tools_mod.snapshot_tab(result.meta),
         )
     )
     if result.ok and result.meta and (result.meta.get("image") or result.meta.get("images")):
@@ -2264,7 +2275,7 @@ async def _deny_call(core: Core, session: Session, call: ToolCall, reason: str) 
     any other failed call does.
     """
     message = f"Denied: {reason}. Choose a different action; do not retry the same call."
-    if session.mode == "plan":
+    if session.mode == "plan" and not getattr(session, "read_only", False):
         message += (
             ' In plan mode, finish the plan and call set_mode("accept") so the user can'
             " choose to start implementing; never ask them in prose to switch modes."

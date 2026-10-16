@@ -38,6 +38,15 @@ export function webSearch(client: Client, query: string, num?: number): Promise<
   return client.call("web.search", (num === undefined ? { query } : { query, num }) as P<"web.search">);
 }
 
+/**
+ * One tool-less model call for the session's browser host (protocol 1.14.0):
+ * no tools, no history, only a usage event in the session. With `schema` the
+ * answer comes back validated in `json`, or the call fails `invalid_output`.
+ */
+export function llmSample(client: Client, params: P<"llm.sample">): Promise<R<"llm.sample">> {
+  return client.call("llm.sample", params);
+}
+
 /** Choose the execution backend (local, docker, ssh) for a session. */
 export function setBackend(
   client: Client,

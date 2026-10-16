@@ -810,6 +810,39 @@ def prune_old_tool_outputs(
     return out
 
 
+def _superseded_stub(tab: str) -> str:
+    return f"[superseded by a newer snapshot of {tab}]"
+
+
+def supersede_snapshots(
+    history: list[ChatMessage], pruned: list[str] | None = None
+) -> list[ChatMessage]:
+    """Stub every tab snapshot a newer snapshot of the same tab replaces (addendum 23).
+
+    A browser session snapshots the same tab every few calls, and only the
+    newest one describes the page the next action lands on; the older ones
+    were dominating the input until round-based pruning reached them.  The
+    call that took a snapshot keeps its arguments; only the result shrinks.
+    Like :func:`prune_old_tool_outputs` this works on the outgoing request,
+    never on the stored transcript.
+    """
+    latest: dict[str, int] = {}
+    for index, message in enumerate(history):
+        if message.role == "tool" and message.snapshot_tab:
+            latest[message.snapshot_tab] = index
+    if not latest:
+        return history
+    out = list(history)
+    for index, message in enumerate(history):
+        tab = message.snapshot_tab if message.role == "tool" else None
+        if not tab or latest[tab] == index or not isinstance(message.content, str):
+            continue
+        out[index] = replace(message, content=_superseded_stub(tab))
+        if pruned is not None and message.tool_call_id:
+            pruned.append(message.tool_call_id)
+    return out
+
+
 def _is_notice_message(message: ChatMessage) -> bool:
     return message.role == "user" and message.name == NOTICE_MESSAGE_NAME
 
@@ -858,6 +891,7 @@ __all__ = [
     "prompt_messages",
     "DEFAULT_MAX_REQUEST_IMAGES",
     "prune_old_tool_outputs",
+    "supersede_snapshots",
     "prune_request_images",
     "prune_skill_views",
     "reinject_markers",

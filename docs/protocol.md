@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.13.0` (semver)
+- **Protocol version:** `1.14.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.13.0"
+    "protocolVersion": "1.14.0"
   }
 }
 ```
@@ -44,14 +44,17 @@ Server capabilities advertised in the `system.hello` result:
 - `checkpoints`
 - `commands`
 - `hostTools`
+- `llmSample`
 - `lsp`
 - `mcp`
 - `onceOnlyScope`
+- `readOnlyDelegation`
 - `sessionContinue`
 - `sessions`
 - `settings`
 - `setup`
 - `siteMemory`
+- `snapshotSupersede`
 - `tabReadAlways`
 - `tools`
 - `update`
@@ -97,6 +100,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`job.runNow`](#jobrunnow) | client → server | Fire a scheduled job immediately. |
 | [`job.schedule`](#jobschedule) | client → server | Schedule a prompt to run unattended. |
 | [`job.update`](#jobupdate) | client → server | Change an existing job (addendum 12). |
+| [`llm.sample`](#llmsample) | client → server | One tool-less model call for a session's browser host (1.14.0): no tools, no history, nothing written to the transcript except a usage event. The session's host only ('unauthorized' otherwise); 'unavailable' when no model can answer; with schema, 'invalid_output' when the answer does not validate. |
 | [`lsp.catalog`](#lspcatalog) | client → server | List every registered language server, regardless of whether it has started. |
 | [`lsp.status`](#lspstatus) | client → server | Report every language server the daemon has started and its state. |
 | [`mcp.add`](#mcpadd) | client → server | Write an MCP server into the project or global .mcp.json and start it. |
@@ -307,7 +311,7 @@ Escalate one host action through the approval pipeline. The approver's approval.
 
 | field | type | required | description |
 |---|---|---|---|
-| `by` | `string` | no | Who decided: 'user' (a person answered), 'allowlist', 'mode' (the mode matrix), or 'timeout' / 'interrupted' (denied without an answer). |
+| `by` | `string` | no | Who decided: 'user' (a person answered), 'allowlist', 'mode' (the mode matrix), 'readOnly' (a read-only delegation refuses changes and never asks; 1.14.0), or 'timeout' / 'interrupted' (denied without an answer). |
 | `decision` | `"allow" \| "deny"` | yes | allow or deny. |
 | `scope` | `"once" \| "session" \| "project" \| "always" \| "site"` | no | Scope the answer applies to; always 'once' for payment. 'project' only for project-safe actions (repl.files, a localDevServer repl.navigate); 'always' for a page action only for repl.tabs, repl.clipboard and (1.13.0) repl.read and repl.attach, others are kept to 'once'. For args.onceOnly (1.12.0) the scope the person picked, which core never stores: the host may keep it on its side. |
 
@@ -954,6 +958,32 @@ Change an existing job (addendum 12).
 | `spec` | `string` | yes | Schedule as given. |
 | `state` | `"scheduled" \| "running" \| "cancelled"` | no | Current job state. |
 | `task` | `string` | yes | Prompt run on each firing. |
+
+### `llm.sample`
+
+*Direction:* client → server
+
+One tool-less model call for a session's browser host (1.14.0): no tools, no history, nothing written to the transcript except a usage event. The session's host only ('unauthorized' otherwise); 'unavailable' when no model can answer; with schema, 'invalid_output' when the answer does not validate.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `input` | `string` | yes | Page-derived text; sent as the user message, fenced and marked untrusted. |
+| `maxTokens` | `number` | no | Output token cap, at most 4096. |
+| `modelCategory` | `"fast" \| "default"` | no | 'fast' = browser.fastModel (then models.categories.fast, then the session's model); 'default' = the session's model. |
+| `schema` | `Record<string, unknown> \| null` | no | JSON Schema the answer must match. With it the model is told to answer JSON only, and an answer that does not validate is 'invalid_output'. |
+| `sessionId` | `string` | yes | Session whose provider settings and bill this call uses; its host only. |
+| `system` | `string \| null` | no | Instructions the host wrote. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `json` | `unknown` | no | The validated JSON value, when a schema was given. |
+| `model` | `string` | yes | 'vendor:model' that answered. |
+| `text` | `string \| null` | no | The answer, when no schema was given. |
+| `usage` | `{ inputTokens?: number; outputTokens?: number; }` | yes | Tokens the call used. |
 
 ### `lsp.catalog`
 
@@ -3271,6 +3301,7 @@ The numeric `error.code`: `-32601` means only that the **method** does not exist
 | `approval_timeout` | No approval arrived before `approvals.timeoutSec` elapsed. |
 | `auth_expired` |  |
 | `internal` | Unexpected server-side failure. |
+| `invalid_output` |  |
 | `invalid_params` | Params failed schema validation. |
 | `login_unsupported` | The vendor does not support the requested login method. |
 | `mcp_exists` |  |

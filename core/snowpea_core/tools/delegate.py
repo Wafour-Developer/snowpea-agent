@@ -266,6 +266,22 @@ def _category_model(ctx: ToolContext, category: str) -> str | None:
     return str(value).strip() or None if value else None
 
 
+#: ``delegate_task {model: "fast"}``: ``browser.fastModel`` (addendum 23).
+FAST_MODEL = "fast"
+
+
+def fast_model_reference(ctx: ToolContext) -> str | None:
+    """``vendor:model`` for "fast": the setting, else the parent's own model."""
+    from snowpea_core.config.model_routing import ModelRoute, fast_route
+
+    session = ctx.session
+    parent = ModelRoute(getattr(session, "provider", None), getattr(session, "model", None))
+    route = fast_route(ctx.core.settings, parent, workdir=getattr(session, "workdir", None))
+    if route.provider and route.model:
+        return f"{route.provider}:{route.model}"
+    return route.provider or None
+
+
 async def delegate_task(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     """Run one subagent and report what it answered, or start it in the background."""
     task = str(args.get("task", "") or "").strip()
@@ -276,6 +292,8 @@ async def delegate_task(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     if profile not in PROFILES:
         return ToolResult(ok=False, error=f"profile must be one of {', '.join(PROFILES)}")
     model = str(args.get("model", "") or "").strip() or None
+    if model == FAST_MODEL:
+        model = fast_model_reference(ctx)
     category = str(args.get("model_category", "") or "").strip()
     if category and model is None:
         if category not in MODEL_CATEGORIES:
@@ -308,6 +326,7 @@ async def delegate_task(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         progress=progress,
         fork=profile == "fork_self",
         run_id=task_id,
+        read_only=bool(args.get("readOnly", False)),
     )
     if background:
         _track(ctx, manager, task_id, title, asyncio.ensure_future(coro))
@@ -585,7 +604,9 @@ TOOLS: tuple[Tool, ...] = (
                     "description": (
                         "Run this one delegation on a specific model: a configured "
                         "profile id, a 'vendor:model' pair, or a bare vendor name. "
-                        "Outranks the agent's own assignment; omit it to use that."
+                        "'fast' is the user's fast model (browser.fastModel), or this "
+                        "session's model when none is set. Outranks the agent's own "
+                        "assignment; omit it to use that."
                     ),
                 },
                 "model_category": {
@@ -602,6 +623,14 @@ TOOLS: tuple[Tool, ...] = (
                     "description": (
                         "'fork_self' starts the child from a copy of this conversation, "
                         "so the brief can be short; 'default' gives it only the brief."
+                    ),
+                },
+                "readOnly": {
+                    "type": "boolean",
+                    "description": (
+                        "Run the child read-only: plan mode, every change refused, and "
+                        "anything that would need approval refused instead of asked. "
+                        "For looking things up, e.g. reading pages in another tab."
                     ),
                 },
                 "run_in_background": {

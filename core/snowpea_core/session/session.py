@@ -48,6 +48,10 @@ class Session:
     #: ``"lean"`` | ``"full"`` for this child only — its agent definition's
     #: ``childContext:``.  ``None`` follows ``agents.childContext``.
     child_context: str | None = None
+    #: ``delegate_task {readOnly: true}`` (addendum 23): the child runs in plan
+    #: mode, every mutating tag is refused, and a call that would ask a person
+    #: is refused instead of asked.  A grandchild inherits it.
+    read_only: bool = False
     #: True once this turn's opening acknowledgement has been spoken, so
     #: only the first line before a tool call is read aloud.
     ack_spoken: bool = False

@@ -40,6 +40,9 @@ MCP_UNSAFE = "mcp_unsafe"
 #: A service the call needs cannot answer right now (``web.search`` with no
 #: usable search provider, protocol 1.11.0); ``details.reason`` says why.
 UNAVAILABLE = "unavailable"
+#: The model answered, but not in the shape asked for (``llm.sample`` with a
+#: ``schema``, 1.14.0); ``details.text`` holds the answer.
+INVALID_OUTPUT = "invalid_output"
 INTERNAL = "internal"
 
 ERROR_CODES: tuple[str, ...] = (
@@ -63,6 +66,7 @@ ERROR_CODES: tuple[str, ...] = (
     MCP_START_FAILED,
     MCP_UNSAFE,
     UNAVAILABLE,
+    INVALID_OUTPUT,
     INTERNAL,
 )
 
@@ -136,6 +140,7 @@ __all__ = [
     "TOOL_INACTIVE",
     "UNAUTHORIZED",
     "UNAVAILABLE",
+    "INVALID_OUTPUT",
     "INVALID_PARAMS",
     "RpcError",
     "jsonrpc_code",

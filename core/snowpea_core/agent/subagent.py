@@ -339,6 +339,8 @@ class SubagentRecord:
     #: ``fork_self``: the child starts from a copy of the parent's
     #: conversation instead of only the brief (1.7.0).
     fork: bool = False
+    #: ``delegate_task {readOnly: true}``: plan mode, mutations and asks refused.
+    read_only: bool = False
     summary: str = ""
     error: str | None = None
     input_tokens: int = 0
@@ -833,6 +835,7 @@ class SubagentManager:
         fork: bool = False,
         run_id: str = "",
         explicit_agent: bool | None = None,
+        read_only: bool = False,
         _allow_incomplete_retry: bool = True,
     ) -> SubagentResult:
         """Delegate ``task`` to a child session and return its final answer.
@@ -877,6 +880,7 @@ class SubagentManager:
             fork=fork,
             run_id=run_id,
             explicit_agent=explicit_agent,
+            read_only=read_only,
         )
         self._report_attempt(parent, result)
         if not _allow_incomplete_retry:
@@ -911,6 +915,7 @@ class SubagentManager:
                 force=True,
                 prefer=prefer_roles,
                 run_id=run_id,
+                read_only=read_only,
             )
             self._report_attempt(parent, nxt)
             # Prefer the continuation's answer; keep prior findings if the
@@ -979,6 +984,7 @@ class SubagentManager:
         fork: bool = False,
         run_id: str = "",
         explicit_agent: bool | None = None,
+        read_only: bool = False,
     ) -> SubagentResult:
         """One child turn with no incomplete re-issue.
 
@@ -1013,6 +1019,7 @@ class SubagentManager:
         elif agent and not record.name:
             record.name = agent
         record.fork = record.fork or fork
+        record.read_only = record.read_only or read_only
         if run_id:
             record.run_id = run_id
         if not record.task_fingerprint:
@@ -1307,7 +1314,10 @@ class SubagentManager:
     ) -> Session:
         """A fresh session that inherits the parent and obeys the definition."""
         mode = parent.mode
-        if defn is not None and defn.permission not in ("", "inherit", None):
+        read_only = record.read_only or bool(getattr(parent, "read_only", False))
+        if read_only:
+            mode = "plan"
+        elif defn is not None and defn.permission not in ("", "inherit", None):
             # A definition may narrow its child's mode, never widen the
             # parent's: a plan-mode parent cannot spawn an accept-mode child
             # (addendum 18).
@@ -1344,6 +1354,7 @@ class SubagentManager:
             kind="subagent",
         )
         child.unattended = parent.unattended
+        child.read_only = read_only
         child.memory_namespace = parent.memory_namespace
         child.locale = getattr(parent, "locale", None)
         inherit_host(child, parent)

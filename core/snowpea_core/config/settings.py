@@ -376,6 +376,11 @@ class BrowserSettings(_Model):
     #: can still see and clear what was remembered.  The browser's
     #: "remember site structure" switch writes it through ``settings.set``.
     siteMemory: bool = True
+    #: Model for the host's ``llm.sample {modelCategory: "fast"}`` and for
+    #: ``delegate_task {model: "fast"}`` (addendum 23): a profile id, a
+    #: ``vendor:model`` pair or a bare vendor.  Unset, ``models.categories.fast``
+    #: answers, and then the session's own model.
+    fastModel: str | None = None
 
 
 class ToolsSettings(_Model):

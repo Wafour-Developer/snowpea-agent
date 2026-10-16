@@ -22,7 +22,7 @@ from snowpea_core.permissions.allowlist import (
     once_only,
     site_of,
 )
-from snowpea_core.permissions.policy import MODE_MATRIX, RISK_BY_TAG
+from snowpea_core.permissions.policy import MODE_MATRIX, READ_ONLY_REFUSED, RISK_BY_TAG
 from snowpea_core.providers.base import ChatMessage
 from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
@@ -208,6 +208,11 @@ async def approval_ask_handler(
     # stored as, a rule — the same as a payment, without forcing a person.
     unremembered = payment or once_only(args)
     force = params.forceAsk or payment
+    read_only = bool(getattr(session, "read_only", False))
+    if read_only and (params.permission in READ_ONLY_REFUSED or force):
+        # A read-only delegation (addendum 23) changes nothing on the page and
+        # never puts a question to the person: refused, not asked.
+        return ApprovalAskResult(decision="deny", by="readOnly")
     matrix = MODE_MATRIX.get(session.mode, {}).get(params.permission, "ask")
     if force:
         # Only a deny may come from the mode; allow never does.
@@ -241,6 +246,8 @@ async def approval_ask_handler(
         reason_code=LOCAL_DEV_REASON if local_dev else None,
     ):
         return ApprovalAskResult(decision="allow", by="allowlist")
+    if read_only:
+        return ApprovalAskResult(decision="deny", by="readOnly")
     decision = await core.approvals.request(
         session,
         params.tool,

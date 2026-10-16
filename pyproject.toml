@@ -19,7 +19,7 @@ classifiers = [
 ]
 dependencies = [
   "websockets>=12",
-  "pydantic>=2",
+  "pydantic>=2.11",
   "aiohttp>=3.9",
   "anthropic>=0.40",
   "httpx>=0.27",
@@ -30,6 +30,7 @@ dependencies = [
   "asyncssh>=2.14",
   "python-dotenv",
   "mcp>=2.2.0",
+  "jsonschema>=4",
   "playwright>=1.62.0",
 ]
 

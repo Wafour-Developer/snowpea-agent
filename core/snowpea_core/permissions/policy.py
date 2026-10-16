@@ -82,6 +82,22 @@ MODE_MATRIX: dict[str, dict[str, str]] = {
     },
 }
 
+#: Tags a read-only delegation refuses whatever its mode says (addendum 23).
+READ_ONLY_REFUSED: frozenset[str] = frozenset({"write", "send", "config"})
+
+#: Tools a read-only delegation may not call whatever their tag: ``set_mode``
+#: asks a person and would take the child out of plan mode.
+READ_ONLY_REFUSED_TOOLS: frozenset[str] = frozenset({"set_mode"})
+
+
+def read_only_refusal(tool: str, tag: str) -> str:
+    """What a read-only child is told when a call is refused."""
+    return (
+        f"{tool} ({tag}) is refused: this is a read-only delegation — read and report, "
+        "and leave any change or anything that needs approval to the parent"
+    )
+
+
 #: Tags the allowlist may never promote from ``ask`` to ``allow``.
 UNPROMOTABLE: frozenset[str] = frozenset({"config", "secret"})
 

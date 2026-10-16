@@ -1,0 +1,52 @@
+{
+  "steps": [
+    {
+      "match": "switch to accept",
+      "text": "leaving plan mode",
+      "tool_calls": [
+        {
+          "name": "set_mode",
+          "arguments": {
+            "mode": "accept"
+          }
+        }
+      ]
+    },
+    {
+      "after_tool": "set_mode",
+      "text": "Stayed read-only."
+    },
+    {
+      "match": "write the notes file",
+      "text": "writing notes",
+      "tool_calls": [
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "notes.md",
+            "content": "# notes\n"
+          }
+        }
+      ]
+    },
+    {
+      "after_tool": "write_file",
+      "text": "trying a command",
+      "tool_calls": [
+        {
+          "name": "shell",
+          "arguments": {
+            "command": "touch made-by-child"
+          }
+        }
+      ]
+    },
+    {
+      "after_tool": "shell",
+      "text": "Read-only report: nothing could be changed."
+    }
+  ],
+  "default": {
+    "text": "fake default reply"
+  }
+}

@@ -442,6 +442,7 @@ def build_messages(
     if on:
         pruned: list[str] = []
         stored = history
+        history = compaction.supersede_snapshots(history, pruned)
         history = compaction.prune_old_tool_outputs(history, keep, max_chars, pruned)
         if pruned:
             # A result the model can no longer see is not one it should be

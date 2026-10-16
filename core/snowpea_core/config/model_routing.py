@@ -143,6 +143,31 @@ def resolve_reference(
     return ModelRoute()
 
 
+def fast_route(
+    settings: Settings,
+    fallback: ModelRoute,
+    *,
+    workdir: Path | str | None = None,
+) -> ModelRoute:
+    """The "fast" model: ``browser.fastModel``, then ``models.categories.fast``.
+
+    ``fallback`` — the session's own route — answers when neither is set or
+    neither resolves, so asking for "fast" never fails for want of a setting
+    (addendum 23).
+    """
+    config = model_config_for(settings, workdir)
+    browser = getattr(settings, "browser", None)
+    categories = getattr(getattr(settings, "models", None), "categories", None) or {}
+    for reference in (
+        getattr(browser, "fastModel", None),
+        categories.get("fast") if isinstance(categories, dict) else None,
+    ):
+        route = resolve_reference(settings, reference, config=config)
+        if route.resolved():
+            return route
+    return fallback
+
+
 def unknown_reference(
     settings: Settings, reference: str | None, *, workdir: Path | str | None = None
 ) -> bool:
@@ -162,6 +187,7 @@ def unknown_reference(
 __all__ = [
     "ModelConfig",
     "ModelRoute",
+    "fast_route",
     "model_config_for",
     "resolve_reference",
     "route_for",

@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.13.0"
+PROTOCOL_VERSION = "1.14.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -1359,7 +1359,8 @@ class ApprovalAskResult(Payload):
         default="",
         description=(
             "Who decided: 'user' (a person answered), 'allowlist', 'mode' (the mode "
-            "matrix), or 'timeout' / 'interrupted' (denied without an answer)."
+            "matrix), 'readOnly' (a read-only delegation refuses changes and never "
+            "asks; 1.14.0), or 'timeout' / 'interrupted' (denied without an answer)."
         ),
     )
 
@@ -2259,6 +2260,56 @@ class JobPreviewResult(Payload):
             "'interval', 'once at <UTC ISO>' for 'once'."
         ),
     )
+
+
+class LlmSampleParams(Payload):
+    sessionId: str = Field(
+        description="Session whose provider settings and bill this call uses; its host only."
+    )
+    modelCategory: Literal["fast", "default"] = Field(
+        default="default",
+        description=(
+            "'fast' = browser.fastModel (then models.categories.fast, then the session's "
+            "model); 'default' = the session's model."
+        ),
+    )
+    system: str | None = Field(
+        default=None, max_length=20_000, description="Instructions the host wrote."
+    )
+    input: str = Field(
+        min_length=1,
+        max_length=200_000,
+        description="Page-derived text; sent as the user message, fenced and marked untrusted.",
+    )
+    jsonSchema: dict[str, Any] | None = Field(
+        default=None,
+        alias="schema",
+        description=(
+            "JSON Schema the answer must match. With it the model is told to answer JSON "
+            "only, and an answer that does not validate is 'invalid_output'."
+        ),
+    )
+    maxTokens: int = Field(
+        default=1024, ge=1, le=4096, description="Output token cap, at most 4096."
+    )
+
+
+class LlmSampleUsage(Payload):
+    inputTokens: int = 0
+    outputTokens: int = 0
+
+
+class LlmSampleResult(Payload):
+    model_config = ConfigDict(extra="forbid", serialize_by_alias=True, populate_by_name=True)
+
+    text: str | None = Field(default=None, description="The answer, when no schema was given.")
+    data: Any = Field(
+        default=None,
+        alias="json",
+        description="The validated JSON value, when a schema was given.",
+    )
+    model: str = Field(description="'vendor:model' that answered.")
+    usage: LlmSampleUsage = Field(description="Tokens the call used.")
 
 
 class WebSearchParams(Payload):
@@ -4750,6 +4801,17 @@ METHODS: dict[str, RpcMethod] = {
                 "are untrusted web content."
             ),
         ),
+        _m(
+            "llm.sample",
+            LlmSampleParams,
+            LlmSampleResult,
+            (
+                "One tool-less model call for a session's browser host (1.14.0): no tools, "
+                "no history, nothing written to the transcript except a usage event. The "
+                "session's host only ('unauthorized' otherwise); 'unavailable' when no model "
+                "can answer; with schema, 'invalid_output' when the answer does not validate."
+            ),
+        ),
         _m("job.list", Empty, JobListResult, "List scheduled jobs and their next run times."),
         _m("job.cancel", JobIdParams, Ok, "Cancel a scheduled job."),
         _m("job.runNow", JobIdParams, Ok, "Fire a scheduled job immediately."),
@@ -5085,6 +5147,9 @@ CAPABILITIES: list[str] = [
     "webSearch",
     "onceOnlyScope",
     "tabReadAlways",
+    "llmSample",
+    "snapshotSupersede",
+    "readOnlyDelegation",
 ]
 
 #: Where the daemon listens; mirrored into the schema dump for the SDK.
@@ -5151,6 +5216,7 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "job.schedule",
         "job.preview",
         "web.search",
+        "llm.sample",
         "job.list",
         "job.cancel",
         "job.runNow",

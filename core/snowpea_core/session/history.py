@@ -105,7 +105,7 @@ def estimate_messages(messages: list[ChatMessage]) -> int:
 
 def message_to_json(message: ChatMessage) -> dict[str, Any]:
     """Serialisable form of a chat message (what goes into ``messages``)."""
-    return {
+    data: dict[str, Any] = {
         "content": REDACTED if message.sensitive else message.content,
         "tool_call_id": message.tool_call_id,
         "name": message.name,
@@ -115,6 +115,9 @@ def message_to_json(message: ChatMessage) -> dict[str, Any]:
         ]
         or None,
     }
+    if message.snapshot_tab:
+        data["snapshot_tab"] = message.snapshot_tab
+    return data
 
 
 def message_from_json(role: str, data: dict[str, Any]) -> ChatMessage:
@@ -130,6 +133,7 @@ def message_from_json(role: str, data: dict[str, Any]) -> ChatMessage:
         tool_call_id=data.get("tool_call_id"),
         name=data.get("name"),
         tool_calls=calls or None,
+        snapshot_tab=str(data["snapshot_tab"]) if data.get("snapshot_tab") else None,
     )
 
 

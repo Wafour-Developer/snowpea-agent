@@ -528,6 +528,23 @@ def event_meta(meta: dict[str, Any] | None, *, tool: str = "") -> dict[str, Any]
     return host_meta
 
 
+def snapshot_tab(meta: dict[str, Any] | None) -> str | None:
+    """The tab a host result is a snapshot of, or ``None`` (addendum 23).
+
+    The host says so in its own meta: ``kind: "snapshot"`` and ``tab``.  Any
+    other kind (``extract``, ``action``, ``other``) or no kind at all leaves
+    the result to the ordinary round-based pruning.
+    """
+    host_meta = (meta or {}).get(HOST_META_KEY)
+    if not isinstance(host_meta, dict) or host_meta.get("kind") != "snapshot":
+        return None
+    tab = host_meta.get("tab")
+    if isinstance(tab, bool) or not isinstance(tab, (str, int)):
+        return None
+    text = str(tab).strip()
+    return text[:200] or None
+
+
 def result_from_answer(name: str, answer: dict[str, Any]) -> ToolResult:
     """A ``tool.invoke`` answer as a :class:`ToolResult`.
 

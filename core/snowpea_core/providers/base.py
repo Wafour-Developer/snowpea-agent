@@ -50,6 +50,10 @@ class ChatMessage:
     #: during its turn, but it is stored, summarised and remembered as
     #: :data:`REDACTED` only.
     sensitive: bool = False
+    #: The tab a host tool result is a snapshot of (``meta.kind: "snapshot"``,
+    #: ``meta.tab``; addendum 23).  A newer snapshot of the same tab makes this
+    #: one a one-line stub in the outgoing request.
+    snapshot_tab: str | None = None
 
 
 #: What a sensitive message's content becomes outside the running turn.

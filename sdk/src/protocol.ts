@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.13.0";
+export const PROTOCOL_VERSION = "1.14.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -16,6 +16,7 @@ export type ErrorCode =
   | "approval_timeout"
   | "auth_expired"
   | "internal"
+  | "invalid_output"
   | "invalid_params"
   | "login_unsupported"
   | "mcp_exists"
@@ -38,6 +39,7 @@ export const ERROR_CODES: readonly ErrorCode[] = [
   "approval_timeout",
   "auth_expired",
   "internal",
+  "invalid_output",
   "invalid_params",
   "login_unsupported",
   "mcp_exists",
@@ -199,7 +201,7 @@ export interface ApprovalAskParams {
 
 /** `approval.ask` result. */
 export interface ApprovalAskResult {
-  /** Who decided: 'user' (a person answered), 'allowlist', 'mode' (the mode matrix), or 'timeout' / 'interrupted' (denied without an answer). */
+  /** Who decided: 'user' (a person answered), 'allowlist', 'mode' (the mode matrix), 'readOnly' (a read-only delegation refuses changes and never asks; 1.14.0), or 'timeout' / 'interrupted' (denied without an answer). */
   by?: string;
   /** allow or deny. */
   decision: "allow" | "deny";
@@ -949,6 +951,37 @@ export interface JobUpdateResult {
   state?: "scheduled" | "running" | "cancelled";
   /** Prompt run on each firing. */
   task: string;
+}
+
+/** `llm.sample` params. One tool-less model call for a session's browser host (1.14.0): no tools, no history, nothing written to the transcript except a usage event. The session's host only ('unauthorized' otherwise); 'unavailable' when no model can answer; with schema, 'invalid_output' when the answer does not validate. */
+export interface LlmSampleParams {
+  /** Page-derived text; sent as the user message, fenced and marked untrusted. */
+  input: string;
+  /** Output token cap, at most 4096. */
+  maxTokens?: number;
+  /** 'fast' = browser.fastModel (then models.categories.fast, then the session's model); 'default' = the session's model. */
+  modelCategory?: "fast" | "default";
+  /** JSON Schema the answer must match. With it the model is told to answer JSON only, and an answer that does not validate is 'invalid_output'. */
+  schema?: Record<string, unknown> | null;
+  /** Session whose provider settings and bill this call uses; its host only. */
+  sessionId: string;
+  /** Instructions the host wrote. */
+  system?: string | null;
+}
+
+/** `llm.sample` result. */
+export interface LlmSampleResult {
+  /** The validated JSON value, when a schema was given. */
+  json?: unknown;
+  /** 'vendor:model' that answered. */
+  model: string;
+  /** The answer, when no schema was given. */
+  text?: string | null;
+  /** Tokens the call used. */
+  usage: {
+    inputTokens?: number;
+    outputTokens?: number;
+  };
 }
 
 /** `lsp.catalog` params. List every registered language server, regardless of whether it has started. */
@@ -4396,6 +4429,7 @@ export interface MethodMap {
   "job.runNow": { params: JobRunNowParams; result: JobRunNowResult };
   "job.schedule": { params: JobScheduleParams; result: JobScheduleResult };
   "job.update": { params: JobUpdateParams; result: JobUpdateResult };
+  "llm.sample": { params: LlmSampleParams; result: LlmSampleResult };
   "lsp.catalog": { params: LspCatalogParams; result: LspCatalogResult };
   "lsp.status": { params: LspStatusParams; result: LspStatusResult };
   "mcp.add": { params: McpAddParams; result: McpAddResult };
@@ -4525,6 +4559,7 @@ export type ClientMethod =
   | "job.runNow"
   | "job.schedule"
   | "job.update"
+  | "llm.sample"
   | "lsp.catalog"
   | "lsp.status"
   | "mcp.add"
