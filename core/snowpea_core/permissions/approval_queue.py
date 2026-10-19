@@ -78,6 +78,15 @@ REPL_GLOBAL_OK: frozenset[str] = frozenset(
     {"repl.tabs", "repl.clipboard", "repl.read", "repl.attach"}
 )
 
+#: Page actions the person may still allow "always", on every site (1.19.0,
+#: capability ``pageActionAlways``).  The card says so in as many words, so
+#: the answer is exactly as broad as it looks; "project" stays ``once`` for
+#: them, since a project rule would quietly cover every site too.  A host
+#: marks what must never be remembered (payments) ``onceOnly``.
+REPL_ALWAYS_OK: frozenset[str] = frozenset(
+    {"repl.send", "repl.upload", "repl.script", "repl.navigate", "repl.fetch", "repl.download"}
+)
+
 #: Dotted actions that act on the session's project folder, not on a page:
 #: they may be remembered for that project, never globally (1.7.0).
 REPL_PROJECT_OK: frozenset[str] = frozenset({"repl.files"})
@@ -88,8 +97,10 @@ def guard_scope(request: ApprovalRequest, decision: Decision, workdir: Any = Non
 
     Defense in depth for host actions (1.7.0): a page action (``repl.*``
     other than tabs/clipboard) answered "always"/"project" would be stored
-    with no site and match everywhere; a "site" answer with no usable
-    http(s) origin would be stored the same way.  Both become ``once``.
+    with no site and match everywhere — except "always" for the kinds in
+    :data:`REPL_ALWAYS_OK`, which the person chose on every site (1.19.0);
+    a "site" answer with no usable http(s) origin would be stored the same
+    way.  Both become ``once``.
     The exception is a local-dev-server navigation (``repl.navigate`` with
     ``reasonCode: "localDevServer"``) answered "project": it is stored for
     the session's project *and* the URL's origin only.
@@ -108,6 +119,7 @@ def guard_scope(request: ApprovalRequest, decision: Decision, workdir: Any = Non
         and tool.startswith("repl.")
         and tool not in REPL_GLOBAL_OK
         and not (decision.scope == "project" and tool in REPL_PROJECT_OK)
+        and not (decision.scope == "always" and tool in REPL_ALWAYS_OK)
         and not local_dev
     ):
         log.info("approval %s: %s for %s kept to once", request.requestId, decision.scope, tool)

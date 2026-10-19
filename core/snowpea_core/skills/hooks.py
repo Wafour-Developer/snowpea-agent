@@ -254,13 +254,42 @@ def registry_of(core: Core) -> HookRegistry | None:
 
 
 def session_fields(session: Session) -> dict[str, Any]:
-    """Who the session belongs to, so a guard need not read state.db for it."""
+    """Who the session belongs to, so a guard need not read state.db for it.
+
+    ``browser_provider`` is ``"host"`` or ``"local"`` for a browser session
+    (who serves its ``browser_*`` calls) and ``None`` for any other.
+    """
+    from snowpea_core.tools.browser_providers import browser_provider_of
+
     return {
         "origin_surface": getattr(session, "origin_surface", None),
         "host_tools_from": getattr(session, "host_tools_from", None),
         "agent": getattr(session, "agent", None),
         "parent_session_id": getattr(session, "parent_session_id", None),
+        "browser_provider": browser_provider_of(session),
     }
+
+
+def tool_provider(core: Core, session: Session, tool_name: str) -> str | None:
+    """Who serves ``tool_name`` here: ``host``, ``mcp`` or ``builtin``.
+
+    A host tool is one a connected surface registered (``tool.register``); an
+    MCP tool comes from a configured server; everything else, LSP included,
+    runs in the daemon.  ``None`` when no tool by that name is registered.
+    """
+    tools = getattr(core, "tools", None)
+    try:
+        tool = tools.get(tool_name, session) if tools is not None else None
+    except Exception:  # noqa: BLE001 - a lookup failure only drops the field
+        tool = None
+    if tool is None:
+        return None
+    source = str(getattr(tool, "source", "") or "")
+    if source.startswith("host:"):
+        return "host"
+    if source.startswith("mcp:"):
+        return "mcp"
+    return "builtin"
 
 
 async def run_event(
@@ -285,6 +314,8 @@ async def run_event(
         "cwd": str(session.workdir),
         **session_fields(session),
     }
+    if tool_name:
+        payload["tool_provider"] = tool_provider(core, session, tool_name)
     home = core.paths.home
     outcome = HookOutcome()
     for hook in hooks:

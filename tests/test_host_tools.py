@@ -1371,9 +1371,20 @@ async def _ask_with_scope(
 async def test_always_on_a_page_action_is_kept_to_once(
     http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
 ) -> None:
+    """Outside ``REPL_ALWAYS_OK`` (1.19.0), and "project" for any page action."""
+    answer, stored = await _ask_with_scope(http, daemon, tmp_path, "always", "repl.click")
+    assert answer["scope"] == "once" and stored == []
+    for tool in ("repl.send", "repl.upload", "repl.script"):
+        answer, stored = await _ask_with_scope(http, daemon, tmp_path, "project", tool)
+        assert answer["scope"] == "once" and stored == [], tool
+
+
+async def test_always_on_a_listed_page_action_covers_every_site(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
     for tool in ("repl.send", "repl.upload", "repl.script"):
         answer, stored = await _ask_with_scope(http, daemon, tmp_path, "always", tool)
-        assert answer["scope"] == "once" and stored == [], tool
+        assert answer["scope"] == "always" and stored, tool
 
 
 async def test_site_scope_without_a_site_is_kept_to_once(
