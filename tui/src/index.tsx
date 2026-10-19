@@ -33,6 +33,7 @@ import {
 } from "./state/history.js";
 import { createFrameWriter, type FrameWriter } from "./layout/frame.js";
 import { installAltScreen } from "./layout/screen.js";
+import { splitKeypresses } from "./input/keys.js";
 import { TuiClient } from "./rpc/client.js";
 import type { Mode } from "./rpc/sdk.js";
 import { TUI_VERSION } from "./version.js";
@@ -324,6 +325,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   const localAudio = createLocalAudio(spawner, process.platform);
   const recordingPath = join(dir, "tmp", `recording-${Date.now()}.wav`);
 
+  splitKeypresses(process.stdin);
   let restart = false;
   const instance = render(
     <App

@@ -131,6 +131,10 @@ export function Chat({
   fileCompleteDebounceMs = 80,
 }: ChatProps): React.ReactElement {
   const [editor, setEditor] = useState<EditorState>({ text: "", cursor: 0 });
+  // Keys can arrive faster than React renders (held Backspace, a burst of
+  // typing while the transcript redraws): each one must edit the draft the
+  // previous one left, not the one the last render saw.
+  const editorRef = useRef(editor);
   const value = editor.text;
   const cursor = editor.cursor;
   const { stdout } = useStdout();
@@ -216,6 +220,7 @@ export function Chat({
       text: next.text,
       cursor: Math.max(0, Math.min(next.text.length, next.cursor)),
     };
+    editorRef.current = safe;
     setEditor(safe);
     if (!options.keepColumn) stickyColumn.current = null;
     setSelected(0);
@@ -230,8 +235,9 @@ export function Chat({
   // the user to read before it is sent.
   useEffect(() => {
     if (!insert) return;
-    const text = value.length > 0 ? ` ${insert}` : insert;
-    update(insertText(editor, text));
+    const current = editorRef.current;
+    const text = current.text.length > 0 ? ` ${insert}` : insert;
+    update(insertText(current, text));
     onInserted?.();
     // Only a new `insert` matters; the draft it is appended to is read live.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -239,7 +245,7 @@ export function Chat({
 
   useEffect(() => {
     if (!append) return;
-    update(insertText(editor, append));
+    update(insertText(editorRef.current, append));
     onAppended?.();
     // Only a new `append` matters; the current draft is read live.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -247,6 +253,11 @@ export function Chat({
 
   useInput(
     (input, key) => {
+      const editor = editorRef.current;
+      const value = editor.text;
+      const cursor = editor.cursor;
+      const draft = layoutEditor(value, wrapWidth, cursor);
+      const fileToken = findFileRefToken(value, cursor);
       // Mouse reports are the app's (the wheel scrolls the transcript); Ink
       // hands them to every input, and here they would be typed as text.
       if (mouseReports(input).length > 0) return;
