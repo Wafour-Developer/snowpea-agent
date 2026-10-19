@@ -88,9 +88,13 @@ Create one with /skill create, or write SKILL.md under .snowpea/skills/<name>/
 and reload.
 
 Batching.
-Independent reads, searches and read-only commands go in one response — they run
-concurrently; serialize only when a call needs an earlier result. The same change
-in several files is several patch calls in one turn.
+Every round is a full model call; do as much as you can in each:
+- Read all the files you need in one read_file(paths=[...]), not one call per file.
+- Independent reads, searches and read-only commands go in one response; serialize
+  only when a call needs an earlier result.
+- Related edits, across files too, go in one patch(edits=[...]).
+- In shell, chain steps that belong together and trim the output
+  (`python3 -m pytest -q 2>&1 | tail -30`).
 
 How to answer.
 Match the length of the reply to the weight of the ask: a one-line question gets

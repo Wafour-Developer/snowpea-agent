@@ -200,13 +200,18 @@ class PermissionPolicy:
             return verdict
         if verdict == "deny" and tag == "write" and tool.name in PLAN_WRITE_TOOLS:
             from snowpea_core.permissions.plan_paths import is_plan_writable
+            from snowpea_core.tools.call_paths import call_paths
 
-            path = str((args or {}).get("path", "") or "")
-            if is_plan_writable(
-                path,
-                workdir=getattr(session, "workdir", None),
-                home=self._home(),
-                settings=self._settings(),
+            # A batched patch is a document edit only if every file it touches is.
+            paths = call_paths(args) or [""]
+            if all(
+                is_plan_writable(
+                    path,
+                    workdir=getattr(session, "workdir", None),
+                    home=self._home(),
+                    settings=self._settings(),
+                )
+                for path in paths
             ):
                 return "allow"
         if verdict == "ask" and tag == "exec" and tool.name == PLAN_EXEC_TOOL:

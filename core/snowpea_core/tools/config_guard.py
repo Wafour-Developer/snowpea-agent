@@ -106,10 +106,15 @@ def home_of(core: Any) -> Any:
 def permission_for_write(
     args: dict[str, Any], session: Any = None, core: Any = None
 ) -> PermissionTag:
-    """``config`` when the call's ``path`` is a snowpea config file, else ``write``."""
-    path = str(args.get("path", "") or "")
+    """``config`` when any path of the call is a snowpea config file, else ``write``."""
+    from snowpea_core.tools.call_paths import call_paths
+
     workdir = getattr(session, "workdir", None)
-    return "config" if is_config_path(path, workdir=workdir, home=home_of(core)) else "write"
+    home = home_of(core)
+    paths = call_paths(args) or [""]
+    if any(is_config_path(path, workdir=workdir, home=home) for path in paths):
+        return "config"
+    return "write"
 
 
 def permission_for_read(
@@ -121,27 +126,36 @@ def permission_for_read(
     ~/.ssh or the .env for a real reason — but outside auto mode it is asked
     for first, the way ``config`` guards writes to snowpea's own settings.
     """
+    from snowpea_core.tools.call_paths import call_paths
+
+    # A batched read is as sensitive as its most sensitive file.
+    for raw in call_paths(args):
+        if _secret_path(raw, session, core):
+            return "secret"
+    return "read"
+
+
+def _secret_path(raw: str, session: Any, core: Any) -> bool:
     from snowpea_core.agent.prompt_refs import is_secret_pattern
 
-    raw = str(args.get("path", "") or "")
     if not raw:
-        return "read"
+        return False
     backend = getattr(session, "backend", None)
     try:
         candidate = Path(backend.resolve(raw)) if backend is not None else Path(raw).expanduser()
         resolved = candidate.resolve()
     except (OSError, RuntimeError):
-        return "read"
+        return False
     # The pattern rules (.ssh/.gnupg/.aws, .env*, *.pem/*.key, id_rsa*) plus
     # snowpea's own credentials and token; settings.json stays an ordinary read.
     if is_secret_pattern(resolved):
-        return "secret"
+        return True
     home = home_of(core)
     if home:
         base = Path(home)
         if resolved in {(base / "credentials.json").resolve(), (base / "token").resolve()}:
-            return "secret"
-    return "read"
+            return True
+    return False
 
 
 __all__ = [

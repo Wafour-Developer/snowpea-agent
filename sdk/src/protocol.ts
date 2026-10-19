@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.16.0";
+export const PROTOCOL_VERSION = "1.17.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -1591,6 +1591,8 @@ export interface ProviderModelsResult {
   current?: string;
   /** One line naming the source, for a picker to show. */
   detail?: string;
+  /** Why the live listing could not be used, when source is not 'live' (1.17.0); absent when the vendor answered or publishes no listing. */
+  error?: string | null;
   /** Model ids the vendor's endpoint reports. Whatever the source, models[0] is the recommended default (a ChatGPT account's first-priority model, the newest chat model for an API key), so a picker can take current or models[0]. */
   models?: string[];
   /** Which rung answered: live (the vendor's endpoint), settings (providers.<vendor>.models), cache (the last good listing) or curated (this build's list, merged with models.dev). */

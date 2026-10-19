@@ -280,3 +280,35 @@ async def test_anthropic_follows_pages_and_adds_no_preset_ids() -> None:
         transport=httpx.MockTransport(handler),
     )
     assert ids == ["claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-4-5-20251001"]
+
+
+async def test_provider_models_carries_the_reason_for_a_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    from snowpea_core.server.protocol import ProviderModelsParams
+    from snowpea_core.server.session_handlers import provider_models_handler
+
+    listing = model_discovery.ModelListing(
+        vendor="openai", auth="chatgpt", models=["gpt-6.1-sol"], source="curated",
+        detail="curated list", error="openai: HTTP 503 from the Codex model list",
+    )
+
+    async def model_listing(_vendor: str) -> Any:
+        return listing
+
+    providers = SimpleNamespace(
+        model_listing=model_listing,
+        model_for=lambda _vendor: "gpt-6.1-sol",
+        vision_map=lambda _vendor, _models: {},
+        default_vendor=lambda: "openai",
+    )
+    core = SimpleNamespace(providers=providers)
+    result = await provider_models_handler(None, ProviderModelsParams(vendor="openai"), core)  # type: ignore[arg-type]
+    assert result.error == listing.error and result.models[0] == "gpt-6.1-sol"
+    listing = model_discovery.ModelListing(
+        vendor="openai", auth="chatgpt", models=["gpt-6.1-sol"], source="live", detail=""
+    )
+    result = await provider_models_handler(None, ProviderModelsParams(vendor="openai"), core)  # type: ignore[arg-type]
+    assert result.error is None

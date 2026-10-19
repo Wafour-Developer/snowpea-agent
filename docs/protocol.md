@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.16.0` (semver)
+- **Protocol version:** `1.17.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.16.0"
+    "protocolVersion": "1.17.0"
   }
 }
 ```
@@ -41,6 +41,7 @@ Server capabilities advertised in the `system.hello` result:
 
 - `approvals`
 - `audio`
+- `batchedFileTools`
 - `checkpoints`
 - `commands`
 - `hostTools`
@@ -48,6 +49,7 @@ Server capabilities advertised in the `system.hello` result:
 - `lsp`
 - `mcp`
 - `onceOnlyScope`
+- `providerModelsError`
 - `readOnlyDelegation`
 - `sessionContinue`
 - `sessions`
@@ -1440,6 +1442,7 @@ Ask a vendor's endpoint which models it serves.
 |---|---|---|---|
 | `current` | `string` | no | Model this vendor uses today. |
 | `detail` | `string` | no | One line naming the source, for a picker to show. |
+| `error` | `string \| null` | no | Why the live listing could not be used, when source is not 'live' (1.17.0); absent when the vendor answered or publishes no listing. |
 | `models` | `string[]` | no | Model ids the vendor's endpoint reports. Whatever the source, models[0] is the recommended default (a ChatGPT account's first-priority model, the newest chat model for an API key), so a picker can take current or models[0]. |
 | `source` | `string` | no | Which rung answered: live (the vendor's endpoint), settings (providers.<vendor>.models), cache (the last good listing) or curated (this build's list, merged with models.dev). |
 | `vendor` | `string` | yes | Vendor the listing came from. |

@@ -17,9 +17,11 @@ VIEW_IMAGE = (
 )
 
 READ_FILE = (
-    "Read a UTF-8 text file relative to the session working directory. Use this "
-    "rather than cat, head or tail in shell. Optional offset (1-based first line) "
-    "and limit (line count) read a window instead of the whole file. Long files "
+    "Read UTF-8 text files relative to the session working directory. Use this "
+    "rather than cat, head or tail in shell. To read several files, pass them all "
+    "in `paths` (up to 10) in one call — each comes back under a '==> path <==' "
+    "header — instead of one call per file. Optional offset (1-based first line) "
+    "and limit (line count) read a window of a single `path`. Long files "
     "are truncated; the result says so when it happens. A windowed or truncated "
     "read does not satisfy the read-before-write rule: read the whole file before "
     "you write it."
@@ -43,10 +45,10 @@ PATCH = (
     "unless replace_all is true. Include a line or two of surrounding context to make "
     "the match unique. If it fails, re-read the file rather than retrying the same "
     "text. old_string must be copied from the file as it is now, so read the file "
-    "first unless you wrote it this turn. You may batch read_file and patch for the "
-    "same path in one response — read "
-    "runs before patch in the same turn. Batch several patch calls in one turn when "
-    "several files need the same kind of change."
+    "first unless you wrote it this turn. To make several changes — in one file or "
+    "across files — pass them in `edits` (up to 10, applied in order; an edit "
+    "without `path` uses the call's) instead of one call per change; it stops at the "
+    "first edit that fails and reports which ones were applied."
 )
 
 SHELL = (

@@ -52,6 +52,7 @@ from snowpea_core.skills import hooks as plugin_hooks
 from snowpea_core.tools import deferred as deferred_tools
 from snowpea_core.tools import host_tools as host_tools_mod
 from snowpea_core.tools import mcp_client, output_spill, repeat_guard, view_image
+from snowpea_core.tools.call_paths import call_paths
 from snowpea_core.tools.host_tools import HOST_TOOLS
 from snowpea_core.tools.registry import (
     ProgressEmitter,
@@ -2092,15 +2093,19 @@ async def _run_one_call(
         if repeated is not None:
             result = repeated.as_result()
         else:
-            if tag in {"write", "config"} and isinstance(call.arguments.get("path"), str):
-                try:
-                    checkpoint, first = await core.checkpoints.before_write(
-                        session, turn_id, call.arguments["path"], source="tool"
-                    )
-                    if first and checkpoint is not None:
-                        await hub.emit_event(session.id, events.checkpoint_updated(checkpoint))
-                except Exception:  # noqa: BLE001 - checkpoints are best effort
-                    log.warning("could not checkpoint %s", call.arguments["path"], exc_info=True)
+            if tag in {"write", "config"}:
+                # Every file a batched patch touches is checkpointed, not only ``path``.
+                for written in call_paths(dict(call.arguments)):
+                    try:
+                        checkpoint, first = await core.checkpoints.before_write(
+                            session, turn_id, written, source="tool"
+                        )
+                        if first and checkpoint is not None:
+                            await hub.emit_event(
+                                session.id, events.checkpoint_updated(checkpoint)
+                            )
+                    except Exception:  # noqa: BLE001 - checkpoints are best effort
+                        log.warning("could not checkpoint %s", written, exc_info=True)
             if shell_scan:
                 try:
                     shell_baseline = await core.checkpoints.begin_shell(session)

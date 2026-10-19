@@ -127,6 +127,41 @@ def _image_read_hint(path: str, resolved: Path) -> ToolResult:
 
 
 async def read_file(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
+    """One file, or several with ``paths`` — one round instead of one per file."""
+    many = [str(item or "").strip() for item in args.get("paths") or [] if str(item or "").strip()]
+    if many:
+        return await _read_many(ctx, args, many)
+    return await _read_one(ctx, args)
+
+
+async def _read_many(ctx: ToolContext, args: dict[str, Any], paths: list[str]) -> ToolResult:
+    """``paths`` (plus ``path``, if given): each whole file under a ``==> path <==`` header."""
+    from snowpea_core.tools.call_paths import MAX_BATCH, call_paths
+
+    wanted = call_paths({"path": args.get("path"), "paths": paths})
+    if len(wanted) > MAX_BATCH:
+        return ToolResult(
+            ok=False, error=f"read at most {MAX_BATCH} files per call; got {len(wanted)}"
+        )
+    parts: list[str] = []
+    budget = MAX_READ_CHARS
+    failed = 0
+    for path in wanted:
+        result = await _read_one(ctx, {"path": path}, budget=budget)
+        if result.ok:
+            budget = max(0, budget - len(result.output))
+            parts.append(f"==> {path} <==\n{result.output}")
+        else:
+            failed += 1
+            parts.append(f"==> {path} <==\n[error] {result.error}")
+    if failed == len(wanted):
+        return ToolResult(ok=False, error="\n\n".join(parts))
+    return ToolResult(ok=True, output="\n\n".join(parts))
+
+
+async def _read_one(
+    ctx: ToolContext, args: dict[str, Any], *, budget: int = MAX_READ_CHARS
+) -> ToolResult:
     path = str(args.get("path", "")).strip()
     if not path:
         return ToolResult(ok=False, error="path is required")
@@ -152,8 +187,9 @@ async def read_file(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     content, complete = _window(
         content, _positive_int(args, "offset"), _positive_int(args, "limit")
     )
-    if len(content) > MAX_READ_CHARS:
-        content = content[:MAX_READ_CHARS] + "\n… [truncated]"
+    if len(content) > budget:
+        # A batched read shares one budget: the files after it are cut, not lost.
+        content = content[:budget] + "\n… [truncated]"
         complete = False
     # The read-before-write guard is only as good as what it saw: a windowed or
     # truncated read is recorded as partial, so a later write is refused until
@@ -299,13 +335,15 @@ def stale_note(output: str, stale: str | None) -> str:
 
 
 async def patch(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
-    """Targeted find-and-replace in one file (Hermes ``patch`` dialect)."""
+    """Targeted find-and-replace (Hermes ``patch`` dialect); ``edits`` for several at once."""
     mode = str(args.get("mode", "replace") or "replace").strip().lower()
     if mode != "replace":
         return ToolResult(
             ok=False,
             error="only mode='replace' is supported; pass path, old_string, and new_string",
         )
+    if args.get("edits"):
+        return await _patch_many(ctx, args)
     path = str(args.get("path", "")).strip()
     old = str(args.get("old_string", "") or "")
     new = str(args.get("new_string", "") or "")
@@ -331,6 +369,62 @@ async def list_dir(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     return ToolResult(ok=True, output="\n".join(entries), path=path)
 
 
+
+async def _patch_many(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
+    """Apply ``edits`` in order; stop at the first that fails and say what was applied.
+
+    Each edit is ``{path?, old_string, new_string, replace_all?}``; a missing
+    ``path`` means the call's own.  Edits to the same file see the earlier
+    ones, exactly as separate calls in order would.
+    """
+    from snowpea_core.tools.call_paths import MAX_BATCH
+
+    raw = args.get("edits")
+    edits = [edit for edit in raw if isinstance(edit, dict)] if isinstance(raw, list) else []
+    if not edits:
+        return ToolResult(ok=False, error="edits must be a list of {path, old_string, new_string}")
+    if len(edits) > MAX_BATCH:
+        return ToolResult(ok=False, error=f"at most {MAX_BATCH} edits per call; got {len(edits)}")
+    top = str(args.get("path", "") or "").strip()
+    applied: list[str] = []
+    diffs: list[str] = []
+    for index, edit in enumerate(edits, 1):
+        path = str(edit.get("path") or top).strip()
+        old = str(edit.get("old_string", "") or "")
+        if not path or not old:
+            error = f"edit {index}: path and a non-empty old_string are required"
+            return _partial(applied, diffs, error)
+        result = await _replace_in_file(
+            ctx,
+            {
+                "path": path,
+                "old": old,
+                "new": str(edit.get("new_string", "") or ""),
+                "replaceAll": bool(edit.get("replace_all", False)),
+            },
+        )
+        if not result.ok:
+            return _partial(applied, diffs, f"edit {index} ({path}): {result.error}")
+        applied.append(f"{index}. {path}: {result.output}")
+        if result.diff:
+            diffs.append(result.diff)
+    return ToolResult(
+        ok=True,
+        output=f"applied {len(applied)} edit(s)\n" + "\n".join(applied),
+        diff="\n".join(diffs) or None,
+        path=top or None,
+    )
+
+
+def _partial(applied: list[str], diffs: list[str], error: str) -> ToolResult:
+    """A batch that stopped: what failed, and the edits that are already on disk."""
+    done = (
+        "earlier edits were applied and stay:\n" + "\n".join(applied)
+        if applied
+        else "no edit was applied"
+    )
+    return ToolResult(ok=False, error=f"{error}\n{done}", diff="\n".join(diffs) or None)
+
 TOOLS: tuple[Tool, ...] = (
     Tool(
         name="read_file",
@@ -340,6 +434,12 @@ TOOLS: tuple[Tool, ...] = (
             "type": "object",
             "properties": {
                 "path": {"type": "string", "description": "File to read."},
+                "paths": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "maxItems": 10,
+                    "description": "Several files to read in this one call (whole files).",
+                },
                 "offset": {
                     "type": "integer",
                     "description": "First line to return (1-based). Omit to start at the top.",
@@ -349,7 +449,6 @@ TOOLS: tuple[Tool, ...] = (
                     "description": "How many lines to return. Omit to read to the end.",
                 },
             },
-            "required": ["path"],
         },
         permission="read",
         permission_for=permission_for_read,
@@ -385,8 +484,25 @@ TOOLS: tuple[Tool, ...] = (
                     ),
                     "default": False,
                 },
+                "edits": {
+                    "type": "array",
+                    "maxItems": 10,
+                    "description": (
+                        "Several changes in one call, applied in order, instead of "
+                        "path/old_string/new_string."
+                    ),
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "path": {"type": "string"},
+                            "old_string": {"type": "string"},
+                            "new_string": {"type": "string"},
+                            "replace_all": {"type": "boolean"},
+                        },
+                        "required": ["old_string", "new_string"],
+                    },
+                },
             },
-            "required": ["path", "old_string", "new_string"],
         },
         permission="write",
         permission_for=permission_for_write,

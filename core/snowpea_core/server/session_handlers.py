@@ -1035,6 +1035,7 @@ async def provider_models_handler(
         current=core.providers.model_for(vendor),
         source=listing.source,
         detail=listing.detail,
+        error=(listing.error or None) if listing.source != "live" else None,
         vision=core.providers.vision_map(vendor, listing.models),
     )
 

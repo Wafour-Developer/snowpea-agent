@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.16.0"
+PROTOCOL_VERSION = "1.17.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -1694,6 +1694,13 @@ class ProviderModelsResult(Payload):
     )
     detail: str = Field(
         default="", description="One line naming the source, for a picker to show."
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Why the live listing could not be used, when source is not 'live' (1.17.0); "
+            "absent when the vendor answered or publishes no listing."
+        ),
     )
     vision: dict[str, bool] = Field(
         default_factory=dict,
@@ -5301,6 +5308,8 @@ CAPABILITIES: list[str] = [
     "readOnlyDelegation",
     "siteRecipes",
     "siteFrameActions",
+    "providerModelsError",
+    "batchedFileTools",
 ]
 
 #: Where the daemon listens; mirrored into the schema dump for the SDK.
