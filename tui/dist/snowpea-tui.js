@@ -37566,7 +37566,7 @@ function chipLabel(attachment) {
 }
 
 // src/version.ts
-var TUI_VERSION = "0.2.38";
+var TUI_VERSION = "0.2.39";
 
 // src/components/DiffView.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
@@ -39614,6 +39614,7 @@ function Chat({
   fileCompleteDebounceMs = 80
 }) {
   const [editor, setEditor] = (0, import_react30.useState)({ text: "", cursor: 0 });
+  const editorRef = (0, import_react30.useRef)(editor);
   const value = editor.text;
   const cursor = editor.cursor;
   const { stdout } = use_stdout_default();
@@ -39680,6 +39681,7 @@ function Chat({
       text: next.text,
       cursor: Math.max(0, Math.min(next.text.length, next.cursor))
     };
+    editorRef.current = safe;
     setEditor(safe);
     if (!options.keepColumn) stickyColumn.current = null;
     setSelected(0);
@@ -39689,22 +39691,28 @@ function Chat({
   const replace = (text2, nextCursor = text2.length) => update({ text: text2, cursor: nextCursor });
   (0, import_react30.useEffect)(() => {
     if (!insert2) return;
-    const text2 = value.length > 0 ? ` ${insert2}` : insert2;
-    update(insert(editor, text2));
+    const current2 = editorRef.current;
+    const text2 = current2.text.length > 0 ? ` ${insert2}` : insert2;
+    update(insert(current2, text2));
     onInserted?.();
   }, [insert2]);
   (0, import_react30.useEffect)(() => {
     if (!append) return;
-    update(insert(editor, append));
+    update(insert(editorRef.current, append));
     onAppended?.();
   }, [append]);
   use_input_default(
     (input, key) => {
+      const editor2 = editorRef.current;
+      const value2 = editor2.text;
+      const cursor2 = editor2.cursor;
+      const draft2 = layout(value2, wrapWidth, cursor2);
+      const fileToken2 = findFileRefToken(value2, cursor2);
       if (mouseReports(input).length > 0) return;
       const keyPlus = key;
       if (key.escape) {
         if (showFilePopup) {
-          setDismissedTokenStart(fileToken.start);
+          setDismissedTokenStart(fileToken2.start);
           setFileCompletions([]);
           return;
         }
@@ -39724,7 +39732,7 @@ function Chat({
         if (key.tab) {
           const candidate = fileCompletions[Math.min(selectedFile, fileCompletions.length - 1)];
           if (candidate) {
-            const next = applyFileCompletion(value, fileToken, candidate);
+            const next = applyFileCompletion(value2, fileToken2, candidate);
             replace(next.text, next.cursor);
             return;
           }
@@ -39738,7 +39746,7 @@ function Chat({
         }
         if (key.tab || key.return) {
           const candidate = agentMatches[Math.min(selected, agentMatches.length - 1)];
-          const next = applyAgentCompletion(value, query, candidate.name);
+          const next = applyAgentCompletion(value2, query, candidate.name);
           replace(next.text, next.cursor);
           return;
         }
@@ -39755,51 +39763,51 @@ function Chat({
       if (key.tab || input === "\x1B[Z" || input === "[Z") return;
       if ((key.ctrl || key.meta) && key.leftArrow) {
         setHistoryIndex(null);
-        update(wordLeft(editor));
+        update(wordLeft(editor2));
         return;
       }
       if ((key.ctrl || key.meta) && key.rightArrow) {
         setHistoryIndex(null);
-        update(wordRight(editor));
+        update(wordRight(editor2));
         return;
       }
       if (key.ctrl && input === "a") {
         setHistoryIndex(null);
-        update(home(editor));
+        update(home(editor2));
         return;
       }
       if (key.ctrl && input === "e") {
         setHistoryIndex(null);
-        update(end(editor));
+        update(end(editor2));
         return;
       }
       if (keyPlus.home) {
         setHistoryIndex(null);
-        update(home(editor));
+        update(home(editor2));
         return;
       }
       if (keyPlus.end) {
         setHistoryIndex(null);
-        update(end(editor));
+        update(end(editor2));
         return;
       }
       if (key.leftArrow || key.rightArrow) {
         setHistoryIndex(null);
-        update(key.leftArrow ? left(editor) : right(editor));
+        update(key.leftArrow ? left(editor2) : right(editor2));
         return;
       }
       if (key.upArrow || key.downArrow) {
-        const target = stickyColumn.current ?? draft.cursorCol;
-        if (key.upArrow && draft.cursorRow > 0) {
+        const target = stickyColumn.current ?? draft2.cursorCol;
+        if (key.upArrow && draft2.cursorRow > 0) {
           stickyColumn.current = target;
           setHistoryIndex(null);
-          update(up(editor, wrapWidth, target), { keepColumn: true });
+          update(up(editor2, wrapWidth, target), { keepColumn: true });
           return;
         }
-        if (key.downArrow && draft.cursorRow < draft.lines.length - 1) {
+        if (key.downArrow && draft2.cursorRow < draft2.lines.length - 1) {
           stickyColumn.current = target;
           setHistoryIndex(null);
-          update(down(editor, wrapWidth, target), { keepColumn: true });
+          update(down(editor2, wrapWidth, target), { keepColumn: true });
           return;
         }
         if (key.downArrow && historyIndex === null) {
@@ -39810,7 +39818,7 @@ function Chat({
           if (key.downArrow) onFocusDown?.();
           return;
         }
-        if (key.upArrow && historyIndex === null) historyDraft.current = value;
+        if (key.upArrow && historyIndex === null) historyDraft.current = value2;
         const current2 = historyIndex ?? history.length;
         const next = key.upArrow ? Math.max(0, current2 - 1) : Math.min(history.length, current2 + 1);
         setHistoryIndex(next === history.length ? null : next);
@@ -39819,14 +39827,14 @@ function Chat({
       }
       if (key.return && (keyPlus.shift || key.meta || keyPlus.alt)) {
         setHistoryIndex(null);
-        update(insert(editor, "\n"));
+        update(insert(editor2, "\n"));
         return;
       }
       if (key.return) {
         if (showFilePopup && fileCompletions.length > 0) {
           const candidate = fileCompletions[Math.min(selectedFile, fileCompletions.length - 1)];
           if (candidate) {
-            const next = applyFileCompletion(value, fileToken, candidate);
+            const next = applyFileCompletion(value2, fileToken2, candidate);
             replace(next.text, next.cursor);
             return;
           }
@@ -39834,16 +39842,16 @@ function Chat({
         if (showPalette) {
           const completion = completions[selected];
           const full = completion ? `/${completion.name}` : "";
-          const trimmed = value.trimEnd();
+          const trimmed = value2.trimEnd();
           if (completion && full.startsWith(trimmed)) {
-            const accepted = full === trimmed && value.length > trimmed.length;
+            const accepted = full === trimmed && value2.length > trimmed.length;
             if (!accepted) {
               replace(`${full} `);
               return;
             }
           }
         }
-        const text2 = value.trim();
+        const text2 = value2.trim();
         if (text2.length === 0) return;
         setHistory((h) => [...h, text2]);
         setHistoryIndex(null);
@@ -39853,13 +39861,13 @@ function Chat({
       }
       if (key.ctrl && input === "d") {
         setHistoryIndex(null);
-        update(del(editor));
+        update(del(editor2));
         return;
       }
       if (key.backspace || key.delete) {
-        if (value.length === 0 && onBackspaceEmpty?.()) return;
+        if (value2.length === 0 && onBackspaceEmpty?.()) return;
         setHistoryIndex(null);
-        update(backspace(editor));
+        update(backspace(editor2));
         return;
       }
       if (key.ctrl && input === "v") {
@@ -39881,22 +39889,22 @@ function Chat({
         onStartDaemon();
         return;
       }
-      if (typed === "U" && value.length === 0 && onQuickUpdate) {
+      if (typed === "U" && value2.length === 0 && onQuickUpdate) {
         onQuickUpdate();
         return;
       }
-      if (typed === "R" && value.length === 0 && onQuickResume) {
+      if (typed === "R" && value2.length === 0 && onQuickResume) {
         onQuickResume();
         return;
       }
       setHistoryIndex(null);
-      if (fileToken && fileToken.quoted && value[fileToken.end - 1] === '"' && cursor === fileToken.end && typed !== '"') {
-        const before = value.slice(0, cursor - 1);
-        const after = value.slice(cursor - 1);
-        update({ text: before + typed + after, cursor: cursor - 1 + typed.length });
+      if (fileToken2 && fileToken2.quoted && value2[fileToken2.end - 1] === '"' && cursor2 === fileToken2.end && typed !== '"') {
+        const before = value2.slice(0, cursor2 - 1);
+        const after = value2.slice(cursor2 - 1);
+        update({ text: before + typed + after, cursor: cursor2 - 1 + typed.length });
         return;
       }
-      update(insert(editor, typed));
+      update(insert(editor2, typed));
     },
     { isActive: !disabled }
   );
@@ -43878,6 +43886,71 @@ function installAltScreen({
   };
 }
 
+// src/input/keys.ts
+var ESC2 = "\x1B";
+var ERASE = /[\u007f\u0008]/;
+function needsSplit(chunk) {
+  return chunk.length > 1 && ERASE.test(chunk) && !/[\r\n]/.test(chunk) && !chunk.includes(`${ESC2}[200~`);
+}
+function escapeEnd(chunk, start) {
+  let at = start + 1;
+  if (chunk[at] === ESC2) at += 1;
+  const kind = chunk[at];
+  if (kind === void 0) return at;
+  if (kind === "O") return Math.min(chunk.length, at + 2);
+  if (kind !== "[") return at + 1;
+  at += 1;
+  if (chunk[at] === "[") return Math.min(chunk.length, at + 2);
+  while (at < chunk.length) {
+    const code = chunk.charCodeAt(at);
+    at += 1;
+    if (code >= 64 && code <= 126) break;
+  }
+  return at;
+}
+function splitKeys(chunk) {
+  const keys = [];
+  let at = 0;
+  while (at < chunk.length) {
+    const code = chunk.charCodeAt(at);
+    if (chunk[at] === ESC2) {
+      const end2 = escapeEnd(chunk, at);
+      keys.push(chunk.slice(at, end2));
+      at = end2;
+    } else if (code < 32 || code === 127) {
+      keys.push(chunk[at]);
+      at += 1;
+    } else {
+      let end2 = at + 1;
+      while (end2 < chunk.length) {
+        const next = chunk.charCodeAt(end2);
+        if (next < 32 || next === 127) break;
+        end2 += 1;
+      }
+      keys.push(chunk.slice(at, end2));
+      at = end2;
+    }
+  }
+  return keys;
+}
+function splitKeypresses(stdin) {
+  const marked = stdin;
+  if (marked.snowpeaSplitKeys) return;
+  marked.snowpeaSplitKeys = true;
+  const read = stdin.read.bind(stdin);
+  const queued = [];
+  stdin.read = (size) => {
+    if (queued.length > 0) return queued.shift();
+    const chunk = read(size);
+    if (chunk === null || chunk === void 0) return chunk;
+    const text2 = typeof chunk === "string" ? chunk : String(chunk);
+    if (!needsSplit(text2)) return chunk;
+    const [first, ...rest] = splitKeys(text2);
+    queued.push(...rest);
+    return first;
+  };
+}
+
 // src/rpc/client.ts
 var TuiClient = class {
   constructor(options) {
@@ -44268,6 +44341,7 @@ async function main(argv = process.argv.slice(2)) {
   );
   const localAudio = createLocalAudio(spawner, process.platform);
   const recordingPath = join2(dir, "tmp", `recording-${Date.now()}.wav`);
+  splitKeypresses(process.stdin);
   let restart = false;
   const instance = render_default(
     /* @__PURE__ */ (0, import_jsx_runtime35.jsx)(
