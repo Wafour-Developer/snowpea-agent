@@ -102,13 +102,21 @@ def tool_specs_to_openai(tools: list[ToolSpec]) -> list[dict[str, Any]]:
 
 
 def messages_to_openai(
-    messages: list[ChatMessage], *, vision: bool = False
+    messages: list[ChatMessage],
+    *,
+    vision: bool = False,
+    reasoning_field: str | None = None,
 ) -> list[dict[str, Any]]:
     """``ChatMessage`` list to the ``messages`` array of ``/chat/completions``.
 
     ``vision`` says whether this model can be sent image parts.  When it
     cannot, an attached image becomes an ``[image attached: name]`` marker in
     the text, which is why the argument defaults to the safe answer.
+
+    ``reasoning_field`` names the field an assistant message's thinking goes
+    back in.  The loop keeps reasoning on the running turn's messages only
+    (``History.forget_reasoning``), so that is what goes out: the turn in
+    progress, which is what the thinking-with-tools APIs ask for.
     """
     out: list[dict[str, Any]] = []
     for message in messages:
@@ -137,6 +145,8 @@ def messages_to_openai(
                 ]
                 if not entry["content"]:
                     entry["content"] = None
+            if reasoning_field and message.reasoning:
+                entry[reasoning_field] = message.reasoning
             out.append(entry)
             continue
         if message.role == "user" and content.has_blocks(message.content):
@@ -190,6 +200,7 @@ def build_openai_request(
             vision=(
                 vision if vision is not None else content.supports_vision(preset.id, model)
             ),
+            reasoning_field=getattr(preset, "reasoning_replay", None),
         ),
         "max_tokens": max_tokens,
         "stream": True,

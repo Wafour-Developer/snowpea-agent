@@ -39,6 +39,7 @@ from snowpea_core.providers.presets import (
     local_vendor_ids,
     preset_for,
     resolve_parallel_tools,
+    resolve_reasoning_replay,
     validate_custom_vendor_id,
 )
 from snowpea_core.server.protocol import AuthStatus, ProviderInfo
@@ -137,18 +138,22 @@ class ProviderRegistry:
         return None
 
     def effective_preset(self, vendor: str, model: str | None = None) -> VendorPreset:
-        """Static preset with per-model ``supports_parallel_tools`` resolved."""
+        """Static preset with the per-model settings resolved.
+
+        That is ``supports_parallel_tools`` and ``reasoning_replay``, each of
+        which the vendor config or the model profile may override.
+        """
         preset = self.preset(vendor)
         resolved_model = self.model_for(vendor, model)
+        vendor_config = self.vendor_config(vendor)
+        profile = self._profile_record_for(vendor, resolved_model)
         parallel = resolve_parallel_tools(
-            preset,
-            model=resolved_model,
-            vendor_config=self.vendor_config(vendor),
-            profile=self._profile_record_for(vendor, resolved_model),
+            preset, model=resolved_model, vendor_config=vendor_config, profile=profile
         )
-        if parallel == preset.supports_parallel_tools:
+        reasoning = resolve_reasoning_replay(preset, vendor_config=vendor_config, profile=profile)
+        if (parallel, reasoning) == (preset.supports_parallel_tools, preset.reasoning_replay):
             return preset
-        return replace(preset, supports_parallel_tools=parallel)
+        return replace(preset, supports_parallel_tools=parallel, reasoning_replay=reasoning)
 
     def is_local_style(self, vendor: str) -> bool:
         """True for ``local`` and for every named OpenAI-compatible server.

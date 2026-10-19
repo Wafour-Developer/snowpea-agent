@@ -416,8 +416,11 @@ class _Attempt:
     text: str = ""
     calls: list[ToolCall] = field(default_factory=list)
     stop_reason: str = "end_turn"
-    #: Characters of hidden reasoning; published, never stored.
+    #: Characters of hidden reasoning, published as they arrive.
     reasoning_chars: int = 0
+    #: The reasoning itself: kept on the turn's tool-call messages for an
+    #: adapter that sends it back, never persisted.
+    reasoning: str = ""
     reasoning_tokens: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
@@ -651,6 +654,7 @@ async def _stream_once_raw(
     # and the count each window carries is the running total, so a surface that
     # only reads ``chars`` is never behind.
     pending_reasoning: list[str] = []
+    thought: list[str] = []
     last_reasoning_at = 0.0
 
     async def flush_reasoning() -> None:
@@ -676,11 +680,12 @@ async def _stream_once_raw(
             chunks.append(event.text)
             await hub.emit_event(session.id, events.message_delta(event.text))
         elif event.kind == "reasoning_delta" and event.text:
-            # Hidden thinking joins neither the answer nor the history: it is
-            # published so a surface can say the model is working, and how
-            # much of the budget the working has already taken.
+            # Hidden thinking never joins the answer: it is published so a
+            # surface can say the model is working, and how much of the budget
+            # the working has already taken.
             attempt.reasoning_chars += len(event.text)
             pending_reasoning.append(event.text)
+            thought.append(event.text)
             if monotonic() - last_reasoning_at >= REASONING_EMIT_INTERVAL:
                 await flush_reasoning()
         elif event.kind == "tool_call" and event.tool_call is not None:
@@ -762,6 +767,7 @@ async def _stream_once_raw(
     # always published, so the totals a surface shows match what was counted.
     await flush_reasoning()
     attempt.text = "".join(chunks)
+    attempt.reasoning = "".join(thought)
     return attempt
 
 
@@ -874,6 +880,7 @@ async def _model_turn(
             calls=resumed.calls,
             stop_reason=resumed.stop_reason,
             reasoning_chars=attempt.reasoning_chars + resumed.reasoning_chars,
+            reasoning=attempt.reasoning + resumed.reasoning,
             reasoning_tokens=attempt.reasoning_tokens + resumed.reasoning_tokens,
             input_tokens=attempt.input_tokens + resumed.input_tokens,
             output_tokens=attempt.output_tokens + resumed.output_tokens,
@@ -1393,7 +1400,9 @@ async def _drive(
 
     # Auto-compaction happens here and nowhere else: between turns, before the
     # new user message joins the history, and never inside the tool loop
-    # (CORE-context).
+    # (CORE-context).  The last turn's thinking goes first: it was for that
+    # turn's tool rounds only, and it would only be counted here.
+    session.history.forget_reasoning()
     await compaction.maybe_auto_compact(core, session)
 
     # Whatever ``session.prompt`` validated and stored for this turn; taking it
@@ -1658,8 +1667,20 @@ async def _drive(
         # phones.  A surface that needs to know the prose has settled can see it
         # for itself: a tool call after a message means that message will not
         # grow again (see ``tool.call`` in the TUI's store).
+        # The thinking behind these calls goes back with them while the turn
+        # runs, to a vendor that reads it, so the next round picks up where
+        # this one's reasoning left off rather than reconstructing it.
         session.history.append(
-            ChatMessage(role="assistant", content=assistant_text, tool_calls=list(calls))
+            ChatMessage(
+                role="assistant",
+                content=assistant_text,
+                tool_calls=list(calls),
+                reasoning=(
+                    attempt.reasoning or None
+                    if getattr(provider, "replays_reasoning", False)
+                    else None
+                ),
+            )
         )
         segments = plan_tool_batch_segments(
             calls,

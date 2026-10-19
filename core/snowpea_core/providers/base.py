@@ -54,6 +54,12 @@ class ChatMessage:
     #: ``meta.tab``; addendum 23).  A newer snapshot of the same tab makes this
     #: one a one-line stub in the outgoing request.
     snapshot_tab: str | None = None
+    #: The hidden thinking that produced this assistant message.  Kept only
+    #: while its turn runs, and sent back only by an adapter whose vendor reads
+    #: it (:attr:`ChatProvider.replays_reasoning`): a model that sees why it
+    #: made its last tool call continues that line of thought instead of
+    #: working it all out again every round.
+    reasoning: str | None = None
 
 
 #: What a sensitive message's content becomes outside the running turn.
@@ -77,7 +83,8 @@ class StreamEvent:
 
     kind:
       text_delta     -> ``text``
-      reasoning_delta-> ``text`` (hidden thinking; never joins the transcript)
+      reasoning_delta-> ``text`` (hidden thinking; never joins the transcript,
+                        and returns to the model only within its own turn)
       tool_call      -> ``tool_call``
       usage          -> ``usage``
       done           -> ``stop_reason`` ("end_turn" | "tool_use" | "max_tokens" | "error")
@@ -114,6 +121,10 @@ class ChatProvider(Protocol):
     #: loop reads it with ``getattr``, so an adapter written before the option
     #: existed keeps its old signature (CORE-effort).
     supports_effort_option: bool = False
+
+    #: True for an adapter that sends :attr:`ChatMessage.reasoning` back to its
+    #: vendor.  The loop keeps a turn's reasoning only for such an adapter.
+    replays_reasoning: bool = False
 
     def stream(
         self,

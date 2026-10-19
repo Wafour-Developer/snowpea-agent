@@ -81,6 +81,11 @@ class OpenAICompatProvider:
         if not api_key and resolved.key_required and not replay.is_replay():
             raise ProviderError("invalid_params", f"{self.vendor}: no API key configured")
 
+    @property
+    def replays_reasoning(self) -> bool:
+        """True when this vendor reads a turn's earlier thinking back."""
+        return bool(self.preset.reasoning_replay)
+
     def _tag(self) -> str:
         """``local (qwen3-8b)`` — every error names the vendor *and* the model."""
         return f"{self.vendor} ({self.model})" if self.model else self.vendor

@@ -94,8 +94,12 @@ def message_text(message: ChatMessage) -> str:
 
 
 def estimate_message(message: ChatMessage) -> int:
-    """Estimated tokens one message costs, including wire overhead."""
-    return estimate_tokens(message_text(message)) + MESSAGE_OVERHEAD_TOKENS
+    """Estimated tokens one message costs, including wire overhead.
+
+    Reasoning kept for the running turn counts: it goes out with the message.
+    """
+    reasoning = estimate_tokens(message.reasoning) if message.reasoning else 0
+    return estimate_tokens(message_text(message)) + reasoning + MESSAGE_OVERHEAD_TOKENS
 
 
 def estimate_messages(messages: list[ChatMessage]) -> int:
@@ -161,6 +165,14 @@ class History:
     def snapshot(self) -> list[ChatMessage]:
         """Copy of the current messages, safe to hand to a provider."""
         return list(self.messages)
+
+    def forget_reasoning(self) -> None:
+        """Drop the thinking kept on earlier messages: a new turn has begun.
+
+        Reasoning is never persisted, so this changes nothing stored.
+        """
+        for message in self.messages:
+            message.reasoning = None
 
     def estimate_tokens(self) -> int:
         """Estimated tokens the stored messages cost, without the system prompt."""

@@ -76,6 +76,11 @@ class VendorPreset:
     #: ``response_format: {"type": "json_object"}``.  Only set where that is
     #: known; an unknown vendor is never sent the field (``/ralph`` PRD retry).
     supports_json_mode: bool = False
+    #: The assistant-message field this vendor reads earlier thinking back from
+    #: (``reasoning_content`` for DeepSeek, Kimi, and the chat templates of
+    #: vLLM/SGLang/llama.cpp servers), or ``None`` when it takes none.  Only
+    #: the current turn's reasoning is ever sent (see ``messages_to_openai``).
+    reasoning_replay: str | None = None
 
     @property
     def vendor(self) -> str:
@@ -101,6 +106,10 @@ _OPENROUTER_HEADERS = {
 }
 
 
+#: The field name DeepSeek introduced and the open chat templates adopted.
+REASONING_CONTENT = "reasoning_content"
+
+
 def _preset(
     vendor_id: str,
     label: str,
@@ -120,6 +129,7 @@ def _preset(
     local_style: bool = False,
     supports_effort: bool = False,
     supports_json_mode: bool = False,
+    reasoning_replay: str | None = None,
 ) -> VendorPreset:
     return VendorPreset(
         id=vendor_id,
@@ -138,6 +148,9 @@ def _preset(
         key_required=key_required,
         local_style=local_style,
         supports_effort=supports_effort,
+        # A self-hosted server hands message fields to its chat template; one
+        # whose template has no use for the field ignores it.
+        reasoning_replay=reasoning_replay or (REASONING_CONTENT if local_style else None),
         supports_json_mode=supports_json_mode,
     )
 
@@ -232,6 +245,7 @@ PRESETS: dict[str, VendorPreset] = {
             "kimi-k3",
             env_keys=("MOONSHOT_API_KEY", "KIMI_API_KEY"),
             models=("kimi-k3", "kimi-k2.7-code"),
+            reasoning_replay="reasoning_content",
         ),
         _preset(
             "deepseek",
@@ -243,6 +257,8 @@ PRESETS: dict[str, VendorPreset] = {
             # DeepSeek emits one tool call per assistant turn.
             supports_parallel_tools=False,
             supports_json_mode=True,
+            # Thinking mode with tools wants the turn's reasoning back.
+            reasoning_replay="reasoning_content",
         ),
         _preset(
             "qwen",
@@ -464,6 +480,26 @@ def resolve_parallel_tools(
     return preset.supports_parallel_tools
 
 
+def resolve_reasoning_replay(
+    preset: VendorPreset,
+    *,
+    vendor_config: Mapping[str, Any] | None = None,
+    profile: Mapping[str, Any] | None = None,
+) -> str | None:
+    """The field a turn's reasoning goes back in, or ``None`` for not at all.
+
+    ``providers.<vendor>.reasoningReplay`` (then the model profile's) turns it
+    off with ``false``, or on with ``true`` (as ``reasoning_content``) for a
+    vendor the preset does not know reads it.
+    """
+    for source in (vendor_config, profile):
+        if isinstance(source, Mapping):
+            explicit = _config_bool(source, "reasoningReplay")
+            if explicit is not None:
+                return (preset.reasoning_replay or REASONING_CONTENT) if explicit else None
+    return preset.reasoning_replay
+
+
 def preset_for(
     vendor: str, variant: str | None = None, config: Mapping[str, Any] | None = None
 ) -> VendorPreset:
@@ -515,6 +551,7 @@ __all__ = [
     "local_vendor_ids",
     "preset_for",
     "resolve_parallel_tools",
+    "resolve_reasoning_replay",
     "synthesize_local_preset",
     "validate_custom_vendor_id",
 ]
