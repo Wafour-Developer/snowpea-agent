@@ -1661,7 +1661,13 @@ async def _drive(
         session.history.append(
             ChatMessage(role="assistant", content=assistant_text, tool_calls=list(calls))
         )
-        segments = plan_tool_batch_segments(calls, workdir=session.workdir)
+        segments = plan_tool_batch_segments(
+            calls,
+            workdir=session.workdir,
+            parallel_safe=lambda name: bool(
+                getattr(core.tools.get(name, session), "parallel_safe", False)
+            ),
+        )
         for kind, batch in segments:
             if kind == "parallel" and len(batch) > 1:
                 outcomes = await asyncio.gather(

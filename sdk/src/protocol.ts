@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.17.0";
+export const PROTOCOL_VERSION = "1.18.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -3706,6 +3706,8 @@ export interface ToolRegisterParams {
     inputSchema?: Record<string, unknown>;
     /** Tool name, [A-Za-z][A-Za-z0-9_-]{0,63}. May not collide with a daemon tool except the built-in browser_* tools, which it shadows for the sessions that see this connection's tools. */
     name: string;
+    /** 'safe': several calls of it in one model response may run at once, like the built-in readers (1.18.0). Only for permission read or network; 'never' (the default) keeps it in order. */
+    parallel?: "safe" | "never";
     /** Permission class checked against the mode. */
     permission: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate" | "secret";
     /** How long tool.invoke may stay silent; default 120000. tool.progress restarts it, and it is paused while the session waits on an approval or a question. */

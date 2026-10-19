@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.17.0"
+PROTOCOL_VERSION = "1.18.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -1144,6 +1144,14 @@ class HostToolSpec(Payload):
         description=(
             "How long tool.invoke may stay silent; default 120000. tool.progress restarts "
             "it, and it is paused while the session waits on an approval or a question."
+        ),
+    )
+    parallel: Literal["safe", "never"] = Field(
+        default="never",
+        description=(
+            "'safe': several calls of it in one model response may run at once, like the "
+            "built-in readers (1.18.0). Only for permission read or network; 'never' (the "
+            "default) keeps it in order."
         ),
     )
 
@@ -5310,6 +5318,7 @@ CAPABILITIES: list[str] = [
     "siteFrameActions",
     "providerModelsError",
     "batchedFileTools",
+    "hostToolParallel",
 ]
 
 #: Where the daemon listens; mirrored into the schema dump for the SDK.

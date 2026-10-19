@@ -91,6 +91,10 @@ NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,63}$")
 SHADOWABLE_CATEGORY = "browser"
 
 
+#: Permission tags a host tool may pair with ``parallel: "safe"``: a tool that
+#: writes, sends or runs something must keep its order in a response.
+PARALLEL_SAFE_PERMISSIONS: frozenset[str] = frozenset({"read", "network"})
+
 class HostToolError(ValueError):
     """A registration the daemon refuses; the message names the tool."""
 
@@ -154,6 +158,13 @@ class HostTools:
             schema = spec.get("inputSchema") or {"type": "object", "properties": {}}
             if not isinstance(schema, dict):
                 raise HostToolError(f"{name}: inputSchema must be an object")
+            parallel = str(spec.get("parallel") or "never")
+            if parallel not in ("safe", "never"):
+                raise HostToolError(f"{name}: parallel must be 'safe' or 'never'")
+            if parallel == "safe" and permission not in PARALLEL_SAFE_PERMISSIONS:
+                raise HostToolError(
+                    f"{name}: parallel 'safe' is for read or network tools, not {permission}"
+                )
             timeout_ms = spec.get("timeoutMs")
             timeout = (
                 float(timeout_ms) / 1000.0
@@ -169,6 +180,7 @@ class HostTools:
                     permission=permission,  # type: ignore[arg-type]
                     run=self._runner(core, conn.surface_id, name, timeout),
                     source=f"host:{conn.surface_id}",
+                    parallel_safe=parallel == "safe",
                 )
             )
         host = self._hosts.get(conn.surface_id)

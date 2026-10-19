@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.17.0` (semver)
+- **Protocol version:** `1.18.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.17.0"
+    "protocolVersion": "1.18.0"
   }
 }
 ```
@@ -44,6 +44,7 @@ Server capabilities advertised in the `system.hello` result:
 - `batchedFileTools`
 - `checkpoints`
 - `commands`
+- `hostToolParallel`
 - `hostTools`
 - `llmSample`
 - `lsp`
@@ -2742,7 +2743,7 @@ Register tools this connection runs itself (host tools).
 
 | field | type | required | description |
 |---|---|---|---|
-| `tools` | `({ category?: string \| null; description: string; inputSchema?: Record<string, unknown>; name: string; permission: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret"; timeoutMs?: number \| null; })[]` | yes | Tools to add or replace for this connection; all-or-nothing. |
+| `tools` | `({ category?: string \| null; description: string; inputSchema?: Record<string, unknown>; name: string; parallel?: "safe" \| "never"; permission: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret"; timeoutMs?: number \| null; })[]` | yes | Tools to add or replace for this connection; all-or-nothing. |
 
 **Result**
 

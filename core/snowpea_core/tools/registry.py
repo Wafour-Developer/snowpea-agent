@@ -112,6 +112,10 @@ class Tool:
     #: field is here so a registration can pin a tool eager whatever the
     #: default set says.
     deferred: bool = False
+    #: True when two calls of this tool in one response may run at once.  The
+    #: built-in readers are listed in ``agent.tool_batch``; a host tool says so
+    #: itself (``tool.register`` ``parallel: "safe"``, read/network only).
+    parallel_safe: bool = False
 
     def info(self) -> ToolInfo:
         # ``mcp:<server>`` is the source an MCP tool is registered with, so the

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -125,11 +126,14 @@ def plan_tool_batch_segments(
     calls: list[ToolCall],
     *,
     workdir: Path | str | None = None,
+    parallel_safe: Callable[[str], bool] | None = None,
 ) -> list[tuple[str, list[ToolCall]]]:
     """Split ``calls`` into ordered ``(kind, batch)`` segments.
 
     ``kind`` is ``"parallel"`` or ``"sequential"``.  Path-scoped readers may
     overlap each other; any writer conflict closes the current parallel run.
+    ``parallel_safe`` answers for tools this module does not know — a host
+    tool registered with ``parallel: "safe"``.
     """
     base = Path(workdir or Path.cwd()).resolve()
     segments: list[list] = []
@@ -183,7 +187,7 @@ def plan_tool_batch_segments(
             current.append(call)
             continue
 
-        if name in _PARALLEL_SAFE:
+        if name in _PARALLEL_SAFE or (parallel_safe is not None and parallel_safe(name)):
             current.append(call)
             continue
 
