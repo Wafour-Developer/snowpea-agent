@@ -102,11 +102,12 @@ def _shell_is_destructive(command: str) -> bool:
 def _extract_scope_paths(name: str, args: dict[str, object], workdir: Path) -> list[Path]:
     if name not in _PATH_SCOPED:
         return []
-    raw_paths: list[str] = []
-    path = args.get("path")
-    if isinstance(path, str) and path.strip():
-        raw_paths.append(path.strip())
-    elif name in {"glob", "grep", "list_dir"}:
+    from snowpea_core.tools.call_paths import call_paths
+
+    # Every file the call touches: read_file's ``paths`` and each of patch's
+    # ``edits`` too, or a batched write could race a read of the same file.
+    raw_paths: list[str] = call_paths(args)
+    if not raw_paths and name in {"glob", "grep", "list_dir"}:
         raw_paths.append(".")
     scoped: list[Path] = []
     seen: set[str] = set()
