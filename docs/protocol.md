@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.15.0` (semver)
+- **Protocol version:** `1.16.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.15.0"
+    "protocolVersion": "1.16.0"
   }
 }
 ```
@@ -53,6 +53,7 @@ Server capabilities advertised in the `system.hello` result:
 - `sessions`
 - `settings`
 - `setup`
+- `siteFrameActions`
 - `siteMemory`
 - `siteRecipes`
 - `snapshotSupersede`
@@ -1439,7 +1440,7 @@ Ask a vendor's endpoint which models it serves.
 |---|---|---|---|
 | `current` | `string` | no | Model this vendor uses today. |
 | `detail` | `string` | no | One line naming the source, for a picker to show. |
-| `models` | `string[]` | no | Model ids the vendor's endpoint reports. |
+| `models` | `string[]` | no | Model ids the vendor's endpoint reports. Whatever the source, models[0] is the recommended default (a ChatGPT account's first-priority model, the newest chat model for an API key), so a picker can take current or models[0]. |
 | `source` | `string` | no | Which rung answered: live (the vendor's endpoint), settings (providers.<vendor>.models), cache (the last good listing) or curated (this build's list, merged with models.dev). |
 | `vendor` | `string` | yes | Vendor the listing came from. |
 | `vision` | `Record<string, boolean>` | no | Which of the listed models can be sent images, when that is known. A model missing from this map is unknown rather than text-only, so a picker draws no badge for it instead of a negative one. |
@@ -2127,7 +2128,7 @@ Site memory (1.9.0): the entries stored for an origin in the caller's browser pr
 
 | field | type | required | description |
 |---|---|---|---|
-| `entries` | `({ actions?: ({ kind: "click" \| "fill" \| "select" \| "toggle" \| "submit"; locators: ({ by: "role" \| "label" \| "text" \| "placeholder" \| "testid" \| "css"; name?: string \| null; role?: string \| null; value?: string \| null; })[]; loginField?: boolean; name: string; })[]; createdAt: string; entryId: string; failureCount?: number; fingerprint?: string \| null; flows?: ({ expect?: "page" \| "update" \| null; name: string; stats?: { lastRun?: string \| null; missed?: number; ok?: number; } \| null; steps?: (string \| { action?: string \| null; intent?: string \| null; verb: "fill" \| "click" \| "select" \| "enter"; })[]; })[]; landmarks?: string[]; lastVerified: string; origin: string; pageType: string; pitfalls?: string[]; recipes?: ({ fields: ({ attr?: string \| null; name: string; selector: string; })[]; intent?: string \| null; item: string; name: string; stale?: boolean; stats?: { day?: number \| null; hits?: number; misses?: number; } \| null; })[]; stale?: boolean; successCount?: number; summary?: string; urlPattern: string; })[]` | no | Most specific urlPattern first; stale entries included, flagged. |
+| `entries` | `({ actions?: ({ frames?: ({ origin: string; path: string; selector: string; })[] \| null; kind: "click" \| "fill" \| "select" \| "toggle" \| "submit"; locators: ({ by: "role" \| "label" \| "text" \| "placeholder" \| "testid" \| "css"; name?: string \| null; role?: string \| null; value?: string \| null; })[]; loginField?: boolean; name: string; })[]; createdAt: string; entryId: string; failureCount?: number; fingerprint?: string \| null; flows?: ({ expect?: "page" \| "update" \| null; name: string; stats?: { lastRun?: string \| null; missed?: number; ok?: number; } \| null; steps?: (string \| { action?: string \| null; intent?: string \| null; verb: "fill" \| "click" \| "select" \| "enter"; })[]; })[]; landmarks?: string[]; lastVerified: string; origin: string; pageType: string; pitfalls?: string[]; recipes?: ({ fields: ({ attr?: string \| null; name: string; selector: string; })[]; intent?: string \| null; item: string; name: string; stale?: boolean; stats?: { day?: number \| null; hits?: number; misses?: number; } \| null; })[]; stale?: boolean; successCount?: number; summary?: string; urlPattern: string; })[]` | no | Most specific urlPattern first; stale entries included, flagged. |
 
 ### `site.list`
 
@@ -2170,7 +2171,7 @@ Site memory (1.9.0): 'ok' counts a success, sets lastVerified and clears stale; 
 
 | field | type | required | description |
 |---|---|---|---|
-| `entry` | `{ actions?: ({ kind: "click" \| "fill" \| "select" \| "toggle" \| "submit"; locators: ({ by: "role" \| "label" \| "text" \| "placeholder" \| "testid" \| "css"; name?: string \| null; role?: string \| null; value?: string \| null; })[]; loginField?: boolean; name: string; })[]; createdAt: string; entryId: string; failureCount?: number; fingerprint?: string \| null; flows?: ({ expect?: "page" \| "update" \| null; name: string; stats?: { lastRun?: string \| null; missed?: number; ok?: number; } \| null; steps?: (string \| { action?: string \| null; intent?: string \| null; verb: "fill" \| "click" \| "select" \| "enter"; })[]; })[]; landmarks?: string[]; lastVerified: string; origin: string; pageType: string; pitfalls?: string[]; recipes?: ({ fields: ({ attr?: string \| null; name: string; selector: string; })[]; intent?: string \| null; item: string; name: string; stale?: boolean; stats?: { day?: number \| null; hits?: number; misses?: number; } \| null; })[]; stale?: boolean; successCount?: number; summary?: string; urlPattern: string; }` | yes | The entry after the mark. |
+| `entry` | `{ actions?: ({ frames?: ({ origin: string; path: string; selector: string; })[] \| null; kind: "click" \| "fill" \| "select" \| "toggle" \| "submit"; locators: ({ by: "role" \| "label" \| "text" \| "placeholder" \| "testid" \| "css"; name?: string \| null; role?: string \| null; value?: string \| null; })[]; loginField?: boolean; name: string; })[]; createdAt: string; entryId: string; failureCount?: number; fingerprint?: string \| null; flows?: ({ expect?: "page" \| "update" \| null; name: string; stats?: { lastRun?: string \| null; missed?: number; ok?: number; } \| null; steps?: (string \| { action?: string \| null; intent?: string \| null; verb: "fill" \| "click" \| "select" \| "enter"; })[]; })[]; landmarks?: string[]; lastVerified: string; origin: string; pageType: string; pitfalls?: string[]; recipes?: ({ fields: ({ attr?: string \| null; name: string; selector: string; })[]; intent?: string \| null; item: string; name: string; stale?: boolean; stats?: { day?: number \| null; hits?: number; misses?: number; } \| null; })[]; stale?: boolean; successCount?: number; summary?: string; urlPattern: string; }` | yes | The entry after the mark. |
 
 ### `site.markPart`
 
@@ -2192,7 +2193,7 @@ Site memory (1.15.0): count one use of a flow or recipe of an entry without a pu
 
 | field | type | required | description |
 |---|---|---|---|
-| `entry` | `{ actions?: ({ kind: "click" \| "fill" \| "select" \| "toggle" \| "submit"; locators: ({ by: "role" \| "label" \| "text" \| "placeholder" \| "testid" \| "css"; name?: string \| null; role?: string \| null; value?: string \| null; })[]; loginField?: boolean; name: string; })[]; createdAt: string; entryId: string; failureCount?: number; fingerprint?: string \| null; flows?: ({ expect?: "page" \| "update" \| null; name: string; stats?: { lastRun?: string \| null; missed?: number; ok?: number; } \| null; steps?: (string \| { action?: string \| null; intent?: string \| null; verb: "fill" \| "click" \| "select" \| "enter"; })[]; })[]; landmarks?: string[]; lastVerified: string; origin: string; pageType: string; pitfalls?: string[]; recipes?: ({ fields: ({ attr?: string \| null; name: string; selector: string; })[]; intent?: string \| null; item: string; name: string; stale?: boolean; stats?: { day?: number \| null; hits?: number; misses?: number; } \| null; })[]; stale?: boolean; successCount?: number; summary?: string; urlPattern: string; }` | yes | The entry after the count. |
+| `entry` | `{ actions?: ({ frames?: ({ origin: string; path: string; selector: string; })[] \| null; kind: "click" \| "fill" \| "select" \| "toggle" \| "submit"; locators: ({ by: "role" \| "label" \| "text" \| "placeholder" \| "testid" \| "css"; name?: string \| null; role?: string \| null; value?: string \| null; })[]; loginField?: boolean; name: string; })[]; createdAt: string; entryId: string; failureCount?: number; fingerprint?: string \| null; flows?: ({ expect?: "page" \| "update" \| null; name: string; stats?: { lastRun?: string \| null; missed?: number; ok?: number; } \| null; steps?: (string \| { action?: string \| null; intent?: string \| null; verb: "fill" \| "click" \| "select" \| "enter"; })[]; })[]; landmarks?: string[]; lastVerified: string; origin: string; pageType: string; pitfalls?: string[]; recipes?: ({ fields: ({ attr?: string \| null; name: string; selector: string; })[]; intent?: string \| null; item: string; name: string; stale?: boolean; stats?: { day?: number \| null; hits?: number; misses?: number; } \| null; })[]; stale?: boolean; successCount?: number; summary?: string; urlPattern: string; }` | yes | The entry after the count. |
 
 ### `site.put`
 
@@ -2204,7 +2205,7 @@ Site memory (1.9.0): upsert an entry by (origin, pageType). Core checks the sche
 
 | field | type | required | description |
 |---|---|---|---|
-| `entry` | `{ actions?: ({ kind: "click" \| "fill" \| "select" \| "toggle" \| "submit"; locators: ({ by: "role" \| "label" \| "text" \| "placeholder" \| "testid" \| "css"; name?: string \| null; role?: string \| null; value?: string \| null; })[]; loginField?: boolean; name: string; })[]; fingerprint?: string \| null; flows?: ({ expect?: "page" \| "update" \| null; name: string; stats?: { lastRun?: string \| null; missed?: number; ok?: number; } \| null; steps?: (string \| { action?: string \| null; intent?: string \| null; verb: "fill" \| "click" \| "select" \| "enter"; })[]; })[]; landmarks?: string[]; lastVerified?: string \| null; pageType: string; pitfalls?: string[]; recipes?: ({ fields: ({ attr?: string \| null; name: string; selector: string; })[]; intent?: string \| null; item: string; name: string; stale?: boolean; stats?: { day?: number \| null; hits?: number; misses?: number; } \| null; })[]; summary?: string; urlPattern: string; }` | yes | The entry; upserted by (origin, pageType). |
+| `entry` | `{ actions?: ({ frames?: ({ origin: string; path: string; selector: string; })[] \| null; kind: "click" \| "fill" \| "select" \| "toggle" \| "submit"; locators: ({ by: "role" \| "label" \| "text" \| "placeholder" \| "testid" \| "css"; name?: string \| null; role?: string \| null; value?: string \| null; })[]; loginField?: boolean; name: string; })[]; fingerprint?: string \| null; flows?: ({ expect?: "page" \| "update" \| null; name: string; stats?: { lastRun?: string \| null; missed?: number; ok?: number; } \| null; steps?: (string \| { action?: string \| null; intent?: string \| null; verb: "fill" \| "click" \| "select" \| "enter"; })[]; })[]; landmarks?: string[]; lastVerified?: string \| null; pageType: string; pitfalls?: string[]; recipes?: ({ fields: ({ attr?: string \| null; name: string; selector: string; })[]; intent?: string \| null; item: string; name: string; stale?: boolean; stats?: { day?: number \| null; hits?: number; misses?: number; } \| null; })[]; summary?: string; urlPattern: string; }` | yes | The entry; upserted by (origin, pageType). |
 | `origin` | `string` | yes | Origin the entry belongs to. |
 
 **Result**

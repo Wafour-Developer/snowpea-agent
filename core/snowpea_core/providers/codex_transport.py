@@ -21,7 +21,9 @@ Behaviour specific to this backend:
 * the access token is refreshed once, automatically, on a 401, and the fresh
   credentials are handed back to the caller through ``on_credentials`` so they
   reach ``settings.json``;
-* there is no ``/models`` endpoint — :data:`CODEX_MODELS` is the static list.
+* the per-account model list is ``GET {BASE_URL}/models?client_version=…``
+  (:func:`snowpea_core.providers.models.codex_catalog`, the same call the Codex
+  CLI makes); :data:`CODEX_MODELS` is only the fallback when it cannot answer.
 
 Endpoint, header and account-claim details are ported from hermes-agent (MIT):
 ``agent/codex_headers.py`` and ``agent/transports/codex.py``.
@@ -58,7 +60,9 @@ log = logging.getLogger("snowpea.providers.codex")
 #: The Codex backend root; ``/responses`` hangs off it.
 BASE_URL = "https://chatgpt.com/backend-api/codex"
 DEFAULT_TIMEOUT = 300.0
-DEFAULT_MODEL = "gpt-5-codex"
+#: The backend's first-priority model when this build last looked; a new
+#: ChatGPT login takes the first *live* entry instead (``codex_default_model``).
+DEFAULT_MODEL = "gpt-6.1-sol"
 
 #: How Snowpea identifies itself to the Codex backend.  OpenAI asks third-party
 #: harnesses to say who they are; override with ``SNOWPEA_CODEX_ORIGINATOR`` if
@@ -66,20 +70,31 @@ DEFAULT_MODEL = "gpt-5-codex"
 ORIGINATOR = os.environ.get("SNOWPEA_CODEX_ORIGINATOR", "").strip() or "snowpea"
 USER_AGENT = f"snowpea-agent/{_VERSION}"
 
-#: The backend publishes no ``/models``; this is what a ChatGPT account can
-#: select.  Reference: hermes-agent's Codex model metadata.
+#: The fallback when the live list cannot be fetched: the backend's listed
+#: models in priority order as of 2026-10-19 (hidden ones left out).
 CODEX_MODELS: tuple[str, ...] = (
-    "gpt-5-codex",
-    "gpt-5.1-codex",
-    "gpt-5.1-codex-mini",
-    "gpt-5",
-    "gpt-5-mini",
-    "o4-mini",
+    "gpt-6.1-sol",
+    "gpt-6-astra",
+    "gpt-6-sol",
+    "gpt-6-luna",
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
 )
 
-#: Models that accept a ``reasoning`` block.  Anything else would 400 on it.
-_REASONING_PREFIXES = ("gpt-5", "o1", "o3", "o4", "codex")
-REASONING_EFFORTS: tuple[str, ...] = ("minimal", "low", "medium", "high")
+#: Models that accept a ``reasoning`` block when the live list has no word on
+#: them.  Anything else would 400 on it.
+_REASONING_PREFIXES = ("gpt-6", "gpt-5", "o1", "o3", "o4", "codex")
+#: Every ``reasoning.effort`` the backend has published, lowest first.
+REASONING_EFFORTS: tuple[str, ...] = (
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+    "ultra",
+)
 DEFAULT_REASONING_EFFORT = "medium"
 
 #: Renew this long before the stored token expires.
@@ -98,9 +113,37 @@ class _Unauthorized(Exception):
 
 
 def supports_reasoning(model: str) -> bool:
-    """True when ``model`` takes a ``reasoning`` request block."""
+    """True when ``model`` takes a ``reasoning`` request block.
+
+    The live list says so per model (``supported_reasoning_levels``); the
+    name heuristic is for a model it has not described.
+    """
+    from snowpea_core.providers.models import codex_model_info
+
+    info = codex_model_info(model)
+    if info is not None and info.get("efforts") is not None:
+        return bool(info["efforts"])
     name = (model or "").lower()
     return any(fragment in name for fragment in _REASONING_PREFIXES)
+
+
+def effort_for(model: str, wanted: str | None) -> str | None:
+    """The ``reasoning.effort`` to send: ``wanted`` if the model takes it, else the nearest.
+
+    ``None`` for ``wanted`` means nobody chose one: the model's own default,
+    from the live list, then :data:`DEFAULT_REASONING_EFFORT`.
+    """
+    from snowpea_core.providers.models import codex_model_info
+
+    info = codex_model_info(model) or {}
+    supported = [level for level in info.get("efforts") or () if level in REASONING_EFFORTS]
+    if wanted is None:
+        default = info.get("defaultEffort")
+        return default if isinstance(default, str) and default else DEFAULT_REASONING_EFFORT
+    if not supported or wanted in supported:
+        return wanted
+    rank = REASONING_EFFORTS.index(wanted) if wanted in REASONING_EFFORTS else 2
+    return min(supported, key=lambda level: (abs(REASONING_EFFORTS.index(level) - rank), level))
 
 
 # ---------------------------------------------------------------------------
@@ -332,9 +375,9 @@ class CodexProvider:
         self.model = model or DEFAULT_MODEL
         self._base_url = (base_url or BASE_URL).rstrip("/")
         self._timeout = timeout
-        self._effort = (reasoning_effort or DEFAULT_REASONING_EFFORT).strip().lower()
-        if self._effort not in REASONING_EFFORTS:
-            self._effort = DEFAULT_REASONING_EFFORT
+        configured = (reasoning_effort or "").strip().lower()
+        #: ``providers.openai.reasoning_effort``; ``None`` = the model's default.
+        self._effort: str | None = configured if configured in REASONING_EFFORTS else None
         self._session_id = session_id
         self._originator = originator
         self._on_credentials = on_credentials
@@ -406,8 +449,10 @@ class CodexProvider:
         del max_tokens
         if supports_reasoning(self.model):
             # The unified tier wins when the turn carries one; the configured
-            # ``providers.openai.reasoning_effort`` is the fallback it replaced.
-            body["reasoning"] = {"effort": effort_scale.codex_effort(effort) or self._effort}
+            # ``providers.openai.reasoning_effort`` is the fallback it replaced,
+            # and with neither the model's own default from the live list.
+            wanted = effort_scale.codex_effort(effort) or self._effort
+            body["reasoning"] = {"effort": effort_for(self.model, wanted)}
         return body
 
     async def _refresh(self) -> None:
@@ -507,7 +552,7 @@ class CodexProvider:
 
 
 def list_models() -> list[str]:
-    """The models a ChatGPT account may select (no ``/models`` endpoint exists)."""
+    """The fallback list (the live one is ``models.codex_catalog``)."""
     return list(CODEX_MODELS)
 
 

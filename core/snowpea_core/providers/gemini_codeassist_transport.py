@@ -54,9 +54,16 @@ DEFAULT_MODEL = "gemini-2.5-pro"
 #: What the Gemini CLI offers an OAuth account; the Code Assist API publishes
 #: no model listing of its own.
 CODE_ASSIST_MODELS: tuple[str, ...] = (
+    # gemini-cli's DEFAULT_GEMINI_MODEL, first so a new login starts on a model
+    # every Code Assist account serves (packages/core/src/config/models.ts).
     "gemini-2.5-pro",
+    "gemini-3.1-pro-preview",
+    "gemini-3-pro-preview",
+    "gemini-3.8-flash",
+    "gemini-3-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-3.1-flash-lite",
     "gemini-2.5-flash",
-    "gemini-2.5-flash-lite",
 )
 
 #: Sent with every onboarding call so Google's telemetry knows the client.

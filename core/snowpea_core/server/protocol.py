@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.15.0"
+PROTOCOL_VERSION = "1.16.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -1676,7 +1676,12 @@ class ProviderModelsParams(Payload):
 class ProviderModelsResult(Payload):
     vendor: str = Field(description="Vendor the listing came from.")
     models: list[str] = Field(
-        default_factory=list, description="Model ids the vendor's endpoint reports."
+        default_factory=list,
+        description=(
+            "Model ids the vendor's endpoint reports. Whatever the source, models[0] is "
+            "the recommended default (a ChatGPT account's first-priority model, the "
+            "newest chat model for an API key), so a picker can take current or models[0]."
+        ),
     )
     current: str = Field(default="", description="Model this vendor uses today.")
     source: str = Field(
@@ -2683,6 +2688,24 @@ class SiteLocator(Payload):
     )
 
 
+class SiteFrame(Payload):
+    """One hop to the frame an action lives in (1.16.0): no values or session ids."""
+
+    selector: str = Field(
+        min_length=1,
+        max_length=160,
+        description=(
+            "The frame element in its parent: '#id', or iframe/frame[name|title|data-testid=\"…\"]."
+        ),
+    )
+    origin: str = Field(
+        min_length=1, max_length=200, description="The frame document's canonical http(s) origin."
+    )
+    path: str = Field(
+        min_length=1, max_length=200, description="Its path pattern, no query; '*' = any chars."
+    )
+
+
 class SiteAction(Payload):
     name: str = Field(pattern=SITE_NAME_PATTERN, description="Action name, [a-z0-9-]{1,40}.")
     kind: SiteActionKind = Field(description="What the action does to its element.")
@@ -2694,6 +2717,12 @@ class SiteAction(Payload):
     loginField: bool = Field(
         default=False,
         description="A login name or password input: locators only, never a value.",
+    )
+    frames: list[SiteFrame] | None = Field(
+        default=None,
+        min_length=1,
+        max_length=4,
+        description="Frames from the page down to the element, outermost first (1.16.0).",
     )
 
 
@@ -5271,6 +5300,7 @@ CAPABILITIES: list[str] = [
     "snapshotSupersede",
     "readOnlyDelegation",
     "siteRecipes",
+    "siteFrameActions",
 ]
 
 #: Where the daemon listens; mirrored into the schema dump for the SDK.

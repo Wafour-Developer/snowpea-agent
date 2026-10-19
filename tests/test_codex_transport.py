@@ -374,7 +374,7 @@ async def test_a_401_without_a_refresh_token_does_not_retry() -> None:
 def test_the_static_model_list_is_what_a_chatgpt_account_can_pick() -> None:
     models = codex_transport.list_models()
     assert codex_transport.DEFAULT_MODEL in models
-    assert "gpt-5" in models and "o4-mini" in models
+    assert models[0] == "gpt-6.1-sol" and "gpt-5-codex" not in models
     assert models == list(codex_transport.CODEX_MODELS)
 
 

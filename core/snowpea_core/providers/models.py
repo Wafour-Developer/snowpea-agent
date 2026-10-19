@@ -33,9 +33,11 @@ one round trip.  The structure is ported from hermes-agent (MIT):
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
+import re
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -61,6 +63,8 @@ CACHE_TTL_SEC = 600.0
 
 ANTHROPIC_BASE_URL = "https://api.anthropic.com"
 ANTHROPIC_VERSION = "2023-06-01"
+#: Pages of ``/v1/models`` followed at most (the API answers newest first).
+ANTHROPIC_MAX_PAGES = 20
 
 #: ``(vendor, base_url)`` -> ``(expires_at, model_ids)``.
 _CACHE: dict[tuple[str, str], tuple[float, list[str]]] = {}
@@ -73,11 +77,10 @@ OAUTH_METHODS: frozenset[str] = frozenset({"chatgpt", "google_oauth", "google_ad
 def oauth_models(vendor: str, auth_method: str | None) -> list[str] | None:
     """The static list an OAuth account must use, or ``None`` to go and ask.
 
-    A ChatGPT or Google sign-in does not reach the vendor's ordinary API, and
-    neither OAuth backend publishes a ``/models`` endpoint: Codex has none at
-    all, and Code Assist answers for the *project*, not the account.  Asking
-    anyway costs a guaranteed 401 right after a successful login (report §6.7
-    A-P2-1), so the supported set is declared instead.
+    A ChatGPT or Google sign-in does not reach the vendor's ordinary API.  The
+    Codex backend has its own per-account list (:func:`codex_catalog`), and
+    this is only its fallback; Code Assist answers for the *project*, not the
+    account, so its declared set is all there is.
     """
     method = (auth_method or "").strip()
     if vendor == "openai" and method == "chatgpt":
@@ -99,6 +102,8 @@ def is_placeholder(model: str | None) -> bool:
 def cache_clear() -> None:
     """Drop every cached listing (tests, and ``/model --refresh``)."""
     _CACHE.clear()
+    _CODEX_LIVE.clear()
+    _CODEX_INFO.clear()
 
 
 def cache_get(vendor: str, base_url: str) -> list[str] | None:
@@ -210,6 +215,22 @@ def _dedupe(ids: list[str]) -> list[str]:
     return out
 
 
+#: ``api.openai.com/v1/models`` lists every model the key can reach; these
+#: families do not chat (and ``models[0]`` must be one that does).
+_OPENAI_NON_CHAT = re.compile(
+    r"(embedding|tts|whisper|dall-e|davinci|babbage|moderation|realtime|audio|transcribe"
+    r"|search|image|sora|computer-use)",
+    re.IGNORECASE,
+)
+
+
+def _newest_first(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Rows by ``created`` descending; rows without it keep their order, after."""
+    dated = [row for row in rows if isinstance(row.get("created"), int | float)]
+    undated = [row for row in rows if not isinstance(row.get("created"), int | float)]
+    return sorted(dated, key=lambda row: -float(row["created"])) + undated
+
+
 async def _list_openai(
     preset: VendorPreset, api_key: str | None, base_url: str, timeout: float, transport: Any = None
 ) -> list[str]:
@@ -220,23 +241,53 @@ async def _list_openai(
         f"{base_url}/models", headers, timeout, preset.id, transport=transport
     )
     data = payload.get("data")
-    rows = data if isinstance(data, list) else []
-    return _dedupe([row.get("id", "") for row in rows if isinstance(row, dict)])
+    rows = [row for row in (data if isinstance(data, list) else []) if isinstance(row, dict)]
+    if preset.id == "openai":
+        rows = [row for row in rows if not _OPENAI_NON_CHAT.search(str(row.get("id", "")))]
+    if not preset.local_style:
+        # Newest first, so ``models[0]`` is a sensible default; a self-hosted
+        # server's own order (often the one model it serves) is kept.
+        rows = _newest_first(rows)
+    return _dedupe([row.get("id", "") for row in rows])
+
+
+#: Pages followed at most; v1beta/models pages at 50 by default.
+GEMINI_MAX_PAGES = 20
+
+
+def _gemini_rank(name: str) -> tuple[float, int, str]:
+    """Sort key, newest first: version, then pro > flash > flash-lite, previews last."""
+    match = re.search(r"gemini-(\d+(?:\.\d+)?)", name)
+    version = float(match.group(1)) if match else 0.0
+    tier = 0 if "-pro" in name else (2 if "lite" in name else 1)
+    preview = 1 if ("preview" in name or "exp" in name) else 0
+    return (-version, preview * 10 + tier, name)
 
 
 async def _list_gemini(
     preset: VendorPreset, api_key: str | None, base_url: str, timeout: float, transport: Any = None
 ) -> list[str]:
+    """Every model that can ``generateContent``, following ``nextPageToken``, newest first."""
     headers = {"accept": "application/json"}
     if api_key:
         headers["x-goog-api-key"] = api_key
-    payload = await _get_json(
-        f"{base_url}/models", headers, timeout, preset.id, transport=transport
-    )
-    raw = payload.get("models")
-    rows = raw if isinstance(raw, list) else []
-    names = [str(row.get("name", "")) for row in rows if isinstance(row, dict)]
-    return _dedupe([name.removeprefix("models/") for name in names])
+    names: list[str] = []
+    token = ""
+    for _page in range(GEMINI_MAX_PAGES):
+        url = f"{base_url}/models?pageSize=1000" + (f"&pageToken={token}" if token else "")
+        payload = await _get_json(url, headers, timeout, preset.id, transport=transport)
+        raw = payload.get("models")
+        for row in raw if isinstance(raw, list) else []:
+            if not isinstance(row, dict):
+                continue
+            methods = row.get("supportedGenerationMethods")
+            if isinstance(methods, list) and "generateContent" not in methods:
+                continue
+            names.append(str(row.get("name", "")).removeprefix("models/"))
+        token = str(payload.get("nextPageToken") or "")
+        if not token:
+            break
+    return _dedupe(sorted(_dedupe(names), key=_gemini_rank))
 
 
 async def _list_anthropic(
@@ -247,24 +298,32 @@ async def _list_anthropic(
     transport: Any = None,
     strict: bool = False,
 ) -> list[str]:
-    """The static preset list, extended by ``/v1/models`` when it answers."""
-    static = list(preset.models)
+    """``/v1/models`` (every page, newest first), or the preset list when it cannot answer.
+
+    When the endpoint answers, its list is the whole answer: appending the
+    preset's ids resurfaced retired models the account no longer has.
+    """
     headers = {"accept": "application/json", "anthropic-version": ANTHROPIC_VERSION}
     if api_key:
         headers["x-api-key"] = api_key
+    live: list[str] = []
+    after = ""
     try:
-        payload = await _get_json(
-            f"{base_url}/v1/models", headers, timeout, preset.id, transport=transport
-        )
+        for _page in range(ANTHROPIC_MAX_PAGES):
+            url = f"{base_url}/v1/models?limit=1000" + (f"&after_id={after}" if after else "")
+            payload = await _get_json(url, headers, timeout, preset.id, transport=transport)
+            data = payload.get("data")
+            rows = data if isinstance(data, list) else []
+            live.extend(str(row.get("id", "")) for row in rows if isinstance(row, dict))
+            after = str(payload.get("last_id") or "")
+            if not payload.get("has_more") or not after:
+                break
     except ProviderError as exc:
         if strict:
             raise
         log.debug("anthropic model listing unavailable, using presets: %s", exc)
-        return _dedupe(static)
-    data = payload.get("data")
-    rows = data if isinstance(data, list) else []
-    live = [row.get("id", "") for row in rows if isinstance(row, dict)]
-    return _dedupe([*live, *static])
+        return _dedupe(list(preset.models))
+    return _dedupe(live)
 
 
 # ---------------------------------------------------------------------------
@@ -437,6 +496,13 @@ def rejected_for_oauth(vendor: str, auth_method: str | None, model: str) -> bool
     """
     if not model or is_placeholder(model):
         return True
+    if vendor == "openai" and (auth_method or "") == "chatgpt":
+        live = codex_live_models()
+        if live is not None:
+            # The account's own catalog is the authority once it has answered:
+            # a model saved from an older fallback (gpt-5-codex) gives way to
+            # the live default instead of failing every turn.
+            return model not in live
     if model in set(oauth_models(vendor, auth_method) or ()):
         return False
     preset = PRESETS_BY_VENDOR.get(vendor)
@@ -620,7 +686,7 @@ async def _models_dev_payload(
 # ---------------------------------------------------------------------------
 
 
-def _codex_headers(access_token: str) -> dict[str, str]:
+def _codex_headers(access_token: str, account_id: str | None = None) -> dict[str, str]:
     """``Authorization`` plus the account id the per-account catalog needs.
 
     Without ``ChatGPT-Account-Id`` the backend answers ``HTTP 200
@@ -635,9 +701,9 @@ def _codex_headers(access_token: str) -> dict[str, str]:
         "accept": "application/json",
         "user-agent": USER_AGENT,
     }
-    account_id = openai_oauth.account_id_of(access_token)
-    if account_id:
-        headers["ChatGPT-Account-Id"] = account_id
+    account = account_id or openai_oauth.account_id_of(access_token)
+    if account:
+        headers["ChatGPT-Account-Id"] = account
     return headers
 
 
@@ -649,7 +715,25 @@ def codex_slugs(entries: Any) -> list[str]:
     research-preview models).  Entries are sorted by priority so the picker's
     first row is the one the account is meant to use.
     """
-    ranked: list[tuple[int, int, str]] = []
+    visible = _codex_visible(entries)
+    return _dedupe([str(item.get("slug") or item.get("id")).strip() for item in visible])
+
+
+#: How long a Codex catalog is reused before it is asked again (with its ETag).
+CODEX_CATALOG_TTL_SEC = 600.0
+#: One more try after this long when the first call fails: right after a login
+#: the listing can race the credential save or a token refresh.
+CODEX_RETRY_DELAY_SEC = 1.0
+
+#: ``account -> (expires_at, etag, visible entries in priority order)``.
+_CODEX_LIVE: dict[str, tuple[float, str | None, list[dict[str, Any]]]] = {}
+#: ``slug -> what the newest live catalog says about it`` (see codex_model_info).
+_CODEX_INFO: dict[str, dict[str, Any]] = {}
+
+
+def _codex_visible(entries: Any) -> list[dict[str, Any]]:
+    """The listed entries of a Codex payload, lowest ``priority`` first."""
+    ranked: list[tuple[int, int, dict[str, Any]]] = []
     for index, item in enumerate(entries if isinstance(entries, list) else []):
         if not isinstance(item, dict):
             continue
@@ -661,9 +745,62 @@ def codex_slugs(entries: Any) -> list[str]:
             continue
         priority = item.get("priority")
         rank = int(priority) if isinstance(priority, int | float) else 10_000
-        ranked.append((rank, index, slug.strip()))
-    ranked.sort()
-    return _dedupe([slug for _rank, _index, slug in ranked])
+        ranked.append((rank, index, item))
+    ranked.sort(key=lambda row: (row[0], row[1]))
+    return [item for _rank, _index, item in ranked]
+
+
+def _remember_codex_info(entries: list[dict[str, Any]]) -> None:
+    """Keep per-model reasoning levels and windows, and feed the window cache."""
+    from snowpea_core.providers import context_windows
+    from snowpea_core.providers.presets import PRESETS
+
+    window_key = (PRESETS["openai"].base_url or "").rstrip("/")
+    for item in entries:
+        slug = str(item.get("slug") or item.get("id") or "").strip()
+        if not slug:
+            continue
+        levels = item.get("supported_reasoning_levels")
+        efforts: list[str] | None = None
+        if isinstance(levels, list):
+            efforts = [
+                str(level.get("effort") if isinstance(level, dict) else level)
+                for level in levels
+                if (level.get("effort") if isinstance(level, dict) else level)
+            ]
+        window = item.get("context_window") or item.get("max_context_window")
+        info = {
+            "displayName": str(item.get("display_name") or slug),
+            "efforts": efforts,
+            "defaultEffort": str(item.get("default_reasoning_level") or "") or None,
+            "contextWindow": (
+                int(window) if isinstance(window, int | float) and window > 0 else None
+            ),
+        }
+        _CODEX_INFO[slug] = info
+        if info["contextWindow"] is not None:
+            context_windows.remember_discovered("openai", window_key, slug, info["contextWindow"])
+
+
+def codex_model_info(model: str | None) -> dict[str, Any] | None:
+    """``{displayName, efforts, defaultEffort, contextWindow}`` from the live list, or ``None``."""
+    return _CODEX_INFO.get((model or "").strip())
+
+
+def codex_live_models() -> list[str] | None:
+    """Slugs of the newest live Codex catalog in priority order; ``None`` if never fetched."""
+    if not _CODEX_LIVE:
+        return None
+    _expires, _etag, entries = max(_CODEX_LIVE.values(), key=lambda row: row[0])
+    return [str(item.get("slug") or item.get("id")) for item in entries]
+
+
+def codex_default_model() -> str:
+    """A new ChatGPT login's model: the first live entry, else the fallback's first."""
+    from snowpea_core.providers.codex_transport import CODEX_MODELS
+
+    live = codex_live_models()
+    return live[0] if live else CODEX_MODELS[0]
 
 
 async def codex_catalog(
@@ -672,13 +809,42 @@ async def codex_catalog(
     timeout: float = LIST_TIMEOUT,
     transport: Any = None,
     on_credentials: Callable[[dict[str, Any]], None] | None = None,
+    refresh: bool = False,
 ) -> list[str]:
-    """What the Codex backend lists for this ChatGPT account, or ``[]``.
+    """What the Codex backend lists for this ChatGPT account, or ``[]``."""
+    ids, _error = await codex_catalog_result(
+        credentials,
+        timeout=timeout,
+        transport=transport,
+        on_credentials=on_credentials,
+        refresh=refresh,
+    )
+    return ids
+
+
+async def codex_catalog_result(
+    credentials: dict[str, Any] | None,
+    *,
+    timeout: float = LIST_TIMEOUT,
+    transport: Any = None,
+    on_credentials: Callable[[dict[str, Any]], None] | None = None,
+    refresh: bool = False,
+) -> tuple[list[str], str | None]:
+    """``(slugs, error)`` for this ChatGPT account: ``GET {codex}/models?client_version=…``.
+
+    The same call the Codex CLI makes (``codex-api/src/endpoint/models.rs``).
+    Listed entries only, in ``priority`` order, so the first one is the
+    account's recommended model.  ``supported_in_api`` is *not* filtered on:
+    it describes the public API, and the Codex backend accepts slugs marked
+    false there.  The answer is reused for :data:`CODEX_CATALOG_TTL_SEC` and
+    then revalidated with its ETag; ``refresh`` asks again at once.  A failed
+    call is tried once more after :data:`CODEX_RETRY_DELAY_SEC` and then
+    reported as ``error`` — never cached.
 
     An access token that is expired (or about to be) is refreshed first, and
     the refreshed credentials are handed to ``on_credentials`` so they reach
     ``settings.json`` — otherwise the very next turn would pay for the same
-    refresh again.
+    refresh again.  The token only ever goes to ``chatgpt.com``.
     """
     from snowpea_core.providers import openai_oauth
 
@@ -687,22 +853,76 @@ async def codex_catalog(
         try:
             resolved = await openai_oauth.refresh_credentials(resolved)
         except Exception as exc:  # noqa: BLE001 - a listing never fails a login
-            log.debug("could not refresh the ChatGPT session before listing: %s", exc)
+            log.warning("could not refresh the ChatGPT session before listing: %s", exc)
         else:
             if on_credentials is not None:
                 on_credentials(dict(resolved))
     access_token = str(resolved.get("access_token") or "")
     if not access_token:
-        return []
+        return [], "no ChatGPT session to list with"
+    # The token's own claim first: after a refresh the stored id can be stale.
+    account = str(openai_oauth.account_id_of(access_token) or resolved.get("account_id") or "")
+    cached = _CODEX_LIVE.get(account)
+    if cached is not None and not refresh and cached[0] > time.monotonic():
+        return [str(item.get("slug") or item.get("id")) for item in cached[2]], None
+    headers = _codex_headers(access_token, account)
+    if cached is not None and cached[1]:
+        headers["if-none-match"] = cached[1]
     url = f"{CODEX_MODELS_URL}?client_version={CODEX_CLIENT_VERSION}"
-    try:
-        payload = await _get_json(
-            url, _codex_headers(access_token), timeout, "openai", transport=transport
+    error: str | None = None
+    for attempt in range(2):
+        if attempt:
+            await asyncio.sleep(CODEX_RETRY_DELAY_SEC)
+        try:
+            status, etag, payload = await _get_codex(url, headers, timeout, transport)
+        except ProviderError as exc:
+            error = str(exc)
+            continue
+        if status == 304 and cached is not None:
+            entries = cached[2]
+        else:
+            entries = _codex_visible(payload.get("models"))
+        if not entries:
+            # Without the account header the backend answers 200 with no
+            # models; an empty list is a failure to report, not a catalog.
+            error = "the Codex backend listed no models for this account"
+            continue
+        _CODEX_LIVE[account] = (
+            time.monotonic() + CODEX_CATALOG_TTL_SEC,
+            etag or (cached[1] if cached else None),
+            entries,
         )
-    except ProviderError as exc:
-        log.debug("codex model listing unavailable: %s", exc)
-        return []
-    return codex_slugs(payload.get("models"))
+        _remember_codex_info(entries)
+        return [str(item.get("slug") or item.get("id")) for item in entries], None
+    log.warning("ChatGPT model listing failed, using the built-in list: %s", error)
+    return [], error
+
+
+async def _get_codex(
+    url: str, headers: dict[str, str], timeout: float, transport: Any
+) -> tuple[int, str | None, dict[str, Any]]:
+    """``(status, etag, payload)`` — a 304 comes back with an empty payload."""
+    try:
+        async with httpx.AsyncClient(
+            timeout=timeout, headers=headers, transport=transport
+        ) as client:
+            response = await client.get(url)
+    except httpx.HTTPError as exc:
+        raise ProviderError("internal", f"openai: {type(exc).__name__}: {exc}") from exc
+    if response.status_code == 304:
+        return 304, response.headers.get("etag"), {}
+    if response.status_code >= 400:
+        raise ProviderError(
+            "internal", f"openai: HTTP {response.status_code} from the Codex model list"
+        )
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise ProviderError(
+            "internal", f"openai: the Codex model list was not JSON: {exc}"
+        ) from exc
+    body = payload if isinstance(payload, dict) else {}
+    return response.status_code, response.headers.get("etag"), body
 
 
 async def _list_ollama(base_url: str, timeout: float, transport: Any) -> list[str]:
@@ -743,12 +963,15 @@ async def _live_catalog(
     """
     method = (auth_method or "").strip()
     if vendor == "openai" and method == "chatgpt":
-        # A Codex fetch that fails is not an error the user must act on: the
-        # curated list is the same set the backend accepts, so the fallback is
-        # announced through ``detail`` and nothing is reported as broken.
-        return await codex_catalog(
-            credentials, timeout=timeout, transport=transport, on_credentials=on_credentials
-        ), None
+        # A failed fetch falls back to the built-in list; ``error`` says why,
+        # so a picker can show it next to the fallback.
+        return await codex_catalog_result(
+            credentials,
+            timeout=timeout,
+            transport=transport,
+            on_credentials=on_credentials,
+            refresh=refresh,
+        )
     if vendor == "gemini" and method in {"google_oauth", "google_adc"}:
         return [], None
     if not api_key and preset.key_required:
@@ -915,7 +1138,13 @@ async def resolve_models(
             )
 
     curated = curated_models(vendor, auth_method)
-    extras = await models_dev_catalog(vendor, home=home, timeout=timeout, transport=transport)
+    # models.dev lists the vendor's *API-key* models; a ChatGPT or Google
+    # sign-in reaches a backend that answers 400 for those ids.
+    extras = (
+        []
+        if oauth
+        else await models_dev_catalog(vendor, home=home, timeout=timeout, transport=transport)
+    )
     # Curated first: those ids are the ones this version is known to route
     # correctly, and models.dev is the long tail behind them.
     merged = _dedupe([*curated, *extras])

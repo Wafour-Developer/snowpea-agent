@@ -14,6 +14,7 @@ never puts them in a prompt.  Storage is the ``site_entries`` table in
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import re
 from datetime import UTC, datetime, timedelta
@@ -136,6 +137,19 @@ def check_entry(entry: dict[str, Any]) -> None:
         raise SiteMemoryError("entry.urlPattern", "must start with '/'")
     for index, action in enumerate(entry.get("actions") or []):
         where = f"entry.actions[{index}]"
+        for fi, frame in enumerate(action.get("frames") or []):
+            at = f"{where}.frames[{fi}]"
+            selector = frame["selector"]
+            if not re.fullmatch(
+                r'(?:#[A-Za-z][\w-]{0,40}|(?:iframe|frame)\[(?:name|title|data-testid)='
+                r'"[A-Za-z\u0080-\uffff][A-Za-z0-9_\u0080-\uffff .-]{0,70}"\])',
+                selector,
+            ):
+                raise SiteMemoryError(f"{at}.selector", "a stable frame owner selector is required")
+            if normalize_origin(frame["origin"], f"{at}.origin") != frame["origin"]:
+                raise SiteMemoryError(f"{at}.origin", "a canonical HTTP origin is required")
+            if not re.fullmatch(r"/[^\s?#]*", frame["path"]):
+                raise SiteMemoryError(f"{at}.path", "a query-free path pattern is required")
         locators = action.get("locators") or []
         if all(loc["by"] == "css" for loc in locators):
             raise SiteMemoryError(f"{where}.locators", "needs at least one non-CSS locator")
@@ -169,7 +183,16 @@ def check_entry(entry: dict[str, Any]) -> None:
     checked["flows"] = [
         {k: v for k, v in flow.items() if k != "stats"} for flow in entry.get("flows") or []
     ]
+    # Canonical numeric frame origins are addresses, not phone numbers. All
+    # other frame fields and domain names still pass the personal-data filter.
     for path, text in _strings(checked, "entry"):
+        if re.fullmatch(r"entry\.actions\[\d+\]\.frames\[\d+\]\.origin", path):
+            try:
+                ipaddress.ip_address(urlsplit(text).hostname or "")
+            except ValueError:
+                pass
+            else:
+                continue
         if _CONTROL.search(text):
             raise SiteMemoryError(path, "control characters and newlines are not allowed")
         if _looks_sensitive(text):

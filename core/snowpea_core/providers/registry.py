@@ -228,6 +228,15 @@ class ProviderRegistry:
         if default is not None and default[0] == vendor:
             return default[1]
         configured = self.vendor_config(vendor).get("model")
+        if vendor == "openai" and self.auth_method_for(vendor) == "chatgpt":
+            # A ChatGPT login uses the Codex backend's catalog, not the API-key
+            # preset: its first live entry, and a saved model only while the
+            # catalog still has it.
+            if isinstance(configured, str) and not model_discovery.rejected_for_oauth(
+                vendor, "chatgpt", configured
+            ):
+                return configured
+            return model_discovery.codex_default_model()
         if isinstance(configured, str) and configured:
             return configured
         preset = self.preset_or_none(vendor)

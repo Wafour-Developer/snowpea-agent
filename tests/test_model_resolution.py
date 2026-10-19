@@ -157,9 +157,9 @@ async def test_anthropic_lists_live_from_v1_models(tmp_path: Path) -> None:
     )
 
     assert listing.source == model_discovery.SOURCE_LIVE
-    # The preset's own models stay behind the live ones rather than vanishing.
-    assert listing.models[0] == "claude-9-sonnet"
-    assert "claude-sonnet-5" in listing.models
+    # The endpoint's list is the whole answer: appending the preset's ids
+    # resurfaced retired models the account no longer has.
+    assert listing.models == ["claude-9-sonnet"]
 
 
 async def test_a_local_server_without_v1_models_falls_back_to_ollama_tags(
@@ -380,7 +380,7 @@ async def test_google_oauth_uses_the_curated_code_assist_list_without_asking(
     assert listing.error is None
 
 
-async def test_the_curated_list_is_extended_with_models_dev(tmp_path: Path) -> None:
+async def test_an_oauth_curated_list_gets_no_models_dev_extras(tmp_path: Path) -> None:
     """A model released after this build still reaches the picker."""
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -406,11 +406,10 @@ async def test_the_curated_list_is_extended_with_models_dev(tmp_path: Path) -> N
     )
 
     assert listing.source == model_discovery.SOURCE_CURATED
-    # Curated first — those are the ids this build is known to route — then the
-    # public catalog's extras.  Models that cannot call tools are not offered.
-    assert listing.models[0] == CODE_ASSIST_MODELS[0]
-    assert "gemini-99-pro" in listing.models
-    assert "gemini-embedding-9" not in listing.models
+    # The declared Code Assist set only: models.dev lists the *API-key*
+    # models, which a Google sign-in's backend answers 400 for.
+    assert listing.models == list(CODE_ASSIST_MODELS)
+    assert "gemini-99-pro" not in listing.models
 
 
 async def test_models_dev_is_cached_on_disk(tmp_path: Path) -> None:
@@ -505,7 +504,8 @@ def test_an_unknown_codex_id_is_routed_as_chosen() -> None:
     never heard of it — the picker and the router disagreeing about the same
     account.  Only ids that belong to the *API-key* endpoint may be dropped.
     """
-    assert model_discovery.rejected_for_oauth("openai", "chatgpt", "gpt-6-astra") is True
+    model_discovery.cache_clear()
+    assert model_discovery.rejected_for_oauth("openai", "chatgpt", "gpt-5.4-nano") is True
     assert model_discovery.rejected_for_oauth("openai", "chatgpt", "gpt-5.6-sol") is False
     assert model_discovery.rejected_for_oauth("openai", "chatgpt", CODEX_MODELS[0]) is False
     assert model_discovery.rejected_for_oauth("openai", "chatgpt", "") is True
@@ -564,10 +564,12 @@ async def test_the_wizard_picker_shows_the_live_chatgpt_catalog(
     from snowpea_core.setup import ui, wizard
     from snowpea_core.setup.state import WizardState
 
-    async def catalog(_credentials: dict[str, Any], **_kwargs: Any) -> list[str]:
-        return ["gpt-5.6-sol", "gpt-5.6-luna", "gpt-5.5"]
+    async def catalog(
+        _credentials: dict[str, Any], **_kwargs: Any
+    ) -> tuple[list[str], str | None]:
+        return ["gpt-5.6-sol", "gpt-5.6-luna", "gpt-5.5"], None
 
-    monkeypatch.setattr(model_discovery, "codex_catalog", catalog)
+    monkeypatch.setattr(model_discovery, "codex_catalog_result", catalog)
     monkeypatch.setattr(ui, "ask_text", lambda *_a, **_k: "")
     state = WizardState.from_settings(Settings())
     state.select_vendor("openai")

@@ -238,7 +238,9 @@ async def test_model_listing_for_an_oauth_account_never_calls_the_api(
         },
         monkeypatch,
     )
-    assert "gpt-5-codex" in await registry.list_models("openai")
+    from snowpea_core.providers.codex_transport import CODEX_MODELS
+
+    assert CODEX_MODELS[0] in await registry.list_models("openai")
     assert "gemini-2.5-pro" in await registry.list_models("gemini")
 
 
