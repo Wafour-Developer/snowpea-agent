@@ -42,7 +42,7 @@ from snowpea_core.permissions.policy import (
 )
 from snowpea_core.prompts import environment as prompt_env
 from snowpea_core.providers import content as content_parts
-from snowpea_core.providers import context_windows
+from snowpea_core.providers import context_windows, routing
 from snowpea_core.providers import effort as effort_scale
 from snowpea_core.providers.base import REDACTED, ChatMessage, ProviderError, ToolCall
 from snowpea_core.server import errors
@@ -714,6 +714,10 @@ async def _stream_once_raw(
     stream = provider.stream(messages, specs, max_tokens=max_tokens, **extra)
     interrupt_watcher = asyncio.ensure_future(session.interrupt.wait())
     next_event: asyncio.Task[Any] | None = None
+    # Each ``__anext__`` task copies this context, so the adapter opening its
+    # HTTP client inside one sees which session the call is for.
+    routed = routing.for_session(session.id)
+    routed.__enter__()
     try:
         while True:
             next_event = asyncio.ensure_future(stream.__anext__())
@@ -752,6 +756,7 @@ async def _stream_once_raw(
                 await next_event
         with contextlib.suppress(RuntimeError):
             await stream.aclose()
+        routed.__exit__(None, None, None)
     # Nothing thought is dropped, including by an interrupt: the last window is
     # always published, so the totals a surface shows match what was counted.
     await flush_reasoning()

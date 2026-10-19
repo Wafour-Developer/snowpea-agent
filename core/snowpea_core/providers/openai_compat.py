@@ -17,7 +17,7 @@ from typing import Any
 
 import httpx
 
-from snowpea_core.providers import content, replay
+from snowpea_core.providers import content, replay, routing
 from snowpea_core.providers import effort as effort_scale
 from snowpea_core.providers import models as model_discovery
 from snowpea_core.providers import vision as vision_scale
@@ -161,6 +161,10 @@ class OpenAICompatProvider:
             "accept": "text/event-stream",
             **self._headers,
         }
+        if self.preset.local_style:
+            # A self-hosted router keeps a session on one worker by this header,
+            # which is what lets each round reuse the cached prefix.
+            headers.update(routing.session_headers())
         if self._api_key:
             headers["authorization"] = f"Bearer {self._api_key}"
         kwargs: dict[str, Any] = {

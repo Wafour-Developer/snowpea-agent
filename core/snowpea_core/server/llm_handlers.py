@@ -20,6 +20,7 @@ import re
 from typing import TYPE_CHECKING, Any
 
 from snowpea_core.config.model_routing import ModelRoute, fast_route
+from snowpea_core.providers import routing
 from snowpea_core.providers.base import ChatMessage, ProviderError
 from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
@@ -159,16 +160,17 @@ async def llm_sample_handler(
     chunks: list[str] = []
     input_tokens = output_tokens = 0
     try:
-        async for event in provider.stream(
-            _messages(params), [], max_tokens=params.maxTokens, thinking="off", **extra
-        ):
-            if event.kind == "text_delta" and event.text:
-                chunks.append(event.text)
-            elif event.kind == "usage" and event.usage is not None:
-                input_tokens += event.usage.input_tokens
-                output_tokens += event.usage.output_tokens
-            elif event.kind == "done" and event.error:
-                raise ProviderError("provider_error", event.error)
+        with routing.for_session(session.id):
+            async for event in provider.stream(
+                _messages(params), [], max_tokens=params.maxTokens, thinking="off", **extra
+            ):
+                if event.kind == "text_delta" and event.text:
+                    chunks.append(event.text)
+                elif event.kind == "usage" and event.usage is not None:
+                    input_tokens += event.usage.input_tokens
+                    output_tokens += event.usage.output_tokens
+                elif event.kind == "done" and event.error:
+                    raise ProviderError("provider_error", event.error)
     except ProviderError as exc:
         raise RpcError(
             errors.UNAVAILABLE, f"the model call failed: {exc}", {"reason": str(exc)}
