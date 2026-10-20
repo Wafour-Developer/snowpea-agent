@@ -229,3 +229,49 @@ def test_json_is_found_in_a_fence_or_in_prose() -> None:
     assert parse_json('Here it is: {"a": [1]} done') == {"a": [1]}
     with pytest.raises(ValueError):
         parse_json("no json here")
+
+
+CANDIDATES = {
+    "type": "object",
+    "properties": {
+        "candidates": {
+            "type": "array",
+            "items": {"type": "object", "properties": {"ref": {"type": "string"}}},
+        }
+    },
+    "required": ["candidates"],
+}
+
+
+async def test_a_bare_array_for_a_one_array_object_is_wrapped(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path, monkeypatch: pytest.MonkeyPatch  # noqa: F811
+) -> None:
+    # glm-flash answered ``{candidates: [...]}`` with the bare list (browser trace).
+    stub(monkeypatch, daemon, '[{"ref": "e25"}, {"ref": "e31"}]')
+    host, session_id = await host_session(http, daemon, tmp_path)
+    try:
+        result = await host.ok(
+            "llm.sample", {"sessionId": session_id, "input": "page", "schema": CANDIDATES}
+        )
+        assert result["json"] == {"candidates": [{"ref": "e25"}, {"ref": "e31"}]}
+        # Two required properties have no single reading: still invalid.
+        stub(monkeypatch, daemon, "[1, 2]")
+        frame = await host.call(
+            "llm.sample", {"sessionId": session_id, "input": "Mug", "schema": SCHEMA}
+        )
+        assert code_of(frame) == errors.INVALID_OUTPUT
+    finally:
+        await host.stop()
+
+
+def test_json_mode_follows_the_server_software() -> None:
+    from snowpea_core.providers.presets import PRESETS, preset_for
+
+    assert PRESETS["glm"].supports_json_mode
+    assert preset_for("local", "vllm").supports_json_mode
+    assert not PRESETS["local"].supports_json_mode
+    named = {"preset": "local", "base_url": "http://h:8080/v1", "variant": "vllm"}
+    assert preset_for("glm53", None, named).supports_json_mode
+    assert not preset_for("glm53", None, {**named, "json_mode": False}).supports_json_mode
+    assert not preset_for("x", None, {"preset": "local", "variant": "generic"}).supports_json_mode
+    assert preset_for("x", None, {"preset": "local", "json_mode": True}).supports_json_mode

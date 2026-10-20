@@ -120,6 +120,24 @@ def parse_json(text: str) -> Any:
     raise ValueError("the answer is not JSON")
 
 
+def _wrap_bare_array(schema: dict[str, Any], value: Any) -> dict[str, Any] | None:
+    """``{name: value}`` when the model answered a one-array object with the array.
+
+    A schema ``{candidates: [...]}`` often comes back as the bare list; with one
+    required property and that property an array, there is only one reading.
+    """
+    if not isinstance(value, list) or schema.get("type") != "object":
+        return None
+    required = schema.get("required")
+    if not isinstance(required, list) or len(required) != 1:
+        return None
+    name = required[0]
+    prop = (schema.get("properties") or {}).get(name)
+    if not isinstance(name, str) or not isinstance(prop, dict) or prop.get("type") != "array":
+        return None
+    return {name: value}
+
+
 def _check_schema(schema: dict[str, Any]) -> Any:
     """A validator for ``schema``; a schema that is not one is ``invalid_params``."""
     from jsonschema import exceptions as schema_errors
@@ -159,7 +177,7 @@ async def llm_sample_handler(
     ):
         extra["response_format"] = JSON_MODE
     chunks: list[str] = []
-    input_tokens = output_tokens = 0
+    input_tokens = output_tokens = cached_tokens = 0
     timing = CallTiming(session.id, "sample", vendor, model)
     outcome = "error"
     try:
@@ -173,6 +191,7 @@ async def llm_sample_handler(
                 elif event.kind == "usage" and event.usage is not None:
                     input_tokens += event.usage.input_tokens
                     output_tokens += event.usage.output_tokens
+                    cached_tokens += event.usage.cached_input_tokens
                 elif event.kind == "done" and event.error:
                     raise ProviderError("provider_error", event.error)
         outcome = "ok"
@@ -181,12 +200,23 @@ async def llm_sample_handler(
             errors.UNAVAILABLE, f"the model call failed: {exc}", {"reason": str(exc)}
         ) from exc
     finally:
-        timing.done(input_tokens=input_tokens, output_tokens=output_tokens, outcome=outcome)
+        timing.done(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cached_input_tokens=cached_tokens,
+            outcome=outcome,
+        )
         if input_tokens or output_tokens:
             # The one trace this call leaves in the session: what it cost.
             await core.hub.emit_event(
                 session.id,
-                events.usage(input_tokens, output_tokens, provider=vendor, model=model),
+                events.usage(
+                    input_tokens,
+                    output_tokens,
+                    provider=vendor,
+                    model=model,
+                    cached_input_tokens=cached_tokens,
+                ),
             )
     text = "".join(chunks).strip()
     usage = LlmSampleUsage(inputTokens=input_tokens, outputTokens=output_tokens)
@@ -201,6 +231,9 @@ async def llm_sample_handler(
             {"text": text[:2000]},
         ) from exc
     problem = next(iter(validator.iter_errors(value)), None)
+    wrapped = _wrap_bare_array(params.jsonSchema or {}, value) if problem is not None else None
+    if wrapped is not None and next(iter(validator.iter_errors(wrapped)), None) is None:
+        value, problem = wrapped, None
     if problem is not None:
         where = "/".join(str(part) for part in problem.absolute_path) or "(root)"
         raise RpcError(

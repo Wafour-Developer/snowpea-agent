@@ -229,6 +229,7 @@ PRESETS: dict[str, VendorPreset] = {
             "glm-5.3",
             env_keys=("GLM_API_KEY", "ZHIPUAI_API_KEY"),
             models=("glm-5.3", "glm-5.3-flash"),
+            supports_json_mode=True,
         ),
         _preset(
             "minimax",
@@ -303,6 +304,8 @@ LOCAL_VARIANTS: dict[str, VendorPreset] = {
         env_keys=("SNOWPEA_LOCAL_API_KEY",),
         key_required=False,
         local_style=True,
+        # ``response_format: {"type": "json_object"}`` is part of its API.
+        supports_json_mode=True,
         variant="vllm",
     ),
     "ollama": _preset(
@@ -313,6 +316,8 @@ LOCAL_VARIANTS: dict[str, VendorPreset] = {
         env_keys=("SNOWPEA_LOCAL_API_KEY",),
         key_required=False,
         local_style=True,
+        # ``response_format: {"type": "json_object"}`` is part of its API.
+        supports_json_mode=True,
         variant="ollama",
     ),
     "lmstudio": _preset(
@@ -433,8 +438,17 @@ def synthesize_local_preset(vendor_id: str, config: Mapping[str, Any]) -> Vendor
         # A self-hosted server usually ignores ``reasoning_effort`` and
         # sometimes rejects it outright, so it is opt-in per server.
         supports_effort=bool(config.get("effort_param")),
+        # JSON mode follows the server software unless the block says otherwise.
+        supports_json_mode=_json_mode(config, fallback),
         variant=variant or None,
     )
+
+
+def _json_mode(config: Mapping[str, Any], fallback: VendorPreset | None) -> bool:
+    explicit = config.get("json_mode")
+    if isinstance(explicit, bool):
+        return explicit
+    return bool(fallback is not None and fallback.supports_json_mode)
 
 
 def _config_bool(config: Mapping[str, Any], *keys: str) -> bool | None:
