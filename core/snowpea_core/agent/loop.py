@@ -48,6 +48,7 @@ from snowpea_core.providers.base import REDACTED, ChatMessage, ProviderError, To
 from snowpea_core.providers.call_timing import CallTiming
 from snowpea_core.server import errors
 from snowpea_core.session import compaction, events
+from snowpea_core.session.history import CHARS_PER_TOKEN
 from snowpea_core.session.manager import persist_history
 from snowpea_core.skills import hooks as plugin_hooks
 from snowpea_core.tools import deferred as deferred_tools
@@ -777,7 +778,10 @@ async def _stream_once_raw(
         timing.done(
             input_tokens=attempt.input_tokens,
             output_tokens=attempt.output_tokens,
-            reasoning_tokens=attempt.reasoning_tokens,
+            # vLLM does not split reasoning out of completion_tokens; estimate
+            # it from what streamed rather than log reasoning=0.
+            reasoning_tokens=attempt.reasoning_tokens
+            or -(-attempt.reasoning_chars // CHARS_PER_TOKEN),
             cached_input_tokens=attempt.cached_input_tokens,
             outcome="interrupted" if attempt.interrupted else attempt.stop_reason,
         )
@@ -2158,9 +2162,7 @@ async def _run_one_call(
                             session, turn_id, written, source="tool"
                         )
                         if first and checkpoint is not None:
-                            await hub.emit_event(
-                                session.id, events.checkpoint_updated(checkpoint)
-                            )
+                            await hub.emit_event(session.id, events.checkpoint_updated(checkpoint))
                     except Exception:  # noqa: BLE001 - checkpoints are best effort
                         log.warning("could not checkpoint %s", written, exc_info=True)
             if shell_scan:

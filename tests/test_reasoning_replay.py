@@ -199,3 +199,15 @@ async def test_an_adapter_that_does_not_replay_keeps_nothing(
     fake, session = await _run(daemon, tmp_path, replays=False)
     assert all(m.reasoning is None for r in fake.requests for m in r)
     assert all(m.reasoning is None for m in session.history.snapshot())
+
+
+async def test_the_timing_line_estimates_unreported_reasoning(
+    daemon: Daemon, tmp_path: Path, caplog: Any
+) -> None:
+    # vLLM folds reasoning into completion_tokens: the line said reasoning=0.
+    import logging
+
+    with caplog.at_level(logging.INFO, logger="snowpea.llm"):
+        await _run(daemon, tmp_path, replays=True)
+    lines = [r.getMessage() for r in caplog.records if r.name == "snowpea.llm"]
+    assert lines and "reasoning=0 " not in lines[0], lines[0]
