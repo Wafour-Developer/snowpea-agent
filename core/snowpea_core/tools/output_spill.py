@@ -144,12 +144,12 @@ SPILLED_TOOLS: frozenset[str] = frozenset(
 
 
 def snapshot_max_chars(core: object) -> int:
-    """``tools.snapshotMaxChars`` (default 12 000), never below 2 000."""
+    """``tools.snapshotMaxChars`` (default 40 000), never below 2 000."""
     tools = getattr(getattr(core, "settings", None), "tools", None)
     try:
-        value = int(getattr(tools, "snapshotMaxChars", 12000))
+        value = int(getattr(tools, "snapshotMaxChars", 40000))
     except (TypeError, ValueError):
-        value = 12000
+        value = 40000
     return max(2000, value)
 
 

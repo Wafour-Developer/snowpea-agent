@@ -182,3 +182,23 @@ def test_a_huge_snapshot_is_capped_once_when_it_arrives(tmp_path: Path) -> None:
         "repl", {"ok": True, "output": page, "meta": {"kind": "extract"}}
     )
     assert _spill_long_result(core, "repl", other, host=True).output == page
+
+
+def test_a_compacted_host_snapshot_passes_uncut_by_default(tmp_path: Path) -> None:
+    # The host compacts a page to ~8000 tokens, which is up to ~32k ASCII chars.
+    from snowpea_core.agent.loop import _spill_long_result
+
+    core = Core(settings=Settings(), paths=Paths.create(tmp_path / "home"), token="t")
+    page = "- link [ref=e1] Product\n" * 1250
+    assert 29_000 < len(page) < 31_000
+    snap = result_from_answer(
+        "repl", {"ok": True, "output": page, "meta": {"kind": "snapshot", "tab": "A"}}
+    )
+    assert _spill_long_result(core, "repl", snap, host=True).output == page
+    huge = "- link [ref=e1] Product\n" * 1800
+    assert len(huge) > 40_000
+    big = result_from_answer(
+        "repl", {"ok": True, "output": huge, "meta": {"kind": "snapshot", "tab": "A"}}
+    )
+    capped = _spill_long_result(core, "repl", big, host=True).output
+    assert len(capped) < 41_000 and "characters omitted" in capped

@@ -395,7 +395,7 @@ class ToolsSettings(_Model):
     #: "snapshot"``) kept in the conversation; past this the middle goes to a
     #: file the agent can read back.  Applied once, when the result arrives, so
     #: the stored message never changes afterwards (prefix caching).
-    snapshotMaxChars: int = 12000
+    snapshotMaxChars: int = 40000
     #: False disables the read-before-write guard (M15 §A3): ``patch`` and
     #: ``write_file`` stop refusing a write to a file this session has not read
     #: in full.  The prompt rule stays either way.
