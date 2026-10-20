@@ -1,17 +1,18 @@
 """How many tokens one model's context window holds (CORE-context).
 
 The HUD shows ``used / window``, and auto-compaction fires at a percentage of
-the window, so both need a number for the session's model.  Three sources, in
-order:
+the window, so both need a number for the session's model.  The sources:
 
 1. ``settings.providers.<vendor>.context_window`` — an explicit override, which
-   is the escape hatch for a model this table has never heard of.
-2. :data:`STATIC_WINDOWS` — a hand-maintained table of the models the eleven
-   presets ship, matched exactly first and then by longest prefix.
-3. the server, for ``local`` only: vLLM puts ``max_model_len`` on every row of
-   ``GET /v1/models``, and Ollama answers ``POST /api/show`` with a
-   ``<family>.context_length`` in ``model_info``.  Both are cached for the same
-   :data:`~snowpea_core.providers.models.CACHE_TTL_SEC` as the model listing.
+   is the escape hatch for a model nothing else describes.
+2. a self-hosted (local-style) server, asked: vLLM/SGLang put ``max_model_len``
+   on every ``GET /v1/models`` row, llama.cpp-style servers ``meta.n_ctx`` (or
+   ``/props``), LM Studio ``loaded_context_length``, TGI ``/info``, and Ollama
+   ``/api/ps`` (the loaded ``num_ctx``) then ``/api/show``.  Cached for
+   :data:`CACHE_TTL_SEC`; a trained length (``n_ctx_train``) only when no
+   probe found the served one.
+3. for a hosted vendor, the smaller of :data:`STATIC_WINDOWS` (longest prefix)
+   and the models.dev catalog's exact ``limit.context``.
 
 An unknown model yields ``None``, which every surface renders as ``?`` rather
 than guessing — a wrong window silently truncates or silently never compacts.
@@ -21,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import time
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -280,31 +282,38 @@ def _as_window(value: Any) -> int | None:
 
 #: Keys a server may put the window under, most specific first.
 _WINDOW_KEYS = (
+    # LM Studio: what the model is loaded with, before what it could take.
+    "loaded_context_length",
     "max_model_len",
     "context_length",
     "max_context_length",
     "context_window",
     # llama.cpp-style servers (and Strata) put the served window in
-    # ``meta.n_ctx``; ``n_ctx_train`` is only what the model was trained for.
+    # ``meta.n_ctx``.
     "n_ctx",
     "max_position_embeddings",
-    "n_ctx_train",
 )
 
+#: What a model was trained for, not what this server gives it: only when no
+#: probe found the served window (llama.cpp ``meta.n_ctx_train``).
+_TRAINED_KEYS = ("n_ctx_train",)
 
-def window_from_row(row: dict[str, Any]) -> int | None:
+
+def window_from_row(row: dict[str, Any], keys: tuple[str, ...] = _WINDOW_KEYS) -> int | None:
     """Window declared on one ``/v1/models`` row, else ``None``."""
-    for key in _WINDOW_KEYS:
-        window = _as_window(row.get(key))
-        if window is not None:
-            return window
-    meta = row.get("meta")
-    if isinstance(meta, dict):
-        for key in _WINDOW_KEYS:
-            window = _as_window(meta.get(key))
+    for source in (row, row.get("meta"), row.get("default_generation_settings")):
+        if not isinstance(source, dict):
+            continue
+        for key in keys:
+            window = _as_window(source.get(key))
             if window is not None:
                 return window
     return None
+
+
+def trained_window(row: dict[str, Any]) -> int | None:
+    """The trained length a row declares, the last thing to go by."""
+    return window_from_row(row, _TRAINED_KEYS)
 
 
 def window_from_ollama_show(payload: dict[str, Any]) -> int | None:
@@ -324,9 +333,7 @@ def window_from_ollama_show(payload: dict[str, Any]) -> int | None:
     return window_from_row(payload)
 
 
-async def _get_json(
-    url: str, headers: dict[str, str], timeout: float
-) -> dict[str, Any] | None:
+async def _get_json(url: str, headers: dict[str, str], timeout: float) -> dict[str, Any] | None:
     try:
         async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
             response = await client.get(url)
@@ -375,25 +382,116 @@ async def discover_window(
     if api_key:
         headers["authorization"] = f"Bearer {api_key}"
 
+    root = base.removesuffix("/v1")
+    trained: int | None = None
+
     payload = await _get_json(f"{base}/models", headers, timeout)
     if payload is not None:
         data = payload.get("data")
         rows = [row for row in (data if isinstance(data, list) else []) if isinstance(row, dict)]
-        for row in rows:
-            if str(row.get("id", "")) == model:
-                window = window_from_row(row)
-                if window is not None:
-                    return window
         # A single-model server need not echo the alias the client uses.
-        if len(rows) == 1:
-            window = window_from_row(rows[0])
+        mine = [row for row in rows if str(row.get("id", "")) == model] or (
+            rows if len(rows) == 1 else []
+        )
+        for row in mine:
+            window = window_from_row(row)
             if window is not None:
                 return window
+            trained = trained or trained_window(row)
 
-    root = base.removesuffix("/v1")
+    # Each server software states the window it was started with somewhere of
+    # its own; a 404 from the others costs one quick round trip, once per TTL.
+    for probe in (
+        _llamacpp_props,  # llama.cpp / ik_llama: GET /props
+        _lmstudio_model,  # LM Studio: GET /api/v0/models/{model}
+        _tgi_info,  # Hugging Face TGI: GET /info
+        _ollama_window,  # Ollama: POST /api/ps, then /api/show
+    ):
+        window = await probe(root, model, headers, timeout)
+        if window is not None:
+            return window
+    return trained
+
+
+async def _llamacpp_props(
+    root: str, model: str, headers: dict[str, str], timeout: float
+) -> int | None:
+    props = await _get_json(f"{root}/props", headers, timeout)
+    return window_from_row(props) if props is not None else None
+
+
+async def _lmstudio_model(
+    root: str, model: str, headers: dict[str, str], timeout: float
+) -> int | None:
+    row = await _get_json(f"{root}/api/v0/models/{model}", headers, timeout)
+    return window_from_row(row) if row is not None else None
+
+
+async def _tgi_info(root: str, model: str, headers: dict[str, str], timeout: float) -> int | None:
+    info = await _get_json(f"{root}/info", headers, timeout)
+    if info is None:
+        return None
+    return _as_window(info.get("max_total_tokens")) or _as_window(info.get("max_input_tokens"))
+
+
+async def _ollama_window(
+    root: str, model: str, headers: dict[str, str], timeout: float
+) -> int | None:
+    # /api/ps reports the context a loaded model actually runs with
+    # (num_ctx); /api/show only knows what the model could take.
+    running = await _get_json(f"{root}/api/ps", headers, timeout)
+    for row in (running or {}).get("models") or []:
+        if isinstance(row, dict) and model in (row.get("name"), row.get("model")):
+            window = _as_window(row.get("context_length"))
+            if window is not None:
+                return window
     show = await _post_json(f"{root}/api/show", {"model": model}, headers, timeout)
-    if show is not None:
-        return window_from_ollama_show(show)
+    return window_from_ollama_show(show) if show is not None else None
+
+
+# ---------------------------------------------------------------------------
+# the public catalog (hosted vendors)
+# ---------------------------------------------------------------------------
+
+#: The parsed models.dev document, keyed by the cache file's mtime: the
+#: window is looked up on every turn and the file is large.
+_CATALOG: tuple[str, int, dict[str, Any]] | None = None
+
+
+def _catalog(home: Path | str | None) -> dict[str, Any]:
+    global _CATALOG
+    if home is None:
+        return {}
+    from snowpea_core.config.paths import Paths
+    from snowpea_core.providers.models import models_dev_cached
+
+    path = Paths(home=Path(home)).cache_dir / "models-dev.json"
+    try:
+        stamp = path.stat().st_mtime_ns
+    except OSError:
+        return {}
+    if _CATALOG is None or _CATALOG[0] != str(path) or _CATALOG[1] != stamp:
+        _CATALOG = (str(path), stamp, models_dev_cached(home))
+    return _CATALOG[2]
+
+
+def catalog_window(vendor: str, model: str | None, home: Path | str | None) -> int | None:
+    """``limit.context`` models.dev lists for exactly this vendor's ``model``."""
+    from snowpea_core.providers.models import MODELS_DEV_IDS
+
+    name = (model or "").strip()
+    if not name:
+        return None
+    catalog = _catalog(home)
+    for provider_id in MODELS_DEV_IDS.get(vendor, ()):
+        entry = catalog.get(provider_id)
+        models = entry.get("models") if isinstance(entry, dict) else None
+        meta = models.get(name) if isinstance(models, dict) else None
+        limit = meta.get("limit") if isinstance(meta, dict) else None
+        if isinstance(limit, dict):
+            window = _as_window(limit.get("context"))
+            if window is not None:
+                return window
     return None
 
 
@@ -405,6 +503,7 @@ __all__ = [
     "cache_clear",
     "cache_get",
     "cache_put",
+    "catalog_window",
     "clamp_output_tokens",
     "discover_window",
     "last_known",
@@ -413,6 +512,7 @@ __all__ = [
     "max_output_tokens",
     "preset_window",
     "static_window",
+    "trained_window",
     "window_from_ollama_show",
     "window_from_row",
 ]

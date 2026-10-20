@@ -26,6 +26,7 @@ import pytest
 import pytest_asyncio
 from _support import RpcClient, connect, env_vars, make_daemon
 
+from snowpea_core.config.paths import Paths
 from snowpea_core.config.settings import Settings
 from snowpea_core.providers import context_windows
 from snowpea_core.providers.base import ChatMessage, ToolCall
@@ -129,9 +130,15 @@ def test_unknown_vendor_has_no_window() -> None:
 class WindowServer:
     """A ``/v1/models`` endpoint that annotates its rows the way vLLM does."""
 
-    def __init__(self, rows: list[dict[str, Any]], show: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        rows: list[dict[str, Any]],
+        show: dict[str, Any] | None = None,
+        extra: dict[str, dict[str, Any]] | None = None,
+    ) -> None:
         self.rows = rows
         self.show = show
+        self.extra = extra or {}
         self.paths: list[str] = []
         self._httpd = ThreadingHTTPServer(("127.0.0.1", 0), self._handler())
         self._thread = threading.Thread(target=self._httpd.serve_forever, daemon=True)
@@ -161,6 +168,9 @@ class WindowServer:
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler's spelling
                 server.paths.append(self.path)
+                if self.path in server.extra:
+                    respond(self, server.extra[self.path])
+                    return
                 if self.path != "/v1/models":
                     self.send_error(404)
                     return
@@ -234,7 +244,64 @@ async def test_local_window_falls_back_to_ollama_show(ollama_server: WindowServe
     )
     registry = ProviderRegistry(settings)
     assert await registry.resolve_context_window("local") == 131_072
-    assert ollama_server.paths == ["/v1/models", "/api/show"]
+    assert ollama_server.paths[0] == "/v1/models"
+    assert ollama_server.paths[-2:] == ["/api/ps", "/api/show"]
+
+
+@pytest.mark.parametrize(
+    ("rows", "extra", "window"),
+    [
+        # llama.cpp: /v1/models knows only the trained length; /props the served one.
+        (
+            [{"id": "m", "meta": {"n_ctx_train": 131_072}}],
+            {"/props": {"default_generation_settings": {"n_ctx": 32_768}}},
+            32_768,
+        ),
+        # ...and with no /props, the trained length beats nothing at all.
+        ([{"id": "m", "meta": {"n_ctx_train": 131_072}}], {}, 131_072),
+        # hon1's glm / hon4's Strata: meta.n_ctx on the row.
+        ([{"id": "m", "meta": {"n_ctx": 262_144}}], {}, 262_144),
+        # LM Studio: the loaded length, not the maximum.
+        (
+            [{"id": "m"}],
+            {"/api/v0/models/m": {"max_context_length": 131_072, "loaded_context_length": 8192}},
+            8192,
+        ),
+        # TGI
+        ([{"id": "m"}], {"/info": {"max_input_tokens": 4095, "max_total_tokens": 4096}}, 4096),
+        # Ollama: the num_ctx a loaded model runs with.
+        ([{"id": "m"}], {"/api/ps": {"models": [{"name": "m", "context_length": 16_384}]}}, 16_384),
+    ],
+)
+@pytest.mark.asyncio
+async def test_every_server_kind_reports_its_served_window(
+    rows: list[dict[str, Any]], extra: dict[str, dict[str, Any]], window: int
+) -> None:
+    server = WindowServer(rows, extra=extra)
+    try:
+        assert await context_windows.discover_window(server.base_url, "m") == window
+    finally:
+        server.close()
+
+
+def test_a_hosted_window_takes_the_smaller_of_table_and_catalog(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    paths = Paths.create(home)
+    catalog = {
+        "zai": {"models": {"glm-5.1": {"limit": {"context": 200_000}}}},
+        "anthropic": {"models": {"claude-sonnet-4-5": {"limit": {"context": 1_000_000}}}},
+    }
+    paths.cache_dir.mkdir(parents=True, exist_ok=True)
+    (paths.cache_dir / "models-dev.json").write_text(
+        json.dumps({"saved_at": 1, "catalog": catalog}), encoding="utf-8"
+    )
+    registry = ProviderRegistry(Settings(), paths)
+    # The "glm-5" family entry is 1M; models.dev knows glm-5.1 is 200k.
+    assert registry.context_window("glm", "glm-5.1") == 200_000
+    # A beta-only 1M window is not what an ordinary request gets.
+    assert registry.context_window("anthropic", "claude-sonnet-4-5") == 200_000
+    # Not in the catalog: the table alone.
+    assert registry.context_window("glm", "glm-5.3") == 1_000_000
 
 
 @pytest.mark.asyncio
@@ -272,7 +339,9 @@ def test_window_from_row_reads_the_usual_spellings() -> None:
     # beats the trained length, and both beat the static glm-5 entry (1M).
     row = {"id": "glm-5.3-flash", "meta": {"n_ctx": 262144, "n_ctx_train": 1048576}}
     assert context_windows.window_from_row(row) == 262144
-    assert context_windows.window_from_row({"meta": {"n_ctx_train": 32768}}) == 32768
+    trained = {"meta": {"n_ctx_train": 32768}}
+    assert context_windows.window_from_row(trained) is None
+    assert context_windows.trained_window(trained) == 32768
 
 
 # ---------------------------------------------------------------------------

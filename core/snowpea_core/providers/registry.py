@@ -347,9 +347,7 @@ class ProviderRegistry:
         if self.settings.models.default in stale:
             self.settings.models.default = None
         self.settings.agents.models = {
-            agent: pid
-            for agent, pid in self.settings.agents.models.items()
-            if pid not in stale
+            agent: pid for agent, pid in self.settings.agents.models.items() if pid not in stale
         }
         return removed
 
@@ -425,10 +423,29 @@ class ProviderRegistry:
         known = context_windows.last_known(vendor, key_url, resolved_model)
         if known is not None:
             return known
+        return self._table_window(vendor, resolved_model)
+
+    def _table_window(self, vendor: str, model: str) -> int | None:
+        """The window no server was asked for: the table and the catalog.
+
+        The static table is matched by family prefix ("glm-5" also covered
+        glm-5.1, 200k, with the 1M of glm-5.3); models.dev lists each hosted
+        model exactly but also beta-only windows (1M Claude).  The smaller of
+        the two wins: too large never compacts and then overflows, too small
+        only compacts early.  A self-hosted server serves whatever it was
+        started with, so no catalog describes it.
+        """
         preset = self.preset_or_none(vendor)
         if preset is None:
             return None
-        return preset.context_window(resolved_model)
+        table = preset.context_window(model)
+        if self.is_local_style(vendor):
+            return table
+        home = self.paths.home if self.paths is not None else None
+        listed = context_windows.catalog_window(vendor, model, home)
+        if listed is None or table is None:
+            return listed if listed is not None else table
+        return min(listed, table)
 
     # -- output budget and thinking (CORE-reasoning-budget) ------------
     def max_tokens_for(self, vendor: str, model: str | None = None) -> int:
@@ -533,9 +550,7 @@ class ProviderRegistry:
             # always has: a 400 there costs a request and tells us nothing the
             # vendor's own catalog would not have.
             return False
-        learned = self._vision_memory().get(
-            vendor, self.base_url_for(vendor) or "", resolved
-        )
+        learned = self._vision_memory().get(vendor, self.base_url_for(vendor) or "", resolved)
         return learned
 
     def _vision_memory(self) -> vision_scale.VisionMemory:
@@ -600,8 +615,7 @@ class ProviderRegistry:
         if override is not None:
             return override
         resolved_model = self.model_for(vendor, model)
-        preset = self.preset_or_none(vendor)
-        static = preset.context_window(resolved_model) if preset is not None else None
+        static = self._table_window(vendor, resolved_model)
         if not self.is_local_style(vendor):
             return static
         base_url = (self.base_url_for(vendor) or "").rstrip("/")
