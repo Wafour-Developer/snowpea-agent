@@ -4,8 +4,9 @@ Holds :class:`~snowpea_core.providers.base.ChatMessage` objects in order and
 mirrors them into the store.  Two kinds of compaction live here:
 
 ``compact()``
-    the mechanical trim — drop the oldest messages once the list outgrows
-    ``max_messages``, never splitting a tool call from its result.
+    the mechanical trim — drop the oldest quarter once one turn runs far past
+    ``max_messages``, never splitting a tool call from its result (between
+    turns the cap starts a summarising compaction instead).
 ``replace()``
     what the summarising compactor in :mod:`snowpea_core.session.compaction`
     calls when it has swapped the conversation for a summary (CORE-context).
@@ -25,17 +26,16 @@ from typing import Any
 
 from snowpea_core.providers.base import REDACTED, ChatMessage, ToolCall
 
-#: Messages kept before :meth:`History.compact` starts dropping the oldest.
-#: A safety net behind the token-based, summarising compaction: 200 was hit
-#: by a normal afternoon of work at a quarter of a 262k window, and the
-#: opening request went with the oldest messages.
-DEFAULT_MAX_MESSAGES = 600
+#: Messages past which the next turn starts with a summarising compaction,
+#: whatever the token count (Hermes' ``hard_msg_limit`` is 5000).  A safety
+#: net behind the token threshold, not a window: 600 here dropped the oldest
+#: message on every round of a 144k-token session, so a server's prefix cache
+#: never held past the system prompt.
+DEFAULT_MAX_MESSAGES = 2000
 
-#: Share of ``max_messages`` one mechanical trim drops at once.  Trimming one
-#: message per append would change the start of every request (and, through
-#: ``compactions``, the environment block), so no server prefix cache could
-#: ever hold past the system prompt; a quarter at a time costs one cold
-#: prefill per ~150 messages instead.
+#: Share of ``max_messages`` past it before :meth:`History.compact` cuts
+#: mechanically in the middle of a turn, and the share that cut drops at
+#: once: one cold prefill per batch, never one per round.
 TRIM_FRACTION = 4
 
 #: Characters per token when no tokenizer is available.
@@ -204,23 +204,29 @@ class History:
         self.version += 1
         self.rewrite_version += 1
 
-    def compact(self) -> bool:
-        """Trim the oldest messages once the list outgrows ``max_messages``.
+    @property
+    def over_cap(self) -> bool:
+        """True past ``max_messages``: the next turn starts by compacting."""
+        return len(self.messages) > self.max_messages
 
-        The mechanical fallback: drop the oldest, never split a tool call from
-        its result, and drop :data:`TRIM_FRACTION` of the cap at a time so the
-        requests in between all extend one another.  The summarising path is
-        :func:`snowpea_core.session.compaction.compact_session`.
+    def compact(self) -> bool:
+        """Cut the oldest messages when a turn runs far past ``max_messages``.
+
+        The cap itself is handled between turns by the summarising compaction
+        (:func:`snowpea_core.session.compaction.should_auto_compact`).  This is
+        what a single turn that keeps going gets: past the cap plus a quarter,
+        drop the oldest down to the cap less a quarter, never splitting a tool
+        call from its result, so the requests in between extend one another.
         """
-        if len(self.messages) <= self.max_messages:
+        batch = max(1, self.max_messages // TRIM_FRACTION)
+        if len(self.messages) <= self.max_messages + batch:
             return False
         # The first user message is the session's brief — the paths, the
         # constraints, what "done" means — and stays whatever is dropped
         # after it (Hermes protects the same head). The owner's opening line
         # naming an Android project was gone by the afternoon without this.
         head = next((m for m in self.messages if m.role == "user"), None)
-        keep = self.max_messages - max(1, self.max_messages // TRIM_FRACTION)
-        drop = len(self.messages) - keep
+        drop = len(self.messages) - (self.max_messages - batch)
         while drop < len(self.messages) and self.messages[drop].role == "tool":
             drop += 1
         kept = self.messages[drop:]

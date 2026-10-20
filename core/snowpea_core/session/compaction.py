@@ -585,6 +585,10 @@ def should_auto_compact(core: Core, session: Session, state: ContextState) -> bo
     settings: Any = core.settings.context
     if not getattr(settings, "autoCompact", True):
         return False
+    if session.history.over_cap and len(session.history) > _keep_last(core):
+        # Many short messages can pass the message cap long before the token
+        # threshold; summarise them once rather than cut them a round at a time.
+        return True
     if state.window is None or state.used <= 0:
         return False
     try:

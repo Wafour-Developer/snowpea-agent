@@ -673,6 +673,14 @@ def test_should_auto_compact_respects_the_settings() -> None:
     # A conversation no longer than what compaction would keep is left alone.
     assert compaction.should_auto_compact(core, SessionStub(2), over) is False  # type: ignore[arg-type]
 
+    # Past the message cap the next turn compacts whatever the tokens say
+    # (Hermes' hard_msg_limit), instead of a round-by-round mechanical cut.
+    crowded = SessionStub(30)
+    crowded.history.max_messages = 20
+    assert compaction.should_auto_compact(core, crowded, under) is True  # type: ignore[arg-type]
+    assert compaction.should_auto_compact(core, crowded, unknown) is True  # type: ignore[arg-type]
+    assert compaction.should_auto_compact(off, crowded, under) is False  # type: ignore[arg-type]
+
 
 @pytest.mark.asyncio
 async def test_a_known_family_served_larger_is_discovered_not_tabled() -> None:
@@ -785,12 +793,14 @@ def test_the_mechanical_trim_drops_a_batch_so_requests_extend_each_other() -> No
     # on every round (hon4, 144k tokens, 0-10k reused).
     history = History(max_messages=8)
     history.append(ChatMessage(role="user", content="brief"))
-    for n in range(8):
+    for n in range(9):
         history.append(ChatMessage(role="assistant", content=f"step {n}"))
+    assert history.over_cap and history.compact() is False  # within cap + a quarter
+    history.append(ChatMessage(role="assistant", content="step 9"))
     assert history.compact() is True
     trimmed = list(history.messages)
     assert len(trimmed) == 7  # 8 less a quarter, plus the brief
-    for n in range(8, 9):
+    for n in range(10, 13):  # up to the cap plus a quarter again
         history.append(ChatMessage(role="assistant", content=f"step {n}"))
         assert history.compact() is False
         assert history.messages[: len(trimmed)] == trimmed
