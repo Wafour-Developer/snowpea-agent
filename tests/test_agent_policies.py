@@ -456,3 +456,32 @@ def test_register_builtin_tools_still_exposes_the_file_tools() -> None:
     assert read is not None
     assert "offset" in read.input_schema["properties"]
     assert "limit" in read.input_schema["properties"]
+
+
+async def test_a_plugin_skill_edited_under_a_running_daemon_is_reread(tmp_path: Path) -> None:
+    # snowpea-browser: routine/SKILL.md dropped "알려줘", yet every later
+    # session still matched it until the daemon restarted.
+    import os
+
+    home = tmp_path / "home"
+    loader = _loader(home)
+    skill = loader.plugins_dir / "snowpea-browser" / "skills" / "routine" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text(
+        "---\nname: routine\nautoInject: {keywords: [routine, 알려줘]}\n---\nDo it.\n",
+        encoding="utf-8",
+    )
+    loader.scan()
+    assert loader.skills["routine"].doc.auto_inject == ["routine", "알려줘"]
+    assert not loader.changed()
+    skill.write_text(
+        "---\nname: routine\nautoInject: {keywords: [routine]}\n---\nDo it.\n", encoding="utf-8"
+    )
+    stamp = skill.stat().st_mtime_ns + 1_000_000_000
+    os.utime(skill, ns=(stamp, stamp))
+    assert loader.changed()
+    work = tmp_path / "w"
+    work.mkdir()
+    await loader.reload_workdir(work)
+    assert loader.skills["routine"].doc.auto_inject == ["routine"]
+    assert not loader.changed()

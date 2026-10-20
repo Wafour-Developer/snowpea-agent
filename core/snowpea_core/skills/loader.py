@@ -204,6 +204,9 @@ class SkillLoader:
         self._index_groups: IndexGroups | None = None
         #: Plugin names detected in Claude Code's installed_plugins.json.
         self.claude_plugin_names: set[str] = set()
+        #: mtimes of the skill files and folders the last scan read, so a
+        #: plugin updated under a running daemon is picked up (``changed``).
+        self._seen: dict[Path, int] = {}
 
     # -- paths ---------------------------------------------------------
     @property
@@ -288,6 +291,7 @@ class SkillLoader:
             for name, source in PROJECT_DIRS:
                 self._scan_bundle(workdir / name, source)
 
+        self._seen = self._stat(self._watched())
         commands = sum(1 for skill in self.skills.values() if skill.doc.user_invocable)
         return ReloadReport(
             skills=sum(1 for s in self.skills.values() if s.kind == "skill"),
@@ -296,6 +300,35 @@ class SkillLoader:
             plugins=len(self.plugins),
             hooks=self.hooks.count(),
         )
+
+    def _watched(self) -> set[Path]:
+        """Every skill file read, its folder, and the folders holding them.
+
+        A folder's mtime moves when an entry is added or removed, so a new or
+        deleted skill shows up as well as an edited one.
+        """
+        found: set[Path] = {self.plugins_dir}
+        for plugin in self.plugins:
+            found.update((plugin.root, plugin.root / "skills"))
+        for skill in self.skills.values():
+            path = skill.doc.path
+            if path is not None:
+                found.update((path, path.parent, path.parent.parent))
+        return found
+
+    @staticmethod
+    def _stat(paths: set[Path]) -> dict[Path, int]:
+        seen: dict[Path, int] = {}
+        for path in paths:
+            try:
+                seen[path] = path.stat().st_mtime_ns
+            except OSError:
+                seen[path] = -1
+        return seen
+
+    def changed(self) -> bool:
+        """True when a skill file or folder the last scan read has changed."""
+        return bool(self._seen) and self._stat(set(self._seen)) != self._seen
 
     def _scan_builtins(self) -> None:
         root = builtin_root()
@@ -578,6 +611,12 @@ class SkillLoader:
         """
         root = Path(workdir)
         async with self._lock:
+            if self.changed():
+                # A plugin was updated under the running daemon (a browser
+                # update ships a new SKILL.md): read every root again, so its
+                # new keywords and text reach this session.  Running sessions
+                # keep what they started with; their system prompt is cached.
+                self.scan()
             before = len(self.skills), len(self.agents)
             for name, source in PROJECT_DIRS:
                 self._scan_bundle(root / name, source)
