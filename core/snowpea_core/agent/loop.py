@@ -2010,6 +2010,12 @@ async def _run_one_call(
     tool: Tool | None = core.tools.get(call.name, session)
     if tool is None:
         await hub.emit_event(session.id, events.tool_call(call.id, call.name, call.arguments))
+        gone = HOST_TOOLS.gone_for(session, call.name)
+        if gone is not None:
+            # The host serving it closed (a browser crash): say so, rather than
+            # "unknown tool", which sends the model hunting for substitutes.
+            await _fail_call(core, session, call, gone.message(call.name))
+            return None
         close = call_fixups.suggestions(call.name, core.tools.names())
         hint = f"; did you mean {', '.join(close)}?" if close else ""
         await _fail_call(core, session, call, f"unknown tool: {call.name}{hint}")

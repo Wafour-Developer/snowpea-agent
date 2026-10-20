@@ -30,6 +30,7 @@ import asyncio
 import json
 import logging
 import re
+import time
 from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -46,6 +47,26 @@ log = logging.getLogger(__name__)
 
 #: Host results whose content blocks ``session.toolContent`` can still return.
 CONTENT_CACHE_SIZE = 200
+
+#: How long a closed host's tool names are remembered (or until that client
+#: registers again): a call to one in that window says the host is gone
+#: instead of "unknown tool", which sent the model searching for other tools
+#: and delegating for a dozen rounds after a browser crash (snowpea-browser).
+GONE_GRACE_SEC = 30 * 60
+
+#: What a call to a tool of a browser host that went away gets back.
+BROWSER_GONE_MESSAGE = (
+    "host_unavailable: Snowpea Browser closed or crashed, so {name} can't run now. "
+    "It reconnects by itself when the browser restarts. Don't search for other tools "
+    "or delegate: stop and tell the user to reopen Snowpea Browser."
+)
+
+#: The same for any other host (an IDE, a plugin surface).
+HOST_GONE_MESSAGE = (
+    "host_unavailable: the {kind} that provided {name} disconnected, so it can't run "
+    "now. Don't search for other tools or delegate: stop and tell the user to "
+    "reconnect it."
+)
 
 #: Host tools whose whole result is an image (the browser host's screenshot).
 IMAGE_ONLY_TOOLS: frozenset[str] = frozenset({"browser_screenshot"})
@@ -107,6 +128,21 @@ class _Host:
     tools: dict[str, Tool] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class GoneHost:
+    """The tools of a host whose connection closed, kept for a while."""
+
+    names: frozenset[str]
+    client_kind: str | None
+    at: float
+
+    def message(self, name: str) -> str:
+        """What a call to ``name`` gets back while the host is away."""
+        if self.client_kind == "browser":
+            return BROWSER_GONE_MESSAGE.format(name=name)
+        return HOST_GONE_MESSAGE.format(name=name, kind=self.client_kind or "host")
+
+
 @dataclass
 class _InFlight:
     session_id: str
@@ -131,6 +167,9 @@ class HostTools:
         self._cancels: set[asyncio.Task[None]] = set()
         #: Disk writes of kept content still running.
         self._writes: set[asyncio.Future[bool]] = set()
+        #: Closed hosts' tools, by surface id and by clientId (``GONE_GRACE_SEC``).
+        self._gone: dict[str, GoneHost] = {}
+        self._clock: Callable[[], float] = time.monotonic
 
     # -- registration --------------------------------------------------
     def register(self, core: Core, conn: Any, specs: list[dict[str, Any]]) -> list[str]:
@@ -184,6 +223,10 @@ class HostTools:
                 )
             )
         host = self._hosts.get(conn.surface_id)
+        # The client is back: its old tools are no longer "away".
+        for key in (conn.surface_id, getattr(conn, "client_id", None)):
+            if key:
+                self._gone.pop(key, None)
         if host is None:
             host = self._hosts[conn.surface_id] = _Host(conn=conn)
             on_close = getattr(conn, "on_close", None)
@@ -205,9 +248,51 @@ class HostTools:
         return removed
 
     def drop_connection(self, conn: Any) -> None:
-        """Forget every tool ``conn`` registered (its socket closed)."""
-        if self._hosts.pop(getattr(conn, "surface_id", ""), None) is not None:
-            _invalidate_tool_prompt()
+        """Forget every tool ``conn`` registered (its socket closed).
+
+        The names are remembered for :data:`GONE_GRACE_SEC`, so a session still
+        pointing at this host is told it is away (:meth:`gone_for`).
+        """
+        host = self._hosts.pop(getattr(conn, "surface_id", ""), None)
+        if host is None:
+            return
+        if host.tools:
+            gone = GoneHost(
+                frozenset(host.tools), getattr(conn, "client_kind", None), self._clock()
+            )
+            for key in (getattr(conn, "surface_id", None), getattr(conn, "client_id", None)):
+                if key:
+                    self._gone[key] = gone
+        _invalidate_tool_prompt()
+
+    def gone_for(self, session: Any, name: str | None = None) -> GoneHost | None:
+        """The host that served ``session`` and has gone away, if it is recent.
+
+        With ``name``, only one whose tools included it — and never while a
+        live host serves that name to the session.
+        """
+        if session is None:
+            return None
+        if name is not None and name in self.for_session(session):
+            return None
+        now = self._clock()
+        for key in [k for k, g in self._gone.items() if now - g.at > GONE_GRACE_SEC]:
+            del self._gone[key]
+        explicit = getattr(session, "host_tools_from", None)
+        conn = getattr(session, "origin_conn", None)
+        keys = [
+            str(explicit) if explicit else None,
+            getattr(conn, "surface_id", None),
+            getattr(conn, "client_id", None),
+        ]
+        candidates = [self._gone[key] for key in keys if key and key in self._gone]
+        if explicit and not candidates:
+            # ``hostToolsFrom`` may name a client kind ("browser").
+            candidates = [g for g in self._gone.values() if g.client_kind == str(explicit)]
+        for gone in sorted(candidates, key=lambda g: g.at, reverse=True):
+            if name is None or name in gone.names:
+                return gone
+        return None
 
     # -- lookup --------------------------------------------------------
     def owner_of(self, session: Any) -> str | None:
@@ -220,9 +305,13 @@ class HostTools:
             if explicit in self._hosts:
                 return explicit
             # A clientId: whichever live connection that client is on now; then
-            # a clientKind ("browser"): the first such host with tools.
+            # a clientKind ("browser"): such a host with tools. The newest
+            # wins, since a reconnect's hello can land before the old socket's
+            # close has been handled.
             for field_name in ("client_id", "client_kind"):
-                for surface_id, host in self._hosts.items():
+                for surface_id, host in reversed(self._hosts.items()):
+                    if getattr(host.conn, "closed", False):
+                        continue
                     if host.tools and getattr(host.conn, field_name, None) == explicit:
                         return surface_id
             # The named host is gone (a browser relaunched under a new

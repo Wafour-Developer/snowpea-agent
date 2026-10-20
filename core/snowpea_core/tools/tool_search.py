@@ -31,6 +31,30 @@ FOUND = (
 )
 
 
+#: Appended while the host serving this session has gone away, so a search
+#: for its tools does not read as "they never existed".
+HOST_OFFLINE = (
+    "Note: {what} are offline ({names}). {host} closed or crashed; they come back "
+    "when it reconnects. Don't look for substitutes: tell the user to reopen it."
+)
+
+
+def offline_note(session: Any) -> str:
+    """:data:`HOST_OFFLINE` for ``session``, or ``""`` when its host is here."""
+    from snowpea_core.tools.host_tools import HOST_TOOLS
+
+    gone = HOST_TOOLS.gone_for(session)
+    if gone is None:
+        return ""
+    browser = gone.client_kind == "browser"
+    names = ", ".join(sorted(gone.names)[:8]) + ("…" if len(gone.names) > 8 else "")
+    return HOST_OFFLINE.format(
+        what="Browser tools" if browser else "The host's tools",
+        names=names,
+        host="Snowpea Browser" if browser else f"The {gone.client_kind or 'host'}",
+    )
+
+
 def render(specs: list[ToolSpec]) -> str:
     """The matches, in the shape the tool list uses, plus each input schema."""
     lines: list[str] = []
@@ -63,13 +87,15 @@ async def tool_search(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         # A narrowed agent finds only what it may call.
         catalogue = [spec for spec in catalogue if spec.name in allowed]
     matches = deferred.search(catalogue, query, min(max(1, count), deferred.MAX_RESULTS))
+    note = offline_note(ctx.session)
+    tail = f"\n\n{note}" if note else ""
     if not matches:
-        return ToolResult(ok=True, output=NO_MATCH.format(query=query))
+        return ToolResult(ok=True, output=NO_MATCH.format(query=query) + tail)
     deferred.load(ctx.session, [spec.name for spec in matches])
     invalidate(ctx.session)
     return ToolResult(
         ok=True,
-        output=f"{FOUND.format(count=len(matches))}\n\n{render(matches)}",
+        output=f"{FOUND.format(count=len(matches))}\n\n{render(matches)}{tail}",
         meta={"loaded": [spec.name for spec in matches]},
     )
 
