@@ -59,14 +59,19 @@ class FakeClient:
     def __init__(self, routes: dict[str, FakeResponse | Exception]) -> None:
         self.routes = routes
         self.calls: list[str] = []
+        self.closed = False
 
     async def __aenter__(self) -> FakeClient:
+        self.closed = False
         return self
 
     async def __aexit__(self, *_exc: object) -> None:
-        return None
+        self.closed = True
 
     async def get(self, url: str, **_kwargs: Any) -> FakeResponse:
+        if self.closed:
+            # httpx refuses a request on a client whose ``async with`` has ended.
+            raise RuntimeError("Cannot send a request, as the client has been closed.")
         self.calls.append(url)
         for prefix, answer in self.routes.items():
             if url.startswith(prefix):

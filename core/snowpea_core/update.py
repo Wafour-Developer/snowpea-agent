@@ -400,18 +400,20 @@ async def _check_git_branch(paths: Paths, install: GitInstall, force: bool) -> d
                 if status not in ("ahead", "behind", "identical"):
                     raise ValueError("branch history diverged; refusing an automatic replacement")
                 available = status == "ahead"
-        # A branch install tracks commits, but the prompt should still name a
-        # newer release version when the branch contains one.  Otherwise an
-        # old daemon misleadingly offers "v0.1.2+newsha from v0.1.2+oldsha"
-        # even when that new commit is the v0.1.3 release.  Tag discovery is
-        # presentation-only: a failure must not invalidate the ancestry check.
-        display_version = __version__
-        try:
-            commit_version = await _git_version_at(client, latest)
-            if commit_version and is_newer(commit_version, display_version):
-                display_version = commit_version
-        except Exception:  # noqa: BLE001 - commit updates work without tags
-            log.debug("could not read the version at the update commit", exc_info=True)
+            # A branch install tracks commits, but the prompt should still name
+            # a newer release version when the branch contains one.  Otherwise
+            # an old daemon misleadingly offers "v0.1.2+newsha from
+            # v0.1.2+oldsha" even when that new commit is the v0.1.3 release.
+            # This runs inside the ``async with``: a closed client refuses the
+            # request, and the failure below would hide it.  Tag discovery is
+            # presentation-only: a failure must not invalidate the ancestry check.
+            display_version = __version__
+            try:
+                commit_version = await _git_version_at(client, latest)
+                if commit_version and is_newer(commit_version, display_version):
+                    display_version = commit_version
+            except Exception:  # noqa: BLE001 - commit updates work without tags
+                log.debug("could not read the version at the update commit", exc_info=True)
         answer = _answer(
             latest=f"{display_version}+{latest[:8]}",
             channel="git",
