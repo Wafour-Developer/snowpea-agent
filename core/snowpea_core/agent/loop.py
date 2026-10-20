@@ -45,6 +45,7 @@ from snowpea_core.providers import content as content_parts
 from snowpea_core.providers import context_windows, routing
 from snowpea_core.providers import effort as effort_scale
 from snowpea_core.providers.base import REDACTED, ChatMessage, ProviderError, ToolCall
+from snowpea_core.providers.call_timing import CallTiming
 from snowpea_core.server import errors
 from snowpea_core.session import compaction, events
 from snowpea_core.session.manager import persist_history
@@ -717,6 +718,12 @@ async def _stream_once_raw(
     # used to look like a no-op until the first SSE line arrived.  Race each
     # ``__anext__`` against the session interrupt and close the generator on
     # Stop so the provider request is torn down immediately.
+    timing = CallTiming(
+        session.id,
+        "turn",
+        str(getattr(provider, "vendor", None) or session.provider or ""),
+        str(getattr(provider, "model", None) or session.model or ""),
+    )
     stream = provider.stream(messages, specs, max_tokens=max_tokens, **extra)
     interrupt_watcher = asyncio.ensure_future(session.interrupt.wait())
     next_event: asyncio.Task[Any] | None = None
@@ -749,6 +756,7 @@ async def _stream_once_raw(
                     event = next_event.result()
                 except StopAsyncIteration:
                     break
+                timing.first()
                 if await handle_event(event):
                     break
     finally:
@@ -763,6 +771,12 @@ async def _stream_once_raw(
         with contextlib.suppress(RuntimeError):
             await stream.aclose()
         routed.__exit__(None, None, None)
+        timing.done(
+            input_tokens=attempt.input_tokens,
+            output_tokens=attempt.output_tokens,
+            reasoning_tokens=attempt.reasoning_tokens,
+            outcome="interrupted" if attempt.interrupted else attempt.stop_reason,
+        )
     # Nothing thought is dropped, including by an interrupt: the last window is
     # always published, so the totals a surface shows match what was counted.
     await flush_reasoning()

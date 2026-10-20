@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any
 from snowpea_core.config.model_routing import ModelRoute, fast_route
 from snowpea_core.providers import routing
 from snowpea_core.providers.base import ChatMessage, ProviderError
+from snowpea_core.providers.call_timing import CallTiming
 from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import LlmSampleParams, LlmSampleResult, LlmSampleUsage
@@ -159,11 +160,14 @@ async def llm_sample_handler(
         extra["response_format"] = JSON_MODE
     chunks: list[str] = []
     input_tokens = output_tokens = 0
+    timing = CallTiming(session.id, "sample", vendor, model)
+    outcome = "error"
     try:
-        with routing.for_session(session.id):
+        with routing.for_session(routing.side_key(session.id, "sample")):
             async for event in provider.stream(
                 _messages(params), [], max_tokens=params.maxTokens, thinking="off", **extra
             ):
+                timing.first()
                 if event.kind == "text_delta" and event.text:
                     chunks.append(event.text)
                 elif event.kind == "usage" and event.usage is not None:
@@ -171,11 +175,13 @@ async def llm_sample_handler(
                     output_tokens += event.usage.output_tokens
                 elif event.kind == "done" and event.error:
                     raise ProviderError("provider_error", event.error)
+        outcome = "ok"
     except ProviderError as exc:
         raise RpcError(
             errors.UNAVAILABLE, f"the model call failed: {exc}", {"reason": str(exc)}
         ) from exc
     finally:
+        timing.done(input_tokens=input_tokens, output_tokens=output_tokens, outcome=outcome)
         if input_tokens or output_tokens:
             # The one trace this call leaves in the session: what it cost.
             await core.hub.emit_event(

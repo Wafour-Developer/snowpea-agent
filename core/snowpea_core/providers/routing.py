@@ -34,6 +34,17 @@ def for_session(session_id: str | None) -> Iterator[None]:
         _SESSION.reset(token)
 
 
+def side_key(session_id: str, purpose: str) -> str:
+    """A routing key for a session's side calls (``<session>:sample``).
+
+    A short ``llm.sample`` needs no prefix cache, and keyed like the session
+    it was queued behind the main turn's long prefill on the same worker
+    (snowpea-browser: a 3k-token extract took 26-37 s).  Its own key hashes
+    independently, so it usually lands elsewhere; with two workers, not always.
+    """
+    return f"{session_id}:{purpose}"
+
+
 def current_session() -> str | None:
     return _SESSION.get()
 
@@ -44,4 +55,4 @@ def session_headers() -> dict[str, str]:
     return {SESSION_HEADER: session_id} if session_id else {}
 
 
-__all__ = ["SESSION_HEADER", "current_session", "for_session", "session_headers"]
+__all__ = ["SESSION_HEADER", "current_session", "for_session", "session_headers", "side_key"]
