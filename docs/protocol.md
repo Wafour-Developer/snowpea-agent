@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.19.0` (semver)
+- **Protocol version:** `1.20.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.19.0"
+    "protocolVersion": "1.20.0"
   }
 }
 ```
@@ -3313,6 +3313,7 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 
 | field | type | required | description |
 |---|---|---|---|
+| `cachedInputTokens` | `number \| null` | no | Of inputTokens, how many the server answered from its prompt cache, when it reports that (1.20.0). |
 | `inputTokens` | `number` | no | Prompt tokens consumed. |
 | `kind` | `"usage"` | no |  |
 | `model` | `string \| null` | no | Model that served the call (1.7.0). |

@@ -76,6 +76,10 @@ class Usage:
     #: :attr:`output_tokens` and therefore of the output budget, which is why
     #: a reasoning model can spend a whole turn and answer nothing.
     reasoning_tokens: int = 0
+    #: Prompt tokens the server answered from its prefix/prompt cache, when it
+    #: says (``prompt_tokens_details.cached_tokens``, Anthropic
+    #: ``cache_read_input_tokens``).  Part of :attr:`input_tokens`.
+    cached_input_tokens: int = 0
 
 
 @dataclass

@@ -6,7 +6,7 @@ token) and time spent decoding.  Every call the loop or ``llm.sample`` makes
 logs both, with its token counts::
 
     llm call session=s-… kind=turn vendor=local model=qwen38 ttft=2.10s
-        decode=14.31s total=16.41s in=98213 out=1530 reasoning=1488
+        decode=14.31s total=16.41s in=98213 cached=97900 out=1530 reasoning=1488
 """
 
 from __future__ import annotations
@@ -40,13 +40,14 @@ class CallTiming:
         input_tokens: int = 0,
         output_tokens: int = 0,
         reasoning_tokens: int = 0,
+        cached_input_tokens: int = 0,
         outcome: str = "ok",
     ) -> None:
         ended = time.monotonic()
         first = self.first_at if self.first_at is not None else ended
         log.info(
             "llm call session=%s kind=%s vendor=%s model=%s ttft=%.2fs decode=%.2fs "
-            "total=%.2fs in=%d out=%d reasoning=%d outcome=%s%s",
+            "total=%.2fs in=%d cached=%d out=%d reasoning=%d outcome=%s%s",
             self.session_id,
             self.kind,
             self.vendor,
@@ -55,6 +56,7 @@ class CallTiming:
             ended - first,
             ended - self.started,
             input_tokens,
+            cached_input_tokens,
             output_tokens,
             reasoning_tokens,
             outcome,

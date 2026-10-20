@@ -436,10 +436,15 @@ class OpenAIStreamNormalizer(_Normalizer):
         reasoning = 0
         if isinstance(details, dict):
             reasoning = int(details.get("reasoning_tokens") or 0)
+        prompt_details = usage.get("prompt_tokens_details") or usage.get("input_tokens_details")
+        cached = 0
+        if isinstance(prompt_details, dict):
+            cached = int(prompt_details.get("cached_tokens") or 0)
         self.usage = Usage(
             input_tokens=int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0),
             output_tokens=int(usage.get("completion_tokens") or usage.get("output_tokens") or 0),
             reasoning_tokens=reasoning,
+            cached_input_tokens=cached,
         )
 
     def _absorb_tool_calls(self, raw: Any) -> None:
@@ -497,6 +502,7 @@ class GeminiStreamNormalizer(_Normalizer):
             self.usage = Usage(
                 input_tokens=int(usage.get("promptTokenCount") or 0),
                 output_tokens=int(usage.get("candidatesTokenCount") or 0),
+                cached_input_tokens=int(usage.get("cachedContentTokenCount") or 0),
             )
         for candidate in chunk.get("candidates") or []:
             if not isinstance(candidate, dict):

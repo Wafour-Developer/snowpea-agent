@@ -241,6 +241,9 @@ class AnthropicProvider:
                     usage = Usage(
                         input_tokens=int(getattr(final_usage, "input_tokens", 0) or 0),
                         output_tokens=int(getattr(final_usage, "output_tokens", 0) or 0),
+                        cached_input_tokens=int(
+                            getattr(final_usage, "cache_read_input_tokens", 0) or 0
+                        ),
                     )
                 stop_reason = getattr(final, "stop_reason", None) or stop_reason
         except ProviderError:

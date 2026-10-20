@@ -76,3 +76,28 @@ async def test_sample_uses_its_own_routing_key_and_logs_its_timing(
                    for line in lines), lines
     finally:
         await host.stop()
+
+
+def test_cached_prompt_tokens_reach_the_line_and_the_event(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from snowpea_core.providers.normalize import OpenAIStreamNormalizer
+    from snowpea_core.providers.presets import PRESETS
+    from snowpea_core.session import events
+
+    normalizer = OpenAIStreamNormalizer(PRESETS["local"])
+    normalizer._absorb_usage(
+        {
+            "prompt_tokens": 1200,
+            "completion_tokens": 9,
+            "prompt_tokens_details": {"cached_tokens": 1100},
+        }
+    )
+    assert normalizer.usage.cached_input_tokens == 1100
+    timing = CallTiming("s-1", "turn", "local", "qwen38")
+    with caplog.at_level(logging.INFO, logger="snowpea.llm"):
+        timing.done(input_tokens=1200, cached_input_tokens=1100, output_tokens=9)
+    [line] = [r.getMessage() for r in caplog.records if r.name == "snowpea.llm"]
+    assert "in=1200 cached=1100 out=9" in line
+    assert events.usage(1200, 9, cached_input_tokens=1100)[1]["cachedInputTokens"] == 1100
+    assert events.usage(1200, 9)[1].get("cachedInputTokens") is None

@@ -423,6 +423,7 @@ class _Attempt:
     #: adapter that sends it back, never persisted.
     reasoning: str = ""
     reasoning_tokens: int = 0
+    cached_input_tokens: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
     #: How many times the answer was resumed after an output-limit stop.
@@ -697,6 +698,7 @@ async def _stream_once_raw(
             attempt.input_tokens += event.usage.input_tokens
             attempt.output_tokens += event.usage.output_tokens
             attempt.reasoning_tokens += event.usage.reasoning_tokens
+            attempt.cached_input_tokens += event.usage.cached_input_tokens
             compaction.record_provider_usage(session, event.usage.input_tokens)
             await hub.emit_event(
                 session.id,
@@ -705,6 +707,7 @@ async def _stream_once_raw(
                     event.usage.output_tokens,
                     provider=getattr(provider, "vendor", None) or session.provider,
                     model=getattr(provider, "model", None) or session.model,
+                    cached_input_tokens=event.usage.cached_input_tokens,
                 ),
             )
         elif event.kind == "done":
@@ -775,6 +778,7 @@ async def _stream_once_raw(
             input_tokens=attempt.input_tokens,
             output_tokens=attempt.output_tokens,
             reasoning_tokens=attempt.reasoning_tokens,
+            cached_input_tokens=attempt.cached_input_tokens,
             outcome="interrupted" if attempt.interrupted else attempt.stop_reason,
         )
     # Nothing thought is dropped, including by an interrupt: the last window is

@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.19.0"
+PROTOCOL_VERSION = "1.20.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -3739,6 +3739,13 @@ class UsageEvent(Payload):
     outputTokens: int = Field(default=0, description="Completion tokens produced.")
     provider: str | None = Field(default=None, description="Vendor that served the call (1.7.0).")
     model: str | None = Field(default=None, description="Model that served the call (1.7.0).")
+    cachedInputTokens: int | None = Field(
+        default=None,
+        description=(
+            "Of inputTokens, how many the server answered from its prompt cache, when it "
+            "reports that (1.20.0)."
+        ),
+    )
 
 
 class ContextEvent(Payload):

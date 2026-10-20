@@ -322,9 +322,13 @@ class CodexStreamNormalizer:
 def _usage_of(raw: Any) -> Usage | None:
     if not isinstance(raw, dict):
         return None
+    details = raw.get("input_tokens_details")
     return Usage(
         input_tokens=int(raw.get("input_tokens") or 0),
         output_tokens=int(raw.get("output_tokens") or 0),
+        cached_input_tokens=int(details.get("cached_tokens") or 0)
+        if isinstance(details, dict)
+        else 0,
     )
 
 

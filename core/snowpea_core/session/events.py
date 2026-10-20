@@ -286,10 +286,15 @@ def usage(
     *,
     provider: str | None = None,
     model: str | None = None,
+    cached_input_tokens: int | None = None,
 ) -> Event:
     return _pack(
         UsageEvent(
-            inputTokens=input_tokens, outputTokens=output_tokens, provider=provider, model=model
+            inputTokens=input_tokens,
+            outputTokens=output_tokens,
+            provider=provider,
+            model=model,
+            cachedInputTokens=cached_input_tokens or None,
         )
     )
 
