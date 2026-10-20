@@ -268,6 +268,11 @@ def test_window_from_row_reads_the_usual_spellings() -> None:
     assert context_windows.window_from_row({"context_length": "8192"}) == 8192
     assert context_windows.window_from_row({"meta": {"context_window": 2048}}) == 2048
     assert context_windows.window_from_row({"id": "x"}) is None
+    # A llama.cpp-style row (hon1's glm-5.3-flash, hon4's Strata): served n_ctx
+    # beats the trained length, and both beat the static glm-5 entry (1M).
+    row = {"id": "glm-5.3-flash", "meta": {"n_ctx": 262144, "n_ctx_train": 1048576}}
+    assert context_windows.window_from_row(row) == 262144
+    assert context_windows.window_from_row({"meta": {"n_ctx_train": 32768}}) == 32768
 
 
 # ---------------------------------------------------------------------------

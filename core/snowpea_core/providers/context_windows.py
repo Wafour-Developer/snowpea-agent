@@ -284,7 +284,11 @@ _WINDOW_KEYS = (
     "context_length",
     "max_context_length",
     "context_window",
+    # llama.cpp-style servers (and Strata) put the served window in
+    # ``meta.n_ctx``; ``n_ctx_train`` is only what the model was trained for.
+    "n_ctx",
     "max_position_embeddings",
+    "n_ctx_train",
 )
 
 
