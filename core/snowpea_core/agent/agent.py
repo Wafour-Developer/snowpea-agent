@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import logging
 import re
-import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -43,17 +42,16 @@ CONFIG_RULE = load("config_rule")
 #: What the web-search fallback prefix looks like, so the model recognises it.
 SEARCH_HONESTY_HINT = load("search_honesty")
 
-#: How long a session's environment block is reused.  ``compaction`` rebuilds
-#: the whole prompt purely to measure it, on every turn and every ``context``
-#: event, and probing git and reading AGENTS.md on an accounting path would put
-#: a subprocess where none belongs.
-ENVIRONMENT_TTL_SEC = 30.0
 
 @dataclass(frozen=True)
 class _EnvCacheEntry:
     """One session's rendered blocks, and which instruction files they quote."""
 
-    expires: float
+    #: ``History.compactions`` when the blocks were rendered.  They are kept
+    #: until the next compaction rewrites the conversation anyway: re-rendered
+    #: every round, a git status that changed after an edit sat at the top of
+    #: the system prompt and made vLLM prefill the whole conversation again.
+    epoch: int
     environment: str
     context_files: str
     loaded: frozenset[str]
@@ -205,9 +203,15 @@ def environment_blocks(session: Session, core: Core | None = None) -> tuple[str,
     are actually useful (CORE-round-cost).
     """
     nested = not is_lean_child(session, core)
-    key = f"{session.id}:{session.workdir}:{int(nested)}"
+    # Mode and model are in the block; changing either rebuilds the stable
+    # tier as well, so that cache is lost either way.
+    key = (
+        f"{session.id}:{session.workdir}:{int(nested)}:{session.mode}:"
+        f"{session.provider}:{session.model}"
+    )
+    epoch = int(getattr(session.history, "compactions", 0) or 0)
     cached = _ENV_CACHE.get(key)
-    if cached is not None and cached.expires > time.monotonic():
+    if cached is not None and cached.epoch == epoch:
         session.loaded_context_files = set(cached.loaded)
         return cached.environment, cached.context_files
     backend = getattr(getattr(session, "backend", None), "kind", "local")
@@ -230,7 +234,7 @@ def environment_blocks(session: Session, core: Core | None = None) -> tuple[str,
     )
     project = env.project_context
     entry = _EnvCacheEntry(
-        expires=time.monotonic() + ENVIRONMENT_TTL_SEC,
+        epoch=epoch,
         environment=prompt_env.build_environment_block(env),
         context_files=prompt_env.context_files_block(project),
         loaded=frozenset(item.name for item in project.files),
@@ -338,6 +342,29 @@ def plan_prompt_line(session: Session) -> str:
     return plan_store.prompt_line(session.workdir)
 
 
+def turn_context(session: Session, memory_block: str = "", *, core: Core | None = None) -> str:
+    """What changes from turn to turn: recall, the plan line, context pressure.
+
+    It rides on the turn's own user message (``agent.loop``), not in the
+    system prompt: the conversation follows the system prompt, so anything
+    that changed there made the server prefill all of it again.  Stored with
+    the message, it is sent byte for byte on every later request — what turn
+    N sends is what turn N+1 replays (hermes' invariant).
+
+    ``memory_block`` is the rendered recall from ``memory.Retrieval`` (M5
+    contract §1); it is empty whenever memory is off or nothing matched.
+    """
+    if is_lean_child(session, core):
+        return ""
+    parts = [memory_block]
+    if not getattr(session, "is_subagent", False):
+        parts.append(plan_prompt_line(session))
+    fill = context_fill(session)
+    if fill is not None and fill >= compose.CONTEXT_PRESSURE_THRESHOLD:
+        parts.append(compose.load("fragments/context-pressure", session.workdir))
+    return "\n\n".join(part.strip() for part in parts if part and part.strip())
+
+
 def build_system_prompt(
     session: Session,
     tools: list[ToolSpec],
@@ -345,12 +372,16 @@ def build_system_prompt(
     *,
     core: Core | None = None,
 ) -> str:
-    """System prompt for one turn, as three tiers (stable, context, volatile).
+    """System prompt for a session: the stable and context tiers.
 
-    ``memory_block`` is the rendered recall from ``memory.Retrieval`` (M5
-    contract §1); it is empty whenever memory is off or nothing matched, and it
-    sits in the volatile tier so that the prefix in front of it stays cacheable.
+    It stays byte-identical from round to round and turn to turn, so a
+    server's prefix cache covers the whole conversation after it: the
+    environment is rendered once per compaction, and the per-turn volatile
+    tier is :func:`turn_context`, sent on the turn's user message instead.
+    ``memory_block`` is accepted for the callers that still pass it and
+    otherwise ignored.
     """
+    del memory_block
     environment, context_files = environment_blocks(session, core)
     lean = is_lean_child(session, core)
     deferred_specs: list[ToolSpec] = []
@@ -406,13 +437,8 @@ def build_system_prompt(
         skill_groups=[] if lean else skill_groups(core),
         skill_index_max=skill_index_max(core),
         memory_guidance=memory_enabled(core) and not lean,
-        memory_block="" if lean else memory_block,
-        plan_line=(
-            "" if lean or getattr(session, "is_subagent", False) else plan_prompt_line(session)
-        ),
         environment=environment,
         context_files=context_files,
-        context_fill=context_fill(session),
         reply_language=reply_language(core),
         persona=persona,
         root=session.workdir,
@@ -473,7 +499,6 @@ def build_messages(
 __all__ = [
     "BASE_PROMPT",
     "CONFIG_RULE",
-    "ENVIRONMENT_TTL_SEC",
     "MODE_GUIDANCE",
     "SEARCH_HONESTY_HINT",
     "AgentConfig",

@@ -309,7 +309,7 @@ def test_a_read_whose_result_was_pruned_can_be_asked_for_again(tmp_path) -> None
         hash=repeat_guard._file_digest(str(target)), lines=20
     )
 
-    # Seven rounds after the read, so the read's result falls out of the window.
+    # Eleven rounds after the read: twelve in all, so the window steps past it.
     history: list[ChatMessage] = []
     history.append(
         ChatMessage(
@@ -321,7 +321,7 @@ def test_a_read_whose_result_was_pruned_can_be_asked_for_again(tmp_path) -> None
     history.append(
         ChatMessage(role="tool", content="x" * 500, tool_call_id="c-read", name="read_file")
     )
-    for index in range(7):
+    for index in range(11):
         history.append(
             ChatMessage(
                 role="assistant",

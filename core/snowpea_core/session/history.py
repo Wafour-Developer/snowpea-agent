@@ -167,9 +167,10 @@ class History:
         return list(self.messages)
 
     def forget_reasoning(self) -> None:
-        """Drop the thinking kept on earlier messages: a new turn has begun.
+        """Drop the thinking kept on the messages: the conversation is rewritten.
 
-        Reasoning is never persisted, so this changes nothing stored.
+        Only a rewrite does it — anything sooner would change a message a
+        server has cached.  Reasoning is never persisted.
         """
         for message in self.messages:
             message.reasoning = None
@@ -186,6 +187,7 @@ class History:
         step so no turn ever sees a half-replaced history (CORE-context).
         """
         self.messages = list(messages)
+        self.forget_reasoning()
         self.compactions += 1
         self.version += 1
         self.rewrite_version += 1
@@ -216,6 +218,7 @@ class History:
         if head is not None and head not in kept:
             kept = [head, *kept]
         self.messages = kept
+        self.forget_reasoning()
         self.compactions += 1
         self.version += 1
         self.rewrite_version += 1

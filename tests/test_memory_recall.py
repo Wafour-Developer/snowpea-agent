@@ -61,14 +61,18 @@ class RecordingProvider:
     ) -> AsyncIterator[StreamEvent]:
         system = next((m.content for m in messages if m.role == "system"), "")
         system = system if isinstance(system, str) else json.dumps(system)
-        self.system_prompts.append(system)
+        # Recall rides on the turn's own message, after the system prompt.
+        last_user = next((m.content for m in reversed(messages) if m.role == "user"), "")
+        last_user = last_user if isinstance(last_user, str) else json.dumps(last_user)
+        told = f"{system}\n\n{last_user}"
+        self.system_prompts.append(told)
         # Answer the way the injected block asks the model to: quote the
         # remembered text and cite its id.
         reply = "알겠습니다."
-        found = MEMORY_ID.findall(system)
+        found = MEMORY_ID.findall(told)
         if found:
             memory_id = found[0]
-            line = next(line for line in system.splitlines() if memory_id in line)
+            line = next(line for line in told.splitlines() if memory_id in line)
             reply = f"{line} [mem:{memory_id}]"
         for index in range(0, len(reply), 8):
             yield StreamEvent(kind="text_delta", text=reply[index : index + 8])

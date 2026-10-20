@@ -65,9 +65,9 @@ def child_session(workdir: Path, **kwargs: object) -> Session:
 def prompt_for(core: Core, session: Session) -> str:
     agent_mod.invalidate_environment()
     agent_mod.invalidate_tools()
-    return agent_mod.build_system_prompt(
-        session, core.tools.specs(session), MEMORY_BLOCK, core=core
-    )
+    # The system prompt, and what the turn's message carries (recall, plan).
+    system = agent_mod.build_system_prompt(session, core.tools.specs(session), core=core)
+    return f"{system}\n\n{agent_mod.turn_context(session, MEMORY_BLOCK, core=core)}"
 
 
 # ---------------------------------------------------------------------------

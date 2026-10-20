@@ -754,9 +754,11 @@ def prune_old_tool_outputs(
 ) -> list[ChatMessage]:
     """Shrink old tool results for the *outgoing request only* (CORE-repeat-guard).
 
-    Results older than the last ``keep_rounds`` tool rounds become a one-line
-    stub naming the tool and what it cost; results inside the kept window that
-    run past ``max_chars`` keep a head and a tail.  ``skill_view`` bodies are
+    Results older than the kept window (``keep_rounds`` to twice that, moved
+    ``keep_rounds`` rounds at a time so the request prefix stays stable in
+    between) become a one-line stub naming the tool and what it cost;
+    results inside the kept window that run past ``max_chars`` keep a head
+    and a tail.  ``skill_view`` bodies are
     left alone: :func:`prune_skill_views` already has a marker for them and a
     second one would tell the model to reload something it cannot.
 
@@ -768,8 +770,13 @@ def prune_old_tool_outputs(
     starts = _tool_round_starts(history)
     if keep_rounds <= 0:
         cutoff: int | None = len(history)
-    elif len(starts) > keep_rounds:
-        cutoff = starts[-keep_rounds]
+    elif len(starts) >= 2 * keep_rounds:
+        # The boundary moves ``keep_rounds`` rounds at a time, not one: moved
+        # every round, it changed an earlier message in every request and a
+        # server's prefix cache never got past it.  Between steps the request
+        # only grows, and the window holds ``keep_rounds`` to twice that.
+        stubbed = ((len(starts) - keep_rounds) // keep_rounds) * keep_rounds
+        cutoff = starts[stubbed]
     else:
         cutoff = None
     if cutoff is None and max_chars <= 0:

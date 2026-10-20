@@ -719,8 +719,8 @@ def workspace_block(git: GitSnapshot | None) -> str:
     return "\n".join(
         [
             "",
-            "Workspace (a snapshot taken when this turn started; re-check with a",
-            "git command before you act on it)",
+            "Workspace (a snapshot from when this session started; it does not",
+            "update — run git status for the current state)",
             f"- Branch: {git.branch_line()}",
             f"- Status: {git.summary()}",
         ]

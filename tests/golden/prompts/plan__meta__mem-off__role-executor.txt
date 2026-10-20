@@ -279,8 +279,8 @@ Environment
 The date above is fixed when the turn starts; ask a tool for the exact time if
 you need it.
 
-Workspace (a snapshot taken when this turn started; re-check with a
-git command before you act on it)
+Workspace (a snapshot from when this session started; it does not
+update — run git status for the current state)
 - Branch: main -> origin/main (ahead 2)
 - Status: 3 modified, 1 untracked
 

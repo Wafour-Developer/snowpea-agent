@@ -39,6 +39,14 @@ HOST_OFFLINE = (
 )
 
 
+#: The header for a session whose tool list stays fixed (a self-hosted
+#: server, where a changed list costs the whole prefix cache).
+FOUND_FIXED = (
+    "Found {count} tool(s). Call them by name now with the input schema below; they "
+    "stay callable for the rest of the session but are not added to your tool list."
+)
+
+
 def offline_note(session: Any) -> str:
     """:data:`HOST_OFFLINE` for ``session``, or ``""`` when its host is here."""
     from snowpea_core.tools.host_tools import HOST_TOOLS
@@ -92,10 +100,11 @@ async def tool_search(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     if not matches:
         return ToolResult(ok=True, output=NO_MATCH.format(query=query) + tail)
     deferred.load(ctx.session, [spec.name for spec in matches])
+    header = FOUND_FIXED if getattr(ctx.session, "fixed_tool_list", False) else FOUND
     invalidate(ctx.session)
     return ToolResult(
         ok=True,
-        output=f"{FOUND.format(count=len(matches))}\n\n{render(matches)}{tail}",
+        output=f"{header.format(count=len(matches))}\n\n{render(matches)}{tail}",
         meta={"loaded": [spec.name for spec in matches]},
     )
 

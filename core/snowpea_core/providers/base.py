@@ -54,11 +54,12 @@ class ChatMessage:
     #: ``meta.tab``; addendum 23).  A newer snapshot of the same tab makes this
     #: one a one-line stub in the outgoing request.
     snapshot_tab: str | None = None
-    #: The hidden thinking that produced this assistant message.  Kept only
-    #: while its turn runs, and sent back only by an adapter whose vendor reads
-    #: it (:attr:`ChatProvider.replays_reasoning`): a model that sees why it
-    #: made its last tool call continues that line of thought instead of
-    #: working it all out again every round.
+    #: The hidden thinking that produced this assistant message.  Kept until a
+    #: compaction rewrites the conversation, never persisted, and sent back
+    #: only by an adapter whose vendor reads it
+    #: (:attr:`ChatProvider.replays_reasoning`): a model that sees why it made
+    #: its last tool call continues that line of thought instead of working it
+    #: all out again every round.
     reasoning: str | None = None
 
 
@@ -84,7 +85,7 @@ class StreamEvent:
     kind:
       text_delta     -> ``text``
       reasoning_delta-> ``text`` (hidden thinking; never joins the transcript,
-                        and returns to the model only within its own turn)
+                        and returns to a vendor that reads it, on its message)
       tool_call      -> ``tool_call``
       usage          -> ``usage``
       done           -> ``stop_reason`` ("end_turn" | "tool_use" | "max_tokens" | "error")

@@ -184,9 +184,13 @@ async def test_the_next_round_sees_the_thinking_behind_the_call(
     [call] = _tool_call_messages(second)
     assert call.reasoning == "look at the files before answering"
 
+    # It stays for later turns — dropping it would rewrite a cached message —
+    # until a compaction rewrites the conversation anyway.
     await run_turn(daemon.core, session, "again")
     [old] = _tool_call_messages(fake.requests[-1])
-    assert old.reasoning is None, "the last turn's thinking went out with the new one"
+    assert old.reasoning == "look at the files before answering"
+    session.history.replace(session.history.snapshot())
+    assert all(m.reasoning is None for m in session.history.snapshot())
 
 
 async def test_an_adapter_that_does_not_replay_keeps_nothing(

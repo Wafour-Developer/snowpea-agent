@@ -767,11 +767,12 @@ def test_the_volatile_tier_carries_the_plan_line(tmp_path: Path) -> None:
     # A role or a subagent is handed a brief, not the plan.
     assert "plan_update_step" not in compose.build_tiers(role="executor").stable
     assert "plan_update_step" not in compose.build_tiers(subagent=True).stable
-    prompt = agent_mod.build_system_prompt(session, [])
-    assert prompt.rstrip().endswith(line)
+    # The session's prompt stays cacheable: the line rides on the turn's message.
+    assert line not in agent_mod.build_system_prompt(session, [])
+    assert agent_mod.turn_context(session).rstrip().endswith(line)
 
     child = Session(id="s-2", workdir=tmp_path, is_subagent=True)
-    assert line not in agent_mod.build_system_prompt(child, [])
+    assert line not in agent_mod.turn_context(child)
 
 
 # ---------------------------------------------------------------------------

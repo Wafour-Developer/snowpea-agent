@@ -1411,12 +1411,11 @@ async def _drive(
     policy: PermissionPolicy = core.policy
     backend = backend_for(core, session)
     provider = core.providers.get(session.provider, session.model)
+    session.fixed_tool_list = core.providers.is_local_style(session.provider or "")
 
     # Auto-compaction happens here and nowhere else: between turns, before the
     # new user message joins the history, and never inside the tool loop
-    # (CORE-context).  The last turn's thinking goes first: it was for that
-    # turn's tool rounds only, and it would only be counted here.
-    session.history.forget_reasoning()
+    # (CORE-context).
     await compaction.maybe_auto_compact(core, session)
 
     # Whatever ``session.prompt`` validated and stored for this turn; taking it
@@ -1424,17 +1423,17 @@ async def _drive(
     # its images into the next one (CORE-multimodal).
     attachments = pending.take(session.id) if attachments is None else attachments
     history_text = model_text if model_text is not None else text
+    turn_message: ChatMessage | None = None
     if history_text or attachments:
-        session.history.append(
-            ChatMessage(
-                role="user",
-                content=(
-                    content_parts.history_blocks(history_text, attachments)
-                    if attachments
-                    else history_text
-                ),
-            )
+        turn_message = ChatMessage(
+            role="user",
+            content=(
+                content_parts.history_blocks(history_text, attachments)
+                if attachments
+                else history_text
+            ),
         )
+        session.history.append(turn_message)
         session.history.compact()
         # The prompt is published as well as stored: ``session.resume`` replays
         # the event log, so a transcript rebuilt without this shows every answer
@@ -1456,6 +1455,12 @@ async def _drive(
     # Recall once per turn, on the user's own words (M5 contract §1).
     await _auto_inject_skills(core, session, text)
     memory_block = await context_for_turn(core, session, text)
+    # The turn's recall, plan line and context pressure join its own message,
+    # stored, so the system prompt and every earlier message stay byte-stable
+    # and a server's prefix cache covers the whole conversation.
+    extra = agent_mod.turn_context(session, memory_block, core=core)
+    if extra and turn_message is not None:
+        _append_turn_context(turn_message, extra)
     denials = 0
 
     rounds_left = config.max_tool_rounds
@@ -1681,9 +1686,10 @@ async def _drive(
         # phones.  A surface that needs to know the prose has settled can see it
         # for itself: a tool call after a message means that message will not
         # grow again (see ``tool.call`` in the TUI's store).
-        # The thinking behind these calls goes back with them while the turn
-        # runs, to a vendor that reads it, so the next round picks up where
-        # this one's reasoning left off rather than reconstructing it.
+        # The thinking behind these calls goes back with them, to a vendor that
+        # reads it, so the next round picks up where this one's reasoning left
+        # off. It stays until a compaction rewrites the conversation: dropped
+        # any sooner, the request changed mid-prefix and the cache was lost.
         session.history.append(
             ChatMessage(
                 role="assistant",
@@ -2338,6 +2344,14 @@ async def _deny_call(core: Core, session: Session, call: ToolCall, reason: str) 
             " choose to start implementing; never ask them in prose to switch modes."
         )
     await _fail_call(core, session, call, message)
+
+
+def _append_turn_context(message: ChatMessage, extra: str) -> None:
+    """Add ``extra`` after the user's words in ``message``."""
+    if isinstance(message.content, list):
+        message.content = [*message.content, {"type": "text", "text": extra}]
+    else:
+        message.content = f"{message.content}\n\n{extra}" if message.content else extra
 
 
 async def _fail_call(core: Core, session: Session, call: ToolCall, message: str) -> None:

@@ -211,10 +211,12 @@ async def test_context_pressure_adds_the_brevity_line(
 
     session.context_window = 100_000
     session.context_used = 10_000
-    assert marker not in agent.build_system_prompt(session, [], core=daemon.core)
+    assert marker not in agent.turn_context(session, core=daemon.core)
 
+    # It rides on the turn's message, never in the cached system prompt.
     session.context_used = 90_000
-    assert marker in agent.build_system_prompt(session, [], core=daemon.core)
+    assert marker in agent.turn_context(session, core=daemon.core)
+    assert marker not in agent.build_system_prompt(session, [], core=daemon.core)
     await client.stop()
 
 

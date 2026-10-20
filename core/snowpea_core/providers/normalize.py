@@ -114,9 +114,8 @@ def messages_to_openai(
     the text, which is why the argument defaults to the safe answer.
 
     ``reasoning_field`` names the field an assistant message's thinking goes
-    back in.  The loop keeps reasoning on the running turn's messages only
-    (``History.forget_reasoning``), so that is what goes out: the turn in
-    progress, which is what the thinking-with-tools APIs ask for.
+    back in; the loop keeps it on tool-call messages until a compaction
+    (``History.forget_reasoning``), so the request never changes mid-prefix.
     """
     out: list[dict[str, Any]] = []
     for message in messages:

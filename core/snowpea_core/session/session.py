@@ -140,6 +140,11 @@ class Session:
     #: ``tool_search`` or by calling one of them outright.  They join the tool
     #: list from the next round on and stay there (CORE-round-cost).
     loaded_tools: set[str] = field(default_factory=set)
+    #: True while this session talks to a self-hosted server (set per turn by
+    #: the loop): a loaded tool is then called by name from its tool_search
+    #: schema and never joins the tool list, because a chat template renders
+    #: the tools first and a changed list re-prefills the whole conversation.
+    fixed_tool_list: bool = False
     #: Set by ``session.interrupt``; the agent loop checks it between steps.
     interrupt: asyncio.Event = field(default_factory=asyncio.Event)
     #: True when the interrupt came from a user-facing stop request. Shutdown

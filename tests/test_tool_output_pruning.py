@@ -47,14 +47,17 @@ def rounds(count: int, *, chars: int = 40) -> list[ChatMessage]:
 
 
 def test_the_last_six_rounds_survive_verbatim() -> None:
-    history = rounds(10)
+    # The window steps six rounds at a time: eleven rounds are all still kept,
+    # twelve stub the oldest six (test_prefix_stability).
+    assert compaction.prune_old_tool_outputs(rounds(11), 6, 2000) == rounds(11)
+    history = rounds(12)
     pruned = compaction.prune_old_tool_outputs(history, 6, 2000)
     tools = [message for message in pruned if message.role == "tool"]
-    assert len(tools) == 10
+    assert len(tools) == 12
     stub = "[earlier shell output pruned — 40 chars; re-run the tool if you need it again]"
-    for message in tools[:4]:
+    for message in tools[:6]:
         assert message.content == stub
-    for original, kept in zip(history[2::3][4:], tools[4:], strict=True):
+    for original, kept in zip(history[2::3][6:], tools[6:], strict=True):
         assert kept.content == original.content
 
 
@@ -140,7 +143,7 @@ def _core(tmp_path: Path, settings: Settings | None = None) -> Core:
 
 def test_build_messages_prunes_the_outgoing_request(tmp_path: Path) -> None:
     session = Session(id="s-prune", workdir=tmp_path)
-    session.history.replace(rounds(10))
+    session.history.replace(rounds(12))
     messages = build_messages(session, [], core=_core(tmp_path))
     tools = [message for message in messages if message.role == "tool"]
     assert tools[0].content.startswith("[earlier shell output pruned")
@@ -189,7 +192,7 @@ def test_a_subagent_report_is_never_pruned() -> None:
         ),
         report,
         waited,
-        *rounds(10),
+        *rounds(12),
     ]
     pruned = compaction.prune_old_tool_outputs(history, 6, 0)
     assert pruned[2].content == report.content
@@ -204,7 +207,7 @@ def test_old_notice_bundles_are_pruned_like_tool_output() -> None:
         name=compaction.NOTICE_MESSAGE_NAME,
         content="[system] child evidence\n" + ("x" * 2000),
     )
-    history = [notice, *rounds(10)]
+    history = [notice, *rounds(12)]
     pruned = compaction.prune_old_tool_outputs(history, 6, 2000)
 
     assert str(pruned[0].content).startswith("[earlier session notices pruned")
