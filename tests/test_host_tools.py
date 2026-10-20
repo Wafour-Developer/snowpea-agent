@@ -162,6 +162,13 @@ async def test_a_host_tool_runs_in_the_client_and_reports_progress(
         assert call["workdir"] == str((tmp_path / "w").resolve())
         assert call["parentSessionId"] is None  # a root session
         assert call["callId"] and call["turnId"]
+        # The person's own words behind the turn (1.22.0), for the host to
+        # judge intent by (a payment card only for a request to pay).
+        assert call["userTurn"] == {
+            "messageId": call["turnId"],
+            "text": "use host echo",
+            "steers": [],
+        }
         assert results_for(host, "host_echo")[-1]["output"] == "echo hi"
         progress = [
             e["payload"]
@@ -1742,6 +1749,43 @@ async def test_tool_invoke_names_a_subagents_parent_session(
     result = await tools.invoke(core, "surface", "repl", 5.0, ctx, {})  # type: ignore[arg-type]
     assert result.ok
     assert sent[0]["parentSessionId"] == "s-parent"
+    assert sent[0]["userTurn"] is None  # no parent known here
+
+
+async def test_a_delegated_childs_user_turn_is_the_roots_never_its_task(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from types import SimpleNamespace
+
+    from snowpea_core.session.session import Session
+    from snowpea_core.tools.host_tools import HostTools
+    from snowpea_core.tools.registry import ToolContext
+
+    tools = HostTools()
+    sent: list[dict[str, Any]] = []
+
+    async def capture(
+        conn: Any, session: Any, params: dict[str, Any], timeout: float, **_: Any
+    ) -> Any:
+        sent.append(params)
+        return {"ok": True, "output": "ok"}
+
+    monkeypatch.setattr(tools, "connection", lambda surface_id: SimpleNamespace(closed=False))
+    monkeypatch.setattr(tools, "_call_or_cancel", capture)
+    root = Session(id="s-root", workdir=tmp_path)
+    root.user_turn = {"messageId": "t-1", "text": "쿠팡에서 이거 결제해줘", "steers": ["카드로"]}
+    middle = Session(id="s-mid", workdir=tmp_path, parent_session_id="s-root", is_subagent=True)
+    middle.user_turn = {"messageId": "x", "text": "agent-written task", "steers": []}
+    child = Session(id="s-child", workdir=tmp_path, parent_session_id="s-mid", is_subagent=True)
+    by_id = {s.id: s for s in (root, middle, child)}
+    core = SimpleNamespace(hub=None, sessions=SimpleNamespace(get=by_id.get))
+    ctx = ToolContext(session=child, core=core, backend=None, call_id="c1")  # type: ignore[arg-type]
+    await tools.invoke(core, "surface", "repl", 5.0, ctx, {})  # type: ignore[arg-type]
+    assert sent[0]["userTurn"] == {
+        "messageId": "t-1",
+        "text": "쿠팡에서 이거 결제해줘",
+        "steers": ["카드로"],
+    }
 
 
 async def test_host_screenshot_is_refused_for_a_model_that_cannot_see(

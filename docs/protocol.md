@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.21.0` (semver)
+- **Protocol version:** `1.22.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.21.0"
+    "protocolVersion": "1.22.0"
   }
 }
 ```
@@ -2686,6 +2686,7 @@ Ask the client to run one of its host tools.
 | `parentSessionId` | `string \| null` | no | The session that spawned this one (a subagent's parent); null for a root session. A browser host shares the parent's agent tabs with it. |
 | `sessionId` | `string` | yes | Session whose turn called the tool. |
 | `turnId` | `string` | no | Turn the call belongs to. |
+| `userTurn` | `{ messageId: string; steers?: string[]; text: string; } \| null` | no | The root conversation's user message that started the current turn, trusted (1.22.0). For a delegated child it is the root's, never the parent agent's task text; null when the system started the turn (a schedule, a hook). |
 | `workdir` | `string` | no | The session's project folder, absolute (Projects, 1.7.0). |
 | `workspaceDir` | `string` | no | The session workspace (tmp/, artifacts/); the workdir when it has none. |
 

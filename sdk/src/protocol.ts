@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.21.0";
+export const PROTOCOL_VERSION = "1.22.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -3620,6 +3620,15 @@ export interface ToolInvokeParams {
   sessionId: string;
   /** Turn the call belongs to. */
   turnId?: string;
+  /** The root conversation's user message that started the current turn, trusted (1.22.0). For a delegated child it is the root's, never the parent agent's task text; null when the system started the turn (a schedule, a hook). */
+  userTurn?: {
+    /** The turn the message started. */
+    messageId: string;
+    /** Messages the user sent into the turn while it ran, in order. */
+    steers?: string[];
+    /** What the user wrote, as they wrote it. */
+    text: string;
+  } | null;
   /** The session's project folder, absolute (Projects, 1.7.0). */
   workdir?: string;
   /** The session workspace (tmp/, artifacts/); the workdir when it has none. */

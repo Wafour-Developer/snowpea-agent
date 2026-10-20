@@ -409,6 +409,7 @@ class HostTools:
             # The session's project folder itself (Projects, 1.7.0).
             "workdir": str(Path(getattr(session, "workdir", "") or ".").resolve()),
             "parentSessionId": getattr(session, "parent_session_id", None),
+            "userTurn": root_user_turn(core, session),
         }
         try:
             answer = await self._call_or_cancel(
@@ -645,6 +646,34 @@ def snapshot_tab(meta: dict[str, Any] | None) -> str | None:
         return None
     text = str(tab).strip()
     return text[:200] or None
+
+
+def root_user_turn(core: Any, session: Any) -> dict[str, Any] | None:
+    """The root conversation's current ``user_turn``, copied, or ``None``.
+
+    A delegated child reports its root's user message, never the task text its
+    parent agent wrote: that is the agent's wording, not the person's intent.
+    """
+    seen: set[str] = set()
+    current = session
+    sessions = getattr(core, "sessions", None)
+    while getattr(current, "parent_session_id", None) and sessions is not None:
+        parent_id = str(current.parent_session_id)
+        if parent_id in seen:
+            return None
+        seen.add(parent_id)
+        parent = sessions.get(parent_id)
+        if parent is None:
+            return None
+        current = parent
+    turn = getattr(current, "user_turn", None)
+    if not isinstance(turn, dict):
+        return None
+    return {
+        "messageId": str(turn.get("messageId") or ""),
+        "text": str(turn.get("text") or ""),
+        "steers": [str(item) for item in turn.get("steers") or []],
+    }
 
 
 def result_from_answer(name: str, answer: dict[str, Any]) -> ToolResult:

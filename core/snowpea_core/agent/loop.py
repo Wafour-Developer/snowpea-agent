@@ -1083,6 +1083,8 @@ async def _steer_queued_turns(core: Core, session: Session) -> int:
     ]
     for index, queued in enumerate(steered):
         remaining = len(steered) - index - 1
+        if session.user_turn is not None and not session.is_subagent:
+            session.user_turn["steers"].append(queued.text)
         session.history.append(
             ChatMessage(
                 role="user",
@@ -1455,6 +1457,13 @@ async def _drive(
             await hub.emit_event(
                 session.id,
                 events.message_user(text, attachments, refs=refs, expansion=expansion),
+            )
+        if not session.is_subagent:
+            # What a host may judge intent by (a payment card only for a
+            # request that means to pay): the person's words, never a task an
+            # agent wrote.  A system-started turn has none.
+            session.user_turn = (
+                None if system else {"messageId": turn_id, "text": text, "steers": []}
             )
     if session.is_subagent:
         from snowpea_core.agent.subagent import get_manager

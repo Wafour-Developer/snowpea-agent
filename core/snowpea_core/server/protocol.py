@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.21.0"
+PROTOCOL_VERSION = "1.22.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -1198,6 +1198,17 @@ class ToolContentBlock(Payload):
     )
 
 
+class UserTurn(Payload):
+    """The person's own words behind a turn (``tool.invoke`` ``userTurn``)."""
+
+    messageId: str = Field(description="The turn the message started.")
+    text: str = Field(description="What the user wrote, as they wrote it.")
+    steers: list[str] = Field(
+        default_factory=list,
+        description="Messages the user sent into the turn while it ran, in order.",
+    )
+
+
 class ToolInvokeRequest(Payload):
     """Server -> client: run one of the client's host tools."""
 
@@ -1226,6 +1237,14 @@ class ToolInvokeRequest(Payload):
         description=(
             "The session that spawned this one (a subagent's parent); null for a root "
             "session. A browser host shares the parent's agent tabs with it."
+        ),
+    )
+    userTurn: UserTurn | None = Field(
+        default=None,
+        description=(
+            "The root conversation's user message that started the current turn, trusted "
+            "(1.22.0). For a delegated child it is the root's, never the parent agent's "
+            "task text; null when the system started the turn (a schedule, a hook)."
         ),
     )
 

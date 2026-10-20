@@ -135,6 +135,10 @@ class Session:
     #: The agent definition's prompt shape (``identity``, ``deferredTools``,
     #: ``skillsIndex``) and the plugin it came from; see
     #: :func:`snowpea_core.agent.session_agent.apply_prompt_shape`.
+    #: The user's words that started the current turn of a root session, as
+    #: ``{"messageId", "text", "steers"}`` (``tool.invoke`` ``userTurn``,
+    #: 1.22.0); ``None`` for a turn the system started.
+    user_turn: dict[str, Any] | None = None
     #: The definition those came from; a delegated child inherits its own.
     agent_definition: str | None = None
     agent_identity: str | None = None
