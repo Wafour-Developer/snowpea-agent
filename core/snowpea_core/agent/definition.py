@@ -28,7 +28,7 @@ import json
 import re
 import unicodedata
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -103,6 +103,21 @@ class AgentDefinition:
     #: skills index and the memory recall block a lean child goes without
     #: (snowpea-browser addendum 22: a ``browser`` agent needs its site skills).
     child_context: str | None = None
+    #: ``"own"``: the definition's prompt replaces the core coding identity
+    #: (base.md, execution, plan continuity, memory guidance), keeping only
+    #: the core essentials (honesty, reply length, trust, language).  Applies
+    #: when ``agents.ownIdentity`` (env ``SNOWPEA_AGENT_IDENTITY``) is on.
+    identity: str | None = None
+    #: Tool names or ``prefix_*`` patterns sent by name only, loaded with
+    #: ``tool_search`` (frontmatter ``deferredTools``), even when the tool list
+    #: or a host attached them.  Applies when ``tools.agentDeferred`` (env
+    #: ``SNOWPEA_AGENT_DEFERRED``) is on, on a provider whose tool list stays
+    #: fixed for the session (local-style servers).
+    deferred_tools: list[str] = field(default_factory=list)
+    #: ``"plugin"``: the skills index lists only this definition's plugin's
+    #: skills and the built-ins, under a softer header (frontmatter
+    #: ``skillsIndex``).  ``None`` lists every visible skill.
+    skills_index: str | None = None
     prompt: str = ""
     #: Where it was read from, when it came off disk.
     path: Path | None = None
@@ -135,6 +150,9 @@ class AgentDefinition:
             "max_tool_rounds": self.max_tool_rounds,
             "thinking": self.thinking,
             "child_context": self.child_context,
+            "identity": self.identity,
+            "deferred_tools": list(self.deferred_tools),
+            "skills_index": self.skills_index,
             "prompt": self.prompt,
             "source": self.source,
             "path": str(self.path) if self.path else None,
@@ -190,6 +208,18 @@ def _child_context(value: Any) -> str | None:
     """``lean`` | ``full`` from frontmatter; anything else means "not set"."""
     text = str(value or "").strip().lower()
     return text if text in ("lean", "full") else None
+
+
+def _choice(value: Any, allowed: tuple[str, ...]) -> str | None:
+    """A frontmatter keyword out of ``allowed``; anything else means "not set"."""
+    text = str(value or "").strip().lower()
+    return text if text in allowed else None
+
+
+def _names(value: Any) -> list[str]:
+    """A frontmatter list of names (or one comma-separated string)."""
+    items = value if isinstance(value, list) else str(value or "").split(",")
+    return [str(item).strip() for item in items if str(item).strip()]
 
 
 def _unquote(value: str) -> str:
@@ -293,6 +323,12 @@ def render_agent_md(defn: AgentDefinition) -> str:
         fields.append(("thinking", defn.thinking))
     if defn.child_context is not None:
         fields.append(("childContext", defn.child_context))
+    if defn.identity:
+        fields.append(("identity", defn.identity))
+    if defn.deferred_tools:
+        fields.append(("deferredTools", defn.deferred_tools))
+    if defn.skills_index:
+        fields.append(("skillsIndex", defn.skills_index))
     head = "\n".join(f"{key}: {_render_value(value)}" for key, value in fields)
     return f"{FENCE}\n{head}\n{FENCE}\n\n{defn.prompt.strip()}\n"
 
@@ -348,6 +384,9 @@ def parse_agent_text(
         max_tool_rounds=parsed_rounds,
         thinking=str(meta.get("thinking") or "inherit"),
         child_context=_child_context(meta.get("childContext", meta.get("child_context"))),
+        identity=_choice(meta.get("identity"), ("own", "core")),
+        deferred_tools=_names(meta.get("deferredTools", meta.get("deferred_tools"))),
+        skills_index=_choice(meta.get("skillsIndex", meta.get("skills_index")), ("plugin", "all")),
         prompt=body,
         path=path,
         source=source,

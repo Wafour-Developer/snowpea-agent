@@ -123,6 +123,10 @@ class AgentsSettings(_Model):
     toolRounds: int | dict[str, int] | None = None
     #: Hermes-compatible independent child budget, unless explicitly overridden.
     defaultToolRounds: int = Field(default=50, ge=1)
+    #: Honour ``identity: own`` in agent definitions: their prompt replaces
+    #: the core coding identity (env ``SNOWPEA_AGENT_IDENTITY`` overrides).
+    #: Off until an A/B shows no task is worse for it.
+    ownIdentity: bool = False
     #: Global ceiling on tool rounds for subagents.
     maxToolRounds: int | None = None
     #: Per-agent tool-round ceilings, e.g. {"explore": 8, "reviewer": 12}.

@@ -337,6 +337,10 @@ class NamedAgentRegistry:
             await core.store.update_browser_provider(session.id, session.browser_provider)
         if definition is not None and definition.prompt.strip():
             session.system_prompt = definition.prompt
+        if definition is not None:
+            from snowpea_core.agent.session_agent import apply_prompt_shape
+
+            apply_prompt_shape(session, definition)
         core.lifecycle.set_counter("sessions", len(core.sessions))
         return session
 

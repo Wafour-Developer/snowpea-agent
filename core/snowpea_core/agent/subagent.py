@@ -1394,6 +1394,9 @@ class SubagentManager:
                 allowed = set(from_defn)
             if defn.prompt.strip():
                 child.system_prompt = defn.prompt.strip()
+            from snowpea_core.agent.session_agent import apply_prompt_shape
+
+            apply_prompt_shape(child, defn)
         if tools:
             explicit = set(canonical_names(str(name) for name in tools if str(name).strip()))
             allowed = explicit if allowed is None else (allowed & explicit)

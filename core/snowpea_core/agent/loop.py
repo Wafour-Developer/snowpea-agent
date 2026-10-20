@@ -1420,6 +1420,8 @@ async def _drive(
     backend = backend_for(core, session)
     provider = core.providers.get(session.provider, session.model)
     session.fixed_tool_list = core.providers.is_local_style(session.provider or "")
+    # Before the first tool split: the plan says which tools an agent defers.
+    agent_mod.prompt_plan(session, core)
 
     # Auto-compaction happens here and nowhere else: between turns, before the
     # new user message joins the history, and never inside the tool loop

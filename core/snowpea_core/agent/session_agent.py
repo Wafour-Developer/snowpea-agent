@@ -33,6 +33,15 @@ def find_definition(core: Any, session: Session, name: str) -> AgentDefinition |
     return None
 
 
+def apply_prompt_shape(session: Any, defn: AgentDefinition | None) -> None:
+    """Copy a definition's prompt shape onto ``session`` (``None`` clears it)."""
+    source = str(getattr(defn, "source", "") or "")
+    session.agent_identity = getattr(defn, "identity", None)
+    session.agent_deferred = list(getattr(defn, "deferred_tools", None) or [])
+    session.agent_skills_index = getattr(defn, "skills_index", None)
+    session.agent_plugin = source.split(":", 1)[1] if source.startswith("plugin:") else None
+
+
 def apply_agent(core: Any, session: Session, name: str | None) -> AgentDefinition | None:
     """Give ``session`` the persona, tools and round budget of ``name``.
 
@@ -46,6 +55,7 @@ def apply_agent(core: Any, session: Session, name: str | None) -> AgentDefinitio
         session.system_prompt = None
         session.allowed_tools = None
         session.tool_rounds = None
+        apply_prompt_shape(session, None)
         session.agent_applied = True
         return None
     defn = find_definition(core, session, name)
@@ -56,6 +66,7 @@ def apply_agent(core: Any, session: Session, name: str | None) -> AgentDefinitio
     tools = defn.tool_list()
     session.allowed_tools = set(tools) if tools is not None else None
     session.tool_rounds = defn.max_tool_rounds or defn.tool_rounds or None
+    apply_prompt_shape(session, defn)
     session.agent_applied = True
     return defn
 

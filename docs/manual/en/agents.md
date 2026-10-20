@@ -356,6 +356,18 @@ Setting `agents.childContext` controls the context diet:
 |---|---|---|---|
 | `agents.childContext` | `"lean"` | `"lean"`, `"full"` | `"lean"` strips the memory recall block, the skills index, and nested instruction files from delegated children, and narrows read-only child tools. `"full"` restores the parent's prompt for children. An agent definition can decide for its own delegated runs with frontmatter `childContext: full` (or `lean`), which wins over the setting. |
 
+### Prompt shape
+
+Three frontmatter fields let a definition trim the system prompt it runs with. Each choice is made when the session starts and kept until its next compaction, so the prompt prefix a server has cached never changes mid-session.
+
+| frontmatter | values | what it does |
+|---|---|---|
+| `identity` | `own` | The definition's prompt replaces the core coding identity (`base.md`, the execution, plan-continuity and memory-guidance fragments). Only the core essentials stay: honest blockers, no invented output, reply length, trust and language. Applies only with `agents.ownIdentity: true` or env `SNOWPEA_AGENT_IDENTITY=1`. |
+| `deferredTools` | names or `prefix_*` patterns | These tools are named in the prompt and loaded with `tool_search`, even when the tool list or a host attached them (`grep` and `glob` included). Calling one by name still works. Applies only with `tools.agentDeferred: true` or env `SNOWPEA_AGENT_DEFERRED=1`, and only on a local-style provider, whose tool list stays fixed for the session. On a hosted provider a loaded tool would join the list and rewrite the cached prefix, so there the field is ignored. A host can mark a tool the same way with `deferred: true` in `tool.register` (protocol 1.21.0). |
+| `skillsIndex` | `plugin` | The skills index lists only this plugin's skills and the built-ins, under a header that does not insist on loading a skill for every task. |
+
+`identity` and `deferredTools` stay off by default until an A/B run shows no task does worse with them.
+
 In `"lean"` mode:
 - **No memory block or guidance**: the child has no memory recall block or guidance line (though memory tools still work if permitted).
 - **No skills index**: installed skills are not enumerated in the prompt, but the child can still view any skill by name with `skill_view`.

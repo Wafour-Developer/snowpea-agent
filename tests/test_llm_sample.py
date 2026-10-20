@@ -275,3 +275,32 @@ def test_json_mode_follows_the_server_software() -> None:
     assert not preset_for("glm53", None, {**named, "json_mode": False}).supports_json_mode
     assert not preset_for("x", None, {"preset": "local", "variant": "generic"}).supports_json_mode
     assert preset_for("x", None, {"preset": "local", "json_mode": True}).supports_json_mode
+
+
+async def test_a_task_follows_the_page_so_samples_of_one_page_share_a_prefix(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path, monkeypatch: pytest.MonkeyPatch  # noqa: F811
+) -> None:
+    provider, _ = stub(monkeypatch, daemon, '{"price": 1, "title": "a"}')
+    host, session_id = await host_session(http, daemon, tmp_path)
+    page = "Mug — $12.50 " * 50
+    try:
+        for task, schema in (("Find the price.", SCHEMA), ("Find the title.", CANDIDATES)):
+            await host.call(
+                "llm.sample",
+                {
+                    "sessionId": session_id,
+                    "system": "Extract things from shop pages.",
+                    "input": page,
+                    "task": task,
+                    "schema": schema,
+                    "schemaAfterInput": True,
+                },
+            )
+        (sys1, user1), (sys2, user2) = (c["messages"] for c in provider.calls)
+        assert sys1.content == sys2.content and '"price"' not in sys1.content
+        # Everything up to the per-call task is identical: the page is reusable.
+        assert user2.content.startswith(user1.content.split("Find", 1)[0])
+        assert user1.content.index("Find the price.") > user1.content.index(page[:20])
+        assert '"price"' in user1.content and '"candidates"' in user2.content
+    finally:
+        await host.stop()

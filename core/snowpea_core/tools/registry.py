@@ -116,6 +116,9 @@ class Tool:
     #: built-in readers are listed in ``agent.tool_batch``; a host tool says so
     #: itself (``tool.register`` ``parallel: "safe"``, read/network only).
     parallel_safe: bool = False
+    #: A host asked for this tool to be named only, behind ``tool_search``
+    #: (``HostToolSpec.deferred``); honoured with ``tools.agentDeferred``.
+    deferred_hint: bool = False
 
     def info(self) -> ToolInfo:
         # ``mcp:<server>`` is the source an MCP tool is registered with, so the

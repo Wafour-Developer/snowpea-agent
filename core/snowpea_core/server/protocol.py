@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.20.0"
+PROTOCOL_VERSION = "1.21.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -1152,6 +1152,14 @@ class HostToolSpec(Payload):
             "'safe': several calls of it in one model response may run at once, like the "
             "built-in readers (1.18.0). Only for permission read or network; 'never' (the "
             "default) keeps it in order."
+        ),
+    )
+    deferred: bool = Field(
+        default=False,
+        description=(
+            "Name it in the prompt and send its schema only after tool_search loads it, "
+            "when the daemon has tools.agentDeferred on and the session's provider keeps a "
+            "fixed tool list (1.21.0). Calling it by name still works."
         ),
     )
 
@@ -2311,6 +2319,21 @@ class LlmSampleParams(Payload):
     )
     maxTokens: int = Field(
         default=1024, ge=1, le=4096, description="Output token cap, at most 4096."
+    )
+    task: str | None = Field(
+        default=None,
+        max_length=20_000,
+        description=(
+            "Trusted per-call instruction from the host, placed after the fenced input, so "
+            "system + page stay a prefix several samples of one page share (1.21.0)."
+        ),
+    )
+    schemaAfterInput: bool = Field(
+        default=False,
+        description=(
+            "Put the schema instruction after the fenced input (with task) instead of in "
+            "the system message, for a schema that varies per call (1.21.0)."
+        ),
     )
 
 

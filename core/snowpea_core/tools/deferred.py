@@ -184,7 +184,44 @@ def eager_names(session: Any = None, extra: Iterable[str] = ()) -> frozenset[str
     from snowpea_core.tools.host_tools import HOST_TOOLS
 
     base.update(HOST_TOOLS.names_for(session))
+    held = held_back(session)
+    if held:
+        base = {name for name in base if name == TOOL_SEARCH or not held(name)}
     return frozenset(base)
+
+
+def held_back(session: Any) -> Any:
+    """A predicate for the tools an agent definition or host defers, or ``None``.
+
+    ``deferredTools`` patterns and host specs marked ``deferred`` keep even
+    allowed, host or always-allowed tools behind ``tool_search``.  Only when
+    the session's prompt plan switched it on (``tools.agentDeferred``) and only
+    on a provider whose tool list stays fixed for the session: elsewhere a
+    loaded tool joins the list and rewrites the cached prefix.
+    """
+    plan = getattr(session, "prompt_plan", None)
+    patterns = tuple(getattr(plan, "deferred", ()) or ())
+    if not getattr(plan, "agent_deferred", False):
+        return None
+    from snowpea_core.tools.host_tools import HOST_TOOLS
+
+    hosted = {
+        name
+        for name, tool in HOST_TOOLS.for_session(session).items()
+        if getattr(tool, "deferred_hint", False)
+    }
+    if not patterns and not hosted:
+        return None
+
+    def held(name: str) -> bool:
+        if name in hosted:
+            return True
+        return any(
+            name.startswith(pattern[:-1]) if pattern.endswith("*") else name == pattern
+            for pattern in patterns
+        )
+
+    return held
 
 
 def split(

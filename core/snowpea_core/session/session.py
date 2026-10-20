@@ -132,6 +132,17 @@ class Session:
     #: Tool names this agent is narrowed to (``delegate_task(tools=...)`` or an
     #: agent definition); ``None`` means every tool.
     allowed_tools: set[str] | None = None
+    #: The agent definition's prompt shape (``identity``, ``deferredTools``,
+    #: ``skillsIndex``) and the plugin it came from; see
+    #: :func:`snowpea_core.agent.session_agent.apply_prompt_shape`.
+    agent_identity: str | None = None
+    agent_deferred: list[str] = field(default_factory=list)
+    agent_skills_index: str | None = None
+    agent_plugin: str | None = None
+    #: What the system prompt was built from, decided once and kept until the
+    #: next compaction (:func:`snowpea_core.agent.agent.prompt_plan`), so a
+    #: setting or a skill changed mid-session never rewrites the cached prefix.
+    prompt_plan: Any = None
     #: Tools a running skill command may call without asking: its front
     #: matter's ``allowed-tools``, which is a pre-approval as in Claude Code,
     #: not a restriction.

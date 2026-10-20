@@ -12,6 +12,7 @@ downstream had to change when the text moved.
 from __future__ import annotations
 
 import logging
+import os
 import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -265,6 +266,82 @@ def context_fill(session: Session) -> float | None:
     return session.context_used / window
 
 
+@dataclass(frozen=True)
+class PromptPlan:
+    """What a session's system prompt is built from, fixed until the next compaction.
+
+    A setting flipped, a skill edited or a host reattached in the middle of a
+    session must not rewrite the prefix a server has cached, so every choice
+    that shapes the prompt is made here once and read back on every round.
+    """
+
+    key: tuple[Any, ...]
+    own_identity: bool = False
+    describe_tools: bool = False
+    #: ``tools.agentDeferred`` on and a fixed tool list: ``deferred`` applies.
+    agent_deferred: bool = False
+    deferred: tuple[str, ...] = ()
+    skill_groups: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = ()
+    skills_scoped: bool = False
+
+
+def _switch(env: str, setting: Any) -> bool:
+    """An A/B switch: the environment variable when set, else the setting."""
+    raw = os.environ.get(env, "").strip().lower()
+    if raw:
+        return raw in ("1", "true", "yes", "on")
+    return bool(setting)
+
+
+def prompt_plan(session: Session, core: Core | None) -> PromptPlan:
+    """The session's :class:`PromptPlan`, made on first use and per compaction.
+
+    Also remade when the provider, model or mode changes, which rewrite the
+    prompt anyway.
+    """
+    key = (
+        getattr(getattr(session, "history", None), "compactions", 0),
+        session.provider,
+        session.model,
+        session.mode,
+    )
+    plan = getattr(session, "prompt_plan", None)
+    if isinstance(plan, PromptPlan) and plan.key == key:
+        return plan
+    settings = getattr(core, "settings", None)
+    fixed = bool(
+        core is not None
+        and getattr(core, "providers", None) is not None
+        and core.providers.is_local_style(session.provider or "")
+    )
+    scoped = getattr(session, "agent_skills_index", None) == "plugin"
+    groups: list[tuple[str, list[tuple[str, str]]]] = (
+        [] if is_lean_child(session, core) else skill_groups(core)
+    )
+    if scoped:
+        plugin = getattr(session, "agent_plugin", None)
+        wanted = {"[builtin]", f"[plugin:{plugin}]"} if plugin else {"[builtin]"}
+        groups = [group for group in groups if group[0] in wanted]
+    agents = getattr(settings, "agents", None)
+    tools = getattr(settings, "tools", None)
+    plan = PromptPlan(
+        key=key,
+        own_identity=getattr(session, "agent_identity", None) == "own"
+        and _switch("SNOWPEA_AGENT_IDENTITY", getattr(agents, "ownIdentity", False)),
+        describe_tools=list_descriptions(core),
+        agent_deferred=fixed
+        and _switch("SNOWPEA_AGENT_DEFERRED", getattr(tools, "agentDeferred", False)),
+        deferred=tuple(getattr(session, "agent_deferred", None) or ()),
+        skill_groups=tuple((label, tuple(rows)) for label, rows in groups),
+        skills_scoped=scoped,
+    )
+    try:
+        session.prompt_plan = plan
+    except AttributeError:  # pragma: no cover - a frozen stand-in in a test
+        pass
+    return plan
+
+
 def skill_groups(core: Core | None) -> list[tuple[str, list[tuple[str, str]]]]:
     """Grouped skills for the prompt index, or ``[]`` when it is switched off.
 
@@ -391,6 +468,7 @@ def build_system_prompt(
     otherwise ignored.
     """
     del memory_block
+    plan = prompt_plan(session, core)
     environment, context_files = environment_blocks(session, core)
     lean = is_lean_child(session, core)
     deferred_specs: list[ToolSpec] = []
@@ -441,13 +519,15 @@ def build_system_prompt(
         tools=tools,
         deferred_tools=deferred_specs,
         tools_text=tools_fragment(
-            session, tools, deferred_specs, session.workdir, describe=list_descriptions(core)
+            session, tools, deferred_specs, session.workdir, describe=plan.describe_tools
         )
         if tools
         else None,
-        skill_groups=[] if lean else skill_groups(core),
+        skill_groups=[(label, list(rows)) for label, rows in plan.skill_groups],
         skill_index_max=skill_index_max(core),
+        skills_scoped=plan.skills_scoped,
         memory_guidance=memory_enabled(core) and not lean,
+        own_identity=plan.own_identity,
         environment=environment,
         context_files=context_files,
         reply_language=reply_language(core),

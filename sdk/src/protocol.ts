@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.20.0";
+export const PROTOCOL_VERSION = "1.21.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -963,10 +963,14 @@ export interface LlmSampleParams {
   modelCategory?: "fast" | "default";
   /** JSON Schema the answer must match. With it the model is told to answer JSON only, and an answer that does not validate is 'invalid_output'. */
   schema?: Record<string, unknown> | null;
+  /** Put the schema instruction after the fenced input (with task) instead of in the system message, for a schema that varies per call (1.21.0). */
+  schemaAfterInput?: boolean;
   /** Session whose provider settings and bill this call uses; its host only. */
   sessionId: string;
   /** Instructions the host wrote. */
   system?: string | null;
+  /** Trusted per-call instruction from the host, placed after the fenced input, so system + page stay a prefix several samples of one page share (1.21.0). */
+  task?: string | null;
 }
 
 /** `llm.sample` result. */
@@ -3700,6 +3704,8 @@ export interface ToolRegisterParams {
   tools: ({
     /** UI grouping; defaults to "host". */
     category?: string | null;
+    /** Name it in the prompt and send its schema only after tool_search loads it, when the daemon has tools.agentDeferred on and the session's provider keeps a fixed tool list (1.21.0). Calling it by name still works. */
+    deferred?: boolean;
     /** What the model reads about the tool. */
     description: string;
     /** JSON Schema of the arguments. */

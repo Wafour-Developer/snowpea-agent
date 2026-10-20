@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.20.0` (semver)
+- **Protocol version:** `1.21.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.20.0"
+    "protocolVersion": "1.21.0"
   }
 }
 ```
@@ -980,8 +980,10 @@ One tool-less model call for a session's browser host (1.14.0): no tools, no his
 | `maxTokens` | `number` | no | Output token cap, at most 4096. |
 | `modelCategory` | `"fast" \| "default"` | no | 'fast' = browser.fastModel (then models.categories.fast, then the session's model); 'default' = the session's model. |
 | `schema` | `Record<string, unknown> \| null` | no | JSON Schema the answer must match. With it the model is told to answer JSON only, and an answer that does not validate is 'invalid_output'. |
+| `schemaAfterInput` | `boolean` | no | Put the schema instruction after the fenced input (with task) instead of in the system message, for a schema that varies per call (1.21.0). |
 | `sessionId` | `string` | yes | Session whose provider settings and bill this call uses; its host only. |
 | `system` | `string \| null` | no | Instructions the host wrote. |
+| `task` | `string \| null` | no | Trusted per-call instruction from the host, placed after the fenced input, so system + page stay a prefix several samples of one page share (1.21.0). |
 
 **Result**
 
@@ -2744,7 +2746,7 @@ Register tools this connection runs itself (host tools).
 
 | field | type | required | description |
 |---|---|---|---|
-| `tools` | `({ category?: string \| null; description: string; inputSchema?: Record<string, unknown>; name: string; parallel?: "safe" \| "never"; permission: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret"; timeoutMs?: number \| null; })[]` | yes | Tools to add or replace for this connection; all-or-nothing. |
+| `tools` | `({ category?: string \| null; deferred?: boolean; description: string; inputSchema?: Record<string, unknown>; name: string; parallel?: "safe" \| "never"; permission: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret"; timeoutMs?: number \| null; })[]` | yes | Tools to add or replace for this connection; all-or-nothing. |
 
 **Result**
 

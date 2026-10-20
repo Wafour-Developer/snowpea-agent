@@ -304,7 +304,8 @@ def test_mcp_tools_are_grouped_under_a_server_heading() -> None:
     ]
     text = compose.tool_lines(tools)
 
-    assert text.splitlines()[0] == "- read_file: Read."
+    assert text.splitlines()[0] == "- read_file"
+    assert compose.tool_lines(tools, describe=True).splitlines()[0] == "- read_file: Read."
     assert "MCP server figma (network)" in text
     assert text.index("MCP server figma") < text.index("mcp__figma__get_file")
 

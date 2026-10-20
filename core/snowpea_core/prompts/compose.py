@@ -214,6 +214,8 @@ def skills_index(
     groups: Sequence[tuple[str, Sequence[tuple[str, str]]]],
     max_entries: int = DEFAULT_SKILL_INDEX_MAX,
     root: Path | None = None,
+    *,
+    scoped: bool = False,
 ) -> str:
     """The rendered ``## Skills`` block, or ``""`` when nothing is installed.
 
@@ -221,6 +223,8 @@ def skills_index(
     origin label and its ``(name, description)`` rows.  Past ``max_entries``
     the list stops and says how many it did not show, so a machine with two
     hundred skills does not spend the context window on a catalogue.
+    ``scoped`` is an agent's own short list (``skillsIndex: plugin``), under
+    a header that does not insist on loading one for every task.
     """
     lines: list[str] = []
     shown = 0
@@ -237,7 +241,8 @@ def skills_index(
         return ""
     if total > shown:
         lines.append(SKILL_INDEX_MORE.format(count=total - shown))
-    return render("fragments/skills", root, SKILL_LINES="\n".join(lines))
+    fragment = "fragments/skills-scoped" if scoped else "fragments/skills"
+    return render(fragment, root, SKILL_LINES="\n".join(lines))
 
 
 @dataclass(frozen=True)
@@ -270,6 +275,7 @@ def build_tiers(
     tools_text: str | None = None,
     skill_groups: Sequence[tuple[str, Sequence[tuple[str, str]]]] | None = None,
     skill_index_max: int = DEFAULT_SKILL_INDEX_MAX,
+    skills_scoped: bool = False,
     memory_guidance: bool = True,
     memory_block: str = "",
     plan_line: str = "",
@@ -278,6 +284,7 @@ def build_tiers(
     context_fill: float | None = None,
     reply_language: str = "auto",
     identity: str | None = None,
+    own_identity: bool = False,
     persona: str = "",
     root: Path | None = None,
 ) -> PromptTiers:
@@ -286,17 +293,24 @@ def build_tiers(
     ``identity`` replaces ``base.md`` outright and is for a caller that wants a
     bare prompt.  ``persona`` — an ``AgentDefinition``'s own prompt — is added
     *after* the role instead, so a named agent gains its brief without losing
-    the coding discipline every other agent has.
+    the coding discipline every other agent has.  ``own_identity`` is the
+    other way round: the persona *is* the identity (``identity: own``), and of
+    the core coding layer only ``fragments/essentials`` stays — honesty, reply
+    length, trust, language.
     """
-    stable: list[str] = [identity.strip() if identity and identity.strip() else load("base", root)]
-    # Right after the identity: the working discipline every family needs
-    # (M15 §A1).  The vendor layer below only adds family-specific enforcement.
-    stable.append(load("fragments/execution", root))
-    # How to treat the "Current plan:" line of the volatile tier. Only the main
-    # agent works a plan: a subagent or a role gets a brief, not the plan
-    # (CORE-plan-continuity).
-    if not (subagent or role):
-        stable.append(load("fragments/plan-continuity", root))
+    if own_identity:
+        stable: list[str] = [load("fragments/essentials", root)]
+        memory_guidance = False
+    else:
+        stable = [identity.strip() if identity and identity.strip() else load("base", root)]
+        # Right after the identity: the working discipline every family needs
+        # (M15 §A1).  The vendor layer below only adds family-specific enforcement.
+        stable.append(load("fragments/execution", root))
+        # How to treat the "Current plan:" line of the volatile tier. Only the
+        # main agent works a plan: a subagent or a role gets a brief, not the
+        # plan (CORE-plan-continuity).
+        if not (subagent or role):
+            stable.append(load("fragments/plan-continuity", root))
 
     vendor = vendor_class if vendor_class in VENDOR_CLASSES else "anthropic"
     stable.append(load(f"vendors/{vendor}", root))
@@ -318,7 +332,7 @@ def build_tiers(
     # context: both are rebuilt together, and the model should know what a
     # skill covers before it starts picking tools (M15 §B1).
     if skill_groups:
-        context.append(skills_index(skill_groups, skill_index_max, root))
+        context.append(skills_index(skill_groups, skill_index_max, root, scoped=skills_scoped))
     # ``tools_text`` is an already-rendered fragment, handed in by the agent
     # layer's per-session cache so two identical rounds produce byte-identical
     # prompts and the provider's prefix cache actually hits (CORE-round-cost).

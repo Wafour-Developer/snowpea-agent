@@ -220,6 +220,7 @@ class HostTools:
                     run=self._runner(core, conn.surface_id, name, timeout),
                     source=f"host:{conn.surface_id}",
                     parallel_safe=parallel == "safe",
+                    deferred_hint=bool(spec.get("deferred")),
                 )
             )
         host = self._hosts.get(conn.surface_id)
