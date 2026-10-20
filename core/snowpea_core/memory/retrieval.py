@@ -56,6 +56,12 @@ SCOPE_NOTE_NO_PROJECT = (
 )
 
 
+#: What the digest's preamble added to :data:`HEADER`, when both are in one block.
+DIGEST_NOTE = (
+    "The lists below are background you start with, not something to recite "
+    "back; search_memory finds anything not listed."
+)
+
 #: Heading over the query-based hits, so they read as an answer to *this*
 #: message rather than as more of the standing digest above them.
 RELEVANT_HEADING = "## Relevant to this message"
@@ -101,9 +107,13 @@ def compose_block(
     """
     if not digest and not entries:
         return ""
-    parts = [block_header(entries, project)]
+    header = block_header(entries, project)
     if digest:
-        parts.append(digest.text)
+        # The digest's own preamble said the same thing again (snowpea-browser).
+        header = f"{header} {DIGEST_NOTE}"
+    parts = [header]
+    if digest:
+        parts.append(digest.body or digest.text)
     if entries:
         parts.append(f"{RELEVANT_HEADING}\n{render_entries(entries)}")
     return "\n\n".join(parts)

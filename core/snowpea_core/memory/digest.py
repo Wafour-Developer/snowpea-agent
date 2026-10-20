@@ -64,6 +64,9 @@ class Digest:
     #: Ids rendered in :attr:`text`, so recall can drop a hit the reader can
     #: already see and spend the slot on something new.
     ids: set[str] = field(default_factory=set)
+    #: :attr:`text` without :data:`PREAMBLE`, for a block whose own header
+    #: already says what these memories are (``retrieval.compose_block``).
+    body: str = ""
 
     def __bool__(self) -> bool:
         return bool(self.text)
@@ -150,18 +153,14 @@ async def build(
 
     if not sections:
         return Digest()
-    header = "\n".join(
-        [
-            PREAMBLE,
-            USAGE.format(
-                entries=used_entries,
-                max_entries=max(1, entries),
-                chars=used_chars,
-                max_chars=max(1, chars),
-            ),
-        ]
+    usage = USAGE.format(
+        entries=used_entries,
+        max_entries=max(1, entries),
+        chars=used_chars,
+        max_chars=max(1, chars),
     )
-    return Digest(text="\n\n".join([header, *sections]), ids=seen)
+    body = "\n\n".join([usage, *sections])
+    return Digest(text="\n".join([PREAMBLE, body]), ids=seen, body=body)
 
 
 __all__ = [
