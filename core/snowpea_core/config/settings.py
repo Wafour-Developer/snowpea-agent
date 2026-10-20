@@ -415,6 +415,15 @@ class ToolsSettings(_Model):
     #: Tools that must be sent in full whatever the default eager set says —
     #: an MCP tool a project leans on, say.
     eager: list[str] = Field(default_factory=list)
+    #: True puts each tool's description in the system prompt's tool list as
+    #: well.  Every adapter sends tools natively, with their descriptions, so
+    #: by default the list is names only — the same text twice cost a browser
+    #: session ~5.6k tokens a round.
+    listDescriptions: bool = False
+    #: Honour ``deferredTools`` in agent definitions and ``deferred`` on host
+    #: tool specs (env ``SNOWPEA_AGENT_DEFERRED`` overrides).  Off until an
+    #: A/B shows no task is worse for it.
+    agentDeferred: bool = False
 
 
 class CheckpointsSettings(_Model):

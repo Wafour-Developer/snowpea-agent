@@ -83,9 +83,15 @@ class AgentConfig:
     effort_source: str = "default"
 
 
-def tool_lines(tools: list[ToolSpec]) -> str:
-    """One ``- name: description`` line per tool."""
-    return compose.tool_lines(tools)
+def tool_lines(tools: list[ToolSpec], *, describe: bool = False) -> str:
+    """One ``- name`` line per tool (``- name: description`` with ``describe``)."""
+    return compose.tool_lines(tools, describe=describe)
+
+
+def list_descriptions(core: Core | None) -> bool:
+    """``tools.listDescriptions``: descriptions in the prompt's tool list too."""
+    tools = getattr(getattr(core, "settings", None), "tools", None)
+    return bool(getattr(tools, "listDescriptions", False))
 
 
 def invalidate_environment(session: Session | None = None) -> None:
@@ -109,6 +115,8 @@ def tools_fragment(
     tools: list[ToolSpec],
     deferred: list[ToolSpec] | None = None,
     root: Any = None,
+    *,
+    describe: bool = False,
 ) -> str:
     """The rendered tool list for this round, cached per session.
 
@@ -122,12 +130,13 @@ def tools_fragment(
         tuple(sorted(spec.name for spec in deferred)),
         str(getattr(session, "mode", "")),
         str(getattr(session, "prompt_role", "") or ""),
+        describe,
     )
     session_id = str(getattr(session, "id", ""))
     cached = _TOOLS_CACHE.get(session_id)
     if cached is not None and cached[0] == key:
         return cached[1]
-    text = compose.tools_block(tools, deferred, root)
+    text = compose.tools_block(tools, deferred, root, describe=describe)
     _TOOLS_CACHE[session_id] = (key, text)
     return text
 
@@ -431,7 +440,9 @@ def build_system_prompt(
         subagent=bool(getattr(session, "is_subagent", False)),
         tools=tools,
         deferred_tools=deferred_specs,
-        tools_text=tools_fragment(session, tools, deferred_specs, session.workdir)
+        tools_text=tools_fragment(
+            session, tools, deferred_specs, session.workdir, describe=list_descriptions(core)
+        )
         if tools
         else None,
         skill_groups=[] if lean else skill_groups(core),

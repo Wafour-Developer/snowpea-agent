@@ -151,7 +151,7 @@ def reply_language_rule(language: str) -> str:
     )
 
 
-def tool_lines(tools: Sequence[ToolSpec]) -> str:
+def tool_lines(tools: Sequence[ToolSpec], *, describe: bool = False) -> str:
     """The tool list: built-ins first, then one heading per MCP server (M15 §E).
 
     An MCP tool's name already carries its server (``mcp__<server>__<tool>``),
@@ -159,6 +159,9 @@ def tool_lines(tools: Sequence[ToolSpec]) -> str:
     ``MCP server <name> (<permission tag>)`` tells the model in one line where a
     tool comes from and what approving it costs, and keeps the built-ins — the
     tools it should reach for first — at the top.
+
+    Names only unless ``describe``: every adapter sends the tools natively,
+    descriptions included, so repeating them here only doubled the cost.
     """
     builtin: list[str] = []
     servers: dict[str, list[str]] = {}
@@ -166,7 +169,7 @@ def tool_lines(tools: Sequence[ToolSpec]) -> str:
     for tool in tools:
         server = str(getattr(tool, "source", "") or "")
         server = server[4:] if server.startswith("mcp:") else ""
-        line = f"- {tool.name}: {tool.description}"
+        line = f"- {tool.name}: {tool.description}" if describe else f"- {tool.name}"
         if not server:
             builtin.append(line)
             continue
@@ -186,6 +189,8 @@ def tools_block(
     tools: Sequence[ToolSpec],
     deferred: Sequence[ToolSpec] = (),
     root: Path | None = None,
+    *,
+    describe: bool = False,
 ) -> str:
     """The rendered ``Available tools:`` fragment for one round.
 
@@ -200,7 +205,7 @@ def tools_block(
     return render(
         "fragments/tools",
         root,
-        TOOL_LINES=tool_lines(tools),
+        TOOL_LINES=tool_lines(tools, describe=describe),
         DEFERRED_LINE=deferred_line(deferred),
     )
 

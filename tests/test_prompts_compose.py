@@ -267,7 +267,10 @@ def test_tool_list_is_exactly_the_supplied_specs() -> None:
     text = compose.build_system_prompt(tools=TOOLS)
     block = text.split("Available tools:\n", 1)[1]
     lines = [line for line in block.splitlines() if line.startswith("- ")]
-    assert lines == [f"- {spec.name}: {spec.description}" for spec in TOOLS]
+    # Names only: the descriptions already go out in the native tools param.
+    assert lines == [f"- {spec.name}" for spec in TOOLS]
+    described = compose.tools_block(TOOLS, describe=True)
+    assert f"- {TOOLS[0].name}: {TOOLS[0].description}" in described
 
 
 def test_no_tools_means_no_tool_section() -> None:
