@@ -767,7 +767,7 @@ def test_the_mechanical_trim_keeps_the_opening_request() -> None:
     for n in range(10):
         history.append(ChatMessage(role="assistant", content=f"step {n}"))
     assert history.compact() is True
-    assert len(history.messages) == 7  # the cap plus the pinned brief
+    assert len(history.messages) == 6  # the cap less a quarter, plus the pinned brief
     assert history.messages[0].role == "user"
     assert "AndroidStudioProjects" in str(history.messages[0].content)
     assert str(history.messages[-1].content) == "step 9"
@@ -777,6 +777,24 @@ def test_the_mechanical_trim_keeps_the_opening_request() -> None:
     history.compact()
     assert [m.role for m in history.messages].count("user") == 1
     assert history.messages[0] is history.messages[0]
+
+
+def test_the_mechanical_trim_drops_a_batch_so_requests_extend_each_other() -> None:
+    # One message dropped per append changed the start of every request: a
+    # 600-message session on a local server re-read all but the system prompt
+    # on every round (hon4, 144k tokens, 0-10k reused).
+    history = History(max_messages=8)
+    history.append(ChatMessage(role="user", content="brief"))
+    for n in range(8):
+        history.append(ChatMessage(role="assistant", content=f"step {n}"))
+    assert history.compact() is True
+    trimmed = list(history.messages)
+    assert len(trimmed) == 7  # 8 less a quarter, plus the brief
+    for n in range(8, 9):
+        history.append(ChatMessage(role="assistant", content=f"step {n}"))
+        assert history.compact() is False
+        assert history.messages[: len(trimmed)] == trimmed
+    assert history.compactions == 1
 
 
 def test_the_mechanical_trim_below_the_cap_is_a_no_op() -> None:

@@ -31,6 +31,13 @@ from snowpea_core.providers.base import REDACTED, ChatMessage, ToolCall
 #: opening request went with the oldest messages.
 DEFAULT_MAX_MESSAGES = 600
 
+#: Share of ``max_messages`` one mechanical trim drops at once.  Trimming one
+#: message per append would change the start of every request (and, through
+#: ``compactions``, the environment block), so no server prefix cache could
+#: ever hold past the system prompt; a quarter at a time costs one cold
+#: prefill per ~150 messages instead.
+TRIM_FRACTION = 4
+
 #: Characters per token when no tokenizer is available.
 CHARS_PER_TOKEN = 4
 
@@ -201,7 +208,8 @@ class History:
         """Trim the oldest messages once the list outgrows ``max_messages``.
 
         The mechanical fallback: drop the oldest, never split a tool call from
-        its result.  The summarising path is
+        its result, and drop :data:`TRIM_FRACTION` of the cap at a time so the
+        requests in between all extend one another.  The summarising path is
         :func:`snowpea_core.session.compaction.compact_session`.
         """
         if len(self.messages) <= self.max_messages:
@@ -211,7 +219,8 @@ class History:
         # after it (Hermes protects the same head). The owner's opening line
         # naming an Android project was gone by the afternoon without this.
         head = next((m for m in self.messages if m.role == "user"), None)
-        drop = len(self.messages) - self.max_messages
+        keep = self.max_messages - max(1, self.max_messages // TRIM_FRACTION)
+        drop = len(self.messages) - keep
         while drop < len(self.messages) and self.messages[drop].role == "tool":
             drop += 1
         kept = self.messages[drop:]
@@ -231,6 +240,7 @@ class History:
 __all__ = [
     "CHARS_PER_TOKEN",
     "DEFAULT_MAX_MESSAGES",
+    "TRIM_FRACTION",
     "MESSAGE_OVERHEAD_TOKENS",
     "History",
     "estimate_message",
