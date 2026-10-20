@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from snowpea_core.agent import agent as agent_mod
 from snowpea_core.config.paths import Paths
 from snowpea_core.config.settings import Settings
@@ -104,6 +106,11 @@ def test_the_outgoing_request_carries_the_stub_and_the_transcript_does_not(
     session = Session(id="s-1", workdir=tmp_path)
     for message in history("A", "A", "A", "A", "A"):
         session.history.append(message)
+    # Only past the compact threshold (a long turn); otherwise as stored.
+    session.context_window = 1_000_000
+    plain = agent_mod.build_messages(session, [], core=core)
+    assert all(not str(m.content).startswith("[superseded") for m in plain)
+    session.context_window = 100
     sent = agent_mod.build_messages(session, [], core=core)
     tool_texts = [message.content for message in sent if message.role == "tool"]
     assert tool_texts[:4] == ["[superseded by a newer snapshot of A]"] * 4
@@ -131,3 +138,47 @@ def test_snapshots_are_stubbed_a_batch_at_a_time() -> None:
             changes.append(count)
         previous = contents
     assert changes == [batch + 1, 2 * batch + 1, 3 * batch + 1]
+
+
+async def test_compaction_stubs_older_snapshots_in_the_kept_tail(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    core = Core(settings=Settings(), paths=Paths.create(tmp_path / "home"), token="t")
+    core.settings.context.keepLastMessages = 6
+
+    async def summary(*args: object, **kwargs: object) -> str:
+        return "summary"
+
+    monkeypatch.setattr(compaction, "summarise", summary)
+
+    async def nothing(*args: object, **kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr(compaction, "emit_context", nothing)
+    monkeypatch.setattr(core.hub, "emit_event", nothing)
+    session = Session(id="s-2", workdir=tmp_path)
+    session.history.replace([ChatMessage(role="user", content="earlier " * 50)] * 4)
+    for message in history("A", "A", "A"):
+        session.history.append(message)
+    result = await compaction.compact_session(core, session)
+    assert result.compacted
+    tools = [str(m.content) for m in session.history.snapshot() if m.role == "tool"]
+    assert tools[-1].startswith("FULL SNAPSHOT 2")
+    assert all(t.startswith("[superseded") for t in tools[:-1]), tools
+
+
+def test_a_huge_snapshot_is_capped_once_when_it_arrives(tmp_path: Path) -> None:
+    from snowpea_core.agent.loop import _spill_long_result
+
+    core = Core(settings=Settings(), paths=Paths.create(tmp_path / "home"), token="t")
+    core.settings.tools.snapshotMaxChars = 5000
+    page = "link " * 4000
+    snap = result_from_answer(
+        "repl", {"ok": True, "output": page, "meta": {"kind": "snapshot", "tab": "A"}}
+    )
+    capped = _spill_long_result(core, "repl", snap, host=True).output
+    assert len(capped) < 5400 and "characters omitted" in capped
+    other = result_from_answer(
+        "repl", {"ok": True, "output": page, "meta": {"kind": "extract"}}
+    )
+    assert _spill_long_result(core, "repl", other, host=True).output == page

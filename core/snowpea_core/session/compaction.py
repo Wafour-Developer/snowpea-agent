@@ -517,6 +517,18 @@ async def compact_session(
     if verbatim:
         text = f"{text}\n\n{verbatim}"
 
+    # What requests no longer shrink on the fly is shrunk here, once, in the
+    # stored tail: older snapshots of a tab, then tool output past the kept
+    # rounds. The prefix is being rewritten anyway.
+    on, keep, max_chars = tool_prune_settings(core)
+    if on:
+        pruned: list[str] = []
+        tail = supersede_snapshots(tail, pruned, batch=1)
+        tail = prune_old_tool_outputs(tail, keep, max_chars, pruned)
+        if pruned:
+            from snowpea_core.tools import repeat_guard
+
+            repeat_guard.forget_pruned(session, messages, pruned)
     replacement = [summary_message(text), *tail]
     session.history.replace(replacement)
     after = estimate_messages(replacement)
@@ -547,6 +559,25 @@ async def compact_session(
         "auto" if auto else "manual",
     )
     return result
+
+
+def over_compact_threshold(core: Core | None, session: Session, history: list[Any]) -> bool:
+    """True when ``history`` alone is past the auto-compact threshold.
+
+    Only then does a request shrink old output on the fly: a long turn cannot
+    be compacted until it ends, and it must not overflow the window first.
+    """
+    window = getattr(session, "context_window", None)
+    if not window or core is None:
+        return False
+    settings: Any = getattr(getattr(core, "settings", None), "context", None)
+    try:
+        percent = float(getattr(settings, "autoCompactPercent", 85))
+    except (TypeError, ValueError):
+        percent = 85.0
+    if percent <= 0 or percent >= 100:
+        percent = 85.0
+    return estimate_messages(history) >= window * percent / 100
 
 
 def should_auto_compact(core: Core, session: Session, state: ContextState) -> bool:

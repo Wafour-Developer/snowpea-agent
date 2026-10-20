@@ -2283,6 +2283,15 @@ def _spill_long_result(
     spilled_tool = name in output_spill.SPILLED_TOOLS or host
     if not result.ok or not spilled_tool or not result.output:
         return result
+    if host and host_tools_mod.snapshot_tab(result.meta):
+        # A page snapshot is long lines, not many: cap it by size. Every later
+        # request carries it unchanged, so this is the only trim it ever gets.
+        limit = output_spill.snapshot_max_chars(core)
+        if len(result.output) > limit:
+            result.output = output_spill.spill_chars(
+                result.output, max_chars=limit, head_chars=limit * 3 // 4, kind="snapshot"
+            ).text
+        return result
     budget = output_spill.max_result_lines(core)
     if result.output.count("\n") < budget:
         return result

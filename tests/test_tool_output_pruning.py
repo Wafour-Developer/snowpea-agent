@@ -141,9 +141,21 @@ def _core(tmp_path: Path, settings: Settings | None = None) -> Core:
     )
 
 
+def test_build_messages_sends_the_history_as_stored(tmp_path: Path) -> None:
+    """Below the compact threshold nothing already sent is rewritten."""
+    session = Session(id="s-keep", workdir=tmp_path)
+    session.history.replace(rounds(12))
+    session.context_window = 1_000_000
+    messages = build_messages(session, [], core=_core(tmp_path))
+    tools = [message for message in messages if message.role == "tool"]
+    assert tools[0].content == "0" * 40
+
+
 def test_build_messages_prunes_the_outgoing_request(tmp_path: Path) -> None:
+    """A turn past the compact threshold cannot wait for compaction."""
     session = Session(id="s-prune", workdir=tmp_path)
     session.history.replace(rounds(12))
+    session.context_window = 100
     messages = build_messages(session, [], core=_core(tmp_path))
     tools = [message for message in messages if message.role == "tool"]
     assert tools[0].content.startswith("[earlier shell output pruned")

@@ -143,6 +143,16 @@ SPILLED_TOOLS: frozenset[str] = frozenset(
 )
 
 
+def snapshot_max_chars(core: object) -> int:
+    """``tools.snapshotMaxChars`` (default 12 000), never below 2 000."""
+    tools = getattr(getattr(core, "settings", None), "tools", None)
+    try:
+        value = int(getattr(tools, "snapshotMaxChars", 12000))
+    except (TypeError, ValueError):
+        value = 12000
+    return max(2000, value)
+
+
 def max_result_lines(core: object) -> int:
     """``tools.maxResultLines`` (default 400), never below 20."""
     tools = getattr(getattr(core, "settings", None), "tools", None)
@@ -158,6 +168,7 @@ __all__ = [
     "DEFAULT_TAIL_LINES",
     "MAX_SPILL_FILES",
     "SPILLED_TOOLS",
+    "snapshot_max_chars",
     "Spilled",
     "max_result_lines",
     "spill",

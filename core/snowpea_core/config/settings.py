@@ -391,6 +391,11 @@ class ToolsSettings(_Model):
     #: context before the middle is spilled to a file the agent can read back
     #: (M15 §A4).
     maxResultLines: int = 400
+    #: Characters of a browser tab snapshot (a host result with ``meta.kind:
+    #: "snapshot"``) kept in the conversation; past this the middle goes to a
+    #: file the agent can read back.  Applied once, when the result arrives, so
+    #: the stored message never changes afterwards (prefix caching).
+    snapshotMaxChars: int = 12000
     #: False disables the read-before-write guard (M15 §A3): ``patch`` and
     #: ``write_file`` stop refusing a write to a file this session has not read
     #: in full.  The prompt rule stays either way.

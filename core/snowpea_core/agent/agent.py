@@ -452,20 +452,21 @@ def build_messages(
     *,
     core: Core | None = None,
 ) -> list[ChatMessage]:
-    """System prompt followed by the session's history.
+    """System prompt followed by the session's history, as stored.
 
-    The one place a provider request is assembled, so it is also the one place
-    old tool output is pruned (CORE-repeat-guard): the shrinking happens on the
-    snapshot handed to the provider, never on the stored transcript, and the
-    context accounting in ``session/compaction.py`` reads the same list and so
-    reports what the turn will actually cost.
+    Nothing already sent is rewritten here: a request is the last one plus
+    what happened since, so a server's prefix cache covers all of it.  Old
+    snapshots and tool outputs are shrunk when the conversation is compacted
+    (``compaction.compact_session``).  The exception is a turn that outgrows
+    the auto-compact threshold before it ends (compaction waits for the turn
+    boundary): its outgoing request is pruned as before, on the copy only.
     """
     # Local import: ``session/compaction.py`` imports this function.
     from snowpea_core.session import compaction
 
     history = compaction.pair_tool_results(session.history.snapshot())
     on, keep, max_chars = compaction.tool_prune_settings(core)
-    if on:
+    if on and compaction.over_compact_threshold(core, session, history):
         pruned: list[str] = []
         stored = history
         history = compaction.supersede_snapshots(history, pruned)
