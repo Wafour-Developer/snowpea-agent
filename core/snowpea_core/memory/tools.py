@@ -234,6 +234,51 @@ async def save_memory(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     )
 
 
+#: Candidates fetched per result wanted, before :func:`relevant` drops some.
+SEARCH_OVERFETCH = 3
+
+#: A word in at most this share of the memories searched (and in at least
+#: one) is distinctive: matching it alone makes a hit relevant.
+DISTINCTIVE_SHARE = 0.05
+
+
+def query_words(query: str) -> list[str]:
+    """The query's distinct words of two characters or more, lower-cased."""
+    seen: dict[str, None] = {}
+    for word in query.lower().split():
+        word = word.strip(".,;:!?\"'()[]{}")
+        if len(word) >= 2:
+            seen.setdefault(word, None)
+    return list(seen)
+
+
+async def relevant(
+    store: Any, query: str, entries: list[MemoryEntry], namespaces: list[str]
+) -> list[MemoryEntry]:
+    """``entries`` without the hits that only share the query's common words.
+
+    The index matches any shared trigram, so "danawa 다나와 site flow" brought
+    back every "Google Flow" note.  A hit stays when it contains more than half
+    of the query's words, or one distinctive word (rare in the store).
+    """
+    words = query_words(query)
+    if len(words) < 2 or not entries:
+        return entries
+    total = await store.count(namespaces=namespaces)
+    cutoff = max(2, int(total * DISTINCTIVE_SHARE))
+    distinctive = set()
+    for word in words:
+        if 0 < await store.containing(word, namespaces=namespaces) <= cutoff:
+            distinctive.add(word)
+    kept = []
+    for entry in entries:
+        text = entry.text.lower()
+        matched = {word for word in words if word in text}
+        if len(matched) * 2 > len(words) or matched & distinctive:
+            kept.append(entry)
+    return kept
+
+
 async def search_memory(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     """Recall memories matching a query, best first, across every scope."""
     query = str(args.get("query") or "").strip()
@@ -249,11 +294,12 @@ async def search_memory(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             ok=False, error=f"unknown namespace {wanted!r}; use 'browser' or leave it out"
         )
     memory = _services(ctx)
-    entries = await memory.store.search_many(
-        query,
-        namespaces=[wanted] if wanted else namespaces_for(ctx.session),
-        limit=limit or memory.settings.top_k,
+    namespaces = [wanted] if wanted else namespaces_for(ctx.session)
+    limit = limit or memory.settings.top_k
+    found = await memory.store.search_many(
+        query, namespaces=namespaces, limit=limit * SEARCH_OVERFETCH
     )
+    entries = (await relevant(memory.store, query, found, namespaces))[:limit]
     if not entries:
         return ToolResult(ok=True, output="no memories matched")
     return ToolResult(ok=True, output="\n".join(format_entry(entry) for entry in entries))

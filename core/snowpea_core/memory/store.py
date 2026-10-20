@@ -420,6 +420,20 @@ class MemoryStore:
         )
         return int(rows[0]["n"]) if rows else 0
 
+    async def containing(self, word: str, *, namespaces: Namespaces) -> int:
+        """How many memories in the namespaces contain ``word`` (any case)."""
+        wanted = _unique(namespaces)
+        if not wanted or not word:
+            return 0
+        slots = ", ".join("?" for _ in wanted)
+        rows = await asyncio.to_thread(
+            self._query,
+            f"SELECT COUNT(*) AS n FROM memories WHERE namespace IN ({slots})"
+            " AND lower(text) LIKE ?",
+            (*wanted, f"%{word.lower()}%"),
+        )
+        return int(rows[0]["n"]) if rows else 0
+
     async def exists(self, text: str, *, namespace: str = "default") -> bool:
         """True when this exact text is already remembered in the namespace."""
         return await self.exists_any(text, namespaces=[namespace or "default"])
