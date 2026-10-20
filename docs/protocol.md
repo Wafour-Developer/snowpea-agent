@@ -2686,7 +2686,7 @@ Ask the client to run one of its host tools.
 | `parentSessionId` | `string \| null` | no | The session that spawned this one (a subagent's parent); null for a root session. A browser host shares the parent's agent tabs with it. |
 | `sessionId` | `string` | yes | Session whose turn called the tool. |
 | `turnId` | `string` | no | Turn the call belongs to. |
-| `userTurn` | `{ messageId: string; steers?: string[]; text: string; } \| null` | no | The root conversation's user message that started the current turn, trusted (1.22.0). For a delegated child it is the root's, never the parent agent's task text; null when the system started the turn (a schedule, a hook). |
+| `userTurn` | `{ current?: boolean; messageId: string; steers?: string[]; text: string; } \| null` | no | The root conversation's latest message the user typed, trusted (1.22.0); 'current' says whether it started the running turn. For a delegated child it is the root's, never the parent agent's task text; only the session's own person's words count (not an agent's, a schedule's or another group member's), and null until the person has typed one. |
 | `workdir` | `string` | no | The session's project folder, absolute (Projects, 1.7.0). |
 | `workspaceDir` | `string` | no | The session workspace (tmp/, artifacts/); the workdir when it has none. |
 

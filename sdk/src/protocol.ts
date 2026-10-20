@@ -3620,8 +3620,10 @@ export interface ToolInvokeParams {
   sessionId: string;
   /** Turn the call belongs to. */
   turnId?: string;
-  /** The root conversation's user message that started the current turn, trusted (1.22.0). For a delegated child it is the root's, never the parent agent's task text; null when the system started the turn (a schedule, a hook). */
+  /** The root conversation's latest message the user typed, trusted (1.22.0); 'current' says whether it started the running turn. For a delegated child it is the root's, never the parent agent's task text; only the session's own person's words count (not an agent's, a schedule's or another group member's), and null until the person has typed one. */
   userTurn?: {
+    /** True when this message started the root's running turn. False when the agent (queue_command, a delegation's announce turn, a queued /ralplan), a schedule, another gateway group member or the system started it: the text is then the user's last message, not a request made in this turn. */
+    current?: boolean;
     /** The turn the message started. */
     messageId: string;
     /** Messages the user sent into the turn while it ran, in order. */

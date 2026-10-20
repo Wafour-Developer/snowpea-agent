@@ -223,7 +223,7 @@ async def test_a_browser_session_may_queue_team_and_other_slash_commands(
 
     started: list[str] = []
     monkeypatch.setattr(
-        agent_loop, "start_turn", lambda core, session, text: started.append(text) or "t-1"
+        agent_loop, "start_turn", lambda core, session, text, **_: started.append(text) or "t-1"
     )
     session = await daemon.core.sessions.create(
         workdir=tmp_path, origin_surface="browser", origin_conn=None

@@ -168,6 +168,7 @@ async def test_a_host_tool_runs_in_the_client_and_reports_progress(
             "messageId": call["turnId"],
             "text": "use host echo",
             "steers": [],
+            "current": True,
         }
         assert results_for(host, "host_echo")[-1]["output"] == "echo hi"
         progress = [
@@ -1773,6 +1774,7 @@ async def test_a_delegated_childs_user_turn_is_the_roots_never_its_task(
     monkeypatch.setattr(tools, "connection", lambda surface_id: SimpleNamespace(closed=False))
     monkeypatch.setattr(tools, "_call_or_cancel", capture)
     root = Session(id="s-root", workdir=tmp_path)
+    root.current_turn = "t-1"
     root.user_turn = {"messageId": "t-1", "text": "쿠팡에서 이거 결제해줘", "steers": ["카드로"]}
     middle = Session(id="s-mid", workdir=tmp_path, parent_session_id="s-root", is_subagent=True)
     middle.user_turn = {"messageId": "x", "text": "agent-written task", "steers": []}
@@ -1785,7 +1787,31 @@ async def test_a_delegated_childs_user_turn_is_the_roots_never_its_task(
         "messageId": "t-1",
         "text": "쿠팡에서 이거 결제해줘",
         "steers": ["카드로"],
+        "current": True,
     }
+    # A turn the agent started (a queued command, an announce turn) keeps the
+    # person's last words but says they are not this turn's request.
+    root.current_turn = "t-2"
+    await tools.invoke(core, "surface", "repl", 5.0, ctx, {})  # type: ignore[arg-type]
+    assert sent[1]["userTurn"]["current"] is False
+    assert sent[1]["userTurn"]["text"] == "쿠팡에서 이거 결제해줘"
+
+
+async def test_only_the_persons_own_words_become_the_user_turn(tmp_path: Path) -> None:
+    from snowpea_core.agent import loop as agent_loop
+    from snowpea_core.gateway import router as router_mod
+    from snowpea_core.session.session import Session
+
+    session = Session(id="s-1", workdir=tmp_path)
+    agent_loop.note_origin(session, "t-agent", "agent")
+    assert session.turn_origins["t-agent"] == "agent"
+    agent_loop.note_origin(session, "t-x", "bogus")
+    assert session.turn_origins["t-x"] == "agent"  # unknown origins never count as human
+    binding = type("B", (), {"user_id": "42"})()
+    assert router_mod._origin(binding, type("M", (), {"user_id": "42"})()) == "human"  # type: ignore[arg-type]
+    assert router_mod._origin(binding, type("M", (), {"user_id": "7"})()) == "member"  # type: ignore[arg-type]
+    unbound = type("B", (), {"user_id": None})()
+    assert router_mod._origin(unbound, type("M", (), {"user_id": "7"})()) == "member"  # type: ignore[arg-type]
 
 
 async def test_host_screenshot_is_refused_for_a_model_that_cannot_see(

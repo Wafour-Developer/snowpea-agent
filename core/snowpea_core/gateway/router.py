@@ -1182,7 +1182,9 @@ class GatewayRouter:
             session, _conn = await self._session_for(
                 binding, message.channel_id, metadata=message.metadata
             )
-            self.core.commands.start(self.core, session, name, args, None)
+            self.core.commands.start(
+                self.core, session, name, args, None, origin=_origin(binding, message)
+            )
             return
         session, _conn = await self._session_for(
             binding, message.channel_id, metadata=message.metadata
@@ -1200,6 +1202,7 @@ class GatewayRouter:
             unattended=True,
             model_text=prepared.model_text,
             refs=prepared.refs,
+            origin=_origin(binding, message),
         )
 
     async def _session_for(
@@ -1324,6 +1327,18 @@ def desired_gateways(settings: Any) -> dict[str, dict[str, Any]]:
             continue
         out[str(platform)] = dict(block)
     return out
+
+
+def _origin(binding: Binding, message: InboundMessage) -> str:
+    """``human`` for the binding's own user, ``member`` for anyone else.
+
+    A group binding lets every member prompt, but only the bound person's
+    words are the user's (``tool.invoke`` ``userTurn``); a binding with no
+    ``allowed_user_id`` has nobody verified, so no one's words count.
+    """
+    if binding.user_id and str(message.user_id) == str(binding.user_id):
+        return "human"
+    return "member"
 
 
 def _allowed_user_id(block: dict[str, Any]) -> str | None:

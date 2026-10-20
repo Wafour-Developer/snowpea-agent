@@ -669,10 +669,15 @@ def root_user_turn(core: Any, session: Any) -> dict[str, Any] | None:
     turn = getattr(current, "user_turn", None)
     if not isinstance(turn, dict):
         return None
+    message_id = str(turn.get("messageId") or "")
     return {
-        "messageId": str(turn.get("messageId") or ""),
+        "messageId": message_id,
         "text": str(turn.get("text") or ""),
         "steers": [str(item) for item in turn.get("steers") or []],
+        # False when the agent, a schedule, a group member or the system
+        # started the running turn: this is the person's last message, not
+        # a request made in this turn.
+        "current": bool(message_id) and message_id == getattr(current, "current_turn", None),
     }
 
 

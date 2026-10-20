@@ -139,6 +139,9 @@ class Session:
     #: ``{"messageId", "text", "steers"}`` (``tool.invoke`` ``userTurn``,
     #: 1.22.0); ``None`` for a turn the system started.
     user_turn: dict[str, Any] | None = None
+    #: ``turn id -> origin`` (``agent.loop.ORIGINS``) for the latest turns, so a
+    #: command's nested run inherits whose words started it.
+    turn_origins: dict[str, str] = field(default_factory=dict)
     #: The definition those came from; a delegated child inherits its own.
     agent_definition: str | None = None
     agent_identity: str | None = None

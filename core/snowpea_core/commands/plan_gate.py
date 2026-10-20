@@ -380,7 +380,7 @@ async def ask_before_running(ctx: Any, command: str, args: str, *, forced: bool 
     if chose("plan"):
         from snowpea_core.agent import loop as agent_loop
 
-        agent_loop.start_turn(ctx.core, ctx.session, f"/ralplan {arg}")
+        agent_loop.start_turn(ctx.core, ctx.session, f"/ralplan {arg}", origin="agent")
         await ctx.say(text["queued"].format(command=command, arg=arg))
         return False
     if chose("cancel"):

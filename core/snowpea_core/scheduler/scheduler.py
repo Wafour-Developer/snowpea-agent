@@ -475,7 +475,9 @@ class Scheduler:
         core.hub.subscribe(collector, session.id)
         core.lifecycle.set_counter("sessions", len(core.sessions))
         try:
-            await agent_loop.run_turn(core, session, job.task, unattended=True)
+            await agent_loop.run_turn(
+                core, session, job.task, unattended=True, origin="schedule"
+            )
         finally:
             core.hub.unsubscribe(collector)
             # A named agent's session outlives the run that borrowed it.

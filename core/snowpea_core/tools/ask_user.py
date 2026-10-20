@@ -231,7 +231,8 @@ async def queue_command(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
 
     from snowpea_core.agent import loop as agent_loop
 
-    turn_id = agent_loop.start_turn(ctx.core, ctx.session, text)
+    # The agent wrote this command line, not the user (payment intent).
+    turn_id = agent_loop.start_turn(ctx.core, ctx.session, text, origin="agent")
     return ToolResult(
         ok=True,
         output=(

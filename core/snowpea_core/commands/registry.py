@@ -203,11 +203,26 @@ class CommandRegistry:
 
     # -- execution -----------------------------------------------------
     def start(
-        self, core: Core, session: Session, name: str, args: str = "", conn: Any = None
+        self,
+        core: Core,
+        session: Session,
+        name: str,
+        args: str = "",
+        conn: Any = None,
+        *,
+        origin: str | None = None,
     ) -> str:
-        """Schedule a command in the background and return its turn id."""
+        """Schedule a command in the background and return its turn id.
+
+        ``origin`` says whose words the command line is (``agent.loop.ORIGINS``);
+        a turn the command runs inherits it.
+        """
         turn_id = f"t-{uuid.uuid4().hex[:12]}"
         session.current_turn = turn_id
+        if origin:
+            from snowpea_core.agent.loop import note_origin
+
+            note_origin(session, turn_id, origin)
         task = asyncio.ensure_future(self.run(core, session, name, args, conn, turn_id))
         session.turn_task = task
         return turn_id

@@ -144,6 +144,9 @@ class QueuedTurn:
     #: (``session.continue``, 1.8.0): its input is a ``[system]`` note, not a
     #: user message, and surfaces render it as such.
     initiator: str = "user"
+    #: Whose words the text is (:data:`ORIGINS`): only ``"human"`` becomes the
+    #: session's ``user_turn``, whatever ``initiator`` shows.
+    origin: str = "human"
     #: Why a system turn started (``"handback"``); ``None`` for user turns.
     reason: str | None = None
 
@@ -912,6 +915,22 @@ async def _model_turn(
     return attempt
 
 
+#: Whose words start a turn.  ``human``: the session's own person (a surface,
+#: the CLI, the bound gateway user).  ``agent``: text a model wrote
+#: (``queue_command``, a delegation's announce turn, a queued ``/ralplan``).
+#: ``member``: someone else in a gateway group chat.  ``schedule``: a job.
+#: ``system``: a core-started ``[system]`` turn.
+ORIGINS = frozenset({"human", "agent", "member", "schedule", "system"})
+
+
+def note_origin(session: Session, turn_id: str, origin: str) -> None:
+    """Record whose words turn ``turn_id`` runs on, for every nested run of it."""
+    origins = session.turn_origins
+    origins[turn_id] = origin if origin in ORIGINS else "agent"
+    while len(origins) > 64:
+        origins.pop(next(iter(origins)))
+
+
 def start_turn(
     core: Core,
     session: Session,
@@ -924,6 +943,7 @@ def start_turn(
     when_busy: str | None = None,
     initiator: str = "user",
     reason: str | None = None,
+    origin: str | None = None,
 ) -> str:
     """Schedule a turn, or queue it behind the session's active turn.
 
@@ -933,6 +953,8 @@ def start_turn(
     and let one task drain the session FIFO.
     """
     turn_id = new_turn_id()
+    origin = origin or ("system" if initiator == "system" else "human")
+    note_origin(session, turn_id, origin)
     queued = QueuedTurn(
         turn_id=turn_id,
         text=text,
@@ -944,6 +966,7 @@ def start_turn(
         when_busy=when_busy if when_busy in ("queue", "steer") else None,
         initiator=initiator,
         reason=reason,
+        origin=origin,
     )
     task = session.turn_task
     if task is not None and not task.done():
@@ -1084,7 +1107,8 @@ async def _steer_queued_turns(core: Core, session: Session) -> int:
     for index, queued in enumerate(steered):
         remaining = len(steered) - index - 1
         if session.user_turn is not None and not session.is_subagent:
-            session.user_turn["steers"].append(queued.text)
+            if queued.origin == "human":
+                session.user_turn["steers"].append(queued.text)
         session.history.append(
             ChatMessage(
                 role="user",
@@ -1185,9 +1209,21 @@ async def run_turn(
     expansion: dict[str, Any] | None = None,
     initiator: str = "user",
     reason: str | None = None,
+    origin: str | None = None,
 ) -> str:
-    """Run one full turn; returns its turn id once ``turn.done`` was emitted."""
+    """Run one full turn; returns its turn id once ``turn.done`` was emitted.
+
+    ``origin`` (:data:`ORIGINS`) defaults to what was recorded for ``turn_id``
+    — a command's nested run inherits the turn that dispatched it — and then
+    to ``human`` (``system`` for a system turn).
+    """
     turn_id = turn_id or new_turn_id()
+    origin = (
+        origin
+        or session.turn_origins.get(turn_id)
+        or ("system" if initiator == "system" else "human")
+    )
+    note_origin(session, turn_id, origin)
     session.current_turn = turn_id
     hub = core.hub
     from snowpea_core.agent.session_agent import ensure_applied
@@ -1461,10 +1497,11 @@ async def _drive(
         if not session.is_subagent:
             # What a host may judge intent by (a payment card only for a
             # request that means to pay): the person's words, never a task an
-            # agent wrote.  A system-started turn has none.
-            session.user_turn = (
-                None if system else {"messageId": turn_id, "text": text, "steers": []}
-            )
+            # agent wrote.  A turn the person did not start keeps the last
+            # thing they did type; ``tool.invoke`` says it is not this turn's.
+            origin = session.turn_origins.get(turn_id, "human")
+            if origin == "human":
+                session.user_turn = {"messageId": turn_id, "text": text, "steers": []}
     if session.is_subagent:
         from snowpea_core.agent.subagent import get_manager
 

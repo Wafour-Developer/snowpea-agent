@@ -525,6 +525,7 @@ def _track(
             f"⟲ {title or task_id} finished",
             unattended=True,
             model_text=f"[system] {note}",
+            origin="agent",
         )
 
     def done(_task: asyncio.Future[Any]) -> None:
