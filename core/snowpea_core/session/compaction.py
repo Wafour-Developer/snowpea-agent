@@ -821,10 +821,16 @@ def _superseded_stub(tab: str) -> str:
     return f"[superseded by a newer snapshot of {tab}]"
 
 
+#: Older snapshots of a tab are stubbed this many at a time.
+SUPERSEDE_BATCH = 4
+
+
 def supersede_snapshots(
-    history: list[ChatMessage], pruned: list[str] | None = None
+    history: list[ChatMessage],
+    pruned: list[str] | None = None,
+    batch: int = SUPERSEDE_BATCH,
 ) -> list[ChatMessage]:
-    """Stub every tab snapshot a newer snapshot of the same tab replaces (addendum 23).
+    """Stub tab snapshots that newer snapshots of the same tab replace (addendum 23).
 
     A browser session snapshots the same tab every few calls, and only the
     newest one describes the page the next action lands on; the older ones
@@ -832,17 +838,32 @@ def supersede_snapshots(
     call that took a snapshot keeps its arguments; only the result shrinks.
     Like :func:`prune_old_tool_outputs` this works on the outgoing request,
     never on the stored transcript.
+
+    They go ``batch`` at a time: of a tab's ``n`` snapshots the first
+    ``⌊(n-1)/batch⌋·batch`` are stubbed.  Stubbing the previous one on every
+    new snapshot changed an earlier message in nearly every browser round, and
+    the server's prefix cache recomputed everything after it (~20 s a round).
+    A stubbed snapshot stays stubbed; the set only grows every ``batch``-th.
     """
-    latest: dict[str, int] = {}
+    order: dict[str, list[int]] = {}
     for index, message in enumerate(history):
         if message.role == "tool" and message.snapshot_tab:
-            latest[message.snapshot_tab] = index
-    if not latest:
+            order.setdefault(message.snapshot_tab, []).append(index)
+    if not order:
+        return history
+    step = max(1, batch)
+    stale = {
+        index
+        for indexes in order.values()
+        for index in indexes[: ((len(indexes) - 1) // step) * step]
+    }
+    if not stale:
         return history
     out = list(history)
-    for index, message in enumerate(history):
-        tab = message.snapshot_tab if message.role == "tool" else None
-        if not tab or latest[tab] == index or not isinstance(message.content, str):
+    for index in sorted(stale):
+        message = history[index]
+        tab = message.snapshot_tab
+        if not tab or not isinstance(message.content, str):
             continue
         out[index] = replace(message, content=_superseded_stub(tab))
         if pruned is not None and message.tool_call_id:

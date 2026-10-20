@@ -46,7 +46,7 @@ def history(*tabs: str | None) -> list[ChatMessage]:
 
 def test_two_snapshots_of_one_tab_stub_the_first() -> None:
     pruned: list[str] = []
-    out = compaction.supersede_snapshots(history("A", "A"), pruned)
+    out = compaction.supersede_snapshots(history("A", "A"), pruned, batch=1)
     assert out[2].content == "[superseded by a newer snapshot of A]"
     assert out[4].content.startswith("FULL SNAPSHOT 1")
     # The call that took it keeps its arguments.
@@ -67,7 +67,7 @@ def test_results_without_snapshot_meta_are_unchanged() -> None:
 
 
 def test_the_newest_of_each_tab_survives_in_an_interleaved_run() -> None:
-    out = compaction.supersede_snapshots(history("A", "B", "A", None, "B"))
+    out = compaction.supersede_snapshots(history("A", "B", "A", None, "B"), batch=1)
     contents = [message.content for message in out if message.role == "tool"]
     assert contents[0] == "[superseded by a newer snapshot of A]"
     assert contents[1] == "[superseded by a newer snapshot of B]"
@@ -102,11 +102,32 @@ def test_the_outgoing_request_carries_the_stub_and_the_transcript_does_not(
 ) -> None:
     core = Core(settings=Settings(), paths=Paths.create(tmp_path / "home"), token="t")
     session = Session(id="s-1", workdir=tmp_path)
-    for message in history("A", "A"):
+    for message in history("A", "A", "A", "A", "A"):
         session.history.append(message)
     sent = agent_mod.build_messages(session, [], core=core)
     tool_texts = [message.content for message in sent if message.role == "tool"]
-    assert tool_texts[0] == "[superseded by a newer snapshot of A]"
-    assert str(tool_texts[1]).startswith("FULL SNAPSHOT 1")
+    assert tool_texts[:4] == ["[superseded by a newer snapshot of A]"] * 4
+    assert str(tool_texts[4]).startswith("FULL SNAPSHOT 4")
     stored = [message.content for message in session.history.snapshot() if message.role == "tool"]
     assert str(stored[0]).startswith("FULL SNAPSHOT 0")
+
+
+def test_snapshots_are_stubbed_a_batch_at_a_time() -> None:
+    """Stubbing the previous snapshot on every new one rewrote an earlier
+    message in nearly every browser round, and the server's prefix cache
+    recomputed the rest (~20 s a round on glm-5.3 in s-df4802e0d357)."""
+    batch = compaction.SUPERSEDE_BATCH
+    previous: list[str] = []
+    changes = []
+    for count in range(1, 3 * batch + 2):
+        out = compaction.supersede_snapshots(history(*["A"] * count))
+        contents = [str(m.content) for m in out if m.role == "tool"]
+        stubbed = [c.startswith("[superseded") for c in contents]
+        assert stubbed == sorted(stubbed, reverse=True), "only the oldest are stubbed"
+        assert not stubbed[-1], "the newest snapshot is always kept"
+        assert sum(stubbed) == ((count - 1) // batch) * batch
+        # A message stubbed once stays stubbed; the others are unchanged.
+        if contents[: len(previous)] != previous:
+            changes.append(count)
+        previous = contents
+    assert changes == [batch + 1, 2 * batch + 1, 3 * batch + 1]
