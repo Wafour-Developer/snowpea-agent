@@ -113,8 +113,8 @@ def messages_to_openai(
     cannot, an attached image becomes an ``[image attached: name]`` marker in
     the text, which is why the argument defaults to the safe answer.
 
-    ``reasoning_field`` names the field an assistant message's thinking goes
-    back in; the loop keeps it on tool-call messages until a compaction
+    ``reasoning_field`` names the field (or comma-separated fields) an
+    assistant message's thinking goes back in; the loop keeps it on tool-call messages until a compaction
     (``History.forget_reasoning``), so the request never changes mid-prefix.
     """
     out: list[dict[str, Any]] = []
@@ -145,7 +145,9 @@ def messages_to_openai(
                 if not entry["content"]:
                     entry["content"] = None
             if reasoning_field and message.reasoning:
-                entry[reasoning_field] = message.reasoning
+                # A comma-separated list sends it under each name.
+                for name in reasoning_field.split(","):
+                    entry[name.strip()] = message.reasoning
             out.append(entry)
             continue
         if message.role == "user" and content.has_blocks(message.content):

@@ -109,6 +109,12 @@ _OPENROUTER_HEADERS = {
 #: The field name DeepSeek introduced and the open chat templates adopted.
 REASONING_CONTENT = "reasoning_content"
 
+#: What a self-hosted server gets: both spellings.  vLLM (0.11 on) reads
+#: ``reasoning`` into the template and silently drops ``reasoning_content``;
+#: llama.cpp and older servers read ``reasoning_content``.  A template renders
+#: the thought once either way (checked on llm.snowpea.ai's qwen38 template).
+REASONING_FIELDS_LOCAL = "reasoning_content,reasoning"
+
 
 def _preset(
     vendor_id: str,
@@ -150,7 +156,7 @@ def _preset(
         supports_effort=supports_effort,
         # A self-hosted server hands message fields to its chat template; one
         # whose template has no use for the field ignores it.
-        reasoning_replay=reasoning_replay or (REASONING_CONTENT if local_style else None),
+        reasoning_replay=reasoning_replay or (REASONING_FIELDS_LOCAL if local_style else None),
         supports_json_mode=supports_json_mode,
     )
 

@@ -43,11 +43,22 @@ def _assistant(reasoning: str | None) -> ChatMessage:
 
 
 def test_self_hosted_servers_and_thinking_apis_read_reasoning_content() -> None:
-    readers = (PRESETS["local"], *LOCAL_VARIANTS.values(), PRESETS["deepseek"], PRESETS["kimi"])
-    for preset in readers:
+    for preset in (PRESETS["deepseek"], PRESETS["kimi"]):
         assert preset.reasoning_replay == "reasoning_content", preset.id
+    # vLLM 0.11+ reads only ``reasoning``; llama.cpp and older servers only
+    # ``reasoning_content`` — a self-hosted server gets both.
+    for preset in (PRESETS["local"], *LOCAL_VARIANTS.values()):
+        assert preset.reasoning_replay == "reasoning_content,reasoning", preset.id
     named = synthesize_local_preset("hon2", {"preset": "local", "base_url": "http://hon2:8001/v1"})
-    assert named.reasoning_replay == "reasoning_content"
+    assert named.reasoning_replay == "reasoning_content,reasoning"
+    [entry] = [
+        m
+        for m in messages_to_openai(
+            [_assistant("why")], reasoning_field="reasoning_content,reasoning"
+        )
+        if m["role"] == "assistant"
+    ]
+    assert entry["reasoning_content"] == entry["reasoning"] == "why"
 
 
 def test_vendors_that_take_no_such_field_are_never_sent_one() -> None:
@@ -60,7 +71,7 @@ def test_config_turns_it_off_or_on() -> None:
     local = PRESETS["local"]
     assert resolve_reasoning_replay(local, vendor_config={"reasoningReplay": False}) is None
     assert resolve_reasoning_replay(local, profile={"reasoningReplay": False}) is None
-    assert resolve_reasoning_replay(local, vendor_config={}) == "reasoning_content"
+    assert resolve_reasoning_replay(local, vendor_config={}) == "reasoning_content,reasoning"
     openai = PRESETS["openai"]
     assert resolve_reasoning_replay(openai) is None
     assert resolve_reasoning_replay(openai, vendor_config={"reasoningReplay": True}) == (
