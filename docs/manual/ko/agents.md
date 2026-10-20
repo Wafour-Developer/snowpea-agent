@@ -364,6 +364,7 @@ snowpea agents --json
 |---|---|---|
 | `identity` | `own` | 정의의 프롬프트가 코어의 코딩 정체성(`base.md`와 execution, plan-continuity, memory-guidance 조각)을 대신합니다. 코어 필수 규칙만 남습니다. 솔직하게 막힌 점 알리기, 결과 지어내지 않기, 답변 길이, 신뢰 규칙, 언어입니다. `agents.ownIdentity: true` 또는 환경 변수 `SNOWPEA_AGENT_IDENTITY=1`일 때만 적용됩니다. |
 | `deferredTools` | 도구 이름 또는 `prefix_*` 패턴 | 이 도구들은 프롬프트에 이름만 나오고 `tool_search`로 불러옵니다. 도구 목록이나 호스트가 붙인 도구도 마찬가지입니다(`grep`, `glob` 포함). 이름으로 바로 호출해도 동작합니다. `tools.agentDeferred: true` 또는 환경 변수 `SNOWPEA_AGENT_DEFERRED=1`일 때만, 그리고 세션 동안 도구 목록이 고정되는 로컬형 프로바이더에서만 적용됩니다. 호스팅 프로바이더에서는 불러온 도구가 목록에 추가되어 캐시된 앞부분을 바꾸므로, 이 필드를 무시합니다. 호스트도 `tool.register`에서 `deferred: true`로 같은 표시를 할 수 있습니다(프로토콜 1.21.0). |
+| `defaultChild` | 에이전트 이름 | 이 정의로 실행 중인 세션에서 에이전트를 지정하지 않은 `delegate_task`를 받을 에이전트입니다. 지정하지 않으면 플러그인 에이전트는 자기 플러그인에서 그 역할을 맡는 에이전트에게, 없으면 자기 자신에게 위임합니다. 그래서 브라우저의 자식 세션도 브라우저 에이전트의 페이지 안전 규칙을 그대로 따릅니다. |
 | `skillsIndex` | `plugin` | 스킬 색인에 이 플러그인의 스킬과 내장 스킬만 나옵니다. 모든 작업에 스킬을 불러오라고 강하게 요구하지 않는 머리말을 씁니다. |
 
 `identity`와 `deferredTools`는 A/B 실행으로 성능이 떨어지는 작업이 없다는 것을 확인할 때까지 기본으로 꺼져 있습니다.

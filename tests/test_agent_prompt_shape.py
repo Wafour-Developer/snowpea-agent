@@ -147,3 +147,35 @@ async def test_loading_a_deferred_tool_never_rewrites_the_prefix(
     for n in range(1, len(fake.requests)):
         before, after = fake.requests[n - 1], fake.requests[n]
         assert after[: len(before)] == before
+
+
+def test_an_unnamed_delegation_from_a_plugin_agent_stays_in_its_plugin() -> None:
+    # A browser root delegating with no agent went to the generic executor,
+    # whose child lacked the browser agent's page-safety prompt.
+    from types import SimpleNamespace
+
+    from snowpea_core.agent.definition import AgentDefinition
+    from snowpea_core.agent.role_pick import pick_agent
+
+    defs = {
+        "browser": AgentDefinition(name="browser", source="plugin:snowpea-browser"),
+        "researcher": AgentDefinition(name="researcher", source="plugin:snowpea-browser"),
+        "executor": AgentDefinition(name="executor", source="builtin"),
+        "explore": AgentDefinition(name="explore", source="builtin"),
+        "coder": AgentDefinition(name="coder", source="project", default_child="explore"),
+    }
+    manager = SimpleNamespace(
+        definition=lambda session, name: defs.get(name or ""),
+        _is_named=lambda name: False,
+        core=None,
+    )
+
+    def root(name: str | None) -> Any:
+        return SimpleNamespace(team_agents=None, agent_definition=name)
+
+    assert pick_agent(root("browser"), manager) == "browser"
+    assert pick_agent(root("browser"), manager, ["explore"]) == "browser"
+    assert pick_agent(root("browser"), manager, ["researcher"]) == "researcher"
+    assert pick_agent(root("coder"), manager) == "explore"  # defaultChild
+    assert pick_agent(root(None), manager) == "executor"  # unchanged elsewhere
+    assert pick_agent(root(None), manager, ["explore"]) == "explore"

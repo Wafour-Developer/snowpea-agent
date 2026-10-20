@@ -36,6 +36,7 @@ def find_definition(core: Any, session: Session, name: str) -> AgentDefinition |
 def apply_prompt_shape(session: Any, defn: AgentDefinition | None) -> None:
     """Copy a definition's prompt shape onto ``session`` (``None`` clears it)."""
     source = str(getattr(defn, "source", "") or "")
+    session.agent_definition = getattr(defn, "name", None)
     session.agent_identity = getattr(defn, "identity", None)
     session.agent_deferred = list(getattr(defn, "deferred_tools", None) or [])
     session.agent_skills_index = getattr(defn, "skills_index", None)

@@ -118,6 +118,10 @@ class AgentDefinition:
     #: skills and the built-ins, under a softer header (frontmatter
     #: ``skillsIndex``).  ``None`` lists every visible skill.
     skills_index: str | None = None
+    #: The agent an unnamed ``delegate_task`` from a session running this
+    #: definition goes to (frontmatter ``defaultChild``).  A plugin agent with
+    #: none delegates to its own plugin's agents, then to itself.
+    default_child: str | None = None
     prompt: str = ""
     #: Where it was read from, when it came off disk.
     path: Path | None = None
@@ -153,6 +157,7 @@ class AgentDefinition:
             "identity": self.identity,
             "deferred_tools": list(self.deferred_tools),
             "skills_index": self.skills_index,
+            "default_child": self.default_child,
             "prompt": self.prompt,
             "source": self.source,
             "path": str(self.path) if self.path else None,
@@ -329,6 +334,8 @@ def render_agent_md(defn: AgentDefinition) -> str:
         fields.append(("deferredTools", defn.deferred_tools))
     if defn.skills_index:
         fields.append(("skillsIndex", defn.skills_index))
+    if defn.default_child:
+        fields.append(("defaultChild", defn.default_child))
     head = "\n".join(f"{key}: {_render_value(value)}" for key, value in fields)
     return f"{FENCE}\n{head}\n{FENCE}\n\n{defn.prompt.strip()}\n"
 
@@ -387,6 +394,8 @@ def parse_agent_text(
         identity=_choice(meta.get("identity"), ("own", "core")),
         deferred_tools=_names(meta.get("deferredTools", meta.get("deferred_tools"))),
         skills_index=_choice(meta.get("skillsIndex", meta.get("skills_index")), ("plugin", "all")),
+        default_child=str(meta.get("defaultChild") or meta.get("default_child") or "").strip()
+        or None,
         prompt=body,
         path=path,
         source=source,

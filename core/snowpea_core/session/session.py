@@ -135,6 +135,8 @@ class Session:
     #: The agent definition's prompt shape (``identity``, ``deferredTools``,
     #: ``skillsIndex``) and the plugin it came from; see
     #: :func:`snowpea_core.agent.session_agent.apply_prompt_shape`.
+    #: The definition those came from; a delegated child inherits its own.
+    agent_definition: str | None = None
     agent_identity: str | None = None
     agent_deferred: list[str] = field(default_factory=list)
     agent_skills_index: str | None = None

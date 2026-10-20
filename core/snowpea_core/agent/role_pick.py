@@ -63,6 +63,30 @@ def _available(session: Session, manager: SubagentManager, name: str) -> bool:
         return False
 
 
+def _plugin_choice(session: Session, manager: SubagentManager, prefer: Sequence[str]) -> str | None:
+    """Where an unnamed delegation from a plugin agent (or one with a
+    ``defaultChild``) goes: a preferred role its plugin defines, then the
+    definition's ``defaultChild``, then the agent itself.
+
+    A ``browser`` root delegating to the generic ``executor`` ran its child
+    without the browser agent's page-safety rules (snowpea-browser).
+    """
+    name = getattr(session, "agent_definition", None)
+    defn = manager.definition(session, name) if name else None
+    if defn is None:
+        return None
+    source = str(getattr(defn, "source", "") or "")
+    if not source.startswith("plugin:") and not getattr(defn, "default_child", None):
+        return None
+    if source.startswith("plugin:"):
+        for role in prefer:
+            candidate = manager.definition(session, str(role).strip())
+            if candidate is not None and candidate.source == source:
+                return candidate.name
+    fallback = getattr(defn, "default_child", None) or defn.name
+    return fallback if _available(session, manager, fallback) else None
+
+
 def pick_agent(
     session: Session,
     manager: SubagentManager,
@@ -89,6 +113,9 @@ def pick_agent(
                 return name
         return None
 
+    own = _plugin_choice(session, manager, prefer) if roster is None else None
+    if own:
+        return own
     chosen = _first(prefer)
     if chosen:
         return chosen
