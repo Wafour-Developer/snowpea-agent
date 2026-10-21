@@ -97,6 +97,7 @@ def spill(
     omitted = len(lines) - len(head) - len(tail)
     pointer = (
         f"[… {omitted} lines omitted — "
+        f'grep(pattern=..., path="{target}") for what you need, or '
         f'read_file("{target}", offset={len(head) + 1}, limit={omitted})]'
     )
     return Spilled(text="\n".join([*head, pointer, *tail]), path=target, omitted=omitted)
@@ -131,7 +132,8 @@ def spill_chars(
     omitted = len(text) - head_chars - tail_chars
     pointer = (
         f"\n[… {omitted} characters omitted — the full text is in {target}; "
-        f'read it with read_file("{target}")]\n'
+        f'grep(pattern=..., path="{target}") for what you need, or '
+        f'read_file("{target}") with offset and limit]\n'
     )
     tail = text[len(text) - tail_chars :] if tail_chars else ""
     return Spilled(text=text[:head_chars] + pointer + tail, path=target, omitted=omitted)

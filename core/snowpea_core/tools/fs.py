@@ -27,6 +27,10 @@ log = logging.getLogger("snowpea.tools.fs")
 
 #: Characters of file content returned by ``read_file`` before truncation.
 MAX_READ_CHARS = 200_000
+#: Characters an ``offset`` read without a ``limit`` returns: it is a window
+#: already, and the rest of a long file would ride along in every later round.
+#: A whole-file read keeps :data:`MAX_READ_CHARS`, since writes need one.
+WINDOW_READ_CHARS = 20_000
 
 
 def unified_diff(path: str, before: str, after: str) -> str:
@@ -90,6 +94,27 @@ def format_numbered_lines(content: str, *, start_line: int = 1) -> str:
     return "\n".join(
         f"{index:>{width}}| {line}" for index, line in enumerate(lines, start=start_line)
     )
+
+
+def _capped_window(content: str, offset: int, budget: int) -> tuple[str, str]:
+    """An open-ended window cut at a line end within ``budget``, and its note."""
+    lines = content.splitlines(keepends=True)
+    start = offset - 1
+    taken: list[str] = []
+    size = 0
+    for line in lines[start:]:
+        if taken and size + len(line) > budget:
+            break
+        taken.append(line)
+        size += len(line)
+    end = start + len(taken)
+    if end >= len(lines) and size <= budget:
+        return "".join(taken), ""
+    note = (
+        f"\n… [truncated at line {end} of {len(lines)}; grep for what you need, "
+        f"or read on with offset={end + 1} and a limit]"
+    )
+    return "".join(taken)[:budget], note
 
 
 def _window(content: str, offset: int | None, limit: int | None) -> tuple[str, bool]:
@@ -184,13 +209,19 @@ async def _read_one(
         return ToolResult(ok=False, error=f"no such file: {path}")
     except OSError as exc:
         return ToolResult(ok=False, error=f"{type(exc).__name__}: {exc}")
-    content, complete = _window(
-        content, _positive_int(args, "offset"), _positive_int(args, "limit")
-    )
+    offset, limit = _positive_int(args, "offset"), _positive_int(args, "limit")
+    note = ""
+    if offset is not None and limit is None:
+        content, note = _capped_window(content, offset, min(budget, WINDOW_READ_CHARS))
+        complete = offset == 1 and not note
+    else:
+        content, complete = _window(content, offset, limit)
     if len(content) > budget:
         # A batched read shares one budget: the files after it are cut, not lost.
-        content = content[:budget] + "\n… [truncated]"
+        content = content[:budget]
+        note = "\n… [truncated; grep for what you need, or read it with offset and limit]"
         complete = False
+    content += note
     # The read-before-write guard is only as good as what it saw: a windowed or
     # truncated read is recorded as partial, so a later write is refused until
     # the whole file has been read (M15 §A3).
@@ -446,7 +477,10 @@ TOOLS: tuple[Tool, ...] = (
                 },
                 "limit": {
                     "type": "integer",
-                    "description": "How many lines to return. Omit to read to the end.",
+                    "description": (
+                        "How many lines to return. Omit to read to the end (with an "
+                        "offset, at most about 20,000 characters)."
+                    ),
                 },
             },
         },

@@ -124,6 +124,26 @@ async def test_a_full_read_unlocks_the_edit(tmp_path: Path) -> None:
     assert (tmp_path / "a.txt").read_text(encoding="utf-8") == "bye\n"
 
 
+async def test_an_offset_read_without_a_limit_stops_near_20k_chars(tmp_path: Path) -> None:
+    """An open-ended window would carry the rest of a long file into every
+    later round; it stops at a line end and says where to go on."""
+    line = "x" * 99 + "\n"
+    (tmp_path / "big.txt").write_text(line * 2000, encoding="utf-8")
+    ctx = _ctx(tmp_path, "s-1")
+
+    result = await fs.read_file(ctx, {"path": "big.txt", "offset": 11})
+    body, _, note = result.output.partition("\n… [truncated at line ")
+    assert len(body) <= fs.WINDOW_READ_CHARS and body.endswith("x\n")
+    assert note.startswith("210 of 2000; grep") and "offset=211" in note
+    # An explicit limit and a whole-file read are left as they were.
+    windowed = await fs.read_file(ctx, {"path": "big.txt", "offset": 11, "limit": 500})
+    assert windowed.output == line * 500
+    whole = await fs.read_file(ctx, {"path": "big.txt"})
+    assert whole.output == line * 2000
+    short = await fs.read_file(ctx, {"path": "big.txt", "offset": 1990})
+    assert short.output == line * 11
+
+
 async def test_a_partial_read_is_noted_on_the_write(tmp_path: Path) -> None:
     (tmp_path / "a.txt").write_text("one\ntwo\nthree\nfour\n", encoding="utf-8")
     ctx = _ctx(tmp_path, "s-1")
@@ -215,8 +235,9 @@ def test_long_output_keeps_a_head_a_tail_and_a_pointer(tmp_path: Path) -> None:
     assert lines[29] == "line 29"
     assert lines[-1] == "line 499"
     pointer = lines[30]
-    assert pointer.startswith("[… 460 lines omitted — read_file(")
-    assert "offset=31" in pointer and "limit=460" in pointer
+    # grep first, so a long result is searched rather than pulled back whole.
+    assert pointer.startswith("[… 460 lines omitted — grep(pattern=..., path=")
+    assert "read_file(" in pointer and "offset=31" in pointer and "limit=460" in pointer
 
     assert spilled.path is not None
     assert spilled.path.parent == tmp_path / "cache" / "tool-output"

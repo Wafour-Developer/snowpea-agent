@@ -496,7 +496,10 @@ def spill_diff(text: str, home: Path | str | None = None, cap: int = MAX_REVIEW_
         head.append(line)
         chars += len(line)
     omitted = len(lines) - len(head)
-    pointer = f"\n[… {omitted} lines omitted — read_file(\"{target}\")]"
+    pointer = (
+        f"\n[… {omitted} lines omitted — grep(pattern=..., path=\"{target}\") for what "
+        f"you need, or read_file(\"{target}\") with offset and limit]"
+    )
     return "".join(head).rstrip() + pointer
 
 

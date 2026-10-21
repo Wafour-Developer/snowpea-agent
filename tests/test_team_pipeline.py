@@ -246,7 +246,7 @@ def test_spill_diff_caps_and_spills(tmp_path: Path) -> None:
     spilled = team_pipeline.spill_diff(long_diff, home=tmp_path, cap=200)
     assert len(spilled) < len(long_diff)
     assert "[… " in spilled
-    assert "lines omitted — read_file(" in spilled
+    assert "lines omitted — grep(" in spilled and "read_file(" in spilled
 
 
 def test_stage_table_and_handoff_paths_in_report() -> None:
