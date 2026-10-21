@@ -428,6 +428,18 @@ async def mcp_add_handler(
     )
 
 
+def scope_for(core: Core, name: str, scope: str | None, workdir: Path) -> str:
+    """``scope`` as given, else the writable scope that declares ``name``.
+
+    ``project`` wins where both declare it, as it does when servers start;
+    an undeclared name falls back to ``global``.
+    """
+    if scope:
+        return scope
+    row = declared(core, workdir).get(name)
+    return row.scope if row is not None and row.scope in ("project", "global") else "global"
+
+
 def _writable(core: Core, name: str, scope: str, workdir: Path) -> Path:
     """The file ``scope`` writes, refusing the read-only scopes (AC-50)."""
     rows = declared(core, workdir)
@@ -449,13 +461,14 @@ async def mcp_remove_handler(
 ) -> Ok:
     """``mcp.remove`` — drop the entry, stop the server, drop its tools."""
     workdir = workdir_of(core, params.sessionId, params.workdir)
-    path = _writable(core, params.name, params.scope, workdir)
+    scope = scope_for(core, params.name, params.scope, workdir)
+    path = _writable(core, params.name, scope, workdir)
     if not mcp_config.delete_entry(path, params.name):
         raise RpcError(errors.MCP_NOT_FOUND, f"'{params.name}' is not declared in {path}")
     await MANAGER.remove(params.name)
     mcp_client.drop_tools(core, params.name)
     await notify_changed(
-        core, params.name, scope=params.scope, state="stopped", removed=True
+        core, params.name, scope=scope, state="stopped", removed=True
     )
     return Ok(ok=True)
 
@@ -465,7 +478,8 @@ async def mcp_update_handler(
 ) -> Ok:
     """``mcp.update`` — merge a patch into an entry and restart the server."""
     workdir = workdir_of(core, params.sessionId, params.workdir)
-    path = _writable(core, params.name, params.scope, workdir)
+    scope = scope_for(core, params.name, params.scope, workdir)
+    path = _writable(core, params.name, scope, workdir)
     current = mcp_config.read_servers(path).get(params.name)
     if current is None:
         raise RpcError(errors.MCP_NOT_FOUND, f"'{params.name}' is not declared in {path}")
@@ -478,8 +492,8 @@ async def mcp_update_handler(
         await set_permission(core, params.name, params.patch.permission)
     config = McpServerConfig.parse(params.name, entry)
     assert config is not None
-    _SCOPES[params.name] = params.scope
-    await apply(core, Declared(config=config, scope=params.scope, entry=entry))
+    _SCOPES[params.name] = scope
+    await apply(core, Declared(config=config, scope=scope, entry=entry))
     return Ok(ok=True)
 
 

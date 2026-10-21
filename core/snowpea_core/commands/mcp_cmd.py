@@ -109,7 +109,7 @@ def parse_add(args: str) -> dict[str, Any]:
     """
     tokens = shlex.split(args)
     parsed: dict[str, Any] = {
-        "scope": "project",
+        "scope": "global",
         "env": {},
         "headers": {},
         "force": False,
@@ -252,10 +252,10 @@ def render_detail(server: McpServerInfo) -> str:
     return "\n".join(lines)
 
 
-def _scope_of(args: str) -> tuple[str, list[str]]:
+def _scope_of(args: str) -> tuple[str | None, list[str]]:
     """Pull ``--global``/``--project`` out of a short argument list."""
     tokens = shlex.split(args)
-    scope = "project"
+    scope: str | None = None  # where the server is declared
     rest: list[str] = []
     for token in tokens:
         if token in ("--global", "-g"):
@@ -267,10 +267,10 @@ def _scope_of(args: str) -> tuple[str, list[str]]:
     return scope, rest
 
 
-def _configure_args(rest: str) -> tuple[str, str, list[str]]:
+def _configure_args(rest: str) -> tuple[str | None, str, list[str]]:
     """``<name> [--tools a,b] [tool…]`` -> ``(scope, name, tools)``."""
     tokens = shlex.split(rest)
-    scope = "project"
+    scope: str | None = None  # where the server is declared
     names: list[str] = []
     tools: list[str] = []
     index = 0
@@ -379,7 +379,7 @@ async def _run(ctx: CommandContext, session: Session, action: str, rest: str) ->
             McpRemoveParams(name=names[0], scope=scope, workdir=workdir),  # type: ignore[arg-type]
             core,
         )
-        await ctx.say(f"Removed '{names[0]}' from the {scope} .mcp.json.")
+        await ctx.say(f"Removed '{names[0]}'.")
         return
 
     if action in ("enable", "disable"):

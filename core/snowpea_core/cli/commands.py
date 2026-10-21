@@ -1872,11 +1872,10 @@ async def mcp_command(
     """``snowpea mcp list|get|add|add-json|remove|test|configure|reload|catalog``."""
     workdir = str(Path.cwd())
     name = str(getattr(args, "name", "") or "")
-    scope = (
-        "global"
-        if getattr(args, "scope_global", False)
-        else str(getattr(args, "scope", "project") or "project")
-    )
+    given = "global" if getattr(args, "scope_global", False) else getattr(args, "scope", None)
+    # A new server is global unless asked otherwise; an existing one is changed
+    # where it is declared (the daemon resolves a missing scope).
+    scope = given or ("global" if action in ("add", "add-json") else None)
     method: str
     params: dict[str, Any]
     try:
@@ -2722,8 +2721,11 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
         target.add_argument(
             "--scope",
             choices=("project", "global"),
-            default="project",
-            help="which .mcp.json to write: the project's (default) or $SNOWPEA_HOME's",
+            default=None,
+            help=(
+                "which .mcp.json to write: $SNOWPEA_HOME's or the project's; add defaults "
+                "to global, the others to wherever the server is declared"
+            ),
         )
         target.add_argument(
             "--global",
