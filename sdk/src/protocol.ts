@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.24.0";
+export const PROTOCOL_VERSION = "1.25.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -3684,6 +3684,8 @@ export interface ToolInvokeParams {
   })[];
   /** Id of the tool call; tool.progress refers to it. */
   callId: string;
+  /** 'agent-switch' while session.setAgent {guardTurn} guards this session or one it was delegated from (1.25.0): a host asks before its own acting tools, whatever tag they were registered with. */
+  guard?: string | null;
   /** The scheduled run behind the root's running turn (1.23.0); set only when origin is 'schedule'. A delegated child reports its root's. */
   job?: {
     /** 'tool' when an agent's schedule_create or a /schedule command made it; 'rpc' when a client holding the daemon token called job.schedule. Not proof that a person made it: anchor trust in the host's own record of the job. */
@@ -4709,6 +4711,8 @@ export interface UsageEventPayload {
   outputTokens?: number;
   /** Vendor that served the call (1.7.0). */
   provider?: string | null;
+  /** llama.cpp's own timings when the server sends them (1.25.0): prompt_n, prompt_ms, cache_n, predicted_n, predicted_ms. A first token much later than prompt_ms was spent waiting for a slot. */
+  timings?: Record<string, number> | null;
 }
 
 /** Maps every `session.event` kind to its payload type. */

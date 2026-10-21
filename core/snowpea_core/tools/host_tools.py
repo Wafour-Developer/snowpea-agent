@@ -429,6 +429,7 @@ class HostTools:
             # userTurn, origin and job: the root's running turn (1.22.0, 1.23.0).
             **root_turn_context(core, session),
             "attachments": root_attachments(core, session),
+            "guard": _guard_of(core, session),
         }
         try:
             answer = await self._call_or_cancel(
@@ -710,6 +711,14 @@ def root_turn_context(core: Any, session: Any) -> dict[str, Any]:
         "origin": origin,
         "job": dict(job) if isinstance(job, dict) else None,
     }
+
+
+def _guard_of(core: Any, session: Any) -> str | None:
+    """``"agent-switch"`` while an agent-switch guard covers ``session`` (1.25.0)."""
+    from snowpea_core.agent.loop import AGENT_SWITCH_GUARD
+    from snowpea_core.agent.subagent import agent_guarded
+
+    return AGENT_SWITCH_GUARD if agent_guarded(core, session) else None
 
 
 #: How long a turn waits for a connected host's ``tool.register``.

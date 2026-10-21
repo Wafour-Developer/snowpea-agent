@@ -362,6 +362,10 @@ def _reasoning_of(delta: dict[str, Any]) -> str:
     return ""
 
 
+#: llama.cpp ``timings`` fields kept on :class:`Usage`.
+TIMING_KEYS = ("prompt_n", "prompt_ms", "cache_n", "predicted_n", "predicted_ms")
+
+
 class _Normalizer:
     """Common buffering: tool calls and usage are flushed before ``done``."""
 
@@ -403,6 +407,9 @@ class OpenAIStreamNormalizer(_Normalizer):
 
     def feed(self, chunk: dict[str, Any]) -> Iterator[StreamEvent]:
         """Consume one decoded ``data:`` payload."""
+        timings = chunk.get("timings")
+        if isinstance(timings, dict):
+            self._absorb_timings(timings)
         usage = chunk.get("usage")
         if isinstance(usage, dict):
             self._absorb_usage(usage)
@@ -442,12 +449,31 @@ class OpenAIStreamNormalizer(_Normalizer):
         cached = 0
         if isinstance(prompt_details, dict):
             cached = int(prompt_details.get("cached_tokens") or 0)
+        timings = getattr(self, "_timings", None)
+        if not cached and timings and timings.get("cache_n"):
+            cached = int(timings["cache_n"])
         self.usage = Usage(
             input_tokens=int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0),
             output_tokens=int(usage.get("completion_tokens") or usage.get("output_tokens") or 0),
             reasoning_tokens=reasoning,
             cached_input_tokens=cached,
+            timings=timings,
         )
+
+    def _absorb_timings(self, raw: dict[str, Any]) -> None:
+        """Keep llama.cpp's ``timings``; they may come before or after ``usage``."""
+        kept = {
+            key: float(raw[key])
+            for key in TIMING_KEYS
+            if isinstance(raw.get(key), int | float) and not isinstance(raw.get(key), bool)
+        }
+        if not kept:
+            return
+        self._timings = kept
+        if self.usage is not None:
+            self.usage.timings = kept
+            if not self.usage.cached_input_tokens and kept.get("cache_n"):
+                self.usage.cached_input_tokens = int(kept["cache_n"])
 
     def _absorb_tool_calls(self, raw: Any) -> None:
         if not isinstance(raw, list):

@@ -287,6 +287,7 @@ def usage(
     provider: str | None = None,
     model: str | None = None,
     cached_input_tokens: int | None = None,
+    timings: dict[str, float] | None = None,
 ) -> Event:
     return _pack(
         UsageEvent(
@@ -295,6 +296,7 @@ def usage(
             provider=provider,
             model=model,
             cachedInputTokens=cached_input_tokens or None,
+            timings=timings or None,
         )
     )
 

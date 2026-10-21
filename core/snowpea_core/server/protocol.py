@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.24.0"
+PROTOCOL_VERSION = "1.25.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -1363,6 +1363,14 @@ class ToolInvokeRequest(Payload):
         description=(
             "The scheduled run behind the root's running turn (1.23.0); set only when "
             "origin is 'schedule'. A delegated child reports its root's."
+        ),
+    )
+    guard: str | None = Field(
+        default=None,
+        description=(
+            "'agent-switch' while session.setAgent {guardTurn} guards this session or one it "
+            "was delegated from (1.25.0): a host asks before its own acting tools, whatever "
+            "tag they were registered with."
         ),
     )
     attachments: list[SessionAttachment] = Field(
@@ -3955,6 +3963,14 @@ class UsageEvent(Payload):
             "reports that (1.20.0)."
         ),
     )
+    timings: dict[str, float] | None = Field(
+        default=None,
+        description=(
+            "llama.cpp's own timings when the server sends them (1.25.0): prompt_n, "
+            "prompt_ms, cache_n, predicted_n, predicted_ms. A first token much later than "
+            "prompt_ms was spent waiting for a slot."
+        ),
+    )
 
 
 class ContextEvent(Payload):
@@ -5563,6 +5579,8 @@ CAPABILITIES: list[str] = [
     "standingOrders",
     "sessionAttachments",
     "setAgentGuardTurn",
+    "toolInvokeGuard",
+    "llmTimings",
 ]
 
 #: Where the daemon listens; mirrored into the schema dump for the SDK.

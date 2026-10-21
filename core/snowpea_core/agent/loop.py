@@ -454,6 +454,8 @@ class _Attempt:
     reasoning: str = ""
     reasoning_tokens: int = 0
     cached_input_tokens: int = 0
+    #: llama.cpp's server timings for the call, when it sent them.
+    timings: dict[str, float] | None = None
     input_tokens: int = 0
     output_tokens: int = 0
     #: How many times the answer was resumed after an output-limit stop.
@@ -729,6 +731,8 @@ async def _stream_once_raw(
             attempt.output_tokens += event.usage.output_tokens
             attempt.reasoning_tokens += event.usage.reasoning_tokens
             attempt.cached_input_tokens += event.usage.cached_input_tokens
+            if event.usage.timings:
+                attempt.timings = event.usage.timings
             compaction.record_provider_usage(session, event.usage.input_tokens)
             await hub.emit_event(
                 session.id,
@@ -738,6 +742,7 @@ async def _stream_once_raw(
                     provider=getattr(provider, "vendor", None) or session.provider,
                     model=getattr(provider, "model", None) or session.model,
                     cached_input_tokens=event.usage.cached_input_tokens,
+                    timings=event.usage.timings,
                 ),
             )
         elif event.kind == "done":
@@ -813,6 +818,7 @@ async def _stream_once_raw(
             or -(-attempt.reasoning_chars // CHARS_PER_TOKEN),
             cached_input_tokens=attempt.cached_input_tokens,
             outcome="interrupted" if attempt.interrupted else attempt.stop_reason,
+            timings=attempt.timings,
         )
     # Nothing thought is dropped, including by an interrupt: the last window is
     # always published, so the totals a surface shows match what was counted.

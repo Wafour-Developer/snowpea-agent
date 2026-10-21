@@ -80,6 +80,10 @@ class Usage:
     #: says (``prompt_tokens_details.cached_tokens``, Anthropic
     #: ``cache_read_input_tokens``).  Part of :attr:`input_tokens`.
     cached_input_tokens: int = 0
+    #: llama.cpp's own ``timings`` (``prompt_n``, ``prompt_ms``, ``cache_n``,
+    #: ``predicted_n``, ``predicted_ms``), when the server sends them: they
+    #: split a slow first token into prefill and the wait before it.
+    timings: dict[str, float] | None = None
 
 
 @dataclass

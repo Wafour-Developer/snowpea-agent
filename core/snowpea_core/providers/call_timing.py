@@ -42,12 +42,13 @@ class CallTiming:
         reasoning_tokens: int = 0,
         cached_input_tokens: int = 0,
         outcome: str = "ok",
+        timings: dict[str, float] | None = None,
     ) -> None:
         ended = time.monotonic()
         first = self.first_at if self.first_at is not None else ended
         log.info(
             "llm call session=%s kind=%s vendor=%s model=%s ttft=%.2fs decode=%.2fs "
-            "total=%.2fs in=%d cached=%d out=%d reasoning=%d outcome=%s%s",
+            "total=%.2fs in=%d cached=%d out=%d reasoning=%d outcome=%s%s%s",
             self.session_id,
             self.kind,
             self.vendor,
@@ -61,7 +62,26 @@ class CallTiming:
             reasoning_tokens,
             outcome,
             "" if self.first_at is not None else " (no output)",
+            server_timings(timings, first - self.started),
         )
 
 
-__all__ = ["CallTiming"]
+def server_timings(timings: dict[str, float] | None, ttft: float) -> str:
+    """`` server: prefill=…s cache_n=… wait=…s`` from llama.cpp timings, or ``""``.
+
+    ``wait`` is the first-token time not spent on prefill: a queue for a slot.
+    """
+    if not timings:
+        return ""
+    prompt_ms = float(timings.get("prompt_ms") or 0.0)
+    parts = [
+        f"prefill={prompt_ms / 1000:.2f}s",
+        f"prompt_n={int(timings.get('prompt_n') or 0)}",
+        f"cache_n={int(timings.get('cache_n') or 0)}",
+        f"decode={float(timings.get('predicted_ms') or 0.0) / 1000:.2f}s",
+        f"wait={max(0.0, ttft - prompt_ms / 1000):.2f}s",
+    ]
+    return " server: " + " ".join(parts)
+
+
+__all__ = ["CallTiming", "server_timings"]

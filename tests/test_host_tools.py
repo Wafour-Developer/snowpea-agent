@@ -172,6 +172,7 @@ async def test_a_host_tool_runs_in_the_client_and_reports_progress(
         }
         # Who started the turn (1.23.0); no scheduled run behind it.
         assert call["origin"] == "human" and call["job"] is None
+        assert call["guard"] is None  # no agent-switch guard here (1.25.0)
         assert results_for(host, "host_echo")[-1]["output"] == "echo hi"
         progress = [
             e["payload"]
@@ -2444,6 +2445,11 @@ async def test_set_agent_guard_turn_and_agent_scoped_host_tools(
             "session.setAgent", {"sessionId": session_id, "agent": None, "guardTurn": True}
         )
         assert switched["guarded"] is True and session.agent_guard
+        # tool.invoke tells the host, so it asks before its own acting tools.
+        host.handlers["host_echo"] = lambda p: {"ok": True, "output": "x"}
+        from snowpea_core.tools.host_tools import _guard_of
+
+        assert _guard_of(daemon.core, session) == "agent-switch"
         # turn.done does not lift it: what the agent queues next stays guarded.
         await finish_turn(daemon.core, session, "t-running", "complete")
         assert session.agent_guard

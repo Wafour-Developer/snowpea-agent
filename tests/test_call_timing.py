@@ -101,3 +101,49 @@ def test_cached_prompt_tokens_reach_the_line_and_the_event(
     assert "in=1200 cached=1100 out=9" in line
     assert events.usage(1200, 9, cached_input_tokens=1100)[1]["cachedInputTokens"] == 1100
     assert events.usage(1200, 9)[1].get("cachedInputTokens") is None
+
+
+def test_llama_cpp_timings_split_the_first_token_into_prefill_and_wait(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A 100 s first token was a slot queue plus KV eviction, not the prompt:
+    llama.cpp's timings say which, on the usage event and the log line."""
+    from snowpea_core.providers.normalize import OpenAIStreamNormalizer
+    from snowpea_core.providers.presets import PRESETS
+    from snowpea_core.session import events
+
+    normalizer = OpenAIStreamNormalizer(PRESETS["local"])
+    list(normalizer.feed({"choices": [], "usage": {"prompt_tokens": 9000, "completion_tokens": 5}}))
+    list(
+        normalizer.feed(
+            {
+                "choices": [],
+                "timings": {
+                    "prompt_n": 800,
+                    "prompt_ms": 4000.0,
+                    "cache_n": 8200,
+                    "predicted_n": 5,
+                    "predicted_ms": 250.0,
+                    "ignored": "x",
+                },
+            }
+        )
+    )
+    usage = normalizer.usage
+    assert usage.timings == {
+        "prompt_n": 800.0,
+        "prompt_ms": 4000.0,
+        "cache_n": 8200.0,
+        "predicted_n": 5.0,
+        "predicted_ms": 250.0,
+    }
+    # No prompt_tokens_details: llama.cpp's cache_n is the cached count.
+    assert usage.cached_input_tokens == 8200
+    timing = CallTiming("s-1", "turn", "local", "qwen38")
+    timing.started -= 100.0
+    timing.first()
+    with caplog.at_level(logging.INFO, logger="snowpea.llm"):
+        timing.done(input_tokens=9000, output_tokens=5, timings=usage.timings)
+    [line] = [r.getMessage() for r in caplog.records if r.name == "snowpea.llm"]
+    assert "server: prefill=4.00s prompt_n=800 cache_n=8200 decode=0.25s wait=96." in line
+    assert events.usage(9000, 5, timings=usage.timings)[1]["timings"]["prompt_ms"] == 4000.0

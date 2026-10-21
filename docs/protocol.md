@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.24.0` (semver)
+- **Protocol version:** `1.25.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.24.0"
+    "protocolVersion": "1.25.0"
   }
 }
 ```
@@ -47,6 +47,7 @@ Server capabilities advertised in the `system.hello` result:
 - `hostToolParallel`
 - `hostTools`
 - `llmSample`
+- `llmTimings`
 - `lsp`
 - `mcp`
 - `onceOnlyScope`
@@ -66,6 +67,7 @@ Server capabilities advertised in the `system.hello` result:
 - `snapshotSupersede`
 - `standingOrders`
 - `tabReadAlways`
+- `toolInvokeGuard`
 - `tools`
 - `update`
 - `webSearch`
@@ -2715,6 +2717,7 @@ Ask the client to run one of its host tools.
 | `args` | `Record<string, unknown>` | no | Arguments from the model. |
 | `attachments` | `({ byPath?: boolean; messageId?: string \| null; mime: string; name: string; path: string; size: number; })[]` | no | Files the user attached in the root conversation (1.23.0), as session.attachments lists them: the paths a host may hand to a page upload. |
 | `callId` | `string` | yes | Id of the tool call; tool.progress refers to it. |
+| `guard` | `string \| null` | no | 'agent-switch' while session.setAgent {guardTurn} guards this session or one it was delegated from (1.25.0): a host asks before its own acting tools, whatever tag they were registered with. |
 | `job` | `{ createdVia: "rpc" \| "tool"; fingerprint: string; id: string; meta?: Record<string, unknown> \| null; ownerClientId?: string \| null; runId: string; scheduledAt: string; trigger: "schedule" \| "runNow"; } \| null` | no | The scheduled run behind the root's running turn (1.23.0); set only when origin is 'schedule'. A delegated child reports its root's. |
 | `mode` | `"plan" \| "accept" \| "auto"` | no | The session's mode. A code-running tool registered as 'read' must refuse mutations in plan mode itself and escalate the rest with approval.ask. |
 | `name` | `string` | yes | Host tool name. |
@@ -3358,6 +3361,7 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | `model` | `string \| null` | no | Model that served the call (1.7.0). |
 | `outputTokens` | `number` | no | Completion tokens produced. |
 | `provider` | `string \| null` | no | Vendor that served the call (1.7.0). |
+| `timings` | `Record<string, number> \| null` | no | llama.cpp's own timings when the server sends them (1.25.0): prompt_n, prompt_ms, cache_n, predicted_n, predicted_ms. A first token much later than prompt_ms was spent waiting for a slot. |
 
 ## Error codes
 
