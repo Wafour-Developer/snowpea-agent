@@ -222,3 +222,32 @@ async def test_the_timing_line_estimates_unreported_reasoning(
         await _run(daemon, tmp_path, replays=True)
     lines = [r.getMessage() for r in caplog.records if r.name == "snowpea.llm"]
     assert lines and "reasoning=0 " not in lines[0], lines[0]
+
+
+def test_only_the_first_message_goes_out_as_system() -> None:
+    """Qwen's chat template refuses a system message after index 0 (HTTP 400
+    "System message must be at the beginning"), and a compaction summary is
+    stored as one: later system messages go out as marked user messages."""
+    from snowpea_core.providers.base import ChatMessage
+    from snowpea_core.providers.normalize import LATER_SYSTEM_MARKER, messages_to_openai
+    from snowpea_core.session.compaction import summary_message
+
+    wire = messages_to_openai(
+        [
+            ChatMessage(role="system", content="You are snowpea."),
+            summary_message("we fixed the login page"),
+            ChatMessage(role="user", content="continue"),
+        ]
+    )
+    assert [m["role"] for m in wire] == ["system", "user", "user"]
+    assert wire[1]["content"].startswith(LATER_SYSTEM_MARKER + "\n")
+    assert "we fixed the login page" in wire[1]["content"]
+    # The same history always renders the same bytes: the prefix stays put.
+    again = messages_to_openai(
+        [
+            ChatMessage(role="system", content="You are snowpea."),
+            summary_message("we fixed the login page"),
+            ChatMessage(role="user", content="continue"),
+        ]
+    )
+    assert again == wire

@@ -101,6 +101,10 @@ def tool_specs_to_openai(tools: list[ToolSpec]) -> list[dict[str, Any]]:
     ]
 
 
+#: How a system message after the first goes out on the OpenAI wire.
+LATER_SYSTEM_MARKER = "[snowpea note — not from the user]"
+
+
 def messages_to_openai(
     messages: list[ChatMessage],
     *,
@@ -153,6 +157,16 @@ def messages_to_openai(
         if message.role == "user" and content.has_blocks(message.content):
             parts = content.parts_from_blocks(message.content)  # type: ignore[arg-type]
             out.append({"role": "user", "content": content.to_openai(parts, vision=vision)})
+            continue
+        if message.role == "system" and out:
+            # Only the first message may be a system one: Qwen's chat template
+            # (vLLM, llama.cpp) answers 400 "System message must be at the
+            # beginning" to a compaction summary or a stop notice later on.
+            # Sent as a marked user message, the same way every time, so a
+            # session already holding one recovers and its prefix stays put.
+            out.append(
+                {"role": "user", "content": f"{LATER_SYSTEM_MARKER}\n{text_of(message.content)}"}
+            )
             continue
         out.append({"role": message.role, "content": text_of(message.content)})
     return out

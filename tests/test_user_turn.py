@@ -83,3 +83,34 @@ async def test_agent_use_only_from_the_persons_own_turn(daemon: Daemon, tmp_path
 
 async def _record(said: list[str], text: str) -> None:
     said.append(text)
+
+
+async def test_a_stored_session_with_an_old_system_summary_sends_one_system_message(
+    daemon: Daemon, tmp_path: Path
+) -> None:
+    """Sessions compacted before the fix hold the summary as role=system in
+    their saved history; after a restore the request still opens with exactly
+    one system message, so they work again with no migration."""
+    from snowpea_core.agent.agent import build_messages
+    from snowpea_core.providers.base import ChatMessage
+    from snowpea_core.providers.normalize import messages_to_openai
+    from snowpea_core.session.compaction import summary_message
+    from snowpea_core.session.manager import persist_history
+
+    core = daemon.core
+    assert core is not None
+    work = tmp_path / "w"
+    work.mkdir()
+    session = await core.sessions.create(work, mode="auto")
+    session.history.append(summary_message("earlier: the login page was fixed"))
+    session.history.append(ChatMessage(role="user", content="continue"))
+    await persist_history(core.store, session)
+    session_id = session.id
+    await core.sessions.close(session_id)
+
+    restored = await core.sessions.restore(session_id)
+    assert restored is not None
+    assert any(m.role == "system" for m in restored.history.messages)
+    wire = messages_to_openai(build_messages(restored, [], "", core=core))
+    assert [m["role"] for m in wire].count("system") == 1 and wire[0]["role"] == "system"
+    assert any("the login page was fixed" in str(m["content"]) for m in wire[1:])
