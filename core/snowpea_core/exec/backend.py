@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import PurePath, PurePosixPath
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 DEFAULT_TIMEOUT = 120.0
 
@@ -35,6 +35,10 @@ class ExecResult:
     stdout: str = ""
     stderr: str = ""
     timed_out: bool = False
+    #: The command was still running when the caller asked to stop waiting
+    #: (the user spoke); ``detached`` keeps draining it in the background.
+    yielded: bool = False
+    detached: Any = None
 
     @property
     def ok(self) -> bool:
@@ -68,6 +72,7 @@ class StreamingBackend(Protocol):
         timeout: float = DEFAULT_TIMEOUT,
         env: dict[str, str] | None = None,
         on_chunk: ChunkSink | None = None,
+        yield_when: Callable[[], bool] | None = None,
     ) -> ExecResult: ...
 
 

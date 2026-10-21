@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import re
+import time
+from collections.abc import Callable
 from typing import Any
 
 from snowpea_core.exec.backend import DEFAULT_TIMEOUT, ExecResult, StreamingBackend
@@ -29,6 +31,27 @@ def _format(exit_code: int, stdout: str, stderr: str) -> str:
     return "\n".join(parts)
 
 
+#: A command at least this old moves to the background when the user speaks.
+YIELD_AFTER_SEC = 1.0
+
+
+def _user_spoke(ctx: ToolContext) -> Callable[[], bool]:
+    """True once the user has sent something while this command runs.
+
+    Like Codex's exec yield: the turn stops waiting for a long command, so a
+    message typed meanwhile is answered now rather than after the build.
+    """
+    started = time.monotonic()
+    waiting = getattr(ctx.session, "user_waiting", None)
+
+    def spoke() -> bool:
+        if waiting is None or not waiting.is_set():
+            return False
+        return time.monotonic() - started >= YIELD_AFTER_SEC
+
+    return spoke
+
+
 async def _run(ctx: ToolContext, command: str, *, cwd: str | None, timeout: float) -> ExecResult:
     """Run the command, tailing its output as ``tool.progress`` when we can.
 
@@ -39,8 +62,12 @@ async def _run(ctx: ToolContext, command: str, *, cwd: str | None, timeout: floa
     """
     sink = ctx.progress
     backend = ctx.backend
-    if sink is None or not isinstance(backend, StreamingBackend):
+    if not isinstance(backend, StreamingBackend):
         return await backend.run(command, cwd=cwd, timeout=timeout)
+    if sink is None:
+        return await backend.run_stream(
+            command, cwd=cwd, timeout=timeout, yield_when=_user_spoke(ctx)
+        )
 
     streamed = 0
     stopped = False
@@ -57,7 +84,9 @@ async def _run(ctx: ToolContext, command: str, *, cwd: str | None, timeout: floa
         streamed += size
         await sink.emit(stream, chunk)
 
-    return await backend.run_stream(command, cwd=cwd, timeout=timeout, on_chunk=on_chunk)
+    return await backend.run_stream(
+        command, cwd=cwd, timeout=timeout, on_chunk=on_chunk, yield_when=_user_spoke(ctx)
+    )
 
 
 _SLEEP = re.compile(r"(?:^|[;&|\s(])sleep\s+(\d+(?:\.\d+)?)(s|m)?\b")
@@ -96,6 +125,18 @@ async def shell(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         result = await _run(ctx, command, cwd=str(cwd) if cwd else None, timeout=timeout)
     except OSError as exc:
         return ToolResult(ok=False, error=f"{type(exc).__name__}: {exc}")
+    if result.yielded:
+        entry = process_tools.adopt(ctx, command, result.detached)
+        stderr = f"\n[stderr]\n{result.stderr}" if result.stderr else ""
+        so_far = strip_ansi(result.stdout + stderr)
+        return ToolResult(
+            ok=True,
+            output=(
+                f"{so_far.rstrip()}\n[still running: moved to the background as {entry.id} "
+                f"(pid {entry.pid}) because the user sent a message. Answer them first; "
+                f"read the rest with process_output {entry.id}, stop it with process_kill.]"
+            ).lstrip(),
+        )
     output = _format(result.exit_code, strip_ansi(result.stdout), strip_ansi(result.stderr))
     if result.timed_out:
         return ToolResult(ok=False, output=output, error=result.stderr or "command timed out")

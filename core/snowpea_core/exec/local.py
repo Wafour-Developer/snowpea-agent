@@ -7,7 +7,10 @@ import codecs
 import contextlib
 import os
 import signal
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path, PurePath
+from typing import Any
 
 from snowpea_core.exec.backend import (
     DEFAULT_TIMEOUT,
@@ -28,6 +31,28 @@ CHUNK_LIMIT = 4096
 #: Seconds between flushes of whatever the command has produced.
 FLUSH_INTERVAL = 0.1
 
+
+
+#: How often a yielding run asks whether to stop waiting.
+YIELD_POLL = 0.25
+
+
+@dataclass
+class Detached:
+    """A command a caller stopped waiting for, still drained into ``captured``."""
+
+    process: Any
+    task: asyncio.Task[int]
+    captured: dict[str, list[str]]
+
+    def output(self) -> str:
+        return "".join(self.captured["stdout"]) + "".join(self.captured["stderr"])
+
+    @property
+    def exit_code(self) -> int | None:
+        if not self.task.done() or self.task.cancelled() or self.task.exception() is not None:
+            return None
+        return self.task.result()
 
 class LocalBackend:
     """Runs shell commands and file operations in the session's workdir."""
@@ -66,8 +91,14 @@ class LocalBackend:
         timeout: float = DEFAULT_TIMEOUT,
         env: dict[str, str] | None = None,
         on_chunk: ChunkSink | None = None,
+        yield_when: Callable[[], bool] | None = None,
     ) -> ExecResult:
         """Run ``command``, reporting output to ``on_chunk`` as it arrives.
+
+        ``yield_when`` is asked a few times a second; once it says yes the
+        command is left running, still drained, and an ``ExecResult`` with
+        ``yielded`` and the output so far comes back (the user spoke, and the
+        turn must not wait out a long command to hear it).
 
         The pipes are drained continuously rather than with ``communicate()``,
         so a long command can be tailed live (IDE-PROGRESS D2).  Fragments are
@@ -124,7 +155,28 @@ class LocalBackend:
         drain_task: asyncio.Task[int] | None = None
         try:
             drain_task = asyncio.ensure_future(drain())
-            exit_code = await asyncio.wait_for(drain_task, timeout)
+            if yield_when is None:
+                exit_code = await asyncio.wait_for(drain_task, timeout)
+            else:
+                loop = asyncio.get_running_loop()
+                deadline = loop.time() + timeout
+                while True:
+                    left = deadline - loop.time()
+                    if left <= 0:
+                        raise TimeoutError
+                    done, _ = await asyncio.wait({drain_task}, timeout=min(YIELD_POLL, left))
+                    if done:
+                        exit_code = drain_task.result()
+                        break
+                    if yield_when():
+                        await flush()
+                        return ExecResult(
+                            exit_code=-1,
+                            stdout=_truncate("".join(captured["stdout"])),
+                            stderr=_truncate("".join(captured["stderr"])),
+                            yielded=True,
+                            detached=Detached(process, drain_task, captured),
+                        )
         except TimeoutError:
             await _terminate_process_group(process)
             return ExecResult(

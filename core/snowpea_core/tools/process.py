@@ -36,6 +36,10 @@ class BackgroundProcess:
     backend_kind: str
     started_at: str
     exit_code: int | None = None
+    #: A foreground command the user talked over (see ``adopt``): its output
+    #: stays in memory, read from ``read_from`` on.
+    detached: Any = None
+    read_from: int = 0
 
     def row(self, running: bool) -> str:
         if running:
@@ -139,6 +143,65 @@ async def launch(ctx: ToolContext, command: str) -> ToolResult:
     )
 
 
+def adopt(ctx: ToolContext, command: str, detached: Any) -> BackgroundProcess:
+    """Register a foreground command that was moved to the background.
+
+    When it ends, the session's next model call is told (a pending notice),
+    so the model need not poll for it.
+    """
+    entry = REGISTRY.add(
+        session_id=ctx.session.id,
+        pid=int(getattr(detached.process, "pid", 0) or 0),
+        command=command,
+        log_path="",
+        backend_kind=str(getattr(ctx.backend, "kind", "local")),
+    )
+    entry.detached = detached
+    entry.read_from = len(detached.output())
+    session = ctx.session
+
+    def finished(_task: Any) -> None:
+        code = detached.exit_code
+        entry.exit_code = code if code is not None else -1
+        notices = getattr(session, "pending_notices", None)
+        if isinstance(notices, list):
+            notices.append(
+                f"{entry.id} ({command[:80]}) finished with exit {entry.exit_code}; "
+                f"read its output with process_output {entry.id}."
+            )
+
+    detached.task.add_done_callback(finished)
+    return entry
+
+
+#: Most characters ``process_output`` returns at once (the newest ones).
+OUTPUT_LIMIT = 20_000
+
+
+async def process_output(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
+    """New output of a background command since the last read, and its state."""
+    process_id = str(args.get("id", "")).strip()
+    entry = REGISTRY.get(process_id) if process_id else None
+    if entry is None:
+        return ToolResult(ok=False, error=f"no such background process: {process_id or '(none)'}")
+    if entry.detached is not None:
+        text = entry.detached.output()
+        new, entry.read_from = text[entry.read_from :], len(text)
+        running = not entry.detached.task.done()
+    else:
+        try:
+            new = await ctx.backend.read_file(entry.log_path)
+        except OSError as exc:
+            return ToolResult(ok=False, error=f"{type(exc).__name__}: {exc}")
+        new, entry.read_from = new[entry.read_from :], len(new)
+        running = await _alive(ctx, entry.pid)
+    if len(new) > OUTPUT_LIMIT:
+        new = f"… {len(new) - OUTPUT_LIMIT} characters earlier\n" + new[-OUTPUT_LIMIT:]
+    code = entry.exit_code if entry.exit_code is not None else "?"
+    state = "running" if running else f"exited({code})"
+    return ToolResult(ok=True, output=f"{new.rstrip()}\n[{entry.id} {state}]".lstrip())
+
+
 async def process_list(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     scope_all = bool(args.get("allSessions", False))
     entries = REGISTRY.list(None if scope_all else ctx.session.id)
@@ -146,6 +209,9 @@ async def process_list(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         return ToolResult(ok=True, output="no background processes")
     rows = []
     for entry in entries:
+        if entry.detached is not None:
+            rows.append(entry.row(not entry.detached.task.done()))
+            continue
         running = await _alive(ctx, entry.pid)
         if not running and entry.exit_code is None:
             entry.exit_code = 0
@@ -180,6 +246,22 @@ async def process_kill(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
 
 
 TOOLS: tuple[Tool, ...] = (
+    Tool(
+        name="process_output",
+        category="terminal",
+        description=(
+            "Read what a background command printed since the last read, and whether it "
+            "still runs (a shell command moved to the background, or one started with "
+            "background: true)."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {"id": {"type": "string", "description": "Id like bg-3."}},
+            "required": ["id"],
+        },
+        permission="read",
+        run=process_output,
+    ),
     Tool(
         name="process_list",
         category="terminal",
@@ -223,7 +305,9 @@ __all__ = [
     "TOOLS",
     "BackgroundProcess",
     "ProcessRegistry",
+    "adopt",
     "launch",
     "process_kill",
+    "process_output",
     "process_list",
 ]
