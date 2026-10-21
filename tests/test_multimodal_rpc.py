@@ -99,6 +99,10 @@ async def test_a_file_path_is_referenced_not_copied(daemon: Daemon, tmp_path: Pa
     files = daemon.paths.attachments_dir / session_id / "files"
     assert [p.name for p in files.iterdir()] == ["index.json"]
     assert "notes.txt" in (files / "index.json").read_text(encoding="utf-8")
+    from snowpea_core.attachments.store import AttachmentStore
+
+    [row] = AttachmentStore(daemon.paths.attachments_dir).listing(session_id)
+    assert row["byPath"] is True and row["path"] == str(source.resolve())
 
 
 async def test_an_oversized_attachment_is_refused(
@@ -701,6 +705,7 @@ async def test_session_attachments_lists_the_originals_by_turn(tmp_path: Path) -
     [row] = listed["attachments"]
     assert row["name"] == "계약서.pdf" and row["mime"] == "application/pdf"
     assert row["messageId"] == result["turnId"] and row["size"] == len(data)
+    assert row["byPath"] is False
     assert Path(row["path"]).read_bytes() == data
 
 

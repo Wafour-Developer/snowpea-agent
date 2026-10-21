@@ -162,6 +162,8 @@ class AttachmentStore:
                     "size": size,
                     "sha256": digest,
                     "messageId": None,
+                    # The user's own file, recorded where it is (not a copy).
+                    "byPath": source is not None,
                 }
             )
             try:

@@ -1829,6 +1829,8 @@ export interface SessionAttachmentsParams {
 export interface SessionAttachmentsResult {
   /** This session's attachments, oldest first. */
   attachments?: ({
+    /** True for a file the user attached by path, recorded where it is rather than copied: it can be anywhere on disk, so a host should not act on it unasked. False for bytes the user uploaded, kept under attachments/<session>/files/. */
+    byPath?: boolean;
     /** The turn whose prompt brought it (its turnId). */
     messageId?: string | null;
     /** Sniffed media type. */
@@ -3659,6 +3661,8 @@ export interface ToolInvokeParams {
   args?: Record<string, unknown>;
   /** Files the user attached in the root conversation (1.23.0), as session.attachments lists them: the paths a host may hand to a page upload. */
   attachments?: ({
+    /** True for a file the user attached by path, recorded where it is rather than copied: it can be anywhere on disk, so a host should not act on it unasked. False for bytes the user uploaded, kept under attachments/<session>/files/. */
+    byPath?: boolean;
     /** The turn whose prompt brought it (its turnId). */
     messageId?: string | null;
     /** Sniffed media type. */

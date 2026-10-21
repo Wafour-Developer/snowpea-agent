@@ -1618,7 +1618,7 @@ Files the user attached in this session, with the path of the original bytes the
 
 | field | type | required | description |
 |---|---|---|---|
-| `attachments` | `({ messageId?: string \| null; mime: string; name: string; path: string; size: number; })[]` | no | This session's attachments, oldest first. |
+| `attachments` | `({ byPath?: boolean; messageId?: string \| null; mime: string; name: string; path: string; size: number; })[]` | no | This session's attachments, oldest first. |
 
 ### `session.close`
 
@@ -2706,7 +2706,7 @@ Ask the client to run one of its host tools.
 | field | type | required | description |
 |---|---|---|---|
 | `args` | `Record<string, unknown>` | no | Arguments from the model. |
-| `attachments` | `({ messageId?: string \| null; mime: string; name: string; path: string; size: number; })[]` | no | Files the user attached in the root conversation (1.23.0), as session.attachments lists them: the paths a host may hand to a page upload. |
+| `attachments` | `({ byPath?: boolean; messageId?: string \| null; mime: string; name: string; path: string; size: number; })[]` | no | Files the user attached in the root conversation (1.23.0), as session.attachments lists them: the paths a host may hand to a page upload. |
 | `callId` | `string` | yes | Id of the tool call; tool.progress refers to it. |
 | `job` | `{ createdVia: "rpc" \| "tool"; fingerprint: string; id: string; meta?: Record<string, unknown> \| null; ownerClientId?: string \| null; runId: string; scheduledAt: string; trigger: "schedule" \| "runNow"; } \| null` | no | The scheduled run behind the root's running turn (1.23.0); set only when origin is 'schedule'. A delegated child reports its root's. |
 | `mode` | `"plan" \| "accept" \| "auto"` | no | The session's mode. A code-running tool registered as 'read' must refuse mutations in plan mode itself and escalate the rest with approval.ask. |

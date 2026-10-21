@@ -763,6 +763,8 @@ def root_attachments(core: Any, session: Any) -> list[dict[str, Any]]:
             "mime": str(row.get("mime") or "application/octet-stream"),
             "size": int(row.get("size") or 0),
             "messageId": row.get("messageId"),
+            # Rows written before byPath existed: a copy has a content hash.
+            "byPath": bool(row.get("byPath", not row.get("sha256"))),
         }
         for row in rows
         if row.get("path") and Path(str(row["path"])).exists()

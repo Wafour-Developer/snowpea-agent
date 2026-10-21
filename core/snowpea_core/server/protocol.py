@@ -445,6 +445,14 @@ class SessionAttachment(Payload):
     messageId: str | None = Field(
         default=None, description="The turn whose prompt brought it (its turnId)."
     )
+    byPath: bool = Field(
+        default=False,
+        description=(
+            "True for a file the user attached by path, recorded where it is rather than "
+            "copied: it can be anywhere on disk, so a host should not act on it unasked. "
+            "False for bytes the user uploaded, kept under attachments/<session>/files/."
+        ),
+    )
 
 
 class SessionAttachmentsResult(Payload):
