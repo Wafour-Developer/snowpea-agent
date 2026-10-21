@@ -442,6 +442,41 @@ async def test_test_on_a_bad_command_answers_instead_of_raising(
     assert mcp_client.MANAGER.names() == []
 
 
+async def test_test_probes_a_named_draft_that_is_not_saved_yet(
+    core: Core, workdir: Path
+) -> None:
+    """The Add sheet sends the name it will save under with the draft; an
+    unsaved name used to be looked up and refused, so no test ever passed."""
+    result = await mcp_handlers.mcp_test_handler(
+        None,
+        McpTestParams(
+            name="fresh",
+            workdir=str(workdir),
+            command=sys.executable,
+            args=[str(FIXTURE_ECHO)],
+        ),
+        core,
+    )
+    assert result.ok and [tool.name for tool in result.tools] == ["echo"]
+    assert not (workdir / ".mcp.json").exists()
+
+
+async def test_test_merges_an_edit_onto_the_saved_entry(core: Core, workdir: Path) -> None:
+    """Editing a saved server probes the draft over what is saved, so a
+    write-only secret the sheet never sends back is still used."""
+    await mcp_handlers.mcp_add_handler(None, echo_params("echo", workdir), core)
+    broken = await mcp_handlers.mcp_test_handler(
+        None,
+        McpTestParams(name="echo", workdir=str(workdir), command="definitely-not-a-real-binary"),
+        core,
+    )
+    assert broken.ok is False
+    saved = await mcp_handlers.mcp_test_handler(
+        None, McpTestParams(name="echo", workdir=str(workdir)), core
+    )
+    assert saved.ok
+
+
 async def test_test_on_an_unknown_name_is_not_found(core: Core, workdir: Path) -> None:
     with pytest.raises(RpcError) as caught:
         await mcp_handlers.mcp_test_handler(

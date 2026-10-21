@@ -486,19 +486,31 @@ async def mcp_update_handler(
 async def mcp_test_handler(
     _conn: RpcConnection | None, params: McpTestParams, core: Core
 ) -> McpTestResult:
-    """``mcp.test`` — probe a saved server or an unsaved draft; never raises for it."""
+    """``mcp.test`` — probe a saved server or an unsaved draft; never raises for it.
+
+    ``name`` alone probes what is saved.  With draft fields too (the Add/Edit
+    sheet sends both) the draft is probed: merged onto the saved entry when
+    there is one, so a write-only secret the sheet never echoes still counts,
+    and on its own for a name not saved yet.
+    """
     workdir = workdir_of(core, params.sessionId, params.workdir)
-    if params.name:
-        row = declared(core, workdir).get(params.name)
-        if row is None:
-            raise RpcError(errors.MCP_NOT_FOUND, f"'{params.name}' is not a configured server")
+    row = declared(core, workdir).get(params.name) if params.name else None
+    drafted = any(
+        value is not None
+        for value in (params.command, params.url, params.args, params.env, params.headers)
+    )
+    if row is not None and not drafted:
         config = row.config
+    elif params.name and row is None and not drafted:
+        raise RpcError(errors.MCP_NOT_FOUND, f"'{params.name}' is not a configured server")
     else:
         try:
-            entry = mcp_config.validate_entry(entry_from(params))
+            entry = mcp_config.validate_entry(
+                entry_from(params, row.entry if row is not None else None)
+            )
         except mcp_config.McpConfigError as exc:
             raise _invalid(exc) from exc
-        parsed = McpServerConfig.parse("draft", entry)
+        parsed = McpServerConfig.parse(params.name or "draft", entry)
         assert parsed is not None
         config = parsed
     ok, tools, error, elapsed = await probe(config)
