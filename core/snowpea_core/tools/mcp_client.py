@@ -747,11 +747,23 @@ def _log_background_sync(task: asyncio.Task[list[str]]) -> None:
 _SEEN_CONFIGS: dict[str, tuple[tuple[int, int] | None, ...]] = {}
 
 
-def _config_signature(
-    core: Core, workdir: Path | str | None
-) -> tuple[tuple[int, int] | None, ...]:
-    """``(mtime, size)`` of the home and workdir ``.mcp.json``; ``None`` when absent."""
-    signature: list[tuple[int, int] | None] = []
+def _config_signature(core: Core, workdir: Path | str | None) -> tuple[Any, ...]:
+    """``(mtime, size)`` of the home and workdir ``.mcp.json``, plus ``settings.mcp``.
+
+    The settings block counts too: a server added with ``settings_set``
+    (``mcp.servers.<name>``) used to stay invisible for the rest of the
+    session, and the agent went on to write its own client for it.
+    """
+    settings_mcp = getattr(getattr(core, "settings", None), "mcp", None)
+    try:
+        declared = json.dumps(
+            settings_mcp.model_dump(mode="json") if settings_mcp is not None else None,
+            sort_keys=True,
+            default=str,
+        )
+    except AttributeError:  # a stand-in settings object in a test
+        declared = repr(settings_mcp)
+    signature: list[Any] = [declared]
     for base in (core.paths.home, workdir):
         if base is None:
             signature.append(None)

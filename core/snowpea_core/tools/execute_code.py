@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shlex
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -25,6 +26,25 @@ def _format(exit_code: int, stdout: str, stderr: str) -> str:
         parts.append(f"--- stderr ---\n{stderr.rstrip(chr(10))}")
     parts.append(f"[exit {exit_code}]")
     return "\n".join(parts)
+
+
+def interpreter(workdir: Path) -> str:
+    """The command that runs a ``.py`` file, shell-quoted.
+
+    The project's ``.venv`` first.  A frozen (PyInstaller) desktop core's
+    ``sys.executable`` is the core itself, which took the script for an
+    unknown argument: it uses the ``python3`` on PATH, and only without one
+    its own bundled interpreter through ``--run-hook``.
+    """
+    project_python = workdir / ".venv" / "bin" / "python"
+    if project_python.exists():
+        return shlex.quote(str(project_python))
+    if not getattr(sys, "frozen", False):
+        return shlex.quote(sys.executable)
+    system = shutil.which("python3")
+    if system:
+        return shlex.quote(system)
+    return f"{shlex.quote(sys.executable)} --run-hook"
 
 
 async def execute_code(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
@@ -50,9 +70,7 @@ async def execute_code(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(code)
 
-        project_python = workdir / ".venv" / "bin" / "python"
-        python = project_python if project_python.exists() else Path(sys.executable)
-        command = f"{shlex.quote(str(python))} {shlex.quote(str(path))}"
+        command = f"{interpreter(workdir)} {shlex.quote(str(path))}"
         cwd = args.get("cwd")
         result = await ctx.backend.run(
             command,

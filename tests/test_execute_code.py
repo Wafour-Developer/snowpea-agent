@@ -112,3 +112,23 @@ async def test_large_output_is_capped_and_uses_shell_spill_path(
     lines = "\n".join(str(index) for index in range(500))
     spilled = _spill_long_result(ctx.core, "execute_code", type(result)(ok=True, output=lines))
     assert "lines omitted" in spilled.output
+
+
+def test_a_frozen_core_runs_code_with_a_python_not_itself(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A desktop (PyInstaller) core's sys.executable is the core: it took the
+    script for an unknown argument, so execute_code never ran there."""
+    import sys
+
+    from snowpea_core.tools import execute_code as module
+
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(module.shutil, "which", lambda name: "/usr/bin/python3")
+    assert module.interpreter(tmp_path) == "/usr/bin/python3"
+    monkeypatch.setattr(module.shutil, "which", lambda name: None)
+    assert module.interpreter(tmp_path).endswith(" --run-hook")
+    venv = tmp_path / ".venv" / "bin"
+    venv.mkdir(parents=True)
+    (venv / "python").write_text("")
+    assert module.interpreter(tmp_path) == str(venv / "python")

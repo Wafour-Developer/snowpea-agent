@@ -796,3 +796,23 @@ async def test_a_server_added_mid_session_is_picked_up_next_round(
         assert await mcp_client.resync_if_changed(core, workdir) == []
     finally:
         await mcp_client.MANAGER.close_all()
+
+
+async def test_a_server_added_to_settings_mid_session_is_picked_up_next_round(
+    core: Core, workdir: Path
+) -> None:
+    """``settings_set mcp.servers.<name>`` (what an agent asked to "add this
+    MCP" does) reaches the running session; the server used to stay invisible
+    and the agent wrote its own client for it in the project instead."""
+    try:
+        await mcp_client.sync_tools(core, workdir)
+        assert await mcp_client.resync_if_changed(core, workdir) == []
+        core.settings.mcp.servers["fixture-echo"] = {
+            "command": sys.executable,
+            "args": [str(FIXTURE_ECHO)],
+        }
+        registered = await mcp_client.resync_if_changed(core, workdir)
+        assert "mcp__fixture-echo__echo" in registered
+        assert await mcp_client.resync_if_changed(core, workdir) == []
+    finally:
+        await mcp_client.MANAGER.close_all()
