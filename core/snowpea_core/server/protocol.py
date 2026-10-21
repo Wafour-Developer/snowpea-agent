@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.23.0"
+PROTOCOL_VERSION = "1.24.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -369,11 +369,26 @@ class SessionSetAgentParams(Payload):
             "layer), tools allowlist ('*' = all) and max_tool_rounds. null clears it."
         ),
     )
+    guardTurn: bool = Field(
+        default=False,
+        description=(
+            "Guard the running turn (1.24.0): from now on every call that is not a read "
+            "(read-only web tools included) and every mcp__ call is asked with forceAsk "
+            "semantics — plan still denies; no mode, allowlist or cached answer allows it; "
+            "approval.ask answers come back as 'once'. It covers sessions delegated from this "
+            "one (also ones started later), a steer, and turns the agent queues for itself, "
+            "and ends when the person's own next prompt starts a turn. No turn running: no "
+            "effect."
+        ),
+    )
 
 
 class SessionSetAgentResult(Payload):
     sessionId: str = Field(description="The session.")
     agent: str | None = Field(default=None, description="Agent now in force.")
+    guarded: bool = Field(
+        default=False, description="True when a running turn is now guarded (guardTurn)."
+    )
 
 
 class SessionSetBrowserProviderParams(Payload):
@@ -1195,6 +1210,13 @@ class HostToolSpec(Payload):
             "fixed tool list (1.21.0). Calling it by name still works."
         ),
     )
+    agents: list[str] | None = Field(
+        default=None,
+        description=(
+            "Only sessions running as one of these agent definitions see it (1.24.0); "
+            "null: every session of this host."
+        ),
+    )
 
 
 class ToolRegisterParams(Payload):
@@ -1420,6 +1442,14 @@ class ApprovalRequest(Payload):
     site: str | None = Field(
         default=None,
         description="Origin (scheme://host) a 'site' scope would store the answer for (1.6.0).",
+    )
+    guard: str | None = Field(
+        default=None,
+        description=(
+            "Why this is asked whatever the mode (1.24.0): 'agent-switch' for a call in the "
+            "rest of a turn session.setAgent {guardTurn} guarded. Such an answer is never "
+            "remembered."
+        ),
     )
 
 
@@ -5532,6 +5562,7 @@ CAPABILITIES: list[str] = [
     "sessionSetAgent",
     "standingOrders",
     "sessionAttachments",
+    "setAgentGuardTurn",
 ]
 
 #: Where the daemon listens; mirrored into the schema dump for the SDK.

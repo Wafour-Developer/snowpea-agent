@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.23.0` (semver)
+- **Protocol version:** `1.24.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.23.0"
+    "protocolVersion": "1.24.0"
   }
 }
 ```
@@ -57,6 +57,7 @@ Server capabilities advertised in the `system.hello` result:
 - `sessionContinue`
 - `sessionSetAgent`
 - `sessions`
+- `setAgentGuardTurn`
 - `settings`
 - `setup`
 - `siteFrameActions`
@@ -342,7 +343,7 @@ List tool calls still waiting for a decision.
 
 | field | type | required | description |
 |---|---|---|---|
-| `requests` | `({ args?: Record<string, unknown>; note?: string; requestId: string; risk?: string; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; })[]` | no | Approvals still pending. |
+| `requests` | `({ args?: Record<string, unknown>; guard?: string \| null; note?: string; requestId: string; risk?: string; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; })[]` | no | Approvals still pending. |
 
 ### `approval.request`
 
@@ -355,6 +356,7 @@ Ask the client to approve a tool call.
 | field | type | required | description |
 |---|---|---|---|
 | `args` | `Record<string, unknown>` | no | Arguments it wants to use. |
+| `guard` | `string \| null` | no | Why this is asked whatever the mode (1.24.0): 'agent-switch' for a call in the rest of a turn session.setAgent {guardTurn} guarded. Such an answer is never remembered. |
 | `note` | `string` | no | Extra warning shown with the prompt, e.g. "modifies snowpea configuration". |
 | `requestId` | `string` | yes | Id to answer with approval.respond. |
 | `risk` | `string` | no | Risk hint for the UI. |
@@ -1892,6 +1894,7 @@ Run a session as an agent definition, or as none (addendum 17). Only the session
 | field | type | required | description |
 |---|---|---|---|
 | `agent` | `string \| null` | no | Agent definition to run as from the next model call: its prompt (persona layer), tools allowlist ('*' = all) and max_tool_rounds. null clears it. |
+| `guardTurn` | `boolean` | no | Guard the running turn (1.24.0): from now on every call that is not a read (read-only web tools included) and every mcp__ call is asked with forceAsk semantics — plan still denies; no mode, allowlist or cached answer allows it; approval.ask answers come back as 'once'. It covers sessions delegated from this one (also ones started later), a steer, and turns the agent queues for itself, and ends when the person's own next prompt starts a turn. No turn running: no effect. |
 | `sessionId` | `string` | yes | Session to switch. |
 
 **Result**
@@ -1899,6 +1902,7 @@ Run a session as an agent definition, or as none (addendum 17). Only the session
 | field | type | required | description |
 |---|---|---|---|
 | `agent` | `string \| null` | no | Agent now in force. |
+| `guarded` | `boolean` | no | True when a running turn is now guarded (guardTurn). |
 | `sessionId` | `string` | yes | The session. |
 
 ### `session.setBrowserProvider`
@@ -2779,7 +2783,7 @@ Register tools this connection runs itself (host tools).
 
 | field | type | required | description |
 |---|---|---|---|
-| `tools` | `({ category?: string \| null; deferred?: boolean; description: string; inputSchema?: Record<string, unknown>; name: string; parallel?: "safe" \| "never"; permission: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret"; timeoutMs?: number \| null; })[]` | yes | Tools to add or replace for this connection; all-or-nothing. |
+| `tools` | `({ agents?: string[] \| null; category?: string \| null; deferred?: boolean; description: string; inputSchema?: Record<string, unknown>; name: string; parallel?: "safe" \| "never"; permission: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret"; timeoutMs?: number \| null; })[]` | yes | Tools to add or replace for this connection; all-or-nothing. |
 
 **Result**
 
@@ -2855,7 +2859,7 @@ Web search for a browser host (1.11.0): the web_search tool's provider chain, se
 | field | type | required | description |
 |---|---|---|---|
 | `hostToolsFrom` | `string \| null` | no | The session's owning client (addendum 8). A browser profile shows only its own cards and those with null. |
-| `request` | `{ args?: Record<string, unknown>; note?: string; requestId: string; risk?: string; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; }` | yes | The request now in the shared queue. |
+| `request` | `{ args?: Record<string, unknown>; guard?: string \| null; note?: string; requestId: string; risk?: string; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; }` | yes | The request now in the shared queue. |
 
 ### `approval.resolved`
 

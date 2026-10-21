@@ -311,6 +311,7 @@ class ApprovalQueue:
         note: str = "",
         cacheable: bool = True,
         site: str | None = None,
+        guard: str | None = None,
     ) -> Decision:
         """Ask for permission to run ``tool``; block until answered or denied.
 
@@ -332,6 +333,7 @@ class ApprovalQueue:
             scopeHint=scope_hint,  # type: ignore[arg-type]
             note=note,
             site=site,
+            guard=guard,
         )
         loop = asyncio.get_running_loop()
         origin = None if unattended else getattr(session, "origin_conn", None)

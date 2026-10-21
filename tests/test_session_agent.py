@@ -74,7 +74,7 @@ async def test_set_agent_switches_persists_and_announces(
     try:
         session_id = await new_session(client, workdir, agent="browser")
         switched = await client.ok("session.setAgent", {"sessionId": session_id, "agent": "coder"})
-        assert switched == {"sessionId": session_id, "agent": "coder"}
+        assert switched == {"sessionId": session_id, "agent": "coder", "guarded": False}
         session = daemon.core.sessions.get(session_id)
         assert session.allowed_tools is None  # tools: "*"
         assert session.tool_rounds is None

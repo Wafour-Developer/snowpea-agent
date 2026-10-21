@@ -208,7 +208,13 @@ async def approval_ask_handler(
     # onceOnly (a host that cannot name the site): never matched against, or
     # stored as, a rule — the same as a payment, without forcing a person.
     unremembered = payment or once_only(args)
-    force = params.forceAsk or payment
+    from snowpea_core.agent.loop import AGENT_SWITCH_GUARD
+    from snowpea_core.agent.subagent import agent_guarded
+
+    guarded = agent_guarded(core, session)
+    force = params.forceAsk or payment or guarded
+    # A guarded turn's escalations are never remembered either (addendum 25).
+    unremembered = unremembered or guarded
     read_only = bool(getattr(session, "read_only", False))
     if read_only and (params.permission in READ_ONLY_REFUSED or force):
         # A read-only delegation (addendum 23) changes nothing on the page and
@@ -257,13 +263,16 @@ async def approval_ask_handler(
         unattended=session.origin_conn is None,
         cancel_event=session.interrupt,
         note=params.reason,
+        guard=AGENT_SWITCH_GUARD if guarded else None,
         scope_hint="project" if local_dev else ("site" if site and not unremembered else "once"),
         # A payment / onceOnly answer is never remembered: no cache, no entry.
         cacheable=not unremembered,
         site=site,
     )
     scope = decision.scope if decision.scope in _SCOPES else "once"
-    if payment:
+    if payment or guarded:
+        # A guarded turn's answer goes back as "once" too, so the host does
+        # not keep it either (addendum 25).
         scope = "once"
     elif unremembered and decision.allowed:
         # onceOnly (1.12.0): the person's own choice goes back to the host,
@@ -384,11 +393,20 @@ async def session_set_agent_handler(
             "only the session's origin connection, its browser host or the owner's "
             "own surfaces may change its agent",
         )
+    task = getattr(session, "turn_task", None)
+    running = session.current_turn is not None or (task is not None and not task.done())
+    # Addendum 25: set before the switch awaits anything, so no call of the
+    # new agent slips in between; the person's next prompt lifts it.
+    was_guarded = session.agent_guard
+    guarded = bool(params.guardTurn and running)
+    if guarded:
+        session.agent_guard = True
     try:
         agent = await switch_agent(core, session, (params.agent or "").strip() or None)
     except UnknownAgent as exc:
+        session.agent_guard = was_guarded
         raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
-    return SessionSetAgentResult(sessionId=session.id, agent=agent)
+    return SessionSetAgentResult(sessionId=session.id, agent=agent, guarded=guarded)
 
 
 async def session_set_active_handler(

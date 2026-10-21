@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.23.0";
+export const PROTOCOL_VERSION = "1.24.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -223,6 +223,8 @@ export interface ApprovalListResult {
   requests?: ({
     /** Arguments it wants to use. */
     args?: Record<string, unknown>;
+    /** Why this is asked whatever the mode (1.24.0): 'agent-switch' for a call in the rest of a turn session.setAgent {guardTurn} guarded. Such an answer is never remembered. */
+    guard?: string | null;
     /** Extra warning shown with the prompt, e.g. "modifies snowpea configuration". */
     note?: string;
     /** Id to answer with approval.respond. */
@@ -246,6 +248,8 @@ export interface ApprovalListResult {
 export interface ApprovalRequestParams {
   /** Arguments it wants to use. */
   args?: Record<string, unknown>;
+  /** Why this is asked whatever the mode (1.24.0): 'agent-switch' for a call in the rest of a turn session.setAgent {guardTurn} guarded. Such an answer is never remembered. */
+  guard?: string | null;
   /** Extra warning shown with the prompt, e.g. "modifies snowpea configuration". */
   note?: string;
   /** Id to answer with approval.respond. */
@@ -2162,6 +2166,8 @@ export interface SessionSetActiveResult {
 export interface SessionSetAgentParams {
   /** Agent definition to run as from the next model call: its prompt (persona layer), tools allowlist ('*' = all) and max_tool_rounds. null clears it. */
   agent?: string | null;
+  /** Guard the running turn (1.24.0): from now on every call that is not a read (read-only web tools included) and every mcp__ call is asked with forceAsk semantics — plan still denies; no mode, allowlist or cached answer allows it; approval.ask answers come back as 'once'. It covers sessions delegated from this one (also ones started later), a steer, and turns the agent queues for itself, and ends when the person's own next prompt starts a turn. No turn running: no effect. */
+  guardTurn?: boolean;
   /** Session to switch. */
   sessionId: string;
 }
@@ -2170,6 +2176,8 @@ export interface SessionSetAgentParams {
 export interface SessionSetAgentResult {
   /** Agent now in force. */
   agent?: string | null;
+  /** True when a running turn is now guarded (guardTurn). */
+  guarded?: boolean;
   /** The session. */
   sessionId: string;
 }
@@ -3800,6 +3808,8 @@ export interface ToolProgressResult {
 export interface ToolRegisterParams {
   /** Tools to add or replace for this connection; all-or-nothing. */
   tools: ({
+    /** Only sessions running as one of these agent definitions see it (1.24.0); null: every session of this host. */
+    agents?: string[] | null;
     /** UI grouping; defaults to "host". */
     category?: string | null;
     /** Name it in the prompt and send its schema only after tool_search loads it, when the daemon has tools.agentDeferred on and the session's provider keeps a fixed tool list (1.21.0). Calling it by name still works. */
@@ -3900,6 +3910,8 @@ export interface ApprovalPendingPayload {
   request: {
     /** Arguments it wants to use. */
     args?: Record<string, unknown>;
+    /** Why this is asked whatever the mode (1.24.0): 'agent-switch' for a call in the rest of a turn session.setAgent {guardTurn} guarded. Such an answer is never remembered. */
+    guard?: string | null;
     /** Extra warning shown with the prompt, e.g. "modifies snowpea configuration". */
     note?: string;
     /** Id to answer with approval.respond. */

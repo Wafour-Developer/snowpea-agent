@@ -149,6 +149,10 @@ class Session:
     #: session is made and inherited by its children: such a session takes no
     #: outside input, and only that browser answers its approvals (1.23.0).
     owned_by: str | None = None
+    #: ``session.setAgent {guardTurn}`` (addendum 25): non-read and MCP calls
+    #: are always asked, here and in every session delegated from here, until
+    #: the person's own next prompt starts a turn.
+    agent_guard: bool = False
     #: The definition those came from; a delegated child inherits its own.
     agent_definition: str | None = None
     agent_identity: str | None = None

@@ -119,6 +119,8 @@ class Tool:
     #: A host asked for this tool to be named only, behind ``tool_search``
     #: (``HostToolSpec.deferred``); honoured with ``tools.agentDeferred``.
     deferred_hint: bool = False
+    #: Host tools only: the agents whose sessions see it (``None``: all).
+    agents: tuple[str, ...] | None = None
 
     def info(self) -> ToolInfo:
         # ``mcp:<server>`` is the source an MCP tool is registered with, so the

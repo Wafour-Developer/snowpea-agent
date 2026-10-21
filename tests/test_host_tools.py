@@ -2415,3 +2415,37 @@ async def test_a_turn_waits_briefly_for_a_connected_host_to_register(
         assert loop.time() - started < 0.5
     finally:
         await host.stop()
+
+
+async def test_set_agent_guard_turn_and_agent_scoped_host_tools(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    """Addendum 25: guardTurn guards the running turn only, until turn.done;
+    a host tool registered with ``agents`` is seen only by those agents."""
+    from snowpea_core.agent.loop import finish_turn
+
+    host = await open_client(http, daemon, client_id="snowpea-browser-G")
+    try:
+        await host.ok(
+            "tool.register",
+            {"tools": [spec("host_echo"), spec("request_code_mode", agents=["browser"])]},
+        )
+        session_id = await new_session(host, tmp_path / "w")
+        session = daemon.core.sessions.get(session_id)
+        assert "request_code_mode" not in HOST_TOOLS.names_for(session)
+        session.agent = "browser"
+        assert "request_code_mode" in HOST_TOOLS.names_for(session)
+        session.agent = None
+
+        idle = await host.ok("session.setAgent", {"sessionId": session_id, "guardTurn": True})
+        assert idle["guarded"] is False and not session.agent_guard
+        session.current_turn = "t-running"
+        switched = await host.ok(
+            "session.setAgent", {"sessionId": session_id, "agent": None, "guardTurn": True}
+        )
+        assert switched["guarded"] is True and session.agent_guard
+        # turn.done does not lift it: what the agent queues next stays guarded.
+        await finish_turn(daemon.core, session, "t-running", "complete")
+        assert session.agent_guard
+    finally:
+        await host.stop()

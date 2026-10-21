@@ -235,6 +235,27 @@ def fingerprint(agent: str | None, task: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def agent_guarded(core: Any, session: Any) -> bool:
+    """True while ``session`` or a session it was delegated from is guarded.
+
+    Read from the parent chain at each call, so a child started late (a
+    background delegation, a team worker) is covered for as long as the
+    guard lasts, and released with it (addendum 25).
+    """
+    seen: set[str] = set()
+    current = session
+    sessions = getattr(core, "sessions", None)
+    while current is not None:
+        if getattr(current, "agent_guard", False):
+            return True
+        parent_id = getattr(current, "parent_session_id", None)
+        if not parent_id or parent_id in seen or sessions is None:
+            return False
+        seen.add(str(parent_id))
+        current = sessions.get(str(parent_id))
+    return False
+
+
 def inherit_host(child: Any, parent: Any) -> None:
     """Give ``child`` its parent's browser host, workspace and client identity.
 
@@ -247,6 +268,10 @@ def inherit_host(child: Any, parent: Any) -> None:
     child.workspace_dir = getattr(parent, "workspace_dir", None)
     child.origin_client_id = getattr(parent, "origin_client_id", None)
     child.browser_provider = getattr(parent, "browser_provider", None)
+    # A session made from a guarded one keeps the guard for good (addendum 25).
+    child.agent_guard = bool(getattr(child, "agent_guard", False)) or bool(
+        getattr(parent, "agent_guard", False)
+    )
     child.owned_by = getattr(parent, "owned_by", None)
     if getattr(parent, "origin_surface", None) == "browser":
         child.origin_surface = "browser"
@@ -331,6 +356,10 @@ class SubagentRecord:
     name: str
     task: str
     parent_session_id: str
+    #: Accepted while its parent was agent-switch guarded (addendum 25): the
+    #: child stays guarded after the parent's guard is lifted, since its brief
+    #: was written under it.
+    guarded: bool = False
     #: One-line, user-language label the caller wrote for this delegation
     #: (``delegate_task(title=…)``); ``""`` when it did not write one, and the
     #: surface falls back to its own wording.
@@ -761,6 +790,7 @@ class SubagentManager:
             parent_session_id=parent.id,
             title=(title or "").strip(),
             task_fingerprint=fingerprint(agent, brief),
+            guarded=agent_guarded(self.core, parent),
         )
         self._remember(record)
         return record
@@ -1359,6 +1389,7 @@ class SubagentManager:
         child.memory_namespace = parent.memory_namespace
         child.locale = getattr(parent, "locale", None)
         inherit_host(child, parent)
+        child.agent_guard = child.agent_guard or record.guarded
         child.backend = SharedBackend(parent.backend)  # type: ignore[assignment]
         return child
 

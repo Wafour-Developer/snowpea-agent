@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any
 from snowpea_core.agent import agent as agent_mod
 from snowpea_core.agent import call_fixups, context_files, plan_store, verify_gate
 from snowpea_core.agent.agent import AgentConfig, build_messages
+from snowpea_core.agent.subagent import agent_guarded
 from snowpea_core.agent.tool_batch import plan_tool_batch_segments
 from snowpea_core.attachments import pending
 from snowpea_core.config.settings import THINKING_CHOICES
@@ -90,6 +91,12 @@ MAX_NOTICE_FLUSH_CHARS = 12_000
 #: the output limit.  Two is enough for a long review and still bounded
 #: (CORE-reasoning-budget).
 MAX_CONTINUATIONS = 2
+#: ``ApprovalRequest.guard`` and the note of a call a switch guard asks for.
+AGENT_SWITCH_GUARD = "agent-switch"
+GUARD_NOTE = (
+    "Asked because the agent was switched during this turn: its context may hold page "
+    "text that asked for the switch."
+)
 #: An answer with no text and no tool call is asked again once with this
 #: appended, never rewritten into the history before it (the prefix stays).
 EMPTY_NUDGE = "Continue: call a tool or answer."
@@ -214,6 +221,17 @@ async def _mark_turn_finished(core: Core, session: Session, reason: str) -> None
         await sessions.announce_sessions_changed(
             "turn", session.id, status="error" if reason == "error" else "idle"
         )
+
+
+def _guarded_call(core: Core, session: Session, tool: Tool, tag: str) -> bool:
+    """Whether this call falls under an agent-switch guard (addendum 25).
+
+    Every call that is not a read, the read-only web tools included (a URL
+    or a query can carry what was read), and every MCP call.
+    """
+    if not agent_guarded(core, session):
+        return False
+    return tool.name.startswith("mcp__") or tag != "read"
 
 
 async def finish_turn(core: Core, session: Session, turn_id: str, reason: str) -> str:
@@ -1227,13 +1245,15 @@ async def run_turn(
     to ``human`` (``system`` for a system turn).
     """
     turn_id = turn_id or new_turn_id()
-    origin = (
-        origin
-        or session.turn_origins.get(turn_id)
-        or ("system" if initiator == "system" else "human")
-    )
+    recorded = origin or session.turn_origins.get(turn_id)
+    origin = recorded or ("system" if initiator == "system" else "human")
     drop_owned_context(session, origin)
     note_origin(session, turn_id, origin)
+    if recorded == "human":
+        # The person's own next turn ends an agent-switch guard (addendum 25);
+        # what the agent queued for itself stays guarded, and so does a turn
+        # whose origin nobody recorded (a command's nested run).
+        session.agent_guard = False
     session.current_turn = turn_id
     hub = core.hub
     from snowpea_core.agent.session_agent import ensure_applied
@@ -2145,6 +2165,12 @@ async def _run_one_call(
         await _deny_call(core, session, call, refusal)
         return None
     verdict = policy.decide(session.mode, tag, tool, call.arguments, session)
+    guarded = _guarded_call(core, session, tool, tag)
+    if guarded and verdict != "deny":
+        # The rest of a turn the agent was switched in (addendum 25): its
+        # context may hold the page text that asked for the switch, so every
+        # change is put to the person — no mode, rule or cached answer skips it.
+        verdict = "ask"
     if getattr(session, "read_only", False) and (
         tag in READ_ONLY_REFUSED or verdict == "ask" or tool.name in READ_ONLY_REFUSED_TOOLS
     ):
@@ -2183,8 +2209,9 @@ async def _run_one_call(
             risk=policy.risk(tag),
             unattended=unattended,
             cancel_event=session.interrupt,
-            note=policy.note(tag),
-            cacheable=tag not in UNPROMOTABLE,
+            note=GUARD_NOTE if guarded else policy.note(tag),
+            cacheable=tag not in UNPROMOTABLE and not guarded,
+            guard=AGENT_SWITCH_GUARD if guarded else None,
         )
         if session.interrupt.is_set():
             view_image.flush_tool_image_messages(core, session, append=False)

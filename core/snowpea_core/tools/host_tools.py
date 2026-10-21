@@ -221,6 +221,11 @@ class HostTools:
                     source=f"host:{conn.surface_id}",
                     parallel_safe=parallel == "safe",
                     deferred_hint=bool(spec.get("deferred")),
+                    agents=(
+                        tuple(str(item) for item in spec["agents"])
+                        if isinstance(spec.get("agents"), list) and spec["agents"]
+                        else None
+                    ),
                 )
             )
         host = self._hosts.get(conn.surface_id)
@@ -349,7 +354,19 @@ class HostTools:
         """``name -> Tool`` for the host tools ``session`` may call."""
         owner = self.owner_of(session)
         host = self._hosts.get(owner) if owner else None
-        return dict(host.tools) if host is not None else {}
+        if host is None:
+            return {}
+        if not hasattr(session, "agent"):
+            # A readiness probe (the scheduler's): any tool counts.
+            return dict(host.tools)
+        agent = getattr(session, "agent", None)
+        # An agent-scoped tool (1.24.0) stays out of other agents' sessions.
+        # Visibility only: it is no boundary for a delegation naming that agent.
+        return {
+            name: tool
+            for name, tool in host.tools.items()
+            if tool.agents is None or (agent is not None and agent in tool.agents)
+        }
 
     def names_for(self, session: Any) -> list[str]:
         return list(self.for_session(session))

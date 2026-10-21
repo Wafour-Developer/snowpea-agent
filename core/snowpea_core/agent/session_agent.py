@@ -91,6 +91,9 @@ async def switch_agent(core: Any, session: Session, name: str | None) -> str | N
     from snowpea_core.session import events
 
     apply_agent(core, session, name)
+    # The plan (identity, deferred tools, skills scope) was made for the agent
+    # before; the next model call makes one for this one.
+    session.prompt_plan = None
     if getattr(core, "store", None) is not None:
         await core.store.update_agent(session.id, session.agent)
     await core.hub.emit_event(session.id, events.agent_changed(session.agent))

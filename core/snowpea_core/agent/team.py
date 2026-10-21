@@ -301,6 +301,8 @@ class TeamRun:
     task: str
     workers: int
     worktrees: list[Worktree] = field(default_factory=list)
+    #: Started while the lead was agent-switch guarded (addendum 25).
+    guarded: bool = False
     #: Increments each time a task is committed, so the lead merges in
     #: completion order rather than board order.
     done_counter: int = 0
@@ -379,6 +381,9 @@ class TeamManager:
             await self._emit(team_id, entry.id, team_store.QUEUED, None, 0)
 
         run = TeamRun(id=team_id, session=session, repo=repo, task=brief, workers=workers)
+        from snowpea_core.agent.subagent import agent_guarded
+
+        run.guarded = agent_guarded(self.core, session)
         run.plan_steps = {entry.id: entry.plan_step for entry in planned if entry.plan_step}
         run.plan_id = plan.id if from_plan and plan is not None else ""
         run.worktrees = await self._create_worktrees(run)
@@ -888,6 +893,7 @@ class TeamManager:
         anchor.unattended = lead.unattended
         anchor.memory_namespace = lead.memory_namespace
         inherit_host(anchor, lead)
+        anchor.agent_guard = anchor.agent_guard or bool(getattr(run, "guarded", False))
         backend = getattr(lead, "backend", None)
         if backend is None or getattr(backend, "kind", "local") == "local":
             anchor.backend = LocalBackend(run.repo)
@@ -940,6 +946,7 @@ class TeamManager:
         anchor.unattended = lead.unattended
         anchor.memory_namespace = lead.memory_namespace
         inherit_host(anchor, lead)
+        anchor.agent_guard = anchor.agent_guard or bool(getattr(run, "guarded", False))
         backend = getattr(lead, "backend", None)
         if backend is None or getattr(backend, "kind", "local") == "local":
             anchor.backend = LocalBackend(entry.path)
