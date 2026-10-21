@@ -37587,7 +37587,7 @@ function chipLabel(attachment) {
 }
 
 // src/version.ts
-var TUI_VERSION = "0.2.58";
+var TUI_VERSION = "0.2.59";
 
 // src/components/DiffView.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
@@ -37847,24 +37847,6 @@ function hiddenLines(calls) {
     if (body.length > 0) total += body.split("\n").length;
   }
   return total;
-}
-function groupCalls(calls) {
-  const blocks = [];
-  let run = [];
-  const flush = () => {
-    if (run.length > 0) blocks.push({ kind: "tools", calls: run });
-    run = [];
-  };
-  for (const call of calls) {
-    if (call.state === "error") {
-      flush();
-      blocks.push({ kind: "single", call });
-      continue;
-    }
-    run.push(call);
-  }
-  flush();
-  return blocks;
 }
 
 // src/components/ToolSummary.tsx
@@ -38230,15 +38212,6 @@ function messageBlock(message, width, colorize2, inputBackground) {
   }
   return out;
 }
-function summaryLine2(calls) {
-  const hidden = hiddenLines(calls);
-  const segments = [
-    { text: `${SUMMARY_GLYPH} `, color: currentAccentDim() },
-    { text: summarizeCalls(calls) }
-  ];
-  if (hidden > 0) segments.push({ text: ` (${hidden} lines)`, dimColor: true });
-  return { key: `tools-${calls[0].callId}-${calls.length}`, segments };
-}
 function diffBlock(diff2, expanded, state) {
   const diagnostics = state.diagnostics[diff2.path];
   const badge = diagnosticsBadge(diagnostics);
@@ -38291,20 +38264,8 @@ function screenTranscriptLines(state, width, { expandedId = null, notes = [], in
     if (gapAfter) out.push(blank(`gap-${out.length}`));
     last = gapAfter ? "none" : kind;
   };
-  const flush = (live) => {
-    if (run.length === 0) return;
-    if (live) {
-      for (const call of run) push(toolCallLines(call, expandedId === call.callId), "tools", false);
-    } else {
-      for (const block of groupCalls(run)) {
-        if (block.kind === "single" || block.calls.some((call) => call.callId === expandedId)) {
-          const calls2 = block.kind === "single" ? [block.call] : block.calls;
-          for (const call of calls2) push(toolCallLines(call, expandedId === call.callId), "tools", false);
-        } else {
-          push([summaryLine2(block.calls)], "tools", false);
-        }
-      }
-    }
+  const flush = (_live) => {
+    for (const call of run) push(toolCallLines(call, expandedId === call.callId), "tools", false);
     run = [];
   };
   const placeNotes = (position) => {
@@ -41661,19 +41622,11 @@ function releaseEntries(state, items, width, streamCommitted) {
   const out = [];
   let run = [];
   const flush = () => {
-    for (const block of groupCalls(run)) {
-      if (block.kind === "single") {
-        out.push({
-          key: `tool-${block.call.callId}`,
-          kind: "entry",
-          item: { kind: "tool", id: block.call.callId }
-        });
-        continue;
-      }
+    for (const call of run) {
       out.push({
-        key: `tools-${block.calls[0].callId}-${block.calls.length}`,
-        kind: "tools",
-        calls: block.calls
+        key: `tool-${call.callId}`,
+        kind: "entry",
+        item: { kind: "tool", id: call.callId }
       });
     }
     run = [];
