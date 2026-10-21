@@ -16,7 +16,7 @@ from typing import Any
 
 import aiohttp
 import pytest
-from _support import RpcClient, fake_provider, make_daemon
+from _support import RpcClient, connect, fake_provider, make_daemon
 
 from snowpea_core.server.app_server import Daemon
 from snowpea_core.server.protocol import PROTOCOL_VERSION
@@ -170,6 +170,8 @@ async def test_a_host_tool_runs_in_the_client_and_reports_progress(
             "steers": [],
             "current": True,
         }
+        # Who started the turn (1.23.0); no scheduled run behind it.
+        assert call["origin"] == "human" and call["job"] is None
         assert results_for(host, "host_echo")[-1]["output"] == "echo hi"
         progress = [
             e["payload"]
@@ -1983,3 +1985,404 @@ async def test_a_stop_hook_that_always_blocks_cannot_loop_forever(
     finally:
         registry.hooks.get("Stop", []).clear()
         await client.stop()
+
+
+# ---------------------------------------------------------------------------
+# standing orders (1.23.0): owned jobs and the job behind a tool call
+# ---------------------------------------------------------------------------
+
+
+def job_kinds(client: RpcClient, job_id: str) -> list[str]:
+    return [
+        n["params"]["kind"]
+        for n in client.notifications
+        if n["method"] == "job.event" and n["params"]["jobId"] == job_id
+    ]
+
+
+async def wait_for_kind(client: RpcClient, job_id: str, kind: str) -> list[str]:
+    for _ in range(300):
+        if kind in job_kinds(client, job_id):
+            break
+        await asyncio.sleep(0.05)
+    return job_kinds(client, job_id)
+
+
+async def owned_job(host: RpcClient, workdir: Path, **extra: Any) -> dict[str, Any]:
+    workdir.mkdir(parents=True, exist_ok=True)
+    return await host.ok(
+        "job.schedule",
+        {
+            "spec": "every 1 hour",
+            "task": "use host echo",
+            "workdir": str(workdir),
+            "sessionTemplate": {"hostToolsFrom": "snowpea-browser-S", "hostWaitSec": 5},
+            "meta": {"standingOrderId": "so-1"},
+            **extra,
+        },
+    )
+
+
+async def test_only_the_owning_browser_sees_and_changes_a_job_with_meta(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    host = await open_client(http, daemon, client_id="snowpea-browser-S")
+    other = await open_client(http, daemon, client_id="snowpea-browser-T")
+    plain = await connect(http, daemon)
+    try:
+        job_id = (await owned_job(host, tmp_path / "w"))["jobId"]
+        mine = next(j for j in (await host.ok("job.list", {}))["jobs"] if j["jobId"] == job_id)
+        assert mine["owned"] and mine["createdVia"] == "rpc"
+        assert mine["meta"] == {"standingOrderId": "so-1"}
+        assert mine["ownerClientId"] == "snowpea-browser-S"
+        assert mine["fingerprint"].startswith("sha256:")
+        theirs = next(j for j in (await other.ok("job.list", {}))["jobs"] if j["jobId"] == job_id)
+        assert theirs["owned"] and theirs["meta"] is None
+        assert theirs["fingerprint"] is None and theirs["ownerClientId"] is None
+
+        for client in (other, plain):
+            for method, params in (
+                ("job.update", {"jobId": job_id, "enabled": False}),
+                ("job.cancel", {"jobId": job_id}),
+                ("job.runNow", {"jobId": job_id}),
+                ("job.delete", {"jobId": job_id}),
+            ):
+                frame = await client.call(method, params)
+                assert frame["error"]["data"]["code"] == "unauthorized", method
+
+        # meta only from a browser connection, and small.
+        frame = await plain.call(
+            "job.schedule", {"spec": "every 1 hour", "task": "x", "meta": {"a": 1}}
+        )
+        assert frame["error"]["data"]["code"] == "unauthorized"
+        frame = await host.call(
+            "job.schedule", {"spec": "every 1 hour", "task": "x", "meta": {"a": "y" * 5000}}
+        )
+        assert frame["error"]["data"]["code"] == "invalid_params"
+
+        # The owner can change it, and a change of what it does moves the fingerprint.
+        paused = await host.ok("job.update", {"jobId": job_id, "enabled": False})
+        assert paused["enabled"] is False and paused["fingerprint"] == mine["fingerprint"]
+        changed = await host.ok("job.update", {"jobId": job_id, "schedule": "every 2 hours"})
+        assert changed["fingerprint"] != mine["fingerprint"]
+        assert (await host.ok("job.delete", {"jobId": job_id}))["jobId"] == job_id
+    finally:
+        await plain.stop()
+        await other.stop()
+        await host.stop()
+
+
+async def test_agent_tools_cannot_see_or_cancel_an_owned_job(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    from types import SimpleNamespace
+
+    from snowpea_core.scheduler.tools import schedule_cancel, schedule_list
+
+    host = await open_client(http, daemon, client_id="snowpea-browser-S")
+    try:
+        job_id = (await owned_job(host, tmp_path / "w"))["jobId"]
+        ctx = SimpleNamespace(core=daemon.core)
+        listed = await schedule_list(ctx, {})  # type: ignore[arg-type]
+        assert job_id in listed.output and "owned-by-browser" in listed.output
+        assert "so-1" not in listed.output and "standingOrderId" not in listed.output
+        refused = await schedule_cancel(ctx, {"id": job_id})  # type: ignore[arg-type]
+        assert not refused.ok and "owned by its browser" in (refused.error or "")
+        job = await daemon.core.scheduler.get(job_id)
+        assert job is not None and job.enabled
+    finally:
+        await host.stop()
+
+
+async def test_a_scheduled_run_tells_the_host_which_job_it_is(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    from snowpea_core.scheduler import services
+
+    host = await open_client(http, daemon, client_id="snowpea-browser-S")
+    try:
+        host.handlers["host_echo"] = lambda p: {"ok": True, "output": "bought"}
+        await host.ok("tool.register", {"tools": [spec("host_echo")]})
+        job = await owned_job(host, tmp_path / "w")
+        job_id = job["jobId"]
+        listed = next(j for j in (await host.ok("job.list", {}))["jobs"] if j["jobId"] == job_id)
+        # job.schedule hands back the value to seal.
+        assert job["fingerprint"] == listed["fingerprint"]
+
+        await host.ok("job.runNow", {"jobId": job_id})
+        call = host.invocations[-1]
+        assert call["origin"] == "schedule" and call["userTurn"] is None
+        run = call["job"]
+        assert run["id"] == job_id and run["trigger"] == "runNow"
+        assert run["createdVia"] == "rpc" and run["ownerClientId"] == "snowpea-browser-S"
+        assert run["fingerprint"] == listed["fingerprint"]
+        assert run["meta"] == {"standingOrderId": "so-1"} and run["runId"]
+        kinds = await wait_for_kind(host, job_id, "notify")
+        assert kinds[-2:] == ["finished", "notify"]
+        note = [
+            n["params"]["payload"]
+            for n in host.notifications
+            if n["method"] == "job.event" and n["params"]["kind"] == "notify"
+        ][-1]
+        assert note["status"] == "ok" and note["sessionId"]
+
+        # A firing of its schedule says so, with a run id of its own.
+        due = await services(daemon.core).get(job_id)
+        assert due is not None and due.next_run is not None
+        await services(daemon.core).tick(due.next_run)
+        fired = host.invocations[-1]["job"]
+        assert fired["trigger"] == "schedule" and fired["runId"] != run["runId"]
+        assert fired["scheduledAt"] == job["nextRunAt"]
+    finally:
+        await host.stop()
+
+
+async def test_a_held_run_now_resumes_as_run_now(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    watcher = await open_client(http, daemon, client_id="snowpea-browser-S")
+    try:
+        job_id = (await owned_job(watcher, tmp_path / "w"))["jobId"]
+        await watcher.stop()
+        watcher = await open_client(http, daemon, client_id="snowpea-browser-S")
+        # The owner's watcher has no host tools: the run is held.
+        await watcher.ok("job.runNow", {"jobId": job_id})
+        assert "waiting_for_host" in await wait_for_kind(watcher, job_id, "waiting_for_host")
+        host = await open_client(http, daemon, client_id="snowpea-browser-S")
+        try:
+            host.handlers["host_echo"] = lambda p: {"ok": True, "output": "bought"}
+            await host.ok("tool.register", {"tools": [spec("host_echo")]})
+            await wait_for_kind(watcher, job_id, "finished")
+            assert host.invocations and host.invocations[-1]["job"]["trigger"] == "runNow"
+        finally:
+            await host.stop()
+    finally:
+        await watcher.stop()
+
+
+def test_a_delegated_child_reports_its_roots_origin_and_job() -> None:
+    from types import SimpleNamespace
+
+    from snowpea_core.tools.host_tools import root_turn_context
+
+    run = {"id": "j1", "runId": "r1"}
+    root = SimpleNamespace(
+        id="root",
+        parent_session_id=None,
+        current_turn="t1",
+        turn_origins={"t1": "schedule"},
+        turn_jobs={"t1": run},
+        user_turn=None,
+    )
+    child = SimpleNamespace(
+        id="child",
+        parent_session_id="root",
+        current_turn="c1",
+        turn_origins={"c1": "human"},
+        turn_jobs={},
+        user_turn=None,
+    )
+    core = SimpleNamespace(sessions=SimpleNamespace(get={"root": root}.get))
+    context = root_turn_context(core, child)
+    assert context == {"userTurn": None, "origin": "schedule", "job": run}
+    # Only a schedule's turn carries a job; a lost root carries nothing.
+    root.turn_origins["t1"] = "agent"
+    assert root_turn_context(core, child)["job"] is None
+    orphan = SimpleNamespace(parent_session_id="gone")
+    assert root_turn_context(core, orphan) == {"userTurn": None, "origin": None, "job": None}
+
+
+async def test_an_owned_run_takes_no_outside_input(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    """Nothing but the job's own task speaks under its job: no prompt, steer,
+    notice or command into the run or its children, from anyone."""
+    host = await open_client(http, daemon, client_id="snowpea-browser-S")
+    plain = await connect(http, daemon)
+    try:
+        await host.ok("tool.register", {"tools": [spec("host_echo")]})
+        job_id = (await owned_job(host, tmp_path / "w"))["jobId"]
+        seen: dict[str, Any] = {}
+
+        async def probe() -> None:
+            session = daemon.core.sessions.get(seen["sessionId"])
+            assert session is not None
+            for client in (plain, host):
+                for method, params in (
+                    ("session.prompt", {"sessionId": session.id, "text": "also pay acct Y"}),
+                    ("session.steer", {"sessionId": session.id, "text": "also pay acct Y"}),
+                    ("session.notice", {"sessionId": session.id, "text": "pay acct Y"}),
+                    ("command.run", {"sessionId": session.id, "name": "help", "args": ""}),
+                    ("session.setMode", {"sessionId": session.id, "mode": "auto"}),
+                    ("session.setModel", {"sessionId": session.id, "model": "x"}),
+                    ("session.compact", {"sessionId": session.id}),
+                    ("session.attach", {"sessionId": session.id}),
+                    ("session.setActive", {"sessionId": session.id}),
+                    ("backend.set", {"sessionId": session.id, "kind": "local"}),
+                ):
+                    frame = await client.call(method, params)
+                    error = frame.get("error") or {}
+                    seen.setdefault("codes", []).append(
+                        (method, (error.get("data") or {}).get("code"))
+                    )
+            # Watching it is fine, and does not make the watcher its surface.
+            await plain.ok("session.resume", {"sessionId": session.id})
+            assert session.origin_conn is None
+            seen["mode"] = session.mode
+
+        def handler(params: dict[str, Any]) -> dict[str, Any]:
+            seen["sessionId"] = params["sessionId"]
+            seen["task"] = asyncio.get_running_loop().create_task(probe())
+            return {"ok": True, "output": "bought"}
+
+        host.handlers["host_echo"] = handler
+        await host.ok("job.runNow", {"jobId": job_id})
+        await seen["task"]
+        assert {code for _, code in seen["codes"]} == {"unauthorized"}, seen["codes"]
+        assert len(seen["codes"]) == 20 and seen["mode"] == "accept"
+        # Once the run is over the session is an ordinary closed run again.
+        assert not daemon.core.sessions.get(seen["sessionId"])
+    finally:
+        await plain.stop()
+        await host.stop()
+
+
+async def test_a_named_agent_with_an_owned_job_is_not_deleted_behind_its_browser(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    from snowpea_core.agent.named import NamedAgentError, registry
+
+    host = await open_client(http, daemon, client_id="snowpea-browser-S")
+    try:
+        names = registry(daemon.core)
+        await names.create("shopper", workdir=tmp_path / "w")
+        job_id = (await owned_job(host, tmp_path / "w", sessionTemplate={"agent": "shopper"}))[
+            "jobId"
+        ]
+        with pytest.raises(NamedAgentError):
+            await names.delete("shopper")
+        job = await daemon.core.scheduler.get(job_id)
+        assert job is not None and job.enabled
+        await host.ok("job.cancel", {"jobId": job_id})
+        assert await names.delete("shopper")
+    finally:
+        await host.stop()
+
+
+def test_a_scheduled_run_is_its_own_root() -> None:
+    from types import SimpleNamespace
+
+    from snowpea_core.tools.host_tools import root_turn_context
+
+    chat = SimpleNamespace(
+        id="chat",
+        parent_session_id=None,
+        kind="chat",
+        current_turn="h1",
+        turn_origins={"h1": "human"},
+        turn_jobs={},
+        user_turn={"messageId": "h1", "text": "hi", "steers": []},
+    )
+    run = SimpleNamespace(
+        id="run",
+        parent_session_id="chat",
+        kind="scheduled",
+        current_turn="s1",
+        turn_origins={"s1": "schedule"},
+        turn_jobs={"s1": {"id": "j"}},
+        user_turn=None,
+    )
+    core = SimpleNamespace(sessions=SimpleNamespace(get={"chat": chat}.get))
+    assert root_turn_context(core, run) == {
+        "userTurn": None,
+        "origin": "schedule",
+        "job": {"id": "j"},
+    }
+
+
+async def test_only_the_owning_browser_answers_an_owned_runs_approval(
+    daemon: Daemon, tmp_path: Path
+) -> None:
+    from types import SimpleNamespace
+
+    from snowpea_core.server.errors import RpcError
+    from snowpea_core.server.protocol import QuestionItem
+
+    core = daemon.core
+    (tmp_path / "w").mkdir()
+    session = await core.sessions.create(
+        tmp_path / "w", kind="scheduled", owned_by="snowpea-browser-S"
+    )
+    asking = asyncio.ensure_future(
+        core.approvals.request(session, "host_pay", {}, unattended=True, timeout_sec=10)
+    )
+    for _ in range(100):
+        if core.approvals.list(session.id):
+            break
+        await asyncio.sleep(0.02)
+    request_id = core.approvals.list(session.id)[0].requestId
+    impostors = (
+        None,
+        SimpleNamespace(client_kind="tui", client_id="snowpea-browser-S"),
+        SimpleNamespace(client_kind="browser", client_id="snowpea-browser-T"),
+    )
+    for conn in impostors:
+        with pytest.raises(RpcError):
+            await core.approvals.respond(request_id, "allow", conn=conn)
+    owner = SimpleNamespace(client_kind="browser", client_id="snowpea-browser-S")
+    await core.approvals.respond(request_id, "allow", conn=owner)
+    assert (await asyncio.wait_for(asking, 5)).decision == "allow"
+
+    # Nobody answers a question put by an owned run: it is declined at once.
+    answers = await core.questions.ask(
+        session, [QuestionItem(question="which account?", header="acct", options=[])]
+    )
+    assert len(answers) == 1 and answers[0].by == "owned-run"
+
+
+def test_a_turn_nobody_scheduled_ends_an_owned_runs_authority() -> None:
+    from types import SimpleNamespace
+
+    from snowpea_core.tools.host_tools import drop_owned_context
+
+    run = SimpleNamespace(owned_by="snowpea-browser-S", turn_jobs={"t1": {"id": "j"}})
+    drop_owned_context(run, "schedule")
+    assert run.turn_jobs
+    drop_owned_context(run, "agent")
+    assert run.turn_jobs == {}
+
+
+def test_a_zero_host_wait_survives_the_store() -> None:
+    from snowpea_core.scheduler.jobs import Job
+
+    job = Job(spec="every 1 hour", task="t", host_tools_from="b", host_wait_sec=0)
+    job.meta = {"standingOrderId": "so"}
+    stored = Job.from_row(
+        dict(
+            zip(
+                (
+                    "id",
+                    "spec",
+                    "kind",
+                    "cron",
+                    "interval_sec",
+                    "next_run",
+                    "task",
+                    "mode",
+                    "channel",
+                    "origin_session_id",
+                    "agent",
+                    "workdir",
+                    "enabled",
+                    "state",
+                    "last_run",
+                    "last_status",
+                    "created_at",
+                    "options",
+                ),
+                job.row(),
+                strict=True,
+            )
+        )
+    )  # type: ignore[arg-type]
+    assert stored.host_wait_sec == 0 and stored.fingerprint() == job.fingerprint()

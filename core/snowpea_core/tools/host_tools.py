@@ -409,7 +409,8 @@ class HostTools:
             # The session's project folder itself (Projects, 1.7.0).
             "workdir": str(Path(getattr(session, "workdir", "") or ".").resolve()),
             "parentSessionId": getattr(session, "parent_session_id", None),
-            "userTurn": root_user_turn(core, session),
+            # userTurn, origin and job: the root's running turn (1.22.0, 1.23.0).
+            **root_turn_context(core, session),
         }
         try:
             answer = await self._call_or_cancel(
@@ -648,16 +649,20 @@ def snapshot_tab(meta: dict[str, Any] | None) -> str | None:
     return text[:200] or None
 
 
-def root_user_turn(core: Any, session: Any) -> dict[str, Any] | None:
-    """The root conversation's current ``user_turn``, copied, or ``None``.
+def root_session(core: Any, session: Any) -> Any | None:
+    """The conversation ``session`` was delegated from, or ``None`` if lost.
 
-    A delegated child reports its root's user message, never the task text its
-    parent agent wrote: that is the agent's wording, not the person's intent.
+    A scheduled run is a root of its own: the chat that scheduled it is not
+    the conversation its turns belong to.
     """
     seen: set[str] = set()
     current = session
     sessions = getattr(core, "sessions", None)
-    while getattr(current, "parent_session_id", None) and sessions is not None:
+    while (
+        getattr(current, "parent_session_id", None)
+        and getattr(current, "kind", None) != "scheduled"
+        and sessions is not None
+    ):
         parent_id = str(current.parent_session_id)
         if parent_id in seen:
             return None
@@ -666,6 +671,78 @@ def root_user_turn(core: Any, session: Any) -> dict[str, Any] | None:
         if parent is None:
             return None
         current = parent
+    return current
+
+
+def root_turn_context(core: Any, session: Any) -> dict[str, Any]:
+    """``userTurn``, ``origin`` and ``job`` for a ``tool.invoke`` (1.22.0, 1.23.0).
+
+    All three come from the root conversation's running turn, so a delegated
+    child reports what its root does, never what its parent agent wrote.
+    ``job`` is set only for a turn a schedule started.
+    """
+    root = root_session(core, session)
+    if root is None:
+        return {"userTurn": None, "origin": None, "job": None}
+    turn_id = getattr(root, "current_turn", None)
+    origin = (getattr(root, "turn_origins", None) or {}).get(turn_id) if turn_id else None
+    job = (getattr(root, "turn_jobs", None) or {}).get(turn_id) if origin == "schedule" else None
+    return {
+        "userTurn": root_user_turn(core, session, root=root),
+        "origin": origin,
+        "job": dict(job) if isinstance(job, dict) else None,
+    }
+
+
+def owned_run_owner(core: Any, session: Any) -> str | None:
+    """The browser whose owned job ``session`` (or a session above it) runs.
+
+    Such a run takes no outside input — no prompt, steer, notice, command,
+    setting change or attach — so nothing but the job's own task speaks under
+    its ``job`` (1.23.0).  Read from ``owned_by``, which is fixed when the
+    run's session is made, never from what the run is doing.
+    """
+    seen: set[str] = set()
+    current = session
+    sessions = getattr(core, "sessions", None)
+    while current is not None:
+        owner = getattr(current, "owned_by", None)
+        if owner:
+            return str(owner)
+        parent_id = getattr(current, "parent_session_id", None)
+        if not parent_id or parent_id in seen or sessions is None:
+            return None
+        seen.add(str(parent_id))
+        current = sessions.get(str(parent_id))
+    return None
+
+
+def runs_owned_job(core: Any, session: Any) -> bool:
+    return owned_run_owner(core, session) is not None
+
+
+def drop_owned_context(session: Any, origin: str) -> None:
+    """Fail closed: a turn nobody scheduled ends an owned run's authority.
+
+    Anything other than the run itself starting a turn in it (its own
+    ``queue_command``, a gateway message, an announce) clears the job behind
+    it, so later host calls carry no ``job`` (1.23.0).
+    """
+    if origin != "schedule" and getattr(session, "owned_by", None):
+        jobs = getattr(session, "turn_jobs", None)
+        if jobs:
+            jobs.clear()
+
+
+def root_user_turn(core: Any, session: Any, *, root: Any = None) -> dict[str, Any] | None:
+    """The root conversation's current ``user_turn``, copied, or ``None``.
+
+    A delegated child reports its root's user message, never the task text its
+    parent agent wrote: that is the agent's wording, not the person's intent.
+    """
+    current = root if root is not None else root_session(core, session)
+    if current is None:
+        return None
     turn = getattr(current, "user_turn", None)
     if not isinstance(turn, dict):
         return None

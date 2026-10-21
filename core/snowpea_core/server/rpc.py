@@ -35,6 +35,30 @@ PUBLIC_METHODS: frozenset[str] = frozenset({"system.hello"})
 DEFAULT_CALL_TIMEOUT = 60.0
 
 
+#: Methods allowed on a session running a browser-owned job: they read it,
+#: stop it, or are its host's own calls (1.23.0).  Everything else that names
+#: a session is refused there.
+OWNED_RUN_METHODS = frozenset(
+    {
+        "approval.ask",
+        "approval.list",
+        "checkpoint.diff",
+        "checkpoint.list",
+        "command.list",
+        "file.complete",
+        "llm.sample",
+        "memory.list",
+        "question.list",
+        "session.artifacts",
+        "session.close",
+        "session.interrupt",
+        "session.resume",
+        "session.toolContent",
+        "tool.list",
+    }
+)
+
+
 class RpcConnection:
     """One connected client; carries auth state and pending server->client calls."""
 
@@ -245,8 +269,28 @@ class RpcDispatcher:
             raise RpcError(
                 errors.INVALID_PARAMS, "invalid params", exc.errors(include_url=False)
             ) from exc
+        self._refuse_owned_run(method, params)
         result = await handler(conn, params, self.core)
         return _as_dict(result)
+
+    def _refuse_owned_run(self, method: str, params: BaseModel) -> None:
+        """No outside input into a run of a browser-owned job (1.23.0).
+
+        One check for every method that names a session, so a new method is
+        refused until it is listed as only watching or stopping a run.
+        """
+        session_id = getattr(params, "sessionId", None)
+        sessions = getattr(self.core, "sessions", None)
+        if not session_id or method in OWNED_RUN_METHODS or sessions is None:
+            return
+        from snowpea_core.tools.host_tools import runs_owned_job
+
+        session = sessions.get(str(session_id))
+        if session is not None and runs_owned_job(self.core, session):
+            raise RpcError(
+                errors.UNAUTHORIZED,
+                f"{method}: this session runs a browser-owned job and takes no outside input",
+            )
 
 
 def _as_dict(result: Any) -> dict[str, Any]:

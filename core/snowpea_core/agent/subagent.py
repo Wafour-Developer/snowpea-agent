@@ -247,6 +247,7 @@ def inherit_host(child: Any, parent: Any) -> None:
     child.workspace_dir = getattr(parent, "workspace_dir", None)
     child.origin_client_id = getattr(parent, "origin_client_id", None)
     child.browser_provider = getattr(parent, "browser_provider", None)
+    child.owned_by = getattr(parent, "owned_by", None)
     if getattr(parent, "origin_surface", None) == "browser":
         child.origin_surface = "browser"
 

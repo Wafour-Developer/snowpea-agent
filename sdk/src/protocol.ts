@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.22.0";
+export const PROTOCOL_VERSION = "1.23.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -790,8 +790,12 @@ export interface JobListResult {
     catchUpWindowMinutes?: number;
     /** Channel that receives the output. */
     channel?: string | null;
+    /** 'rpc' for job.schedule, 'tool' for schedule_create or /schedule (1.23.0). */
+    createdVia?: "rpc" | "tool";
     /** False once the job is cancelled or has run out. */
     enabled?: boolean;
+    /** The fingerprint tool.invoke job carries; only the owner sees it. */
+    fingerprint?: string | null;
     /** The newest occurrence when it is waiting for its host or was missed (addendum 12); null otherwise. */
     held?: {
       /** UTC ISO time the occurrence was due. */
@@ -807,12 +811,18 @@ export interface JobListResult {
     lastRunAt?: string | null;
     /** How the last run ended. */
     lastStatus?: "ok" | "error" | "denied_by_timeout" | null;
+    /** The job's meta; only the owner connection sees it. */
+    meta?: Record<string, unknown> | null;
     /** Permission mode for the run. */
     mode?: "plan" | "accept" | "auto";
     /** UTC ISO-8601 time of the next firing. */
     nextRunAt?: string | null;
     /** TUI/chat session that also receives every result. */
     originSessionId?: string | null;
+    /** True for a job with meta: only its owner may change, run or delete it. */
+    owned?: boolean;
+    /** The owning browser clientId; only the owner sees it. */
+    ownerClientId?: string | null;
     /** Schedule as given. */
     spec: string;
     /** Current job state. */
@@ -868,6 +878,8 @@ export interface JobScheduleParams {
   agent?: string | null;
   /** Gateway channel that receives the output. */
   channel?: string | null;
+  /** Opaque data for the host, at most 4 KB of JSON (1.23.0). Only a connection whose system.hello said clientKind 'browser' with a clientId may set it; the job is then owned by that clientId: only it may update, cancel, delete or run it now, see its meta, and no agent tool can change or cancel it. */
+  meta?: Record<string, unknown> | null;
   /** Permission mode for the unattended run. */
   mode?: "plan" | "accept" | "auto";
   /** Session setup for each run, incl. host tools (1.7.0). */
@@ -893,6 +905,8 @@ export interface JobScheduleParams {
 
 /** `job.schedule` result. */
 export interface JobScheduleResult {
+  /** For a job with meta, the fingerprint its runs' tool.invoke job will carry (1.23.0). Seal this value; do not recompute it. */
+  fingerprint?: string | null;
   /** Id of the scheduled job. */
   jobId: string;
   /** UTC ISO-8601 time of the first firing. */
@@ -922,8 +936,12 @@ export interface JobUpdateResult {
   catchUpWindowMinutes?: number;
   /** Channel that receives the output. */
   channel?: string | null;
+  /** 'rpc' for job.schedule, 'tool' for schedule_create or /schedule (1.23.0). */
+  createdVia?: "rpc" | "tool";
   /** False once the job is cancelled or has run out. */
   enabled?: boolean;
+  /** The fingerprint tool.invoke job carries; only the owner sees it. */
+  fingerprint?: string | null;
   /** The newest occurrence when it is waiting for its host or was missed (addendum 12); null otherwise. */
   held?: {
     /** UTC ISO time the occurrence was due. */
@@ -939,12 +957,18 @@ export interface JobUpdateResult {
   lastRunAt?: string | null;
   /** How the last run ended. */
   lastStatus?: "ok" | "error" | "denied_by_timeout" | null;
+  /** The job's meta; only the owner connection sees it. */
+  meta?: Record<string, unknown> | null;
   /** Permission mode for the run. */
   mode?: "plan" | "accept" | "auto";
   /** UTC ISO-8601 time of the next firing. */
   nextRunAt?: string | null;
   /** TUI/chat session that also receives every result. */
   originSessionId?: string | null;
+  /** True for a job with meta: only its owner may change, run or delete it. */
+  owned?: boolean;
+  /** The owning browser clientId; only the owner sees it. */
+  ownerClientId?: string | null;
   /** Schedule as given. */
   spec: string;
   /** Current job state. */
@@ -3610,10 +3634,31 @@ export interface ToolInvokeParams {
   args?: Record<string, unknown>;
   /** Id of the tool call; tool.progress refers to it. */
   callId: string;
+  /** The scheduled run behind the root's running turn (1.23.0); set only when origin is 'schedule'. A delegated child reports its root's. */
+  job?: {
+    /** 'tool' when an agent's schedule_create or a /schedule command made it; 'rpc' when a client holding the daemon token called job.schedule. Not proof that a person made it: anchor trust in the host's own record of the job. */
+    createdVia: "rpc" | "tool";
+    /** 'sha256:' over the canonical JSON of {task, spec, agent, mode, workdir, hostToolsFrom, hostWaitSec, catchUpWindowMinutes, channel, meta}: any change to the job changes it. It does not cover the named agent's definition or memory, the workdir's files, or global settings (approval rules, providers, models). Compare it with the value job.schedule returned; do not recompute it. */
+    fingerprint: string;
+    /** The job. */
+    id: string;
+    /** The opaque meta its owner stored, as stored. */
+    meta?: Record<string, unknown> | null;
+    /** The browser clientId that owns a job with meta. */
+    ownerClientId?: string | null;
+    /** Unique per firing; a host acts on one at most once. */
+    runId: string;
+    /** UTC ISO-8601 occurrence this run is for. */
+    scheduledAt: string;
+    /** 'schedule' for a firing of its schedule, 'runNow' for job.runNow. */
+    trigger: "schedule" | "runNow";
+  } | null;
   /** The session's mode. A code-running tool registered as 'read' must refuse mutations in plan mode itself and escalate the rest with approval.ask. */
   mode?: "plan" | "accept" | "auto";
   /** Host tool name. */
   name: string;
+  /** Who started the root conversation's running turn (1.23.0): the session's own person, the agent, a schedule, another gateway group member or the system. A delegated child reports its root's. */
+  origin?: "human" | "agent" | "member" | "schedule" | "system" | null;
   /** The session that spawned this one (a subagent's parent); null for a root session. A browser host shares the parent's agent tabs with it. */
   parentSessionId?: string | null;
   /** Session whose turn called the tool. */
@@ -3895,8 +3940,8 @@ export interface GatewayEventPayload {
 export interface JobEventPayload {
   /** Job the event belongs to. */
   jobId: string;
-  /** Where the run got to. */
-  kind: "started" | "finished" | "failed" | "denied" | "deleted" | "updated" | "waiting_for_host" | "missed";
+  /** Where the run got to. 'notify' (1.23.0) follows the finish of a job with meta, payload {status, sessionId, text}: its host shows the user a notification. */
+  kind: "started" | "finished" | "failed" | "denied" | "deleted" | "updated" | "waiting_for_host" | "missed" | "notify";
   /** Kind-specific body. */
   payload?: Record<string, unknown>;
 }

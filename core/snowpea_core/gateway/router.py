@@ -1293,6 +1293,12 @@ class GatewayRouter:
             session = self.core.sessions.get(str(existing_id))
             if session is None:
                 raise GatewayError(f"binding {binding.id} targets missing session {existing_id}")
+            from snowpea_core.tools.host_tools import runs_owned_job
+
+            if runs_owned_job(self.core, session):
+                raise GatewayError(
+                    f"binding {binding.id} targets a browser-owned job's run {existing_id}"
+                )
             return session
         spec = target.get("new_session") or {}
         if not isinstance(spec, dict):

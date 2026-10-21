@@ -55,7 +55,7 @@ from snowpea_core.tools import deferred as deferred_tools
 from snowpea_core.tools import host_tools as host_tools_mod
 from snowpea_core.tools import mcp_client, output_spill, repeat_guard, view_image
 from snowpea_core.tools.call_paths import call_paths
-from snowpea_core.tools.host_tools import HOST_TOOLS
+from snowpea_core.tools.host_tools import HOST_TOOLS, drop_owned_context
 from snowpea_core.tools.registry import (
     ProgressEmitter,
     Tool,
@@ -954,6 +954,7 @@ def start_turn(
     """
     turn_id = new_turn_id()
     origin = origin or ("system" if initiator == "system" else "human")
+    drop_owned_context(session, origin)
     note_origin(session, turn_id, origin)
     queued = QueuedTurn(
         turn_id=turn_id,
@@ -1223,6 +1224,7 @@ async def run_turn(
         or session.turn_origins.get(turn_id)
         or ("system" if initiator == "system" else "human")
     )
+    drop_owned_context(session, origin)
     note_origin(session, turn_id, origin)
     session.current_turn = turn_id
     hub = core.hub

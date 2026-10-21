@@ -144,6 +144,9 @@ class QuestionQueue:
         """
         if not questions:
             return []
+        if getattr(session, "owned_by", None):
+            # Nobody may put words into a browser-owned job's run (1.23.0).
+            return _declined(len(questions), by="owned-run")
         timeout = timeout_sec if timeout_sec is not None else self.timeout_sec
         request = QuestionRequest(
             requestId=f"qu-{uuid.uuid4().hex[:12]}",

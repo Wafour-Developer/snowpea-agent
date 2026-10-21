@@ -31,13 +31,23 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from snowpea_core.config.settings import SchedulerSettings
-from snowpea_core.scheduler.jobs import Job, Jobs, JobStatus, JobStore, iso, parse_iso, utc_now
+from snowpea_core.scheduler.jobs import (
+    CreatedVia,
+    Job,
+    Jobs,
+    JobStatus,
+    JobStore,
+    iso,
+    parse_iso,
+    utc_now,
+)
 from snowpea_core.scheduler.nl_parse import Spec, first_run, next_run, parse_spec
 from snowpea_core.server import errors
 from snowpea_core.server.protocol import Mode
@@ -58,6 +68,26 @@ LOG_CHANNEL = "log"
 #: host, and of one whose host never came within the catch-up window.
 WAITING_FOR_HOST = "waiting_for_host"
 MISSED = "missed"
+
+#: ``job.event`` kind that asks an owning host to notify its user (1.23.0).
+NOTIFY = "notify"
+
+Trigger = Literal["schedule", "runNow"]
+
+
+def run_context(job: Job, scheduled_ts: datetime, trigger: Trigger) -> dict[str, Any]:
+    """``tool.invoke`` ``job`` for one run of ``job`` (1.23.0)."""
+    return {
+        "id": job.id,
+        "runId": uuid.uuid4().hex,
+        "scheduledAt": iso(scheduled_ts),
+        "trigger": trigger,
+        "createdVia": job.created_via,
+        "ownerClientId": job.owner_client_id,
+        "fingerprint": job.fingerprint(),
+        "meta": job.meta,
+    }
+
 
 FINISH_KINDS: dict[str, str] = {
     "ok": "finished",
@@ -173,6 +203,9 @@ class Scheduler:
         host_tools_from: str | None = None,
         host_wait_sec: int | None = None,
         catch_up_window_min: int | None = None,
+        created_via: CreatedVia = "tool",
+        meta: dict[str, Any] | None = None,
+        owner_client_id: str | None = None,
     ) -> Job:
         """Parse ``spec``, store the job and return it. ``ValueError`` if unparseable."""
         if not task.strip():
@@ -190,6 +223,9 @@ class Scheduler:
         )
         if job.next_run is None:
             raise ValueError(f"the schedule {spec!r} has no future firing time")
+        job.created_via = created_via
+        if meta is not None:
+            job.meta, job.owner_client_id = dict(meta), owner_client_id
         if host_tools_from:
             job.host_tools_from = host_tools_from
             job.host_wait_sec = max(0, int(host_wait_sec if host_wait_sec is not None else 300))
@@ -244,7 +280,7 @@ class Scheduler:
         job = await self.store.get(job_id)
         if job is None:
             return None
-        await self._fire(job, utc_now(), advance=False)
+        await self._fire(job, utc_now(), advance=False, trigger="runNow")
         return await self.store.get(job_id)
 
     # -- ticking -------------------------------------------------------
@@ -279,9 +315,16 @@ class Scheduler:
         return caught
 
     # -- execution -----------------------------------------------------
-    async def _fire(self, job: Job, scheduled_ts: datetime, *, advance: bool = True) -> None:
+    async def _fire(
+        self,
+        job: Job,
+        scheduled_ts: datetime,
+        *,
+        advance: bool = True,
+        trigger: Trigger = "schedule",
+    ) -> None:
         """Claim the occurrence and run the job, unless someone claimed it first."""
-        if not await self.store.claim(job.id, scheduled_ts):
+        if not await self.store.claim(job.id, scheduled_ts, trigger=trigger):
             log.info("job %s occurrence %s already ran; skipping", job.id, iso(scheduled_ts))
             return
         if job.host_tools_from and not self._host_ready(job):
@@ -297,7 +340,7 @@ class Scheduler:
                 await self._advance(job, scheduled_ts, status=None)
             log.info("job %s waits for host %s", job.id, job.host_tools_from)
             return
-        await self._run_claimed(job, scheduled_ts, advance=advance)
+        await self._run_claimed(job, scheduled_ts, advance=advance, trigger=trigger)
 
     def _host_ready(self, job: Job) -> bool:
         from snowpea_core.tools.host_tools import HOST_TOOLS
@@ -327,7 +370,10 @@ class Scheduler:
                 continue
             await self.store.set_run_status(job.id, scheduled, "running")
             started += 1
-            await self._run_claimed(job, scheduled, advance=False)
+            # A held job.runNow stays a runNow (1.23.0); a row without one
+            # (an older core's) is not taken for a schedule firing.
+            trigger: Trigger = "schedule" if row.get("run_trigger") == "schedule" else "runNow"
+            await self._run_claimed(job, scheduled, advance=False, trigger=trigger)
         return started
 
     async def update(
@@ -388,7 +434,9 @@ class Scheduler:
                 times.append(scheduled)
         return min(times) if times else None
 
-    async def _run_claimed(self, job: Job, scheduled_ts: datetime, *, advance: bool) -> None:
+    async def _run_claimed(
+        self, job: Job, scheduled_ts: datetime, *, advance: bool, trigger: Trigger = "schedule"
+    ) -> None:
         """Run an occurrence this process has claimed."""
         self._running.add(job.id)
         job.state = "running"
@@ -398,7 +446,9 @@ class Scheduler:
         text = ""
         session_id: str | None = None
         try:
-            status, text, session_id = await self._execute(job)
+            status, text, session_id = await self._execute(
+                job, run_context(job, scheduled_ts, trigger)
+            )
         except asyncio.CancelledError:  # pragma: no cover - shutdown path
             raise
         except Exception as exc:  # noqa: BLE001 - a broken job never kills the loop
@@ -411,6 +461,11 @@ class Scheduler:
         await self._advance(job, scheduled_ts, status=status, advance=advance)
         kind = FINISH_KINDS[status]
         await self._emit(job.id, kind, {"status": status, "sessionId": session_id, "text": text})
+        if job.owned:
+            # The host shows its own notification for a job it owns (1.23.0).
+            await self._emit(
+                job.id, NOTIFY, {"status": status, "sessionId": session_id, "text": text}
+            )
         await self._notify_origin_session(job, status, session_id, text)
 
     async def _notify_origin_session(
@@ -437,7 +492,9 @@ class Scheduler:
                 origin_id, builder(job.id, session_id, status, text.strip())
             )
 
-    async def _execute(self, job: Job) -> tuple[JobStatus, str, str | None]:
+    async def _execute(
+        self, job: Job, context: dict[str, Any] | None = None
+    ) -> tuple[JobStatus, str, str | None]:
         """Open the unattended session, run the task, return what it said."""
         from snowpea_core.agent import loop as agent_loop
         from snowpea_core.agent.named import session_for_job
@@ -452,7 +509,9 @@ class Scheduler:
             )
         # A job that names a persistent agent runs *inside* that agent's
         # session, so it sees the agent's memory namespace (M7 contract §6).
-        session = session_for_job(core, job.agent)
+        # An owned job never borrows a live named session: another turn there
+        # would run alongside it under its job (1.23.0).
+        session = None if job.owned else session_for_job(core, job.agent)
         owned = session is None
         if session is None:
             workdir = Path(job.workdir) if job.workdir else core.paths.home
@@ -465,6 +524,7 @@ class Scheduler:
                 parent_session_id=job.origin_session_id,
                 kind="scheduled",
                 job_id=job.id,
+                owned_by=job.owner_client_id if job.owned else None,
             )
         # The contract calls these sessions unattended; the flag is what the
         # gateway and approval code read when they need to know (contract §2).
@@ -474,11 +534,15 @@ class Scheduler:
         collector = _Collector()
         core.hub.subscribe(collector, session.id)
         core.lifecycle.set_counter("sessions", len(core.sessions))
+        turn_id = agent_loop.new_turn_id()
+        if context is not None:
+            session.turn_jobs[turn_id] = context
         try:
             await agent_loop.run_turn(
-                core, session, job.task, unattended=True, origin="schedule"
+                core, session, job.task, turn_id=turn_id, unattended=True, origin="schedule"
             )
         finally:
+            session.turn_jobs.pop(turn_id, None)
             core.hub.unsubscribe(collector)
             # A named agent's session outlives the run that borrowed it.
             if owned:
@@ -603,4 +667,4 @@ class Scheduler:
         self.store.close()
 
 
-__all__ = ["FINISH_KINDS", "LOG_CHANNEL", "Scheduler"]
+__all__ = ["FINISH_KINDS", "LOG_CHANNEL", "NOTIFY", "Scheduler", "run_context"]

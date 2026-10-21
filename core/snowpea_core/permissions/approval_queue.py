@@ -167,6 +167,9 @@ class _Pending:
     #: The session's owning browser profile (addendum 8): a global rule stored
     #: from this answer belongs to it, and the pending card names it.
     host: str | None = None
+    #: The browser clientId owning the job this run serves: only that
+    #: browser's connection may answer (1.23.0).
+    owner: str | None = None
 
 
 
@@ -340,6 +343,7 @@ class ApprovalQueue:
             workdir=getattr(session, "workdir", None),
             cacheable=cacheable,
             host=getattr(session, "host_tools_from", None),
+            owner=getattr(session, "owned_by", None),
         )
         self._pending[request.requestId] = entry
         await self._announce_status(session.id, "awaiting_approval", entry.host)
@@ -465,6 +469,15 @@ class ApprovalQueue:
                     errors.UNAUTHORIZED,
                     "interactive approvals may only be answered by the originating surface",
                 )
+        if entry.owner is not None and not (
+            conn is not None
+            and getattr(conn, "client_kind", None) == "browser"
+            and getattr(conn, "client_id", None) == entry.owner
+        ):
+            raise RpcError(
+                errors.UNAUTHORIZED,
+                "a browser-owned job's approvals may only be answered by that browser",
+            )
         if entry.future.done():
             return
         entry.future.set_result(

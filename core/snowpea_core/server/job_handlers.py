@@ -12,10 +12,12 @@ proposing the job.
 
 from __future__ import annotations
 
+import json
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from snowpea_core.scheduler import services
+from snowpea_core.scheduler.jobs import Job
 from snowpea_core.server import errors
 from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import (
@@ -55,13 +57,59 @@ HANDLED_METHODS: tuple[str, ...] = (
 )
 
 
+#: Largest ``meta`` a job may carry, as compact JSON.
+META_MAX_BYTES = 4096
+
+
+def _owner_id(conn: RpcConnection) -> str:
+    """The browser clientId that may own a job, or ``unauthorized``."""
+    client_id = getattr(conn, "client_id", None)
+    if getattr(conn, "client_kind", None) != "browser" or not client_id:
+        raise RpcError(
+            errors.UNAUTHORIZED,
+            "only a clientKind 'browser' connection with a clientId may set job meta",
+        )
+    return str(client_id)
+
+
+def _check_meta(meta: dict[str, Any]) -> None:
+    size = len(json.dumps(meta, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
+    if size > META_MAX_BYTES:
+        raise RpcError(
+            errors.INVALID_PARAMS, f"meta is {size} bytes; at most {META_MAX_BYTES} are kept"
+        )
+
+
+def _is_owner(conn: RpcConnection, job: Job) -> bool:
+    client_id = getattr(conn, "client_id", None)
+    return (
+        job.owned
+        and getattr(conn, "client_kind", None) == "browser"
+        and bool(client_id)
+        and client_id == job.owner_client_id
+    )
+
+
+async def _guard(conn: RpcConnection, core: Core, job_id: str, action: str) -> None:
+    """An owned job takes changes only from its owner's connection (1.23.0)."""
+    job = await services(core).get(job_id)
+    if job is not None and job.owned and not _is_owner(conn, job):
+        raise RpcError(
+            errors.UNAUTHORIZED, f"job {job_id} is owned by its browser; cannot {action} it"
+        )
+
+
 async def job_schedule_handler(
-    _conn: RpcConnection, params: JobScheduleParams, core: Core
+    conn: RpcConnection, params: JobScheduleParams, core: Core
 ) -> JobScheduleResult:
     """``job.schedule`` — parse the spec, store the job, report its first firing."""
     from snowpea_core.scheduler.jobs import iso
 
     template = params.sessionTemplate
+    owner: str | None = None
+    if params.meta is not None:
+        owner = _owner_id(conn)
+        _check_meta(params.meta)
     try:
         job = await services(core).schedule(
             params.spec,
@@ -73,10 +121,17 @@ async def job_schedule_handler(
             host_tools_from=template.hostToolsFrom if template else None,
             host_wait_sec=template.hostWaitSec if template else None,
             catch_up_window_min=template.catchUpWindowMinutes if template else None,
+            created_via="rpc",
+            meta=params.meta,
+            owner_client_id=owner,
         )
     except ValueError as exc:
         raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
-    return JobScheduleResult(jobId=job.id, nextRunAt=iso(job.next_run))
+    return JobScheduleResult(
+        jobId=job.id,
+        nextRunAt=iso(job.next_run),
+        fingerprint=job.fingerprint() if job.owned else None,
+    )
 
 
 async def job_preview_handler(
@@ -104,12 +159,12 @@ async def job_preview_handler(
     return JobPreviewResult(kind=spec.kind, nextRunAt=iso(upcoming), normalized=normalized)
 
 
-async def job_list_handler(_conn: RpcConnection, _params: Empty, core: Core) -> JobListResult:
+async def job_list_handler(conn: RpcConnection, _params: Empty, core: Core) -> JobListResult:
     """``job.list`` — every job with its next run, last run and last status."""
     scheduler = services(core)
     rows = []
     for job in await scheduler.list():
-        info = job.info()
+        info = job.info(owner=_is_owner(conn, job))
         held = await scheduler.store.held_run(job.id)
         if held is not None:
             info.held = JobHeldRun(status=held["status"], scheduledAt=held["scheduled_ts"])
@@ -117,15 +172,17 @@ async def job_list_handler(_conn: RpcConnection, _params: Empty, core: Core) -> 
     return JobListResult(jobs=rows)
 
 
-async def job_cancel_handler(_conn: RpcConnection, params: JobIdParams, core: Core) -> Ok:
+async def job_cancel_handler(conn: RpcConnection, params: JobIdParams, core: Core) -> Ok:
     """``job.cancel`` — disable a job; its run history is kept."""
+    await _guard(conn, core, params.jobId, "cancel")
     if not await services(core).cancel(params.jobId):
         raise RpcError(errors.NOT_FOUND, f"no such job: {params.jobId}")
     return Ok(ok=True)
 
 
-async def job_run_now_handler(_conn: RpcConnection, params: JobIdParams, core: Core) -> Ok:
+async def job_run_now_handler(conn: RpcConnection, params: JobIdParams, core: Core) -> Ok:
     """``job.runNow`` — fire a job in the daemon process and wait for it."""
+    await _guard(conn, core, params.jobId, "run")
     job = await services(core).run_now(params.jobId)
     if job is None:
         raise RpcError(errors.NOT_FOUND, f"no such job: {params.jobId}")
@@ -133,7 +190,7 @@ async def job_run_now_handler(_conn: RpcConnection, params: JobIdParams, core: C
 
 
 async def job_delete_handler(
-    _conn: RpcConnection, params: JobDeleteParams, core: Core
+    conn: RpcConnection, params: JobDeleteParams, core: Core
 ) -> JobDeleteResult:
     """``job.delete`` — the job, its schedule and run history; optionally its runs.
 
@@ -143,6 +200,7 @@ async def job_delete_handler(
     """
     from snowpea_core.server.session_handlers import _purge_session_files
 
+    await _guard(conn, core, params.jobId, "delete")
     session_ids = await services(core).delete(params.jobId)
     if session_ids is None:
         raise RpcError(errors.INVALID_PARAMS, f"no such job: {params.jobId}")
@@ -174,9 +232,10 @@ async def job_next_run_for_client_handler(
 
 
 async def job_update_handler(
-    _conn: RpcConnection, params: JobUpdateParams, core: Core
+    conn: RpcConnection, params: JobUpdateParams, core: Core
 ) -> JobInfo:
     """``job.update`` — a partial, validated patch of an existing job."""
+    await _guard(conn, core, params.jobId, "update")
     template = params.sessionTemplate
     try:
         job = await services(core).update(
@@ -190,7 +249,7 @@ async def job_update_handler(
         raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
     if job is None:
         raise RpcError(errors.INVALID_PARAMS, f"no such job: {params.jobId}")
-    return job.info()
+    return job.info(owner=_is_owner(conn, job))
 
 
 def register_job_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:

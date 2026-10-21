@@ -17,7 +17,7 @@ from typing import Any
 
 from snowpea_core.commands.registry import Command, CommandContext
 from snowpea_core.scheduler import services
-from snowpea_core.scheduler.tools import format_job
+from snowpea_core.scheduler.tools import OWNED_REFUSAL, format_job
 
 MODES = ("plan", "accept", "auto")
 
@@ -98,6 +98,10 @@ async def cmd_schedule(ctx: CommandContext, args: str) -> None:
         job_id = rest.strip()
         if not job_id:
             await ctx.say("Usage: /schedule cancel <jobId>")
+            return
+        job = await scheduler.get(job_id)
+        if job is not None and job.owned:
+            await ctx.say(OWNED_REFUSAL.format(id=job_id))
             return
         cancelled = await scheduler.cancel(job_id)
         await ctx.say(f"cancelled {job_id}" if cancelled else f"no such job: {job_id}")

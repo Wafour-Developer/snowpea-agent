@@ -472,11 +472,23 @@ class NamedAgentRegistry:
         return restored
 
     async def delete(self, name: str) -> bool:
-        """Unbind the channels, cancel the jobs, close the session, drop the row."""
-        agent = self._agents.pop(name, None)
-        if agent is None:
+        """Unbind the channels, cancel the jobs, close the session, drop the row.
+
+        ``NamedAgentError`` while a browser-owned job runs as this agent: only
+        that browser may cancel it (1.23.0).
+        """
+        if name not in self._agents:
             return False
         core = self.core
+        scheduler = getattr(core, "scheduler", None) if core is not None else None
+        if scheduler is not None:
+            for job_id in await self.job_ids(name):
+                job = await scheduler.get(job_id)
+                if job is not None and job.owned and job.enabled:
+                    raise NamedAgentError(
+                        f"agent {name} runs browser-owned job {job_id}; cancel it there first"
+                    )
+        agent = self._agents.pop(name)
         if core is not None and core.gateway is not None:
             for binding_id in agent.binding_ids:
                 with contextlib.suppress(Exception):
@@ -604,7 +616,11 @@ async def agent_bind_channel_handler(
 
 async def agent_delete_handler(_conn: RpcConnection, params: AgentDeleteParams, core: Core) -> Ok:
     """``agent.delete`` — unbind, cancel, close and forget a named agent."""
-    if not await registry(core).delete(params.name):
+    try:
+        deleted = await registry(core).delete(params.name)
+    except NamedAgentError as exc:
+        raise RpcError(errors.UNAUTHORIZED, str(exc)) from exc
+    if not deleted:
         raise RpcError(errors.NOT_FOUND, f"no named agent {params.name}")
     return Ok(ok=True)
 

@@ -18,6 +18,7 @@ Like :class:`snowpea_core.session.store.Store`, every public method is
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import sqlite3
 import threading
@@ -34,6 +35,7 @@ from snowpea_core.server.protocol import JobInfo, Mode
 
 JobStatus = Literal["ok", "error", "denied_by_timeout"]
 JobState = Literal["scheduled", "running", "cancelled"]
+CreatedVia = Literal["rpc", "tool"]
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
@@ -64,6 +66,7 @@ CREATE TABLE IF NOT EXISTS job_runs (
     finished_at  TEXT,
     status       TEXT,
     session_id   TEXT,
+    run_trigger  TEXT,
     PRIMARY KEY (job_id, scheduled_ts)
 );
 """
@@ -124,6 +127,35 @@ class Job(BaseModel):
     #: How long a firing may wait for its host before it is recorded as missed
     #: (addendum 11): the run is held as ``waiting_for_host`` meanwhile.
     catch_up_window_min: int = 60
+    #: How the job was made: ``rpc`` is a client holding the daemon token,
+    #: ``tool`` an agent's ``schedule_create`` or a ``/schedule`` command.  A
+    #: hint for the host, not proof that a person made it (1.23.0).
+    created_via: CreatedVia = "tool"
+    #: Opaque data a browser host attached (a standing order's id).  A job
+    #: with meta is *owned*: only ``owner_client_id`` may change or run it.
+    meta: dict[str, Any] | None = None
+    owner_client_id: str | None = None
+
+    @property
+    def owned(self) -> bool:
+        return self.meta is not None
+
+    def fingerprint(self) -> str:
+        """``sha256:`` over what a run does, so a host notices any retarget."""
+        body = {
+            "task": self.task,
+            "spec": self.spec,
+            "agent": self.agent,
+            "mode": self.mode,
+            "workdir": self.workdir,
+            "hostToolsFrom": self.host_tools_from,
+            "hostWaitSec": self.host_wait_sec,
+            "catchUpWindowMinutes": self.catch_up_window_min,
+            "channel": self.channel,
+            "meta": self.meta,
+        }
+        canonical = json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
     @classmethod
     def from_spec(
@@ -163,8 +195,8 @@ class Job(BaseModel):
             at=self.next_run,
         )
 
-    def info(self) -> JobInfo:
-        """Protocol view (``job.list``)."""
+    def info(self, *, owner: bool = False) -> JobInfo:
+        """Protocol view (``job.list``); ``owner`` adds what only its owner sees."""
         return JobInfo(
             jobId=self.id,
             spec=self.spec,
@@ -179,6 +211,11 @@ class Job(BaseModel):
             lastRunAt=iso(self.last_run),
             lastStatus=self.last_status,
             catchUpWindowMinutes=self.catch_up_window_min,
+            createdVia=self.created_via,
+            owned=self.owned,
+            meta=self.meta if owner else None,
+            ownerClientId=self.owner_client_id if owner else None,
+            fingerprint=self.fingerprint() if owner else None,
         )
 
     def row(self) -> tuple[Any, ...]:
@@ -204,11 +241,15 @@ class Job(BaseModel):
         )
 
     def _options(self) -> str | None:
-        if not self.host_tools_from and self.catch_up_window_min == 60:
-            return None
         data: dict[str, Any] = {"catchUpWindowMinutes": self.catch_up_window_min}
         if self.host_tools_from:
             data.update(hostToolsFrom=self.host_tools_from, hostWaitSec=self.host_wait_sec)
+        if self.created_via != "tool":
+            data["createdVia"] = self.created_via
+        if self.meta is not None:
+            data.update(meta=self.meta, ownerClientId=self.owner_client_id)
+        if data == {"catchUpWindowMinutes": 60}:
+            return None
         return json.dumps(data)
 
     @classmethod
@@ -248,7 +289,13 @@ def _options_of(row: sqlite3.Row) -> dict[str, Any]:
         options["catch_up_window_min"] = int(data["catchUpWindowMinutes"])
     if data.get("hostToolsFrom"):
         options["host_tools_from"] = str(data["hostToolsFrom"])
-        options["host_wait_sec"] = int(data.get("hostWaitSec") or 300)
+        wait = data.get("hostWaitSec")
+        options["host_wait_sec"] = int(wait) if wait is not None else 300
+    if data.get("createdVia") == "rpc":
+        options["created_via"] = "rpc"
+    if isinstance(data.get("meta"), dict):
+        options["meta"] = data["meta"]
+        options["owner_client_id"] = data.get("ownerClientId")
     return options
 
 
@@ -282,6 +329,12 @@ class JobStore:
                 self._conn.execute("ALTER TABLE jobs ADD COLUMN origin_session_id TEXT")
             if "options" not in columns:
                 self._conn.execute("ALTER TABLE jobs ADD COLUMN options TEXT")
+            run_columns = {
+                str(row[1])
+                for row in self._conn.execute("PRAGMA table_info(job_runs)").fetchall()
+            }
+            if "run_trigger" not in run_columns:
+                self._conn.execute("ALTER TABLE job_runs ADD COLUMN run_trigger TEXT")
             self._conn.commit()
 
     @classmethod
@@ -353,14 +406,19 @@ class JobStore:
 
     # -- runs ----------------------------------------------------------
     async def claim(
-        self, job_id: str, scheduled_ts: datetime, session_id: str | None = None
+        self,
+        job_id: str,
+        scheduled_ts: datetime,
+        session_id: str | None = None,
+        *,
+        trigger: str = "schedule",
     ) -> bool:
         """Reserve one occurrence; ``False`` when it already ran (double fire)."""
         claimed = await asyncio.to_thread(
             self._execute,
-            "INSERT OR IGNORE INTO job_runs (job_id, scheduled_ts, started_at, session_id)"
-            " VALUES (?, ?, ?, ?)",
-            (job_id, iso(scheduled_ts), iso(utc_now()), session_id),
+            "INSERT OR IGNORE INTO job_runs"
+            " (job_id, scheduled_ts, started_at, session_id, run_trigger) VALUES (?, ?, ?, ?, ?)",
+            (job_id, iso(scheduled_ts), iso(utc_now()), session_id, trigger),
         )
         return bool(claimed)
 

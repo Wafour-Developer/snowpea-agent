@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.22.0` (semver)
+- **Protocol version:** `1.23.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.22.0"
+    "protocolVersion": "1.23.0"
   }
 }
 ```
@@ -849,7 +849,7 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `jobs` | `({ catchUpWindowMinutes?: number; channel?: string \| null; enabled?: boolean; held?: { scheduledAt: string; status: "waiting_for_host" \| "missed"; } \| null; jobId: string; kind?: "cron" \| "once" \| "interval"; lastRunAt?: string \| null; lastStatus?: "ok" \| "error" \| "denied_by_timeout" \| null; mode?: "plan" \| "accept" \| "auto"; nextRunAt?: string \| null; originSessionId?: string \| null; spec: string; state?: "scheduled" \| "running" \| "cancelled"; task: string; })[]` | no | Known jobs. |
+| `jobs` | `({ catchUpWindowMinutes?: number; channel?: string \| null; createdVia?: "rpc" \| "tool"; enabled?: boolean; fingerprint?: string \| null; held?: { scheduledAt: string; status: "waiting_for_host" \| "missed"; } \| null; jobId: string; kind?: "cron" \| "once" \| "interval"; lastRunAt?: string \| null; lastStatus?: "ok" \| "error" \| "denied_by_timeout" \| null; meta?: Record<string, unknown> \| null; mode?: "plan" \| "accept" \| "auto"; nextRunAt?: string \| null; originSessionId?: string \| null; owned?: boolean; ownerClientId?: string \| null; spec: string; state?: "scheduled" \| "running" \| "cancelled"; task: string; })[]` | no | Known jobs. |
 
 ### `job.nextRunForClient`
 
@@ -919,6 +919,7 @@ Schedule a prompt to run unattended.
 |---|---|---|---|
 | `agent` | `string \| null` | no | Named agent that runs the task. |
 | `channel` | `string \| null` | no | Gateway channel that receives the output. |
+| `meta` | `Record<string, unknown> \| null` | no | Opaque data for the host, at most 4 KB of JSON (1.23.0). Only a connection whose system.hello said clientKind 'browser' with a clientId may set it; the job is then owned by that clientId: only it may update, cancel, delete or run it now, see its meta, and no agent tool can change or cancel it. |
 | `mode` | `"plan" \| "accept" \| "auto"` | no | Permission mode for the unattended run. |
 | `sessionTemplate` | `{ agent?: string \| null; catchUpWindowMinutes?: number; hostToolsFrom?: string \| null; hostWaitSec?: number; mode?: "plan" \| "accept" \| "auto" \| null; } \| null` | no | Session setup for each run, incl. host tools (1.7.0). |
 | `spec` | `string` | yes | Cron expression or natural-language schedule. |
@@ -929,6 +930,7 @@ Schedule a prompt to run unattended.
 
 | field | type | required | description |
 |---|---|---|---|
+| `fingerprint` | `string \| null` | no | For a job with meta, the fingerprint its runs' tool.invoke job will carry (1.23.0). Seal this value; do not recompute it. |
 | `jobId` | `string` | yes | Id of the scheduled job. |
 | `nextRunAt` | `string \| null` | no | UTC ISO-8601 time of the first firing. |
 
@@ -953,15 +955,20 @@ Change an existing job (addendum 12).
 |---|---|---|---|
 | `catchUpWindowMinutes` | `number` | no | How long a held run waits for its host before it is missed. |
 | `channel` | `string \| null` | no | Channel that receives the output. |
+| `createdVia` | `"rpc" \| "tool"` | no | 'rpc' for job.schedule, 'tool' for schedule_create or /schedule (1.23.0). |
 | `enabled` | `boolean` | no | False once the job is cancelled or has run out. |
+| `fingerprint` | `string \| null` | no | The fingerprint tool.invoke job carries; only the owner sees it. |
 | `held` | `{ scheduledAt: string; status: "waiting_for_host" \| "missed"; } \| null` | no | The newest occurrence when it is waiting for its host or was missed (addendum 12); null otherwise. |
 | `jobId` | `string` | yes | Job id. |
 | `kind` | `"cron" \| "once" \| "interval"` | no | How the spec repeats: a cron rule, a one-shot, or a fixed interval. |
 | `lastRunAt` | `string \| null` | no | UTC ISO-8601 time of the last firing, null before the first. |
 | `lastStatus` | `"ok" \| "error" \| "denied_by_timeout" \| null` | no | How the last run ended. |
+| `meta` | `Record<string, unknown> \| null` | no | The job's meta; only the owner connection sees it. |
 | `mode` | `"plan" \| "accept" \| "auto"` | no | Permission mode for the run. |
 | `nextRunAt` | `string \| null` | no | UTC ISO-8601 time of the next firing. |
 | `originSessionId` | `string \| null` | no | TUI/chat session that also receives every result. |
+| `owned` | `boolean` | no | True for a job with meta: only its owner may change, run or delete it. |
+| `ownerClientId` | `string \| null` | no | The owning browser clientId; only the owner sees it. |
 | `spec` | `string` | yes | Schedule as given. |
 | `state` | `"scheduled" \| "running" \| "cancelled"` | no | Current job state. |
 | `task` | `string` | yes | Prompt run on each firing. |
@@ -2681,8 +2688,10 @@ Ask the client to run one of its host tools.
 |---|---|---|---|
 | `args` | `Record<string, unknown>` | no | Arguments from the model. |
 | `callId` | `string` | yes | Id of the tool call; tool.progress refers to it. |
+| `job` | `{ createdVia: "rpc" \| "tool"; fingerprint: string; id: string; meta?: Record<string, unknown> \| null; ownerClientId?: string \| null; runId: string; scheduledAt: string; trigger: "schedule" \| "runNow"; } \| null` | no | The scheduled run behind the root's running turn (1.23.0); set only when origin is 'schedule'. A delegated child reports its root's. |
 | `mode` | `"plan" \| "accept" \| "auto"` | no | The session's mode. A code-running tool registered as 'read' must refuse mutations in plan mode itself and escalate the rest with approval.ask. |
 | `name` | `string` | yes | Host tool name. |
+| `origin` | `"human" \| "agent" \| "member" \| "schedule" \| "system" \| null` | no | Who started the root conversation's running turn (1.23.0): the session's own person, the agent, a schedule, another gateway group member or the system. A delegated child reports its root's. |
 | `parentSessionId` | `string \| null` | no | The session that spawned this one (a subagent's parent); null for a root session. A browser host shares the parent's agent tabs with it. |
 | `sessionId` | `string` | yes | Session whose turn called the tool. |
 | `turnId` | `string` | no | Turn the call belongs to. |
@@ -2867,7 +2876,7 @@ Web search for a browser host (1.11.0): the web_search tool's provider chain, se
 | field | type | required | description |
 |---|---|---|---|
 | `jobId` | `string` | yes | Job the event belongs to. |
-| `kind` | `"started" \| "finished" \| "failed" \| "denied" \| "deleted" \| "updated" \| "waiting_for_host" \| "missed"` | yes | Where the run got to. |
+| `kind` | `"started" \| "finished" \| "failed" \| "denied" \| "deleted" \| "updated" \| "waiting_for_host" \| "missed" \| "notify"` | yes | Where the run got to. 'notify' (1.23.0) follows the finish of a job with meta, payload {status, sessionId, text}: its host shows the user a notification. |
 | `payload` | `Record<string, unknown>` | no | Kind-specific body. |
 
 ### `mcp.changed`

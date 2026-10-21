@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.22.0"
+PROTOCOL_VERSION = "1.23.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -1218,6 +1218,43 @@ class UserTurn(Payload):
     )
 
 
+TurnOrigin = Literal["human", "agent", "member", "schedule", "system"]
+
+
+class JobRunContext(Payload):
+    """The scheduled run behind a turn (``tool.invoke`` ``job``, 1.23.0)."""
+
+    id: str = Field(description="The job.")
+    runId: str = Field(description="Unique per firing; a host acts on one at most once.")
+    scheduledAt: str = Field(description="UTC ISO-8601 occurrence this run is for.")
+    trigger: Literal["schedule", "runNow"] = Field(
+        description="'schedule' for a firing of its schedule, 'runNow' for job.runNow."
+    )
+    createdVia: Literal["rpc", "tool"] = Field(
+        description=(
+            "'tool' when an agent's schedule_create or a /schedule command made it; 'rpc' "
+            "when a client holding the daemon token called job.schedule. Not proof that a "
+            "person made it: anchor trust in the host's own record of the job."
+        )
+    )
+    ownerClientId: str | None = Field(
+        default=None, description="The browser clientId that owns a job with meta."
+    )
+    fingerprint: str = Field(
+        description=(
+            "'sha256:' over the canonical JSON of {task, spec, agent, mode, workdir, "
+            "hostToolsFrom, hostWaitSec, catchUpWindowMinutes, channel, meta}: any change "
+            "to the job changes it. It does not cover the named agent's definition or "
+            "memory, the workdir's files, or global settings (approval rules, providers, "
+            "models). Compare it with the value job.schedule "
+            "returned; do not recompute it."
+        )
+    )
+    meta: dict[str, Any] | None = Field(
+        default=None, description="The opaque meta its owner stored, as stored."
+    )
+
+
 class ToolInvokeRequest(Payload):
     """Server -> client: run one of the client's host tools."""
 
@@ -1256,6 +1293,21 @@ class ToolInvokeRequest(Payload):
             "is the root's, never the parent agent's task text; only the session's own "
             "person's words count (not an agent's, a schedule's or another group member's), "
             "and null until the person has typed one."
+        ),
+    )
+    origin: TurnOrigin | None = Field(
+        default=None,
+        description=(
+            "Who started the root conversation's running turn (1.23.0): the session's own "
+            "person, the agent, a schedule, another gateway group member or the system. A "
+            "delegated child reports its root's."
+        ),
+    )
+    job: JobRunContext | None = Field(
+        default=None,
+        description=(
+            "The scheduled run behind the root's running turn (1.23.0); set only when "
+            "origin is 'schedule'. A delegated child reports its root's."
         ),
     )
 
@@ -2258,6 +2310,15 @@ class JobScheduleParams(Payload):
     sessionTemplate: JobSessionTemplate | None = Field(
         default=None, description="Session setup for each run, incl. host tools (1.7.0)."
     )
+    meta: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Opaque data for the host, at most 4 KB of JSON (1.23.0). Only a connection "
+            "whose system.hello said clientKind 'browser' with a clientId may set it; the "
+            "job is then owned by that clientId: only it may update, cancel, delete or run "
+            "it now, see its meta, and no agent tool can change or cancel it."
+        ),
+    )
 
 
 class JobSessionTemplate(Payload):
@@ -2293,6 +2354,13 @@ class JobScheduleResult(Payload):
     jobId: str = Field(description="Id of the scheduled job.")
     nextRunAt: str | None = Field(
         default=None, description="UTC ISO-8601 time of the first firing."
+    )
+    fingerprint: str | None = Field(
+        default=None,
+        description=(
+            "For a job with meta, the fingerprint its runs' tool.invoke job will carry "
+            "(1.23.0). Seal this value; do not recompute it."
+        ),
     )
 
 
@@ -2442,6 +2510,24 @@ class JobInfo(Payload):
     )
     catchUpWindowMinutes: int = Field(
         default=60, description="How long a held run waits for its host before it is missed."
+    )
+    createdVia: Literal["rpc", "tool"] = Field(
+        default="tool",
+        description="'rpc' for job.schedule, 'tool' for schedule_create or /schedule (1.23.0).",
+    )
+    owned: bool = Field(
+        default=False,
+        description="True for a job with meta: only its owner may change, run or delete it.",
+    )
+    meta: dict[str, Any] | None = Field(
+        default=None, description="The job's meta; only the owner connection sees it."
+    )
+    ownerClientId: str | None = Field(
+        default=None, description="The owning browser clientId; only the owner sees it."
+    )
+    fingerprint: str | None = Field(
+        default=None,
+        description="The fingerprint tool.invoke job carries; only the owner sees it.",
     )
 
 
@@ -4260,8 +4346,12 @@ class JobEventNotification(Payload):
         "updated",
         "waiting_for_host",
         "missed",
+        "notify",
     ] = Field(
-        description="Where the run got to."
+        description=(
+            "Where the run got to. 'notify' (1.23.0) follows the finish of a job with "
+            "meta, payload {status, sessionId, text}: its host shows the user a notification."
+        )
     )
     payload: dict[str, Any] = Field(default_factory=dict, description="Kind-specific body.")
 

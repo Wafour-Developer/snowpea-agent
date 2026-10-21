@@ -147,6 +147,7 @@ class SessionManager:
         job_id: str | None = None,
         effort: str | None = None,
         deny_exec: bool = False,
+        owned_by: str | None = None,
     ) -> Session:
         """Register a new session and persist its row.
 
@@ -189,6 +190,7 @@ class SessionManager:
             job_id=job_id,
             effort=effort_scale.normalize(effort),
             deny_exec=deny_exec,
+            owned_by=owned_by,
         )
         self._sessions[session.id] = session
         if self.store is not None:

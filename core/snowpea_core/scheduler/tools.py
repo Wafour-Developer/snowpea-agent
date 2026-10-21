@@ -68,7 +68,14 @@ def format_job(job: Job) -> str:
         parts.append(f"last={iso(job.last_run) or '-'}:{job.last_status}")
     if not job.enabled:
         parts.append("disabled")
+    if job.owned:
+        # Its meta stays with its browser; only that browser can change it.
+        parts.append("owned-by-browser")
     return " ".join(parts)
+
+
+#: Why an agent or a command cannot touch a job its browser owns (1.23.0).
+OWNED_REFUSAL = "job {id} is owned by its browser; change or cancel it there"
 
 
 async def _needs_approval(ctx: ToolContext, args: dict[str, Any], mode: str) -> str | None:
@@ -130,6 +137,9 @@ async def schedule_cancel(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     job_id = str(args.get("id") or args.get("jobId") or "").strip()
     if not job_id:
         return ToolResult(ok=False, error="schedule_cancel needs an id")
+    job = await _scheduler(ctx).get(job_id)
+    if job is not None and job.owned:
+        return ToolResult(ok=False, error=OWNED_REFUSAL.format(id=job_id))
     cancelled = await _scheduler(ctx).cancel(job_id)
     if not cancelled:
         return ToolResult(ok=False, error=f"no such job: {job_id}")

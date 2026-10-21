@@ -142,6 +142,13 @@ class Session:
     #: ``turn id -> origin`` (``agent.loop.ORIGINS``) for the latest turns, so a
     #: command's nested run inherits whose words started it.
     turn_origins: dict[str, str] = field(default_factory=dict)
+    #: ``turn id -> job run`` (``tool.invoke`` ``job``, 1.23.0) for turns a
+    #: scheduled run started; dropped when the run ends.
+    turn_jobs: dict[str, dict[str, Any]] = field(default_factory=dict)
+    #: The browser clientId whose owned job this run serves, set when the run's
+    #: session is made and inherited by its children: such a session takes no
+    #: outside input, and only that browser answers its approvals (1.23.0).
+    owned_by: str | None = None
     #: The definition those came from; a delegated child inherits its own.
     agent_definition: str | None = None
     agent_identity: str | None = None
