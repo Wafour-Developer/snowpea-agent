@@ -333,8 +333,23 @@ def split_index(messages: list[ChatMessage], keep_last: int) -> int:
     return index
 
 
-def render_conversation(messages: list[ChatMessage]) -> str:
-    """The conversation as plain text for the summariser to read."""
+#: Characters of one tool result the summariser reads: what a tool returned
+#: matters less to the summary than that it ran and what came of it.
+SUMMARY_TOOL_CHARS = 2_000
+#: Characters per token assumed when fitting the transcript to the window;
+#: low on purpose (code and Korean run denser than English prose).
+SUMMARY_CHARS_PER_TOKEN = 2.5
+#: Transcript cap when the window is unknown.
+SUMMARY_DEFAULT_CHARS = 300_000
+
+
+def render_conversation(messages: list[ChatMessage], *, budget: int | None = None) -> str:
+    """The conversation as plain text for the summariser to read.
+
+    Tool results are clipped, and with ``budget`` (characters) the oldest
+    part gives way first, so the summary request itself fits the window it
+    is summarising for — a 245k-token history no longer overflows it too.
+    """
     from snowpea_core.session.history import message_text
 
     lines: list[str] = []
@@ -345,8 +360,26 @@ def render_conversation(messages: list[ChatMessage]) -> str:
         label = message.role.upper()
         if message.role == "tool" and message.name:
             label = f"TOOL({message.name})"
+        if message.role == "tool" and len(body) > SUMMARY_TOOL_CHARS:
+            body = body[:SUMMARY_TOOL_CHARS] + f"\n… [{len(body) - SUMMARY_TOOL_CHARS} chars cut]"
         lines.append(f"{label}: {body}")
-    return "\n\n".join(lines)
+    text = "\n\n".join(lines)
+    if budget is not None and len(text) > budget:
+        # Keep the opening (what was asked) and the latest part (where it got to).
+        head = budget // 5
+        tail = budget - head
+        cut = len(text) - head - tail
+        text = f"{text[:head]}\n\n[… {cut} characters of the middle omitted …]\n\n{text[-tail:]}"
+    return text
+
+
+def summary_budget(session: Session) -> int:
+    """Characters of transcript the summary request may carry."""
+    window = getattr(session, "context_window", None)
+    if not window:
+        return SUMMARY_DEFAULT_CHARS
+    room = int(window) - SUMMARY_MAX_TOKENS - 4_096
+    return max(20_000, int(room * SUMMARY_CHARS_PER_TOKEN))
 
 
 async def summarise(
@@ -357,7 +390,7 @@ async def summarise(
     A provider failure is not fatal: the caller falls back to a mechanical
     summary rather than leaving the user with an over-full window.
     """
-    transcript = render_conversation(messages)
+    transcript = render_conversation(messages, budget=summary_budget(session))
     if not transcript:
         return ""
     ask = "Summarise the conversation below.\n\n" + transcript

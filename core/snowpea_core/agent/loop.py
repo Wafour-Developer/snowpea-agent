@@ -576,6 +576,25 @@ _TRANSIENT_PROVIDER = re.compile(
 )
 
 
+#: A server refusing a request because prompt + output exceed its window
+#: (vLLM, llama.cpp, OpenAI, Anthropic, Gemini wordings).
+_CONTEXT_OVERFLOW = re.compile(
+    r"maximum context length|context length|context window|context_length_exceeded|"
+    r"prompt is too long|too many tokens|exceeds the (?:model'?s? )?(?:maximum|context)|"
+    r"input is too long|reduce the length",
+    re.IGNORECASE,
+)
+OVERFLOW_NOTE = (
+    "The conversation outgrew the model's context window; summarising earlier turns and "
+    "trying again."
+)
+
+
+def context_overflow(exc: BaseException) -> bool:
+    """True when the provider refused the request for being longer than its window."""
+    return isinstance(exc, ProviderError) and bool(_CONTEXT_OVERFLOW.search(str(exc)))
+
+
 def transient_provider_error(exc: BaseException) -> bool:
     """True for a provider error a retry can fix (timeouts, resets, 429/5xx)."""
     return isinstance(exc, ProviderError) and bool(_TRANSIENT_PROVIDER.search(str(exc)))
@@ -1564,6 +1583,7 @@ async def _drive(
     # Times a Stop hook kept this turn going (capped per turn).
     stop_continuations = 0
     empty_retries = 0
+    overflow_retried = False
     session.lead_direct_calls = 0
     verify_gate.begin_turn(session)
     # One acknowledgement per turn, not per tool round.
@@ -1721,9 +1741,27 @@ async def _drive(
         await persist_history(getattr(core, "store", None), session)
         # A server added to ``.mcp.json`` during the turn is usable next round.
         await mcp_client.resync_if_changed(core, session.workdir)
+        # A long turn (many tool rounds) can fill the window before it ends:
+        # summarise at a round boundary, where every tool call has its result.
+        if session.rounds_used > 1:
+            # The first round was checked before the prompt joined history.
+            await compaction.maybe_auto_compact(core, session)
         specs = core.tools.specs(session)
         messages = build_messages(session, specs, memory_block, core=core)
-        attempt = await _model_turn(core, session, provider, messages, specs, config)
+        try:
+            attempt = await _model_turn(core, session, provider, messages, specs, config)
+        except ProviderError as exc:
+            # The server's own count beat our estimate: summarise and try once more.
+            if not context_overflow(exc) or overflow_retried:
+                raise
+            overflow_retried = True
+            await hub.emit_event(session.id, events.hook_continue(OVERFLOW_NOTE, 1))
+            compacted = await compaction.compact_session(core, session, auto=True)
+            if not compacted.compacted:
+                raise
+            specs = core.tools.specs(session)
+            messages = build_messages(session, specs, memory_block, core=core)
+            attempt = await _model_turn(core, session, provider, messages, specs, config)
         progress.add_usage(attempt)
         calls = _repair_calls(core, session, attempt.calls)
 
