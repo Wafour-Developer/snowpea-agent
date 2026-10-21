@@ -36428,9 +36428,17 @@ var CHILD_FLUSH_MS = 66;
 var LIVE_FLUSH_MS = 250;
 var TEXT_FLUSH_MS = 66;
 function windowFor(kind) {
-  if (kind === "message.delta") return TEXT_FLUSH_MS;
+  if (kind === "message.delta" || kind === "tool.progress") return TEXT_FLUSH_MS;
   if (kind === "message.reasoning" || kind === "usage") return LIVE_FLUSH_MS;
   return 0;
+}
+function pendingKey(kind, event) {
+  if (kind !== "tool.progress") return kind;
+  const payload = event.payload;
+  return `${kind}\0${payload?.callId ?? ""}\0${payload?.stream ?? ""}`;
+}
+function kindOf(key) {
+  return key.split("\0", 1)[0];
 }
 function count(event, field) {
   const value = event.payload?.[field];
@@ -36448,6 +36456,18 @@ function mergeLive(kind, older, newer) {
     };
   }
   if (kind === "message.reasoning") return newer;
+  if (kind === "tool.progress") {
+    const older_ = older.payload;
+    const newer_ = newer.payload;
+    return {
+      ...newer,
+      payload: {
+        ...newer.payload,
+        chunk: (older_?.chunk ?? "") + (newer_?.chunk ?? ""),
+        truncated: Boolean(older_?.truncated || newer_?.truncated)
+      }
+    };
+  }
   if (kind === "usage") {
     return {
       ...newer,
@@ -36473,7 +36493,7 @@ function createLiveEventThrottle(deliver, { setTimer = setTimeout, clearTimer = 
     timer = setTimer(() => {
       timer = null;
       if (pending.size === 0) return;
-      const next = Math.min(...[...pending.keys()].map(windowFor));
+      const next = Math.min(...[...pending.keys()].map((key) => windowFor(kindOf(key))));
       drain();
       arm(next);
     }, ms);
@@ -36487,9 +36507,10 @@ function createLiveEventThrottle(deliver, { setTimer = setTimeout, clearTimer = 
         deliver(event);
         return;
       }
-      const held = pending.get(kind);
+      const key = pendingKey(kind, event);
+      const held = pending.get(key);
       if (held) {
-        pending.set(kind, mergeLive(kind, held, event));
+        pending.set(key, mergeLive(kind, held, event));
         return;
       }
       if (timer === null) {
@@ -36497,7 +36518,7 @@ function createLiveEventThrottle(deliver, { setTimer = setTimeout, clearTimer = 
         arm(ms);
         return;
       }
-      pending.set(kind, event);
+      pending.set(key, event);
       if (ms < armedMs) {
         clearTimer(timer);
         timer = null;
@@ -37566,7 +37587,7 @@ function chipLabel(attachment) {
 }
 
 // src/version.ts
-var TUI_VERSION = "0.2.57";
+var TUI_VERSION = "0.2.58";
 
 // src/components/DiffView.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
@@ -38088,24 +38109,31 @@ function summarizeArgs(args, max = 60) {
 }
 function visibleToolBodyLines(call, expanded, maxLines = TOOL_OUTPUT_LINES) {
   const body = call.error ?? call.output ?? "";
-  const all = body.length > 0 ? body.split("\n") : [];
+  const all = body.length > 0 ? body.replace(/\n+$/, "").split("\n") : [];
   if (expanded) return { shown: all.slice(0, maxLines), total: all.length };
   if (call.state === "error" && all.length > 0) {
     return { shown: all.slice(0, COLLAPSED_ERROR_LINES), total: all.length };
   }
+  const live = call.progress?.length ?? 0;
+  if (call.state === "ok" && live > 0 && all.length > 0) {
+    return { shown: all.slice(-live), total: all.length, kept: true };
+  }
   return { shown: [], total: all.length };
 }
+function toolLineCount(shown, total, kept) {
+  if (kept) return shown < total ? ` (last ${shown} of ${total} lines)` : "";
+  return shown === 0 && total > 0 ? ` (${total} lines)` : "";
+}
 function toolCallLines(call, expanded) {
-  const { shown, total: allLength } = visibleToolBodyLines(call, expanded);
-  const hidden = allLength - shown.length;
+  const { shown, total: allLength, kept } = visibleToolBodyLines(call, expanded);
+  const hidden = kept ? 0 : allLength - shown.length;
   const head = [
     TOOL_MARK[call.state] ?? TOOL_MARK.running,
     { text: call.name, bold: true },
     { text: ` ${summarizeArgs(call.args)}`, dimColor: true }
   ];
-  if (!expanded && allLength > 0 && shown.length === 0) {
-    head.push({ text: ` (${allLength} lines)`, dimColor: true });
-  }
+  const count2 = expanded ? "" : toolLineCount(shown.length, allLength, kept);
+  if (count2) head.push({ text: count2, dimColor: true });
   const out = [{ key: `${call.callId}-h`, segments: head }];
   if (call.state === "running") {
     (call.progress ?? []).forEach((line, index) => {
@@ -38232,15 +38260,34 @@ function diffBlock(diff2, expanded, state) {
   }
   return out;
 }
+var messageCache = /* @__PURE__ */ new WeakMap();
+function cachedMessageLines(message, width, colorize2, inputBackground) {
+  const hit = messageCache.get(message);
+  if (hit && hit.width === width && hit.background === inputBackground && hit.colorize === colorize2) {
+    return hit.lines;
+  }
+  const lines = messageBlock(message, width, colorize2, inputBackground).flatMap(
+    (line) => wrapLine(line, width, "  ")
+  );
+  messageCache.set(message, { width, background: inputBackground, colorize: colorize2, lines });
+  return lines;
+}
 function screenTranscriptLines(state, width, { expandedId = null, notes = [], inputBackground = currentInputBackground() } = {}, colorize2 = (lines) => lines) {
   notes = notes.filter((note) => note.at <= state.timeline.length).sort((a, b) => a.at - b.at);
   const out = [];
   let last = "none";
   let run = [];
   let noteIndex = 0;
-  const push = (lines, kind, gapAfter) => {
+  const messages = new Map(state.messages.map((entry) => [entry.id, entry]));
+  const calls = new Map(state.toolCalls.map((entry) => [entry.callId, entry]));
+  const diffs = new Map(state.diffs.map((entry) => [entry.id, entry]));
+  const push = (lines, kind, gapAfter, wrapped = false) => {
     if (kind === "block" && last === "tools") out.push(blank(`gap-${out.length}`));
-    out.push(...lines.flatMap((line) => wrapLine(line, width, "  ")));
+    if (wrapped) {
+      for (const line of lines) out.push(line);
+    } else {
+      out.push(...lines.flatMap((line) => wrapLine(line, width, "  ")));
+    }
     if (gapAfter) out.push(blank(`gap-${out.length}`));
     last = gapAfter ? "none" : kind;
   };
@@ -38251,8 +38298,8 @@ function screenTranscriptLines(state, width, { expandedId = null, notes = [], in
     } else {
       for (const block of groupCalls(run)) {
         if (block.kind === "single" || block.calls.some((call) => call.callId === expandedId)) {
-          const calls = block.kind === "single" ? [block.call] : block.calls;
-          for (const call of calls) push(toolCallLines(call, expandedId === call.callId), "tools", false);
+          const calls2 = block.kind === "single" ? [block.call] : block.calls;
+          for (const call of calls2) push(toolCallLines(call, expandedId === call.callId), "tools", false);
         } else {
           push([summaryLine2(block.calls)], "tools", false);
         }
@@ -38281,14 +38328,16 @@ function screenTranscriptLines(state, width, { expandedId = null, notes = [], in
   state.timeline.forEach((item, index) => {
     placeNotes(index);
     if (item.kind === "tool") {
-      const call = state.toolCalls.find((entry) => entry.callId === item.id);
+      const call = calls.get(item.id);
       if (call) run.push(call);
       return;
     }
     flush(false);
     if (item.kind === "message") {
-      const message = state.messages.find((entry) => entry.id === item.id);
-      if (message) push(messageBlock(message, width, colorize2, inputBackground), "block", true);
+      const message = messages.get(item.id);
+      if (message) {
+        push(cachedMessageLines(message, width, colorize2, inputBackground), "block", true, true);
+      }
       return;
     }
     if (item.kind === "compaction") {
@@ -38298,7 +38347,7 @@ function screenTranscriptLines(state, width, { expandedId = null, notes = [], in
       }
       return;
     }
-    const diff2 = state.diffs.find((entry) => entry.id === item.id);
+    const diff2 = diffs.get(item.id);
     if (diff2) push(diffBlock(diff2, expandedId === diff2.id, state), "block", true);
   });
   const tailNotes = notes.slice(noteIndex).some((note) => note.at <= state.timeline.length);
@@ -40075,8 +40124,9 @@ function ToolCall({
   maxOutputLines = 12
 }) {
   const meta = STATE_GLYPH[call.state];
-  const { shown, total } = visibleToolBodyLines(call, expanded, maxOutputLines);
-  const hidden = total - shown.length;
+  const { shown, total, kept } = visibleToolBodyLines(call, expanded, maxOutputLines);
+  const hidden = kept ? 0 : total - shown.length;
+  const count2 = expanded ? "" : toolLineCount(shown.length, total, kept);
   const tail = call.state === "running" ? call.progress ?? [] : [];
   return /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(Box_default, { flexDirection: "column", children: [
     /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(Text, { children: [
@@ -40089,11 +40139,7 @@ function ToolCall({
         " ",
         summarizeArgs2(call.args)
       ] }),
-      !expanded && total > 0 && shown.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(Text, { dimColor: true, children: [
-        " (",
-        total,
-        " lines)"
-      ] }) : null
+      count2 ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Text, { dimColor: true, children: count2 }) : null
     ] }),
     tail.map((line, index) => /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
       Text,
