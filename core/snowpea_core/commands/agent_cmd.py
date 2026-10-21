@@ -274,6 +274,12 @@ async def _use(ctx: CommandContext, name: str) -> None:
     """``/agent use <name>`` / ``/agent use none`` — what session.setAgent does."""
     from snowpea_core.agent.session_agent import UnknownAgent, switch_agent
 
+    # Only the session's own person switches agents: never queue_command,
+    # an agent's announce turn, a routine or a group member (1.23.0).
+    origin = ctx.session.turn_origins.get(ctx.turn_id, "human")
+    if origin != "human":
+        await ctx.say(f"/agent use only works when you type it (this came from {origin}).")
+        return
     target = None if name.lower() in ("", "none", "off", "default") else name
     try:
         agent = await switch_agent(ctx.core, ctx.session, target)

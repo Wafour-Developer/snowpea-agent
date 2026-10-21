@@ -5529,6 +5529,9 @@ CAPABILITIES: list[str] = [
     "batchedFileTools",
     "hostToolParallel",
     "pageActionAlways",
+    "sessionSetAgent",
+    "standingOrders",
+    "sessionAttachments",
 ]
 
 #: Where the daemon listens; mirrored into the schema dump for the SDK.

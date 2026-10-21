@@ -53,7 +53,9 @@ Server capabilities advertised in the `system.hello` result:
 - `pageActionAlways`
 - `providerModelsError`
 - `readOnlyDelegation`
+- `sessionAttachments`
 - `sessionContinue`
+- `sessionSetAgent`
 - `sessions`
 - `settings`
 - `setup`
@@ -61,6 +63,7 @@ Server capabilities advertised in the `system.hello` result:
 - `siteMemory`
 - `siteRecipes`
 - `snapshotSupersede`
+- `standingOrders`
 - `tabReadAlways`
 - `tools`
 - `update`

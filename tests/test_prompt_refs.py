@@ -465,3 +465,32 @@ def test_wire_attachment_and_ref_image_share_one_message(
     assert sum(1 for block in blocks if block.get("type") == "image") == 2
     assert blocks[0].get("type") == "text"
     assert "@ref.png" in str(blocks[0].get("text", ""))
+
+
+def test_browser_profiles_keyrings_and_cookie_stores_are_secret(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A prompt-injected agent can steer the user into attaching a cookie DB:
+    those paths are tagged secret by name and by profile/keyring root."""
+    from snowpea_core.agent.prompt_refs import is_secret_pattern
+
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "Local"))
+    secret = [
+        tmp_path / ".config/google-chrome-beta/Default/Preferences",
+        tmp_path / "Library/Application Support/Google/Chrome/Default/History",
+        tmp_path / "Local/Microsoft/Edge/User Data/Default/Bookmarks",
+        tmp_path / ".mozilla/firefox/x.default/places.sqlite",
+        tmp_path / ".local/share/keyrings/login.keyring",
+        tmp_path / "Library/Keychains/login.keychain-db",
+        tmp_path / "anywhere/Login Data",
+        tmp_path / "anywhere/Network/Cookies",
+        tmp_path / "anywhere/key4.db",
+    ]
+    plain = [
+        tmp_path / "work/notes.txt",
+        tmp_path / ".config/chromium-notes.txt",
+        tmp_path / "Local/Microsoft/Edge/Other/file",
+    ]
+    assert [p for p in secret if not is_secret_pattern(p)] == []
+    assert [p for p in plain if is_secret_pattern(p)] == []

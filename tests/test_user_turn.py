@@ -61,3 +61,25 @@ async def test_an_agent_started_turn_keeps_the_persons_last_words(
     turn_id = agent_loop.start_turn(core, session, "그냥 닫아줘")
     await asyncio.wait_for(session.turn_task, 10)
     assert session.user_turn == {"messageId": turn_id, "text": "그냥 닫아줘", "steers": []}
+
+
+async def test_agent_use_only_from_the_persons_own_turn(daemon: Daemon, tmp_path: Path) -> None:
+    """A queued command or another origin cannot switch the session's agent."""
+    from snowpea_core.commands.agent_cmd import _use
+    from snowpea_core.commands.registry import CommandContext
+
+    core = daemon.core
+    assert core is not None
+    work = tmp_path / "w"
+    work.mkdir()
+    session = await core.sessions.create(work, mode="auto")
+    said: list[str] = []
+    ctx = CommandContext(core=core, session=session, turn_id="t-agent", conn=None)
+    ctx.say = lambda text: _record(said, text)  # type: ignore[method-assign]
+    agent_loop.note_origin(session, "t-agent", "agent")
+    await _use(ctx, "explore")
+    assert session.agent is None and "only works when you type it" in said[-1]
+
+
+async def _record(said: list[str], text: str) -> None:
+    said.append(text)

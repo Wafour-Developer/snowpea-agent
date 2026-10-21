@@ -54,6 +54,74 @@ _REF_RE = re.compile(
 )
 _RANGE_RE = re.compile(r"^(.+?):(\d+)(?:-(\d+))?$")
 _SECRET_DIR_PARTS = frozenset({".ssh", ".gnupg", ".aws"})
+#: Browser credential stores, by file name in any directory (Chromium's
+#: cookies, saved logins and keys; Firefox's ``key4.db`` and friends).
+_SECRET_FILE_NAMES = frozenset(
+    {
+        "cookies",
+        "cookies-journal",
+        "login data",
+        "login data for account",
+        "web data",
+        "local state",
+        "safe browsing cookies",
+        "key4.db",
+        "logins.json",
+        "cookies.sqlite",
+    }
+)
+#: Browser profiles, keyrings and keychains: ``(base, glob under it)``, where
+#: base ``~`` is the home directory and ``%NAME%`` an environment variable.
+_SECRET_ROOTS: tuple[tuple[str, str], ...] = (
+    ("~", ".config/google-chrome*"),
+    ("~", ".config/chromium"),
+    ("~", ".config/snowpea*"),
+    ("~", ".config/BraveSoftware"),
+    ("~", ".config/microsoft-edge*"),
+    ("~", "Library/Application Support/Google/Chrome*"),
+    ("~", "Library/Application Support/Chromium"),
+    ("~", "Library/Application Support/Snowpea*"),
+    ("~", "Library/Application Support/BraveSoftware"),
+    ("~", "Library/Application Support/Microsoft Edge*"),
+    ("%LOCALAPPDATA%", "Google/Chrome*/User Data"),
+    ("%LOCALAPPDATA%", "Chromium/User Data"),
+    ("%LOCALAPPDATA%", "Snowpea*/User Data"),
+    ("%LOCALAPPDATA%", "BraveSoftware/*/User Data"),
+    ("%LOCALAPPDATA%", "Microsoft/Edge*/User Data"),
+    ("~", ".mozilla/firefox"),
+    ("~", "Library/Application Support/Firefox/Profiles"),
+    ("%APPDATA%", "Mozilla/Firefox/Profiles"),
+    ("~", ".local/share/keyrings"),
+    ("~", ".password-store"),
+    ("~", "Library/Keychains"),
+    ("%APPDATA%", "Microsoft/Credentials"),
+    ("%APPDATA%", "Microsoft/Protect"),
+    ("%LOCALAPPDATA%", "Microsoft/Credentials"),
+)
+
+
+def _under_secret_root(resolved: Path) -> bool:
+    """True inside a browser profile, keyring or keychain directory."""
+    import fnmatch
+    import os
+
+    for base, pattern in _SECRET_ROOTS:
+        if base == "~":
+            root = Path.home()
+        else:
+            value = os.environ.get(base.strip("%"))
+            if not value:
+                continue
+            root = Path(value)
+        try:
+            rel = resolved.relative_to(root.expanduser())
+        except ValueError:
+            continue
+        depth = len(Path(pattern).parts)
+        head = Path(*rel.parts[:depth]).as_posix() if len(rel.parts) >= depth else ""
+        if head and fnmatch.fnmatch(head.lower(), pattern.lower()):
+            return True
+    return False
 
 
 @dataclass(frozen=True)
@@ -106,7 +174,11 @@ def _ref_entry(
 
 
 def is_secret_pattern(resolved: Path) -> bool:
-    """True when the path itself says "credential": .ssh/.gnupg/.aws, .env*, keys."""
+    """True when the path itself says "credential".
+
+    .ssh/.gnupg/.aws, .env*, keys, browser cookie and login stores by name,
+    and anything inside a browser profile, keyring or keychain directory.
+    """
     parts = resolved.parts
     if any(part in _SECRET_DIR_PARTS for part in parts):
         return True
@@ -116,7 +188,9 @@ def is_secret_pattern(resolved: Path) -> bool:
         return True
     if lower.endswith(".pem") or lower.endswith(".key"):
         return True
-    return name.startswith("id_rsa") or name.startswith("id_ed25519")
+    if name.startswith("id_rsa") or name.startswith("id_ed25519"):
+        return True
+    return lower in _SECRET_FILE_NAMES or _under_secret_root(resolved)
 
 
 def _is_secret_path(resolved: Path, home: Path) -> bool:
