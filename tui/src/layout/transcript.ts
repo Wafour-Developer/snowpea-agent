@@ -294,28 +294,39 @@ export function visibleToolBodyLines(
   call: ToolCallEntry,
   expanded: boolean,
   maxLines = TOOL_OUTPUT_LINES,
-): { shown: string[]; total: number } {
+): { shown: string[]; total: number; kept?: boolean } {
   const body = call.error ?? call.output ?? "";
-  const all = body.length > 0 ? body.split("\n") : [];
+  const all = body.length > 0 ? body.replace(/\n+$/, "").split("\n") : [];
   if (expanded) return { shown: all.slice(0, maxLines), total: all.length };
   if (call.state === "error" && all.length > 0) {
     return { shown: all.slice(0, COLLAPSED_ERROR_LINES), total: all.length };
   }
+  // A call that streamed output keeps as many lines as it showed while it
+  // ran: folding them away on completion moved everything below it.
+  const live = call.progress?.length ?? 0;
+  if (call.state === "ok" && live > 0 && all.length > 0) {
+    return { shown: all.slice(-live), total: all.length, kept: true };
+  }
   return { shown: [], total: all.length };
 }
 
+/** The header's line count: "(N lines)" folded, "(last K of N lines)" kept. */
+export function toolLineCount(shown: number, total: number, kept: boolean | undefined): string {
+  if (kept) return shown < total ? ` (last ${shown} of ${total} lines)` : "";
+  return shown === 0 && total > 0 ? ` (${total} lines)` : "";
+}
+
 export function toolCallLines(call: ToolCallEntry, expanded: boolean): Line[] {
-  const { shown, total: allLength } = visibleToolBodyLines(call, expanded);
-  const hidden = allLength - shown.length;
+  const { shown, total: allLength, kept } = visibleToolBodyLines(call, expanded);
+  const hidden = kept ? 0 : allLength - shown.length;
 
   const head: Segment[] = [
     TOOL_MARK[call.state] ?? TOOL_MARK.running,
     { text: call.name, bold: true },
     { text: ` ${summarizeArgs(call.args)}`, dimColor: true },
   ];
-  if (!expanded && allLength > 0 && shown.length === 0) {
-    head.push({ text: ` (${allLength} lines)`, dimColor: true });
-  }
+  const count = expanded ? "" : toolLineCount(shown.length, allLength, kept);
+  if (count) head.push({ text: count, dimColor: true });
 
   const out: Line[] = [{ key: `${call.callId}-h`, segments: head }];
   // While the call is in flight the daemon streams its output; the tail says

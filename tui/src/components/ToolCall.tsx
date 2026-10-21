@@ -3,7 +3,7 @@
 import React from "react";
 import { Box, Text } from "ink";
 
-import { visibleToolBodyLines } from "../layout/transcript.js";
+import { toolLineCount, visibleToolBodyLines } from "../layout/transcript.js";
 import { diagnosticLineColor } from "../state/lsp.js";
 import type { ToolCallEntry } from "../state/store.js";
 
@@ -33,8 +33,9 @@ export function ToolCall({
   maxOutputLines?: number;
 }): React.ReactElement {
   const meta = STATE_GLYPH[call.state];
-  const { shown, total } = visibleToolBodyLines(call, expanded, maxOutputLines);
-  const hidden = total - shown.length;
+  const { shown, total, kept } = visibleToolBodyLines(call, expanded, maxOutputLines);
+  const hidden = kept ? 0 : total - shown.length;
+  const count = expanded ? "" : toolLineCount(shown.length, total, kept);
   // While the call is in flight the daemon streams its output; the tail says
   // the thing is alive and what it is chewing on. The final result replaces it.
   const tail = call.state === "running" ? (call.progress ?? []) : [];
@@ -45,9 +46,7 @@ export function ToolCall({
         <Text color={meta.color}>{meta.glyph} </Text>
         <Text bold>{call.name}</Text>
         <Text dimColor> {summarizeArgs(call.args)}</Text>
-        {!expanded && total > 0 && shown.length === 0 ? (
-          <Text dimColor> ({total} lines)</Text>
-        ) : null}
+        {count ? <Text dimColor>{count}</Text> : null}
       </Text>
       {tail.map((line, index) => (
         <Text

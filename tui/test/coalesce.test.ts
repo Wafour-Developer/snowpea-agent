@@ -292,3 +292,30 @@ describe("the agent transcript's height", () => {
     ).toBe(AGENT_TRANSCRIPT_ROWS);
   });
 });
+
+describe("shell output on the main session", () => {
+  it("batches a call's chunks into one repaint, per call and stream, in order", () => {
+    const timer = manualTimer();
+    const delivered: CoalescableEvent[] = [];
+    const throttle = createLiveEventThrottle<CoalescableEvent>((event) => delivered.push(event), {
+      setTimer: timer.setTimer,
+      clearTimer: timer.clearTimer,
+    });
+    const chunk = (callId: string, text: string, stream = "stdout"): CoalescableEvent => ({
+      kind: "tool.progress",
+      payload: { callId, chunk: text, stream },
+    });
+    throttle.push(chunk("a", "1\n"));
+    throttle.push(chunk("a", "2\n"));
+    throttle.push(chunk("a", "3\n"));
+    throttle.push(chunk("b", "x\n"));
+    throttle.push(chunk("a", "err\n", "stderr"));
+    expect(delivered).toHaveLength(1); // the leading edge only
+    timer.tick();
+    const chunks = delivered.map((e) => {
+      const p = e.payload as { callId: string; chunk: string; stream: string };
+      return `${p.callId}/${p.stream}:${p.chunk}`;
+    });
+    expect(chunks).toEqual(["a/stdout:1\n", "a/stdout:2\n3\n", "b/stdout:x\n", "a/stderr:err\n"]);
+  });
+});

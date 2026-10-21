@@ -127,6 +127,39 @@ function diffBlock(diff: DiffEntry, expanded: boolean, state: State): Line[] {
 }
 
 /**
+ * A message's wrapped lines, by the message object.
+ *
+ * The store replaces a message object when it changes and keeps the rest, so
+ * during a stream only the message being written is laid out again: each
+ * frame used to re-render the markdown of every message in the session, and
+ * on a long one that kept the keyboard waiting.
+ */
+interface CachedBlock {
+  width: number;
+  background: string | undefined;
+  colorize: (lines: Line[]) => Line[];
+  lines: Line[];
+}
+const messageCache = new WeakMap<Message, CachedBlock>();
+
+function cachedMessageLines(
+  message: Message,
+  width: number,
+  colorize: (lines: Line[]) => Line[],
+  inputBackground: string | undefined,
+): Line[] {
+  const hit = messageCache.get(message);
+  if (hit && hit.width === width && hit.background === inputBackground && hit.colorize === colorize) {
+    return hit.lines;
+  }
+  const lines = messageBlock(message, width, colorize, inputBackground).flatMap((line) =>
+    wrapLine(line, width, "  "),
+  );
+  messageCache.set(message, { width, background: inputBackground, colorize, lines });
+  return lines;
+}
+
+/**
  * Every transcript line, oldest first, wrapped to `width`.
  *
  * `colorize` marks file references in a prompt; it is passed in rather than
@@ -147,11 +180,25 @@ export function screenTranscriptLines(
   let run: ToolCallEntry[] = [];
   let noteIndex = 0;
 
-  const push = (lines: Line[], kind: "tools" | "block", gapAfter: boolean): void => {
+  // One pass to index, not a scan of every list per timeline entry.
+  const messages = new Map(state.messages.map((entry) => [entry.id, entry]));
+  const calls = new Map(state.toolCalls.map((entry) => [entry.callId, entry]));
+  const diffs = new Map(state.diffs.map((entry) => [entry.id, entry]));
+
+  const push = (
+    lines: Line[],
+    kind: "tools" | "block",
+    gapAfter: boolean,
+    wrapped = false,
+  ): void => {
     // Tool lines stack tightly; whatever follows a run of them gets one blank
     // line above, as in the inline scrollback.
     if (kind === "block" && last === "tools") out.push(blank(`gap-${out.length}`));
-    out.push(...lines.flatMap((line) => wrapLine(line, width, "  ")));
+    if (wrapped) {
+      for (const line of lines) out.push(line);
+    } else {
+      out.push(...lines.flatMap((line) => wrapLine(line, width, "  ")));
+    }
     if (gapAfter) out.push(blank(`gap-${out.length}`));
     last = gapAfter ? "none" : kind;
   };
@@ -197,14 +244,16 @@ export function screenTranscriptLines(
   state.timeline.forEach((item, index) => {
     placeNotes(index);
     if (item.kind === "tool") {
-      const call = state.toolCalls.find((entry) => entry.callId === item.id);
+      const call = calls.get(item.id);
       if (call) run.push(call);
       return;
     }
     flush(false);
     if (item.kind === "message") {
-      const message = state.messages.find((entry) => entry.id === item.id);
-      if (message) push(messageBlock(message, width, colorize, inputBackground), "block", true);
+      const message = messages.get(item.id);
+      if (message) {
+        push(cachedMessageLines(message, width, colorize, inputBackground), "block", true, true);
+      }
       return;
     }
     if (item.kind === "compaction") {
@@ -214,7 +263,7 @@ export function screenTranscriptLines(
       }
       return;
     }
-    const diff = state.diffs.find((entry) => entry.id === item.id);
+    const diff = diffs.get(item.id);
     if (diff) push(diffBlock(diff, expandedId === diff.id, state), "block", true);
   });
   // The run at the very end belongs to the turn still going, when one is.

@@ -75,9 +75,23 @@ export const TEXT_FLUSH_MS = 66;
 
 /** How long a kind may wait, or 0 when it is never batched. */
 function windowFor(kind: string): number {
-  if (kind === "message.delta") return TEXT_FLUSH_MS;
+  if (kind === "message.delta" || kind === "tool.progress") return TEXT_FLUSH_MS;
   if (kind === "message.reasoning" || kind === "usage") return LIVE_FLUSH_MS;
   return 0;
+}
+
+/**
+ * What batches together: one kind, and for tool output one call's one stream,
+ * so two shells running side by side never swap their lines.
+ */
+function pendingKey(kind: string, event: CoalescableEvent): string {
+  if (kind !== "tool.progress") return kind;
+  const payload = event.payload as { callId?: string; stream?: string } | undefined;
+  return `${kind}\u0000${payload?.callId ?? ""}\u0000${payload?.stream ?? ""}`;
+}
+
+function kindOf(key: string): string {
+  return key.split("\u0000", 1)[0];
 }
 
 export interface LiveEventThrottle<E extends CoalescableEvent> {
@@ -117,6 +131,20 @@ function mergeLive<E extends CoalescableEvent>(kind: string, older: E, newer: E)
     } as E;
   }
   if (kind === "message.reasoning") return newer;
+  if (kind === "tool.progress") {
+    // A shell's output arrives a chunk at a time; one repaint per window
+    // carries every chunk of it, in order.
+    const older_ = older.payload as { chunk?: string; truncated?: boolean } | undefined;
+    const newer_ = newer.payload as { chunk?: string; truncated?: boolean } | undefined;
+    return {
+      ...newer,
+      payload: {
+        ...(newer.payload as object | undefined),
+        chunk: (older_?.chunk ?? "") + (newer_?.chunk ?? ""),
+        truncated: Boolean(older_?.truncated || newer_?.truncated),
+      },
+    } as E;
+  }
   if (kind === "usage") {
     return {
       ...newer,
@@ -158,7 +186,7 @@ export function createLiveEventThrottle<E extends CoalescableEvent>(
     timer = setTimer(() => {
       timer = null;
       if (pending.size === 0) return;
-      const next = Math.min(...[...pending.keys()].map(windowFor));
+      const next = Math.min(...[...pending.keys()].map((key) => windowFor(kindOf(key))));
       drain();
       // Still streaming: keep the window closed rather than letting the next
       // token through on the leading edge and doubling the frame rate.
@@ -177,9 +205,10 @@ export function createLiveEventThrottle<E extends CoalescableEvent>(
         deliver(event);
         return;
       }
-      const held = pending.get(kind);
+      const key = pendingKey(kind, event);
+      const held = pending.get(key);
       if (held) {
-        pending.set(kind, mergeLive(kind, held, event) as E);
+        pending.set(key, mergeLive(kind, held, event) as E);
         return;
       }
       if (timer === null) {
@@ -188,7 +217,7 @@ export function createLiveEventThrottle<E extends CoalescableEvent>(
         arm(ms);
         return;
       }
-      pending.set(kind, event);
+      pending.set(key, event);
       // A kind with a shorter window must not wait out a longer one.
       if (ms < armedMs) {
         clearTimer(timer);
