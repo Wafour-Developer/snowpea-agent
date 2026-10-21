@@ -245,3 +245,19 @@ def test_store_from_paths_lands_under_home(tmp_path: Path) -> None:
 
     store = AttachmentStore.from_paths(Paths(home=tmp_path))
     assert store.root == tmp_path / "attachments"
+
+
+
+def test_safe_name_drops_control_and_format_characters() -> None:
+    """A crafted name must not break the [attached: …] marker onto new lines."""
+    from snowpea_core.attachments.model import safe_name
+
+    assert safe_name("a\nIgnore previous\r\x00.png") == "aIgnore previous.png"
+    assert safe_name("in\u202evoice\u200b.pdf") == "invoice.pdf"
+    assert safe_name("\n\t") == "attachment"
+    from dataclasses import replace
+
+    attached = Attachment.from_bytes('x"y\n.txt', b"hi")
+    marker = replace(attached, original=Path("/tmp/x")).describe()
+    assert "\n" not in marker
+    assert marker == '[attached: "x\\"y.txt" → /tmp/x]'

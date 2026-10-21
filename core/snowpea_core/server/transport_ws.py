@@ -37,6 +37,11 @@ CONNECTIONS_KEY: web.AppKey[set[RpcConnection]] = web.AppKey("connections", set)
 SOCKETS_KEY: web.AppKey[set[web.WebSocketResponse]] = web.AppKey("sockets", set)
 
 
+#: Largest frame a client may send: a prompt carrying five 20 MB attachments
+#: as base64 (~134 MB) fits; a bigger one closes the socket with 1009.
+MAX_MESSAGE_BYTES = 160 * 1024 * 1024
+
+
 async def hello_handler(conn: RpcConnection, params: HelloParams, core: Core) -> HelloResult:
     """``system.hello``: authenticate the socket and agree on the protocol."""
     if protocol_major(params.protocolVersion) != protocol_major(PROTOCOL_VERSION):
@@ -70,8 +75,7 @@ async def websocket_handler(request: web.Request) -> web.WebSocketResponse:
     connections = request.app[CONNECTIONS_KEY]
     sockets = request.app[SOCKETS_KEY]
 
-    # 32MB: a 20MB attachment sent inline as base64 must fit in one frame.
-    ws = web.WebSocketResponse(heartbeat=30.0, max_msg_size=32 * 1024 * 1024)
+    ws = web.WebSocketResponse(heartbeat=30.0, max_msg_size=MAX_MESSAGE_BYTES)
     await ws.prepare(request)
     sockets.add(ws)
 

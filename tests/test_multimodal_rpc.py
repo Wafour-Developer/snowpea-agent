@@ -221,7 +221,7 @@ async def test_a_turn_carries_the_attachment_into_history(tmp_path: Path) -> Non
     assert image["type"] == "image"
     # The marker names the original, which the agent may use as a file (1.23.0).
     original = daemon.paths.attachments_dir / session_id / "files" / "shot.png"
-    assert image["text"] == f"[attached: shot.png → {original}]"
+    assert image["text"] == f'[attached: "shot.png" → {original}]'
     assert image["original"] == str(original)
     assert Path(image["path"]).read_bytes() == PNG
     # The stash is empty: the turn consumed it.
@@ -743,3 +743,30 @@ async def test_the_session_cap_and_names(tmp_path: Path, monkeypatch: pytest.Mon
         store.keep_original("s-1", "big.bin", b"x" * 10, "application/octet-stream")
     assert caught.value.code == "attachment_too_large"
     assert store.purge("s-1") >= 0 and store.listing("s-1") == []
+
+
+async def test_a_prompt_bigger_than_the_old_32mb_frame_goes_through(
+    daemon: Daemon, tmp_path: Path
+) -> None:
+    """Two 14 MB files as base64 (~37 MB) used to drop the socket."""
+    blobs = [base64.b64encode(bytes([n]) * (14 * 1024 * 1024)).decode() for n in (1, 2)]
+    async with aiohttp.ClientSession() as http:
+        client = await connect(http, daemon)
+        try:
+            session_id = await _session(client, tmp_path / "work")
+            await client.ok(
+                "session.prompt",
+                {
+                    "sessionId": session_id,
+                    "text": "two big files",
+                    "attachments": [
+                        {"kind": "file", "name": f"big{n}.bin", "data": blobs[n - 1]}
+                        for n in (1, 2)
+                    ],
+                },
+                timeout=60,
+            )
+            listed = await client.ok("session.attachments", {"sessionId": session_id})
+        finally:
+            await client.stop()
+    assert [row["name"] for row in listed["attachments"]] == ["big1.bin", "big2.bin"]

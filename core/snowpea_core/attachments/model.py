@@ -19,7 +19,9 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
+import json
 import logging
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -262,7 +264,7 @@ class Attachment:
         agent can use the file itself.
         """
         if self.original is not None:
-            return f"[attached: {self.name} → {self.original}]"
+            return f"[attached: {json.dumps(self.name, ensure_ascii=False)} → {self.original}]"
         kind = "image" if self.is_image else "file"
         return f"[{kind}: {self.name}]"
 
@@ -282,8 +284,16 @@ class Attachment:
 
 
 def safe_name(name: str) -> str:
-    """A display name with no path separators and no surprises."""
-    cleaned = Path(str(name or "attachment")).name.strip() or "attachment"
+    """A display name with no path separators and no surprises.
+
+    Control and format characters (``\\p{Cc}``, ``\\p{Cf}``: newlines, bidi
+    overrides, zero-width marks) are dropped, so a crafted file name cannot
+    break the ``[attached: …]`` marker onto a line of its own.
+    """
+    raw = "".join(
+        char for char in str(name or "") if unicodedata.category(char) not in ("Cc", "Cf")
+    )
+    cleaned = Path(raw).name.strip() or "attachment"
     return cleaned[:120]
 
 
