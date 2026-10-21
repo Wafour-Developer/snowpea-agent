@@ -432,8 +432,12 @@ def register_permission_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
 # ---------------------------------------------------------------------------
 
 
-def _persist_provider(core: Core, vendor: str, config: dict[str, Any]) -> None:
-    """Merge ``config`` into the vendor's settings and write ``settings.json``."""
+async def _persist_provider(core: Core, vendor: str, config: dict[str, Any]) -> None:
+    """Merge ``config`` into the vendor's settings, write ``settings.json``, announce it.
+
+    ``settings.changed`` ``["providers"]`` goes out after the write, so an open
+    picker learns of the new key or model without waiting for a focus event.
+    """
     try:
         core.providers.configure(vendor, config)
     except ProviderError as exc:
@@ -444,6 +448,7 @@ def _persist_provider(core: Core, vendor: str, config: dict[str, Any]) -> None:
     except OSError as exc:  # pragma: no cover - disk failure
         raise RpcError(errors.INTERNAL, f"could not write settings.json: {exc}") from exc
     core.mark_settings_saved()
+    await core.notify_settings_changed(["providers"])
 
 
 async def provider_configure_handler(
@@ -500,14 +505,14 @@ async def provider_configure_handler(
     if config and all(value is None for value in config.values()):
         # A patch of nothing but ``None`` is a deliberate "forget this vendor",
         # not the empty call the guard below refuses.
-        _persist_provider(core, params.vendor, config)
+        await _persist_provider(core, params.vendor, config)
         return Ok(ok=True)
     if not config:
         raise RpcError(
             errors.INVALID_PARAMS,
             "provider.configure needs credentials, base_url, or model",
         )
-    _persist_provider(core, params.vendor, config)
+    await _persist_provider(core, params.vendor, config)
     return Ok(ok=True)
 
 
@@ -525,6 +530,7 @@ async def provider_remove_handler(
     except OSError as exc:  # pragma: no cover - disk failure
         raise RpcError(errors.INTERNAL, f"could not write settings.json: {exc}") from exc
     core.mark_settings_saved()
+    await core.notify_settings_changed(["providers"])
     return Ok(ok=True)
 
 
@@ -569,7 +575,7 @@ async def provider_login_web_handler(
             log.warning("provider login for %s failed", params.vendor, exc_info=True)
             return
         try:
-            _persist_provider(core, result.vendor, result.credentials)
+            await _persist_provider(core, result.vendor, result.credentials)
         except RpcError:
             log.warning(
                 "could not persist credentials for %s", params.vendor, exc_info=True

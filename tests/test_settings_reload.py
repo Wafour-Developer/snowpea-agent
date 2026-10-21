@@ -184,6 +184,28 @@ async def test_reload_settings_notifies_every_client(
         await watcher.stop()
 
 
+async def test_provider_configure_and_remove_tell_every_client(
+    daemon: Daemon, http: aiohttp.ClientSession
+) -> None:
+    """An open agent panel learns of a new key, model or server at once."""
+    watcher = await connect(http, daemon)
+    caller = await connect(http, daemon)
+    try:
+        await caller.ok(
+            "provider.configure",
+            {"vendor": "lab", "config": {"preset": "local", "base_url": "http://127.0.0.1:9/v1"}},
+        )
+        params = await watcher.wait_notification("settings.changed")
+        assert params == {"scope": "global", "keys": ["providers"]}
+        watcher.notifications.clear()
+        await caller.ok("provider.remove", {"vendor": "lab"})
+        params = await watcher.wait_notification("settings.changed")
+        assert params == {"scope": "global", "keys": ["providers"]}
+    finally:
+        await caller.stop()
+        await watcher.stop()
+
+
 # ---------------------------------------------------------------------------
 # settings.set
 # ---------------------------------------------------------------------------
