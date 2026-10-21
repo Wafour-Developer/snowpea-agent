@@ -11,6 +11,7 @@ import asyncio
 import itertools
 import json
 import logging
+import time
 import uuid
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
@@ -50,6 +51,7 @@ OWNED_RUN_METHODS = frozenset(
         "memory.list",
         "question.list",
         "session.artifacts",
+        "session.attachments",
         "session.close",
         "session.interrupt",
         "session.resume",
@@ -66,6 +68,9 @@ class RpcConnection:
         self._sender = sender
         self.peer = peer
         self.surface_id: str = uuid.uuid4().hex
+        #: ``time.monotonic()`` when it connected: a host still inside its
+        #: first seconds may not have sent ``tool.register`` yet.
+        self.connected_at: float = time.monotonic()
         self.authenticated: bool = False
         self.client_version: str | None = None
         self.closed: bool = False

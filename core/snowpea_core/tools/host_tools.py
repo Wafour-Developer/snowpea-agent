@@ -411,6 +411,7 @@ class HostTools:
             "parentSessionId": getattr(session, "parent_session_id", None),
             # userTurn, origin and job: the root's running turn (1.22.0, 1.23.0).
             **root_turn_context(core, session),
+            "attachments": root_attachments(core, session),
         }
         try:
             answer = await self._call_or_cancel(
@@ -692,6 +693,80 @@ def root_turn_context(core: Any, session: Any) -> dict[str, Any]:
         "origin": origin,
         "job": dict(job) if isinstance(job, dict) else None,
     }
+
+
+#: How long a turn waits for a connected host's ``tool.register``.
+REGISTER_WAIT_SEC = 5.0
+
+
+def _awaited_host(core: Any, session: Any) -> float | None:
+    """When a just-connected host of the session stops being waited for.
+
+    ``None`` unless the host the session names is connected, registered no
+    tools yet, and connected less than :data:`REGISTER_WAIT_SEC` ago — a
+    client that never registers costs a turn nothing once that has passed.
+    """
+    target = getattr(session, "host_tools_from", None)
+    if not target or HOST_TOOLS.for_session(session):
+        return None
+    hub = getattr(core, "hub", None)
+    clients = hub.clients() if hub is not None and hasattr(hub, "clients") else []
+    target = str(target)
+    now = time.monotonic()
+    ends = [
+        float(getattr(conn, "connected_at", 0.0)) + REGISTER_WAIT_SEC
+        for conn in clients
+        if not getattr(conn, "closed", False)
+        and target
+        in (
+            getattr(conn, "client_id", None),
+            getattr(conn, "surface_id", None),
+            getattr(conn, "client_kind", None),
+        )
+    ]
+    end = max(ends, default=0.0)
+    return end if end > now else None
+
+
+async def wait_for_registration(
+    core: Any, session: Any, timeout: float = REGISTER_WAIT_SEC
+) -> bool:
+    """Wait up to ``timeout`` for a connected host's tools; True once they are there.
+
+    Only when the host the session names is connected and has not registered
+    yet — a host that is away costs nothing, as the scheduler's own wait does.
+    """
+    end = _awaited_host(core, session)
+    if end is None:
+        return bool(HOST_TOOLS.for_session(session))
+    deadline = min(end, time.monotonic() + timeout)
+    while time.monotonic() < deadline:
+        await asyncio.sleep(0.1)
+        if HOST_TOOLS.for_session(session):
+            return True
+    return bool(HOST_TOOLS.for_session(session))
+
+
+def root_attachments(core: Any, session: Any) -> list[dict[str, Any]]:
+    """The root conversation's user attachments whose files still exist (1.23.0)."""
+    from snowpea_core.attachments.store import AttachmentStore
+
+    root = root_session(core, session)
+    paths = getattr(core, "paths", None)
+    if root is None or paths is None:
+        return []
+    rows = AttachmentStore(paths.attachments_dir).listing(str(root.id))
+    return [
+        {
+            "name": str(row.get("name") or ""),
+            "path": str(row["path"]),
+            "mime": str(row.get("mime") or "application/octet-stream"),
+            "size": int(row.get("size") or 0),
+            "messageId": row.get("messageId"),
+        }
+        for row in rows
+        if row.get("path") and Path(str(row["path"])).exists()
+    ]
 
 
 def owned_run_owner(core: Any, session: Any) -> str | None:

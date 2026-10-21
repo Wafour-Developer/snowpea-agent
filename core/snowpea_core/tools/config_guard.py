@@ -155,7 +155,30 @@ def _secret_path(raw: str, session: Any, core: Any) -> bool:
         base = Path(home)
         if resolved in {(base / "credentials.json").resolve(), (base / "token").resolve()}:
             return True
-    return False
+    return _another_sessions_attachment(resolved, session, core)
+
+
+def _another_sessions_attachment(resolved: Path, session: Any, core: Any) -> bool:
+    """True for a file another conversation's user attached (1.23.0).
+
+    A session's own attachments (its root's, for a delegated child) are an
+    ordinary read; the rest of ``attachments/`` is asked for first.
+    """
+    paths = getattr(core, "paths", None)
+    if paths is None or session is None:
+        return False
+    try:
+        store = Path(paths.attachments_dir).resolve()
+    except (OSError, RuntimeError, TypeError):
+        return False
+    if not _under(resolved, store) or resolved == store:
+        return False
+    from snowpea_core.attachments.model import safe_name
+    from snowpea_core.tools.host_tools import root_session
+
+    root = root_session(core, session) or session
+    own = store / safe_name(str(getattr(root, "id", "") or "shared"))
+    return not _under(resolved, own)
 
 
 __all__ = [

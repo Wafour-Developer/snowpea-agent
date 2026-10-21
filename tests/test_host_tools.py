@@ -2386,3 +2386,32 @@ def test_a_zero_host_wait_survives_the_store() -> None:
         )
     )  # type: ignore[arg-type]
     assert stored.host_wait_sec == 0 and stored.fingerprint() == job.fingerprint()
+
+
+async def test_a_turn_waits_briefly_for_a_connected_host_to_register(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path
+) -> None:
+    """Just after a reconnect the browser is there but its tools are not yet:
+    the turn waits for tool.register instead of starting without repl."""
+    from snowpea_core.tools.host_tools import wait_for_registration
+
+    host = await open_client(http, daemon, client_id="snowpea-browser-W")
+    try:
+        session_id = await new_session(host, tmp_path / "w", hostToolsFrom="snowpea-browser-W")
+        session = daemon.core.sessions.get(session_id)
+
+        async def register_later() -> None:
+            await asyncio.sleep(0.3)
+            await host.ok("tool.register", {"tools": [spec("host_echo")]})
+
+        later = asyncio.ensure_future(register_later())
+        assert await wait_for_registration(daemon.core, session, timeout=5)
+        await later
+        # A host that is not connected costs nothing.
+        session.host_tools_from = "nobody"
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        await wait_for_registration(daemon.core, session, timeout=5)
+        assert loop.time() - started < 0.5
+    finally:
+        await host.stop()

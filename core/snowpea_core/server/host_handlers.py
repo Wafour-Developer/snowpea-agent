@@ -36,6 +36,7 @@ from snowpea_core.server.protocol import (
     ProviderTestResult,
     SessionArtifact,
     SessionArtifactsResult,
+    SessionAttachmentsResult,
     SessionAttachParams,
     SessionAttachResult,
     SessionContinueParams,
@@ -518,6 +519,16 @@ async def session_rename_handler(
     return Ok(ok=True)
 
 
+async def session_attachments_handler(
+    _conn: RpcConnection, params: SessionIdParams, core: Core
+) -> SessionAttachmentsResult:
+    """``session.attachments`` — what the user attached, as attached (1.23.0)."""
+    from snowpea_core.tools.host_tools import root_attachments
+
+    session = _session(core, params.sessionId)
+    return SessionAttachmentsResult(attachments=root_attachments(core, session))
+
+
 async def session_artifacts_handler(
     _conn: RpcConnection, params: SessionIdParams, core: Core
 ) -> SessionArtifactsResult:
@@ -883,6 +894,7 @@ def register_host_handlers(dispatcher: RpcDispatcher) -> None:
     dispatcher.register("session.continue", session_continue_handler)
     dispatcher.register("session.toolContent", session_tool_content_handler)
     dispatcher.register("session.artifacts", session_artifacts_handler)
+    dispatcher.register("session.attachments", session_attachments_handler)
     dispatcher.register("session.rename", session_rename_handler)
     dispatcher.register("session.notice", session_notice_handler)
     dispatcher.register("memory.ingest", memory_ingest_handler)

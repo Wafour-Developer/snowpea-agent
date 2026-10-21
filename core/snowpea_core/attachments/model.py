@@ -144,6 +144,9 @@ class Attachment:
     sha256: str
     data: bytes | None = None
     path: Path | None = None
+    #: The file exactly as the user attached it (1.23.0): what the agent is
+    #: told about and may use; ``path``/``data`` may be a downscaled copy.
+    original: Path | None = None
 
     # -- constructors -------------------------------------------------
     @classmethod
@@ -253,7 +256,13 @@ class Attachment:
         return body[:limit] + f"\n… [truncated, {len(body)} chars total]"
 
     def describe(self) -> str:
-        """The one-line marker stored in history, e.g. ``[image: shot.png]``."""
+        """The one-line marker stored in history, e.g. ``[image: shot.png]``.
+
+        With the original kept: ``[attached: shot.png → /abs/path]``, so the
+        agent can use the file itself.
+        """
+        if self.original is not None:
+            return f"[attached: {self.name} → {self.original}]"
         kind = "image" if self.is_image else "file"
         return f"[{kind}: {self.name}]"
 
@@ -267,6 +276,8 @@ class Attachment:
         }
         if self.path is not None:
             ref["path"] = str(self.path)
+        if self.original is not None:
+            ref["original"] = str(self.original)
         return ref
 
 

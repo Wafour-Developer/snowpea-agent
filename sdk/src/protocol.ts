@@ -1078,7 +1078,7 @@ export interface McpAddParams {
   permission?: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate" | "secret" | null;
   /** Catalog id copied before the explicit fields are applied. */
   preset?: string | null;
-  /** Which file to write. */
+  /** Which file to write: $SNOWPEA_HOME/.mcp.json (global, the default since 1.23.0, so every project sees it) or the project's .mcp.json. */
   scope?: "project" | "global";
   /** Session whose workdir to use. */
   sessionId?: string | null;
@@ -1227,8 +1227,8 @@ export interface McpReloadResult {
 export interface McpRemoveParams {
   /** Server name. */
   name: string;
-  /** Which file to rewrite. */
-  scope?: "project" | "global";
+  /** Which file to rewrite; omitted, the one that declares it. */
+  scope?: "project" | "global" | null;
   /** Session whose workdir to use. */
   sessionId?: string | null;
   /** Project directory for scope=project. */
@@ -1331,8 +1331,8 @@ export interface McpUpdateParams {
     /** Endpoint for an http or sse server. */
     url?: string | null;
   };
-  /** Which file to rewrite. */
-  scope?: "project" | "global";
+  /** Which file to rewrite; omitted, the one that declares it. */
+  scope?: "project" | "global" | null;
   /** Session whose workdir to use. */
   sessionId?: string | null;
   /** Project directory for scope=project. */
@@ -1817,6 +1817,29 @@ export interface SessionAttachResult {
   hostToolsFrom?: string | null;
   /** The attached session. */
   sessionId: string;
+}
+
+/** `session.attachments` params. Files the user attached in this session, with the path of the original bytes the agent may use (1.23.0). A delegated child reports its root's. */
+export interface SessionAttachmentsParams {
+  /** Target session. */
+  sessionId: string;
+}
+
+/** `session.attachments` result. */
+export interface SessionAttachmentsResult {
+  /** This session's attachments, oldest first. */
+  attachments?: ({
+    /** The turn whose prompt brought it (its turnId). */
+    messageId?: string | null;
+    /** Sniffed media type. */
+    mime: string;
+    /** Sanitized original filename. */
+    name: string;
+    /** Absolute path of the original bytes: under $SNOWPEA_HOME/attachments/<session>/files/ for an upload, or the user's own file when they attached one by path. */
+    path: string;
+    /** Bytes. */
+    size: number;
+  })[];
 }
 
 /** `session.close` params. Close a session and release its resources. */
@@ -3634,6 +3657,19 @@ export interface TeamStatusResult {
 export interface ToolInvokeParams {
   /** Arguments from the model. */
   args?: Record<string, unknown>;
+  /** Files the user attached in the root conversation (1.23.0), as session.attachments lists them: the paths a host may hand to a page upload. */
+  attachments?: ({
+    /** The turn whose prompt brought it (its turnId). */
+    messageId?: string | null;
+    /** Sniffed media type. */
+    mime: string;
+    /** Sanitized original filename. */
+    name: string;
+    /** Absolute path of the original bytes: under $SNOWPEA_HOME/attachments/<session>/files/ for an upload, or the user's own file when they attached one by path. */
+    path: string;
+    /** Bytes. */
+    size: number;
+  })[];
   /** Id of the tool call; tool.progress refers to it. */
   callId: string;
   /** The scheduled run behind the root's running turn (1.23.0); set only when origin is 'schedule'. A delegated child reports its root's. */
@@ -4810,6 +4846,7 @@ export interface MethodMap {
   "question.respond": { params: QuestionRespondParams; result: QuestionRespondResult };
   "session.artifacts": { params: SessionArtifactsParams; result: SessionArtifactsResult };
   "session.attach": { params: SessionAttachParams; result: SessionAttachResult };
+  "session.attachments": { params: SessionAttachmentsParams; result: SessionAttachmentsResult };
   "session.close": { params: SessionCloseParams; result: SessionCloseResult };
   "session.compact": { params: SessionCompactParams; result: SessionCompactResult };
   "session.continue": { params: SessionContinueParams; result: SessionContinueResult };
@@ -4940,6 +4977,7 @@ export type ClientMethod =
   | "question.respond"
   | "session.artifacts"
   | "session.attach"
+  | "session.attachments"
   | "session.close"
   | "session.compact"
   | "session.continue"

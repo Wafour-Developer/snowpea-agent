@@ -430,6 +430,29 @@ class SessionArtifactsResult(Payload):
     )
 
 
+class SessionAttachment(Payload):
+    """A file the user attached in this session, as attached (1.23.0)."""
+
+    name: str = Field(description="Sanitized original filename.")
+    path: str = Field(
+        description=(
+            "Absolute path of the original bytes: under $SNOWPEA_HOME/attachments/<session>/"
+            "files/ for an upload, or the user's own file when they attached one by path."
+        )
+    )
+    mime: str = Field(description="Sniffed media type.")
+    size: int = Field(description="Bytes.")
+    messageId: str | None = Field(
+        default=None, description="The turn whose prompt brought it (its turnId)."
+    )
+
+
+class SessionAttachmentsResult(Payload):
+    attachments: list[SessionAttachment] = Field(
+        default_factory=list, description="This session's attachments, oldest first."
+    )
+
+
 class SessionRenameParams(Payload):
     sessionId: str = Field(description="Session to rename.")
     title: str = Field(description="New title; empty clears it (1.7.0).")
@@ -1310,6 +1333,13 @@ class ToolInvokeRequest(Payload):
         description=(
             "The scheduled run behind the root's running turn (1.23.0); set only when "
             "origin is 'schedule'. A delegated child reports its root's."
+        ),
+    )
+    attachments: list[SessionAttachment] = Field(
+        default_factory=list,
+        description=(
+            "Files the user attached in the root conversation (1.23.0), as "
+            "session.attachments lists them: the paths a host may hand to a page upload."
         ),
     )
 
@@ -4582,7 +4612,13 @@ class McpAddParams(McpEntryFields):
     """``mcp.add`` — write one entry into a project or global ``.mcp.json``."""
 
     name: str = Field(description="Server name; ^[a-zA-Z0-9_-]{1,64}$.")
-    scope: McpWritableScope = Field(default="project", description="Which file to write.")
+    scope: McpWritableScope = Field(
+        default="global",
+        description=(
+            "Which file to write: $SNOWPEA_HOME/.mcp.json (global, the default since "
+            "1.23.0, so every project sees it) or the project's .mcp.json."
+        ),
+    )
     workdir: str | None = Field(default=None, description="Project directory for scope=project.")
     sessionId: str | None = Field(default=None, description="Session whose workdir to use.")
     preset: str | None = Field(
@@ -4614,7 +4650,9 @@ class McpRemoveParams(Payload):
     """``mcp.remove`` — drop one entry and stop the server."""
 
     name: str = Field(description="Server name.")
-    scope: McpWritableScope = Field(default="project", description="Which file to rewrite.")
+    scope: McpWritableScope | None = Field(
+        default=None, description="Which file to rewrite; omitted, the one that declares it."
+    )
     workdir: str | None = Field(default=None, description="Project directory for scope=project.")
     sessionId: str | None = Field(default=None, description="Session whose workdir to use.")
 
@@ -4623,7 +4661,9 @@ class McpUpdateParams(Payload):
     """``mcp.update`` — merge a patch into an existing entry."""
 
     name: str = Field(description="Server name.")
-    scope: McpWritableScope = Field(default="project", description="Which file to rewrite.")
+    scope: McpWritableScope | None = Field(
+        default=None, description="Which file to rewrite; omitted, the one that declares it."
+    )
     workdir: str | None = Field(default=None, description="Project directory for scope=project.")
     sessionId: str | None = Field(default=None, description="Session whose workdir to use.")
     patch: McpEntryFields = Field(
@@ -5303,6 +5343,13 @@ METHODS: dict[str, RpcMethod] = {
             "Files the session saved for the user under its workspace's artifacts/.",
         ),
         _m(
+            "session.attachments",
+            SessionIdParams,
+            SessionAttachmentsResult,
+            "Files the user attached in this session, with the path of the original bytes "
+            "the agent may use (1.23.0). A delegated child reports its root's.",
+        ),
+        _m(
             "session.toolContent",
             SessionToolContentParams,
             SessionToolContentResult,
@@ -5585,6 +5632,7 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "session.setActive",
         "session.toolContent",
         "session.artifacts",
+        "session.attachments",
         "session.rename",
         "session.notice",
         "memory.ingest",

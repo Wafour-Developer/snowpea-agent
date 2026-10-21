@@ -71,7 +71,7 @@ async def test_inline_image_is_stored_and_stashed(daemon: Daemon, tmp_path: Path
         finally:
             await client.stop()
 
-    stored = list((daemon.paths.attachments_dir / session_id).iterdir())
+    stored = [p for p in (daemon.paths.attachments_dir / session_id).iterdir() if p.is_file()]
     assert len(stored) == 1
     assert stored[0].suffix == ".png"
     assert stored[0].read_bytes() == PNG
@@ -94,8 +94,11 @@ async def test_a_file_path_is_referenced_not_copied(daemon: Daemon, tmp_path: Pa
             )
         finally:
             await client.stop()
-    # The user's own file is never duplicated into the store.
-    assert not (daemon.paths.attachments_dir / session_id).exists()
+    # The user's own file is never duplicated into the store: it is only
+    # indexed, where it is, as this session's attachment (1.23.0).
+    files = daemon.paths.attachments_dir / session_id / "files"
+    assert [p.name for p in files.iterdir()] == ["index.json"]
+    assert "notes.txt" in (files / "index.json").read_text(encoding="utf-8")
 
 
 async def test_an_oversized_attachment_is_refused(
@@ -212,7 +215,10 @@ async def test_a_turn_carries_the_attachment_into_history(tmp_path: Path) -> Non
     assert user.content[0] == {"type": "text", "text": "hello"}
     image = user.content[1]
     assert image["type"] == "image"
-    assert image["text"] == "[image: shot.png]"
+    # The marker names the original, which the agent may use as a file (1.23.0).
+    original = daemon.paths.attachments_dir / session_id / "files" / "shot.png"
+    assert image["text"] == f"[attached: shot.png → {original}]"
+    assert image["original"] == str(original)
     assert Path(image["path"]).read_bytes() == PNG
     # The stash is empty: the turn consumed it.
     assert pending.peek(session_id) == []
@@ -653,3 +659,82 @@ async def test_audio_methods_are_implemented(daemon: Daemon) -> None:
         finally:
             await client.stop()
     assert "audio" in hello["capabilities"]
+
+
+
+async def test_session_attachments_lists_the_originals_by_turn(tmp_path: Path) -> None:
+    """The user's files as attached: names, paths, the turn that brought them,
+    on session.attachments and on every tool.invoke's ``attachments``."""
+    with fake_provider(FIXTURES / "providers" / "fake" / "basic.json"):
+        daemon = await make_daemon(tmp_path / "home")
+        try:
+            async with aiohttp.ClientSession() as http:
+                client = await connect(http, daemon)
+                try:
+                    session_id = await _session(client, tmp_path / "work")
+                    data = b"%PDF-1.4 a contract"
+                    result = await client.ok(
+                        "session.prompt",
+                        {
+                            "sessionId": session_id,
+                            "text": "hello",
+                            "attachments": [
+                                {
+                                    "kind": "file",
+                                    "name": "../계약서.pdf",
+                                    "data": base64.b64encode(data).decode(),
+                                }
+                            ],
+                        },
+                    )
+                    await client.wait_turn(result["turnId"])
+                    listed = await client.ok("session.attachments", {"sessionId": session_id})
+                finally:
+                    await client.stop()
+            from snowpea_core.tools.host_tools import root_attachments
+
+            session = daemon.core.sessions.get(session_id)
+            assert root_attachments(daemon.core, session) == listed["attachments"]
+        finally:
+            await daemon.stop()
+            pending.clear()
+    [row] = listed["attachments"]
+    assert row["name"] == "계약서.pdf" and row["mime"] == "application/pdf"
+    assert row["messageId"] == result["turnId"] and row["size"] == len(data)
+    assert Path(row["path"]).read_bytes() == data
+
+
+async def test_another_sessions_attachments_are_asked_for(tmp_path: Path) -> None:
+    from types import SimpleNamespace
+
+    from snowpea_core.config.paths import Paths
+    from snowpea_core.tools.config_guard import permission_for_read
+
+    paths = Paths.create(tmp_path / "home")
+    core = SimpleNamespace(paths=paths, sessions=SimpleNamespace(get=lambda _id: None))
+    own = paths.attachments_dir / "s-mine" / "files" / "a.png"
+    theirs = paths.attachments_dir / "s-theirs" / "files" / "b.png"
+    session = SimpleNamespace(id="s-mine", parent_session_id=None, workdir=tmp_path, backend=None)
+    assert permission_for_read({"path": str(own)}, session, core) == "read"
+    assert permission_for_read({"path": str(theirs)}, session, core) == "secret"
+    child = SimpleNamespace(
+        id="s-child", parent_session_id="s-mine", workdir=tmp_path, backend=None, kind="subagent"
+    )
+    core.sessions = SimpleNamespace(get={"s-mine": session}.get)
+    assert permission_for_read({"path": str(own)}, child, core) == "read"
+
+
+async def test_the_session_cap_and_names(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from snowpea_core.attachments import store as store_mod
+    from snowpea_core.attachments.model import AttachmentError
+
+    store = store_mod.AttachmentStore(tmp_path)
+    first = store.keep_original("s-1", "a.txt", b"one", "text/plain")
+    again = store.keep_original("s-1", "a.txt", b"one", "text/plain")
+    other = store.keep_original("s-1", "a.txt", b"two", "text/plain")
+    assert first == again and other.name == "a (2).txt"
+    monkeypatch.setattr(store_mod, "SESSION_MAX_BYTES", 8)
+    with pytest.raises(AttachmentError) as caught:
+        store.keep_original("s-1", "big.bin", b"x" * 10, "application/octet-stream")
+    assert caught.value.code == "attachment_too_large"
+    assert store.purge("s-1") >= 0 and store.listing("s-1") == []

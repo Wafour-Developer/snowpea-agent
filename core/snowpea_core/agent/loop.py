@@ -1542,6 +1542,9 @@ async def _drive(
     verify_gate.begin_turn(session)
     # One acknowledgement per turn, not per tool round.
     session.ack_spoken = False
+    # A host that reconnected (or a core that restarted) may not have sent
+    # tool.register yet: give it a moment, or the turn starts without repl.
+    await host_tools_mod.wait_for_registration(core, session)
     while True:
         # Persist each safe round boundary, including steering and child evidence.
         # No outstanding tool-call/result pair is split by these notices.

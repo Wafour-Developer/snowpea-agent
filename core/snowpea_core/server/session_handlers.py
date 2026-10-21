@@ -23,7 +23,7 @@ from snowpea_core.agent.delegation import effective_delegation
 from snowpea_core.agent.prompt_refs import prepare_prompt
 from snowpea_core.attachments import pending
 from snowpea_core.attachments.model import Attachment as FileAttachment
-from snowpea_core.attachments.model import AttachmentError
+from snowpea_core.attachments.model import AttachmentError, decode_base64
 from snowpea_core.attachments.store import AttachmentStore
 from snowpea_core.commands.registry import register_builtin_commands
 from snowpea_core.exec.factory import build_backend
@@ -641,6 +641,8 @@ async def session_prompt_handler(
         refs=prepared.refs,
         when_busy=params.whenBusy,
     )
+    if params.attachments:
+        AttachmentStore(core.paths.attachments_dir).assign_message(session.id, turn_id)
     await core.sessions.announce_sessions_changed("prompt", session.id)
     return TurnResult(turnId=turn_id)
 
@@ -720,15 +722,20 @@ def _accept_attachments(
                 inline.append(f"{label}{entry.text}")
             continue
         try:
+            name = entry.name or (Path(entry.path).name if entry.path else "attachment")
             built = FileAttachment.from_payload(
-                {
-                    "name": entry.name or (Path(entry.path).name if entry.path else "attachment"),
-                    "mime": entry.mimeType,
-                    "path": entry.path,
-                    "data": entry.data,
-                }
+                {"name": name, "mime": entry.mimeType, "path": entry.path, "data": entry.data}
             )
-            stored.append(store.save(session_id, built))
+            # The bytes as attached, not the model's downscaled copy (1.23.0):
+            # the agent is told this path and may use the file itself.
+            original = store.keep_original(
+                session_id,
+                built.name,
+                decode_base64(entry.data) if entry.data else None,
+                built.mime,
+                source=Path(entry.path) if entry.path and not entry.data else None,
+            )
+            stored.append(replace(store.save(session_id, built), original=original))
         except AttachmentError as exc:
             code = _ATTACHMENT_CODES.get(exc.code, errors.INVALID_PARAMS)
             raise RpcError(code, str(exc)) from exc

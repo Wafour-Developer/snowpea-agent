@@ -135,6 +135,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`question.respond`](#questionrespond) | client → server | Answer a pending question and unblock the turn. |
 | [`session.artifacts`](#sessionartifacts) | client → server | Files the session saved for the user under its workspace's artifacts/. |
 | [`session.attach`](#sessionattach) | client → server | Make this connection the origin of a session (approvals, host tools). |
+| [`session.attachments`](#sessionattachments) | client → server | Files the user attached in this session, with the path of the original bytes the agent may use (1.23.0). A delegated child reports its root's. |
 | [`session.close`](#sessionclose) | client → server | Close a session and release its resources. |
 | [`session.compact`](#sessioncompact) | client → server | Summarise the conversation so far and replace the history with it. |
 | [`session.continue`](#sessioncontinue) | client → server | Continue a chat session on the system's behalf, e.g. after a human hand-back (1.8.0). A running turn gets the note at its next model call (like session.notice); otherwise a turn starts whose input is the [system] note, with turn.started initiator 'system' and no message.user. Same callers as session.setAgent; subagent and scheduled sessions are refused with 'invalid_params'. One system start per session per 10 s, and an idempotencyKey is honoured once; a call inside the 10 s window keeps its note as a notice (queued: true). |
@@ -1053,7 +1054,7 @@ Write an MCP server into the project or global .mcp.json and start it.
 | `name` | `string` | yes | Server name; ^[a-zA-Z0-9_-]{1,64}$. |
 | `permission` | `"read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret" \| null` | no | Permission tag for the server's tools; stored in settings. |
 | `preset` | `string \| null` | no | Catalog id copied before the explicit fields are applied. |
-| `scope` | `"project" \| "global"` | no | Which file to write. |
+| `scope` | `"project" \| "global"` | no | Which file to write: $SNOWPEA_HOME/.mcp.json (global, the default since 1.23.0, so every project sees it) or the project's .mcp.json. |
 | `sessionId` | `string \| null` | no | Session whose workdir to use. |
 | `test` | `boolean` | no | Probe the server before saving; nothing is written if it fails. |
 | `timeoutSec` | `number \| null` | no | Startup cap, in seconds. |
@@ -1142,7 +1143,7 @@ Delete an MCP server entry and stop the server.
 | field | type | required | description |
 |---|---|---|---|
 | `name` | `string` | yes | Server name. |
-| `scope` | `"project" \| "global"` | no | Which file to rewrite. |
+| `scope` | `"project" \| "global" \| null` | no | Which file to rewrite; omitted, the one that declares it. |
 | `sessionId` | `string \| null` | no | Session whose workdir to use. |
 | `workdir` | `string \| null` | no | Project directory for scope=project. |
 
@@ -1202,7 +1203,7 @@ Merge a patch into an existing MCP server entry.
 |---|---|---|---|
 | `name` | `string` | yes | Server name. |
 | `patch` | `{ args?: string[] \| null; command?: string \| null; cwd?: string \| null; disabled?: boolean \| null; env?: Record<string, string> \| null; headers?: Record<string, string> \| null; permission?: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret" \| null; timeoutSec?: number \| null; toolTimeoutSec?: number \| null; toolsExclude?: string[] \| null; toolsInclude?: string[] \| null; type?: "stdio" \| "http" \| "sse" \| null; url?: string \| null; }` | no | Keys to change; anything absent is kept. |
-| `scope` | `"project" \| "global"` | no | Which file to rewrite. |
+| `scope` | `"project" \| "global" \| null` | no | Which file to rewrite; omitted, the one that declares it. |
 | `sessionId` | `string \| null` | no | Session whose workdir to use. |
 | `workdir` | `string \| null` | no | Project directory for scope=project. |
 
@@ -1600,6 +1601,24 @@ Make this connection the origin of a session (approvals, host tools).
 | `hostTools` | `string[]` | no | Host tools the session now sees. |
 | `hostToolsFrom` | `string \| null` | no | The session's hostToolsFrom after the call; older cores omit it. |
 | `sessionId` | `string` | yes | The attached session. |
+
+### `session.attachments`
+
+*Direction:* client → server
+
+Files the user attached in this session, with the path of the original bytes the agent may use (1.23.0). A delegated child reports its root's.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `sessionId` | `string` | yes | Target session. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `attachments` | `({ messageId?: string \| null; mime: string; name: string; path: string; size: number; })[]` | no | This session's attachments, oldest first. |
 
 ### `session.close`
 
@@ -2687,6 +2706,7 @@ Ask the client to run one of its host tools.
 | field | type | required | description |
 |---|---|---|---|
 | `args` | `Record<string, unknown>` | no | Arguments from the model. |
+| `attachments` | `({ messageId?: string \| null; mime: string; name: string; path: string; size: number; })[]` | no | Files the user attached in the root conversation (1.23.0), as session.attachments lists them: the paths a host may hand to a page upload. |
 | `callId` | `string` | yes | Id of the tool call; tool.progress refers to it. |
 | `job` | `{ createdVia: "rpc" \| "tool"; fingerprint: string; id: string; meta?: Record<string, unknown> \| null; ownerClientId?: string \| null; runId: string; scheduledAt: string; trigger: "schedule" \| "runNow"; } \| null` | no | The scheduled run behind the root's running turn (1.23.0); set only when origin is 'schedule'. A delegated child reports its root's. |
 | `mode` | `"plan" \| "accept" \| "auto"` | no | The session's mode. A code-running tool registered as 'read' must refuse mutations in plan mode itself and escalate the rest with approval.ask. |

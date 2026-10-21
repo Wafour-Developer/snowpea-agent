@@ -140,6 +140,9 @@ def parts_from_attachments(
             parts.append(FilePart(name=item.name, mime=item.mime, base64=item.to_base64()))
         else:
             parts.append(FilePart(name=item.name, mime=item.mime))
+        if item.original is not None:
+            # Where the file itself is, so the agent can use it (1.23.0).
+            parts.append(TextPart(text=item.describe()))
     return parts
 
 
@@ -173,6 +176,8 @@ def history_blocks(text: str, attachments: Sequence[Attachment] = ()) -> list[di
             "size": item.size,
             "sha256": item.sha256,
         }
+        if item.original is not None:
+            block["original"] = str(item.original)
         if item.path is not None:
             block["path"] = str(item.path)
         elif item.data is not None:
@@ -217,18 +222,28 @@ def parts_from_blocks(
         if raw is None:
             parts.append(TextPart(text=f"{marker} (no longer on disk)"))
             continue
-        if kind == "image" and is_image(mime):
-            parts.append(ImagePart(mime=mime, base64=b64encode(raw).decode("ascii"), name=name))
-        elif is_text(mime):
-            body = raw.decode("utf-8", "replace")
-            if len(body) > text_limit:
-                body = body[:text_limit] + f"\n… [truncated, {len(body)} chars total]"
-            parts.append(FilePart(name=name, mime=mime, text=body))
-        elif mime in DOCUMENT_MIMES:
-            parts.append(FilePart(name=name, mime=mime, base64=b64encode(raw).decode("ascii")))
-        else:
-            parts.append(FilePart(name=name, mime=mime))
+        _append_media(parts, kind, name, mime, raw, text_limit)
+        if block.get("original"):
+            # The same marker the live turn sent, so the replayed prefix matches.
+            parts.append(TextPart(text=marker))
     return parts
+
+
+def _append_media(
+    parts: list[ContentPart], kind: Any, name: str, mime: str, raw: bytes, text_limit: int
+) -> None:
+    """The model's part for one stored block's bytes."""
+    if kind == "image" and is_image(mime):
+        parts.append(ImagePart(mime=mime, base64=b64encode(raw).decode("ascii"), name=name))
+    elif is_text(mime):
+        body = raw.decode("utf-8", "replace")
+        if len(body) > text_limit:
+            body = body[:text_limit] + f"\n… [truncated, {len(body)} chars total]"
+        parts.append(FilePart(name=name, mime=mime, text=body))
+    elif mime in DOCUMENT_MIMES:
+        parts.append(FilePart(name=name, mime=mime, base64=b64encode(raw).decode("ascii")))
+    else:
+        parts.append(FilePart(name=name, mime=mime))
 
 
 def _read_block(block: dict[str, Any]) -> bytes | None:
