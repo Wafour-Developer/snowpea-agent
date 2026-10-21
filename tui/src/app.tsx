@@ -133,7 +133,7 @@ import {
   type StreamChunkEntry,
 } from "./layout/stream-scrollback.js";
 import { RenderedLines } from "./components/RenderedLines.js";
-import { groupCalls, toolKind } from "./layout/summary.js";
+import { toolKind } from "./layout/summary.js";
 import { agentStatusText, buildAgentRows } from "./layout/agents.js";
 import { compactionDivider, contextWarning, summaryLine } from "./layout/bottom.js";
 import { currentAccent } from "./layout/palette.js";
@@ -444,8 +444,8 @@ function followsTools(entries: StaticEntry[], index: number): boolean {
 /**
  * Turn a slice of settled timeline entries into what the scrollback shows.
  *
- * Consecutive successful tool calls fold into one summary line; a failed call
- * breaks the run and keeps its own card, so a failure is never summarised away.
+ * Each tool call keeps its own card, as it looked while it ran, so nothing on
+ * screen shrinks or moves when a turn settles.
  */
 function releaseEntries(
   state: State,
@@ -457,19 +457,13 @@ function releaseEntries(
   let run: ToolCallEntry[] = [];
 
   const flush = (): void => {
-    for (const block of groupCalls(run)) {
-      if (block.kind === "single") {
-        out.push({
-          key: `tool-${block.call.callId}`,
-          kind: "entry",
-          item: { kind: "tool", id: block.call.callId },
-        });
-        continue;
-      }
+    // Every call keeps the card it had while it ran: folding a run into one
+    // summary line when it settled moved everything below it.
+    for (const call of run) {
       out.push({
-        key: `tools-${block.calls[0].callId}-${block.calls.length}`,
-        kind: "tools",
-        calls: block.calls,
+        key: `tool-${call.callId}`,
+        kind: "entry",
+        item: { kind: "tool", id: call.callId },
       });
     }
     run = [];

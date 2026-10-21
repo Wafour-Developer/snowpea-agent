@@ -43,7 +43,8 @@ describe("screenTranscriptLines", () => {
     expect(lines.some((line) => line.startsWith("⏺"))).toBe(false);
   });
 
-  it("folds a finished run of calls into one summary line", () => {
+  it("keeps each call's card when the turn settles, so nothing moves", () => {
+    const live = text(readTwoFiles());
     const state = apply(
       readTwoFiles(),
       event(6, "message.delta", { text: "done" }),
@@ -51,12 +52,11 @@ describe("screenTranscriptLines", () => {
       event(8, "turn.done", { turnId: "t-1", reason: "complete" }),
     );
     const lines = text(state);
-    const summary = lines.filter((line) => line.startsWith("⏺"));
-    expect(summary).toHaveLength(1);
-    expect(summary[0]).toContain("(3 lines)");
-    expect(lines.some((line) => line.includes("read_file"))).toBe(false);
+    const cards = lines.filter((line) => line.includes("read_file"));
+    expect(cards).toHaveLength(live.filter((line) => line.includes("read_file")).length);
+    expect(lines.some((line) => line.startsWith("⏺ Read"))).toBe(false);
     // The answer after the run sits one blank line below it.
-    const at = lines.findIndex((line) => line.startsWith("⏺"));
+    const at = lines.lastIndexOf(cards[cards.length - 1]);
     expect(lines[at + 1]).toBe("");
     expect(lines[at + 2]).toBe("◆ done");
   });

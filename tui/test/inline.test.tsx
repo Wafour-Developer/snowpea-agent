@@ -154,7 +154,7 @@ describe("inline layout", () => {
     expect(hasSpinner(lastFrame)).toBe(false);
   });
 
-  it("folds a run of tool calls into one line of scrollback", async () => {
+  it("keeps each tool call's own line in scrollback, folding nothing", async () => {
     const client = fakeClient();
     const stdin = fakeStdin();
     const stdout = fakeStdout(120, 30);
@@ -196,15 +196,17 @@ describe("inline layout", () => {
     client.emit(event(6, "turn.done", {}));
 
     let output = stdout.text();
-    for (let attempt = 0; attempt < 20 && !output.includes(summary); attempt += 1) {
+    for (let attempt = 0; attempt < 20 && !output.includes("ALL-DONE"); attempt += 1) {
       await sleep(50);
       output = stdout.text();
     }
     instance.unmount();
 
-    // One line for the pair, carrying the output it stands in for, written once.
-    expect(countOf(output, summary)).toBe(1);
-    expect(output).toContain(`(${hidden} lines)`);
+    // Each call keeps its card; no summary line replaces them.
+    expect(output).not.toContain(summary);
+    expect(output).toContain("(2 lines)");
+    expect(output).toContain("pwd");
     expect(countOf(output, "ALL-DONE")).toBe(1);
+    expect(hidden).toBeGreaterThan(0);
   });
 });

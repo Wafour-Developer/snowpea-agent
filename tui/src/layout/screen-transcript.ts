@@ -8,9 +8,9 @@
  * this module is their line-for-line twin, so switching layouts never changes
  * what a turn looks like:
  *
- *   - a run of successful tool calls folds into one `⏺ Read 3 files` line, a
- *     failure keeps its own card, and the run still being worked on at the end
- *     of an active turn stays as live cards with their progress tail;
+ *   - every tool call keeps its card, as it looked while it ran (a call that
+ *     streamed output keeps that many lines), so nothing moves when a turn
+ *     settles;
  *   - a diff shows the same header, badge and 12-line fold as `DiffView`;
  *   - a prompt you sent is a band in the input colour;
  *   - each finished turn leaves its `✓ Done in 12s` line where it ended.
@@ -27,7 +27,6 @@ import { diagnosticsBadge, diagnosticsColor } from "../state/lsp.js";
 import type { DiffEntry, Message, State, ToolCallEntry } from "../state/store.js";
 import { compactionDivider } from "./bottom.js";
 import { currentAccentDim, currentInputBackground } from "./palette.js";
-import { groupCalls, hiddenLines, summarizeCalls } from "./summary.js";
 import { textWidth } from "./text-width.js";
 import { messageLines, toolCallLines, wrapLine, type Line, type Segment } from "./transcript.js";
 
@@ -92,16 +91,6 @@ function messageBlock(
     );
   }
   return out;
-}
-
-function summaryLine(calls: ToolCallEntry[]): Line {
-  const hidden = hiddenLines(calls);
-  const segments: Segment[] = [
-    { text: `${SUMMARY_GLYPH} `, color: currentAccentDim() },
-    { text: summarizeCalls(calls) },
-  ];
-  if (hidden > 0) segments.push({ text: ` (${hidden} lines)`, dimColor: true });
-  return { key: `tools-${calls[0].callId}-${calls.length}`, segments };
 }
 
 function diffBlock(diff: DiffEntry, expanded: boolean, state: State): Line[] {
@@ -203,22 +192,10 @@ export function screenTranscriptLines(
     last = gapAfter ? "none" : kind;
   };
 
-  const flush = (live: boolean): void => {
-    if (run.length === 0) return;
-    if (live) {
-      // The calls still being worked on stay as cards: their progress tail is
-      // the news, and Ctrl+O expands the newest one.
-      for (const call of run) push(toolCallLines(call, expandedId === call.callId), "tools", false);
-    } else {
-      for (const block of groupCalls(run)) {
-        if (block.kind === "single" || block.calls.some((call) => call.callId === expandedId)) {
-          const calls = block.kind === "single" ? [block.call] : block.calls;
-          for (const call of calls) push(toolCallLines(call, expandedId === call.callId), "tools", false);
-        } else {
-          push([summaryLine(block.calls)], "tools", false);
-        }
-      }
-    }
+  const flush = (_live: boolean): void => {
+    // Every call keeps its card, live or settled: folding a settled run into
+    // one summary line shrank the transcript and moved what was under it.
+    for (const call of run) push(toolCallLines(call, expandedId === call.callId), "tools", false);
     run = [];
   };
 
