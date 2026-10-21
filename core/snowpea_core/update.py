@@ -717,6 +717,122 @@ def start_update(paths: Paths, command: list[str]) -> subprocess.Popen[bytes]:
         handle.close()
 
 
+def replaces_running_core() -> bool:
+    """True on Windows when the upgrade would rewrite the files this core runs from.
+
+    ``uv tool install --force`` removes the tool's ``Scripts`` folder, which a
+    running core keeps open: Windows refuses ("os error 5") and the update
+    fails. A frozen (bundled) core runs from elsewhere and is not affected.
+    """
+    if not _on_windows() or getattr(sys, "frozen", False):
+        return False
+    return "snowpea-agent" in {part.lower() for part in Path(sys.executable).parts}
+
+
+#: Waits for the core (and the launcher that started it) to exit, runs the
+#: upgrade, then starts the core again with the same arguments and port, so
+#: a client waiting on that port reconnects to the new code.
+WINDOWS_UPDATE_HELPER = r"""
+param([string]$Plan)
+$p = Get-Content -Raw -Encoding UTF8 $Plan | ConvertFrom-Json
+$deadline = (Get-Date).AddSeconds(120)
+# The core and every launcher above it (snowpea-core.exe, the venv's
+# python.exe): each keeps the tool's files open until it exits.
+$wait = @()
+$id = [int]$p.pid
+while ($id) {
+  $row = Get-CimInstance Win32_Process -Filter "ProcessId=$id" -ErrorAction SilentlyContinue
+  if (-not $row) { break }
+  if ($row.Name -notlike 'snowpea-core*' -and $row.Name -notlike 'python*') { break }
+  $wait += $id
+  $id = [int]$row.ParentProcessId
+}
+foreach ($id in $wait) {
+  while ((Get-Process -Id $id -ErrorAction SilentlyContinue) -and ((Get-Date) -lt $deadline)) {
+    Start-Sleep -Milliseconds 300
+  }
+}
+Start-Sleep -Seconds 1
+$cmd = @($p.command)
+$rest = @()
+if ($cmd.Length -gt 1) { $rest = $cmd[1..($cmd.Length - 1)] }
+& $cmd[0] @rest *>> $p.log
+Add-Content -Path $p.log -Value "=== exit $LASTEXITCODE"
+$quoted = @($p.args) | ForEach-Object { '"' + ($_ -replace '"', '\"') + '"' }
+Start-Process -FilePath $p.exe -ArgumentList $quoted -WindowStyle Hidden
+"""
+
+
+def relaunch_argv(argv: list[str], port: int) -> list[str]:
+    """``argv`` (without the program) pinned to ``port``, so clients find it again."""
+    out: list[str] = []
+    skip = False
+    for index, item in enumerate(argv):
+        if skip:
+            skip = False
+            continue
+        if item == "--port" and index + 1 < len(argv):
+            skip = True
+            continue
+        if item.startswith("--port="):
+            continue
+        out.append(item)
+    return [*out, "--port", str(port)]
+
+
+def start_windows_update(
+    paths: Paths, command: list[str], *, port: int, pid: int
+) -> subprocess.Popen[bytes]:
+    """Hand the upgrade to a hidden PowerShell that outlives this core.
+
+    The caller stops the core (``pid``) next; the helper waits for it and the
+    launchers above it, upgrades, and starts the new core on the same port.
+    """
+    paths.ensure()
+    helper = paths.home / "update-helper.ps1"
+    helper.write_text(WINDOWS_UPDATE_HELPER, encoding="utf-8")
+    # Data goes through a file: JSON on a PowerShell command line loses its quotes.
+    plan = paths.home / "update-plan.json"
+    plan.write_text(
+        json.dumps(
+            {
+                "pid": pid,
+                "log": str(paths.update_log),
+                "exe": str(Path(sys.executable).with_name("snowpea-core.exe")),
+                "args": relaunch_argv(sys.argv[1:], port),
+                "command": command,
+            }
+        ),
+        encoding="utf-8",
+    )
+    with paths.update_log.open("ab") as handle:
+        handle.write(
+            f"\n=== {_utc_now()} (after the core exits) {shlex.join(command)}\n".encode()
+        )
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(
+        subprocess, "CREATE_NEW_PROCESS_GROUP", 0
+    )
+    return subprocess.Popen(  # noqa: S603 - argv is built here, never user text
+        [
+            "powershell",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-WindowStyle",
+            "Hidden",
+            "-File",
+            str(helper),
+            "-Plan",
+            str(plan),
+        ],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        cwd=str(paths.home),
+        creationflags=flags,
+    )
+
+
 async def notify_progress(core: Core, phase: str, message: str) -> None:
     """Broadcast ``system.updateProgress`` to every connected client."""
     hub = getattr(core, "hub", None)

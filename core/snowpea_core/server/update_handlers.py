@@ -13,7 +13,9 @@ the two safety rules the design asks for:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import os
 import shlex
 from typing import TYPE_CHECKING
 
@@ -89,6 +91,10 @@ async def update_handler(_conn: RpcConnection, _params: Empty, core: Core) -> Up
             ),
         )
 
+    latest = str(answer.get("latest") or answer.get("current") or "")
+    if update_mod.replaces_running_core():
+        return await _update_after_exit(core, command, latest, log_path)
+
     try:
         process = update_mod.start_update(core.paths, command)
     except OSError as exc:
@@ -99,12 +105,60 @@ async def update_handler(_conn: RpcConnection, _params: Empty, core: Core) -> Up
             error=f"could not start the upgrade: {exc}",
         )
 
-    latest = str(answer.get("latest") or answer.get("current") or "")
     await update_mod.notify_progress(core, "started", f"updating to v{latest.lstrip('v')}")
     task = asyncio.ensure_future(
         update_mod.watch_update(core, process, latest, answer.get("trackingSource"))
     )
     core.update_task = task
+    return UpdateResult(started=True, command=shlex.join(command), log=log_path)
+
+
+#: Seconds between the reply and the shutdown, so the answer and the
+#: progress notification reach the client first.
+EXIT_DELAY_SEC = 0.5
+
+
+async def _update_after_exit(
+    core: Core, command: list[str], latest: str, log_path: str
+) -> UpdateResult:
+    """Windows: the running core's own files are replaced, so it steps aside.
+
+    A helper waits for this core (and its launcher) to exit, upgrades, and
+    starts the new core on this port. Until then ``daemon.json`` names the
+    helper, so a client that reconnects waits for that port instead of
+    starting the old core again and locking its files.
+    """
+    try:
+        helper = update_mod.start_windows_update(
+            core.paths, command, port=core.port, pid=os.getpid()
+        )
+    except OSError as exc:
+        return UpdateResult(
+            started=False,
+            command=shlex.join(command),
+            log=log_path,
+            error=f"could not start the upgrade: {exc}",
+        )
+    advert = core.paths.daemon_json
+    try:
+        payload = json.loads(advert.read_text(encoding="utf-8"))
+        payload["pid"] = helper.pid
+        advert.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    except (OSError, ValueError):
+        log.warning("could not hand daemon.json to the update helper", exc_info=True)
+    version = latest.lstrip("v")
+    await update_mod.notify_progress(
+        core,
+        "done",
+        f"installing v{version}: the engine restarts by itself in a few seconds (Windows)",
+    )
+
+    async def step_aside() -> None:
+        await asyncio.sleep(EXIT_DELAY_SEC)
+        if core.request_shutdown is not None:
+            core.request_shutdown("update")
+
+    core.update_task = asyncio.ensure_future(step_aside())
     return UpdateResult(started=True, command=shlex.join(command), log=log_path)
 
 

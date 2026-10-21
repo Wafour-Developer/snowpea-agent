@@ -14,6 +14,7 @@ import stat
 import sys
 from collections.abc import AsyncIterator
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import aiohttp
@@ -864,3 +865,98 @@ def test_the_restart_handoff_returns_at_once_when_the_daemon_is_gone(monkeypatch
     started = time.monotonic()
     cli_main.wait_for_daemon_exit(None, timeout=5.0)
     assert time.monotonic() - started < 1.0
+
+
+def test_only_a_windows_uv_tool_core_replaces_its_own_files(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """uv removes the tool's Scripts folder, which the running core holds open
+    on Windows ("os error 5"); only that case is handed to the helper."""
+    tool = r"C:\Users\u\AppData\Roaming\uv\tools\snowpea-agent\Scripts\python.exe"
+    monkeypatch.setattr(update_mod, "_on_windows", lambda: True)
+    monkeypatch.setattr(update_mod.sys, "executable", tool.replace("\\", "/"))
+    assert update_mod.replaces_running_core()
+    monkeypatch.setattr(update_mod.sys, "frozen", True, raising=False)
+    assert not update_mod.replaces_running_core()  # the bundled core
+    monkeypatch.setattr(update_mod.sys, "frozen", False, raising=False)
+    monkeypatch.setattr(update_mod, "_on_windows", lambda: False)
+    assert not update_mod.replaces_running_core()
+
+
+def test_the_new_core_comes_back_on_the_same_port() -> None:
+    argv = ["--port", "0", "--state-dir", r"C:\Users\u\snowpea desktop", "--token", "t"]
+    assert update_mod.relaunch_argv(argv, 51234) == [
+        "--state-dir",
+        r"C:\Users\u\snowpea desktop",
+        "--token",
+        "t",
+        "--port",
+        "51234",
+    ]
+    assert update_mod.relaunch_argv(["--port=7"], 8) == ["--port", "8"]
+
+
+def test_the_windows_helper_gets_its_plan_in_a_file(
+    paths: Paths, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    started: dict[str, Any] = {}
+
+    def fake_popen(argv: list[str], **kwargs: Any) -> Any:
+        started["argv"] = argv
+        return SimpleNamespace(pid=4321)
+
+    monkeypatch.setattr(update_mod.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(update_mod.sys, "argv", ["snowpea-core", "--port", "0", "--token", "t"])
+    command = ["uv", "tool", "install", "--force", "snowpea-agent @ https://x/y.whl"]
+    helper = update_mod.start_windows_update(paths, command, port=40000, pid=99)
+    assert helper.pid == 4321
+    assert started["argv"][0] == "powershell" and started["argv"][-2] == "-Plan"
+    plan = json.loads(Path(started["argv"][-1]).read_text(encoding="utf-8"))
+    assert plan["pid"] == 99 and plan["command"] == command
+    assert plan["args"] == ["--token", "t", "--port", "40000"]
+    assert (paths.home / "update-helper.ps1").read_text(encoding="utf-8").startswith("\nparam")
+
+
+async def test_on_windows_the_core_hands_the_update_over_and_steps_aside(
+    paths: Paths, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """daemon.json names the helper (so a reconnecting client waits for the
+    port instead of starting the old core), clients hear "done", and the core
+    asks to stop so its files can be replaced."""
+    from snowpea_core.server import update_handlers
+
+    async def available(*_a: Any, **_k: Any) -> dict[str, Any]:
+        return {"available": True, "latest": "0.2.99", "source": "git+https://x@v0.2.99"}
+
+    monkeypatch.setattr(update_mod, "check_update", available)
+    monkeypatch.setattr(update_mod, "update_command", lambda *_a: ["uv", "tool", "install"])
+    monkeypatch.setattr(update_mod, "replaces_running_core", lambda: True)
+    handed: dict[str, Any] = {}
+
+    def fake_start(p: Paths, command: list[str], *, port: int, pid: int) -> Any:
+        handed.update(port=port, pid=pid)
+        return SimpleNamespace(pid=7777)
+
+    monkeypatch.setattr(update_mod, "start_windows_update", fake_start)
+    monkeypatch.setattr(update_handlers, "EXIT_DELAY_SEC", 0)
+    paths.ensure()
+    paths.daemon_json.write_text(json.dumps({"pid": os.getpid(), "port": 40001}))
+    notes: list[tuple[str, dict[str, Any]]] = []
+    stops: list[str] = []
+
+    async def notify(method: str, params: dict[str, Any]) -> None:
+        notes.append((method, params))
+
+    core = SimpleNamespace(
+        paths=paths,
+        settings=Settings(),
+        port=40001,
+        hub=SimpleNamespace(notify=notify),
+        request_shutdown=stops.append,
+        update_task=None,
+    )
+    result = await update_handlers.update_handler(None, None, core)  # type: ignore[arg-type]
+    await core.update_task
+    assert result.started and handed == {"port": 40001, "pid": os.getpid()}
+    assert json.loads(paths.daemon_json.read_text())["pid"] == 7777
+    assert notes[-1][1]["phase"] == "done" and stops == ["update"]
