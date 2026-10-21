@@ -15,6 +15,7 @@ export type ErrorCode =
   | "approval_denied"
   | "approval_timeout"
   | "auth_expired"
+  | "empty_response"
   | "internal"
   | "invalid_output"
   | "invalid_params"
@@ -38,6 +39,7 @@ export const ERROR_CODES: readonly ErrorCode[] = [
   "approval_denied",
   "approval_timeout",
   "auth_expired",
+  "empty_response",
   "internal",
   "invalid_output",
   "invalid_params",
@@ -4608,8 +4610,8 @@ export interface TurnDequeuedEventPayload {
 /** Payload of `session.event` with kind `turn.done`. */
 export interface TurnDoneEventPayload {
   kind?: "turn.done";
-  /** Why the turn ended. budget = the tool-round budget ran out; the turn reported what it had done before ending. stalled = consecutive rounds made no new tool or file progress. */
-  reason?: "complete" | "interrupted" | "error" | "denied" | "timeout" | "budget" | "stalled";
+  /** Why the turn ended. budget = the tool-round budget ran out; the turn reported what it had done before ending. stalled = consecutive rounds made no new tool or file progress. empty_response = the model ended with no text and no tool call, again after one nudge (1.23.0); an error event with code empty_response precedes it. */
+  reason?: "complete" | "interrupted" | "error" | "denied" | "timeout" | "budget" | "stalled" | "empty_response";
   /** True when the daemon wrote this event itself to close a turn a crash left open, rather than the turn reporting its own end (CORE-dangling-turns). The turn produced no further output after the events already stored. */
   synthetic?: boolean;
   /** Turn that ended. */

@@ -90,6 +90,14 @@ MAX_NOTICE_FLUSH_CHARS = 12_000
 #: the output limit.  Two is enough for a long review and still bounded
 #: (CORE-reasoning-budget).
 MAX_CONTINUATIONS = 2
+#: An answer with no text and no tool call is asked again once with this
+#: appended, never rewritten into the history before it (the prefix stays).
+EMPTY_NUDGE = "Continue: call a tool or answer."
+EMPTY_RETRIES = 1
+EMPTY_RESPONSE_MESSAGE = (
+    "The model ended its turn with no answer and no tool call, also after being asked "
+    "to continue."
+)
 
 #: What the model is told when its answer was cut off mid-sentence.
 CONTINUE_INSTRUCTION = "Continue exactly where you stopped, without repeating."
@@ -1529,6 +1537,7 @@ async def _drive(
     progress = _TurnProgress(no_progress_limit=no_progress_limit)
     # Times a Stop hook kept this turn going (capped per turn).
     stop_continuations = 0
+    empty_retries = 0
     session.lead_direct_calls = 0
     verify_gate.begin_turn(session)
     # One acknowledgement per turn, not per tool round.
@@ -1694,6 +1703,19 @@ async def _drive(
             return "interrupted"
 
         assistant_text = attempt.text
+        if not calls and not assistant_text.strip():
+            # Reasoning cut short, or nothing at all: not an answer.  The empty
+            # message is not kept; the nudge is appended after what was sent.
+            if empty_retries < EMPTY_RETRIES:
+                empty_retries += 1
+                session.history.append(ChatMessage(role="user", content=EMPTY_NUDGE))
+                await hub.emit_event(session.id, events.hook_continue(EMPTY_NUDGE, empty_retries))
+                continue
+            await hub.emit_event(
+                session.id, events.error(errors.EMPTY_RESPONSE, EMPTY_RESPONSE_MESSAGE)
+            )
+            await finish_turn(core, session, turn_id, "empty_response")
+            return "empty_response"
         if not calls:
             session.history.append(ChatMessage(role="assistant", content=assistant_text))
             await hub.emit_event(

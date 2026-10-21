@@ -44,6 +44,8 @@ UNAVAILABLE = "unavailable"
 #: ``schema``, 1.14.0); ``details.text`` holds the answer.
 INVALID_OUTPUT = "invalid_output"
 INTERNAL = "internal"
+#: The model ended its turn with no text and no tool call, twice (1.23.0).
+EMPTY_RESPONSE = "empty_response"
 
 ERROR_CODES: tuple[str, ...] = (
     UNAUTHORIZED,
@@ -68,6 +70,7 @@ ERROR_CODES: tuple[str, ...] = (
     UNAVAILABLE,
     INVALID_OUTPUT,
     INTERNAL,
+    EMPTY_RESPONSE,
 )
 
 # JSON-RPC 2.0 reserved codes.

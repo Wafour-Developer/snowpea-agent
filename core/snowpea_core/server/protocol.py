@@ -66,7 +66,9 @@ AuthStatus = Literal["unconfigured", "active", "expired"]
 #: ``budget`` (CORE-subagent-budget) is additive: the turn used its whole
 #: tool-round budget, wrote a report and ended.  A surface that does not know
 #: it must treat it as an ordinary end of turn.
-TurnReason = Literal["complete", "interrupted", "error", "denied", "timeout", "budget", "stalled"]
+TurnReason = Literal[
+    "complete", "interrupted", "error", "denied", "timeout", "budget", "stalled", "empty_response"
+]
 #: Why a queued prompt left the queue: it started running, it was dropped, or
 #: it was merged into the running turn as a steer message.
 QueuedTurnReason = Literal["started", "dropped", "steered"]
@@ -4074,7 +4076,9 @@ class TurnDone(Payload):
         description=(
             "Why the turn ended. budget = the tool-round budget ran out; the turn "
             "reported what it had done before ending. stalled = consecutive rounds "
-            "made no new tool or file progress."
+            "made no new tool or file progress. empty_response = the model ended with no "
+            "text and no tool call, again after one nudge (1.23.0); an error event with "
+            "code empty_response precedes it."
         ),
     )
     synthetic: bool = Field(

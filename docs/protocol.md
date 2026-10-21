@@ -3297,7 +3297,7 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | field | type | required | description |
 |---|---|---|---|
 | `kind` | `"turn.done"` | no |  |
-| `reason` | `"complete" \| "interrupted" \| "error" \| "denied" \| "timeout" \| "budget" \| "stalled"` | no | Why the turn ended. budget = the tool-round budget ran out; the turn reported what it had done before ending. stalled = consecutive rounds made no new tool or file progress. |
+| `reason` | `"complete" \| "interrupted" \| "error" \| "denied" \| "timeout" \| "budget" \| "stalled" \| "empty_response"` | no | Why the turn ended. budget = the tool-round budget ran out; the turn reported what it had done before ending. stalled = consecutive rounds made no new tool or file progress. empty_response = the model ended with no text and no tool call, again after one nudge (1.23.0); an error event with code empty_response precedes it. |
 | `synthetic` | `boolean` | no | True when the daemon wrote this event itself to close a turn a crash left open, rather than the turn reporting its own end (CORE-dangling-turns). The turn produced no further output after the events already stored. |
 | `turnId` | `string` | yes | Turn that ended. |
 
@@ -3343,6 +3343,7 @@ The numeric `error.code`: `-32601` means only that the **method** does not exist
 | `approval_denied` | The user denied the approval request. |
 | `approval_timeout` | No approval arrived before `approvals.timeoutSec` elapsed. |
 | `auth_expired` |  |
+| `empty_response` |  |
 | `internal` | Unexpected server-side failure. |
 | `invalid_output` |  |
 | `invalid_params` | Params failed schema validation. |
