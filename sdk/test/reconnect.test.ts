@@ -14,9 +14,11 @@ interface FakeServer {
   requests: { method: string; params: any; id: number | string }[];
   close(): Promise<void>;
   drop(): void;
+  dropResumes(n: number): void;
 }
 
 function startFakeServer(token: string, port = 0): Promise<FakeServer> {
+  let dropResumes = 0;
   return new Promise((resolve) => {
     const server = new WebSocketServer({ port, path: "/ws" }, () => {
       const addr = server.address();
@@ -57,6 +59,11 @@ function startFakeServer(token: string, port = 0): Promise<FakeServer> {
                   result: { sessionId: "sess-test" },
                 }));
               } else if (msg.method === "session.resume") {
+                if (dropResumes > 0) {
+                  dropResumes -= 1;
+                  ws.close(1001, "server restart");
+                  return;
+                }
                 ws.send(JSON.stringify({
                   jsonrpc: "2.0",
                   id: msg.id,
@@ -104,6 +111,9 @@ function startFakeServer(token: string, port = 0): Promise<FakeServer> {
         }),
         drop: () => {
           for (const c of clients) c.close(1001, "server restart");
+        },
+        dropResumes: (n: number) => {
+          dropResumes = n;
         },
       });
     });
@@ -236,6 +246,41 @@ describe("Client reconnect", () => {
 
     await client.close();
     await server2.close();
+  });
+
+  it("treats a socket dropped mid-resume as a failed reconnect and retries", async () => {
+    const server = await startFakeServer("token-resume");
+    const client = await connect({
+      port: server.port,
+      token: server.token,
+      clientVersion: "0.2.4",
+      reconnectInitialDelayMs: 20,
+      reconnectMaxDelayMs: 100,
+      reconnectWaitMs: 5000,
+    });
+    const reconnecting: any[] = [];
+    const reconnected: any[] = [];
+    client.on("reconnecting", (p) => reconnecting.push(p));
+    client.on("reconnected", (p) => reconnected.push(p));
+
+    await client.call("session.create", { workdir: "/tmp" } as any);
+    const resumedOnce = new Promise((r) => client.once("reconnected", r));
+    // Let the reconnect's first session.resume drop the socket, as a core that
+    // closes and comes back quickly does.
+    server.dropResumes(1);
+    server.drop();
+    await resumedOnce;
+
+    assert.equal(reconnected.length, 1);
+    assert.equal(client.connected, true, "reconnected only fires on a live socket");
+    assert.ok(reconnecting.length >= 2, `retried after the drop (${reconnecting.length} attempts)`);
+    assert.deepEqual(reconnected[0].sessions, ["sess-test"]);
+    assert.equal(server.requests.filter((r) => r.method === "session.resume").length, 2);
+    const result = await client.call("session.prompt", { sessionId: "sess-test", text: "hi" } as any);
+    assert.equal(result.turnId, "t-2");
+
+    await client.close();
+    await server.close();
   });
 
   it("call() fails with clear error when daemon is unreachable within timeout", async () => {

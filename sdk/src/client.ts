@@ -555,6 +555,10 @@ export class Client {
         await this.openSocket();
         await this.hello();
         const resumed = await this.resumeTracked();
+        // A socket that dropped while the sessions were resuming is a failed
+        // attempt: its close handler found this loop running and scheduled
+        // nothing, so retry here instead of reporting a dead link as ready.
+        if (!this.connected) throw new ConnectionClosedError("socket closed during resume");
         const attempts = this.attempt;
         this.attempt = 0;
         this.isReconnecting = false;
@@ -588,6 +592,7 @@ export class Client {
         for (const event of result.events ?? []) this.dispatchSessionEvent(event);
         resumed.push(sessionId);
       } catch (err) {
+        if (err instanceof ConnectionClosedError || !this.connected) throw err;
         this.emit("error", { error: err instanceof Error ? err : new Error(String(err)) });
       }
     }
