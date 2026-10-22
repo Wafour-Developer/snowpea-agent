@@ -23,6 +23,7 @@ import sys
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -64,6 +65,12 @@ class DaemonInfo:
     startedAt: str = ""
     protocolVersion: str = PROTOCOL_VERSION
     version: str = ""
+    #: The daemon is still booting (skills, MCP); it already answers /health.
+    ready: bool = True
+    #: The pid is the Windows update helper; the daemon comes back on ``port``.
+    restarting: bool = False
+    #: When the helper took over, UTC ISO-8601; bounds how long anyone waits.
+    restartingSince: str = ""
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> DaemonInfo:
@@ -74,6 +81,9 @@ class DaemonInfo:
             startedAt=str(payload.get("startedAt", "")),
             protocolVersion=str(payload.get("protocolVersion", PROTOCOL_VERSION)),
             version=str(payload.get("version", "")),
+            ready=payload.get("ready", True) is not False,
+            restarting=payload.get("restarting") is True,
+            restartingSince=str(payload.get("restartingSince") or ""),
         )
 
 
@@ -212,6 +222,60 @@ def _stop_unresponsive(pid: int) -> None:
             time.sleep(0.1)
 
 
+#: Seconds a client waits for the Windows update helper to bring the core back.
+RESTART_WAIT_SEC = 180.0
+#: Seconds a restarting advert whose pid has died is still given: the new
+#: core may be binding its port at that very moment.
+RESTART_GRACE_SEC = 20.0
+#: A restarting advert older than this is a leftover (a crashed helper whose
+#: pid Windows handed to another process), not an update in progress.
+RESTART_STALE_SEC = 900.0
+
+
+def _restart_age(info: DaemonInfo) -> float | None:
+    """Seconds since the helper took over, or ``None`` when unknown."""
+    try:
+        since = datetime.fromisoformat(info.restartingSince.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return (datetime.now(UTC) - since).total_seconds()
+
+
+async def _wait_for_restart(home: Path) -> DaemonInfo | None:
+    """The restarted daemon; ``None`` when the restart failed and the home is free.
+
+    Raises :class:`DaemonError` while the update is plainly still running past
+    the wait: spawning a core then would lock the files uv is replacing.
+    """
+    deadline = time.monotonic() + RESTART_WAIT_SEC
+    dead_since: float | None = None
+    info = read_daemon_json(home)
+    while time.monotonic() < deadline:
+        info = read_daemon_json(home)
+        if info is None:
+            return None
+        if not info.restarting:
+            if await health_ok(info.port):
+                return info
+        elif pid_alive(info.pid):
+            dead_since = None
+        else:
+            dead_since = dead_since or time.monotonic()
+            if await health_ok(info.port):
+                continue
+            if time.monotonic() - dead_since > RESTART_GRACE_SEC:
+                return None
+        await asyncio.sleep(POLL_INTERVAL_SEC)
+    if info is not None and info.restarting and pid_alive(info.pid):
+        age = _restart_age(info)
+        if age is None or age < RESTART_STALE_SEC:
+            raise DaemonError(
+                "a snowpea update is still installing; try again in a minute "
+                f"(see {Paths(home=home).update_log})"
+            )
+    return None
+
+
 async def ensure_daemon(home: Path | str | None = None) -> DaemonInfo:
     """Return a live daemon, starting one if needed.
 
@@ -220,7 +284,14 @@ async def ensure_daemon(home: Path | str | None = None) -> DaemonInfo:
     """
     resolved = resolve_home(home)
     existing = read_daemon_json(resolved)
-    if existing is not None and pid_alive(existing.pid):
+    if existing is not None and existing.restarting:
+        # The update helper is replacing the core and starts it again itself.
+        # Killing it, or spawning beside it, would break the upgrade.
+        restarted = await _wait_for_restart(resolved)
+        if restarted is not None:
+            return restarted
+        existing = read_daemon_json(resolved)
+    if existing is not None and pid_alive(existing.pid) and not existing.restarting:
         # A live daemon that is slow to answer is still the daemon: starting a
         # second one beside it left orphans that ran forever. Give it a few
         # tries, and if it really does not answer, stop it before replacing it.

@@ -37,6 +37,7 @@ from snowpea_core.providers.base import ProviderError
 from snowpea_core.providers.registry import ProviderRegistry
 from snowpea_core.scheduler import start_scheduler, stop_scheduler
 from snowpea_core.server import errors
+from snowpea_core.server.advert import write_advert
 from snowpea_core.server.agent_handlers import register_agent_handlers
 from snowpea_core.server.audio_handlers import register_audio_handlers
 from snowpea_core.server.auth import ensure_token, write_token
@@ -60,6 +61,7 @@ from snowpea_core.server.protocol import (
     AllowlistPattern,
     AllowlistRemoveParams,
     ApprovalRequest,
+    ConnectedClient,
     Empty,
     HealthResult,
     InfoResult,
@@ -243,9 +245,19 @@ class EchoRequestParams(Payload):
 # ---------------------------------------------------------------------------
 
 
-async def info_handler(_conn: RpcConnection, _params: Empty, core: Core) -> InfoResult:
+async def info_handler(conn: RpcConnection, _params: Empty, core: Core) -> InfoResult:
     """``system.info``."""
     status = core.lifecycle.status()
+    clients = [
+        ConnectedClient(
+            clientKind=getattr(client, "client_kind", None),
+            clientId=getattr(client, "client_id", None) if client is conn else None,
+            clientVersion=getattr(client, "client_version", None),
+            you=client is conn,
+        )
+        for client in core.hub.clients()
+        if not getattr(client, "closed", False)
+    ]
     return InfoResult(
         version=SERVER_VERSION,
         protocolVersion=PROTOCOL_VERSION,
@@ -263,6 +275,7 @@ async def info_handler(_conn: RpcConnection, _params: Empty, core: Core) -> Info
         ),
         restartRequired=core.restart_required,
         platform=sys.platform,
+        clients=clients,
     )
 
 
@@ -712,7 +725,10 @@ class Daemon:
         await site.start()
         self._runner = runner
         core.port = _resolve_port(runner, self._requested_port)
-        self._write_daemon_json()
+        # Published at once so a client finds the port, but marked not ready:
+        # skills and MCP servers below can take seconds, and a client must be
+        # able to tell a booting daemon from a hung one (addendum 26).
+        self._write_daemon_json(ready=False)
         # Before anything reads the event log: a daemon that was killed
         # mid-turn left ``turn.started`` with no ``turn.done``, and every
         # client that replays that history would show a turn running forever
@@ -752,6 +768,13 @@ class Daemon:
             log.warning("could not start global MCP servers", exc_info=True)
         core.lifecycle.start()
         await start_scheduler(core)
+        # Not over an update hand-off made during boot: that advert names the
+        # helper and must stay until the new core replaces it.
+        if not self._advert_restarting():
+            try:
+                self._write_daemon_json(ready=True)
+            except OSError:
+                log.warning("could not mark daemon.json ready", exc_info=True)
         # Lazy and non-blocking: the answer is cached for 24h, so a daemon that
         # is restarted often still asks the network at most once a day.
         if update_mod.check_enabled(settings):
@@ -765,7 +788,7 @@ class Daemon:
         )
         return core
 
-    def _write_daemon_json(self) -> None:
+    def _write_daemon_json(self, *, ready: bool = True) -> None:
         assert self.core is not None
         payload = {
             "port": self.core.port,
@@ -774,11 +797,22 @@ class Daemon:
             "startedAt": self.core.started_at,
             "protocolVersion": PROTOCOL_VERSION,
             "version": __version__,
+            "ready": ready,
         }
-        path = self.core.paths.daemon_json
-        tmp = path.with_name(path.name + ".tmp")
-        tmp.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-        tmp.replace(path)
+        # Which app started this daemon (the IDE and the browser set it), so
+        # one never restarts a shared daemon the other started (addendum 26).
+        spawned_by = os.environ.get("SNOWPEA_SPAWNED_BY", "").strip()
+        if spawned_by:
+            payload["spawnedBy"] = spawned_by[:32]
+        write_advert(self.core.paths.daemon_json, payload)
+
+    def _advert_restarting(self) -> bool:
+        assert self.core is not None
+        try:
+            payload = json.loads(self.core.paths.daemon_json.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return False
+        return payload.get("restarting") is True
 
     def _remove_daemon_json(self) -> None:
         if self.core is None:
@@ -918,30 +952,47 @@ class HomeLocked(RuntimeError):
 HOME_LOCKED_EXIT = 73
 
 
+#: Where the Windows lock sits in ``daemon.lock``: a byte far past the pid
+#: written at the start, because a ``msvcrt`` lock is mandatory and would
+#: keep the next daemon from reading who holds it.
+_WINDOWS_LOCK_OFFSET = 1 << 20
+
+
+def _lock_handle(handle: Any) -> None:
+    """Take the exclusive, non-blocking lock on ``handle``; ``OSError`` if held."""
+    try:
+        import fcntl
+    except ImportError:  # Windows
+        import msvcrt
+
+        handle.seek(_WINDOWS_LOCK_OFFSET)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        return
+    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
 def acquire_home_lock(home: Path) -> Any:
     """Hold ``<home>/daemon.lock`` for this process's lifetime, or raise :class:`HomeLocked`.
 
-    An advisory ``flock``: the kernel drops it when the process dies, however
-    it dies, so a crashed daemon never leaves a stale lock behind. Where
-    ``fcntl`` does not exist (Windows) this is a no-op.
+    ``flock`` on POSIX, ``msvcrt.locking`` on Windows: either way the OS
+    drops it when the process dies, however it dies, so a crashed daemon
+    never leaves a stale lock behind. On Windows an IDE and a browser that
+    start the core at the same moment used to get two daemons on one home.
     """
+    path = Path(home) / "daemon.lock"
+    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
+    handle = os.fdopen(fd, "r+")  # noqa: SIM115 - held for the process
     try:
-        import fcntl
-    except ImportError:  # pragma: no cover - Windows
-        return None
-    handle = open(Path(home) / "daemon.lock", "a+")  # noqa: SIM115 - held for the process
-    try:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        _lock_handle(handle)
     except OSError as exc:
         handle.seek(0)
-        holder = handle.read().strip()
+        holder = handle.read(32).strip("\0 \r\n")
         handle.close()
         raise HomeLocked(
             f"another snowpea daemon{f' (pid {holder})' if holder else ''} is running on {home}"
         ) from exc
     handle.seek(0)
-    handle.truncate()
-    handle.write(str(os.getpid()))
+    handle.write(str(os.getpid()).ljust(16))
     handle.flush()
     return handle
 
@@ -950,9 +1001,15 @@ def release_home_lock(handle: Any) -> None:
     if handle is None:
         return
     with contextlib.suppress(Exception):
-        import fcntl
+        try:
+            import fcntl
+        except ImportError:  # Windows
+            import msvcrt
 
-        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            handle.seek(_WINDOWS_LOCK_OFFSET)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
     with contextlib.suppress(Exception):
         handle.close()
 
@@ -968,6 +1025,9 @@ async def run_daemon(
     port: int = 0, home: Path | str | None = None, token: str | None = None
 ) -> None:
     """Run the daemon until a signal, ``system.shutdown`` or the idle timeout."""
+    from snowpea_core.util.no_window import hide_child_consoles
+
+    hide_child_consoles()
     daemon = Daemon(port=port, home=home, token=token)
     await daemon.start()
     _install_signal_handlers(daemon)

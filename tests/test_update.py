@@ -11,6 +11,7 @@ import asyncio
 import json
 import os
 import stat
+import subprocess
 import sys
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -958,5 +959,81 @@ async def test_on_windows_the_core_hands_the_update_over_and_steps_aside(
     result = await update_handlers.update_handler(None, None, core)  # type: ignore[arg-type]
     await core.update_task
     assert result.started and handed == {"port": 40001, "pid": os.getpid()}
-    assert json.loads(paths.daemon_json.read_text())["pid"] == 7777
-    assert notes[-1][1]["phase"] == "done" and stops == ["update"]
+    advert = json.loads(paths.daemon_json.read_text())
+    assert advert["pid"] == 7777 and advert["restarting"] is True and advert["ready"] is False
+    assert advert["port"] == 40001 and advert["restartingSince"]
+    # Clients are told the daemon comes back by itself, so none restarts it.
+    assert result.selfRestart is True
+    assert notes[-1][1]["phase"] == "done" and notes[-1][1]["selfRestart"] is True
+    assert stops == ["update"]
+
+
+def test_the_windows_helper_relaunches_the_core_without_a_window() -> None:
+    """Start-Process -WindowStyle Hidden is a hint Windows Terminal ignores."""
+    helper = update_mod.WINDOWS_UPDATE_HELPER
+    assert "Start-Process -FilePath" not in helper
+    assert "CreateNoWindow = $true" in helper and "UseShellExecute = $false" in helper
+
+
+def test_macos_installs_only_on_uv_managed_python(
+    paths: Paths, no_uv: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """/usr/bin/python3 on a Mac without the CLT opens the Xcode tools dialog."""
+    assert update_mod.python_args("darwin") == [
+        "--python", ">=3.11", "--python-preference", "only-managed"
+    ]
+    assert update_mod.python_args("linux") == ["--python", ">=3.11"]
+    monkeypatch.setattr(update_mod.sys, "platform", "darwin")
+    monkeypatch.setattr(update_mod, "_on_windows", lambda: False)
+    command = update_mod.bootstrap_command("snowpea-agent[images]")
+    assert command[-3:-1] == ["--python-preference", "only-managed"]
+    assert command[-1] == "snowpea-agent[images]"
+
+
+def test_the_posix_bootstrap_script_hands_uv_every_flag(
+    no_uv: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Run the real sh script with a fake installer and a fake uv."""
+    if update_mod._on_windows():
+        pytest.skip("POSIX shell")
+    monkeypatch.setattr(update_mod.sys, "platform", "darwin")
+    folder = tmp_path / "bin"
+    folder.mkdir()
+    installer = tmp_path / "install.sh"
+    fake_uv = f'#!/bin/sh\necho "$@" > {tmp_path}/args\n'
+    installer.write_text(
+        'mkdir -p "$UV_INSTALL_DIR"\n'
+        f"cat > \"$UV_INSTALL_DIR/uv\" <<'UV'\n{fake_uv}UV\n"
+        'chmod +x "$UV_INSTALL_DIR/uv"\n'
+    )
+    monkeypatch.setattr(update_mod, "UV_INSTALL_SH", f"file://{installer}")
+    monkeypatch.setattr(update_mod, "uv_bin_dir", lambda: folder)
+    command = update_mod.bootstrap_command("snowpea-agent[images]")
+    done = subprocess.run(command, capture_output=True, text=True, timeout=30)
+    assert done.returncode == 0, done.stderr
+    assert (tmp_path / "args").read_text().split() == [
+        "tool", "install", "--force", "--reinstall", "--python", ">=3.11",
+        "--python-preference", "only-managed", "snowpea-agent[images]",
+    ]
+
+
+def test_a_frozen_core_with_a_pip_record_bootstraps_uv(
+    paths: Paths, no_uv: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``snowpea-core.exe -m pip`` would only start another daemon."""
+    update_mod.write_install_json(paths, "pip", "snowpea-agent")
+    monkeypatch.setattr(update_mod.sys, "frozen", True, raising=False)
+    command = update_mod.update_command(paths, "snowpea-agent")
+    assert command is not None and "-m" not in command and "pip" not in command
+    assert command == update_mod.bootstrap_command(update_mod.with_images("snowpea-agent"))
+
+
+def test_the_helper_names_the_new_core_in_daemon_json() -> None:
+    """Otherwise the advert names a dead helper until the new core boots."""
+    helper = update_mod.WINDOWS_UPDATE_HELPER
+    assert "$ad.pid = $core.Id" in helper and "[int]$ad.pid -eq $PID" in helper
+
+
+def test_the_manual_command_carries_the_python_flags(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(update_mod.sys, "platform", "darwin")
+    assert "--python-preference only-managed" in update_mod.manual_command("snowpea-agent")

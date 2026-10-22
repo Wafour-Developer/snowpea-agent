@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from typing import Any
@@ -399,3 +400,53 @@ async def test_a_non_loopback_local_dev_project_answer_is_kept_to_once(
         assert len(host.approval_requests) == asked + 1
     finally:
         await host.stop()
+
+
+async def test_session_list_says_which_live_client_owns_the_approvals(
+    http: aiohttp.ClientSession, daemon: Daemon, tmp_path: Path  # noqa: F811
+) -> None:
+    """A browser that re-attaches on reconnect leaves an IDE-continued chat alone
+    (addendum 26): session.list and session.resume name the live origin."""
+    browser = await open_client(http, daemon, client_id="browser-A")
+    ide = await open_surface(http, daemon, kind="ide")
+    try:
+        session_id = await new_session(browser, tmp_path / "w", originSurface="browser")
+
+        def row_of(listing: dict) -> dict:
+            return next(r for r in listing["sessions"] if r["sessionId"] == session_id)
+
+        # Another client sees whose it is, not the browser's id.
+        origin = row_of(await ide.ok("session.list", {}))["origin"]
+        assert origin == {"clientKind": "browser", "clientId": None, "live": True, "mine": False}
+        assert row_of(await browser.ok("session.list", {}))["origin"] == {
+            "clientKind": "browser", "clientId": "browser-A", "live": True, "mine": True
+        }
+        await ide.ok("session.attach", {"sessionId": session_id})
+        origin = row_of(await browser.ok("session.list", {}))["origin"]
+        assert origin["clientKind"] == "ide" and origin["mine"] is False
+        await ide.stop()
+        await asyncio.sleep(0.2)
+        assert row_of(await browser.ok("session.list", {}))["origin"]["live"] is False
+        resumed = await browser.ok("session.resume", {"sessionId": session_id})
+        assert resumed["origin"] == {
+            "clientKind": "browser", "clientId": "browser-A", "live": True, "mine": True
+        }
+    finally:
+        await browser.stop()
+
+
+async def test_system_info_lists_the_connected_clients(
+    http: aiohttp.ClientSession, daemon: Daemon  # noqa: F811
+) -> None:
+    """An IDE that would restart a shared daemon sees the browser on it."""
+    browser = await open_client(http, daemon, client_id="browser-A")
+    ide = await open_surface(http, daemon, kind="ide")
+    try:
+        clients = (await ide.ok("system.info", {}))["clients"]
+        kinds = sorted((c["clientKind"], c["you"], c["clientId"]) for c in clients)
+        assert kinds == [("browser", False, None), ("ide", True, None)]
+        mine = [c for c in (await browser.ok("system.info", {}))["clients"] if c["you"]]
+        assert mine[0]["clientId"] == "browser-A"
+    finally:
+        await ide.stop()
+        await browser.stop()

@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.25.0` (semver)
+- **Protocol version:** `1.26.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.25.0"
+    "protocolVersion": "1.26.0"
   }
 }
 ```
@@ -61,6 +61,7 @@ Server capabilities advertised in the `system.hello` result:
 - `setAgentGuardTurn`
 - `settings`
 - `setup`
+- `sharedDaemon`
 - `siteFrameActions`
 - `siteMemory`
 - `siteRecipes`
@@ -1780,7 +1781,7 @@ List live or saved sessions.
 
 | field | type | required | description |
 |---|---|---|---|
-| `sessions` | `({ agent?: string \| null; browserProvider?: "host" \| "local" \| null; contextUsed?: number; contextWindow?: number \| null; createdAt: string; effort?: "low" \| "medium" \| "high" \| "max" \| null; hostToolsFrom?: string \| null; jobId?: string \| null; kind?: "chat" \| "scheduled" \| "subagent" \| "agent"; lastActivityAt?: string \| null; lastPrompt?: string \| null; mode: "plan" \| "accept" \| "auto"; model?: string \| null; originSurface?: string \| null; parentSessionId?: string \| null; pendingApprovals?: number; pendingQuestions?: number; provider?: string \| null; running?: boolean; seq?: number; sessionId: string; status?: "idle" \| "running" \| "awaiting_approval" \| "awaiting_question" \| "error"; title?: string \| null; turnStartedAt?: string \| null; workdir: string; workspaceDir?: string \| null; })[]` | no | Every live session. |
+| `sessions` | `({ agent?: string \| null; browserProvider?: "host" \| "local" \| null; contextUsed?: number; contextWindow?: number \| null; createdAt: string; effort?: "low" \| "medium" \| "high" \| "max" \| null; hostToolsFrom?: string \| null; jobId?: string \| null; kind?: "chat" \| "scheduled" \| "subagent" \| "agent"; lastActivityAt?: string \| null; lastPrompt?: string \| null; mode: "plan" \| "accept" \| "auto"; model?: string \| null; origin?: { clientId?: string \| null; clientKind?: string \| null; live: boolean; mine?: boolean; } \| null; originSurface?: string \| null; parentSessionId?: string \| null; pendingApprovals?: number; pendingQuestions?: number; provider?: string \| null; running?: boolean; seq?: number; sessionId: string; status?: "idle" \| "running" \| "awaiting_approval" \| "awaiting_question" \| "error"; title?: string \| null; turnStartedAt?: string \| null; workdir: string; workspaceDir?: string \| null; })[]` | no | Every live session. |
 
 ### `session.notice`
 
@@ -1864,6 +1865,7 @@ Replay the events a disconnected client missed.
 | `events` | `({ kind: string; payload?: Record<string, unknown>; seq: number; sessionId: string; ts: string; })[]` | no | Missed events in seq order. |
 | `mode` | `"plan" \| "accept" \| "auto" \| null` | no | The session's permission mode as restored, so a surface that resumes adopts it instead of keeping the mode it launched with. |
 | `model` | `string \| null` | no | Model id in use. |
+| `origin` | `{ clientId?: string \| null; clientKind?: string \| null; live: boolean; mine?: boolean; } \| null` | no | Who owns the session's approvals after this resume (1.26.0). |
 | `provider` | `string \| null` | no | Chat provider vendor in use. |
 | `sessionId` | `string` | yes | Session that was resumed. |
 
@@ -2497,6 +2499,7 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
+| `clients` | `({ clientId?: string \| null; clientKind?: string \| null; clientVersion?: string \| null; you?: boolean; })[]` | no | Every authenticated connection, the caller included (1.26.0): an app that would restart a shared daemon checks that no other client is using it. |
 | `counters` | `Record<string, number>` | no | Lifecycle counters: sessions, jobs, gateway_bindings, named_agents. |
 | `home` | `string` | yes | Resolved SNOWPEA_HOME directory. |
 | `lifecycle` | `{ reason?: string; reasons?: string[]; secondsUntilExit?: number \| null; summary?: string \| null; willExit?: boolean; } \| null` | no | Idle-shutdown status, omitted by older daemons. |
@@ -2574,6 +2577,7 @@ _No params (send `{}`)._
 | `command` | `string` | yes | The command line that runs, or that has to be run by hand. |
 | `error` | `string \| null` | no | Why nothing was started; null on the happy path. |
 | `log` | `string` | yes | Absolute path of the file the upgrade writes its output to. |
+| `selfRestart` | `boolean` | no | True when the daemon stops and comes back by itself on the same port (Windows, uv-installed core): do not restart or spawn a core, wait for daemon.json to drop 'restarting' and name a healthy daemon (1.26.0). |
 | `started` | `boolean` | yes | True when the upgrade subprocess was spawned. |
 
 ### `team.guide.delete`
@@ -2982,6 +2986,7 @@ Web search for a browser host (1.11.0): the web_search tool's provider chain, se
 |---|---|---|---|
 | `message` | `string` | no | One line for humans. |
 | `phase` | `"started" \| "done" \| "failed"` | yes | Where the upgrade got to. |
+| `selfRestart` | `boolean` | no | On 'done': the daemon restarts by itself, so the client waits for it instead of restarting the core (1.26.0). |
 
 ### `teams.changed`
 

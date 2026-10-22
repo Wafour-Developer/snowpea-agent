@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 
 from snowpea_core import update as update_mod
 from snowpea_core.server import errors
+from snowpea_core.server.advert import write_advert
 from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import (
     CheckUpdateParams,
@@ -142,8 +143,16 @@ async def _update_after_exit(
     advert = core.paths.daemon_json
     try:
         payload = json.loads(advert.read_text(encoding="utf-8"))
-        payload["pid"] = helper.pid
-        advert.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        # ``restarting`` tells every client (IDE, browser, CLI) that the pid is
+        # the helper and the port comes back by itself: wait, do not delete
+        # the advert, kill the helper or spawn a core beside it (addendum 26).
+        payload.update(
+            pid=helper.pid,
+            restarting=True,
+            restartingSince=update_mod._utc_now(),
+            ready=False,
+        )
+        write_advert(advert, payload)
     except (OSError, ValueError):
         log.warning("could not hand daemon.json to the update helper", exc_info=True)
     version = latest.lstrip("v")
@@ -151,6 +160,7 @@ async def _update_after_exit(
         core,
         "done",
         f"installing v{version}: the engine restarts by itself in a few seconds (Windows)",
+        self_restart=True,
     )
 
     async def step_aside() -> None:
@@ -159,7 +169,9 @@ async def _update_after_exit(
             core.request_shutdown("update")
 
     core.update_task = asyncio.ensure_future(step_aside())
-    return UpdateResult(started=True, command=shlex.join(command), log=log_path)
+    return UpdateResult(
+        started=True, command=shlex.join(command), log=log_path, selfRestart=True
+    )
 
 
 async def restart_handler(_conn: RpcConnection, _params: Empty, core: Core) -> Ok:

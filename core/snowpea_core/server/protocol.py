@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.25.0"
+PROTOCOL_VERSION = "1.26.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -178,6 +178,17 @@ class LifecycleStatus(Payload):
     )
 
 
+class ConnectedClient(Payload):
+    """One client connected to the daemon (1.26.0)."""
+
+    clientKind: str | None = Field(default=None, description="As the client said in hello.")
+    clientId: str | None = Field(
+        default=None, description="The caller's own stable id; null for the other clients."
+    )
+    clientVersion: str | None = Field(default=None, description="As the client said in hello.")
+    you: bool = Field(default=False, description="True for the connection that asked.")
+
+
 class InfoResult(Payload):
     version: str = Field(description="Daemon version.")
     protocolVersion: str = Field(description="Protocol semver the daemon speaks.")
@@ -203,6 +214,13 @@ class InfoResult(Payload):
         description=(
             "The daemon machine's sys.platform (darwin, linux, win32), for engine and "
             "permission guidance that depends on where the core runs."
+        ),
+    )
+    clients: list[ConnectedClient] = Field(
+        default_factory=list,
+        description=(
+            "Every authenticated connection, the caller included (1.26.0): an app that "
+            "would restart a shared daemon checks that no other client is using it."
         ),
     )
 
@@ -248,6 +266,14 @@ class UpdateResult(Payload):
     log: str = Field(description="Absolute path of the file the upgrade writes its output to.")
     error: str | None = Field(
         default=None, description="Why nothing was started; null on the happy path."
+    )
+    selfRestart: bool = Field(
+        default=False,
+        description=(
+            "True when the daemon stops and comes back by itself on the same port "
+            "(Windows, uv-installed core): do not restart or spawn a core, wait for "
+            "daemon.json to drop 'restarting' and name a healthy daemon (1.26.0)."
+        ),
     )
 
 
@@ -612,6 +638,31 @@ class SessionResumeParams(Payload):
     )
 
 
+class SessionOrigin(Payload):
+    """The connection that answers a session's approvals and questions (1.26.0).
+
+    A client that re-attaches sessions on reconnect checks this first and
+    leaves alone a session another live client (an IDE continuing the chat)
+    already owns.
+    """
+
+    clientKind: str | None = Field(
+        default=None, description="'browser', 'ide', 'tui', ... as the client said in hello."
+    )
+    clientId: str | None = Field(
+        default=None,
+        description=(
+            "The client's stable id from hello — only when it is the caller's own "
+            "(mine); other clients' ids are not handed out."
+        ),
+    )
+    live: bool = Field(description="False once that connection has closed.")
+    mine: bool = Field(
+        default=False,
+        description="True when the caller is that connection, or has the same clientId.",
+    )
+
+
 class SessionResumeResult(Payload):
     sessionId: str = Field(description="Session that was resumed.")
     mode: Mode | None = Field(
@@ -630,6 +681,10 @@ class SessionResumeResult(Payload):
     )
     events: list[SessionEvent] = Field(
         default_factory=list, description="Missed events in seq order."
+    )
+    origin: SessionOrigin | None = Field(
+        default=None,
+        description="Who owns the session's approvals after this resume (1.26.0).",
     )
 
 
@@ -713,6 +768,13 @@ class SessionSummary(Payload):
         description=(
             "A browser session's browser: 'host' (Snowpea browser only) or 'local' "
             "(the user opted in to core's own browser); null for non-browser sessions."
+        ),
+    )
+    origin: SessionOrigin | None = Field(
+        default=None,
+        description=(
+            "The connection that owns approvals now; null when none ever attached "
+            "in this daemon run (saved rows, schedules) (1.26.0)."
         ),
     )
 
@@ -4449,6 +4511,13 @@ class UpdateProgressNotification(Payload):
 
     phase: UpdatePhase = Field(description="Where the upgrade got to.")
     message: str = Field(default="", description="One line for humans.")
+    selfRestart: bool = Field(
+        default=False,
+        description=(
+            "On 'done': the daemon restarts by itself, so the client waits for it "
+            "instead of restarting the core (1.26.0)."
+        ),
+    )
 
 
 class GatewayEventNotification(Payload):
@@ -5581,6 +5650,7 @@ CAPABILITIES: list[str] = [
     "setAgentGuardTurn",
     "toolInvokeGuard",
     "llmTimings",
+    "sharedDaemon",
 ]
 
 #: Where the daemon listens; mirrored into the schema dump for the SDK.

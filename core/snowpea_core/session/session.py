@@ -9,7 +9,7 @@ from typing import Any
 
 from snowpea_core.exec.backend import ExecutionBackend
 from snowpea_core.exec.local import LocalBackend
-from snowpea_core.server.protocol import Mode, SessionKind, SessionSummary
+from snowpea_core.server.protocol import Mode, SessionKind, SessionOrigin, SessionSummary
 from snowpea_core.session.history import History
 
 
@@ -336,8 +336,31 @@ class Session:
             turnStartedAt=self.turn_started_at,
             hostToolsFrom=self.host_tools_from,
             browserProvider=browser_provider_of(self),  # type: ignore[arg-type]
+            origin=origin_of(self),
         )
 
+
+
+def origin_of(session: Session, caller: Any = None) -> SessionOrigin | None:
+    """Who answers ``session``'s approvals, and whether that client is still there.
+
+    The origin's clientId is shown only to that same client (``mine``): it is
+    what a browser-owned job's approvals are matched on, so it is not handed
+    to every other connection.
+    """
+    conn = getattr(session, "origin_conn", None)
+    if conn is None:
+        return None
+    client_id = getattr(conn, "client_id", None)
+    caller_id = getattr(caller, "client_id", None)
+    same_client = client_id is not None and client_id == caller_id
+    mine = caller is not None and (conn is caller or same_client)
+    return SessionOrigin(
+        clientKind=getattr(conn, "client_kind", None),
+        clientId=client_id if mine else None,
+        live=not getattr(conn, "closed", False),
+        mine=mine,
+    )
 
 
 def browser_provider_of(session: Session) -> str | None:

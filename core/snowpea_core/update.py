@@ -642,6 +642,19 @@ def installable_source(source: str) -> str:
     return f"{REPO_URL}/releases/download/{ref}/snowpea_agent-{version}-py3-none-any.whl"
 
 
+def python_args(platform: str | None = None) -> list[str]:
+    """The ``uv tool install`` flags that pick the Python to run snowpea on.
+
+    On macOS only uv's own downloaded Pythons: ``/usr/bin/python3`` is a stub
+    on a Mac without the command line tools, and touching it opens the Xcode
+    tools dialog in front of the user (addendum 26).
+    """
+    flags = ["--python", UV_PYTHON]
+    if (platform or sys.platform) == "darwin":
+        flags += ["--python-preference", "only-managed"]
+    return flags
+
+
 def bootstrap_command(requirement: str) -> list[str]:
     """Install uv with its official installer, then snowpea with it.
 
@@ -662,9 +675,18 @@ def bootstrap_command(requirement: str) -> list[str]:
     script = (
         '(curl -LsSf "$1" || wget -qO- "$1") '
         '| env UV_INSTALL_DIR="$2" UV_NO_MODIFY_PATH=1 sh '
-        '&& "$2/uv" tool install --force --reinstall --python "$3" "$4"'
+        '&& shift 2 && "$UV_DIR/uv" tool install --force --reinstall "$@"'
     )
-    return ["sh", "-c", script, "sh", UV_INSTALL_SH, folder, UV_PYTHON, requirement]
+    return [
+        "sh",
+        "-c",
+        'UV_DIR="$2"; ' + script,
+        "sh",
+        UV_INSTALL_SH,
+        folder,
+        *python_args(),
+        requirement,
+    ]
 
 
 def update_command(paths: Paths, source: str) -> list[str] | None:
@@ -681,17 +703,21 @@ def update_command(paths: Paths, source: str) -> list[str] | None:
     requirement = with_images(installable_source(source))
     uv = find_uv()
     if uv:
-        return [uv, "tool", "install", "--force", "--reinstall", "--python", UV_PYTHON, requirement]
+        return [uv, "tool", "install", "--force", "--reinstall", *python_args(), requirement]
     if method == "pipx":
         return ["pipx", "install", "--force", requirement] if shutil.which("pipx") else None
-    if method == "pip":
+    # A frozen core (the desktop app's bundle) is no Python: ``exe -m pip``
+    # would start another daemon, so it installs uv like a bare machine.
+    if method == "pip" and not getattr(sys, "frozen", False):
         return [sys.executable, "-m", "pip", "install", "--upgrade", requirement]
     return bootstrap_command(requirement)
 
 
 def manual_command(source: str) -> str:
     """What to tell the user to run when nothing can be run for them."""
-    return f"uv tool install --force --reinstall --python '{UV_PYTHON}' {with_images(source)!r}"
+    return shlex.join(
+        ["uv", "tool", "install", "--force", "--reinstall", *python_args(), with_images(source)]
+    )
 
 
 def start_update(paths: Paths, command: list[str]) -> subprocess.Popen[bytes]:
@@ -759,7 +785,26 @@ if ($cmd.Length -gt 1) { $rest = $cmd[1..($cmd.Length - 1)] }
 & $cmd[0] @rest *>> $p.log
 Add-Content -Path $p.log -Value "=== exit $LASTEXITCODE"
 $quoted = @($p.args) | ForEach-Object { '"' + ($_ -replace '"', '\"') + '"' }
-Start-Process -FilePath $p.exe -ArgumentList $quoted -WindowStyle Hidden
+# CreateProcess with CREATE_NO_WINDOW: Start-Process -WindowStyle Hidden is
+# only a hint, and Windows Terminal (the default on Windows 11) ignores it.
+$si = New-Object System.Diagnostics.ProcessStartInfo
+$si.FileName = $p.exe
+$si.Arguments = ($quoted -join ' ')
+$si.UseShellExecute = $false
+$si.CreateNoWindow = $true
+$si.WorkingDirectory = $p.cwd
+$core = [System.Diagnostics.Process]::Start($si)
+# Until the new core writes its own advert, daemon.json names a live process:
+# a client that sees "restarting" with a dead pid takes the home for its own.
+try {
+  $ad = Get-Content -Raw -Encoding UTF8 $p.advert | ConvertFrom-Json
+  if ($ad.restarting -and [int]$ad.pid -eq $PID) {
+    $ad.pid = $core.Id
+    $tmp = "$($p.advert).helper"
+    [IO.File]::WriteAllText($tmp, ($ad | ConvertTo-Json -Depth 4))
+    Move-Item -Force $tmp $p.advert
+  }
+} catch {}
 """
 
 
@@ -800,6 +845,8 @@ def start_windows_update(
                 "log": str(paths.update_log),
                 "exe": str(Path(sys.executable).with_name("snowpea-core.exe")),
                 "args": relaunch_argv(sys.argv[1:], port),
+                "cwd": str(paths.home),
+                "advert": str(paths.daemon_json),
                 "command": command,
             }
         ),
@@ -833,13 +880,18 @@ def start_windows_update(
     )
 
 
-async def notify_progress(core: Core, phase: str, message: str) -> None:
+async def notify_progress(
+    core: Core, phase: str, message: str, *, self_restart: bool = False
+) -> None:
     """Broadcast ``system.updateProgress`` to every connected client."""
     hub = getattr(core, "hub", None)
     if hub is None:  # pragma: no cover - a core without a hub is a test double
         return
+    payload: dict[str, Any] = {"phase": phase, "message": message}
+    if self_restart:
+        payload["selfRestart"] = True
     try:
-        await hub.notify("system.updateProgress", {"phase": phase, "message": message})
+        await hub.notify("system.updateProgress", payload)
     except Exception:  # noqa: BLE001 - a dead socket must not break the upgrade
         log.debug("could not broadcast updateProgress", exc_info=True)
 

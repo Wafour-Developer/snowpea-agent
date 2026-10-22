@@ -89,6 +89,7 @@ from snowpea_core.server.protocol import (
 from snowpea_core.server.rpc import RpcConnection, RpcDispatcher
 from snowpea_core.session import events
 from snowpea_core.session.history import message_from_json, message_text
+from snowpea_core.session.session import origin_of
 from snowpea_core.session.store import Store
 from snowpea_core.session.workspace import ensure_workspace
 from snowpea_core.skills.loader import SkillLoader
@@ -340,13 +341,21 @@ async def session_resume_handler(
         effort=getattr(session, "effort", None),
         delegation=effective_delegation(core, session)[0],
         events=[SessionEvent.model_validate(e) for e in stored],
+        origin=origin_of(session, conn),
     )
 
 
 async def session_list_handler(
-    _conn: RpcConnection, params: SessionListParams, core: Core
+    conn: RpcConnection, params: SessionListParams, core: Core
 ) -> SessionListResult:
-    return SessionListResult(sessions=await collect_sessions(core, params))
+    rows = await collect_sessions(core, params)
+    # The origin as this caller may see it (whose it is, not other clients' ids).
+    out = []
+    for row in rows:
+        live = core.sessions.get(row.sessionId)
+        origin = origin_of(live, conn) if live is not None else None
+        out.append(row.model_copy(update={"origin": origin}))
+    return SessionListResult(sessions=out)
 
 
 async def collect_sessions(core: Core, params: SessionListParams) -> list[SessionSummary]:

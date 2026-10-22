@@ -10,6 +10,7 @@ from collections.abc import Sequence
 
 from snowpea_core import __version__
 from snowpea_core.server.app_server import run_daemon
+from snowpea_core.server.protocol import PROTOCOL_VERSION
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -28,7 +29,13 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="use this pre-issued auth token instead of the one in <home>/token (written there)",
     )
-    parser.add_argument("--version", action="version", version=f"snowpea-core {__version__}")
+    # The protocol lets an app skip an installed core it could not talk to
+    # without spawning it (addendum 26).
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"snowpea-core {__version__} (protocol {PROTOCOL_VERSION})",
+    )
     return parser
 
 

@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.25.0";
+export const PROTOCOL_VERSION = "1.26.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -2013,6 +2013,17 @@ export interface SessionListResult {
     mode: "plan" | "accept" | "auto";
     /** Model id in use. */
     model?: string | null;
+    /** The connection that owns approvals now; null when none ever attached in this daemon run (saved rows, schedules) (1.26.0). */
+    origin?: {
+      /** The client's stable id from hello — only when it is the caller's own (mine); other clients' ids are not handed out. */
+      clientId?: string | null;
+      /** 'browser', 'ide', 'tui', ... as the client said in hello. */
+      clientKind?: string | null;
+      /** False once that connection has closed. */
+      live: boolean;
+      /** True when the caller is that connection, or has the same clientId. */
+      mine?: boolean;
+    } | null;
     /** Surface that owns approvals. */
     originSurface?: string | null;
     /** Session that caused this one: the thread that scheduled the job, or the parent that spawned the subagent. */
@@ -2144,6 +2155,17 @@ export interface SessionResumeResult {
   mode?: "plan" | "accept" | "auto" | null;
   /** Model id in use. */
   model?: string | null;
+  /** Who owns the session's approvals after this resume (1.26.0). */
+  origin?: {
+    /** The client's stable id from hello — only when it is the caller's own (mine); other clients' ids are not handed out. */
+    clientId?: string | null;
+    /** 'browser', 'ide', 'tui', ... as the client said in hello. */
+    clientKind?: string | null;
+    /** False once that connection has closed. */
+    live: boolean;
+    /** True when the caller is that connection, or has the same clientId. */
+    mine?: boolean;
+  } | null;
   /** Chat provider vendor in use. */
   provider?: string | null;
   /** Session that was resumed. */
@@ -3386,6 +3408,17 @@ export type SystemInfoParams = Record<string, unknown>;
 
 /** `system.info` result. */
 export interface SystemInfoResult {
+  /** Every authenticated connection, the caller included (1.26.0): an app that would restart a shared daemon checks that no other client is using it. */
+  clients?: ({
+    /** The caller's own stable id; null for the other clients. */
+    clientId?: string | null;
+    /** As the client said in hello. */
+    clientKind?: string | null;
+    /** As the client said in hello. */
+    clientVersion?: string | null;
+    /** True for the connection that asked. */
+    you?: boolean;
+  })[];
   /** Lifecycle counters: sessions, jobs, gateway_bindings, named_agents. */
   counters?: Record<string, number>;
   /** Resolved SNOWPEA_HOME directory. */
@@ -3459,6 +3492,8 @@ export interface SystemUpdateResult {
   error?: string | null;
   /** Absolute path of the file the upgrade writes its output to. */
   log: string;
+  /** True when the daemon stops and comes back by itself on the same port (Windows, uv-installed core): do not restart or spawn a core, wait for daemon.json to drop 'restarting' and name a healthy daemon (1.26.0). */
+  selfRestart?: boolean;
   /** True when the upgrade subprocess was spawned. */
   started: boolean;
 }
@@ -4129,6 +4164,8 @@ export interface SystemUpdateProgressPayload {
   message?: string;
   /** Where the upgrade got to. */
   phase: "started" | "done" | "failed";
+  /** On 'done': the daemon restarts by itself, so the client waits for it instead of restarting the core (1.26.0). */
+  selfRestart?: boolean;
 }
 
 /** `teams.changed` notification payload. */
