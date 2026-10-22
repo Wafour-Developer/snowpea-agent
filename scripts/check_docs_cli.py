@@ -121,14 +121,20 @@ def parse_help(text: str, node: HelpNode) -> None:
             body = match.group(1)
             # `-c PROMPT, --prompt PROMPT   description` -> split off the description.
             spec = re.split(r"\s{2,}", body, maxsplit=1)[0]
+            # Python 3.13+ prints the metavar once, after the last alias
+            # (`-c, --prompt PROMPT`), so every alias on the line shares it.
+            aliases: list[str] = []
+            takes_value = False
             for part in spec.split(","):
                 part = part.strip()
                 flag_match = FLAG_RE.match(part)
                 if not flag_match:
                     continue
                 flag = flag_match.group(1)
+                aliases.append(flag)
                 rest = part[len(flag) :].strip()
-                takes_value = bool(rest) and not rest.startswith("-")
+                takes_value = takes_value or (bool(rest) and not rest.startswith("-"))
+            for flag in aliases:
                 node.flags[flag] = node.flags.get(flag, False) or takes_value
         sub_match = SUBCOMMAND_LINE_RE.match(raw)
         if sub_match and not in_options and not raw.strip().startswith("-"):
