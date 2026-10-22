@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import inspect
 import json
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -31,7 +32,7 @@ PNG = base64.b64encode(
     )
 ).decode()
 
-Handler = Callable[[dict[str, Any]], dict[str, Any] | None]
+Handler = Callable[[dict[str, Any]], dict[str, Any] | Awaitable[dict[str, Any]] | None]
 
 
 class HostClient(RpcClient):
@@ -41,7 +42,10 @@ class HostClient(RpcClient):
         super().__init__(ws, **kwargs)
         self.invocations: list[dict[str, Any]] = []
         #: ``tool name -> handler``; a handler returning ``None`` never answers.
+        #: An awaitable answer is sent once it resolves, off the reader loop,
+        #: so the handler may itself call the daemon on this client.
         self.handlers: dict[str, Handler] = {}
+        self._later: set[asyncio.Task[None]] = set()
 
     async def _server_request(self, frame: dict[str, Any]) -> None:
         if frame.get("method") != "tool.invoke":
@@ -53,6 +57,20 @@ class HostClient(RpcClient):
         answer = handler(params) if handler is not None else {"ok": False, "error": "no handler"}
         if answer is None:
             return
+        if inspect.isawaitable(answer):
+            task = asyncio.ensure_future(self._answer_later(frame, answer))
+            self._later.add(task)
+            task.add_done_callback(self._later.discard)
+            return
+        await self._answer(frame, answer)
+
+    async def _answer_later(
+        self, frame: dict[str, Any], pending: Awaitable[dict[str, Any]]
+    ) -> None:
+        await self._answer(frame, await pending)
+
+    async def _answer(self, frame: dict[str, Any], answer: dict[str, Any]) -> None:
+        params = frame["params"]
         progress = answer.pop("_progress", None)
         if progress:
             await self._ws.send_json(
@@ -2231,17 +2249,27 @@ async def test_an_owned_run_takes_no_outside_input(
             assert session.origin_conn is None
             seen["mode"] = session.mode
 
-        def handler(params: dict[str, Any]) -> dict[str, Any]:
+        async def handler(params: dict[str, Any]) -> dict[str, Any]:
+            # The run waits on this answer, so every probe meets it still live.
             seen["sessionId"] = params["sessionId"]
-            seen["task"] = asyncio.get_running_loop().create_task(probe())
+            seen["task"] = asyncio.ensure_future(probe())
+            await seen["task"]
             return {"ok": True, "output": "bought"}
 
         host.handlers["host_echo"] = handler
         await host.ok("job.runNow", {"jobId": job_id})
-        await seen["task"]
+        for _ in range(3000):
+            if "task" in seen:
+                break
+            await asyncio.sleep(0.01)
+        await asyncio.wait_for(seen["task"], 30)
         assert {code for _, code in seen["codes"]} == {"unauthorized"}, seen["codes"]
         assert len(seen["codes"]) == 20 and seen["mode"] == "accept"
         # Once the run is over the session is an ordinary closed run again.
+        for _ in range(3000):
+            if not daemon.core.sessions.get(seen["sessionId"]):
+                break
+            await asyncio.sleep(0.01)
         assert not daemon.core.sessions.get(seen["sessionId"])
     finally:
         await plain.stop()

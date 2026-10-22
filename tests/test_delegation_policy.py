@@ -149,7 +149,8 @@ async def _wait_for_running(manager: Any, parent_id: str) -> None:
         ):
             return
         await asyncio.sleep(0.01)
-    raise AssertionError("no child ever reached running")
+    seen = [(r.status, r.error) for r in manager.records() if r.parent_session_id == parent_id]
+    raise AssertionError(f"no child ever reached running: {seen}")
 
 
 # ---------------------------------------------------------------------------

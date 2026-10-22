@@ -51,6 +51,12 @@
       "after_tool": "delegate_task",
       "repeat": true,
       "text": "the parent read the child's report"
+    },
+    {
+      "match": "summarise the tests",
+      "repeat": true,
+      "delaySec": 0.5,
+      "text": "the tests are summarised"
     }
   ],
   "default": {
