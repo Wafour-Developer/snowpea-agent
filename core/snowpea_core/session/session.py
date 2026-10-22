@@ -205,6 +205,10 @@ class Session:
     #: or overwrite rows written by a newer one for the same session.
     history_persist_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     history_persisted_len: int = 0
+    #: Serialises event emission: numbering, storing and broadcasting an event
+    #: happen together, so concurrent emitters (team workers, subagents) can
+    #: never deliver a later seq before an earlier one.
+    emit_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     history_persisted_version: int = 0
     history_persisted_rewrite_version: int = 0
     #: ``session.create {locale}``: the client's UI language (``ko-KR``), which

@@ -707,6 +707,14 @@ class EventHub:
     async def emit(self, session_id: str, kind: str, payload: dict[str, Any]) -> SessionEvent:
         """Number, persist and broadcast one ``session.event``."""
         session = self.sessions.get(session_id) if self.sessions else None
+        if session is None:
+            return await self._emit(session_id, None, kind, payload)
+        async with session.emit_lock:
+            return await self._emit(session_id, session, kind, payload)
+
+    async def _emit(
+        self, session_id: str, session: Any, kind: str, payload: dict[str, Any]
+    ) -> SessionEvent:
         seq = session.next_seq() if session is not None else 0
         body = event_builders.validate(kind, payload)
         ts = utc_now()

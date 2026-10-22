@@ -290,3 +290,33 @@ async def test_emit_delivers_event_when_store_is_closed(tmp_path: Path) -> None:
 
     assert session.seq == 1
     assert event.seq == 1
+
+
+async def test_concurrent_emits_arrive_in_seq_order(tmp_path: Path) -> None:
+    """Team workers emit on the lead session at once; a slow store write for an
+    earlier event must not let a later one reach the client first."""
+
+    class SlowStore:
+        async def append_event(self, _session_id: str, seq: int, *_args: Any) -> None:
+            # The first events take the longest to store.
+            await asyncio.sleep(0.02 * (5 - seq) if seq < 5 else 0)
+
+    class Subscriber:
+        def __init__(self) -> None:
+            self.seqs: list[int] = []
+
+        async def notify(self, method: str, params: dict[str, Any]) -> None:
+            self.seqs.append(params["seq"])
+
+    sessions = SessionManager(settings=None)
+    session = Session(id="s-order", workdir=tmp_path)
+    sessions._sessions[session.id] = session  # noqa: SLF001
+    hub = EventHub(store=SlowStore(), sessions=sessions)  # type: ignore[arg-type]
+    subscriber = Subscriber()
+    hub.subscribe(subscriber, session.id)
+
+    await asyncio.gather(
+        *(hub.emit(session.id, "message.delta", {"text": str(n)}) for n in range(8))
+    )
+
+    assert subscriber.seqs == list(range(1, 9))
