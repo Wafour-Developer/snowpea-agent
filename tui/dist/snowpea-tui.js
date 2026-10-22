@@ -34216,6 +34216,8 @@ var Client = class {
         await this.openSocket();
         await this.hello();
         const resumed = await this.resumeTracked();
+        if (!this.connected)
+          throw new ConnectionClosedError("socket closed during resume");
         const attempts = this.attempt;
         this.attempt = 0;
         this.isReconnecting = false;
@@ -34250,6 +34252,8 @@ var Client = class {
           this.dispatchSessionEvent(event);
         resumed.push(sessionId);
       } catch (err) {
+        if (err instanceof ConnectionClosedError || !this.connected)
+          throw err;
         this.emit("error", { error: err instanceof Error ? err : new Error(String(err)) });
       }
     }
@@ -37587,7 +37591,7 @@ function chipLabel(attachment) {
 }
 
 // src/version.ts
-var TUI_VERSION = "0.2.60";
+var TUI_VERSION = "0.2.61";
 
 // src/components/DiffView.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
