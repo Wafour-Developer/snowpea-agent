@@ -44,6 +44,12 @@ from snowpea_core.server.auth import ensure_token, write_token
 from snowpea_core.server.checkpoint_handlers import register_checkpoint_handlers
 from snowpea_core.server.errors import RpcError
 from snowpea_core.server.gateway_handlers import register_gateway_handlers
+from snowpea_core.server.home_lock import (
+    HOME_LOCKED_EXIT,
+    HomeLocked,
+    acquire_home_lock,
+    release_home_lock,
+)
 from snowpea_core.server.job_handlers import register_job_handlers
 from snowpea_core.server.lifecycle import Lifecycle
 from snowpea_core.server.lsp_handlers import register_lsp_handlers
@@ -668,6 +674,7 @@ class Daemon:
         self._home = home
         self._preissued_token = token
         self._runner: web.AppRunner | None = None
+        self._advert_task: asyncio.Future[None] | None = None
         self._closed = asyncio.Event()
         self.core: Core | None = None
         self.app: web.Application | None = None
@@ -768,6 +775,7 @@ class Daemon:
             log.warning("could not start global MCP servers", exc_info=True)
         core.lifecycle.start()
         await start_scheduler(core)
+        self._advert_task = asyncio.ensure_future(self._keep_advert())
         # Not over an update hand-off made during boot: that advert names the
         # helper and must stay until the new core replaces it.
         if not self._advert_restarting():
@@ -805,6 +813,32 @@ class Daemon:
         if spawned_by:
             payload["spawnedBy"] = spawned_by[:32]
         write_advert(self.core.paths.daemon_json, payload)
+
+    async def _keep_advert(self) -> None:
+        """Write ``daemon.json`` again if it disappears while this daemon runs.
+
+        A client that gave up on a slow daemon used to delete the advert of a
+        daemon that was still alive and holding the home lock: every client
+        after it spawned a core that exited 73, and nobody could find this one.
+        An advert naming another pid (an update helper, a successor) is left
+        alone.
+        """
+        assert self.core is not None
+        path = self.core.paths.daemon_json
+        while not self._closed.is_set():
+            await asyncio.sleep(ADVERT_CHECK_SEC)
+            if self._closed.is_set() or self.core.stopping:
+                return
+            try:
+                json.loads(path.read_text(encoding="utf-8"))
+                continue
+            except (OSError, ValueError):
+                pass
+            try:
+                self._write_daemon_json(ready=True)
+                log.warning("daemon.json was gone; wrote it again")
+            except OSError:
+                log.warning("could not write daemon.json again", exc_info=True)
 
     def _advert_restarting(self) -> bool:
         assert self.core is not None
@@ -850,6 +884,10 @@ class Daemon:
     async def _stop_inner(self) -> None:
         """Close sockets, drop ``daemon.json`` and release the port."""
         self.request_shutdown(self.shutdown_reason or "requested")
+        if self._advert_task is not None:
+            self._advert_task.cancel()
+            await asyncio.gather(self._advert_task, return_exceptions=True)
+            self._advert_task = None
         if self.core is not None:
             # Flip this first: any turn still in flight (and anything it
             # schedules, like the memory nudge) must see shutdown has begun
@@ -944,74 +982,8 @@ def _configure_logging(paths: Paths) -> None:
     logger.setLevel(logging.INFO)
 
 
-class HomeLocked(RuntimeError):
-    """Another daemon already holds this home's lock."""
-
-
-#: Exit status of a daemon that found its home locked (EX_CANTCREAT).
-HOME_LOCKED_EXIT = 73
-
-
-#: Where the Windows lock sits in ``daemon.lock``: a byte far past the pid
-#: written at the start, because a ``msvcrt`` lock is mandatory and would
-#: keep the next daemon from reading who holds it.
-_WINDOWS_LOCK_OFFSET = 1 << 20
-
-
-def _lock_handle(handle: Any) -> None:
-    """Take the exclusive, non-blocking lock on ``handle``; ``OSError`` if held."""
-    try:
-        import fcntl
-    except ImportError:  # Windows
-        import msvcrt
-
-        handle.seek(_WINDOWS_LOCK_OFFSET)
-        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
-        return
-    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-
-
-def acquire_home_lock(home: Path) -> Any:
-    """Hold ``<home>/daemon.lock`` for this process's lifetime, or raise :class:`HomeLocked`.
-
-    ``flock`` on POSIX, ``msvcrt.locking`` on Windows: either way the OS
-    drops it when the process dies, however it dies, so a crashed daemon
-    never leaves a stale lock behind. On Windows an IDE and a browser that
-    start the core at the same moment used to get two daemons on one home.
-    """
-    path = Path(home) / "daemon.lock"
-    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
-    handle = os.fdopen(fd, "r+")  # noqa: SIM115 - held for the process
-    try:
-        _lock_handle(handle)
-    except OSError as exc:
-        handle.seek(0)
-        holder = handle.read(32).strip("\0 \r\n")
-        handle.close()
-        raise HomeLocked(
-            f"another snowpea daemon{f' (pid {holder})' if holder else ''} is running on {home}"
-        ) from exc
-    handle.seek(0)
-    handle.write(str(os.getpid()).ljust(16))
-    handle.flush()
-    return handle
-
-
-def release_home_lock(handle: Any) -> None:
-    if handle is None:
-        return
-    with contextlib.suppress(Exception):
-        try:
-            import fcntl
-        except ImportError:  # Windows
-            import msvcrt
-
-            handle.seek(_WINDOWS_LOCK_OFFSET)
-            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
-        else:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-    with contextlib.suppress(Exception):
-        handle.close()
+#: Seconds between checks that ``daemon.json`` still exists.
+ADVERT_CHECK_SEC = 5.0
 
 
 def _install_signal_handlers(daemon: Daemon) -> None:

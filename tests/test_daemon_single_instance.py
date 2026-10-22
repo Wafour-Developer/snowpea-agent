@@ -101,7 +101,7 @@ async def test_ensure_daemon_stops_a_dead_to_the_world_daemon_before_replacing_i
         return False
 
     monkeypatch.setattr(daemon_client, "read_daemon_json", lambda _home: info)
-    monkeypatch.setattr(daemon_client, "pid_alive", lambda _pid: True)
+    monkeypatch.setattr(daemon_client, "pid_alive", lambda _pid: "stop 4242" not in order)
     monkeypatch.setattr(daemon_client, "health_ok", health)
     monkeypatch.setattr(daemon_client, "POLL_INTERVAL_SEC", 0)
     monkeypatch.setattr(
@@ -349,3 +349,87 @@ def test_core_version_names_the_protocol() -> None:
         [sys.executable, "-m", "snowpea_core", "--version"], capture_output=True, text=True
     )
     assert done.stdout.strip() == f"snowpea-core {__version__} (protocol {PROTOCOL_VERSION})"
+
+
+
+async def test_a_daemon_that_survives_the_stop_keeps_its_advert(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Deleting the advert of a live daemon hid it: every core spawned next
+    exited 73 on its lock (a macOS tester's loop)."""
+    import json
+
+    advert = tmp_path / "daemon.json"
+    advert.write_text(json.dumps({"port": 1, "pid": 4242, "token": "t"}))
+
+    async def health(_port: int) -> bool:
+        return False
+
+    monkeypatch.setattr(daemon_client, "pid_alive", lambda _pid: True)
+    monkeypatch.setattr(daemon_client, "health_ok", health)
+    monkeypatch.setattr(daemon_client, "POLL_INTERVAL_SEC", 0)
+    monkeypatch.setattr(daemon_client, "_stop_unresponsive", lambda _pid: None)
+
+    def never(*_a: object, **_k: object) -> None:
+        raise AssertionError("must not spawn beside a live daemon")
+
+    monkeypatch.setattr(daemon_client, "_spawn_daemon", never)
+    with pytest.raises(daemon_client.DaemonError, match="not answering"):
+        await daemon_client.ensure_daemon(tmp_path)
+    assert advert.exists()
+
+
+async def test_a_locked_home_without_an_advert_is_not_spawned_into(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    held = acquire_home_lock(tmp_path)
+    monkeypatch.setattr(daemon_client, "ADVERT_WAIT_SEC", 0.05)
+    monkeypatch.setattr(daemon_client, "POLL_INTERVAL_SEC", 0)
+
+    def never(*_a: object, **_k: object) -> None:
+        raise AssertionError("a spawn would only exit 73")
+
+    monkeypatch.setattr(daemon_client, "_spawn_daemon", never)
+    try:
+        # flock is per open file description: the probe from this same process
+        # must still see the lock as held.
+        with pytest.raises(daemon_client.DaemonError, match="publishes no daemon.json"):
+            await daemon_client.ensure_daemon(tmp_path)
+    finally:
+        release_home_lock(held)
+
+
+async def test_a_daemon_writes_its_advert_again_when_it_is_deleted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import asyncio
+    import json
+
+    from snowpea_core.server import app_server
+    from snowpea_core.server.app_server import Daemon
+
+    monkeypatch.setattr(app_server, "ADVERT_CHECK_SEC", 0.05)
+    daemon = Daemon(port=0, home=tmp_path)
+    await daemon.start()
+    try:
+        advert = tmp_path / "daemon.json"
+        advert.unlink()
+        for _ in range(100):
+            if advert.exists():
+                break
+            await asyncio.sleep(0.02)
+        assert json.loads(advert.read_text())["port"] == daemon.port
+    finally:
+        await daemon.stop()
+    assert not (tmp_path / "daemon.json").exists()
+
+
+def test_the_lock_file_holds_only_this_pid(tmp_path: Path) -> None:
+    import os
+
+    (tmp_path / "daemon.lock").write_text("123456789012345678901234567890")
+    held = acquire_home_lock(tmp_path)
+    try:
+        assert (tmp_path / "daemon.lock").read_text().strip() == str(os.getpid())
+    finally:
+        release_home_lock(held)

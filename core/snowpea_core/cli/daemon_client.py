@@ -31,6 +31,7 @@ import aiohttp
 
 from snowpea_core import __version__
 from snowpea_core.config.paths import Paths, resolve_home
+from snowpea_core.server.home_lock import home_is_locked
 from snowpea_core.server.protocol import PROTOCOL_VERSION
 
 #: Seconds to wait for a freshly spawned daemon to publish ``daemon.json``.
@@ -276,6 +277,20 @@ async def _wait_for_restart(home: Path) -> DaemonInfo | None:
     return None
 
 
+#: Seconds to wait for a daemon that holds the home to publish its advert again.
+ADVERT_WAIT_SEC = 15.0
+
+
+async def _wait_for_advert(home: Path) -> DaemonInfo | None:
+    deadline = time.monotonic() + ADVERT_WAIT_SEC
+    while time.monotonic() < deadline:
+        info = read_daemon_json(home)
+        if info is not None and not info.restarting and await health_ok(info.port):
+            return info
+        await asyncio.sleep(POLL_INTERVAL_SEC * 5)
+    return None
+
+
 async def ensure_daemon(home: Path | str | None = None) -> DaemonInfo:
     """Return a live daemon, starting one if needed.
 
@@ -300,6 +315,24 @@ async def ensure_daemon(home: Path | str | None = None) -> DaemonInfo:
                 return existing
             await asyncio.sleep(POLL_INTERVAL_SEC)
         _stop_unresponsive(existing.pid)
+        if pid_alive(existing.pid):
+            # Still there, and still holding the home: deleting its advert
+            # would only hide it, and every core spawned next exits 73.
+            raise DaemonError(
+                f"the daemon (pid {existing.pid}) is running but not answering on port "
+                f"{existing.port}; stop that process and try again"
+            )
+
+    # A daemon holds the home but its advert is gone (an older client deleted
+    # it): a spawn would exit 73. It writes the advert again by itself.
+    if home_is_locked(resolved):
+        found = await _wait_for_advert(resolved)
+        if found is not None:
+            return found
+        raise DaemonError(
+            f"another snowpea daemon holds {resolved} but publishes no daemon.json; "
+            "stop it (its pid is in daemon.lock) and try again"
+        )
 
     # Stale advert: drop it so we can tell the new daemon's file apart.
     stale = Paths(home=resolved).daemon_json
