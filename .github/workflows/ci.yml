@@ -22,7 +22,15 @@ jobs:
       - name: uv sync
         run: uv sync
       - name: pytest
-        run: uv run pytest -q
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q -rfE 2>&1 | tee pytest.log
+      - name: report failed tests
+        if: failure()
+        shell: bash
+        # Annotations are readable without signing in; job logs are not.
+        run: grep -E '^(FAILED|ERROR) ' pytest.log | head -50 | sed 's/^/::error title=pytest::/' || true
 
   vendor-integrity:
     name: vendor-integrity
