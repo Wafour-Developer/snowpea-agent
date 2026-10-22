@@ -743,7 +743,15 @@ class ProviderRegistry:
                 return CodeAssistProvider(
                     dict(config),
                     model=model or None,
-                    project_id=str(config.get("project_id") or "") or None,
+                    # As the Gemini CLI: a Workspace account names its project
+                    # in settings, else in GOOGLE_CLOUD_PROJECT(_ID).
+                    project_id=str(
+                        config.get("project_id")
+                        or os.environ.get("GOOGLE_CLOUD_PROJECT")
+                        or os.environ.get("GOOGLE_CLOUD_PROJECT_ID")
+                        or ""
+                    )
+                    or None,
                     on_credentials=self._oauth_saver(vendor),
                 )
         return None

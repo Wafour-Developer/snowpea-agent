@@ -85,11 +85,74 @@ ONBOARD_POLL_SEC = 5.0
 
 
 class _Unauthorized(Exception):
-    """Internal: the API answered 401/403 before any event was streamed."""
+    """Internal: the API rejected the token before any event was streamed."""
 
     def __init__(self, detail: str) -> None:
         super().__init__(detail)
         self.detail = detail
+
+
+#: 403 reasons that really are about the token (a refresh or a new login helps).
+_TOKEN_REASONS = frozenset(
+    {"ACCESS_TOKEN_SCOPE_INSUFFICIENT", "ACCESS_TOKEN_EXPIRED", "CREDENTIALS_MISSING"}
+)
+
+
+def _google_error(text: str) -> tuple[str, str, set[str]]:
+    """``(status, message, reasons)`` from a Google API error body."""
+    import json
+
+    try:
+        error = json.loads(text).get("error") or {}
+    except (ValueError, AttributeError):
+        return "", text.strip()[:300], set()
+    if not isinstance(error, dict):
+        return "", text.strip()[:300], set()
+    reasons = {
+        str(item.get("reason"))
+        for item in error.get("details") or []
+        if isinstance(item, dict) and item.get("reason")
+    }
+    return str(error.get("status") or ""), str(error.get("message") or "")[:300], reasons
+
+
+def is_token_rejection(status_code: int, text: str) -> bool:
+    """True when a 401/403 means the token itself is bad.
+
+    A 403 is usually not that: Google answers PERMISSION_DENIED for an account
+    that needs a Cloud project, a disabled API or a model the plan does not
+    include. Calling those "your login expired" sent people round the login
+    again and again, and the new login failed the same way.
+    """
+    if status_code == 401:
+        return True
+    if status_code != 403:
+        return False
+    status, message, reasons = _google_error(text)
+    if status == "UNAUTHENTICATED" or reasons & _TOKEN_REASONS:
+        return True
+    return "authentication scopes" in message.lower()
+
+
+def refused(tag: str, status_code: int, text: str) -> ProviderError:
+    """The error for a 403 that is about the account, not the token."""
+    status, message, reasons = _google_error(text)
+    what = " ".join(part for part in (status, ", ".join(sorted(reasons))) if part)
+    hint = ""
+    lowered = message.lower()
+    if "project" in lowered or "SERVICE_DISABLED" in reasons:
+        hint = (
+            " — a Google Workspace account needs its own Cloud project with the Gemini "
+            "for Google Cloud API enabled: set providers.gemini.project_id (or "
+            "GOOGLE_CLOUD_PROJECT) to its id"
+        )
+    elif "model" in lowered:
+        hint = " — this account's plan may not include the model; pick another one"
+    return ProviderError(
+        "internal",
+        f"{tag}: Google refused the request (HTTP {status_code}"
+        f"{f' {what}' if what else ''}): {message or 'permission denied'}{hint}",
+    )
 
 
 def wrap_request(
@@ -178,7 +241,9 @@ class CodeAssistProvider:
         async with self._client(stream=False) as client:
             response = await client.post(f"/{API_VERSION}:{method}", json=body)
         if response.status_code in (401, 403):
-            raise _Unauthorized(response.text[:200])
+            if is_token_rejection(response.status_code, response.text):
+                raise _Unauthorized(response.text[:200])
+            raise refused(self._tag(), response.status_code, response.text)
         if response.status_code >= 400:
             raise ProviderError(
                 "internal",
@@ -229,6 +294,17 @@ class CodeAssistProvider:
         if project:
             return await self._remember_project(project)
         tier_id = _tier_id(loaded)
+        if not self._project_id and _tier_needs_project(loaded, tier_id):
+            # gemini-cli's "This account requires setting GOOGLE_CLOUD_PROJECT":
+            # onboarding without one is refused with a 403 that looked like an
+            # expired login.
+            raise ProviderError(
+                "invalid_params",
+                f"{self._tag()}: this Google account (Workspace / Code Assist "
+                "Standard) needs a Google Cloud project — set providers.gemini.project_id "
+                "(or GOOGLE_CLOUD_PROJECT) to a project with the Gemini for Google Cloud "
+                "API enabled",
+            )
         operation = await self._call(
             "onboardUser",
             {
@@ -283,8 +359,10 @@ class CodeAssistProvider:
                 json=body,
             ) as response:
                 if response.status_code in (401, 403):
-                    detail = (await response.aread()).decode("utf-8", "replace")[:200]
-                    raise _Unauthorized(detail)
+                    detail = (await response.aread()).decode("utf-8", "replace")
+                    if is_token_rejection(response.status_code, detail):
+                        raise _Unauthorized(detail[:200])
+                    raise refused(self._tag(), response.status_code, detail)
                 if response.status_code >= 400:
                     detail = (await response.aread()).decode("utf-8", "replace")[:400]
                     raise ProviderError(
@@ -350,6 +428,16 @@ def _project_of(value: Any) -> str | None:
             if isinstance(found, str) and found:
                 return found
     return None
+
+
+def _tier_needs_project(loaded: dict[str, Any], tier_id: str) -> bool:
+    """True when the tier to onboard into wants a project the user names."""
+    if isinstance(loaded.get("currentTier"), dict):
+        return False
+    for tier in loaded.get("allowedTiers") or []:
+        if isinstance(tier, dict) and tier.get("id") == tier_id:
+            return tier.get("userDefinedCloudaicompanionProject") is True
+    return False
 
 
 def _tier_id(loaded: dict[str, Any]) -> str:

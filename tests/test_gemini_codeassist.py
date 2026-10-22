@@ -327,13 +327,114 @@ async def test_a_second_401_asks_for_a_new_login(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(google_oauth, "refresh_credentials", fake_refresh)
 
     def handler(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(403, text="PERMISSION_DENIED")
+        return httpx.Response(401, text="Invalid Credentials")
 
     provider = _provider(handler)
     with pytest.raises(ProviderError) as raised:
         await drain(provider, FIRST_TURN)
     assert raised.value.code == "auth_expired"
     assert "provider login gemini" in str(raised.value)
+
+
+def _google_403(message: str, status: str = "PERMISSION_DENIED", reason: str = "") -> str:
+    details = [{"@type": "type.googleapis.com/google.rpc.ErrorInfo", "reason": reason}]
+    return json.dumps(
+        {"error": {"code": 403, "message": message, "status": status,
+                   "details": details if reason else []}}
+    )
+
+
+async def test_a_permission_denied_403_is_not_an_expired_login(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A fresh login that Google refuses for the account (no project, API off,
+    model not in the plan) used to read "your Google login expired", and a new
+    login failed the same way."""
+    refreshes: list[int] = []
+
+    async def fake_refresh(credentials: dict[str, Any], **_kwargs: Any) -> dict[str, Any]:
+        refreshes.append(1)
+        return credentials
+
+    monkeypatch.setattr(google_oauth, "refresh_credentials", fake_refresh)
+    body = _google_403(
+        "Gemini for Google Cloud API has not been used in project 123 before or it is disabled.",
+        reason="SERVICE_DISABLED",
+    )
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, text=body)
+
+    provider = _provider(handler)
+    with pytest.raises(ProviderError) as raised:
+        await drain(provider, FIRST_TURN)
+    assert raised.value.code != "auth_expired"
+    text = str(raised.value)
+    assert "Google refused the request" in text and "SERVICE_DISABLED" in text
+    assert "has not been used in project 123" in text and "project_id" in text
+    assert refreshes == []
+
+
+async def test_a_403_about_the_token_still_asks_for_a_login(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_refresh(credentials: dict[str, Any], **_kwargs: Any) -> dict[str, Any]:
+        return {**credentials, "access_token": "ya29.fresh"}
+
+    monkeypatch.setattr(google_oauth, "refresh_credentials", fake_refresh)
+    body = _google_403(
+        "Request had insufficient authentication scopes.",
+        reason="ACCESS_TOKEN_SCOPE_INSUFFICIENT",
+    )
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, text=body)
+
+    with pytest.raises(ProviderError) as raised:
+        await drain(_provider(handler), FIRST_TURN)
+    assert raised.value.code == "auth_expired"
+
+
+async def test_a_workspace_account_without_a_project_is_told_to_set_one() -> None:
+    """gemini-cli's "This account requires setting GOOGLE_CLOUD_PROJECT"."""
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        return httpx.Response(
+            200,
+            json={
+                "allowedTiers": [
+                    {"id": "standard-tier", "isDefault": True,
+                     "userDefinedCloudaicompanionProject": True}
+                ]
+            },
+        )
+
+    provider = _provider(handler, project_id=None)
+    provider._project_id = None
+    with pytest.raises(ProviderError) as raised:
+        await drain(provider, FIRST_TURN)
+    assert "needs a Google Cloud project" in str(raised.value)
+    assert raised.value.code != "auth_expired"
+    assert all("onboardUser" not in path for path in calls)
+
+
+def test_google_cloud_project_env_names_the_project(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from snowpea_core.config.paths import Paths
+    from snowpea_core.config.settings import Settings
+    from snowpea_core.providers.registry import ProviderRegistry
+
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "my-proj")
+    settings = Settings.model_validate(
+        {"providers": {"gemini": {"auth_method": "google_oauth", "access_token": "ya29.at",
+                                  "refresh_token": "1//r", "expires_at": 9e12}}}
+    )
+    registry = ProviderRegistry(settings, Paths.create(tmp_path))
+    provider = registry.build("gemini", "gemini-2.5-pro")
+    assert getattr(provider, "project_id", None) == "my-proj"
 
 
 # ---------------------------------------------------------------------------
