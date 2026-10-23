@@ -242,9 +242,9 @@ async def test_the_limit_is_24_kib(
     client = await open_client(http, daemon, client_id=A)
     try:
         await put(client, _sized(length))
-        frame = await client.call(
-            "site.put", {"origin": ORIGIN, "entry": _sized(length + 1) | {"pageType": "other"}}
-        )
+        # A pageType at least as long, so the bigger entry is still over the limit.
+        bigger = _sized(length + 1) | {"pageType": "listing-results"}
+        frame = await client.call("site.put", {"origin": ORIGIN, "entry": bigger})
         assert code_of(frame) == errors.INVALID_PARAMS and field_of(frame) == "entry"
         assert "larger than 24576 bytes" in frame["error"]["message"]
     finally:
@@ -294,6 +294,45 @@ async def test_mark_part_counts_without_touching_verification(
         frame = await client.call(
             "site.markPart",
             {"origin": ORIGIN, "entryId": "e_missing", "part": "flow", "name": "search",
+             "outcome": "ok"},
+        )
+        assert code_of(frame) == errors.NOT_FOUND
+    finally:
+        await client.stop()
+
+
+async def test_mark_part_on_an_action_round_trips(
+    http: aiohttp.ClientSession, daemon: Daemon  # noqa: F811
+) -> None:
+    """Addendum 27, C4: one action goes stale without the entry going stale."""
+    client = await open_client(http, daemon, client_id=A)
+    try:
+        entry_id = (await put(client, typed_entry()))["entryId"]
+        [before] = (await client.ok("site.get", {"origin": ORIGIN}))["entries"]
+        assert {a.get("stale") for a in before["actions"]} == {False}
+
+        async def mark(name: str, outcome: str) -> dict[str, Any]:
+            params = {"origin": ORIGIN, "entryId": entry_id, "part": "action", "name": name}
+            return (await client.ok("site.markPart", {**params, "outcome": outcome}))["entry"]
+
+        def action(entry: dict[str, Any], name: str) -> dict[str, Any]:
+            return next(a for a in entry["actions"] if a["name"] == name)
+
+        after = await mark("go", "stale")
+        assert action(after, "go")["stale"] is True
+        assert action(after, "sort")["stale"] is False
+        after = await mark("go", "miss")
+        after = await mark("go", "miss")
+        assert action(after, "go")["missCount"] == 2 and action(after, "go")["stale"]
+        after = await mark("go", "ok")
+        assert action(after, "go")["stale"] is False and action(after, "go")["missCount"] == 2
+        [stored] = (await client.ok("site.get", {"origin": ORIGIN}))["entries"]
+        assert action(stored, "go")["missCount"] == 2
+        for key in ("successCount", "failureCount", "stale", "lastVerified"):
+            assert after[key] == before[key], key
+        frame = await client.call(
+            "site.markPart",
+            {"origin": ORIGIN, "entryId": entry_id, "part": "action", "name": "nope",
              "outcome": "ok"},
         )
         assert code_of(frame) == errors.NOT_FOUND

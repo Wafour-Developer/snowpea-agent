@@ -3119,6 +3119,16 @@ class SiteAction(Payload):
         max_length=4,
         description="Frames from the page down to the element, outermost first (1.16.0).",
     )
+    stale: bool = Field(
+        default=False,
+        description=(
+            "Its locators last found nothing (1.27.0): set by site.markPart part action "
+            "stale, cleared by ok. The entry's own stale is separate."
+        ),
+    )
+    missCount: int = Field(
+        default=0, ge=0, description="How often site.markPart part action said miss (1.27.0)."
+    )
 
 
 class SiteFlowStep(Payload):
@@ -3321,8 +3331,12 @@ class SiteMarkResult(Payload):
 class SiteMarkPartParams(Payload):
     origin: str = Field(description="Origin of the entry.")
     entryId: str = Field(description="The entry.")
-    part: Literal["flow", "recipe"] = Field(description="Which list the part is in.")
-    name: str = Field(min_length=1, max_length=40, description="The flow's or recipe's name.")
+    part: Literal["flow", "recipe", "action"] = Field(
+        description='Which list the part is in; "action" from 1.27.0.'
+    )
+    name: str = Field(
+        min_length=1, max_length=40, description="The flow's, recipe's or action's name."
+    )
     sessionId: str | None = Field(
         default=None,
         description=(
@@ -3333,7 +3347,8 @@ class SiteMarkPartParams(Payload):
     outcome: SiteMarkPartOutcome = Field(
         description=(
             "flow: ok (stats.ok+1, lastRun) | miss (stats.missed+1). recipe: ok (hits+1, "
-            "day, not stale) | miss (misses+1) | stale (misses+1, stale)."
+            "day, not stale) | miss (misses+1) | stale (misses+1, stale). action: ok (not "
+            "stale) | miss (missCount+1) | stale (stale)."
         )
     )
 
@@ -5857,6 +5872,7 @@ CAPABILITIES: list[str] = [
     "turnOutcome",
     "siteStats",
     "browserMemoryList",
+    "siteActionParts",
 ]
 
 #: Where the daemon listens; mirrored into the schema dump for the SDK.

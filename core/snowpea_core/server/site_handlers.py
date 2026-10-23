@@ -261,7 +261,7 @@ async def site_mark_handler(
 
 
 class _PartMissing(LookupError):
-    """The entry has no flow or recipe of that name."""
+    """The entry has no flow, recipe or action of that name."""
 
 
 def _bump(value: Any) -> int:
@@ -269,7 +269,20 @@ def _bump(value: Any) -> int:
 
 
 def _count_part(entry: dict[str, Any], params: SiteMarkPartParams, now: datetime) -> None:
-    """Apply one ``site.markPart`` to the flow's or recipe's own stats."""
+    """Apply one ``site.markPart`` to the flow's, recipe's or action's own stats."""
+    if params.part == "action":
+        action = next(
+            (a for a in entry.get("actions") or [] if a.get("name") == params.name), None
+        )
+        if action is None:
+            raise _PartMissing(f"no action {params.name!r} in entry {params.entryId}")
+        if params.outcome == "ok":
+            action["stale"] = False
+        elif params.outcome == "stale":
+            action["stale"] = True
+        else:
+            action["missCount"] = _bump(action.get("missCount"))
+        return
     if params.part == "flow":
         flow = next((f for f in entry.get("flows") or [] if f.get("name") == params.name), None)
         if flow is None:
@@ -300,7 +313,8 @@ def _count_part(entry: dict[str, Any], params: SiteMarkPartParams, now: datetime
 async def site_mark_part_handler(
     conn: RpcConnection, params: SiteMarkPartParams, core: Core
 ) -> SiteMarkPartResult:
-    """``site.markPart`` — count one use of a flow or recipe (1.15.0).
+    """``site.markPart`` — count one use of a flow or recipe (1.15.0), or mark
+    one action stale, fresh or missed (1.27.0).
 
     Only the part's own stats change: the entry's ``successCount``,
     ``failureCount``, ``stale`` and ``lastVerified`` stay as they are, so a
@@ -328,7 +342,10 @@ async def site_mark_part_handler(
         raise RpcError(errors.NOT_FOUND, str(exc)) from exc
     if entry is None:
         raise RpcError(errors.NOT_FOUND, f"no site entry {params.entryId} for {origin}")
-    if params.part == "flow":
+    if params.part == "action":
+        if params.outcome == "stale":
+            await _count(store, profile, origin, now, "staleMarks")
+    elif params.part == "flow":
         await _count(store, profile, origin, now, "runOk" if params.outcome == "ok" else "runMiss")
     elif params.outcome == "ok":
         await _count(store, profile, origin, now, "readOk")

@@ -2743,8 +2743,12 @@ export interface SiteGetResult {
       })[];
       /** A login name or password input: locators only, never a value. */
       loginField?: boolean;
+      /** How often site.markPart part action said miss (1.27.0). */
+      missCount?: number;
       /** Action name, [a-z0-9-]{1,40}. */
       name: string;
+      /** Its locators last found nothing (1.27.0): set by site.markPart part action stale, cleared by ok. The entry's own stale is separate. */
+      stale?: boolean;
     })[];
     /** UTC ISO time of the first put. */
     createdAt: string;
@@ -2904,8 +2908,12 @@ export interface SiteMarkResult {
       })[];
       /** A login name or password input: locators only, never a value. */
       loginField?: boolean;
+      /** How often site.markPart part action said miss (1.27.0). */
+      missCount?: number;
       /** Action name, [a-z0-9-]{1,40}. */
       name: string;
+      /** Its locators last found nothing (1.27.0): set by site.markPart part action stale, cleared by ok. The entry's own stale is separate. */
+      stale?: boolean;
     })[];
     /** UTC ISO time of the first put. */
     createdAt: string;
@@ -2990,14 +2998,14 @@ export interface SiteMarkResult {
 export interface SiteMarkPartParams {
   /** The entry. */
   entryId: string;
-  /** The flow's or recipe's name. */
+  /** The flow's, recipe's or action's name. */
   name: string;
   /** Origin of the entry. */
   origin: string;
-  /** flow: ok (stats.ok+1, lastRun) | miss (stats.missed+1). recipe: ok (hits+1, day, not stale) | miss (misses+1) | stale (misses+1, stale). */
+  /** flow: ok (stats.ok+1, lastRun) | miss (stats.missed+1). recipe: ok (hits+1, day, not stale) | miss (misses+1) | stale (misses+1, stale). action: ok (not stale) | miss (missCount+1) | stale (stale). */
   outcome: "ok" | "miss" | "stale";
-  /** Which list the part is in. */
-  part: "flow" | "recipe";
+  /** Which list the part is in; "action" from 1.27.0. */
+  part: "flow" | "recipe" | "action";
   /** The session the call is made for (1.27.0); its siteMemory override from session.create applies. */
   sessionId?: string | null;
 }
@@ -3032,8 +3040,12 @@ export interface SiteMarkPartResult {
       })[];
       /** A login name or password input: locators only, never a value. */
       loginField?: boolean;
+      /** How often site.markPart part action said miss (1.27.0). */
+      missCount?: number;
       /** Action name, [a-z0-9-]{1,40}. */
       name: string;
+      /** Its locators last found nothing (1.27.0): set by site.markPart part action stale, cleared by ok. The entry's own stale is separate. */
+      stale?: boolean;
     })[];
     /** UTC ISO time of the first put. */
     createdAt: string;
@@ -3144,8 +3156,12 @@ export interface SitePutParams {
       })[];
       /** A login name or password input: locators only, never a value. */
       loginField?: boolean;
+      /** How often site.markPart part action said miss (1.27.0). */
+      missCount?: number;
       /** Action name, [a-z0-9-]{1,40}. */
       name: string;
+      /** Its locators last found nothing (1.27.0): set by site.markPart part action stale, cleared by ok. The entry's own stale is separate. */
+      stale?: boolean;
     })[];
     /** Structural hash of the page's AX skeleton, e.g. 'ax1:3f9a…'. */
     fingerprint?: string | null;
