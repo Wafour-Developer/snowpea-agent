@@ -741,6 +741,21 @@ class SessionResumeResult(Payload):
     provider: str | None = Field(default=None, description="Chat provider vendor in use.")
     model: str | None = Field(default=None, description="Model id in use.")
     effort: str | None = Field(default=None, description="Reasoning effort pinned on the session.")
+    effectiveEffort: EffortLevel | None = Field(
+        default=None,
+        description=(
+            "The effort in force (1.29.0): the pin, or what the settings give, clamped to "
+            "what the model offers; null when the model has no effort setting or the "
+            "session is closed. 'effort' stays the session's own pin."
+        ),
+    )
+    effortSource: EffortSource | None = Field(
+        default=None, description="Rule that decided effectiveEffort (1.29.0)."
+    )
+    efforts: list[EffortLevel] | None = Field(
+        default=None,
+        description="Tiers the session's model offers; [] means none (1.29.0).",
+    )
     delegation: bool = Field(
         default=False,
         description="Whether delegation mode is in force: the session pin, else the default.",
@@ -778,6 +793,21 @@ class SessionSummary(Payload):
             "Reasoning effort pinned to this session, or null when it follows "
             "agent.effortBy / agent.effort."
         ),
+    )
+    effectiveEffort: EffortLevel | None = Field(
+        default=None,
+        description=(
+            "The effort in force (1.29.0): the pin, or what the settings give, clamped to "
+            "what the model offers; null when the model has no effort setting or the "
+            "session is closed. 'effort' stays the session's own pin."
+        ),
+    )
+    effortSource: EffortSource | None = Field(
+        default=None, description="Rule that decided effectiveEffort (1.29.0)."
+    )
+    efforts: list[EffortLevel] | None = Field(
+        default=None,
+        description="Tiers the session's model offers; [] means none (1.29.0).",
     )
     kind: SessionKind = Field(
         default="chat",
@@ -1606,6 +1636,14 @@ class ApprovalRequest(Payload):
             "Why this is asked whatever the mode (1.24.0): 'agent-switch' for a call in the "
             "rest of a turn session.setAgent {guardTurn} guarded. Such an answer is never "
             "remembered."
+        ),
+    )
+    diff: str | None = Field(
+        default=None,
+        description=(
+            "For patch and write_file: the unified diff the call would write, computed "
+            "without writing (1.29.0). Null for other tools, for a call that would fail, "
+            "or when the diff is over 200 KB."
         ),
     )
 
@@ -4108,6 +4146,9 @@ class DiffEvent(Payload):
     kind: Literal["diff"] = "diff"
     path: str = Field(description="File that changed.")
     patch: str = Field(description="Unified diff of the change.")
+    callId: str | None = Field(
+        default=None, description="The tool call that made the change (1.29.0)."
+    )
 
 
 class CheckpointUpdated(Payload):
@@ -4553,6 +4594,10 @@ class LspDiagnostics(Payload):
     count: int = Field(default=0, description="Diagnostics of every severity.")
     errors: int = Field(default=0, description="How many of them are errors.")
     warnings: int = Field(default=0, description="How many of them are warnings.")
+    callId: str | None = Field(
+        default=None,
+        description="The tool call whose edit or check produced them, when one did (1.29.0).",
+    )
 
 
 class LoopSuspected(Payload):
@@ -6124,6 +6169,7 @@ CAPABILITIES: list[str] = [
     "lspInstall",
     "lspRestart",
     "lspChanged",
+    "sessionEffort",
 ]
 
 #: Where the daemon listens; mirrored into the schema dump for the SDK.

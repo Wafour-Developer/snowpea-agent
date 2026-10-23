@@ -348,6 +348,7 @@ async def session_resume_handler(
         provider=session.provider,
         model=session.model,
         effort=getattr(session, "effort", None),
+        **_effort_fields(core, session),
         delegation=effective_delegation(core, session)[0],
         events=[SessionEvent.model_validate(e) for e in stored],
         origin=origin_of(session, conn),
@@ -431,8 +432,26 @@ async def collect_sessions(core: Core, params: SessionListParams) -> list[Sessio
             )
             enriched.append(row.model_copy(update={"lastPrompt": prompt}))
         rows = enriched
-    rows = [_with_waits(core, row) for row in rows]
+    rows = [_with_effort(core, _with_waits(core, row)) for row in rows]
     return sorted(rows, key=lambda row: row.createdAt, reverse=True)
+
+
+def _effort_fields(core: Core, session: Session) -> dict[str, Any]:
+    """``effectiveEffort``, ``effortSource`` and ``efforts`` of a live session (1.29.0)."""
+    try:
+        effort, source, efforts = effort_state(core, session)
+    except Exception:  # noqa: BLE001 - a listing never fails over an effort lookup
+        log.debug("could not resolve the effort of %s", session.id, exc_info=True)
+        return {}
+    return {"effectiveEffort": effort, "effortSource": source, "efforts": efforts}
+
+
+def _with_effort(core: Core, row: SessionSummary) -> SessionSummary:
+    session = core.sessions.get(row.sessionId)
+    if session is None:
+        return row
+    fields = _effort_fields(core, session)
+    return row.model_copy(update=fields) if fields else row
 
 
 def _with_waits(core: Core, row: SessionSummary) -> SessionSummary:

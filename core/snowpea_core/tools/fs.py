@@ -33,18 +33,32 @@ MAX_READ_CHARS = 200_000
 WINDOW_READ_CHARS = 20_000
 
 
-def unified_diff(path: str, before: str, after: str) -> str:
-    """Unified diff between two versions of a file (empty when unchanged)."""
-    if before == after:
+#: What ``diff`` prints after a last line that has no newline.
+NO_NEWLINE = "\\ No newline at end of file\n"
+
+
+def unified_diff(path: str, before: str, after: str, *, created: bool = False) -> str:
+    """Unified diff between two versions of a file (empty when unchanged).
+
+    A last line without a newline is followed by ``\\ No newline at end of
+    file``, as ``diff`` and ``git`` write it, instead of running into the next
+    line.  ``created`` diffs a new file from ``/dev/null``.
+    """
+    if before == after and not created:
         return ""
-    patch = difflib.unified_diff(
+    lines = []
+    for line in difflib.unified_diff(
         before.splitlines(keepends=True),
         after.splitlines(keepends=True),
-        fromfile=f"a/{path}",
+        fromfile="/dev/null" if created else f"a/{path}",
         tofile=f"b/{path}",
         n=3,
-    )
-    return "".join(patch)
+    ):
+        if line.endswith("\n"):
+            lines.append(line)
+        else:
+            lines.append(line + "\n" + NO_NEWLINE)
+    return "".join(lines)
 
 
 async def _read_existing(ctx: ToolContext, path: str) -> str | None:
@@ -249,7 +263,7 @@ async def write_file(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         ToolResult(
             ok=True,
             output=stale_note(f"wrote {len(content)} characters to {path}", stale),
-            diff=unified_diff(path, before, content) or None,
+            diff=unified_diff(path, before, content, created=existing is None) or None,
             path=path,
         ),
     )
@@ -267,29 +281,13 @@ async def _replace_in_file(ctx: ToolContext, args: dict[str, Any]) -> ToolResult
     before = await _read_existing(ctx, path)
     if before is None:
         return ToolResult(ok=False, error=f"no such file: {path}")
-    occurrences = before.count(old)
     replace_all = bool(args.get("replaceAll", False))
     stale = file_state.check_stale(ctx.core, ctx.session, path, exists=True)
     if stale_is_owned(stale):
         return ToolResult(ok=False, error=file_state.refusal(stale or ""))
-    if occurrences == 0:
-        # The model's whitespace or indentation often drifts from the file;
-        # the vendored fuzzy matcher recovers the intended span or explains why
-        # it could not (contract §7, hermes tools/fuzzy_match.py).
-        fuzzy, strategy, error = _fuzzy_replace(before, old, new, replace_all)
-        if fuzzy is None:
-            return ToolResult(ok=False, error=error or f"old string not found in {path}")
-        after = fuzzy
-    else:
-        if occurrences > 1 and not replace_all:
-            return ToolResult(
-                ok=False,
-                error=f"old string appears {occurrences} times in {path}; pass replaceAll or "
-                "extend the match",
-            )
-        after = before.replace(old, new) if replace_all else before.replace(old, new, 1)
-    if after == before:
-        return ToolResult(ok=False, error=f"the edit left {path} unchanged")
+    after, occurrences, strategy, error = _replace_text(path, before, old, new, replace_all)
+    if after is None:
+        return ToolResult(ok=False, error=error)
     try:
         await ctx.backend.write_file(path, after)
     except OSError as exc:
@@ -313,6 +311,111 @@ async def _replace_in_file(ctx: ToolContext, args: dict[str, Any]) -> ToolResult
             path=path,
         ),
     )
+
+
+def _replace_text(
+    path: str, before: str, old: str, new: str, replace_all: bool
+) -> tuple[str | None, int, str | None, str | None]:
+    """``(after, exact occurrences, fuzzy strategy, error)`` of one replacement."""
+    occurrences = before.count(old)
+    strategy: str | None = None
+    if occurrences == 0:
+        # The model's whitespace or indentation often drifts from the file;
+        # the vendored fuzzy matcher recovers the intended span or explains why
+        # it could not (contract §7, hermes tools/fuzzy_match.py).
+        fuzzy, strategy, error = _fuzzy_replace(before, old, new, replace_all)
+        if fuzzy is None:
+            return None, 0, strategy, error or f"old string not found in {path}"
+        after = fuzzy
+    else:
+        if occurrences > 1 and not replace_all:
+            return (
+                None,
+                occurrences,
+                None,
+                f"old string appears {occurrences} times in {path}; pass replaceAll or "
+                "extend the match",
+            )
+        after = before.replace(old, new) if replace_all else before.replace(old, new, 1)
+    if after == before:
+        return None, occurrences, strategy, f"the edit left {path} unchanged"
+    return after, occurrences, strategy, None
+
+
+#: Largest dry-run diff put on an approval request (addendum 28, C11).
+PREVIEW_DIFF_MAX = 200 * 1024
+
+
+async def preview_diff(backend: Any, tool: str, args: dict[str, Any]) -> str | None:
+    """The unified diff ``patch`` or ``write_file`` would write, without writing it.
+
+    Shown with the approval prompt.  ``None`` when the call would fail, is
+    another tool, or the diff is larger than :data:`PREVIEW_DIFF_MAX`.
+    """
+    if backend is None or tool not in ("patch", "write_file"):
+        return None
+    contents: dict[str, str] = {}
+    originals: dict[str, str] = {}
+
+    async def current(path: str) -> str | None:
+        if path not in contents:
+            try:
+                text = await backend.read_file(path)
+            except FileNotFoundError:
+                text = None
+            if text is None:
+                return None
+            contents[path] = originals[path] = text
+        return contents[path]
+
+    try:
+        if tool == "write_file":
+            path = str(args.get("path", "")).strip()
+            if not path:
+                return None
+            existing = await current(path)
+            if existing is not None:
+                originals[path] = existing
+            contents[path] = str(args.get("content", ""))
+        else:
+            if str(args.get("mode", "replace") or "replace").strip().lower() != "replace":
+                return None
+            top = str(args.get("path", "") or "").strip()
+            raw = args.get("edits")
+            edits = (
+                [edit for edit in raw if isinstance(edit, dict)]
+                if isinstance(raw, list) and raw
+                else [args]
+            )
+            for edit in edits:
+                path = str(edit.get("path") or top).strip()
+                old = str(edit.get("old_string", "") or "")
+                if not path or not old:
+                    return None
+                before = await current(path)
+                if before is None:
+                    return None
+                after, _count, _strategy, _error = _replace_text(
+                    path,
+                    before,
+                    old,
+                    str(edit.get("new_string", "") or ""),
+                    bool(edit.get("replace_all", False)),
+                )
+                if after is None:
+                    return None
+                contents[path] = after
+    except Exception:  # noqa: BLE001 - a preview never blocks the prompt
+        log.debug("could not preview %s", tool, exc_info=True)
+        return None
+    parts = (
+        unified_diff(path, originals.get(path) or "", text, created=path not in originals)
+        for path, text in contents.items()
+    )
+    diff = "\n".join(part for part in parts if part)
+    if not diff or len(diff.encode("utf-8")) > PREVIEW_DIFF_MAX:
+        return None
+    return diff
 
 
 def _fuzzy_replace(
@@ -578,6 +681,7 @@ __all__ = [
     "list_dir",
     "patch",
     "read_file",
+    "preview_diff",
     "unified_diff",
     "write_file",
 ]

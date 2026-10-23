@@ -60,6 +60,7 @@ async def diagnostics_block(ctx: ToolContext, path: str) -> str:
             wait_for_diagnostics=True,
             budget=START_BUDGET_SEC,
             session_id=ctx.session.id,
+            call_id=ctx.call_id or None,
         )
         if not clients:
             return ""

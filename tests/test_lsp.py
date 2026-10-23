@@ -682,7 +682,9 @@ def test_the_lsp_diagnostics_event_validates_against_the_protocol() -> None:
     kind, payload = events.lsp_diagnostics("a.py", count=3, errors=2, warnings=1)
     assert kind == "lsp.diagnostics"
     assert events.validate(kind, payload) == payload
-    assert payload == {"path": "a.py", "count": 3, "errors": 2, "warnings": 1}
+    assert payload == {
+        "path": "a.py", "count": 3, "errors": 2, "warnings": 1, "callId": None
+    }
 
 
 def test_the_protocol_declares_lsp_status_and_the_event() -> None:

@@ -107,9 +107,11 @@ class LspManager:
         self.entries: dict[Key, Entry] = {}
         self._spawning: dict[Key, asyncio.Task[Entry]] = {}
         self._janitor: asyncio.Task[None] | None = None
-        #: Session to emit ``lsp.diagnostics`` into, set for the duration of a
-        #: touch so the client's push callback knows who asked.
+        #: Session to emit ``lsp.diagnostics`` into, and the tool call that
+        #: asked, set for the duration of a touch so the client's push
+        #: callback knows who asked.
         self._session_id: str | None = None
+        self._call_id: str | None = None
         #: Bumped whenever something may have made a missing or broken server
         #: startable: an install, a restart, an ``lsp.*`` settings change.
         self.generation = 0
@@ -382,7 +384,11 @@ class LspManager:
 
         errors, warnings = counts(diagnostics)
         event = events.lsp_diagnostics(
-            str(path), count=len(diagnostics), errors=errors, warnings=warnings
+            str(path),
+            count=len(diagnostics),
+            errors=errors,
+            warnings=warnings,
+            call_id=self._call_id,
         )
         with contextlib.suppress(RuntimeError):
             asyncio.get_running_loop().create_task(
@@ -397,6 +403,7 @@ class LspManager:
         wait_for_diagnostics: bool = False,
         budget: float = START_BUDGET_SEC,
         session_id: str | None = None,
+        call_id: str | None = None,
     ) -> list[LspClient]:
         """Tell every matching server that ``path`` changed, and read it back.
 
@@ -405,7 +412,8 @@ class LspManager:
         absent rather than an edit that failed (contract §3).
         """
         file = Path(path)
-        previous_session, self._session_id = self._session_id, session_id
+        previous = self._session_id, self._call_id
+        self._session_id, self._call_id = session_id, call_id
         try:
             clients = await self.clients_for(file, Path(workdir), budget=budget)
             if not clients:
@@ -433,7 +441,7 @@ class LspManager:
             log.debug("touching %s failed", path, exc_info=True)
             return []
         finally:
-            self._session_id = previous_session
+            self._session_id, self._call_id = previous
 
     def diagnostics(self, path: Path | str | None = None) -> dict[str, list[dict[str, Any]]]:
         """Known diagnostics, for one file or for everything the servers saw."""

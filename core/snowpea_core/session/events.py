@@ -182,8 +182,8 @@ def tool_progress(
     )
 
 
-def diff(path: str, patch: str) -> Event:
-    return _pack(DiffEvent(path=path, patch=patch))
+def diff(path: str, patch: str, *, call_id: str | None = None) -> Event:
+    return _pack(DiffEvent(path=path, patch=patch, callId=call_id or None))
 
 
 def todos_updated(todos: Sequence[dict[str, Any]]) -> Event:
@@ -400,9 +400,15 @@ def turn_dequeued(turn_id: str, reason: str = "started", queued: int = 0) -> Eve
     return _pack(TurnDequeued(turnId=turn_id, reason=reason, queued=queued))  # type: ignore[arg-type]
 
 
-def lsp_diagnostics(path: str, *, count: int, errors: int, warnings: int) -> Event:
+def lsp_diagnostics(
+    path: str, *, count: int, errors: int, warnings: int, call_id: str | None = None
+) -> Event:
     """One language server's verdict on one file (M13 contract §4)."""
-    return _pack(LspDiagnostics(path=path, count=count, errors=errors, warnings=warnings))
+    return _pack(
+        LspDiagnostics(
+            path=path, count=count, errors=errors, warnings=warnings, callId=call_id or None
+        )
+    )
 
 
 def loop_suspected(tool: str, count: int) -> Event:

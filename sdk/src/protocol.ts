@@ -223,6 +223,8 @@ export interface ApprovalListResult {
   requests?: ({
     /** Arguments it wants to use. */
     args?: Record<string, unknown>;
+    /** For patch and write_file: the unified diff the call would write, computed without writing (1.29.0). Null for other tools, for a call that would fail, or when the diff is over 200 KB. */
+    diff?: string | null;
     /** Why this is asked whatever the mode (1.24.0): 'agent-switch' for a call in the rest of a turn session.setAgent {guardTurn} guarded. Such an answer is never remembered. */
     guard?: string | null;
     /** Extra warning shown with the prompt, e.g. "modifies snowpea configuration". */
@@ -248,6 +250,8 @@ export interface ApprovalListResult {
 export interface ApprovalRequestParams {
   /** Arguments it wants to use. */
   args?: Record<string, unknown>;
+  /** For patch and write_file: the unified diff the call would write, computed without writing (1.29.0). Null for other tools, for a call that would fail, or when the diff is over 200 KB. */
+  diff?: string | null;
   /** Why this is asked whatever the mode (1.24.0): 'agent-switch' for a call in the rest of a turn session.setAgent {guardTurn} guarded. Such an answer is never remembered. */
   guard?: string | null;
   /** Extra warning shown with the prompt, e.g. "modifies snowpea configuration". */
@@ -2148,8 +2152,14 @@ export interface SessionListResult {
     contextWindow?: number | null;
     /** UTC ISO-8601 creation timestamp. */
     createdAt: string;
+    /** The effort in force (1.29.0): the pin, or what the settings give, clamped to what the model offers; null when the model has no effort setting or the session is closed. 'effort' stays the session's own pin. */
+    effectiveEffort?: "low" | "medium" | "high" | "max" | null;
     /** Reasoning effort pinned to this session, or null when it follows agent.effortBy / agent.effort. */
     effort?: "low" | "medium" | "high" | "max" | null;
+    /** Rule that decided effectiveEffort (1.29.0). */
+    effortSource?: "session" | "model" | "vendor" | "default" | null;
+    /** Tiers the session's model offers; [] means none (1.29.0). */
+    efforts?: ("low" | "medium" | "high" | "max")[] | null;
     /** Client whose host tools the session uses (a browser profile's clientId); null for IDE, TUI and CLI sessions (addendum 8). */
     hostToolsFrom?: string | null;
     /** Scheduled job this run belongs to; null for other kinds. */
@@ -2287,8 +2297,14 @@ export interface SessionResumeParams {
 export interface SessionResumeResult {
   /** Whether delegation mode is in force: the session pin, else the default. */
   delegation?: boolean;
+  /** The effort in force (1.29.0): the pin, or what the settings give, clamped to what the model offers; null when the model has no effort setting or the session is closed. 'effort' stays the session's own pin. */
+  effectiveEffort?: "low" | "medium" | "high" | "max" | null;
   /** Reasoning effort pinned on the session. */
   effort?: string | null;
+  /** Rule that decided effectiveEffort (1.29.0). */
+  effortSource?: "session" | "model" | "vendor" | "default" | null;
+  /** Tiers the session's model offers; [] means none (1.29.0). */
+  efforts?: ("low" | "medium" | "high" | "max")[] | null;
   /** Missed events in seq order. */
   events?: ({
     /** Event kind; see sessionEventKinds in the schema dump. */
@@ -4211,6 +4227,8 @@ export interface ApprovalPendingPayload {
   request: {
     /** Arguments it wants to use. */
     args?: Record<string, unknown>;
+    /** For patch and write_file: the unified diff the call would write, computed without writing (1.29.0). Null for other tools, for a call that would fail, or when the diff is over 200 KB. */
+    diff?: string | null;
     /** Why this is asked whatever the mode (1.24.0): 'agent-switch' for a call in the rest of a turn session.setAgent {guardTurn} guarded. Such an answer is never remembered. */
     guard?: string | null;
     /** Extra warning shown with the prompt, e.g. "modifies snowpea configuration". */
@@ -4631,6 +4649,8 @@ export interface ContextEventPayload {
 
 /** Payload of `session.event` with kind `diff`. */
 export interface DiffEventPayload {
+  /** The tool call that made the change (1.29.0). */
+  callId?: string | null;
   kind?: "diff";
   /** Unified diff of the change. */
   patch: string;
@@ -4693,6 +4713,8 @@ export interface LoopSuspectedEventPayload {
 
 /** Payload of `session.event` with kind `lsp.diagnostics`. */
 export interface LspDiagnosticsEventPayload {
+  /** The tool call whose edit or check produced them, when one did (1.29.0). */
+  callId?: string | null;
   /** Diagnostics of every severity. */
   count?: number;
   /** How many of them are errors. */

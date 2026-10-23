@@ -207,6 +207,7 @@ async def lsp_diagnostics(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             _workdir(ctx),
             wait_for_diagnostics=True,
             session_id=ctx.session.id,
+            call_id=ctx.call_id or None,
         )
         found = manager.diagnostics(file)
     else:
@@ -388,7 +389,9 @@ async def lsp_rename(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         except OSError as exc:
             return ToolResult(ok=False, error=f"{type(exc).__name__}: {exc}")
         written.append(_display(ctx, target))
-        await manager.touch_file(target, _workdir(ctx), session_id=ctx.session.id)
+        await manager.touch_file(
+            target, _workdir(ctx), session_id=ctx.session.id, call_id=ctx.call_id or None
+        )
     body = "\n".join(f"- {name}" for name in written)
     return ToolResult(
         ok=True,

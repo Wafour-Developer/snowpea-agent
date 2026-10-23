@@ -468,6 +468,35 @@ async def test_set_effort_round_trips_over_rpc(tmp_path: Path, http: aiohttp.Cli
             await daemon.stop()
 
 
+async def test_list_and_resume_carry_the_effort_in_force(
+    tmp_path: Path, http: aiohttp.ClientSession
+) -> None:
+    with fake_provider(FIXTURE):
+        daemon = await make_daemon(tmp_path / "home")
+        try:
+            client = await connect(http, daemon)
+            workdir = tmp_path / "project"
+            workdir.mkdir()
+            created = await client.ok("session.create", {"workdir": str(workdir)})
+            session_id = str(created["sessionId"])
+
+            rows = {row["sessionId"]: row for row in (await client.ok("session.list"))["sessions"]}
+            row = rows[session_id]
+            # ``effort`` stays the pin; the tier in force is ``effectiveEffort``.
+            assert row["effort"] is None
+            assert (row["effectiveEffort"], row["effortSource"]) == ("medium", "default")
+            assert row["efforts"]
+
+            await client.ok("session.setEffort", {"sessionId": session_id, "effort": "high"})
+            resumed = await client.ok("session.resume", {"sessionId": session_id})
+            assert resumed["effort"] == "high"
+            assert (resumed["effectiveEffort"], resumed["effortSource"]) == ("high", "session")
+            assert resumed["efforts"] == row["efforts"]
+            await client.stop()
+        finally:
+            await daemon.stop()
+
+
 async def test_set_effort_refuses_a_tier_that_does_not_exist(
     tmp_path: Path, http: aiohttp.ClientSession
 ) -> None:

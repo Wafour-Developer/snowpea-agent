@@ -2248,10 +2248,13 @@ async def _run_one_call(
         )
         return None
     if verdict == "ask":
+        from snowpea_core.tools.fs import preview_diff
+
         decision = await core.approvals.request(
             session,
             tool.name,
             call.arguments,
+            diff=await preview_diff(backend, tool.name, dict(call.arguments)),
             risk=policy.risk(tag),
             unattended=unattended,
             cancel_event=session.interrupt,
@@ -2403,7 +2406,9 @@ async def _run_one_call(
         ),
     )
     if result.diff:
-        await hub.emit_event(session.id, events.diff(result.path or "", result.diff))
+        await hub.emit_event(
+            session.id, events.diff(result.path or "", result.diff, call_id=call.id)
+        )
     verify_gate.observe(session, call.name, dict(call.arguments), result)
     session.history.append(
         ChatMessage(

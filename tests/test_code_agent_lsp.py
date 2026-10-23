@@ -53,6 +53,9 @@ class _Hub:
     async def notify(self, method: str, payload: dict[str, Any]) -> None:
         self.sent.append((method, payload))
 
+    async def emit_event(self, session_id: str, event: Any) -> None:
+        self.sent.append(("session.event", {"sessionId": session_id, "event": event}))
+
     def of(self, method: str) -> list[dict[str, Any]]:
         return [payload for name, payload in self.sent if name == method]
 
@@ -635,3 +638,127 @@ def test_the_protocol_declares_the_new_methods_events_and_flags() -> None:
     assert {"lsp.install", "lsp.restart"} <= set(METHODS)
     assert {"lsp.install.progress", "lsp.changed"} <= set(EVENTS)
     assert {"lspInstall", "lspRestart", "lspChanged"} <= set(CAPABILITIES)
+
+
+# ---------------------------------------------------------------------------
+# C10: callId on diff and lsp.diagnostics; C11: the dry-run diff on approval
+# ---------------------------------------------------------------------------
+
+
+def test_diff_and_diagnostics_events_carry_the_call_id() -> None:
+    from snowpea_core.session import events
+
+    kind, payload = events.diff("a.py", "@@", call_id="call-1")
+    assert kind == "diff" and payload["callId"] == "call-1"
+    assert events.validate(kind, payload) == payload
+    kind, payload = events.lsp_diagnostics("a.py", count=1, errors=1, warnings=0, call_id="c2")
+    assert payload["callId"] == "c2" and events.validate(kind, payload) == payload
+    assert events.diff("a.py", "@@")[1]["callId"] is None
+
+
+async def test_diagnostics_pushed_during_an_edit_name_its_call(tmp_path: Path) -> None:
+    core = _core(tmp_path, LspSettings(servers={"fake": FAKE_SPEC}))
+    workdir = tmp_path / "w"
+    workdir.mkdir()
+    (workdir / "e.fake").write_text("ERROR bad\n")
+    manager = manager_for(core)
+    try:
+        await manager.touch_file(
+            workdir / "e.fake",
+            workdir,
+            wait_for_diagnostics=True,
+            session_id="s1",
+            call_id="call-9",
+        )
+        await asyncio.sleep(0.05)
+        hub: _Hub = core.hub  # type: ignore[assignment]
+        pushed = [
+            p["event"] for p in hub.of("session.event") if p["event"][0] == "lsp.diagnostics"
+        ]
+        assert pushed and all(payload["callId"] == "call-9" for _kind, payload in pushed)
+    finally:
+        await manager.shutdown()
+
+
+async def test_preview_diff_shows_what_patch_and_write_file_would_write(tmp_path: Path) -> None:
+    from snowpea_core.exec.local import LocalBackend
+    from snowpea_core.tools import fs
+
+    (tmp_path / "a.py").write_text("x = 1\ny = 2\n")
+    backend = LocalBackend(tmp_path)
+    one = await fs.preview_diff(
+        backend, "patch", {"path": "a.py", "old_string": "y = 2", "new_string": "y = 3"}
+    )
+    assert one is not None and "-y = 2" in one and "+y = 3" in one and "@@ -1,2 +1,2 @@" in one
+    assert (tmp_path / "a.py").read_text() == "x = 1\ny = 2\n", "a preview writes nothing"
+    many = await fs.preview_diff(
+        backend,
+        "patch",
+        {
+            "path": "a.py",
+            "edits": [
+                {"old_string": "x = 1", "new_string": "x = 10"},
+                {"old_string": "x = 10", "new_string": "x = 100"},
+            ],
+        },
+    )
+    assert many is not None and "+x = 100" in many and "+x = 10\n" not in many
+    new = await fs.preview_diff(backend, "write_file", {"path": "b.py", "content": "z = 1\n"})
+    assert new is not None and "+z = 1" in new
+    assert await fs.preview_diff(
+        backend, "patch", {"path": "a.py", "old_string": "nowhere", "new_string": "q"}
+    ) is None
+    assert await fs.preview_diff(backend, "shell", {"command": "ls"}) is None
+    huge = "a\n" * (fs.PREVIEW_DIFF_MAX // 2)
+    assert await fs.preview_diff(backend, "write_file", {"path": "c.txt", "content": huge}) is None
+
+
+async def test_an_approval_request_carries_the_diff(tmp_path: Path) -> None:
+    from snowpea_core.permissions.approval_queue import ApprovalQueue
+
+    queue = ApprovalQueue()
+    session = Session(id="s-ap", workdir=tmp_path)
+    asked: list[dict[str, Any]] = []
+
+    class _Origin:
+        async def call(self, method: str, params: dict[str, Any], timeout: float = 0) -> Any:
+            asked.append(params)
+            return {"decision": "allow"}
+
+    session.origin_conn = _Origin()
+    decision = await queue.request(session, "patch", {"path": "a.py"}, diff="--- a/a.py\n")
+    assert decision.allowed and asked[0]["diff"] == "--- a/a.py\n"
+
+
+# ---------------------------------------------------------------------------
+# C13: diffs as diff and git write them
+# ---------------------------------------------------------------------------
+
+
+def test_a_last_line_without_a_newline_is_marked_not_merged() -> None:
+    from snowpea_core.tools.fs import unified_diff
+
+    patch = unified_diff("a.txt", "x\nlast", "x\nnew\n")
+    assert "-last\n\\ No newline at end of file\n+new\n" in patch
+    patch = unified_diff("a.txt", "x\n", "x\nend")
+    assert patch.endswith("+end\n\\ No newline at end of file\n")
+
+
+async def test_a_created_file_diffs_from_dev_null(tmp_path: Path) -> None:
+    from snowpea_core.exec.local import LocalBackend
+    from snowpea_core.tools import fs
+
+    backend = LocalBackend(tmp_path)
+    preview = await fs.preview_diff(backend, "write_file", {"path": "new.py", "content": "a\n"})
+    assert preview is not None and preview.startswith("--- /dev/null\n+++ b/new.py\n")
+    (tmp_path / "old.py").write_text("a\n")
+    preview = await fs.preview_diff(backend, "write_file", {"path": "old.py", "content": "b\n"})
+    assert preview is not None and preview.startswith("--- a/old.py\n")
+    ctx = SimpleNamespace(
+        backend=backend,
+        core=_core(tmp_path),
+        session=Session(id="s-w", workdir=tmp_path),
+        call_id="",
+    )
+    result = await fs.write_file(ctx, {"path": "made.py", "content": "z = 1\n"})  # type: ignore[arg-type]
+    assert result.ok and (result.diff or "").startswith("--- /dev/null\n")
