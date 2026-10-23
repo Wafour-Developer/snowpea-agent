@@ -98,6 +98,15 @@ NO_ANSWER = (
 )
 
 
+#: What the memory tools answer in a session created with ``memory: false``.
+INACTIVE = "tool_inactive: memory is turned off for this session"
+
+
+def _off(ctx: ToolContext) -> bool:
+    """``session.create {memory: false}`` (addendum 27, C1)."""
+    return getattr(ctx.session, "memory_override", None) is False
+
+
 def _services(ctx: ToolContext) -> Any:
     from snowpea_core.memory import services
 
@@ -204,6 +213,8 @@ async def resolve_namespace(ctx: ToolContext, scope: str | None) -> tuple[str | 
 
 async def save_memory(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     """Store one durable note, in the scope the user chose."""
+    if _off(ctx):
+        return ToolResult(ok=False, error=INACTIVE, meta={"written": False})
     text = str(args.get("text") or "").strip()
     if not text:
         return ToolResult(ok=False, error="save_memory needs a non-empty text")
@@ -285,6 +296,8 @@ async def relevant(
 
 async def search_memory(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     """Recall memories matching a query, best first, across every scope."""
+    if _off(ctx):
+        return ToolResult(ok=False, error=INACTIVE)
     query = str(args.get("query") or "").strip()
     if not query:
         return ToolResult(ok=False, error="search_memory needs a non-empty query")
@@ -338,6 +351,7 @@ def register_memory_tools(registry: ToolRegistry) -> ToolRegistry:
 
 __all__ = [
     "CANCELLED",
+    "INACTIVE",
     "NO_ANSWER",
     "OPTION_CANCEL",
     "OPTION_GLOBAL",

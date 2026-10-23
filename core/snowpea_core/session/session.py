@@ -201,6 +201,13 @@ class Session:
     rpc_steers: list[str] = field(default_factory=list)
     #: Recall also searches pages a browser host ingested (1.7.0).
     browser_memory: bool = False
+    #: ``session.create {memory, siteMemory}`` (addendum 27, C1): ``None``
+    #: follows ``memory.enabled`` / ``browser.siteMemory``; ``False`` turns
+    #: recall, the digest, the nudge and the memory tools (or ``site.*`` calls
+    #: made for this session) off, ``True`` on, for this session only.  Kept
+    #: in memory, like ``browser_memory``.
+    memory_override: bool | None = None
+    site_memory_override: bool | None = None
     #: Serialises history writes so an older persistence attempt cannot delete
     #: or overwrite rows written by a newer one for the same session.
     history_persist_lock: asyncio.Lock = field(default_factory=asyncio.Lock)

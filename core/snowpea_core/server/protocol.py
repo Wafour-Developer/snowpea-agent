@@ -355,6 +355,23 @@ class SessionCreateParams(Payload):
             "browser client (clientKind 'browser') creates the session (1.7.0)."
         ),
     )
+    memory: bool | None = Field(
+        default=None,
+        description=(
+            "Long-term memory for this session only (1.27.0): false means no recall "
+            "block, no digest, no auto-remember and save_memory/search_memory answer "
+            "tool_inactive; true turns it on although memory.enabled is off. Omit to "
+            "follow the setting. Not kept across a daemon restart."
+        ),
+    )
+    siteMemory: bool | None = Field(
+        default=None,
+        description=(
+            "Site memory for this session only (1.27.0): false makes site.get/put/mark/"
+            "markPart called with this sessionId answer tool_inactive; true allows them "
+            "although browser.siteMemory is off. Omit to follow the setting."
+        ),
+    )
     locale: str | None = Field(
         default=None,
         description=(
@@ -3207,6 +3224,13 @@ class SiteGetParams(Payload):
         description="Path (and query) on the origin: only entries whose urlPattern matches.",
     )
     pageType: str | None = Field(default=None, description="Only this page type.")
+    sessionId: str | None = Field(
+        default=None,
+        description=(
+            "The session the call is made for (1.27.0); its siteMemory override from "
+            "session.create applies."
+        ),
+    )
 
 
 class SiteGetResult(Payload):
@@ -3219,6 +3243,13 @@ class SiteGetResult(Payload):
 class SitePutParams(Payload):
     origin: str = Field(description="Origin the entry belongs to.")
     entry: SiteEntryInput = Field(description="The entry; upserted by (origin, pageType).")
+    sessionId: str | None = Field(
+        default=None,
+        description=(
+            "The session the call is made for (1.27.0); its siteMemory override from "
+            "session.create applies."
+        ),
+    )
 
 
 class SitePutResult(Payload):
@@ -3230,6 +3261,13 @@ class SiteMarkParams(Payload):
     origin: str = Field(description="Origin of the entry.")
     entryId: str = Field(description="The entry.")
     outcome: SiteMarkOutcome = Field(description="'ok' = verified use; 'stale' = it failed.")
+    sessionId: str | None = Field(
+        default=None,
+        description=(
+            "The session the call is made for (1.27.0); its siteMemory override from "
+            "session.create applies."
+        ),
+    )
     detail: str | None = Field(
         default=None, max_length=200, description="For the UI and log only."
     )
@@ -3244,6 +3282,13 @@ class SiteMarkPartParams(Payload):
     entryId: str = Field(description="The entry.")
     part: Literal["flow", "recipe"] = Field(description="Which list the part is in.")
     name: str = Field(min_length=1, max_length=40, description="The flow's or recipe's name.")
+    sessionId: str | None = Field(
+        default=None,
+        description=(
+            "The session the call is made for (1.27.0); its siteMemory override from "
+            "session.create applies."
+        ),
+    )
     outcome: SiteMarkPartOutcome = Field(
         description=(
             "flow: ok (stats.ok+1, lastRun) | miss (stats.missed+1). recipe: ok (hits+1, "
@@ -5706,6 +5751,7 @@ CAPABILITIES: list[str] = [
     "sharedDaemon",
     "sessionEvents",
     "memorySafe",
+    "sessionOverrides",
 ]
 
 #: Where the daemon listens; mirrored into the schema dump for the SDK.

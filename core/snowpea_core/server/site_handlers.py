@@ -94,13 +94,19 @@ def _ui_profile(conn: RpcConnection, named: str | None) -> str:
     return named
 
 
-def _require_enabled(core: Core) -> None:
+def _require_enabled(core: Core, session_id: str | None = None) -> None:
     """``browser.siteMemory`` off: no reading, teaching or counting.
 
     ``tool_inactive`` is the existing code for a capability the user switched
-    off, so a host can tell it from a refused entry (``invalid_params``).
+    off, so a host can tell it from a refused entry (``invalid_params``).  A
+    call made for a session follows that session's ``siteMemory`` override
+    (addendum 27, C1) before the setting.
     """
-    if not core.settings.browser.siteMemory:
+    session = core.sessions.get(session_id) if session_id else None
+    override = getattr(session, "site_memory_override", None)
+    if override is False:
+        raise RpcError(errors.TOOL_INACTIVE, "site memory is turned off for this session")
+    if override is None and not core.settings.browser.siteMemory:
         raise RpcError(errors.TOOL_INACTIVE, "site memory is turned off")
 
 
@@ -130,7 +136,7 @@ async def _sweep(store: Any, profile: str, now: datetime) -> None:
 async def site_get_handler(conn: RpcConnection, params: SiteGetParams, core: Core) -> SiteGetResult:
     """``site.get`` — an origin's entries, most specific urlPattern first."""
     profile = _host_profile(conn)
-    _require_enabled(core)
+    _require_enabled(core, params.sessionId)
     store = _store(core)
     origin = _origin(params.origin)
     if params.path is not None and not params.path.startswith("/"):
@@ -147,7 +153,7 @@ async def site_get_handler(conn: RpcConnection, params: SiteGetParams, core: Cor
 async def site_put_handler(conn: RpcConnection, params: SitePutParams, core: Core) -> SitePutResult:
     """``site.put`` — upsert by (origin, pageType); a put is a success and clears stale."""
     profile = _host_profile(conn)
-    _require_enabled(core)
+    _require_enabled(core, params.sessionId)
     store = _store(core)
     origin = _origin(params.origin)
     data = params.entry.model_dump(mode="json")
@@ -207,7 +213,7 @@ async def site_mark_handler(
 ) -> SiteMarkResult:
     """``site.mark`` — count a verified use (``ok``) or a failure (``stale``)."""
     profile = _host_profile(conn)
-    _require_enabled(core)
+    _require_enabled(core, params.sessionId)
     store = _store(core)
     origin = _origin(params.origin)
     if params.detail:
@@ -289,7 +295,7 @@ async def site_mark_part_handler(
     count never stands in for verification and retention is unchanged.
     """
     profile = _host_profile(conn)
-    _require_enabled(core)
+    _require_enabled(core, params.sessionId)
     if params.part == "flow" and params.outcome == "stale":
         raise RpcError(
             errors.INVALID_PARAMS, "a flow counts ok or miss; stale is for a recipe",

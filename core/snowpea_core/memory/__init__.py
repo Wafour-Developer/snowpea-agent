@@ -105,8 +105,18 @@ def services(core: Core) -> MemoryServices:
     return memory  # type: ignore[no-any-return]
 
 
-def enabled(core: Core) -> bool:
-    return bool(getattr(core, "memory", None)) and bool(core.settings.memory.enabled)
+def enabled(core: Core, session: Any = None) -> bool:
+    """Whether memory runs, for ``session`` when one is given.
+
+    A session's ``memory_override`` (``session.create {memory}``) wins over
+    ``memory.enabled``; without the services nothing runs either way.
+    """
+    if not getattr(core, "memory", None):
+        return False
+    override = getattr(session, "memory_override", None)
+    if override is not None:
+        return bool(override)
+    return bool(core.settings.memory.enabled)
 
 
 async def context_for_turn(core: Core, session: Session, text: str) -> str:
@@ -117,7 +127,7 @@ async def context_for_turn(core: Core, session: Session, text: str) -> str:
     daemon shutdown that lands mid-lookup cancels it cleanly instead of racing
     :meth:`MemoryServices.close` (CORE-memory-race).
     """
-    if not enabled(core):
+    if not enabled(core, session):
         return ""
     # An empty prompt still gets the digest: what the session already knows
     # does not depend on what was just typed (M5 §1b).
@@ -143,7 +153,7 @@ async def nudge_after_turn(core: Core, session: Session, text: str) -> MemoryEnt
     that lands mid-write cancels or fails it cleanly instead of racing
     :meth:`MemoryServices.close` (CORE-memory-race).
     """
-    if not enabled(core) or not text.strip():
+    if not enabled(core, session) or not text.strip():
         return None
     if getattr(core, "stopping", False):
         return None

@@ -58,6 +58,7 @@ Server capabilities advertised in the `system.hello` result:
 - `sessionAttachments`
 - `sessionContinue`
 - `sessionEvents`
+- `sessionOverrides`
 - `sessionSetAgent`
 - `sessions`
 - `setAgentGuardTurn`
@@ -1711,10 +1712,12 @@ Open a session rooted at a working directory.
 | `hostToolsFrom` | `string \| null` | no | Whose host tools this session sees: a connection's clientId (or surface id). Default: the creating connection (1.6.0). |
 | `locale` | `string \| null` | no | The client's UI language as a BCP 47 tag, e.g. 'ko-KR' (1.7.0). With agent.replyLanguage 'auto', text the core writes for this session (/init, /ralph and delegated briefs) is in this language before any guess from what the user typed. Ignored when not a language tag. |
 | `maxConcurrent` | `number \| null` | no | Override for concurrent subagents. |
+| `memory` | `boolean \| null` | no | Long-term memory for this session only (1.27.0): false means no recall block, no digest, no auto-remember and save_memory/search_memory answer tool_inactive; true turns it on although memory.enabled is off. Omit to follow the setting. Not kept across a daemon restart. |
 | `mode` | `"plan" \| "accept" \| "auto" \| null` | no | Starting mode; defaults to the project setting. |
 | `model` | `string \| null` | no | Model id; defaults to the provider's default. |
 | `originSurface` | `string \| null` | no | Surface that owns approvals for this session (TUI, gateway, ...). |
 | `provider` | `string \| null` | no | Chat provider vendor; defaults to configured. |
+| `siteMemory` | `boolean \| null` | no | Site memory for this session only (1.27.0): false makes site.get/put/mark/markPart called with this sessionId answer tool_inactive; true allows them although browser.siteMemory is off. Omit to follow the setting. |
 | `workdir` | `string` | yes | Absolute path the session operates in. |
 
 **Result**
@@ -2194,6 +2197,7 @@ Site memory (1.9.0): the entries stored for an origin in the caller's browser pr
 | `origin` | `string` | yes | Origin, e.g. 'https://www.example.com'. |
 | `pageType` | `string \| null` | no | Only this page type. |
 | `path` | `string \| null` | no | Path (and query) on the origin: only entries whose urlPattern matches. |
+| `sessionId` | `string \| null` | no | The session the call is made for (1.27.0); its siteMemory override from session.create applies. |
 
 **Result**
 
@@ -2237,6 +2241,7 @@ Site memory (1.9.0): 'ok' counts a success, sets lastVerified and clears stale; 
 | `entryId` | `string` | yes | The entry. |
 | `origin` | `string` | yes | Origin of the entry. |
 | `outcome` | `"ok" \| "stale"` | yes | 'ok' = verified use; 'stale' = it failed. |
+| `sessionId` | `string \| null` | no | The session the call is made for (1.27.0); its siteMemory override from session.create applies. |
 
 **Result**
 
@@ -2259,6 +2264,7 @@ Site memory (1.15.0): count one use of a flow or recipe of an entry without a pu
 | `origin` | `string` | yes | Origin of the entry. |
 | `outcome` | `"ok" \| "miss" \| "stale"` | yes | flow: ok (stats.ok+1, lastRun) \| miss (stats.missed+1). recipe: ok (hits+1, day, not stale) \| miss (misses+1) \| stale (misses+1, stale). |
 | `part` | `"flow" \| "recipe"` | yes | Which list the part is in. |
+| `sessionId` | `string \| null` | no | The session the call is made for (1.27.0); its siteMemory override from session.create applies. |
 
 **Result**
 
@@ -2278,6 +2284,7 @@ Site memory (1.9.0): upsert an entry by (origin, pageType). Core checks the sche
 |---|---|---|---|
 | `entry` | `{ actions?: ({ frames?: ({ origin: string; path: string; selector: string; })[] \| null; kind: "click" \| "fill" \| "select" \| "toggle" \| "submit"; locators: ({ by: "role" \| "label" \| "text" \| "placeholder" \| "testid" \| "css"; name?: string \| null; role?: string \| null; value?: string \| null; })[]; loginField?: boolean; name: string; })[]; fingerprint?: string \| null; flows?: ({ expect?: "page" \| "update" \| null; name: string; stats?: { lastRun?: string \| null; missed?: number; ok?: number; } \| null; steps?: (string \| { action?: string \| null; intent?: string \| null; verb: "fill" \| "click" \| "select" \| "enter"; })[]; })[]; landmarks?: string[]; lastVerified?: string \| null; pageType: string; pitfalls?: string[]; recipes?: ({ fields: ({ attr?: string \| null; name: string; selector: string; })[]; intent?: string \| null; item: string; name: string; stale?: boolean; stats?: { day?: number \| null; hits?: number; misses?: number; } \| null; })[]; summary?: string; urlPattern: string; }` | yes | The entry; upserted by (origin, pageType). |
 | `origin` | `string` | yes | Origin the entry belongs to. |
+| `sessionId` | `string \| null` | no | The session the call is made for (1.27.0); its siteMemory override from session.create applies. |
 
 **Result**
 

@@ -372,8 +372,14 @@ def skill_index_max(core: Core | None) -> int:
         return compose.DEFAULT_SKILL_INDEX_MAX
 
 
-def memory_enabled(core: Core | None) -> bool:
-    """``memory.enabled``; the guidance fragment is pointless when it is off."""
+def memory_enabled(core: Core | None, session: Any = None) -> bool:
+    """``memory.enabled``; the guidance fragment is pointless when it is off.
+
+    A session's ``memory_override`` wins (addendum 27, C1).
+    """
+    override = getattr(session, "memory_override", None)
+    if override is not None:
+        return bool(override)
     if core is None:
         return True
     try:
@@ -526,7 +532,7 @@ def build_system_prompt(
         skill_groups=[(label, list(rows)) for label, rows in plan.skill_groups],
         skill_index_max=skill_index_max(core),
         skills_scoped=plan.skills_scoped,
-        memory_guidance=memory_enabled(core) and not lean,
+        memory_guidance=memory_enabled(core, session) and not lean,
         own_identity=plan.own_identity,
         environment=environment,
         context_files=context_files,

@@ -283,6 +283,8 @@ async def session_create_handler(
         if params.browserMemory is not None
         else getattr(conn, "client_kind", None) == "browser"
     )
+    session.memory_override = params.memory
+    session.site_memory_override = params.siteMemory
     session.locale = locale_tag(params.locale)
     ensure_workspace(core.paths.home, session)
     core.hub.subscribe(conn, session.id)

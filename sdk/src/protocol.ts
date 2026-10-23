@@ -1920,6 +1920,8 @@ export interface SessionCreateParams {
   locale?: string | null;
   /** Override for concurrent subagents. */
   maxConcurrent?: number | null;
+  /** Long-term memory for this session only (1.27.0): false means no recall block, no digest, no auto-remember and save_memory/search_memory answer tool_inactive; true turns it on although memory.enabled is off. Omit to follow the setting. Not kept across a daemon restart. */
+  memory?: boolean | null;
   /** Starting mode; defaults to the project setting. */
   mode?: "plan" | "accept" | "auto" | null;
   /** Model id; defaults to the provider's default. */
@@ -1928,6 +1930,8 @@ export interface SessionCreateParams {
   originSurface?: string | null;
   /** Chat provider vendor; defaults to configured. */
   provider?: string | null;
+  /** Site memory for this session only (1.27.0): false makes site.get/put/mark/markPart called with this sessionId answer tool_inactive; true allows them although browser.siteMemory is off. Omit to follow the setting. */
+  siteMemory?: boolean | null;
   /** Absolute path the session operates in. */
   workdir: string;
 }
@@ -2697,6 +2701,8 @@ export interface SiteGetParams {
   pageType?: string | null;
   /** Path (and query) on the origin: only entries whose urlPattern matches. */
   path?: string | null;
+  /** The session the call is made for (1.27.0); its siteMemory override from session.create applies. */
+  sessionId?: string | null;
 }
 
 /** `site.get` result. */
@@ -2856,6 +2862,8 @@ export interface SiteMarkParams {
   origin: string;
   /** 'ok' = verified use; 'stale' = it failed. */
   outcome: "ok" | "stale";
+  /** The session the call is made for (1.27.0); its siteMemory override from session.create applies. */
+  sessionId?: string | null;
 }
 
 /** `site.mark` result. */
@@ -2982,6 +2990,8 @@ export interface SiteMarkPartParams {
   outcome: "ok" | "miss" | "stale";
   /** Which list the part is in. */
   part: "flow" | "recipe";
+  /** The session the call is made for (1.27.0); its siteMemory override from session.create applies. */
+  sessionId?: string | null;
 }
 
 /** `site.markPart` result. */
@@ -3196,6 +3206,8 @@ export interface SitePutParams {
   };
   /** Origin the entry belongs to. */
   origin: string;
+  /** The session the call is made for (1.27.0); its siteMemory override from session.create applies. */
+  sessionId?: string | null;
 }
 
 /** `site.put` result. */
