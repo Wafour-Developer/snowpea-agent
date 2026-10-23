@@ -240,6 +240,7 @@ async def save_memory(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         tags=tags,
         namespace=namespace,
         source_session=ctx.session.id,
+        origin="model",
     )
     where = entry.project or "every project"
     return ToolResult(

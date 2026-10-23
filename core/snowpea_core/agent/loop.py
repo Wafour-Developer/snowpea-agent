@@ -31,7 +31,7 @@ from snowpea_core.agent.tool_batch import plan_tool_batch_segments
 from snowpea_core.attachments import pending
 from snowpea_core.config.settings import THINKING_CHOICES
 from snowpea_core.exec.local import LocalBackend
-from snowpea_core.memory import context_for_turn, nudge_after_turn
+from snowpea_core.memory import context_for_turn, extract_after_turn, nudge_after_turn
 from snowpea_core.permissions import plan_paths
 from snowpea_core.permissions.policy import (
     PLAN_WRITE_TOOLS,
@@ -1691,7 +1691,8 @@ async def _drive(
                         continue
                 await speak_reply(core, session, assistant_text)
                 await finish_turn(core, session, turn_id, "complete")
-                await nudge_after_turn(core, session, text)
+                nudged = await nudge_after_turn(core, session, text)
+                extract_after_turn(core, session, turn_id, text, nudged=nudged is not None)
                 return "complete"
             await _budget_report(
                 core,
@@ -1818,7 +1819,8 @@ async def _drive(
                     continue
             await speak_reply(core, session, assistant_text)
             await finish_turn(core, session, turn_id, "complete")
-            await nudge_after_turn(core, session, text)
+            nudged = await nudge_after_turn(core, session, text)
+            extract_after_turn(core, session, turn_id, text, nudged=nudged is not None)
             return "complete"
 
         # The opening line is spoken here, before the tools run: a spoken

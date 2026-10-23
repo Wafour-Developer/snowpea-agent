@@ -1217,7 +1217,7 @@ async def test_browsing_memory_ingest_dedupe_recall_and_forget(
         found = await client.ok("memory.list", {"namespace": "browser", "query": "hello"})
         assert [e["url"] for e in found["entries"]] == ["https://example.com/x"]
         plain = (await client.ok("memory.list", {}))["entries"]
-        assert [e["source"] for e in plain] == [None]
+        assert [e["source"] for e in plain] == ["user-said"]
 
         store = memory_services(daemon.core).store
         await client.ok("memory.delete", {"source": "browser", "url": "https://github.com"})

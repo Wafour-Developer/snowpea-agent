@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from snowpea_core.config.paths import Paths
 from snowpea_core.config.settings import MemorySettings, Settings
+from snowpea_core.memory.extract import Candidate, Candidates, extract_preference
 from snowpea_core.memory.profile import UserProfile, profile_tag
 from snowpea_core.memory.retrieval import (
     DEFAULT_REMEMBER_PATTERNS,
@@ -55,6 +56,12 @@ class MemoryServices:
     #: :meth:`close` can cancel and await it before the store underneath it
     #: closes (CORE-memory-race).
     _tasks: set[asyncio.Task[Any]] = field(default_factory=set, repr=False, compare=False)
+    #: Preferences proposed with ``memory.autoExtract: "suggest"``, waiting
+    #: for ``memory.confirm`` (addendum 27, C7).
+    candidates: Candidates = field(default_factory=Candidates, repr=False, compare=False)
+    preference_lock: asyncio.Lock = field(
+        default_factory=asyncio.Lock, repr=False, compare=False
+    )
 
     def _track(self, coro: Any) -> asyncio.Task[Any]:
         task: asyncio.Task[Any] = asyncio.ensure_future(coro)
@@ -198,8 +205,75 @@ async def _write_nudge(
     if await memory.store.exists_any(fact, namespaces=seen_in or [namespace]):
         return None
     return await memory.store.write(
-        fact, tags=["auto"], namespace=namespace, source_session=session_id
+        fact, tags=["auto"], namespace=namespace, source_session=session_id, origin="nudge"
     )
+
+
+def extract_after_turn(
+    core: Core, session: Session, turn_id: str, text: str, *, nudged: bool = False
+) -> None:
+    """Start the preference extractor for a completed turn (addendum 27, C7).
+
+    Only for ``memory.autoExtract`` ``"suggest"`` or ``"on"``, a turn the
+    person typed (origin ``human``) in a top-level session, with memory on for
+    it, and not when the auto-remember nudge already stored this message.  It
+    runs as a tracked task: the turn is already done and must not wait for a
+    second model call.
+    """
+    mode = getattr(core.settings.memory, "autoExtract", "off")
+    if mode == "off" or nudged or not text.strip() or not enabled(core, session):
+        return
+    if getattr(core, "stopping", False) or getattr(session, "is_subagent", False):
+        return
+    if session.turn_origins.get(turn_id, "human") != "human":
+        return
+    memory = services(core)
+    memory._track(_extract(core, session, text, mode))
+
+
+async def _extract(core: Core, session: Session, text: str, mode: str) -> None:
+    from snowpea_core.session import events
+
+    memory = services(core)
+    try:
+        provider = core.providers.get(session.provider, session.model)
+        found = await extract_preference(provider, text)
+        if found is None:
+            return
+        preference, category = found
+        if mode == "on":
+            await write_preference(memory, preference, category, session.id, confirmed=False)
+            return
+        if await memory.store.exists_any(preference, namespaces=namespaces_for(session)):
+            return
+        candidate_id = memory.candidates.add(Candidate(preference, category, session.id))
+        if candidate_id is None:
+            return
+        await core.hub.emit_event(
+            session.id, events.memory_candidate(candidate_id, preference, category)
+        )
+    except (MemoryClosed, asyncio.CancelledError):
+        return
+    except Exception:  # noqa: BLE001 - the turn already succeeded
+        log.warning("preference extraction failed for session %s", session.id, exc_info=True)
+
+
+async def write_preference(
+    memory: MemoryServices, text: str, category: str, session_id: str, *, confirmed: bool
+) -> MemoryEntry | None:
+    """Store an extracted preference globally, once: two turns (or a confirm and
+    an ``on`` write) racing for the same text store it a single time."""
+    async with memory.preference_lock:
+        if await memory.store.exists_any(text, namespaces=[GLOBAL_NAMESPACE]):
+            return None
+        return await memory.store.write(
+            text,
+            tags=["auto-pref", f"category:{category}"],
+            namespace=GLOBAL_NAMESPACE,
+            source_session=session_id,
+            origin="auto-pref",
+            confirmed=confirmed,
+        )
 
 
 def wire_memory(core: Core) -> MemoryServices:
@@ -221,6 +295,8 @@ __all__: list[str] = [
     "UserProfile",
     "context_for_turn",
     "enabled",
+    "extract_after_turn",
+    "write_preference",
     "namespace_of",
     "namespaces_for",
     "nudge_after_turn",

@@ -198,7 +198,9 @@ async def skill_learn_handler(
         raise RpcError(errors.NOT_FOUND, f"no such session: {params.sessionId}")
     requested = (params.name or "").strip()
     try:
-        path = await learn_skill(core, session, requested, global_=params.scope == "global")
+        path = await learn_skill(
+            core, session, requested, global_=params.scope == "global", force=params.force
+        )
     except DefinitionError as exc:
         raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
     return SkillLearnResult(name=path.parent.name, path=str(path))

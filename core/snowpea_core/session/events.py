@@ -30,6 +30,7 @@ from snowpea_core.server.protocol import (
     JobFailed,
     LoopSuspected,
     LspDiagnostics,
+    MemoryCandidateEvent,
     MessageDelta,
     MessageDone,
     MessageReasoning,
@@ -339,6 +340,10 @@ def compaction_started(before: int, *, auto: bool = False) -> Event:
     return _pack(
         CompactionStarted(reason="auto" if auto else "manual", before=before)  # type: ignore[arg-type]
     )
+
+
+def memory_candidate(candidate_id: str, text: str, category: str) -> Event:
+    return _pack(MemoryCandidateEvent(candidateId=candidate_id, text=text, category=category))
 
 
 def error(code: str, message: str) -> Event:

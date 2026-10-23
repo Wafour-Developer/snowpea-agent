@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.27.0` (semver)
+- **Protocol version:** `1.28.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.27.0"
+    "protocolVersion": "1.28.0"
   }
 }
 ```
@@ -51,6 +51,7 @@ Server capabilities advertised in the `system.hello` result:
 - `llmTimings`
 - `lsp`
 - `mcp`
+- `memoryCandidates`
 - `memorySafe`
 - `onceOnlyScope`
 - `pageActionAlways`
@@ -131,10 +132,12 @@ Server capabilities advertised in the `system.hello` result:
 | [`mcp.remove`](#mcpremove) | client → server | Delete an MCP server entry and stop the server. |
 | [`mcp.test`](#mcptest) | client → server | Probe a saved MCP server or an unsaved draft and report its tools. |
 | [`mcp.update`](#mcpupdate) | client → server | Merge a patch into an existing MCP server entry. |
+| [`memory.confirm`](#memoryconfirm) | client → server | Accept or drop a preference a memory.candidate event proposed (1.28.0). |
 | [`memory.delete`](#memorydelete) | client → server | Forget one stored memory. |
 | [`memory.ingest`](#memoryingest) | client → server | Remember visited pages in the browser namespace, once per url and text. |
 | [`memory.list`](#memorylist) | client → server | List stored memories by scope, newest first. |
 | [`memory.search`](#memorysearch) | client → server | Recall stored memories matching a query. |
+| [`memory.update`](#memoryupdate) | client → server | Edit one stored memory in place; it becomes confirmed (1.28.0). |
 | [`memory.write`](#memorywrite) | client → server | Store a memory with tags. |
 | [`permission.allowlist.add`](#permissionallowlistadd) | client → server | Promote a pattern from ask to allow. |
 | [`permission.allowlist.list`](#permissionallowlistlist) | client → server | List stored allowlist patterns. |
@@ -185,7 +188,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`site.stats`](#sitestats) | client → server | Site memory (1.27.0): per-origin counts of the profile's site.put, site.mark and site.markPart calls over the last days. Browser clients only, for their own profile; nothing page-derived is in it. |
 | [`skill.create`](#skillcreate) | client → server | Write a new SKILL.md, generated from a brief or supplied verbatim. |
 | [`skill.install`](#skillinstall) | client → server | Install a skill from a path, URL or registry. |
-| [`skill.learn`](#skilllearn) | client → server | Turn a session's history into a SKILL.md, as /skill learn does, in the project or the user's skills (1.27.0). Answers when it is written and loaded. |
+| [`skill.learn`](#skilllearn) | client → server | Turn a session's history into a SKILL.md, as /skill learn does, in the project or the user's skills (1.28.0). Answers when it is written and loaded. |
 | [`skill.list`](#skilllist) | client → server | List installed skills. |
 | [`skill.read`](#skillread) | client → server | Read a skill's SKILL.md. |
 | [`skill.reload`](#skillreload) | client → server | Reload skills from disk without restarting. |
@@ -1233,6 +1236,25 @@ Merge a patch into an existing MCP server entry.
 |---|---|---|---|
 | `ok` | `boolean` | no | True when the call succeeded. |
 
+### `memory.confirm`
+
+*Direction:* client → server
+
+Accept or drop a preference a memory.candidate event proposed (1.28.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `accept` | `boolean` | yes | True saves it as a confirmed memory; false drops it. |
+| `candidateId` | `string` | yes | From the memory.candidate event. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `id` | `string \| null` | no | The stored memory when accepted; None when dropped. |
+
 ### `memory.delete`
 
 *Direction:* client → server
@@ -1296,7 +1318,7 @@ List stored memories by scope, newest first.
 
 | field | type | required | description |
 |---|---|---|---|
-| `entries` | `({ createdAt?: string; id: string; project?: string; scope?: "project" \| "global" \| "agent" \| "all"; sensitive?: boolean; source?: "browser" \| null; tags?: string[]; text: string; url?: string; visitedAt?: string; })[]` | no | Matching memories, newest or best first. |
+| `entries` | `({ confirmed?: boolean; createdAt?: string; id: string; project?: string; scope?: "project" \| "global" \| "agent" \| "all"; sensitive?: boolean; source?: "browser" \| "user-said" \| "model" \| "nudge" \| "auto-pref" \| null; sourceSession?: string \| null; tags?: string[]; text: string; url?: string; visitedAt?: string; })[]` | no | Matching memories, newest or best first. |
 
 ### `memory.search`
 
@@ -1317,6 +1339,25 @@ Recall stored memories matching a query.
 | field | type | required | description |
 |---|---|---|---|
 | `hits` | `({ id: string; project?: string; scope?: "project" \| "global" \| "agent" \| "all"; score?: number; tags?: string[]; text: string; })[]` | no | Matches, best first. |
+
+### `memory.update`
+
+*Direction:* client → server
+
+Edit one stored memory in place; it becomes confirmed (1.28.0).
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `id` | `string` | yes | Memory id. |
+| `text` | `string` | yes | The new text; refused like memory.write when it holds a value. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `entry` | `{ confirmed?: boolean; createdAt?: string; id: string; project?: string; scope?: "project" \| "global" \| "agent" \| "all"; sensitive?: boolean; source?: "browser" \| "user-said" \| "model" \| "nudge" \| "auto-pref" \| null; sourceSession?: string \| null; tags?: string[]; text: string; url?: string; visitedAt?: string; }` | yes | The memory after the edit. |
 
 ### `memory.write`
 
@@ -2371,12 +2412,13 @@ Install a skill from a path, URL or registry.
 
 *Direction:* client → server
 
-Turn a session's history into a SKILL.md, as /skill learn does, in the project or the user's skills (1.27.0). Answers when it is written and loaded.
+Turn a session's history into a SKILL.md, as /skill learn does, in the project or the user's skills (1.28.0). Answers when it is written and loaded.
 
 **Params**
 
 | field | type | required | description |
 |---|---|---|---|
+| `force` | `boolean` | no | Overwrite a SKILL.md already at the target; otherwise that is refused. |
 | `name` | `string \| null` | no | Skill name; omit to let the model name it. |
 | `scope` | `"project" \| "global"` | no | "global" writes it to the user's skills under the snowpea home, so every later session loads it; "project" under the session workdir's .snowpea/skills. |
 | `sessionId` | `string` | yes | The session whose history becomes the skill. |
@@ -3255,6 +3297,15 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | `kind` | `"lsp.diagnostics"` | no |  |
 | `path` | `string` | yes | File the diagnostics are about. |
 | `warnings` | `number` | no | How many of them are warnings. |
+
+### kind `memory.candidate`
+
+| field | type | required | description |
+|---|---|---|---|
+| `candidateId` | `string` | yes | Pass to memory.confirm. |
+| `category` | `"shopping" \| "output" \| "site"` | yes | shopping \| output \| site. |
+| `kind` | `"memory.candidate"` | no |  |
+| `text` | `string` | yes | The preference as it would be stored. |
 
 ### kind `message.delta`
 

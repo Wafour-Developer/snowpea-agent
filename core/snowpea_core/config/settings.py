@@ -556,6 +556,13 @@ class MemorySettings(_Model):
     #: asked (``search_memory {namespace: "browser"}``; snowpea-browser
     #: addendum 22).
     recallBrowser: bool = False
+    #: After a completed turn of the person's own words, propose at most one
+    #: lasting preference (shopping, output, site habit) from those words:
+    #: ``"off"`` never, ``"suggest"`` sends a ``memory.candidate`` event and
+    #: stores nothing until ``memory.confirm``, ``"on"`` stores it as
+    #: ``auto-pref`` (snowpea-browser addendum 27, C7).  Off until a client
+    #: has asked the person.
+    autoExtract: Literal["off", "suggest", "on"] = "off"
 
 
 class SchedulerSettings(_Model):

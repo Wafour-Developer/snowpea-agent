@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.27.0"
+PROTOCOL_VERSION = "1.28.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -2928,6 +2928,11 @@ class MemorySearchResult(Payload):
     hits: list[MemoryHit] = Field(default_factory=list, description="Matches, best first.")
 
 
+MemoryOrigin = Literal["user-said", "model", "nudge", "auto-pref"]
+MemorySource = Literal["browser", "user-said", "model", "nudge", "auto-pref"]
+PreferenceCategory = Literal["shopping", "output", "site"]
+
+
 class MemoryWriteParams(Payload):
     text: str = Field(description="Text to remember.")
     tags: list[str] = Field(default_factory=list, description="Tags for later filtering.")
@@ -2938,6 +2943,29 @@ class MemoryWriteParams(Payload):
 
 class MemoryWriteResult(Payload):
     id: str = Field(description="Id of the stored memory.")
+
+
+class MemoryUpdateParams(Payload):
+    """``memory.update`` — the person edits a memory in place (1.28.0)."""
+
+    id: str = Field(description="Memory id.")
+    text: str = Field(
+        min_length=1,
+        description="The new text; refused like memory.write when it holds a value.",
+    )
+
+
+class MemoryConfirmParams(Payload):
+    """``memory.confirm`` — answer a memory.candidate event (1.28.0)."""
+
+    candidateId: str = Field(description="From the memory.candidate event.")
+    accept: bool = Field(description="True saves it as a confirmed memory; false drops it.")
+
+
+class MemoryConfirmResult(Payload):
+    id: str | None = Field(
+        default=None, description="The stored memory when accepted; None when dropped."
+    )
 
 
 class MemoryListParams(Payload):
@@ -2993,13 +3021,31 @@ class MemoryEntryInfo(Payload):
             "page can offer to delete it."
         ),
     )
-    source: Literal["browser"] | None = Field(
-        default=None, description='"browser" for a visited-page memory (1.27.0).'
+    source: MemorySource | None = Field(
+        default=None,
+        description=(
+            'Where it came from: "browser" for a visited-page memory (1.27.0); from 1.28.0 '
+            'a user memory says who wrote it: "user-said" (memory.write), "model" '
+            '(save_memory), "nudge" (the auto-remember of "remember …") or "auto-pref" '
+            "(the preference extractor). memory.update keeps it and sets confirmed. None "
+            "for a memory saved before 1.28.0."
+        ),
+    )
+    sourceSession: str | None = Field(
+        default=None, description="The session that wrote it, if one did (1.28.0)."
+    )
+    confirmed: bool = Field(
+        default=False,
+        description="True when the person wrote, edited or accepted it (1.28.0).",
     )
     url: str = Field(default="", description="The visited page, for a browser memory.")
     visitedAt: str = Field(
         default="", description="When the page was visited, for a browser memory, if known."
     )
+
+
+class MemoryUpdateResult(Payload):
+    entry: MemoryEntryInfo = Field(description="The memory after the edit.")
 
 
 class MemoryListResult(Payload):
@@ -3552,7 +3598,12 @@ class SkillCreateResult(Payload):
 
 
 class SkillLearnParams(Payload):
-    """``skill.learn`` — what ``/skill learn`` does, for a UI client (1.27.0)."""
+    """``skill.learn`` — what ``/skill learn`` does, for a UI client (1.28.0)."""
+
+    force: bool = Field(
+        default=False,
+        description="Overwrite a SKILL.md already at the target; otherwise that is refused.",
+    )
 
     sessionId: str = Field(description="The session whose history becomes the skill.")
     name: str | None = Field(
@@ -4448,6 +4499,20 @@ class TurnOutcomeEvent(Payload):
     reason: str | None = Field(default=None, description="Why, at most 200 characters.")
 
 
+class MemoryCandidateEvent(Payload):
+    """A preference the extractor would remember, waiting for the person (1.28.0).
+
+    Sent with ``memory.autoExtract: "suggest"`` after a completed turn of the
+    person's own words; nothing is stored until ``memory.confirm`` accepts it.
+    Candidates live in the daemon's memory only and are gone after a restart.
+    """
+
+    kind: Literal["memory.candidate"] = "memory.candidate"
+    candidateId: str = Field(description="Pass to memory.confirm.")
+    text: str = Field(description="The preference as it would be stored.")
+    category: PreferenceCategory = Field(description="shopping | output | site.")
+
+
 class LspDiagnostics(Payload):
     """A language server published diagnostics for a file in this session.
 
@@ -4574,6 +4639,7 @@ SESSION_EVENT_MODELS: dict[str, type[BaseModel]] = {
     "turn.dequeued": TurnDequeued,
     "turn.done": TurnDone,
     "turn.outcome": TurnOutcomeEvent,
+    "memory.candidate": MemoryCandidateEvent,
     "lsp.diagnostics": LspDiagnostics,
     "loop.suspected": LoopSuspected,
     "job.done": JobDone,
@@ -5537,6 +5603,18 @@ METHODS: dict[str, RpcMethod] = {
             "List stored memories by scope, newest first.",
         ),
         _m("memory.delete", MemoryDeleteParams, Ok, "Forget one stored memory."),
+        _m(
+            "memory.update",
+            MemoryUpdateParams,
+            MemoryUpdateResult,
+            "Edit one stored memory in place; it becomes confirmed (1.28.0).",
+        ),
+        _m(
+            "memory.confirm",
+            MemoryConfirmParams,
+            MemoryConfirmResult,
+            "Accept or drop a preference a memory.candidate event proposed (1.28.0).",
+        ),
         _m("skill.search", SkillSearchParams, SkillSearchResult, "Search available skills."),
         _m(
             "skill.install", SkillInstallParams, Ok, "Install a skill from a path, URL or registry."
@@ -5555,7 +5633,7 @@ METHODS: dict[str, RpcMethod] = {
             SkillLearnParams,
             SkillLearnResult,
             "Turn a session's history into a SKILL.md, as /skill learn does, in the "
-            "project or the user's skills (1.27.0). Answers when it is written and loaded.",
+            "project or the user's skills (1.28.0). Answers when it is written and loaded.",
         ),
         _m("skill.read", SkillReadParams, SkillReadResult, "Read a skill's SKILL.md."),
         _m("skill.write", SkillWriteParams, Ok, "Save a skill's SKILL.md verbatim."),
@@ -5902,6 +5980,7 @@ CAPABILITIES: list[str] = [
     "browserMemoryList",
     "siteActionParts",
     "skillLearn",
+    "memoryCandidates",
 ]
 
 #: Where the daemon listens; mirrored into the schema dump for the SDK.
@@ -5961,6 +6040,8 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "memory.write",
         "memory.list",
         "memory.delete",
+        "memory.update",
+        "memory.confirm",
         "gateway.bind",
         "gateway.list",
         "gateway.unbind",

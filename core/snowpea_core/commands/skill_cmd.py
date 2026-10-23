@@ -10,7 +10,7 @@ CLI's ``snowpea skill publish``/``snowpea skill sources`` use
 (:mod:`snowpea_core.skills.publish` and
 :mod:`snowpea_core.skills.registry_client`), so a session can ship a skill to
 the hosted registry, or see which hubs it federates, without dropping to a
-shell.  ``skill.learn`` (1.27.0) runs :func:`learn_skill` for a UI client and
+shell.  ``skill.learn`` (1.28.0) runs :func:`learn_skill` for a UI client and
 can write to the user's skills instead of the project's; publish and sources
 stay slash commands.
 """
@@ -171,12 +171,19 @@ def write_skill(
 
 
 async def learn_skill(
-    core: Core, session: Session, requested_name: str, *, global_: bool = False
+    core: Core,
+    session: Session,
+    requested_name: str,
+    *,
+    global_: bool = False,
+    force: bool = True,
 ) -> Path:
     """Summarise ``session`` into a SKILL.md; raises :class:`DefinitionError`.
 
     ``global_`` writes it to the user's skills under the home, so it loads in
-    every later session (``skill.learn {scope: "global"}``, 1.27.0).
+    every later session (``skill.learn {scope: "global"}``, 1.28.0).  Without
+    ``force`` an existing SKILL.md at the target is refused rather than
+    replaced; ``/skill learn`` keeps replacing it, as it always did.
     """
     body = transcript(session)
     if not body.strip():
@@ -192,6 +199,13 @@ async def learn_skill(
         _string_list(data.get("commands")),
     )
     home = _home_dir(core) if global_ else None
+    target = (
+        skill_root(name, workdir=session.workdir, home=home, global_=True)
+        if home is not None
+        else Path(session.workdir) / ".snowpea" / "skills" / name
+    )
+    if not force and (target.is_symlink() or (target / "SKILL.md").exists()):
+        raise DefinitionError(f"a skill named {name!r} already exists at {target}")
     path = write_skill(session.workdir, name, document, home=home)
     await reload_loader(core)
     return path

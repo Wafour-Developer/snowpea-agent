@@ -29,7 +29,7 @@ from snowpea_core.commands.registry import register_builtin_commands
 from snowpea_core.exec.factory import build_backend
 from snowpea_core.lsp import wire_lsp
 from snowpea_core.memory import services as memory_services
-from snowpea_core.memory import wire_memory
+from snowpea_core.memory import wire_memory, write_preference
 from snowpea_core.memory.retrieval import agent_namespace_of, project_namespace_of
 from snowpea_core.memory.safety import refusal, sensitive_kind
 from snowpea_core.memory.scopes import GLOBAL_NAMESPACE, project_namespace
@@ -46,6 +46,8 @@ from snowpea_core.server.protocol import (
     CommandListResult,
     CommandRunParams,
     Empty,
+    MemoryConfirmParams,
+    MemoryConfirmResult,
     MemoryDeleteParams,
     MemoryEntryInfo,
     MemoryHit,
@@ -54,6 +56,8 @@ from snowpea_core.server.protocol import (
     MemoryScope,
     MemorySearchParams,
     MemorySearchResult,
+    MemoryUpdateParams,
+    MemoryUpdateResult,
     MemoryWriteParams,
     MemoryWriteResult,
     Ok,
@@ -149,6 +153,8 @@ HANDLED_METHODS: tuple[str, ...] = (
     "memory.write",
     "memory.list",
     "memory.delete",
+    "memory.update",
+    "memory.confirm",
 )
 
 
@@ -1143,7 +1149,7 @@ async def memory_list_handler(
 ) -> MemoryListResult:
     """``memory.list`` — what is remembered, filtered by scope (M5 §1b), or the
     visited pages a browser reported when ``namespace`` is ``"browser"``."""
-    from snowpea_core.memory.browser import BROWSER_NAMESPACE, page_info
+    from snowpea_core.memory.browser import BROWSER_NAMESPACE
 
     browser = params.namespace == "browser"
     namespaces = [BROWSER_NAMESPACE] if browser else _scope_namespaces(core, params)
@@ -1157,21 +1163,7 @@ async def memory_list_handler(
         if query
         else await store.list_many(namespaces=namespaces, limit=limit)
     )
-    return MemoryListResult(
-        entries=[
-            MemoryEntryInfo(
-                id=entry.id,
-                text=entry.text,
-                tags=entry.tags,
-                scope=cast(MemoryScope, entry.scope),
-                project=entry.project,
-                createdAt=entry.created_at,
-                sensitive=sensitive_kind(entry.text) is not None,
-                **(page_info(entry) if browser else {}),
-            )
-            for entry in entries
-        ]
-    )
+    return MemoryListResult(entries=[_entry_info(entry, browser=browser) for entry in entries])
 
 
 async def memory_delete_handler(
@@ -1203,9 +1195,89 @@ async def memory_write_handler(
     if kind is not None:
         raise RpcError(errors.INVALID_PARAMS, refusal(kind))
     entry = await memory_services(core).store.write(
-        text, tags=params.tags, namespace=params.namespace or GLOBAL_NAMESPACE
+        text,
+        tags=params.tags,
+        namespace=params.namespace or GLOBAL_NAMESPACE,
+        origin="user-said",
+        confirmed=True,
     )
     return MemoryWriteResult(id=entry.id)
+
+
+def _entry_info(entry: Any, *, browser: bool = False) -> MemoryEntryInfo:
+    from snowpea_core.memory.browser import page_info
+
+    fields: dict[str, Any] = {
+        "source": entry.origin,
+        "sourceSession": entry.source_session,
+        "confirmed": entry.confirmed,
+    }
+    if browser:
+        fields.update(page_info(entry))
+    return MemoryEntryInfo(
+        id=entry.id,
+        text=entry.text,
+        tags=entry.tags,
+        scope=cast(MemoryScope, entry.scope),
+        project=entry.project,
+        createdAt=entry.created_at,
+        sensitive=sensitive_kind(entry.text) is not None,
+        **fields,
+    )
+
+
+def _refuse_gateway(conn: RpcConnection, method: str) -> None:
+    if str(getattr(conn, "surface_id", "") or "").startswith("gateway:"):
+        raise RpcError(errors.UNAUTHORIZED, f"a chat gateway may not call {method}")
+
+
+async def memory_update_handler(
+    conn: RpcConnection, params: MemoryUpdateParams, core: Core
+) -> MemoryUpdateResult:
+    """``memory.update`` — the person edits one memory in place (addendum 27, C7)."""
+    _refuse_gateway(conn, "memory.update")
+    text = params.text.strip()
+    if not text:
+        raise RpcError(errors.INVALID_PARAMS, "memory.update needs a non-empty text")
+    kind = sensitive_kind(text)
+    if kind is not None:
+        raise RpcError(errors.INVALID_PARAMS, refusal(kind))
+    from snowpea_core.memory.browser import BROWSER_NAMESPACE
+
+    store = memory_services(core).store
+    current = await store.get(params.id)
+    if current is None:
+        raise RpcError(errors.NOT_FOUND, f"no memory with id {params.id}")
+    if current.namespace == BROWSER_NAMESPACE:
+        raise RpcError(
+            errors.INVALID_PARAMS, "a visited-page memory is not edited; delete it instead"
+        )
+    entry = await store.update(params.id, text)
+    if entry is None:
+        raise RpcError(errors.NOT_FOUND, f"no memory with id {params.id}")
+    return MemoryUpdateResult(entry=_entry_info(entry))
+
+
+async def memory_confirm_handler(
+    conn: RpcConnection, params: MemoryConfirmParams, core: Core
+) -> MemoryConfirmResult:
+    """``memory.confirm`` — keep or drop a proposed preference (addendum 27, C7)."""
+    _refuse_gateway(conn, "memory.confirm")
+    memory = memory_services(core)
+    candidate = memory.candidates.take(params.candidateId)
+    if candidate is None:
+        raise RpcError(errors.NOT_FOUND, f"no memory candidate {params.candidateId}")
+    if not params.accept:
+        memory.candidates.drop(candidate)
+        return MemoryConfirmResult(id=None)
+    entry = await write_preference(
+        memory, candidate.text, candidate.category, candidate.session_id, confirmed=True
+    )
+    if entry is None:
+        # Remembered meanwhile (an earlier card for the same text, or "on").
+        held = await memory.store.find_text(candidate.text, namespace=GLOBAL_NAMESPACE)
+        return MemoryConfirmResult(id=held.id if held else None)
+    return MemoryConfirmResult(id=entry.id)
 
 
 def register_session_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
@@ -1235,6 +1307,8 @@ def register_session_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
     dispatcher.register("memory.write", memory_write_handler)
     dispatcher.register("memory.list", memory_list_handler)
     dispatcher.register("memory.delete", memory_delete_handler)
+    dispatcher.register("memory.update", memory_update_handler)
+    dispatcher.register("memory.confirm", memory_confirm_handler)
     return dispatcher
 
 

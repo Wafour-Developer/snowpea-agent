@@ -45,6 +45,18 @@ CREATE TABLE IF NOT EXISTS memories (
 CREATE INDEX IF NOT EXISTS memories_namespace ON memories (namespace, created_at);
 """
 
+#: Columns added after the table first shipped, as ``(name, declaration)``;
+#: an older database gains them on open (addendum 27, C7).
+LATER_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("origin", "TEXT"),
+    ("confirmed", "INTEGER NOT NULL DEFAULT 0"),
+)
+
+#: Who wrote a memory (addendum 27, C7): the person through a UI
+#: (``memory.write`` / ``memory.update``), the model (``save_memory``), the
+#: auto-remember nudge, or the preference extractor.
+ORIGINS = frozenset({"user-said", "model", "nudge", "auto-pref"})
+
 
 
 #: Aliases so annotations below still mean the builtins even though
@@ -95,6 +107,12 @@ class MemoryEntry:
     scope: str = "global"
     #: Project root this memory belongs to; ``""`` outside the project scope.
     project: str = ""
+    #: One of :data:`ORIGINS`, or ``None`` for a row written before C7.
+    origin: str | None = None
+    #: The session that wrote it, when one did.
+    source_session: str | None = None
+    #: True when the person wrote, edited or accepted it.
+    confirmed: bool = False
 
     def __post_init__(self) -> None:
         self.scope = scope_of(self.namespace)
@@ -110,6 +128,9 @@ class MemoryEntry:
             "score": self.score,
             "scope": self.scope,
             "project": self.project,
+            "origin": self.origin,
+            "sourceSession": self.source_session,
+            "confirmed": self.confirmed,
         }
 
 
@@ -164,6 +185,7 @@ class MemoryStore:
         with self._lock:
             self._conn.execute("PRAGMA busy_timeout = 5000")
             self._conn.executescript(SCHEMA)
+            self._add_later_columns()
             self.tokenizer = self._create_index()
             self._conn.commit()
 
@@ -172,6 +194,18 @@ class MemoryStore:
         """Open (creating if needed) the memory tables under ``$SNOWPEA_HOME``."""
         paths.ensure()
         return cls(paths.state_db, mirror_files=mirror_files)
+
+    def _add_later_columns(self) -> None:
+        have = {row["name"] for row in self._conn.execute("PRAGMA table_info(memories)")}
+        for name, declaration in LATER_COLUMNS:
+            if name in have:
+                continue
+            try:
+                self._conn.execute(f"ALTER TABLE memories ADD COLUMN {name} {declaration}")
+            except sqlite3.OperationalError as exc:
+                # Another process (a CLI next to the daemon) added it first.
+                if "duplicate column" not in str(exc).lower():
+                    raise
 
     def _create_index(self) -> str:
         """Create ``memories_fts``, falling back when trigram is unavailable."""
@@ -214,6 +248,9 @@ class MemoryStore:
             namespace=row["namespace"],
             created_at=row["created_at"],
             score=score,
+            origin=row["origin"],
+            source_session=row["source_session"],
+            confirmed=bool(row["confirmed"]),
         )
 
     # -- writes --------------------------------------------------------
@@ -222,8 +259,8 @@ class MemoryStore:
             if self._closed:
                 raise MemoryClosed("memory store is closed")
             cursor = self._conn.execute(
-                "INSERT INTO memories (id, namespace, text, tags_json, source_session, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO memories (id, namespace, text, tags_json, source_session,"
+                " created_at, origin, confirmed) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     entry.id,
                     entry.namespace,
@@ -231,6 +268,8 @@ class MemoryStore:
                     json.dumps(entry.tags, ensure_ascii=False),
                     source_session,
                     entry.created_at,
+                    entry.origin,
+                    int(entry.confirmed),
                 ),
             )
             self._conn.execute(
@@ -247,6 +286,8 @@ class MemoryStore:
         tags: list[str] | None = None,
         namespace: str = "default",
         source_session: str | None = None,
+        origin: str | None = None,
+        confirmed: bool = False,
     ) -> MemoryEntry:
         """Store one memory and return it."""
         entry = MemoryEntry(
@@ -255,6 +296,9 @@ class MemoryStore:
             tags=list(tags or []),
             namespace=namespace or "default",
             created_at=utc_now(),
+            origin=origin if origin in ORIGINS else None,
+            source_session=source_session,
+            confirmed=confirmed,
         )
         await asyncio.to_thread(self._write, entry, source_session)
         log.info("memory %s stored in %s (%d chars)", entry.id, entry.namespace, len(entry.text))
@@ -279,6 +323,41 @@ class MemoryStore:
             await asyncio.to_thread(mirror.rewrite, namespace, self.home, entries)
         except Exception:  # noqa: BLE001 - a mirror is a convenience, not the truth
             log.warning("memory mirror rewrite failed for %s", namespace, exc_info=True)
+
+    def _update(self, memory_id: str, text: str) -> sqlite3.Row | None:
+        with self._lock:
+            if self._closed:
+                raise MemoryClosed("memory store is closed")
+            row = self._conn.execute(
+                "SELECT rowid, text FROM memories WHERE id = ?", (memory_id,)
+            ).fetchone()
+            if row is None:
+                return None
+            self._conn.execute(
+                "INSERT INTO memories_fts (memories_fts, rowid, text) VALUES ('delete', ?, ?)",
+                (row["rowid"], row["text"]),
+            )
+            self._conn.execute(
+                "UPDATE memories SET text = ?, confirmed = 1 WHERE id = ?", (text, memory_id)
+            )
+            self._conn.execute(
+                "INSERT INTO memories_fts (rowid, text) VALUES (?, ?)", (row["rowid"], text)
+            )
+            self._conn.commit()
+            self.revision += 1
+            return self._conn.execute(
+                "SELECT * FROM memories WHERE id = ?", (memory_id,)
+            ).fetchone()
+
+    async def update(self, memory_id: str, text: str) -> MemoryEntry | None:
+        """Replace one memory's text in place; the person edited it, so it is
+        confirmed.  ``None`` when there is no such memory (addendum 27, C7)."""
+        row = await asyncio.to_thread(self._update, memory_id, text.strip())
+        if row is None:
+            return None
+        entry = self._row_to_entry(row)
+        await self.mirror_rewrite(entry.namespace)
+        return entry
 
     def _delete(self, memory_id: str) -> bool:
         with self._lock:
@@ -457,6 +536,15 @@ class MemoryStore:
             (*wanted, text.strip()),
         )
         return bool(rows)
+
+    async def find_text(self, text: str, *, namespace: str = "default") -> MemoryEntry | None:
+        """The memory holding exactly ``text`` in ``namespace``, if one does."""
+        rows = await asyncio.to_thread(
+            self._query,
+            "SELECT * FROM memories WHERE namespace = ? AND text = ? LIMIT 1",
+            (namespace or "default", text.strip()),
+        )
+        return self._row_to_entry(rows[0]) if rows else None
 
     def close(self) -> None:
         with self._lock:

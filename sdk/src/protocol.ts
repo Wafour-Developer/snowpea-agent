@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.27.0";
+export const PROTOCOL_VERSION = "1.28.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -1349,6 +1349,20 @@ export interface McpUpdateResult {
   ok?: boolean;
 }
 
+/** `memory.confirm` params. Accept or drop a preference a memory.candidate event proposed (1.28.0). */
+export interface MemoryConfirmParams {
+  /** True saves it as a confirmed memory; false drops it. */
+  accept: boolean;
+  /** From the memory.candidate event. */
+  candidateId: string;
+}
+
+/** `memory.confirm` result. */
+export interface MemoryConfirmResult {
+  /** The stored memory when accepted; None when dropped. */
+  id?: string | null;
+}
+
 /** `memory.delete` params. Forget one stored memory. */
 export interface MemoryDeleteParams {
   /** With source: UTC ISO time; forget visits before it. */
@@ -1414,6 +1428,8 @@ export interface MemoryListParams {
 export interface MemoryListResult {
   /** Matching memories, newest or best first. */
   entries?: ({
+    /** True when the person wrote, edited or accepted it (1.28.0). */
+    confirmed?: boolean;
     /** When it was written (ISO-8601, UTC). */
     createdAt?: string;
     /** Memory id. */
@@ -1424,8 +1440,10 @@ export interface MemoryListResult {
     scope?: "project" | "global" | "agent" | "all";
     /** True when memory.write would now refuse this text: it holds what looks like a credential, card or long number, phone number, email address or resident registration number (1.27.0). It was saved before the check; a settings page can offer to delete it. */
     sensitive?: boolean;
-    /** "browser" for a visited-page memory (1.27.0). */
-    source?: "browser" | null;
+    /** Where it came from: "browser" for a visited-page memory (1.27.0); from 1.28.0 a user memory says who wrote it: "user-said" (memory.write), "model" (save_memory), "nudge" (the auto-remember of "remember …") or "auto-pref" (the preference extractor). memory.update keeps it and sets confirmed. None for a memory saved before 1.28.0. */
+    source?: "browser" | "user-said" | "model" | "nudge" | "auto-pref" | null;
+    /** The session that wrote it, if one did (1.28.0). */
+    sourceSession?: string | null;
     /** Tags attached at write time. */
     tags?: string[];
     /** Stored text. */
@@ -1464,6 +1482,45 @@ export interface MemorySearchResult {
     /** Stored text. */
     text: string;
   })[];
+}
+
+/** `memory.update` params. Edit one stored memory in place; it becomes confirmed (1.28.0). */
+export interface MemoryUpdateParams {
+  /** Memory id. */
+  id: string;
+  /** The new text; refused like memory.write when it holds a value. */
+  text: string;
+}
+
+/** `memory.update` result. */
+export interface MemoryUpdateResult {
+  /** The memory after the edit. */
+  entry: {
+    /** True when the person wrote, edited or accepted it (1.28.0). */
+    confirmed?: boolean;
+    /** When it was written (ISO-8601, UTC). */
+    createdAt?: string;
+    /** Memory id. */
+    id: string;
+    /** Project root for a project memory; empty otherwise. */
+    project?: string;
+    /** Scope this memory is kept in. */
+    scope?: "project" | "global" | "agent" | "all";
+    /** True when memory.write would now refuse this text: it holds what looks like a credential, card or long number, phone number, email address or resident registration number (1.27.0). It was saved before the check; a settings page can offer to delete it. */
+    sensitive?: boolean;
+    /** Where it came from: "browser" for a visited-page memory (1.27.0); from 1.28.0 a user memory says who wrote it: "user-said" (memory.write), "model" (save_memory), "nudge" (the auto-remember of "remember …") or "auto-pref" (the preference extractor). memory.update keeps it and sets confirmed. None for a memory saved before 1.28.0. */
+    source?: "browser" | "user-said" | "model" | "nudge" | "auto-pref" | null;
+    /** The session that wrote it, if one did (1.28.0). */
+    sourceSession?: string | null;
+    /** Tags attached at write time. */
+    tags?: string[];
+    /** Stored text. */
+    text: string;
+    /** The visited page, for a browser memory. */
+    url?: string;
+    /** When the page was visited, for a browser memory, if known. */
+    visitedAt?: string;
+  };
 }
 
 /** `memory.write` params. Store a memory with tags. */
@@ -3319,8 +3376,10 @@ export interface SkillInstallResult {
   ok?: boolean;
 }
 
-/** `skill.learn` params. Turn a session's history into a SKILL.md, as /skill learn does, in the project or the user's skills (1.27.0). Answers when it is written and loaded. */
+/** `skill.learn` params. Turn a session's history into a SKILL.md, as /skill learn does, in the project or the user's skills (1.28.0). Answers when it is written and loaded. */
 export interface SkillLearnParams {
+  /** Overwrite a SKILL.md already at the target; otherwise that is refused. */
+  force?: boolean;
   /** Skill name; omit to let the model name it. */
   name?: string | null;
   /** "global" writes it to the user's skills under the snowpea home, so every later session loads it; "project" under the session workdir's .snowpea/skills. */
@@ -4558,6 +4617,17 @@ export interface LspDiagnosticsEventPayload {
   warnings?: number;
 }
 
+/** Payload of `session.event` with kind `memory.candidate`. */
+export interface MemoryCandidateEventPayload {
+  /** Pass to memory.confirm. */
+  candidateId: string;
+  /** shopping | output | site. */
+  category: "shopping" | "output" | "site";
+  kind?: "memory.candidate";
+  /** The preference as it would be stored. */
+  text: string;
+}
+
 /** Payload of `session.event` with kind `message.delta`. */
 export interface MessageDeltaEventPayload {
   kind?: "message.delta";
@@ -4927,6 +4997,7 @@ export interface SessionEventKindMap {
   "job.failed": JobFailedEventPayload;
   "loop.suspected": LoopSuspectedEventPayload;
   "lsp.diagnostics": LspDiagnosticsEventPayload;
+  "memory.candidate": MemoryCandidateEventPayload;
   "message.delta": MessageDeltaEventPayload;
   "message.done": MessageDoneEventPayload;
   "message.reasoning": MessageReasoningEventPayload;
@@ -4968,6 +5039,7 @@ export const SESSION_EVENT_KINDS: readonly SessionEventKind[] = [
   "job.failed",
   "loop.suspected",
   "lsp.diagnostics",
+  "memory.candidate",
   "message.delta",
   "message.done",
   "message.reasoning",
@@ -5043,10 +5115,12 @@ export interface MethodMap {
   "mcp.remove": { params: McpRemoveParams; result: McpRemoveResult };
   "mcp.test": { params: McpTestParams; result: McpTestResult };
   "mcp.update": { params: McpUpdateParams; result: McpUpdateResult };
+  "memory.confirm": { params: MemoryConfirmParams; result: MemoryConfirmResult };
   "memory.delete": { params: MemoryDeleteParams; result: MemoryDeleteResult };
   "memory.ingest": { params: MemoryIngestParams; result: MemoryIngestResult };
   "memory.list": { params: MemoryListParams; result: MemoryListResult };
   "memory.search": { params: MemorySearchParams; result: MemorySearchResult };
+  "memory.update": { params: MemoryUpdateParams; result: MemoryUpdateResult };
   "memory.write": { params: MemoryWriteParams; result: MemoryWriteResult };
   "permission.allowlist.add": { params: PermissionAllowlistAddParams; result: PermissionAllowlistAddResult };
   "permission.allowlist.list": { params: PermissionAllowlistListParams; result: PermissionAllowlistListResult };
@@ -5179,10 +5253,12 @@ export type ClientMethod =
   | "mcp.remove"
   | "mcp.test"
   | "mcp.update"
+  | "memory.confirm"
   | "memory.delete"
   | "memory.ingest"
   | "memory.list"
   | "memory.search"
+  | "memory.update"
   | "memory.write"
   | "permission.allowlist.add"
   | "permission.allowlist.list"

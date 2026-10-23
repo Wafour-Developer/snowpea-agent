@@ -338,6 +338,18 @@ async def test_skill_learn_rpc_writes_a_global_skill_every_session_loads(
     assert path.read_text(encoding="utf-8").startswith("---\nname: notes\n")
     assert not (workdir / ".snowpea" / "skills").exists()
 
+    # A second learn does not replace it unless asked to.
+    again = await client.call(
+        "skill.learn", {"sessionId": session_id, "name": "notes", "scope": "global"}
+    )
+    assert again["error"]["data"]["code"] == "invalid_params"
+    assert "already exists" in again["error"]["message"]
+    forced = await client.ok(
+        "skill.learn",
+        {"sessionId": session_id, "name": "notes", "scope": "global", "force": True},
+    )
+    assert forced["path"] == str(path)
+
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
     other = await start_session(client, elsewhere)

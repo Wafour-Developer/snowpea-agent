@@ -500,8 +500,9 @@ def test_every_workflow_prompt_renders_with_no_placeholders_left() -> None:
         path.stem for path in (loader.PACKAGE_DIR / "workflows").glob("*.md")
     )
     # the workflow briefs, init.md, skill-generate.md, the review trio,
-    # and the six team-pipeline stage briefs (M6/M7 §9)
-    assert len(names) in (21, 22)
+    # the six team-pipeline stage briefs (M6/M7 §9) and the preference
+    # extractor's brief (addendum 27, C7)
+    assert len(names) in (22, 23)
     for name in names:
         text = compose.workflow_brief(
             name,
