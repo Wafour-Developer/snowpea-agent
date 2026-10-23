@@ -1420,6 +1420,8 @@ export interface MemoryListResult {
     project?: string;
     /** Scope this memory is kept in. */
     scope?: "project" | "global" | "agent" | "all";
+    /** True when memory.write would now refuse this text: it holds what looks like a credential, card or long number, phone number, email address or resident registration number (1.27.0). It was saved before the check; a settings page can offer to delete it. */
+    sensitive?: boolean;
     /** Tags attached at write time. */
     tags?: string[];
     /** Stored text. */

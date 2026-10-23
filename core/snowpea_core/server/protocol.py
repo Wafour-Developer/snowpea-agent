@@ -2936,6 +2936,15 @@ class MemoryEntryInfo(Payload):
         default="", description="Project root for a project memory; empty otherwise."
     )
     createdAt: str = Field(default="", description="When it was written (ISO-8601, UTC).")
+    sensitive: bool = Field(
+        default=False,
+        description=(
+            "True when memory.write would now refuse this text: it holds what looks like "
+            "a credential, card or long number, phone number, email address or resident "
+            "registration number (1.27.0). It was saved before the check; a settings "
+            "page can offer to delete it."
+        ),
+    )
 
 
 class MemoryListResult(Payload):
@@ -5696,6 +5705,7 @@ CAPABILITIES: list[str] = [
     "llmTimings",
     "sharedDaemon",
     "sessionEvents",
+    "memorySafe",
 ]
 
 #: Where the daemon listens; mirrored into the schema dump for the SDK.

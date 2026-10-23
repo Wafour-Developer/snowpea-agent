@@ -31,6 +31,7 @@ from snowpea_core.lsp import wire_lsp
 from snowpea_core.memory import services as memory_services
 from snowpea_core.memory import wire_memory
 from snowpea_core.memory.retrieval import agent_namespace_of, project_namespace_of
+from snowpea_core.memory.safety import refusal, sensitive_kind
 from snowpea_core.memory.scopes import GLOBAL_NAMESPACE, project_namespace
 from snowpea_core.providers import effort as effort_scale
 from snowpea_core.providers.base import ProviderError
@@ -1159,6 +1160,7 @@ async def memory_list_handler(
                 scope=cast(MemoryScope, entry.scope),
                 project=entry.project,
                 createdAt=entry.created_at,
+                sensitive=sensitive_kind(entry.text) is not None,
             )
             for entry in entries
         ]
@@ -1190,6 +1192,9 @@ async def memory_write_handler(
     text = params.text.strip()
     if not text:
         raise RpcError(errors.INVALID_PARAMS, "memory.write needs a non-empty text")
+    kind = sensitive_kind(text)
+    if kind is not None:
+        raise RpcError(errors.INVALID_PARAMS, refusal(kind))
     entry = await memory_services(core).store.write(
         text, tags=params.tags, namespace=params.namespace or GLOBAL_NAMESPACE
     )

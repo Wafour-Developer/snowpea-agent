@@ -50,6 +50,7 @@ Server capabilities advertised in the `system.hello` result:
 - `llmTimings`
 - `lsp`
 - `mcp`
+- `memorySafe`
 - `onceOnlyScope`
 - `pageActionAlways`
 - `providerModelsError`
@@ -1285,7 +1286,7 @@ List stored memories by scope, newest first.
 
 | field | type | required | description |
 |---|---|---|---|
-| `entries` | `({ createdAt?: string; id: string; project?: string; scope?: "project" \| "global" \| "agent" \| "all"; tags?: string[]; text: string; })[]` | no | Matching memories, newest or best first. |
+| `entries` | `({ createdAt?: string; id: string; project?: string; scope?: "project" \| "global" \| "agent" \| "all"; sensitive?: boolean; tags?: string[]; text: string; })[]` | no | Matching memories, newest or best first. |
 
 ### `memory.search`
 

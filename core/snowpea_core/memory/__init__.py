@@ -25,6 +25,7 @@ from snowpea_core.memory.retrieval import (
     remember_candidate,
     render_block,
 )
+from snowpea_core.memory.safety import sensitive_kind
 from snowpea_core.memory.scopes import (
     GLOBAL_NAMESPACE,
     project_namespace,
@@ -149,6 +150,12 @@ async def nudge_after_turn(core: Core, session: Session, text: str) -> MemoryEnt
     memory = services(core)
     fact = remember_candidate(text, memory.settings.auto_remember_patterns)
     if fact is None:
+        return None
+    kind = sensitive_kind(fact)
+    if kind is not None:
+        # The user asked, but a remembered value would be repeated in every
+        # later prompt; the kind is logged, never the text (addendum 27, C6).
+        log.debug("auto-remember skipped for session %s: %s", session.id, kind)
         return None
     namespace = namespace_of(session)
     task = memory._track(

@@ -26,6 +26,7 @@ from snowpea_core.memory.retrieval import (
     namespaces_for,
     project_namespace_of,
 )
+from snowpea_core.memory.safety import refusal, sensitive_kind
 from snowpea_core.memory.scopes import GLOBAL_NAMESPACE, label, scope_of
 from snowpea_core.memory.store import MemoryEntry
 from snowpea_core.prompts import tool_descriptions as descriptions
@@ -206,6 +207,9 @@ async def save_memory(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     text = str(args.get("text") or "").strip()
     if not text:
         return ToolResult(ok=False, error="save_memory needs a non-empty text")
+    kind = sensitive_kind(text)
+    if kind is not None:
+        return ToolResult(ok=False, error=refusal(kind), meta={"written": False})
     raw_scope = str(args.get("scope") or "").strip().lower() or None
     if raw_scope is not None and raw_scope not in {"project", "global"}:
         return ToolResult(
