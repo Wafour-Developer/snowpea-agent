@@ -1206,6 +1206,19 @@ async def test_browsing_memory_ingest_dedupe_recall_and_forget(
         other = await new_session(client, tmp_path / "o", browserMemory=False)
         assert BROWSER_NAMESPACE not in namespaces_for(daemon.core.sessions.get(other))
 
+        # memory.list {namespace: "browser"} lists the pages, and only them.
+        await client.ok("memory.write", {"text": "답은 한국어로"})
+        listed = (await client.ok("memory.list", {"namespace": "browser"}))["entries"]
+        assert {(e["source"], e["url"], e["visitedAt"]) for e in listed} == {
+            ("browser", "https://github.com/a/b", "2026-09-01T00:00:00Z"),
+            ("browser", "https://example.com/x", "2026-09-20T00:00:00Z"),
+        }
+        assert all(e["text"].startswith("[visited page] ") for e in listed)
+        found = await client.ok("memory.list", {"namespace": "browser", "query": "hello"})
+        assert [e["url"] for e in found["entries"]] == ["https://example.com/x"]
+        plain = (await client.ok("memory.list", {}))["entries"]
+        assert [e["source"] for e in plain] == [None]
+
         store = memory_services(daemon.core).store
         await client.ok("memory.delete", {"source": "browser", "url": "https://github.com"})
         left = await store.list(namespace=BROWSER_NAMESPACE)

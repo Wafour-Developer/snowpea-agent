@@ -2964,6 +2964,13 @@ class MemoryListParams(Payload):
         default=None, description="Free-text filter; omit to list newest first."
     )
     limit: int = Field(default=100, description="Maximum number of entries.")
+    namespace: Literal["browser"] | None = Field(
+        default=None,
+        description=(
+            '"browser" lists visited-page memories (memory.ingest) instead, newest first; '
+            "scope, sessionId and project are then ignored (1.27.0)."
+        ),
+    )
 
 
 class MemoryEntryInfo(Payload):
@@ -2985,6 +2992,13 @@ class MemoryEntryInfo(Payload):
             "registration number (1.27.0). It was saved before the check; a settings "
             "page can offer to delete it."
         ),
+    )
+    source: Literal["browser"] | None = Field(
+        default=None, description='"browser" for a visited-page memory (1.27.0).'
+    )
+    url: str = Field(default="", description="The visited page, for a browser memory.")
+    visitedAt: str = Field(
+        default="", description="When the page was visited, for a browser memory, if known."
     )
 
 
@@ -5842,6 +5856,7 @@ CAPABILITIES: list[str] = [
     "sessionOverrides",
     "turnOutcome",
     "siteStats",
+    "browserMemoryList",
 ]
 
 #: Where the daemon listens; mirrored into the schema dump for the SDK.

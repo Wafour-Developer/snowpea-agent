@@ -1141,8 +1141,12 @@ def _scope_namespaces(core: Core, params: MemoryListParams) -> list[str]:
 async def memory_list_handler(
     _conn: RpcConnection, params: MemoryListParams, core: Core
 ) -> MemoryListResult:
-    """``memory.list`` — what is remembered, filtered by scope (M5 §1b)."""
-    namespaces = _scope_namespaces(core, params)
+    """``memory.list`` — what is remembered, filtered by scope (M5 §1b), or the
+    visited pages a browser reported when ``namespace`` is ``"browser"``."""
+    from snowpea_core.memory.browser import BROWSER_NAMESPACE, page_info
+
+    browser = params.namespace == "browser"
+    namespaces = [BROWSER_NAMESPACE] if browser else _scope_namespaces(core, params)
     if not namespaces:
         return MemoryListResult(entries=[])
     store = memory_services(core).store
@@ -1163,6 +1167,7 @@ async def memory_list_handler(
                 project=entry.project,
                 createdAt=entry.created_at,
                 sensitive=sensitive_kind(entry.text) is not None,
+                **(page_info(entry) if browser else {}),
             )
             for entry in entries
         ]

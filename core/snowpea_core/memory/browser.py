@@ -4,7 +4,8 @@
 namespace, tagged ``source:browser``, ``url:<url>``, ``hash:<digest>`` and
 ``visited:<iso>``; the same URL with the same text is stored once.
 ``memory.delete {source: "browser", url?, before?}`` forgets a site or clears
-history.  A session recalls from the namespace only when it opted in
+history, and ``memory.list {namespace: "browser"}`` lists the pages.  A
+session recalls from the namespace only when it opted in
 (``session.create {browserMemory}``; on by default for a browser client).
 """
 
@@ -61,6 +62,15 @@ def _tag_value(tags: list[str], prefix: str) -> str | None:
     return next((tag[len(prefix) :] for tag in tags if tag.startswith(prefix)), None)
 
 
+def page_info(entry: Any) -> dict[str, Any]:
+    """``memory.list`` fields of a visited-page memory: its source, url and visit time."""
+    return {
+        "source": "browser",
+        "url": _tag_value(entry.tags, "url:") or "",
+        "visitedAt": _tag_value(entry.tags, "visited:") or entry.created_at,
+    }
+
+
 async def forget(store: Any, *, url: str | None = None, before: str | None = None) -> int:
     """Delete browsing memories for ``url`` (a page, or a site when it has no path),
     or visited before ``before`` (ISO time), or all of them; returns how many."""
@@ -78,4 +88,4 @@ async def forget(store: Any, *, url: str | None = None, before: str | None = Non
     return removed
 
 
-__all__ = ["BROWSER_NAMESPACE", "SOURCE_TAG", "forget", "ingest", "page_digest"]
+__all__ = ["BROWSER_NAMESPACE", "SOURCE_TAG", "forget", "ingest", "page_digest", "page_info"]

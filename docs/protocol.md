@@ -42,6 +42,7 @@ Server capabilities advertised in the `system.hello` result:
 - `approvals`
 - `audio`
 - `batchedFileTools`
+- `browserMemoryList`
 - `checkpoints`
 - `commands`
 - `hostToolParallel`
@@ -1282,6 +1283,7 @@ List stored memories by scope, newest first.
 | field | type | required | description |
 |---|---|---|---|
 | `limit` | `number` | no | Maximum number of entries. |
+| `namespace` | `"browser" \| null` | no | "browser" lists visited-page memories (memory.ingest) instead, newest first; scope, sessionId and project are then ignored (1.27.0). |
 | `project` | `string \| null` | no | Project root to use instead of a session's, so a CLI in a checkout can list that project's memories without opening a session. |
 | `query` | `string \| null` | no | Free-text filter; omit to list newest first. |
 | `scope` | `"project" \| "global" \| "agent" \| "all" \| null` | no | Which scopes to list: "project", "global", "agent" or "all" (default). |
@@ -1291,7 +1293,7 @@ List stored memories by scope, newest first.
 
 | field | type | required | description |
 |---|---|---|---|
-| `entries` | `({ createdAt?: string; id: string; project?: string; scope?: "project" \| "global" \| "agent" \| "all"; sensitive?: boolean; tags?: string[]; text: string; })[]` | no | Matching memories, newest or best first. |
+| `entries` | `({ createdAt?: string; id: string; project?: string; scope?: "project" \| "global" \| "agent" \| "all"; sensitive?: boolean; source?: "browser" \| null; tags?: string[]; text: string; url?: string; visitedAt?: string; })[]` | no | Matching memories, newest or best first. |
 
 ### `memory.search`
 
