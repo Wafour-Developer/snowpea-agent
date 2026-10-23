@@ -43,11 +43,13 @@ def write_pack(
     version: str = "2026.10.23",
     name: str = "example",
     source: str = "pack",
+    kind: str | None = "site-pack",
 ) -> Path:
     sites = Path(daemon.core.paths.home) / "plugins" / "snowpea-browser" / "sites"
     sites.mkdir(parents=True, exist_ok=True)
     body = json.dumps(
         {
+            **({"kind": kind} if kind else {}),
             "packVersion": version,
             "origin": ORIGIN,
             "source": source,
@@ -109,6 +111,11 @@ async def test_a_pack_entry_serves_until_a_learned_one_shadows_it(
             "site.mark", {"origin": ORIGIN, "entryId": product, "outcome": "ok"}
         )
         assert marked["entry"]["source"] == "pack" and marked["entry"]["successCount"] == 0
+        # The shadowed one is gone from site.get, so it cannot be marked either.
+        shadowed = await client.call(
+            "site.mark", {"origin": ORIGIN, "entryId": pack_id, "outcome": "ok"}
+        )
+        assert code_of(shadowed) == errors.NOT_FOUND
         [stats] = (await client.ok("site.stats", {}))["origins"]
         assert stats["locateOk"] == 1
 
@@ -133,6 +140,8 @@ async def test_a_bad_signature_is_ignored_with_a_log_line(
     write_pack(daemon, None, [entry()], name="forged")
     unsigned = write_pack(daemon, key, [entry("product", "/p/*")], name="unsigned")
     unsigned.with_name(unsigned.name + ".sig").unlink()
+    # Signed, but not a pack: the same key signs the update feed.
+    write_pack(daemon, key, [entry("cart", "/cart")], name="feed", kind=None)
     await _reload(daemon)
     client = await open_client(http, daemon, client_id=A)
     try:
@@ -141,6 +150,7 @@ async def test_a_bad_signature_is_ignored_with_a_log_line(
         assert got == []
         assert "forged.json: missing or bad signature" in caplog.text
         assert "unsigned.json: missing or bad signature" in caplog.text
+        assert 'feed.json: not a pack (kind is not "site-pack")' in caplog.text
     finally:
         await client.stop()
 

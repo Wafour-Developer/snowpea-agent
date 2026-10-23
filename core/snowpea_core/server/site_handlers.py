@@ -152,10 +152,20 @@ def _with_packs(core: Core, origin: str, learned: list[dict[str, Any]]) -> list[
     return [*learned, *packed]
 
 
-def _pack_entry(core: Core, origin: str, entry_id: str) -> dict[str, Any] | None:
+async def _pack_entry(
+    core: Core, store: Any, profile: str, origin: str, entry_id: str
+) -> dict[str, Any] | None:
+    """The pack entry ``site.get`` would return for ``entry_id``: none once a
+    learned entry shadows its pageType."""
     if not site_packs.is_pack_id(entry_id):
         return None
-    return site_packs.packs_for(core).entry(origin, entry_id)
+    entry = site_packs.packs_for(core).entry(origin, entry_id)
+    if entry is None:
+        return None
+    learned = await store.site_entries(profile, origin)
+    if any(e["pageType"] == entry["pageType"] for e in learned):
+        return None
+    return entry
 
 
 async def site_get_handler(conn: RpcConnection, params: SiteGetParams, core: Core) -> SiteGetResult:
@@ -269,7 +279,7 @@ async def site_mark_handler(
     entry = await store.site_update(profile, origin, params.entryId, change)
     if entry is None:
         # A pack entry is read-only: the use is counted for site.stats only.
-        entry = _pack_entry(core, origin, params.entryId)
+        entry = await _pack_entry(core, store, profile, origin, params.entryId)
     if entry is None:
         raise RpcError(errors.NOT_FOUND, f"no site entry {params.entryId} for {origin}")
     if params.outcome == "ok":
@@ -365,7 +375,7 @@ async def site_mark_part_handler(
         entry = await store.site_update(profile, origin, params.entryId, change)
         if entry is None:
             # A pack entry is read-only: check the part exists, count, change nothing.
-            entry = _pack_entry(core, origin, params.entryId)
+            entry = await _pack_entry(core, store, profile, origin, params.entryId)
             if entry is not None:
                 _count_part(copy.deepcopy(entry), params, now)
     except _PartMissing as exc:
@@ -396,6 +406,7 @@ async def site_list_handler(
     await _sweep(store, profile, datetime.now(UTC))
     rows = await store.site_list(profile, origin, params.cursor, params.limit + 1)
     page = rows[: params.limit]
+    packs = site_packs.packs_for(core)
     return SiteListResult(
         sites=[
             SiteSummary(
@@ -406,7 +417,7 @@ async def site_list_handler(
                 pageTypes=sorted(set(str(row["page_types"] or "").split(",")) - {""}),
                 successCount=int(row["success_count"] or 0),
                 failureCount=int(row["failure_count"] or 0),
-                packEntries=_pack_count(core, row),
+                packEntries=_pack_count(packs, row),
             )
             for row in page
         ],
@@ -414,10 +425,10 @@ async def site_list_handler(
     )
 
 
-def _pack_count(core: Core, row: Any) -> int:
+def _pack_count(packs: site_packs.SitePacks, row: Any) -> int:
     """Pack entries of a listed origin that no learned entry shadows (C5)."""
     learned = set(str(row["page_types"] or "").split(",")) - {""}
-    packed = site_packs.packs_for(core).entries(row["origin"])
+    packed = packs.entries(row["origin"])
     return sum(1 for entry in packed if entry["pageType"] not in learned)
 
 

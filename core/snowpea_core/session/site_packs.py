@@ -8,17 +8,20 @@ against :data:`PACK_KEYS` is ignored with a log line.
 
 The JSON is one origin's pack::
 
-    {"packVersion": "2026.10.23", "origin": "https://www.example.com",
+    {"kind": "site-pack", "packVersion": "2026.10.23",
+     "origin": "https://www.example.com",
      "source": "pack", "publishedAt": "2026-10-23T00:00:00Z",
      "entries": [<SiteEntryInput>, ...]}
 
-``source`` is ``"pack"`` (curated, the default) or ``"shared"`` (opt-in maps
+``kind`` must be ``"site-pack"``, so nothing else the key signs (the update
+feed) reads as a pack.  ``source`` is ``"pack"`` (curated, the default) or ``"shared"`` (opt-in maps
 published through the same signed channel).  Every entry passes the same
 checks as ``site.put``.  Pack entries are never stored: ``site.get`` lays
 them under the profile's learned entries, a learned entry wins for its
 pageType, retention never sees them, and ``site.put`` only writes learned
 ones.  Two packs for one origin: the higher ``packVersion`` replaces the
-other.
+other (on a tie, the later path).  The directories are looked at again at
+most every :data:`RESCAN_SEC` seconds, or at once when the plugin set changes.
 """
 
 from __future__ import annotations
@@ -29,6 +32,7 @@ import hashlib
 import json
 import logging
 import re
+import time
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -51,6 +55,9 @@ PACK_KEYS: tuple[bytes, ...] = (
 MAX_PACK_BYTES = 1024 * 1024
 
 PACK_SOURCES = ("pack", "shared")
+
+#: How often ``site.get`` may look for changed pack files.
+RESCAN_SEC = 2.0
 
 _VERSION_PART = re.compile(r"\d+|[^\d]+")
 
@@ -95,12 +102,14 @@ def _read_signature(path: Path) -> bytes | None:
 def load_pack(path: Path, keys: Iterable[bytes]) -> tuple[str, str, list[dict[str, Any]]] | None:
     """``(origin, packVersion, entries)`` of one signed pack file, or ``None``."""
     try:
-        if path.stat().st_size > MAX_PACK_BYTES:
-            log.warning("site pack %s: larger than %d bytes; ignored", path, MAX_PACK_BYTES)
-            return None
-        data = path.read_bytes()
+        with path.open("rb") as handle:
+            data = handle.read(MAX_PACK_BYTES + 1)
+        mtime = path.stat().st_mtime
     except OSError as exc:
         log.warning("site pack %s: unreadable (%s); ignored", path, exc)
+        return None
+    if len(data) > MAX_PACK_BYTES:
+        log.warning("site pack %s: larger than %d bytes; ignored", path, MAX_PACK_BYTES)
         return None
     signature = _read_signature(path.with_name(path.name + ".sig"))
     if signature is None or not verify(data, signature, keys):
@@ -108,11 +117,13 @@ def load_pack(path: Path, keys: Iterable[bytes]) -> tuple[str, str, list[dict[st
         return None
     try:
         pack = json.loads(data)
+        if pack.get("kind") != "site-pack":
+            raise ValueError('kind is not "site-pack"')
         origin = sm.normalize_origin(str(pack["origin"]))
         version = str(pack["packVersion"]).strip()
         source = str(pack.get("source") or "pack")
         raw_entries = pack.get("entries")
-    except (ValueError, KeyError, TypeError, sm.SiteMemoryError) as exc:
+    except (ValueError, KeyError, TypeError, AttributeError, sm.SiteMemoryError) as exc:
         log.warning("site pack %s: not a pack (%s); ignored", path, exc)
         return None
     if not version or len(version) > 40 or source not in PACK_SOURCES:
@@ -125,7 +136,7 @@ def load_pack(path: Path, keys: Iterable[bytes]) -> tuple[str, str, list[dict[st
     try:
         when = sm.iso(min(sm.parse_time(published, "publishedAt"), datetime.now(UTC)))
     except sm.SiteMemoryError:
-        when = sm.iso(datetime.fromtimestamp(path.stat().st_mtime, UTC))
+        when = sm.iso(datetime.fromtimestamp(mtime, UTC))
     entries: list[dict[str, Any]] = []
     page_types: set[str] = set()
     for index, raw in enumerate(raw_entries[: sm.MAX_ENTRIES_PER_ORIGIN]):
@@ -168,7 +179,9 @@ class SitePacks:
 
     def __init__(self, keys: Iterable[bytes] | None = None) -> None:
         self.keys = tuple(PACK_KEYS if keys is None else keys)
-        self._stamp: tuple[tuple[str, int, int], ...] = ()
+        self._stamp: tuple[tuple[str, int, int], ...] | None = None
+        self._dirs: tuple[str, ...] | None = None
+        self._checked = 0.0
         self._by_origin: dict[str, tuple[str, list[dict[str, Any]]]] = {}
 
     @staticmethod
@@ -182,6 +195,12 @@ class SitePacks:
         return found
 
     def refresh(self, directories: Iterable[Path]) -> None:
+        directories = list(directories)
+        dirs = tuple(str(directory) for directory in directories)
+        now = time.monotonic()
+        if dirs == self._dirs and now - self._checked < RESCAN_SEC:
+            return
+        self._dirs, self._checked = dirs, now
         files = self._files(directories)
         stamp: list[tuple[str, int, int]] = []
         for path in files:
@@ -194,17 +213,19 @@ class SitePacks:
                 stamp.append((str(part), info.st_mtime_ns, info.st_size))
         if tuple(stamp) == self._stamp:
             return
-        self._stamp = tuple(stamp)
         by_origin: dict[str, tuple[str, list[dict[str, Any]]]] = {}
-        for path in files:
+        # Sorted by path, so on a packVersion tie the later path wins whatever
+        # order the plugins load in.
+        for path in sorted(files, key=str):
             loaded = load_pack(path, self.keys)
             if loaded is None:
                 continue
             origin, version, entries = loaded
             held = by_origin.get(origin)
-            if held is None or version_key(version) > version_key(held[0]):
+            if held is None or version_key(version) >= version_key(held[0]):
                 by_origin[origin] = (version, entries)
         self._by_origin = by_origin
+        self._stamp = tuple(stamp)
         if by_origin:
             log.info("site packs: %d origin%s", len(by_origin), "" if len(by_origin) == 1 else "s")
 

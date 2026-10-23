@@ -28,6 +28,7 @@ dependencies = [
   "croniter>=2",
   "ddgs>=9",
   "asyncssh>=2.14",
+  "cryptography>=42",
   "python-dotenv",
   "mcp>=2.2.0",
   "jsonschema>=4",
