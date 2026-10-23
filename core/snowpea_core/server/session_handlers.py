@@ -355,7 +355,8 @@ async def session_list_handler(
         live = core.sessions.get(row.sessionId)
         origin = origin_of(live, conn) if live is not None else None
         out.append(row.model_copy(update={"origin": origin}))
-    return SessionListResult(sessions=out)
+    complete = core.sessions_loaded and (not params.includeClosed or core.store is not None)
+    return SessionListResult(sessions=out, complete=complete)
 
 
 async def collect_sessions(core: Core, params: SessionListParams) -> list[SessionSummary]:

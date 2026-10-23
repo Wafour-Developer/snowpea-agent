@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.26.0";
+export const PROTOCOL_VERSION = "1.27.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -1957,6 +1957,39 @@ export interface SessionDeleteSavedResult {
   deleted?: number;
 }
 
+/** `session.events` params. A session's saved events, read only (1.27.0): unlike session.resume it does not subscribe, attach, restore or take the session's approvals. */
+export interface SessionEventsParams {
+  /** Only events with a greater seq. */
+  afterSeq?: number;
+  /** At most this many events, oldest first. */
+  limit?: number;
+  /** Session whose saved events to read. */
+  sessionId: string;
+}
+
+/** `session.events` result. */
+export interface SessionEventsResult {
+  /** Saved events after afterSeq, in seq order. */
+  events?: ({
+    /** Event kind; see sessionEventKinds in the schema dump. */
+    kind: string;
+    /** Kind-specific body. */
+    payload?: Record<string, unknown>;
+    /** Monotonic per-session sequence number; resume replays after it. */
+    seq: number;
+    /** Session the event belongs to. */
+    sessionId: string;
+    /** UTC ISO-8601 timestamp. */
+    ts: string;
+  })[];
+  /** The session's newest saved seq when the call was answered; with more false, the events returned reach it. */
+  lastSeq?: number;
+  /** True when events past the last one returned exist. */
+  more?: boolean;
+  /** The session. */
+  sessionId: string;
+}
+
 /** `session.interrupt` params. Stop the running turn as soon as possible. */
 export interface SessionInterruptParams {
   /** Target session. */
@@ -1985,6 +2018,8 @@ export interface SessionListParams {
 
 /** `session.list` result. */
 export interface SessionListResult {
+  /** True when the list is all there is for what was asked (1.27.0): the daemon's boot has restored the sessions it reopens, and with includeClosed the saved ones were read. Without includeClosed it covers live sessions only, which after a restart is usually none; ask with includeClosed before forgetting a closed chat. False (or absent, from an older daemon) means an empty or short list proves nothing, so a client must not forget its own records by it. */
+  complete?: boolean;
   /** Every live session. */
   sessions?: ({
     /** Named agent the session belongs to, when it has one. */
@@ -4909,6 +4944,7 @@ export interface MethodMap {
   "session.continue": { params: SessionContinueParams; result: SessionContinueResult };
   "session.create": { params: SessionCreateParams; result: SessionCreateResult };
   "session.deleteSaved": { params: SessionDeleteSavedParams; result: SessionDeleteSavedResult };
+  "session.events": { params: SessionEventsParams; result: SessionEventsResult };
   "session.interrupt": { params: SessionInterruptParams; result: SessionInterruptResult };
   "session.list": { params: SessionListParams; result: SessionListResult };
   "session.notice": { params: SessionNoticeParams; result: SessionNoticeResult };
@@ -5040,6 +5076,7 @@ export type ClientMethod =
   | "session.continue"
   | "session.create"
   | "session.deleteSaved"
+  | "session.events"
   | "session.interrupt"
   | "session.list"
   | "session.notice"

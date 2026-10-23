@@ -164,6 +164,9 @@ class Core:
     #: the memory nudge) can decline to start once shutdown has begun, instead
     #: of racing the services it depends on being closed (CORE-memory-race).
     stopping: bool = False
+    #: Set once ``Daemon.start`` has restored the sessions it reopens at boot,
+    #: so ``session.list`` can say an empty answer is a real one (1.27.0).
+    sessions_loaded: bool = False
 
     # -- settings hot reload (CORE-settings-reload) ---------------------
 
@@ -757,6 +760,7 @@ class Daemon:
         # needs that session to exist again (M7 contract §6).
         await core.named_agents.restore()
         await core.gateway.restore()
+        core.sessions_loaded = True
         # A messenger the setup wizard enabled goes live here, without anyone
         # having to call ``gateway.bind`` by hand (CORE-gateway-autostart).
         await core.gateway.sync_from_settings(core.settings)

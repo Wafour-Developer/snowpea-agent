@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.26.0"
+PROTOCOL_VERSION = "1.27.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -444,6 +444,31 @@ class SessionAttachResult(Payload):
     )
 
 
+class SessionEventsParams(Payload):
+    sessionId: str = Field(description="Session whose saved events to read.")
+    afterSeq: int = Field(default=0, ge=0, description="Only events with a greater seq.")
+    limit: int = Field(
+        default=500, ge=1, le=5000, description="At most this many events, oldest first."
+    )
+
+
+class SessionEventsResult(Payload):
+    sessionId: str = Field(description="The session.")
+    events: list[SessionEvent] = Field(
+        default_factory=list, description="Saved events after afterSeq, in seq order."
+    )
+    more: bool = Field(
+        default=False, description="True when events past the last one returned exist."
+    )
+    lastSeq: int = Field(
+        default=0,
+        description=(
+            "The session's newest saved seq when the call was answered; with more "
+            "false, the events returned reach it."
+        ),
+    )
+
+
 class SessionToolContentParams(Payload):
     sessionId: str = Field(description="Session the tool ran in.")
     callId: str = Field(description="tool.result callId whose content to fetch.")
@@ -797,6 +822,18 @@ class SessionCompactResult(Payload):
 
 class SessionListResult(Payload):
     sessions: list[SessionSummary] = Field(default_factory=list, description="Every live session.")
+    complete: bool = Field(
+        default=False,
+        description=(
+            "True when the list is all there is for what was asked (1.27.0): the "
+            "daemon's boot has restored the sessions it reopens, and with includeClosed "
+            "the saved ones were read. Without includeClosed it covers live sessions "
+            "only, which after a restart is usually none; ask with includeClosed "
+            "before forgetting a closed chat. False (or absent, from an older daemon) means "
+            "an empty or short list proves nothing, so a client must not forget its "
+            "own records by it."
+        ),
+    )
 
 
 class SessionListParams(Payload):
@@ -5473,6 +5510,13 @@ METHODS: dict[str, RpcMethod] = {
             "the agent may use (1.23.0). A delegated child reports its root's.",
         ),
         _m(
+            "session.events",
+            SessionEventsParams,
+            SessionEventsResult,
+            "A session's saved events, read only (1.27.0): unlike session.resume it does "
+            "not subscribe, attach, restore or take the session's approvals.",
+        ),
+        _m(
             "session.toolContent",
             SessionToolContentParams,
             SessionToolContentResult,
@@ -5651,6 +5695,7 @@ CAPABILITIES: list[str] = [
     "toolInvokeGuard",
     "llmTimings",
     "sharedDaemon",
+    "sessionEvents",
 ]
 
 #: Where the daemon listens; mirrored into the schema dump for the SDK.
@@ -5760,6 +5805,7 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "session.steer",
         "session.continue",
         "session.setActive",
+        "session.events",
         "session.toolContent",
         "session.artifacts",
         "session.attachments",

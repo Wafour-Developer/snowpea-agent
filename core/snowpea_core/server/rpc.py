@@ -53,6 +53,7 @@ OWNED_RUN_METHODS = frozenset(
         "session.artifacts",
         "session.attachments",
         "session.close",
+        "session.events",
         "session.interrupt",
         "session.resume",
         "session.toolContent",

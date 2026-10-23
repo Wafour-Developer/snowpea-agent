@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.26.0` (semver)
+- **Protocol version:** `1.27.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.26.0"
+    "protocolVersion": "1.27.0"
   }
 }
 ```
@@ -56,6 +56,7 @@ Server capabilities advertised in the `system.hello` result:
 - `readOnlyDelegation`
 - `sessionAttachments`
 - `sessionContinue`
+- `sessionEvents`
 - `sessionSetAgent`
 - `sessions`
 - `setAgentGuardTurn`
@@ -148,6 +149,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`session.continue`](#sessioncontinue) | client → server | Continue a chat session on the system's behalf, e.g. after a human hand-back (1.8.0). A running turn gets the note at its next model call (like session.notice); otherwise a turn starts whose input is the [system] note, with turn.started initiator 'system' and no message.user. Same callers as session.setAgent; subagent and scheduled sessions are refused with 'invalid_params'. One system start per session per 10 s, and an idempotencyKey is honoured once; a call inside the 10 s window keeps its note as a notice (queued: true). |
 | [`session.create`](#sessioncreate) | client → server | Open a session rooted at a working directory. |
 | [`session.deleteSaved`](#sessiondeletesaved) | client → server | Delete saved sessions. |
+| [`session.events`](#sessionevents) | client → server | A session's saved events, read only (1.27.0): unlike session.resume it does not subscribe, attach, restore or take the session's approvals. |
 | [`session.interrupt`](#sessioninterrupt) | client → server | Stop the running turn as soon as possible. |
 | [`session.list`](#sessionlist) | client → server | List live or saved sessions. |
 | [`session.notice`](#sessionnotice) | client → server | Queue a [system] line for the model's next call. |
@@ -1743,6 +1745,29 @@ Delete saved sessions.
 |---|---|---|---|
 | `deleted` | `number` | no |  |
 
+### `session.events`
+
+*Direction:* client → server
+
+A session's saved events, read only (1.27.0): unlike session.resume it does not subscribe, attach, restore or take the session's approvals.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `afterSeq` | `number` | no | Only events with a greater seq. |
+| `limit` | `number` | no | At most this many events, oldest first. |
+| `sessionId` | `string` | yes | Session whose saved events to read. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `events` | `({ kind: string; payload?: Record<string, unknown>; seq: number; sessionId: string; ts: string; })[]` | no | Saved events after afterSeq, in seq order. |
+| `lastSeq` | `number` | no | The session's newest saved seq when the call was answered; with more false, the events returned reach it. |
+| `more` | `boolean` | no | True when events past the last one returned exist. |
+| `sessionId` | `string` | yes | The session. |
+
 ### `session.interrupt`
 
 *Direction:* client → server
@@ -1781,6 +1806,7 @@ List live or saved sessions.
 
 | field | type | required | description |
 |---|---|---|---|
+| `complete` | `boolean` | no | True when the list is all there is for what was asked (1.27.0): the daemon's boot has restored the sessions it reopens, and with includeClosed the saved ones were read. Without includeClosed it covers live sessions only, which after a restart is usually none; ask with includeClosed before forgetting a closed chat. False (or absent, from an older daemon) means an empty or short list proves nothing, so a client must not forget its own records by it. |
 | `sessions` | `({ agent?: string \| null; browserProvider?: "host" \| "local" \| null; contextUsed?: number; contextWindow?: number \| null; createdAt: string; effort?: "low" \| "medium" \| "high" \| "max" \| null; hostToolsFrom?: string \| null; jobId?: string \| null; kind?: "chat" \| "scheduled" \| "subagent" \| "agent"; lastActivityAt?: string \| null; lastPrompt?: string \| null; mode: "plan" \| "accept" \| "auto"; model?: string \| null; origin?: { clientId?: string \| null; clientKind?: string \| null; live: boolean; mine?: boolean; } \| null; originSurface?: string \| null; parentSessionId?: string \| null; pendingApprovals?: number; pendingQuestions?: number; provider?: string \| null; running?: boolean; seq?: number; sessionId: string; status?: "idle" \| "running" \| "awaiting_approval" \| "awaiting_question" \| "error"; title?: string \| null; turnStartedAt?: string \| null; workdir: string; workspaceDir?: string \| null; })[]` | no | Every live session. |
 
 ### `session.notice`

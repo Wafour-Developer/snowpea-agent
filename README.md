@@ -106,6 +106,8 @@ flowchart TB
 
 The daemon binds a loopback port chosen at start-up and records it, with a token, in `$SNOWPEA_HOME/daemon.json`. Three read-only HTTP endpoints (`/health`, `/version`, `/protocol.json`) sit on the same port for probes; every state-changing call is WebSocket-only. [ARCHITECTURE.md](docs/ARCHITECTURE.md) maps the modules, and [docs/protocol.md](docs/protocol.md) is the generated reference.
 
+The CLI, the TUI, snowpea desktop and the snowpea browser can share one daemon. A client asks it to stop with `system.shutdown` rather than killing it, and does not restart, replace or stop it on its own while `daemon.json` says `"restarting": true`: a Windows self-update is swapping the core and brings it back on the same port by itself (`selfRestart`). The exception is an installer that has to delete the core it bundled, and it only ever force-stops a core running from its own install folder. snowpea desktop's Windows installer asks with `system.shutdown` and force-stops what is still running. snowpea browser's Windows installer does this only on uninstall or repair: it waits up to 15 seconds for `restarting` to clear, asks with `system.shutdown` (unless the core is still restarting), and then force-stops whatever is still running.
+
 ## Vendors
 
 Eleven vendors ship in v0.1. OpenAI and OpenRouter support browser login; Gemini

@@ -106,6 +106,8 @@ flowchart TB
 
 데몬은 기동 시 루프백 포트를 하나 잡고 토큰과 함께 `$SNOWPEA_HOME/daemon.json`에 기록합니다. 같은 포트에 읽기 전용 HTTP 엔드포인트 세 개(`/health`, `/version`, `/protocol.json`)가 헬스체크용으로 있고, 상태를 바꾸는 호출은 전부 WebSocket에만 있습니다. 모듈 지도는 [ARCHITECTURE.md](docs/ARCHITECTURE.md), 생성된 레퍼런스는 [docs/protocol.md](docs/protocol.md)입니다.
 
+CLI, TUI, snowpea desktop, snowpea browser는 데몬 하나를 함께 쓸 수 있습니다. 클라이언트는 데몬을 강제로 죽이지 않고 `system.shutdown`으로 멈춰 달라고 요청합니다. `daemon.json`에 `"restarting": true`가 있는 동안에는 스스로 재시작하거나 바꾸거나 멈추지 않습니다. Windows 자체 업데이트가 코어를 교체하는 중이고, 끝나면 같은 포트로 스스로 돌아옵니다(`selfRestart`). 예외는 자기가 함께 설치한 코어를 지워야 하는 설치기이고, 이때도 자기 설치 폴더에서 실행 중인 코어만 강제로 멈춥니다. snowpea desktop의 Windows 설치기는 `system.shutdown`으로 요청한 뒤, 그래도 실행 중인 것을 강제로 멈춥니다. snowpea browser의 Windows 설치기는 제거나 복구 때만 그렇게 합니다. `restarting`이 풀리기를 최대 15초 기다리고, 아직 재시작 중이 아니면 `system.shutdown`으로 요청한 뒤, 그래도 실행 중인 것을 강제로 멈춥니다.
+
 ## 벤더
 
 v0.1에 11종이 들어 있습니다. 브라우저 로그인은 두 곳, 나머지는 API 키입니다.

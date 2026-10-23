@@ -407,6 +407,28 @@ class Store:
             for row in rows
         ]
 
+    async def events_page(
+        self, session_id: str, after_seq: int, limit: int, *, up_to: int
+    ) -> tuple[list[dict[str, Any]], bool]:
+        """Up to ``limit`` events in ``(after_seq, up_to]``, and whether more follow."""
+        rows = await asyncio.to_thread(
+            self._query,
+            "SELECT * FROM events WHERE session_id = ? AND seq > ? AND seq <= ? "
+            "ORDER BY seq LIMIT ?",
+            (session_id, after_seq, up_to, limit + 1),
+        )
+        events = [
+            {
+                "sessionId": row["session_id"],
+                "seq": row["seq"],
+                "kind": row["kind"],
+                "payload": json.loads(row["payload_json"]),
+                "ts": row["ts"],
+            }
+            for row in rows[:limit]
+        ]
+        return events, len(rows) > limit
+
     #: Event kinds that open and close a turn.  Only these are read back when
     #: looking for a turn a crash left open (CORE-dangling-turns).
     TURN_MARKERS = ("turn.started", "turn.done")

@@ -41,6 +41,9 @@ from snowpea_core.server.protocol import (
     SessionAttachResult,
     SessionContinueParams,
     SessionContinueResult,
+    SessionEvent,
+    SessionEventsParams,
+    SessionEventsResult,
     SessionIdParams,
     SessionNoticeParams,
     SessionRenameParams,
@@ -570,6 +573,32 @@ async def _stored(core: Core, session_id: str) -> bool:
         return False
 
 
+async def session_events_handler(
+    _conn: RpcConnection, params: SessionEventsParams, core: Core
+) -> SessionEventsResult:
+    """``session.events`` — a session's saved events, without resuming it (1.27.0).
+
+    Nothing changes: the caller is not subscribed, does not become the session's
+    surface, and a closed session stays closed.
+    """
+    if core.sessions.get(params.sessionId) is None and not await _stored(core, params.sessionId):
+        raise RpcError(errors.NOT_FOUND, f"no such session: {params.sessionId}")
+    if core.store is None:
+        return SessionEventsResult(sessionId=params.sessionId)
+    # The newest seq first, and the page capped at it: an event written in
+    # between is then "more", never a lastSeq the page claims to have reached.
+    last_seq = await core.store.max_seq(params.sessionId)
+    events, more = await core.store.events_page(
+        params.sessionId, params.afterSeq, params.limit, up_to=last_seq
+    )
+    return SessionEventsResult(
+        sessionId=params.sessionId,
+        events=[SessionEvent.model_validate(event) for event in events],
+        more=more,
+        lastSeq=last_seq,
+    )
+
+
 async def session_tool_content_handler(
     _conn: RpcConnection, params: SessionToolContentParams, core: Core
 ) -> SessionToolContentResult:
@@ -910,6 +939,7 @@ def register_host_handlers(dispatcher: RpcDispatcher) -> None:
     dispatcher.register("session.steer", session_steer_handler)
     dispatcher.register("session.setActive", session_set_active_handler)
     dispatcher.register("session.continue", session_continue_handler)
+    dispatcher.register("session.events", session_events_handler)
     dispatcher.register("session.toolContent", session_tool_content_handler)
     dispatcher.register("session.artifacts", session_artifacts_handler)
     dispatcher.register("session.attachments", session_attachments_handler)
