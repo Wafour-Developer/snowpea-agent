@@ -54,6 +54,14 @@ UI_SUFFIXES = frozenset(
 #: or a screenshot file opened with view_image.  Navigating alone is not a look.
 BROWSER_LOOKS = frozenset({"browser_snapshot", "browser_screenshot", "view_image"})
 
+#: The snowpea browser's ``repl`` host tool: code that snapshots or
+#: screenshots a page is a look too (addendum 28, C1).
+REPL_TOOL = "repl"
+_REPL_LOOK = re.compile(
+    r"(?<![\w.$])(?:snapshot|annotatedScreenshot|snapshotTabs|display)\s*\("
+    r"|\.screenshot\s*\("
+)
+
 #: Script files that are UI when they live in a web project (one with an
 #: ``index.html`` or a bundler config between them and the working directory).
 WEB_SCRIPT_SUFFIXES = frozenset({".js", ".mjs", ".ts", ".glsl", ".wgsl"})
@@ -76,6 +84,35 @@ _CHECK = re.compile(
     r"|node\s+\S+\.(?:m?js|cjs|ts)|deno\s+run|bun\s+(?:run\s+)?\S+\.(?:m?js|ts)"
     r")(?:\b|$)"
 )
+
+
+def _is_look(session: Session, name: str, args: dict[str, Any], result: Any) -> bool:
+    """True when a successful call showed the rendered page.
+
+    A built-in look, a host tool registered with ``look: true``, a host result
+    whose meta says ``look: true`` or ``kind: "snapshot"``, or ``repl`` code
+    that takes a snapshot or a screenshot.
+    """
+    if name in BROWSER_LOOKS:
+        return True
+    from snowpea_core.tools.host_tools import HOST_META_KEY, HOST_TOOLS
+
+    host_meta = (getattr(result, "meta", None) or {}).get(HOST_META_KEY)
+    if isinstance(host_meta, dict) and (
+        host_meta.get("look") is True or host_meta.get("kind") == "snapshot"
+    ):
+        return True
+    tool = HOST_TOOLS.for_session(session).get(name)
+    if tool is not None and getattr(tool, "look", False):
+        return True
+    return name == REPL_TOOL and bool(_REPL_LOOK.search(str(args.get("code") or "")))
+
+
+def has_repl(session: Session) -> bool:
+    """True when the session's host (the snowpea browser) provides ``repl``."""
+    from snowpea_core.tools.host_tools import HOST_TOOLS
+
+    return REPL_TOOL in HOST_TOOLS.for_session(session)
 
 
 def is_check_command(command: str) -> bool:
@@ -157,7 +194,7 @@ def observe(session: Session, name: str, args: dict[str, Any], result: Any) -> N
     if name == "execute_code":
         turn.last_check = (turn.step, ok, "execute_code (ad-hoc)")
         return
-    if name in BROWSER_LOOKS and ok:
+    if ok and _is_look(session, name, args, result):
         turn.last_look = turn.step
         return
     if name == "delegate_task" and ok and str(args.get("agent") or "") == "verifier":
@@ -221,9 +258,14 @@ def nudge(core: Core, session: Session) -> str | None:
             "(Python) or node in shell — and call it ad-hoc verification, not a green suite."
         )
     if not ui_ok:
+        look = (
+            "take snapshot(page) (or page.screenshot()) in repl"
+            if has_repl(session)
+            else "take a browser_screenshot (or snapshot)"
+        )
         lines.append(
             "UI files changed too: start the dev server if needed, open the page in the "
-            "browser, take a browser_screenshot (or snapshot), read the console errors, "
+            f"browser, {look}, read the console errors, "
             "and compare what you see with what was asked. Navigating alone is not a look."
         )
     lines.append(

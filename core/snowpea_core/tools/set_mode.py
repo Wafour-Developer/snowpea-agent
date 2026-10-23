@@ -137,8 +137,20 @@ BROWSER_TEXT: dict[str, dict[str, Any]] = {
 }
 
 
+#: The snowpea browser's coding agent: a browser session that edits a project.
+CODING_AGENTS = frozenset({"browser-code"})
+
+
 def _is_browser(ctx: ToolContext) -> bool:
+    """True for a browser session that browses; its coding agent reads as a coder.
+
+    A session running a named definition with every tool (``allowed_tools``
+    ``None``) codes like the CLI, so it gets the coding wording too.
+    """
     session = ctx.session
+    agent = getattr(session, "agent", None)
+    if agent in CODING_AGENTS or (agent and getattr(session, "allowed_tools", ()) is None):
+        return False
     if getattr(session, "origin_surface", None) == "browser":
         return True
     conn = getattr(session, "origin_conn", None)

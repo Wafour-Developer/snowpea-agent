@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.28.0";
+export const PROTOCOL_VERSION = "1.29.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -1025,6 +1025,8 @@ export type LspCatalogParams = Record<string, unknown>;
 export interface LspCatalogResult {
   /** One row per registered server id. */
   servers?: ({
+    /** True when its binary is found now, on PATH or under $SNOWPEA_HOME/lsp (1.29.0). A rustup proxy without the component does not count. */
+    available?: boolean;
     /** True when settings (lsp.disabled, a default-off id, or an explicit lsp.servers override) keep this server from starting. */
     disabled: boolean;
     /** Extensions or whole filenames this server claims. */
@@ -1033,11 +1035,52 @@ export interface LspCatalogResult {
     id: string;
     /** A command that installs it manually, e.g. 'pip install ty'. */
     installHint?: string | null;
-    /** True when lsp.autoInstall could obtain it (npm/pip/go); False means it must already be on PATH. */
+    /** True when lsp.install or lsp.autoInstall could obtain it (npm/pip/go/dotnet/rustup); False means it must already be on PATH. */
     installable: boolean;
     /** LSP language ids this server's extensions map to. */
     languageIds?: string[];
+    /** True when that binary is under $SNOWPEA_HOME/lsp. */
+    managed?: boolean;
+    /** While it is not available: what must be on PATH first, e.g. 'npm', 'go', 'dotnet', or for a PATH-only server the toolchain or command that provides it ('gem install ruby-lsp'). Null when lsp.install can do it as is. */
+    needs?: string | null;
+    /** The binary found, when available. */
+    path?: string | null;
   })[];
+}
+
+/** `lsp.install` params. Install language servers the user asked for, even with lsp.autoInstall off. */
+export interface LspInstallParams {
+  /** Server ids to install. Null: every installable server that is enabled and not available. Runs even with lsp.autoInstall false: the request is the consent. */
+  ids?: string[] | null;
+}
+
+/** `lsp.install` result. */
+export interface LspInstallResult {
+  /** One per id. */
+  results?: ({
+    /** Why not, when not ok. */
+    error?: string | null;
+    /** Server id. */
+    id: string;
+    /** True when an installer ran (ok or not); false when it was already there. */
+    installed?: boolean;
+    /** True when the server's binary is there now. */
+    ok: boolean;
+    /** The binary, when ok. */
+    path?: string | null;
+  })[];
+}
+
+/** `lsp.restart` params. Stop a language server (or all) so it starts afresh; missing ones are re-probed. */
+export interface LspRestartParams {
+  /** Server id; null restarts every server and re-probes. */
+  id?: string | null;
+}
+
+/** `lsp.restart` result. */
+export interface LspRestartResult {
+  /** Ids stopped or forgotten; each starts afresh on its next edit. */
+  restarted?: string[];
 }
 
 /** `lsp.status` params. Report every language server the daemon has started and its state. */
@@ -1053,6 +1096,8 @@ export interface LspStatusResult {
     languageId?: string;
     /** Process id while it is running. */
     pid?: number | null;
+    /** Why it is not ready (1.29.0): 'not installed', 'not for this project', 'exited: code N', 'initialize failed: …', 'idle' (stopped by the idle sweep; the next edit restarts it). Null while it is fine. */
+    reason?: string | null;
     /** Project root the server was started in. */
     root: string;
     /** starting, ready, broken or stopped. */
@@ -4052,6 +4097,8 @@ export interface ToolRegisterParams {
     description: string;
     /** JSON Schema of the arguments. */
     inputSchema?: Record<string, unknown>;
+    /** A successful call shows the rendered page (a snapshot or screenshot), which verify-on-stop counts as looking at a UI change (1.29.0). A result can also say so itself with meta look: true; repl code calling snapshot(, annotatedScreenshot(, snapshotTabs(, display( or .screenshot( counts too. */
+    look?: boolean;
     /** Tool name, [A-Za-z][A-Za-z0-9_-]{0,63}. May not collide with a daemon tool except the built-in browser_* tools, which it shadows for the sessions that see this connection's tools. */
     name: string;
     /** 'safe': several calls of it in one model response may run at once, like the built-in readers (1.18.0). Only for permission read or network; 'never' (the default) keeps it in order. */
@@ -4252,6 +4299,32 @@ export interface JobEventPayload {
   kind: "started" | "finished" | "failed" | "denied" | "deleted" | "updated" | "waiting_for_host" | "missed" | "notify";
   /** Kind-specific body. */
   payload?: Record<string, unknown>;
+}
+
+/** `lsp.changed` notification payload. */
+export interface LspChangedPayload {
+  /** Server id, or null for 'everything'. */
+  id?: string | null;
+  /** As LspServerStatus.reason. */
+  reason?: string | null;
+  /** Project root of that server. */
+  root?: string | null;
+  /** Its new state. */
+  state?: "starting" | "ready" | "broken" | "stopped" | null;
+}
+
+/** `lsp.install.progress` notification payload. */
+export interface LspInstallProgressPayload {
+  /** For done and not ok: why. */
+  error?: string | null;
+  /** Server being installed. */
+  id: string;
+  /** The output line, or the command. */
+  line?: string | null;
+  /** For done: whether it worked. */
+  ok?: boolean | null;
+  /** start (the installer runs), output (a line it printed), done. */
+  stage: "start" | "output" | "done";
 }
 
 /** `mcp.changed` notification payload. */
@@ -5121,6 +5194,8 @@ export interface MethodMap {
   "job.update": { params: JobUpdateParams; result: JobUpdateResult };
   "llm.sample": { params: LlmSampleParams; result: LlmSampleResult };
   "lsp.catalog": { params: LspCatalogParams; result: LspCatalogResult };
+  "lsp.install": { params: LspInstallParams; result: LspInstallResult };
+  "lsp.restart": { params: LspRestartParams; result: LspRestartResult };
   "lsp.status": { params: LspStatusParams; result: LspStatusResult };
   "mcp.add": { params: McpAddParams; result: McpAddResult };
   "mcp.catalog": { params: McpCatalogParams; result: McpCatalogResult };
@@ -5259,6 +5334,8 @@ export type ClientMethod =
   | "job.update"
   | "llm.sample"
   | "lsp.catalog"
+  | "lsp.install"
+  | "lsp.restart"
   | "lsp.status"
   | "mcp.add"
   | "mcp.catalog"
@@ -5364,6 +5441,8 @@ export interface EventMap {
   "commands.changed": CommandsChangedPayload;
   "gateway.event": GatewayEventPayload;
   "job.event": JobEventPayload;
+  "lsp.changed": LspChangedPayload;
+  "lsp.install.progress": LspInstallProgressPayload;
   "mcp.changed": McpChangedPayload;
   "provider.loginProgress": ProviderLoginProgressPayload;
   "question.pending": QuestionPendingPayload;
@@ -5384,6 +5463,8 @@ export const EVENT_NAMES: readonly EventName[] = [
   "commands.changed",
   "gateway.event",
   "job.event",
+  "lsp.changed",
+  "lsp.install.progress",
   "mcp.changed",
   "provider.loginProgress",
   "question.pending",

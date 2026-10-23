@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.28.0"
+PROTOCOL_VERSION = "1.29.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -1355,6 +1355,15 @@ class HostToolSpec(Payload):
         description=(
             "Only sessions running as one of these agent definitions see it (1.24.0); "
             "null: every session of this host."
+        ),
+    )
+    look: bool = Field(
+        default=False,
+        description=(
+            "A successful call shows the rendered page (a snapshot or screenshot), which "
+            "verify-on-stop counts as looking at a UI change (1.29.0). A result can also "
+            "say so itself with meta look: true; repl code calling snapshot(, "
+            "annotatedScreenshot(, snapshotTabs(, display( or .screenshot( counts too."
         ),
     )
 
@@ -4879,6 +4888,14 @@ class LspServerStatus(Payload):
         default="", description="LSP language id the server's first extension maps to."
     )
     pid: int | None = Field(default=None, description="Process id while it is running.")
+    reason: str | None = Field(
+        default=None,
+        description=(
+            "Why it is not ready (1.29.0): 'not installed', 'not for this project', "
+            "'exited: code N', 'initialize failed: …', 'idle' (stopped by the idle sweep; "
+            "the next edit restarts it). Null while it is fine."
+        ),
+    )
 
 
 class LspStatusResult(Payload):
@@ -4902,8 +4919,8 @@ class LspCatalogEntry(Payload):
         description="Extensions or whole filenames this server claims.",
     )
     installable: bool = Field(
-        description="True when lsp.autoInstall could obtain it (npm/pip/go); "
-        "False means it must already be on PATH."
+        description="True when lsp.install or lsp.autoInstall could obtain it "
+        "(npm/pip/go/dotnet/rustup); False means it must already be on PATH."
     )
     installHint: str | None = Field(
         default=None, description="A command that installs it manually, e.g. 'pip install ty'."
@@ -4911,6 +4928,25 @@ class LspCatalogEntry(Payload):
     disabled: bool = Field(
         description="True when settings (lsp.disabled, a default-off id, or an "
         "explicit lsp.servers override) keep this server from starting."
+    )
+    available: bool = Field(
+        default=False,
+        description=(
+            "True when its binary is found now, on PATH or under $SNOWPEA_HOME/lsp "
+            "(1.29.0). A rustup proxy without the component does not count."
+        ),
+    )
+    path: str | None = Field(default=None, description="The binary found, when available.")
+    managed: bool = Field(
+        default=False, description="True when that binary is under $SNOWPEA_HOME/lsp."
+    )
+    needs: str | None = Field(
+        default=None,
+        description=(
+            "While it is not available: what must be on PATH first, e.g. 'npm', 'go', "
+            "'dotnet', or for a PATH-only server the toolchain or command that provides "
+            "it ('gem install ruby-lsp'). Null when lsp.install can do it as is."
+        ),
     )
 
 
@@ -4920,6 +4956,76 @@ class LspCatalogResult(Payload):
     servers: list[LspCatalogEntry] = Field(
         default_factory=list, description="One row per registered server id."
     )
+
+
+class LspInstallParams(Payload):
+    """``lsp.install`` — the user asked for servers to be installed (1.29.0)."""
+
+    ids: list[str] | None = Field(
+        default=None,
+        description=(
+            "Server ids to install. Null: every installable server that is enabled and "
+            "not available. Runs even with lsp.autoInstall false: the request is the consent."
+        ),
+    )
+
+
+class LspInstallItem(Payload):
+    id: str = Field(description="Server id.")
+    ok: bool = Field(description="True when the server's binary is there now.")
+    path: str | None = Field(default=None, description="The binary, when ok.")
+    error: str | None = Field(default=None, description="Why not, when not ok.")
+    installed: bool = Field(
+        default=False,
+        description="True when an installer ran (ok or not); false when it was already there.",
+    )
+
+
+class LspInstallResult(Payload):
+    results: list[LspInstallItem] = Field(default_factory=list, description="One per id.")
+
+
+class LspInstallProgressNotification(Payload):
+    """``lsp.install.progress`` — one line or step of a running ``lsp.install``.
+
+    Session-less and broadcast, like ``audio.install.progress``.
+    """
+
+    id: str = Field(description="Server being installed.")
+    stage: Literal["start", "output", "done"] = Field(
+        description="start (the installer runs), output (a line it printed), done."
+    )
+    line: str | None = Field(default=None, description="The output line, or the command.")
+    ok: bool | None = Field(default=None, description="For done: whether it worked.")
+    error: str | None = Field(default=None, description="For done and not ok: why.")
+
+
+class LspRestartParams(Payload):
+    """``lsp.restart`` — the UI's retry button (1.29.0)."""
+
+    id: str | None = Field(
+        default=None, description="Server id; null restarts every server and re-probes."
+    )
+
+
+class LspRestartResult(Payload):
+    restarted: list[str] = Field(
+        default_factory=list,
+        description="Ids stopped or forgotten; each starts afresh on its next edit.",
+    )
+
+
+class LspChangedNotification(Payload):
+    """``lsp.changed`` — a language server moved, or the set may have (1.29.0).
+
+    With ``id``: that (server, root) entered ``state``. With ``id`` null: an
+    install, restart or settings change; re-read ``lsp.catalog`` and ``lsp.status``.
+    """
+
+    id: str | None = Field(default=None, description="Server id, or null for 'everything'.")
+    root: str | None = Field(default=None, description="Project root of that server.")
+    state: LspServerState | None = Field(default=None, description="Its new state.")
+    reason: str | None = Field(default=None, description="As LspServerStatus.reason.")
 
 
 # --------------------------------------------------------------------------
@@ -5216,6 +5322,18 @@ METHODS: dict[str, RpcMethod] = {
             Empty,
             LspCatalogResult,
             "List every registered language server, regardless of whether it has started.",
+        ),
+        _m(
+            "lsp.install",
+            LspInstallParams,
+            LspInstallResult,
+            "Install language servers the user asked for, even with lsp.autoInstall off.",
+        ),
+        _m(
+            "lsp.restart",
+            LspRestartParams,
+            LspRestartResult,
+            "Stop a language server (or all) so it starts afresh; missing ones are re-probed.",
         ),
         _m(
             "mcp.list",
@@ -5953,6 +6071,8 @@ EVENTS: dict[str, type[BaseModel]] = {
     "mcp.changed": McpChangedNotification,
     "teams.changed": TeamsChangedNotification,
     "audio.install.progress": AudioInstallProgressNotification,
+    "lsp.install.progress": LspInstallProgressNotification,
+    "lsp.changed": LspChangedNotification,
     "tool.cancel": ToolCancelNotification,
     "sessions.changed": SessionsChangedNotification,
 }
@@ -6001,6 +6121,9 @@ CAPABILITIES: list[str] = [
     "skillLearn",
     "memoryCandidates",
     "sitePacks",
+    "lspInstall",
+    "lspRestart",
+    "lspChanged",
 ]
 
 #: Where the daemon listens; mirrored into the schema dump for the SDK.
@@ -6096,6 +6219,8 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "setup.catalog",
         "lsp.status",
         "lsp.catalog",
+        "lsp.install",
+        "lsp.restart",
         "mcp.list",
         "mcp.add",
         "mcp.remove",

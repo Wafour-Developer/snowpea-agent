@@ -232,6 +232,9 @@ class Core:
 
     async def notify_settings_changed(self, keys: list[str]) -> None:
         """Broadcast ``settings.changed`` to every authenticated connection."""
+        if self.lsp is not None and any(k == "lsp" or k.startswith("lsp.") for k in keys):
+            # A server that was missing or broken may start now.
+            self.lsp.invalidate()
         hub = getattr(self, "hub", None)
         if hub is None:  # pragma: no cover - a core without a hub is a test double
             return

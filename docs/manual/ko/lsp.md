@@ -45,17 +45,29 @@ snowpea가 아는 서버는 아래와 같습니다. 그 서버가 맡는 파일�
 
 typescript, deno, vue, eslint, biome, oxlint, gopls, ruby-lsp, pyright, ruff, ty, elixir-ls, zls, csharp, fsharp, sourcekit-lsp, rust, clangd, svelte, astro, yaml-ls, lua-ls, bash, dockerfile, terraform, dart, ocaml-lsp, gleam, clojure-lsp, nixd, prisma, haskell-language-server, julials.
 
-바이너리가 이미 `PATH`에 있을 때만 씁니다. 요청하지 않는 한 아무것도 내려받지 않으며, 서버가 없는 것은 에러가 아닙니다 — 그 언어에 대해 진단이 안 나올 뿐입니다.
+바이너리가 `PATH`나 `$SNOWPEA_HOME/lsp`에 있을 때만 씁니다. 요청하지 않는 한 아무것도 내려받지 않으며, 서버가 없는 것은 에러가 아닙니다 — 그 언어에 대해 진단이 안 나올 뿐입니다. 없던 서버는 5분마다, 그리고 설치·재시작·`lsp` 설정 변경 직후에 다시 찾습니다.
 
-`ruff`와 `ty`는 기본으로 꺼져 있습니다. `.py`는 이미 `pyright`가 맡고 있고, 편집할 때마다 파이썬 서버를 둘씩 돌리면 같은 답을 얻는 데 두 배로 기다리게 되기 때문입니다. 쓰려면 `lsp.servers`에 그 id를 적으세요.
+아래 서버는 `lsp.install`(설정 화면의 설치 버튼)이나 `autoInstall`로 설치할 수 있습니다.
+
+| 종류 | 서버 |
+|---|---|
+| npm | typescript(`typescript`도 함께 설치해서, 자체 TypeScript가 없는 프로젝트도 진단을 받습니다), vue, eslint(`vscode-langservers-extracted`), biome, oxlint(`oxlint --lsp`), pyright, svelte, astro, yaml-ls, bash, dockerfile, prisma(`@prisma/language-server`) |
+| pip | ruff, ty(`$SNOWPEA_HOME/lsp/py` venv에) |
+| go | gopls |
+| dotnet | csharp(`csharp-ls`, .NET 8 SDK에서는 0.16.0), fsharp(`fsautocomplete`) |
+| rustup | rust(`rustup component add rust-analyzer`) |
+
+eslint·biome·oxlint는 그 설정 파일이 있는 프로젝트에서만 자동 설치되고, `lsp.install`로는 id를 지정했을 때만 설치됩니다. 나머지는 `PATH`에 있어야 하며, 무엇이 필요한지는 `lsp.catalog`의 `needs`가 알려 줍니다.
+
+`ruff`와 `ty`는 기본으로 꺼져 있습니다. `.py`는 이미 `pyright`가 맡고 있고, 편집할 때마다 파이썬 서버를 둘씩 돌리면 같은 답을 얻는 데 두 배로 기다리게 되기 때문입니다. 쓰려면 `"enable": ["ruff"]`처럼 적으세요(`command` 없는 `lsp.servers` 항목도 됩니다). 이렇게 켜면 설치 방법도 그대로 남습니다.
 
 ## 무엇이 떠 있는지 보기
 
-데몬은 `lsp.status`에 서버마다 한 줄씩 답합니다 — id, 프로젝트 루트, 상태(`starting`·`ready`·`broken`·`stopped`), 떠 있는 동안의 pid. [프로토콜](protocol.md)을 쓰는 클라이언트라면 무엇이든 물어볼 수 있고, 터미널 UI의 `/lsp` 화면과 IDE의 LSP 카드가 이걸 읽습니다.
+데몬은 `lsp.status`에 서버마다 한 줄씩 답합니다 — id, 프로젝트 루트, 상태(`starting`·`ready`·`broken`·`stopped`), 떠 있는 동안의 pid, 준비되지 않았을 때의 `reason`(`not installed`·`not for this project`·`exited: code N`·`initialize failed: …`, 유휴 정리로 멈춘 `idle` — 다음 편집 때 다시 뜹니다). 바뀔 때마다 `lsp.changed`로도 알립니다. [프로토콜](protocol.md)을 쓰는 클라이언트라면 무엇이든 물어볼 수 있고, 터미널 UI의 `/lsp` 화면과 IDE의 LSP 카드가 이걸 읽습니다.
 
-두 번 죽은 서버는 `broken`으로 보고되고 그 데몬이 사는 동안 다시 시작되지 않습니다. 설치를 고친 뒤 데몬을 다시 띄우세요.
+두 번 죽은 서버는 `broken`으로 보고되고, 설치를 고친 뒤 다시 시도하라고 할 때까지 시작되지 않습니다: `lsp.restart {id?}`, `lsp.install`, 또는 설정 변경.
 
-`lsp.status`는 어떤 루트가 실제로 띄운 서버만 압니다. 파일을 먼저 건드리지 않고도 snowpea가 *돌릴 수 있는* 서버 전부를 보려면 `lsp.catalog`를 물어보세요 — 등록된 id마다 한 줄씩, `languageIds`, `extensions`, `installable`(`autoInstall`이 npm·pip·go로 구할 수 있는지) 여부와 손으로 설치할 명령을 담은 `installHint`, 지금 `disabled`인지(기본으로 꺼져 있거나, `lsp.disabled`에 이름이 있거나, `lsp.servers` 오버라이드로 꺼진 경우)를 답합니다. 설정 화면의 LSP 카드가 아무것도 뜨기 전에 보여주는 목록이 바로 이것입니다.
+`lsp.status`는 어떤 루트가 실제로 띄운 서버만 압니다. 파일을 먼저 건드리지 않고도 snowpea가 *돌릴 수 있는* 서버 전부를 보려면 `lsp.catalog`를 물어보세요 — 등록된 id마다 한 줄씩, `languageIds`, `extensions`, `installable`(npm·pip·go·dotnet·rustup으로 구할 수 있는지) 여부와 손으로 설치할 명령을 담은 `installHint`, 지금 `disabled`인지(기본으로 꺼져 있거나, `lsp.disabled`에 이름이 있거나, `lsp.servers` 오버라이드로 꺼진 경우), 지금 `available`인지와 그 `path`, 그것이 `managed`(`$SNOWPEA_HOME/lsp` 아래)인지, 없다면 먼저 무엇이 `needs`인지(`npm`, `go`, `gem install ruby-lsp` …)를 답합니다. 설정 화면의 LSP 카드가 아무것도 뜨기 전에 보여주는 목록이 바로 이것입니다.
 
 ```bash
 snowpea daemon stop
@@ -84,8 +96,9 @@ snowpea daemon start
 | 키 | 기본값 | 하는 일 |
 |---|---|---|
 | `enabled` | `true` | `false`면 툴 일곱 개가 에이전트 목록에서 빠지고 `Diagnostics` 블록도 붙지 않습니다 |
-| `autoInstall` | `false` | `true`면 없는 서버를 npm·pip·go로 `$SNOWPEA_HOME/lsp`에 설치합니다 |
+| `autoInstall` | `false` | `true`면 없는 서버를 snowpea가 알아서 `$SNOWPEA_HOME/lsp`에 설치합니다. `lsp.install`은 이 값과 상관없이 동작합니다 |
 | `disabled` | `[]` | 건드리지 않을 서버 id |
+| `enable` | `[]` | 기본으로 꺼진 서버를 그대로 켭니다(`ruff`, `ty`) |
 | `servers` | `{}` | 새 서버를 정의하거나, 내장 서버의 실행 명령을 갈아끼웁니다 |
 | `idleTimeoutSec` | `600` | 쓰이지 않은 서버를 내리기까지의 초; `0`이면 안 내립니다 |
 

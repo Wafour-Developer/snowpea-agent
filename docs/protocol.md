@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.28.0` (semver)
+- **Protocol version:** `1.29.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.28.0"
+    "protocolVersion": "1.29.0"
   }
 }
 ```
@@ -50,6 +50,9 @@ Server capabilities advertised in the `system.hello` result:
 - `llmSample`
 - `llmTimings`
 - `lsp`
+- `lspChanged`
+- `lspInstall`
+- `lspRestart`
 - `mcp`
 - `memoryCandidates`
 - `memorySafe`
@@ -125,6 +128,8 @@ Server capabilities advertised in the `system.hello` result:
 | [`job.update`](#jobupdate) | client → server | Change an existing job (addendum 12). |
 | [`llm.sample`](#llmsample) | client → server | One tool-less model call for a session's browser host (1.14.0): no tools, no history, nothing written to the transcript except a usage event. The session's host only ('unauthorized' otherwise); 'unavailable' when no model can answer; with schema, 'invalid_output' when the answer does not validate. |
 | [`lsp.catalog`](#lspcatalog) | client → server | List every registered language server, regardless of whether it has started. |
+| [`lsp.install`](#lspinstall) | client → server | Install language servers the user asked for, even with lsp.autoInstall off. |
+| [`lsp.restart`](#lsprestart) | client → server | Stop a language server (or all) so it starts afresh; missing ones are re-probed. |
 | [`lsp.status`](#lspstatus) | client → server | Report every language server the daemon has started and its state. |
 | [`mcp.add`](#mcpadd) | client → server | Write an MCP server into the project or global .mcp.json and start it. |
 | [`mcp.catalog`](#mcpcatalog) | client → server | The curated MCP servers a client can offer as presets. |
@@ -1040,7 +1045,43 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `servers` | `({ disabled: boolean; extensions?: string[]; id: string; installHint?: string \| null; installable: boolean; languageIds?: string[]; })[]` | no | One row per registered server id. |
+| `servers` | `({ available?: boolean; disabled: boolean; extensions?: string[]; id: string; installHint?: string \| null; installable: boolean; languageIds?: string[]; managed?: boolean; needs?: string \| null; path?: string \| null; })[]` | no | One row per registered server id. |
+
+### `lsp.install`
+
+*Direction:* client → server
+
+Install language servers the user asked for, even with lsp.autoInstall off.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `ids` | `string[] \| null` | no | Server ids to install. Null: every installable server that is enabled and not available. Runs even with lsp.autoInstall false: the request is the consent. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `results` | `({ error?: string \| null; id: string; installed?: boolean; ok: boolean; path?: string \| null; })[]` | no | One per id. |
+
+### `lsp.restart`
+
+*Direction:* client → server
+
+Stop a language server (or all) so it starts afresh; missing ones are re-probed.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `id` | `string \| null` | no | Server id; null restarts every server and re-probes. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `restarted` | `string[]` | no | Ids stopped or forgotten; each starts afresh on its next edit. |
 
 ### `lsp.status`
 
@@ -1056,7 +1097,7 @@ _No params (send `{}`)._
 
 | field | type | required | description |
 |---|---|---|---|
-| `servers` | `({ id: string; languageId?: string; pid?: number \| null; root: string; state: "starting" \| "ready" \| "broken" \| "stopped"; })[]` | no | One row per (server, root) pair. |
+| `servers` | `({ id: string; languageId?: string; pid?: number \| null; reason?: string \| null; root: string; state: "starting" \| "ready" \| "broken" \| "stopped"; })[]` | no | One row per (server, root) pair. |
 
 ### `mcp.add`
 
@@ -2916,7 +2957,7 @@ Register tools this connection runs itself (host tools).
 
 | field | type | required | description |
 |---|---|---|---|
-| `tools` | `({ agents?: string[] \| null; category?: string \| null; deferred?: boolean; description: string; inputSchema?: Record<string, unknown>; name: string; parallel?: "safe" \| "never"; permission: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret"; timeoutMs?: number \| null; })[]` | yes | Tools to add or replace for this connection; all-or-nothing. |
+| `tools` | `({ agents?: string[] \| null; category?: string \| null; deferred?: boolean; description: string; inputSchema?: Record<string, unknown>; look?: boolean; name: string; parallel?: "safe" \| "never"; permission: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret"; timeoutMs?: number \| null; })[]` | yes | Tools to add or replace for this connection; all-or-nothing. |
 
 **Result**
 
@@ -3060,6 +3101,25 @@ Web search for a browser host (1.11.0): the web_search tool's provider chain, se
 | `jobId` | `string` | yes | Job the event belongs to. |
 | `kind` | `"started" \| "finished" \| "failed" \| "denied" \| "deleted" \| "updated" \| "waiting_for_host" \| "missed" \| "notify"` | yes | Where the run got to. 'notify' (1.23.0) follows the finish of a job with meta, payload {status, sessionId, text}: its host shows the user a notification. |
 | `payload` | `Record<string, unknown>` | no | Kind-specific body. |
+
+### `lsp.changed`
+
+| field | type | required | description |
+|---|---|---|---|
+| `id` | `string \| null` | no | Server id, or null for 'everything'. |
+| `reason` | `string \| null` | no | As LspServerStatus.reason. |
+| `root` | `string \| null` | no | Project root of that server. |
+| `state` | `"starting" \| "ready" \| "broken" \| "stopped" \| null` | no | Its new state. |
+
+### `lsp.install.progress`
+
+| field | type | required | description |
+|---|---|---|---|
+| `error` | `string \| null` | no | For done and not ok: why. |
+| `id` | `string` | yes | Server being installed. |
+| `line` | `string \| null` | no | The output line, or the command. |
+| `ok` | `boolean \| null` | no | For done: whether it worked. |
+| `stage` | `"start" \| "output" \| "done"` | yes | start (the installer runs), output (a line it printed), done. |
 
 ### `mcp.changed`
 

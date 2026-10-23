@@ -608,11 +608,15 @@ class LspSettings(_Model):
     #: False takes the seven ``lsp_*`` tools out of ``tool.list`` and stops the
     #: ``Diagnostics`` block being appended to an edit.
     enabled: bool = True
-    #: True lets snowpea install a missing server with npm, pip or go into
-    #: ``$SNOWPEA_HOME/lsp``.  False never touches the network.
+    #: True lets snowpea install a missing server with npm, pip, go, dotnet or
+    #: rustup into ``$SNOWPEA_HOME/lsp``.  False never touches the network
+    #: unless the user asks for one with ``lsp.install``.
     autoInstall: bool = False
     #: Server ids to leave alone, e.g. ``["eslint"]``.
     disabled: list[str] = Field(default_factory=list)
+    #: Default-off builtins to turn on as they are, e.g. ``["ruff", "ty"]``;
+    #: unlike an ``lsp.servers`` entry this keeps their auto-install.
+    enable: list[str] = Field(default_factory=list)
     #: User-defined servers, and overrides for builtin ones:
     #: ``{"clangd": {"command": ["clangd", "--header-insertion=never"]}}``.
     servers: dict[str, dict[str, Any]] = Field(default_factory=dict)

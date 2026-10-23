@@ -672,8 +672,10 @@ async def test_lsp_catalog_installable_matches_whether_install_is_declared(
     gopls = next(s for s in servers.BUILTIN if s.id == "gopls")
     assert gopls.install is not None and gopls.install.kind == "go"
     assert by_id["gopls"].installHint == "go install golang.org/x/tools/gopls@latest"
-    assert by_id["rust"].installable is False
-    assert by_id["rust"].installHint is None
+    assert by_id["rust"].installHint == "rustup component add rust-analyzer"
+    assert by_id["csharp"].installHint == "dotnet tool install -g csharp-ls"
+    assert by_id["zls"].installable is False
+    assert by_id["zls"].installHint is None
 
 
 def test_the_lsp_diagnostics_event_validates_against_the_protocol() -> None:

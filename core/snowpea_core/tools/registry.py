@@ -121,6 +121,9 @@ class Tool:
     deferred_hint: bool = False
     #: Host tools only: the agents whose sessions see it (``None``: all).
     agents: tuple[str, ...] | None = None
+    #: Host tools only: a successful call shows the rendered page, which
+    #: verify-on-stop counts as a look (``HostToolSpec.look``, 1.29.0).
+    look: bool = False
 
     def info(self) -> ToolInfo:
         # ``mcp:<server>`` is the source an MCP tool is registered with, so the

@@ -61,6 +61,11 @@ SYMBOL_KINDS: frozenset[int] = frozenset({5, 6, 11, 12, 13, 14, 23, 10})
 MAX_WORKSPACE_SYMBOLS = 10
 #: How often the janitor looks for servers past ``lsp.idleTimeoutSec``.
 SWEEP_INTERVAL_SEC = 30.0
+#: A server that was not installed is looked for again after this long, or
+#: at once after ``lsp.install``, ``lsp.restart`` or an ``lsp.*`` settings change.
+REPROBE_SEC = 300.0
+#: ``Entry.reason`` of a server the idle sweep stopped: the next touch restarts it.
+IDLE = "idle"
 
 ServerState = Literal["starting", "ready", "broken", "stopped"]
 
@@ -79,6 +84,12 @@ class Entry:
     #: Crashes seen so far; the second one is terminal (AC-45).
     crashes: int = 0
     last_used: float = field(default_factory=time.monotonic)
+    #: Why it is not ready: ``not installed``, ``exited: …``,
+    #: ``initialize failed: …``, :data:`IDLE`; ``None`` while it is fine.
+    reason: str | None = None
+    #: When it last failed to start, and the manager's generation then.
+    checked: float = 0.0
+    generation: int = 0
 
     @property
     def pid(self) -> int | None:
@@ -99,6 +110,11 @@ class LspManager:
         #: Session to emit ``lsp.diagnostics`` into, set for the duration of a
         #: touch so the client's push callback knows who asked.
         self._session_id: str | None = None
+        #: Bumped whenever something may have made a missing or broken server
+        #: startable: an install, a restart, an ``lsp.*`` settings change.
+        self.generation = 0
+        self._settings_key: str | None = None
+        self._notes: set[asyncio.Task[None]] = set()
 
     # -- settings --------------------------------------------------------
 
@@ -113,8 +129,67 @@ class LspManager:
 
     def catalog(self) -> dict[str, server_registry.ServerInfo]:
         return server_registry.catalog(
-            disabled=self.settings.disabled, overrides=self.settings.servers
+            disabled=self.settings.disabled,
+            overrides=self.settings.servers,
+            enable=getattr(self.settings, "enable", ()) or (),
         )
+
+    def _sync_settings(self) -> None:
+        """Start a new generation when ``settings.lsp`` changed since last look."""
+        try:
+            key = self.settings.model_dump_json()
+        except AttributeError:  # pragma: no cover - a settings double
+            return
+        if self._settings_key is not None and key != self._settings_key:
+            self.generation += 1
+            self.changed()
+        self._settings_key = key
+
+    def invalidate(self) -> None:
+        """Let every missing or broken server be tried again on its next touch."""
+        self.generation += 1
+        with contextlib.suppress(AttributeError):
+            self._settings_key = self.settings.model_dump_json()
+        self.changed()
+
+    # -- events ----------------------------------------------------------
+
+    def changed(self, entry: Entry | None = None) -> None:
+        """Broadcast ``lsp.changed``: one entry moved, or (``None``) re-read everything."""
+        hub = getattr(self.core, "hub", None)
+        if hub is None:
+            return
+        payload: dict[str, Any] = {"id": None, "root": None, "state": None, "reason": None}
+        if entry is not None:
+            payload = {
+                "id": entry.server_id,
+                "root": str(entry.root),
+                "state": entry.state,
+                "reason": entry.reason,
+            }
+
+        async def send() -> None:
+            with contextlib.suppress(Exception):
+                await hub.notify("lsp.changed", payload)
+
+        with contextlib.suppress(RuntimeError):
+            task = asyncio.get_running_loop().create_task(send())
+            self._notes.add(task)
+            task.add_done_callback(self._notes.discard)
+
+    def _mark(self, entry: Entry, state: ServerState, reason: str | None = None) -> None:
+        """Set ``state`` without an event; :meth:`_start` announces the outcome."""
+        entry.state = state
+        entry.reason = reason
+        if state in ("stopped", "broken") and reason != IDLE:
+            entry.checked = time.monotonic()
+            entry.generation = self.generation
+
+    def _set(self, entry: Entry, state: ServerState, reason: str | None = None) -> None:
+        moved = (entry.state, entry.reason) != (state, reason)
+        self._mark(entry, state, reason)
+        if moved:
+            self.changed(entry)
 
     # -- starting --------------------------------------------------------
 
@@ -128,20 +203,45 @@ class LspManager:
 
     async def _start(self, server: server_registry.ServerInfo, root: Path, key: Key) -> Entry:
         entry = self.entries.setdefault(key, Entry(server_id=server.id, root=root))
+        # ``starting`` is not announced: a missing server re-probed every few
+        # minutes would otherwise send two events that change nothing.
+        before = (entry.state, entry.reason)
         entry.state = "starting"
-        initialization = server.initialization(root) if server.initialization else {}
-        process = await server_registry.spawn(
+        try:
+            entry = await self._launch(server, root, key, entry)
+        except asyncio.CancelledError:
+            entry.client = None
+            self._set(entry, "stopped", "start cancelled")
+            raise
+        if self.entries.get(key) is not entry:
+            # lsp.restart forgot this entry while it was starting.
+            if entry.client is not None:
+                with contextlib.suppress(Exception):
+                    await entry.client.shutdown()
+                entry.client = None
+            entry.state = "stopped"
+            return entry
+        if (entry.state, entry.reason) != before:
+            self.changed(entry)
+        return entry
+
+    async def _launch(
+        self, server: server_registry.ServerInfo, root: Path, key: Key, entry: Entry
+    ) -> Entry:
+        home = self.core.paths.home
+        process, reason = await server_registry.start_server(
             server,
             root,
-            home=self.core.paths.home,
+            home=home,
             allow_install=bool(self.settings.autoInstall),
         )
         if process is None:
             # Not installed is not a failure: the tool and the edit carry on
             # without diagnostics (contract §2).
-            entry.state = "stopped"
             entry.client = None
+            self._mark(entry, "stopped", reason or "not installed")
             return entry
+        initialization = server_registry.initialization_for(server, root, home)
         client = LspClient(
             server_id=server.id,
             process=process,
@@ -151,16 +251,24 @@ class LspManager:
         )
         try:
             await client.start()
+        except asyncio.CancelledError:
+            with contextlib.suppress(Exception):
+                await asyncio.shield(client.shutdown())
+            raise
         except (LspError, OSError) as exc:
             log.warning("language server %s failed to initialize: %s", server.id, exc)
             with contextlib.suppress(Exception):
                 await client.shutdown()
             entry.crashes += 1
-            entry.state = "broken" if entry.crashes > 1 else "stopped"
             entry.client = None
+            self._mark(
+                entry,
+                "broken" if entry.crashes > 1 else "stopped",
+                f"initialize failed: {exc}"[:300],
+            )
             return entry
         entry.client = client
-        entry.state = "ready"
+        self._mark(entry, "ready")
         entry.last_used = time.monotonic()
         self._ensure_janitor()
         return entry
@@ -172,8 +280,12 @@ class LspManager:
         key = (server.id, str(root))
         entry = self.entries.get(key)
         if entry is not None:
+            fresh = entry.generation != self.generation
             if entry.state == "broken":
-                return None
+                if not fresh:
+                    return None
+                # An install, restart or settings change: one more go.
+                entry.crashes = 0
             client = entry.client
             if client is not None and client.alive:
                 entry.last_used = time.monotonic()
@@ -182,29 +294,38 @@ class LspManager:
                 # The process died under us.  One restart, then broken (AC-45).
                 entry.crashes += 1
                 entry.client = None
+                code = client.process.returncode
+                exited = f"exited: code {code}" if code is not None else "exited"
                 if entry.crashes > 1:
-                    entry.state = "broken"
+                    self._set(entry, "broken", exited)
                     log.warning(
                         "language server %s at %s crashed twice; marking it broken",
                         server.id,
                         root,
                     )
                     return None
+                entry.reason = exited
                 log.info("language server %s at %s exited; restarting once", server.id, root)
-            elif entry.state == "stopped" and entry.crashes == 0:
+            elif (
+                entry.state == "stopped"
+                and entry.crashes == 0
+                and entry.reason != IDLE
+                and not fresh
+                and time.monotonic() - entry.checked < REPROBE_SEC
+            ):
                 # Never started (no binary), and nothing has changed since.
                 return None
         inflight = self._spawning.get(key)
         if inflight is None:
             inflight = asyncio.ensure_future(self._start(server, root, key))
             self._spawning[key] = inflight
-            try:
-                entry = await inflight
-            finally:
-                if self._spawning.get(key) is inflight:
-                    del self._spawning[key]
-        else:
-            entry = await inflight
+            inflight.add_done_callback(
+                lambda done, key=key: self._spawning.pop(key, None)
+                if self._spawning.get(key) is done
+                else None
+            )
+        # Shielded: an edit's budget stops the wait, not the start (or install).
+        entry = await asyncio.shield(inflight)
         return entry if entry.state == "ready" and entry.client is not None else None
 
     async def clients_for(
@@ -217,6 +338,7 @@ class LspManager:
         """
         if not self.enabled:
             return []
+        self._sync_settings()
         file = Path(file)
         workdir = Path(workdir).resolve()
         tasks = []
@@ -489,6 +611,7 @@ class LspManager:
                     "state": entry.state,
                     "languageId": language_id(f"x{extension}") if extension else "",
                     "pid": entry.pid,
+                    "reason": entry.reason,
                 }
             )
         return rows
@@ -522,13 +645,36 @@ class LspManager:
                 with contextlib.suppress(Exception):
                     await client.shutdown()
                 entry.client = None
-                entry.state = "stopped"
+                self._set(entry, "stopped", IDLE)
                 continue
             alive += 1
         return alive > 0
 
+    async def restart(self, server_id: str | None = None) -> list[str]:
+        """Stop ``server_id``'s servers (all with ``None``) and forget them.
+
+        Each one starts afresh on its next touch, with a clean crash count;
+        a server that was missing is looked for again.  Returns the ids
+        stopped or forgotten.
+        """
+        keys = [
+            key for key in self.entries if server_id is None or key[0] == server_id
+        ]
+        clients = []
+        for key in keys:
+            entry = self.entries.pop(key)
+            if entry.client is not None:
+                clients.append(entry.client)
+        await asyncio.gather(*(client.shutdown() for client in clients), return_exceptions=True)
+        self.invalidate()
+        return sorted({key[0] for key in keys})
+
     async def shutdown(self) -> None:
         """Stop every server; called from ``Daemon.stop``."""
+        starting = list(self._spawning.values())
+        for task in starting:
+            task.cancel()
+        await asyncio.gather(*starting, return_exceptions=True)
         if self._janitor is not None:
             self._janitor.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
@@ -555,6 +701,7 @@ __all__ = [
     "START_BUDGET_SEC",
     "SWEEP_INTERVAL_SEC",
     "SYMBOL_KINDS",
+    "REPROBE_SEC",
     "Entry",
     "Key",
     "LspManager",

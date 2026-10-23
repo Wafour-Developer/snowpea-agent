@@ -221,6 +221,7 @@ class HostTools:
                     source=f"host:{conn.surface_id}",
                     parallel_safe=parallel == "safe",
                     deferred_hint=bool(spec.get("deferred")),
+                    look=spec.get("look") is True,
                     agents=(
                         tuple(str(item) for item in spec["agents"])
                         if isinstance(spec.get("agents"), list) and spec["agents"]
