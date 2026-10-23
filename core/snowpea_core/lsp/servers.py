@@ -1196,7 +1196,9 @@ def catalog(
         built = from_settings(spec, server_id)
         if built is None:
             continue
-        existing = servers.get(server_id)
+        # A default-off builtin (ruff, ty) given a command keeps its extensions
+        # and roots too; without them it would never match a file.
+        existing = servers.get(server_id) or base
         if existing is not None:
             built = ServerInfo(
                 id=server_id,

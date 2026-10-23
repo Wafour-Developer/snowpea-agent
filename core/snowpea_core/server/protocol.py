@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.29.0"
+PROTOCOL_VERSION = "1.30.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -33,7 +33,7 @@ SessionKind = Literal["chat", "scheduled", "subagent", "agent"]
 #: state.  It is never a silent ``allow``: plan denies it, accept and auto both
 #: ask, and the allowlist may not promote it (CORE-search-fix).
 PermissionTag = Literal[
-    "read", "write", "exec", "network", "send", "config", "delegate", "secret"
+    "read", "write", "exec", "network", "send", "config", "delegate", "secret", "outside"
 ]
 ToolState = Literal["active", "inactive"]
 #: ``builtin``, ``global``, ``project``, ``skill`` or ``plugin:<plugin name>``;
@@ -1644,6 +1644,30 @@ class ApprovalRequest(Payload):
             "For patch and write_file: the unified diff the call would write, computed "
             "without writing (1.29.0). Null for other tools, for a call that would fail, "
             "or when the diff is over 200 KB."
+        ),
+    )
+    reasonCode: str | None = Field(
+        default=None,
+        description=(
+            "Why a call is asked by what it touches (1.30.0): 'config' (snowpea settings), "
+            "'secret' (a credential or key file), 'outside_project' (a write outside the "
+            "session's project). Null for an ordinary ask."
+        ),
+    )
+    paths: list[str] | None = Field(
+        default=None,
+        description=(
+            "With reasonCode: the resolved absolute paths concerned (1.30.0)."
+        ),
+    )
+    folder: str | None = Field(
+        default=None,
+        description=(
+            "For 'outside_project': the folder a 'project' or 'always' answer allows "
+            "writes into from then on (kept with the owner's global rules, never in the "
+            "project), and a 'session' answer for this session (1.30.0). Null when that "
+            "folder would be too wide (a filesystem root, the home folder, or above the "
+            "project): every answer then covers this call only."
         ),
     )
 
@@ -6170,6 +6194,7 @@ CAPABILITIES: list[str] = [
     "lspRestart",
     "lspChanged",
     "sessionEffort",
+    "writeOutsideAsks",
 ]
 
 #: Where the daemon listens; mirrored into the schema dump for the SDK.

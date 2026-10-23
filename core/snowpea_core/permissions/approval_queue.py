@@ -28,13 +28,16 @@ from typing import TYPE_CHECKING, Any, cast
 from snowpea_core.config.paths import Paths, utc_now
 from snowpea_core.config.settings import Settings
 from snowpea_core.permissions.allowlist import (
+    DIR_TARGET,
     SHELL_TARGET,
     Allowlist,
     command_of,
     first_token,
     local_dev_origin,
     once_only,
+    outside_folder,
     pattern_for_command,
+    pattern_for_dir,
     pattern_for_tool,
     site_of,
     tool_target,
@@ -173,6 +176,14 @@ class _Pending:
 
 
 
+#: ``ApprovalRequest.reasonCode`` of a write outside the project (addendum 29).
+OUTSIDE_REASON = "outside_project"
+
+
+def _outside_folder(request: ApprovalRequest) -> str | None:
+    return request.folder if request.reasonCode == OUTSIDE_REASON else None
+
+
 class ApprovalQueue:
     """Pending approvals plus the audit log."""
 
@@ -255,13 +266,31 @@ class ApprovalQueue:
 
     @staticmethod
     def cache_key(
-        session_id: str, tool: str, args: dict[str, Any] | None = None
+        session_id: str,
+        tool: str,
+        args: dict[str, Any] | None = None,
+        folder: str | None = None,
     ) -> tuple[str, str, str]:
-        """``(session, tool, first command token)``; the token is "" off-shell."""
+        """``(session, tool, first command token)``; the token is "" off-shell.
+
+        A write outside the project is keyed by its folder instead, so "allow
+        for this session" covers that folder, not every folder.
+        """
+        if folder:
+            return (session_id, tool, f"dir:{folder}")
         command = command_of(args or {})
         return (session_id, tool, first_token(command) if command else "")
 
-    def cached(self, session_id: str, tool: str, args: dict[str, Any] | None = None) -> bool:
+    def _home(self) -> Any:
+        return getattr(self.paths, "home", None)
+
+    def cached(
+        self,
+        session_id: str,
+        tool: str,
+        args: dict[str, Any] | None = None,
+        folder: str | None = None,
+    ) -> bool:
         """True when this session, or a session above it, approved this call shape.
 
         A subagent's call is covered by a "for this session" answer its parent
@@ -269,7 +298,7 @@ class ApprovalQueue:
         live in the allowlist and cover it already.
         """
         for ancestor in self._lineage(session_id):
-            if self.cache_key(ancestor, tool, args) in self._cache:
+            if self.cache_key(ancestor, tool, args, folder) in self._cache:
                 return True
         return False
 
@@ -313,6 +342,8 @@ class ApprovalQueue:
         site: str | None = None,
         guard: str | None = None,
         diff: str | None = None,
+        reason_code: str | None = None,
+        paths: list[str] | None = None,
     ) -> Decision:
         """Ask for permission to run ``tool``; block until answered or denied.
 
@@ -320,7 +351,15 @@ class ApprovalQueue:
         ``cacheable`` is false for ``config`` calls, so answering "allow for the
         session" on one settings write does not silently cover the next one.
         """
-        if cacheable and self.cached(session.id, tool, args):
+        folder = (
+            outside_folder(paths, workdir=getattr(session, "workdir", None), home=self._home())
+            if reason_code == OUTSIDE_REASON
+            else None
+        )
+        if reason_code == OUTSIDE_REASON and folder is None:
+            # Too wide a folder to remember: this call only.
+            cacheable = False
+        if cacheable and self.cached(session.id, tool, args, folder):
             return Decision("allow", "session", "cache")
 
         timeout = timeout_sec if timeout_sec is not None else self.timeout_sec
@@ -336,6 +375,9 @@ class ApprovalQueue:
             site=site,
             guard=guard,
             diff=diff,
+            reasonCode=reason_code,
+            paths=list(paths) if paths else None,
+            folder=folder,
         )
         loop = asyncio.get_running_loop()
         origin = None if unattended else getattr(session, "origin_conn", None)
@@ -514,7 +556,11 @@ class ApprovalQueue:
             and decision.scope in CACHING_SCOPES
             and not (per_origin and decision.scope == "project")
         ):
-            self._cache.add(self.cache_key(request.sessionId, request.tool, request.args))
+            self._cache.add(
+                self.cache_key(
+                    request.sessionId, request.tool, request.args, _outside_folder(request)
+                )
+            )
         if cacheable and decision.allowed and decision.scope in PERSISTING_SCOPES:
             self._persist(request, decision.scope, workdir, host)
         self._append_log(request, decision, unattended=unattended)
@@ -544,6 +590,9 @@ class ApprovalQueue:
         if self.allowlist is None:
             return
         store = cast(AllowlistScope, PERSISTING_SCOPES[scope])
+        if request.reasonCode == OUTSIDE_REASON:
+            # A folder rule lives with the owner, never in the project's file.
+            store = "global"
         if store == "project" and workdir is None:
             log.warning("cannot store a project allowlist entry without a workdir")
             return
@@ -561,7 +610,13 @@ class ApprovalQueue:
                 log.warning("a site-scoped approval for %s had no site; not stored", request.tool)
                 return
         command = command_of(request.args)
-        if command and origin is None:
+        if request.reasonCode == OUTSIDE_REASON:
+            # "Always for this folder", never "always write_file anywhere".
+            if not request.folder:
+                return
+            pattern, target = pattern_for_dir(request.folder), DIR_TARGET
+            reason_code = OUTSIDE_REASON
+        elif command and origin is None:
             pattern, target = pattern_for_command(command), SHELL_TARGET
         else:
             pattern, target = pattern_for_tool(request.tool), tool_target(request.tool)

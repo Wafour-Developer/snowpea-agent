@@ -21,6 +21,11 @@ to the row they qualify:
 Neither touches ``config``: a write that lands on a settings file is re-tagged
 ``config`` before the policy sees it, and ``config`` is ``deny`` in plan mode
 with no exception at all.
+
+``outside`` is a write that lands outside the session's project (addendum 29):
+asked in accept mode, denied in plan mode.  The allowlist promotes it only by
+folder, never by tool name, since "always allow write_file" must not cover
+every folder on the disk.
 """
 
 from __future__ import annotations
@@ -29,7 +34,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 Mode = Literal["plan", "accept", "auto"]
 PermissionTag = Literal[
-    "read", "write", "exec", "network", "send", "config", "delegate", "secret"
+    "read", "write", "exec", "network", "send", "config", "delegate", "secret", "outside"
 ]
 Verdict = Literal["allow", "deny", "ask"]
 
@@ -59,6 +64,7 @@ MODE_MATRIX: dict[str, dict[str, str]] = {
         # owner may want an icon under ~/.ssh or the .env for a real reason —
         # but it is asked for, except in auto mode.
         "secret": "ask",
+        "outside": "deny",
     },
     "accept": {
         "read": "allow",
@@ -69,6 +75,9 @@ MODE_MATRIX: dict[str, dict[str, str]] = {
         "config": "ask",
         "secret": "ask",
         "delegate": "allow",
+        # Edits inside the project apply directly; one outside it is asked,
+        # as Claude Code and opencode do, since checkpoints cannot undo it.
+        "outside": "ask",
     },
     "auto": {
         "read": "allow",
@@ -79,11 +88,12 @@ MODE_MATRIX: dict[str, dict[str, str]] = {
         "config": "ask",
         "delegate": "allow",
         "secret": "allow",
+        "outside": "allow",
     },
 }
 
 #: Tags a read-only delegation refuses whatever its mode says (addendum 23).
-READ_ONLY_REFUSED: frozenset[str] = frozenset({"write", "send", "config"})
+READ_ONLY_REFUSED: frozenset[str] = frozenset({"write", "send", "config", "outside"})
 
 #: Tools a read-only delegation may not call whatever their tag: ``set_mode``
 #: asks a person and would take the child out of plan mode.
@@ -118,12 +128,21 @@ RISK_BY_TAG: dict[str, str] = {
     "config": "high",
     "delegate": "low",
     "secret": "high",
+    "outside": "high",
 }
 
 #: Extra sentence shown with the approval prompt for a tag that needs one.
 NOTE_BY_TAG: dict[str, str] = {
     "config": "modifies snowpea configuration",
     "secret": "reads a credential or key file",
+    "outside": "writes outside the project folder",
+}
+
+#: ``approval.request`` ``reasonCode`` of a call re-tagged by its path (C4).
+REASON_BY_TAG: dict[str, str] = {
+    "config": "config",
+    "secret": "secret",
+    "outside": "outside_project",
 }
 
 
@@ -173,9 +192,26 @@ class PermissionPolicy:
             verdict = "allow"
         if mode == "plan":
             verdict = self.plan_exception(verdict, tag, tool, args, session)
-        if verdict == "ask" and tag not in UNPROMOTABLE:
+        if verdict == "ask" and tag == "outside":
+            verdict = self.promote_outside(verdict, args, session)
+        elif verdict == "ask" and tag not in UNPROMOTABLE:
             verdict = self.promote(verdict, tool, args, session)
         return verdict  # type: ignore[return-value]
+
+    def promote_outside(self, verdict: str, args: dict[str, Any] | None, session: Any) -> str:
+        """``allow`` when a folder rule covers every outside path of the call."""
+        if self.allowlist is None:
+            return verdict
+        from snowpea_core.tools.config_guard import outside_paths
+
+        paths = outside_paths(args or {}, session, self._home())
+        if paths and self.allowlist.covers_paths(
+            paths,
+            workdir=getattr(session, "workdir", None),
+            host=getattr(session, "host_tools_from", None),
+        ):
+            return "allow"
+        return verdict
 
     def _read_only_web_asks(self) -> bool:
         settings = getattr(self.allowlist, "settings", None)
@@ -255,10 +291,14 @@ class PermissionPolicy:
         """The warning the approval prompt carries for this tag, if any."""
         return NOTE_BY_TAG.get(tag, "")
 
+    def reason_code(self, tag: PermissionTag) -> str | None:
+        return REASON_BY_TAG.get(tag)
+
 
 __all__ = [
     "MODE_MATRIX",
     "NOTE_BY_TAG",
+    "REASON_BY_TAG",
     "PLAN_EXEC_TOOL",
     "PLAN_WRITE_TOOLS",
     "RISK_BY_TAG",

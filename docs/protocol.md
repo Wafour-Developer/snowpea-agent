@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.29.0` (semver)
+- **Protocol version:** `1.30.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.29.0"
+    "protocolVersion": "1.30.0"
   }
 }
 ```
@@ -86,6 +86,7 @@ Server capabilities advertised in the `system.hello` result:
 - `turnOutcome`
 - `update`
 - `webSearch`
+- `writeOutsideAsks`
 
 ## Method index
 
@@ -337,7 +338,7 @@ Escalate one host action through the approval pipeline. The approver's approval.
 | `callId` | `string \| null` | no | The tool.invoke callId, if any. |
 | `detail` | `Record<string, unknown> \| null` | no | What the running code is about to do, e.g. {origin, element, action}; shown with the approval and merged into its args. |
 | `forceAsk` | `boolean` | no | Always ask a person: the mode matrix may only deny (plan still denies write, send and config; a read is asked) and never auto-allows, not even in auto mode. The allowlist still applies unless risk is 'payment'. For any client's destructive or irreversible actions. |
-| `permission` | `"read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret"` | yes | Permission class of the escalated action. |
+| `permission` | `"read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret" \| "outside"` | yes | Permission class of the escalated action. |
 | `reason` | `string` | yes | What will happen, shown to the person approving. |
 | `risk` | `string \| null` | no | Risk hint shown with the approval; default from the permission. 'payment' also means: the allowlist is never consulted and the answer is never stored beyond this one call (scope is coerced to 'once'). |
 | `sessionId` | `string` | yes | Session whose tool call is running. |
@@ -368,7 +369,7 @@ List tool calls still waiting for a decision.
 
 | field | type | required | description |
 |---|---|---|---|
-| `requests` | `({ args?: Record<string, unknown>; diff?: string \| null; guard?: string \| null; note?: string; requestId: string; risk?: string; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; })[]` | no | Approvals still pending. |
+| `requests` | `({ args?: Record<string, unknown>; diff?: string \| null; folder?: string \| null; guard?: string \| null; note?: string; paths?: string[] \| null; reasonCode?: string \| null; requestId: string; risk?: string; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; })[]` | no | Approvals still pending. |
 
 ### `approval.request`
 
@@ -382,8 +383,11 @@ Ask the client to approve a tool call.
 |---|---|---|---|
 | `args` | `Record<string, unknown>` | no | Arguments it wants to use. |
 | `diff` | `string \| null` | no | For patch and write_file: the unified diff the call would write, computed without writing (1.29.0). Null for other tools, for a call that would fail, or when the diff is over 200 KB. |
+| `folder` | `string \| null` | no | For 'outside_project': the folder a 'project' or 'always' answer allows writes into from then on (kept with the owner's global rules, never in the project), and a 'session' answer for this session (1.30.0). Null when that folder would be too wide (a filesystem root, the home folder, or above the project): every answer then covers this call only. |
 | `guard` | `string \| null` | no | Why this is asked whatever the mode (1.24.0): 'agent-switch' for a call in the rest of a turn session.setAgent {guardTurn} guarded. Such an answer is never remembered. |
 | `note` | `string` | no | Extra warning shown with the prompt, e.g. "modifies snowpea configuration". |
+| `paths` | `string[] \| null` | no | With reasonCode: the resolved absolute paths concerned (1.30.0). |
+| `reasonCode` | `string \| null` | no | Why a call is asked by what it touches (1.30.0): 'config' (snowpea settings), 'secret' (a credential or key file), 'outside_project' (a write outside the session's project). Null for an ordinary ask. |
 | `requestId` | `string` | yes | Id to answer with approval.respond. |
 | `risk` | `string` | no | Risk hint for the UI. |
 | `scopeHint` | `"once" \| "session" \| "project" \| "always" \| "site"` | no | Scope the UI should preselect. |
@@ -1119,7 +1123,7 @@ Write an MCP server into the project or global .mcp.json and start it.
 | `force` | `boolean` | no | Overwrite an existing entry and accept the security findings. |
 | `headers` | `Record<string, string> \| null` | no | HTTP headers sent with every request. |
 | `name` | `string` | yes | Server name; ^[a-zA-Z0-9_-]{1,64}$. |
-| `permission` | `"read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret" \| null` | no | Permission tag for the server's tools; stored in settings. |
+| `permission` | `"read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret" \| "outside" \| null` | no | Permission tag for the server's tools; stored in settings. |
 | `preset` | `string \| null` | no | Catalog id copied before the explicit fields are applied. |
 | `scope` | `"project" \| "global"` | no | Which file to write: $SNOWPEA_HOME/.mcp.json (global, the default since 1.23.0, so every project sees it) or the project's .mcp.json. |
 | `sessionId` | `string \| null` | no | Session whose workdir to use. |
@@ -1176,7 +1180,7 @@ List every configured MCP server with its scope, state and tools.
 
 | field | type | required | description |
 |---|---|---|---|
-| `servers` | `({ args?: string[]; command?: string \| null; cwd?: string \| null; disabled?: boolean; envKeys?: string[]; error?: string \| null; headerKeys?: string[]; name: string; permission?: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret"; plugin?: string \| null; scope: "project" \| "global" \| "plugin" \| "settings"; state?: "stopped" \| "starting" \| "ready" \| "error"; timeoutSec?: number \| null; toolCount?: number; toolTimeoutSec?: number \| null; tools?: ({ description?: string; name: string; })[]; toolsExclude?: string[]; toolsInclude?: string[]; transport: "stdio" \| "http" \| "sse"; url?: string \| null; })[]` | no | One row per configured server, project entries winning. |
+| `servers` | `({ args?: string[]; command?: string \| null; cwd?: string \| null; disabled?: boolean; envKeys?: string[]; error?: string \| null; headerKeys?: string[]; name: string; permission?: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret" \| "outside"; plugin?: string \| null; scope: "project" \| "global" \| "plugin" \| "settings"; state?: "stopped" \| "starting" \| "ready" \| "error"; timeoutSec?: number \| null; toolCount?: number; toolTimeoutSec?: number \| null; tools?: ({ description?: string; name: string; })[]; toolsExclude?: string[]; toolsInclude?: string[]; transport: "stdio" \| "http" \| "sse"; url?: string \| null; })[]` | no | One row per configured server, project entries winning. |
 
 ### `mcp.reload`
 
@@ -1237,7 +1241,7 @@ Probe a saved MCP server or an unsaved draft and report its tools.
 | `env` | `Record<string, string> \| null` | no | Environment for the child process. |
 | `headers` | `Record<string, string> \| null` | no | HTTP headers sent with every request. |
 | `name` | `string \| null` | no | Saved server to probe. |
-| `permission` | `"read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret" \| null` | no | Permission tag for the server's tools; stored in settings. |
+| `permission` | `"read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret" \| "outside" \| null` | no | Permission tag for the server's tools; stored in settings. |
 | `scope` | `"project" \| "global" \| "plugin" \| "settings" \| null` | no | Scope of the saved server. |
 | `sessionId` | `string \| null` | no | Session whose workdir to use. |
 | `timeoutSec` | `number \| null` | no | Startup cap, in seconds. |
@@ -1269,7 +1273,7 @@ Merge a patch into an existing MCP server entry.
 | field | type | required | description |
 |---|---|---|---|
 | `name` | `string` | yes | Server name. |
-| `patch` | `{ args?: string[] \| null; command?: string \| null; cwd?: string \| null; disabled?: boolean \| null; env?: Record<string, string> \| null; headers?: Record<string, string> \| null; permission?: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret" \| null; timeoutSec?: number \| null; toolTimeoutSec?: number \| null; toolsExclude?: string[] \| null; toolsInclude?: string[] \| null; type?: "stdio" \| "http" \| "sse" \| null; url?: string \| null; }` | no | Keys to change; anything absent is kept. |
+| `patch` | `{ args?: string[] \| null; command?: string \| null; cwd?: string \| null; disabled?: boolean \| null; env?: Record<string, string> \| null; headers?: Record<string, string> \| null; permission?: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret" \| "outside" \| null; timeoutSec?: number \| null; toolTimeoutSec?: number \| null; toolsExclude?: string[] \| null; toolsInclude?: string[] \| null; type?: "stdio" \| "http" \| "sse" \| null; url?: string \| null; }` | no | Keys to change; anything absent is kept. |
 | `scope` | `"project" \| "global" \| null` | no | Which file to rewrite; omitted, the one that declares it. |
 | `sessionId` | `string \| null` | no | Session whose workdir to use. |
 | `workdir` | `string \| null` | no | Project directory for scope=project. |
@@ -2931,7 +2935,7 @@ List the tools registered for a session.
 
 | field | type | required | description |
 |---|---|---|---|
-| `tools` | `({ category: string; deferred?: boolean; description?: string; name: string; permissionTag: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret"; provider?: string; reason?: string; server?: string; source?: string; state?: "active" \| "inactive"; })[]` | no | Registered tools. |
+| `tools` | `({ category: string; deferred?: boolean; description?: string; name: string; permissionTag: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret" \| "outside"; provider?: string; reason?: string; server?: string; source?: string; state?: "active" \| "inactive"; })[]` | no | Registered tools. |
 
 ### `tool.progress`
 
@@ -2962,7 +2966,7 @@ Register tools this connection runs itself (host tools).
 
 | field | type | required | description |
 |---|---|---|---|
-| `tools` | `({ agents?: string[] \| null; category?: string \| null; deferred?: boolean; description: string; inputSchema?: Record<string, unknown>; look?: boolean; name: string; parallel?: "safe" \| "never"; permission: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret"; timeoutMs?: number \| null; })[]` | yes | Tools to add or replace for this connection; all-or-nothing. |
+| `tools` | `({ agents?: string[] \| null; category?: string \| null; deferred?: boolean; description: string; inputSchema?: Record<string, unknown>; look?: boolean; name: string; parallel?: "safe" \| "never"; permission: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret" \| "outside"; timeoutMs?: number \| null; })[]` | yes | Tools to add or replace for this connection; all-or-nothing. |
 
 **Result**
 
@@ -3060,7 +3064,7 @@ Web search for a browser host (1.11.0): the web_search tool's provider chain, se
 | field | type | required | description |
 |---|---|---|---|
 | `hostToolsFrom` | `string \| null` | no | The session's owning client (addendum 8). A browser profile shows only its own cards and those with null. |
-| `request` | `{ args?: Record<string, unknown>; diff?: string \| null; guard?: string \| null; note?: string; requestId: string; risk?: string; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; }` | yes | The request now in the shared queue. |
+| `request` | `{ args?: Record<string, unknown>; diff?: string \| null; folder?: string \| null; guard?: string \| null; note?: string; paths?: string[] \| null; reasonCode?: string \| null; requestId: string; risk?: string; scopeHint?: "once" \| "session" \| "project" \| "always" \| "site"; sessionId: string; site?: string \| null; timeoutSec?: number; tool: string; }` | yes | The request now in the shared queue. |
 
 ### `approval.resolved`
 

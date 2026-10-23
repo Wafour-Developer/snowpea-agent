@@ -15,7 +15,8 @@ Ported from Hermes (``agent/verification_stop.py`` + the evidence ledger in
 
 When the model ends the turn without that evidence, the loop appends a
 bounded follow-up (at most :data:`MAX_NUDGES` per turn) instead of finishing.
-It never runs a check itself.
+It never runs a check itself, and it does not ask for one the person declined
+or told it not to run (addendum 29, C3).
 """
 
 from __future__ import annotations
@@ -115,6 +116,29 @@ def has_repl(session: Session) -> bool:
     return REPL_TOOL in HOST_TOOLS.for_session(session)
 
 
+#: The person asked for no checks this turn: "검사 명령은 돌리지 말고",
+#: "테스트는 생략하고", "don't run the tests".  Only an instruction counts:
+#: "테스트하지 않은 코드", "no tests yet" or "don't skip the tests" do not.
+_CHECK_WORD_KO = r"(?:검사|테스트|빌드|체크|린트|타입\s*체크|tsc|pytest)"
+_KO_PARTICLE = r"(?:\s*(?:명령|명령어|코드)?\s*(?:은|는|을|를|도)?\s*)"
+_NO_CHECKS = re.compile(
+    _CHECK_WORD_KO + _KO_PARTICLE
+    + r"(?:(?:돌리|실행하|하|돌리진|실행하진)지?\s*(?:말|마)"
+    r"|생략(?:하고|해|해줘|해주세요|하세요)|빼고\s|안\s*돌려도)"
+    r"|(?<!n't )(?<!not )\b(?:don'?t|do\s+not|no\s+need\s+to)\s+(?:run|bother\s+running)"
+    r"\s+(?:the\s+|any\s+)?(?:tests?|checks?|tsc|builds?|lint(?:er)?s?|type\s*-?checks?"
+    r"|test\s+suite)\b"
+    r"|(?<!n't )(?<!not )\bskip\s+(?:running\s+)?(?:the\s+|all\s+)?(?:tests|checks|build"
+    r"|typecheck|test\s+suite)\s*(?:[.,;!]|$|and\s+just|for\s+now)",
+    re.IGNORECASE,
+)
+
+
+def user_declines_checks(text: str) -> bool:
+    """True when the person's own words say not to run checks or tests."""
+    return bool(_NO_CHECKS.search(text or ""))
+
+
 def is_check_command(command: str) -> bool:
     """True when ``command`` runs tests, a linter, a type checker or a build."""
     return bool(_CHECK.search(command or ""))
@@ -164,10 +188,34 @@ class TurnEvidence:
     last_look: int = -1
     nudges: int = 0
     todo_nudged: bool = False
+    #: The person declined a check (a shell/execute_code approval) this turn.
+    check_declined: bool = False
+    #: ... or a look at the page.
+    look_declined: bool = False
+    #: The person's message said not to run checks.
+    no_checks: bool = False
+    closed: bool = False
 
 
-def begin_turn(session: Session) -> None:
-    session.verify_turn = TurnEvidence()
+def begin_turn(session: Session, text: str = "") -> None:
+    session.verify_turn = TurnEvidence(no_checks=user_declines_checks(text))
+
+
+def note_declined(
+    session: Session, name: str, args: dict[str, Any], tag: str | None = None
+) -> None:
+    """The person declined this call: do not send the model back to retry it."""
+    turn: TurnEvidence | None = getattr(session, "verify_turn", None)
+    if turn is None:
+        return
+    command = str(args.get("command") or "")
+    if name == "execute_code" or (
+        (name == "shell" or tag == "exec") and is_check_command(command)
+    ):
+        # Declining ``npm install`` or ``git push`` is not declining a check.
+        turn.check_declined = True
+    elif name in BROWSER_LOOKS or name == REPL_TOOL:
+        turn.look_declined = True
 
 
 def observe(session: Session, name: str, args: dict[str, Any], result: Any) -> None:
@@ -234,8 +282,19 @@ def nudge(core: Core, session: Session) -> str | None:
         check is not None and check[0] > last_edit and check[1]
     )
     ui_last = max(turn.ui_edits.values(), default=-1)
-    ui_ok = not turn.ui_edits or turn.last_look > ui_last
+    ui_ok = not turn.ui_edits or turn.last_look > ui_last or turn.look_declined
+    declined = not code_ok and turn.check_declined
+    if not code_ok and (turn.no_checks or turn.check_declined):
+        # The person said no: asking again is how a 14 s turn took 3 minutes.
+        code_ok = True
     if code_ok and ui_ok:
+        if declined and not turn.closed:
+            turn.closed = True
+            turn.nudges += 1
+            return (
+                "[system] A check was not approved. Do not try another way to run it: "
+                "end the turn now and say the work is unverified."
+            )
         return _open_todos(session, turn)
     turn.nudges += 1
     shown = sorted(edits, key=edits.__getitem__)[-8:]
@@ -253,11 +312,14 @@ def nudge(core: Core, session: Session) -> str | None:
         else:
             lines.append(f"The last check (`{check[2]}`) failed.")
         lines.append(
-            "Run the project's relevant check now, read any failure, fix the cause and say "
-            "what passed. With no suite, exercise the changed behaviour — execute_code "
-            "(Python) or node in shell — and call it ad-hoc verification, not a green suite."
+            "Unless the user asked you not to run checks, run the project's relevant check "
+            "now, read any failure, fix the cause and say what passed. With no suite, "
+            "exercise the changed behaviour — execute_code (Python) or node in shell — and "
+            "call it ad-hoc verification, not a green suite."
         )
     if not ui_ok:
+        if turn.no_checks or turn.check_declined:
+            lines.append("Do not run tests or other checks: the user said not to.")
         look = (
             "take snapshot(page) (or page.screenshot()) in repl"
             if has_repl(session)

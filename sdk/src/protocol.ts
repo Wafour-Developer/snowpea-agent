@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.29.0";
+export const PROTOCOL_VERSION = "1.30.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -188,7 +188,7 @@ export interface ApprovalAskParams {
   /** Always ask a person: the mode matrix may only deny (plan still denies write, send and config; a read is asked) and never auto-allows, not even in auto mode. The allowlist still applies unless risk is 'payment'. For any client's destructive or irreversible actions. */
   forceAsk?: boolean;
   /** Permission class of the escalated action. */
-  permission: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate" | "secret";
+  permission: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate" | "secret" | "outside";
   /** What will happen, shown to the person approving. */
   reason: string;
   /** Risk hint shown with the approval; default from the permission. 'payment' also means: the allowlist is never consulted and the answer is never stored beyond this one call (scope is coerced to 'once'). */
@@ -225,10 +225,16 @@ export interface ApprovalListResult {
     args?: Record<string, unknown>;
     /** For patch and write_file: the unified diff the call would write, computed without writing (1.29.0). Null for other tools, for a call that would fail, or when the diff is over 200 KB. */
     diff?: string | null;
+    /** For 'outside_project': the folder a 'project' or 'always' answer allows writes into from then on (kept with the owner's global rules, never in the project), and a 'session' answer for this session (1.30.0). Null when that folder would be too wide (a filesystem root, the home folder, or above the project): every answer then covers this call only. */
+    folder?: string | null;
     /** Why this is asked whatever the mode (1.24.0): 'agent-switch' for a call in the rest of a turn session.setAgent {guardTurn} guarded. Such an answer is never remembered. */
     guard?: string | null;
     /** Extra warning shown with the prompt, e.g. "modifies snowpea configuration". */
     note?: string;
+    /** With reasonCode: the resolved absolute paths concerned (1.30.0). */
+    paths?: string[] | null;
+    /** Why a call is asked by what it touches (1.30.0): 'config' (snowpea settings), 'secret' (a credential or key file), 'outside_project' (a write outside the session's project). Null for an ordinary ask. */
+    reasonCode?: string | null;
     /** Id to answer with approval.respond. */
     requestId: string;
     /** Risk hint for the UI. */
@@ -252,10 +258,16 @@ export interface ApprovalRequestParams {
   args?: Record<string, unknown>;
   /** For patch and write_file: the unified diff the call would write, computed without writing (1.29.0). Null for other tools, for a call that would fail, or when the diff is over 200 KB. */
   diff?: string | null;
+  /** For 'outside_project': the folder a 'project' or 'always' answer allows writes into from then on (kept with the owner's global rules, never in the project), and a 'session' answer for this session (1.30.0). Null when that folder would be too wide (a filesystem root, the home folder, or above the project): every answer then covers this call only. */
+  folder?: string | null;
   /** Why this is asked whatever the mode (1.24.0): 'agent-switch' for a call in the rest of a turn session.setAgent {guardTurn} guarded. Such an answer is never remembered. */
   guard?: string | null;
   /** Extra warning shown with the prompt, e.g. "modifies snowpea configuration". */
   note?: string;
+  /** With reasonCode: the resolved absolute paths concerned (1.30.0). */
+  paths?: string[] | null;
+  /** Why a call is asked by what it touches (1.30.0): 'config' (snowpea settings), 'secret' (a credential or key file), 'outside_project' (a write outside the session's project). Null for an ordinary ask. */
+  reasonCode?: string | null;
   /** Id to answer with approval.respond. */
   requestId: string;
   /** Risk hint for the UI. */
@@ -1128,7 +1140,7 @@ export interface McpAddParams {
   /** Server name; ^[a-zA-Z0-9_-]{1,64}$. */
   name: string;
   /** Permission tag for the server's tools; stored in settings. */
-  permission?: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate" | "secret" | null;
+  permission?: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate" | "secret" | "outside" | null;
   /** Catalog id copied before the explicit fields are applied. */
   preset?: string | null;
   /** Which file to write: $SNOWPEA_HOME/.mcp.json (global, the default since 1.23.0, so every project sees it) or the project's .mcp.json. */
@@ -1227,7 +1239,7 @@ export interface McpListResult {
     /** Server name; the key under mcpServers. */
     name: string;
     /** Permission tag every tool of this server is judged by. */
-    permission?: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate" | "secret";
+    permission?: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate" | "secret" | "outside";
     /** Plugin that brings a plugin-scoped entry. */
     plugin?: string | null;
     /** project, global, plugin or settings. */
@@ -1311,7 +1323,7 @@ export interface McpTestParams {
   /** Saved server to probe. */
   name?: string | null;
   /** Permission tag for the server's tools; stored in settings. */
-  permission?: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate" | "secret" | null;
+  permission?: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate" | "secret" | "outside" | null;
   /** Scope of the saved server. */
   scope?: "project" | "global" | "plugin" | "settings" | null;
   /** Session whose workdir to use. */
@@ -1370,7 +1382,7 @@ export interface McpUpdateParams {
     /** HTTP headers sent with every request. */
     headers?: Record<string, string> | null;
     /** Permission tag for the server's tools; stored in settings. */
-    permission?: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate" | "secret" | null;
+    permission?: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate" | "secret" | "outside" | null;
     /** Startup cap, in seconds. */
     timeoutSec?: number | null;
     /** Per-call cap, in seconds. */
@@ -4071,7 +4083,7 @@ export interface ToolListResult {
     /** Tool name as the model calls it. */
     name: string;
     /** Permission class checked against the mode. */
-    permissionTag: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate" | "secret";
+    permissionTag: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate" | "secret" | "outside";
     /** Backing provider for tools that have one, e.g. the web-search provider id; reads "configured → answering" when the configured one cannot run. */
     provider?: string;
     /** Why an inactive tool is inactive, e.g. "lsp.enabled is false". */
@@ -4120,7 +4132,7 @@ export interface ToolRegisterParams {
     /** 'safe': several calls of it in one model response may run at once, like the built-in readers (1.18.0). Only for permission read or network; 'never' (the default) keeps it in order. */
     parallel?: "safe" | "never";
     /** Permission class checked against the mode. */
-    permission: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate" | "secret";
+    permission: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate" | "secret" | "outside";
     /** How long tool.invoke may stay silent; default 120000. tool.progress restarts it, and it is paused while the session waits on an approval or a question. */
     timeoutMs?: number | null;
   })[];
@@ -4229,10 +4241,16 @@ export interface ApprovalPendingPayload {
     args?: Record<string, unknown>;
     /** For patch and write_file: the unified diff the call would write, computed without writing (1.29.0). Null for other tools, for a call that would fail, or when the diff is over 200 KB. */
     diff?: string | null;
+    /** For 'outside_project': the folder a 'project' or 'always' answer allows writes into from then on (kept with the owner's global rules, never in the project), and a 'session' answer for this session (1.30.0). Null when that folder would be too wide (a filesystem root, the home folder, or above the project): every answer then covers this call only. */
+    folder?: string | null;
     /** Why this is asked whatever the mode (1.24.0): 'agent-switch' for a call in the rest of a turn session.setAgent {guardTurn} guarded. Such an answer is never remembered. */
     guard?: string | null;
     /** Extra warning shown with the prompt, e.g. "modifies snowpea configuration". */
     note?: string;
+    /** With reasonCode: the resolved absolute paths concerned (1.30.0). */
+    paths?: string[] | null;
+    /** Why a call is asked by what it touches (1.30.0): 'config' (snowpea settings), 'secret' (a credential or key file), 'outside_project' (a write outside the session's project). Null for an ordinary ask. */
+    reasonCode?: string | null;
     /** Id to answer with approval.respond. */
     requestId: string;
     /** Risk hint for the UI. */

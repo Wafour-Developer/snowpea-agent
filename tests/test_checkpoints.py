@@ -323,7 +323,9 @@ async def test_shell_delta_records_clean_git_files_as_restorable_with_head_bytes
     assert entry["beforeSha"] is not None
 
 
-async def test_shell_delta_records_dirty_git_files_as_not_restorable(tmp_path: Path) -> None:
+async def test_shell_delta_records_dirty_git_files_as_restorable_from_the_baseline(
+    tmp_path: Path,
+) -> None:
     workdir = tmp_path / "repo"
     workdir.mkdir()
     subprocess.run(["git", "init"], cwd=workdir, check=True, capture_output=True)
@@ -344,5 +346,6 @@ async def test_shell_delta_records_dirty_git_files_as_not_restorable(tmp_path: P
     assert manifest is not None
     entry = file_entry(manifest, "dirty.txt")
     assert entry["source"] == "shell"
-    assert entry["restorable"] is False
-    assert entry["beforeSha"] is None
+    assert entry["status"] == "modified"
+    assert entry["restorable"] is True
+    assert entry["beforeSha"] is not None

@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import builtins
+import contextlib
 import difflib
 import hashlib
 import json
 import logging
 import re
 import shutil
+import stat
 import subprocess
 import uuid
 from pathlib import Path, PurePosixPath
@@ -22,6 +24,12 @@ log = logging.getLogger("snowpea.checkpoints")
 MAX_FILE_BYTES = 5 * 1024 * 1024
 MAX_FILE_SIZE = MAX_FILE_BYTES
 EXCLUDED_PARTS = {".git", "node_modules", ".snowpea", "__pycache__", "dist", "out"}
+MAX_BASELINE_PATHS = 2000
+#: Bytes one shell baseline reads at most; past it, files fall back to porcelain.
+MAX_BASELINE_BYTES = 64 * 1024 * 1024
+#: Directories a shell baseline never hashes: environments and build output
+#: that an unborn-HEAD repo lists as untracked when nothing ignores them.
+BASELINE_SKIPPED_PARTS = {".venv", "venv", "env", "target", "build", ".next", ".cache"}
 SAFE_ID = re.compile(r"^[A-Za-z0-9_-][A-Za-z0-9._-]*$")
 
 
@@ -99,6 +107,16 @@ class CheckpointStore:
         self.settings = settings
         self._pending: dict[tuple[str, str], dict[str, Any]] = {}
         self._shell_before: dict[str, dict[str, str] | None] = {}
+        # Content hashes (and sizes) of the dirty/untracked files of a shell
+        # baseline, whose bytes are kept as blobs before the shell runs.
+        self._shell_hashes: dict[str, dict[str, tuple[str, int]]] = {}
+        # Per turn: the first baseline hash seen for each dirty path, and the
+        # rows whose path existed before the turn although no blob was kept.
+        self._turn_baseline: dict[tuple[str, str], dict[str, str]] = {}
+        self._existed: set[tuple[str, str, str]] = set()
+        # Per session: ``rel -> (mtime_ns, size, sha)`` of baseline files already
+        # hashed this turn, so the next shell call does not read them again.
+        self._stat_cache: dict[str, dict[str, tuple[int, int, str]]] = {}
 
     @property
     def enabled(self) -> bool:
@@ -200,8 +218,37 @@ class CheckpointStore:
             return None, False
         key = (session.id, turn_id)
         manifest = self._pending.setdefault(key, self._new_manifest(session, turn_id, kind=kind))
-        if any(row["path"] == rel for row in manifest["files"]):
+        current = next((row for row in manifest["files"] if row["path"] == rel), None)
+        if current is not None:
+            if not await self._unchanged_shell_row(session, turn_id, current):
+                return manifest, False
+            # A shell row without a before-state, for a file still as it was at
+            # the shell baseline: the write tool's capture is the real one.
+            manifest["files"].remove(current)
+            self._existed.discard((session.id, turn_id, rel))
+            await self._capture(session, turn_id, manifest, rel, excluded, source)
             return manifest, False
+        added = await self._capture(session, turn_id, manifest, rel, excluded, source)
+        return manifest, added and len(manifest["files"]) == 1
+
+    async def _unchanged_shell_row(self, session: Any, turn_id: str, row: dict[str, Any]) -> bool:
+        if row.get("source") != "shell" or row.get("beforeSha") is not None:
+            return False
+        baseline = self._turn_baseline.get((session.id, turn_id), {}).get(row["path"])
+        if baseline is None:
+            return False
+        current = await self._current_bytes(session, row["path"])
+        return current is not None and _sha(current) == baseline
+
+    async def _capture(
+        self,
+        session: Any,
+        turn_id: str,
+        manifest: dict[str, Any],
+        rel: str,
+        excluded: str | None,
+        source: str,
+    ) -> bool:
         before_sha: str | None = None
         size = 0
         skipped: str | None = excluded
@@ -218,6 +265,8 @@ class CheckpointStore:
                         before_sha = await self._store_blob(session.id, data)
             except (OSError, UnicodeError, AttributeError):
                 skipped = "unreadable"
+        if exists and before_sha is None:
+            self._existed.add((session.id, turn_id, rel))
         entry = {
             "path": rel,
             "status": "modified" if exists else "created",
@@ -228,8 +277,7 @@ class CheckpointStore:
             "restorable": skipped is None,
             "skipped": skipped,
         }
-        added = merge_manifest(manifest, entry)
-        return manifest, added and len(manifest["files"]) == 1
+        return merge_manifest(manifest, entry)
 
     async def note_after(self, session: Any, turn_id: str, path: str) -> None:
         if not self.enabled:
@@ -245,7 +293,10 @@ class CheckpointStore:
             if await self._exists(session, rel):
                 data = await self._read_bytes(session, rel)
                 entry["afterSha"] = _sha(data)
-                entry["status"] = "created" if entry["beforeSha"] is None else "modified"
+                existed = (
+                    entry["beforeSha"] is not None or (session.id, turn_id, rel) in self._existed
+                )
+                entry["status"] = "modified" if existed else "created"
             else:
                 entry["afterSha"] = None
                 entry["status"] = "deleted"
@@ -258,7 +309,93 @@ class CheckpointStore:
             return None
         baseline = await self._git_status(session.workdir)
         self._shell_before[session.id] = baseline
+        self._shell_hashes[session.id] = await self._hash_baseline(session, baseline or {})
         return baseline
+
+    async def _hash_baseline(
+        self, session: Any, baseline: dict[str, str]
+    ) -> dict[str, tuple[str, int]]:
+        """Hash and keep the bytes of a baseline's dirty/untracked files.
+
+        Porcelain alone cannot tell whether a shell rewrote an already dirty
+        file, and git has no before-state for it (nor for anything in a repo
+        whose HEAD is unborn). Bounded by path count and file size.
+        """
+        seen = self._stat_cache.setdefault(session.id, {})
+        if isinstance(session.backend, LocalBackend):
+            # Up to MAX_BASELINE_BYTES of reads and blob writes: off the loop.
+            return await asyncio.to_thread(
+                self._hash_local_baseline, session.id, session.backend, baseline, seen
+            )
+        # A remote backend: no lstat or mtime to go by, so no cache either.
+        hashes: dict[str, tuple[str, int]] = {}
+        considered = 0
+        budget = MAX_BASELINE_BYTES
+        for rel in sorted(baseline):
+            if is_excluded(rel):
+                continue
+            if considered >= MAX_BASELINE_PATHS:
+                break
+            considered += 1
+            try:
+                if not await self._exists(session, rel):
+                    continue
+                data = await self._read_bytes(session, rel)
+                if len(data) > MAX_FILE_BYTES or len(data) > budget:
+                    continue
+                budget -= len(data)
+                hashes[rel] = (await self._store_blob(session.id, data), len(data))
+            except (OSError, AttributeError):
+                continue
+        return hashes
+
+    def _hash_local_baseline(
+        self,
+        session_id: str,
+        backend: LocalBackend,
+        baseline: dict[str, str],
+        seen: dict[str, tuple[int, int, str]],
+    ) -> dict[str, tuple[str, int]]:
+        """:meth:`_hash_baseline` for a local backend, run in a worker thread.
+
+        A symlink is never followed: an untracked link to a key file must not
+        be copied into the checkpoint store, nor restored through.
+        """
+        hashes: dict[str, tuple[str, int]] = {}
+        considered = 0
+        budget = MAX_BASELINE_BYTES
+        for rel in sorted(baseline):
+            parts = PurePosixPath(rel.replace("\\", "/")).parts
+            if is_excluded(rel) or any(part in BASELINE_SKIPPED_PARTS for part in parts):
+                continue
+            if considered >= MAX_BASELINE_PATHS:
+                break
+            considered += 1
+            try:
+                target = backend.resolve(rel)
+                info = target.lstat()
+                if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_FILE_BYTES:
+                    continue
+                known = seen.get(rel)
+                if known is not None and known[:2] == (info.st_mtime_ns, info.st_size):
+                    hashes[rel] = (known[2], known[1])
+                    continue
+                if info.st_size > budget:
+                    continue
+                data = target.read_bytes()
+                if len(data) > MAX_FILE_BYTES or len(data) > budget:
+                    continue
+                budget -= len(data)
+                digest = _sha(data)
+                blob = self._blob_path(session_id, digest)
+                if not blob.exists():
+                    blob.parent.mkdir(parents=True, exist_ok=True)
+                    blob.write_bytes(data)
+                hashes[rel] = (digest, len(data))
+                seen[rel] = (info.st_mtime_ns, info.st_size, digest)
+            except (OSError, ValueError):
+                continue
+        return hashes
 
     async def _git_status(self, workdir: Path) -> dict[str, str] | None:
         try:
@@ -325,41 +462,61 @@ class CheckpointStore:
         self, session: Any, turn_id: str, baseline: dict[str, str] | None = None
     ) -> dict[str, Any] | None:
         stored = self._shell_before.pop(session.id, None)
+        hashes = self._shell_hashes.pop(session.id, {})
         before = baseline if baseline is not None else stored
         if before is None:
             return None
         after = await self._git_status(session.workdir)
         if after is None:
             return None
+        key = (session.id, turn_id)
+        seen = self._turn_baseline.setdefault(key, {})
+        for rel, (digest, _) in hashes.items():
+            seen.setdefault(rel, digest)
         manifest: dict[str, Any] | None = None
-        # A dirty path can retain the same porcelain XY while a shell changes
-        # its bytes again. Include it as non-restorable rather than silently
-        # omitting a possible shell write.
-        for rel in sorted(changed_paths(before, after) | set(before)):
+        # A dirty path can keep the same porcelain XY while a shell changes its
+        # bytes again, so a hashed baseline path is compared by content, and
+        # listed only when it changed. Unhashed ones fall back to porcelain.
+        candidates = changed_paths(before, after) - hashes.keys()
+        for rel, (digest, _) in hashes.items():
+            current = await self._current_bytes(session, rel)
+            if current is None or _sha(current) != digest:
+                candidates.add(rel)
+        for rel in sorted(candidates):
             if is_excluded(rel):
                 continue
-            key = (session.id, turn_id)
             manifest = self._pending.setdefault(key, self._new_manifest(session, turn_id))
             if any(row["path"] == rel for row in manifest["files"]):
                 await self.note_after(session, turn_id, rel)
                 continue
             was_clean = rel not in before
-            head = await self._git_head_bytes(session.workdir, rel) if was_clean else None
             exists = await self._exists(session, rel)
-            before_sha = await self._store_blob(session.id, head) if head is not None else None
+            if rel in hashes:
+                # The blob was stored when the baseline was taken.
+                before_sha, size = hashes[rel]
+                restorable = True
+            else:
+                # ``git show HEAD:`` fails for untracked paths and an unborn
+                # HEAD; a clean path then did not exist before the shell.
+                head = await self._git_head_bytes(session.workdir, rel) if was_clean else None
+                before_sha = await self._store_blob(session.id, head) if head is not None else None
+                size = len(head or b"")
+                restorable = was_clean
+                if not was_clean and "D" not in before[rel]:
+                    self._existed.add((session.id, turn_id, rel))
             status = (
                 "deleted"
                 if not exists
-                else ("created" if was_clean and head is None else "modified")
+                else ("created" if was_clean and before_sha is None else "modified")
             )
             entry = {
                 "path": rel,
                 "status": status,
                 "beforeSha": before_sha,
                 "afterSha": None,
-                "size": len(head or b""),
+                "size": size,
                 "source": "shell",
-                "restorable": was_clean,
+                "restorable": restorable,
                 "skipped": None,
             }
             merge_manifest(manifest, entry)
@@ -368,7 +525,14 @@ class CheckpointStore:
 
     async def finalize_turn(self, session: Any, turn_id: str) -> dict[str, Any] | None:
         manifest = self._pending.pop((session.id, turn_id), None)
+        self._turn_baseline.pop((session.id, turn_id), None)
+        # Blobs no row kept are pruned below, so hashes from this turn go too.
+        self._stat_cache.pop(session.id, None)
+        self._existed = {row for row in self._existed if row[:2] != (session.id, turn_id)}
         if not manifest or not manifest["files"]:
+            # A shell baseline may have stored blobs that no row kept.
+            with contextlib.suppress(OSError):
+                self._delete_unreferenced_blobs(session.id)
             return None
         target = self._turn_path(session.id, manifest["id"])
         target.parent.mkdir(parents=True, exist_ok=True)

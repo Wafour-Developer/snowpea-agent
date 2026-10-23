@@ -20,6 +20,7 @@ import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 from time import monotonic
 from typing import TYPE_CHECKING, Any
 
@@ -1585,7 +1586,7 @@ async def _drive(
     empty_retries = 0
     overflow_retried = False
     session.lead_direct_calls = 0
-    verify_gate.begin_turn(session)
+    verify_gate.begin_turn(session, text)
     # One acknowledgement per turn, not per tool round.
     session.ack_spoken = False
     # A host that reconnected (or a core that restarted) may not have sent
@@ -2250,11 +2251,14 @@ async def _run_one_call(
     if verdict == "ask":
         from snowpea_core.tools.fs import preview_diff
 
+        reason_code = policy.reason_code(tag)
         decision = await core.approvals.request(
             session,
             tool.name,
             call.arguments,
             diff=await preview_diff(backend, tool.name, dict(call.arguments)),
+            reason_code=reason_code,
+            paths=_reason_paths(core, session, tag, call.arguments) if reason_code else None,
             risk=policy.risk(tag),
             unattended=unattended,
             cancel_event=session.interrupt,
@@ -2277,6 +2281,7 @@ async def _run_one_call(
                 # The refusal the human typed is the whole point of "deny with
                 # a reason": the model must read it, not guess at it.
                 refusal = f"{refusal}: {decision.reason}"
+            verify_gate.note_declined(session, tool.name, call.arguments, tag)
             await _deny_call(core, session, call, refusal)
             return "denied"
 
@@ -2495,6 +2500,28 @@ def _lead_direct_refusal(core: Core, session: Session, name: str, tag: str) -> s
         "delegate_task (implementation to executor, tests to test-engineer), with a "
         "brief naming the files it owns and the command that proves it is done"
     )
+
+
+def _reason_paths(core: Core, session: Session, tag: str, args: dict[str, Any]) -> list[str]:
+    """The resolved paths an approval with a ``reasonCode`` is about (addendum 29, C4)."""
+    from snowpea_core.tools.call_paths import call_paths
+    from snowpea_core.tools.config_guard import home_of, outside_paths
+
+    if tag == "outside":
+        return outside_paths(args, session, home_of(core))
+    workdir = Path(session.workdir) if getattr(session, "workdir", None) else None
+    found: list[str] = []
+    for raw in call_paths(args):
+        try:
+            candidate = Path(str(raw)).expanduser()
+            if not candidate.is_absolute() and workdir is not None:
+                candidate = workdir / candidate
+            resolved = str(candidate.resolve())
+        except (OSError, RuntimeError, ValueError):
+            continue
+        if resolved not in found:
+            found.append(resolved)
+    return found
 
 
 async def _deny_call(core: Core, session: Session, call: ToolCall, reason: str) -> None:

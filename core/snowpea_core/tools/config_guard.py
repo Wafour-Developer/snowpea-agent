@@ -14,7 +14,8 @@ symlink into the home directory are caught too.
 
 from __future__ import annotations
 
-from pathlib import Path
+import posixpath
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from snowpea_core.config.paths import resolve_home
@@ -106,7 +107,8 @@ def home_of(core: Any) -> Any:
 def permission_for_write(
     args: dict[str, Any], session: Any = None, core: Any = None
 ) -> PermissionTag:
-    """``config`` when any path of the call is a snowpea config file, else ``write``."""
+    """``config`` for a snowpea config file, ``outside`` for a path outside the
+    project (addendum 29), else ``write``.  ``config`` wins."""
     from snowpea_core.tools.call_paths import call_paths
 
     workdir = getattr(session, "workdir", None)
@@ -114,7 +116,81 @@ def permission_for_write(
     paths = call_paths(args) or [""]
     if any(is_config_path(path, workdir=workdir, home=home) for path in paths):
         return "config"
+    if outside_paths(args, session, home):
+        return "outside"
     return "write"
+
+
+def outside_paths(args: dict[str, Any], session: Any = None, home: Any = None) -> list[str]:
+    """The resolved paths of a write call that lie outside the session's project.
+
+    Symlinks are resolved, so a link inside the project pointing out counts
+    as outside.  Core's own working areas are not outside: the session
+    workspace's ``tmp``/``artifacts``, ``$SNOWPEA_HOME/plans``, and anything
+    under the project (``.snowpea/worktrees`` included).  A session without a
+    workdir has no project to be outside of.
+    """
+    from snowpea_core.tools.call_paths import call_paths
+
+    workdir = getattr(session, "workdir", None)
+    if not workdir:
+        return []
+    backend = getattr(session, "backend", None)
+    if getattr(backend, "kind", "local") in REMOTE_KINDS:
+        return _remote_outside_paths(args, backend)
+    try:
+        root = Path(workdir).expanduser().resolve()
+    except (OSError, RuntimeError, ValueError):
+        return []
+    try:
+        snowpea_home = Path(home).expanduser().resolve() if home else resolve_home()
+    except (OSError, RuntimeError, ValueError):  # pragma: no cover - unresolvable $HOME
+        snowpea_home = None
+    found: list[str] = []
+    for raw in call_paths(args):
+        if not str(raw).strip():
+            continue
+        resolved = _resolve(str(raw), root)
+        if resolved is None or _under(resolved, root):
+            continue
+        if snowpea_home is not None and (
+            _in_session_workspace(resolved, snowpea_home)
+            or any(_under(resolved, snowpea_home / name) for name in HOME_WORKING_DIRS)
+        ):
+            continue
+        if str(resolved) not in found:
+            found.append(str(resolved))
+    return found
+
+
+#: Backends whose files are not on this machine (``ExecutionBackend.kind``).
+REMOTE_KINDS: frozenset[str] = frozenset({"ssh", "docker"})
+
+
+def _remote_outside_paths(args: dict[str, Any], backend: Any) -> list[str]:
+    """``outside_paths`` for an SSH or Docker session, judged against its own cwd.
+
+    The remote filesystem is not here to resolve symlinks in, so the path is
+    normalised as written; a ``~`` path is outside.
+    """
+    from snowpea_core.tools.call_paths import call_paths
+
+    root = PurePosixPath(str(getattr(backend, "cwd", "") or "/"))
+    found: list[str] = []
+    for raw in call_paths(args):
+        text = str(raw).strip()
+        if not text:
+            continue
+        if text.startswith("~"):
+            resolved = PurePosixPath(text)
+        else:
+            joined = text if text.startswith("/") else f"{root}/{text}"
+            resolved = PurePosixPath(posixpath.normpath(joined))
+        if (resolved == root or root in resolved.parents) and not text.startswith("~"):
+            continue
+        if str(resolved) not in found:
+            found.append(str(resolved))
+    return found
 
 
 def permission_for_read(

@@ -21,6 +21,8 @@ The memory tools are `save_memory` and `search_memory` since 0.2.28. The old nam
 | **accept** (default) | allow | allow | ask | ask § | ask | allow |
 | **auto** | allow | allow | allow | allow | allow | allow |
 
+A write outside the project folder (`write_file`, `patch`, `lsp_rename` on a path outside the session's working directory, symlinks resolved) is judged as `outside` instead: plan denies it, accept asks, auto allows. Checkpoints cannot undo such a write. snowpea's own working areas (the session's `tmp`/`artifacts`, `$SNOWPEA_HOME/plans`) are not outside. Answering "always" (or "for this project") allows writes into that folder from then on, kept in your global settings and never in the project's own file; "for this session" covers that folder for the session. A folder that would be too wide (a filesystem root, your home folder, or a folder above the project) is never remembered: each such write asks. `lsp_rename` refuses a rename that would rewrite files outside the project unless the session is in auto mode. A `/team` worker's project is its worktree, so a worker writing back into the main checkout is asked too.
+
 † plan mode writes markdown and plan files only. ‡ plan mode runs read-only commands without asking; everything else still asks. § `web_search` and `web_extract` only read, so accept mode runs them without asking; set `approvals.readOnlyWebAsk: true` to be asked for them too. A subagent runs in its parent's mode or a stricter one, and a "for this session" approval given to the parent covers its subagents.
 
 **plan** is for thinking. The agent reads your repository and searches the web, and cannot change your code. Two things it can do, because otherwise it cannot do its job at all:
@@ -36,7 +38,7 @@ Change what counts as writable with `modes.plan.writableGlobs`, a list of globs 
 { "modes": { "plan": { "writableGlobs": ["**/*.md", ".snowpea/plans/**", "docs/**"] } } }
 ```
 
-**accept** is the working default, and matches Claude Code's acceptEdits: file reads and edits happen without a prompt, while shell commands, network calls and anything that sends a message ask first.
+**accept** is the working default, and matches Claude Code's acceptEdits: file reads and edits inside the project happen without a prompt, while writes outside the project folder, shell commands, network calls and anything that sends a message ask first.
 
 **auto** asks nothing. Use it when you are watching, in a throwaway container, or for a scheduled job whose blast radius you have thought about.
 

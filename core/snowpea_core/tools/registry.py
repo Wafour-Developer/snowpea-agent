@@ -368,6 +368,13 @@ def effective_permission(
     try:
         return hook(args or {}, session, core)
     except Exception:  # noqa: BLE001 - a broken hook must not widen permission
+        # A path guard fails closed: the strictest tag it could have raised to.
+        from snowpea_core.tools.config_guard import permission_for_read, permission_for_write
+
+        if hook is permission_for_write:
+            return "config"
+        if hook is permission_for_read:
+            return "secret"
         return tool.permission
 
 

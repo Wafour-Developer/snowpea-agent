@@ -762,3 +762,43 @@ async def test_a_created_file_diffs_from_dev_null(tmp_path: Path) -> None:
     )
     result = await fs.write_file(ctx, {"path": "made.py", "content": "z = 1\n"})  # type: ignore[arg-type]
     assert result.ok and (result.diff or "").startswith("--- /dev/null\n")
+
+
+async def test_each_patched_file_gets_its_diagnostics_event(tmp_path: Path) -> None:
+    from snowpea_core.exec.local import LocalBackend
+    from snowpea_core.tools.registry import ToolContext
+
+    core = _core(tmp_path, LspSettings(servers={"fake": FAKE_SPEC}))
+    workdir = tmp_path / "w"
+    workdir.mkdir()
+    (workdir / "a.fake").write_text("ok\n")
+    (workdir / "b.fake").write_text("ok\n")
+    ctx = ToolContext(
+        session=Session(id="s-p", workdir=workdir),
+        core=core,
+        backend=LocalBackend(workdir),
+        call_id="call-p",
+    )
+    tool = core.tools.get("patch")
+    assert tool is not None
+    try:
+        result = await tool.run(
+            ctx,
+            {
+                "edits": [
+                    {"path": "a.fake", "old_string": "ok", "new_string": "ERROR one"},
+                    {"path": "b.fake", "old_string": "ok", "new_string": "fine"},
+                ]
+            },
+        )
+        assert result.ok, result.error
+        hub: _Hub = core.hub  # type: ignore[assignment]
+        last: dict[str, dict[str, Any]] = {}
+        for sent in hub.of("session.event"):
+            kind, payload = sent["event"]
+            if kind == "lsp.diagnostics":
+                last[Path(payload["path"]).name] = payload
+        assert last["a.fake"]["errors"] == 1 and last["a.fake"]["callId"] == "call-p"
+        assert last["b.fake"]["count"] == 0
+    finally:
+        await manager_for(core).shutdown()

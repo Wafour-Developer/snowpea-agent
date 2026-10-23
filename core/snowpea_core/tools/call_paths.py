@@ -23,11 +23,15 @@ def call_paths(args: dict[str, Any] | None) -> list[str]:
     top = str(args.get("path") or "").strip()
     if top:
         found.append(top)
-    for raw in args.get("paths") or []:
+    # A malformed list must not raise: the permission hooks read this, and a
+    # hook that fails would fall back to the tool's plainer tag.
+    paths = args.get("paths")
+    for raw in paths if isinstance(paths, list | tuple) else []:
         text = str(raw or "").strip()
         if text:
             found.append(text)
-    for edit in args.get("edits") or []:
+    edits = args.get("edits")
+    for edit in edits if isinstance(edits, list | tuple) else []:
         if isinstance(edit, dict):
             text = str(edit.get("path") or "").strip() or top
             if text:

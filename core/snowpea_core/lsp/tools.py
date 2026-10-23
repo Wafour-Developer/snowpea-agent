@@ -20,6 +20,7 @@ from snowpea_core.lsp import diagnostic as diagnostics_mod
 from snowpea_core.lsp.client import uri_to_path
 from snowpea_core.lsp.manager import LspManager, manager_for
 from snowpea_core.prompts import tool_descriptions as descriptions
+from snowpea_core.tools.config_guard import permission_for_write
 from snowpea_core.tools.registry import Tool, ToolContext, ToolRegistry, ToolResult
 
 log = logging.getLogger("snowpea.lsp.tools")
@@ -357,6 +358,14 @@ def apply_workspace_edit(edit: dict[str, Any]) -> dict[Path, str]:
     return result
 
 
+def _outside_targets(ctx: ToolContext, targets: list[Path]) -> list[str]:
+    from snowpea_core.tools.config_guard import home_of, outside_paths
+
+    return outside_paths(
+        {"paths": [str(target) for target in targets]}, ctx.session, home_of(ctx.core)
+    )
+
+
 async def lsp_rename(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     manager = _manager(ctx)
     if not manager.enabled:
@@ -382,6 +391,19 @@ async def lsp_rename(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     updates = apply_workspace_edit(edit)
     if not updates:
         return ToolResult(ok=False, error="the rename produced no file changes")
+    outside = _outside_targets(ctx, list(updates))
+    if outside and getattr(ctx.session, "mode", None) != "auto":
+        # The server may index files beyond the project (a monorepo root, an
+        # editable install); a rename must not rewrite them unasked.
+        shown = ", ".join(outside[:5]) + (" …" if len(outside) > 5 else "")
+        return ToolResult(
+            ok=False,
+            error=(
+                f"the rename would also change files outside the project ({shown}); "
+                "nothing was written. Rename inside the project with patch, which asks "
+                "before writing outside it"
+            ),
+        )
     written: list[str] = []
     for target, content in sorted(updates.items()):
         try:
@@ -497,6 +519,7 @@ TOOLS: tuple[Tool, ...] = (
             "required": ["path", "line", "character", "newName"],
         },
         permission="write",
+        permission_for=permission_for_write,
         run=lsp_rename,
     ),
 )

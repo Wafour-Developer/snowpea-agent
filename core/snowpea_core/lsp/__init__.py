@@ -68,6 +68,7 @@ async def diagnostics_block(ctx: ToolContext, path: str) -> str:
         resolved = file.resolve()
         for client in clients:
             found.extend(client.diagnostics_for(resolved))
+        await _announce(ctx, resolved, found)
         try:
             display = str(resolved.relative_to(workdir.resolve()))
         except ValueError:
@@ -76,6 +77,33 @@ async def diagnostics_block(ctx: ToolContext, path: str) -> str:
     except Exception:  # noqa: BLE001 - diagnostics never fail an edit
         log.debug("could not collect diagnostics for %s", path, exc_info=True)
         return ""
+
+
+async def _announce(ctx: ToolContext, path: Path, found: list[dict[str, object]]) -> None:
+    """One ``lsp.diagnostics`` event for the file whose diagnostics the result carries.
+
+    A server's own push can land outside the edit's window (or not at all
+    for a slow one), so the event a panel badges the edit with is sent from
+    what went into the result (addendum 29, C5).
+    """
+    hub = getattr(ctx.core, "hub", None)
+    if hub is None:
+        return
+    from snowpea_core.lsp.diagnostic import counts
+    from snowpea_core.session import events
+
+    errors, warnings = counts(found)  # type: ignore[arg-type]
+    event = events.lsp_diagnostics(
+        str(path),
+        count=len(found),
+        errors=errors,
+        warnings=warnings,
+        call_id=ctx.call_id or None,
+    )
+    try:
+        await hub.emit_event(ctx.session.id, event)
+    except Exception:  # noqa: BLE001 - an event never fails an edit
+        log.debug("could not emit lsp.diagnostics for %s", path, exc_info=True)
 
 
 __all__ = [

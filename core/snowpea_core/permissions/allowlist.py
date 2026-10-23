@@ -37,6 +37,9 @@ Scope = Literal["project", "global"]
 
 #: ``target`` value for entries matched against a shell command line.
 SHELL_TARGET = "shell"
+#: Target of a folder rule: writes outside the project into this folder
+#: (addendum 29). Its pattern matches the resolved path of the file written.
+DIR_TARGET = "dir"
 
 def once_only(args: Any) -> bool:
     """True when a host asked that this call never be remembered (``args.onceOnly``)."""
@@ -174,6 +177,54 @@ def pattern_for_command(command: str) -> str:
 
 def pattern_for_tool(name: str) -> str:
     return f"^{re.escape(name)}$"
+
+
+def pattern_for_dir(directory: str) -> str:
+    """A folder rule's pattern: the folder itself and everything under it."""
+    import os
+
+    folder = str(directory).rstrip("/\\") or str(directory)
+    return f"{re.escape(folder)}(?:{re.escape(os.sep)}.*)?"
+
+
+def outside_folder(
+    paths: list[str] | None,
+    *,
+    workdir: Path | str | None = None,
+    home: Path | str | None = None,
+) -> str | None:
+    """The folder a "this folder" answer covers: the files' common parent.
+
+    ``None`` — the answer then covers this call only — when that folder is
+    too wide to hand out: a filesystem root, the user's home, snowpea's home,
+    or the project's own parent (or any folder above it).
+    """
+    import os
+
+    parents = [os.path.dirname(path) for path in paths or [] if path]
+    if not parents:
+        return None
+    try:
+        folder = Path(os.path.commonpath(parents))
+    except ValueError:  # different drives
+        return None
+    too_wide: set[Path] = {Path(folder.anchor)}
+    for raw in (Path.home(), home):
+        if raw:
+            try:
+                too_wide.add(Path(raw).expanduser().resolve())
+            except (OSError, RuntimeError):
+                pass
+    if folder in too_wide:
+        return None
+    if workdir:
+        try:
+            project = Path(workdir).expanduser().resolve()
+        except (OSError, RuntimeError):
+            return None
+        if folder == project or folder in project.parents:
+            return None
+    return str(folder)
 
 
 def _matches_pattern(pattern: str, subject: str) -> bool:
@@ -326,6 +377,38 @@ class Allowlist:
                 return True
         return False
 
+    def covers_paths(
+        self,
+        paths: list[str],
+        *,
+        workdir: Path | str | None = None,
+        host: str | None = None,
+    ) -> bool:
+        """True when folder rules cover every one of ``paths`` (resolved, absolute).
+
+        Only global rules count: those the owner answered.  A project's own
+        ``.snowpea/settings.json`` must not let a cloned repo grant itself
+        writes outside it.
+        """
+        patterns = [
+            item.pattern
+            for item in self.list("global", workdir=workdir, host=host, any_host=False)
+            if item.target == DIR_TARGET
+        ]
+        if not paths or not patterns:
+            return False
+
+        def covered(path: str) -> bool:
+            for pattern in patterns:
+                try:
+                    if re.fullmatch(pattern, path):
+                        return True
+                except re.error:
+                    log.warning("ignoring invalid folder rule %r", pattern)
+            return False
+
+        return all(covered(path) for path in paths)
+
     def has(
         self, pattern: str, scope: Scope, target: str, *, workdir: Path | str | None = None
     ) -> bool:
@@ -424,6 +507,9 @@ class Allowlist:
 __all__ = [
     "LOCAL_DEV_REASON",
     "LOCAL_DEV_TOOL",
+    "DIR_TARGET",
+    "outside_folder",
+    "pattern_for_dir",
     "SHELL_TARGET",
     "SHELL_TOOLS",
     "Allowlist",
