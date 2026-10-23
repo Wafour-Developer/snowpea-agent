@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 import secrets
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from snowpea_core.server import errors
@@ -33,8 +33,11 @@ from snowpea_core.server.protocol import (
     SiteMarkPartParams,
     SiteMarkPartResult,
     SiteMarkResult,
+    SiteOriginStats,
     SitePutParams,
     SitePutResult,
+    SiteStatsParams,
+    SiteStatsResult,
     SiteSummary,
 )
 from snowpea_core.session import site_memory as sm
@@ -151,7 +154,11 @@ async def site_get_handler(conn: RpcConnection, params: SiteGetParams, core: Cor
 
 
 async def site_put_handler(conn: RpcConnection, params: SitePutParams, core: Core) -> SitePutResult:
-    """``site.put`` — upsert by (origin, pageType); a put is a success and clears stale."""
+    """``site.put`` — upsert by (origin, pageType); clears stale.
+
+    A put is not a success: only ``site.mark ok`` adds to ``successCount``
+    (addendum 27, C3), so the count says how often a stored map really worked.
+    """
     profile = _host_profile(conn)
     _require_enabled(core, params.sessionId)
     store = _store(core)
@@ -175,7 +182,7 @@ async def site_put_handler(conn: RpcConnection, params: SitePutParams, core: Cor
             "origin": origin,
             "createdAt": existing["createdAt"] if existing else now_iso,
             "lastVerified": sm.iso(verified),
-            "successCount": (int(existing["successCount"]) if existing else 0) + 1,
+            "successCount": int(existing["successCount"]) if existing else 0,
             "failureCount": int(existing["failureCount"]) if existing else 0,
             "stale": False,
         }
@@ -205,6 +212,7 @@ async def site_put_handler(conn: RpcConnection, params: SitePutParams, core: Cor
         ) from exc
     if evicted:
         log.info("site memory: evicted %d least recently verified origin(s)", len(evicted))
+    await _count(store, profile, origin, now, "puts")
     return SitePutResult(entryId=entry["entryId"], created=created)
 
 
@@ -239,6 +247,10 @@ async def site_mark_handler(
     entry = await store.site_update(profile, origin, params.entryId, change)
     if entry is None:
         raise RpcError(errors.NOT_FOUND, f"no site entry {params.entryId} for {origin}")
+    if params.outcome == "ok":
+        await _count(store, profile, origin, now, "locateOk")
+    else:
+        await _count(store, profile, origin, now, "locateMiss", "staleMarks")
     log.info(
         "site memory: %s marked %s%s",
         params.entryId,
@@ -316,6 +328,14 @@ async def site_mark_part_handler(
         raise RpcError(errors.NOT_FOUND, str(exc)) from exc
     if entry is None:
         raise RpcError(errors.NOT_FOUND, f"no site entry {params.entryId} for {origin}")
+    if params.part == "flow":
+        await _count(store, profile, origin, now, "runOk" if params.outcome == "ok" else "runMiss")
+    elif params.outcome == "ok":
+        await _count(store, profile, origin, now, "readOk")
+    elif params.outcome == "stale":
+        await _count(store, profile, origin, now, "readMiss", "staleMarks")
+    else:
+        await _count(store, profile, origin, now, "readMiss")
     return SiteMarkPartResult(entry=SiteEntry(**entry))
 
 
@@ -346,6 +366,46 @@ async def site_list_handler(
     )
 
 
+#: Days of counts kept for ``site.stats``; older ones go on the next read.
+STATS_KEEP_DAYS = 400
+
+
+async def _count(store: Any, profile: str, origin: str, now: datetime, *metrics: str) -> None:
+    """Count one call for ``site.stats``; a failed count never fails the call."""
+    try:
+        await store.site_count(profile, origin, now.date().isoformat(), *metrics)
+    except Exception:  # noqa: BLE001 - statistics are best-effort
+        log.debug("site memory: could not count %s for %s", metrics, origin, exc_info=True)
+
+
+async def site_stats_handler(
+    conn: RpcConnection, params: SiteStatsParams, core: Core
+) -> SiteStatsResult:
+    """``site.stats`` — how a profile's stored maps did, per origin (1.27.0)."""
+    if getattr(conn, "client_kind", None) != "browser":
+        raise RpcError(errors.UNAUTHORIZED, "only a browser client may read site statistics")
+    profile = _ui_profile(conn, None)
+    store = _store(core)
+    origin = _origin(params.origin) if params.origin is not None else None
+    today = datetime.now(UTC).date()
+    rows = await store.site_counts(
+        profile,
+        origin,
+        (today - timedelta(days=params.days - 1)).isoformat(),
+        keep_after=(today - timedelta(days=STATS_KEEP_DAYS)).isoformat(),
+    )
+    by_origin: dict[str, dict[str, int]] = {}
+    for row in rows:
+        by_origin.setdefault(str(row["origin"]), {})[str(row["metric"])] = int(row["n"] or 0)
+    known = set(SiteOriginStats.model_fields) - {"origin"}
+    return SiteStatsResult(
+        origins=[
+            SiteOriginStats(origin=name, **{k: v for k, v in counts.items() if k in known})
+            for name, counts in sorted(by_origin.items())
+        ]
+    )
+
+
 async def site_delete_handler(
     conn: RpcConnection, params: SiteDeleteParams, core: Core
 ) -> SiteDeleteResult:
@@ -361,6 +421,7 @@ def register_site_handlers(dispatcher: RpcDispatcher) -> None:
     dispatcher.register("site.put", site_put_handler)
     dispatcher.register("site.mark", site_mark_handler)
     dispatcher.register("site.markPart", site_mark_part_handler)
+    dispatcher.register("site.stats", site_stats_handler)
     dispatcher.register("site.list", site_list_handler)
     dispatcher.register("site.delete", site_delete_handler)
 

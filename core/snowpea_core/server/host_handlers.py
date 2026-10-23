@@ -67,6 +67,8 @@ from snowpea_core.server.protocol import (
     ToolRegisterResult,
     ToolUnregisterParams,
     ToolUnregisterResult,
+    TurnOutcomeParams,
+    TurnOutcomeResult,
     UsageRow,
     UsageSummaryParams,
     UsageSummaryResult,
@@ -599,6 +601,48 @@ async def session_events_handler(
     )
 
 
+async def turn_outcome_handler(
+    conn: RpcConnection, params: TurnOutcomeParams, core: Core
+) -> TurnOutcomeResult:
+    """``turn.outcome`` — a browser client's verdict on one of its turns (1.27.0)."""
+    from snowpea_core.config.paths import utc_now
+    from snowpea_core.memory.safety import refusal, sensitive_kind
+    from snowpea_core.session import events as event_builders
+
+    client_id = getattr(conn, "client_id", None)
+    if getattr(conn, "client_kind", None) != "browser" or not client_id:
+        raise RpcError(errors.UNAUTHORIZED, "only a browser client may record a turn outcome")
+    live = core.sessions.get(params.sessionId)
+    if live is not None:
+        owners = {live.host_tools_from, getattr(live, "origin_client_id", None)}
+    else:
+        row = await core.store.session(params.sessionId) if core.store is not None else None
+        if row is None:
+            raise RpcError(errors.NOT_FOUND, f"no such session: {params.sessionId}")
+        owners = {row.get("host_tools_from")}
+    if client_id not in owners:
+        raise RpcError(errors.UNAUTHORIZED, "a browser client may judge only its own sessions")
+    reason = (params.reason or "").strip() or None
+    kind = sensitive_kind(reason) if reason else None
+    if kind is not None:
+        raise RpcError(errors.INVALID_PARAMS, refusal(kind), {"field": "reason"})
+    payload: dict[str, Any] = {
+        "turnId": params.turnId,
+        "outcome": params.outcome,
+        "by": params.by,
+        "reason": reason,
+    }
+    if live is not None:
+        event = await core.hub.emit(live.id, "turn.outcome", payload)
+        return TurnOutcomeResult(seq=event.seq)
+    # A closed session: appended after its last event, nobody to tell.
+    assert core.store is not None
+    seq = await core.store.max_seq(params.sessionId) + 1
+    body = event_builders.validate("turn.outcome", payload)
+    await core.store.append_event(params.sessionId, seq, "turn.outcome", body, utc_now())
+    return TurnOutcomeResult(seq=seq)
+
+
 async def session_tool_content_handler(
     _conn: RpcConnection, params: SessionToolContentParams, core: Core
 ) -> SessionToolContentResult:
@@ -940,6 +984,7 @@ def register_host_handlers(dispatcher: RpcDispatcher) -> None:
     dispatcher.register("session.setActive", session_set_active_handler)
     dispatcher.register("session.continue", session_continue_handler)
     dispatcher.register("session.events", session_events_handler)
+    dispatcher.register("turn.outcome", turn_outcome_handler)
     dispatcher.register("session.toolContent", session_tool_content_handler)
     dispatcher.register("session.artifacts", session_artifacts_handler)
     dispatcher.register("session.attachments", session_attachments_handler)

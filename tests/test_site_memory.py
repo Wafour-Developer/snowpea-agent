@@ -101,7 +101,8 @@ async def test_put_creates_then_updates_by_origin_and_page_type(
         first = await put(client, entry())
         assert first["created"] is True and first["entryId"].startswith("e_")
         [stored] = (await client.ok("site.get", {"origin": ORIGIN}))["entries"]
-        assert stored["successCount"] == 1 and stored["failureCount"] == 0
+        # A put is not a success (addendum 27, C3): only an 'ok' mark is.
+        assert stored["successCount"] == 0 and stored["failureCount"] == 0
         assert stored["stale"] is False and stored["origin"] == ORIGIN
         created_at = stored["createdAt"]
 
@@ -111,12 +112,12 @@ async def test_put_creates_then_updates_by_origin_and_page_type(
         again = await put(client, entry(summary="Search results, new layout", fingerprint="ax1:ff"))
         assert again == {"entryId": first["entryId"], "created": False}
         [updated] = (await client.ok("site.get", {"origin": ORIGIN}))["entries"]
-        # Core keeps createdAt / counts / entryId; the put replaces the rest,
-        # clears stale and counts as a success.
+        # Core keeps createdAt / counts / entryId; the put replaces the rest
+        # and clears stale, without counting as a success.
         assert updated["createdAt"] == created_at
         assert updated["summary"] == "Search results, new layout"
         assert updated["fingerprint"] == "ax1:ff"
-        assert updated["successCount"] == 2 and updated["failureCount"] == 1
+        assert updated["successCount"] == 0 and updated["failureCount"] == 1
         assert updated["stale"] is False
 
         # The origin is normalised: the same site in other case is the same entry.
@@ -178,7 +179,7 @@ async def test_mark_counts_successes_and_failures_and_flags_stale(
         before = marked["entry"]["lastVerified"]
         ok = await client.ok("site.mark", {"origin": ORIGIN, "entryId": entry_id, "outcome": "ok"})
         assert ok["entry"]["stale"] is False
-        assert ok["entry"]["successCount"] == 2 and ok["entry"]["failureCount"] == 1
+        assert ok["entry"]["successCount"] == 1 and ok["entry"]["failureCount"] == 1
         assert ok["entry"]["lastVerified"] >= before
 
         missing = await client.call(
@@ -478,10 +479,10 @@ async def test_list_pages_and_delete_all_of_an_origin(
         first = await client.ok("site.list", {"limit": 2})
         row_b = first["sites"][1]
         assert row_b["pageTypes"] == ["login", "search-results"]
-        # Two puts and one 'ok' mark; one 'stale' mark.
-        assert (row_b["successCount"], row_b["failureCount"], row_b["stale"]) == (3, 1, 1)
+        # One 'ok' mark and one 'stale' mark; the puts count for neither.
+        assert (row_b["successCount"], row_b["failureCount"], row_b["stale"]) == (1, 1, 1)
         row_a = first["sites"][0]
-        assert (row_a["successCount"], row_a["failureCount"], row_a["stale"]) == (2, 0, 0)
+        assert (row_a["successCount"], row_a["failureCount"], row_a["stale"]) == (0, 0, 0)
         assert [s["origin"] for s in first["sites"]] == ["https://a.test", "https://b.test"]
         second = await client.ok("site.list", {"limit": 2, "cursor": first["cursor"]})
         assert [s["origin"] for s in second["sites"]] == ["https://c.test"]

@@ -68,11 +68,13 @@ Server capabilities advertised in the `system.hello` result:
 - `siteFrameActions`
 - `siteMemory`
 - `siteRecipes`
+- `siteStats`
 - `snapshotSupersede`
 - `standingOrders`
 - `tabReadAlways`
 - `toolInvokeGuard`
 - `tools`
+- `turnOutcome`
 - `update`
 - `webSearch`
 
@@ -177,6 +179,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`site.mark`](#sitemark) | client → server | Site memory (1.9.0): 'ok' counts a success, sets lastVerified and clears stale; 'stale' counts a failure and flags the entry until the next put. Browser host clients only. |
 | [`site.markPart`](#sitemarkpart) | client → server | Site memory (1.15.0): count one use of a flow or recipe of an entry without a put. The entry's successCount, failureCount, stale and lastVerified are untouched, so this never counts as verification. 'not_found' for an unknown entry, flow or recipe. Browser host clients only. |
 | [`site.put`](#siteput) | client → server | Site memory (1.9.0): upsert an entry by (origin, pageType). Core checks the schema, refuses XPath, values on login fields and strings that look like personal data or credentials, and enforces 24 KB per entry (16 KB before 1.15.0) and 30 entries per origin ('invalid_params' naming the field); past 1,000 origins the least recently verified origin is dropped. A put clears stale and counts as a success. Browser host clients only. |
+| [`site.stats`](#sitestats) | client → server | Site memory (1.27.0): per-origin counts of the profile's site.put, site.mark and site.markPart calls over the last days. Browser clients only, for their own profile; nothing page-derived is in it. |
 | [`skill.create`](#skillcreate) | client → server | Write a new SKILL.md, generated from a brief or supplied verbatim. |
 | [`skill.install`](#skillinstall) | client → server | Install a skill from a path, URL or registry. |
 | [`skill.list`](#skilllist) | client → server | List installed skills. |
@@ -204,6 +207,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`tool.progress`](#toolprogress) | client → server | Notification: progress of a running tool.invoke, re-emitted as tool.progress. |
 | [`tool.register`](#toolregister) | client → server | Register tools this connection runs itself (host tools). |
 | [`tool.unregister`](#toolunregister) | client → server | Remove some of this connection's host tools. |
+| [`turn.outcome`](#turnoutcome) | client → server | Record whether a turn did what was asked (1.27.0): a browser client, for its own sessions. Stored as a turn.outcome session event. |
 | [`usage.summary`](#usagesummary) | client → server | Token totals from stored usage events, grouped by provider, model, session or day. |
 | [`web.search`](#websearch) | client → server | Web search for a browser host (1.11.0): the web_search tool's provider chain, settings, caps and timeouts, for the host's own fallback when its search page is blocked. Browser host clients (with a clientId) only; 'unavailable' with details.reason when no provider can answer. Results are untrusted web content. |
 
@@ -2293,6 +2297,25 @@ Site memory (1.9.0): upsert an entry by (origin, pageType). Core checks the sche
 | `created` | `boolean` | yes | True when no entry for (origin, pageType) existed. |
 | `entryId` | `string` | yes | The entry's id. |
 
+### `site.stats`
+
+*Direction:* client → server
+
+Site memory (1.27.0): per-origin counts of the profile's site.put, site.mark and site.markPart calls over the last days. Browser clients only, for their own profile; nothing page-derived is in it.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `days` | `number` | no | Days back, today included. |
+| `origin` | `string \| null` | no | Only this origin. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `origins` | `({ locateMiss?: number; locateOk?: number; origin: string; puts?: number; readMiss?: number; readOk?: number; runMiss?: number; runOk?: number; staleMarks?: number; })[]` | no | Origins with any count in the window, by origin. |
+
 ### `skill.create`
 
 *Direction:* client → server
@@ -2850,6 +2873,28 @@ Remove some of this connection's host tools.
 |---|---|---|---|
 | `removed` | `string[]` | no | Names actually removed. |
 
+### `turn.outcome`
+
+*Direction:* client → server
+
+Record whether a turn did what was asked (1.27.0): a browser client, for its own sessions. Stored as a turn.outcome session event.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `by` | `"user" \| "host" \| "judge"` | yes | user, host or judge. |
+| `outcome` | `"ok" \| "failed" \| "corrected" \| "abandoned"` | yes | ok \| failed \| corrected \| abandoned. |
+| `reason` | `string \| null` | no | Why, at most 200 characters. Refused when it holds what memory.write refuses (a phone number, a card number, a credential, ...). |
+| `sessionId` | `string` | yes | The browser client's own session: one it created or whose hostToolsFrom it is; once the session is closed, only its hostToolsFrom. |
+| `turnId` | `string` | yes | The turn judged. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `seq` | `number` | yes | The seq of the stored turn.outcome event. |
+
 ### `usage.summary`
 
 *Direction:* client → server
@@ -3369,6 +3414,16 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | `reason` | `"complete" \| "interrupted" \| "error" \| "denied" \| "timeout" \| "budget" \| "stalled" \| "empty_response"` | no | Why the turn ended. budget = the tool-round budget ran out; the turn reported what it had done before ending. stalled = consecutive rounds made no new tool or file progress. empty_response = the model ended with no text and no tool call, again after one nudge (1.23.0); an error event with code empty_response precedes it. |
 | `synthetic` | `boolean` | no | True when the daemon wrote this event itself to close a turn a crash left open, rather than the turn reporting its own end (CORE-dangling-turns). The turn produced no further output after the events already stored. |
 | `turnId` | `string` | yes | Turn that ended. |
+
+### kind `turn.outcome`
+
+| field | type | required | description |
+|---|---|---|---|
+| `by` | `"user" \| "host" \| "judge"` | yes | user (a 👍/👎), host, or judge (a detector). |
+| `kind` | `"turn.outcome"` | no |  |
+| `outcome` | `"ok" \| "failed" \| "corrected" \| "abandoned"` | yes | ok \| failed \| corrected \| abandoned. |
+| `reason` | `string \| null` | no | Why, at most 200 characters. |
+| `turnId` | `string` | yes | The turn judged. |
 
 ### kind `turn.queued`
 

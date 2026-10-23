@@ -486,6 +486,30 @@ class SessionEventsResult(Payload):
     )
 
 
+class TurnOutcomeParams(Payload):
+    sessionId: str = Field(
+        description=(
+            "The browser client's own session: one it created or whose hostToolsFrom it "
+            "is; once the session is closed, only its hostToolsFrom."
+        )
+    )
+    turnId: str = Field(min_length=1, max_length=200, description="The turn judged.")
+    outcome: TurnOutcomeValue = Field(description="ok | failed | corrected | abandoned.")
+    by: TurnOutcomeBy = Field(description="user, host or judge.")
+    reason: str | None = Field(
+        default=None,
+        max_length=200,
+        description=(
+            "Why, at most 200 characters. Refused when it holds what memory.write "
+            "refuses (a phone number, a card number, a credential, ...)."
+        ),
+    )
+
+
+class TurnOutcomeResult(Payload):
+    seq: int = Field(description="The seq of the stored turn.outcome event.")
+
+
 class SessionToolContentParams(Payload):
     sessionId: str = Field(description="Session the tool ran in.")
     callId: str = Field(description="tool.result callId whose content to fetch.")
@@ -3211,7 +3235,10 @@ class SiteEntry(SiteEntryInput):
     lastVerified: str = Field(  # type: ignore[assignment]
         description="UTC ISO time of the last put or 'ok' mark."
     )
-    successCount: int = Field(default=0, description="Puts and 'ok' marks.")
+    successCount: int = Field(
+        default=0,
+        description="'ok' marks. Before 1.27.0 every put counted as one too.",
+    )
     failureCount: int = Field(default=0, description="'stale' marks.")
     stale: bool = Field(default=False, description="Marked stale and not replaced since.")
 
@@ -3299,6 +3326,31 @@ class SiteMarkPartParams(Payload):
 
 class SiteMarkPartResult(Payload):
     entry: SiteEntry = Field(description="The entry after the count.")
+
+
+class SiteStatsParams(Payload):
+    origin: str | None = Field(default=None, description="Only this origin.")
+    days: int = Field(default=30, ge=1, le=365, description="Days back, today included.")
+
+
+class SiteOriginStats(Payload):
+    """How one origin's stored maps did over the window, counted per call (1.27.0)."""
+
+    origin: str = Field(description="Origin.")
+    locateOk: int = Field(default=0, description="site.mark ok.")
+    locateMiss: int = Field(default=0, description="site.mark stale.")
+    runOk: int = Field(default=0, description="site.markPart flow ok.")
+    runMiss: int = Field(default=0, description="site.markPart flow miss.")
+    readOk: int = Field(default=0, description="site.markPart recipe ok.")
+    readMiss: int = Field(default=0, description="site.markPart recipe miss or stale.")
+    puts: int = Field(default=0, description="site.put.")
+    staleMarks: int = Field(default=0, description="Marks that flagged an entry or recipe stale.")
+
+
+class SiteStatsResult(Payload):
+    origins: list[SiteOriginStats] = Field(
+        default_factory=list, description="Origins with any count in the window, by origin."
+    )
 
 
 class SiteListParams(Payload):
@@ -4328,6 +4380,24 @@ class TurnDone(Payload):
     )
 
 
+TurnOutcomeValue = Literal["ok", "failed", "corrected", "abandoned"]
+TurnOutcomeBy = Literal["user", "host", "judge"]
+
+
+class TurnOutcomeEvent(Payload):
+    """Whether a turn did what was asked, as a browser client judged it (1.27.0).
+
+    Recorded as it was sent; core does not act on it.  A turn may get more
+    than one: an ``ok`` the user later corrects is followed by ``corrected``.
+    """
+
+    kind: Literal["turn.outcome"] = "turn.outcome"
+    turnId: str = Field(description="The turn judged.")
+    outcome: TurnOutcomeValue = Field(description="ok | failed | corrected | abandoned.")
+    by: TurnOutcomeBy = Field(description="user (a 👍/👎), host, or judge (a detector).")
+    reason: str | None = Field(default=None, description="Why, at most 200 characters.")
+
+
 class LspDiagnostics(Payload):
     """A language server published diagnostics for a file in this session.
 
@@ -4453,6 +4523,7 @@ SESSION_EVENT_MODELS: dict[str, type[BaseModel]] = {
     "turn.queued": TurnQueued,
     "turn.dequeued": TurnDequeued,
     "turn.done": TurnDone,
+    "turn.outcome": TurnOutcomeEvent,
     "lsp.diagnostics": LspDiagnostics,
     "loop.suspected": LoopSuspected,
     "job.done": JobDone,
@@ -5564,6 +5635,13 @@ METHODS: dict[str, RpcMethod] = {
             "the agent may use (1.23.0). A delegated child reports its root's.",
         ),
         _m(
+            "turn.outcome",
+            TurnOutcomeParams,
+            TurnOutcomeResult,
+            "Record whether a turn did what was asked (1.27.0): a browser client, for its "
+            "own sessions. Stored as a turn.outcome session event.",
+        ),
+        _m(
             "session.events",
             SessionEventsParams,
             SessionEventsResult,
@@ -5654,6 +5732,16 @@ METHODS: dict[str, RpcMethod] = {
                 "a put. The entry's successCount, failureCount, stale and lastVerified are "
                 "untouched, so this never counts as verification. 'not_found' for an unknown "
                 "entry, flow or recipe. Browser host clients only."
+            ),
+        ),
+        _m(
+            "site.stats",
+            SiteStatsParams,
+            SiteStatsResult,
+            (
+                "Site memory (1.27.0): per-origin counts of the profile's site.put, "
+                "site.mark and site.markPart calls over the last days. Browser clients "
+                "only, for their own profile; nothing page-derived is in it."
             ),
         ),
         _m(
@@ -5752,6 +5840,8 @@ CAPABILITIES: list[str] = [
     "sessionEvents",
     "memorySafe",
     "sessionOverrides",
+    "turnOutcome",
+    "siteStats",
 ]
 
 #: Where the daemon listens; mirrored into the schema dump for the SDK.
@@ -5862,6 +5952,7 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "session.continue",
         "session.setActive",
         "session.events",
+        "turn.outcome",
         "session.toolContent",
         "session.artifacts",
         "session.attachments",
@@ -5876,6 +5967,7 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "site.put",
         "site.mark",
         "site.markPart",
+        "site.stats",
         "site.list",
         "site.delete",
     }

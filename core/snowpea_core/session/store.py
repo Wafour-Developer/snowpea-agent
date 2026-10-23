@@ -67,6 +67,14 @@ CREATE TABLE IF NOT EXISTS site_entries (
     UNIQUE (profile, origin, page_type)
 );
 CREATE INDEX IF NOT EXISTS site_entries_profile_origin ON site_entries (profile, origin);
+CREATE TABLE IF NOT EXISTS site_counts (
+    profile  TEXT NOT NULL,
+    origin   TEXT NOT NULL,
+    day      TEXT NOT NULL,
+    metric   TEXT NOT NULL,
+    n        INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (profile, origin, day, metric)
+);
 """
 
 #: Columns added to ``sessions`` after the first release.  Applied on every
@@ -758,11 +766,51 @@ class Store:
         if entry_id is not None:
             sql += " AND entry_id = ?"
             params = (*params, entry_id)
-        return int(
-            await asyncio.to_thread(
-                self._locked, lambda conn: max(conn.execute(sql, params).rowcount, 0)
-            )
+
+        def work(conn: sqlite3.Connection) -> int:
+            removed = max(conn.execute(sql, params).rowcount, 0)
+            if entry_id is None:
+                # Forgetting a site forgets that it was visited, counts included.
+                conn.execute(
+                    "DELETE FROM site_counts WHERE profile = ? AND origin = ?", (profile, origin)
+                )
+            return removed
+
+        return int(await asyncio.to_thread(self._locked, work))
+
+    async def site_count(self, profile: str, origin: str, day: str, *metrics: str) -> None:
+        """Add one to each of ``metrics`` for (profile, origin, day) (1.27.0)."""
+
+        def work(conn: sqlite3.Connection) -> None:
+            for metric in metrics:
+                conn.execute(
+                    "INSERT INTO site_counts (profile, origin, day, metric, n)"
+                    " VALUES (?, ?, ?, ?, 1)"
+                    " ON CONFLICT (profile, origin, day, metric) DO UPDATE SET n = n + 1",
+                    (profile, origin, day, metric),
+                )
+
+        await asyncio.to_thread(self._locked, work)
+
+    async def site_counts(
+        self, profile: str, origin: str | None, since_day: str, *, keep_after: str
+    ) -> list[sqlite3.Row]:
+        """Counts per (origin, metric) from ``since_day`` on; drops days before ``keep_after``."""
+        sql = (
+            "SELECT origin, metric, SUM(n) AS n FROM site_counts"
+            " WHERE profile = ? AND day >= ?"
         )
+        params: tuple[Any, ...] = (profile, since_day)
+        if origin is not None:
+            sql += " AND origin = ?"
+            params = (*params, origin)
+        sql += " GROUP BY origin, metric ORDER BY origin"
+
+        def work(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+            conn.execute("DELETE FROM site_counts WHERE day < ?", (keep_after,))
+            return list(conn.execute(sql, params).fetchall())
+
+        return list(await asyncio.to_thread(self._locked, work))
 
     def close(self) -> None:
         """Idempotent: a second call (e.g. from a double ``Daemon.stop``) is a no-op."""

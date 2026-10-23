@@ -2808,7 +2808,7 @@ export interface SiteGetResult {
     })[];
     /** Marked stale and not replaced since. */
     stale?: boolean;
-    /** Puts and 'ok' marks. */
+    /** 'ok' marks. Before 1.27.0 every put counted as one too. */
     successCount?: number;
     /** What the page is. */
     summary?: string;
@@ -2969,7 +2969,7 @@ export interface SiteMarkResult {
     })[];
     /** Marked stale and not replaced since. */
     stale?: boolean;
-    /** Puts and 'ok' marks. */
+    /** 'ok' marks. Before 1.27.0 every put counted as one too. */
     successCount?: number;
     /** What the page is. */
     summary?: string;
@@ -3097,7 +3097,7 @@ export interface SiteMarkPartResult {
     })[];
     /** Marked stale and not replaced since. */
     stale?: boolean;
-    /** Puts and 'ok' marks. */
+    /** 'ok' marks. Before 1.27.0 every put counted as one too. */
     successCount?: number;
     /** What the page is. */
     summary?: string;
@@ -3216,6 +3216,39 @@ export interface SitePutResult {
   created: boolean;
   /** The entry's id. */
   entryId: string;
+}
+
+/** `site.stats` params. Site memory (1.27.0): per-origin counts of the profile's site.put, site.mark and site.markPart calls over the last days. Browser clients only, for their own profile; nothing page-derived is in it. */
+export interface SiteStatsParams {
+  /** Days back, today included. */
+  days?: number;
+  /** Only this origin. */
+  origin?: string | null;
+}
+
+/** `site.stats` result. */
+export interface SiteStatsResult {
+  /** Origins with any count in the window, by origin. */
+  origins?: ({
+    /** site.mark stale. */
+    locateMiss?: number;
+    /** site.mark ok. */
+    locateOk?: number;
+    /** Origin. */
+    origin: string;
+    /** site.put. */
+    puts?: number;
+    /** site.markPart recipe miss or stale. */
+    readMiss?: number;
+    /** site.markPart recipe ok. */
+    readOk?: number;
+    /** site.markPart flow miss. */
+    runMiss?: number;
+    /** site.markPart flow ok. */
+    runOk?: number;
+    /** Marks that flagged an entry or recipe stale. */
+    staleMarks?: number;
+  })[];
 }
 
 /** `skill.create` params. Write a new SKILL.md, generated from a brief or supplied verbatim. */
@@ -3931,6 +3964,26 @@ export interface ToolUnregisterParams {
 export interface ToolUnregisterResult {
   /** Names actually removed. */
   removed?: string[];
+}
+
+/** `turn.outcome` params. Record whether a turn did what was asked (1.27.0): a browser client, for its own sessions. Stored as a turn.outcome session event. */
+export interface TurnOutcomeParams {
+  /** user, host or judge. */
+  by: "user" | "host" | "judge";
+  /** ok | failed | corrected | abandoned. */
+  outcome: "ok" | "failed" | "corrected" | "abandoned";
+  /** Why, at most 200 characters. Refused when it holds what memory.write refuses (a phone number, a card number, a credential, ...). */
+  reason?: string | null;
+  /** The browser client's own session: one it created or whose hostToolsFrom it is; once the session is closed, only its hostToolsFrom. */
+  sessionId: string;
+  /** The turn judged. */
+  turnId: string;
+}
+
+/** `turn.outcome` result. */
+export interface TurnOutcomeResult {
+  /** The seq of the stored turn.outcome event. */
+  seq: number;
 }
 
 /** `usage.summary` params. Token totals from stored usage events, grouped by provider, model, session or day. */
@@ -4758,6 +4811,19 @@ export interface TurnDoneEventPayload {
   turnId: string;
 }
 
+/** Payload of `session.event` with kind `turn.outcome`. */
+export interface TurnOutcomeEventPayload {
+  /** user (a 👍/👎), host, or judge (a detector). */
+  by: "user" | "host" | "judge";
+  kind?: "turn.outcome";
+  /** ok | failed | corrected | abandoned. */
+  outcome: "ok" | "failed" | "corrected" | "abandoned";
+  /** Why, at most 200 characters. */
+  reason?: string | null;
+  /** The turn judged. */
+  turnId: string;
+}
+
 /** Payload of `session.event` with kind `turn.queued`. */
 export interface TurnQueuedEventPayload {
   kind?: "turn.queued";
@@ -4836,6 +4902,7 @@ export interface SessionEventKindMap {
   "tool.result": ToolResultEventPayload;
   "turn.dequeued": TurnDequeuedEventPayload;
   "turn.done": TurnDoneEventPayload;
+  "turn.outcome": TurnOutcomeEventPayload;
   "turn.queued": TurnQueuedEventPayload;
   "turn.started": TurnStartedEventPayload;
   "usage": UsageEventPayload;
@@ -4876,6 +4943,7 @@ export const SESSION_EVENT_KINDS: readonly SessionEventKind[] = [
   "tool.result",
   "turn.dequeued",
   "turn.done",
+  "turn.outcome",
   "turn.queued",
   "turn.started",
   "usage",
@@ -4984,6 +5052,7 @@ export interface MethodMap {
   "site.mark": { params: SiteMarkParams; result: SiteMarkResult };
   "site.markPart": { params: SiteMarkPartParams; result: SiteMarkPartResult };
   "site.put": { params: SitePutParams; result: SitePutResult };
+  "site.stats": { params: SiteStatsParams; result: SiteStatsResult };
   "skill.create": { params: SkillCreateParams; result: SkillCreateResult };
   "skill.install": { params: SkillInstallParams; result: SkillInstallResult };
   "skill.list": { params: SkillListParams; result: SkillListResult };
@@ -5011,6 +5080,7 @@ export interface MethodMap {
   "tool.progress": { params: ToolProgressParams; result: ToolProgressResult };
   "tool.register": { params: ToolRegisterParams; result: ToolRegisterResult };
   "tool.unregister": { params: ToolUnregisterParams; result: ToolUnregisterResult };
+  "turn.outcome": { params: TurnOutcomeParams; result: TurnOutcomeResult };
   "usage.summary": { params: UsageSummaryParams; result: UsageSummaryResult };
   "web.search": { params: WebSearchParams; result: WebSearchResult };
 }
@@ -5116,6 +5186,7 @@ export type ClientMethod =
   | "site.mark"
   | "site.markPart"
   | "site.put"
+  | "site.stats"
   | "skill.create"
   | "skill.install"
   | "skill.list"
@@ -5142,6 +5213,7 @@ export type ClientMethod =
   | "tool.progress"
   | "tool.register"
   | "tool.unregister"
+  | "turn.outcome"
   | "usage.summary"
   | "web.search";
 /** Methods the server calls on the client (bidirectional JSON-RPC). */
