@@ -433,3 +433,47 @@ def test_the_lock_file_holds_only_this_pid(tmp_path: Path) -> None:
         assert (tmp_path / "daemon.lock").read_text().strip() == str(os.getpid())
     finally:
         release_home_lock(held)
+
+
+def test_a_lock_on_a_deleted_or_replaced_file_is_lost(tmp_path: Path) -> None:
+    from snowpea_core.server.home_lock import lock_lost
+
+    held = acquire_home_lock(tmp_path)
+    try:
+        assert lock_lost(tmp_path, held) is False
+        (tmp_path / "daemon.lock").unlink()
+        assert lock_lost(tmp_path, held) is True
+        (tmp_path / "daemon.lock").write_text("")
+        assert lock_lost(tmp_path, held) is True
+    finally:
+        release_home_lock(held)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows cannot delete a locked home")
+async def test_a_daemon_whose_home_is_recreated_shuts_down(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A home deleted and made again under a running daemon is not its home any
+    more: it stops instead of advertising itself there, so a second daemon can
+    own it."""
+    import asyncio
+    import shutil
+
+    from snowpea_core.server import app_server
+    from snowpea_core.server.app_server import Daemon
+
+    monkeypatch.setattr(app_server, "ADVERT_CHECK_SEC", 0.05)
+    home = tmp_path / "home"
+    daemon = Daemon(port=0, home=home)
+    await daemon.start()
+    try:
+        shutil.rmtree(home)
+        home.mkdir()
+        await asyncio.wait_for(daemon.wait_closed(), 5)
+        assert daemon.shutdown_reason == "home gone"
+        assert not (home / "daemon.json").exists()
+    finally:
+        await daemon.stop()
+    second = Daemon(port=0, home=home)
+    await second.start()
+    await second.stop()

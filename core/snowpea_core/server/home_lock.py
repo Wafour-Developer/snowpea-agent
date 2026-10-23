@@ -65,6 +65,31 @@ def acquire_home_lock(home: Path) -> Any:
     return handle
 
 
+def lock_lost(home: Path, handle: Any) -> bool:
+    """True when ``<home>/daemon.lock`` is no longer the file ``handle`` locked.
+
+    A home that was deleted and created again leaves this daemon holding a
+    lock on a file nobody can see, so a second daemon could lock the new
+    one: this daemon no longer owns the home it advertises.  A file that
+    cannot be identified (no inode on this filesystem) is never "lost".
+    """
+    if handle is None:
+        return False
+    try:
+        held = os.fstat(handle.fileno())
+    except (OSError, ValueError):
+        return False
+    try:
+        current = os.stat(Path(home) / "daemon.lock")
+    except FileNotFoundError:
+        return True
+    except OSError:
+        return False
+    if not held.st_ino or not current.st_ino:
+        return False
+    return (held.st_ino, held.st_dev) != (current.st_ino, current.st_dev)
+
+
 def home_is_locked(home: Path) -> bool:
     """True when a daemon holds ``home``'s lock (a probe; it is released at once)."""
     if not (Path(home) / "daemon.lock").exists():

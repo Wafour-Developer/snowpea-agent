@@ -48,6 +48,7 @@ from snowpea_core.server.home_lock import (
     HOME_LOCKED_EXIT,
     HomeLocked,
     acquire_home_lock,
+    lock_lost,
     release_home_lock,
 )
 from snowpea_core.server.job_handlers import register_job_handlers
@@ -832,6 +833,13 @@ class Daemon:
         while not self._closed.is_set():
             await asyncio.sleep(ADVERT_CHECK_SEC)
             if self._closed.is_set() or self.core.stopping:
+                return
+            if lock_lost(self.core.paths.home, getattr(self, "_lock", None)):
+                # The home was deleted (and maybe made again) under this daemon:
+                # its lock no longer guards anything, so it must not advertise
+                # itself in a home another daemon may now own.
+                log.warning("the home this daemon locked is gone; shutting down")
+                self.request_shutdown("home gone")
                 return
             try:
                 json.loads(path.read_text(encoding="utf-8"))
