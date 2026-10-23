@@ -168,6 +168,9 @@ class Core:
     #: Set once ``Daemon.start`` has restored the sessions it reopens at boot,
     #: so ``session.list`` can say an empty answer is a real one (1.27.0).
     sessions_loaded: bool = False
+    #: Signed read-only site-memory packs from the loaded plugins (C5);
+    #: built on first use by :func:`snowpea_core.session.site_packs.packs_for`.
+    site_packs: Any = None
 
     # -- settings hot reload (CORE-settings-reload) ---------------------
 

@@ -2844,6 +2844,8 @@ export interface SiteGetResult {
     lastVerified: string;
     /** Origin, e.g. 'https://www.example.com'. */
     origin: string;
+    /** The pack's version, for a pack or shared entry (1.28.0). */
+    packVersion?: string | null;
     /** Page type, [a-z0-9-]{1,40}, e.g. 'login'. */
     pageType: string;
     /** At most 10 of 160 chars. */
@@ -2875,6 +2877,8 @@ export interface SiteGetResult {
         misses?: number;
       } | null;
     })[];
+    /** learned (site.put), or read-only from a signed plugin pack: pack (curated) or shared (opt-in maps through the same channel) (1.28.0). A pack entry's id starts with p_; site.mark/markPart count it for site.stats and change nothing; site.put for its pageType makes a learned entry, which wins. */
+    source?: "learned" | "pack" | "shared";
     /** Marked stale and not replaced since. */
     stale?: boolean;
     /** 'ok' marks. Before 1.27.0 every put counted as one too. */
@@ -2912,6 +2916,8 @@ export interface SiteListResult {
     lastVerified: string;
     /** Origin. */
     origin: string;
+    /** Entries site.get adds from signed packs, those no learned entry shadows (1.28.0). An origin known only from a pack is not listed. */
+    packEntries?: number;
     /** Distinct page types of its entries, sorted (1.9.0). */
     pageTypes?: string[];
     /** How many of them are stale. */
@@ -3009,6 +3015,8 @@ export interface SiteMarkResult {
     lastVerified: string;
     /** Origin, e.g. 'https://www.example.com'. */
     origin: string;
+    /** The pack's version, for a pack or shared entry (1.28.0). */
+    packVersion?: string | null;
     /** Page type, [a-z0-9-]{1,40}, e.g. 'login'. */
     pageType: string;
     /** At most 10 of 160 chars. */
@@ -3040,6 +3048,8 @@ export interface SiteMarkResult {
         misses?: number;
       } | null;
     })[];
+    /** learned (site.put), or read-only from a signed plugin pack: pack (curated) or shared (opt-in maps through the same channel) (1.28.0). A pack entry's id starts with p_; site.mark/markPart count it for site.stats and change nothing; site.put for its pageType makes a learned entry, which wins. */
+    source?: "learned" | "pack" | "shared";
     /** Marked stale and not replaced since. */
     stale?: boolean;
     /** 'ok' marks. Before 1.27.0 every put counted as one too. */
@@ -3141,6 +3151,8 @@ export interface SiteMarkPartResult {
     lastVerified: string;
     /** Origin, e.g. 'https://www.example.com'. */
     origin: string;
+    /** The pack's version, for a pack or shared entry (1.28.0). */
+    packVersion?: string | null;
     /** Page type, [a-z0-9-]{1,40}, e.g. 'login'. */
     pageType: string;
     /** At most 10 of 160 chars. */
@@ -3172,6 +3184,8 @@ export interface SiteMarkPartResult {
         misses?: number;
       } | null;
     })[];
+    /** learned (site.put), or read-only from a signed plugin pack: pack (curated) or shared (opt-in maps through the same channel) (1.28.0). A pack entry's id starts with p_; site.mark/markPart count it for site.stats and change nothing; site.put for its pageType makes a learned entry, which wins. */
+    source?: "learned" | "pack" | "shared";
     /** Marked stale and not replaced since. */
     stale?: boolean;
     /** 'ok' marks. Before 1.27.0 every put counted as one too. */

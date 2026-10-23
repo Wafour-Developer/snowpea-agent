@@ -3311,6 +3311,18 @@ class SiteEntry(SiteEntryInput):
     )
     failureCount: int = Field(default=0, description="'stale' marks.")
     stale: bool = Field(default=False, description="Marked stale and not replaced since.")
+    source: Literal["learned", "pack", "shared"] = Field(
+        default="learned",
+        description=(
+            "learned (site.put), or read-only from a signed plugin pack: pack (curated) "
+            "or shared (opt-in maps through the same channel) (1.28.0). A pack entry's "
+            "id starts with p_; site.mark/markPart count it for site.stats and change "
+            "nothing; site.put for its pageType makes a learned entry, which wins."
+        ),
+    )
+    packVersion: str | None = Field(
+        default=None, description="The pack's version, for a pack or shared entry (1.28.0)."
+    )
 
 
 class SiteGetParams(Payload):
@@ -3451,6 +3463,13 @@ class SiteSummary(Payload):
     )
     successCount: int = Field(default=0, description="Sum over its entries (1.9.0).")
     failureCount: int = Field(default=0, description="Sum over its entries (1.9.0).")
+    packEntries: int = Field(
+        default=0,
+        description=(
+            "Entries site.get adds from signed packs, those no learned entry shadows "
+            "(1.28.0). An origin known only from a pack is not listed."
+        ),
+    )
 
 
 class SiteListResult(Payload):
@@ -5981,6 +6000,7 @@ CAPABILITIES: list[str] = [
     "siteActionParts",
     "skillLearn",
     "memoryCandidates",
+    "sitePacks",
 ]
 
 #: Where the daemon listens; mirrored into the schema dump for the SDK.

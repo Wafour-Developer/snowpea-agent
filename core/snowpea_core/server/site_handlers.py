@@ -13,6 +13,7 @@ the host, which fences them for the model.  Nothing here puts them in a prompt.
 
 from __future__ import annotations
 
+import copy
 import logging
 import secrets
 from datetime import UTC, datetime, timedelta
@@ -41,6 +42,7 @@ from snowpea_core.server.protocol import (
     SiteSummary,
 )
 from snowpea_core.session import site_memory as sm
+from snowpea_core.session import site_packs
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.server.app_server import Core
@@ -136,6 +138,26 @@ async def _sweep(store: Any, profile: str, now: datetime) -> None:
         log.info("site memory: dropped %d expired entr%s", dropped, "y" if dropped == 1 else "ies")
 
 
+def _with_packs(core: Core, origin: str, learned: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Learned entries, then the pack entries no learned one shadows (C5).
+
+    A learned entry wins for its pageType; a pack entry is never stored.
+    """
+    taken = {entry["pageType"] for entry in learned}
+    packed = [
+        entry
+        for entry in site_packs.packs_for(core).entries(origin)
+        if entry["pageType"] not in taken
+    ]
+    return [*learned, *packed]
+
+
+def _pack_entry(core: Core, origin: str, entry_id: str) -> dict[str, Any] | None:
+    if not site_packs.is_pack_id(entry_id):
+        return None
+    return site_packs.packs_for(core).entry(origin, entry_id)
+
+
 async def site_get_handler(conn: RpcConnection, params: SiteGetParams, core: Core) -> SiteGetResult:
     """``site.get`` — an origin's entries, most specific urlPattern first."""
     profile = _host_profile(conn)
@@ -145,7 +167,7 @@ async def site_get_handler(conn: RpcConnection, params: SiteGetParams, core: Cor
     if params.path is not None and not params.path.startswith("/"):
         raise _invalid(sm.SiteMemoryError("path", "must start with '/'"))
     await _sweep(store, profile, datetime.now(UTC))
-    entries = await store.site_entries(profile, origin)
+    entries = _with_packs(core, origin, await store.site_entries(profile, origin))
     if params.pageType is not None:
         entries = [e for e in entries if e["pageType"] == params.pageType]
     if params.path is not None:
@@ -246,6 +268,9 @@ async def site_mark_handler(
     await _sweep(store, profile, now)
     entry = await store.site_update(profile, origin, params.entryId, change)
     if entry is None:
+        # A pack entry is read-only: the use is counted for site.stats only.
+        entry = _pack_entry(core, origin, params.entryId)
+    if entry is None:
         raise RpcError(errors.NOT_FOUND, f"no site entry {params.entryId} for {origin}")
     if params.outcome == "ok":
         await _count(store, profile, origin, now, "locateOk")
@@ -338,6 +363,11 @@ async def site_mark_part_handler(
     await _sweep(store, profile, now)
     try:
         entry = await store.site_update(profile, origin, params.entryId, change)
+        if entry is None:
+            # A pack entry is read-only: check the part exists, count, change nothing.
+            entry = _pack_entry(core, origin, params.entryId)
+            if entry is not None:
+                _count_part(copy.deepcopy(entry), params, now)
     except _PartMissing as exc:
         raise RpcError(errors.NOT_FOUND, str(exc)) from exc
     if entry is None:
@@ -376,11 +406,19 @@ async def site_list_handler(
                 pageTypes=sorted(set(str(row["page_types"] or "").split(",")) - {""}),
                 successCount=int(row["success_count"] or 0),
                 failureCount=int(row["failure_count"] or 0),
+                packEntries=_pack_count(core, row),
             )
             for row in page
         ],
         cursor=page[-1]["origin"] if len(rows) > params.limit else None,
     )
+
+
+def _pack_count(core: Core, row: Any) -> int:
+    """Pack entries of a listed origin that no learned entry shadows (C5)."""
+    learned = set(str(row["page_types"] or "").split(",")) - {""}
+    packed = site_packs.packs_for(core).entries(row["origin"])
+    return sum(1 for entry in packed if entry["pageType"] not in learned)
 
 
 #: Days of counts kept for ``site.stats``; older ones go on the next read.
