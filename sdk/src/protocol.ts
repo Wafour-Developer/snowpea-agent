@@ -3319,6 +3319,24 @@ export interface SkillInstallResult {
   ok?: boolean;
 }
 
+/** `skill.learn` params. Turn a session's history into a SKILL.md, as /skill learn does, in the project or the user's skills (1.27.0). Answers when it is written and loaded. */
+export interface SkillLearnParams {
+  /** Skill name; omit to let the model name it. */
+  name?: string | null;
+  /** "global" writes it to the user's skills under the snowpea home, so every later session loads it; "project" under the session workdir's .snowpea/skills. */
+  scope?: "project" | "global";
+  /** The session whose history becomes the skill. */
+  sessionId: string;
+}
+
+/** `skill.learn` result. */
+export interface SkillLearnResult {
+  /** The skill's name, also its /<name> command. */
+  name: string;
+  /** Where the SKILL.md was written. */
+  path: string;
+}
+
 /** `skill.list` params. List installed skills. */
 export type SkillListParams = Record<string, unknown>;
 
@@ -5079,6 +5097,7 @@ export interface MethodMap {
   "site.stats": { params: SiteStatsParams; result: SiteStatsResult };
   "skill.create": { params: SkillCreateParams; result: SkillCreateResult };
   "skill.install": { params: SkillInstallParams; result: SkillInstallResult };
+  "skill.learn": { params: SkillLearnParams; result: SkillLearnResult };
   "skill.list": { params: SkillListParams; result: SkillListResult };
   "skill.read": { params: SkillReadParams; result: SkillReadResult };
   "skill.reload": { params: SkillReloadParams; result: SkillReloadResult };
@@ -5213,6 +5232,7 @@ export type ClientMethod =
   | "site.stats"
   | "skill.create"
   | "skill.install"
+  | "skill.learn"
   | "skill.list"
   | "skill.read"
   | "skill.reload"

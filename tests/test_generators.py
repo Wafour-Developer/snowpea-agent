@@ -321,6 +321,52 @@ async def test_learned_skill_becomes_a_command(
     await client.stop()
 
 
+async def test_skill_learn_rpc_writes_a_global_skill_every_session_loads(
+    daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path
+) -> None:
+    """Addendum 27, C8: skill.learn {scope: "global"} lands in the user's skills."""
+    workdir = project(tmp_path)
+    client = await connect(http, daemon, timeout=TIMEOUT)
+    session_id = await start_session(client, workdir)
+    assert await run(client, session_id, "remember this workflow: read the changelog") == "complete"
+
+    result = await client.ok(
+        "skill.learn", {"sessionId": session_id, "name": "notes", "scope": "global"}
+    )
+    path = Path(daemon.core.paths.home) / "skills" / "notes" / "SKILL.md"
+    assert result == {"name": "notes", "path": str(path)}
+    assert path.read_text(encoding="utf-8").startswith("---\nname: notes\n")
+    assert not (workdir / ".snowpea" / "skills").exists()
+
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    other = await start_session(client, elsewhere)
+    listed = await client.ok("command.list", {"sessionId": other})
+    assert "notes" in {command["name"] for command in listed["commands"]}
+    await client.stop()
+
+
+async def test_skill_learn_rpc_project_scope_and_refusals(
+    daemon: Daemon, http: aiohttp.ClientSession, tmp_path: Path
+) -> None:
+    workdir = project(tmp_path)
+    client = await connect(http, daemon, timeout=TIMEOUT)
+    session_id = await start_session(client, workdir)
+
+    empty = await client.call("skill.learn", {"sessionId": session_id})
+    assert empty["error"]["data"]["code"] == "invalid_params"
+    assert "no history" in empty["error"]["message"]
+    missing = await client.call("skill.learn", {"sessionId": "s_missing"})
+    assert missing["error"]["data"]["code"] == "not_found"
+
+    assert await run(client, session_id, "remember this workflow: read the changelog") == "complete"
+    result = await client.ok("skill.learn", {"sessionId": session_id, "name": "notes"})
+    path = workdir / ".snowpea" / "skills" / "notes" / "SKILL.md"
+    assert result == {"name": "notes", "path": str(path)}
+    assert "1. Read the changelog" in path.read_text(encoding="utf-8")
+    await client.stop()
+
+
 def test_a_claude_plugin_agent_never_replaces_a_builtin_role(tmp_path: Path) -> None:
     """A Claude Code plugin ships ``architect`` and ``analyst``; snowpea ships ``architect``.
 

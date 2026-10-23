@@ -3551,6 +3551,27 @@ class SkillCreateResult(Payload):
     )
 
 
+class SkillLearnParams(Payload):
+    """``skill.learn`` — what ``/skill learn`` does, for a UI client (1.27.0)."""
+
+    sessionId: str = Field(description="The session whose history becomes the skill.")
+    name: str | None = Field(
+        default=None, description="Skill name; omit to let the model name it."
+    )
+    scope: SkillScope = Field(
+        default="project",
+        description=(
+            '"global" writes it to the user\'s skills under the snowpea home, so every '
+            'later session loads it; "project" under the session workdir\'s .snowpea/skills.'
+        ),
+    )
+
+
+class SkillLearnResult(Payload):
+    name: str = Field(description="The skill's name, also its /<name> command.")
+    path: str = Field(description="Where the SKILL.md was written.")
+
+
 class SkillReadParams(Payload):
     name: str = Field(description="Skill to read.")
     workdir: str = Field(description="Project directory to resolve a project-scoped skill in.")
@@ -5529,6 +5550,13 @@ METHODS: dict[str, RpcMethod] = {
             SkillCreateResult,
             "Write a new SKILL.md, generated from a brief or supplied verbatim.",
         ),
+        _m(
+            "skill.learn",
+            SkillLearnParams,
+            SkillLearnResult,
+            "Turn a session's history into a SKILL.md, as /skill learn does, in the "
+            "project or the user's skills (1.27.0). Answers when it is written and loaded.",
+        ),
         _m("skill.read", SkillReadParams, SkillReadResult, "Read a skill's SKILL.md."),
         _m("skill.write", SkillWriteParams, Ok, "Save a skill's SKILL.md verbatim."),
         _m(
@@ -5873,6 +5901,7 @@ CAPABILITIES: list[str] = [
     "siteStats",
     "browserMemoryList",
     "siteActionParts",
+    "skillLearn",
 ]
 
 #: Where the daemon listens; mirrored into the schema dump for the SDK.
@@ -5958,6 +5987,7 @@ IMPLEMENTED_METHODS: frozenset[str] = frozenset(
         "skill.reload",
         "skill.remove",
         "skill.create",
+        "skill.learn",
         "skill.read",
         "skill.write",
         "settings.get",

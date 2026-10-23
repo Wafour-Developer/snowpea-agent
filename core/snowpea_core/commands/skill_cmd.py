@@ -10,9 +10,9 @@ CLI's ``snowpea skill publish``/``snowpea skill sources`` use
 (:mod:`snowpea_core.skills.publish` and
 :mod:`snowpea_core.skills.registry_client`), so a session can ship a skill to
 the hosted registry, or see which hubs it federates, without dropping to a
-shell.  All three stay slash commands rather than RPC methods: the contract's
-``skill.*`` RPC surface is ``search|install|list|reload|remove`` and nothing
-else.
+shell.  ``skill.learn`` (1.27.0) runs :func:`learn_skill` for a UI client and
+can write to the user's skills instead of the project's; publish and sources
+stay slash commands.
 """
 
 from __future__ import annotations
@@ -155,17 +155,29 @@ def _string_list(value: Any) -> list[str]:
     return []
 
 
-def write_skill(workdir: Path | str, name: str, text: str) -> Path:
-    """Write ``<workdir>/.snowpea/skills/<name>/SKILL.md`` and return the path."""
-    directory = Path(workdir) / ".snowpea" / "skills" / name
+def write_skill(
+    workdir: Path | str, name: str, text: str, *, home: Path | str | None = None
+) -> Path:
+    """Write ``<workdir>/.snowpea/skills/<name>/SKILL.md`` and return the path;
+    with ``home``, ``<home>/skills/<name>/SKILL.md`` (the user's own skills)."""
+    if home is not None:
+        directory = skill_root(name, workdir=workdir, home=home, global_=True)
+    else:
+        directory = Path(workdir) / ".snowpea" / "skills" / name
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / "SKILL.md"
     path.write_text(text, encoding="utf-8")
     return path
 
 
-async def learn_skill(core: Core, session: Session, requested_name: str) -> Path:
-    """Summarise ``session`` into a SKILL.md; raises :class:`DefinitionError`."""
+async def learn_skill(
+    core: Core, session: Session, requested_name: str, *, global_: bool = False
+) -> Path:
+    """Summarise ``session`` into a SKILL.md; raises :class:`DefinitionError`.
+
+    ``global_`` writes it to the user's skills under the home, so it loads in
+    every later session (``skill.learn {scope: "global"}``, 1.27.0).
+    """
     body = transcript(session)
     if not body.strip():
         raise DefinitionError("this session has no history to learn from yet")
@@ -179,7 +191,8 @@ async def learn_skill(core: Core, session: Session, requested_name: str) -> Path
         _string_list(data.get("steps")),
         _string_list(data.get("commands")),
     )
-    path = write_skill(session.workdir, name, document)
+    home = _home_dir(core) if global_ else None
+    path = write_skill(session.workdir, name, document, home=home)
     await reload_loader(core)
     return path
 

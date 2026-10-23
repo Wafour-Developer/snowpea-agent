@@ -20,6 +20,8 @@ from snowpea_core.server.protocol import (
     SkillCreateParams,
     SkillCreateResult,
     SkillInstallParams,
+    SkillLearnParams,
+    SkillLearnResult,
     SkillListResult,
     SkillReadParams,
     SkillReadResult,
@@ -54,6 +56,7 @@ HANDLED_METHODS: tuple[str, ...] = (
     "skill.reload",
     "skill.remove",
     "skill.create",
+    "skill.learn",
     "skill.read",
     "skill.write",
 )
@@ -178,6 +181,29 @@ async def skill_create_handler(
     return SkillCreateResult(turnId=turn_id, sessionId=session.id)
 
 
+async def skill_learn_handler(
+    conn: RpcConnection, params: SkillLearnParams, core: Core
+) -> SkillLearnResult:
+    """``skill.learn`` — ``/skill learn`` as an RPC, with a scope (addendum 27, C8).
+
+    The same summary and rules as the slash command; it answers once the
+    SKILL.md is written and the loader has reloaded.
+    """
+    from snowpea_core.commands.skill_cmd import learn_skill
+
+    if str(getattr(conn, "surface_id", "") or "").startswith("gateway:"):
+        raise RpcError(errors.UNAUTHORIZED, "a chat gateway may not write skills")
+    session = core.sessions.get(params.sessionId)
+    if session is None:
+        raise RpcError(errors.NOT_FOUND, f"no such session: {params.sessionId}")
+    requested = (params.name or "").strip()
+    try:
+        path = await learn_skill(core, session, requested, global_=params.scope == "global")
+    except DefinitionError as exc:
+        raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
+    return SkillLearnResult(name=path.parent.name, path=str(path))
+
+
 async def skill_read_handler(
     _conn: RpcConnection, params: SkillReadParams, core: Core
 ) -> SkillReadResult:
@@ -222,6 +248,7 @@ def register_skill_handlers(dispatcher: RpcDispatcher) -> RpcDispatcher:
     dispatcher.register("skill.reload", skill_reload_handler)
     dispatcher.register("skill.remove", skill_remove_handler)
     dispatcher.register("skill.create", skill_create_handler)
+    dispatcher.register("skill.learn", skill_learn_handler)
     dispatcher.register("skill.read", skill_read_handler)
     dispatcher.register("skill.write", skill_write_handler)
     return dispatcher

@@ -71,6 +71,7 @@ Server capabilities advertised in the `system.hello` result:
 - `siteMemory`
 - `siteRecipes`
 - `siteStats`
+- `skillLearn`
 - `snapshotSupersede`
 - `standingOrders`
 - `tabReadAlways`
@@ -184,6 +185,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`site.stats`](#sitestats) | client → server | Site memory (1.27.0): per-origin counts of the profile's site.put, site.mark and site.markPart calls over the last days. Browser clients only, for their own profile; nothing page-derived is in it. |
 | [`skill.create`](#skillcreate) | client → server | Write a new SKILL.md, generated from a brief or supplied verbatim. |
 | [`skill.install`](#skillinstall) | client → server | Install a skill from a path, URL or registry. |
+| [`skill.learn`](#skilllearn) | client → server | Turn a session's history into a SKILL.md, as /skill learn does, in the project or the user's skills (1.27.0). Answers when it is written and loaded. |
 | [`skill.list`](#skilllist) | client → server | List installed skills. |
 | [`skill.read`](#skillread) | client → server | Read a skill's SKILL.md. |
 | [`skill.reload`](#skillreload) | client → server | Reload skills from disk without restarting. |
@@ -2364,6 +2366,27 @@ Install a skill from a path, URL or registry.
 | field | type | required | description |
 |---|---|---|---|
 | `ok` | `boolean` | no | True when the call succeeded. |
+
+### `skill.learn`
+
+*Direction:* client → server
+
+Turn a session's history into a SKILL.md, as /skill learn does, in the project or the user's skills (1.27.0). Answers when it is written and loaded.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `name` | `string \| null` | no | Skill name; omit to let the model name it. |
+| `scope` | `"project" \| "global"` | no | "global" writes it to the user's skills under the snowpea home, so every later session loads it; "project" under the session workdir's .snowpea/skills. |
+| `sessionId` | `string` | yes | The session whose history becomes the skill. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `name` | `string` | yes | The skill's name, also its /<name> command. |
+| `path` | `string` | yes | Where the SKILL.md was written. |
 
 ### `skill.list`
 
