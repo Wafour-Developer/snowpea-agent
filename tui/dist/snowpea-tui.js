@@ -33831,7 +33831,7 @@ import { basename as basename2, isAbsolute, join as join2, resolve } from "node:
 var import_react45 = __toESM(require_react(), 1);
 
 // ../sdk/dist/protocol.js
-var PROTOCOL_VERSION = "1.26.0";
+var PROTOCOL_VERSION = "1.27.0";
 var WS_PATH = "/ws";
 
 // ../sdk/dist/client.js
@@ -37591,7 +37591,7 @@ function chipLabel(attachment) {
 }
 
 // src/version.ts
-var TUI_VERSION = "0.2.63";
+var TUI_VERSION = "0.2.64";
 
 // src/components/DiffView.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
