@@ -22,6 +22,7 @@ import shlex
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from snowpea_core.agent import host_context
 from snowpea_core.agent.definition import (
     DefinitionError,
     complete_text,
@@ -96,6 +97,8 @@ def transcript(session: Session, limit: int = MAX_TRANSCRIPT_MESSAGES) -> str:
     lines: list[str] = []
     for message in session.history.snapshot()[-limit:]:
         text = _message_text(message).strip()
+        if message.role == "user":
+            text = host_context.user_words(text)
         if len(text) > MAX_MESSAGE_CHARS:
             text = text[:MAX_MESSAGE_CHARS] + " …"
         role = message.role

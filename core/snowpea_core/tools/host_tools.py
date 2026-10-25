@@ -126,6 +126,8 @@ class _Host:
 
     conn: Any
     tools: dict[str, Tool] = field(default_factory=dict)
+    #: ``tool.register {capabilities}`` (1.31.0): ``turnContext`` and the like.
+    capabilities: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -172,10 +174,17 @@ class HostTools:
         self._clock: Callable[[], float] = time.monotonic
 
     # -- registration --------------------------------------------------
-    def register(self, core: Core, conn: Any, specs: list[dict[str, Any]]) -> list[str]:
+    def register(
+        self,
+        core: Core,
+        conn: Any,
+        specs: list[dict[str, Any]],
+        capabilities: list[str] | None = None,
+    ) -> list[str]:
         """Add or replace ``conn``'s tools; returns the registered names.
 
-        All-or-nothing: one bad spec refuses the whole call.
+        All-or-nothing: one bad spec refuses the whole call.  ``capabilities``
+        replaces the connection's declared ones; ``None`` keeps them.
         """
         built: list[Tool] = []
         seen: set[str] = set()
@@ -241,6 +250,8 @@ class HostTools:
                 on_close.append(self.drop_connection)
         for tool in built:
             host.tools[tool.name] = tool
+        if capabilities is not None:
+            host.capabilities = frozenset(str(item) for item in capabilities)
         _invalidate_tool_prompt()
         return [tool.name for tool in built]
 
@@ -371,6 +382,15 @@ class HostTools:
 
     def names_for(self, session: Any) -> list[str]:
         return list(self.for_session(session))
+
+    def declares(self, surface_id: str | None, capability: str) -> bool:
+        """Whether the live connection ``surface_id`` declared ``capability``."""
+        host = self._hosts.get(surface_id) if surface_id else None
+        return (
+            host is not None
+            and capability in host.capabilities
+            and not getattr(host.conn, "closed", False)
+        )
 
     def connection(self, surface_id: str) -> Any:
         host = self._hosts.get(surface_id)

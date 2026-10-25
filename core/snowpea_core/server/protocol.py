@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.30.0"
+PROTOCOL_VERSION = "1.31.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -361,7 +361,8 @@ class SessionCreateParams(Payload):
             "Long-term memory for this session only (1.27.0): false means no recall "
             "block, no digest, no auto-remember and save_memory/search_memory answer "
             "tool_inactive; true turns it on although memory.enabled is off. Omit to "
-            "follow the setting. Not kept across a daemon restart."
+            "follow the setting. Kept with the session across a daemon restart (1.31.0); "
+            "a delegated child follows its root conversation's."
         ),
     )
     siteMemory: bool | None = Field(
@@ -369,7 +370,9 @@ class SessionCreateParams(Payload):
         description=(
             "Site memory for this session only (1.27.0): false makes site.get/put/mark/"
             "markPart called with this sessionId answer tool_inactive; true allows them "
-            "although browser.siteMemory is off. Omit to follow the setting."
+            "although browser.siteMemory is off. Omit to follow the setting. Kept with "
+            "the session across a daemon restart and followed by its delegated children "
+            "(1.31.0); false also means no host.turnContext."
         ),
     )
     locale: str | None = Field(
@@ -1402,6 +1405,15 @@ class ToolRegisterParams(Payload):
     tools: list[HostToolSpec] = Field(
         description="Tools to add or replace for this connection; all-or-nothing."
     )
+    capabilities: list[str] | None = Field(
+        default=None,
+        description=(
+            "What this connection answers besides its tools (1.31.0): 'turnContext' "
+            "opts in to host.turnContext for the sessions whose host tools it serves "
+            "(a browser host only). A list replaces the connection's earlier one; "
+            "omitted keeps it. Unknown names are ignored."
+        ),
+    )
 
 
 class ToolRegisterResult(Payload):
@@ -1577,6 +1589,40 @@ class ToolInvokeResult(Payload):
         description=(
             "Extra facts. meta.sensitive=true keeps the output out of the session "
             "store ([redacted]), memory and compaction summaries."
+        ),
+    )
+
+
+class HostTurnContextRequest(Payload):
+    """Server -> client, at turn start: a note for the turn's first model call (1.31.0).
+
+    Sent once per turn, only to the connection that serves the session's host
+    tools and declared ``tool.register {capabilities: ["turnContext"]}``, and
+    only while site memory is on for the root conversation.  Core waits 300 ms
+    at most; a late, failed or missing answer means no note.
+    """
+
+    sessionId: str = Field(description="Session whose turn is starting.")
+    rootSessionId: str = Field(
+        description="Its root conversation (the parent chain's top; the session itself for a root)."
+    )
+    turnId: str = Field(description="The turn that is starting.")
+    prompt: str = Field(
+        default="",
+        description=(
+            "The turn's user text, at most 4000 characters. Use it to pick sites; "
+            "keep none of it."
+        ),
+    )
+
+
+class HostTurnContextResult(Payload):
+    text: str = Field(
+        default="",
+        description=(
+            "Site memory for the first call, or '' for nothing. Core keeps at most 4000 "
+            "characters (cut at a line boundary), drops control characters but newlines, "
+            "and adds it to the turn's user message as an untrusted <host-context> block."
         ),
     )
 
@@ -4592,6 +4638,18 @@ class TurnOutcomeEvent(Payload):
     reason: str | None = Field(default=None, description="Why, at most 200 characters.")
 
 
+class ContextHostEvent(Payload):
+    """A host note (``host.turnContext``) joined this turn's user message (1.31.0).
+
+    For evals: tells a turn that had the note from one that did not.  Never
+    carries the text.
+    """
+
+    kind: Literal["context.host"] = "context.host"
+    turnId: str = Field(description="The turn the note was added to.")
+    chars: int = Field(default=0, description="Characters of host text kept, after the cap.")
+
+
 class MemoryCandidateEvent(Payload):
     """A preference the extractor would remember, waiting for the person (1.28.0).
 
@@ -4737,6 +4795,7 @@ SESSION_EVENT_MODELS: dict[str, type[BaseModel]] = {
     "turn.done": TurnDone,
     "turn.outcome": TurnOutcomeEvent,
     "memory.candidate": MemoryCandidateEvent,
+    "context.host": ContextHostEvent,
     "lsp.diagnostics": LspDiagnostics,
     "loop.suspected": LoopSuspected,
     "job.done": JobDone,
@@ -5901,6 +5960,17 @@ METHODS: dict[str, RpcMethod] = {
             "s2c",
         ),
         _m(
+            "host.turnContext",
+            HostTurnContextRequest,
+            HostTurnContextResult,
+            (
+                "At turn start, ask the session's host-tools connection for a note for the "
+                "turn's first model call (1.31.0). Only on a browser connection that sent "
+                "tool.register {capabilities: ['turnContext']}; 300 ms deadline, fail-open."
+            ),
+            "s2c",
+        ),
+        _m(
             "approval.ask",
             ApprovalAskParams,
             ApprovalAskResult,
@@ -6195,6 +6265,7 @@ CAPABILITIES: list[str] = [
     "lspChanged",
     "sessionEffort",
     "writeOutsideAsks",
+    "hostTurnContext",
 ]
 
 #: Where the daemon listens; mirrored into the schema dump for the SDK.

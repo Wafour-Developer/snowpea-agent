@@ -204,8 +204,8 @@ class Session:
     #: ``session.create {memory, siteMemory}`` (addendum 27, C1): ``None``
     #: follows ``memory.enabled`` / ``browser.siteMemory``; ``False`` turns
     #: recall, the digest, the nudge and the memory tools (or ``site.*`` calls
-    #: made for this session) off, ``True`` on, for this session only.  Kept
-    #: in memory, like ``browser_memory``.
+    #: made for this session) off, ``True`` on, for this session only.  Stored
+    #: with the session row and restored with it (addendum 30).
     memory_override: bool | None = None
     site_memory_override: bool | None = None
     #: Serialises history writes so an older persistence attempt cannot delete
@@ -374,10 +374,40 @@ def origin_of(session: Session, caller: Any = None) -> SessionOrigin | None:
     )
 
 
+def inherited_override(core: Any, session: Any, attr: str) -> bool | None:
+    """``session``'s ``memory_override`` / ``site_memory_override``, or its root's.
+
+    ``session.create {memory, siteMemory}`` sets the override on the session
+    a client opened; a delegated child has none of its own and follows the
+    conversation above it (addendum 30, C4).  The nearest one set up the
+    ``parent_session_id`` chain wins.  A scheduled run is a root of its own,
+    as in ``host_tools.root_session``; a lost parent or a cycle ends the walk
+    with ``None``, which leaves the user's setting in charge.
+    """
+    seen: set[str] = set()
+    sessions = getattr(core, "sessions", None)
+    current = session
+    while current is not None:
+        value = getattr(current, attr, None)
+        if value is not None:
+            return bool(value)
+        parent_id = getattr(current, "parent_session_id", None)
+        if (
+            not parent_id
+            or getattr(current, "kind", None) == "scheduled"
+            or sessions is None
+            or str(parent_id) in seen
+        ):
+            return None
+        seen.add(str(parent_id))
+        current = sessions.get(str(parent_id))
+    return None
+
+
 def browser_provider_of(session: Session) -> str | None:
     from snowpea_core.tools.browser_providers import browser_provider_of as lookup
 
     return lookup(session)
 
 
-__all__ = ["Session"]
+__all__ = ["Session", "inherited_override"]

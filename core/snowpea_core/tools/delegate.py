@@ -16,6 +16,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from snowpea_core.agent import host_context
 from snowpea_core.agent.agent import session_reply_language
 from snowpea_core.agent.definition import builtin_agent_definitions
 from snowpea_core.agent.role_pick import PARENT
@@ -90,7 +91,7 @@ def last_user_text(session: Session) -> str:
     """The most recent thing the user themselves wrote, or ``""``."""
     for message in reversed(session.history.snapshot()):
         if message.role == "user":
-            text = message_text(message).strip()
+            text = host_context.user_words(message_text(message))
             # Notices travel as user messages for provider compatibility, but
             # they are evidence, not a replacement for the human's request.
             if text.startswith("[system]"):

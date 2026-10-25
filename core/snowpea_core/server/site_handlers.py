@@ -43,6 +43,7 @@ from snowpea_core.server.protocol import (
 )
 from snowpea_core.session import site_memory as sm
 from snowpea_core.session import site_packs
+from snowpea_core.session.session import inherited_override
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.server.app_server import Core
@@ -105,10 +106,11 @@ def _require_enabled(core: Core, session_id: str | None = None) -> None:
     ``tool_inactive`` is the existing code for a capability the user switched
     off, so a host can tell it from a refused entry (``invalid_params``).  A
     call made for a session follows that session's ``siteMemory`` override
-    (addendum 27, C1) before the setting.
+    (addendum 27, C1) before the setting; a delegated child follows its root
+    conversation's (addendum 30, C4).
     """
     session = core.sessions.get(session_id) if session_id else None
-    override = getattr(session, "site_memory_override", None)
+    override = inherited_override(core, session, "site_memory_override")
     if override is False:
         raise RpcError(errors.TOOL_INACTIVE, "site memory is turned off for this session")
     if override is None and not core.settings.browser.siteMemory:

@@ -17,6 +17,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
+from snowpea_core.agent import host_context
 from snowpea_core.agent import loop as agent_loop
 from snowpea_core.agent.agent import locale_tag
 from snowpea_core.agent.delegation import effective_delegation
@@ -291,6 +292,8 @@ async def session_create_handler(
     )
     session.memory_override = params.memory
     session.site_memory_override = params.siteMemory
+    if core.store is not None and (params.memory is not None or params.siteMemory is not None):
+        await core.store.update_overrides(session.id, params.memory, params.siteMemory)
     session.locale = locale_tag(params.locale)
     ensure_workspace(core.paths.home, session)
     core.hub.subscribe(conn, session.id)
@@ -426,7 +429,7 @@ async def collect_sessions(core: Core, params: SessionListParams) -> list[Sessio
             messages = await core.store.messages(row.sessionId)
             latest = next((item for item in reversed(messages) if item["role"] == "user"), None)
             prompt = (
-                message_text(message_from_json("user", latest["content"]))
+                host_context.user_words(message_text(message_from_json("user", latest["content"])))
                 if latest is not None
                 else await _last_command_line(core, row.sessionId)
             )

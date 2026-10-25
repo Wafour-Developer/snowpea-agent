@@ -24,6 +24,7 @@ import logging
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
+from snowpea_core.agent import host_context
 from snowpea_core.agent.agent import build_messages
 from snowpea_core.prompts.loader import load
 from snowpea_core.providers import content
@@ -355,6 +356,9 @@ def render_conversation(messages: list[ChatMessage], *, budget: int | None = Non
     lines: list[str] = []
     for message in messages:
         body = REDACTED if message.sensitive else message_text(message).strip()
+        if message.role == "user" and not message.sensitive:
+            # The summariser reads what the user said, not the host's note.
+            body = host_context.user_words(body)
         if not body:
             continue
         label = message.role.upper()
@@ -459,7 +463,10 @@ def _verbatim_entries(messages: list[ChatMessage]) -> list[str]:
         elif message.role == "user":
             if text.startswith(_SYNTHETIC_PREFIXES):
                 continue
-            out.append(text.removeprefix(_STEER_PREFIX))
+            # A browser host's note is data it sent, never the user's words.
+            text = host_context.user_words(text)
+            if text:
+                out.append(text.removeprefix(_STEER_PREFIX))
         elif message.role == "tool" and message.name == "ask_user":
             out.append(f"(answers to the agent's questions) {text}")
     return out

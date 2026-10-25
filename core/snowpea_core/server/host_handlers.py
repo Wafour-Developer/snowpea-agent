@@ -147,7 +147,7 @@ async def tool_register_handler(
     """``tool.register`` — add or replace this connection's host tools."""
     specs = [spec.model_dump(mode="json") for spec in params.tools]
     try:
-        names = HOST_TOOLS.register(core, conn, specs)
+        names = HOST_TOOLS.register(core, conn, specs, params.capabilities)
     except HostToolError as exc:
         raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
     # A routine held for this host starts now (addendum 11); in the

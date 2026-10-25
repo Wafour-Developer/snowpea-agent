@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.30.0";
+export const PROTOCOL_VERSION = "1.31.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -771,6 +771,24 @@ export interface GatewayUnbindParams {
 export interface GatewayUnbindResult {
   /** True when the call succeeded. */
   ok?: boolean;
+}
+
+/** `host.turnContext` params. At turn start, ask the session's host-tools connection for a note for the turn's first model call (1.31.0). Only on a browser connection that sent tool.register {capabilities: ['turnContext']}; 300 ms deadline, fail-open. */
+export interface HostTurnContextParams {
+  /** The turn's user text, at most 4000 characters. Use it to pick sites; keep none of it. */
+  prompt?: string;
+  /** Its root conversation (the parent chain's top; the session itself for a root). */
+  rootSessionId: string;
+  /** Session whose turn is starting. */
+  sessionId: string;
+  /** The turn that is starting. */
+  turnId: string;
+}
+
+/** `host.turnContext` result. */
+export interface HostTurnContextResult {
+  /** Site memory for the first call, or '' for nothing. Core keeps at most 4000 characters (cut at a line boundary), drops control characters but newlines, and adds it to the turn's user message as an untrusted <host-context> block. */
+  text?: string;
 }
 
 /** `job.cancel` params. Cancel a scheduled job. */
@@ -2046,7 +2064,7 @@ export interface SessionCreateParams {
   locale?: string | null;
   /** Override for concurrent subagents. */
   maxConcurrent?: number | null;
-  /** Long-term memory for this session only (1.27.0): false means no recall block, no digest, no auto-remember and save_memory/search_memory answer tool_inactive; true turns it on although memory.enabled is off. Omit to follow the setting. Not kept across a daemon restart. */
+  /** Long-term memory for this session only (1.27.0): false means no recall block, no digest, no auto-remember and save_memory/search_memory answer tool_inactive; true turns it on although memory.enabled is off. Omit to follow the setting. Kept with the session across a daemon restart (1.31.0); a delegated child follows its root conversation's. */
   memory?: boolean | null;
   /** Starting mode; defaults to the project setting. */
   mode?: "plan" | "accept" | "auto" | null;
@@ -2056,7 +2074,7 @@ export interface SessionCreateParams {
   originSurface?: string | null;
   /** Chat provider vendor; defaults to configured. */
   provider?: string | null;
-  /** Site memory for this session only (1.27.0): false makes site.get/put/mark/markPart called with this sessionId answer tool_inactive; true allows them although browser.siteMemory is off. Omit to follow the setting. */
+  /** Site memory for this session only (1.27.0): false makes site.get/put/mark/markPart called with this sessionId answer tool_inactive; true allows them although browser.siteMemory is off. Omit to follow the setting. Kept with the session across a daemon restart and followed by its delegated children (1.31.0); false also means no host.turnContext. */
   siteMemory?: boolean | null;
   /** Absolute path the session operates in. */
   workdir: string;
@@ -4113,6 +4131,8 @@ export interface ToolProgressResult {
 
 /** `tool.register` params. Register tools this connection runs itself (host tools). */
 export interface ToolRegisterParams {
+  /** What this connection answers besides its tools (1.31.0): 'turnContext' opts in to host.turnContext for the sessions whose host tools it serves (a browser host only). A list replaces the connection's earlier one; omitted keeps it. Unknown names are ignored. */
+  capabilities?: string[] | null;
   /** Tools to add or replace for this connection; all-or-nothing. */
   tools: ({
     /** Only sessions running as one of these agent definitions see it (1.24.0); null: every session of this host. */
@@ -4665,6 +4685,15 @@ export interface ContextEventPayload {
   window?: number | null;
 }
 
+/** Payload of `session.event` with kind `context.host`. */
+export interface ContextHostEventPayload {
+  /** Characters of host text kept, after the cap. */
+  chars?: number;
+  kind?: "context.host";
+  /** The turn the note was added to. */
+  turnId: string;
+}
+
 /** Payload of `session.event` with kind `diff`. */
 export interface DiffEventPayload {
   /** The tool call that made the change (1.29.0). */
@@ -5117,6 +5146,7 @@ export interface SessionEventKindMap {
   "compaction": CompactionEventPayload;
   "compaction.started": CompactionStartedEventPayload;
   "context": ContextEventPayload;
+  "context.host": ContextHostEventPayload;
   "diff": DiffEventPayload;
   "error": ErrorEventPayload;
   "hook.continue": HookContinueEventPayload;
@@ -5159,6 +5189,7 @@ export const SESSION_EVENT_KINDS: readonly SessionEventKind[] = [
   "compaction",
   "compaction.started",
   "context",
+  "context.host",
   "diff",
   "error",
   "hook.continue",
@@ -5224,6 +5255,7 @@ export interface MethodMap {
   "gateway.list": { params: GatewayListParams; result: GatewayListResult };
   "gateway.sync": { params: GatewaySyncParams; result: GatewaySyncResult };
   "gateway.unbind": { params: GatewayUnbindParams; result: GatewayUnbindResult };
+  "host.turnContext": { params: HostTurnContextParams; result: HostTurnContextResult };
   "job.cancel": { params: JobCancelParams; result: JobCancelResult };
   "job.delete": { params: JobDeleteParams; result: JobDeleteResult };
   "job.list": { params: JobListParams; result: JobListResult };
@@ -5470,6 +5502,7 @@ export type ClientMethod =
 /** Methods the server calls on the client (bidirectional JSON-RPC). */
 export type ServerMethod =
   | "approval.request"
+  | "host.turnContext"
   | "question.request"
   | "tool.invoke";
 

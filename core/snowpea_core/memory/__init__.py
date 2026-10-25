@@ -35,6 +35,7 @@ from snowpea_core.memory.scopes import (
 )
 from snowpea_core.memory.store import MemoryClosed, MemoryEntry, MemoryStore
 from snowpea_core.memory.tools import register_memory_tools
+from snowpea_core.session.session import inherited_override
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from snowpea_core.server.app_server import Core
@@ -116,11 +117,12 @@ def enabled(core: Core, session: Any = None) -> bool:
     """Whether memory runs, for ``session`` when one is given.
 
     A session's ``memory_override`` (``session.create {memory}``) wins over
-    ``memory.enabled``; without the services nothing runs either way.
+    ``memory.enabled``; a delegated child follows its root conversation's
+    (addendum 30, C4).  Without the services nothing runs either way.
     """
     if not getattr(core, "memory", None):
         return False
-    override = getattr(session, "memory_override", None)
+    override = inherited_override(core, session, "memory_override")
     if override is not None:
         return bool(override)
     return bool(core.settings.memory.enabled)

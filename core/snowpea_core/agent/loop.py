@@ -25,7 +25,7 @@ from time import monotonic
 from typing import TYPE_CHECKING, Any
 
 from snowpea_core.agent import agent as agent_mod
-from snowpea_core.agent import call_fixups, context_files, plan_store, verify_gate
+from snowpea_core.agent import call_fixups, context_files, host_context, plan_store, verify_gate
 from snowpea_core.agent.agent import AgentConfig, build_messages
 from snowpea_core.agent.subagent import agent_guarded
 from snowpea_core.agent.tool_batch import plan_tool_batch_segments
@@ -1564,15 +1564,31 @@ async def _drive(
         for _source, lead_text in get_manager(core).take_pending_steers(session.id):
             session.lead_messages.append(lead_text)
 
-    # Recall once per turn, on the user's own words (M5 contract §1).
-    await _auto_inject_skills(core, session, text)
-    memory_block = await context_for_turn(core, session, text)
-    # The turn's recall, plan line and context pressure join its own message,
-    # stored, so the system prompt and every earlier message stay byte-stable
-    # and a server's prefix cache covers the whole conversation.
-    extra = agent_mod.turn_context(session, memory_block, core=core)
+    # The browser host's site-memory note (addendum 30), asked for once per
+    # turn and alongside the recall, so a host that answers within the
+    # recall's time adds no latency; 300 ms at most, and nothing on failure.
+    host_task = (
+        asyncio.ensure_future(host_context.fetch(core, session, turn_id, text))
+        if turn_message is not None and not system and text.strip()
+        else None
+    )
+    try:
+        # Recall once per turn, on the user's own words (M5 contract §1).
+        await _auto_inject_skills(core, session, text)
+        memory_block = await context_for_turn(core, session, text)
+        host_text = await host_task if host_task is not None else ""
+    finally:
+        if host_task is not None and not host_task.done():
+            host_task.cancel()
+    # The turn's recall, host note, plan line and context pressure join its
+    # own message, stored, so the system prompt and every earlier message stay
+    # byte-stable and a server's prefix cache covers the whole conversation.
+    host_block = host_context.render(host_text)
+    extra = agent_mod.turn_context(session, memory_block, core=core, host_block=host_block)
     if extra and turn_message is not None:
         _append_turn_context(turn_message, extra)
+        if host_block and host_block in extra:
+            await hub.emit_event(session.id, events.context_host(turn_id, len(host_text)))
     denials = 0
 
     rounds_left = config.max_tool_rounds

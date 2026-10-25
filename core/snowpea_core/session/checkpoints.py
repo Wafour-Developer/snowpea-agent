@@ -95,7 +95,9 @@ def _prompt(session: Any) -> str:
         return str(current)[:200]
     for message in reversed(getattr(getattr(session, "history", None), "messages", [])):
         if message.role == "user" and isinstance(message.content, str):
-            return message.content[:200]
+            from snowpea_core.agent.host_context import user_words
+
+            return user_words(message.content)[:200]
     return ""
 
 

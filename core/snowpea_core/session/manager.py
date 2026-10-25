@@ -307,6 +307,9 @@ class SessionManager:
         _mark_history_persisted(session, stored_messages)
         session.host_tools_from = row.get("host_tools_from")
         session.browser_provider = row.get("browser_provider")
+        for attr in ("memory_override", "site_memory_override"):
+            value = row.get(attr)
+            setattr(session, attr, None if value is None else bool(value))
         if row.get("agent") and session.agent is None:
             # Re-applied (prompt, tools, rounds) at the next turn (addendum 17).
             session.agent = row.get("agent")

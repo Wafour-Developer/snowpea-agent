@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.30.0` (semver)
+- **Protocol version:** `1.31.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.30.0"
+    "protocolVersion": "1.31.0"
   }
 }
 ```
@@ -47,6 +47,7 @@ Server capabilities advertised in the `system.hello` result:
 - `commands`
 - `hostToolParallel`
 - `hostTools`
+- `hostTurnContext`
 - `llmSample`
 - `llmTimings`
 - `lsp`
@@ -120,6 +121,7 @@ Server capabilities advertised in the `system.hello` result:
 | [`gateway.list`](#gatewaylist) | client → server | List live gateway bindings. |
 | [`gateway.sync`](#gatewaysync) | client → server | Reconcile the messenger bindings with settings.gateway. |
 | [`gateway.unbind`](#gatewayunbind) | client → server | Detach a gateway binding. |
+| [`host.turnContext`](#hostturncontext) | server → client | At turn start, ask the session's host-tools connection for a note for the turn's first model call (1.31.0). Only on a browser connection that sent tool.register {capabilities: ['turnContext']}; 300 ms deadline, fail-open. |
 | [`job.cancel`](#jobcancel) | client → server | Cancel a scheduled job. |
 | [`job.delete`](#jobdelete) | client → server | Delete a job, its schedule and run history; optionally its run sessions. |
 | [`job.list`](#joblist) | client → server | List scheduled jobs and their next run times. |
@@ -832,6 +834,27 @@ Detach a gateway binding.
 | field | type | required | description |
 |---|---|---|---|
 | `ok` | `boolean` | no | True when the call succeeded. |
+
+### `host.turnContext`
+
+*Direction:* server → client
+
+At turn start, ask the session's host-tools connection for a note for the turn's first model call (1.31.0). Only on a browser connection that sent tool.register {capabilities: ['turnContext']}; 300 ms deadline, fail-open.
+
+**Params**
+
+| field | type | required | description |
+|---|---|---|---|
+| `prompt` | `string` | no | The turn's user text, at most 4000 characters. Use it to pick sites; keep none of it. |
+| `rootSessionId` | `string` | yes | Its root conversation (the parent chain's top; the session itself for a root). |
+| `sessionId` | `string` | yes | Session whose turn is starting. |
+| `turnId` | `string` | yes | The turn that is starting. |
+
+**Result**
+
+| field | type | required | description |
+|---|---|---|---|
+| `text` | `string` | no | Site memory for the first call, or '' for nothing. Core keeps at most 4000 characters (cut at a line boundary), drops control characters but newlines, and adds it to the turn's user message as an untrusted <host-context> block. |
 
 ### `job.cancel`
 
@@ -1810,12 +1833,12 @@ Open a session rooted at a working directory.
 | `hostToolsFrom` | `string \| null` | no | Whose host tools this session sees: a connection's clientId (or surface id). Default: the creating connection (1.6.0). |
 | `locale` | `string \| null` | no | The client's UI language as a BCP 47 tag, e.g. 'ko-KR' (1.7.0). With agent.replyLanguage 'auto', text the core writes for this session (/init, /ralph and delegated briefs) is in this language before any guess from what the user typed. Ignored when not a language tag. |
 | `maxConcurrent` | `number \| null` | no | Override for concurrent subagents. |
-| `memory` | `boolean \| null` | no | Long-term memory for this session only (1.27.0): false means no recall block, no digest, no auto-remember and save_memory/search_memory answer tool_inactive; true turns it on although memory.enabled is off. Omit to follow the setting. Not kept across a daemon restart. |
+| `memory` | `boolean \| null` | no | Long-term memory for this session only (1.27.0): false means no recall block, no digest, no auto-remember and save_memory/search_memory answer tool_inactive; true turns it on although memory.enabled is off. Omit to follow the setting. Kept with the session across a daemon restart (1.31.0); a delegated child follows its root conversation's. |
 | `mode` | `"plan" \| "accept" \| "auto" \| null` | no | Starting mode; defaults to the project setting. |
 | `model` | `string \| null` | no | Model id; defaults to the provider's default. |
 | `originSurface` | `string \| null` | no | Surface that owns approvals for this session (TUI, gateway, ...). |
 | `provider` | `string \| null` | no | Chat provider vendor; defaults to configured. |
-| `siteMemory` | `boolean \| null` | no | Site memory for this session only (1.27.0): false makes site.get/put/mark/markPart called with this sessionId answer tool_inactive; true allows them although browser.siteMemory is off. Omit to follow the setting. |
+| `siteMemory` | `boolean \| null` | no | Site memory for this session only (1.27.0): false makes site.get/put/mark/markPart called with this sessionId answer tool_inactive; true allows them although browser.siteMemory is off. Omit to follow the setting. Kept with the session across a daemon restart and followed by its delegated children (1.31.0); false also means no host.turnContext. |
 | `workdir` | `string` | yes | Absolute path the session operates in. |
 
 **Result**
@@ -2966,6 +2989,7 @@ Register tools this connection runs itself (host tools).
 
 | field | type | required | description |
 |---|---|---|---|
+| `capabilities` | `string[] \| null` | no | What this connection answers besides its tools (1.31.0): 'turnContext' opts in to host.turnContext for the sessions whose host tools it serves (a browser host only). A list replaces the connection's earlier one; omitted keeps it. Unknown names are ignored. |
 | `tools` | `({ agents?: string[] \| null; category?: string \| null; deferred?: boolean; description: string; inputSchema?: Record<string, unknown>; look?: boolean; name: string; parallel?: "safe" \| "never"; permission: "read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret" \| "outside"; timeoutMs?: number \| null; })[]` | yes | Tools to add or replace for this connection; all-or-nothing. |
 
 **Result**
@@ -3305,6 +3329,14 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 | `provider` | `string \| null` | no | Vendor serving that model. |
 | `used` | `number` | no | Tokens the current prompt occupies. |
 | `window` | `number \| null` | no | Context window of the model in tokens; null when unknown. |
+
+### kind `context.host`
+
+| field | type | required | description |
+|---|---|---|---|
+| `chars` | `number` | no | Characters of host text kept, after the cap. |
+| `kind` | `"context.host"` | no |  |
+| `turnId` | `string` | yes | The turn the note was added to. |
 
 ### kind `diff`
 

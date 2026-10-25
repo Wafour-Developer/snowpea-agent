@@ -103,8 +103,10 @@ INACTIVE = "tool_inactive: memory is turned off for this session"
 
 
 def _off(ctx: ToolContext) -> bool:
-    """``session.create {memory: false}`` (addendum 27, C1)."""
-    return getattr(ctx.session, "memory_override", None) is False
+    """``session.create {memory: false}`` (addendum 27, C1), or its root's (addendum 30, C4)."""
+    from snowpea_core.session.session import inherited_override
+
+    return inherited_override(ctx.core, ctx.session, "memory_override") is False
 
 
 def _services(ctx: ToolContext) -> Any:

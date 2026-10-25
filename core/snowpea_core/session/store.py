@@ -91,6 +91,8 @@ SESSION_COLUMNS: tuple[tuple[str, str], ...] = (
     ("host_tools_from", "TEXT"),
     ("browser_provider", "TEXT"),
     ("agent", "TEXT"),
+    ("memory_override", "INTEGER"),
+    ("site_memory_override", "INTEGER"),
 )
 
 SQLITE_RETRY_ATTEMPTS = 5
@@ -273,6 +275,20 @@ class Store:
             self._execute,
             "UPDATE sessions SET browser_provider = ? WHERE id = ?",
             (value, session_id),
+        )
+
+    async def update_overrides(
+        self, session_id: str, memory: bool | None, site_memory: bool | None
+    ) -> None:
+        """Persist ``session.create {memory, siteMemory}`` so a resume keeps them (addendum 30)."""
+        await asyncio.to_thread(
+            self._execute,
+            "UPDATE sessions SET memory_override = ?, site_memory_override = ? WHERE id = ?",
+            (
+                None if memory is None else int(memory),
+                None if site_memory is None else int(site_memory),
+                session_id,
+            ),
         )
 
     async def update_delegation(self, session_id: str, delegation: bool | None) -> None:

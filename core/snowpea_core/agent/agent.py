@@ -375,9 +375,12 @@ def skill_index_max(core: Core | None) -> int:
 def memory_enabled(core: Core | None, session: Any = None) -> bool:
     """``memory.enabled``; the guidance fragment is pointless when it is off.
 
-    A session's ``memory_override`` wins (addendum 27, C1).
+    A session's ``memory_override`` wins (addendum 27, C1), or its root
+    conversation's for a delegated child (addendum 30, C4).
     """
-    override = getattr(session, "memory_override", None)
+    from snowpea_core.session.session import inherited_override
+
+    override = inherited_override(core, session, "memory_override")
     if override is not None:
         return bool(override)
     if core is None:
@@ -434,7 +437,13 @@ def plan_prompt_line(session: Session) -> str:
     return plan_store.prompt_line(session.workdir)
 
 
-def turn_context(session: Session, memory_block: str = "", *, core: Core | None = None) -> str:
+def turn_context(
+    session: Session,
+    memory_block: str = "",
+    *,
+    core: Core | None = None,
+    host_block: str = "",
+) -> str:
     """What changes from turn to turn: recall, the plan line, context pressure.
 
     It rides on the turn's own user message (``agent.loop``), not in the
@@ -445,10 +454,12 @@ def turn_context(session: Session, memory_block: str = "", *, core: Core | None 
 
     ``memory_block`` is the rendered recall from ``memory.Retrieval`` (M5
     contract §1); it is empty whenever memory is off or nothing matched.
+    ``host_block`` is the browser host's fenced note (``host_context.render``,
+    addendum 30); empty when the host sent none.
     """
     if is_lean_child(session, core):
         return ""
-    parts = [memory_block]
+    parts = [memory_block, host_block]
     if not getattr(session, "is_subagent", False):
         parts.append(plan_prompt_line(session))
     fill = context_fill(session)

@@ -23,6 +23,7 @@ from snowpea_core.server.protocol import (
     CompactionEvent,
     CompactionStarted,
     ContextEvent,
+    ContextHostEvent,
     DiffEvent,
     ErrorEvent,
     HookContinue,
@@ -344,6 +345,10 @@ def compaction_started(before: int, *, auto: bool = False) -> Event:
 
 def memory_candidate(candidate_id: str, text: str, category: str) -> Event:
     return _pack(MemoryCandidateEvent(candidateId=candidate_id, text=text, category=category))
+
+
+def context_host(turn_id: str, chars: int) -> Event:
+    return _pack(ContextHostEvent(turnId=turn_id, chars=chars))
 
 
 def error(code: str, message: str) -> Event:

@@ -25,6 +25,7 @@ import socket
 from typing import Any
 from urllib.parse import urlsplit
 
+from snowpea_core.agent import host_context
 from snowpea_core.tools.browser_providers import is_browser_session
 from snowpea_core.vendor.hermes.tools import url_safety
 
@@ -62,7 +63,8 @@ def _user_texts(session: Any, core: Any) -> list[str]:
     """What the user typed in this conversation, or in its top-level parent's.
 
     A subagent's own first message is its lead's brief, not the user's words,
-    so a child session looks at the root session it was delegated from.
+    so a child session looks at the root session it was delegated from.  A
+    browser host's note on a turn (addendum 30) is not the user's either.
     """
     sessions = getattr(core, "sessions", None)
     current = session
@@ -85,10 +87,10 @@ def _user_texts(session: Any, core: Any) -> list[str]:
             continue
         content = getattr(message, "content", None)
         if isinstance(content, str):
-            texts.append(content)
+            texts.append(host_context.user_words(content))
         elif isinstance(content, list):
             texts.extend(
-                str(block.get("text"))
+                host_context.user_words(str(block.get("text")))
                 for block in content
                 if isinstance(block, dict) and block.get("type") == "text" and block.get("text")
             )
