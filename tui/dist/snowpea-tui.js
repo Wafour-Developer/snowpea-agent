@@ -33831,7 +33831,7 @@ import { basename as basename2, isAbsolute, join as join2, resolve } from "node:
 var import_react45 = __toESM(require_react(), 1);
 
 // ../sdk/dist/protocol.js
-var PROTOCOL_VERSION = "1.30.0";
+var PROTOCOL_VERSION = "1.31.0";
 var WS_PATH = "/ws";
 
 // ../sdk/dist/client.js
@@ -35169,9 +35169,26 @@ function readLspStatus(result) {
         root: typeof value.root === "string" ? value.root : "",
         state,
         languageId: typeof value.languageId === "string" ? value.languageId : "",
-        pid: typeof value.pid === "number" ? value.pid : null
+        pid: typeof value.pid === "number" ? value.pid : null,
+        reason: typeof value.reason === "string" && value.reason !== "" ? value.reason : null
       }
     ];
+  });
+}
+function normalisePath(path) {
+  const slashed = path.replace(/\\/g, "/");
+  return slashed.length > 1 ? slashed.replace(/\/+$/, "") : slashed;
+}
+function within(inner, outer) {
+  if (outer === "" || inner === "") return false;
+  return inner === outer || inner.startsWith(outer.endsWith("/") ? outer : `${outer}/`);
+}
+function serversFor(servers, workdir) {
+  if (!workdir) return [...servers];
+  const dir = normalisePath(workdir);
+  return servers.filter((server) => {
+    const root = normalisePath(server.root);
+    return within(root, dir) || within(dir, root);
   });
 }
 function lspSummary(servers) {
@@ -35187,19 +35204,24 @@ function lspLabel(servers) {
 function lspColor(servers) {
   return lspSummary(servers).broken > 0 ? "red" : void 0;
 }
-function lspTable(servers) {
+function lspTable(all, workdir) {
+  const servers = serversFor(all, workdir);
+  const others = all.length - servers.length;
+  const elsewhere = others > 0 ? `
+  (${others} more in other projects' folders; not counted here)` : "";
   if (servers.length === 0) {
-    return "no language servers are running (lsp.enabled=false, or nothing matched this project)";
+    return `no language servers are running (lsp.enabled=false, or nothing matched this project)${elsewhere}`;
   }
   const width = Math.max(...servers.map((server) => server.id.length));
   const rows = servers.map((server) => {
     const pid = server.pid === null ? "" : ` pid ${server.pid}`;
     const language = server.languageId ? ` ${server.languageId}` : "";
-    return `  ${server.id.padEnd(width)}  ${server.state}${language}${pid}  ${server.root}`;
+    const reason = server.reason && server.state !== "ready" ? ` (${server.reason})` : "";
+    return `  ${server.id.padEnd(width)}  ${server.state}${reason}${language}${pid}  ${server.root}`;
   });
   const { ready, broken } = lspSummary(servers);
   const tail = broken > 0 ? `, ${broken} broken` : "";
-  return [`language servers (${ready} ready${tail})`, ...rows].join("\n");
+  return [`language servers (${ready} ready${tail})`, ...rows].join("\n") + elsewhere;
 }
 function diagnosticLineColor(line) {
   const text2 = line.trimStart();
@@ -35308,13 +35330,14 @@ function buildHudSegments(input) {
     dimColor: true,
     priority: 5
   });
-  const lsp = lspLabel(input.lsp ?? []);
+  const ownServers = serversFor(input.lsp ?? [], input.workdir);
+  const lsp = lspLabel(ownServers);
   if (lsp) {
     segments.push({
       key: "lsp",
       text: lsp,
-      color: lspColor(input.lsp ?? []),
-      dimColor: lspColor(input.lsp ?? []) === void 0,
+      color: lspColor(ownServers),
+      dimColor: lspColor(ownServers) === void 0,
       priority: 6
     });
   }
@@ -42846,7 +42869,7 @@ function App2({
         void client.call("lsp.status", {}).then((result) => {
           const servers = readLspStatus(result);
           dispatch({ type: "lsp/status", servers });
-          dispatch({ type: "note", text: lspTable(servers) });
+          dispatch({ type: "note", text: lspTable(servers, workdir) });
         }).catch(
           (error) => dispatch({ type: "note", text: `lsp.status failed: ${String(error)}` })
         );

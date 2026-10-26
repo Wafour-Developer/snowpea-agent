@@ -18,8 +18,10 @@ import type { LspDiagnostics, LspServerStatus } from "../rpc/sdk.js";
 export type LspServerState = LspServerStatus["state"];
 
 /** One row of `lsp.status`, with the optional fields settled. */
-export interface LspServer extends Required<Omit<LspServerStatus, "pid">> {
+export interface LspServer extends Required<Omit<LspServerStatus, "pid" | "reason">> {
   pid: number | null;
+  /** Why it is not ready ('exited: code 2', 'not installed', …), null while fine. */
+  reason: string | null;
 }
 
 /** Diagnostics counts for one file, from the `lsp.diagnostics` event. */
@@ -62,8 +64,39 @@ export function readLspStatus(result: unknown): LspServer[] {
         state,
         languageId: typeof value.languageId === "string" ? value.languageId : "",
         pid: typeof value.pid === "number" ? value.pid : null,
+        reason: typeof value.reason === "string" && value.reason !== "" ? value.reason : null,
       },
     ];
+  });
+}
+
+/** `path` with `\` read as `/` and no trailing separator, for prefix tests. */
+function normalisePath(path: string): string {
+  const slashed = path.replace(/\\/g, "/");
+  return slashed.length > 1 ? slashed.replace(/\/+$/, "") : slashed;
+}
+
+/** True when `inner` is `outer` or a folder below it. */
+function within(inner: string, outer: string): boolean {
+  if (outer === "" || inner === "") return false;
+  return inner === outer || inner.startsWith(outer.endsWith("/") ? outer : `${outer}/`);
+}
+
+/**
+ * The servers that belong to `workdir`'s project.
+ *
+ * `lsp.status` lists every server the daemon runs, for every session's
+ * project, so a server that broke in another folder would otherwise show as
+ * this session's `lsp 0!`. A server counts when its root is the workdir, a
+ * folder below it, or a folder above it (the repo root of a subfolder). With
+ * no workdir every server is kept.
+ */
+export function serversFor(servers: readonly LspServer[], workdir: string | undefined): LspServer[] {
+  if (!workdir) return [...servers];
+  const dir = normalisePath(workdir);
+  return servers.filter((server) => {
+    const root = normalisePath(server.root);
+    return within(root, dir) || within(dir, root);
   });
 }
 
@@ -97,20 +130,30 @@ export function lspColor(servers: readonly LspServer[]): string | undefined {
   return lspSummary(servers).broken > 0 ? "red" : undefined;
 }
 
-/** `/lsp`: one line per server, plus a header. */
-export function lspTable(servers: readonly LspServer[]): string {
+/**
+ * `/lsp`: one line per server of this project, plus a header.
+ *
+ * Servers of other projects are only counted, so the table answers "what is
+ * running here" the way the HUD segment does.
+ */
+export function lspTable(all: readonly LspServer[], workdir?: string): string {
+  const servers = serversFor(all, workdir);
+  const others = all.length - servers.length;
+  const elsewhere =
+    others > 0 ? `\n  (${others} more in other projects' folders; not counted here)` : "";
   if (servers.length === 0) {
-    return "no language servers are running (lsp.enabled=false, or nothing matched this project)";
+    return `no language servers are running (lsp.enabled=false, or nothing matched this project)${elsewhere}`;
   }
   const width = Math.max(...servers.map((server) => server.id.length));
   const rows = servers.map((server) => {
     const pid = server.pid === null ? "" : ` pid ${server.pid}`;
     const language = server.languageId ? ` ${server.languageId}` : "";
-    return `  ${server.id.padEnd(width)}  ${server.state}${language}${pid}  ${server.root}`;
+    const reason = server.reason && server.state !== "ready" ? ` (${server.reason})` : "";
+    return `  ${server.id.padEnd(width)}  ${server.state}${reason}${language}${pid}  ${server.root}`;
   });
   const { ready, broken } = lspSummary(servers);
   const tail = broken > 0 ? `, ${broken} broken` : "";
-  return [`language servers (${ready} ready${tail})`, ...rows].join("\n");
+  return [`language servers (${ready} ready${tail})`, ...rows].join("\n") + elsewhere;
 }
 
 /**

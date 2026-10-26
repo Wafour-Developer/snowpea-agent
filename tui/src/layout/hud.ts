@@ -10,7 +10,7 @@
 
 import { contextSegment } from "./bottom.js";
 import { currentAccent } from "./palette.js";
-import { lspColor, lspLabel, type LspServer } from "../state/lsp.js";
+import { lspColor, lspLabel, serversFor, type LspServer } from "../state/lsp.js";
 import { mcpColor, mcpLabel, type McpServerRow } from "../state/mcp.js";
 import type { ConnectionStatus } from "../rpc/client.js";
 import type { ContextUsage } from "../state/store.js";
@@ -229,14 +229,16 @@ export function buildHudSegments(input: HudInput): HudSegment[] {
   });
 
   // Language servers, when there are any: the count that is ready, with a bang
-  // when one of them is broken.
-  const lsp = lspLabel(input.lsp ?? []);
+  // when one of them is broken. Only this workdir's project counts: the daemon
+  // reports every session's servers.
+  const ownServers = serversFor(input.lsp ?? [], input.workdir);
+  const lsp = lspLabel(ownServers);
   if (lsp) {
     segments.push({
       key: "lsp",
       text: lsp,
-      color: lspColor(input.lsp ?? []),
-      dimColor: lspColor(input.lsp ?? []) === undefined,
+      color: lspColor(ownServers),
+      dimColor: lspColor(ownServers) === undefined,
       priority: 6,
     });
   }

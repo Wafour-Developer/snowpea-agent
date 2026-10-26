@@ -15,6 +15,7 @@ import {
   lspSummary,
   lspTable,
   readLspStatus,
+  serversFor,
   type LspServer,
 } from "../src/state/lsp.js";
 import { buildHudSegments } from "../src/layout/hud.js";
@@ -26,6 +27,7 @@ const server = (id: string, state: LspServer["state"], extra: Partial<LspServer>
   state,
   languageId: "python",
   pid: 4242,
+  reason: null,
   ...extra,
 });
 
@@ -37,6 +39,19 @@ function apply(state: State, ...events: SessionEvent[]): State {
   return events.reduce((acc, e) => reducer(acc, { type: "session/event", event: e }), state);
 }
 
+function hudBase() {
+  return {
+    status: "connected" as const,
+    version: "0.1.7",
+    provider: null,
+    model: null,
+    mode: "accept" as const,
+    usage: { inputTokens: 0, outputTokens: 0 },
+    sessionMs: 0,
+    pendingApprovals: 0,
+  };
+}
+
 beforeEach(() => {
   __resetIdCounter();
 });
@@ -45,9 +60,15 @@ describe("readLspStatus", () => {
   it("reads the rows the daemon sent", () => {
     expect(
       readLspStatus({
-        servers: [{ id: "pyright", root: "/repo", state: "ready", languageId: "python", pid: 7 }],
+        servers: [
+          { id: "pyright", root: "/repo", state: "ready", languageId: "python", pid: 7 },
+          { id: "ruff", root: "/repo", state: "broken", languageId: "python", reason: "exited: code 2" },
+        ],
       }),
-    ).toEqual([{ id: "pyright", root: "/repo", state: "ready", languageId: "python", pid: 7 }]);
+    ).toEqual([
+      { id: "pyright", root: "/repo", state: "ready", languageId: "python", pid: 7, reason: null },
+      { id: "ruff", root: "/repo", state: "broken", languageId: "python", pid: null, reason: "exited: code 2" },
+    ]);
   });
 
   it("treats a daemon without the feature as no servers", () => {
@@ -126,8 +147,52 @@ describe("the /lsp table", () => {
     expect(table).not.toContain("gopls  broken python pid");
   });
 
+  it("says why a server is not ready", () => {
+    const table = lspTable([server("ruff", "broken", { reason: "exited: code 2" })]);
+    expect(table).toContain("ruff  broken (exited: code 2) python");
+  });
+
   it("says why there is nothing to list", () => {
     expect(lspTable([])).toContain("no language servers are running");
+  });
+
+  it("lists this project's servers and only counts the others", () => {
+    const servers = [
+      server("pyright", "ready", { root: "/work/kokoro" }),
+      server("ruff", "broken", { root: "/work/memtest" }),
+    ];
+    const table = lspTable(servers, "/work/kokoro");
+    expect(table).toContain("language servers (1 ready)");
+    expect(table).not.toContain("/work/memtest");
+    expect(table).toContain("1 more in other projects' folders");
+  });
+});
+
+describe("servers of this project", () => {
+  const servers = [
+    server("pyright", "ready", { root: "/work/kokoro" }),
+    server("tsserver", "ready", { root: "/work/kokoro/web" }),
+    server("ruff", "broken", { root: "/work/memtest" }),
+    server("gopls", "ready", { root: "/work/kokoro-old" }),
+  ];
+
+  it("keeps the workdir, folders below it and the folder above it", () => {
+    expect(serversFor(servers, "/work/kokoro").map((s) => s.id)).toEqual(["pyright", "tsserver"]);
+    expect(serversFor(servers, "/work/kokoro/web/src").map((s) => s.id)).toEqual(["pyright", "tsserver"]);
+  });
+
+  it("reads Windows separators and a trailing slash", () => {
+    const win = [server("pyright", "ready", { root: "C:\\work\\kokoro" })];
+    expect(serversFor(win, "C:\\work\\kokoro\\").map((s) => s.id)).toEqual(["pyright"]);
+  });
+
+  it("keeps everything without a workdir", () => {
+    expect(serversFor(servers, undefined)).toHaveLength(4);
+  });
+
+  it("does not show another project's broken server as this session's", () => {
+    const hud = buildHudSegments({ ...hudBase(), workdir: "/work/kokoro", lsp: servers });
+    expect(hud.find((s) => s.key === "lsp")?.text).toBe("lsp 2");
   });
 });
 

@@ -2203,7 +2203,7 @@ export function App({
           .then((result) => {
             const servers = readLspStatus(result);
             dispatch({ type: "lsp/status", servers });
-            dispatch({ type: "note", text: lspTable(servers) });
+            dispatch({ type: "note", text: lspTable(servers, workdir) });
           })
           .catch((error: unknown) =>
             dispatch({ type: "note", text: `lsp.status failed: ${String(error)}` }),
