@@ -348,6 +348,7 @@ async def session_resume_handler(
     return SessionResumeResult(
         sessionId=session.id,
         mode=session.mode,
+        autoAfterPlan=session.mode == "plan" and bool(session.auto_after_plan),
         provider=session.provider,
         model=session.model,
         effort=getattr(session, "effort", None),
@@ -393,6 +394,7 @@ async def collect_sessions(core: Core, params: SessionListParams) -> list[Sessio
                 sessionId=session_id,
                 workdir=str(stored["workdir"]),
                 mode=stored["mode"],
+                autoAfterPlan=stored["mode"] == "plan" and bool(stored.get("auto_after_plan")),
                 provider=stored.get("provider"),
                 model=stored.get("model"),
                 originSurface=stored.get("origin_surface"),
@@ -865,9 +867,10 @@ async def session_set_mode_handler(
     from snowpea_core.session import events
 
     session = _session(core, params.sessionId)
-    mode = await core.sessions.set_mode(session, params.mode)
-    await core.hub.emit_event(session.id, events.mode_changed(mode))
-    return SessionSetModeResult(mode=mode)
+    mode = await core.sessions.set_mode(session, params.mode, params.autoAfterPlan)
+    flag = bool(session.auto_after_plan)
+    await core.hub.emit_event(session.id, events.mode_changed(mode, auto_after_plan=flag))
+    return SessionSetModeResult(mode=mode, autoAfterPlan=flag)
 
 
 async def session_set_model_handler(

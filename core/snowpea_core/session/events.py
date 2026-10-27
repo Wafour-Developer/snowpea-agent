@@ -113,7 +113,7 @@ def message_done(
     text: str,
     role: str = "assistant",
     *,
-    kind: Literal["", "interrupted"] = "",
+    kind: Literal["", "interrupted", "plan"] = "",
     truncated: bool = False,
     continuations: int = 0,
 ) -> Event:
@@ -250,8 +250,12 @@ def agent_changed(agent: str | None) -> Event:
     return _pack(AgentChanged(agent=agent))
 
 
-def mode_changed(mode: str, delegation: bool | None = None) -> Event:
-    return _pack(ModeChanged(mode=mode, delegation=delegation))  # type: ignore[arg-type]
+def mode_changed(
+    mode: str, delegation: bool | None = None, auto_after_plan: bool | None = None
+) -> Event:
+    return _pack(
+        ModeChanged(mode=mode, delegation=delegation, autoAfterPlan=auto_after_plan)  # type: ignore[arg-type]
+    )
 
 
 def model_changed(

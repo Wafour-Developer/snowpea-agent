@@ -93,6 +93,7 @@ SESSION_COLUMNS: tuple[tuple[str, str], ...] = (
     ("agent", "TEXT"),
     ("memory_override", "INTEGER"),
     ("site_memory_override", "INTEGER"),
+    ("auto_after_plan", "INTEGER"),
 )
 
 SQLITE_RETRY_ATTEMPTS = 5
@@ -299,9 +300,18 @@ class Store:
             (None if delegation is None else int(delegation), session_id),
         )
 
-    async def update_mode(self, session_id: str, mode: str) -> None:
+    async def update_mode(
+        self, session_id: str, mode: str, auto_after_plan: bool = False
+    ) -> None:
+        """Persist the mode and its plan-then-auto flag together (1.32.0).
+
+        Written in one statement so a resume never sees a non-plan mode with
+        the flag still set.
+        """
         await asyncio.to_thread(
-            self._execute, "UPDATE sessions SET mode = ? WHERE id = ?", (mode, session_id)
+            self._execute,
+            "UPDATE sessions SET mode = ?, auto_after_plan = ? WHERE id = ?",
+            (mode, int(auto_after_plan), session_id),
         )
 
     async def close_session(self, session_id: str, closed_at: str) -> None:

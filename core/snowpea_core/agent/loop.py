@@ -1585,6 +1585,8 @@ async def _drive(
     # byte-stable and a server's prefix cache covers the whole conversation.
     host_block = host_context.render(host_text)
     extra = agent_mod.turn_context(session, memory_block, core=core, host_block=host_block)
+    if agent_mod.PLAN_AUTO_NOTE in extra:
+        session.plan_auto_note_pending = False  # this turn's message carries it
     if extra and turn_message is not None:
         _append_turn_context(turn_message, extra)
         if host_block and host_block in extra:
@@ -2434,7 +2436,9 @@ async def _run_one_call(
     session.history.append(
         ChatMessage(
             role="tool",
-            content=result.output if result.ok else (result.error or "tool failed"),
+            content=_with_plan_auto_note(
+                session, result.output if result.ok else (result.error or "tool failed")
+            ),
             tool_call_id=call.id,
             name=call.name,
             sensitive=sensitive,
@@ -2557,6 +2561,27 @@ async def _deny_call(core: Core, session: Session, call: ToolCall, reason: str) 
     await _fail_call(core, session, call, message)
 
 
+def _with_plan_auto_note(session: Session, content: str) -> str:
+    """``content``, plus the plan-then-auto note once if it was set mid-turn.
+
+    "Allow Everything" is usually pressed on an approval inside a turn, after
+    that turn's message went out without the note (``agent.PLAN_AUTO_NOTE``).
+    The next tool result carries it instead: appended to history, so it is
+    sent byte for byte from then on and the cached prefix is untouched.
+    """
+    if not getattr(session, "plan_auto_note_pending", False):
+        return content
+    if (
+        session.mode != "plan"
+        or not getattr(session, "auto_after_plan", False)
+        or getattr(session, "is_subagent", False)
+    ):
+        session.plan_auto_note_pending = False
+        return content
+    session.plan_auto_note_pending = False
+    return f"{content}\n\n{agent_mod.PLAN_AUTO_NOTE}"
+
+
 def _append_turn_context(message: ChatMessage, extra: str) -> None:
     """Add ``extra`` after the user's words in ``message``."""
     if isinstance(message.content, list):
@@ -2571,7 +2596,12 @@ async def _fail_call(core: Core, session: Session, call: ToolCall, message: str)
         session.id, events.tool_result(call.id, call.name, False, "", message)
     )
     session.history.append(
-        ChatMessage(role="tool", content=message, tool_call_id=call.id, name=call.name)
+        ChatMessage(
+            role="tool",
+            content=_with_plan_auto_note(session, message),
+            tool_call_id=call.id,
+            name=call.name,
+        )
     )
 
 

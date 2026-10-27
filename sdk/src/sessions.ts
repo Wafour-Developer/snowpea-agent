@@ -36,13 +36,17 @@ export function interrupt(client: Client, sessionId: string): Promise<R<"session
   return client.call("session.interrupt", { sessionId } as P<"session.interrupt">);
 }
 
-/** Switch the permission mode of a session. */
+/**
+ * Switch the permission mode of a session. `autoAfterPlan` (1.32.0) with
+ * `"plan"` keeps planning with every approval answered yes, then offers auto.
+ */
 export function setMode(
   client: Client,
   sessionId: string,
   mode: P<"session.setMode">["mode"],
+  extra: { autoAfterPlan?: boolean } = {},
 ): Promise<R<"session.setMode">> {
-  return client.call("session.setMode", { sessionId, mode } as P<"session.setMode">);
+  return client.call("session.setMode", { ...extra, sessionId, mode } as P<"session.setMode">);
 }
 
 /**

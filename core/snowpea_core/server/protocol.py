@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from snowpea_core import __version__ as _core_version
 from snowpea_core.server.errors import ERROR_CODES
 
-PROTOCOL_VERSION = "1.31.0"
+PROTOCOL_VERSION = "1.32.0"
 SERVER_VERSION = _core_version
 
 Mode = Literal["plan", "accept", "auto"]
@@ -741,6 +741,10 @@ class SessionResumeResult(Payload):
             "adopts it instead of keeping the mode it launched with."
         ),
     )
+    autoAfterPlan: bool = Field(
+        default=False,
+        description="Plan-then-auto as restored with the mode (1.32.0).",
+    )
     provider: str | None = Field(default=None, description="Chat provider vendor in use.")
     model: str | None = Field(default=None, description="Model id in use.")
     effort: str | None = Field(default=None, description="Reasoning effort pinned on the session.")
@@ -778,6 +782,13 @@ class SessionSummary(Payload):
     sessionId: str = Field(description="Session id.")
     workdir: str = Field(description="Absolute working directory.")
     mode: Mode = Field(description="Current permission mode.")
+    autoAfterPlan: bool = Field(
+        default=False,
+        description=(
+            "PLAN mode with every approval answered yes, switching to auto once the "
+            "plan is done (1.32.0); false outside plan mode."
+        ),
+    )
     provider: str | None = Field(default=None, description="Chat provider vendor in use.")
     model: str | None = Field(default=None, description="Model id in use.")
     originSurface: str | None = Field(default=None, description="Surface that owns approvals.")
@@ -1019,10 +1030,22 @@ class TurnResult(Payload):
 class SessionSetModeParams(Payload):
     sessionId: str = Field(description="Session to change.")
     mode: Mode = Field(description="New permission mode.")
+    autoAfterPlan: bool | None = Field(
+        default=None,
+        description=(
+            "With mode 'plan' (1.32.0): true keeps planning but answers every approval "
+            "'allow' (a deny stays a deny), and set_mode then offers auto first; false "
+            "clears it. Omitted keeps it while staying in plan and clears it when plan "
+            "mode is entered afresh. Any other mode always clears it."
+        ),
+    )
 
 
 class SessionSetModeResult(Payload):
     mode: Mode = Field(description="Mode now in effect.")
+    autoAfterPlan: bool = Field(
+        default=False, description="Whether plan-then-auto is now in force (1.32.0)."
+    )
 
 
 class SessionSetModelParams(Payload):
@@ -4068,13 +4091,15 @@ class MessageDone(Payload):
     role: Literal["assistant", "user", "system"] = Field(
         "assistant", description="Who produced the message."
     )
-    messageKind: Literal["", "interrupted"] = Field(
+    messageKind: Literal["", "interrupted", "plan"] = Field(
         default="",
         serialization_alias="kind",
         validation_alias="messageKind",
         description=(
             "Optional message classification inside the message.done payload, "
-            "for example 'interrupted' for the post-stop system note."
+            "for example 'interrupted' for the post-stop system note, or 'plan' "
+            "(1.32.0) for the plan set_mode puts up for review just before its "
+            "question; it arrives while that set_mode call is still running."
         ),
     )
     truncated: bool = Field(
@@ -4382,6 +4407,13 @@ class ModeChanged(Payload):
         description=(
             "Whether delegation mode is now in force, sent when /delegation changes it; "
             "absent when only the permission mode moved."
+        ),
+    )
+    autoAfterPlan: bool | None = Field(
+        default=None,
+        description=(
+            "Whether plan-then-auto is in force after this change (1.32.0); absent from "
+            "an event that only reports delegation."
         ),
     )
 
@@ -6266,6 +6298,7 @@ CAPABILITIES: list[str] = [
     "sessionEffort",
     "writeOutsideAsks",
     "hostTurnContext",
+    "planAutoApprove",
 ]
 
 #: Where the daemon listens; mirrored into the schema dump for the SDK.

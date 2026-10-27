@@ -2,7 +2,7 @@
 // Produced by scripts/gen_protocol.py from core/snowpea_core/server/protocol.py.
 // Re-run `uv run python scripts/gen_protocol.py` after changing the protocol.
 
-export const PROTOCOL_VERSION = "1.31.0";
+export const PROTOCOL_VERSION = "1.32.0";
 export const WS_PATH = "/ws";
 export const HTTP_ENDPOINTS = {
   health: "/health",
@@ -2174,6 +2174,8 @@ export interface SessionListResult {
   sessions?: ({
     /** Named agent the session belongs to, when it has one. */
     agent?: string | null;
+    /** PLAN mode with every approval answered yes, switching to auto once the plan is done (1.32.0); false outside plan mode. */
+    autoAfterPlan?: boolean;
     /** A browser session's browser: 'host' (Snowpea browser only) or 'local' (the user opted in to core's own browser); null for non-browser sessions. */
     browserProvider?: "host" | "local" | null;
     /** Tokens the session's current prompt occupies (CORE-context). */
@@ -2325,6 +2327,8 @@ export interface SessionResumeParams {
 
 /** `session.resume` result. */
 export interface SessionResumeResult {
+  /** Plan-then-auto as restored with the mode (1.32.0). */
+  autoAfterPlan?: boolean;
   /** Whether delegation mode is in force: the session pin, else the default. */
   delegation?: boolean;
   /** The effort in force (1.29.0): the pin, or what the settings give, clamped to what the model offers; null when the model has no effort setting or the session is closed. 'effort' stays the session's own pin. */
@@ -2441,6 +2445,8 @@ export interface SessionSetEffortResult {
 
 /** `session.setMode` params. Switch a session between plan, accept and auto. */
 export interface SessionSetModeParams {
+  /** With mode 'plan' (1.32.0): true keeps planning but answers every approval 'allow' (a deny stays a deny), and set_mode then offers auto first; false clears it. Omitted keeps it while staying in plan and clears it when plan mode is entered afresh. Any other mode always clears it. */
+  autoAfterPlan?: boolean | null;
   /** New permission mode. */
   mode: "plan" | "accept" | "auto";
   /** Session to change. */
@@ -2449,6 +2455,8 @@ export interface SessionSetModeParams {
 
 /** `session.setMode` result. */
 export interface SessionSetModeResult {
+  /** Whether plan-then-auto is now in force (1.32.0). */
+  autoAfterPlan?: boolean;
   /** Mode now in effect. */
   mode: "plan" | "accept" | "auto";
 }
@@ -4796,8 +4804,8 @@ export interface MessageDoneEventPayload {
   /** How many times the turn was resumed after hitting the output limit. */
   continuations?: number;
   kind?: "message.done";
-  /** Optional message classification inside the message.done payload, for example 'interrupted' for the post-stop system note. */
-  messageKind?: "" | "interrupted";
+  /** Optional message classification inside the message.done payload, for example 'interrupted' for the post-stop system note, or 'plan' (1.32.0) for the plan set_mode puts up for review just before its question; it arrives while that set_mode call is still running. */
+  messageKind?: "" | "interrupted" | "plan";
   /** Who produced the message. */
   role?: "assistant" | "user" | "system";
   /** Full message text. */
@@ -4848,6 +4856,8 @@ export interface MessageUserEventPayload {
 
 /** Payload of `session.event` with kind `mode.changed`. */
 export interface ModeChangedEventPayload {
+  /** Whether plan-then-auto is in force after this change (1.32.0); absent from an event that only reports delegation. */
+  autoAfterPlan?: boolean | null;
   /** Whether delegation mode is now in force, sent when /delegation changes it; absent when only the permission mode moved. */
   delegation?: boolean | null;
   kind?: "mode.changed";

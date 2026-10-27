@@ -165,7 +165,8 @@ async def test_the_host_note_rides_on_the_first_request_and_is_replayed(
     daemon: Daemon, tmp_path: Path, hosts: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     core = daemon.core
-    assert PROTOCOL_VERSION == "1.31.0" and "hostTurnContext" in CAPABILITIES
+    assert tuple(map(int, PROTOCOL_VERSION.split("."))) >= (1, 31, 0)
+    assert "hostTurnContext" in CAPABILITIES
     fake = Recording()
     core.providers.register("local", fake)
     session = await _session(core, tmp_path)

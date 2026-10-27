@@ -2,7 +2,7 @@
 
 # Snowpea protocol
 
-- **Protocol version:** `1.31.0` (semver)
+- **Protocol version:** `1.32.0` (semver)
 - **Source of truth:** `core/snowpea_core/server/protocol.py`
 - **Generator:** `uv run python scripts/gen_protocol.py`
 - **Bindings:** `sdk/src/protocol.ts` (generated alongside this file — never hand-edit)
@@ -32,7 +32,7 @@ Immediately after connecting, the client calls `system.hello` with the daemon to
   "params": {
     "token": "<contents of $SNOWPEA_HOME/token>",
     "clientVersion": "0.1.0",
-    "protocolVersion": "1.31.0"
+    "protocolVersion": "1.32.0"
   }
 }
 ```
@@ -59,6 +59,7 @@ Server capabilities advertised in the `system.hello` result:
 - `memorySafe`
 - `onceOnlyScope`
 - `pageActionAlways`
+- `planAutoApprove`
 - `providerModelsError`
 - `readOnlyDelegation`
 - `sessionAttachments`
@@ -1932,7 +1933,7 @@ List live or saved sessions.
 | field | type | required | description |
 |---|---|---|---|
 | `complete` | `boolean` | no | True when the list is all there is for what was asked (1.27.0): the daemon's boot has restored the sessions it reopens, and with includeClosed the saved ones were read. Without includeClosed it covers live sessions only, which after a restart is usually none; ask with includeClosed before forgetting a closed chat. False (or absent, from an older daemon) means an empty or short list proves nothing, so a client must not forget its own records by it. |
-| `sessions` | `({ agent?: string \| null; browserProvider?: "host" \| "local" \| null; contextUsed?: number; contextWindow?: number \| null; createdAt: string; effectiveEffort?: "low" \| "medium" \| "high" \| "max" \| null; effort?: "low" \| "medium" \| "high" \| "max" \| null; effortSource?: "session" \| "model" \| "vendor" \| "default" \| null; efforts?: ("low" \| "medium" \| "high" \| "max")[] \| null; hostToolsFrom?: string \| null; jobId?: string \| null; kind?: "chat" \| "scheduled" \| "subagent" \| "agent"; lastActivityAt?: string \| null; lastPrompt?: string \| null; mode: "plan" \| "accept" \| "auto"; model?: string \| null; origin?: { clientId?: string \| null; clientKind?: string \| null; live: boolean; mine?: boolean; } \| null; originSurface?: string \| null; parentSessionId?: string \| null; pendingApprovals?: number; pendingQuestions?: number; provider?: string \| null; running?: boolean; seq?: number; sessionId: string; status?: "idle" \| "running" \| "awaiting_approval" \| "awaiting_question" \| "error"; title?: string \| null; turnStartedAt?: string \| null; workdir: string; workspaceDir?: string \| null; })[]` | no | Every live session. |
+| `sessions` | `({ agent?: string \| null; autoAfterPlan?: boolean; browserProvider?: "host" \| "local" \| null; contextUsed?: number; contextWindow?: number \| null; createdAt: string; effectiveEffort?: "low" \| "medium" \| "high" \| "max" \| null; effort?: "low" \| "medium" \| "high" \| "max" \| null; effortSource?: "session" \| "model" \| "vendor" \| "default" \| null; efforts?: ("low" \| "medium" \| "high" \| "max")[] \| null; hostToolsFrom?: string \| null; jobId?: string \| null; kind?: "chat" \| "scheduled" \| "subagent" \| "agent"; lastActivityAt?: string \| null; lastPrompt?: string \| null; mode: "plan" \| "accept" \| "auto"; model?: string \| null; origin?: { clientId?: string \| null; clientKind?: string \| null; live: boolean; mine?: boolean; } \| null; originSurface?: string \| null; parentSessionId?: string \| null; pendingApprovals?: number; pendingQuestions?: number; provider?: string \| null; running?: boolean; seq?: number; sessionId: string; status?: "idle" \| "running" \| "awaiting_approval" \| "awaiting_question" \| "error"; title?: string \| null; turnStartedAt?: string \| null; workdir: string; workspaceDir?: string \| null; })[]` | no | Every live session. |
 
 ### `session.notice`
 
@@ -2011,6 +2012,7 @@ Replay the events a disconnected client missed.
 
 | field | type | required | description |
 |---|---|---|---|
+| `autoAfterPlan` | `boolean` | no | Plan-then-auto as restored with the mode (1.32.0). |
 | `delegation` | `boolean` | no | Whether delegation mode is in force: the session pin, else the default. |
 | `effectiveEffort` | `"low" \| "medium" \| "high" \| "max" \| null` | no | The effort in force (1.29.0): the pin, or what the settings give, clamped to what the model offers; null when the model has no effort setting or the session is closed. 'effort' stays the session's own pin. |
 | `effort` | `string \| null` | no | Reasoning effort pinned on the session. |
@@ -2116,6 +2118,7 @@ Switch a session between plan, accept and auto.
 
 | field | type | required | description |
 |---|---|---|---|
+| `autoAfterPlan` | `boolean \| null` | no | With mode 'plan' (1.32.0): true keeps planning but answers every approval 'allow' (a deny stays a deny), and set_mode then offers auto first; false clears it. Omitted keeps it while staying in plan and clears it when plan mode is entered afresh. Any other mode always clears it. |
 | `mode` | `"plan" \| "accept" \| "auto"` | yes | New permission mode. |
 | `sessionId` | `string` | yes | Session to change. |
 
@@ -2123,6 +2126,7 @@ Switch a session between plan, accept and auto.
 
 | field | type | required | description |
 |---|---|---|---|
+| `autoAfterPlan` | `boolean` | no | Whether plan-then-auto is now in force (1.32.0). |
 | `mode` | `"plan" \| "accept" \| "auto"` | yes | Mode now in effect. |
 
 ### `session.setModel`
@@ -3424,7 +3428,7 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 |---|---|---|---|
 | `continuations` | `number` | no | How many times the turn was resumed after hitting the output limit. |
 | `kind` | `"message.done"` | no |  |
-| `messageKind` | `"" \| "interrupted"` | no | Optional message classification inside the message.done payload, for example 'interrupted' for the post-stop system note. |
+| `messageKind` | `"" \| "interrupted" \| "plan"` | no | Optional message classification inside the message.done payload, for example 'interrupted' for the post-stop system note, or 'plan' (1.32.0) for the plan set_mode puts up for review just before its question; it arrives while that set_mode call is still running. |
 | `role` | `"assistant" \| "user" \| "system"` | no | Who produced the message. |
 | `text` | `string` | yes | Full message text. |
 | `truncated` | `boolean` | no | The answer still hit the output limit and is incomplete. |
@@ -3452,6 +3456,7 @@ Every session event carries a monotonically increasing per-session `seq`. After 
 
 | field | type | required | description |
 |---|---|---|---|
+| `autoAfterPlan` | `boolean \| null` | no | Whether plan-then-auto is in force after this change (1.32.0); absent from an event that only reports delegation. |
 | `delegation` | `boolean \| null` | no | Whether delegation mode is now in force, sent when /delegation changes it; absent when only the permission mode moved. |
 | `kind` | `"mode.changed"` | no |  |
 | `mode` | `"plan" \| "accept" \| "auto"` | yes | Mode now in effect. |

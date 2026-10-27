@@ -48,6 +48,12 @@ const STATUS_COLOR: Record<ConnectionStatus, string> = {
   closed: "red",
 };
 
+/** The mode as the HUD names it; a plan that ends in auto says so. */
+function modeLabel(input: { mode: Mode; autoAfterPlan?: boolean }): string {
+  if (input.mode === "plan" && input.autoAfterPlan) return "PLAN→AUTO";
+  return input.mode.toUpperCase();
+}
+
 function modeColor(mode: Mode): string {
   if (mode === "plan") return "cyan";
   if (mode === "accept") return currentAccent();
@@ -109,6 +115,8 @@ export interface HudInput {
   /** Delegation mode on: the lead hands the work to its team. */
   delegation?: boolean;
   mode: Mode;
+  /** Plan with every approval answered yes, then auto (1.32.0). */
+  autoAfterPlan?: boolean;
   usage: { inputTokens: number; outputTokens: number };
   /** Context-window usage; the segment is hidden until the daemon reports it. */
   context?: ContextUsage | null;
@@ -204,7 +212,7 @@ export function buildHudSegments(input: HudInput): HudSegment[] {
 
   segments.push({
     key: "mode",
-    text: `Mode: ${input.mode.toUpperCase()}${input.modeHint ? " (⇧Tab)" : ""}`,
+    text: `Mode: ${modeLabel(input)}${input.modeHint ? " (⇧Tab)" : ""}`,
     color: modeColor(input.mode),
     priority: 2,
   });

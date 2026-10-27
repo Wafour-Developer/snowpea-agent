@@ -1226,7 +1226,11 @@ export function App({
           // The daemon restored the session's own mode; the HUD must say the
           // one the next turn will actually run under, not the launch flag.
           if (into === "main" && typeof result?.mode === "string") {
-            dispatch({ type: "mode", mode: result.mode as Mode });
+            dispatch({
+              type: "mode",
+              mode: result.mode as Mode,
+              autoAfterPlan: result.autoAfterPlan === true,
+            });
           }
         })
         .catch((error: unknown) =>
@@ -1303,6 +1307,7 @@ export function App({
         effort: state.effort,
         delegation: state.delegation,
         mode: state.mode,
+        autoAfterPlan: state.autoAfterPlan,
         usage: state.usage,
         context: state.context,
         toolCount: state.toolCount,
@@ -1336,6 +1341,7 @@ export function App({
       state.modelSource,
       sessionModelSource,
       state.mode,
+      state.autoAfterPlan,
       state.usage,
       state.context,
       state.toolCount,
@@ -1498,7 +1504,9 @@ export function App({
         ? Object.keys(state.pendingApproval.args ?? {}).length
         : null,
       queueRequests: state.approvalQueue.length,
-      questionRows: state.pendingQuestion ? questionPromptRows(state.pendingQuestion) : 0,
+      questionRows: state.pendingQuestion
+        ? questionPromptRows(state.pendingQuestion, contentWidth)
+        : 0,
       queueFocused,
       errorVisible: state.errors.length > 0,
       workingVisible: workingText !== null,
@@ -2525,9 +2533,26 @@ export function App({
     [client, state.turnActive],
   );
 
+  /**
+   * "Allow Everything" pressed while planning: keep planning, answer every
+   * approval yes, and let the plan's end offer auto (1.32.0). Switching to
+   * auto here would end the plan before it was written.
+   */
+  const planThenAuto = useCallback(() => {
+    setModeHintVisible(false);
+    dispatch({ type: "mode", mode: "plan", autoAfterPlan: true });
+    showToast("mode: PLAN→AUTO");
+    void client
+      .setMode(sessionId, "plan", { autoAfterPlan: true })
+      .catch((error: unknown) => dispatch({ type: "error", message: String(error) }));
+  }, [client, sessionId, showToast]);
+
   const decideApproval = useCallback(
     (answer: ApprovalAnswer, reason?: string) => {
-      if (answer.switchToAuto) changeMode("auto");
+      if (answer.switchToAuto) {
+        if (state.mode === "plan") planThenAuto();
+        else changeMode("auto");
+      }
       const resolve = approvalResolver.current;
       const requestId = state.pendingApproval?.requestId;
       approvalResolver.current = null;
@@ -2537,7 +2562,7 @@ export function App({
       const { decision, scope } = answer;
       resolve?.(reason ? { decision, scope, reason } : { decision, scope });
     },
-    [changeMode, state.pendingApproval],
+    [changeMode, planThenAuto, state.mode, state.pendingApproval],
   );
 
   const answerQuestion = useCallback(
@@ -2874,7 +2899,11 @@ export function App({
       {state.pendingQuestion ? (
         <QuestionPrompt request={state.pendingQuestion} onAnswer={answerQuestion} />
       ) : state.pendingApproval ? (
-        <ApprovalPrompt request={state.pendingApproval} onDecide={decideApproval} />
+        <ApprovalPrompt
+          request={state.pendingApproval}
+          onDecide={decideApproval}
+          mode={state.mode}
+        />
       ) : modePicker ? (
         <ConfirmMenu<Mode | null>
           options={(["accept", "auto", "plan"] as Mode[]).map((value) => ({ label: `${value} mode`, value }))}

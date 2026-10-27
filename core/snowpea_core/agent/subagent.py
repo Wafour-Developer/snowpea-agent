@@ -1386,6 +1386,12 @@ class SubagentManager:
         )
         child.unattended = parent.unattended
         child.read_only = read_only
+        # "Allow Everything" while planning travels with the mode, as the mode
+        # itself does; a read-only child never approves anything, flag or not.
+        # The policy follows the parent's flag live (plan_auto_approves); this
+        # copy, stored with the child's row, is what counts if the parent is gone.
+        if mode == "plan" and not read_only and getattr(parent, "auto_after_plan", False):
+            await self.core.sessions.set_mode(child, "plan", True)
         child.memory_namespace = parent.memory_namespace
         child.locale = getattr(parent, "locale", None)
         inherit_host(child, parent)

@@ -22,6 +22,15 @@ Neither touches ``config``: a write that lands on a settings file is re-tagged
 ``config`` before the policy sees it, and ``config`` is ``deny`` in plan mode
 with no exception at all.
 
+"Allow Everything" in plan mode (``session.auto_after_plan``, 1.32.0) answers
+two kinds of ``ask`` with ``allow``: a ``shell`` command that does not change
+files or state (:func:`~snowpea_core.permissions.safe_commands.is_mutating` —
+inspection, a test run, a type check) and a ``secret`` read.  A command that
+writes, installs, commits or sends still asks, as do ``execute_code``, process
+control and skill installs; no ``deny`` moves.  A delegated child follows its
+root conversation's flag live, so the button pressed on a child's approval, or
+the flag cleared on the parent, applies to children already running.
+
 ``outside`` is a write that lands outside the session's project (addendum 29):
 asked in accept mode, denied in plan mode.  The allowlist promotes it only by
 folder, never by tool name, since "always allow write_file" must not cover
@@ -166,6 +175,8 @@ class PermissionPolicy:
 
     def __init__(self, allowlist: Allowlist | None = None) -> None:
         self.allowlist = allowlist
+        #: ``core.sessions``, for a child's plan-then-auto flag (late-bound).
+        self.sessions: Any = None
 
     def bind(self, allowlist: Allowlist) -> None:
         """Late wiring from ``app_server`` once ``Core`` exists."""
@@ -196,7 +207,85 @@ class PermissionPolicy:
             verdict = self.promote_outside(verdict, args, session)
         elif verdict == "ask" and tag not in UNPROMOTABLE:
             verdict = self.promote(verdict, tool, args, session)
+        if (
+            verdict == "ask"
+            and mode == "plan"
+            and self.plan_auto_approves(session)
+            and self._plan_auto_covers(tag, tool, args, session)
+        ):
+            # "Allow Everything" pressed while planning (1.32.0): the planner's
+            # inspection runs unasked.  Only ``ask`` moves, and only for what
+            # changes nothing — a plan still writes nothing but its documents.
+            verdict = "allow"
         return verdict  # type: ignore[return-value]
+
+    def plan_auto_approves(self, session: Any) -> bool:
+        """Whether ``session`` plans under "Allow Everything" (1.32.0).
+
+        A delegated child answers with its root conversation's flag, looked up
+        live, as ``inherited_override`` does for the memory switches; its own
+        copy counts only when the parent is gone.  A read-only child never
+        approves anything (its ``ask`` is a refusal in the loop), and a plan
+        child under a root that is not planning never does either: the flag
+        belongs to a plan pass, and that root has none.
+        """
+        if session is None or getattr(session, "read_only", False):
+            return False
+        seen: set[str] = set()
+        current = session
+        while True:
+            parent_id = getattr(current, "parent_session_id", None)
+            if (
+                not parent_id
+                or getattr(current, "kind", None) == "scheduled"
+                or self.sessions is None
+                or str(parent_id) in seen
+            ):
+                break
+            seen.add(str(parent_id))
+            parent = self.sessions.get(str(parent_id))
+            if parent is None:
+                break
+            current = parent
+        return getattr(current, "mode", None) == "plan" and bool(
+            getattr(current, "auto_after_plan", False)
+        )
+
+    def _plan_auto_covers(
+        self, tag: str, tool: Tool | None, args: dict[str, Any] | None, session: Any
+    ) -> bool:
+        """The asks "Allow Everything" answers in plan mode: a non-mutating shell, a secret read."""
+        if tag == "secret":
+            return True
+        if tag != "exec" or tool is None or tool.name != PLAN_EXEC_TOOL:
+            return False
+        args = args or {}
+        if args.get("background"):
+            return False  # a process left running is not an inspection
+        from pathlib import Path
+
+        from snowpea_core.permissions.safe_commands import is_mutating
+
+        workdir = getattr(session, "workdir", None)
+        cwd = str(args.get("cwd") or "").strip()
+        if cwd:
+            # A cwd outside the project would let "echo > notes.md" land in
+            # someone else's notes; only a folder inside it keeps the rules.
+            if workdir is None or any(mark in cwd for mark in ("$", "~", "`")):
+                return False
+            import posixpath
+
+            root = posixpath.normpath(str(workdir))
+            target = posixpath.normpath(posixpath.join(root, cwd))
+            if not (target + "/").startswith(root + "/"):
+                return False
+            workdir = Path(target)
+        return not is_mutating(
+            str(args.get("command", "") or ""),
+            workdir=workdir,
+            home=self._home(),
+            settings=self._settings(),
+        )
 
     def promote_outside(self, verdict: str, args: dict[str, Any] | None, session: Any) -> str:
         """``allow`` when a folder rule covers every outside path of the call."""

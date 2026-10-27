@@ -307,6 +307,7 @@ class SessionManager:
         _mark_history_persisted(session, stored_messages)
         session.host_tools_from = row.get("host_tools_from")
         session.browser_provider = row.get("browser_provider")
+        session.auto_after_plan = session.mode == "plan" and bool(row.get("auto_after_plan"))
         for attr in ("memory_override", "site_memory_override"):
             value = row.get(attr)
             setattr(session, attr, None if value is None else bool(value))
@@ -327,16 +328,39 @@ class SessionManager:
     def next_seq(self, session: Session) -> int:
         return session.next_seq()
 
-    async def set_mode(self, session: Session, mode: Mode) -> Mode:
+    async def set_mode(
+        self, session: Session, mode: Mode, auto_after_plan: bool | None = None
+    ) -> Mode:
+        """Switch ``session`` to ``mode`` and persist it.
+
+        ``auto_after_plan`` (1.32.0) only means something in PLAN mode: ``True``
+        sets it, ``False`` clears it, ``None`` keeps it while staying in plan
+        and clears it when a fresh planning pass starts.  Every switch to a
+        non-plan mode clears it, so Shift+Tab or ``/mode`` never leave a stale
+        "approve everything" behind for the next plan.
+        """
         leaving_plan = session.mode == "plan" and mode != "plan"
-        if mode == "plan" and session.mode != "plan":
+        entering_plan = mode == "plan" and session.mode != "plan"
+        if entering_plan:
             # A new planning pass: what an earlier pass wrote or saved is not
             # this pass's plan (CORE-plan-continuity).
             session.plan_saved = False
             session.plan_files.clear()
+        was_flagged = session.auto_after_plan
+        if mode != "plan":
+            session.auto_after_plan = False
+        elif auto_after_plan is not None:
+            session.auto_after_plan = bool(auto_after_plan)
+        elif entering_plan:
+            session.auto_after_plan = False
+        # Turned on now: the model learns of it with the next tool result
+        # (agent.loop._with_plan_auto_note); turned off, there is nothing to say.
+        session.plan_auto_note_pending = session.auto_after_plan and (
+            session.plan_auto_note_pending or not was_flagged
+        )
         session.mode = mode
         if self.store is not None:
-            await self.store.update_mode(session.id, mode)
+            await self.store.update_mode(session.id, mode, session.auto_after_plan)
         if leaving_plan:
             # Every way out of PLAN mode (set_mode, /mode, session.setMode)
             # passes here: a plan written as a file but never plan_save'd still

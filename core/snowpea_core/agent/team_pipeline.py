@@ -1010,6 +1010,7 @@ class TeamPipeline:
             id=lead.id,
             workdir=lead.workdir,
             mode=lead.mode,
+            auto_after_plan=bool(getattr(lead, "auto_after_plan", False)),
             provider=lead.provider,
             model=lead.model,
             agent=lead.agent,

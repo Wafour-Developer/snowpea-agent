@@ -18,6 +18,13 @@ The switch lands *inside* the turn that asked. The agent loop re-reads
 ``agent/loop._run_one_call``), so the next tool call after this one is judged
 under the new mode and implementation can begin in the same turn rather than
 waiting for the user to prompt again.
+
+A session in plan-then-auto (``auto_after_plan``, "Allow Everything" pressed
+while planning, 1.32.0) gets a different picker when the model asks to leave
+plan: like Claude Code's plan exit, it shows the plan itself for review and
+offers auto first, accept second and "keep revising" third, with free text for
+what to change.  A revision keeps the session planning, flag and all, and hands
+the user's words back to the model.
 """
 
 from __future__ import annotations
@@ -25,8 +32,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from typing import Any
+from typing import Any, cast
 
+from snowpea_core.permissions.policy import Mode
 from snowpea_core.prompts import tool_descriptions as descriptions
 from snowpea_core.server.protocol import QuestionItem, QuestionOption
 from snowpea_core.session import events
@@ -137,6 +145,144 @@ BROWSER_TEXT: dict[str, dict[str, Any]] = {
 }
 
 
+#: The plan-review picker of a plan-then-auto session (1.32.0), in the order
+#: offered: auto first, because "Allow Everything" already chose it.
+REVIEW_MODES: tuple[str, ...] = ("auto", "accept", "plan")
+
+REVIEW_TEXT: dict[str, dict[str, Any]] = {
+    "ko": {
+        "header": "계획 검토",
+        "question": "계획이 끝났습니다. 검토하고 어떻게 진행할지 골라 주세요. "
+        "고칠 점은 직접 입력해도 됩니다.",
+        "labels": {
+            "auto": "Auto 모드로 구현 시작 (추천)",
+            "accept": "accept 모드로 구현 시작",
+            "plan": "계획 계속 수정",
+        },
+        "descriptions": {
+            "auto": "묻지 않고 실행합니다",
+            "accept": "파일 편집은 바로, 셸 명령은 물어봅니다",
+            "plan": "plan 모드에 남아 계획을 고칩니다",
+        },
+        "plan_file": "계획 파일: {path} (계획 내용은 위 대화에 있습니다)",
+        "more": "… (나머지는 {path} 에 있습니다)",
+        "switched_with": "모드를 {mode} 로 바꿨습니다. 구현을 시작하되, 사용자의 다음 요청을 "
+        "따르세요: {text}",
+        "revise": "사용자가 계획을 더 고치기로 했습니다. plan 모드 그대로입니다. "
+        '다음 요청대로 계획을 고친 뒤, 다시 검토하고 저장하고 set_mode("auto")를 '
+        "다시 호출하세요: {text}",
+        "revise_plain": "사용자가 계획을 더 고치기로 했습니다. plan 모드 그대로입니다. "
+        "무엇을 고칠지 ask_user 로 한 번 물어본 뒤 계획을 고치고, 다시 검토하고 "
+        '저장하고 set_mode("auto")를 다시 호출하세요.',
+    },
+    "en": {
+        "header": "Review plan",
+        "question": "The plan is done. Review it and choose how to proceed; "
+        "you can also type what to change.",
+        "labels": {
+            "auto": "Start implementing in auto mode (recommended)",
+            "accept": "Start implementing in accept mode",
+            "plan": "Keep revising the plan",
+        },
+        "descriptions": {
+            "auto": "runs without asking",
+            "accept": "edits apply straight away, shell commands ask first",
+            "plan": "stay in plan mode and change the plan",
+        },
+        "plan_file": "Plan file: {path} (the plan is shown above)",
+        "more": "… (the rest is in {path})",
+        "switched_with": "Mode is now {mode}. Start the implementation, following the "
+        "user's words: {text}",
+        "revise": "The user wants the plan revised. Still in plan mode. Revise the plan "
+        'per the following, then review it again, save it and call set_mode("auto") '
+        "again: {text}",
+        "revise_plain": "The user wants the plan revised. Still in plan mode. Ask once "
+        "with ask_user what to change, revise the plan, review it again, save it and "
+        'call set_mode("auto") again.',
+    },
+}
+
+#: The longest plan copied into the transcript; the rest stays in the file.
+REVIEW_MAX_CHARS = 12000
+
+#: Short answers typed instead of picking a row.
+REVIEW_ALIASES: dict[str, str] = {
+    "1": "auto",
+    "auto": "auto",
+    "오토": "auto",
+    "자동": "auto",
+    "2": "accept",
+    "accept": "accept",
+    "수락": "accept",
+    "3": "plan",
+    "plan": "plan",
+    "계획": "plan",
+    "수정": "plan",
+    "계속 수정": "plan",
+    "계획 수정": "plan",
+}
+
+
+def _is_plan_document(path: str) -> bool:
+    """A file under ``.snowpea/plans/`` or named ``PLAN*.md``: a plan, not just a doc."""
+    from pathlib import PurePosixPath
+
+    normal = str(path).replace("\\", "/")
+    name = PurePosixPath(normal).name.casefold()
+    return "/.snowpea/plans/" in f"/{normal}" or (name.startswith("plan") and name.endswith(".md"))
+
+
+async def _plan_for_review(ctx: ToolContext) -> tuple[str, str]:
+    """``(markdown, path)`` of the plan this pass produced; empty when none.
+
+    The saved plan (``plan_save``) wins; then the newest plan document the
+    pass wrote, preferring ``.snowpea/plans/`` and ``PLAN*.md`` over any other
+    markdown it touched.  Written files are read through the session's
+    backend, where the planner wrote them, so a docker or ssh session shows its
+    own; the saved plan is read from the local project, where ``plan_store``
+    keeps it.
+    """
+    from pathlib import Path
+
+    from snowpea_core.agent import plan_store
+
+    session = ctx.session
+    if getattr(session, "plan_saved", False):
+        try:
+            plan = plan_store.load_current(session.workdir)
+        except Exception:  # noqa: BLE001 - a broken plan file must not block the picker
+            plan = None
+        if plan is not None and plan.markdown.strip():
+            return plan.markdown.strip(), plan_store.CURRENT_PATH
+    written = list(reversed(list(getattr(session, "plan_files", None) or [])))
+    ordered = [p for p in written if _is_plan_document(p)] + [
+        p for p in written if not _is_plan_document(p)
+    ]
+    backend = getattr(ctx, "backend", None) or getattr(session, "backend", None)
+    for path in ordered:
+        try:
+            if backend is not None:
+                text = (await backend.read_file(str(path))).strip()
+            else:
+                target = Path(path) if Path(path).is_absolute() else Path(session.workdir) / path
+                text = target.read_text(encoding="utf-8").strip()
+        except Exception:  # noqa: BLE001 - a vanished file is just not the plan
+            continue
+        if text:
+            return text, str(path)
+    return "", ""
+
+
+def _clip_plan(markdown: str, path: str, text: dict[str, Any]) -> str:
+    """The plan for the transcript, cut at a line boundary only when too long."""
+    if len(markdown) <= REVIEW_MAX_CHARS:
+        return markdown
+    head = markdown[:REVIEW_MAX_CHARS]
+    if "\n" in head:
+        head = head[: head.rfind("\n")]
+    return f"{head.rstrip()}\n\n{str(text['more']).format(path=path)}"
+
+
 #: The snowpea browser's coding agent: a browser session that edits a project.
 CODING_AGENTS = frozenset({"browser-code"})
 
@@ -219,8 +365,15 @@ async def set_mode(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             output=str(text["already"]).format(mode=current, label=label),
             meta={"requested": requested, "mode": current, "changed": False, "asked": False},
         )
-    rows = _options(requested, language, table)
     reason = str(args.get("reason") or "").strip()
+    if (
+        current == "plan"
+        and requested != "plan"
+        and getattr(ctx.session, "auto_after_plan", False)
+        and table is TEXT
+    ):
+        return await _review_plan(ctx, queue, requested, language, reason)
+    rows = _options(requested, language, table)
     question = f"{reason}\n{text['question']}".strip() if reason else text["question"]
 
     # The user may answer by switching mode somewhere else (the IDE's mode
@@ -301,11 +454,108 @@ async def set_mode(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             meta=meta,
         )
 
-    mode = await ctx.core.sessions.set_mode(ctx.session, picked)
-    await ctx.core.hub.emit_event(ctx.session.id, events.mode_changed(mode))
+    mode = await ctx.core.sessions.set_mode(ctx.session, cast(Mode, picked))
+    flag = bool(getattr(ctx.session, "auto_after_plan", False))
+    await ctx.core.hub.emit_event(ctx.session.id, events.mode_changed(mode, auto_after_plan=flag))
     meta["mode"] = mode
     meta["changed"] = True
     return ToolResult(ok=True, output=_switched(text, mode), meta=meta)
+
+
+async def _review_plan(
+    ctx: ToolContext, queue: Any, requested: str, language: str, reason: str
+) -> ToolResult:
+    """The plan-then-auto exit: show the plan, offer auto first, take revisions.
+
+    Whatever the model asked for, auto leads: "Allow Everything" already said
+    how the user wants the implementation to run.  Picking "keep revising" or
+    typing anything keeps the session in plan with the flag on, and the typed
+    words go back to the model as the revision to make.
+    """
+    text = REVIEW_TEXT[language]
+    markdown, path = await _plan_for_review(ctx)
+    question = "\n\n".join(part for part in (reason, text["question"]) if part)
+    if markdown:
+        # The plan goes into the transcript as a message of its own, not into
+        # the picker: a question is drawn in the live region, and a plan as
+        # tall as the terminal there makes Ink clear the screen every frame.
+        await ctx.core.hub.emit_event(
+            ctx.session.id,
+            events.message_done(_clip_plan(markdown, path, text), kind="plan"),
+        )
+        question = f"{question}\n{str(text['plan_file']).format(path=path)}"
+    rows = [
+        (mode, QuestionOption(label=text["labels"][mode], description=text["descriptions"][mode]))
+        for mode in REVIEW_MODES
+    ]
+    stop = asyncio.Event()
+    watcher = asyncio.ensure_future(_watch_mode(ctx.session, "plan", stop))
+    try:
+        answers = await queue.ask(
+            ctx.session,
+            [
+                QuestionItem(
+                    header=text["header"],
+                    question=question,
+                    options=[option for _, option in rows],
+                    multi=False,
+                    allowOther=True,
+                )
+            ],
+            cancel_event=stop,
+        )
+    finally:
+        watcher.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await watcher
+    answer = answers[0]
+    meta: dict[str, Any] = {
+        "requested": requested,
+        "selected": list(answer.selected),
+        "mode": ctx.session.mode,
+        "changed": False,
+        "asked": True,
+        "review": True,
+        "timed_out": answer.timed_out,
+        "declined": answer.declined,
+    }
+    plain = TEXT[language]
+    if ctx.session.mode != "plan":
+        # Switched elsewhere while the picker was up: that is the answer.
+        meta["mode"] = ctx.session.mode
+        meta["changed"] = True
+        return ToolResult(ok=True, output=_switched(plain, ctx.session.mode), meta=meta)
+    chosen = {_normal(item) for item in answer.selected}
+    picked = next((mode for mode, option in rows if _normal(option.label) in chosen), None)
+    typed = str(getattr(answer, "text", None) or "").strip()
+    if picked is None and typed:
+        # A typed answer that names an option ("auto", "2", "수정") is that option.
+        picked = next(
+            (mode for mode, option in rows if _normal(option.label) == _normal(typed)),
+            REVIEW_ALIASES.get(_normal(typed).rstrip(".")),
+        )
+        if picked is not None:
+            typed = ""
+    if picked in ("auto", "accept"):
+        mode = await ctx.core.sessions.set_mode(ctx.session, cast(Mode, picked))
+        await ctx.core.hub.emit_event(
+            ctx.session.id, events.mode_changed(mode, auto_after_plan=False)
+        )
+        meta["mode"] = mode
+        meta["changed"] = True
+        if typed:
+            # A row picked with words typed beside it: start, and do it their way.
+            meta["instruction"] = typed
+            output = str(text["switched_with"]).format(mode=mode, text=typed)
+            return ToolResult(ok=True, output=output, meta=meta)
+        return ToolResult(ok=True, output=_switched(plain, mode), meta=meta)
+    if typed:
+        meta["revision"] = typed
+        return ToolResult(ok=True, output=str(text["revise"]).format(text=typed), meta=meta)
+    if picked == "plan":
+        return ToolResult(ok=True, output=text["revise_plain"], meta=meta)
+    # A decline or a timeout: no permission to start anything.
+    return ToolResult(ok=True, output=plain["declined"], meta=meta)
 
 
 async def _watch_mode(session: Any, start: str, stop: asyncio.Event) -> None:
@@ -357,4 +607,13 @@ TOOLS: tuple[Tool, ...] = (
 )
 
 
-__all__ = ["BROWSER_TEXT", "MODES", "RECOMMENDED", "TEXT", "TOOLS", "set_mode"]
+__all__ = [
+    "BROWSER_TEXT",
+    "MODES",
+    "RECOMMENDED",
+    "REVIEW_MODES",
+    "REVIEW_TEXT",
+    "TEXT",
+    "TOOLS",
+    "set_mode",
+]

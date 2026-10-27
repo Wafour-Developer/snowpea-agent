@@ -31,6 +31,7 @@ import { Box, Text, useInput } from "ink";
 import { mouseReports } from "../input/mouse.js";
 
 import { currentAccent } from "../layout/palette.js";
+import { textWidth } from "../layout/text-width.js";
 import { useChoiceKeys } from "../hooks/useChoiceKeys.js";
 import type { QuestionEntry } from "../state/store.js";
 import { ChoiceList } from "./ChoiceList.js";
@@ -70,16 +71,42 @@ export interface QuestionPromptProps {
 /** A blank answer; the shape the daemon reads as "not answered". */
 const blank = (): QuestionAnswerItem => ({ selected: [], text: null });
 
+/**
+ * Lines of question text the prompt shows; the rest is cut with a note.
+ *
+ * The prompt is drawn in the live region, which Ink repaints every frame, so
+ * a question as long as a plan must not reach it whole (set_mode prints the
+ * plan into the transcript and keeps its question short; this is the guard).
+ */
+export const QUESTION_MAX_LINES = 8;
+
+/** The question as drawn: at most {@link QUESTION_MAX_LINES} lines. */
+export function clampQuestion(text: string): string {
+  const lines = text.split("\n");
+  if (lines.length <= QUESTION_MAX_LINES) return text;
+  const kept = lines.slice(0, QUESTION_MAX_LINES - 1);
+  return [...kept, `… (+${lines.length - kept.length} lines)`].join("\n");
+}
+
+/** Rows the clamped question takes at `width` columns, wrapping included. */
+function questionTextRows(text: string, width: number): number {
+  return clampQuestion(text)
+    .split("\n")
+    .reduce((rows, line) => rows + Math.max(1, Math.ceil(textWidth(line) / Math.max(1, width))), 0);
+}
+
 /** Rows the prompt occupies, so the full-screen layout can reserve them. */
-export function questionPromptRows(request: QuestionEntry): number {
+export function questionPromptRows(request: QuestionEntry, width = 80): number {
   const questions = request.questions ?? [];
   const first = questions[0];
   const options = first?.options ?? [];
   const described = options.filter((option) => option.description).length;
   const other = first?.allowOther === false ? 0 : 1;
   const tabs = questions.length > 1 ? 1 : 0;
+  // Border and padding take four columns from the question's width.
+  const question = questionTextRows(first?.question ?? "", width - 4);
   // border(2) + tabs-or-header + question + options + other + blank + confirm + hint
-  return 4 + tabs + options.length + described + other + 2 + 1;
+  return 3 + question + tabs + options.length + described + other + 2 + 1;
 }
 
 export function QuestionPrompt({
@@ -256,7 +283,7 @@ export function QuestionPrompt({
           {current?.header || "질문 / Question"}
         </Text>
       )}
-      <Text wrap="wrap">{current?.question ?? ""}</Text>
+      <Text wrap="wrap">{clampQuestion(current?.question ?? "")}</Text>
       <Box marginTop={1} flexDirection="column">
         <ChoiceList
           options={options.map((option) => ({

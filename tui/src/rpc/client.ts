@@ -294,8 +294,13 @@ export class TuiClient {
     return this.call("file.complete", params as Record<string, unknown>);
   }
 
-  setMode(sessionId: string, mode: Mode): Promise<{ mode: Mode }> {
-    return this.call("session.setMode", { sessionId, mode });
+  /** `autoAfterPlan` (1.32.0): with `"plan"`, plan with every approval answered yes. */
+  setMode(
+    sessionId: string,
+    mode: Mode,
+    extra: { autoAfterPlan?: boolean } = {},
+  ): Promise<{ mode: Mode; autoAfterPlan?: boolean }> {
+    return this.call("session.setMode", { ...extra, sessionId, mode });
   }
 
   listApprovals(sessionId?: string): Promise<{ requests: ApprovalRequestParams[] }> {

@@ -33831,7 +33831,7 @@ import { basename as basename2, isAbsolute, join as join2, resolve } from "node:
 var import_react45 = __toESM(require_react(), 1);
 
 // ../sdk/dist/protocol.js
-var PROTOCOL_VERSION = "1.31.0";
+var PROTOCOL_VERSION = "1.32.0";
 var WS_PATH = "/ws";
 
 // ../sdk/dist/client.js
@@ -35247,6 +35247,10 @@ var STATUS_COLOR = {
   reconnecting: "yellow",
   closed: "red"
 };
+function modeLabel(input) {
+  if (input.mode === "plan" && input.autoAfterPlan) return "PLAN\u2192AUTO";
+  return input.mode.toUpperCase();
+}
 function modeColor2(mode) {
   if (mode === "plan") return "cyan";
   if (mode === "accept") return currentAccent();
@@ -35313,7 +35317,7 @@ function buildHudSegments(input) {
   }
   segments.push({
     key: "mode",
-    text: `Mode: ${input.mode.toUpperCase()}${input.modeHint ? " (\u21E7Tab)" : ""}`,
+    text: `Mode: ${modeLabel(input)}${input.modeHint ? " (\u21E7Tab)" : ""}`,
     color: modeColor2(input.mode),
     priority: 2
   });
@@ -35674,6 +35678,7 @@ var initialState = {
   sessionId: null,
   status: "connecting",
   mode: "accept",
+  autoAfterPlan: false,
   provider: null,
   model: null,
   modelSource: null,
@@ -35759,6 +35764,26 @@ function withLimitNote(state, payload) {
     messages: [...state.messages, message],
     timeline: pushTimeline(state, { kind: "message", id: message.id })
   };
+}
+function planForReview(state, payload) {
+  const text2 = typeof payload.text === "string" ? payload.text : "";
+  if (!text2.trim()) return state;
+  const message = { id: nextId("msg"), role: "assistant", text: text2, streaming: false };
+  const timeline = [...state.timeline];
+  let at = timeline.findIndex((item) => {
+    if (item.kind === "tool") {
+      const call = state.toolCalls.find((entry) => entry.callId === item.id);
+      return call?.state === "running";
+    }
+    if (item.kind === "message") {
+      const open = state.messages.find((entry) => entry.id === item.id);
+      return Boolean(open?.streaming || open?.awaitingFold);
+    }
+    return false;
+  });
+  if (at === -1) at = timeline.length;
+  timeline.splice(at, 0, { kind: "message", id: message.id });
+  return { ...state, messages: [...state.messages, message], timeline };
 }
 function finishMessage(state, payload) {
   let text2 = typeof payload.text === "string" ? payload.text : void 0;
@@ -35895,6 +35920,7 @@ function applySessionEvent(state, event, options = {}) {
     case "message.reasoning":
       return { ...base, reasoningChars: Number(payload.chars ?? base.reasoningChars) };
     case "message.done":
+      if (payload.kind === "plan") return planForReview(base, payload);
       return flushDeferred(finishMessage(base, payload));
     case "tool.call": {
       base = { ...base, messages: settleFolds(base.messages) };
@@ -36009,12 +36035,16 @@ function applySessionEvent(state, event, options = {}) {
       const efforts = Array.isArray(payload.efforts) ? payload.efforts : base.efforts;
       return { ...base, model, provider, modelSource: source, effort, effortSource, efforts };
     }
-    case "mode.changed":
+    case "mode.changed": {
+      const mode = payload.mode ?? base.mode;
+      const flag = typeof payload.autoAfterPlan === "boolean" ? payload.autoAfterPlan : void 0;
       return {
         ...base,
-        mode: payload.mode ?? base.mode,
+        mode,
+        autoAfterPlan: nextAutoAfterPlan(base, mode, flag),
         delegation: typeof payload.delegation === "boolean" ? payload.delegation : base.delegation
       };
+    }
     case "usage":
       return {
         ...base,
@@ -36207,6 +36237,11 @@ function replayEvents(state, events) {
   }
   return next;
 }
+function nextAutoAfterPlan(state, mode, flag) {
+  if (mode !== "plan") return false;
+  if (flag !== void 0) return flag;
+  return state.mode === "plan" ? state.autoAfterPlan : false;
+}
 function reducer(state, action) {
   switch (action.type) {
     case "session/reset":
@@ -36216,6 +36251,8 @@ function reducer(state, action) {
         ...state,
         sessionId: action.sessionId,
         mode: action.mode,
+        // Another session's flag is not this one's; a resume says if it is set.
+        autoAfterPlan: false,
         provider: action.provider ?? state.provider,
         model: action.model ?? state.model,
         delegation: action.delegation ?? state.delegation
@@ -36225,7 +36262,11 @@ function reducer(state, action) {
     case "status":
       return { ...state, status: action.status };
     case "mode":
-      return { ...state, mode: action.mode };
+      return {
+        ...state,
+        mode: action.mode,
+        autoAfterPlan: nextAutoAfterPlan(state, action.mode, action.autoAfterPlan)
+      };
     case "commands":
       return { ...state, commands: action.commands };
     case "tools":
@@ -40256,6 +40297,13 @@ var APPROVAL_OPTIONS = [
     danger: true
   }
 ];
+var PLAN_ALLOW_EVERYTHING = "Allow Everything (plan, then Auto)";
+function approvalOptions(mode) {
+  if (mode !== "plan") return APPROVAL_OPTIONS;
+  return APPROVAL_OPTIONS.map(
+    (option) => option.value.switchToAuto ? { ...option, label: PLAN_ALLOW_EVERYTHING } : option
+  );
+}
 function formatArgs(args, max = 72) {
   return Object.entries(args ?? {}).map(([key, value]) => {
     const text2 = typeof value === "string" ? value : JSON.stringify(value);
@@ -40266,9 +40314,11 @@ function formatArgs(args, max = 72) {
 function ApprovalPrompt({
   request,
   onDecide,
-  isActive = true
+  isActive = true,
+  mode
 }) {
-  const suggested = APPROVAL_OPTIONS.findIndex(
+  const options = approvalOptions(mode);
+  const suggested = options.findIndex(
     (option) => option.value.decision === "allow" && option.value.scope === request.scopeHint
   );
   const [reason, setReason] = (0, import_react32.useState)(null);
@@ -40315,7 +40365,7 @@ function ApprovalPrompt({
     /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Box_default, { marginTop: 1, flexDirection: "column", children: reason === null ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
       ConfirmMenu,
       {
-        options: APPROVAL_OPTIONS,
+        options,
         initialIndex: suggested === -1 ? 0 : suggested,
         escapeValue: { decision: "deny", scope: "once" },
         isActive,
@@ -40350,14 +40400,25 @@ function maskSecret(value) {
 var CONFIRM_LABEL = "\uD655\uC778 / Confirm";
 var NOT_ANSWERED = "(not answered)";
 var blank2 = () => ({ selected: [], text: null });
-function questionPromptRows(request) {
+var QUESTION_MAX_LINES = 8;
+function clampQuestion(text2) {
+  const lines = text2.split("\n");
+  if (lines.length <= QUESTION_MAX_LINES) return text2;
+  const kept = lines.slice(0, QUESTION_MAX_LINES - 1);
+  return [...kept, `\u2026 (+${lines.length - kept.length} lines)`].join("\n");
+}
+function questionTextRows(text2, width) {
+  return clampQuestion(text2).split("\n").reduce((rows, line) => rows + Math.max(1, Math.ceil(textWidth(line) / Math.max(1, width))), 0);
+}
+function questionPromptRows(request, width = 80) {
   const questions = request.questions ?? [];
   const first = questions[0];
   const options = first?.options ?? [];
   const described = options.filter((option) => option.description).length;
   const other = first?.allowOther === false ? 0 : 1;
   const tabs = questions.length > 1 ? 1 : 0;
-  return 4 + tabs + options.length + described + other + 2 + 1;
+  const question = questionTextRows(first?.question ?? "", width - 4);
+  return 3 + question + tabs + options.length + described + other + 2 + 1;
 }
 function QuestionPrompt({
   request,
@@ -40496,7 +40557,7 @@ function QuestionPrompt({
         `${request.requestId}-t${index}`
       );
     }) }) : /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { bold: true, color: "cyan", children: current2?.header || "\uC9C8\uBB38 / Question" }),
-    /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { wrap: "wrap", children: current2?.question ?? "" }),
+    /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Text, { wrap: "wrap", children: clampQuestion(current2?.question ?? "") }),
     /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Box_default, { marginTop: 1, flexDirection: "column", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
       ChoiceList,
       {
@@ -42170,7 +42231,11 @@ function App2({
           else dispatch({ type: "session/replay", events });
         }
         if (into === "main" && typeof result?.mode === "string") {
-          dispatch({ type: "mode", mode: result.mode });
+          dispatch({
+            type: "mode",
+            mode: result.mode,
+            autoAfterPlan: result.autoAfterPlan === true
+          });
         }
       }).catch(
         (error) => dispatch({ type: "error", message: `resume failed: ${String(error)}` })
@@ -42225,6 +42290,7 @@ function App2({
       effort: state.effort,
       delegation: state.delegation,
       mode: state.mode,
+      autoAfterPlan: state.autoAfterPlan,
       usage: state.usage,
       context: state.context,
       toolCount: state.toolCount,
@@ -42258,6 +42324,7 @@ function App2({
       state.modelSource,
       sessionModelSource,
       state.mode,
+      state.autoAfterPlan,
       state.usage,
       state.context,
       state.toolCount,
@@ -42365,7 +42432,7 @@ function App2({
       paletteCommands: draft.startsWith("/") ? completions.length : 0,
       approvalArgs: state.pendingApproval ? Object.keys(state.pendingApproval.args ?? {}).length : null,
       queueRequests: state.approvalQueue.length,
-      questionRows: state.pendingQuestion ? questionPromptRows(state.pendingQuestion) : 0,
+      questionRows: state.pendingQuestion ? questionPromptRows(state.pendingQuestion, contentWidth) : 0,
       queueFocused,
       errorVisible: state.errors.length > 0,
       workingVisible: workingText !== null,
@@ -43122,9 +43189,18 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
     },
     [client, state.turnActive]
   );
+  const planThenAuto = (0, import_react45.useCallback)(() => {
+    setModeHintVisible(false);
+    dispatch({ type: "mode", mode: "plan", autoAfterPlan: true });
+    showToast("mode: PLAN\u2192AUTO");
+    void client.setMode(sessionId, "plan", { autoAfterPlan: true }).catch((error) => dispatch({ type: "error", message: String(error) }));
+  }, [client, sessionId, showToast]);
   const decideApproval = (0, import_react45.useCallback)(
     (answer, reason) => {
-      if (answer.switchToAuto) changeMode("auto");
+      if (answer.switchToAuto) {
+        if (state.mode === "plan") planThenAuto();
+        else changeMode("auto");
+      }
       const resolve2 = approvalResolver.current;
       const requestId = state.pendingApproval?.requestId;
       approvalResolver.current = null;
@@ -43132,7 +43208,7 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
       const { decision, scope } = answer;
       resolve2?.(reason ? { decision, scope, reason } : { decision, scope });
     },
-    [changeMode, state.pendingApproval]
+    [changeMode, planThenAuto, state.mode, state.pendingApproval]
   );
   const answerQuestion = (0, import_react45.useCallback)(
     (answers) => {
@@ -43400,7 +43476,14 @@ ${lines2.join("\n")}` : `${engine}: no voices listed`
         onBlur: () => setQueueFocused(false)
       }
     ),
-    state.pendingQuestion ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(QuestionPrompt, { request: state.pendingQuestion, onAnswer: answerQuestion }) : state.pendingApproval ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(ApprovalPrompt, { request: state.pendingApproval, onDecide: decideApproval }) : modePicker ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+    state.pendingQuestion ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(QuestionPrompt, { request: state.pendingQuestion, onAnswer: answerQuestion }) : state.pendingApproval ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
+      ApprovalPrompt,
+      {
+        request: state.pendingApproval,
+        onDecide: decideApproval,
+        mode: state.mode
+      }
+    ) : modePicker ? /* @__PURE__ */ (0, import_jsx_runtime34.jsx)(
       ConfirmMenu,
       {
         options: ["accept", "auto", "plan"].map((value) => ({ label: `${value} mode`, value })),
@@ -44141,8 +44224,9 @@ var TuiClient = class {
   fileComplete(params) {
     return this.call("file.complete", params);
   }
-  setMode(sessionId, mode) {
-    return this.call("session.setMode", { sessionId, mode });
+  /** `autoAfterPlan` (1.32.0): with `"plan"`, plan with every approval answered yes. */
+  setMode(sessionId, mode, extra = {}) {
+    return this.call("session.setMode", { ...extra, sessionId, mode });
   }
   listApprovals(sessionId) {
     return this.call("approval.list", sessionId ? { sessionId } : {});

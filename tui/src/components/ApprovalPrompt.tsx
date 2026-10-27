@@ -15,7 +15,7 @@ import { Box, Text, useInput } from "ink";
 
 import { mouseReports } from "../input/mouse.js";
 
-import type { ApprovalDecision, ApprovalScope } from "../rpc/sdk.js";
+import type { ApprovalDecision, ApprovalScope, Mode } from "../rpc/sdk.js";
 import { type ApprovalEntry } from "../state/store.js";
 import { ConfirmMenu, type ConfirmOption } from "./ConfirmMenu.js";
 
@@ -30,7 +30,11 @@ export interface ApprovalAnswer {
   scope: ApprovalScope;
   /** True for the row that asks for a reason before it answers. */
   withReason?: boolean;
-  /** True for the row that switches the session to auto mode. */
+  /**
+   * True for "Allow Everything": auto mode, or — in plan mode — planning with
+   * every approval answered yes and auto once the plan is done. app.tsx picks
+   * which by the session's mode.
+   */
   switchToAuto?: boolean;
 }
 
@@ -61,6 +65,17 @@ export const APPROVAL_OPTIONS: ConfirmOption<ApprovalAnswer>[] = [
   },
 ];
 
+/** The row label "Allow Everything" carries in plan mode (1.32.0). */
+export const PLAN_ALLOW_EVERYTHING = "Allow Everything (plan, then Auto)";
+
+/** The rows for a session in `mode`: plan mode names what "e" does there. */
+export function approvalOptions(mode?: Mode): ConfirmOption<ApprovalAnswer>[] {
+  if (mode !== "plan") return APPROVAL_OPTIONS;
+  return APPROVAL_OPTIONS.map((option) =>
+    option.value.switchToAuto ? { ...option, label: PLAN_ALLOW_EVERYTHING } : option,
+  );
+}
+
 export function formatArgs(args: Record<string, unknown> | undefined, max = 72): string[] {
   return Object.entries(args ?? {}).map(([key, value]) => {
     const text = typeof value === "string" ? value : JSON.stringify(value);
@@ -73,14 +88,18 @@ export function ApprovalPrompt({
   request,
   onDecide,
   isActive = true,
+  mode,
 }: {
   request: ApprovalEntry;
   onDecide: (answer: ApprovalAnswer, reason?: string) => void;
   isActive?: boolean;
+  /** The session's mode, which decides what "Allow Everything" means. */
+  mode?: Mode;
 }): React.ReactElement {
+  const options = approvalOptions(mode);
   // A daemon that suggests a scope moves the cursor to it; otherwise the
   // cursor sits on plain Yes, which is what Enter should mean by default.
-  const suggested = APPROVAL_OPTIONS.findIndex(
+  const suggested = options.findIndex(
     (option) => option.value.decision === "allow" && option.value.scope === request.scopeHint,
   );
   const [reason, setReason] = useState<string | null>(null);
@@ -134,7 +153,7 @@ export function ApprovalPrompt({
       <Box marginTop={1} flexDirection="column">
         {reason === null ? (
           <ConfirmMenu<ApprovalAnswer>
-            options={APPROVAL_OPTIONS}
+            options={options}
             initialIndex={suggested === -1 ? 0 : suggested}
             escapeValue={{ decision: "deny", scope: "once" }}
             isActive={isActive}

@@ -52,6 +52,10 @@ Headless runs (`snowpea -c`) have nobody to ask, so the question declines itself
 
 `/plan`, `/accept`, `/auto` and `/mode` still work, and are what you use to switch modes on your own initiative.
 
+### Plan, then auto
+
+Pressing **Allow Everything** (`e`) on an approval while the session plans does not end the plan. The row reads "Allow Everything (plan, then Auto)": the session stays in plan mode, and the planner's inspection commands and test runs stop asking (a credential read too). A command that changes files or state — `sed -i`, a redirect into source, `git commit`, an install, a `curl -X POST`, `rm` — still asks, as does any command snowpea does not recognise as an inspection, and so do `execute_code` and process control; what plan mode refuses (editing source, sending, changing configuration, writing outside the project) is still refused. Delegated children follow the conversation's setting while they run (a plan-mode child of a conversation that is not planning never gets it). The HUD shows `Mode: PLAN→AUTO`. When the plan is drafted the agent has it reviewed by a read-only critic, fixes and saves it, and calls `set_mode`: the plan is printed in the transcript, and the picker below it offers "start implementing in auto mode" first, accept second and "keep revising the plan" third. Type what to change instead and the session keeps planning and the agent revises the plan with your words; pick a row and type as well, and the agent starts with your words as an instruction. `/mode plan auto` does the same as the button; any switch out of plan mode (Shift+Tab, `/mode`, the picker) clears it (protocol 1.32.0, `session.setMode {autoAfterPlan}`).
+
 ## Switching
 
 ```

@@ -32,10 +32,11 @@ MODE_ARGS_SCHEMA = {
     "properties": {
         "mode": {
             "type": "string",
-            "enum": [*MODES, "save", "show"],
+            "enum": [*MODES, "plan auto", "save", "show"],
             "description": (
-                "Mode to switch to, 'save' to make the current mode this project's "
-                "default, or 'show' to print it."
+                "Mode to switch to, 'plan auto' to plan with every approval answered "
+                "yes and auto once the plan is done, 'save' to make the current mode "
+                "this project's default, or 'show' to print it."
             ),
         }
     },
@@ -89,9 +90,10 @@ def _allowlist(ctx: CommandContext) -> Allowlist | None:
     return getattr(ctx.core, "allowlist", None)
 
 
-async def _set_mode(ctx: CommandContext, mode: str) -> None:
-    await ctx.core.sessions.set_mode(ctx.session, mode)  # type: ignore[arg-type]
-    await ctx.emit(events.mode_changed(mode))
+async def _set_mode(ctx: CommandContext, mode: str, auto_after_plan: bool | None = None) -> None:
+    await ctx.core.sessions.set_mode(ctx.session, mode, auto_after_plan)  # type: ignore[arg-type]
+    flag = bool(getattr(ctx.session, "auto_after_plan", False))
+    await ctx.emit(events.mode_changed(mode, auto_after_plan=flag))
 
 
 def _busy(ctx: CommandContext) -> str:
@@ -108,7 +110,10 @@ async def cmd_mode(ctx: CommandContext, args: str) -> None:
     """Show, change or persist the session mode."""
     target = args.strip().lower()
     if not target or target == "show":
-        await ctx.say(f"Mode: {ctx.session.mode} (one of {', '.join(MODES)}, or 'save' / 'show')")
+        await ctx.say(
+            f"Mode: {ctx.session.mode} (one of {', '.join(MODES)}, 'plan auto', "
+            "or 'save' / 'show')"
+        )
         return
     if target == "save":
         project = ProjectSettings.load(ctx.session.workdir)
@@ -116,8 +121,17 @@ async def cmd_mode(ctx: CommandContext, args: str) -> None:
         path = project.save(ctx.session.workdir)
         await ctx.say(f"Default mode for this project is now '{ctx.session.mode}' ({path}).")
         return
+    if target.split() == ["plan", "auto"]:
+        # ``/mode plan auto``: plan with every approval answered yes, then
+        # auto once the plan is done (1.32.0) — the TUI's "Allow Everything"
+        # pressed during a plan, as a command.
+        await _set_mode(ctx, "plan", True)
+        await ctx.say("Mode: plan (approvals answered yes; auto once the plan is done)")
+        return
     if target not in MODES:
-        await ctx.say(f"Unknown mode '{target}'. Use one of: {', '.join(MODES)}, save, show.")
+        await ctx.say(
+            f"Unknown mode '{target}'. Use one of: {', '.join(MODES)}, plan auto, save, show."
+        )
         return
     await _set_mode(ctx, target)
     await ctx.say(f"Mode: {target}")

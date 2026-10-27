@@ -437,6 +437,22 @@ def plan_prompt_line(session: Session) -> str:
     return plan_store.prompt_line(session.workdir)
 
 
+#: The turn note of a plan-then-auto session (1.32.0).  Here, on the turn's
+#: message, and not in ``modes/plan``: the flag is set mid-plan (an approval
+#: answered "Allow Everything"), and a system prompt that changed with it
+#: would make the server prefill the whole conversation again.
+PLAN_AUTO_NOTE = (
+    "Plan mode, with approvals answered yes: inspection commands and test runs execute "
+    "without asking; a command that changes files or state still asks, and plan mode's "
+    "refusals still apply. Never change code through the shell while planning. When the "
+    'plan is drafted, review it before asking: delegate_task with agent "critic" and '
+    "readOnly: true to check it against the code (or review it yourself against the code "
+    "if you cannot delegate), fix what the review finds, save it with plan_save, then call "
+    'set_mode("auto"). The user sees the plan and confirms starting in auto mode, or '
+    "tells you what to change."
+)
+
+
 def turn_context(
     session: Session,
     memory_block: str = "",
@@ -462,6 +478,8 @@ def turn_context(
     parts = [memory_block, host_block]
     if not getattr(session, "is_subagent", False):
         parts.append(plan_prompt_line(session))
+        if session.mode == "plan" and getattr(session, "auto_after_plan", False):
+            parts.append(PLAN_AUTO_NOTE)
     fill = context_fill(session)
     if fill is not None and fill >= compose.CONTEXT_PRESSURE_THRESHOLD:
         parts.append(compose.load("fragments/context-pressure", session.workdir))

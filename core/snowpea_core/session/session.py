@@ -247,6 +247,15 @@ class Session:
     #: the current plan only when nothing was saved (CORE-plan-continuity).
     plan_files: list[str] = field(default_factory=list)
     plan_saved: bool = False
+    #: "Allow Everything" pressed while planning (1.32.0): the session stays
+    #: in PLAN mode with every ``ask`` answered ``allow`` (``deny`` untouched),
+    #: and ``set_mode`` offers auto first once the plan is done.  Meaningful
+    #: only while ``mode == "plan"``; :meth:`SessionManager.set_mode` clears it
+    #: on every way out of plan.  Stored with the session row.
+    auto_after_plan: bool = False
+    #: The flag went on mid-turn: the next tool result carries the turn note
+    #: the turn's own message went out without (runtime only).
+    plan_auto_note_pending: bool = False
     #: Short label: the first prompt's opening words, or ``session.rename``.
     title: str | None = None
     #: UTC ISO times for the task list (1.7.0): last prompt/turn end, and the
@@ -325,6 +334,7 @@ class Session:
             sessionId=self.id,
             workdir=str(self.workdir),
             mode=self.mode,
+            autoAfterPlan=self.mode == "plan" and self.auto_after_plan,
             provider=self.provider,
             model=self.model,
             originSurface=self.origin_surface,

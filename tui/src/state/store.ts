@@ -197,6 +197,12 @@ export interface State {
   sessionId: string | null;
   status: ConnectionStatus;
   mode: Mode;
+  /**
+   * PLAN mode with every approval answered yes, then auto once the plan is
+   * done ("Allow Everything" pressed while planning, 1.32.0). Only ever true
+   * while `mode` is plan.
+   */
+  autoAfterPlan: boolean;
   provider: string | null;
   model: string | null;
   /** Where the model came from — pin, profile, project, global — when told. */
@@ -318,6 +324,7 @@ export const initialState: State = {
   sessionId: null,
   status: "connecting",
   mode: "accept",
+  autoAfterPlan: false,
   provider: null,
   model: null,
   modelSource: null,
@@ -369,7 +376,7 @@ export type Action =
     }
   | { type: "delegation"; on: boolean }
   | { type: "status"; status: ConnectionStatus }
-  | { type: "mode"; mode: Mode }
+  | { type: "mode"; mode: Mode; autoAfterPlan?: boolean }
   | { type: "commands"; commands: CommandInfo[] }
   | { type: "tools"; count: number }
   | { type: "lsp/status"; servers: LspServer[] }
@@ -489,6 +496,41 @@ function withLimitNote(state: State, payload: Record<string, unknown>): State {
     messages: [...state.messages, message],
     timeline: pushTimeline(state, { kind: "message", id: message.id }),
   };
+}
+
+/**
+ * The plan `set_mode` puts up for review (1.32.0), placed before the call that
+ * is still running.
+ *
+ * Appended after it, the plan would wait behind that open card in the live
+ * region — entries leave for the scrollback only in timeline order — and a
+ * plan as tall as the terminal there makes Ink clear the screen every frame.
+ * Before it, the plan is settled at once and printed into the scrollback while
+ * the card and the question stay live below it. A running card has never been
+ * released, so nothing already on screen moves.
+ */
+function planForReview(state: State, payload: Record<string, unknown>): State {
+  const text = typeof payload.text === "string" ? payload.text : "";
+  if (!text.trim()) return state;
+  const message: Message = { id: nextId("msg"), role: "assistant", text, streaming: false };
+  // Right before the first entry still open (a running card — parallel calls
+  // included — or a streaming message): nothing from there on has been
+  // released, so the plan cannot land behind anything still being drawn.
+  const timeline = [...state.timeline];
+  let at = timeline.findIndex((item) => {
+    if (item.kind === "tool") {
+      const call = state.toolCalls.find((entry) => entry.callId === item.id);
+      return call?.state === "running";
+    }
+    if (item.kind === "message") {
+      const open = state.messages.find((entry) => entry.id === item.id);
+      return Boolean(open?.streaming || open?.awaitingFold);
+    }
+    return false;
+  });
+  if (at === -1) at = timeline.length;
+  timeline.splice(at, 0, { kind: "message", id: message.id });
+  return { ...state, messages: [...state.messages, message], timeline };
 }
 
 function finishMessage(state: State, payload: Record<string, unknown>): State {
@@ -698,6 +740,7 @@ function applySessionEvent(
       return { ...base, reasoningChars: Number(payload.chars ?? base.reasoningChars) };
 
     case "message.done":
+      if (payload.kind === "plan") return planForReview(base, payload);
       return flushDeferred(finishMessage(base, payload));
 
     case "tool.call": {
@@ -851,11 +894,16 @@ function applySessionEvent(
     case "mode.changed":
       // `delegation` rides along only when /delegation moved it; a plain
       // mode change sends null, which leaves it as it was.
-      return {
-        ...base,
-        mode: (payload.mode ?? base.mode) as Mode,
-        delegation: typeof payload.delegation === "boolean" ? payload.delegation : base.delegation,
-      };
+      {
+        const mode = (payload.mode ?? base.mode) as Mode;
+        const flag = typeof payload.autoAfterPlan === "boolean" ? payload.autoAfterPlan : undefined;
+        return {
+          ...base,
+          mode,
+          autoAfterPlan: nextAutoAfterPlan(base, mode, flag),
+          delegation: typeof payload.delegation === "boolean" ? payload.delegation : base.delegation,
+        };
+      }
 
     case "usage":
       // The daemon's count replaces the estimate the stream built up.
@@ -1098,6 +1146,17 @@ function replayEvents(state: State, events: SessionEvent[]): State {
   return next;
 }
 
+/**
+ * The plan-then-auto flag after a mode change, by the daemon's own rule: any
+ * mode but plan clears it, an explicit value wins, and without one it is kept
+ * while staying in plan and cleared when plan is entered afresh.
+ */
+function nextAutoAfterPlan(state: State, mode: Mode, flag: boolean | undefined): boolean {
+  if (mode !== "plan") return false;
+  if (flag !== undefined) return flag;
+  return state.mode === "plan" ? state.autoAfterPlan : false;
+}
+
 export function reducer(state: State, action: Action): State {
   switch (action.type) {
     case "session/reset":
@@ -1108,6 +1167,8 @@ export function reducer(state: State, action: Action): State {
         ...state,
         sessionId: action.sessionId,
         mode: action.mode,
+        // Another session's flag is not this one's; a resume says if it is set.
+        autoAfterPlan: false,
         provider: action.provider ?? state.provider,
         model: action.model ?? state.model,
         delegation: action.delegation ?? state.delegation,
@@ -1120,7 +1181,11 @@ export function reducer(state: State, action: Action): State {
       return { ...state, status: action.status };
 
     case "mode":
-      return { ...state, mode: action.mode };
+      return {
+        ...state,
+        mode: action.mode,
+        autoAfterPlan: nextAutoAfterPlan(state, action.mode, action.autoAfterPlan),
+      };
 
     case "commands":
       return { ...state, commands: action.commands };

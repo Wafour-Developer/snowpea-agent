@@ -722,6 +722,7 @@ class Daemon:
         core.settings_stamp = hot_reload.stamp(paths.settings_json)
         core.allowlist.bind(paths, settings)
         core.policy.bind(core.allowlist)
+        core.policy.sessions = core.sessions
         core.approvals.allowlist = core.allowlist
         wire_core(core)
         core.lifecycle = Lifecycle(
