@@ -375,6 +375,9 @@ async def set_mode(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         return await _review_plan(ctx, queue, requested, language, reason)
     rows = _options(requested, language, table)
     question = f"{reason}\n{text['question']}".strip() if reason else text["question"]
+    if current == "plan" and requested != "plan" and table is TEXT:
+        # Leaving plan is approving the plan, so it is shown before the ask.
+        question += await _show_plan(ctx, language)
 
     # The user may answer by switching mode somewhere else (the IDE's mode
     # selector, /mode in the TUI) instead of in the picker. That ends the
@@ -462,6 +465,24 @@ async def set_mode(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     return ToolResult(ok=True, output=_switched(text, mode), meta=meta)
 
 
+async def _show_plan(ctx: ToolContext, language: str) -> str:
+    """Put the plan in the transcript; the line the question adds, or ``""``.
+
+    The plan goes into the transcript as a message of its own, not into the
+    picker: a question is drawn in the live region, and a plan as tall as the
+    terminal there makes Ink clear the screen every frame.
+    """
+    text = REVIEW_TEXT[language]
+    markdown, path = await _plan_for_review(ctx)
+    if not markdown:
+        return ""
+    await ctx.core.hub.emit_event(
+        ctx.session.id,
+        events.message_done(_clip_plan(markdown, path, text), kind="plan"),
+    )
+    return "\n" + str(text["plan_file"]).format(path=path)
+
+
 async def _review_plan(
     ctx: ToolContext, queue: Any, requested: str, language: str, reason: str
 ) -> ToolResult:
@@ -473,17 +494,8 @@ async def _review_plan(
     words go back to the model as the revision to make.
     """
     text = REVIEW_TEXT[language]
-    markdown, path = await _plan_for_review(ctx)
     question = "\n\n".join(part for part in (reason, text["question"]) if part)
-    if markdown:
-        # The plan goes into the transcript as a message of its own, not into
-        # the picker: a question is drawn in the live region, and a plan as
-        # tall as the terminal there makes Ink clear the screen every frame.
-        await ctx.core.hub.emit_event(
-            ctx.session.id,
-            events.message_done(_clip_plan(markdown, path, text), kind="plan"),
-        )
-        question = f"{question}\n{str(text['plan_file']).format(path=path)}"
+    question += await _show_plan(ctx, language)
     rows = [
         (mode, QuestionOption(label=text["labels"][mode], description=text["descriptions"][mode]))
         for mode in REVIEW_MODES

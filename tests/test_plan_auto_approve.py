@@ -805,3 +805,34 @@ def test_known_read_flags_still_run(command: str, tmp_path: Path) -> None:
     from snowpea_core.permissions.safe_commands import is_mutating
 
     assert is_mutating(command, workdir=tmp_path) is False
+
+
+async def test_the_plain_picker_shows_the_plan_too(tmp_path: Path) -> None:
+    # Without Allow Everything the picker is the plain one, but leaving plan
+    # is still approving the plan: it goes to the transcript before the ask.
+    core = _Core()
+    origin = _Origin({"selected": [], "text": None})
+    session = _flagged_tool_session(tmp_path, origin)
+    session.auto_after_plan = False
+
+    await set_mode(_ctx(core, session), {"mode": "accept"})
+
+    [shown] = _plan_events(core)
+    assert "1. mesher" in shown["text"]
+    [asked] = origin.asked
+    assert "PLAN.md" in asked["question"]
+    assert KO["auto"] not in [option["label"] for option in asked["options"]]
+
+
+async def test_the_plain_picker_without_a_plan_shows_nothing(tmp_path: Path) -> None:
+    core = _Core()
+    origin = _Origin({"selected": [], "text": None})
+    session = _flagged_tool_session(tmp_path, origin)
+    session.auto_after_plan = False
+    session.plan_files.clear()
+
+    await set_mode(_ctx(core, session), {"mode": "accept"})
+
+    assert _plan_events(core) == []
+    [asked] = origin.asked
+    assert "PLAN.md" not in asked["question"]

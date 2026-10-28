@@ -44,7 +44,7 @@ Change what counts as writable with `modes.plan.writableGlobs`, a list of globs 
 
 ## Leaving plan mode
 
-A finished plan does not ask you to change modes yourself. The agent calls `set_mode("accept")`, which puts a picker in front of you: switch to accept and start implementing, switch to auto and start implementing, or stay in plan mode and keep the plan as the whole answer. The recommended row comes first and is marked `(recommended)`.
+A finished plan does not ask you to change modes yourself. The agent calls `set_mode("accept")`, which puts a picker in front of you: switch to accept and start implementing, switch to auto and start implementing, or stay in plan mode and keep the plan as the whole answer. The recommended row comes first and is marked `(recommended)`. The saved plan (or the plan document the pass wrote) is printed in the transcript first, so you see what you are approving; the picker names its file.
 
 Whatever you pick takes effect immediately, in the turn that asked. Choose accept and the agent keeps going and starts editing files right there; no second prompt, no repeated plan. Stay in plan mode, press Esc, or let the question time out and nothing changes.
 
