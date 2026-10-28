@@ -1504,6 +1504,149 @@ async def test_slack_sends_to_the_channel_without_a_slash_command() -> None:
     assert [r.url.path for r in seen] == ["/api/chat.postMessage"]
 
 
+class _HangingSocket(_Socket):
+    """A socket that stays open with nothing to say until it is cancelled."""
+
+    def __aiter__(self) -> Any:
+        async def frames() -> Any:
+            await asyncio.Event().wait()
+            yield  # pragma: no cover - never reached
+
+        return frames()
+
+
+class _SocketSession:
+    """Hands out one scripted socket per ``ws_connect``; an exception is raised."""
+
+    def __init__(self, sockets: list[Any]) -> None:
+        self._sockets = sockets
+        self.connects = 0
+
+    def ws_connect(self, url: str) -> Any:
+        self.connects += 1
+        script = self._sockets.pop(0) if self._sockets else _HangingSocket([])
+        class _Connect:
+            async def __aenter__(self) -> Any:
+                if isinstance(script, BaseException):
+                    raise script
+                return script
+
+            async def __aexit__(self, *exc: Any) -> None:
+                return None
+
+        return _Connect()
+
+    async def close(self) -> None:
+        return None
+
+
+def _socket_mode_client(opens: list[str]) -> httpx.AsyncClient:
+    """``apps.connections.open`` answering a fresh URL every time."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        opens.append(request.headers["authorization"])
+        return httpx.Response(200, json={"ok": True, "url": f"wss://slack.test/{len(opens)}"})
+
+    return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+
+def _slack_event(text: str) -> dict[str, Any]:
+    return {
+        "type": "events_api",
+        "envelope_id": f"env-{text}",
+        "payload": {"event": {"type": "message", "channel": "C1", "user": "U1", "text": text}},
+    }
+
+
+async def _until(predicate: Any) -> None:
+    for _ in range(200):
+        if predicate():
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError("condition never became true")
+
+
+async def test_slack_reconnects_when_slack_sends_a_disconnect_envelope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from snowpea_core.gateway import slack as slack_module
+
+    monkeypatch.setattr(slack_module, "RECONNECT_DELAY_SEC", 0.0)
+    opens: list[str] = []
+    first = _Socket(
+        [
+            {"type": "hello"},
+            {"type": "disconnect", "reason": "refresh_requested"},
+            _slack_event("after the disconnect, on the old socket"),
+        ]
+    )
+    second = _Socket([_slack_event("on the new socket")])
+    session = _SocketSession([first, second])
+    adapter = SlackAdapter(
+        "xoxb-1", app_token="xapp-1", client=_socket_mode_client(opens), session=session
+    )
+    got: list[str] = []
+
+    async def on_message(message: Any) -> None:
+        got.append(message.text)
+
+    await adapter.start(on_message)
+    await _until(lambda: got)
+    await adapter.stop()
+
+    assert got == ["on the new socket"]
+    assert session.connects >= 2
+    assert opens[:2] == ["Bearer xapp-1", "Bearer xapp-1"]
+    assert second.sent == [{"envelope_id": "env-on the new socket"}]
+
+
+async def test_slack_reconnects_after_the_socket_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    from snowpea_core.gateway import slack as slack_module
+
+    monkeypatch.setattr(slack_module, "RECONNECT_DELAY_SEC", 0.0)
+    opens: list[str] = []
+    session = _SocketSession(
+        [aiohttp.ClientConnectionError("network down"), _Socket([_slack_event("back")])]
+    )
+    adapter = SlackAdapter(
+        "xoxb-1", app_token="xapp-1", client=_socket_mode_client(opens), session=session
+    )
+    got: list[str] = []
+
+    async def on_message(message: Any) -> None:
+        got.append(message.text)
+
+    await adapter.start(on_message)
+    await _until(lambda: got)
+    await adapter.stop()
+
+    assert got == ["back"]
+    assert session.connects >= 2
+
+
+async def test_slack_does_not_reconnect_after_stop(monkeypatch: pytest.MonkeyPatch) -> None:
+    from snowpea_core.gateway import slack as slack_module
+
+    monkeypatch.setattr(slack_module, "RECONNECT_DELAY_SEC", 0.0)
+    opens: list[str] = []
+    session = _SocketSession([_HangingSocket([])])
+    adapter = SlackAdapter(
+        "xoxb-1", app_token="xapp-1", client=_socket_mode_client(opens), session=session
+    )
+
+    async def on_message(message: Any) -> None:
+        return None
+
+    await adapter.start(on_message)
+    await _until(lambda: session.connects == 1)
+    await adapter.stop()
+    await asyncio.sleep(0.05)
+
+    assert session.connects == 1
+    assert len(opens) == 1
+    assert adapter._task is None
+
+
 def test_slack_manifest_declares_every_chat_command() -> None:
     manifest = slack_manifest()
     commands = manifest["features"]["slash_commands"]

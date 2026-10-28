@@ -43,6 +43,11 @@ API_BASE = "https://slack.com/api"
 #: allows thirty minutes, but an answer that late belongs in the channel.
 RESPONSE_URL_TTL_SEC = 60.0
 
+#: First pause before reopening a dropped Socket Mode connection; it doubles
+#: on each failure in a row up to :data:`RECONNECT_MAX_SEC`.
+RECONNECT_DELAY_SEC = 1.0
+RECONNECT_MAX_SEC = 60.0
+
 #: Slack's cap on one slash-command description in a manifest.
 COMMAND_DESCRIPTION_CHARS = 2000
 #: Slack's cap on ``display_information.description``.
@@ -324,22 +329,43 @@ class SlackAdapter:
         return url
 
     async def _run(self, on_message: OnMessage) -> None:
+        """Keep one Socket Mode connection open until :meth:`stop`.
+
+        Slack closes the socket on its own every few hours (a ``disconnect``
+        envelope first, usually) and networks drop it; either way a fresh URL
+        is fetched and the socket reopened, with a growing pause while it keeps
+        failing.  A connection that delivered anything resets the pause.
+        """
         if self._session is None:
             self._session = aiohttp.ClientSession()
-        try:
-            url = await self.open_socket_url()
-            async with self._session.ws_connect(url) as ws:
-                await self._consume(ws, on_message)
-        except asyncio.CancelledError:
-            raise
-        except Exception:  # noqa: BLE001 - a dead socket must not kill the daemon
-            log.warning("slack socket loop ended", exc_info=True)
+        delay = RECONNECT_DELAY_SEC
+        while not self._stopping:
+            try:
+                url = await self.open_socket_url()
+                async with self._session.ws_connect(url) as ws:
+                    if await self._consume(ws, on_message):
+                        delay = RECONNECT_DELAY_SEC
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001 - a dead socket must not kill the daemon
+                log.warning("slack socket dropped; reconnecting", exc_info=True)
+            if self._stopping:
+                break
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, RECONNECT_MAX_SEC)
 
-    async def _consume(self, ws: Any, on_message: OnMessage) -> None:
+    async def _consume(self, ws: Any, on_message: OnMessage) -> bool:
+        """Read envelopes until the socket ends; True when any arrived."""
+        received = False
         async for message in ws:
             if message.type is not aiohttp.WSMsgType.TEXT:
                 continue
             envelope = message.json()
+            received = True
+            if envelope.get("type") == "disconnect":
+                # Slack is about to close this socket: reopen on a new URL.
+                log.info("slack asked to reconnect (%s)", envelope.get("reason", "unknown"))
+                return received
             envelope_id = envelope.get("envelope_id")
             if envelope_id:
                 with contextlib.suppress(Exception):
@@ -357,6 +383,7 @@ class SlackAdapter:
                 await on_message(inbound)
             except Exception:  # noqa: BLE001
                 log.warning("slack message handler failed", exc_info=True)
+        return received
 
 
 __all__ = [
@@ -365,6 +392,8 @@ __all__ = [
     "BOT_EVENTS",
     "BOT_SCOPES",
     "COMMAND_DESCRIPTION_CHARS",
+    "RECONNECT_DELAY_SEC",
+    "RECONNECT_MAX_SEC",
     "RESPONSE_URL_TTL_SEC",
     "SlackAdapter",
     "action_blocks",

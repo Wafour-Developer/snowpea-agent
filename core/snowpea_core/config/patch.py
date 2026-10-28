@@ -17,6 +17,8 @@ SECRET_KEYS: frozenset[str] = frozenset(
         "api_key",
         "apiKey",
         "token",
+        "app_token",
+        "appToken",
         "refresh_token",
         "refreshToken",
         "access_token",

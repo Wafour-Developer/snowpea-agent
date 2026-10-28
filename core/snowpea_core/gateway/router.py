@@ -663,6 +663,25 @@ class GatewayRouter:
         self._count()
         return binding is not None
 
+    async def _restart_adapter(self, binding: Binding) -> bool:
+        """Swap ``binding``'s adapter for one built from its current credential.
+
+        False when the new one cannot start; the old adapter is stopped either
+        way, because it holds the credential that was just replaced.
+        """
+        old = self._adapters.pop(binding.id, None)
+        if old is not None:
+            with contextlib.suppress(Exception):
+                await old.stop()
+        try:
+            adapter = self._build_adapter(binding.platform, binding.credentials_ref)
+            await adapter.start(self._handler_for(binding))
+        except (GatewayError, CredentialError) as exc:
+            log.warning("could not restart the %s messenger: %s", binding.platform, exc)
+            return False
+        self._adapters[binding.id] = adapter
+        return True
+
     async def restore(self) -> int:
         """Re-create every persisted binding at daemon start (AC-17)."""
         if self._store is None:
@@ -707,6 +726,13 @@ class GatewayRouter:
         approve nothing at all (plan risk 4), which is why the wizard asks for
         it right after the token.
 
+        Slack's app-level token (``app_token``) travels the same way, and the
+        entry becomes ``{"token": ..., "app_token": ...}``.  A block with only
+        a token keeps an ``app_token`` already stored in an object entry, so a
+        credential added to ``credentials.json`` by hand is never clobbered.
+        A kept binding whose stored credential changed gets a fresh adapter, so
+        a replaced token takes effect without losing the chats' sessions.
+
         Returns ``{"added": [...], "removed": [...], "kept": [...]}`` by
         platform, which is what ``gateway.sync`` reports back.
         """
@@ -714,14 +740,20 @@ class GatewayRouter:
         added: Names = []
         removed: Names = []
         kept: Names = []
+        changed: set[str] = set()
 
-        for platform, block in desired.items():
-            token = str(block.get("token") or "")
-            if token and self._credentials is not None:
+        if self._credentials is not None:
+            stored = self._credentials.load()
+            for platform, block in desired.items():
+                value = _credential_value(block, stored.get(platform))
+                if value == stored.get(platform):
+                    continue
                 try:
-                    self._credentials.set(platform, token)
+                    self._credentials.set(platform, value)
                 except OSError as exc:  # pragma: no cover - unwritable home
                     log.warning("could not store the %s token: %s", platform, exc)
+                    continue
+                changed.add(platform)
 
         for binding in list(self._bindings.values()):
             if binding.source != SOURCE_SETTINGS:
@@ -734,6 +766,10 @@ class GatewayRouter:
                 and binding.user_id == _allowed_user_id(wanted)
                 and binding.target == self._auto_target(wanted)
             ):
+                if binding.platform in changed and not await self._restart_adapter(binding):
+                    await self.unbind(binding.id)
+                    removed.append(binding.platform)
+                    continue
                 kept.append(binding.platform)
                 desired.pop(binding.platform)
                 continue
@@ -1345,6 +1381,25 @@ def _origin(binding: Binding, message: InboundMessage) -> str:
     if binding.user_id and str(message.user_id) == str(binding.user_id):
         return "human"
     return "member"
+
+
+def _credential_value(block: dict[str, Any], current: Any) -> Any:
+    """What ``credentials.json`` should hold for one ``settings.gateway`` block.
+
+    A bare token stays a string, as Telegram and Discord need nothing else.
+    An ``app_token`` in the block, or one already in an object entry, makes it
+    ``{"token": ..., "app_token": ...}``; other keys of that entry are kept.
+    """
+    token = str(block.get("token") or "")
+    app_token = str(block.get("app_token") or "")
+    if isinstance(current, dict):
+        merged = {**current, "token": token}
+        if app_token:
+            merged["app_token"] = app_token
+        return merged
+    if app_token:
+        return {"token": token, "app_token": app_token}
+    return token
 
 
 def _allowed_user_id(block: dict[str, Any]) -> str | None:

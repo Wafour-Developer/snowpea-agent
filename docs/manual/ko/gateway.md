@@ -43,7 +43,21 @@ snowpea gateway slack-manifest
 
 [api.slack.com/apps](https://api.slack.com/apps)에서 새 앱이면 **Create from manifest**, 이미 있는 앱이면 **App Manifest**를 골라 이 JSON을 붙여 넣습니다. 봇 유저, 스코프(`chat:write`, `commands`, history 계열), 메시지 이벤트, Socket Mode, 그리고 `/sessions`, `/resume`, `/new`, `/projects`, `/status`, `/stop`, `/help`, `/mode`, `/model`, `/effort`가 진짜 슬래시 명령으로 선언됩니다. 이게 보기보다 중요합니다. Slack은 `/`로 시작하는 메시지를 앱에 넘기기 전에 **전부** 가로채기 때문에, 선언되지 않은 `/sessions`는 Slack이 "알 수 없는 명령"이라고 답해 버리고 snowpea에는 아예 도착하지 않습니다. 선언된 명령은 Socket Mode 슬래시 명령으로 들어오고, 답은 명령을 친 채널에 그대로 올라갑니다.
 
-그다음 앱을 설치해 봇 토큰(`xoxb-…`)을 받고, Socket Mode용으로 `connections:write` 권한의 app-level 토큰(`xapp-…`)도 발급받습니다. 바인딩에는 둘 다 필요합니다. 봇 토큰만 있으면 예약 메시지 전달은 되지만 수신은 되지 않습니다. 대상으로는 채널 이름이나 id를 씁니다.
+그다음 앱을 설치해 봇 토큰(`xoxb-…`, **OAuth & Permissions**에 있음)을 받습니다. 수신에는 토큰이 하나 더 필요합니다. **Basic Information → App-Level Tokens**에서 `connections:write` 스코프로 앱 수준 토큰(`xapp-…`)을 발급받으세요. Socket Mode 연결에 쓰입니다. 봇 토큰만 있으면 예약 메시지 전달은 되지만 수신은 되지 않고, 데몬 로그에 send-only라고 남습니다.
+
+두 토큰은 세 가지 방법 중 하나로 넘깁니다:
+
+```bash
+snowpea setup --gateway slack --token xoxb-… --app-token xapp-… --user-id U0123ABCD
+```
+
+대화형 마법사는 Slack을 고르면 봇 토큰 다음에 앱 수준 토큰을 묻고, 데스크톱 앱에는 설정 → 메신저의 봇 토큰 옆에 **앱 수준 토큰** 칸이 있습니다. 어느 쪽이든 두 토큰은 `credentials.json`에 객체 하나로 들어갑니다:
+
+```json
+{"slack": {"token": "xoxb-…", "app_token": "xapp-…"}}
+```
+
+이 객체를 아무 키로 직접 써 두고, 그 키를 자격 증명 참조로 삼아 직접 바인딩해도 됩니다. 나중에 마법사나 데스크톱에서 봇 토큰만 바꿔 저장해도 이미 저장된 `app_token`은 그대로 남고, 토큰이 바뀌면 대화방의 세션은 그대로 둔 채 Slack 연결만 다시 시작됩니다. Slack이 소켓을 끊어도(몇 시간마다 새로 고칩니다) 게이트웨이가 알아서 다시 연결합니다. 대상으로는 채널 이름이나 id를 씁니다.
 
 ## 대화하기
 

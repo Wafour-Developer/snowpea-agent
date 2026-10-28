@@ -18,7 +18,8 @@ from snowpea_core.setup.state import SKIP, WizardState
 TITLE = "⑤ Messengers (chat gateways)"
 HELP = (
     "Each one needs a bot token and your user id on that platform; "
-    "pass them with `--gateway <id> --token <token> --user-id <id>`."
+    "pass them with `--gateway <id> --token <token> --user-id <id>`. "
+    "Slack also needs its app-level token to receive: `--app-token <xapp-…>`."
 )
 
 

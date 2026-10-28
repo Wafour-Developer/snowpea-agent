@@ -378,7 +378,7 @@ def tts_catalog(
 _GATEWAYS: tuple[tuple[str, str, str], ...] = (
     ("telegram", "Telegram", "bot token from @BotFather"),
     ("discord", "Discord", "bot token from the developer portal"),
-    ("slack", "Slack", "bot token from the Slack app config"),
+    ("slack", "Slack", "bot token (xoxb-) plus app-level token (xapp-) for Socket Mode"),
 )
 
 

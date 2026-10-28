@@ -107,6 +107,7 @@ def run(
     tools: str | None = None,
     gateway: str | None = None,
     token: str | None = None,
+    app_token: str | None = None,
     user_id: str | None = None,
     interactive: bool | None = None,
     console: Console | None = None,
@@ -143,6 +144,7 @@ def run(
         tools=tools,
         gateway=gateway,
         token=token,
+        app_token=app_token,
         user_id=user_id,
     )
 
@@ -1554,6 +1556,12 @@ USER_ID_HINT: dict[str, str] = {
 }
 
 
+#: Where Slack's Socket Mode token lives; the bot token alone only sends.
+SLACK_APP_TOKEN_HINT = (
+    "Basic Information → App-Level Tokens, scope connections:write, starts with xapp-"
+)
+
+
 def _ask_for_gateway(state: WizardState, *, interactive: bool) -> None:
     """Ask each enabled messenger for its bot token and its approver user id.
 
@@ -1568,17 +1576,24 @@ def _ask_for_gateway(state: WizardState, *, interactive: bool) -> None:
         if not state.gateway_needs_answers(gid):
             continue
         block = state.gateways.get(gid) or {}
+        app_token = block.get("app_token")
         try:
             token = block.get("token") or ui.ask_text(f"{gid} bot token: ", secret=True)
+            if gid == "slack" and not app_token:
+                app_token = ui.ask_text(
+                    f"slack app-level token ({SLACK_APP_TOKEN_HINT}): ", secret=True
+                )
             hint = USER_ID_HINT.get(gid, "your account id on that platform")
             entered_id = block.get("allowed_user_id") or ui.ask_text(
                 f"your {gid} user id ({hint}): "
             )
         except (KeyboardInterrupt, EOFError):
             continue
-        state.enable_gateway(gid, token or None, entered_id or None)
+        state.enable_gateway(gid, token or None, entered_id or None, app_token or None)
         if not token:
             state.notes.append(f"{gid}: no bot token — it will not start")
+        if gid == "slack" and not app_token:
+            state.notes.append("slack: no app-level token — it can send but not receive")
         if not entered_id:
             state.notes.append(f"{gid}: no user id — chat approvals stay blocked until you set one")
 
@@ -1664,10 +1679,16 @@ def _apply_flags(state: WizardState, **flags: Any) -> set[str]:
 
         if gateway not in {item.id for item in gateway_catalog()}:
             raise SetupError(f"unknown gateway: {gateway}")
-        state.enable_gateway(gateway, flags.get("token"), flags.get("user_id"))
+        if flags.get("app_token") and gateway != "slack":
+            raise SetupError("--app-token is only for --gateway slack")
+        state.enable_gateway(
+            gateway, flags.get("token"), flags.get("user_id"), flags.get("app_token")
+        )
         answered.add("gateway")
     elif flags.get("token"):
         raise SetupError("--token needs --gateway")
+    elif flags.get("app_token"):
+        raise SetupError("--app-token needs --gateway slack")
     elif flags.get("user_id"):
         raise SetupError("--user-id needs --gateway")
 

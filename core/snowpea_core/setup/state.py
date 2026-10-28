@@ -327,26 +327,32 @@ class WizardState:
         gateway_id: str,
         token: str | None = None,
         user_id: str | None = None,
+        app_token: str | None = None,
     ) -> None:
         """Turn a messenger on, keeping any token/user id already configured.
 
         ``user_id`` is the platform account allowed to answer approvals from
         chat.  Without it the binding is fail-closed and can approve nothing,
-        so the wizard asks for it right after the token.
+        so the wizard asks for it right after the token.  ``app_token`` is
+        Slack's app-level token (``xapp-``), without which Slack only sends.
         """
         block = dict(self.gateways.get(gateway_id) or {})
         block["enabled"] = True
         if token:
             block["token"] = token
+        if app_token:
+            block["app_token"] = app_token
         if user_id:
             block["allowed_user_id"] = str(user_id)
         self.gateways[gateway_id] = block
 
     def gateway_needs_answers(self, gateway_id: str) -> bool:
-        """True while an enabled messenger is still missing its token or user id."""
+        """True while an enabled messenger is still missing a token or its user id."""
         block = self.gateways.get(gateway_id) or {}
         if not block.get("enabled"):
             return False
+        if gateway_id == "slack" and not block.get("app_token"):
+            return True
         return not block.get("token") or not block.get("allowed_user_id")
 
     def enabled_gateways(self) -> list[str]:

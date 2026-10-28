@@ -50,7 +50,21 @@ snowpea gateway slack-manifest
 
 At [api.slack.com/apps](https://api.slack.com/apps) choose **Create from manifest** for a new app, or **App Manifest** on an existing one, and paste the JSON. It declares the bot user, the scopes (`chat:write`, `commands`, the history scopes), the message events, Socket Mode, and `/sessions`, `/resume`, `/new`, `/projects`, `/status`, `/stop`, `/help`, `/mode`, `/model` and `/effort` as real slash commands. This matters more than it looks: Slack intercepts *any* message beginning with `/` before your app sees it, so an undeclared `/sessions` is answered by Slack with "unknown command" and never reaches snowpea. A declared one arrives as a Socket Mode slash command, and the answer is posted back into the channel where it was typed.
 
-Then install the app, keep the bot token (`xoxb-…`) and generate an app-level token (`xapp-…`) with `connections:write` for Socket Mode. Bind with both; with only the bot token the binding still delivers scheduled messages but cannot listen. Use the channel name or id as the target.
+Then install the app and keep the bot token (`xoxb-…`, under **OAuth & Permissions**). Slack needs a second one to receive: under **Basic Information → App-Level Tokens**, generate an app-level token (`xapp-…`) with the `connections:write` scope for Socket Mode. With only the bot token the messenger still delivers scheduled messages but cannot listen, and the daemon log says it is send-only.
+
+Give snowpea both tokens in any of three ways:
+
+```bash
+snowpea setup --gateway slack --token xoxb-… --app-token xapp-… --user-id U0123ABCD
+```
+
+The interactive wizard asks for the app-level token right after the bot token when Slack is picked, and the desktop app has an **App-level token** field next to the bot token under Settings → Messengers. Either way the pair lands in `credentials.json` as one object:
+
+```json
+{"slack": {"token": "xoxb-…", "app_token": "xapp-…"}}
+```
+
+You can also write that object yourself, under any key, and bind by hand with the key as the credentials reference. A later wizard or desktop save that only changes the bot token keeps the `app_token` already stored there, and a changed token restarts the Slack connection without losing the chats' sessions. If Slack drops the socket (it refreshes it every few hours) the gateway reconnects on its own. Use the channel name or id as the target.
 
 ## Talking to it
 

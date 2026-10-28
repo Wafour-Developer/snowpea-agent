@@ -404,3 +404,188 @@ def test_the_wizard_asks_for_the_token_and_the_user_id(monkeypatch: Any, tmp_pat
     assert "user id" in asked[1] and "@userinfobot" in asked[1]
     assert result.settings.gateway["telegram"]["token"] == "123:ABC"
     assert result.settings.gateway["telegram"]["allowed_user_id"] == "12345"
+
+
+# ---------------------------------------------------------------------------
+# (f) Slack's second token: app_token for Socket Mode
+# ---------------------------------------------------------------------------
+
+
+def _router_with_credentials(home: Path, monkeypatch: Any) -> Any:
+    """A bare router writing ``credentials.json`` under ``home``, real adapters."""
+    from snowpea_core.config.credentials import CredentialStore
+    from snowpea_core.gateway.router import GatewayRouter
+    from snowpea_core.gateway.slack import SlackAdapter
+
+    monkeypatch.delenv("SNOWPEA_GATEWAY_FAKE", raising=False)
+
+    async def no_socket(self: SlackAdapter, on_message: Any) -> None:
+        return None
+
+    monkeypatch.setattr(SlackAdapter, "start", no_socket)
+    router = GatewayRouter()
+    router._credentials = CredentialStore(Paths.create(home))
+    return router
+
+
+def _slack_settings(**block: Any) -> Settings:
+    settings = Settings()
+    settings.gateway = {"slack": {"enabled": True, "allowed_user_id": "U1", **block}}
+    return settings
+
+
+async def test_sync_stores_both_slack_tokens_and_they_reach_the_adapter(
+    monkeypatch: Any, tmp_path: Path
+) -> None:
+    home = tmp_path / "home"
+    router = _router_with_credentials(home, monkeypatch)
+
+    changed = await router.sync_from_settings(_slack_settings(token="xoxb-1", app_token="xapp-1"))
+
+    assert changed["added"] == ["slack"]
+    stored = json.loads((home / "credentials.json").read_text(encoding="utf-8"))
+    assert stored["slack"] == {"token": "xoxb-1", "app_token": "xapp-1"}
+    adapter = router.adapter(router.list()[0].id)
+    assert adapter._token == "xoxb-1"
+    assert adapter._app_token == "xapp-1"
+    await router.stop()
+
+
+async def test_sync_with_only_a_token_keeps_a_hand_written_app_token(
+    monkeypatch: Any, tmp_path: Path
+) -> None:
+    home = tmp_path / "home"
+    router = _router_with_credentials(home, monkeypatch)
+    router._credentials.set("slack", {"token": "xoxb-old", "app_token": "xapp-1"})
+
+    await router.sync_from_settings(_slack_settings(token="xoxb-2"))
+
+    stored = json.loads((home / "credentials.json").read_text(encoding="utf-8"))
+    assert stored["slack"] == {"token": "xoxb-2", "app_token": "xapp-1"}
+    assert router.adapter(router.list()[0].id)._app_token == "xapp-1"
+    await router.stop()
+
+
+async def test_a_telegram_token_stays_a_plain_string(monkeypatch: Any, tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    router = _router_with_credentials(home, monkeypatch)
+    settings = Settings()
+    settings.gateway = dict(TELEGRAM_ON)
+
+    await router.sync_from_settings(settings)
+
+    stored = json.loads((home / "credentials.json").read_text(encoding="utf-8"))
+    assert stored["telegram"] == "123:ABC"
+    await router.stop()
+
+
+async def test_a_changed_app_token_restarts_the_adapter_in_place(
+    monkeypatch: Any, tmp_path: Path
+) -> None:
+    router = _router_with_credentials(tmp_path / "home", monkeypatch)
+    await router.sync_from_settings(_slack_settings(token="xoxb-1"))
+    binding_id = router.list()[0].id
+    send_only = router.adapter(binding_id)
+    assert send_only._app_token is None
+
+    changed = await router.sync_from_settings(_slack_settings(token="xoxb-1", app_token="xapp-1"))
+
+    assert changed == {"added": [], "removed": [], "kept": ["slack"]}
+    # Same binding, so every chat keeps its session; a new adapter, so the
+    # app token is actually used.
+    assert [b.id for b in router.list()] == [binding_id]
+    listening = router.adapter(binding_id)
+    assert listening is not send_only
+    assert listening._app_token == "xapp-1"
+
+    # Nothing changed: nothing restarts.
+    await router.sync_from_settings(_slack_settings(token="xoxb-1", app_token="xapp-1"))
+    assert router.adapter(binding_id) is listening
+    await router.stop()
+
+
+def test_the_app_token_is_masked_and_its_mask_never_written_back() -> None:
+    from snowpea_core.config.patch import MASK, mask_secrets, reject_masked_secrets
+
+    masked = mask_secrets({"gateway": {"slack": {"token": "xoxb-1", "app_token": "xapp-1"}}})
+    assert masked["gateway"]["slack"] == {"token": MASK, "app_token": MASK}
+    with pytest.raises(ValueError, match="gateway.slack.app_token"):
+        reject_masked_secrets({"gateway": {"slack": {"app_token": MASK}}})
+
+
+def test_setup_app_token_flag_writes_the_slack_block(tmp_path: Path) -> None:
+    from snowpea_core.setup import wizard
+
+    result = wizard.run(
+        "blank",
+        home=tmp_path / "home",
+        gateway="slack",
+        token="xoxb-1",
+        app_token="xapp-1",
+        user_id="U1",
+        interactive=False,
+    )
+
+    assert result.settings.gateway["slack"] == {
+        "enabled": True,
+        "token": "xoxb-1",
+        "app_token": "xapp-1",
+        "allowed_user_id": "U1",
+    }
+
+
+def test_the_app_token_flag_is_parsed_and_only_fits_slack(tmp_path: Path) -> None:
+    from snowpea_core.cli.main import build_parser
+    from snowpea_core.setup import wizard
+
+    args = build_parser().parse_args(
+        ["setup", "--gateway", "slack", "--token", "xoxb-1", "--app-token", "xapp-1"]
+    )
+    assert args.app_token == "xapp-1"
+    with pytest.raises(wizard.SetupError, match="--app-token is only for --gateway slack"):
+        wizard.run(
+            "blank",
+            home=tmp_path / "home",
+            gateway="telegram",
+            app_token="xapp-1",
+            interactive=False,
+        )
+    with pytest.raises(wizard.SetupError, match="--app-token needs --gateway slack"):
+        wizard.run("blank", home=tmp_path / "home", app_token="xapp-1", interactive=False)
+
+
+def test_the_wizard_asks_slack_for_its_app_level_token(monkeypatch: Any, tmp_path: Path) -> None:
+    from snowpea_core.setup import ui, wizard
+    from snowpea_core.setup.screens import gateway as gateway_screen
+
+    asked: list[tuple[str, bool]] = []
+
+    def fake_ask_text(prompt: str, *, interactive: Any = None, secret: bool = False) -> str:
+        asked.append((prompt, secret))
+        if "registry" in prompt:
+            return ""
+        if "app-level" in prompt:
+            return "xapp-1"
+        return "xoxb-1" if secret else "U1"
+
+    monkeypatch.setattr(ui, "ask_text", fake_ask_text)
+
+    def ask(screen: Any, *, console: Any = None, interactive: bool = True) -> Any:
+        return {"slack"} if screen.title == gateway_screen.TITLE else set()
+
+    result = wizard.run(
+        "full",
+        home=tmp_path / "home",
+        vendor="anthropic",
+        key="k",
+        interactive=True,
+        ask=ask,
+    )
+
+    asked = [item for item in asked if "registry" not in item[0]]
+    assert len(asked) == 3
+    prompt, secret = asked[1]
+    assert "app-level" in prompt and "xapp-" in prompt and "connections:write" in prompt
+    assert secret
+    assert result.settings.gateway["slack"]["app_token"] == "xapp-1"
+    assert result.settings.gateway["slack"]["token"] == "xoxb-1"

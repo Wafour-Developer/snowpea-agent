@@ -1160,6 +1160,7 @@ def setup_command(args: argparse.Namespace, home: Path | str | None = None) -> i
             tools=getattr(args, "tools", None),
             gateway=getattr(args, "gateway", None),
             token=getattr(args, "token", None),
+            app_token=getattr(args, "app_token", None),
             user_id=getattr(args, "user_id", None),
             section=getattr(args, "section", None),
         )
@@ -2663,6 +2664,12 @@ def add_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersActio
     )
     setup_parser.add_argument("--gateway", default=None, help="gateway to enable")
     setup_parser.add_argument("--token", default=None, help="bot token for --gateway")
+    setup_parser.add_argument(
+        "--app-token",
+        dest="app_token",
+        default=None,
+        help="Slack app-level token (xapp-) for Socket Mode; without it Slack only sends",
+    )
     setup_parser.add_argument(
         "--user-id",
         dest="user_id",
