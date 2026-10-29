@@ -381,6 +381,26 @@ async def apply(core: Core, row: Declared) -> McpServerInfo:
     return info
 
 
+async def reconcile(core: Core, name: str, workdir: Path, before: Declared | None) -> None:
+    """Make the runtime run whatever declaration of ``name`` wins now (1.33.0).
+
+    A file write can touch a copy that is not in effect — the global entry a
+    project one shadows.  Then the winner is unchanged and so is the running
+    server.  When the winner goes, the copy it shadowed starts; when the last
+    declaration goes, the server stops.
+    """
+    after = declared(core, workdir).get(name)
+    if after is None:
+        if before is not None:
+            await MANAGER.remove(name)
+            mcp_client.drop_tools(core, name)
+            await notify_changed(core, name, scope=before.scope, state="stopped", removed=True)
+        return
+    if before is not None and after.scope == before.scope and after.config == before.config:
+        return
+    await apply(core, after)
+
+
 async def probe(config: McpServerConfig) -> tuple[bool, list[McpToolInfo], str | None, int]:
     """Start a throwaway copy of ``config``, list its tools, and always stop it.
 
@@ -486,12 +506,12 @@ async def mcp_add_handler(
                 {"error": error},
             )
 
+    before = declared(core, workdir).get(name)
     mcp_config.save_entry(path, name, entry)
     if params.permission is not None:
         await set_permission(core, name, params.permission)
-    row = Declared(config=config, scope=params.scope, entry=entry)
-    _SCOPES[name] = params.scope
-    info = await apply(core, row)
+    await reconcile(core, name, workdir, before)
+    info = info_of(core, Declared(config=config, scope=params.scope, entry=entry))
     return McpAddResult(
         ok=True,
         path=str(path),
@@ -537,13 +557,10 @@ async def mcp_remove_handler(
     workdir = workdir_of(core, params.sessionId, params.workdir)
     scope = scope_for(core, params.name, params.scope, workdir)
     path = _writable(core, params.name, scope, workdir)
+    before = declared(core, workdir).get(params.name)
     if not mcp_config.delete_entry(path, params.name):
         raise RpcError(errors.MCP_NOT_FOUND, f"'{params.name}' is not declared in {path}")
-    await MANAGER.remove(params.name)
-    mcp_client.drop_tools(core, params.name)
-    await notify_changed(
-        core, params.name, scope=scope, state="stopped", removed=True
-    )
+    await reconcile(core, params.name, workdir, before)
     return Ok(ok=True)
 
 
@@ -579,13 +596,11 @@ async def mcp_update_handler(
             "; ".join(warnings) + " — pass force to add it anyway",
             {"findings": warnings},
         )
+    before = declared(core, workdir).get(params.name)
     mcp_config.save_entry(path, params.name, entry)
     if params.patch.permission is not None:
         await set_permission(core, params.name, params.patch.permission)
-    config = McpServerConfig.parse(params.name, entry)
-    assert config is not None
-    _SCOPES[params.name] = scope
-    await apply(core, Declared(config=config, scope=scope, entry=entry))
+    await reconcile(core, params.name, workdir, before)
     return Ok(ok=True)
 
 
@@ -597,10 +612,23 @@ async def mcp_test_handler(
     ``name`` alone probes what is saved.  With draft fields too (the Add/Edit
     sheet sends both) the draft is probed: merged onto the saved entry when
     there is one, so a write-only secret the sheet never echoes still counts,
-    and on its own for a name not saved yet.
+    and on its own for a name not saved yet.  With ``scope`` (1.33.0) the
+    saved entry is that scope's declaration, not whichever wins; a scope that
+    has none probes the draft on its own, with nothing merged in.
     """
     workdir = workdir_of(core, params.sessionId, params.workdir)
-    row = declared(core, workdir).get(params.name) if params.name else None
+    row: Declared | None = None
+    if params.name and params.scope is not None:
+        row = next(
+            (
+                found
+                for found in declarations(core, workdir)
+                if found.name == params.name and found.scope == params.scope
+            ),
+            None,
+        )
+    elif params.name:
+        row = declared(core, workdir).get(params.name)
     drafted = any(
         value is not None
         for value in (

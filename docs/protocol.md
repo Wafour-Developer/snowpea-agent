@@ -1297,7 +1297,7 @@ Probe a saved MCP server or an unsaved draft and report its tools.
 | `headersRemove` | `string[] \| null` | no | Probe without these saved HTTP headers, as mcp.update would (1.33.0). |
 | `name` | `string \| null` | no | Saved server to probe. |
 | `permission` | `"read" \| "write" \| "exec" \| "network" \| "send" \| "config" \| "delegate" \| "secret" \| "outside" \| null` | no | Permission tag for the server's tools; stored in settings. |
-| `scope` | `"project" \| "global" \| "plugin" \| "settings" \| null` | no | Scope of the saved server. |
+| `scope` | `"project" \| "global" \| "plugin" \| "settings" \| null` | no | Scope of the saved server. Given, that scope's declaration is the one probed or merged onto, not whichever wins; when it has none the draft is probed on its own (1.33.0). |
 | `sessionId` | `string \| null` | no | Session whose workdir to use. |
 | `timeoutSec` | `number \| null` | no | Startup cap, in seconds. |
 | `toolTimeoutSec` | `number \| null` | no | Per-call cap, in seconds. |
@@ -2574,6 +2574,7 @@ Read a skill's SKILL.md.
 | field | type | required | description |
 |---|---|---|---|
 | `name` | `string` | yes | Skill to read. |
+| `plugin` | `string \| null` | no | Read this plugin's copy, by its manifest or directory name, when several plugins ship the same skill (1.33.0). Implies scope 'plugin'; any other scope with it is invalid_params. |
 | `scope` | `"project" \| "global" \| "builtin" \| "plugin" \| null` | no | Look only in this scope (1.33.0); 'project' needs workdir. Omitted: the project (with a workdir), then global, then any other loaded skill. |
 | `workdir` | `string \| null` | no | Absolute project directory to resolve a project-scoped skill in; optional since 1.33.0, an empty string means none (never the daemon's directory) and a relative one is invalid_params. |
 

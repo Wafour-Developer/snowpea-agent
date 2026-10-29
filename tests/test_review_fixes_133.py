@@ -41,6 +41,7 @@ from snowpea_core.server import mcp_handlers
 from snowpea_core.server.app_server import Core, Daemon
 from snowpea_core.server.errors import RpcError
 from snowpea_core.server.protocol import (
+    McpAddParams,
     McpEntryFields,
     McpTestParams,
     McpUpdateParams,
@@ -545,3 +546,140 @@ async def test_the_task_is_trimmed_on_schedule_and_update(tmp_path: Path) -> Non
                     await client.stop()
         finally:
             await instance.stop()
+
+
+# ---------------------------------------------------------------------------
+# follow-up: the runtime follows the copy in effect; mcp.test honours scope
+# ---------------------------------------------------------------------------
+
+
+def running_env(name: str = "echo") -> dict[str, str] | None:
+    from snowpea_core.tools.mcp_client import MANAGER
+
+    server = MANAGER.get(name)
+    return dict(server.config.env) if server is not None else None
+
+
+async def test_writing_a_shadowed_copy_leaves_the_running_server_alone(
+    core: Core,  # noqa: F811
+    workdir: Path,  # noqa: F811
+) -> None:
+    from snowpea_core.server.protocol import McpRemoveParams
+
+    global_file = core.paths.home / ".mcp.json"
+    mcp_config.save_entry(global_file, "echo", {**echo_entry(), "env": {"WHICH": "global"}})
+    await mcp_handlers.mcp_add_handler(
+        None, echo_params("echo", workdir, test=False, env={"WHICH": "project"}), core
+    )
+    assert running_env() == {"WHICH": "project"}
+
+    # Editing, then removing, the unused global copy touches nothing that runs.
+    await mcp_handlers.mcp_update_handler(
+        None,
+        McpUpdateParams(
+            name="echo", scope="global", workdir=str(workdir), patch=McpEntryFields(env={"X": "1"})
+        ),
+        core,
+    )
+    assert running_env() == {"WHICH": "project"}
+    assert mcp_handlers._SCOPES["echo"] == "project"
+    await mcp_handlers.mcp_remove_handler(
+        None, McpRemoveParams(name="echo", scope="global", workdir=str(workdir)), core
+    )
+    assert running_env() == {"WHICH": "project"}
+    assert core.tools.get("mcp__echo__echo") is not None
+
+    # Adding a global copy under a project one is the same: file only.
+    await mcp_handlers.mcp_add_handler(
+        None,
+        McpAddParams(
+            name="echo",
+            scope="global",
+            workdir=str(workdir),
+            test=False,
+            env={"WHICH": "global"},
+            **echo_entry(),
+        ),
+        core,
+    )
+    assert running_env() == {"WHICH": "project"}
+
+    # Removing the winner starts the copy it shadowed ...
+    await mcp_handlers.mcp_remove_handler(
+        None, McpRemoveParams(name="echo", scope="project", workdir=str(workdir)), core
+    )
+    assert running_env() == {"WHICH": "global"}
+    assert mcp_handlers._SCOPES["echo"] == "global"
+    # ... and removing the last one stops it.
+    await mcp_handlers.mcp_remove_handler(
+        None, McpRemoveParams(name="echo", scope="global", workdir=str(workdir)), core
+    )
+    assert running_env() is None
+    assert core.tools.get("mcp__echo__echo") is None
+
+
+def echo_entry() -> dict[str, Any]:
+    from test_mcp_manage import FIXTURE_ECHO
+
+    return {"command": sys.executable, "args": [str(FIXTURE_ECHO)]}
+
+
+async def test_test_probes_the_declaration_of_the_scope_it_names(
+    core: Core,  # noqa: F811
+    workdir: Path,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mcp_config.save_entry(
+        core.paths.home / ".mcp.json", "echo", {**echo_entry(), "env": {"G": "1"}}
+    )
+    mcp_config.save_entry(workdir / ".mcp.json", "echo", {**echo_entry(), "env": {"P": "1"}})
+    probed: list[Any] = []
+
+    async def fake_probe(config: Any) -> tuple[bool, list[Any], None, int]:
+        probed.append(dict(config.env))
+        return True, [], None, 0
+
+    monkeypatch.setattr(mcp_handlers, "probe", fake_probe)
+
+    async def run(**params: Any) -> dict[str, str]:
+        await mcp_handlers.mcp_test_handler(
+            None, McpTestParams(workdir=str(workdir), **params), core
+        )
+        return probed[-1]
+
+    assert await run(name="echo") == {"P": "1"}  # no scope: the winner
+    assert await run(name="echo", scope="global") == {"G": "1"}
+    assert await run(name="echo", scope="global", env={"X": "2"}) == {"G": "1", "X": "2"}
+    # A scope without that name probes the draft alone: no one else's secrets.
+    mcp_config.delete_entry(core.paths.home / ".mcp.json", "echo")
+    alone = await run(name="echo", scope="global", env={"X": "2"}, **echo_entry())
+    assert alone == {"X": "2"}
+    with pytest.raises(RpcError) as caught:
+        await run(name="echo", scope="global")
+    assert caught.value.code == "mcp_not_found"
+
+
+async def test_read_picks_one_plugin_s_copy(
+    daemon: Daemon,  # noqa: F811
+    http: aiohttp.ClientSession,
+) -> None:
+    home = daemon.paths.home
+    first = write_skill(plugin(home, "alpha-dir", "alpha"), "shared")
+    second = write_skill(plugin(home, "beta-dir", "beta"), "shared")
+    client = await client_for(http, daemon)
+    try:
+        await client.ok("skill.reload", {})
+        by_name = await client.ok("skill.read", {"name": "shared", "plugin": "alpha"})
+        assert by_name["path"] == str(first) and by_name["scope"] == "plugin"
+        by_dir = await client.ok(
+            "skill.read", {"name": "shared", "scope": "plugin", "plugin": "beta-dir"}
+        )
+        assert by_dir["path"] == str(second) and by_dir["readOnly"] is True
+        missing = await client.call("skill.read", {"name": "shared", "plugin": "gamma"})
+        assert code_of(missing) == "not_found"
+        mixed = await client.call(
+            "skill.read", {"name": "shared", "scope": "global", "plugin": "alpha"}
+        )
+        assert code_of(mixed) == "invalid_params"
+    finally:
+        await client.stop()

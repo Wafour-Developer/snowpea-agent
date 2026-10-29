@@ -1397,7 +1397,7 @@ export interface McpTestParams {
   name?: string | null;
   /** Permission tag for the server's tools; stored in settings. */
   permission?: "read" | "write" | "exec" | "network" | "send" | "config" | "delegate" | "secret" | "outside" | null;
-  /** Scope of the saved server. */
+  /** Scope of the saved server. Given, that scope's declaration is the one probed or merged onto, not whichever wins; when it has none the draft is probed on its own (1.33.0). */
   scope?: "project" | "global" | "plugin" | "settings" | null;
   /** Session whose workdir to use. */
   sessionId?: string | null;
@@ -3611,6 +3611,8 @@ export interface SkillListResult {
 export interface SkillReadParams {
   /** Skill to read. */
   name: string;
+  /** Read this plugin's copy, by its manifest or directory name, when several plugins ship the same skill (1.33.0). Implies scope 'plugin'; any other scope with it is invalid_params. */
+  plugin?: string | null;
   /** Look only in this scope (1.33.0); 'project' needs workdir. Omitted: the project (with a workdir), then global, then any other loaded skill. */
   scope?: "project" | "global" | "builtin" | "plugin" | null;
   /** Absolute project directory to resolve a project-scoped skill in; optional since 1.33.0, an empty string means none (never the daemon's directory) and a relative one is invalid_params. */

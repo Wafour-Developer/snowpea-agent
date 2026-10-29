@@ -200,13 +200,15 @@ def _resolve_skill_path(
     home: Path,
     scope: SkillReadScope | None = None,
     loader: SkillLoader | None = None,
+    plugin: str | None = None,
 ) -> tuple[Path, SkillReadScope, bool] | None:
     """The ``SKILL.md`` ``skill.read`` answers with: ``(path, scope, readOnly)``.
 
     With ``scope`` only that scope is looked in (1.33.0).  Without it: the
     project's ``.snowpea`` then ``.claude`` (with a ``workdir``), then the
     global directory, then whatever skill the loader has under that name —
-    a built-in or a plugin's included.
+    a built-in or a plugin's included.  ``plugin`` picks which plugin's copy
+    when several ship the name (the caller has set ``scope`` to ``"plugin"``).
     """
     loaded: LoadedSkill | None = None
     if loader is not None:
@@ -250,14 +252,17 @@ def _resolve_skill_path(
         if scope == "builtin":
             return from_loader("builtin")
     if scope in (None, "plugin"):
-        found = from_loader("plugin")
-        if found is not None:
-            return found
-        for plugin in loader.plugins if loader is not None else []:
-            candidates = [plugin.root / "skills" / name / "SKILL.md"]
-            if name in (plugin.name, plugin.root.name):
+        if plugin is None or (loaded is not None and loaded.plugin == plugin):
+            found = from_loader("plugin")
+            if found is not None:
+                return found
+        for bundle in loader.plugins if loader is not None else []:
+            if plugin is not None and plugin not in (bundle.name, bundle.root.name):
+                continue
+            candidates = [bundle.root / "skills" / name / "SKILL.md"]
+            if name in (bundle.name, bundle.root.name):
                 # A plugin that is one bare skill (M15 §B5c).
-                candidates.append(plugin.root / "SKILL.md")
+                candidates.append(bundle.root / "SKILL.md")
             for candidate in candidates:
                 if candidate.is_file():
                     return candidate, "plugin", True
@@ -366,10 +371,15 @@ async def skill_read_handler(
     except DefinitionError as exc:
         raise RpcError(errors.INVALID_PARAMS, str(exc)) from exc
     workdir = _workdir(params.workdir)
-    if params.scope == "project" and workdir is None:
+    scope = params.scope
+    if params.plugin is not None:
+        if scope not in (None, "plugin"):
+            raise RpcError(errors.INVALID_PARAMS, "skill.read with a plugin needs scope 'plugin'")
+        scope = "plugin"
+    if scope == "project" and workdir is None:
         raise RpcError(errors.INVALID_PARAMS, "skill.read with scope 'project' needs a workdir")
     found = _resolve_skill_path(
-        name, workdir, Path(core.paths.home), params.scope, getattr(core, "skills", None)
+        name, workdir, Path(core.paths.home), scope, getattr(core, "skills", None), params.plugin
     )
     if found is None:
         where = f" in scope {params.scope}" if params.scope else ""

@@ -3938,6 +3938,14 @@ class SkillReadParams(Payload):
             "project (with a workdir), then global, then any other loaded skill."
         ),
     )
+    plugin: str | None = Field(
+        default=None,
+        description=(
+            "Read this plugin's copy, by its manifest or directory name, when several "
+            "plugins ship the same skill (1.33.0). Implies scope 'plugin'; any other "
+            "scope with it is invalid_params."
+        ),
+    )
 
 
 class SkillReadResult(Payload):
@@ -5568,7 +5576,12 @@ class McpAddResult(Payload):
 
 
 class McpRemoveParams(Payload):
-    """``mcp.remove`` — drop one entry and stop the server."""
+    """``mcp.remove`` — drop one entry; the runtime follows whichever copy now wins.
+
+    Removing a copy another scope shadows leaves the running server alone;
+    removing the winner starts the copy it shadowed, or stops the server when
+    there is none (1.33.0).
+    """
 
     name: str = Field(description="Server name.")
     scope: McpWritableScope | None = Field(
@@ -5579,7 +5592,11 @@ class McpRemoveParams(Payload):
 
 
 class McpUpdateParams(Payload):
-    """``mcp.update`` — merge a patch into an existing entry."""
+    """``mcp.update`` — merge a patch into an existing entry.
+
+    The server is restarted only when the copy in effect changed: editing a copy
+    another scope shadows writes the file and nothing else (1.33.0).
+    """
 
     name: str = Field(description="Server name.")
     scope: McpWritableScope | None = Field(
@@ -5638,7 +5655,14 @@ class McpTestParams(McpEntryFields):
         default=None,
         description="Probe with these optional keys cleared, as mcp.update would (1.33.0).",
     )
-    scope: McpScope | None = Field(default=None, description="Scope of the saved server.")
+    scope: McpScope | None = Field(
+        default=None,
+        description=(
+            "Scope of the saved server. Given, that scope's declaration is the one probed "
+            "or merged onto, not whichever wins; when it has none the draft is probed on "
+            "its own (1.33.0)."
+        ),
+    )
     workdir: str | None = Field(default=None, description="Project directory for scope=project.")
     sessionId: str | None = Field(default=None, description="Session whose workdir to use.")
 
